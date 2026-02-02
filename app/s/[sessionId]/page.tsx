@@ -385,56 +385,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           </div>
         )}
 
-        {/* Summary Stats */}
-        {sessionData.logs.length > 0 && (
-          <div className="bg-white rounded-2xl p-5 shadow-md">
-            <h2 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-purple-600" />
-              Summary
-            </h2>
-
-            <div className="grid grid-cols-3 gap-3 mb-5">
-              {Object.entries(CATEGORY_CONFIG).map(([key, config]) => {
-                const Icon = config.icon;
-                const total = perCategoryTotals[key as ActivityCategory];
-                return (
-                  <div key={key} className={`${config.lightBgClass} p-3 rounded-xl text-center`}>
-                    <div className={`w-10 h-10 ${config.bgClass} rounded-lg mx-auto mb-2 flex items-center justify-center`}>
-                      <Icon className="w-5 h-5 text-white" />
-                    </div>
-                    <p className={`text-2xl font-bold ${config.textClass}`}>{total}</p>
-                    <p className="text-xs text-gray-600">{config.label}</p>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Monitor className="w-5 h-5 text-amber-600" />
-                  <span className="font-semibold text-gray-900">Total Screen Time</span>
-                </div>
-                <span className="text-2xl font-bold text-amber-600">{totalScreenTime} min</span>
-              </div>
-              <p className="text-xs text-amber-700 mt-1">Computer + TV Time</p>
-            </div>
-
-            {perKidTotals.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Per Kid</p>
-                {perKidTotals.map(({ kid, total }) => (
-                  <div key={kid.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                    <span className="text-sm font-medium text-gray-700">{kid.name}</span>
-                    <span className="text-sm font-bold text-gray-900">{total} min</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Timeline */}
+        {/* Timeline - MOVED TO TOP */}
         {sessionData.logs.length > 0 && (
           <div className="bg-white rounded-2xl p-5 shadow-md">
             <h2 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -535,6 +486,55 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             </div>
           </div>
         )}
+
+        {/* Summary Stats - MOVED BELOW TIMELINE */}
+        {sessionData.logs.length > 0 && (
+          <div className="bg-white rounded-2xl p-5 shadow-md">
+            <h2 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-purple-600" />
+              Summary
+            </h2>
+
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              {Object.entries(CATEGORY_CONFIG).map(([key, config]) => {
+                const Icon = config.icon;
+                const total = perCategoryTotals[key as ActivityCategory];
+                return (
+                  <div key={key} className={`${config.lightBgClass} p-3 rounded-xl text-center`}>
+                    <div className={`w-10 h-10 ${config.bgClass} rounded-lg mx-auto mb-2 flex items-center justify-center`}>
+                      <Icon className="w-5 h-5 text-white" />
+                    </div>
+                    <p className={`text-2xl font-bold ${config.textClass}`}>{total}</p>
+                    <p className="text-xs text-gray-600">{config.label}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Monitor className="w-5 h-5 text-amber-600" />
+                  <span className="font-semibold text-gray-900">Total Screen Time</span>
+                </div>
+                <span className="text-2xl font-bold text-amber-600">{totalScreenTime} min</span>
+              </div>
+              <p className="text-xs text-amber-700 mt-1">Computer + TV Time</p>
+            </div>
+
+            {perKidTotals.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-700 uppercase mb-2">Per Kid</p>
+                {perKidTotals.map(({ kid, total }) => (
+                  <div key={kid.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <span className="text-sm font-medium text-gray-700">{kid.name}</span>
+                    <span className="text-sm font-bold text-gray-900">{total} min</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Activity Modal */}
@@ -544,7 +544,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-6"></div>
             
             <div className="flex items-center gap-3 mb-4">
-              <div className={`w-12 h-12 bg-gradient-to-br from-${CATEGORY_CONFIG[selectedCategory].color}-500 to-${CATEGORY_CONFIG[selectedCategory].color}-600 rounded-xl flex items-center justify-center`}>
+              <div className={`w-12 h-12 ${CATEGORY_CONFIG[selectedCategory].bgClass} rounded-xl flex items-center justify-center`}>
                 {(() => {
                   const Icon = CATEGORY_CONFIG[selectedCategory].icon;
                   return <Icon className="w-6 h-6 text-white" />;
@@ -612,8 +612,8 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                           onClick={() => setMinutes(m)}
                           className={`py-3 px-4 rounded-xl font-semibold transition-all ${
                             minutes === m
-                              ? `bg-${CATEGORY_CONFIG[selectedCategory].color}-600 text-white shadow-md`
-                              : `bg-${CATEGORY_CONFIG[selectedCategory].color}-50 text-${CATEGORY_CONFIG[selectedCategory].color}-700 hover:bg-${CATEGORY_CONFIG[selectedCategory].color}-100`
+                              ? `${CATEGORY_CONFIG[selectedCategory].bgClass} text-white shadow-md`
+                              : `${CATEGORY_CONFIG[selectedCategory].lightBgClass} ${CATEGORY_CONFIG[selectedCategory].textClass} hover:opacity-80`
                           }`}
                         >
                           {m} min
@@ -628,7 +628,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                       type="number"
                       value={minutes}
                       onChange={(e) => setMinutes(parseInt(e.target.value) || 0)}
-                      className={`w-full px-4 py-3 border-2 border-${CATEGORY_CONFIG[selectedCategory].color}-200 rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[selectedCategory].color}-500 focus:border-transparent outline-none`}
+                      className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[selectedCategory].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[selectedCategory].color}-500 focus:border-transparent outline-none`}
                     />
                   </div>
                 </>
@@ -679,7 +679,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 <button
                   onClick={handleLogActivity}
                   disabled={selectedKids.size === 0 || (activityMode === 'completed' && minutes <= 0)}
-                  className={`flex-1 bg-gradient-to-r from-${CATEGORY_CONFIG[selectedCategory].color}-500 to-${CATEGORY_CONFIG[selectedCategory].color}-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                  className={`flex-1 bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-blue-700 hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   {activityMode === 'completed' ? 'Add Log' : 'Start Activity'}
                 </button>
@@ -696,7 +696,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-6"></div>
             
             <div className="flex items-center gap-3 mb-4">
-              <div className={`w-12 h-12 bg-gradient-to-br from-${CATEGORY_CONFIG[editingLog.category].color}-500 to-${CATEGORY_CONFIG[editingLog.category].color}-600 rounded-xl flex items-center justify-center`}>
+              <div className={`w-12 h-12 ${CATEGORY_CONFIG[editingLog.category].bgClass} rounded-xl flex items-center justify-center`}>
                 {(() => {
                   const Icon = CATEGORY_CONFIG[editingLog.category].icon;
                   return <Icon className="w-6 h-6 text-white" />;
@@ -719,7 +719,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                     <label
                       key={kid.id}
                       className={`flex items-center gap-2 bg-white px-3 py-2 rounded-lg cursor-pointer hover:bg-${CATEGORY_CONFIG[editingLog.category].color}-50 transition-all ${
-                        selectedKids.has(kid.id) ? `border-2 border-${CATEGORY_CONFIG[editingLog.category].color}-500` : 'border border-gray-200'
+                        selectedKids.has(kid.id) ? `border-2 ${CATEGORY_CONFIG[editingLog.category].borderClass}` : 'border border-gray-200'
                       }`}
                     >
                       <input
@@ -751,8 +751,8 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                       onClick={() => setMinutes(m)}
                       className={`py-3 px-4 rounded-xl font-semibold transition-all ${
                         minutes === m
-                          ? `bg-${CATEGORY_CONFIG[editingLog.category].color}-600 text-white shadow-md`
-                          : `bg-${CATEGORY_CONFIG[editingLog.category].color}-50 text-${CATEGORY_CONFIG[editingLog.category].color}-700 hover:bg-${CATEGORY_CONFIG[editingLog.category].color}-100`
+                          ? `${CATEGORY_CONFIG[editingLog.category].bgClass} text-white shadow-md`
+                          : `${CATEGORY_CONFIG[editingLog.category].lightBgClass} ${CATEGORY_CONFIG[editingLog.category].textClass} hover:opacity-80`
                       }`}
                     >
                       {m} min
@@ -763,7 +763,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   type="number"
                   value={minutes}
                   onChange={(e) => setMinutes(parseInt(e.target.value) || 0)}
-                  className={`w-full px-4 py-3 border-2 border-${CATEGORY_CONFIG[editingLog.category].color}-200 rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[editingLog.category].color}-500 focus:border-transparent outline-none`}
+                  className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[editingLog.category].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[editingLog.category].color}-500 focus:border-transparent outline-none`}
                 />
               </div>
 
@@ -787,7 +787,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 <button
                   onClick={handleEditLog}
                   disabled={selectedKids.size === 0}
-                  className={`flex-1 bg-gradient-to-r from-${CATEGORY_CONFIG[editingLog.category].color}-500 to-${CATEGORY_CONFIG[editingLog.category].color}-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                  className={`flex-1 bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-blue-700 hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   Save Changes
                 </button>
