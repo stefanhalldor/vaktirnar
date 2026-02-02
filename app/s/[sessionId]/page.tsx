@@ -146,6 +146,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           minutes,
           startedAt: selectedTime || editingLog.startedAt,
           note: note.trim() || undefined,
+          status: minutes > 0 ? 'completed' : editingLog.status, // Mark as completed if minutes are set
         }),
       });
 
@@ -244,9 +245,20 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
       <div className={`${sessionData.hasEditAccess ? 'bg-gradient-to-r from-blue-500 to-purple-600' : 'bg-gradient-to-r from-gray-500 to-gray-600'} text-white p-6 shadow-lg`}>
         <div className="container max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-3">
-            <div>
-              <h1 className="text-2xl font-bold">{sessionName}</h1>
-              <p className={`${sessionData.hasEditAccess ? 'text-blue-100' : 'text-gray-200'} text-xs mt-0.5`}>Playdate Session</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.push('/')}
+                className="bg-white/20 hover:bg-white/30 p-2 rounded-lg transition-all"
+                title="Home"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold">{sessionName}</h1>
+                <p className={`${sessionData.hasEditAccess ? 'text-blue-100' : 'text-gray-200'} text-xs mt-0.5`}>Playdate Session</p>
+              </div>
             </div>
             <span className={`${sessionData.hasEditAccess ? 'bg-green-400 text-green-900' : 'bg-gray-300 text-gray-700'} text-xs font-semibold px-3 py-1 rounded-full flex items-center gap-1`}>
               {sessionData.hasEditAccess ? 'Editable' : (
@@ -321,71 +333,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           )}
         </div>
 
-        {/* Activity Logging */}
-        {sessionData.hasEditAccess && sessionData.kids.length > 0 && (
-          <div className="bg-white rounded-2xl p-5 shadow-md">
-            <h2 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-purple-600" />
-              Log Activity
-            </h2>
-            
-            <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl mb-4">
-              <p className="text-xs font-medium text-blue-900 mb-2 flex items-center gap-1">
-                <Users className="w-3 h-3" />
-                Logging for (all kids by default):
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {sessionData.kids.map(kid => (
-                  <label key={kid.id} className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg cursor-pointer hover:bg-blue-50 transition-all border border-blue-200">
-                    <input
-                      type="checkbox"
-                      checked={selectedKids.has(kid.id)}
-                      onChange={(e) => {
-                        const newSet = new Set(selectedKids);
-                        if (e.target.checked) {
-                          newSet.add(kid.id);
-                        } else {
-                          newSet.delete(kid.id);
-                        }
-                        setSelectedKids(newSet);
-                      }}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-sm font-medium text-gray-700">{kid.name}</span>
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-blue-700 mt-2">Uncheck if a kid isn't participating in this activity</p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3">
-              {Object.entries(CATEGORY_CONFIG).map(([key, config]) => {
-                const Icon = config.icon;
-                return (
-                  <button
-                    key={key}
-                    onClick={() => handleOpenActivityModal(key as ActivityCategory)}
-                    className={`${config.bgClass} p-4 rounded-xl text-white hover:scale-[1.02] transition-transform shadow-lg`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                          <Icon className="w-6 h-6" />
-                        </div>
-                        <span className="font-semibold text-lg">{config.label}</span>
-                      </div>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Timeline - MOVED TO TOP */}
+        {/* Timeline */}
         {sessionData.logs.length > 0 && (
           <div className="bg-white rounded-2xl p-5 shadow-md">
             <h2 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -487,7 +435,71 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           </div>
         )}
 
-        {/* Summary Stats - MOVED BELOW TIMELINE */}
+        {/* Activity Logging */}
+        {sessionData.hasEditAccess && sessionData.kids.length > 0 && (
+          <div className="bg-white rounded-2xl p-5 shadow-md">
+            <h2 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+              <Activity className="w-5 h-5 text-purple-600" />
+              Log Activity
+            </h2>
+            
+            <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl mb-4">
+              <p className="text-xs font-medium text-blue-900 mb-2 flex items-center gap-1">
+                <Users className="w-3 h-3" />
+                Logging for (all kids by default):
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {sessionData.kids.map(kid => (
+                  <label key={kid.id} className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg cursor-pointer hover:bg-blue-50 transition-all border border-blue-200">
+                    <input
+                      type="checkbox"
+                      checked={selectedKids.has(kid.id)}
+                      onChange={(e) => {
+                        const newSet = new Set(selectedKids);
+                        if (e.target.checked) {
+                          newSet.add(kid.id);
+                        } else {
+                          newSet.delete(kid.id);
+                        }
+                        setSelectedKids(newSet);
+                      }}
+                      className="w-4 h-4 text-blue-600 rounded"
+                    />
+                    <span className="text-sm font-medium text-gray-700">{kid.name}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-blue-700 mt-2">Uncheck if a kid isn't participating in this activity</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              {Object.entries(CATEGORY_CONFIG).map(([key, config]) => {
+                const Icon = config.icon;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => handleOpenActivityModal(key as ActivityCategory)}
+                    className={`${config.bgClass} p-4 rounded-xl text-white hover:scale-[1.02] transition-transform shadow-lg`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                          <Icon className="w-6 h-6" />
+                        </div>
+                        <span className="font-semibold text-lg">{config.label}</span>
+                      </div>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Summary Stats */}
         {sessionData.logs.length > 0 && (
           <div className="bg-white rounded-2xl p-5 shadow-md">
             <h2 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -631,6 +643,34 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                       className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[selectedCategory].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[selectedCategory].color}-500 focus:border-transparent outline-none`}
                     />
                   </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      Started at (optional)
+                    </label>
+                    <select
+                      value={selectedTime}
+                      onChange={(e) => setSelectedTime(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl text-lg font-medium focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                    >
+                      <option value="">Auto ({minutes} min ago)</option>
+                      {Array.from({ length: 24 }, (_, i) => {
+                        const time = new Date();
+                        const totalMinutesAgo = i * 10;
+                        time.setMinutes(time.getMinutes() - totalMinutesAgo);
+                        const hours = time.getHours();
+                        const mins = Math.floor(time.getMinutes() / 10) * 10;
+                        time.setHours(hours, mins, 0, 0);
+                        const label = i === 0 ? 'Now' : `${hours}:${mins.toString().padStart(2, '0')}`;
+                        return (
+                          <option key={i} value={time.toISOString()}>
+                            {label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </>
               )}
 
@@ -645,12 +685,17 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                     onChange={(e) => setSelectedTime(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl text-lg font-medium focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
                   >
-                    <option value="">Now ({formatTime(new Date())})</option>
-                    {Array.from({ length: 48 }, (_, i) => {
-                      const time = new Date(Date.now() - i * 10 * 60 * 1000);
+                    <option value="">Now</option>
+                    {Array.from({ length: 24 }, (_, i) => {
+                      const time = new Date();
+                      const totalMinutesAgo = i * 10;
+                      time.setMinutes(time.getMinutes() - totalMinutesAgo);
+                      const hours = time.getHours();
+                      const mins = Math.floor(time.getMinutes() / 10) * 10;
+                      time.setHours(hours, mins, 0, 0);
                       return (
                         <option key={i} value={time.toISOString()}>
-                          {formatTime(time)}
+                          {hours}:{mins.toString().padStart(2, '0')}
                         </option>
                       );
                     })}
@@ -765,6 +810,34 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   onChange={(e) => setMinutes(parseInt(e.target.value) || 0)}
                   className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[editingLog.category].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[editingLog.category].color}-500 focus:border-transparent outline-none`}
                 />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Started at
+                </label>
+                <select
+                  value={selectedTime}
+                  onChange={(e) => setSelectedTime(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl text-lg font-medium focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                >
+                  <option value={editingLog.startedAt}>Current: {formatTime(new Date(editingLog.startedAt))}</option>
+                  {Array.from({ length: 24 }, (_, i) => {
+                    const time = new Date();
+                    const totalMinutesAgo = i * 10;
+                    time.setMinutes(time.getMinutes() - totalMinutesAgo);
+                    const hours = time.getHours();
+                    const mins = Math.floor(time.getMinutes() / 10) * 10;
+                    time.setHours(hours, mins, 0, 0);
+                    const label = i === 0 ? 'Now' : `${hours}:${mins.toString().padStart(2, '0')}`;
+                    return (
+                      <option key={i} value={time.toISOString()}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
 
               <div>

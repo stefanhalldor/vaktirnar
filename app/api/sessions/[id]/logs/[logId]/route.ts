@@ -15,10 +15,12 @@ const updateLogSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string; logId: string }> }
+  context: { params: Promise<{ id: string; logId: string }> }
 ) {
   try {
-    const { id: sessionId, logId } = await params;
+    const params = await context.params;
+    const sessionId = params.id;
+    const logId = params.logId;
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
@@ -69,10 +71,12 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string; logId: string }> }
+  context: { params: Promise<{ id: string; logId: string }> }
 ) {
   try {
-    const { id: sessionId, logId } = await params;
+    const params = await context.params;
+    const sessionId = params.id;
+    const logId = params.logId;
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
