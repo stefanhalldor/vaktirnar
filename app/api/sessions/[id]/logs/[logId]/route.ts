@@ -6,7 +6,7 @@ import { store } from '@/lib/store';
 
 const updateLogSchema = z.object({
   kidIds: z.array(z.string()).optional(),
-  category: z.enum(['computer', 'tv', 'outdoors'] as const).optional(),
+  category: z.enum(['screen', 'physical', 'other'] as const).optional(),
   minutes: z.number().optional(),
   startedAt: z.string().optional(),
   note: z.string().optional(),

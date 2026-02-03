@@ -7,7 +7,7 @@ import { LogEntry, ActivityCategory, LogStatus } from '@/lib/types';
 
 const createLogSchema = z.object({
   kidIds: z.array(z.string()).min(1),
-  category: z.enum(['computer', 'tv', 'outdoors'] as const),
+  category: z.enum(['screen', 'physical', 'other'] as const),
   minutes: z.number().optional(),
   startedAt: z.string(),
   note: z.string().optional(),

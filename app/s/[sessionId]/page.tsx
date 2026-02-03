@@ -5,16 +5,16 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
-  Users, Share2, Activity, BarChart3, Clock, Monitor, Tv, Trees,
-  Plus, X, Pencil, Trash2, PlayCircle, CheckCircle, Sparkles, Eye, Info
+  Users, Share2, Activity, BarChart3, Clock, Monitor, Flame, CircleDot,
+  Plus, X, Pencil, Trash2, PlayCircle, CheckCircle, Eye, Info
 } from 'lucide-react';
 import { SessionData, Kid, LogEntry, ActivityCategory } from '@/lib/types';
 import { generateSessionName, formatTime, calculateElapsedMinutes, formatElapsedTime } from '@/lib/utils';
 
 const CATEGORY_CONFIG = {
-  computer: { label: 'Computer', icon: Monitor, color: 'blue', bgClass: 'bg-blue-600', textClass: 'text-blue-700', lightBgClass: 'bg-blue-100', borderClass: 'border-blue-300' },
-  tv: { label: 'TV Time', icon: Tv, color: 'pink', bgClass: 'bg-pink-600', textClass: 'text-pink-700', lightBgClass: 'bg-pink-100', borderClass: 'border-pink-300' },
-  outdoors: { label: 'Outdoors', icon: Trees, color: 'green', bgClass: 'bg-green-600', textClass: 'text-green-700', lightBgClass: 'bg-green-100', borderClass: 'border-green-300' },
+  screen: { label: 'Screen time', icon: Monitor, color: 'red', bgClass: 'bg-red-600', textClass: 'text-red-700', lightBgClass: 'bg-red-100', borderClass: 'border-red-300' },
+  physical: { label: 'Physical play', icon: Flame, color: 'green', bgClass: 'bg-green-600', textClass: 'text-green-700', lightBgClass: 'bg-green-100', borderClass: 'border-green-300' },
+  other: { label: 'Other', icon: CircleDot, color: 'gray', bgClass: 'bg-gray-600', textClass: 'text-gray-700', lightBgClass: 'bg-gray-100', borderClass: 'border-gray-300' },
 };
 
 const KID_COLORS = ['blue', 'purple', 'pink', 'orange', 'teal'];
@@ -223,7 +223,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
   const sessionName = generateSessionName(sessionData.kids);
   const totalScreenTime = sessionData.logs
-    .filter(l => l.status === 'completed' && (l.category === 'computer' || l.category === 'tv'))
+    .filter(l => l.status === 'completed' && l.category === 'screen')
     .reduce((sum, l) => sum + (l.minutes || 0), 0);
 
   const perKidTotals = sessionData.kids.map(kid => ({
@@ -234,9 +234,9 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   }));
 
   const perCategoryTotals = {
-    computer: sessionData.logs.filter(l => l.status === 'completed' && l.category === 'computer').reduce((sum, l) => sum + (l.minutes || 0), 0),
-    tv: sessionData.logs.filter(l => l.status === 'completed' && l.category === 'tv').reduce((sum, l) => sum + (l.minutes || 0), 0),
-    outdoors: sessionData.logs.filter(l => l.status === 'completed' && l.category === 'outdoors').reduce((sum, l) => sum + (l.minutes || 0), 0),
+    screen: sessionData.logs.filter(l => l.status === 'completed' && l.category === 'screen').reduce((sum, l) => sum + (l.minutes || 0), 0),
+    physical: sessionData.logs.filter(l => l.status === 'completed' && l.category === 'physical').reduce((sum, l) => sum + (l.minutes || 0), 0),
+    other: sessionData.logs.filter(l => l.status === 'completed' && l.category === 'other').reduce((sum, l) => sum + (l.minutes || 0), 0),
   };
 
   return (
@@ -531,7 +531,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 </div>
                 <span className="text-2xl font-bold text-amber-600">{totalScreenTime} min</span>
               </div>
-              <p className="text-xs text-amber-700 mt-1">Computer + TV Time</p>
+              <p className="text-xs text-amber-700 mt-1">All screen time activities</p>
             </div>
 
             {perKidTotals.length > 0 && (

@@ -1,7 +1,7 @@
 // lib/types.ts
 
 export type SessionStatus = 'open' | 'closed';
-export type ActivityCategory = 'computer' | 'tv' | 'outdoors';
+export type ActivityCategory = 'screen' | 'physical' | 'other';
 export type LogStatus = 'active' | 'completed';
 
 export interface Session {
