@@ -35,16 +35,16 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const [minutes, setMinutes] = useState(30);
   const [note, setNote] = useState('');
   const [selectedTime, setSelectedTime] = useState<string>('');
+  const [selectedEndTime, setSelectedEndTime] = useState<string>('');
   const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
 
   useEffect(() => {
     fetchSession();
-    const interval = setInterval(fetchSession, 5000); // Auto-refresh every 5 seconds
+    const interval = setInterval(fetchSession, 5000);
     return () => clearInterval(interval);
   }, [sessionId, key]);
 
   useEffect(() => {
-    // Initialize selected kids when session data loads
     if (sessionData) {
       setSelectedKids(new Set(sessionData.kids.map(k => k.id)));
     }
@@ -99,7 +99,6 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
     let startedAt: string;
 
     if (activityMode === 'completed') {
-      // Calculate start time as (now - minutes)
       if (selectedTime) {
         startedAt = selectedTime;
       } else {
@@ -107,7 +106,6 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
         startedAt = startTime.toISOString();
       }
     } else {
-      // Start activity mode
       startedAt = selectedTime || now.toISOString();
     }
 
@@ -137,16 +135,25 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const handleEditLog = async () => {
     if (!editingLog || !sessionData?.hasEditAccess) return;
 
+    const isCompletingActivity = editingLog.status === 'active';
+    
+    let calculatedMinutes = minutes;
+    if (isCompletingActivity) {
+      const startTime = new Date(selectedTime || editingLog.startedAt);
+      const endTime = selectedEndTime ? new Date(selectedEndTime) : new Date();
+      calculatedMinutes = Math.max(1, Math.round((endTime.getTime() - startTime.getTime()) / 60000));
+    }
+
     try {
       const response = await fetch(`/api/sessions/${sessionId}/logs/${editingLog.id}?key=${key}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kidIds: Array.from(selectedKids),
-          minutes,
+          minutes: calculatedMinutes,
           startedAt: selectedTime || editingLog.startedAt,
           note: note.trim() || undefined,
-          status: minutes > 0 ? 'completed' : editingLog.status, // Mark as completed if minutes are set
+          status: 'completed',
         }),
       });
 
@@ -181,6 +188,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
     setMinutes(calculateElapsedMinutes(log.startedAt));
     setNote(log.note || '');
     setSelectedTime(log.startedAt);
+    setSelectedEndTime('');
   };
 
   const handleShareLink = async () => {
@@ -190,6 +198,18 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
       alert('Link copied to clipboard!');
     } catch (error) {
       console.error('Error copying link:', error);
+    }
+  };
+
+  const handleMinutesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val === '') {
+      setMinutes(0);
+    } else {
+      const num = parseInt(val);
+      if (!isNaN(num)) {
+        setMinutes(Math.max(0, num));
+      }
     }
   };
 
@@ -239,6 +259,8 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
     other: sessionData.logs.filter(l => l.status === 'completed' && l.category === 'other').reduce((sum, l) => sum + (l.minutes || 0), 0),
   };
 
+  const isCompletingActivity = editingLog?.status === 'active';
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
       {/* Header */}
@@ -267,7 +289,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             </span>
           </div>
           <p className={`${sessionData.hasEditAccess ? 'text-blue-100' : 'text-gray-200'} text-sm mb-4`}>
-            Session ID: {sessionId}
+            {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
           
           {sessionData.hasEditAccess ? (
@@ -386,6 +408,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                                 setMinutes(log.minutes || 0);
                                 setNote(log.note || '');
                                 setSelectedTime(log.startedAt);
+                                setSelectedEndTime('');
                               }}
                               className="text-blue-500 hover:text-blue-700 p-1"
                             >
@@ -618,7 +641,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-2 block">Quick Select Minutes</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {[5, 10, 15, 30, 45, 60].map(m => (
+                      {[15, 30, 60].map(m => (
                         <button
                           key={m}
                           onClick={() => setMinutes(m)}
@@ -638,8 +661,8 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                     <label className="text-sm font-medium text-gray-700 mb-2 block">Or Enter Custom Minutes</label>
                     <input
                       type="number"
-                      value={minutes}
-                      onChange={(e) => setMinutes(parseInt(e.target.value) || 0)}
+                      value={minutes || ''}
+                      onChange={handleMinutesChange}
                       className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[selectedCategory].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[selectedCategory].color}-500 focus:border-transparent outline-none`}
                     />
                   </div>
@@ -714,7 +737,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 ></textarea>
               </div>
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-2 sticky bottom-0 bg-white pb-2">
                 <button
                   onClick={() => setShowActivityModal(false)}
                   className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-xl hover:bg-gray-200 transition-all"
@@ -748,8 +771,12 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 })()}
               </div>
               <div className="flex-1">
-                <h2 className="text-xl font-bold text-gray-900">Edit {CATEGORY_CONFIG[editingLog.category].label}</h2>
-                <p className="text-sm text-gray-600">Modify this activity entry</p>
+                <h2 className="text-xl font-bold text-gray-900">
+                  {isCompletingActivity ? 'Complete Activity' : `Edit ${CATEGORY_CONFIG[editingLog.category].label}`}
+                </h2>
+                <p className="text-sm text-gray-600">
+                  {isCompletingActivity ? 'Set the end time to log duration' : 'Modify this activity entry'}
+                </p>
               </div>
             </div>
 
@@ -787,31 +814,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 </div>
               </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">Duration (minutes)</label>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  {[5, 10, 15, 30, 45, 60].map(m => (
-                    <button
-                      key={m}
-                      onClick={() => setMinutes(m)}
-                      className={`py-3 px-4 rounded-xl font-semibold transition-all ${
-                        minutes === m
-                          ? `${CATEGORY_CONFIG[editingLog.category].bgClass} text-white shadow-md`
-                          : `${CATEGORY_CONFIG[editingLog.category].lightBgClass} ${CATEGORY_CONFIG[editingLog.category].textClass} hover:opacity-80`
-                      }`}
-                    >
-                      {m} min
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="number"
-                  value={minutes}
-                  onChange={(e) => setMinutes(parseInt(e.target.value) || 0)}
-                  className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[editingLog.category].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[editingLog.category].color}-500 focus:border-transparent outline-none`}
-                />
-              </div>
-
+              {/* Started at - always shown */}
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block flex items-center gap-2">
                   <Clock className="w-4 h-4" />
@@ -840,6 +843,62 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 </select>
               </div>
 
+              {/* Ended at - only for completing activity */}
+              {isCompletingActivity ? (
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Ended at
+                  </label>
+                  <select
+                    value={selectedEndTime}
+                    onChange={(e) => setSelectedEndTime(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl text-lg font-medium focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none"
+                  >
+                    <option value="">Now</option>
+                    {Array.from({ length: 24 }, (_, i) => {
+                      const time = new Date();
+                      const totalMinutesAgo = i * 10;
+                      time.setMinutes(time.getMinutes() - totalMinutesAgo);
+                      const hours = time.getHours();
+                      const mins = Math.floor(time.getMinutes() / 10) * 10;
+                      time.setHours(hours, mins, 0, 0);
+                      return (
+                        <option key={i} value={time.toISOString()}>
+                          {hours}:{mins.toString().padStart(2, '0')}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              ) : (
+                /* Duration - only for editing completed activity */
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">Duration (minutes)</label>
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {[15, 30, 60].map(m => (
+                      <button
+                        key={m}
+                        onClick={() => setMinutes(m)}
+                        className={`py-3 px-4 rounded-xl font-semibold transition-all ${
+                          minutes === m
+                            ? `${CATEGORY_CONFIG[editingLog.category].bgClass} text-white shadow-md`
+                            : `${CATEGORY_CONFIG[editingLog.category].lightBgClass} ${CATEGORY_CONFIG[editingLog.category].textClass} hover:opacity-80`
+                        }`}
+                      >
+                        {m} min
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number"
+                    value={minutes || ''}
+                    onChange={handleMinutesChange}
+                    className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[editingLog.category].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[editingLog.category].color}-500 focus:border-transparent outline-none`}
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block">Note</label>
                 <textarea
@@ -850,7 +909,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 ></textarea>
               </div>
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-2 sticky bottom-0 bg-white pb-2">
                 <button
                   onClick={() => setEditingLog(null)}
                   className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-xl hover:bg-gray-200 transition-all"
@@ -862,7 +921,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   disabled={selectedKids.size === 0}
                   className={`flex-1 bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-blue-700 hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                  Save Changes
+                  {isCompletingActivity ? 'Complete Activity' : 'Save Changes'}
                 </button>
               </div>
 
