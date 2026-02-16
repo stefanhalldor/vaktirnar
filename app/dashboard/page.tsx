@@ -86,7 +86,7 @@ export default function DashboardPage() {
           <div className="text-center py-20">
             <p className="text-red-600">{error || 'No data available'}</p>
             <button
-              onClick={fetchStats}
+              onClick={() => fetchStats(true)}
               className="mt-4 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
             >
               Retry
