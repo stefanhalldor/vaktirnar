@@ -4,7 +4,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, PlusCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Users, PlusCircle, BarChart3 } from 'lucide-react';
 
 export default function Home() {
   const router = useRouter();
@@ -69,6 +70,14 @@ export default function Home() {
               <span>{isCreating ? 'Creating...' : 'Start New Playdate'}</span>
             </div>
           </button>
+
+          <Link
+            href="/dashboard"
+            className="w-full bg-white text-purple-600 font-semibold py-4 px-6 rounded-2xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+          >
+            <BarChart3 className="w-5 h-5" />
+            <span>View Usage Dashboard</span>
+          </Link>
         </div>
 
         <div className="mt-16 text-center">

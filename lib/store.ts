@@ -1,6 +1,6 @@
 // lib/store.ts
 
-import { Session, Kid, LogEntry } from './types';
+import { Session, Kid, LogEntry, DashboardStats } from './types';
 import { supabase } from './supabase';
 
 export const store = {
@@ -271,5 +271,81 @@ export const store = {
       createdAt: s.created_at,
       status: s.status,
     }));
+  },
+
+  getDashboardStats: async (): Promise<DashboardStats> => {
+    // Get total sessions and active sessions
+    const { count: totalSessions, error: sessionsError } = await supabase
+      .from('sessions')
+      .select('*', { count: 'exact', head: true });
+
+    if (sessionsError) throw sessionsError;
+
+    const { count: activeSessions, error: activeError } = await supabase
+      .from('sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'open');
+
+    if (activeError) throw activeError;
+
+    // Get total kids
+    const { count: totalKids, error: kidsError } = await supabase
+      .from('kids')
+      .select('*', { count: 'exact', head: true });
+
+    if (kidsError) throw kidsError;
+
+    // Get all completed logs for statistics
+    const { data: completedLogs, error: logsError } = await supabase
+      .from('logs')
+      .select('category, minutes')
+      .eq('status', 'completed');
+
+    if (logsError) throw logsError;
+
+    // Calculate activity stats
+    const logs = completedLogs || [];
+    const totalActivities = logs.length;
+    const totalMinutes = logs.reduce((sum, log) => sum + (log.minutes || 0), 0);
+
+    // Category breakdown
+    const categoryBreakdown = {
+      screen: 0,
+      physical: 0,
+      other: 0,
+    };
+
+    const activityCounts = {
+      screen: 0,
+      physical: 0,
+      other: 0,
+    };
+
+    logs.forEach((log) => {
+      const category = log.category as 'screen' | 'physical' | 'other';
+      categoryBreakdown[category] += log.minutes || 0;
+      activityCounts[category] += 1;
+    });
+
+    // Calculate averages
+    const avgKidsPerSession = totalSessions && totalSessions > 0
+      ? Math.round((totalKids || 0) / totalSessions * 10) / 10
+      : 0;
+
+    const avgActivitiesPerSession = totalSessions && totalSessions > 0
+      ? Math.round(totalActivities / totalSessions * 10) / 10
+      : 0;
+
+    return {
+      totalSessions: totalSessions || 0,
+      activeSessions: activeSessions || 0,
+      totalKids: totalKids || 0,
+      totalActivities,
+      totalMinutes,
+      avgKidsPerSession,
+      avgActivitiesPerSession,
+      categoryBreakdown,
+      activityCounts,
+    };
   },
 };

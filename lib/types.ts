@@ -43,3 +43,23 @@ export interface CreateSessionResponse {
   viewLink: string;
   editLink: string;
 }
+
+export interface DashboardStats {
+  totalSessions: number;
+  activeSessions: number;
+  totalKids: number;
+  totalActivities: number;
+  totalMinutes: number;
+  avgKidsPerSession: number;
+  avgActivitiesPerSession: number;
+  categoryBreakdown: {
+    screen: number;
+    physical: number;
+    other: number;
+  };
+  activityCounts: {
+    screen: number;
+    physical: number;
+    other: number;
+  };
+}
