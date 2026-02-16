@@ -19,7 +19,7 @@ This is a complete, fresh installation with the new playful color scheme!
 
 ### 1. Extract Files
 
-Extract this folder to: `C:\Users\Lenovo\Documents\playdate-sync`
+Extract this folder to: `C:\Users\Lenovo\Documents\playdatesync`
 
 ### 2. Install Dependencies
 
@@ -59,7 +59,7 @@ Open http://localhost:3000 - everything should work with the new playful colors!
 
 1. Open GitHub Desktop
 2. File → Add Local Repository
-3. Browse to: `C:\Users\Lenovo\Documents\playdate-sync`
+3. Browse to: `C:\Users\Lenovo\Documents\playdatesync`
 4. Click "Create Repository"
 5. Git ignore: **Node**
 6. Create Repository
