@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   BarChart3, Users, Activity, Clock,
-  Home, Monitor, Flame, CircleDot
+  Home, Monitor, Flame, CircleDot, RefreshCw
 } from 'lucide-react';
 import { DashboardStats } from '@/lib/types';
 
@@ -12,29 +12,40 @@ export default function DashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 30000); // 30-second polling
+    const interval = setInterval(fetchStats, 10000); // 10-second polling for better real-time feel
     return () => clearInterval(interval);
   }, []);
 
-  const fetchStats = async () => {
+  const fetchStats = async (manual = false) => {
+    if (manual) setRefreshing(true);
+
     try {
-      const response = await fetch('/api/dashboard');
+      // Add cache-busting timestamp
+      const response = await fetch(`/api/dashboard?t=${Date.now()}`);
       if (!response.ok) {
         throw new Error('Failed to fetch dashboard statistics');
       }
       const data = await response.json();
       setStats(data);
       setError(null);
+      setLastUpdated(new Date());
     } catch (err) {
       console.error('Error fetching stats:', err);
       setError('Failed to load dashboard statistics');
     } finally {
       setLoading(false);
+      if (manual) setRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchStats(true);
   };
 
   const formatNumber = (num: number): string => {
@@ -101,14 +112,29 @@ export default function DashboardPage() {
                 PlaydateSync Dashboard
               </h1>
               <p className="text-blue-100">Real-time usage statistics</p>
+              {lastUpdated && (
+                <p className="text-blue-200 text-xs mt-1">
+                  Last updated: {lastUpdated.toLocaleTimeString()}
+                </p>
+              )}
             </div>
-            <button
-              onClick={() => router.push('/')}
-              className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors"
-            >
-              <Home className="w-4 h-4" />
-              <span>Home</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+              <button
+                onClick={() => router.push('/')}
+                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors"
+              >
+                <Home className="w-4 h-4" />
+                <span>Home</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
