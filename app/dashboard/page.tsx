@@ -15,6 +15,20 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const handleCreateSession = async () => {
+    setIsCreating(true);
+    try {
+      const response = await fetch('/api/sessions', { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to create session');
+      const data = await response.json();
+      router.push(`/s/${data.sessionId}?key=${data.editKey}`);
+    } catch (error) {
+      console.error('Error creating session:', error);
+      setIsCreating(false);
+    }
+  };
 
   useEffect(() => {
     fetchStats();
@@ -321,11 +335,12 @@ export default function DashboardPage() {
         {/* CTA Button */}
         <div className="text-center">
           <button
-            onClick={() => router.push('/')}
-            className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-2xl shadow-lg hover:shadow-xl transition-all"
+            onClick={handleCreateSession}
+            disabled={isCreating}
+            className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-2xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Users className="w-5 h-5" />
-            <span>Start Your Own Playdate</span>
+            <span>{isCreating ? 'Creating...' : 'Start Your Own Playdate'}</span>
           </button>
         </div>
       </div>
