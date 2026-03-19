@@ -31,7 +31,7 @@ CREATE TABLE logs (
   note TEXT,
   status TEXT NOT NULL DEFAULT 'completed',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT valid_category CHECK (category IN ('computer', 'tv', 'outdoors')),
+  CONSTRAINT valid_category CHECK (category IN ('screen', 'physical', 'other')),
   CONSTRAINT valid_log_status CHECK (status IN ('active', 'completed'))
 );
 
