@@ -17,7 +17,13 @@ const CATEGORY_CONFIG = {
   other: { label: 'Other', icon: CircleDot, color: 'gray', bgClass: 'bg-gray-600', textClass: 'text-gray-700', lightBgClass: 'bg-gray-100', borderClass: 'border-gray-300' },
 };
 
-const KID_COLORS = ['blue', 'purple', 'pink', 'orange', 'teal'];
+const KID_COLOR_CLASSES = [
+  { bg: 'bg-blue-100', text: 'text-blue-700' },
+  { bg: 'bg-purple-100', text: 'text-purple-700' },
+  { bg: 'bg-pink-100', text: 'text-pink-700' },
+  { bg: 'bg-orange-100', text: 'text-orange-700' },
+  { bg: 'bg-teal-100', text: 'text-teal-700' },
+];
 
 export default function SessionPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
@@ -192,10 +198,10 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   };
 
   const handleShareLink = async () => {
-    const link = `${window.location.origin}/s/${sessionId}?key=${key}`;
+    const link = `${window.location.origin}/s/${sessionId}`;
     try {
       await navigator.clipboard.writeText(link);
-      alert('Link copied to clipboard!');
+      alert('View-only link copied to clipboard!');
     } catch (error) {
       console.error('Error copying link:', error);
     }
@@ -325,7 +331,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           
           <div className="flex flex-wrap gap-2 mb-4">
             {sessionData.kids.map((kid, idx) => (
-              <span key={kid.id} className={`bg-${KID_COLORS[idx % KID_COLORS.length]}-100 text-${KID_COLORS[idx % KID_COLORS.length]}-700 px-4 py-2 rounded-full text-sm font-medium`}>
+              <span key={kid.id} className={`${KID_COLOR_CLASSES[idx % KID_COLOR_CLASSES.length].bg} ${KID_COLOR_CLASSES[idx % KID_COLOR_CLASSES.length].text} px-4 py-2 rounded-full text-sm font-medium`}>
                 {kid.name}
               </span>
             ))}
@@ -340,7 +346,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                 type="text"
                 value={newKidName}
                 onChange={(e) => setNewKidName(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleAddKid()}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddKid()}
                 placeholder="Add kid's name..."
                 className="flex-1 px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
               />
@@ -393,7 +399,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                           </div>
                           <div className="flex flex-wrap gap-1 mt-1">
                             {kidNames.map((name, idx) => (
-                              <span key={idx} className={`text-xs bg-${KID_COLORS[idx % KID_COLORS.length]}-100 text-${KID_COLORS[idx % KID_COLORS.length]}-700 px-2 py-0.5 rounded-full`}>
+                              <span key={idx} className={`text-xs ${KID_COLOR_CLASSES[idx % KID_COLOR_CLASSES.length].bg} ${KID_COLOR_CLASSES[idx % KID_COLOR_CLASSES.length].text} px-2 py-0.5 rounded-full`}>
                                 {name}
                               </span>
                             ))}
@@ -592,7 +598,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                     const kid = sessionData.kids.find(k => k.id === kidId);
                     const idx = sessionData.kids.findIndex(k => k.id === kidId);
                     return kid ? (
-                      <span key={kid.id} className={`text-xs bg-${KID_COLORS[idx % KID_COLORS.length]}-100 text-${KID_COLORS[idx % KID_COLORS.length]}-700 px-2 py-0.5 rounded-full font-medium`}>
+                      <span key={kid.id} className={`text-xs ${KID_COLOR_CLASSES[idx % KID_COLOR_CLASSES.length].bg} ${KID_COLOR_CLASSES[idx % KID_COLOR_CLASSES.length].text} px-2 py-0.5 rounded-full font-medium`}>
                         {kid.name}
                       </span>
                     ) : null;
@@ -663,7 +669,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                       type="number"
                       value={minutes || ''}
                       onChange={handleMinutesChange}
-                      className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[selectedCategory].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[selectedCategory].color}-500 focus:border-transparent outline-none`}
+                      className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[selectedCategory].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none`}
                     />
                   </div>
 
@@ -733,7 +739,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   onChange={(e) => setNote(e.target.value)}
                   placeholder="What were they doing?"
                   rows={2}
-                  className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-${CATEGORY_CONFIG[selectedCategory].color}-500 focus:border-transparent outline-none resize-none`}
+                  className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none`}
                 ></textarea>
               </div>
 
@@ -790,7 +796,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   {sessionData.kids.map(kid => (
                     <label
                       key={kid.id}
-                      className={`flex items-center gap-2 bg-white px-3 py-2 rounded-lg cursor-pointer hover:bg-${CATEGORY_CONFIG[editingLog.category].color}-50 transition-all ${
+                      className={`flex items-center gap-2 bg-white px-3 py-2 rounded-lg cursor-pointer hover:bg-purple-50 transition-all ${
                         selectedKids.has(kid.id) ? `border-2 ${CATEGORY_CONFIG[editingLog.category].borderClass}` : 'border border-gray-200'
                       }`}
                     >
@@ -806,7 +812,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                           }
                           setSelectedKids(newSet);
                         }}
-                        className={`w-4 h-4 text-${CATEGORY_CONFIG[editingLog.category].color}-600 rounded`}
+                        className={`w-4 h-4 text-purple-600 rounded`}
                       />
                       <span className="text-sm font-medium text-gray-700">{kid.name}</span>
                     </label>
@@ -894,7 +900,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                     type="number"
                     value={minutes || ''}
                     onChange={handleMinutesChange}
-                    className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[editingLog.category].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-${CATEGORY_CONFIG[editingLog.category].color}-500 focus:border-transparent outline-none`}
+                    className={`w-full px-4 py-3 border-2 ${CATEGORY_CONFIG[editingLog.category].borderClass} rounded-xl text-lg font-semibold text-center focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none`}
                   />
                 </div>
               )}
@@ -905,7 +911,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={2}
-                  className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-${CATEGORY_CONFIG[editingLog.category].color}-500 focus:border-transparent outline-none resize-none`}
+                  className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none`}
                 ></textarea>
               </div>
 

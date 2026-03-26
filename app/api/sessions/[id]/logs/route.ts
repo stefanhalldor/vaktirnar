@@ -5,12 +5,14 @@ import { z } from 'zod';
 import { store } from '@/lib/store';
 import { LogEntry, ActivityCategory, LogStatus } from '@/lib/types';
 
+const SESSION_ID_PATTERN = /^[a-z0-9]{6,16}$/;
+
 const createLogSchema = z.object({
-  kidIds: z.array(z.string()).min(1),
+  kidIds: z.array(z.string().uuid()).min(1),
   category: z.enum(['screen', 'physical', 'other'] as const),
-  minutes: z.number().optional(),
-  startedAt: z.string(),
-  note: z.string().optional(),
+  minutes: z.number().int().min(0).max(1440).optional(),
+  startedAt: z.string().datetime(),
+  note: z.string().max(500).optional(),
   status: z.enum(['active', 'completed'] as const),
 });
 
@@ -21,6 +23,11 @@ export async function POST(
   try {
     const params = await context.params;
     const sessionId = params.id;
+
+    if (!SESSION_ID_PATTERN.test(sessionId)) {
+      return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
+    }
+
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 

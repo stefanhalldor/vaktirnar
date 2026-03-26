@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { store } from '@/lib/store';
 import { Kid } from '@/lib/types';
 
+const SESSION_ID_PATTERN = /^[a-z0-9]{6,16}$/;
+
 const addKidSchema = z.object({
   name: z.string().min(1).max(50),
 });
@@ -15,6 +17,11 @@ export async function POST(
 ) {
   try {
     const { id: sessionId } = await params;
+
+    if (!SESSION_ID_PATTERN.test(sessionId)) {
+      return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
+    }
+
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 

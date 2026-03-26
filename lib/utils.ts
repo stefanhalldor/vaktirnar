@@ -8,28 +8,34 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const SESSION_ID_LENGTH = 12;
+const EDIT_KEY_LENGTH = 32;
+
 /**
- * Generate a short session ID (6 characters, URL-safe)
+ * Generate a cryptographically secure random string
  */
-export function generateSessionId(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+function secureRandomString(length: number, chars: string): string {
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
   let result = '';
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(array[i] % chars.length);
   }
   return result;
 }
 
 /**
- * Generate a long edit key (32 characters, URL-safe)
+ * Generate a short session ID (12 characters, URL-safe, CSPRNG)
+ */
+export function generateSessionId(): string {
+  return secureRandomString(SESSION_ID_LENGTH, 'abcdefghijklmnopqrstuvwxyz0123456789');
+}
+
+/**
+ * Generate a long edit key (32 characters, URL-safe, CSPRNG)
  */
 export function generateEditKey(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 32; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return secureRandomString(EDIT_KEY_LENGTH, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
 }
 
 /**

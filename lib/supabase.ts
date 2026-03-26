@@ -2,22 +2,25 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
 type PlaydateSyncClient = SupabaseClient<any, 'playdatesync'>;
+
+function getRequiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
 
 let _supabase: PlaydateSyncClient | null = null;
 
 export function getSupabase(): PlaydateSyncClient {
   if (!_supabase) {
-    _supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      db: { schema: 'playdatesync' }
-    });
+    _supabase = createClient(
+      getRequiredEnv('NEXT_PUBLIC_SUPABASE_URL'),
+      getRequiredEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
+      { db: { schema: 'playdatesync' } }
+    );
   }
   return _supabase;
 }

@@ -4,12 +4,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { store } from '@/lib/store';
 
+const SESSION_ID_PATTERN = /^[a-z0-9]{6,16}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const updateLogSchema = z.object({
-  kidIds: z.array(z.string()).optional(),
+  kidIds: z.array(z.string().uuid()).min(1).optional(),
   category: z.enum(['screen', 'physical', 'other'] as const).optional(),
-  minutes: z.number().optional(),
-  startedAt: z.string().optional(),
-  note: z.string().optional(),
+  minutes: z.number().int().min(0).max(1440).optional(),
+  startedAt: z.string().datetime().optional(),
+  note: z.string().max(500).optional(),
   status: z.enum(['active', 'completed'] as const).optional(),
 });
 
@@ -21,6 +24,11 @@ export async function PATCH(
     const params = await context.params;
     const sessionId = params.id;
     const logId = params.logId;
+
+    if (!SESSION_ID_PATTERN.test(sessionId) || !UUID_PATTERN.test(logId)) {
+      return NextResponse.json({ error: 'Invalid ID format' }, { status: 400 });
+    }
+
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
@@ -77,6 +85,11 @@ export async function DELETE(
     const params = await context.params;
     const sessionId = params.id;
     const logId = params.logId;
+
+    if (!SESSION_ID_PATTERN.test(sessionId) || !UUID_PATTERN.test(logId)) {
+      return NextResponse.json({ error: 'Invalid ID format' }, { status: 400 });
+    }
+
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 

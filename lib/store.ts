@@ -179,7 +179,7 @@ export const store = {
 
   updateLog: async (id: string, updates: Partial<LogEntry>): Promise<LogEntry | null> => {
     // Convert camelCase to snake_case for Supabase
-    const dbUpdates: any = {};
+    const dbUpdates: Record<string, string | string[] | number | undefined> = {};
     if (updates.kidIds !== undefined) dbUpdates.kid_ids = updates.kidIds;
     if (updates.category !== undefined) dbUpdates.category = updates.category;
     if (updates.minutes !== undefined) dbUpdates.minutes = updates.minutes;
@@ -274,34 +274,22 @@ export const store = {
   },
 
   getDashboardStats: async (): Promise<DashboardStats> => {
-    // Get total sessions and active sessions
-    const { count: totalSessions, error: sessionsError } = await supabase
-      .from('sessions')
-      .select('*', { count: 'exact', head: true });
+    const [sessionsResult, activeResult, kidsResult, logsResult] = await Promise.all([
+      supabase.from('sessions').select('*', { count: 'exact', head: true }),
+      supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+      supabase.from('kids').select('*', { count: 'exact', head: true }),
+      supabase.from('logs').select('category, minutes').eq('status', 'completed'),
+    ]);
 
-    if (sessionsError) throw sessionsError;
+    if (sessionsResult.error) throw sessionsResult.error;
+    if (activeResult.error) throw activeResult.error;
+    if (kidsResult.error) throw kidsResult.error;
+    if (logsResult.error) throw logsResult.error;
 
-    const { count: activeSessions, error: activeError } = await supabase
-      .from('sessions')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'open');
-
-    if (activeError) throw activeError;
-
-    // Get total kids
-    const { count: totalKids, error: kidsError } = await supabase
-      .from('kids')
-      .select('*', { count: 'exact', head: true });
-
-    if (kidsError) throw kidsError;
-
-    // Get all completed logs for statistics
-    const { data: completedLogs, error: logsError } = await supabase
-      .from('logs')
-      .select('category, minutes')
-      .eq('status', 'completed');
-
-    if (logsError) throw logsError;
+    const totalSessions = sessionsResult.count;
+    const activeSessions = activeResult.count;
+    const totalKids = kidsResult.count;
+    const completedLogs = logsResult.data;
 
     // Calculate activity stats
     const logs = completedLogs || [];
