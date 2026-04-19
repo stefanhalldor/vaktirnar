@@ -1,0 +1,139 @@
+{
+  "app": {
+    "name": "Krakkavaktin",
+    "tagline": "Coordinate your kids' playdates"
+  },
+  "nav": {
+    "home": "Home",
+    "children": "Children",
+    "contacts": "Contacts",
+    "settings": "Settings"
+  },
+  "auth": {
+    "login": "Log in",
+    "signup": "Sign up",
+    "logout": "Log out",
+    "email": "Email",
+    "password": "Password",
+    "name": "Name",
+    "loginTitle": "Welcome back",
+    "signupTitle": "Create account",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "forgotPassword": "Forgot password?",
+    "loggingIn": "Logging in...",
+    "signingUp": "Creating account...",
+    "errors": {
+      "invalidCredentials": "Invalid email or password",
+      "emailInUse": "Email already in use",
+      "generic": "Something went wrong. Please try again."
+    },
+    "checkEmail": "Check your email to confirm your account.",
+    "forgotPasswordTitle": "Reset password",
+    "forgotPasswordDesc": "Enter your email and we'll send you a link to reset your password.",
+    "sendResetLink": "Send reset link",
+    "sendingResetLink": "Sending...",
+    "resetLinkSent": "Link sent! Check your email.",
+    "resetPasswordTitle": "New password",
+    "newPassword": "New password",
+    "setNewPassword": "Save password",
+    "settingPassword": "Saving...",
+    "passwordReset": "Password reset! You can now log in."
+  },
+  "children": {
+    "title": "My Children",
+    "addChild": "Add Child",
+    "editChild": "Edit Child",
+    "childName": "Child's name",
+    "birthYear": "Birth year (optional)",
+    "avatarEmoji": "Avatar emoji",
+    "save": "Save",
+    "delete": "Delete",
+    "noChildren": "No children added yet",
+    "gender": {
+      "label": "Gender",
+      "boy": "Boy",
+      "girl": "Girl",
+      "other": "Other"
+    },
+    "moreEmojis": "More avatars",
+    "fewerEmojis": "Fewer avatars",
+    "joinAsCoparent": "Join as co-parent",
+    "joinWithCode": "Enter child's invite code",
+    "joinSuccess": "Connected! The child is now in your list.",
+    "coparents": "Parents",
+    "primaryParent": "Primary parent",
+    "coparent": "Co-parent",
+    "shareCodeHint": "Share this code with the other parent to give them access.",
+    "errors": {
+      "invalidCode": "Invalid code",
+      "alreadyParent": "You are already a parent of this child",
+      "generic": "Something went wrong"
+    },
+    "custody": {
+      "withMe": "Child is with me",
+      "withOther": "Child is with the other parent",
+      "toggle": "Switch custody"
+    }
+  },
+  "contacts": {
+    "title": "Contacts",
+    "inviteCode": "Invite Code",
+    "yourCode": "Your Code",
+    "enterCode": "Enter Code",
+    "enterCodePlaceholder": "6-digit code",
+    "connect": "Connect",
+    "connected": "Connected",
+    "pending": "Pending",
+    "noContacts": "No contacts yet. Share your code!",
+    "copyCode": "Copy code",
+    "copied": "Copied!"
+  },
+  "chat": {
+    "title": "Chat",
+    "newChat": "New Chat",
+    "selectChild": "Select child",
+    "selectContact": "Select contact",
+    "startChat": "Start chat",
+    "endPlaydate": "End Playdate",
+    "endPlaydateConfirm": "Are you sure you want to end the playdate?",
+    "messagePlaceholder": "Message...",
+    "send": "Send",
+    "logActivity": "Log activity",
+    "noChats": "No active chats",
+    "ended": "Playdate ended",
+    "playdate": "Playdate"
+  },
+  "activity": {
+    "log": "Log Activity",
+    "category": "Category",
+    "minutes": "Minutes",
+    "categories": {
+      "screen": "Screen time",
+      "physical": "Physical activity",
+      "other": "Other"
+    },
+    "save": "Save",
+    "logged": "Activity logged"
+  },
+  "settings": {
+    "title": "Settings",
+    "profile": "Profile",
+    "displayName": "Display name",
+    "phone": "Phone number",
+    "notifications": "Notifications",
+    "enableNotifications": "Enable notifications",
+    "language": "Language",
+    "save": "Save",
+    "saved": "Saved!"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "loading": "Loading...",
+    "error": "Error",
+    "back": "Back",
+    "yes": "Yes",
+    "no": "No"
+  }
+}

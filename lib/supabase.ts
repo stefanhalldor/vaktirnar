@@ -2,8 +2,6 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-type PlaydateSyncClient = SupabaseClient<any, 'playdatesync'>;
-
 function getRequiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -12,14 +10,13 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
-let _supabase: PlaydateSyncClient | null = null;
+let _supabase: SupabaseClient | null = null;
 
-export function getSupabase(): PlaydateSyncClient {
+export function getSupabase(): SupabaseClient {
   if (!_supabase) {
     _supabase = createClient(
       getRequiredEnv('NEXT_PUBLIC_SUPABASE_URL'),
-      getRequiredEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
-      { db: { schema: 'playdatesync' } }
+      getRequiredEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
     );
   }
   return _supabase;

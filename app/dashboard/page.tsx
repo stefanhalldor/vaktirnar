@@ -123,7 +123,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white mb-2">
-                PlaydateSync Dashboard
+                Krakkavaktin Dashboard
               </h1>
               <p className="text-blue-100">Real-time usage statistics</p>
               {lastUpdated && (
