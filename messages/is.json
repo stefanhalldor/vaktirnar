@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "title": "Vaktirnar — Snjallar lausnir á hverri vakt",
+    "description": "Vaktirnar er umbrella merki fyrir snjallar lausnir sem auðvelda líf fjölskyldna og einstaklinga. Fyrsta varan er Krakkavaktin."
+  },
+  "nav": {
+    "language": "EN"
+  },
+  "hero": {
+    "title": "Vaktirnar",
+    "tagline": "Snjallar lausnir á hverri vakt",
+    "description": "Við þróum einföld og kraftmikil verkfæri sem hjálpa fjölskyldum og einstaklingum að skipuleggja líf sitt betur."
+  },
+  "vaktir": {
+    "title": "Vaktirnar okkar",
+    "available": "Tilbúin",
+    "comingSoon": "Kemur fljótlega",
+    "learnMore": "Sjá nánar",
+    "krakkavaktin": {
+      "name": "Krakkavaktin",
+      "description": "Samhæfðu leiktíma barnanna á milli foreldra. Spjall, dagatal og push tilkynningar — allt á einum stað.",
+      "cta": "Sjá nánar"
+    },
+    "thridjavaktin": {
+      "name": "Þriðja vaktin",
+      "description": "Kemur fljótlega — fylgstu með þróuninni."
+    },
+    "sjoppuvaktin": {
+      "name": "Sjoppuvaktin",
+      "description": "Kemur fljótlega — fylgstu með þróuninni."
+    }
+  },
+  "footer": {
+    "tagline": "Gerð með ást á Íslandi",
+    "copyright": "© 2026 Vaktirnar. Öll réttindi áskilin."
+  },
+  "krakkavaktin": {
+    "title": "Krakkavaktin",
+    "subtitle": "Samhæfðu leiktíma barnanna",
+    "description": "Krakkavaktin er foreldraapp sem einfaldar samskipti og samhæfingu á milli foreldra. Hvort sem þið eruð að skipuleggja leiktíma, senda skilaboð eða fylgjast með hvar börnin eru — Krakkavaktin hefur ykkur í huga.",
+    "featuresTitle": "Hvað er í boði?",
+    "features": {
+      "chat": "Spjall — Samskipti beint í appinu, engin þörf á SMS",
+      "calendar": "Dagatal — Sameiginlegt dagatal fyrir leiktíma og viðburði",
+      "push": "Push tilkynningar — Fáðu tilkynningar þegar eitthvað breytist",
+      "custody": "Forsjáryfirlit — Sjáðu skiptingu á milli foreldra á einu bretti"
+    },
+    "cta": "Fara á Krakkavaktin.is",
+    "back": "← Til baka á Vaktirnar"
+  }
+}

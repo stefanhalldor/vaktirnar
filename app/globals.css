@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --violet: #7c3aed;
+    --rose: #e11d6e;
+    --radius: 1rem;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 text-gray-900;
+    min-height: 100vh;
+  }
+}

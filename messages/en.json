@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "title": "Vaktirnar — Smart solutions for every shift",
+    "description": "Vaktirnar is an umbrella brand for smart solutions that simplify the lives of families and individuals. The first product is Krakkavaktin."
+  },
+  "nav": {
+    "language": "IS"
+  },
+  "hero": {
+    "title": "Vaktirnar",
+    "tagline": "Smart solutions for every shift",
+    "description": "We build simple, powerful tools that help families and individuals organize their lives better."
+  },
+  "vaktir": {
+    "title": "Our products",
+    "available": "Available",
+    "comingSoon": "Coming soon",
+    "learnMore": "Learn more",
+    "krakkavaktin": {
+      "name": "Krakkavaktin",
+      "description": "Coordinate your children's playdates between parents. Chat, calendar and push notifications — all in one place.",
+      "cta": "Learn more"
+    },
+    "thridjavaktin": {
+      "name": "Þriðja vaktin",
+      "description": "Coming soon — stay tuned."
+    },
+    "sjoppuvaktin": {
+      "name": "Sjoppuvaktin",
+      "description": "Coming soon — stay tuned."
+    }
+  },
+  "footer": {
+    "tagline": "Made with love in Iceland",
+    "copyright": "© 2026 Vaktirnar. All rights reserved."
+  },
+  "krakkavaktin": {
+    "title": "Krakkavaktin",
+    "subtitle": "Coordinate your children's playdates",
+    "description": "Krakkavaktin is a co-parenting app that simplifies communication and coordination between parents. Whether you're scheduling playdates, sending messages or tracking where the kids are — Krakkavaktin has you covered.",
+    "featuresTitle": "What's included?",
+    "features": {
+      "chat": "Chat — Communicate directly in the app, no need for SMS",
+      "calendar": "Calendar — Shared calendar for playdates and events",
+      "push": "Push notifications — Get notified when something changes",
+      "custody": "Custody overview — See the custody split between parents at a glance"
+    },
+    "cta": "Go to Krakkavaktin.is",
+    "back": "← Back to Vaktirnar"
+  }
+}
