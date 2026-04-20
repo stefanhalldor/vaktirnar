@@ -12,7 +12,7 @@
 
 | Vakt | Staða | Lén | Repo |
 |------|-------|-----|------|
-| **Krakkavaktin** | ✅ Tilbúin | krakkavaktin.is | stefanhalldor/playdatesync |
+| **Krakkavaktin** | 🟡 Í þróun | krakkavaktin.is | stefanhalldor/playdatesync |
 | **Þriðja vaktin** | 🔒 Hugmynd | — | — |
 | **Sjoppuvaktin** | 🔒 Hugmynd | — | — |
 
@@ -70,6 +70,38 @@ vaktirnar/
 - **Aðferð:** Cookie-based (`locale` cookie), sama mynstur og Krakkavaktin
 - `LanguageSwitcher` component setur cookie og reload-ar síðuna
 - Engin path-based routing (`/is/`, `/en/`) — allt á sömu slóð
+
+---
+
+## VaktCard — stöður
+
+`VaktCard` component styður þrjár stöður:
+
+| Status | Badge | Stíll |
+|--------|-------|-------|
+| `available` | Grænn ✓ | Hvítur bakgrunnur, violet border |
+| `in-development` | Amber pulsing dot | Hvítur bakgrunnur, amber border |
+| `coming-soon` | Grátt lock icon | Grátt, 70% opacity |
+
+`statusLabel` prop kemur úr þýðingum (`vaktir.inDevelopment`, `vaktir.comingSoon` o.s.frv.) þannig að badge texti er alltaf á réttu tungumáli.
+
+Bæði `available` og `in-development` kort geta haft `href` + `cta` link.
+
+---
+
+## Krakkavaktin undirísðua — hugmyndafræði
+
+Síðan (`/krakkavaktin`) er ekki tæknileg feature-listi heldur **hugmyndafræðileg kynning**:
+
+- **Titill:** "Getur Siggi leikið?" — einfalt, persónulegt
+- **Meginboðskapur:** Foreldrar nota Messenger til að samræma leiktíma barna, en Messenger er fullt af sögu og tilfinningum sem eiga ekki heima þar. Krakkavaktin er bara spjall þar sem barnið er alltaf í miðjunni.
+- **Features eru gildi, ekki tækni:**
+  - Bara spjall, ekkert annað
+  - Barnið í fókus (samtalið snýst um Sigga/Önnu, aldrei foreldrana)
+  - Enginn kvíði (engar "séð" merkingar, engir innsláttarvísar)
+  - Fljótt svar — já/nei, hvenær, hvar
+- **Icons:** `MessageCircle`, `Heart`, `Bell`, `Smile`
+- **Status badge:** Amber "Í þróun" (ekki "Tilbúin")
 
 ---
 
