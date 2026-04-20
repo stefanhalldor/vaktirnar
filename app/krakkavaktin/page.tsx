@@ -35,7 +35,7 @@ export default async function KrakkavaktinPage() {
           Krakkavaktin er spjall um eitt: getur barnið þitt leikið?
         </h1>
         <p className="text-sm text-gray-500 leading-relaxed max-w-md">
-          Engar tilkynningar um allt mögulegt, engin 'séð' merki, engin yfirlit. Bara já, nei, hvenær og hvar.
+          Engar tilkynningar um allt mögulegt, engin &apos;séð&apos; merki, engin yfirlit. Bara já, nei, hvenær og hvar.
         </p>
       </section>
 
