@@ -1,34 +1,39 @@
 {
   "meta": {
-    "title": "Vaktirnar — Smart solutions for every shift",
-    "description": "Vaktirnar is an umbrella brand for smart solutions that simplify the lives of families and individuals. The first product is Krakkavaktin."
+    "title": "Vaktirnar, simple tools for Icelandic families",
+    "description": "A small studio in Reykjavik building apps that solve one thing, and do it well."
   },
   "nav": {
     "language": "IS"
   },
   "hero": {
-    "title": "Vaktirnar",
-    "tagline": "Smart solutions for every shift",
-    "description": "We build simple, powerful tools that help families and individuals organize their lives better."
+    "title": "Simple tools for Icelandic families",
+    "cta_primary": "See Krakkavaktin",
+    "cta_secondary": "About us"
   },
   "vaktir": {
     "title": "Our products",
     "available": "Available",
-    "comingSoon": "Coming soon",
-    "learnMore": "Learn more",
+    "inDevelopment": "In development",
+    "inDesign": "In design",
     "krakkavaktin": {
       "name": "Krakkavaktin",
-      "description": "Coordinate your children's playdates between parents. Chat, calendar and push notifications — all in one place.",
+      "description": "Messaging between guardians about one thing: can the child come play?",
       "cta": "Learn more"
     },
     "thridjavaktin": {
       "name": "Þriðja vaktin",
-      "description": "Coming soon — stay tuned."
+      "description": "Project in development. More later this year."
     },
     "sjoppuvaktin": {
       "name": "Sjoppuvaktin",
-      "description": "Coming soon — stay tuned."
+      "description": "Project in development. More later this year."
     }
+  },
+  "about": {
+    "heading": "Behind Vaktirnar",
+    "name": "Stefán Halldór Jónsson",
+    "url": "www.lauflett.is"
   },
   "footer": {
     "tagline": "Made with love in Iceland",
@@ -36,16 +41,27 @@
   },
   "krakkavaktin": {
     "title": "Krakkavaktin",
-    "subtitle": "Coordinate your children's playdates",
-    "description": "Krakkavaktin is a co-parenting app that simplifies communication and coordination between parents. Whether you're scheduling playdates, sending messages or tracking where the kids are — Krakkavaktin has you covered.",
-    "featuresTitle": "What's included?",
+    "status": "In development",
+    "subtitle": "Can Siggi come play?",
+    "description": "Parents use Messenger, for example, to ask if the kids can hang out. But Messenger is full of other unread messages, emotions and awkwardness that have no place in the context of whether your child is going out to play. Krakkavaktin is just messaging, where the child is always at the centre. Conversations disappear once play is over, making this a true peace of mind tool.\n\nShould I message the mum or the dad, or both? Isn't the aunt with him on Tuesdays? You no longer need to think about this. You just message 'Siggi' and whoever is registered behind Siggi gets the message.",
+    "messengerQuote": "Messenger works — but it's full of everything else you don't want to think about when you're just trying to arrange a playdate. Krakkavaktin is a small, calm place for that one conversation.",
+    "whyTitle": "Why this works",
     "features": {
-      "chat": "Chat — Communicate directly in the app, no need for SMS",
-      "calendar": "Calendar — Shared calendar for playdates and events",
-      "push": "Push notifications — Get notified when something changes",
-      "custody": "Custody overview — See the custody split between parents at a glance"
+      "chat": "Just messaging, nothing else",
+      "chat_desc": "One question, one answer. No dashboards.",
+      "child": "Child in focus",
+      "child_desc": "The conversation is about Siggi, never the parents.",
+      "disappear": "Conversations disappear",
+      "disappear_desc": "When play is over, so is this.",
+      "calm": "No anxiety",
+      "calm_desc": "No read receipts, no typing indicators."
     },
+    "waitlistTitle": "Get notified when Krakkavaktin launches",
+    "waitlistDesc": "We're putting the finishing touches on it. You'll get one email when it's ready, nothing else.",
+    "waitlistPlaceholder": "email@example.com",
+    "waitlistButton": "Notify me",
+    "waitlistSuccess": "Great! We'll let you know.",
     "cta": "Go to Krakkavaktin.is",
-    "back": "← Back to Vaktirnar"
+    "back": "← Back"
   }
 }

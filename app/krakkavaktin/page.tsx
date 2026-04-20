@@ -1,86 +1,84 @@
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { Footer } from '@/components/Footer'
-import { MessageCircle, Calendar, Bell, Users } from 'lucide-react'
-
-const featureIcons = {
-  chat: MessageCircle,
-  calendar: Calendar,
-  push: Bell,
-  custody: Users,
-}
+import { Badge } from '@/components/Badge'
+import { KrakkavaktinSections } from '@/components/KrakkavaktinSections'
+import { WaitlistForm } from '@/components/WaitlistForm'
+import { ArrowLeft } from 'lucide-react'
 
 export default async function KrakkavaktinPage() {
   const t = await getTranslations('krakkavaktin')
   const ft = await getTranslations('footer')
-
-  const features = [
-    { key: 'chat', icon: featureIcons.chat },
-    { key: 'calendar', icon: featureIcons.calendar },
-    { key: 'push', icon: featureIcons.push },
-    { key: 'custody', icon: featureIcons.custody },
-  ] as const
+  const locale = await getLocale()
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-[#FAFAFA]">
       {/* Nav */}
-      <nav className="flex justify-between items-center px-6 py-4 max-w-5xl mx-auto">
+      <nav className="flex justify-between items-center px-6 py-5 max-w-3xl mx-auto">
         <Link
           href="/"
-          className="text-sm text-gray-500 hover:text-violet-700 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors"
         >
+          <ArrowLeft size={14} />
           {t('back')}
         </Link>
         <LanguageSwitcher />
       </nav>
 
       {/* Hero */}
-      <section className="max-w-3xl mx-auto px-4 py-16 text-center">
-        <div className="inline-flex items-center gap-2 bg-violet-100 text-violet-700 text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
-          <span className="w-2 h-2 bg-violet-500 rounded-full animate-pulse" />
-          Tilbúin
+      <section className="max-w-3xl mx-auto px-6 pt-8 pb-12">
+        <div className="mb-5">
+          <Badge variant="warning" pulse>{t('status')}</Badge>
         </div>
-        <h1 className="text-5xl md:text-6xl font-bold bg-gradient-to-r from-violet-600 to-rose-500 bg-clip-text text-transparent mb-4">
-          {t('title')}
+        <h1 className="text-3xl font-medium text-gray-900 max-w-lg leading-snug mb-4">
+          Krakkavaktin er spjall um eitt: getur barnið þitt leikið?
         </h1>
-        <p className="text-xl font-semibold text-gray-600 mb-6">{t('subtitle')}</p>
-        <p className="text-gray-500 leading-relaxed max-w-xl mx-auto">
-          {t('description')}
+        <p className="text-sm text-gray-500 leading-relaxed max-w-md">
+          Engar tilkynningar um allt mögulegt, engin 'séð' merki, engin yfirlit. Bara já, nei, hvenær og hvar.
         </p>
       </section>
 
-      {/* Features */}
-      <section className="max-w-3xl mx-auto px-4 pb-16">
-        <h2 className="text-xl font-bold text-gray-700 mb-6 text-center">
-          {t('featuresTitle')}
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {features.map(({ key, icon: Icon }) => (
-            <div
-              key={key}
-              className="flex items-start gap-3 bg-white rounded-2xl p-5 shadow-sm border border-violet-50"
-            >
-              <div className="flex-shrink-0 w-9 h-9 bg-violet-100 rounded-xl flex items-center justify-center">
-                <Icon size={18} className="text-violet-600" />
-              </div>
-              <p className="text-sm text-gray-600 leading-relaxed">
-                {t(`features.${key}`)}
-              </p>
-            </div>
-          ))}
-        </div>
+      {/* Allar skúffur */}
+      <section className="max-w-3xl mx-auto px-6 pb-16">
+        <KrakkavaktinSections
+          labels={{
+            chat: 'Spjall',
+            guardian: 'Forsjáraðili',
+            childTeam: 'Barnateymi',
+            featureChat: t('features.chat'),
+            featureChatDesc: t('features.chat_desc'),
+            featureChild: t('features.child'),
+            featureChildDesc: t('features.child_desc'),
+            featureDisappear: t('features.disappear'),
+            featureDisappearDesc: t('features.disappear_desc'),
+            featureCalm: t('features.calm'),
+            featureCalmDesc: t('features.calm_desc'),
+          }}
+        />
+      </section>
 
-        {/* CTA */}
-        <div className="mt-12 text-center">
-          <a
-            href="https://krakkavaktin.is"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-violet-600 to-rose-500 text-white font-semibold px-8 py-3.5 rounded-2xl shadow-md hover:shadow-lg hover:opacity-90 transition-all"
-          >
-            {t('cta')}
-          </a>
+      {/* Messenger samanburður */}
+      <section className="max-w-3xl mx-auto px-6 pb-16">
+        <p className="text-gray-500 leading-relaxed text-sm max-w-xl border-l-2 border-gray-200 pl-4 italic">
+          {t('messengerQuote')}
+        </p>
+      </section>
+
+      {/* Waitlist */}
+      <section className="max-w-3xl mx-auto px-6 pb-24">
+        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
+          <h2 className="text-xl font-medium text-gray-900 mb-2">{t('waitlistTitle')}</h2>
+          <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">{t('waitlistDesc')}</p>
+          <div className="max-w-sm mx-auto">
+            <WaitlistForm
+              product="krakkavaktin"
+              locale={locale}
+              placeholder={t('waitlistPlaceholder')}
+              buttonLabel={t('waitlistButton')}
+              successMessage={t('waitlistSuccess')}
+            />
+          </div>
         </div>
       </section>
 

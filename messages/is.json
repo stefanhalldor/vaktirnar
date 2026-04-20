@@ -1,34 +1,39 @@
 {
   "meta": {
-    "title": "Vaktirnar — Snjallar lausnir á hverri vakt",
-    "description": "Vaktirnar er umbrella merki fyrir snjallar lausnir sem auðvelda líf fjölskyldna og einstaklinga. Fyrsta varan er Krakkavaktin."
+    "title": "Vaktirnar, einföld verkfæri fyrir íslenskar fjölskyldur",
+    "description": "Lítið studio í Reykjavík sem byggir öpp sem leysa eitt, og gera það vel."
   },
   "nav": {
     "language": "EN"
   },
   "hero": {
-    "title": "Vaktirnar",
-    "tagline": "Snjallar lausnir á hverri vakt",
-    "description": "Við þróum einföld og kraftmikil verkfæri sem hjálpa fjölskyldum og einstaklingum að skipuleggja líf sitt betur."
+    "title": "Einföld verkfæri fyrir íslenskar fjölskyldur",
+    "cta_primary": "Skoða Krakkavaktina",
+    "cta_secondary": "Um okkur"
   },
   "vaktir": {
-    "title": "Vaktirnar okkar",
+    "title": "Vörurnar okkar",
     "available": "Tilbúin",
-    "comingSoon": "Kemur fljótlega",
-    "learnMore": "Sjá nánar",
+    "inDevelopment": "Í þróun",
+    "inDesign": "Í hönnun",
     "krakkavaktin": {
       "name": "Krakkavaktin",
-      "description": "Samhæfðu leiktíma barnanna á milli foreldra. Spjall, dagatal og push tilkynningar — allt á einum stað.",
+      "description": "Spjall milli forsjáraðila um eitt: getur barnið leikið?",
       "cta": "Sjá nánar"
     },
     "thridjavaktin": {
       "name": "Þriðja vaktin",
-      "description": "Kemur fljótlega — fylgstu með þróuninni."
+      "description": "Verkefni í þróun. Meira síðar á árinu."
     },
     "sjoppuvaktin": {
       "name": "Sjoppuvaktin",
-      "description": "Kemur fljótlega — fylgstu með þróuninni."
+      "description": "Verkefni í þróun. Meira síðar á árinu."
     }
+  },
+  "about": {
+    "heading": "Á bak við Vaktirnar",
+    "name": "Stefán Halldór Jónsson",
+    "url": "www.lauflett.is"
   },
   "footer": {
     "tagline": "Gerð með ást á Íslandi",
@@ -36,16 +41,27 @@
   },
   "krakkavaktin": {
     "title": "Krakkavaktin",
-    "subtitle": "Samhæfðu leiktíma barnanna",
-    "description": "Krakkavaktin er foreldraapp sem einfaldar samskipti og samhæfingu á milli foreldra. Hvort sem þið eruð að skipuleggja leiktíma, senda skilaboð eða fylgjast með hvar börnin eru — Krakkavaktin hefur ykkur í huga.",
-    "featuresTitle": "Hvað er í boði?",
+    "status": "Í þróun",
+    "subtitle": "Getur Siggi leikið?",
+    "description": "Foreldrar nota til dæmis Messenger til að spyrja hvort börnin geti leikið saman. En Messenger er fullt af öðrum ólesnum skilaboðum, tilfinningum og óþægindum sem eiga ekki heima í samhengi þess hvort barnið þitt er að fara út að leika. Krakkavaktin er bara spjall, þar sem barnið er alltaf í miðjunni. Spjöllin eyðast jafnóðum og leik er lokið, og er þetta því algjört 'peace of mind' tól.\n\nÁ ég að senda á mömmuna eða pabbann, eða bæði? Er frænkan ekki með hann á þriðjudögum? Þú þarft ekki lengur að spá í þessu. Þú sendir bara á 'Sigga' og þeir sem eru skráðir bakvið Sigga fá skilaboðin.",
+    "messengerQuote": "Messenger virkar — en er fullt af öllu hinu sem þú vilt ekki pæla í þegar þú ert bara að reyna að skipuleggja leik. Krakkavaktin er lítill, rólegur staður fyrir þetta eina samtal.",
+    "whyTitle": "Hvers vegna virkar þetta",
     "features": {
-      "chat": "Spjall — Samskipti beint í appinu, engin þörf á SMS",
-      "calendar": "Dagatal — Sameiginlegt dagatal fyrir leiktíma og viðburði",
-      "push": "Push tilkynningar — Fáðu tilkynningar þegar eitthvað breytist",
-      "custody": "Forsjáryfirlit — Sjáðu skiptingu á milli foreldra á einu bretti"
+      "chat": "Bara spjall, ekkert fleira",
+      "chat_desc": "Ein spurning, eitt svar. Engin yfirlit.",
+      "child": "Barnið í fókus",
+      "child_desc": "Samtalið snýst um Sigga, aldrei foreldrana.",
+      "disappear": "Spjall eyðist",
+      "disappear_desc": "Þegar leik er lokið er þetta farið.",
+      "calm": "Enginn kvíði",
+      "calm_desc": "Engar 'séð' merkingar, engir innsláttarvísar."
     },
+    "waitlistTitle": "Láttu vita þegar Krakkavaktin opnar",
+    "waitlistDesc": "Við erum að leggja síðustu hönd á hana. Þú færð eitt tölvupóstskilaboð þegar hún er tilbúin, ekkert annað.",
+    "waitlistPlaceholder": "netfang@dæmi.is",
+    "waitlistButton": "Láta vita",
+    "waitlistSuccess": "Frábært! Við látum þig vita.",
     "cta": "Fara á Krakkavaktin.is",
-    "back": "← Til baka á Vaktirnar"
+    "back": "← Til baka"
   }
 }
