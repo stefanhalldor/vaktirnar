@@ -33,7 +33,7 @@ export function ChatOnly() {
       </div>
 
       <ChatBubble direction="right" senderName="Stebbi" childName="Sigga" verified>
-        Hófí datt inn líka 🙂 Sæki allar þrjár á sama tíma, 17?
+        Hófí bankaði uppá á gamla mátann :)
       </ChatBubble>
 
       <ChatBubble direction="left" senderName="Kristjana" childName="Hófíar" verified>

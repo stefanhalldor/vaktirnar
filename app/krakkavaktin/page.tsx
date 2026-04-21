@@ -3,7 +3,10 @@ import Link from 'next/link'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { Footer } from '@/components/Footer'
 import { Badge } from '@/components/Badge'
-import { KrakkavaktinSections } from '@/components/KrakkavaktinSections'
+import { Avatar } from '@/components/Avatar'
+import { ChatOnly } from '@/components/ChatOnly'
+import { GuardianCard } from '@/components/GuardianCard'
+import { ChildTeamCard } from '@/components/ChildTeamCard'
 import { WaitlistForm } from '@/components/WaitlistForm'
 import { ArrowLeft } from 'lucide-react'
 
@@ -27,42 +30,49 @@ export default async function KrakkavaktinPage() {
       </nav>
 
       {/* Hero */}
-      <section className="max-w-3xl mx-auto px-6 pt-8 pb-12">
+      <section className="max-w-3xl mx-auto px-6 pt-8 pb-8">
         <div className="mb-5">
           <Badge variant="warning" pulse>{t('status')}</Badge>
         </div>
         <h1 className="text-3xl font-medium text-gray-900 max-w-lg leading-snug mb-4">
           Krakkavaktin er spjall um eitt: getur barnið þitt leikið?
         </h1>
-        <p className="text-sm text-gray-500 leading-relaxed max-w-md">
-          Engar tilkynningar um allt mögulegt, engin &apos;séð&apos; merki, engin yfirlit. Bara já, nei, hvenær og hvar.
-        </p>
-      </section>
-
-      {/* Allar skúffur */}
-      <section className="max-w-3xl mx-auto px-6 pb-16">
-        <KrakkavaktinSections
-          labels={{
-            chat: 'Spjall',
-            guardian: 'Forsjáraðili',
-            childTeam: 'Barnateymi',
-            featureChat: t('features.chat'),
-            featureChatDesc: t('features.chat_desc'),
-            featureChild: t('features.child'),
-            featureChildDesc: t('features.child_desc'),
-            featureDisappear: t('features.disappear'),
-            featureDisappearDesc: t('features.disappear_desc'),
-            featureCalm: t('features.calm'),
-            featureCalmDesc: t('features.calm_desc'),
-          }}
-        />
-      </section>
-
-      {/* Messenger samanburður */}
-      <section className="max-w-3xl mx-auto px-6 pb-16">
-        <p className="text-gray-500 leading-relaxed text-sm max-w-xl border-l-2 border-gray-200 pl-4 italic">
+        <p className="text-sm text-gray-500 leading-relaxed max-w-xl border-l-2 border-gray-200 pl-4 italic">
           {t('messengerQuote')}
         </p>
+      </section>
+
+      {/* Spjall */}
+      <section className="max-w-3xl mx-auto px-6 pb-8">
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="flex -space-x-2">
+                <Avatar initial="S" color="amber" size="sm" />
+                <Avatar initial="J" color="blue" size="sm" />
+                <Avatar initial="H" color="green" size="sm" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Siggi, Jóna & Hófí</p>
+                <p className="text-xs text-gray-400">4 aðstandendur · hjá Stebba</p>
+              </div>
+            </div>
+            <span className="text-xs font-semibold tracking-widest text-violet-600 uppercase">Krakkavaktin</span>
+          </div>
+          <div className="px-5 py-5">
+            <ChatOnly />
+          </div>
+        </div>
+      </section>
+
+      {/* Barnateymi */}
+      <section className="max-w-3xl mx-auto px-6 pb-8">
+        <ChildTeamCard />
+      </section>
+
+      {/* Aðstandandi */}
+      <section className="max-w-3xl mx-auto px-6 pb-16">
+        <GuardianCard />
       </section>
 
       {/* Waitlist */}

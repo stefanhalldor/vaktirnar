@@ -7,6 +7,7 @@ interface AvatarProps {
   initial: string
   color?: AvatarColor
   size?: AvatarSize
+  src?: string
 }
 
 const colorStyles: Record<AvatarColor, string> = {
@@ -24,7 +25,16 @@ const sizeStyles: Record<AvatarSize, string> = {
   lg: 'w-[72px] h-[72px] text-2xl',
 }
 
-export function Avatar({ initial, color = 'gray', size = 'md' }: AvatarProps) {
+export function Avatar({ initial, color = 'gray', size = 'md', src }: AvatarProps) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={initial}
+        className={`rounded-full object-cover flex-shrink-0 ${sizeStyles[size]}`}
+      />
+    )
+  }
   return (
     <div className={`rounded-full flex items-center justify-center font-semibold flex-shrink-0 ${colorStyles[color]} ${sizeStyles[size]}`}>
       {initial.toUpperCase()}
