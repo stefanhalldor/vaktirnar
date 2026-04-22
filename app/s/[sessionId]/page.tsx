@@ -235,7 +235,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Session Not Found</h1>
-          <p className="text-gray-600 mb-4">This playdate session doesn't exist.</p>
+          <p className="text-gray-600 mb-4">This playdate session does not exist.</p>
           <button
             onClick={() => router.push('/')}
             className="bg-blue-500 text-white px-6 py-2 rounded-lg"
@@ -313,7 +313,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
               <div className="flex items-start gap-2">
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <p className="text-sm text-gray-100">
-                  You're viewing in read-only mode. Ask the creator for the edit link to add kids or log activities.
+                  You are viewing in read-only mode. Ask the creator for the edit link to add kids or log activities.
                 </p>
               </div>
             </div>
@@ -498,7 +498,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   </label>
                 ))}
               </div>
-              <p className="text-xs text-blue-700 mt-2">Uncheck if a kid isn't participating in this activity</p>
+              <p className="text-xs text-blue-700 mt-2">Uncheck if a kid is not participating in this activity</p>
             </div>
 
             <div className="grid grid-cols-1 gap-3">
