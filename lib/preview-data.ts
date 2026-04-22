@@ -1,4 +1,4 @@
-import { GuardianRole } from './types'
+import { GuardianRole } from './landing-types'
 
 export const previewChat = {
   title: 'Siggi, Jóna & Hófí',

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
-import { PreviewBanner } from '@/components/PreviewBanner'
-import { ChildTeamCard } from '@/components/ChildTeamCard'
+import { PreviewBanner } from '@/components/landing/PreviewBanner'
+import { ChildTeamCard } from '@/components/landing/ChildTeamCard'
 
 export const metadata: Metadata = {
   robots: 'noindex',

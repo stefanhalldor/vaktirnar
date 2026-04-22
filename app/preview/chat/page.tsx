@@ -1,10 +1,10 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { PreviewBanner } from '@/components/PreviewBanner'
-import { Avatar } from '@/components/Avatar'
-import { ChatBubble } from '@/components/ChatBubble'
-import { ChatSystemMessage } from '@/components/ChatSystemMessage'
-import { VerifiedCheck } from '@/components/VerifiedCheck'
+import { PreviewBanner } from '@/components/landing/PreviewBanner'
+import { Avatar } from '@/components/landing/Avatar'
+import { ChatBubble } from '@/components/landing/ChatBubble'
+import { ChatSystemMessage } from '@/components/landing/ChatSystemMessage'
+import { VerifiedCheck } from '@/components/landing/VerifiedCheck'
 import { previewChat } from '@/lib/preview-data'
 
 export const metadata: Metadata = {

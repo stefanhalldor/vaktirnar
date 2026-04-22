@@ -1,11 +1,11 @@
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
-import { LanguageSwitcher } from '@/components/LanguageSwitcher'
-import { Footer } from '@/components/Footer'
-import { Badge } from '@/components/Badge'
-import { Avatar } from '@/components/Avatar'
+import { LanguageSwitcher } from '@/components/landing/LanguageSwitcher'
+import { Footer } from '@/components/landing/Footer'
+import { Badge } from '@/components/landing/Badge'
+import { Avatar } from '@/components/landing/Avatar'
 import { ArrowRight, ExternalLink } from 'lucide-react'
-import { VaktSuggestionForm } from '@/components/VaktSuggestionForm'
+import { VaktSuggestionForm } from '@/components/landing/VaktSuggestionForm'
 
 export default async function Home() {
   const t = await getTranslations()

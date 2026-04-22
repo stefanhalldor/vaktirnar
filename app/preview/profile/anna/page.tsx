@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
-import { PreviewBanner } from '@/components/PreviewBanner'
-import { GuardianCard } from '@/components/GuardianCard'
+import { PreviewBanner } from '@/components/landing/PreviewBanner'
+import { GuardianCard } from '@/components/landing/GuardianCard'
 
 export const metadata: Metadata = {
   robots: 'noindex',

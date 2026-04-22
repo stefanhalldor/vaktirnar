@@ -4,7 +4,11 @@
     "description": "Lítið studio í Reykjavík sem byggir öpp sem leysa eitt, og gera það vel."
   },
   "nav": {
-    "language": "EN"
+    "language": "EN",
+    "home": "Heim",
+    "children": "Börnin",
+    "contacts": "Vinir",
+    "settings": "Stillingar"
   },
   "hero": {
     "tagline": "Skilvirkari vaktir, minna vesen, meira næs"
@@ -71,5 +75,136 @@
     "waitlistSuccess": "Frábært! Við látum þig vita.",
     "cta": "Fara á Krakkavaktin.is",
     "back": "← Til baka"
+  },
+  "app": {
+    "name": "Krakkavaktin",
+    "tagline": "Samhæfðu leiktíma barnanna"
+  },
+  "auth": {
+    "login": "Innskrá",
+    "signup": "Nýskrá",
+    "logout": "Útskrá",
+    "email": "Netfang",
+    "password": "Lykilorð",
+    "name": "Nafn",
+    "loginTitle": "Velkomin aftur",
+    "signupTitle": "Stofna aðgang",
+    "noAccount": "Ertu ekki með aðgang?",
+    "hasAccount": "Ertu nú þegar með aðgang?",
+    "forgotPassword": "Gleymt lykilorð?",
+    "loggingIn": "Skrá inn...",
+    "signingUp": "Stofna aðgang...",
+    "errors": {
+      "invalidCredentials": "Rangt netfang eða lykilorð",
+      "emailInUse": "Netfang er þegar í notkun",
+      "generic": "Eitthvað fór úrskeiðis. Reyndu aftur."
+    },
+    "checkEmail": "Athugaðu tölvupóstinn þinn til að staðfesta aðganginn.",
+    "forgotPasswordTitle": "Endursetja lykilorð",
+    "forgotPasswordDesc": "Sláðu inn netfangið þitt og við sendum þér hlekk til að endursetja lykilorðið.",
+    "sendResetLink": "Senda hlekk",
+    "sendingResetLink": "Sendi...",
+    "resetLinkSent": "Hlekkur sendur! Athugaðu tölvupóstinn þinn.",
+    "resetPasswordTitle": "Nýtt lykilorð",
+    "newPassword": "Nýtt lykilorð",
+    "setNewPassword": "Vista lykilorð",
+    "settingPassword": "Vista...",
+    "passwordReset": "Lykilorð endursett! Skráðu þig inn."
+  },
+  "children": {
+    "title": "Börnin mín",
+    "addChild": "Bæta við barni",
+    "editChild": "Breyta barni",
+    "childName": "Nafn barns",
+    "birthYear": "Fæðingarár (valkvætt)",
+    "avatarEmoji": "Táknmynd",
+    "save": "Vista",
+    "delete": "Eyða",
+    "noChildren": "Engin börn skráð enn",
+    "gender": {
+      "label": "Kyn",
+      "boy": "Strákur",
+      "girl": "Stelpa",
+      "other": "Annað"
+    },
+    "moreEmojis": "Fleiri táknmyndir",
+    "fewerEmojis": "Færri táknmyndir",
+    "joinAsCoparent": "Tengjast sem foreldri",
+    "joinWithCode": "Sláðu inn boðskóða barns",
+    "joinSuccess": "Tengt! Barnið er nú í þínum lista.",
+    "coparents": "Foreldrar",
+    "primaryParent": "Aðalforeldri",
+    "coparent": "Meðforeldri",
+    "shareCodeHint": "Deildu þessum kóða með hinu foreldrinu til að gefa þeim aðgang.",
+    "errors": {
+      "invalidCode": "Ógildur kóði",
+      "alreadyParent": "Þú ert nú þegar foreldri þessa barns",
+      "generic": "Eitthvað fór úrskeiðis"
+    },
+    "custody": {
+      "withMe": "Barnið er hjá mér",
+      "withOther": "Barnið er hjá hinu foreldrinu",
+      "toggle": "Skipta um forsjá"
+    }
+  },
+  "contacts": {
+    "title": "Vinir",
+    "inviteCode": "Boðskóði",
+    "yourCode": "Þinn kóði",
+    "enterCode": "Sláðu inn kóða",
+    "enterCodePlaceholder": "6 stafa kóði",
+    "connect": "Tengja",
+    "connected": "Tengdur",
+    "pending": "Bíður",
+    "noContacts": "Engir vinir enn. Deildu kóðanum þínum!",
+    "copyCode": "Afrita kóða",
+    "copied": "Afritað!"
+  },
+  "chat": {
+    "title": "Spjall",
+    "newChat": "Nýtt spjall",
+    "selectChild": "Veldu barn",
+    "selectContact": "Veldu vin",
+    "startChat": "Hefja spjall",
+    "endPlaydate": "Ljúka leiktíma",
+    "endPlaydateConfirm": "Ertu viss um að þú viljir ljúka leiktímanum?",
+    "messagePlaceholder": "Skilaboð...",
+    "send": "Senda",
+    "logActivity": "Skrá athöfn",
+    "noChats": "Engin virk spjöll",
+    "ended": "Leiktíma lokið",
+    "playdate": "Leiktími"
+  },
+  "activity": {
+    "log": "Skrá athöfn",
+    "category": "Flokkur",
+    "minutes": "Mínútur",
+    "categories": {
+      "screen": "Skjátími",
+      "physical": "Hreyfing",
+      "other": "Annað"
+    },
+    "save": "Vista",
+    "logged": "Athöfn skráð"
+  },
+  "settings": {
+    "title": "Stillingar",
+    "profile": "Prófíll",
+    "displayName": "Nafn",
+    "phone": "Símanúmer",
+    "notifications": "Tilkynningar",
+    "enableNotifications": "Virkja tilkynningar",
+    "language": "Tungumál",
+    "save": "Vista",
+    "saved": "Vistað!"
+  },
+  "common": {
+    "cancel": "Hætta við",
+    "confirm": "Staðfesta",
+    "loading": "Hleður...",
+    "error": "Villa",
+    "back": "Til baka",
+    "yes": "Já",
+    "no": "Nei"
   }
 }

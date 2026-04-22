@@ -23,6 +23,30 @@ jobs:
 
       - name: Lint
         run: npm run lint
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: dummy-vapid-public-key
+          VAPID_PRIVATE_KEY: dummy-vapid-private-key
+          VAPID_SUBJECT: mailto:ci@example.com
+          CRON_SECRET: dummy-cron-secret
 
       - name: Type check
         run: npm run type-check
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: dummy-vapid-public-key
+          VAPID_PRIVATE_KEY: dummy-vapid-private-key
+          VAPID_SUBJECT: mailto:ci@example.com
+          CRON_SECRET: dummy-cron-secret
+
+      - name: Run tests
+        run: npm run test:run
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://dummy.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-anon-key
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: dummy-vapid-public-key
+          VAPID_PRIVATE_KEY: dummy-vapid-private-key
+          VAPID_SUBJECT: mailto:ci@example.com
+          CRON_SECRET: dummy-cron-secret
