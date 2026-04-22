@@ -7,33 +7,41 @@
     "language": "IS"
   },
   "hero": {
-    "title": "Simple tools for Icelandic families",
-    "cta_primary": "See Krakkavaktin",
-    "cta_secondary": "About us"
+    "tagline": "Simpler shifts, less hassle, more peace"
   },
   "vaktir": {
-    "title": "Our products",
-    "available": "Available",
-    "inDevelopment": "In development",
-    "inDesign": "In design",
     "krakkavaktin": {
       "name": "Krakkavaktin",
-      "description": "Messaging between guardians about one thing: can the child come play?",
-      "cta": "Learn more"
+      "description": "An almost-ready solution for parents who want simpler communication and better oversight when kids want to meet and play.",
+      "cta": "Learn more",
+      "badge": "Almost ready"
     },
     "thridjavaktin": {
       "name": "Þriðja vaktin",
-      "description": "Project in development. More later this year."
+      "description": "A solution taking shape for tasks and responsibilities that pile up outside the visible schedule.",
+      "badge": "In progress"
     },
-    "sjoppuvaktin": {
-      "name": "Sjoppuvaktin",
-      "description": "Project in development. More later this year."
+    "fyrstavaktin": {
+      "name": "First shift for kids",
+      "description": "Kids earn points for household chores and get their first taste of responsibility, reward, and a shift of their own.",
+      "badge": "In progress"
+    },
+    "others": {
+      "heading": "Other shifts that might be added",
+      "list": "Mótavaktin, Gæludýravaktin, Sjoppuvaktin, Foreldravaktin and Heimilisvaktin might be added later.",
+      "umonnun": "Umönnunarvaktin is already live at"
+    },
+    "suggestion": {
+      "heading": "Which shift would you want to see solved?",
+      "placeholder": "Describe the shift you'd like to see...",
+      "emailPlaceholder": "email@example.com (optional)",
+      "button": "Send",
+      "success": "Thanks! We'll keep that in mind."
     }
   },
   "about": {
-    "heading": "Behind Vaktirnar",
     "name": "Stefán Halldór Jónsson",
-    "url": "www.lauflett.is"
+    "url": "www.gottvibe.is"
   },
   "footer": {
     "tagline": "Made with love in Iceland",

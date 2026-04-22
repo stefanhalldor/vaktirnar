@@ -7,33 +7,41 @@
     "language": "EN"
   },
   "hero": {
-    "title": "Einföld verkfæri fyrir íslenskar fjölskyldur",
-    "cta_primary": "Skoða Krakkavaktina",
-    "cta_secondary": "Um okkur"
+    "tagline": "Skilvirkari vaktir, minna vesen, meira næs"
   },
   "vaktir": {
-    "title": "Vörurnar okkar",
-    "available": "Tilbúin",
-    "inDevelopment": "Í þróun",
-    "inDesign": "Í hönnun",
     "krakkavaktin": {
       "name": "Krakkavaktin",
-      "description": "Spjall milli forsjáraðila um eitt: getur barnið leikið?",
-      "cta": "Sjá nánar"
+      "description": "Nánast tilbúin lausn fyrir foreldra sem vilja einfaldari samskipti og betri yfirsýn þegar börn vilja hittast og leika.",
+      "cta": "Sjá nánar",
+      "badge": "Nánast tilbúin"
     },
     "thridjavaktin": {
       "name": "Þriðja vaktin",
-      "description": "Verkefni í þróun. Meira síðar á árinu."
+      "description": "Lausn í mótun fyrir verkefni og ábyrgð sem safnast upp utan hins sýnilega skipulags.",
+      "badge": "Í vinnslu"
     },
-    "sjoppuvaktin": {
-      "name": "Sjoppuvaktin",
-      "description": "Verkefni í þróun. Meira síðar á árinu."
+    "fyrstavaktin": {
+      "name": "Fyrsta vakt krakkanna",
+      "description": "Krakkar safna stigum fyrir heimilisverk og fá sitt fyrsta bragð af ábyrgð, umbun og eigin vakt.",
+      "badge": "Í vinnslu"
+    },
+    "others": {
+      "heading": "Aðrar vaktir sem gætu bæst við",
+      "list": "Mótavaktin, Gæludýravaktin, Sjoppuvaktin, Foreldravaktin og Heimilisvaktin gætu bæst við síðar.",
+      "umonnun": "Umönnunarvaktin er þegar komin í loftið á"
+    },
+    "suggestion": {
+      "heading": "Hvaða vakt myndir þú vilja sjá leysta?",
+      "placeholder": "Lýstu þeirri vakt sem þú myndir vilja sjá...",
+      "emailPlaceholder": "netfang@dæmi.is (valfrjálst)",
+      "button": "Senda",
+      "success": "Takk fyrir! Við höldum þessu til haga."
     }
   },
   "about": {
-    "heading": "Á bak við Vaktirnar",
     "name": "Stefán Halldór Jónsson",
-    "url": "www.lauflett.is"
+    "url": "www.gottvibe.is"
   },
   "footer": {
     "tagline": "Gerð með ást á Íslandi",
