@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Vaktirnar, simple tools for Icelandic families",
+    "title": "Lauflétt, simple tools for Icelandic families",
     "description": "A small studio in Reykjavik building apps that solve one thing, and do it well."
   },
   "nav": {
@@ -49,7 +49,7 @@
   },
   "footer": {
     "tagline": "Made with love in Iceland",
-    "copyright": "© 2026 Vaktirnar. All rights reserved."
+    "copyright": "© 2026 Lauflétt. All rights reserved."
   },
   "krakkavaktin": {
     "title": "Krakkavaktin",

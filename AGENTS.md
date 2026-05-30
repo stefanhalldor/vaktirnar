@@ -1,10 +1,10 @@
-# AGENTS.md — Vaktirnar
+# AGENTS.md — Lauflétt
 
 This file defines rules and context for AI agents (Codex, Claude, etc.) working in this repository.
 
 ## Project overview
 
-**Vaktirnar** is a Next.js 15 (App Router) web app built with TypeScript, Supabase, Tailwind CSS, and next-intl.
+**Lauflétt** is a Next.js 15 (App Router) web app built with TypeScript, Supabase, Tailwind CSS, and next-intl.
 
 The primary product is **Krakkavaktin** — a playdate coordination tool for Icelandic parents. Other "shifts" (vaktir) will be added over time as separate experiences within the same app.
 
@@ -91,7 +91,7 @@ Focus especially on:
 - Supabase RLS policies — could this weaken access control?
 - Whether this could accidentally expose user data publicly
 - Whether migrations are idempotent
-- Whether anything could break existing Vaktirnar functionality
+- Whether anything could break existing Lauflétt functionality
 - Any TypeScript type safety issues introduced
 
 Do not make changes yet. Explain the risks and recommended fixes first.

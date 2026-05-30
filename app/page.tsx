@@ -15,7 +15,7 @@ export default async function Home() {
       {/* Nav */}
       <nav className="flex justify-between items-center px-6 py-5 max-w-4xl mx-auto">
         <span className="text-xs font-semibold tracking-widest text-gray-400 uppercase">
-          Vaktirnar
+          Lauflétt
         </span>
         <LanguageSwitcher />
       </nav>
@@ -113,7 +113,7 @@ export default async function Home() {
 
       </section>
 
-      {/* Á bak við Vaktirnar */}
+      {/* Á bak við Lauflétt */}
       <section className="max-w-4xl mx-auto px-6 pb-24 border-t border-gray-100 pt-10">
         <div className="flex items-center gap-4">
           <Avatar initial="S" color="violet" size="md" />
