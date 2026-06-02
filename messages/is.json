@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Lauflétt, einföld verkfæri fyrir íslenskar fjölskyldur",
-    "description": "Lítið studio í Reykjavík sem byggir öpp sem leysa eitt, og gera það vel."
+    "title": "Teskeið, hugmyndabanki fyrir hversdagslausnir",
+    "description": "Opinn hugmyndabanki fyrir einfaldar lausnir sem gera daglegt líf aðeins léttara."
   },
   "nav": {
     "language": "EN",
@@ -198,6 +198,21 @@
     "save": "Vista",
     "saved": "Vistað!"
   },
+  "adminAuth": {
+    "title": "Innskráning",
+    "emailLabel": "Netfang",
+    "continue": "Áfram",
+    "codePrompt": "Ef netfangið hefur aðgang færðu kóða á netfangið. Annars látum við þig vita þegar opnar.",
+    "codeLabel": "Kóði",
+    "verify": "Staðfesta",
+    "invalidCode": "Ógildur eða útrunninn kóði",
+    "resend": "Senda aftur",
+    "resendIn": "Senda aftur eftir {seconds}s",
+    "back": "Til baka",
+    "tooManyAttempts": "Of margar tilraunir. Reyndu aftur síðar.",
+    "signedInAs": "Skráð/ur inn sem {email}.",
+    "signOut": "Skrá út"
+  },
   "common": {
     "cancel": "Hætta við",
     "confirm": "Staðfesta",
@@ -206,5 +221,60 @@
     "back": "Til baka",
     "yes": "Já",
     "no": "Nei"
+  },
+  "teskeid": {
+    "meta": {
+      "title": "Teskeið, opinn hugmyndabanki fyrir hversdagslausnir",
+      "description": "Við safnum vandamálum sem þarf að leysa fyrir íslenskar fjölskyldur. Kjóstu, fylgstu, sendu inn."
+    },
+    "nav": {
+      "back": "Til baka",
+      "submit": "Ný hugmynd",
+      "submitIdea": "Ný hugmynd"
+    },
+    "hero": {
+      "tagline": "Ertu með allt í Teskeið?",
+      "description": "Líklega ekki alveg, en bráðum! Heimilið, börnin, peningarnir, plönin, gjafirnar, minningarnar og allt hitt litla sem átti bara að vera einfalt endar oft á tíu stöðum í einu. Teskeið safnar litlum hversdagslausnum á einn stað, einni í einu.",
+      "supportingLine": "Einn aðgangur. Allt í Teskeið.",
+      "ideasIntro": "Fyrsta skrefið er að finna með ykkur hvað ykkur langar mest að setja í Teskeiðina ykkar."
+    },
+    "ideas": {
+      "heading": "Hugmyndirnar",
+      "problem": "Vandinn",
+      "solution": "Möguleg lausn",
+      "launchedWhy": "Af hverju hún skiptir máli",
+      "launchedSolution": "Tilbúin lausn",
+      "votePrompt": "Þykir þér þetta mikilvægt?",
+      "followPrompt": "Láta vita þegar eitthvað breytist"
+    },
+    "submit": {
+      "title": "Sendu hugmynd",
+      "description": "Hvað er vandinn sem þú vilt sjá leyst? Lýstu honum sem best þú getur, við lítum yfir og bætum góðum hugmyndum við bankann."
+    },
+    "categories": {
+      "all": "Allt",
+      "Heimili": "Heimili",
+      "Börn": "Börn",
+      "Pör": "Pör",
+      "Umönnun": "Umönnun",
+      "Útgjöld": "Útgjöld",
+      "Lánað og skilað": "Lánað og skilað",
+      "Viðburðir": "Viðburðir",
+      "Minningar": "Minningar",
+      "Vaktir og skipulag": "Vaktir og skipulag",
+      "Annað": "Annað"
+    },
+    "status": {
+      "idea": "Hugmynd",
+      "reviewing": "Til skoðunar",
+      "planned": "Á áætlun",
+      "building": "Í smíðum",
+      "launched": "Komið út",
+      "archived": "Geymt"
+    },
+    "footer": {
+      "tagline": "Gerð með ást á Íslandi",
+      "copyright": "© 2026 Teskeið. Öll réttindi áskilin."
+    }
   }
 }

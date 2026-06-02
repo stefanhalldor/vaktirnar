@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Lauflétt, simple tools for Icelandic families",
-    "description": "A small studio in Reykjavik building apps that solve one thing, and do it well."
+    "title": "Teskeið, idea bank for everyday solutions",
+    "description": "An open idea bank for simple solutions that make daily life a little lighter."
   },
   "nav": {
     "language": "IS",
@@ -198,6 +198,21 @@
     "save": "Save",
     "saved": "Saved!"
   },
+  "adminAuth": {
+    "title": "Sign in",
+    "emailLabel": "Email",
+    "continue": "Continue",
+    "codePrompt": "If your email has access, you will receive a code. Otherwise we will notify you when login opens.",
+    "codeLabel": "Code",
+    "verify": "Verify",
+    "invalidCode": "Invalid or expired code",
+    "resend": "Resend code",
+    "resendIn": "Resend in {seconds}s",
+    "back": "Back",
+    "tooManyAttempts": "Too many attempts. Please try again later.",
+    "signedInAs": "Signed in as {email}.",
+    "signOut": "Sign out"
+  },
   "common": {
     "cancel": "Cancel",
     "confirm": "Confirm",
@@ -206,5 +221,60 @@
     "back": "Back",
     "yes": "Yes",
     "no": "No"
+  },
+  "teskeid": {
+    "meta": {
+      "title": "Teskeið, open idea bank for everyday solutions",
+      "description": "We collect problems that need solving for Icelandic families. Vote, follow, submit."
+    },
+    "nav": {
+      "back": "Back",
+      "submit": "New idea",
+      "submitIdea": "New idea"
+    },
+    "hero": {
+      "tagline": "Got everything in Teskeið?",
+      "description": "Probably not quite, but soon! Home, kids, money, plans, gifts, memories and all the small things that were supposed to be simple often end up scattered everywhere. Teskeið brings small everyday tools into one place, one at a time.",
+      "supportingLine": "One account. Everything in Teskeið.",
+      "ideasIntro": "The first step is finding out what you most want to put into your Teskeið."
+    },
+    "ideas": {
+      "heading": "Ideas",
+      "problem": "The problem",
+      "solution": "Possible solution",
+      "launchedWhy": "Why it matters",
+      "launchedSolution": "Available now",
+      "votePrompt": "Think this matters?",
+      "followPrompt": "Get notified when something changes"
+    },
+    "submit": {
+      "title": "Submit an idea",
+      "description": "What problem do you want to see solved? Describe it as best you can, we review and add good ideas to the bank."
+    },
+    "categories": {
+      "all": "All",
+      "Heimili": "Home",
+      "Börn": "Kids",
+      "Pör": "Couples",
+      "Umönnun": "Care",
+      "Útgjöld": "Expenses",
+      "Lánað og skilað": "Borrowed and returned",
+      "Viðburðir": "Events",
+      "Minningar": "Memories",
+      "Vaktir og skipulag": "Shifts and scheduling",
+      "Annað": "Other"
+    },
+    "status": {
+      "idea": "Idea",
+      "reviewing": "Reviewing",
+      "planned": "Planned",
+      "building": "Building",
+      "launched": "Launched",
+      "archived": "Archived"
+    },
+    "footer": {
+      "tagline": "Made with love in Iceland",
+      "copyright": "© 2026 Teskeið. All rights reserved."
+    }
   }
 }

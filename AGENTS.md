@@ -1,12 +1,12 @@
-# AGENTS.md — Lauflétt
+# AGENTS.md — Teskeið
 
 This file defines rules and context for AI agents (Codex, Claude, etc.) working in this repository.
 
 ## Project overview
 
-**Lauflétt** is a Next.js 15 (App Router) web app built with TypeScript, Supabase, Tailwind CSS, and next-intl.
+**Teskeið** is a Next.js 15 (App Router) web app built with TypeScript, Supabase, Tailwind CSS, and next-intl.
 
-The primary product is **Krakkavaktin** — a playdate coordination tool for Icelandic parents. Other "shifts" (vaktir) will be added over time as separate experiences within the same app.
+Teskeið is an open idea bank for everyday solutions. Users browse ideas, vote, follow for updates, and submit new problems. **Krakkavaktin** and other products are ideas within this bank. The landing page is the idea bank itself.
 
 **Tech stack:**
 - Next.js 15, React 18, TypeScript
@@ -17,6 +17,10 @@ The primary product is **Krakkavaktin** — a playdate coordination tool for Ice
 - Vitest + Testing Library
 
 **Key routes:**
+- `/` — Teskeið idea bank (public, server component)
+- `/hugmyndir/[slug]` — Idea detail page (public)
+- `/senda-hugmynd` — Submit a new idea (public)
+- `/admin` — Admin panel for managing ideas and submissions (protected)
 - `/krakkavaktin` — Landing/marketing page for Krakkavaktin
 - `/(app)/` — Authenticated app shell (home, chat, children, contacts, settings)
 - `/s/[sessionId]` — Shared session page (playdate tracker, partially public)

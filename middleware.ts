@@ -10,6 +10,13 @@ const PUBLIC_PATHS = [
   '/s/',
   '/krakkavaktin',
   '/preview',
+  '/hugmyndir',
+  '/senda-hugmynd',
+  '/api/votes',
+  '/api/followers',
+  '/api/submissions',
+  '/admin/login',
+  '/api/auth',
 ]
 
 export async function middleware(request: NextRequest) {
@@ -59,6 +66,7 @@ export async function middleware(request: NextRequest) {
 
   if (user && isPublic && !isRoot) {
     // Redirect authenticated users away from auth pages to /home
+    // Do NOT redirect away from /admin/login — user may need to sign out and re-login
     const authPaths = ['/login', '/signup', '/forgot-password', '/reset-password']
     if (authPaths.some((p) => pathname.startsWith(p))) {
       const url = request.nextUrl.clone()
