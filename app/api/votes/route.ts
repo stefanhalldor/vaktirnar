@@ -7,14 +7,20 @@ import { z } from 'zod'
 const COOKIE_NAME = 'teskeid_voter_id'
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
 
-// Returns a descriptive error string if a required env var is missing, null if ok.
-// Called at request time (not build time) so Vercel logs capture the message.
-function checkEnv(): string | null {
+// Env checks split by handler: POST only needs VOTE_SECRET (uses anon client),
+// GET also needs SUPABASE_SERVICE_ROLE_KEY (uses getAdmin for voted lookup + counts).
+function checkPostEnv(): string | null {
   if (!process.env.VOTE_SECRET && process.env.NODE_ENV === 'production') {
-    return 'VOTE_SECRET is not set — voting is disabled until this is added to Vercel env vars'
+    return 'VOTE_SECRET is not set'
   }
+  return null
+}
+
+function checkGetEnv(): string | null {
+  const postErr = checkPostEnv()
+  if (postErr) return postErr
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return 'SUPABASE_SERVICE_ROLE_KEY is not set — votes cannot be read or written'
+    return 'SUPABASE_SERVICE_ROLE_KEY is not set'
   }
   return null
 }
@@ -36,7 +42,7 @@ const postSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
-  const envError = checkEnv()
+  const envError = checkPostEnv()
   if (envError) {
     console.error('[api/votes] POST:', envError)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
@@ -70,6 +76,7 @@ export async function POST(request: NextRequest) {
     if (error.code === '23505') {
       return NextResponse.json({ error: 'Already voted' }, { status: 409 })
     }
+    console.error('[api/votes] POST insert error:', error.code, error.message)
     return NextResponse.json({ error: 'Insert failed' }, { status: 500 })
   }
 
@@ -93,7 +100,7 @@ const getSchema = z.object({
 })
 
 export async function GET(request: NextRequest) {
-  const envError = checkEnv()
+  const envError = checkGetEnv()
   if (envError) {
     console.error('[api/votes] GET:', envError)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
