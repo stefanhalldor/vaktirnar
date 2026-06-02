@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getAdmin } from '@/lib/supabase/admin'
 import { voteSchema } from '@/lib/teskeid/validation'
 
 export async function POST(request: NextRequest) {
@@ -48,12 +48,12 @@ export async function GET(request: NextRequest) {
 
   // Use service role to bypass RLS (anon cannot SELECT votes)
   const [votesResult, ideasResult] = await Promise.all([
-    supabaseAdmin
+    getAdmin()
       .from('votes')
       .select('idea_id')
       .eq('voter_token', voter_token)
       .in('idea_id', idea_ids),
-    supabaseAdmin
+    getAdmin()
       .from('ideas')
       .select('id, votes_count')
       .in('id', idea_ids),

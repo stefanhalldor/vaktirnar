@@ -1,6 +1,6 @@
 import 'server-only'
 import { createHmac, timingSafeEqual, randomInt } from 'crypto'
-import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getAdmin } from '@/lib/supabase/admin'
 
 const MAX_CODES_PER_HOUR = 5
 const MAX_ATTEMPTS_PER_CODE = 5
@@ -19,14 +19,14 @@ export function hashCode(email: string, code: string): string {
 
 export async function createLoginCode(email: string): Promise<string | null> {
   // Clean up old codes (>24h) first
-  await supabaseAdmin
+  await getAdmin()
     .from('admin_login_codes')
     .delete()
     .lt('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
 
   // Rate limit: max 5 codes per email per hour
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-  const { count } = await supabaseAdmin
+  const { count } = await getAdmin()
     .from('admin_login_codes')
     .select('*', { count: 'exact', head: true })
     .eq('email', email)
@@ -40,7 +40,7 @@ export async function createLoginCode(email: string): Promise<string | null> {
   const code_hash = hashCode(email, code)
   const expires_at = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000).toISOString()
 
-  const { error } = await supabaseAdmin.from('admin_login_codes').insert({
+  const { error } = await getAdmin().from('admin_login_codes').insert({
     email,
     code_hash,
     expires_at,
@@ -55,7 +55,7 @@ export async function verifyLoginCode(
   code: string
 ): Promise<boolean> {
   // Find the most recent unexpired, unused code for this email
-  const { data: rows } = await supabaseAdmin
+  const { data: rows } = await getAdmin()
     .from('admin_login_codes')
     .select('id, code_hash, attempts')
     .eq('email', email)
@@ -74,7 +74,7 @@ export async function verifyLoginCode(
   }
 
   // Always increment attempts first (before timing-safe compare)
-  await supabaseAdmin
+  await getAdmin()
     .from('admin_login_codes')
     .update({ attempts: row.attempts + 1 })
     .eq('id', row.id)
@@ -87,7 +87,7 @@ export async function verifyLoginCode(
   const valid = timingSafeEqual(expected, actual)
 
   if (valid) {
-    await supabaseAdmin
+    await getAdmin()
       .from('admin_login_codes')
       .update({ used_at: new Date().toISOString() })
       .eq('id', row.id)

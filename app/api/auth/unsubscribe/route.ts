@@ -1,7 +1,7 @@
 import 'server-only'
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyUnsubscribeToken } from '@/lib/auth/unsubscribe'
-import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getAdmin } from '@/lib/supabase/admin'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse('Ógilt beiðni.', { status: 400, headers: { 'content-type': 'text/html; charset=utf-8' } })
   }
 
-  await supabaseAdmin
+  await getAdmin()
     .from('login_waitlist')
     .update({ unsubscribed_at: new Date().toISOString() })
     .eq('email', email)

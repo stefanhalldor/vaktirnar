@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getAdmin } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/teskeid/admin-auth'
 import { adminSubmissionUpdateSchema } from '@/lib/teskeid/validation'
 
@@ -19,7 +19,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getAdmin()
     .from('submissions')
     .update({ status: parsed.data.status })
     .eq('id', id)

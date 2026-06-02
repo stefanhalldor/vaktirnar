@@ -1,10 +1,10 @@
 import 'server-only'
-import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 
 export async function createAdminSession(email: string): Promise<{ error?: string }> {
   // Ensure user exists in Supabase Auth
-  const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+  const { error: createError } = await getAdmin().auth.admin.createUser({
     email,
     email_confirm: true,
   })
@@ -16,7 +16,7 @@ export async function createAdminSession(email: string): Promise<{ error?: strin
   }
 
   // Generate a magic link server-side
-  const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+  const { data: linkData, error: linkError } = await getAdmin().auth.admin.generateLink({
     type: 'magiclink',
     email,
   })

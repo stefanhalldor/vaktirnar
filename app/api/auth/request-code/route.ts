@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { createLoginCode } from '@/lib/auth/codes'
 import { sendLoginCode, sendWaitlistConfirmation } from '@/lib/auth/email'
 import { generateUnsubscribeToken } from '@/lib/auth/unsubscribe'
-import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getAdmin } from '@/lib/supabase/admin'
 
 const schema = z.object({
   email: z.string().email().max(320).transform((e) => e.toLowerCase().trim()),
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
   } else {
     // Waitlist flow
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await getAdmin()
       .from('login_waitlist')
       .select('id, unsubscribed_at, updated_at')
       .eq('email', email)
@@ -54,14 +54,14 @@ export async function POST(request: NextRequest) {
         const token = generateUnsubscribeToken(email)
         const unsubscribeUrl = `${SITE_URL}/api/auth/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`
         await sendWaitlistConfirmation(email, unsubscribeUrl)
-        await supabaseAdmin
+        await getAdmin()
           .from('login_waitlist')
           .update({ updated_at: new Date().toISOString() })
           .eq('id', existing.id)
       }
     } else {
       // New — insert and send confirmation
-      const { data: inserted } = await supabaseAdmin
+      const { data: inserted } = await getAdmin()
         .from('login_waitlist')
         .insert({ email })
         .select('id')
