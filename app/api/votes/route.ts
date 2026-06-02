@@ -7,11 +7,22 @@ import { z } from 'zod'
 const COOKIE_NAME = 'teskeid_voter_id'
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
 
+// Returns a descriptive error string if a required env var is missing, null if ok.
+// Called at request time (not build time) so Vercel logs capture the message.
+function checkEnv(): string | null {
+  if (!process.env.VOTE_SECRET && process.env.NODE_ENV === 'production') {
+    return 'VOTE_SECRET is not set — voting is disabled until this is added to Vercel env vars'
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return 'SUPABASE_SERVICE_ROLE_KEY is not set — votes cannot be read or written'
+  }
+  return null
+}
+
 function getVoteSecret(): string {
-  const s = process.env.VOTE_SECRET
-  if (s) return s
-  if (process.env.NODE_ENV !== 'production') return 'dev-vote-secret-not-for-production'
-  throw new Error('VOTE_SECRET env var is required in production')
+  if (process.env.VOTE_SECRET) return process.env.VOTE_SECRET
+  // Dev fallback — clearly labelled, never used in production (checkEnv blocks first)
+  return 'dev-vote-secret-not-for-production'
 }
 
 function hmacHash(value: string): string {
@@ -25,6 +36,12 @@ const postSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
+  const envError = checkEnv()
+  if (envError) {
+    console.error('[api/votes] POST:', envError)
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+  }
+
   const body = await request.json().catch(() => null)
   const parsed = postSchema.safeParse(body)
   if (!parsed.success) {
@@ -76,6 +93,12 @@ const getSchema = z.object({
 })
 
 export async function GET(request: NextRequest) {
+  const envError = checkEnv()
+  if (envError) {
+    console.error('[api/votes] GET:', envError)
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+  }
+
   const parsed = getSchema.safeParse({
     idea_ids: request.nextUrl.searchParams.get('idea_ids'),
   })
