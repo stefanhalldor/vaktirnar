@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Teskeið, idea bank for everyday solutions",
-    "description": "An open idea bank for simple solutions that make daily life a little lighter."
+    "title": "Everything in Teskeið",
+    "description": "Small everyday solutions in one place, one at a time."
   },
   "nav": {
     "language": "IS",
@@ -224,8 +224,8 @@
   },
   "teskeid": {
     "meta": {
-      "title": "Teskeið, open idea bank for everyday solutions",
-      "description": "We collect problems that need solving for Icelandic families. Vote, follow, submit."
+      "title": "Everything in Teskeið",
+      "description": "Small everyday solutions in one place, one at a time."
     },
     "nav": {
       "back": "Back",

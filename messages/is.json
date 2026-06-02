@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Teskeið, hugmyndabanki fyrir hversdagslausnir",
-    "description": "Opinn hugmyndabanki fyrir einfaldar lausnir sem gera daglegt líf aðeins léttara."
+    "title": "Allt í Teskeið",
+    "description": "Litlar hversdagslausnir á einum stað, einni í einu."
   },
   "nav": {
     "language": "EN",
@@ -224,8 +224,8 @@
   },
   "teskeid": {
     "meta": {
-      "title": "Teskeið, opinn hugmyndabanki fyrir hversdagslausnir",
-      "description": "Við safnum vandamálum sem þarf að leysa fyrir íslenskar fjölskyldur. Kjóstu, fylgstu, sendu inn."
+      "title": "Allt í Teskeið",
+      "description": "Litlar hversdagslausnir á einum stað, einni í einu."
     },
     "nav": {
       "back": "Til baka",
