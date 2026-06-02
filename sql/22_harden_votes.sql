@@ -1,8 +1,9 @@
--- Harden votes: add unique index on (idea_id, ip_hash) to block duplicate
--- votes from the same IP across different browsers/devices.
+-- SUPERSEDED by sql/23_relax_vote_ip_unique.sql — do NOT run for soft launch.
+-- The IP unique index blocked multiple users on the same WiFi.
+-- If already applied, run sql/23 to drop the index.
 --
--- Tradeoff: two people on the same NAT/wifi cannot both vote for the same
--- idea. Accepted for soft launch.
+-- Original purpose: add unique index on (idea_id, ip_hash) to block duplicate
+-- votes from the same IP across different browsers/devices.
 --
 -- IMPORTANT: Run this migration before any public traffic creates duplicate
 -- (idea_id, ip_hash) rows. If duplicates already exist, the CREATE UNIQUE
