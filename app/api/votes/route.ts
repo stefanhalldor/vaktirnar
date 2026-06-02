@@ -102,54 +102,65 @@ const getSchema = z.object({
 export async function GET(request: NextRequest) {
   const envError = checkGetEnv()
   if (envError) {
-    console.error('[api/votes] GET:', envError)
-    return NextResponse.json({ error: 'Server error' }, { status: 500 })
-  }
-
-  const parsed = getSchema.safeParse({
-    idea_ids: request.nextUrl.searchParams.get('idea_ids'),
-  })
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'Missing params' }, { status: 400 })
-  }
-
-  const idea_ids = parsed.data.idea_ids.split(',').filter(Boolean).slice(0, 100)
-  if (idea_ids.length === 0) {
-    return NextResponse.json({ voted: {}, counts: {} })
-  }
-
-  // Derive voter token from httpOnly cookie only (IP is not used for dedup)
-  const cookieValue = request.cookies.get(COOKIE_NAME)?.value
-  const voter_token = cookieValue ? hmacHash(cookieValue) : null
-
-  // Voted lookup based on cookie hash — same browser that voted will see voted=true
-  const voted: Record<string, true> = {}
-  if (voter_token) {
-    const { data: voteRows } = await getAdmin()
-      .from('votes')
-      .select('idea_id')
-      .eq('voter_token', voter_token)
-      .in('idea_id', idea_ids)
-
-    for (const row of voteRows ?? []) {
-      voted[row.idea_id] = true
-    }
-  }
-
-  // Counts (always returned)
-  const { data: ideaRows, error: ideasError } = await getAdmin()
-    .from('ideas')
-    .select('id, votes_count')
-    .in('id', idea_ids)
-
-  if (ideasError) {
+    console.error('[api/votes] GET blocked by missing env:', envError)
     return NextResponse.json({ error: 'Query failed' }, { status: 500 })
   }
 
-  const counts: Record<string, number> = {}
-  for (const row of ideaRows ?? []) {
-    counts[row.id] = row.votes_count
-  }
+  try {
+    const parsed = getSchema.safeParse({
+      idea_ids: request.nextUrl.searchParams.get('idea_ids'),
+    })
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Missing params' }, { status: 400 })
+    }
 
-  return NextResponse.json({ voted, counts })
+    const idea_ids = parsed.data.idea_ids.split(',').filter(Boolean).slice(0, 100)
+    if (idea_ids.length === 0) {
+      return NextResponse.json({ voted: {}, counts: {} })
+    }
+
+    // Derive voter token from httpOnly cookie only (IP is not used for dedup)
+    const cookieValue = request.cookies.get(COOKIE_NAME)?.value
+    const voter_token = cookieValue ? hmacHash(cookieValue) : null
+
+    // Voted lookup based on cookie hash — same browser that voted will see voted=true
+    const voted: Record<string, true> = {}
+    if (voter_token) {
+      const { data: voteRows, error: votesErr } = await getAdmin()
+        .from('votes')
+        .select('idea_id')
+        .eq('voter_token', voter_token)
+        .in('idea_id', idea_ids)
+
+      if (votesErr) {
+        console.error('[api/votes] GET votes query error:', votesErr.code, votesErr.message)
+        return NextResponse.json({ error: 'Query failed' }, { status: 500 })
+      }
+
+      for (const row of voteRows ?? []) {
+        voted[row.idea_id] = true
+      }
+    }
+
+    // Counts (always returned)
+    const { data: ideaRows, error: ideasErr } = await getAdmin()
+      .from('ideas')
+      .select('id, votes_count')
+      .in('id', idea_ids)
+
+    if (ideasErr) {
+      console.error('[api/votes] GET ideas query error:', ideasErr.code, ideasErr.message)
+      return NextResponse.json({ error: 'Query failed' }, { status: 500 })
+    }
+
+    const counts: Record<string, number> = {}
+    for (const row of ideaRows ?? []) {
+      counts[row.id] = row.votes_count
+    }
+
+    return NextResponse.json({ voted, counts })
+  } catch (err) {
+    console.error('[api/votes] GET unexpected error:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'Query failed' }, { status: 500 })
+  }
 }
