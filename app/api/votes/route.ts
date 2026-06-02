@@ -1,77 +1,123 @@
-import { createHash } from 'crypto'
-import { NextResponse, type NextRequest } from 'next/server'
+import { createHmac, randomUUID } from 'crypto'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAdmin } from '@/lib/supabase/admin'
-import { voteSchema } from '@/lib/teskeid/validation'
+import { z } from 'zod'
+
+const COOKIE_NAME = 'teskeid_voter_id'
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
+
+function getVoteSecret(): string {
+  const s = process.env.VOTE_SECRET
+  if (s) return s
+  if (process.env.NODE_ENV !== 'production') return 'dev-vote-secret-not-for-production'
+  throw new Error('VOTE_SECRET env var is required in production')
+}
+
+function hmacHash(value: string): string {
+  return createHmac('sha256', getVoteSecret()).update(value).digest('hex')
+}
+
+// --- POST /api/votes ---
+
+const postSchema = z.object({
+  idea_id: z.string().uuid(),
+})
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
-  const parsed = voteSchema.safeParse(body)
+  const parsed = postSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   }
+  const { idea_id } = parsed.data
 
-  const { idea_id, voter_token } = parsed.data
+  // Get or create voter id from httpOnly cookie (server-managed, not client-readable)
+  const existing = request.cookies.get(COOKIE_NAME)?.value
+  const isNew = !existing || existing.length < 10
+  const voterId = isNew ? randomUUID() : existing!
 
-  // Hash the IP address
+  // Hash voter id and IP — never store raw values
+  const voter_token = hmacHash(voterId)
+
   const forwarded = request.headers.get('x-forwarded-for')
-  const ip = forwarded ? forwarded.split(',')[0].trim() : (request.headers.get('x-real-ip') ?? 'unknown')
-  const ip_hash = createHash('sha256').update(ip).digest('hex')
+  const rawIp = forwarded
+    ? forwarded.split(',')[0].trim()
+    : request.headers.get('x-real-ip')
+  const ip_hash = rawIp ? hmacHash(rawIp) : null
 
   const supabase = await createClient()
   const { error } = await supabase.from('votes').insert({ idea_id, voter_token, ip_hash })
 
   if (error) {
     if (error.code === '23505') {
-      // Unique violation — already voted
       return NextResponse.json({ error: 'Already voted' }, { status: 409 })
     }
     return NextResponse.json({ error: 'Insert failed' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true })
+  const response = NextResponse.json({ ok: true })
+  if (isNew) {
+    response.cookies.set(COOKIE_NAME, voterId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: COOKIE_MAX_AGE,
+      path: '/',
+    })
+  }
+  return response
 }
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl
-  const voter_token = searchParams.get('voter_token')
-  const idea_ids_raw = searchParams.get('idea_ids')
+// --- GET /api/votes ---
 
-  if (!voter_token || voter_token.length > 100 || !idea_ids_raw) {
+const getSchema = z.object({
+  idea_ids: z.string().min(1).max(3000),
+})
+
+export async function GET(request: NextRequest) {
+  const parsed = getSchema.safeParse({
+    idea_ids: request.nextUrl.searchParams.get('idea_ids'),
+  })
+  if (!parsed.success) {
     return NextResponse.json({ error: 'Missing params' }, { status: 400 })
   }
 
-  const idea_ids = idea_ids_raw.split(',').filter(Boolean).slice(0, 100)
+  const idea_ids = parsed.data.idea_ids.split(',').filter(Boolean).slice(0, 100)
   if (idea_ids.length === 0) {
     return NextResponse.json({ voted: {}, counts: {} })
   }
 
-  // Use service role to bypass RLS (anon cannot SELECT votes)
-  const [votesResult, ideasResult] = await Promise.all([
-    getAdmin()
+  // Derive voter token from cookie — no client-provided token accepted
+  const cookieValue = request.cookies.get(COOKIE_NAME)?.value
+  const voter_token = cookieValue ? hmacHash(cookieValue) : null
+
+  // Voted lookup (skip if no cookie — user has not voted in this browser)
+  const voted: Record<string, true> = {}
+  if (voter_token) {
+    const { data: voteRows } = await getAdmin()
       .from('votes')
       .select('idea_id')
       .eq('voter_token', voter_token)
-      .in('idea_id', idea_ids),
-    getAdmin()
-      .from('ideas')
-      .select('id, votes_count')
-      .in('id', idea_ids),
-  ])
+      .in('idea_id', idea_ids)
 
-  if (votesResult.error || ideasResult.error) {
+    for (const row of voteRows ?? []) {
+      voted[row.idea_id] = true
+    }
+  }
+
+  // Counts (always returned)
+  const { data: ideaRows, error: ideasError } = await getAdmin()
+    .from('ideas')
+    .select('id, votes_count')
+    .in('id', idea_ids)
+
+  if (ideasError) {
     return NextResponse.json({ error: 'Query failed' }, { status: 500 })
   }
 
-  // voted: { [idea_id]: true } — no voter_token or ip_hash
-  const voted: Record<string, true> = {}
-  for (const row of votesResult.data ?? []) {
-    voted[row.idea_id] = true
-  }
-
-  // counts: { [idea_id]: number }
   const counts: Record<string, number> = {}
-  for (const row of ideasResult.data ?? []) {
+  for (const row of ideaRows ?? []) {
     counts[row.id] = row.votes_count
   }
 

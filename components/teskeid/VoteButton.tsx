@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { getVoterToken } from '@/lib/teskeid/utils'
 
 interface VoteButtonProps {
   ideaId: string
@@ -16,13 +15,9 @@ export function VoteButton({ ideaId, initialCount, compact = false }: VoteButton
   const [checked, setChecked] = useState(false)
 
   const sync = useCallback(async () => {
-    const token = getVoterToken()
-    if (!token) { setChecked(true); return }
-
     try {
-      const res = await fetch(
-        `/api/votes?voter_token=${encodeURIComponent(token)}&idea_ids=${ideaId}`
-      )
+      // Server reads the httpOnly voter cookie automatically — no token needed from client
+      const res = await fetch(`/api/votes?idea_ids=${ideaId}`)
       const data = await res.json()
       if (data.voted?.[ideaId]) setVoted(true)
       if (typeof data.counts?.[ideaId] === 'number') setCount(data.counts[ideaId])
@@ -56,9 +51,6 @@ export function VoteButton({ ideaId, initialCount, compact = false }: VoteButton
   async function handleVote() {
     if (voted || loading || !checked) return
 
-    const token = getVoterToken()
-    if (!token) return
-
     setLoading(true)
     setVoted(true)
     setCount((c) => c + 1)
@@ -66,7 +58,7 @@ export function VoteButton({ ideaId, initialCount, compact = false }: VoteButton
     const res = await fetch('/api/votes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idea_id: ideaId, voter_token: token }),
+      body: JSON.stringify({ idea_id: ideaId }),
     })
 
     if (!res.ok) {

@@ -3,7 +3,7 @@ import { IDEA_CATEGORIES } from './types'
 
 export const voteSchema = z.object({
   idea_id: z.string().uuid(),
-  voter_token: z.string().min(1).max(100),
+  // voter_token intentionally removed — server derives identity from httpOnly cookie
 })
 
 export const followerSchema = z.object({
