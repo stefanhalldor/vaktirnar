@@ -111,17 +111,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ voted: {}, counts: {} })
   }
 
-  // Derive voter token from cookie — no client-provided token accepted
+  // Derive voter token from cookie and ip_hash from request headers
   const cookieValue = request.cookies.get(COOKIE_NAME)?.value
   const voter_token = cookieValue ? hmacHash(cookieValue) : null
 
-  // Voted lookup (skip if no cookie — user has not voted in this browser)
+  const forwarded = request.headers.get('x-forwarded-for')
+  const rawIp = forwarded
+    ? forwarded.split(',')[0].trim()
+    : request.headers.get('x-real-ip')
+  const ip_hash = rawIp ? hmacHash(rawIp) : null
+
+  // Voted lookup: match either voter_token OR ip_hash so the UI reflects
+  // all paths that would block a duplicate POST (cookie + IP unique index)
   const voted: Record<string, true> = {}
-  if (voter_token) {
+  const conditions: string[] = []
+  if (voter_token) conditions.push(`voter_token.eq.${voter_token}`)
+  if (ip_hash) conditions.push(`ip_hash.eq.${ip_hash}`)
+
+  if (conditions.length > 0) {
     const { data: voteRows } = await getAdmin()
       .from('votes')
       .select('idea_id')
-      .eq('voter_token', voter_token)
+      .or(conditions.join(','))
       .in('idea_id', idea_ids)
 
     for (const row of voteRows ?? []) {
