@@ -8,6 +8,7 @@ import { VoteButton } from '@/components/teskeid/VoteButton'
 import { FollowForm } from '@/components/teskeid/FollowForm'
 import { Footer } from '@/components/landing/Footer'
 import { FloatingSubmitButton } from '@/components/teskeid/FloatingSubmitButton'
+import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 import Link from 'next/link'
 import { ExternalLink } from 'lucide-react'
 
@@ -58,6 +59,7 @@ export default async function IdeaPage({
 
   return (
     <main className="min-h-screen bg-[#FAFAFA]">
+      <PageViewTracker ideaId={idea.id} />
       <NavBar />
 
       <article className="max-w-2xl mx-auto px-6 pt-10 pb-20">

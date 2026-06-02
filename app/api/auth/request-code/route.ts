@@ -11,10 +11,11 @@ const schema = z.object({
 })
 
 function isAdminEmail(email: string): boolean {
-  const adminEmails = (process.env.ADMIN_EMAILS ?? '')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
+  const raw = process.env.ADMIN_EMAILS ?? ''
+  if (!raw.trim()) {
+    console.error('[request-code] ADMIN_EMAILS is not set — no admin logins possible')
+  }
+  const adminEmails = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
   return adminEmails.includes(email)
 }
 
@@ -30,49 +31,53 @@ export async function POST(request: NextRequest) {
 
   const { email } = parsed.data
 
-  if (isAdminEmail(email)) {
-    // Generate and send login code (silently skip if rate-limited)
-    const code = await createLoginCode(email)
-    if (code) {
-      await sendLoginCode(email, code)
-    }
-  } else {
-    // Waitlist flow
-    const { data: existing } = await getAdmin()
-      .from('login_waitlist')
-      .select('id, unsubscribed_at, updated_at')
-      .eq('email', email)
-      .maybeSingle()
-
-    if (existing?.unsubscribed_at) {
-      // Unsubscribed — do nothing
-    } else if (existing) {
-      // Already on waitlist — check if eligible for re-email (max once per hour)
-      const updatedAt = new Date(existing.updated_at).getTime()
-      const oneHourAgo = Date.now() - 60 * 60 * 1000
-      if (updatedAt < oneHourAgo) {
-        const token = generateUnsubscribeToken(email)
-        const unsubscribeUrl = `${SITE_URL}/api/auth/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`
-        await sendWaitlistConfirmation(email, unsubscribeUrl)
-        await getAdmin()
-          .from('login_waitlist')
-          .update({ updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
+  try {
+    if (isAdminEmail(email)) {
+      // Generate and send login code (silently skip if rate-limited)
+      const code = await createLoginCode(email)
+      if (code) {
+        await sendLoginCode(email, code)
       }
     } else {
-      // New — insert and send confirmation
-      const { data: inserted } = await getAdmin()
+      // Waitlist flow
+      const { data: existing } = await getAdmin()
         .from('login_waitlist')
-        .insert({ email })
-        .select('id')
-        .single()
+        .select('id, unsubscribed_at, updated_at')
+        .eq('email', email)
+        .maybeSingle()
 
-      if (inserted) {
-        const token = generateUnsubscribeToken(email)
-        const unsubscribeUrl = `${SITE_URL}/api/auth/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`
-        await sendWaitlistConfirmation(email, unsubscribeUrl)
+      if (existing?.unsubscribed_at) {
+        // Unsubscribed — do nothing
+      } else if (existing) {
+        // Already on waitlist — check if eligible for re-email (max once per hour)
+        const updatedAt = new Date(existing.updated_at).getTime()
+        const oneHourAgo = Date.now() - 60 * 60 * 1000
+        if (updatedAt < oneHourAgo) {
+          const token = generateUnsubscribeToken(email)
+          const unsubscribeUrl = `${SITE_URL}/api/auth/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`
+          await sendWaitlistConfirmation(email, unsubscribeUrl)
+          await getAdmin()
+            .from('login_waitlist')
+            .update({ updated_at: new Date().toISOString() })
+            .eq('id', existing.id)
+        }
+      } else {
+        // New — insert and send confirmation
+        const { data: inserted } = await getAdmin()
+          .from('login_waitlist')
+          .insert({ email })
+          .select('id')
+          .single()
+
+        if (inserted) {
+          const token = generateUnsubscribeToken(email)
+          const unsubscribeUrl = `${SITE_URL}/api/auth/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`
+          await sendWaitlistConfirmation(email, unsubscribeUrl)
+        }
       }
     }
+  } catch (err) {
+    console.error('[request-code] internal error (not exposed to client):', err)
   }
 
   // Always return identical success response

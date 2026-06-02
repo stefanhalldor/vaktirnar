@@ -2,7 +2,11 @@ import 'server-only'
 import { createHmac, timingSafeEqual } from 'crypto'
 
 export function generateUnsubscribeToken(email: string): string {
-  const secret = process.env.UNSUBSCRIBE_SECRET!
+  const secret = process.env.UNSUBSCRIBE_SECRET
+  if (!secret) {
+    console.error('[auth/unsubscribe] UNSUBSCRIBE_SECRET is not set')
+    throw new Error('UNSUBSCRIBE_SECRET is not configured')
+  }
   return createHmac('sha256', secret)
     .update('unsubscribe:' + email.toLowerCase())
     .digest('hex')

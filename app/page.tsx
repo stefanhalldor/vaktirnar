@@ -5,6 +5,7 @@ import { HeroSection } from '@/components/teskeid/HeroSection'
 import { IdeaGrid } from '@/components/teskeid/IdeaGrid'
 import { Footer } from '@/components/landing/Footer'
 import { FloatingSubmitButton } from '@/components/teskeid/FloatingSubmitButton'
+import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 
 export default async function Home() {
   const t = await getTranslations('teskeid')
@@ -14,10 +15,12 @@ export default async function Home() {
     .from('ideas')
     .select('*')
     .eq('is_public', true)
+    .order('is_featured', { ascending: false })
     .order('votes_count', { ascending: false })
 
   return (
     <main className="min-h-screen bg-[#FAFAFA]">
+      <PageViewTracker />
       <NavBar />
       <HeroSection
         tagline={t('hero.tagline')}

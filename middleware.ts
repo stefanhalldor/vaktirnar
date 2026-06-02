@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   '/api/votes',
   '/api/followers',
   '/api/submissions',
+  '/api/analytics',
   '/admin/login',
   '/api/auth',
 ]

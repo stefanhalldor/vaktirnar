@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { trackEvent } from '@/lib/teskeid/analytics'
 
 export function FollowForm({ ideaId }: { ideaId: string }) {
   const [email, setEmail] = useState('')
@@ -17,6 +18,7 @@ export function FollowForm({ ideaId }: { ideaId: string }) {
       body: JSON.stringify({ idea_id: ideaId, email: email.toLowerCase() }),
     })
 
+    if (res.ok) trackEvent('follow', { idea_id: ideaId })
     setState(res.ok ? 'done' : 'error')
   }
 

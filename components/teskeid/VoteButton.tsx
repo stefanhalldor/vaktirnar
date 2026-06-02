@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { trackEvent } from '@/lib/teskeid/analytics'
 
 interface VoteButtonProps {
   ideaId: string
@@ -64,6 +65,8 @@ export function VoteButton({ ideaId, initialCount, compact = false }: VoteButton
     if (!res.ok) {
       setVoted(false)
       setCount((c) => c - 1)
+    } else {
+      trackEvent('vote', { idea_id: ideaId })
     }
 
     setLoading(false)

@@ -50,6 +50,7 @@ export interface Submission {
   name: string | null
   email: string | null
   status: SubmissionStatus
+  idea_id: string | null
   created_at: string
 }
 

@@ -21,7 +21,7 @@ export async function PATCH(
 
   const { data, error } = await getAdmin()
     .from('submissions')
-    .update({ status: parsed.data.status })
+    .update(parsed.data)
     .eq('id', id)
     .select()
     .single()

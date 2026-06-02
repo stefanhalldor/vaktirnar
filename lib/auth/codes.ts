@@ -11,7 +11,11 @@ export function generateCode(): string {
 }
 
 export function hashCode(email: string, code: string): string {
-  const secret = process.env.AUTH_CODE_SECRET!
+  const secret = process.env.AUTH_CODE_SECRET
+  if (!secret) {
+    console.error('[auth/codes] AUTH_CODE_SECRET is not set')
+    throw new Error('AUTH_CODE_SECRET is not configured')
+  }
   return createHmac('sha256', secret)
     .update(email.toLowerCase() + ':' + code)
     .digest('hex')

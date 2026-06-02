@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { IDEA_CATEGORIES } from '@/lib/teskeid/types'
+import { trackEvent } from '@/lib/teskeid/analytics'
 
 export function SubmissionForm() {
   const [form, setForm] = useState({
@@ -37,6 +38,7 @@ export function SubmissionForm() {
         email: form.email || undefined,
       }),
     })
+    if (res.ok) trackEvent('submit')
     setState(res.ok ? 'done' : 'error')
   }
 

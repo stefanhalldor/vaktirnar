@@ -1,19 +1,33 @@
 import 'server-only'
 
+const DEFAULT_FROM = 'Teskeið <teskeid@mail.gottvibe.is>'
+
 async function send(to: string, subject: string, text: string): Promise<void> {
   if (!process.env.RESEND_API_KEY) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[email] RESEND_API_KEY is not set — email NOT sent to', to)
+      return
+    }
     console.log(`[dev email] To: ${to}\nSubject: ${subject}\n${text}\n`)
     return
   }
+
+  const from = process.env.EMAIL_FROM ?? DEFAULT_FROM
+  if (!process.env.EMAIL_FROM && process.env.NODE_ENV === 'production') {
+    console.error('[email] EMAIL_FROM is not set — using fallback:', DEFAULT_FROM)
+  }
+
+  const replyTo = process.env.REPLY_TO ?? undefined
 
   const { Resend } = await import('resend')
   const resend = new Resend(process.env.RESEND_API_KEY)
 
   await resend.emails.send({
-    from: 'Teskeið <noreply@teskeid.is>',
+    from,
     to,
     subject,
     text,
+    ...(replyTo ? { replyTo } : {}),
   })
 }
 
