@@ -127,14 +127,17 @@ export function SubmissionForm() {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Má við birta þetta?
+        <label className="block text-sm font-medium text-gray-700 mb-0.5">
+          Má birta hugmyndina?
         </label>
+        <p className="text-xs text-gray-500 mb-2">
+          Þú ræður hvort hugmyndin birtist í bankanum og hvort nafnið þitt fylgi með.
+        </p>
         <div className="flex flex-col gap-2">
           {[
-            { value: 'anonymous', label: 'Já, en nafnlægt' },
-            { value: 'yes', label: 'Já, má gjarnan nefna nafn mitt' },
-            { value: 'no', label: 'Nei, aðeins til innri skoðunar' },
+            { value: 'anonymous', label: 'Já, án nafns' },
+            { value: 'yes', label: 'Já, með nafninu mínu' },
+            { value: 'no', label: 'Nei, bara til innri skoðunar' },
           ].map(({ value, label }) => (
             <label key={value} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
               <input
