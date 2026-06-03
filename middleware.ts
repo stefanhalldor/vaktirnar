@@ -12,10 +12,12 @@ const PUBLIC_PATHS = [
   '/preview',
   '/hugmyndir',
   '/senda-hugmynd',
+  '/innskraning',
   '/api/votes',
   '/api/followers',
   '/api/submissions',
   '/api/analytics',
+  '/api/login-waitlist',
   '/admin/login',
   '/api/auth',
 ]
