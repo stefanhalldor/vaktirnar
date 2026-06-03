@@ -36,7 +36,7 @@ export default async function RootLayout({
     <html lang={locale}>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#7c3aed" />
+        <meta name="theme-color" content="#154212" />
       </head>
       <body className={inter.className}>
         <NextIntlClientProvider messages={messages}>

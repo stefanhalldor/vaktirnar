@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <!--
+    Teskeið logo.
+    Background: warm cream square with rounded corners.
+    Spoon: horizontal outline only (stroke, no fill).
+      Bowl: ellipse centered at (275,200) rx=82 ry=108.
+            Junctions with handle at (196,172) and (196,228).
+      Handle: two nearly-horizontal lines narrowing toward the left.
+      Loop: semicircle at handle tip, center (68,200) r=26.
+    Text "Teskeið" centered inside the bowl.
+
+    Path traces the full spoon outline as one closed shape:
+      1. Start at top handle-bowl junction (196,172)
+      2. Large clockwise ellipse arc around the bowl to bottom junction (196,228)
+      3. Cubic bezier: bottom handle line to loop bottom (68,226)
+      4. Counter-clockwise semicircle around the loop tip to (68,174)
+      5. Cubic bezier: top handle line back to start (196,172)
+      6. Close
+  -->
+
+  <!-- Warm cream background -->
+  <rect width="400" height="400" rx="60" fill="#fbf9f4"/>
+
+  <!-- Spoon outline -->
+  <path
+    d="
+      M 196,172
+      A 82,108 0 1 1 196,228
+      C 158,235 112,232 68,226
+      A 26,26 0 0 0 68,174
+      C 112,168 158,165 196,172
+      Z
+    "
+    fill="none"
+    stroke="#154212"
+    stroke-width="10"
+    stroke-linejoin="round"
+    stroke-linecap="round"
+  />
+
+  <!-- "Teskeið" centered in the bowl -->
+  <text
+    x="283"
+    y="200"
+    font-family="Geist, Inter, system-ui, -apple-system, sans-serif"
+    font-size="34"
+    font-weight="500"
+    letter-spacing="-0.02em"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    fill="#154212"
+  >Teskeið</text>
+</svg>

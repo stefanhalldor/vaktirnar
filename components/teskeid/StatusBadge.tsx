@@ -10,18 +10,18 @@ const STATUS_LABELS: Record<IdeaStatus, string> = {
 }
 
 const STATUS_STYLES: Record<IdeaStatus, string> = {
-  idea: 'bg-gray-100 text-gray-500',
-  reviewing: 'bg-blue-100 text-blue-600',
-  planned: 'bg-violet-100 text-violet-600',
-  building: 'bg-amber-100 text-amber-600',
-  launched: 'bg-green-100 text-green-700',
-  archived: 'bg-gray-100 text-gray-400',
+  idea: 'bg-[#e4e2dd] text-[#42493e]',
+  reviewing: 'bg-[#e4e2dd] text-[#42493e]',
+  planned: 'bg-[#dae5de] text-[#141e19]',
+  building: 'bg-[#dae5de] text-[#141e19]',
+  launched: 'bg-[#2d5a27] text-[#9dd090]',
+  archived: 'bg-[#e4e2dd] text-[#72796e]',
 }
 
 export function StatusBadge({ status }: { status: IdeaStatus }) {
   return (
     <span
-      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[status]}`}
+      className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${STATUS_STYLES[status]}`}
     >
       {STATUS_LABELS[status]}
     </span>

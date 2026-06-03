@@ -6,12 +6,18 @@ interface HeroSectionProps {
 
 export function HeroSection({ tagline, description, supportingLine }: HeroSectionProps) {
   return (
-    <section className="max-w-4xl mx-auto px-6 pt-12 pb-10">
-      <h1 className="text-3xl font-medium text-gray-900 max-w-lg leading-snug mb-3">
+    <section className="max-w-[768px] mx-auto px-5 pt-8 pb-8 text-center">
+      <h2 className="text-[32px] leading-[40px] font-semibold tracking-[-0.02em] text-[#154212] mb-3 max-w-[500px] mx-auto">
         {tagline}
-      </h1>
-      <p className="text-sm text-gray-500 leading-relaxed max-w-md mb-4">{description}</p>
-      <p className="text-sm font-medium text-gray-700 max-w-md">{supportingLine}</p>
+      </h2>
+      <p className="text-lg leading-[28px] text-[#42493e] max-w-[500px] mx-auto">
+        {description.split('\n').map((line, i) => (
+          <span key={i}>{i > 0 && <br />}{line}</span>
+        ))}
+        <br />
+        <br />
+        <span className="text-xl font-medium text-[#1b1c19]">{supportingLine}</span>
+      </p>
     </section>
   )
 }

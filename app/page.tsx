@@ -1,10 +1,8 @@
 import { getTranslations } from 'next-intl/server'
 import { createClient } from '@/lib/supabase/server'
-import { NavBar } from '@/components/teskeid/NavBar'
+import { NavBar, BottomNav } from '@/components/teskeid/NavBar'
 import { HeroSection } from '@/components/teskeid/HeroSection'
 import { IdeaGrid } from '@/components/teskeid/IdeaGrid'
-import { Footer } from '@/components/landing/Footer'
-import { FloatingSubmitButton } from '@/components/teskeid/FloatingSubmitButton'
 import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 
 export default async function Home() {
@@ -19,7 +17,7 @@ export default async function Home() {
     .order('votes_count', { ascending: false })
 
   return (
-    <main className="min-h-screen bg-[#FAFAFA]">
+    <main className="min-h-screen bg-[#fbf9f4] pb-32">
       <PageViewTracker />
       <NavBar />
       <HeroSection
@@ -28,13 +26,21 @@ export default async function Home() {
         supportingLine={t('hero.supportingLine')}
       />
 
-      <section className="max-w-4xl mx-auto px-6 pb-20">
-        <p className="text-sm text-gray-500 leading-relaxed mb-6">{t('hero.ideasIntro')}</p>
+      <section className="max-w-[768px] mx-auto px-5 pb-8">
+        <p className="text-lg font-medium text-[#42493e] text-center max-w-[600px] mx-auto mb-6 leading-[28px]">
+          {t('hero.ideasIntro')}
+        </p>
         <IdeaGrid ideas={ideas ?? []} />
       </section>
 
-      <Footer tagline={t('footer.tagline')} copyright={t('footer.copyright')} />
-      <FloatingSubmitButton label={t('nav.submitIdea')} />
+      <footer className="max-w-[768px] mx-auto px-5 py-8 border-t border-black/5 mt-4">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-2 text-sm text-[#72796e]">
+          <span>{t('footer.tagline')}</span>
+          <span>{t('footer.copyright')}</span>
+        </div>
+      </footer>
+
+      <BottomNav />
     </main>
   )
 }

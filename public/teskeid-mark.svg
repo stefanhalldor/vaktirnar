@@ -1,14 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
   <!--
-    Teskeið favicon — same spoon shape as logo but without text.
-    Next.js serves app/icon.svg as the browser favicon automatically.
-    Uses the full 400×400 viewBox so it scales cleanly to any size.
+    Teskeið icon mark — used in NavBar at 32×32px.
+    Same as favicon: spoon outline on cream background, no text.
   -->
 
-  <!-- Warm cream background -->
   <rect width="400" height="400" rx="60" fill="#fbf9f4"/>
 
-  <!-- Spoon outline (no text — unreadable at 16–32px favicon sizes) -->
   <path
     d="
       M 196,172

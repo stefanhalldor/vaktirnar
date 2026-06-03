@@ -1,15 +1,17 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { ChevronUp, ThumbsUp, Plus, Check } from 'lucide-react'
 import { trackEvent } from '@/lib/teskeid/analytics'
 
 interface VoteButtonProps {
   ideaId: string
   initialCount: number
   compact?: boolean
+  variant?: 'stitch'
 }
 
-export function VoteButton({ ideaId, initialCount, compact = false }: VoteButtonProps) {
+export function VoteButton({ ideaId, initialCount, compact = false, variant }: VoteButtonProps) {
   const [count, setCount] = useState(initialCount)
   const [voted, setVoted] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -72,6 +74,33 @@ export function VoteButton({ ideaId, initialCount, compact = false }: VoteButton
     setLoading(false)
   }
 
+  if (variant === 'stitch') {
+    return (
+      <div className="flex items-center justify-between w-full gap-3">
+        <span className="text-sm text-[#42493e] flex items-center gap-1.5 shrink-0">
+          <ThumbsUp size={14} />
+          <span>{count} atkvæði</span>
+        </span>
+        <button
+          onClick={handleVote}
+          disabled={voted || loading || !checked}
+          aria-label="Kjósa þessa hugmynd"
+          className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold border transition-colors min-h-[40px] shrink-0 ${
+            voted
+              ? 'bg-[#2d5a27] text-[#9dd090] border-[#2d5a27] cursor-default'
+              : 'bg-white text-[#154212] border-[#c2c9bb] hover:border-[#154212] hover:bg-[#f0eee9]'
+          } disabled:opacity-60`}
+        >
+          {voted ? (
+            <><Check size={14} />Kosið</>
+          ) : (
+            <><Plus size={14} />Kjósa</>
+          )}
+        </button>
+      </div>
+    )
+  }
+
   if (compact) {
     return (
       <button
@@ -80,11 +109,11 @@ export function VoteButton({ ideaId, initialCount, compact = false }: VoteButton
         aria-label="Kjósa þessa hugmynd"
         className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors border ${
           voted
-            ? 'bg-violet-600 text-white border-violet-600 cursor-default'
-            : 'bg-white text-gray-500 border-gray-200 hover:border-violet-400 hover:text-violet-600'
+            ? 'bg-[#154212] text-white border-[#154212] cursor-default'
+            : 'bg-white text-[#42493e] border-[#c2c9bb] hover:border-[#154212] hover:text-[#154212]'
         } disabled:opacity-60`}
       >
-        <span>▲</span>
+        <ChevronUp size={12} />
         <span>{count}</span>
       </button>
     )
@@ -97,11 +126,11 @@ export function VoteButton({ ideaId, initialCount, compact = false }: VoteButton
       aria-label="Kjósa þessa hugmynd"
       className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors border ${
         voted
-          ? 'bg-violet-600 text-white border-violet-600 cursor-default'
-          : 'bg-white text-gray-700 border-gray-200 hover:border-violet-400 hover:text-violet-600'
+          ? 'bg-[#154212] text-white border-[#154212] cursor-default'
+          : 'bg-white text-[#42493e] border-[#c2c9bb] hover:border-[#154212] hover:text-[#154212]'
       } disabled:opacity-60`}
     >
-      <span>▲</span>
+      <ChevronUp size={14} />
       <span>{count}</span>
       {voted && <span className="text-xs opacity-80">Kosið</span>}
     </button>
