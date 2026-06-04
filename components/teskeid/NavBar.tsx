@@ -6,19 +6,11 @@ import { Lightbulb, Send, User } from 'lucide-react'
 
 export function NavBar() {
   return (
-    <header className="w-full top-0 sticky z-50 bg-[#fbf9f4]/80 backdrop-blur-md border-b border-black/5">
-      <div className="flex items-center justify-between px-5 py-4 max-w-[768px] mx-auto">
-        <Link href="/" className="flex items-center gap-2">
+    <header className="w-full sticky top-0 z-50 bg-[#fbf9f4]/90 backdrop-blur-md border-b border-black/5">
+      <div className="max-w-[768px] mx-auto h-28 sm:h-32 px-5 flex items-center justify-center">
+        <Link href="/" className="inline-flex items-center justify-center py-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/teskeid-mark.svg" alt="" width={32} height={32} className="shrink-0 rounded-lg" />
-          <span className="text-[#154212] font-semibold text-lg tracking-tight">Teskeið</span>
-        </Link>
-        <Link
-          href="/innskraning"
-          className="h-8 w-8 rounded-full bg-[#a1d494] flex items-center justify-center text-[#23501e] text-xs font-semibold hover:opacity-80 transition-opacity"
-          aria-label="Innskráning"
-        >
-          <User size={16} />
+          <img src="/teskeid-logo-no-frame.svg" alt="Teskeið" className="h-24 sm:h-28 w-auto max-w-[390px]" />
         </Link>
       </div>
     </header>
