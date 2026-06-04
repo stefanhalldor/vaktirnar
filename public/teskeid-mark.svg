@@ -1,23 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
   <!--
-    Teskeið icon mark — used in NavBar at 32×32px.
-    Same as favicon: spoon outline on cream background, no text.
+    Teskeið mark — horizontal spoon outline.
+    Bowl: ellipse center (260,200) rx=80 ry=56, rightmost x=340.
+    Handle junctions at (196,166) top and (196,234) bottom (68px gap).
+    Loop: circle center (70,200) r=24, leftmost x=46.
+    Total width: ~294px (~73% of 400). Stroke-width 14.
   -->
 
-  <rect width="400" height="400" rx="60" fill="#fbf9f4"/>
+  <rect width="400" height="400" rx="72" fill="#fbf9f4"/>
 
   <path
     d="
-      M 196,172
-      A 82,108 0 1 1 196,228
-      C 158,235 112,232 68,226
-      A 26,26 0 0 0 68,174
-      C 112,168 158,165 196,172
+      M 196,166
+      A 80,56 0 1 1 196,234
+      C 170,236 110,230 70,224
+      A 24,24 0 1 0 70,176
+      C 110,170 170,164 196,166
       Z
     "
     fill="none"
     stroke="#154212"
-    stroke-width="10"
+    stroke-width="14"
     stroke-linejoin="round"
     stroke-linecap="round"
   />
