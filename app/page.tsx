@@ -22,14 +22,18 @@ export default async function Home() {
       <NavBar />
       <HeroSection
         tagline={t('hero.tagline')}
-        description={t('hero.description')}
+        shortIntro={t('hero.shortIntro')}
         supportingLine={t('hero.supportingLine')}
+        expandLabel={t('hero.expandLabel')}
+        collapseLabel={t('hero.collapseLabel')}
+        expandedDescription={t('hero.expandedDescription')}
       />
 
       <section className="max-w-[768px] mx-auto px-5 pb-8">
-        <p className="text-lg font-medium text-[#42493e] text-center max-w-[600px] mx-auto mb-6 leading-[28px]">
-          {t('hero.ideasIntro')}
-        </p>
+        <div className="text-base font-medium text-[#42493e] text-center max-w-[600px] mx-auto mb-6 leading-[26px] space-y-1">
+          <p>{t('hero.ideasIntro')}</p>
+          <p>{t('hero.ideasIntroAction')}</p>
+        </div>
         <IdeaGrid ideas={ideas ?? []} />
       </section>
 

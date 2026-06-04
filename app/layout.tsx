@@ -11,6 +11,7 @@ const inter = Inter({ subsets: ['latin'] })
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('meta')
   return {
+    metadataBase: new URL('https://teskeid.is'),
     title: t('title'),
     description: t('description'),
     openGraph: {
@@ -20,6 +21,11 @@ export async function generateMetadata(): Promise<Metadata> {
       siteName: 'Teskeið',
       locale: 'is_IS',
       type: 'website',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: t('title'),
+      description: t('description'),
     },
   }
 }

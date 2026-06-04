@@ -29,12 +29,18 @@ export async function generateMetadata({
   if (!data) return {}
 
   return {
-    title: `${data.title} — Teskeið`,
+    title: `${data.title} | Teskeið`,
     description: data.short_description,
     openGraph: {
-      title: `${data.title} — Teskeið`,
+      title: `${data.title} | Teskeið`,
       description: data.short_description,
       siteName: 'Teskeið',
+      url: `https://teskeid.is/hugmyndir/${slug}`,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${data.title} | Teskeið`,
+      description: data.short_description,
     },
   }
 }

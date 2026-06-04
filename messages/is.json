@@ -234,9 +234,13 @@
     },
     "hero": {
       "tagline": "Ertu með allt í Teskeið?",
-      "description": "Líklega ekki alveg, en bráðum!\nHeimilið, börnin, peningarnir, plönin, gjafirnar, minningarnar og allt hitt litla sem átti bara að vera einfalt endar oft á tíu stöðum í einu. Teskeið safnar litlum hversdagslausnum á einn stað, einni í einu.",
+      "shortIntro": "Það styttist nefnilega í það.",
       "supportingLine": "Einn aðgangur. Allt í Teskeið.",
-      "ideasIntro": "Fyrsta skrefið er að finna með ykkur hvað ykkur langar mest að setja í Teskeiðina ykkar."
+      "expandLabel": "Af hverju Teskeið?",
+      "collapseLabel": "Fela",
+      "expandedDescription": "Heimilið, börnin, peningarnir, plönin, gjafirnar, minningarnar og allt litla vesenið sem átti bara að vera einfalt, endar oft á alltof mörgum stöðum sem tala ekkert saman.\n\nEnginn þeirra virkar nákvæmlega eins og við viljum.\nPóstarnir safnast upp, öppin safnast upp og á endanum nennum við þessu ekki lengur.\n\nRéttu upp hönd ef þú tengir.\n🙋‍♂️ Sekur.\n\nTeskeið.is safnar litlum lausnum fyrir lífið á einn stað. Ein Teskeið í einu.\n\nÞangað til þið eruð bara með\u2019idda.\nMeð allt í Teskeið.",
+      "ideasIntro": "Allt sem leysir raunverulegt vesen í lífi venjulegs fólks á heima í Teskeiðinni.",
+      "ideasIntroAction": "Hjálpumst að við að forgangsraða 👇"
     },
     "ideas": {
       "heading": "Hugmyndirnar",

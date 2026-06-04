@@ -6,7 +6,7 @@ import { Lightbulb, Send, User } from 'lucide-react'
 
 export function NavBar() {
   return (
-    <header className="w-full sticky top-0 z-50 bg-[#fbf9f4]/90 backdrop-blur-md border-b border-black/5">
+    <header className="w-full bg-[#fbf9f4] border-b border-black/5">
       <div className="max-w-[768px] mx-auto h-28 sm:h-32 px-5 flex items-center justify-center">
         <Link href="/" className="inline-flex items-center justify-center py-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}

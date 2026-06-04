@@ -2,7 +2,7 @@ import { NavBar, BottomNav } from '@/components/teskeid/NavBar'
 import { LoginWaitlistForm } from '@/components/teskeid/LoginWaitlistForm'
 
 export const metadata = {
-  title: 'Innskráning — Teskeið',
+  title: 'Innskráning | Teskeið',
 }
 
 export default function InnskraningPage() {
