@@ -34,6 +34,18 @@ export const adminIdeaUpdateSchema = z.object({
   is_featured: z.boolean().optional(),
 })
 
+export const adminIdeaCreateSchema = z.object({
+  title: z.string().min(1).max(200),
+  slug: z.string().regex(/^[a-z0-9-]+$/, 'Slug má bara innihalda a-z, 0-9 og -').min(1).max(200),
+  short_description: z.string().min(1).max(500),
+  problem_description: z.string().max(2000).nullable().optional(),
+  possible_solution: z.string().max(2000).nullable().optional(),
+  category: z.enum(IDEA_CATEGORIES as [string, ...string[]]),
+  status: z.enum(['idea', 'reviewing', 'planned', 'building', 'launched', 'archived']),
+  is_public: z.boolean(),
+  is_featured: z.boolean(),
+})
+
 export const adminSubmissionUpdateSchema = z.object({
   problem_description: z.string().min(1).max(2000).optional(),
   current_solution: z.string().max(2000).nullable().optional(),

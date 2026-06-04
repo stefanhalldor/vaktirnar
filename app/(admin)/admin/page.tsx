@@ -73,7 +73,7 @@ function BreakdownList({ data }: { data: Record<string, number> }) {
           <span className="w-24 truncate text-gray-500 shrink-0">{label}</span>
           <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
             <div
-              className="bg-violet-400 h-full rounded-full"
+              className="bg-[#9dd090] h-full rounded-full"
               style={{ width: `${Math.round((count / max) * 100)}%` }}
             />
           </div>
@@ -101,6 +101,16 @@ export default function AdminPage() {
   const [creatingIdeaSubId, setCreatingIdeaSubId] = useState<string | null>(null)
   const [createIdeaDraft, setCreateIdeaDraft] = useState({ title: '', slug: '', short_description: '' })
   const [createIdeaError, setCreateIdeaError] = useState('')
+  const [showCreateIdea, setShowCreateIdea] = useState(false)
+  const [newIdeaDraft, setNewIdeaDraft] = useState({
+    title: '', slug: '', short_description: '',
+    problem_description: '', possible_solution: '',
+    category: 'Annað' as IdeaCategory,
+    status: 'idea' as IdeaStatus,
+    is_public: false, is_featured: false,
+  })
+  const [newIdeaError, setNewIdeaError] = useState('')
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -218,18 +228,53 @@ export default function AdminPage() {
     }
   }
 
+  async function createIdea() {
+    setNewIdeaError('')
+    const payload = {
+      ...newIdeaDraft,
+      title: newIdeaDraft.title.trim(),
+      slug: newIdeaDraft.slug.trim(),
+      short_description: newIdeaDraft.short_description.trim(),
+      problem_description: newIdeaDraft.problem_description.trim() || null,
+      possible_solution: newIdeaDraft.possible_solution.trim() || null,
+    }
+    const res = await fetch('/api/admin/ideas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (res.ok) {
+      const idea = await res.json()
+      setIdeas((prev) => [idea, ...prev])
+      setShowCreateIdea(false)
+      setNewIdeaDraft({ title: '', slug: '', short_description: '', problem_description: '', possible_solution: '', category: 'Annað', status: 'idea', is_public: false, is_featured: false })
+      setSlugManuallyEdited(false)
+    } else {
+      const data = await res.json().catch(() => ({}))
+      if (data.error === 'duplicate_slug') {
+        setNewIdeaError('Slug er þegar í notkun. Veldu annað.')
+      } else if (res.status === 400) {
+        const fields = data.details?.fieldErrors ?? {}
+        if (fields.slug?.length) setNewIdeaError('Slug má bara innihalda a-z, 0-9 og bandstrik.')
+        else setNewIdeaError('Athugaðu að titill, slug og stutt lýsing séu rétt.')
+      } else {
+        setNewIdeaError('Villa kom upp. Reyndu aftur.')
+      }
+    }
+  }
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center">
+      <div className="min-h-screen bg-[#fbf9f4] flex items-center justify-center">
         <p className="text-sm text-gray-400">Hleður...</p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA]">
+    <div className="min-h-screen bg-[#fbf9f4]">
       <div className="max-w-5xl mx-auto px-6 py-10">
-        <h1 className="text-xl font-semibold text-gray-900 mb-6">Teskeið admin</h1>
+        <h1 className="text-xl font-semibold text-[#42493e] mb-6">Teskeið admin</h1>
 
         <div className="flex gap-2 mb-6">
           {(['ideas', 'submissions', 'stats'] as const).map((t) => (
@@ -238,8 +283,8 @@ export default function AdminPage() {
               onClick={() => setTab(t)}
               className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                 tab === t
-                  ? 'bg-violet-600 text-white border-violet-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-violet-300'
+                  ? 'bg-[#154212] text-white border-[#154212]'
+                  : 'bg-white text-gray-600 border-[#c2c9bb] hover:border-[#2d5a27]'
               }`}
             >
               {t === 'ideas'
@@ -253,8 +298,162 @@ export default function AdminPage() {
 
         {tab === 'ideas' && (
           <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between mb-1">
+              <button
+                onClick={() => { setShowCreateIdea((v) => !v); setNewIdeaError('') }}
+                className={`text-xs font-medium border rounded-lg px-3 py-1.5 transition-colors ${
+                  showCreateIdea
+                    ? 'bg-[#154212] text-white border-[#154212]'
+                    : 'bg-white text-[#154212] border-[#c2c9bb] hover:border-[#2d5a27]'
+                }`}
+              >
+                {showCreateIdea ? 'Loka' : '+ Stofna hugmynd'}
+              </button>
+            </div>
+
+            {showCreateIdea && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); createIdea() }}
+                className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5 flex flex-col gap-3"
+              >
+                <p className="text-xs font-medium text-[#42493e]">Ný hugmynd</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Titill *</span>
+                    <input
+                      type="text"
+                      maxLength={200}
+                      required
+                      value={newIdeaDraft.title}
+                      onChange={(e) => {
+                        const title = e.target.value
+                        setNewIdeaDraft((d) => ({
+                          ...d,
+                          title,
+                          slug: slugManuallyEdited ? d.slug : toSlug(title),
+                        }))
+                      }}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Slug *</span>
+                    <input
+                      type="text"
+                      maxLength={200}
+                      required
+                      value={newIdeaDraft.slug}
+                      onChange={(e) => {
+                        setSlugManuallyEdited(true)
+                        setNewIdeaDraft((d) => ({ ...d, slug: toSlug(e.target.value) }))
+                      }}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
+                    />
+                  </label>
+                </div>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-gray-500">Stutt lýsing *</span>
+                  <input
+                    type="text"
+                    maxLength={500}
+                    required
+                    value={newIdeaDraft.short_description}
+                    onChange={(e) => setNewIdeaDraft((d) => ({ ...d, short_description: e.target.value }))}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-gray-500">Vandamálslýsing</span>
+                  <textarea
+                    maxLength={2000}
+                    rows={3}
+                    value={newIdeaDraft.problem_description}
+                    onChange={(e) => setNewIdeaDraft((d) => ({ ...d, problem_description: e.target.value }))}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-gray-500">Möguleg lausn</span>
+                  <textarea
+                    maxLength={2000}
+                    rows={3}
+                    value={newIdeaDraft.possible_solution}
+                    onChange={(e) => setNewIdeaDraft((d) => ({ ...d, possible_solution: e.target.value }))}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
+                  />
+                </label>
+                <div className="flex flex-wrap gap-3 items-end">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Flokkur</span>
+                    <select
+                      value={newIdeaDraft.category}
+                      onChange={(e) => setNewIdeaDraft((d) => ({ ...d, category: e.target.value as IdeaCategory }))}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
+                    >
+                      {IDEA_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs text-gray-500">Staða</span>
+                    <select
+                      value={newIdeaDraft.status}
+                      onChange={(e) => setNewIdeaDraft((d) => ({ ...d, status: e.target.value as IdeaStatus }))}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
+                    >
+                      {(['idea','reviewing','planned','building','launched','archived'] as const).map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="flex gap-4 items-center pb-0.5">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newIdeaDraft.is_public}
+                        onChange={(e) => setNewIdeaDraft((d) => ({ ...d, is_public: e.target.checked }))}
+                      />
+                      Birt
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newIdeaDraft.is_featured}
+                        onChange={(e) => setNewIdeaDraft((d) => ({ ...d, is_featured: e.target.checked }))}
+                      />
+                      Featured
+                    </label>
+                  </div>
+                  <div className="flex gap-2 ml-auto items-center">
+                    {newIdeaError && (
+                      <p className="text-xs text-red-600 max-w-xs">{newIdeaError}</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCreateIdea(false)
+                        setNewIdeaDraft({ title: '', slug: '', short_description: '', problem_description: '', possible_solution: '', category: 'Annað', status: 'idea', is_public: false, is_featured: false })
+                        setNewIdeaError('')
+                        setSlugManuallyEdited(false)
+                      }}
+                      className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 hover:border-gray-400 transition-colors"
+                    >
+                      Hætta við
+                    </button>
+                    <button
+                      type="submit"
+                      className="text-xs bg-[#154212] text-white rounded-lg px-3 py-1.5 hover:bg-[#2d5a27] transition-colors"
+                    >
+                      Stofna
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
             {ideas.map((idea) => (
-              <div key={idea.id} className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div key={idea.id} className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                 <div className="flex flex-col sm:flex-row sm:items-start gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -287,13 +486,13 @@ export default function AdminPage() {
                     </select>
                     <button
                       onClick={() => updateIdea(idea.id, { is_public: !idea.is_public })}
-                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-violet-300 transition-colors"
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-[#2d5a27] transition-colors"
                     >
                       {idea.is_public ? 'Fela' : 'Birta'}
                     </button>
                     <button
                       onClick={() => updateIdea(idea.id, { is_featured: !idea.is_featured })}
-                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-violet-300 transition-colors"
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-[#2d5a27] transition-colors"
                     >
                       {idea.is_featured ? 'Af featured' : 'Featured'}
                     </button>
@@ -321,8 +520,8 @@ export default function AdminPage() {
                       }}
                       className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
                         editingId === idea.id
-                          ? 'border-violet-400 text-violet-600'
-                          : 'border-gray-200 hover:border-violet-300'
+                          ? 'border-[#2d5a27] text-[#154212]'
+                          : 'border-gray-200 hover:border-[#2d5a27]'
                       }`}
                     >
                       {editingId === idea.id ? 'Loka' : 'Breyta'}
@@ -344,7 +543,7 @@ export default function AdminPage() {
                           required
                           value={editDraft.title ?? ''}
                           onChange={(e) => setEditDraft((d) => ({ ...d, title: e.target.value }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
@@ -355,7 +554,7 @@ export default function AdminPage() {
                           required
                           value={editDraft.slug ?? ''}
                           onChange={(e) => setEditDraft((d) => ({ ...d, slug: e.target.value }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
                         />
                       </label>
                     </div>
@@ -366,7 +565,7 @@ export default function AdminPage() {
                         maxLength={500}
                         value={editDraft.short_description ?? ''}
                         onChange={(e) => setEditDraft((d) => ({ ...d, short_description: e.target.value }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400"
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
                       />
                     </label>
                     <label className="flex flex-col gap-1">
@@ -376,7 +575,7 @@ export default function AdminPage() {
                         rows={3}
                         value={editDraft.problem_description ?? ''}
                         onChange={(e) => setEditDraft((d) => ({ ...d, problem_description: e.target.value || null }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400 resize-y"
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
                       />
                     </label>
                     <label className="flex flex-col gap-1">
@@ -386,7 +585,7 @@ export default function AdminPage() {
                         rows={3}
                         value={editDraft.possible_solution ?? ''}
                         onChange={(e) => setEditDraft((d) => ({ ...d, possible_solution: e.target.value || null }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400 resize-y"
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
                       />
                     </label>
                     <div className="flex flex-wrap gap-3 items-end">
@@ -395,7 +594,7 @@ export default function AdminPage() {
                         <select
                           value={editDraft.category ?? ''}
                           onChange={(e) => setEditDraft((d) => ({ ...d, category: e.target.value as IdeaCategory }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
                         >
                           {IDEA_CATEGORIES.map((c) => (
                             <option key={c} value={c}>{c}</option>
@@ -407,7 +606,7 @@ export default function AdminPage() {
                         <select
                           value={editDraft.status ?? ''}
                           onChange={(e) => setEditDraft((d) => ({ ...d, status: e.target.value as IdeaStatus }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
                         >
                           {(['idea','reviewing','planned','building','launched','archived'] as const).map((s) => (
                             <option key={s} value={s}>{s}</option>
@@ -445,7 +644,7 @@ export default function AdminPage() {
                         </button>
                         <button
                           type="submit"
-                          className="text-xs bg-violet-600 text-white rounded-lg px-3 py-1.5 hover:bg-violet-700 transition-colors"
+                          className="text-xs bg-[#154212] text-white rounded-lg px-3 py-1.5 hover:bg-[#2d5a27] transition-colors"
                         >
                           Vista
                         </button>
@@ -463,7 +662,7 @@ export default function AdminPage() {
             {inboxSubmissions.map((sub) => {
               const linkedIdea = sub.idea_id ? ideas.find((i) => i.id === sub.idea_id) : null
               return (
-              <div key={sub.id} className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div key={sub.id} className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                 <div className="flex items-start justify-between gap-4 mb-3">
                   <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${
                     sub.status === 'pending' ? 'bg-amber-100 text-amber-600'
@@ -576,7 +775,7 @@ export default function AdminPage() {
                         }
                       }}
                       className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
-                        editingSubId === sub.id ? 'border-violet-400 text-violet-600' : 'border-gray-200 hover:border-violet-300'
+                        editingSubId === sub.id ? 'border-[#2d5a27] text-[#154212]' : 'border-gray-200 hover:border-[#2d5a27]'
                       }`}
                     >
                       {editingSubId === sub.id ? 'Loka' : 'Breyta'}
@@ -595,7 +794,7 @@ export default function AdminPage() {
                         maxLength={2000} rows={3} required
                         value={editSubDraft.problem_description ?? ''}
                         onChange={(e) => setEditSubDraft((d) => ({ ...d, problem_description: e.target.value }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400 resize-y"
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
                       />
                     </label>
                     <label className="flex flex-col gap-1">
@@ -604,7 +803,7 @@ export default function AdminPage() {
                         maxLength={2000} rows={2}
                         value={editSubDraft.current_solution ?? ''}
                         onChange={(e) => setEditSubDraft((d) => ({ ...d, current_solution: e.target.value || null }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400 resize-y"
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
                       />
                     </label>
                     <label className="flex flex-col gap-1">
@@ -613,7 +812,7 @@ export default function AdminPage() {
                         maxLength={2000} rows={2}
                         value={editSubDraft.dream_solution ?? ''}
                         onChange={(e) => setEditSubDraft((d) => ({ ...d, dream_solution: e.target.value || null }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400 resize-y"
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
                       />
                     </label>
                     <div className="flex flex-wrap gap-3 items-end">
@@ -622,7 +821,7 @@ export default function AdminPage() {
                         <select
                           value={editSubDraft.category ?? ''}
                           onChange={(e) => setEditSubDraft((d) => ({ ...d, category: e.target.value ? e.target.value as IdeaCategory : null }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
                         >
                           <option value="">—</option>
                           {IDEA_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -633,7 +832,7 @@ export default function AdminPage() {
                         <select
                           value={editSubDraft.allow_publication ?? 'no'}
                           onChange={(e) => setEditSubDraft((d) => ({ ...d, allow_publication: e.target.value as 'yes' | 'no' | 'anonymous' }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
                         >
                           <option value="yes">yes</option>
                           <option value="no">no</option>
@@ -645,7 +844,7 @@ export default function AdminPage() {
                         <select
                           value={editSubDraft.status ?? 'pending'}
                           onChange={(e) => setEditSubDraft((d) => ({ ...d, status: e.target.value as SubmissionStatus }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
                         >
                           {(['pending', 'approved', 'rejected'] as const).map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
@@ -656,7 +855,7 @@ export default function AdminPage() {
                           type="text" maxLength={200}
                           value={editSubDraft.name ?? ''}
                           onChange={(e) => setEditSubDraft((d) => ({ ...d, name: e.target.value || null }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
@@ -665,7 +864,7 @@ export default function AdminPage() {
                           type="email" maxLength={320}
                           value={editSubDraft.email ?? ''}
                           onChange={(e) => setEditSubDraft((d) => ({ ...d, email: e.target.value || null }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400"
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
                         />
                       </label>
                       <div className="flex gap-2 ml-auto items-center">
@@ -677,7 +876,7 @@ export default function AdminPage() {
                         >
                           Hætta við
                         </button>
-                        <button type="submit" className="text-xs bg-violet-600 text-white rounded-lg px-3 py-1.5 hover:bg-violet-700 transition-colors">
+                        <button type="submit" className="text-xs bg-[#154212] text-white rounded-lg px-3 py-1.5 hover:bg-[#2d5a27] transition-colors">
                           Vista
                         </button>
                       </div>
@@ -779,7 +978,7 @@ export default function AdminPage() {
                     { label: 'Fylgjendur', value: analytics.summary.total_follows },
                     { label: 'Innsendingar', value: analytics.summary.total_submissions },
                   ].map(({ label, value }) => (
-                    <div key={label} className="bg-white border border-gray-200 rounded-2xl p-4">
+                    <div key={label} className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-4">
                       <p className="text-2xl font-semibold text-gray-900">{value}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{label}</p>
                     </div>
@@ -788,7 +987,7 @@ export default function AdminPage() {
 
                 {/* Top ideas */}
                 {analytics.top_ideas.length > 0 && (
-                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                  <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-4">Vinsælustu hugmyndirnar</h2>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs text-left">
@@ -821,19 +1020,19 @@ export default function AdminPage() {
 
                 {/* Breakdowns */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                  <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3">Tæki</h2>
                     <BreakdownList data={analytics.devices} />
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                  <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3">Vafri</h2>
                     <BreakdownList data={analytics.browsers} />
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                  <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3">Land</h2>
                     <BreakdownList data={analytics.countries} />
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                  <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3">Uppspretta</h2>
                     <BreakdownList data={analytics.top_referrers} />
                   </div>
