@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import type { Idea, Submission, IdeaCategory } from '@/lib/teskeid/types'
 import { IDEA_CATEGORIES } from '@/lib/teskeid/types'
 import { StatusBadge } from '@/components/teskeid/StatusBadge'
@@ -61,15 +61,45 @@ type AnalyticsData = {
   browsers: Record<string, number>
   countries: Record<string, number>
   top_referrers: Record<string, number>
+  paths: Record<string, number>
 }
 
-function BreakdownList({ data }: { data: Record<string, number> }) {
+type DrillFilter = { key: string; value: string }
+
+const PERIODS = [
+  { value: '5min', label: '5 mín' },
+  { value: '10min', label: '10 mín' },
+  { value: '15min', label: '15 mín' },
+  { value: '30min', label: '30 mín' },
+  { value: '1h', label: '1 klst' },
+  { value: '2h', label: '2 klst' },
+  { value: '6h', label: '6 klst' },
+  { value: '12h', label: '12 klst' },
+  { value: '24h', label: '24 klst' },
+  { value: '7d', label: '7 dagar' },
+  { value: '30d', label: '30 dagar' },
+  { value: 'all', label: 'Allt' },
+]
+
+const FILTER_LABELS: Record<string, string> = {
+  device_type: 'Tæki',
+  browser: 'Vafri',
+  country: 'Land',
+  referrer: 'Uppspretta',
+  path: 'Slóð',
+}
+
+function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSelect?: (value: string) => void }) {
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 8)
   const max = entries[0]?.[1] ?? 1
   return (
     <ul className="flex flex-col gap-1.5">
       {entries.map(([label, count]) => (
-        <li key={label} className="flex items-center gap-2 text-xs">
+        <li
+          key={label}
+          className={`flex items-center gap-2 text-xs rounded px-1 -mx-1 ${onSelect ? 'cursor-pointer hover:bg-[#f0eee9] transition-colors' : ''}`}
+          onClick={() => onSelect?.(label)}
+        >
           <span className="w-24 truncate text-gray-500 shrink-0">{label}</span>
           <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
             <div
@@ -89,7 +119,11 @@ export default function AdminPage() {
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [tab, setTab] = useState<'ideas' | 'submissions' | 'stats'>('ideas')
-  const [period, setPeriod] = useState<'7d' | '30d' | 'all'>('7d')
+  const [period, setPeriod] = useState('7d')
+  const [drillFilter, setDrillFilter] = useState<DrillFilter | null>(null)
+  const [drillIdeaId, setDrillIdeaId] = useState<string | null>(null)
+  const [drillIdeaData, setDrillIdeaData] = useState<AnalyticsData | null>(null)
+  const [drillIdeaLoading, setDrillIdeaLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [statsLoading, setStatsLoading] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -126,14 +160,33 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab !== 'stats') return
     setStatsLoading(true)
-    fetch(`/api/admin/analytics?period=${period}`)
+    const params = new URLSearchParams({ period })
+    if (drillFilter) {
+      params.set('filter_key', drillFilter.key)
+      params.set('filter_value', drillFilter.value)
+    }
+    fetch(`/api/admin/analytics?${params}`)
       .then((r) => r.json())
       .then((data) => {
         setAnalytics(data)
         setStatsLoading(false)
       })
       .catch(() => setStatsLoading(false))
-  }, [tab, period])
+  }, [tab, period, drillFilter])
+
+  useEffect(() => {
+    if (!drillIdeaId) { setDrillIdeaData(null); return }
+    setDrillIdeaLoading(true)
+    const params = new URLSearchParams({ period, idea_id: drillIdeaId })
+    if (drillFilter) {
+      params.set('filter_key', drillFilter.key)
+      params.set('filter_value', drillFilter.value)
+    }
+    fetch(`/api/admin/analytics?${params}`)
+      .then((r) => r.json())
+      .then((data) => { setDrillIdeaData(data); setDrillIdeaLoading(false) })
+      .catch(() => setDrillIdeaLoading(false))
+  }, [drillIdeaId, period, drillFilter])
 
   const inboxSubmissions = submissions.filter(
     (s) => !(s.status === 'approved' && s.idea_id)
@@ -949,21 +1002,36 @@ export default function AdminPage() {
 
         {tab === 'stats' && (
           <div>
-            <div className="flex gap-2 mb-6">
-              {(['7d', '30d', 'all'] as const).map((p) => (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {PERIODS.map(({ value, label }) => (
                 <button
-                  key={p}
-                  onClick={() => setPeriod(p)}
+                  key={value}
+                  onClick={() => setPeriod(value)}
                   className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    period === p
+                    period === value
                       ? 'bg-gray-800 text-white border-gray-800'
                       : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
                   }`}
                 >
-                  {p === '7d' ? '7 dagar' : p === '30d' ? '30 dagar' : 'Allt'}
+                  {label}
                 </button>
               ))}
             </div>
+
+            {drillFilter && (
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs text-gray-400">Síað eftir:</span>
+                <span className="flex items-center gap-1.5 text-xs bg-[#dae5de] text-[#154212] rounded-full px-2.5 py-0.5">
+                  {FILTER_LABELS[drillFilter.key] ?? drillFilter.key}: {drillFilter.value}
+                  <button
+                    onClick={() => { setDrillFilter(null); setDrillIdeaId(null) }}
+                    className="ml-0.5 font-bold hover:text-[#703703] leading-none"
+                  >
+                    ×
+                  </button>
+                </span>
+              </div>
+            )}
 
             {statsLoading || !analytics ? (
               <p className="text-sm text-gray-400">Hleður tölfræði...</p>
@@ -1002,15 +1070,48 @@ export default function AdminPage() {
                         </thead>
                         <tbody>
                           {analytics.top_ideas.map((idea) => (
-                            <tr key={idea.id} className="border-b border-gray-50 last:border-0">
-                              <td className="py-2 pr-4 text-gray-700 max-w-[180px] truncate">{idea.title}</td>
-                              <td className="py-2 pr-4 text-right text-gray-500">{idea.views}</td>
-                              <td className="py-2 pr-4 text-right text-gray-500">{idea.unique_views}</td>
-                              <td className="py-2 pr-4 text-right text-gray-500">{idea.votes}</td>
-                              <td className="py-2 text-right text-gray-500">
-                                {Math.round(idea.conversion * 100)}%
-                              </td>
-                            </tr>
+                            <Fragment key={idea.id}>
+                              <tr
+                                className={`border-b border-gray-50 last:border-0 cursor-pointer transition-colors ${drillIdeaId === idea.id ? 'bg-[#f0eee9]' : 'hover:bg-[#f0eee9]'}`}
+                                onClick={() => setDrillIdeaId(drillIdeaId === idea.id ? null : idea.id)}
+                              >
+                                <td className="py-2 pr-4 text-gray-700 max-w-[180px] truncate">{idea.title}</td>
+                                <td className="py-2 pr-4 text-right text-gray-500">{idea.views}</td>
+                                <td className="py-2 pr-4 text-right text-gray-500">{idea.unique_views}</td>
+                                <td className="py-2 pr-4 text-right text-gray-500">{idea.votes}</td>
+                                <td className="py-2 text-right text-gray-500">
+                                  {Math.round(idea.conversion * 100)}%
+                                </td>
+                              </tr>
+                              {drillIdeaId === idea.id && (
+                                <tr>
+                                  <td colSpan={5} className="pb-3 pt-1 px-1">
+                                    {drillIdeaLoading || !drillIdeaData ? (
+                                      <p className="text-xs text-gray-400 py-2">Hleður...</p>
+                                    ) : (
+                                      <div className="bg-[#fbf9f4] rounded-lg p-3 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                        <div>
+                                          <p className="text-xs font-medium text-gray-500 mb-2">Tæki</p>
+                                          <BreakdownList data={drillIdeaData.devices} />
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-medium text-gray-500 mb-2">Vafri</p>
+                                          <BreakdownList data={drillIdeaData.browsers} />
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-medium text-gray-500 mb-2">Land</p>
+                                          <BreakdownList data={drillIdeaData.countries} />
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-medium text-gray-500 mb-2">Uppspretta</p>
+                                          <BreakdownList data={drillIdeaData.top_referrers} />
+                                        </div>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
                           ))}
                         </tbody>
                       </table>
@@ -1022,19 +1123,23 @@ export default function AdminPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3">Tæki</h2>
-                    <BreakdownList data={analytics.devices} />
+                    <BreakdownList data={analytics.devices} onSelect={(v) => setDrillFilter({ key: 'device_type', value: v })} />
                   </div>
                   <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3">Vafri</h2>
-                    <BreakdownList data={analytics.browsers} />
+                    <BreakdownList data={analytics.browsers} onSelect={(v) => setDrillFilter({ key: 'browser', value: v })} />
                   </div>
                   <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3">Land</h2>
-                    <BreakdownList data={analytics.countries} />
+                    <BreakdownList data={analytics.countries} onSelect={(v) => setDrillFilter({ key: 'country', value: v })} />
                   </div>
                   <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-700 mb-3">Uppspretta</h2>
-                    <BreakdownList data={analytics.top_referrers} />
+                    <BreakdownList data={analytics.top_referrers} onSelect={(v) => setDrillFilter({ key: 'referrer', value: v })} />
+                  </div>
+                  <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5 sm:col-span-2">
+                    <h2 className="text-sm font-semibold text-gray-700 mb-3">Slóðir</h2>
+                    <BreakdownList data={analytics.paths} onSelect={(v) => setDrillFilter({ key: 'path', value: v })} />
                   </div>
                 </div>
               </div>

@@ -21,10 +21,29 @@ type Idea = {
   slug: string
 }
 
+const ALLOWED_PERIODS: Record<string, number> = {
+  '5min':  5 * 60 * 1000,
+  '10min': 10 * 60 * 1000,
+  '15min': 15 * 60 * 1000,
+  '30min': 30 * 60 * 1000,
+  '1h':    60 * 60 * 1000,
+  '2h':    2 * 60 * 60 * 1000,
+  '6h':    6 * 60 * 60 * 1000,
+  '12h':   12 * 60 * 60 * 1000,
+  '24h':   24 * 60 * 60 * 1000,
+  '7d':    7 * 24 * 60 * 60 * 1000,
+  '30d':   30 * 24 * 60 * 60 * 1000,
+  'all':   0,
+}
+
+type FilterKey = 'device_type' | 'browser' | 'country' | 'referrer' | 'path'
+const ALLOWED_FILTER_KEYS: FilterKey[] = ['device_type', 'browser', 'country', 'referrer', 'path']
+
 function periodFilter(period: string): string | null {
-  if (period === '7d') return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  if (period === '30d') return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-  return null
+  const ms = ALLOWED_PERIODS[period]
+  if (ms === undefined) return null // fallback: no filter (same as 'all')
+  if (ms === 0) return null
+  return new Date(Date.now() - ms).toISOString()
 }
 
 function countBy<T>(items: T[], key: (item: T) => string | null): Record<string, number> {
@@ -41,7 +60,19 @@ export async function GET(request: NextRequest) {
   const auth = await requireAdmin(supabase)
   if (auth.error) return auth.error
 
-  const period = request.nextUrl.searchParams.get('period') ?? '7d'
+  const { searchParams } = request.nextUrl
+  const period = searchParams.get('period') ?? '7d'
+
+  if (!(period in ALLOWED_PERIODS)) {
+    return NextResponse.json({ error: 'Invalid period' }, { status: 400 })
+  }
+
+  const rawFilterKey = searchParams.get('filter_key')
+  const filterKey = ALLOWED_FILTER_KEYS.includes(rawFilterKey as FilterKey)
+    ? (rawFilterKey as FilterKey)
+    : null
+  const filterValue = filterKey ? searchParams.get('filter_value') : null
+  const ideaIdFilter = searchParams.get('idea_id')
 
   let query = getAdmin()
     .from('analytics_events')
@@ -49,9 +80,8 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: false })
 
   const since = periodFilter(period)
-  if (since) {
-    query = query.gte('created_at', since)
-  }
+  if (since) query = query.gte('created_at', since)
+  if (ideaIdFilter) query = query.eq('idea_id', ideaIdFilter)
 
   const { data: events, error } = await query
 
@@ -60,35 +90,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Query failed' }, { status: 500 })
   }
 
-  const rows = (events ?? []) as Event[]
+  let rows = (events ?? []) as Event[]
 
-  // Fetch idea titles for top_ideas table
-  const ideaIds = [...new Set(rows.map((e) => e.idea_id).filter(Boolean))] as string[]
-  let ideaMap: Record<string, { title: string; slug: string }> = {}
-
-  if (ideaIds.length > 0) {
-    const { data: ideas } = await getAdmin()
-      .from('ideas')
-      .select('id,title,slug')
-      .in('id', ideaIds)
-
-    for (const idea of (ideas ?? []) as Idea[]) {
-      ideaMap[idea.id] = { title: idea.title, slug: idea.slug }
-    }
+  if (filterKey && filterValue) {
+    rows = rows.filter((e) => {
+      if (filterKey === 'referrer' && filterValue === '(direct)') return e.referrer === null
+      return e[filterKey] === filterValue
+    })
   }
 
-  // Summary
+  const ideaIds = [...new Set(rows.map((e) => e.idea_id).filter(Boolean))] as string[]
+  let ideaMap: Record<string, { title: string; slug: string }> = {}
+  if (ideaIds.length > 0) {
+    const { data: ideas } = await getAdmin().from('ideas').select('id,title,slug').in('id', ideaIds)
+    for (const idea of (ideas ?? []) as Idea[]) ideaMap[idea.id] = { title: idea.title, slug: idea.slug }
+  }
+
   const pageViews = rows.filter((e) => e.event_type === 'page_view')
   const votes = rows.filter((e) => e.event_type === 'vote')
   const follows = rows.filter((e) => e.event_type === 'follow')
   const submits = rows.filter((e) => e.event_type === 'submit')
   const uniqueVisitors = new Set(rows.map((e) => e.visitor_hash)).size
 
-  // Top ideas
   const byIdea: Record<string, { views: number; uniqueViewers: Set<string>; votes: number; follows: number }> = {}
-  for (const id of ideaIds) {
-    byIdea[id] = { views: 0, uniqueViewers: new Set(), votes: 0, follows: 0 }
-  }
+  for (const id of ideaIds) byIdea[id] = { views: 0, uniqueViewers: new Set(), votes: 0, follows: 0 }
   for (const e of rows) {
     if (!e.idea_id) continue
     if (!byIdea[e.idea_id]) byIdea[e.idea_id] = { views: 0, uniqueViewers: new Set(), votes: 0, follows: 0 }
@@ -111,12 +136,13 @@ export async function GET(request: NextRequest) {
       unique_views: stats.uniqueViewers.size,
       votes: stats.votes,
       follows: stats.follows,
-      conversion: stats.uniqueViewers.size > 0 ? Math.round((stats.votes / stats.uniqueViewers.size) * 1000) / 1000 : 0,
+      conversion: stats.uniqueViewers.size > 0
+        ? Math.round((stats.votes / stats.uniqueViewers.size) * 1000) / 1000
+        : 0,
     }))
     .sort((a, b) => b.views - a.views)
     .slice(0, 20)
 
-  // Daily counts (last N days)
   function dailyCounts(evts: Event[]): { date: string; count: number }[] {
     const byDate: Record<string, number> = {}
     for (const e of evts) {
@@ -144,5 +170,6 @@ export async function GET(request: NextRequest) {
     browsers: countBy(rows, (e) => e.browser),
     countries: countBy(rows, (e) => e.country),
     top_referrers: countBy(rows, (e) => e.referrer ?? '(direct)'),
+    paths: countBy(pageViews, (e) => e.path),
   })
 }
