@@ -20,6 +20,7 @@ const PUBLIC_PATHS = [
   '/api/submissions',
   '/api/analytics',
   '/api/login-waitlist',
+  '/api/teskeid/profile',
   '/admin/login',
   '/api/auth',
 ]

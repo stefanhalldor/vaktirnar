@@ -284,7 +284,8 @@
       "loginTitle": "Innskráning",
       "signupTitle": "Stofna aðgang",
       "noAccount": "Ekki með aðgang?",
-      "hasAccount": "Ertu með aðgang?"
+      "hasAccount": "Ertu með aðgang?",
+      "mvpLabel": "MVP prófunarroute"
     },
     "profile": {
       "title": "Minn prófíll",

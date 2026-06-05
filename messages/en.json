@@ -280,7 +280,8 @@
       "loginTitle": "Sign in",
       "signupTitle": "Create account",
       "noAccount": "Don't have an account?",
-      "hasAccount": "Already have an account?"
+      "hasAccount": "Already have an account?",
+      "mvpLabel": "MVP test route"
     },
     "profile": {
       "title": "My profile",

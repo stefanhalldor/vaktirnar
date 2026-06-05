@@ -15,7 +15,11 @@ CREATE POLICY "profiles_insert_own" ON profiles
   FOR INSERT TO authenticated
   WITH CHECK (id = auth.uid());
 
--- 3. Fix handle_new_user: ON CONFLICT DO NOTHING + preserve search_path fix from 02_fix_handle_new_user.sql
+-- 3. Explicit grants for authenticated (no grants exist in 01_schema.sql)
+-- anon gets no access; DELETE not granted
+GRANT SELECT, INSERT, UPDATE ON profiles TO authenticated;
+
+-- 4. Fix handle_new_user: ON CONFLICT DO NOTHING + preserve search_path fix from 02_fix_handle_new_user.sql
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public

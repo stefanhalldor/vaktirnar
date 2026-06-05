@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 
 export default function AuthMvpProfilePage() {
   const t = useTranslations('teskeid.profile')
+  const tAuth = useTranslations('teskeid.auth')
   const tCommon = useTranslations('common')
   const router = useRouter()
   const [displayName, setDisplayName] = useState('')
@@ -69,7 +70,7 @@ export default function AuthMvpProfilePage() {
     <div className="min-h-screen bg-[#fbf9f4] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <p className="text-xs text-[#72796e] mb-1">MVP test route</p>
+          <p className="text-xs text-[#72796e] mb-1">{tAuth('mvpLabel')}</p>
           <h1 className="text-2xl font-semibold text-[#154212]">Teskeið</h1>
         </div>
         <div className="bg-white border border-black/5 rounded-2xl shadow-sm p-6">
