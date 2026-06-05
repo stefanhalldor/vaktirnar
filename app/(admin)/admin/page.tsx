@@ -13,7 +13,7 @@ type IdeaPatch = Partial<Pick<Idea,
 >>
 type SubmissionPatch = Partial<Pick<Submission,
   'problem_description' | 'current_solution' | 'dream_solution' |
-  'category' | 'allow_publication' | 'name' | 'email' | 'status'
+  'category' | 'allow_publication' | 'name' | 'email' | 'status' | 'idea_id'
 >>
 
 function toSlug(title: string): string {
@@ -145,6 +145,8 @@ export default function AdminPage() {
   })
   const [newIdeaError, setNewIdeaError] = useState('')
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
+  const [linkDraft, setLinkDraft] = useState<Record<string, string>>({})
+  const [linkError, setLinkError] = useState('')
 
   useEffect(() => {
     Promise.all([
@@ -188,9 +190,8 @@ export default function AdminPage() {
       .catch(() => setDrillIdeaLoading(false))
   }, [drillIdeaId, period, drillFilter])
 
-  const inboxSubmissions = submissions.filter(
-    (s) => !(s.status === 'approved' && s.idea_id)
-  )
+  const unlinkedSubs = submissions.filter((s) => !s.idea_id)
+  const linkedSubs = submissions.filter((s) => !!s.idea_id)
 
   async function updateIdea(id: string, patch: IdeaPatch): Promise<boolean> {
     const res = await fetch(`/api/admin/ideas/${id}`, {
@@ -240,6 +241,24 @@ export default function AdminPage() {
     } else {
       setEditSubError('Vistun tókst ekki.')
     }
+  }
+
+  async function linkSubmission(subId: string) {
+    const ideaId = linkDraft[subId]
+    if (!ideaId) return
+    setLinkError('')
+    const ok = await updateSubmission(subId, { idea_id: ideaId, status: 'approved' })
+    if (ok) {
+      setLinkDraft((d) => { const next = { ...d }; delete next[subId]; return next })
+    } else {
+      setLinkError('Tenging tókst ekki.')
+    }
+  }
+
+  async function unlinkSubmission(subId: string) {
+    setLinkError('')
+    const ok = await updateSubmission(subId, { idea_id: null })
+    if (!ok) setLinkError('Aftengja tókst ekki.')
   }
 
   async function createIdeaFromSub(subId: string) {
@@ -343,7 +362,7 @@ export default function AdminPage() {
               {t === 'ideas'
                 ? `Hugmyndir (${ideas.length})`
                 : t === 'submissions'
-                ? `Innsendingar (${inboxSubmissions.length})`
+                ? `Innsendingar (${unlinkedSubs.length})`
                 : 'Tölfræði'}
             </button>
           ))}
@@ -711,292 +730,354 @@ export default function AdminPage() {
         )}
 
         {tab === 'submissions' && (
-          <div className="flex flex-col gap-3">
-            {inboxSubmissions.map((sub) => {
-              const linkedIdea = sub.idea_id ? ideas.find((i) => i.id === sub.idea_id) : null
-              return (
-              <div key={sub.id} className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
-                <div className="flex items-start justify-between gap-4 mb-3">
-                  <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${
-                    sub.status === 'pending' ? 'bg-amber-100 text-amber-600'
-                    : sub.status === 'approved' ? 'bg-green-100 text-green-700'
-                    : 'bg-gray-100 text-gray-400'
-                  }`}>
-                    {sub.status}
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    {new Date(sub.created_at).toLocaleDateString('is-IS')}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-700 mb-2">{sub.problem_description}</p>
-                {sub.current_solution && (
-                  <p className="text-xs text-gray-500 mb-1">
-                    <span className="font-medium">Núverandi lausn:</span> {sub.current_solution}
-                  </p>
-                )}
-                {sub.dream_solution && (
-                  <p className="text-xs text-gray-500 mb-2">
-                    <span className="font-medium">Draumur:</span> {sub.dream_solution}
-                  </p>
-                )}
-                <div className="flex items-center gap-2 mt-3 flex-wrap">
-                  {sub.category && <span className="text-xs text-gray-400">{sub.category}</span>}
-                  {sub.name && <span className="text-xs text-gray-400">{sub.name}</span>}
-                  {sub.email && <span className="text-xs text-gray-400">{sub.email}</span>}
-                  <span className="text-xs text-gray-400">birting: {sub.allow_publication}</span>
-                  <div className="flex gap-1 ml-auto flex-wrap">
-                    {/* Contextual action buttons */}
-                    {sub.status === 'rejected' && (
-                      <button
-                        onClick={() => updateSubmission(sub.id, { status: 'pending' })}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-violet-300 transition-colors"
-                      >
-                        Opna aftur
-                      </button>
-                    )}
-                    {sub.status !== 'rejected' && !sub.idea_id && (
-                      <button
-                        onClick={() => updateSubmission(sub.id, { status: 'rejected' })}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-red-300 text-red-600 transition-colors"
-                      >
-                        Hafna
-                      </button>
-                    )}
-                    {sub.status === 'pending' && !sub.idea_id && (
-                      <button
-                        onClick={() => {
-                          setCreatingIdeaSubId(sub.id)
-                          setCreateIdeaError('')
-                          setCreateIdeaDraft({ title: '', slug: '', short_description: '' })
-                          setEditingSubId(null)
-                        }}
-                        className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
-                          creatingIdeaSubId === sub.id
-                            ? 'border-green-500 text-green-700'
-                            : 'border-gray-200 text-green-700 hover:border-green-400'
-                        }`}
-                      >
-                        Samþykkja
-                      </button>
-                    )}
-                    {sub.status === 'approved' && !sub.idea_id && (
-                      <button
-                        onClick={() => {
-                          setCreatingIdeaSubId(sub.id)
-                          setCreateIdeaError('')
-                          setCreateIdeaDraft({ title: '', slug: '', short_description: '' })
-                          setEditingSubId(null)
-                        }}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-green-700 hover:border-green-400 transition-colors"
-                      >
-                        Búa til hugmynd
-                      </button>
-                    )}
-                    {sub.idea_id && linkedIdea && (
-                      <a
-                        href={`/hugmyndir/${linkedIdea.slug}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs border border-green-200 bg-green-50 text-green-700 rounded-lg px-2 py-1 hover:border-green-400 transition-colors"
-                      >
-                        Opna hugmynd
-                      </a>
-                    )}
-                    {sub.idea_id && !linkedIdea && (
-                      <span className="text-xs border border-gray-200 bg-gray-50 text-gray-400 rounded-lg px-2 py-1">
-                        Hugmynd tengd
-                      </span>
-                    )}
-                    <button
-                      onClick={() => {
-                        if (editingSubId === sub.id) {
-                          setEditingSubId(null); setEditSubDraft({}); setEditSubError('')
-                        } else {
-                          setEditingSubId(sub.id)
-                          setEditSubError('')
-                          setEditSubDraft({
-                            problem_description: sub.problem_description,
-                            current_solution: sub.current_solution,
-                            dream_solution: sub.dream_solution,
-                            category: sub.category,
-                            allow_publication: sub.allow_publication,
-                            name: sub.name,
-                            email: sub.email,
-                            status: sub.status,
-                          })
-                          setCreatingIdeaSubId(null)
-                        }
-                      }}
-                      className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
-                        editingSubId === sub.id ? 'border-[#2d5a27] text-[#154212]' : 'border-gray-200 hover:border-[#2d5a27]'
-                      }`}
-                    >
-                      {editingSubId === sub.id ? 'Loka' : 'Breyta'}
-                    </button>
+          <div className="flex flex-col gap-6">
+            {/* Ótengdar innsendingar */}
+            <div className="flex flex-col gap-3">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                Ótengdar innsendingar ({unlinkedSubs.length})
+              </p>
+              {unlinkedSubs.length === 0 && (
+                <p className="text-sm text-gray-400">Engar ótengdar innsendingar.</p>
+              )}
+              {unlinkedSubs.map((sub) => (
+                <div key={sub.id} className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
+                  <div className="flex items-start justify-between gap-4 mb-3">
+                    <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${
+                      sub.status === 'pending' ? 'bg-amber-100 text-amber-600'
+                      : sub.status === 'approved' ? 'bg-green-100 text-green-700'
+                      : 'bg-gray-100 text-gray-400'
+                    }`}>
+                      {sub.status}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {new Date(sub.created_at).toLocaleDateString('is-IS')}
+                    </span>
                   </div>
-                </div>
-
-                {editingSubId === sub.id && (
-                  <form
-                    onSubmit={(e) => { e.preventDefault(); saveSubEdit(sub.id) }}
-                    className="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-3"
-                  >
-                    <label className="flex flex-col gap-1">
-                      <span className="text-xs text-gray-500">Vandamálslýsing</span>
-                      <textarea
-                        maxLength={2000} rows={3} required
-                        value={editSubDraft.problem_description ?? ''}
-                        onChange={(e) => setEditSubDraft((d) => ({ ...d, problem_description: e.target.value }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-xs text-gray-500">Núverandi lausn</span>
-                      <textarea
-                        maxLength={2000} rows={2}
-                        value={editSubDraft.current_solution ?? ''}
-                        onChange={(e) => setEditSubDraft((d) => ({ ...d, current_solution: e.target.value || null }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-xs text-gray-500">Draumalausn</span>
-                      <textarea
-                        maxLength={2000} rows={2}
-                        value={editSubDraft.dream_solution ?? ''}
-                        onChange={(e) => setEditSubDraft((d) => ({ ...d, dream_solution: e.target.value || null }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
-                      />
-                    </label>
-                    <div className="flex flex-wrap gap-3 items-end">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-gray-500">Flokkur</span>
-                        <select
-                          value={editSubDraft.category ?? ''}
-                          onChange={(e) => setEditSubDraft((d) => ({ ...d, category: e.target.value ? e.target.value as IdeaCategory : null }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
-                        >
-                          <option value="">—</option>
-                          {IDEA_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-gray-500">Birting</span>
-                        <select
-                          value={editSubDraft.allow_publication ?? 'no'}
-                          onChange={(e) => setEditSubDraft((d) => ({ ...d, allow_publication: e.target.value as 'yes' | 'no' | 'anonymous' }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
-                        >
-                          <option value="yes">yes</option>
-                          <option value="no">no</option>
-                          <option value="anonymous">anonymous</option>
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-gray-500">Staða</span>
-                        <select
-                          value={editSubDraft.status ?? 'pending'}
-                          onChange={(e) => setEditSubDraft((d) => ({ ...d, status: e.target.value as SubmissionStatus }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
-                        >
-                          {(['pending', 'approved', 'rejected'] as const).map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-gray-500">Nafn</span>
-                        <input
-                          type="text" maxLength={200}
-                          value={editSubDraft.name ?? ''}
-                          onChange={(e) => setEditSubDraft((d) => ({ ...d, name: e.target.value || null }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-gray-500">Netfang</span>
-                        <input
-                          type="email" maxLength={320}
-                          value={editSubDraft.email ?? ''}
-                          onChange={(e) => setEditSubDraft((d) => ({ ...d, email: e.target.value || null }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
-                        />
-                      </label>
-                      <div className="flex gap-2 ml-auto items-center">
-                        {editSubError && <p className="text-xs text-red-600 max-w-xs">{editSubError}</p>}
+                  <p className="text-sm text-gray-700 mb-2">{sub.problem_description}</p>
+                  {sub.current_solution && (
+                    <p className="text-xs text-gray-500 mb-1">
+                      <span className="font-medium">Núverandi lausn:</span> {sub.current_solution}
+                    </p>
+                  )}
+                  {sub.dream_solution && (
+                    <p className="text-xs text-gray-500 mb-2">
+                      <span className="font-medium">Draumur:</span> {sub.dream_solution}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                    {sub.category && <span className="text-xs text-gray-400">{sub.category}</span>}
+                    {sub.name && <span className="text-xs text-gray-400">{sub.name}</span>}
+                    {sub.email && <span className="text-xs text-gray-400">{sub.email}</span>}
+                    <span className="text-xs text-gray-400">birting: {sub.allow_publication}</span>
+                    <div className="flex gap-1 ml-auto flex-wrap">
+                      {sub.status === 'rejected' && (
                         <button
-                          type="button"
-                          onClick={() => { setEditingSubId(null); setEditSubDraft({}); setEditSubError('') }}
-                          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 hover:border-gray-400 transition-colors"
+                          onClick={() => updateSubmission(sub.id, { status: 'pending' })}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-violet-300 transition-colors"
                         >
-                          Hætta við
+                          Opna aftur
                         </button>
-                        <button type="submit" className="text-xs bg-[#154212] text-white rounded-lg px-3 py-1.5 hover:bg-[#2d5a27] transition-colors">
-                          Vista
+                      )}
+                      {sub.status !== 'rejected' && (
+                        <button
+                          onClick={() => updateSubmission(sub.id, { status: 'rejected' })}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-red-300 text-red-600 transition-colors"
+                        >
+                          Hafna
                         </button>
-                      </div>
-                    </div>
-                  </form>
-                )}
-
-                {creatingIdeaSubId === sub.id && (
-                  <form
-                    onSubmit={(e) => { e.preventDefault(); createIdeaFromSub(sub.id) }}
-                    className="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-3"
-                  >
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-gray-500">Titill hugmyndar</span>
-                        <input
-                          type="text" maxLength={200} required
-                          value={createIdeaDraft.title}
-                          onChange={(e) => {
-                            const title = e.target.value
-                            setCreateIdeaDraft((d) => ({
-                              ...d,
-                              title,
-                              slug: d.slug === toSlug(d.title) ? toSlug(title) : d.slug,
-                            }))
+                      )}
+                      {sub.status === 'pending' && (
+                        <button
+                          onClick={() => {
+                            setCreatingIdeaSubId(sub.id)
+                            setCreateIdeaError('')
+                            setCreateIdeaDraft({ title: '', slug: '', short_description: '' })
+                            setEditingSubId(null)
                           }}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-green-400"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-gray-500">Slug</span>
-                        <input
-                          type="text" maxLength={200} required
-                          value={createIdeaDraft.slug}
-                          onChange={(e) => setCreateIdeaDraft((d) => ({ ...d, slug: toSlug(e.target.value) }))}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-green-400"
-                        />
-                      </label>
-                    </div>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-xs text-gray-500">Stutt lýsing (valkvætt, tekur titil ef autt)</span>
-                      <input
-                        type="text" maxLength={500}
-                        value={createIdeaDraft.short_description}
-                        onChange={(e) => setCreateIdeaDraft((d) => ({ ...d, short_description: e.target.value }))}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-green-400"
-                      />
-                    </label>
-                    <div className="flex gap-2 items-center">
-                      {createIdeaError && <p className="text-xs text-red-600 max-w-xs">{createIdeaError}</p>}
-                      <div className="flex gap-2 ml-auto">
-                        <button
-                          type="button"
-                          onClick={() => { setCreatingIdeaSubId(null); setCreateIdeaDraft({ title: '', slug: '', short_description: '' }); setCreateIdeaError('') }}
-                          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 hover:border-gray-400 transition-colors"
+                          className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
+                            creatingIdeaSubId === sub.id
+                              ? 'border-green-500 text-green-700'
+                              : 'border-gray-200 text-green-700 hover:border-green-400'
+                          }`}
                         >
-                          Hætta við
+                          Samþykkja
                         </button>
-                        <button type="submit" className="text-xs bg-green-600 text-white rounded-lg px-3 py-1.5 hover:bg-green-700 transition-colors">
+                      )}
+                      {sub.status === 'approved' && (
+                        <button
+                          onClick={() => {
+                            setCreatingIdeaSubId(sub.id)
+                            setCreateIdeaError('')
+                            setCreateIdeaDraft({ title: '', slug: '', short_description: '' })
+                            setEditingSubId(null)
+                          }}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-green-700 hover:border-green-400 transition-colors"
+                        >
                           Búa til hugmynd
                         </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (editingSubId === sub.id) {
+                            setEditingSubId(null); setEditSubDraft({}); setEditSubError('')
+                          } else {
+                            setEditingSubId(sub.id)
+                            setEditSubError('')
+                            setEditSubDraft({
+                              problem_description: sub.problem_description,
+                              current_solution: sub.current_solution,
+                              dream_solution: sub.dream_solution,
+                              category: sub.category,
+                              allow_publication: sub.allow_publication,
+                              name: sub.name,
+                              email: sub.email,
+                              status: sub.status,
+                            })
+                            setCreatingIdeaSubId(null)
+                          }
+                        }}
+                        className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
+                          editingSubId === sub.id ? 'border-[#2d5a27] text-[#154212]' : 'border-gray-200 hover:border-[#2d5a27]'
+                        }`}
+                      >
+                        {editingSubId === sub.id ? 'Loka' : 'Breyta'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Tengja við þegar stofnaða hugmynd */}
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+                    <select
+                      value={linkDraft[sub.id] ?? ''}
+                      onChange={(e) => setLinkDraft((d) => ({ ...d, [sub.id]: e.target.value }))}
+                      disabled={ideas.length === 0}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white flex-1 focus:outline-none focus:border-[#2d5a27]"
+                    >
+                      <option value="">{ideas.length === 0 ? 'Engar hugmyndir' : '— Tengja við hugmynd —'}</option>
+                      {ideas.map((idea) => (
+                        <option key={idea.id} value={idea.id}>{idea.title}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => linkSubmission(sub.id)}
+                      disabled={!linkDraft[sub.id]}
+                      className="text-xs border border-[#c2c9bb] text-[#154212] rounded-lg px-3 py-1.5 hover:border-[#2d5a27] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                    >
+                      Tengja
+                    </button>
+                  </div>
+
+                  {editingSubId === sub.id && (
+                    <form
+                      onSubmit={(e) => { e.preventDefault(); saveSubEdit(sub.id) }}
+                      className="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-3"
+                    >
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-gray-500">Vandamálslýsing</span>
+                        <textarea
+                          maxLength={2000} rows={3} required
+                          value={editSubDraft.problem_description ?? ''}
+                          onChange={(e) => setEditSubDraft((d) => ({ ...d, problem_description: e.target.value }))}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-gray-500">Núverandi lausn</span>
+                        <textarea
+                          maxLength={2000} rows={2}
+                          value={editSubDraft.current_solution ?? ''}
+                          onChange={(e) => setEditSubDraft((d) => ({ ...d, current_solution: e.target.value || null }))}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-gray-500">Draumalausn</span>
+                        <textarea
+                          maxLength={2000} rows={2}
+                          value={editSubDraft.dream_solution ?? ''}
+                          onChange={(e) => setEditSubDraft((d) => ({ ...d, dream_solution: e.target.value || null }))}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27] resize-y"
+                        />
+                      </label>
+                      <div className="flex flex-wrap gap-3 items-end">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500">Flokkur</span>
+                          <select
+                            value={editSubDraft.category ?? ''}
+                            onChange={(e) => setEditSubDraft((d) => ({ ...d, category: e.target.value ? e.target.value as IdeaCategory : null }))}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
+                          >
+                            <option value="">—</option>
+                            {IDEA_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500">Birting</span>
+                          <select
+                            value={editSubDraft.allow_publication ?? 'no'}
+                            onChange={(e) => setEditSubDraft((d) => ({ ...d, allow_publication: e.target.value as 'yes' | 'no' | 'anonymous' }))}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
+                          >
+                            <option value="yes">yes</option>
+                            <option value="no">no</option>
+                            <option value="anonymous">anonymous</option>
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500">Staða</span>
+                          <select
+                            value={editSubDraft.status ?? 'pending'}
+                            onChange={(e) => setEditSubDraft((d) => ({ ...d, status: e.target.value as SubmissionStatus }))}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#2d5a27]"
+                          >
+                            {(['pending', 'approved', 'rejected'] as const).map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500">Nafn</span>
+                          <input
+                            type="text" maxLength={200}
+                            value={editSubDraft.name ?? ''}
+                            onChange={(e) => setEditSubDraft((d) => ({ ...d, name: e.target.value || null }))}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500">Netfang</span>
+                          <input
+                            type="email" maxLength={320}
+                            value={editSubDraft.email ?? ''}
+                            onChange={(e) => setEditSubDraft((d) => ({ ...d, email: e.target.value || null }))}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#2d5a27]"
+                          />
+                        </label>
+                        <div className="flex gap-2 ml-auto items-center">
+                          {editSubError && <p className="text-xs text-red-600 max-w-xs">{editSubError}</p>}
+                          <button
+                            type="button"
+                            onClick={() => { setEditingSubId(null); setEditSubDraft({}); setEditSubError('') }}
+                            className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 hover:border-gray-400 transition-colors"
+                          >
+                            Hætta við
+                          </button>
+                          <button type="submit" className="text-xs bg-[#154212] text-white rounded-lg px-3 py-1.5 hover:bg-[#2d5a27] transition-colors">
+                            Vista
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  )}
+
+                  {creatingIdeaSubId === sub.id && (
+                    <form
+                      onSubmit={(e) => { e.preventDefault(); createIdeaFromSub(sub.id) }}
+                      className="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-3"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500">Titill hugmyndar</span>
+                          <input
+                            type="text" maxLength={200} required
+                            value={createIdeaDraft.title}
+                            onChange={(e) => {
+                              const title = e.target.value
+                              setCreateIdeaDraft((d) => ({
+                                ...d,
+                                title,
+                                slug: d.slug === toSlug(d.title) ? toSlug(title) : d.slug,
+                              }))
+                            }}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-green-400"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500">Slug</span>
+                          <input
+                            type="text" maxLength={200} required
+                            value={createIdeaDraft.slug}
+                            onChange={(e) => setCreateIdeaDraft((d) => ({ ...d, slug: toSlug(e.target.value) }))}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-green-400"
+                          />
+                        </label>
+                      </div>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-gray-500">Stutt lýsing (valkvætt, tekur titil ef autt)</span>
+                        <input
+                          type="text" maxLength={500}
+                          value={createIdeaDraft.short_description}
+                          onChange={(e) => setCreateIdeaDraft((d) => ({ ...d, short_description: e.target.value }))}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-green-400"
+                        />
+                      </label>
+                      <div className="flex gap-2 items-center">
+                        {createIdeaError && <p className="text-xs text-red-600 max-w-xs">{createIdeaError}</p>}
+                        <div className="flex gap-2 ml-auto">
+                          <button
+                            type="button"
+                            onClick={() => { setCreatingIdeaSubId(null); setCreateIdeaDraft({ title: '', slug: '', short_description: '' }); setCreateIdeaError('') }}
+                            className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 hover:border-gray-400 transition-colors"
+                          >
+                            Hætta við
+                          </button>
+                          <button type="submit" className="text-xs bg-green-600 text-white rounded-lg px-3 py-1.5 hover:bg-green-700 transition-colors">
+                            Búa til hugmynd
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Tengdar innsendingar */}
+            {linkedSubs.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                  Tengdar innsendingar ({linkedSubs.length})
+                </p>
+                {linkedSubs.map((sub) => {
+                  const linkedIdea = ideas.find((i) => i.id === sub.idea_id)
+                  return (
+                    <div key={sub.id} className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
+                      <div className="flex items-start justify-between gap-4 mb-2">
+                        <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${
+                          sub.status === 'pending' ? 'bg-amber-100 text-amber-600'
+                          : sub.status === 'approved' ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-400'
+                        }`}>
+                          {sub.status}
+                        </span>
+                        <span className="text-xs text-gray-400">{new Date(sub.created_at).toLocaleDateString('is-IS')}</span>
+                      </div>
+                      <p className="text-sm text-gray-700 mb-3 line-clamp-2">{sub.problem_description}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {linkedIdea ? (
+                          <a
+                            href={`/hugmyndir/${linkedIdea.slug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs border border-green-200 bg-green-50 text-green-700 rounded-lg px-2 py-1 hover:border-green-400 transition-colors"
+                          >
+                            {linkedIdea.title}
+                          </a>
+                        ) : (
+                          <span className="text-xs text-gray-400">Tengd hugmynd finnst ekki</span>
+                        )}
+                        <button
+                          onClick={() => unlinkSubmission(sub.id)}
+                          className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-red-300 text-red-600 transition-colors ml-auto"
+                        >
+                          Aftengja
+                        </button>
                       </div>
                     </div>
-                  </form>
-                )}
+                  )
+                })}
               </div>
-            )})}
+            )}
+
+            {linkError && <p className="text-xs text-red-600">{linkError}</p>}
           </div>
         )}
 

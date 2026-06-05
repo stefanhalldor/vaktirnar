@@ -55,4 +55,5 @@ export const adminSubmissionUpdateSchema = z.object({
   name: z.string().max(200).nullable().optional(),
   email: z.string().email().max(320).nullable().optional(),
   status: z.enum(['pending', 'approved', 'rejected']).optional(),
+  idea_id: z.string().uuid().nullable().optional(),
 })

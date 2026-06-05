@@ -27,6 +27,9 @@ export async function PATCH(
     .single()
 
   if (error) {
+    if (error.code === '23503') {
+      return NextResponse.json({ error: 'invalid_idea_id' }, { status: 400 })
+    }
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })
   }
 
