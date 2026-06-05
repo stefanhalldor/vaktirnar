@@ -275,6 +275,24 @@
     "footer": {
       "tagline": "Made with love in Iceland",
       "copyright": "© 2026 Teskeið. All rights reserved."
+    },
+    "auth": {
+      "loginTitle": "Sign in",
+      "signupTitle": "Create account",
+      "noAccount": "Don't have an account?",
+      "hasAccount": "Already have an account?"
+    },
+    "profile": {
+      "title": "My profile",
+      "displayName": "Name",
+      "email": "Email",
+      "save": "Save",
+      "saved": "Saved!",
+      "saving": "Saving...",
+      "logout": "Sign out",
+      "errors": {
+        "saveFailed": "Save failed. Please try again."
+      }
     }
   }
 }

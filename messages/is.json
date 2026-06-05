@@ -279,6 +279,24 @@
     "footer": {
       "tagline": "Gerð með ást á Íslandi",
       "copyright": "© 2026 Teskeið. Öll réttindi áskilin."
+    },
+    "auth": {
+      "loginTitle": "Innskráning",
+      "signupTitle": "Stofna aðgang",
+      "noAccount": "Ekki með aðgang?",
+      "hasAccount": "Ertu með aðgang?"
+    },
+    "profile": {
+      "title": "Minn prófíll",
+      "displayName": "Nafn",
+      "email": "Netfang",
+      "save": "Vista",
+      "saved": "Vistað!",
+      "saving": "Vista...",
+      "logout": "Skrá út",
+      "errors": {
+        "saveFailed": "Vistun tókst ekki. Reyndu aftur."
+      }
     }
   }
 }

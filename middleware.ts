@@ -13,6 +13,8 @@ const PUBLIC_PATHS = [
   '/hugmyndir',
   '/senda-hugmynd',
   '/innskraning',
+  '/auth-mvp/innskraning',
+  '/auth-mvp/nyr-adgangur',
   '/api/votes',
   '/api/followers',
   '/api/submissions',
@@ -59,6 +61,18 @@ export async function middleware(request: NextRequest) {
   if (isRoot) {
     // Authenticated users on / stay on / (landing page is accessible to all)
     return supabaseResponse
+  }
+
+  // Teskeið auth MVP hidden routes
+  if (!user && pathname.startsWith('/auth-mvp/minn-profill')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth-mvp/innskraning'
+    return NextResponse.redirect(url)
+  }
+  if (user && (pathname.startsWith('/auth-mvp/innskraning') || pathname.startsWith('/auth-mvp/nyr-adgangur'))) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth-mvp/minn-profill'
+    return NextResponse.redirect(url)
   }
 
   if (!user && !isPublic && !isAuthCallback) {
