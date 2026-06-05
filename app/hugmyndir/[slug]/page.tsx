@@ -5,10 +5,10 @@ import { createClient } from '@/lib/supabase/server'
 import { NavBar } from '@/components/teskeid/NavBar'
 import { StatusBadge } from '@/components/teskeid/StatusBadge'
 import { VoteButton } from '@/components/teskeid/VoteButton'
-import { FollowForm } from '@/components/teskeid/FollowForm'
 import { Footer } from '@/components/landing/Footer'
 import { FloatingSubmitButton } from '@/components/teskeid/FloatingSubmitButton'
 import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
+import { OtherIdeasSection } from '@/components/teskeid/OtherIdeasSection'
 import Link from 'next/link'
 import { ExternalLink } from 'lucide-react'
 
@@ -54,12 +54,22 @@ export default async function IdeaPage({
   const t = await getTranslations('teskeid')
 
   const supabase = await createClient()
-  const { data: idea } = await supabase
-    .from('ideas')
-    .select('*')
-    .eq('slug', slug)
-    .eq('is_public', true)
-    .single()
+
+  const [{ data: idea }, { data: allIdeas }] = await Promise.all([
+    supabase
+      .from('ideas')
+      .select('*')
+      .eq('slug', slug)
+      .eq('is_public', true)
+      .single(),
+    supabase
+      .from('ideas')
+      .select('*')
+      .eq('is_public', true)
+      .neq('slug', slug)
+      .order('votes_count', { ascending: false })
+      .order('created_at', { ascending: false }),
+  ])
 
   if (!idea) notFound()
 
@@ -128,17 +138,11 @@ export default async function IdeaPage({
           </div>
         )}
 
-        <div className="border-t border-gray-100 pt-8 flex flex-col gap-6">
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-3">{t('ideas.votePrompt')}</p>
-            <VoteButton ideaId={idea.id} initialCount={idea.votes_count} />
-          </div>
-
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-3">{t('ideas.followPrompt')}</p>
-            <FollowForm ideaId={idea.id} />
-          </div>
+        <div className="border-t border-gray-100 pt-8">
+          <VoteButton ideaId={idea.id} initialCount={idea.votes_count} />
         </div>
+
+        <OtherIdeasSection ideas={allIdeas ?? []} currentSlug={slug} />
       </article>
 
       <Footer tagline={t('footer.tagline')} copyright={t('footer.copyright')} />

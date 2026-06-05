@@ -245,7 +245,8 @@
       "launchedWhy": "Why it matters",
       "launchedSolution": "Available now",
       "votePrompt": "Think this matters?",
-      "followPrompt": "Get notified when something changes"
+      "followPrompt": "Get notified when something changes",
+      "otherIdeas": "Other ideas"
     },
     "submit": {
       "title": "Submit an idea",

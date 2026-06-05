@@ -249,7 +249,8 @@
       "launchedWhy": "Af hverju hún skiptir máli",
       "launchedSolution": "Tilbúin lausn",
       "votePrompt": "Þykir þér þetta mikilvægt?",
-      "followPrompt": "Láta vita þegar eitthvað breytist"
+      "followPrompt": "Láta vita þegar eitthvað breytist",
+      "otherIdeas": "Aðrar hugmyndir"
     },
     "submit": {
       "title": "Sendu hugmynd",
