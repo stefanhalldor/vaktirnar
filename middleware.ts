@@ -15,7 +15,8 @@ const PUBLIC_PATHS = [
   '/innskraning',
   '/auth-mvp/innskraning',
   '/auth-mvp/nyr-adgangur',
-  '/auth-mvp/gleymt-lykilord',
+  '/api/auth-mvp/request-code',
+  '/api/auth-mvp/verify-code',
   '/api/votes',
   '/api/followers',
   '/api/submissions',
@@ -27,6 +28,18 @@ const PUBLIC_PATHS = [
 ]
 
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+
+  // Feature flag: guard all /auth-mvp/* pages and /api/auth-mvp/* endpoints.
+  // Must be checked before any auth logic — AUTH_MVP_ENABLED is server-only (no NEXT_PUBLIC_).
+  const isAuthMvpPath = pathname.startsWith('/auth-mvp') || pathname.startsWith('/api/auth-mvp')
+  if (isAuthMvpPath && process.env.AUTH_MVP_ENABLED !== 'true') {
+    if (pathname.startsWith('/api/auth-mvp')) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -54,19 +67,17 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const pathname = request.nextUrl.pathname
   const isRoot = pathname === '/'
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
   const isAuthCallback = pathname.startsWith('/auth/callback')
 
   // Landing page (/) is always public
   if (isRoot) {
-    // Authenticated users on / stay on / (landing page is accessible to all)
     return supabaseResponse
   }
 
-  // Teskeið auth MVP hidden routes
-  if (!user && (pathname.startsWith('/auth-mvp/minn-profill') || pathname.startsWith('/auth-mvp/nytt-lykilord'))) {
+  // Teskeið auth MVP hidden routes (only reachable when flag is on)
+  if (!user && pathname.startsWith('/auth-mvp/minn-profill')) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth-mvp/innskraning'
     return NextResponse.redirect(url)

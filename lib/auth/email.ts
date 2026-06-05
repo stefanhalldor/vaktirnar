@@ -39,6 +39,14 @@ export async function sendLoginCode(email: string, code: string): Promise<void> 
   )
 }
 
+export async function sendUserLoginCode(email: string, code: string): Promise<void> {
+  await send(
+    email,
+    'Teskeið innskráningarkóði',
+    `Innskráningarkóðinn þinn er: ${code}\n\nKóðinn gildir í 10 mínútur.\n\nEf þú baðst ekki um þetta geturðu hunsað þennan póst.\n\nTeskeið`
+  )
+}
+
 export async function sendWaitlistConfirmation(
   email: string,
   unsubscribeUrl: string

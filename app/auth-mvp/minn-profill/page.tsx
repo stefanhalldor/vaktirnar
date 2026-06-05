@@ -19,20 +19,27 @@ export default function AuthMvpProfilePage() {
 
   useEffect(() => {
     async function load() {
-      const res = await fetch('/api/teskeid/profile')
-      if (res.status === 401) {
-        router.replace('/auth-mvp/innskraning')
-        return
+      try {
+        const res = await fetch('/api/teskeid/profile')
+        if (res.status === 401) {
+          router.replace('/auth-mvp/innskraning')
+          return
+        }
+        if (res.ok) {
+          const data = await res.json()
+          setDisplayName(data.display_name ?? '')
+          setEmail(data.email ?? '')
+        } else {
+          setError(tCommon('error'))
+        }
+      } catch {
+        setError(tCommon('error'))
+      } finally {
+        setLoading(false)
       }
-      if (res.ok) {
-        const data = await res.json()
-        setDisplayName(data.display_name ?? '')
-        setEmail(data.email ?? '')
-      }
-      setLoading(false)
     }
     load()
-  }, [router])
+  }, [router, tCommon])
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
