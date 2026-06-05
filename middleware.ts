@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   '/innskraning',
   '/auth-mvp/innskraning',
   '/auth-mvp/nyr-adgangur',
+  '/auth-mvp/gleymt-lykilord',
   '/api/votes',
   '/api/followers',
   '/api/submissions',
@@ -65,7 +66,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Teskeið auth MVP hidden routes
-  if (!user && pathname.startsWith('/auth-mvp/minn-profill')) {
+  if (!user && (pathname.startsWith('/auth-mvp/minn-profill') || pathname.startsWith('/auth-mvp/nytt-lykilord'))) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth-mvp/innskraning'
     return NextResponse.redirect(url)

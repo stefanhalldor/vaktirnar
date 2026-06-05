@@ -285,7 +285,21 @@
       "signupTitle": "Stofna aðgang",
       "noAccount": "Ekki með aðgang?",
       "hasAccount": "Ertu með aðgang?",
-      "mvpLabel": "MVP prófunarroute"
+      "mvpLabel": "MVP prófunarroute",
+      "forgotPassword": "Gleymt lykilorð?",
+      "forgotPasswordTitle": "Gleymt lykilorð",
+      "forgotPasswordDesc": "Sláðu inn netfangið þitt og við sendum þér hlekk til að endursetja lykilorðið.",
+      "sendResetLink": "Senda hlekk",
+      "sendingResetLink": "Sendi...",
+      "resetLinkSent": "Hlekkur sendur! Athugaðu tölvupóstinn þinn.",
+      "newPasswordTitle": "Nýtt lykilorð",
+      "newPassword": "Nýtt lykilorð",
+      "confirmPassword": "Staðfesta lykilorð",
+      "passwordMismatch": "Lykilorðin stemma ekki",
+      "setNewPassword": "Vista lykilorð",
+      "settingPassword": "Vista...",
+      "backToLogin": "Til baka á innskráningu",
+      "genericError": "Eitthvað fór úrskeiðis. Reyndu aftur."
     },
     "profile": {
       "title": "Minn prófíll",
