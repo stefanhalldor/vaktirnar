@@ -14,10 +14,18 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   const parsed = schema.safeParse(body)
 
+  // TODO: add IP-based rate limiting here (e.g. Upstash Ratelimit on x-forwarded-for)
+  // before calling createUserCode, to prevent multi-email spam from a single IP.
+  // Email-based rate limit (5/hr) is the current protection.
+
   if (parsed.success) {
     try {
       const code = await createUserCode(parsed.data.email)
       if (code) {
+        // Operational alert: warn if email infra is unconfigured (no code/email logged)
+        if (!process.env.RESEND_API_KEY && process.env.NODE_ENV === 'production') {
+          console.error('[auth-mvp/request-code] RESEND_API_KEY not configured — code generated but email will not be sent')
+        }
         await sendUserLoginCode(parsed.data.email, code)
       }
       // null code = silently rate-limited; do nothing

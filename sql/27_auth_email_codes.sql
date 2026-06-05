@@ -1,6 +1,9 @@
 -- Email OTP codes for Teskeið user auth (passwordless email-code flow)
 -- Separate from admin_login_codes — different security scope
 -- Idempotent: all statements use IF NOT EXISTS
+--
+-- gen_random_uuid() is a Postgres 13+ built-in (no extension needed).
+-- Supabase runs PG 15. sql/21_admin_login.sql uses the same function without issues.
 
 CREATE TABLE IF NOT EXISTS auth_email_codes (
   id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),

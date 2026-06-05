@@ -32,15 +32,18 @@ export default function AuthMvpLoginPage() {
     }
   }, [step])
 
-  async function requestCode(targetEmail: string) {
+  // Returns true on 200, false on network failure or non-2xx (system error / flag off).
+  // Does NOT distinguish rate-limited vs. email-not-found — that's intentional.
+  async function requestCode(targetEmail: string): Promise<boolean> {
     try {
-      await fetch('/api/auth-mvp/request-code', {
+      const res = await fetch('/api/auth-mvp/request-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: targetEmail }),
       })
+      return res.ok
     } catch {
-      // Network error — proceed anyway; user will see no code in email
+      return false
     }
   }
 
@@ -48,7 +51,12 @@ export default function AuthMvpLoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
-    await requestCode(email)
+    const ok = await requestCode(email)
+    if (!ok) {
+      setError(t('genericError'))
+      setLoading(false)
+      return
+    }
     setStep('code')
     setResendCountdown(RESEND_COOLDOWN)
     setLoading(false)

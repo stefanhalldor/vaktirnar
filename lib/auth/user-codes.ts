@@ -71,6 +71,10 @@ export async function verifyUserCode(email: string, code: string): Promise<boole
 
   if (row.attempts >= MAX_ATTEMPTS_PER_CODE) return false
 
+  // TODO: move attempts increment + used_at update into a single Postgres RPC/transaction
+  // to make verification atomic before this route goes public. Currently two separate
+  // writes — acceptable for hidden MVP but a race condition under concurrent requests.
+
   // Increment attempts before comparison — always, regardless of outcome
   await getAdmin()
     .from('auth_email_codes')
