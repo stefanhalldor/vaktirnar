@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 
 export default function AuthMvpForgotPasswordPage() {
   const t = useTranslations('teskeid.auth')
+  const tAuth = useTranslations('auth')
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
@@ -56,7 +57,7 @@ export default function AuthMvpForgotPasswordPage() {
           <p className="mb-6 text-center text-sm text-gray-500">{t('forgotPasswordDesc')}</p>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-[#42493e]">{t('email')}</span>
+              <span className="text-sm font-medium text-[#42493e]">{tAuth('email')}</span>
               <input
                 type="email"
                 value={email}
