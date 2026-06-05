@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createUserCode } from '@/lib/auth/user-codes'
 import { sendUserLoginCode } from '@/lib/auth/email'
+import { isAuthMvpAllowedEmail } from '@/lib/auth/allowlist'
 
 const schema = z.object({
   email: z.string().email().max(320).transform((e) => e.toLowerCase().trim()),
@@ -20,6 +21,14 @@ export async function POST(request: NextRequest) {
 
   if (parsed.success) {
     try {
+      // Allowlist check: silently do nothing for non-allowlisted emails.
+      // No code created, no email sent, no row in auth_email_codes.
+      // Client receives identical success response — no enumeration leak.
+      const allowed = await isAuthMvpAllowedEmail(parsed.data.email)
+      if (!allowed) {
+        return NextResponse.json({ success: true })
+      }
+
       const code = await createUserCode(parsed.data.email)
       if (code) {
         // Operational alert: warn if email infra is unconfigured (no code/email logged)
