@@ -6,7 +6,6 @@ import { NavBar } from '@/components/teskeid/NavBar'
 import { StatusBadge } from '@/components/teskeid/StatusBadge'
 import { VoteButton } from '@/components/teskeid/VoteButton'
 import { Footer } from '@/components/landing/Footer'
-import { FloatingSubmitButton } from '@/components/teskeid/FloatingSubmitButton'
 import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 import { OtherIdeasSection } from '@/components/teskeid/OtherIdeasSection'
 import Link from 'next/link'
@@ -78,7 +77,7 @@ export default async function IdeaPage({
       <PageViewTracker ideaId={idea.id} />
       <NavBar />
 
-      <article className="max-w-2xl mx-auto px-6 pt-10 pb-20">
+      <article className="max-w-2xl mx-auto px-6 pt-10 pb-12">
         <Link href="/" className="text-xs text-gray-400 hover:text-gray-600 transition-colors mb-8 inline-block">
           ← {t('nav.back')}
         </Link>
@@ -90,7 +89,7 @@ export default async function IdeaPage({
 
         <p className="text-xs text-gray-400 uppercase tracking-wide mb-6">{idea.category}</p>
 
-        <p className="text-sm text-gray-600 leading-relaxed mb-8">{idea.short_description}</p>
+        <p className="text-sm text-gray-600 leading-relaxed mb-6">{idea.short_description}</p>
 
         {idea.problem_description && (
           <section className="mb-6">
@@ -102,7 +101,7 @@ export default async function IdeaPage({
         )}
 
         {idea.possible_solution && (
-          <section className="mb-8">
+          <section className="mb-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-2">
               {idea.status === 'launched' ? t('ideas.launchedSolution') : t('ideas.solution')}
             </h2>
@@ -138,7 +137,7 @@ export default async function IdeaPage({
           </div>
         )}
 
-        <div className="border-t border-gray-100 pt-8">
+        <div className="border-t border-gray-100 pt-6">
           <VoteButton ideaId={idea.id} initialCount={idea.votes_count} />
         </div>
 
@@ -146,7 +145,6 @@ export default async function IdeaPage({
       </article>
 
       <Footer tagline={t('footer.tagline')} copyright={t('footer.copyright')} />
-      <FloatingSubmitButton label={t('nav.submitIdea')} />
     </main>
   )
 }

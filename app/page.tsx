@@ -21,8 +21,6 @@ export default async function Home() {
       <PageViewTracker />
       <NavBar />
       <HeroSection
-        tagline={t('hero.tagline')}
-        shortIntro={t('hero.shortIntro')}
         supportingLine={t('hero.supportingLine')}
         expandLabel={t('hero.expandLabel')}
         collapseLabel={t('hero.collapseLabel')}

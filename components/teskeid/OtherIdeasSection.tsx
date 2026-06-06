@@ -79,7 +79,7 @@ export function OtherIdeasSection({ ideas, currentSlug }: Props) {
   if (ordered.length === 0) return null
 
   return (
-    <section className="mt-16 border-t border-gray-100 pt-10">
+    <section className="mt-8 sm:mt-12 border-t border-gray-100 pt-6 sm:pt-8">
       <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('otherIdeas')}</h2>
       <IdeaGrid ideas={ordered} />
     </section>
