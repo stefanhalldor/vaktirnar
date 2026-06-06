@@ -40,6 +40,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
+  // Feature flag: guard /auth-mvp/lanad-og-skilad and all sub-paths.
+  // LOANS_ENABLED must be 'true' in addition to AUTH_MVP_ENABLED.
+  // Redirects to / without revealing whether the feature exists.
+  if (
+    pathname.startsWith('/auth-mvp/lanad-og-skilad') &&
+    process.env.LOANS_ENABLED !== 'true'
+  ) {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -78,6 +88,11 @@ export async function middleware(request: NextRequest) {
 
   // Teskeið auth MVP hidden routes (only reachable when flag is on)
   if (!user && pathname.startsWith('/auth-mvp/minn-profill')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth-mvp/innskraning'
+    return NextResponse.redirect(url)
+  }
+  if (!user && pathname.startsWith('/auth-mvp/lanad-og-skilad')) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth-mvp/innskraning'
     return NextResponse.redirect(url)

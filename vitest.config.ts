@@ -13,6 +13,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
+      // server-only is a Next.js runtime guard that throws outside RSC.
+      // In the vitest environment it is safe to stub as a no-op.
+      'server-only': path.resolve(__dirname, 'lib/__tests__/__mocks__/server-only.ts'),
     },
   },
 });
