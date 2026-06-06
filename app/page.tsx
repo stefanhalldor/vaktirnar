@@ -2,7 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import { createClient } from '@/lib/supabase/server'
 import { NavBar, BottomNav } from '@/components/teskeid/NavBar'
 import { HeroSection } from '@/components/teskeid/HeroSection'
-import { IdeaGrid } from '@/components/teskeid/IdeaGrid'
+import { PersonalizedIdeaGrid } from '@/components/teskeid/PersonalizedIdeaGrid'
 import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 
 export default async function Home() {
@@ -32,7 +32,7 @@ export default async function Home() {
           <p>{t('hero.ideasIntro')}</p>
           <p>{t('hero.ideasIntroAction')}</p>
         </div>
-        <IdeaGrid ideas={ideas ?? []} />
+        <PersonalizedIdeaGrid ideas={ideas ?? []} />
       </section>
 
       <footer className="max-w-[768px] mx-auto px-5 py-8 border-t border-black/5 mt-4">
