@@ -28,24 +28,50 @@ export function OtherIdeasSection({ ideas, currentSlug }: Props) {
   const [ordered, setOrdered] = useState<Idea[]>(ideas)
 
   useEffect(() => {
-    // 1. Record this view
-    const history = readHistory()
-    const updated = [currentSlug, ...history.filter(s => s !== currentSlug)].slice(0, MAX_HISTORY)
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
-    } catch {
-      // ignore quota errors
+    async function init() {
+      // 1. Record this view
+      const history = readHistory()
+      const updated = [currentSlug, ...history.filter(s => s !== currentSlug)].slice(0, MAX_HISTORY)
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+      } catch {
+        // ignore quota errors
+      }
+
+      // 2. Compute recent/rest order
+      const recentSlugs = updated.slice(1) // skip current
+      const recentSet = new Set(recentSlugs)
+      const recent = recentSlugs
+        .map(s => ideas.find(i => i.slug === s))
+        .filter((i): i is Idea => i !== undefined)
+      const rest = ideas.filter(i => !recentSet.has(i.slug))
+
+      // 3. Fetch voted status in one request — used only for ordering, not for VoteButton state
+      let voted: Record<string, true> = {}
+      if (ideas.length > 0) {
+        try {
+          const ids = ideas.map(i => i.id).join(',')
+          const res = await fetch(`/api/votes?idea_ids=${ids}`)
+          if (res.ok) {
+            const data = await res.json()
+            voted = data.voted ?? {}
+          }
+        } catch {
+          // fetch failed — voted stays empty, order falls back to recent/rest
+        }
+      }
+
+      // 4. Unvoted ideas first, voted ideas last — within each group keep recent/rest order
+      const isVoted = (i: Idea) => Boolean(voted[i.id])
+      setOrdered([
+        ...recent.filter(i => !isVoted(i)),
+        ...rest.filter(i => !isVoted(i)),
+        ...recent.filter(i => isVoted(i)),
+        ...rest.filter(i => isVoted(i)),
+      ])
     }
 
-    // 2. Reorder: recently viewed (excluding current) first, rest in server order
-    const recentSlugs = updated.slice(1) // skip current
-    const recentSet = new Set(recentSlugs)
-    const recent = recentSlugs
-      .map(s => ideas.find(i => i.slug === s))
-      .filter((i): i is Idea => i !== undefined)
-    const rest = ideas.filter(i => !recentSet.has(i.slug))
-
-    setOrdered([...recent, ...rest])
+    init()
     // Run once on mount — intentionally no deps to avoid re-sorting during session
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
