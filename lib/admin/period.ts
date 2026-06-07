@@ -33,3 +33,26 @@ export function pickPeriod(elapsedMs: number): string {
   }
   return 'all'
 }
+
+/**
+ * Resolves the initial analytics period from the localStorage timestamp.
+ *
+ * Safe fallback in all non-happy-path cases:
+ *   - `stored` is null (first visit)      → '5min'
+ *   - `stored` is non-numeric (corrupted) → '5min'
+ *   - elapsed is negative (future clock)  → '5min'
+ *   - valid elapsed                       → pickPeriod(elapsed)
+ *
+ * @param stored Raw string from localStorage, or null if absent.
+ * @param now    Current timestamp in ms (Date.now() at read time).
+ */
+export function resolveInitialPeriod(stored: string | null, now: number): string {
+  if (stored === null) return '5min'
+  const trimmed = stored.trim()
+  if (trimmed === '') return '5min'
+  const timestamp = Number(trimmed)
+  if (!isFinite(timestamp) || timestamp < 0) return '5min'
+  const elapsed = now - timestamp
+  if (elapsed < 0) return '5min'
+  return pickPeriod(elapsed)
+}

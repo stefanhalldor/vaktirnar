@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pickPeriod } from '@/lib/admin/period'
+import { pickPeriod, resolveInitialPeriod } from '@/lib/admin/period'
 
 const MIN = 60 * 1000
 const H = 60 * MIN
@@ -88,5 +88,79 @@ describe('pickPeriod', () => {
 
   it('very large value → all', () => {
     expect(pickPeriod(365 * D)).toBe('all')
+  })
+})
+
+// ── resolveInitialPeriod ──────────────────────────────────────────────────────
+
+describe('resolveInitialPeriod', () => {
+  const NOW = 1_700_000_000_000 // fixed reference timestamp
+
+  // 1. No stored timestamp (first visit)
+  it('null stored (first visit) → 5min', () => {
+    expect(resolveInitialPeriod(null, NOW)).toBe('5min')
+  })
+
+  // 2. Recent valid timestamp
+  it('stored 2 min ago → 5min', () => {
+    expect(resolveInitialPeriod(String(NOW - 2 * MIN), NOW)).toBe('5min')
+  })
+
+  // 3. 59-minute elapsed
+  it('stored 59 min ago → 1h', () => {
+    expect(resolveInitialPeriod(String(NOW - 59 * MIN), NOW)).toBe('1h')
+  })
+
+  // 4. Invalid (non-numeric) stored value
+  it('non-numeric stored value → 5min', () => {
+    expect(resolveInitialPeriod('not-a-number', NOW)).toBe('5min')
+  })
+
+  // 5. Future timestamp (stored > now → elapsed negative)
+  it('future timestamp → 5min', () => {
+    expect(resolveInitialPeriod(String(NOW + 60 * 1000), NOW)).toBe('5min')
+  })
+
+  // 6. Proves analytics can never open with legacy '7d' default.
+  // The guard (periodReady) ensures the analytics effect waits; since
+  // resolveInitialPeriod never returns '7d' for fallback cases, even if
+  // the guard were bypassed the period would be '5min', not '7d'.
+  it('first visit resolves to 5min, never to the legacy 7d default', () => {
+    expect(resolveInitialPeriod(null, NOW)).not.toBe('7d')
+  })
+
+  it('invalid stored value resolves to 5min, never to 7d', () => {
+    expect(resolveInitialPeriod('garbage', NOW)).not.toBe('7d')
+  })
+
+  it('future timestamp resolves to 5min, never to 7d', () => {
+    expect(resolveInitialPeriod(String(NOW + 9999), NOW)).not.toBe('7d')
+  })
+
+  // Hardened edge cases (empty/whitespace/non-finite/negative stored values)
+  it('empty string stored → 5min', () => {
+    expect(resolveInitialPeriod('', NOW)).toBe('5min')
+  })
+
+  it('whitespace-only stored → 5min', () => {
+    expect(resolveInitialPeriod('   ', NOW)).toBe('5min')
+  })
+
+  it('negative stored timestamp → 5min', () => {
+    expect(resolveInitialPeriod('-1', NOW)).toBe('5min')
+  })
+
+  it('"Infinity" stored → 5min', () => {
+    expect(resolveInitialPeriod('Infinity', NOW)).toBe('5min')
+  })
+
+  // Additional boundary: valid 30-day elapsed
+  it('stored exactly 30 d ago → 30d', () => {
+    expect(resolveInitialPeriod(String(NOW - 30 * D), NOW)).toBe('30d')
+  })
+
+  // elapsed === 0 (same-millisecond re-open)
+  it('stored at exactly now (0 ms elapsed) → 5min', () => {
+    expect(resolveInitialPeriod(String(NOW), NOW)).toBe('5min')
   })
 })

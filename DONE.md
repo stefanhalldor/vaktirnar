@@ -9,12 +9,12 @@ Saga kláraðra og staðfestra atriða.
 **Lokið:** 2026-06-07
 **Staðfest af Codex:** já (eftir race-condition fix)
 
-Admin síðan opnar `stats` tab sjálfkrafa. Period valinn út frá tíma síðustu
-opnunar: timestamp er lesinn og uppfærður inni í `try`-blokk; `periodReady`
-er sett `true` í `finally` þannig að analytics-fetch fer ekki af stað fyrr en
-period er búinn að leysa sig úr localStorage (eða default `7d` hefur verið
-staðfest). `pickPeriod(elapsedMs)` er hreint helper-fall. localStorage-villur
-eru kyngt; síðan brotnar ekki.
+Admin síðan opnar `stats` tab sjálfkrafa. `resolveInitialPeriod(stored, now)`
+velur period: fyrsta heimsókn og öll villutilfelli (ógilt, framtíðar-timestamp,
+localStorage ekki aðgengilegt) → `5min`; gildur tími → `pickPeriod(elapsed)`.
+`setPeriod` og `setPeriodReady(true)` eru bæði kölluð í `finally` þannig að
+React sameinar state-uppfærslurnar; analytics-fetch sér alltaf réttan period þegar
+`periodReady` flippast.
 
 Skrár:
 - `lib/admin/period.ts` — `pickPeriod` helper

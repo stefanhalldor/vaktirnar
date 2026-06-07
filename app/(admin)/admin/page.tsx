@@ -4,7 +4,7 @@ import { Fragment, useEffect, useState } from 'react'
 import type { Idea, Submission, IdeaCategory } from '@/lib/teskeid/types'
 import { IDEA_CATEGORIES } from '@/lib/teskeid/types'
 import { StatusBadge } from '@/components/teskeid/StatusBadge'
-import { pickPeriod } from '@/lib/admin/period'
+import { resolveInitialPeriod } from '@/lib/admin/period'
 
 type IdeaStatus = Idea['status']
 type SubmissionStatus = Submission['status']
@@ -120,7 +120,7 @@ export default function AdminPage() {
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [tab, setTab] = useState<'ideas' | 'submissions' | 'stats'>('stats')
-  const [period, setPeriod] = useState('7d')
+  const [period, setPeriod] = useState('5min')
   const [periodReady, setPeriodReady] = useState(false)
   const [drillFilter, setDrillFilter] = useState<DrillFilter | null>(null)
   const [drillIdeaId, setDrillIdeaId] = useState<string | null>(null)
@@ -151,26 +151,23 @@ export default function AdminPage() {
   const [linkError, setLinkError] = useState('')
 
   // Auto-select analytics period based on time since last admin page visit.
-  // Reads stored timestamp, picks the smallest PERIOD that covers the elapsed
-  // time, then updates the timestamp for next visit.
-  // Sets periodReady=true in finally so the analytics fetch only starts after
-  // the period is resolved (prevents a race where the first request fires with
-  // the default '7d' before localStorage is read).
-  // localStorage errors are swallowed so the page never breaks.
+  // resolveInitialPeriod handles all cases: first visit and any invalid
+  // timestamp (corrupted, future clock) → '5min'; valid elapsed →
+  // pickPeriod(elapsed). Both setPeriod and setPeriodReady are called in
+  // finally so React batches them: the analytics effect always sees the
+  // resolved period the moment periodReady flips — no stale request can fire.
   useEffect(() => {
     const LS_KEY = 'admin_last_opened'
+    let resolved = '5min'
     try {
+      const now = Date.now()
       const stored = localStorage.getItem(LS_KEY)
-      if (stored !== null) {
-        const elapsed = Date.now() - Number(stored)
-        if (!isNaN(elapsed) && elapsed >= 0) {
-          setPeriod(pickPeriod(elapsed))
-        }
-      }
-      localStorage.setItem(LS_KEY, String(Date.now()))
+      localStorage.setItem(LS_KEY, String(now))
+      resolved = resolveInitialPeriod(stored, now)
     } catch {
-      // localStorage unavailable or corrupted — retain default period
+      // localStorage inaccessible — keep '5min' fallback
     } finally {
+      setPeriod(resolved)
       setPeriodReady(true)
     }
   }, [])
