@@ -301,6 +301,7 @@
       "saved": "Saved!",
       "saving": "Saving...",
       "logout": "Sign out",
+      "homeLink": "Home",
       "errors": {
         "saveFailed": "Save failed. Please try again."
       }
@@ -308,13 +309,21 @@
     "home": {
       "greeting": "Hello, {displayName}",
       "greetingFallback": "Hello",
-      "agenda": "What's on the agenda?",
+      "featuresTitle": "Teskeiðar",
       "loansTitle": "Lent and returned",
-      "loansNewItem": "Log a new item",
+      "upcoming": "Upcoming",
+      "upcomingEmail": "Email simplified",
+      "upcomingExpenses": "Expenses tracked",
+      "upcomingPartner": "Partner",
+      "upcomingWeather": "Weather",
+      "upcomingKidsShift": "First shift for kids",
+      "upcomingThirdShift": "The third shift",
+      "upcomingOutToPlay": "Out to play",
       "recent": "Recent",
       "recentSeeAll": "See all",
+      "recentMarkRead": "Done",
+      "recentDone": "You can relax, you have everything in Teskeið. Well done!",
       "noRecent": "No loans logged yet.",
-      "noRecentCta": "Log your first loan",
       "profileLink": "My account",
       "pendingBadgeLabel": "{count, plural, one {1 pending invitation} other {# pending invitations}}"
     },

@@ -1,32 +1,51 @@
+import { createHash } from 'crypto'
+import { cookies } from 'next/headers'
 import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
 import Image from 'next/image'
-import { UserCircle, ChevronRight, ArrowRight, AlertTriangle, Plus } from 'lucide-react'
+import { UserCircle, ChevronRight } from 'lucide-react'
 import { guardTeskeidAccess } from '@/lib/auth/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import type { LoanItem, PendingInvitation } from '@/lib/loans/types'
 import { sortLoansForHome } from '@/lib/loans/sort'
+import { RecentSection, type RecentLabels } from './RecentSection'
 
 const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
+const RECENT_COOKIE = 'teskeid_recent_read'
 
-function isOverdue(item: LoanItem): boolean {
-  if (!item.due_at || item.returned_at) return false
-  return item.due_at < new Date().toISOString().slice(0, 10)
+const UPCOMING_KEYS = [
+  'upcomingEmail',
+  'upcomingExpenses',
+  'upcomingPartner',
+  'upcomingWeather',
+  'upcomingKidsShift',
+  'upcomingThirdShift',
+  'upcomingOutToPlay',
+] as const
+
+function getTodayReykjavik(): string {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
 }
 
-/**
- * Parse YYYY-MM-DD as a local date to avoid UTC midnight timezone shift.
- * Mirrors the pattern used in LoanCard.tsx.
- */
-function formatLoanDate(dateStr: string, locale: string): string {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  const displayLocale = LOCALE_MAP[locale] ?? locale
-  return new Date(year, month - 1, day).toLocaleDateString(displayLocale, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
+function computeRecentSignature(loans: LoanItem[]): string {
+  const today = getTodayReykjavik()
+  const payload = loans
+    .map((l) => {
+      const overdue = !!l.due_at && !l.returned_at && l.due_at < today
+      return [
+        l.id,
+        l.item_name,
+        l.loaned_at,
+        l.due_at ?? '',
+        l.returned_at ?? '',
+        l.my_role,
+        l.other_display_name ?? '',
+        overdue ? '1' : '0',
+      ].join('|')
+    })
+    .join('\n')
+  return createHash('sha256').update(payload).digest('hex')
 }
 
 export default async function HeimPage() {
@@ -81,7 +100,10 @@ export default async function HeimPage() {
       ])
 
       if (loansResult.status === 'rejected') {
-        const errType = loansResult.reason instanceof Error ? loansResult.reason.constructor.name : typeof loansResult.reason
+        const errType =
+          loansResult.reason instanceof Error
+            ? loansResult.reason.constructor.name
+            : typeof loansResult.reason
         console.error('[heim/page] get_my_loans:', errType)
         loansError = true
       } else if (loansResult.value.error) {
@@ -92,7 +114,10 @@ export default async function HeimPage() {
       }
 
       if (invitationsResult.status === 'rejected') {
-        const errType = invitationsResult.reason instanceof Error ? invitationsResult.reason.constructor.name : typeof invitationsResult.reason
+        const errType =
+          invitationsResult.reason instanceof Error
+            ? invitationsResult.reason.constructor.name
+            : typeof invitationsResult.reason
         console.error('[heim/page] get_my_pending_invitations:', errType)
         invitationsError = true
       } else if (invitationsResult.value.error) {
@@ -104,10 +129,32 @@ export default async function HeimPage() {
     }
   }
 
-  // Sort by loaned_at DESC, id DESC (tie-breaker), then take first 3.
+  // Read-state cookie for Nýlegt completion banner.
+  // The signature is computed from the visible sorted recent rows.
   const recentLoans = sortLoansForHome(loans).slice(0, 3)
+  const recentSig = computeRecentSignature(recentLoans)
+  let readSig: string | null = null
+  try {
+    const jar = await cookies()
+    readSig = jar.get(RECENT_COOKIE)?.value ?? null
+  } catch {
+    // cookies() unavailable in this context — treat as unread
+  }
+  const initialRead = recentLoans.length > 0 && readSig === recentSig
+
   const pendingCount = pendingInvitations.length
   const greeting = displayName ? t('greeting', { displayName }) : t('greetingFallback')
+  const displayLocale = LOCALE_MAP[locale] ?? locale
+
+  const recentLabels: RecentLabels = {
+    recent: t('recent'),
+    markRead: t('recentMarkRead'),
+    done: t('recentDone'),
+    noRecent: t('noRecent'),
+    lent: tLoans('lent'),
+    borrowed: tLoans('borrowed'),
+    overdue: tLoans('overdue'),
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -137,12 +184,12 @@ export default async function HeimPage() {
           <p className="text-xl font-semibold text-primary">{greeting}</p>
         </section>
 
-        {/* Hvað er á dagskrá? — only when loans feature is active */}
-        {loansEnabled && (
-          <section>
-            <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('agenda')}</h2>
-            <div className="bg-card border border-border rounded-xl overflow-hidden">
-              {/* Lánað og skilað primary row */}
+        {/* Teskeiðar — always renders; active row is loans-gated */}
+        <section>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('featuresTitle')}</h2>
+          <div className="bg-card border border-border rounded-xl overflow-hidden divide-y divide-border">
+            {/* Active: Lánað og skilað — only when LOANS_ENABLED */}
+            {loansEnabled && (
               <Link
                 href="/auth-mvp/lanad-og-skilad"
                 className="flex items-center justify-between px-4 hover:bg-background transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
@@ -160,82 +207,32 @@ export default async function HeimPage() {
                 </div>
                 <ChevronRight size={16} className="text-muted-foreground shrink-0" aria-hidden />
               </Link>
-              {/* Secondary action: skrá nýjan hlut */}
-              <div className="border-t border-border">
-                <Link
-                  href="/auth-mvp/lanad-og-skilad/ny"
-                  className="flex items-center gap-1.5 px-4 py-2.5 text-sm text-primary hover:bg-primary/5 transition-colors min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                >
-                  <Plus size={14} aria-hidden />
-                  {t('loansNewItem')}
-                </Link>
-              </div>
-            </div>
-          </section>
-        )}
+            )}
+
+            {/* Upcoming (disabled) features */}
+            {UPCOMING_KEYS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                disabled
+                className="w-full flex items-center justify-between px-4 py-3 min-h-[44px] opacity-60 cursor-not-allowed"
+              >
+                <span className="text-sm font-medium text-foreground">{t(key)}</span>
+                <span className="text-xs text-muted-foreground">{t('upcoming')}</span>
+              </button>
+            ))}
+          </div>
+        </section>
 
         {/* Nýlegt — hidden when LOANS_ENABLED=false or RPC failed */}
         {loansEnabled && !loansError && (
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-muted-foreground">{t('recent')}</h2>
-              {recentLoans.length > 0 && (
-                <Link
-                  href="/auth-mvp/lanad-og-skilad"
-                  className="flex items-center gap-1 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                >
-                  {t('recentSeeAll')} <ArrowRight size={12} aria-hidden />
-                </Link>
-              )}
-            </div>
-
-            {recentLoans.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-sm text-muted-foreground mb-3">{t('noRecent')}</p>
-                <Link
-                  href="/auth-mvp/lanad-og-skilad/ny"
-                  className="inline-flex items-center gap-1 text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                >
-                  {t('noRecentCta')} <ArrowRight size={14} aria-hidden />
-                </Link>
-              </div>
-            ) : (
-              <div className="flex flex-col divide-y divide-border bg-card border border-border rounded-xl overflow-hidden">
-                {recentLoans.map((item) => {
-                  const overdue = isOverdue(item)
-                  return (
-                    <div key={item.id} className="flex items-center gap-3 px-4 min-h-[48px]">
-                      <div className="flex-1 min-w-0 py-3">
-                        <p
-                          className={`text-sm font-medium leading-tight truncate ${
-                            item.returned_at ? 'text-muted-foreground line-through' : 'text-foreground'
-                          }`}
-                        >
-                          {item.item_name}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {item.my_role === 'lender' ? tLoans('lent') : tLoans('borrowed')}
-                          {item.other_display_name ? ` · ${item.other_display_name}` : ''}
-                        </p>
-                      </div>
-                      <div className="shrink-0 py-3">
-                        {overdue ? (
-                          <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
-                            <AlertTriangle size={12} aria-hidden />
-                            {tLoans('overdue')}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            {formatLoanDate(item.loaned_at, locale)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
+          <RecentSection
+            loans={recentLoans}
+            signature={recentSig}
+            initialRead={initialRead}
+            displayLocale={displayLocale}
+            labels={recentLabels}
+          />
         )}
       </main>
     </div>

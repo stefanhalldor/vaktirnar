@@ -4,6 +4,32 @@ Saga kláraðra og staðfestra atriða.
 
 ---
 
+## #1 — Lendingarsíða fyrir innskráðan notanda
+
+**Lokið:** 2026-06-07
+**Staðfest af Stebbi:** já (handvirk prófun)
+
+Authenticated heimasíða á `/auth-mvp/heim`. Heilsar notanda með `display_name`,
+sýnir alltaf „Teskeiðar"-hluta með virku „Lánað og skilað"-tengli (badge með
+fjölda opinna boða) og sjö óvirka „Væntanlegt"-hnappa í fastri röð. „Nýlegt"
+sýnir þrjú nýjustu lán raðað eftir `loaned_at DESC, id DESC`; SHA-256-undirritað
+kaka gerir notanda kleift að merkja lista sem lesinn og sjá staðfestingarbanner;
+undirskrift breytist sjálfkrafa ef lán breytast eða fara yfir skiladag. Lóðlæg
+`/auth-mvp/minn-profill`-síða fékk fast haus með Home-tengli. `lanad-og-skilad`
+fékk Home-tákn í haus í stað textatengsls.
+
+Skrár:
+- `app/auth-mvp/heim/page.tsx` — heimasíða (server component, ný)
+- `app/auth-mvp/heim/RecentSection.tsx` — Nýlegt client component (ný)
+- `app/auth-mvp/minn-profill/page.tsx` — Home-tengill í haus
+- `app/auth-mvp/lanad-og-skilad/page.tsx` — Home-tákn í haus
+- `lib/loans/sort.ts` — `sortLoansForHome` (ný)
+- `lib/__tests__/home-page.test.tsx` — 41 próf (ný)
+- `lib/__tests__/profile-page.test.tsx` — 3 próf (ný)
+- `messages/is.json`, `messages/en.json` — þýðingar
+
+---
+
 ## #2 — Admin opnar tölfræðiflipa sjálfkrafa
 
 **Lokið:** 2026-06-07

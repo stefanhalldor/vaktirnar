@@ -1,22 +1,18 @@
 # TODO
 
-#1
-Búa til lendingarsíðu fyrir notanda
-Já, þetta er gott næsta verkefni eftir að lánaflæðið er klárað og rýnt, svo tveir agentar séu ekki að vinna í sömu skrám.
+## Forgangsröðun
 
-Lendingarsíðan ætti að:
+Þetta yfirlit stýrir vinnuröðinni. Númer atriðanna haldast óbreytt svo eldri
+tilvísanir og verkefnasaga rofni ekki.
 
-Vera fyrsta síða innskráðra notenda.
-Nota núverandi Teskeið header, liti, letur, spacing og UI components.
-Heilsa notanda með display_name.
-Sýna „Hvað er á dagskrá?“ með virkum flýtileiðum.
-Setja „Lánað og skilað“ fremst og sýna raunverulegan fjölda opinna boða.
-Hafa „Nýlegt“ byggt á raunverulegum gögnum, ekki sýnidæmum.
-Vera þétt og gagnleg, ekki markaðslendingarsíða.
-Virka vel í farsíma og desktop.
-Geyma allan texta í messages/is.json og messages/en.json.
-Ekki breyta núverandi lánaflæði eða öryggisreglum.
-Ég myndi ekki láta Claude hefja þetta fyrr en sql/36 og valfrjálsa netfangið eru samþykkt. Þá getum við fyrst látið Claude skoða núverandi app-shell og leggja fram nákvæma síðuáætlun án breytinga.
+| Röð | Atriði | Forgangur og samhengi |
+| --- | --- | --- |
+| 1 | **#6 Endurhanna lógó Teskeiðar** | Útbúa og samþykkja production-ready SVG sem verður grunnur að loader og almennri vörumerkjanotkun. |
+| 2 | **#8 Teskeið-loader** | Hefst strax á eftir #6 og skal enda í endanlega samþykkta SVG-lógóinu. |
+| 3 | **#4 Beta-aðgangur og útgáfustig** | Grunnlag fyrir örugga þróun og birtingu nýrra Teskeiða í `off`, `beta` og `public`. |
+| 4 | **#9 Opin innskráning með aðgangsstýrðum Teskeiðum** | Byggir á skýrri aðgreiningu session og feature-aðgangs úr #4. |
+| 5 | **#5 Samræmd mobile app-upplifun** | Víðtæk yfirferð á innskráningu, formum, viewport, keyboard og mobile layouti alls vefsins. |
+| 6 | **#7 Langlíf innskráning** | Tekið eftir að almenna innskráningar- og aðgangsflæðið í #9 hefur verið ákveðið. |
 
 #4
 ## Beta-aðgangur og útgáfustig fyrir nýjar Teskeiðar
@@ -103,6 +99,8 @@ staðar á vefnum. Allt `teskeid.is` á að upplifast eins og samræmt mobile ap
 
 ![Samþykkt hringlaga skeiðarmaskott Teskeiðar](feedback/images/teskeid-circular-spoon-mascot-logo-reference.png)
 
+![Viðmið fyrir loader og merkingu á derhúfu](feedback/images/teskeid-loader-and-cap-mark-reference.png)
+
 **Vandamál:** Samþykkta lógóhugmyndin er nú til sem raster-viðmiðsmynd en ekki
 sem hreint, skalanlegt og production-ready SVG. Það þarf að endurgera hana eins
 nákvæmlega og mögulegt er í vector-formi, ekki hanna almennt eða lauslega tengt
@@ -119,7 +117,9 @@ samhengi, en á ekki að stýra SVG-endurgerðinni.
 - Upprétt dökkgræn skeið, miðjuð lóðrétt.
 - Einfalt vinalegt andlit með ljósum sólgleraugum og litlu brosi.
 - Baseball-húfa með ljósu framstykki, dökkgrænni útlínu og skyggni.
-- Textinn `A/10` miðjaður á framstykki húfunnar.
+- Merkingin `A&10` miðjuð á framstykki húfunnar, nákvæmlega eins og á nýjasta
+  samþykkta skjámyndarviðmiðinu. Eldri hugmyndirnar `A/10` og `A ↑ 10` gilda
+  ekki lengur.
 - Boginn texti `Teskeið.is` eftir neðri innri boga hringsins.
 - Enginn glans eða shiny highlight á skeiðinni.
 - Lúkkið skal vera minimal, hreint, flatt, örlítið leikandi og svolítið
@@ -192,3 +192,95 @@ eða gera stolna session ótímabundna.
 **Öryggisviðmið:** Ekki slökkva á expiry alfarið. Langlíf innskráning skal byggja
 á öruggri token-endurnýjun, `httpOnly`/secure cookie-hegðun Supabase þar sem það
 á við og áframhaldandi server-side auth-vörnum.
+
+#8
+## Teskeið-loader sem endar í nýja lógóinu
+
+**Staða:** Bíður
+
+![Viðmið fyrir loader og merkingu á derhúfu](feedback/images/teskeid-loader-and-cap-mark-reference.png)
+
+**Hugmynd:** Búa til stutta, leikandi loading-hreyfingu þar sem Teskeið matar
+einhvern. Viðkomandi brosir að lokum og myndin umbreytist eða rennur saman við
+nýja hringlaga Teskeiðarlógóið.
+
+**Forsenda:** Formlega SVG-lógóið í TODO #6 þarf fyrst að vera hannað og
+samþykkt. Loaderinn skal byggja á sömu vector-formum, hlutföllum, litum og
+andliti svo loka-frame sé raunverulega lógóið, ekki laus eftirlíking.
+
+**Ósk:**
+
+- Hreyfingin skal vera stutt, skýr og hlý, ekki löng eða endalaust truflandi.
+- Sýna skeið fara að munni eða andliti, einfalt mataratriði og bros sem
+  niðurstöðu.
+- Láta síðasta frame umbreytast mjúklega í hringlaga Teskeiðarlógóið.
+- Merkingin á derhúfunni í loka-frame skal vera `A&10`, nákvæmlega eins og í
+  endanlega samþykkta lógóinu.
+- Halda stílnum minimal, flötum og samræmdum við samþykkta lógóið.
+- Nota SVG/CSS animation eða sambærilega létta veflausn, ekki þunga myndbandsskrá.
+- Forðast óþarfa dependencies og tryggja að animation valdi ekki layout shift.
+- Loaderinn skal virka í litlum mobile-stærðum og á stærri skjám.
+- Prófa hvaða biðtímar réttlæta fulla animation. Fyrir mjög stutta bið skal
+  forðast flökt eða að sýna aðeins brot úr sögunni.
+- Ekki tefja raunverulega navigation eða gagnabirtingu til að animation nái að
+  klárast.
+- Styðja `prefers-reduced-motion`: sýna kyrrt lógó eða mjög einfalda fade-stöðu
+  án matarhreyfingar.
+- Tryggja að loader hafi aðgengilegt loading-heiti þar sem það á við, en að
+  einstakir skrautlegir SVG-hlutar séu faldir fyrir skjálesurum.
+- Útbúa fyrst standalone demo/samanburð fyrir Stebba áður en loaderinn er settur
+  inn almennt í navigation eða gagnasöfnun.
+
+#9
+## Opin innskráning með aðgangsstýrðum Teskeiðum
+
+**Staða:** Bíður
+
+**Hugmynd:** Innskráning í bottom bar opni Teskeið-innskráningu með netfangi
+fyrir alla notendur. Whitelist eigi ekki lengur að loka á innskráninguna eða
+`/auth-mvp/heim`, heldur stýra því hvaða Teskeiðar viðkomandi má sjá og nota
+inni á heimaskjánum.
+
+**Markmið:** Aðgreina auðkenningu notanda frá aðgangi að einstökum eiginleikum:
+
+- Innskráning staðfestir hver notandinn er.
+- `/auth-mvp/heim` og `/auth-mvp/minn-profill` eru aðgengileg öllum rétt
+  innskráðum notendum.
+- Whitelist eða release-stage stýrir aðgangi að hverri Teskeið.
+- Óaðgengilegar Teskeiðar eru faldar, læstar eða merktar `Væntanlegt` eftir
+  þeirri upplifun sem verður ákveðin.
+
+**Tillaga að útfærslu:**
+
+- Fjarlægja allowlist-höfnun úr beiðni og staðfestingu á innskráningarkóða, en
+  halda svörum almennum svo þau leki ekki upplýsingum um skráð netföng.
+- Skipta núverandi `guardTeskeidAccess()` í skýr aðgangslög, til dæmis:
+  - `guardTeskeidSession()` fyrir virka innskráningu.
+  - `guardFeatureAccess(featureKey)` fyrir aðgang að einstakri Teskeið.
+- Nota session-guard fyrir `/auth-mvp/heim` og `/auth-mvp/minn-profill`.
+- Verja beinar Teskeiðarslóðir, server actions, API routes og RPC-flæði
+  server-side. Ekki treysta aðeins á sýnileika í viðmótinu.
+- Nota núverandi `auth_mvp_allowlist` tímabundið sem beta-lista fyrir
+  `Lánað og skilað`, án þess að veikja núverandi SQL-varnir.
+- Samræma lausnina síðar við release-stage kerfið í TODO #4:
+  `off`, `beta` og `public`.
+- Ákveða hvort óheimilaður notandi sjái læsta Teskeið eða aðeins
+  `Væntanlegt`, án þess að upplýsa um innri aðgangsreglur.
+
+**Öryggi og misnotkunarvarnir:**
+
+- Halda rate limiting á beiðnum um innskráningarkóða og staðfestingartilraunum.
+- Meta CAPTCHA eða sambærilega vörn ef opin kóðasending veldur misnotkun eða
+  óþarfa tölvupóstkostnaði.
+- Ekki leka því hvort netfang, notandi eða Teskeið sé á whitelist.
+- Halda allri feature-aðgangsstýringu server-side og varðveita RLS, grants og
+  service-role mörk.
+
+**Prófanir:**
+
+- Óinnskráður notandi kemst á innskráningarsíðuna en ekki inn á `/heim`.
+- Netfang utan whitelist getur fengið kóða, skráð sig inn og séð `/heim`.
+- Sami notandi kemst ekki inn í beta-Teskeið með beinni slóð, API eða action.
+- Whitelist-notandi fær áfram fullan aðgang að `Lánað og skilað`.
+- Rate limiting, röng kóðahegðun, útrunninn kóði og almenn villuskilaboð virka
+  áfram án upplýsingaleka.

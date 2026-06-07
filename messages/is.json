@@ -305,6 +305,7 @@
       "saved": "Vistað!",
       "saving": "Vista...",
       "logout": "Skrá út",
+      "homeLink": "Heim",
       "errors": {
         "saveFailed": "Vistun tókst ekki. Reyndu aftur."
       }
@@ -312,13 +313,21 @@
     "home": {
       "greeting": "Góðan dag, {displayName}",
       "greetingFallback": "Góðan dag",
-      "agenda": "Hvað er á dagskrá?",
+      "featuresTitle": "Teskeiðar",
       "loansTitle": "Lánað og skilað",
-      "loansNewItem": "Skrá nýjan hlut",
+      "upcoming": "Væntanlegt",
+      "upcomingEmail": "Póstflóðið einfaldað",
+      "upcomingExpenses": "Útlagt og endurgreitt",
+      "upcomingPartner": "Maki/kæró",
+      "upcomingWeather": "Veðrið",
+      "upcomingKidsShift": "Fyrsta vakt krakkanna",
+      "upcomingThirdShift": "Þriðja vaktin",
+      "upcomingOutToPlay": "Út að leika",
       "recent": "Nýlegt",
       "recentSeeAll": "Sjá allt",
+      "recentMarkRead": "Lesið",
+      "recentDone": "Þú getur slakað á því þú ert með allt í Teskeið, vel gert!",
       "noRecent": "Engin lán skráð enn.",
-      "noRecentCta": "Skrá fyrsta lán",
       "profileLink": "Minn aðgangur",
       "pendingBadgeLabel": "{count} boð í bið"
     },

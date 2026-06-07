@@ -6,8 +6,9 @@
  * dependencies (guard, next-intl/server, Supabase, Next.js primitives).
  */
 
+import { createHash } from 'crypto'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import React from 'react'
 
 // ── Mocks (declared before dynamic import) ──────────────────────────────────
@@ -26,15 +27,23 @@ vi.mock('next-intl/server', () => ({
       'teskeid.home': {
         greeting: 'Góðan dag, {displayName}',
         greetingFallback: 'Góðan dag',
-        agenda: 'Hvað er á dagskrá?',
+        featuresTitle: 'Teskeiðar',
         loansTitle: 'Lánað og skilað',
-        loansNewItem: 'Skrá nýjan hlut',
+        upcoming: 'Væntanlegt',
+        upcomingEmail: 'Póstflóðið einfaldað',
+        upcomingExpenses: 'Útlagt og endurgreitt',
+        upcomingPartner: 'Maki/kæró',
+        upcomingWeather: 'Veðrið',
+        upcomingKidsShift: 'Fyrsta vakt krakkanna',
+        upcomingThirdShift: 'Þriðja vaktin',
+        upcomingOutToPlay: 'Út að leika',
         recent: 'Nýlegt',
+        recentMarkRead: 'Lesið',
+        recentDone: 'Þú getur slakað á því þú ert með allt í Teskeið, vel gert!',
         recentSeeAll: 'Sjá allt',
         noRecent: 'Engin lán skráð enn.',
-        noRecentCta: 'Skrá fyrsta lán',
         profileLink: 'Minn aðgangur',
-        pendingBadgeLabel: '{count} boð í bið',
+        pendingBadgeLabel: '{count, plural, one {1 boð í bið} other {# boð í bið}}',
       },
       'teskeid.loans': {
         lent: 'Ég lánaði',
@@ -84,6 +93,14 @@ const { mockRpc, mockGetAdmin } = vi.hoisted(() => {
 })
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: mockGetAdmin,
+}))
+
+// next/headers — cookies mock
+const { mockCookiesGet } = vi.hoisted(() => ({
+  mockCookiesGet: vi.fn(),
+}))
+vi.mock('next/headers', () => ({
+  cookies: vi.fn().mockResolvedValue({ get: mockCookiesGet }),
 }))
 
 // Next.js primitives
@@ -164,6 +181,39 @@ function setupRpcError(fn: 'get_my_loans' | 'get_my_pending_invitations') {
   })
 }
 
+// Mirror the server-side computeRecentSignature logic exactly.
+// overdueOverrides lets tests force the overdue flag to a specific value
+// (e.g. to simulate what the signature was before a loan became overdue).
+function computeTestSignature(
+  loans: LoanItem[],
+  overdueOverrides?: Map<string, boolean>,
+): string {
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
+  const sorted = sortLoansForHome(loans).slice(0, 3)
+  const payload = sorted
+    .map((l) => {
+      const overdue = overdueOverrides?.has(l.id)
+        ? overdueOverrides.get(l.id)!
+        : (!!l.due_at && !l.returned_at && l.due_at < today)
+      return [
+        l.id,
+        l.item_name,
+        l.loaned_at,
+        l.due_at ?? '',
+        l.returned_at ?? '',
+        l.my_role,
+        l.other_display_name ?? '',
+        overdue ? '1' : '0',
+      ].join('|')
+    })
+    .join('\n')
+  return createHash('sha256').update(payload).digest('hex')
+}
+
+function setupCookie(sig: string | null) {
+  mockCookiesGet.mockReturnValue(sig ? { value: sig } : undefined)
+}
+
 // ── Env helpers ──────────────────────────────────────────────────────────────
 
 let savedLoans: string | undefined
@@ -175,6 +225,7 @@ beforeEach(() => {
   process.env.LOANS_ENABLED = 'true'
   process.env.AUTH_MVP_ENABLED = 'true'
   vi.clearAllMocks()
+  mockCookiesGet.mockReturnValue(undefined)
 })
 
 afterEach(() => {
@@ -212,6 +263,103 @@ describe('HeimPage — greeting', () => {
   })
 })
 
+describe('HeimPage — Teskeiðar section', () => {
+  it('renders "Teskeiðar" heading', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    render(await HeimPage())
+    expect(screen.getByText('Teskeiðar')).toBeDefined()
+  })
+
+  it('renders "Teskeiðar" heading even when LOANS_ENABLED is false', async () => {
+    process.env.LOANS_ENABLED = 'false'
+    setupGuard()
+    setupProfile(null)
+    render(await HeimPage())
+    expect(screen.getByText('Teskeiðar')).toBeDefined()
+  })
+
+  it('shows "Lánað og skilað" link when LOANS_ENABLED is true', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    render(await HeimPage())
+    expect(screen.getByText('Lánað og skilað')).toBeDefined()
+  })
+
+  it('hides "Lánað og skilað" link when LOANS_ENABLED is false', async () => {
+    process.env.LOANS_ENABLED = 'false'
+    setupGuard()
+    setupProfile(null)
+    render(await HeimPage())
+    expect(screen.queryByText('Lánað og skilað')).toBeNull()
+  })
+})
+
+describe('HeimPage — upcoming rows', () => {
+  const UPCOMING_LABELS = [
+    'Póstflóðið einfaldað',
+    'Útlagt og endurgreitt',
+    'Maki/kæró',
+    'Veðrið',
+    'Fyrsta vakt krakkanna',
+    'Þriðja vaktin',
+    'Út að leika',
+  ]
+
+  it('renders all 7 upcoming rows', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    render(await HeimPage())
+    for (const label of UPCOMING_LABELS) {
+      expect(screen.getByText(label)).toBeDefined()
+    }
+  })
+
+  it('all upcoming rows are disabled buttons', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    const { container } = render(await HeimPage())
+    const disabledButtons = container.querySelectorAll('button[disabled]')
+    expect(disabledButtons.length).toBe(UPCOMING_LABELS.length)
+  })
+
+  it('renders all 7 upcoming rows in correct order', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    const { container } = render(await HeimPage())
+    const buttons = container.querySelectorAll('button[disabled]')
+    UPCOMING_LABELS.forEach((label, i) => {
+      expect(buttons[i].textContent).toContain(label)
+    })
+  })
+
+  it('renders upcoming rows even when LOANS_ENABLED is false', async () => {
+    process.env.LOANS_ENABLED = 'false'
+    setupGuard()
+    setupProfile(null)
+    render(await HeimPage())
+    for (const label of UPCOMING_LABELS) {
+      expect(screen.getByText(label)).toBeDefined()
+    }
+  })
+
+  it('each upcoming row shows "Væntanlegt" status', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    const { container } = render(await HeimPage())
+    const statusSpans = container.querySelectorAll('button[disabled] span:last-child')
+    statusSpans.forEach((span) => {
+      expect(span.textContent).toBe('Væntanlegt')
+    })
+  })
+})
+
 describe('HeimPage — pending invitations badge', () => {
   it('shows badge with accessible label for count 1', async () => {
     setupGuard()
@@ -236,7 +384,6 @@ describe('HeimPage — pending invitations badge', () => {
     setupProfile('Anna')
     setupRpcs([], [])
     render(await HeimPage())
-    // No badge element with pending aria-label should be present
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
 
@@ -245,7 +392,6 @@ describe('HeimPage — pending invitations badge', () => {
     setupProfile('Anna')
     setupRpcError('get_my_pending_invitations')
     render(await HeimPage())
-    // Badge element should not be in the DOM
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
 })
@@ -276,6 +422,24 @@ describe('HeimPage — Nýlegt section', () => {
     expect(screen.getByText('Engin lán skráð enn.')).toBeDefined()
   })
 
+  it('regression: home page contains no direct link to /auth-mvp/lanad-og-skilad/ny', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    const { container } = render(await HeimPage())
+    const nyLinks = container.querySelectorAll('a[href*="/lanad-og-skilad/ny"]')
+    expect(nyLinks.length).toBe(0)
+  })
+
+  it('regression: home page contains no link to /auth-mvp/lanad-og-skilad/ny even with loans present', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([makeLoan({ item_name: 'Bók' })], [])
+    const { container } = render(await HeimPage())
+    const nyLinks = container.querySelectorAll('a[href*="/lanad-og-skilad/ny"]')
+    expect(nyLinks.length).toBe(0)
+  })
+
   it('hides Nýlegt section when loans RPC fails', async () => {
     setupGuard()
     setupProfile(null)
@@ -292,8 +456,152 @@ describe('HeimPage — Nýlegt section', () => {
     render(await HeimPage())
     expect(screen.queryByText('Nýlegt')).toBeNull()
     expect(screen.queryByText('Lánað og skilað')).toBeNull()
-    // Greeting still shows
+    // Greeting and Teskeiðar still show
     expect(screen.getByText('Góðan dag, Guðrún')).toBeDefined()
+    expect(screen.getByText('Teskeiðar')).toBeDefined()
+  })
+})
+
+describe('HeimPage — Lesið / read state', () => {
+  it('shows "Lesið" button when loans exist and cookie is unset', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([makeLoan()], [])
+    setupCookie(null)
+    render(await HeimPage())
+    expect(screen.getByText('Lesið')).toBeDefined()
+  })
+
+  it('clicking "Lesið" shows done banner', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([makeLoan({ item_name: 'Bók' })], [])
+    setupCookie(null)
+    render(await HeimPage())
+    const btn = screen.getByText('Lesið')
+    fireEvent.click(btn)
+    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
+    expect(screen.queryByText('Lesið')).toBeNull()
+  })
+
+  it('shows done banner immediately when cookie matches current signature', async () => {
+    const loan = makeLoan({ item_name: 'Skór' })
+    const sig = computeTestSignature([loan])
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([loan], [])
+    setupCookie(sig)
+    render(await HeimPage())
+    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
+    expect(screen.queryByText('Lesið')).toBeNull()
+  })
+
+  it('shows loan list (not done banner) when cookie has stale signature', async () => {
+    const loan = makeLoan({ item_name: 'Jakki' })
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([loan], [])
+    setupCookie('stale-signature-that-does-not-match')
+    render(await HeimPage())
+    expect(screen.getByText('Jakki')).toBeDefined()
+    expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
+  })
+
+  it('cookie signature is an opaque SHA-256 hex string (not loan data)', async () => {
+    const loan = makeLoan({ item_name: 'Leikur' })
+    const sig = computeTestSignature([loan])
+    // Verify it is a 64-char hex string
+    expect(sig).toMatch(/^[0-9a-f]{64}$/)
+    // Verify it does not contain the item name
+    expect(sig).not.toContain('Leikur')
+  })
+
+  it('does not show "Lesið" button when there are no loans', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    setupCookie(null)
+    render(await HeimPage())
+    expect(screen.queryByText('Lesið')).toBeNull()
+  })
+
+  it('regression: cookie becomes stale when loan transitions from current to overdue', async () => {
+    // Loan with a past due date — currently overdue
+    const loan = makeLoan({ id: 'overdue-loan', item_name: 'Bók', due_at: '2020-01-01' })
+
+    // Compute what the signature was when this loan had not yet passed its due date
+    const sigWhenCurrent = computeTestSignature([loan], new Map([['overdue-loan', false]]))
+
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([loan], [])
+    setupCookie(sigWhenCurrent) // cookie was written when loan was "current"
+
+    render(await HeimPage())
+
+    // Loan is now overdue → signature includes overdue=1 → cookie no longer matches
+    expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
+    expect(screen.getByText('Bók')).toBeDefined()
+  })
+
+  it('signature differs between current and overdue state of the same loan', () => {
+    const loan = makeLoan({ id: 'sig-diff', item_name: 'Kassi', due_at: '2026-06-01' })
+    const sigCurrent = computeTestSignature([loan], new Map([['sig-diff', false]]))
+    const sigOverdue = computeTestSignature([loan], new Map([['sig-diff', true]]))
+    expect(sigCurrent).not.toBe(sigOverdue)
+    expect(sigCurrent).toMatch(/^[0-9a-f]{64}$/)
+    expect(sigOverdue).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+// ── HeimPage — Lesið cookie write ────────────────────────────────────────────
+// Tests in this block intercept document.cookie writes by shadowing the
+// property on the document instance. afterEach deletes the own property so
+// the jsdom prototype implementation is restored for other test suites.
+
+describe('HeimPage — Lesið cookie write', () => {
+  const cookieWrites: string[] = []
+
+  beforeEach(() => {
+    cookieWrites.length = 0
+    Object.defineProperty(document, 'cookie', {
+      set(val: string) { cookieWrites.push(val) },
+      get() { return '' },
+      configurable: true,
+    })
+  })
+
+  afterEach(() => {
+    Reflect.deleteProperty(document, 'cookie')
+  })
+
+  it('clicking "Lesið" writes teskeid_recent_read with expected SHA-256, required attributes, and no raw loan data', async () => {
+    const loan = makeLoan({ id: 'write-test-id', item_name: 'Teppi' })
+    const expectedSig = computeTestSignature([loan])
+
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([loan], [])
+    setupCookie(null)
+
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Lesið'))
+
+    expect(cookieWrites.length).toBeGreaterThan(0)
+    const written = cookieWrites[cookieWrites.length - 1]
+
+    // Value is the expected opaque SHA-256 hex
+    expect(written).toContain(`teskeid_recent_read=${expectedSig}`)
+    expect(written).toMatch(/teskeid_recent_read=[0-9a-f]{64}/)
+
+    // Required cookie attributes
+    expect(written).toContain('path=/auth-mvp/heim')
+    expect(written).toContain('SameSite=Lax')
+    expect(written).toContain('Max-Age=')
+
+    // Does not contain item name, loan ID, or any user-facing text
+    expect(written).not.toContain('Teppi')
+    expect(written).not.toContain('write-test-id')
   })
 })
 
@@ -339,12 +647,12 @@ describe('HeimPage — partial error resilience', () => {
     expect(screen.getByText('Bók')).toBeDefined()
   })
 
-  it('shows agenda section but hides Nýlegt when only loans RPC fails', async () => {
+  it('shows Teskeiðar section but hides Nýlegt when only loans RPC fails', async () => {
     setupGuard()
     setupProfile('Stebbi')
     setupRpcError('get_my_loans')
     render(await HeimPage())
-    // Agenda section still renders (invitations RPC succeeded)
+    // Teskeiðar section still renders (invitations RPC succeeded)
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
     // Nýlegt hidden
     expect(screen.queryByText('Nýlegt')).toBeNull()
@@ -354,12 +662,12 @@ describe('HeimPage — partial error resilience', () => {
 // ── HeimPage — getAdmin / RPC promise rejection resilience ───────────────────
 
 describe('HeimPage — getAdmin / RPC rejection resilience', () => {
-  it('renders greeting and agenda link when getAdmin() throws, hiding Nýlegt and badge', async () => {
+  it('renders greeting and Teskeiðar link when getAdmin() throws, hiding Nýlegt and badge', async () => {
     setupGuard()
     setupProfile('Brynja')
     mockGetAdmin.mockImplementationOnce(() => { throw new Error('admin init failed') })
     render(await HeimPage())
-    // Greeting and agenda section still render
+    // Greeting and Teskeiðar section still render
     expect(screen.getByText('Góðan dag, Brynja')).toBeDefined()
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
     // Nýlegt hidden (loansError = true)
@@ -381,7 +689,7 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     expect(screen.queryByText('Nýlegt')).toBeNull()
     // Badge visible (invitations succeeded with 1 item)
     expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
-    // Agenda link still renders
+    // Teskeiðar link still renders
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
