@@ -1,115 +1,225 @@
-# AGENTS.md — Teskeið
+# AGENTS.md - Teskeið
 
-This file defines rules and context for AI agents (Codex, Claude, etc.) working in this repository.
+Þessi skrá skilgreinir vinnulag Stebba, Claude Code og Codex í þessu
+verkefni. Reglurnar gilda í öllum samtölum og eiga að halda samhengi þótt
+samtal compactist eða nýtt samtal hefjist.
 
-## Project overview
+## Verkefnið
 
-**Teskeið** is a Next.js 15 (App Router) web app built with TypeScript, Supabase, Tailwind CSS, and next-intl.
+Teskeið er Next.js 15 App Router vefapp með TypeScript, Supabase, Tailwind
+CSS, Radix UI, next-intl og Vitest.
 
-Teskeið is an open idea bank for everyday solutions. Users browse ideas, vote, follow for updates, and submit new problems. **Krakkavaktin** and other products are ideas within this bank. The landing page is the idea bank itself.
+Helstu möppur:
 
-**Tech stack:**
-- Next.js 15, React 18, TypeScript
-- Supabase (auth + database + RLS)
-- Tailwind CSS + Radix UI
-- next-intl (Icelandic `is` and English `en`)
-- web-push for push notifications
-- Vitest + Testing Library
+- `app/`: síður, layouts, server actions og API routes
+- `components/`: UI og feature components
+- `lib/`: types, helpers, Supabase clients og business logic
+- `messages/`: notendatextar í `is.json` og `en.json`
+- `sql/`: SQL migrations og schema-breytingar
+- `TODO.md`: aðeins opin atriði sem bíða eða eru í vinnslu
+- `DONE.md`: saga atriða sem hafa verið kláruð og staðfest
+- `feedback/images/`: skjámyndir sem tengjast atriðum í `TODO.md`
 
-**Key routes:**
-- `/` — Teskeið idea bank (public, server component)
-- `/hugmyndir/[slug]` — Idea detail page (public)
-- `/senda-hugmynd` — Submit a new idea (public)
-- `/admin` — Admin panel for managing ideas and submissions (protected)
-- `/krakkavaktin` — Landing/marketing page for Krakkavaktin
-- `/(app)/` — Authenticated app shell (home, chat, children, contacts, settings)
-- `/s/[sessionId]` — Shared session page (playdate tracker, partially public)
-- `/dashboard` — Internal stats dashboard
-- `/(auth)/` — Login, signup, password reset
+## Hlutverk
 
-**Key directories:**
-- `app/` — Next.js pages
-- `components/landing/` — Landing page components
-- `components/ui/` — Shared UI primitives
-- `components/chat/`, `components/children/`, `components/contacts/` — Feature components
-- `lib/` — Types, utils, Supabase clients
-- `messages/` — i18n strings (`is.json`, `en.json`)
-- `sql/` — SQL migrations and schema changes
+Við erum þrjú að vinna saman:
 
----
+- Stebbi er eigandi verkefnisins, milliliður og tekur lokaákvarðanir.
+- Claude Code er aðalframkvæmdaaðilinn.
+- Codex er ráðgjafi, gagnrýnandi, skipulagsaðili og code reviewer.
 
-## General rules for all agents
+Codex framkvæmir ekki kóðabreytingar nema Stebbi biðji sérstaklega um það.
+Codex hjálpar Stebba fyrst og fremst að brainstorma, greina, skipuleggja,
+yfirfara og útbúa skýrt plan eða copy/paste blokk fyrir Claude Code.
 
-- Keep changes small and focused. Do not modify unrelated files.
-- If asked to review, do not edit files unless explicitly told to.
-- If asked to implement, summarize the plan first and wait for approval.
-- After making edits, summarize exactly which files changed and what commands to run (lint, build, test).
+Notið nöfnin Stebbi, Claude Code og Codex þegar hlutverk gætu annars orðið
+óskýr. Það á alltaf að vera ljóst hver á að gera hvað.
 
----
+## Grunnvinnulag
 
-## Supabase and database rules
+Venjulegt ferli er:
 
-- **Never weaken RLS policies.** When in doubt, make policies more restrictive, not less.
-- **Never expose private user data.** Check that queries do not accidentally return data across user/guardian boundaries.
-- Do not assume public schema tables are accessible through the API unless explicit grants and RLS policies allow it.
-- Prefer explicit grants and explicit policies over broad defaults.
-- SQL migrations live in `sql/`. They must be **idempotent where possible** — use `IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, or `CREATE OR REPLACE`.
-- Be careful with schema changes. Do not rename or drop columns without confirming it won't break existing queries.
-- The `/s/[sessionId]` route has a public view mode and a private edit mode (protected by `editKey`). Never allow unauthenticated access to the edit path.
+1. Stebbi lýsir verkefni eða vandamáli fyrir Codex.
+2. Codex greinir málið og útbýr skýrt, einfalt og öruggt plan.
+3. Stebbi sendir planið til Claude Code.
+4. Claude Code yfirfer planið og skilar eigin plani eða athugasemdum.
+5. Stebbi sendir svar Claude Code aftur til Codex.
+6. Codex rýnir planið og bendir á áhættu, edge cases og einfaldari leiðir.
+7. Þegar planið er tilbúið og Stebbi gefur grænt ljós framkvæmir Claude Code.
+8. Codex rýnir breytingarnar áður en commit eða production rollout fer fram.
 
----
+Ekki hafa Claude Code og Codex að breyta sömu skrám samtímis.
 
-## Icelandic copy rules
+Ef Codex útbýr texta sem á að senda til Claude Code skal allt vera í einni
+og aðeins einni copy/paste blokk sem má líma óbreytta inn.
 
-- User-facing copy in Icelandic must be natural, short, and human — not formal or AI-generated sounding.
-- Avoid long em-dashes (—). Use commas, periods, or short sentences instead.
-- All user-facing strings live in `messages/is.json` and `messages/en.json`. Do not hardcode copy in components.
-- Match the tone already present in the codebase — friendly, direct, informal.
+## Almennar breytingareglur
 
----
+- Haldið breytingum litlum og afmörkuðum.
+- Ekki breyta ótengdum skrám eða laga ótengd vandamál.
+- Ef beðið er um rýni skal ekki breyta skrám.
+- Ef beðið er um framkvæmd skal útskýra stuttlega hvað verður gert áður en
+  skrám er breytt.
+- Virðið ócommittaðar breytingar Stebba og hins agentsins. Ekki afturkalla þær.
+- Eftir breytingar skal tilgreina nákvæmlega hvaða skrár breyttust, hvað var
+  gert og hvaða próf eða skipanir voru keyrðar.
+- Ekki commit-a, push-a, deploya eða keyra SQL nema Stebbi biðji sérstaklega
+  um það.
 
-## Workflow
+## Leyfi og samþykki
 
-This repo uses a **Claude builds, Codex reviews** workflow:
+Ef Claude Code eða Codex þarf leyfi frá Stebba skal mannamálsútskýring vera
+inni í leyfisbeiðninni sjálfri áður en Stebbi er beðinn um samþykki.
 
-1. Claude Code makes changes.
-2. Developer reviews the diff.
-3. Codex reviews the changes (see prompts below).
-4. Claude applies any safe fixes Codex recommends.
-5. Run lint/build/test as needed.
-6. Commit.
+Leyfisbeiðnin skal segja skýrt:
 
-Do not have multiple agents editing the same files simultaneously.
+1. Hvaða skipun, tól eða aðgerð á að keyra.
+2. Hvað aðgerðin gerir á mannamáli.
+3. Af hverju þarf að keyra hana.
+4. Hvaða skrár, möppur, gögn eða þjónustur verða lesin eða snert.
+5. Hvort aðgerðin sé 100% read-only eða geti breytt einhverju.
+6. Hvort hún geti haft áhrif á Supabase, gagnagrunn, production gögn, auth,
+   secrets, billing, deployment, GitHub repo eða notendagögn.
+7. Hver versta mögulega afleiðingin er og hversu líkleg hún er.
+8. Hvort öruggari eða read-only leið sé tiltæk.
+9. Hvort Stebbi eigi að velja `Yes` eða hvort `Yes, and don't ask again` sé
+   öruggt.
 
----
+Ekki senda tóma eða óljósa leyfisbeiðni og útskýra hana eftir á. Ekki gera ráð
+fyrir að Stebbi geti metið áhættu út frá heiti skipunarinnar einu saman.
 
-## Codex review prompt
+Fyrir Git push, deployment, production, Vercel, Supabase eða aðrar
+utanaðkomandi breytingar skal almennt ráðleggja aðeins `Yes`, ekki varanlegt
+leyfi.
 
-Use this when Claude has made changes and you want Codex to review before committing:
+## Localhost og dev server
 
+Stebbi keyrir localhost og dev servera sjálfur.
+
+Claude Code og Codex eiga ekki að:
+
+- ræsa eða endurræsa dev server
+- drepa port
+- breyta dev-server keyrslu
+- gera ráð fyrir að tiltekið port sé í notkun
+
+nema Stebbi biðji sérstaklega um það.
+
+Þegar browserpróf þarf skal segja Stebba hvaða localhost-slóð á að opna og
+hvað á að prófa. Ef agent telur nauðsynlegt að stjórna dev server skal biðja
+um leyfi með fullri mannamálsútskýringu.
+
+## Supabase og gagnagrunnur
+
+- Aldrei veikja RLS policies.
+- Aldrei afhjúpa einkagögn eða gögn milli ótengdra notenda.
+- Ekki gera ráð fyrir API-aðgangi að public schema án skýrra grants og RLS.
+- Veljið afmörkuð grants og policies fremur en breið réttindi.
+- SQL migrations eiga heima í `sql/` í réttri númeraröð.
+- Migrations skulu vera idempotent þar sem mögulegt er.
+- Notið transaction fyrir tengdar schema-, function- og permission-breytingar
+  þegar þær eiga að taka gildi saman.
+- Ekki rename-a eða drop-a töflur eða dálka án staðfestingar á áhrifum.
+- Takið sérstaklega fram hvort SQL hafi aðeins verið skrifað eða einnig keyrt.
+- Rýnið alltaf áhrif á gögn, RLS, auth, grants, functions og production.
+- Service-role functions og tölvupóstsendingar skulu ekki leka netföngum,
+  secrets eða öðrum notendagögnum í logs eða client responses.
+
+## Notendatextar
+
+- Allur notendatexti á heima í `messages/is.json` og `messages/en.json`.
+- Íslenska skal vera náttúruleg, stutt, vinaleg og óformleg.
+- Forðist langa em dash í notendatexta.
+- Ekki hardcode-a þýðanlegan texta í components.
+- Haldið tón og hugtakanotkun samræmdri núverandi Teskeið.
+
+## Skjámyndir og TODO
+
+Stebbi má líma skjámynd og lýsingu beint inn í samtal við Claude Code eða
+Codex. Þegar Stebbi biður um að atriðið sé skráð skal agent:
+
+1. Vista skjámyndina í `feedback/images/` með lýsandi skráarheiti.
+2. Bæta atriðinu við `TODO.md` með myndinni við rétt samhengi.
+3. Skrá stutta lýsingu á vandamáli, ósk Stebba og stöðuna `Bíður`.
+4. Varðveita orðalag og samhengi Stebba eins vel og hægt er.
+5. Ekki framkvæma breytinguna fyrr en Stebbi biður sérstaklega um það.
+
+Ef skilaboð Stebba byrja á `TODO` skal túlka þau sem beiðni um að bæta
+atriðinu við `TODO.md`, ekki sem beiðni um að framkvæma lagfæringuna. Agent
+skal staðfesta skráninguna stuttlega og spyrja aðeins ef ekki er hægt að
+varðveita merkingu eða samhengi án frekari upplýsinga.
+
+`TODO.md` skal aðeins innihalda opin atriði. Þegar atriði hefur verið
+framkvæmt, prófað og staðfest skal færa það úr `TODO.md` yfir í `DONE.md`.
+Færslan í `DONE.md` skal geyma heiti atriðis, dagsetningu, stutta niðurstöðu
+og helstu skrár eða migrations sem tengjast breytingunni.
+
+Ef lokið atriði þarf síðar frekari vinnu skal færa það úr `DONE.md` aftur í
+`TODO.md` og skrá skýrt hvað þarf að opna aftur. Þetta er verkefnastöðusaga,
+ekki rollback á kóða; Git er áfram notað til að rekja og afturkalla
+kóðabreytingar.
+
+Agent má skipuleggja og skrá ótengd atriði á meðan hinn agentinn vinnur, en
+má ekki breyta `TODO.md`, `DONE.md` eða sömu myndaskrám samtímis hinum
+agentinum.
+
+Tillaga að færslu:
+
+```md
+## Heiti atriðis
+
+**Staða:** Bíður
+
+![Lýsing á skjámynd](feedback/images/lysandi-heiti.png)
+
+**Vandamál:** Stutt lýsing á núverandi stöðu.
+
+**Ósk:** Það sem Stebbi vill breyta.
 ```
-Review the current uncommitted changes in this repo.
 
-Focus especially on:
-- SQL migration safety
-- Supabase RLS policies — could this weaken access control?
-- Whether this could accidentally expose user data publicly
-- Whether migrations are idempotent
-- Whether anything could break existing Lauflétt functionality
-- Any TypeScript type safety issues introduced
+## Stór verkefni og handoff
 
-Do not make changes yet. Explain the risks and recommended fixes first.
-```
+Gera skal ráð fyrir að samtal geti compactast og samhengi tapast.
 
-## Codex fix prompt
+- Skiptið stórum verkefnum í litla, yfirferðarhæfa áfanga.
+- Claude Code skal stoppa eftir mikilvægan áfanga og skila Codex handoff.
+- Ekki halda áfram í næsta stóran áfanga fyrr en Stebbi hefur fengið handoff
+  sem hægt er að senda Codex.
+- Ef verkefni verður stórt eða flókið skal halda tímabundið utan um það í
+  `AI_HANDOFF.md` eða `docs/ai-handoff.md`, ef Stebbi samþykkir það.
 
-Use this after Codex has reviewed and you want it to apply minimal safe fixes:
+Handoff frá Claude Code skal vera í einni copy/paste blokk og innihalda:
 
-```
-Apply only the minimal safe fixes you recommended in your review.
+1. Plan áfangans.
+2. Hvað var raunverulega gert.
+3. Skrár sem voru skoðaðar.
+4. Skrár sem voru breyttar.
+5. Skipanir sem voru keyrðar.
+6. Niðurstöður og exit codes.
+7. Hvað mistókst eða var sleppt.
+8. Ákvarðanir sem Claude Code tók.
+9. Áhættu sem er enn til staðar.
+10. Tillögu að næsta skrefi.
+11. Spurningar sem Codex á sérstaklega að rýna.
+12. Fyrir Supabase: SQL-skrá, hvort hún var keyrð og áhrif á gögn, RLS, auth,
+    policies, functions og production.
 
-Do not rename tables or columns.
-Do not change user-facing copy or translations.
-Do not alter unrelated files.
-After changes, summarize exactly what changed and why.
-```
+## Rýni Codex
+
+Þegar Codex rýnir breytingar skal setja findings fyrst, raðað eftir alvarleika
+og vísa í skrár og línur. Rýnin skal sérstaklega leita að:
+
+- SQL migration risk og idempotency
+- veikingu á RLS, grants eða auth
+- mögulegum gagnaleka
+- concurrency, retries og idempotency vandamálum
+- TypeScript type safety
+- edge cases og vöntun á prófum
+- regression í núverandi virkni
+- óþarfa flækjustigi
+
+Ef engin vandamál finnast skal segja það skýrt og nefna eftirstandandi
+prófunargöt eða áhættu.
+
+Markmiðið er ekki stærsta lausnin, heldur einfaldasta örugga lausnin sem
+leysir verkefnið vel.

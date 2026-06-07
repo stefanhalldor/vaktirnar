@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -10 420 210" role="img" aria-labelledby="title desc">
+  <title id="title">Allt i Teskeid.is spoon logo</title>
+  <desc id="desc">A transparent Teskeid spoon logo with Allt i in the handle and Teskeid.is inside the bowl.</desc>
+
+  <g transform="rotate(7 210 95)">
+    <path
+      d="
+        M 42 84
+        C 72 76, 128 78, 184 83
+        C 213 32, 280 15, 345 35
+        C 407 54, 420 105, 382 143
+        C 340 185, 260 184, 204 142
+        C 149 147, 89 143, 42 133
+        C 11 127, 11 91, 42 84
+        Z
+      "
+      fill="none"
+      stroke="#154212"
+      stroke-width="14"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <text
+      x="112"
+      y="111"
+      fill="#154212"
+      font-family="Inter, Geist, Arial, sans-serif"
+      font-size="16"
+      font-weight="700"
+      text-anchor="middle"
+      dominant-baseline="middle"
+    >Allt &#237;</text>
+  </g>
+
+  <text
+    x="296"
+    y="110"
+    fill="#154212"
+    font-family="Inter, Geist, Arial, sans-serif"
+    font-size="38"
+    font-weight="700"
+    text-anchor="middle"
+    dominant-baseline="middle"
+  >Teskei&#240;.is</text>
+</svg>
