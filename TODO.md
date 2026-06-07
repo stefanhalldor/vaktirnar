@@ -7,12 +7,95 @@ tilvísanir og verkefnasaga rofni ekki.
 
 | Röð | Atriði | Forgangur og samhengi |
 | --- | --- | --- |
-| 1 | **#6 Endurhanna lógó Teskeiðar** | Útbúa og samþykkja production-ready SVG sem verður grunnur að loader og almennri vörumerkjanotkun. |
-| 2 | **#8 Teskeið-loader** | Hefst strax á eftir #6 og skal enda í endanlega samþykkta SVG-lógóinu. |
-| 3 | **#4 Beta-aðgangur og útgáfustig** | Grunnlag fyrir örugga þróun og birtingu nýrra Teskeiða í `off`, `beta` og `public`. |
-| 4 | **#9 Opin innskráning með aðgangsstýrðum Teskeiðum** | Byggir á skýrri aðgreiningu session og feature-aðgangs úr #4. |
-| 5 | **#5 Samræmd mobile app-upplifun** | Víðtæk yfirferð á innskráningu, formum, viewport, keyboard og mobile layouti alls vefsins. |
-| 6 | **#7 Langlíf innskráning** | Tekið eftir að almenna innskráningar- og aðgangsflæðið í #9 hefur verið ákveðið. |
+| 1 | **#14 Öryggisforsendur fyrir opna beta** | Sex launch-blockers sem verða að vera leystir og prófaðir áður en whitelist er fjarlægð eða innskráning opnuð almennt. |
+| 2 | **#15 Íslenskar dagsetningar á lánaspjöldum** | Afmarkað UI-atriði: laga lánadagsetningu og sýna skiladagsetningu með sama sniði. |
+| 3 | **#12 Skýrari kosningatakki** | Lítið UI/copy-atriði sem má loka með núverandi útlitsvinnu án breytinga á kosningavirkni. |
+| 4 | **#8 Teskeið-loader** | Byggja standalone preview úr endanlega samþykkta SVG-lógóinu áður en loader er settur í almenna notkun. |
+| 5 | **#4 Beta-aðgangur og útgáfustig** | Setja server-side grunnvörn fyrir `off`, `beta` og `public` áður en almenn innskráning er opnuð. |
+| 6 | **#13 Umsjón með whitelist í admin** | Sýna og breyta aðgangslistanum með öruggum admin-only aðgerðum eftir að hlutverk hans í #4 hefur verið skilgreint. |
+| 7 | **#5 Samræmd mobile app-upplifun** | Samræma innskráningu, form, viewport, keyboard og mobile layout áður en fleiri notendur fá aðgang. |
+| 8 | **#7 Langlíf innskráning** | Gera session app-líkt og öruggt eftir mobile-yfirferð, en áður en innskráning er opnuð almennt. |
+| 9 | **#9 Opin innskráning með aðgangsstýrðum Teskeiðum** | Lokaáfangi eftir #14, #4, #5 og #7. Beta-merki eða fyrirvari kemur ekki í stað þessara varna. |
+| 10 | **#10 Gáfuleg opnun tölfræðisíðu** | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið. |
+
+#14
+## Öryggisforsendur fyrir opna beta
+
+**Staða:** Bíður
+
+**Markmið:** Gera almenna Teskeið-innskráningu tæknilega örugga áður en
+whitelist er fjarlægð eða óþekktum notendum er hleypt inn. `Beta`-merking og
+fyrirvari mega stýra væntingum notenda, en teljast ekki öryggisvörn.
+
+**Launch-regla:** Ekki opna innskráningu almennt og ekki færa TODO #9 í
+framkvæmd fyrr en öll sex atriðin hér að neðan hafa verið leyst, prófuð og
+rýnd.
+
+### 1. Einangra Teskeið frá eldri authenticated app-flötum
+
+- Teskeið-login býr til venjulegan Supabase `authenticated` notanda.
+- Tryggja að Teskeið-notandi fái ekki sjálfkrafa aðgang að eldri slóðum eins
+  og `/home`, `/children`, `/contacts`, `/chat` og `/settings`.
+- Aðgangsstýring skal vera server-side í middleware/layout/API, ekki aðeins
+  falin navigation.
+- Skilgreina skýrt hvaða notendategund má nota hvorn vöruflöt.
+
+### 2. Herða aðgang að `profiles`
+
+- Núverandi `profiles_select` notar `USING (true)` fyrir alla
+  `authenticated` notendur.
+- Rýna og herða policy/grants svo opin Teskeið-skráning gefi ekki nýjum
+  notendum óþarfan lestursaðgang að prófílum annarra.
+- Varðveita nauðsynleg co-parent display-name flæði í Krakkavaktinni með
+  afmörkuðum aðgangi, view eða RPC í stað breiðs almenns aðgangs.
+- Bæta regression-prófum fyrir bæði Teskeið og Krakkavaktina.
+
+### 3. Bæta IP- og abuse-rate-limit við innskráningarkóða
+
+- `/api/auth-mvp/request-code` er nú aðeins með mörk á hvert netfang.
+- Bæta server-side IP-/abuse-vörn áður en kóði er búinn til eða póstur sendur.
+- Takmarka einnig dreifða misnotkun yfir mörg netföng og verja Resend-kostnað.
+- Halda API-svörum almennum svo ekki sé hægt að lesa whitelist eða tilvist
+  netfangs.
+- Skilgreina örugga hegðun þegar rate-limit þjónusta er óaðgengileg.
+
+### 4. Gera OTP-staðfestingu atomic
+
+- Núverandi attempt-increment og `used_at` uppfærsla eru aðskildar aðgerðir.
+- Færa lestur, attempt-talningu, samanburðarniðurstöðu og notkun kóða í atomic
+  Postgres RPC/transaction svo samhliða beiðnir komist ekki fram hjá mörkum
+  eða noti sama kóða oftar en einu sinni.
+- Varðveita timing-safe samanburð, TTL og hámarksfjölda tilrauna.
+- Bæta concurrency- og replay-prófum.
+
+### 5. Aðskilja session-aðgang og feature-aðgang
+
+- Skipta núverandi `guardTeskeidAccess()` í skýrt session-lag og
+  feature-aðgangslag.
+- `/auth-mvp/heim` og prófíll skulu nota session-vörn.
+- Hver Teskeið, bein slóð, server action, API og RPC-flæði skal nota
+  server-side feature-vörn.
+- Samræma þetta við TODO #4 (`off`, `beta`, `public`) og TODO #9.
+- Ekki treysta á client-side feature-flögg sem öryggisvörn.
+
+### 6. Fjarlægja netföng og viðkvæm gögn úr production-logs
+
+- `lib/auth/email.ts` má ekki logga viðtakandanetfang þegar
+  `RESEND_API_KEY` eða önnur tölvupóststilling vantar.
+- Yfirfara auth-, loan-, email- og admin-logga fyrir netföng, OTP-kóða,
+  tokens, invitation IDs og önnur persónu- eða öryggisgögn.
+- Nota aðeins örugg error-code eða almenna metadata sem duga til rekstrargreiningar.
+- Bæta prófi eða static regression-check þar sem raunhæft er.
+
+**Lokaprófanir fyrir opna beta:**
+
+- Óþekktur notandi getur skráð sig inn án þess að komast inn í eldri
+  Krakkavaktar-flöt eða óútgefnar Teskeiðar.
+- Enginn nýr aðgangur að prófílum annarra verður til.
+- Request-code og verify-code þola spam, brute force, concurrency og replay.
+- Bein slóð, server action, API og RPC framfylgja sömu feature-reglum.
+- Production-logs innihalda hvorki netföng, kóða né tokens.
+- Kill switches virka áfram og loka aðgangi án gagnabreytinga.
 
 #4
 ## Beta-aðgangur og útgáfustig fyrir nýjar Teskeiðar
@@ -87,71 +170,6 @@ staðar á vefnum. Allt `teskeid.is` á að upplifast eins og samræmt mobile ap
   breidd og scroll-stöðu eftir að lyklaborði er lokað.
 - Staðfesta að fixed/sticky controls, modals og neðri aðgerðir fari ekki undir
   mobile keyboard, browser chrome eða safe-area.
-
-#6
-## Endurhanna lógó Teskeiðar
-
-**Staða:** Bíður
-
-![Núverandi lógóhugmynd Teskeiðar](feedback/images/teskeid-logo-reference.png)
-
-### Samþykkt aðalviðmið
-
-![Samþykkt hringlaga skeiðarmaskott Teskeiðar](feedback/images/teskeid-circular-spoon-mascot-logo-reference.png)
-
-![Viðmið fyrir loader og merkingu á derhúfu](feedback/images/teskeid-loader-and-cap-mark-reference.png)
-
-**Vandamál:** Samþykkta lógóhugmyndin er nú til sem raster-viðmiðsmynd en ekki
-sem hreint, skalanlegt og production-ready SVG. Það þarf að endurgera hana eins
-nákvæmlega og mögulegt er í vector-formi, ekki hanna almennt eða lauslega tengt
-val.
-
-**Forgangur:** Hringlaga skeiðarmaskottið á nýju viðmiðsmyndinni er samþykkta
-aðalstefnan. Eldri lárétta skeiðarhugmyndin hér að ofan er varðveitt sem saga og
-samhengi, en á ekki að stýra SVG-endurgerðinni.
-
-**Viðmið úr skjámynd Stebba:**
-
-- Hringlaga badge með þykkum dökkgrænum ytri hring.
-- Hlýr off-white eða mjög ljós krembakgrunnur.
-- Upprétt dökkgræn skeið, miðjuð lóðrétt.
-- Einfalt vinalegt andlit með ljósum sólgleraugum og litlu brosi.
-- Baseball-húfa með ljósu framstykki, dökkgrænni útlínu og skyggni.
-- Merkingin `A&10` miðjuð á framstykki húfunnar, nákvæmlega eins og á nýjasta
-  samþykkta skjámyndarviðmiðinu. Eldri hugmyndirnar `A/10` og `A ↑ 10` gilda
-  ekki lengur.
-- Boginn texti `Teskeið.is` eftir neðri innri boga hringsins.
-- Enginn glans eða shiny highlight á skeiðinni.
-- Lúkkið skal vera minimal, hreint, flatt, örlítið leikandi og svolítið
-  cheeky án þess að verða flókið.
-- Litatillaga: dökkgrænn nálægt `#145A32` og hlýr ljós litur nálægt `#F7F4EE`.
-
-**Ósk:**
-
-- Endurgera samþykkta mynd eins nákvæmlega og mögulegt er sem handunnið inline
-  SVG. Ekki búa til generic alternative, raster-mynd eða canvas-lausn.
-- Ytri hringurinn skal vera ráðandi rammi, skeiðin sitja þægilega í miðju,
-  húfan sitja eðlilega og bogni textinn vera skýrt læsilegur.
-- Tryggja að lógóið skali hreint og haldist skarpt og auðþekkjanlegt í navbar,
-  profile-marki, favicon/app-icon og stærri birtingu.
-- Búa til reusable React component:
-  `TeskeidLogo.tsx`.
-- Component skal nota inline SVG og engin external dependencies.
-- Props:
-  - `size?: number`, sjálfgefið `160`
-  - `className?: string`
-  - `showBackground?: boolean`
-- Þegar `showBackground` er `false` skal SVG-bakgrunnurinn vera transparent en
-  ytri hringur, maskott og aðrir lógóhlutar haldast.
-- Aðgengi:
-  - `<title>Teskeið.is logo</title>`
-  - styðja decorative notkun með `aria-hidden` þar sem við á
-- Nota SVG paths, circles, `textPath` og grouped shapes eftir þörfum, með hreinni
-  og viðhaldanlegri vector-uppbyggingu.
-- Skila component-skránni og stuttum usage-dæmum fyrir sjálfgefna stærð, lítinn
-  navbar og stærri hero.
-- Ekki skipta út núverandi logo-assets eða setja nýja componentinn í production
-  UI fyrr en Stebbi hefur séð samanburð við viðmiðsmyndina og samþykkt útkomuna.
 
 #7
 ## Langlíf innskráning með app-líkri mobile-upplifun
@@ -284,3 +302,139 @@ inni á heimaskjánum.
 - Whitelist-notandi fær áfram fullan aðgang að `Lánað og skilað`.
 - Rate limiting, röng kóðahegðun, útrunninn kóði og almenn villuskilaboð virka
   áfram án upplýsingaleka.
+
+#10
+## Gáfuleg opnun tölfræðisíðu út frá nýjustu heimsókn
+
+**Staða:** Bíður
+
+**Vandamál:** Núverandi val á upphafstímabili tölfræðisíðunnar má ekki reiða sig
+á cookie, `localStorage` eða sambærilegt client-side gildi sem getur vantað,
+verið úrelt eða verið ósamræmt milli tækja og vafra.
+
+**Ósk:** Í hvert skipti sem tölfræðisíðan er opnuð skal skoða hvenær raunveruleg
+nýjasta heimsókn notandans átti sér stað og velja tímabilið beint út frá því
+hversu langt er liðið síðan þá.
+
+**Tillaga að hegðun:**
+
+- Geyma eða lesa síðustu staðfestu heimsókn úr áreiðanlegum server-side
+  gagnagrunni.
+- Við opnun skal fyrst lesa fyrri heimsókn, reikna liðinn tíma og velja rétt
+  tölfræðitímabil.
+- Skrá núverandi heimsókn aðeins eftir að fyrri heimsókn hefur verið lesin, svo
+  nýja timestampið eyðileggi ekki útreikninginn.
+- Skilgreina skýra fallback-hegðun fyrir fyrstu heimsókn og þegar gögn vantar
+  eða lestur mistekst.
+- Ekki láta client-side hydration eða seinni state-uppfærslu opna fyrst rangt
+  tímabil og stökkva síðan yfir á rétt tímabil.
+- Forðast race conditions ef sama síða er opnuð samtímis í fleiri en einum
+  flipa eða tæki.
+- Taka ákvörðun um hvort „heimsókn“ merkir opnun tölfræðisíðunnar, innskráningu
+  í admin eða aðra staðfesta virkni.
+
+**Prófanir:**
+
+- Fyrsta heimsókn velur skilgreint sjálfgefið tímabil.
+- Stutt frávera velur stutt tímabil.
+- Lengri frávera velur samsvarandi lengra tímabil.
+- Ógilt eða vantað heimsóknargildi veldur ekki röngu upphafsfilteri.
+- Fyrsta render sýnir strax rétt tímabil án sýnilegs filter-stökks.
+- Samtímaopnanir skemma ekki næsta útreikning.
+
+#15
+## Íslenskar dagsetningar á lánaspjöldum
+
+**Staða:** Bíður
+
+**Vandamál:** Lánadagsetning á spjaldi blandar saman íslensku og ensku, til
+dæmis: „Lánað laugardaginn June 6, 2026“. Þegar hlut hefur verið skilað sést
+heldur ekki skýrt hvenær skilin áttu sér stað.
+
+**Ósk:**
+
+- Breyta lánadagsetningunni í fullíslenska framsetningu:
+  „Lánað laugardaginn 6. júní, 2026“.
+- Þegar `returned_at` er til staðar skal einnig birta „Skilað“ á spjaldinu með
+  sama dagsetningarsniði, til dæmis:
+  „Skilað sunnudaginn 7. júní, 2026“.
+- Nota íslensk heiti vikudaga og mánaða, dag mánaðar sem tölu og fullt ártal.
+- Reikna `returned_at` í `Atlantic/Reykjavik` svo UTC-tímastimpill færi
+  skiladagsetninguna ekki óvart um dag.
+- Halda enskri framsetningu eðlilegri þegar enskt tungumál er virkt.
+- Setja notendatexta í `messages/is.json` og `messages/en.json`, ekki
+  hardcode-a hann í component.
+
+**Prófanir:**
+
+- `2026-06-06` birtist sem „Lánað laugardaginn 6. júní, 2026“ á íslensku.
+- Skilaður hlutur sýnir bæði lánadagsetningu og skiladagsetningu.
+- Óskilaður hlutur sýnir enga „Skilað“-línu.
+- `returned_at` nálægt miðnætti birtir réttan dag í `Atlantic/Reykjavik`.
+- Enskt locale sýnir ekki íslensk heiti vikudaga eða mánaða.
+
+#12
+## Skýrari kosningatakki á hugmyndasíðum
+
+**Staða:** Bíður
+
+![Núverandi kosningatakki á hugmynd](feedback/images/idea-vote-button-copy-reference.png)
+
+**Vandamál:** Núverandi kosningatakki sýnir aðeins ör og atkvæðafjölda. Það er
+ekki nógu skýrt hvað atkvæðið merkir eða hvaða áhrif aðgerðin hefur.
+
+**Ósk:** Láta takkann segja skýrt að notandinn vilji sjá hugmyndina verða hluta
+af Teskeið. Orðalag gæti verið á borð við:
+„Já, ég vil hafa þetta í Teskeið“.
+
+**Við útfærslu:**
+
+- Velja stutt, náttúrulegt íslenskt orðalag sem passar í takkann á mobile.
+- Halda atkvæðafjöldanum sýnilegum án þess að merking hans verði óljós.
+- Gera valið og óvalið state skýrt, bæði sjónrænt og fyrir skjálesara.
+- Varðveita núverandi kosningavirkni, API-hegðun og vörn gegn tvöföldum
+  atkvæðum.
+- Setja notendatextann í viðeigandi `messages/is.json` og `messages/en.json`,
+  ekki hardcode-a hann í component.
+
+#13
+## Umsjón með whitelist í admin
+
+**Staða:** Bíður
+
+**Markmið:** Admin geti séð núverandi whitelist, bætt netfangi við listann og
+fjarlægt netfang af honum án þess að þurfa að keyra SQL handvirkt.
+
+**Ósk:**
+
+- Bæta afmörkuðu whitelist-yfirliti við núverandi admin-viðmót.
+- Sýna netföng á listanum og viðeigandi lýsigögn sem þegar eru geymd, til dæmis
+  athugasemd og skráningartíma.
+- Leyfa admin að bæta við netfangi með skýrri staðfestingu.
+- Leyfa admin að fjarlægja netfang með staðfestingarskrefi sem minnkar líkur á
+  mistökum.
+- Normalisera netföng á sama hátt og núverandi auth- og loan-flæði, meðal
+  annars með `trim` og lágstöfum.
+- Sýna skýr skilaboð fyrir tvítekið netfang, ógilt netfang og misheppnaða
+  aðgerð.
+
+**Öryggi og gagnavernd:**
+
+- Allur lestur og allar breytingar skulu vera varðar server-side með núverandi
+  admin-auth, ekki aðeins með földu client-viðmóti.
+- Ekki veita `anon` eða `authenticated` beinan lesturs- eða skrifaðgang að
+  `auth_mvp_allowlist`.
+- Nota afmarkað admin API/server action og varðveita núverandi RLS og grants.
+- Ekki skila whitelist-gögnum í logs, almenn API-svör eða client-cache sem
+  óviðkomandi notandi getur lesið.
+- Ákveða við útfærslu hvernig listinn tengist beta-aðgangi í #4 og opinni
+  innskráningu í #9, svo sama tafla fái ekki tvær ósamræmdar merkingar.
+
+**Prófanir:**
+
+- Óinnskráður og venjulegur innskráður notandi fá engan aðgang að listanum eða
+  breytingaaðgerðum.
+- Admin getur lesið lista, bætt við gildu netfangi og fjarlægt færslu.
+- Tvítekið og ógilt netfang breytir ekki gögnum.
+- Fjarlæging á netfangi hefur skilgreind áhrif á núverandi session og virkan
+  Teskeið-aðgang.

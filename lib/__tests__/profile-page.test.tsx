@@ -1,8 +1,12 @@
 /**
  * RTL tests for app/auth-mvp/minn-profill/page.tsx
  *
- * Verifies that the persistent header with the Home icon link renders
- * correctly regardless of the loading state.
+ * The page is a 'use client' component. All server dependencies
+ * (next/navigation, next-intl, Supabase, fetch) are mocked.
+ *
+ * Distinguishing the two /auth-mvp/heim links:
+ *   - Nav Home icon: 1 SVG (lucide Home)
+ *   - Bottom logo:   2 SVGs (TeskeidLogo mobile + desktop)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -29,9 +33,6 @@ vi.mock('next-intl', () => ({
         logout: 'Útskrá',
         'errors.saveFailed': 'Vistun mistókst.',
       },
-      'teskeid.auth': {
-        mvpLabel: 'MVP prófunarleið',
-      },
       'common': {
         loading: 'Hleð...',
         error: 'Villa',
@@ -52,7 +53,6 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
-// Prevent fetch calls from failing in jsdom
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: true,
@@ -63,26 +63,115 @@ beforeEach(() => {
 
 import AuthMvpProfilePage from '@/app/auth-mvp/minn-profill/page'
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-describe('AuthMvpProfilePage — Home navigation header', () => {
-  it('renders a Home link with href="/auth-mvp/heim"', () => {
-    render(React.createElement(AuthMvpProfilePage))
-    const link = screen.getByRole('link', { name: 'Heim' })
-    expect(link).toBeDefined()
-    expect((link as HTMLAnchorElement).href).toContain('/auth-mvp/heim')
+function navHomeLink(container: HTMLElement): Element | undefined {
+  return Array.from(container.querySelectorAll('a[href="/auth-mvp/heim"]')).find(
+    (el) => el.querySelectorAll('svg').length === 1,
+  )
+}
+
+function bottomLogoLink(container: HTMLElement): Element | undefined {
+  return Array.from(container.querySelectorAll('a[href="/auth-mvp/heim"]')).find(
+    (el) => el.querySelectorAll('svg').length > 1,
+  )
+}
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+describe('AuthMvpProfilePage — layout', () => {
+  it('renders no <header> element', () => {
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    expect(container.querySelector('header')).toBeNull()
   })
 
-  it('Home link has aria-label="Heim"', () => {
-    render(React.createElement(AuthMvpProfilePage))
-    expect(screen.getByLabelText('Heim')).toBeDefined()
+  it('has exactly one h1 containing the profile title', () => {
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    const headings = container.querySelectorAll('h1')
+    expect(headings.length).toBe(1)
+    expect(headings[0].textContent).toBe('Prófíllinn minn')
+  })
+})
+
+// ── Nav Home link ─────────────────────────────────────────────────────────────
+
+describe('AuthMvpProfilePage — nav Home link', () => {
+  it('renders nav Home link pointing to /auth-mvp/heim', () => {
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    expect(navHomeLink(container)).toBeDefined()
   })
 
-  it('Home link is visible during loading state', () => {
-    // fetch never resolves → component stays in loading state
+  it('nav Home link has aria-label="Heim"', () => {
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    expect(navHomeLink(container)?.getAttribute('aria-label')).toBe('Heim')
+  })
+
+  it('nav Home link is visible during loading state', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
-    render(React.createElement(AuthMvpProfilePage))
-    expect(screen.getByLabelText('Heim')).toBeDefined()
+    const { container } = render(React.createElement(AuthMvpProfilePage))
     expect(screen.getByText('Hleð...')).toBeDefined()
+    expect(navHomeLink(container)).toBeDefined()
+  })
+})
+
+// ── Bottom logo ───────────────────────────────────────────────────────────────
+
+describe('AuthMvpProfilePage — bottom logo', () => {
+  it('bottom logo link points to /auth-mvp/heim', () => {
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    expect(bottomLogoLink(container)).toBeDefined()
+  })
+
+  it('bottom logo link is visible during loading state', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    expect(screen.getByText('Hleð...')).toBeDefined()
+    expect(bottomLogoLink(container)).toBeDefined()
+  })
+
+  it('logo SVGs inside bottom logo link are decorative (aria-hidden=true)', () => {
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    const link = bottomLogoLink(container)!
+    const svgs = link.querySelectorAll('svg')
+    expect(svgs.length).toBeGreaterThan(0)
+    svgs.forEach((svg) => {
+      expect(svg.getAttribute('aria-hidden')).toBe('true')
+    })
+  })
+})
+
+// ── DOM order ─────────────────────────────────────────────────────────────────
+
+describe('AuthMvpProfilePage — DOM order', () => {
+  it('nav Home link appears before bottom logo', () => {
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    const nav = navHomeLink(container)!
+    const logo = bottomLogoLink(container)!
+    expect(nav.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('nav Home link appears before bottom logo during loading state', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    const nav = navHomeLink(container)!
+    const logo = bottomLogoLink(container)!
+    expect(nav.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('loading text appears before bottom logo', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    const loading = screen.getByText('Hleð...')
+    const logo = bottomLogoLink(container)!
+    expect(loading.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('profile form appears before bottom logo', async () => {
+    const { container } = render(React.createElement(AuthMvpProfilePage))
+    // findByText waits for the async useEffect to resolve and re-render
+    await screen.findByText('Vista')
+    const form = container.querySelector('form')!
+    const logo = bottomLogoLink(container)!
+    expect(form.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

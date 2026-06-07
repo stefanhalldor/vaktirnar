@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { ClaimForm } from '@/components/loans/ClaimForm'
+import { LoanShell } from '@/components/loans/LoanShell'
 import type { ClaimInvitationDetails } from '@/lib/loans/types'
 
 export default async function ClaimPage({
@@ -15,6 +16,15 @@ export default async function ClaimPage({
   const { user } = await guardLoanAccess()
   const t = await getTranslations('teskeid.loans')
 
+  const nav = (
+    <Link
+      href="/auth-mvp/lanad-og-skilad"
+      className="inline-flex items-center min-h-[44px] text-sm text-[#72796e] hover:text-[#154212] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded self-start"
+    >
+      {t('backToList')}
+    </Link>
+  )
+
   const admin = getAdmin()
   const { data, error } = await admin.rpc('get_invitation_for_claim', {
     p_actor_id:      user.id,
@@ -24,9 +34,9 @@ export default async function ClaimPage({
   if (error) {
     console.error('[loans/claim] get_invitation_for_claim error:', error.code)
     return (
-      <div className="min-h-screen bg-[#fbf9f4] flex items-center justify-center px-4">
-        <p className="text-sm text-red-600">{t('errors.loadFailed')}</p>
-      </div>
+      <LoanShell nav={nav} homeLabel={t('homeLink')}>
+        <p className="text-sm text-red-600 py-8 text-center">{t('errors.loadFailed')}</p>
+      </LoanShell>
     )
   }
 
@@ -42,17 +52,8 @@ export default async function ClaimPage({
   const isExpired = invitation.status === 'expired' || invitation.expires_at < new Date().toISOString()
 
   return (
-    <div className="min-h-screen bg-[#fbf9f4]">
-      <header className="flex items-center px-5 h-14 border-b border-black/5 bg-[#fbf9f4]">
-        <Link
-          href="/auth-mvp/lanad-og-skilad"
-          className="text-sm text-[#72796e] hover:text-[#154212] transition-colors"
-        >
-          {t('backToList')}
-        </Link>
-      </header>
-
-      <main className="max-w-lg mx-auto px-4 py-6">
+    <LoanShell nav={nav} homeLabel={t('homeLink')}>
+      <div>
         <h2 className="text-xl font-semibold text-[#154212] mb-2">{t('claimTitle')}</h2>
 
         {/* Loan summary */}
@@ -82,7 +83,7 @@ export default async function ClaimPage({
         ) : (
           <ClaimForm invitationId={id} />
         )}
-      </main>
-    </div>
+      </div>
+    </LoanShell>
   )
 }

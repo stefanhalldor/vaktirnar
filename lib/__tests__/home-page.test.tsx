@@ -49,6 +49,7 @@ vi.mock('next-intl/server', () => ({
         lent: 'Ég lánaði',
         borrowed: 'Ég fékk lánað',
         overdue: 'Komið fram yfir skiladag',
+        homeLink: 'Fara á heimasíðu',
       },
     }
     return (key: string, params?: Record<string, string | number>) => {
@@ -707,6 +708,91 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     expect(screen.getByText('Sykur')).toBeDefined()
     // Badge hidden (invitationsError = true)
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+  })
+})
+
+// ── HeimPage — DOM order ──────────────────────────────────────────────────────
+
+describe('HeimPage — DOM order', () => {
+  it('greeting appears before Teskeiðar heading in DOM', async () => {
+    setupGuard()
+    setupProfile('Jón')
+    setupRpcs([], [])
+    render(await HeimPage())
+    const greeting = screen.getByText('Góðan dag, Jón')
+    const featuresHeading = screen.getByText('Teskeiðar')
+    expect(
+      greeting.compareDocumentPosition(featuresHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('logo SVG appears after Teskeiðar heading in DOM', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    const { container } = render(await HeimPage())
+    const featuresHeading = screen.getByText('Teskeiðar')
+    const svgs = container.querySelectorAll('svg')
+    const lastSvg = svgs[svgs.length - 1]
+    expect(
+      featuresHeading.compareDocumentPosition(lastSvg) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('"Nýlegt" appears before "Teskeiðar" in DOM', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([makeLoan()], [])
+    render(await HeimPage())
+    const nylegt = screen.getByText('Nýlegt')
+    const teskeidar = screen.getByText('Teskeiðar')
+    expect(
+      nylegt.compareDocumentPosition(teskeidar) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('page contains no <header> element', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    const { container } = render(await HeimPage())
+    expect(container.querySelector('header')).toBeNull()
+  })
+
+  it('profile link points to /auth-mvp/minn-profill', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    render(await HeimPage())
+    const link = screen.getByLabelText('Minn aðgangur')
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/minn-profill')
+  })
+})
+
+// ── HeimPage — bottom logo link ───────────────────────────────────────────────
+
+describe('HeimPage — bottom logo link', () => {
+  it('bottom logo link points to /auth-mvp/heim', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    const { container } = render(await HeimPage())
+    const logoLink = container.querySelector('a[href="/auth-mvp/heim"]')
+    expect(logoLink).toBeDefined()
+    expect(logoLink).not.toBeNull()
+  })
+
+  it('bottom logo SVGs are decorative (aria-hidden=true)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([], [])
+    const { container } = render(await HeimPage())
+    const logoLink = container.querySelector('a[href="/auth-mvp/heim"]')!
+    const svgs = logoLink.querySelectorAll('svg')
+    expect(svgs.length).toBeGreaterThan(0)
+    svgs.forEach((svg) => {
+      expect(svg.getAttribute('aria-hidden')).toBe('true')
+    })
   })
 })
 

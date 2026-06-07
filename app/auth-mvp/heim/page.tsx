@@ -2,8 +2,8 @@ import { createHash } from 'crypto'
 import { cookies } from 'next/headers'
 import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
-import Image from 'next/image'
 import { UserCircle, ChevronRight } from 'lucide-react'
+import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { guardTeskeidAccess } from '@/lib/auth/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
@@ -158,37 +158,36 @@ export default async function HeimPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-10 flex items-center justify-between px-5 h-14 border-b border-border bg-background">
-        <Image
-          src="/teskeid-logo-no-frame.svg"
-          alt="Teskeið"
-          width={88}
-          height={26}
-          priority
-        />
-        <Link
-          href="/auth-mvp/minn-profill"
-          className="flex items-center justify-center w-10 h-10 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-          aria-label={t('profileLink')}
-          title={t('profileLink')}
-        >
-          <UserCircle size={22} aria-hidden />
-        </Link>
-      </header>
+      <main className="max-w-lg mx-auto px-4 pt-8 pb-10 flex flex-col gap-6">
 
-      {/* ── Main ───────────────────────────────────────────────── */}
-      <main className="max-w-lg mx-auto px-4 py-6 flex flex-col gap-6">
-        {/* Greeting */}
-        <section>
+        {/* ── Kveðja + profile-icon í sömu línu ──────────────────── */}
+        <section className="flex items-center justify-between gap-3">
           <p className="text-xl font-semibold text-primary">{greeting}</p>
+          <Link
+            href="/auth-mvp/minn-profill"
+            className="flex items-center justify-center w-10 h-10 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 shrink-0"
+            aria-label={t('profileLink')}
+            title={t('profileLink')}
+          >
+            <UserCircle size={22} aria-hidden />
+          </Link>
         </section>
 
-        {/* Teskeiðar — always renders; active row is loans-gated */}
+        {/* ── Nýlegt — hidden when LOANS_ENABLED=false or RPC failed ─ */}
+        {loansEnabled && !loansError && (
+          <RecentSection
+            loans={recentLoans}
+            signature={recentSig}
+            initialRead={initialRead}
+            displayLocale={displayLocale}
+            labels={recentLabels}
+          />
+        )}
+
+        {/* ── Teskeiðar — always renders; active row is loans-gated ── */}
         <section>
           <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('featuresTitle')}</h2>
           <div className="bg-card border border-border rounded-xl overflow-hidden divide-y divide-border">
-            {/* Active: Lánað og skilað — only when LOANS_ENABLED */}
             {loansEnabled && (
               <Link
                 href="/auth-mvp/lanad-og-skilad"
@@ -209,7 +208,6 @@ export default async function HeimPage() {
               </Link>
             )}
 
-            {/* Upcoming (disabled) features */}
             {UPCOMING_KEYS.map((key) => (
               <button
                 key={key}
@@ -224,16 +222,18 @@ export default async function HeimPage() {
           </div>
         </section>
 
-        {/* Nýlegt — hidden when LOANS_ENABLED=false or RPC failed */}
-        {loansEnabled && !loansError && (
-          <RecentSection
-            loans={recentLoans}
-            signature={recentSig}
-            initialRead={initialRead}
-            displayLocale={displayLocale}
-            labels={recentLabels}
-          />
-        )}
+        {/* ── Lógó — miðjað neðst ────────────────────────────────── */}
+        <div className="flex justify-center pt-4">
+          <Link
+            href="/auth-mvp/heim"
+            aria-label={tLoans('homeLink')}
+            className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-2"
+          >
+            <TeskeidLogo size={160} decorative className="sm:hidden" />
+            <TeskeidLogo size={200} decorative className="hidden sm:block" />
+          </Link>
+        </div>
+
       </main>
     </div>
   )

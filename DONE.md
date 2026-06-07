@@ -14,15 +14,15 @@ sýnir alltaf „Teskeiðar"-hluta með virku „Lánað og skilað"-tengli (bad
 fjölda opinna boða) og sjö óvirka „Væntanlegt"-hnappa í fastri röð. „Nýlegt"
 sýnir þrjú nýjustu lán raðað eftir `loaned_at DESC, id DESC`; SHA-256-undirritað
 kaka gerir notanda kleift að merkja lista sem lesinn og sjá staðfestingarbanner;
-undirskrift breytist sjálfkrafa ef lán breytast eða fara yfir skiladag. Lóðlæg
-`/auth-mvp/minn-profill`-síða fékk fast haus með Home-tengli. `lanad-og-skilad`
-fékk Home-tákn í haus í stað textatengsls.
+undirskrift breytist sjálfkrafa ef lán breytast eða fara yfir skiladag.
+Home-leiðsögn var bætt við `/auth-mvp/minn-profill` og `lanad-og-skilad`;
+báðar síður voru endurhannaðar í mobile-first skipulag sem hluti af #6.
 
 Skrár:
 - `app/auth-mvp/heim/page.tsx` — heimasíða (server component, ný)
 - `app/auth-mvp/heim/RecentSection.tsx` — Nýlegt client component (ný)
-- `app/auth-mvp/minn-profill/page.tsx` — Home-tengill í haus
-- `app/auth-mvp/lanad-og-skilad/page.tsx` — Home-tákn í haus
+- `app/auth-mvp/minn-profill/page.tsx` — Home-leiðsögn bætt við (endurhannaður í #6)
+- `app/auth-mvp/lanad-og-skilad/page.tsx` — Home-leiðsögn bætt við (endurhannaðar allar lánasíður með `LoanShell` sem hluti af #6)
 - `lib/loans/sort.ts` — `sortLoansForHome` (ný)
 - `lib/__tests__/home-page.test.tsx` — 41 próf (ný)
 - `lib/__tests__/profile-page.test.tsx` — 3 próf (ný)
@@ -67,3 +67,55 @@ Skrár:
 - `components/teskeid/NavBar.tsx` — `/innskraning` → `/auth-mvp/innskraning`
 - `lib/__tests__/middleware.test.ts` — 8 regression tests (aliases, encoded,
   feature-flag priority, query string, /login fallback, no loop)
+
+---
+
+## #6 — Canonical lógó Teskeiðar
+
+**Lokið:** 2026-06-07
+**Staðfest af Stebbi:** já (localhost-prófun)
+
+Canonical `TeskeidLogo` SVG-component útbúinn og staðfestur á öllum skjám.
+Lógóið er smellanlegt á authenticated síðum og tengir á `/auth-mvp/heim`.
+SVG er decorative þar sem Link hefur aðgengilegt `aria-label`. Engar gamlar
+lógóútgáfur eru sýnilegar. Build og prófanir standast.
+
+**Production-notkun og samþykktar staðsetningar:**
+
+- `components/teskeid/NavBar.tsx` — `<TeskeidLogo size={80} decorative />` í aðal-header (`h-28 sm:h-32`) á opinberum síðum
+- `app/auth-mvp/heim/page.tsx` — `<TeskeidLogo size={160/200} decorative />` neðst, í `Link` á `/auth-mvp/heim`
+- `app/auth-mvp/minn-profill/page.tsx` — sama mynstur neðst
+- `components/loans/LoanShell.tsx` — sama mynstur neðst á öllum `lanad-og-skilad`-síðum
+- `app/hugmyndir/[slug]/page.tsx` — `<TeskeidLogo size={140/170} showBackground={false} decorative />` miðjað efst í article
+
+**Favicon og app-icons:**
+
+- `app/icon.svg` — andlitsfavicon
+- `public/icon-192.png` — PWA-icon (192×192 px)
+- `public/icon-512.png` — PWA-icon (512×512 px)
+
+**Component-skrár:**
+
+- `components/teskeid/TeskeidLogo.tsx` — canonical production-component
+- `components/teskeid/teskeidLogoPaths.ts` — `TESKEID_VIEWBOX`, `TESKEID_GREEN_PATH`, `TESKEID_CREAM_DETAILS_PATH`
+
+**Prófanir:**
+
+- `lib/__tests__/teskeid-logo.test.tsx` — 14 próf
+- `lib/__tests__/loan-pages.test.tsx` — lógótengill og decorative SVG prófuð
+- `lib/__tests__/profile-page.test.tsx` — lógótengill og decorative SVG prófuð
+
+---
+
+## #11 — „Nýlegt" fyrir ofan „Teskeiðar" á `/heim`
+
+**Lokið:** 2026-06-07
+**Staðfest af Stebbi:** já (localhost-prófun)
+
+Á `/auth-mvp/heim` birtist „Nýlegt"-hlutinn fyrir ofan „Teskeiðar"-hlutann.
+Röðin er: kveðja, „Nýlegt", „Teskeiðar", lógó. Gögn, cookie/read-state,
+textar og virkni sectionanna eru óbreytt. DOM-próf staðfestir röðina.
+
+Skrár:
+- `app/auth-mvp/heim/page.tsx` — Nýlegt-section á undan Teskeiðar-section
+- `lib/__tests__/home-page.test.tsx` — DOM-order próf: „Nýlegt" á undan „Teskeiðar"

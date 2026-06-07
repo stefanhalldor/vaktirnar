@@ -3,14 +3,14 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Lightbulb, Send, User } from 'lucide-react'
+import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 
 export function NavBar() {
   return (
     <header className="w-full bg-[#fbf9f4] border-b border-black/5">
       <div className="max-w-[768px] mx-auto h-28 sm:h-32 px-5 flex items-center justify-center">
-        <Link href="/" className="inline-flex items-center justify-center py-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/teskeid-logo-no-frame.svg" alt="Teskeið" className="h-24 sm:h-28 w-auto max-w-[390px]" />
+        <Link href="/" aria-label="Teskeið.is" className="inline-flex items-center justify-center py-2">
+          <TeskeidLogo size={80} decorative />
         </Link>
       </div>
     </header>

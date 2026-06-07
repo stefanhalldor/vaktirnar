@@ -6,10 +6,10 @@ import { useTranslations } from 'next-intl'
 import Link from 'next/link'
 import { Home } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 
 export default function AuthMvpProfilePage() {
   const t = useTranslations('teskeid.profile')
-  const tAuth = useTranslations('teskeid.auth')
   const tCommon = useTranslations('common')
   const router = useRouter()
   const [displayName, setDisplayName] = useState('')
@@ -69,72 +69,79 @@ export default function AuthMvpProfilePage() {
 
   return (
     <div className="min-h-screen bg-[#fbf9f4]">
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-10 flex items-center px-5 h-14 border-b border-border bg-background">
-        <Link
-          href="/auth-mvp/heim"
-          className="flex items-center justify-center w-10 h-10 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-          aria-label={t('homeLink')}
-          title={t('homeLink')}
-        >
-          <Home size={20} aria-hidden />
-        </Link>
-      </header>
+      <main className="max-w-lg mx-auto px-4 pt-6 pb-10 flex flex-col gap-6">
 
-      {/* ── Main ───────────────────────────────────────────────── */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <p className="text-sm text-[#72796e]">{tCommon('loading')}</p>
+        {/* ── Nav row: title left, Home icon right ─────────────── */}
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-base font-semibold text-[#154212]">{t('title')}</h1>
+          <Link
+            href="/auth-mvp/heim"
+            className="flex items-center justify-center w-11 h-11 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+            aria-label={t('homeLink')}
+          >
+            <Home size={20} aria-hidden />
+          </Link>
         </div>
-      ) : (
-        <div className="flex items-center justify-center px-4 py-12">
-          <div className="w-full max-w-sm">
-            <div className="mb-8 text-center">
-              <p className="text-xs text-[#72796e] mb-1">{tAuth('mvpLabel')}</p>
-              <h1 className="text-2xl font-semibold text-[#154212]">Teskeið</h1>
-            </div>
-            <div className="bg-white border border-black/5 rounded-2xl shadow-sm p-6">
-              <h2 className="mb-6 text-xl font-semibold text-[#154212]">{t('title')}</h2>
-              <form onSubmit={handleSave} className="flex flex-col gap-4">
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-[#42493e]">{t('displayName')}</span>
-                  <input
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    maxLength={200}
-                    className="h-10 rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
-                  />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-[#42493e]">{t('email')}</span>
-                  <input
-                    type="email"
-                    value={email}
-                    readOnly
-                    className="h-10 rounded-xl border border-gray-100 bg-gray-50 px-3 text-sm text-gray-500 outline-none cursor-default"
-                  />
-                </label>
-                {error && <p className="text-sm text-red-600">{error}</p>}
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="mt-2 h-10 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
-                >
-                  {saving ? t('saving') : saved ? t('saved') : t('save')}
-                </button>
-              </form>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="mt-3 w-full h-10 rounded-xl border border-gray-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
-              >
-                {t('logout')}
-              </button>
-            </div>
+
+        {/* ── Content ──────────────────────────────────────────── */}
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <p className="text-sm text-[#72796e]">{tCommon('loading')}</p>
           </div>
+        ) : (
+          <div className="bg-white border border-black/5 rounded-2xl shadow-sm p-6 flex flex-col gap-3">
+            <form onSubmit={handleSave} className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1">
+                <span className="text-sm font-medium text-[#42493e]">{t('displayName')}</span>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  maxLength={200}
+                  className="h-10 rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-sm font-medium text-[#42493e]">{t('email')}</span>
+                <input
+                  type="email"
+                  value={email}
+                  readOnly
+                  className="h-10 rounded-xl border border-gray-100 bg-gray-50 px-3 text-sm text-gray-500 outline-none cursor-default"
+                />
+              </label>
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              <button
+                type="submit"
+                disabled={saving}
+                className="mt-2 h-10 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
+              >
+                {saving ? t('saving') : saved ? t('saved') : t('save')}
+              </button>
+            </form>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full h-10 rounded-xl border border-gray-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
+            >
+              {t('logout')}
+            </button>
+          </div>
+        )}
+
+        {/* ── Bottom logo — clickable, links to /auth-mvp/heim ── */}
+        <div className="flex justify-center pt-4">
+          <Link
+            href="/auth-mvp/heim"
+            aria-label={t('homeLink')}
+            className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-2"
+          >
+            <TeskeidLogo size={160} decorative className="sm:hidden" />
+            <TeskeidLogo size={200} decorative className="hidden sm:block" />
+          </Link>
         </div>
-      )}
+
+      </main>
     </div>
   )
 }
