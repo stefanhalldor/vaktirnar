@@ -282,10 +282,11 @@
       "copyright": "© 2026 Teskeið. Öll réttindi áskilin."
     },
     "auth": {
-      "mvpLabel": "MVP prófunarroute",
+      "betaLabel": "Teskeið er í lokaðri beta",
       "loginTitle": "Komdu inn",
+      "emailHint": "Við opnum fyrir fleiri notendur á næstu dögum. Sláðu inn netfangið þitt. Ef þú ert með aðgang færðu innskráningarkóða. Annars skráum við þig á biðlistann og þú gætir fengið aðgang fyrr.",
+      "emailSubmitted": "Ef netfangið þitt er með aðgang færðu kóða innan skamms. Annars er netfangið komið á biðlistann og við látum þig vita þegar röðin kemur að þér.",
       "codeTitle": "Sláðu inn kóðann",
-      "codeSent": "Við sendum kóða á {email}. Kóðinn gildir í 10 mínútur.",
       "codeLabel": "Kóði",
       "continue": "Áfram",
       "continuing": "Sendi...",

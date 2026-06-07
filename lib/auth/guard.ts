@@ -31,7 +31,7 @@ export async function guardTeskeidAccess(): Promise<TeskeidAccess> {
   } = await supabase.auth.getUser()
 
   if (!user?.email) {
-    redirect('/auth-mvp/innskraning')
+    redirect('/innskraning')
   }
 
   // 4. Allowlist

@@ -80,9 +80,9 @@ describe('guardTeskeidAccess — session and allowlist', () => {
     setEnv('AUTH_MVP_ENABLED', savedAuth)
   })
 
-  it('redirects to /auth-mvp/innskraning when there is no session', async () => {
+  it('redirects to /innskraning when there is no session', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } })
-    await expect(guardTeskeidAccess()).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/innskraning')
+    await expect(guardTeskeidAccess()).rejects.toThrow('NEXT_REDIRECT:/innskraning')
   })
 
   it('redirects to / when email is not on the allowlist', async () => {

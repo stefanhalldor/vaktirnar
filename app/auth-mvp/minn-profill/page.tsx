@@ -24,7 +24,7 @@ export default function AuthMvpProfilePage() {
       try {
         const res = await fetch('/api/teskeid/profile')
         if (res.status === 401) {
-          router.replace('/auth-mvp/innskraning')
+          router.replace('/innskraning')
           return
         }
         if (res.ok) {
@@ -64,7 +64,7 @@ export default function AuthMvpProfilePage() {
   async function handleLogout() {
     const supabase = createClient()
     await supabase.auth.signOut()
-    router.push('/auth-mvp/innskraning')
+    router.push('/innskraning')
   }
 
   return (

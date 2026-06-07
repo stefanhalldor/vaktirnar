@@ -21,7 +21,6 @@ const PUBLIC_PATHS = [
   '/api/followers',
   '/api/submissions',
   '/api/analytics',
-  '/api/login-waitlist',
   '/api/teskeid/profile',
   '/admin/login',
   '/api/auth',
@@ -50,20 +49,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
-  // Canonicalize Teskeið login aliases → /auth-mvp/innskraning.
+  // Canonicalize Teskeið login aliases → /innskraning.
   // Placed after feature-flag checks so a disabled AUTH_MVP flag takes priority
-  // over the /auth-mvp/innskráning alias. decodeURIComponent covers percent-
-  // encoded variants (/auth-mvp/innskr%C3%A1ning → /auth-mvp/innskráning).
+  // over the /auth-mvp/* aliases. decodeURIComponent covers percent-encoded
+  // variants (/auth-mvp/innskr%C3%A1ning → /auth-mvp/innskráning).
   const decodedPathname = (() => {
     try { return decodeURIComponent(pathname) } catch { return pathname }
   })()
   if (
+    decodedPathname === '/auth-mvp/innskraning' ||
     decodedPathname === '/auth-mvp/innskráning' ||
-    decodedPathname === '/innskraning' ||
     decodedPathname === '/innskráning'
   ) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth-mvp/innskraning'
+    url.pathname = '/innskraning'
     return NextResponse.redirect(url)
   }
 
@@ -106,25 +105,19 @@ export async function middleware(request: NextRequest) {
   // Teskeið auth MVP hidden routes (only reachable when flag is on)
   if (!user && pathname.startsWith('/auth-mvp/heim')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth-mvp/innskraning'
+    url.pathname = '/innskraning'
     return NextResponse.redirect(url)
   }
   if (!user && pathname.startsWith('/auth-mvp/minn-profill')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth-mvp/innskraning'
+    url.pathname = '/innskraning'
     return NextResponse.redirect(url)
   }
   if (!user && pathname.startsWith('/auth-mvp/lanad-og-skilad')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth-mvp/innskraning'
+    url.pathname = '/innskraning'
     return NextResponse.redirect(url)
   }
-  if (user && (pathname.startsWith('/auth-mvp/innskraning') || pathname.startsWith('/auth-mvp/nyr-adgangur'))) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/auth-mvp/heim'
-    return NextResponse.redirect(url)
-  }
-
   if (!user && !isPublic && !isAuthCallback) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'

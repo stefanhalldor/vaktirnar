@@ -74,36 +74,36 @@ describe('middleware — Teskeið login alias redirects', () => {
     else delete process.env.AUTH_MVP_ENABLED
   })
 
-  it('/auth-mvp/innskráning (Unicode á) → /auth-mvp/innskraning', async () => {
-    const res = await middleware(makeReq('/auth-mvp/innskráning'))
+  it('/auth-mvp/innskraning (no accent) → /innskraning', async () => {
+    const res = await middleware(makeReq('/auth-mvp/innskraning'))
     expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/auth-mvp/innskraning')
+    expect(redirectedTo(res)).toBe('/innskraning')
   })
 
-  it('/auth-mvp/innskr%C3%A1ning (percent-encoded) → /auth-mvp/innskraning', async () => {
+  it('/auth-mvp/innskráning (Unicode á) → /innskraning', async () => {
+    const res = await middleware(makeReq('/auth-mvp/innskráning'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/innskraning')
+  })
+
+  it('/auth-mvp/innskr%C3%A1ning (percent-encoded) → /innskraning', async () => {
     // pathname arrives percent-encoded when some proxies/browsers encode it
     const res = await middleware(makeReq('/auth-mvp/innskr%C3%A1ning'))
     expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/auth-mvp/innskraning')
+    expect(redirectedTo(res)).toBe('/innskraning')
   })
 
-  it('/innskraning (no accent) → /auth-mvp/innskraning', async () => {
-    const res = await middleware(makeReq('/innskraning'))
-    expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/auth-mvp/innskraning')
-  })
-
-  it('/innskráning (Unicode á) → /auth-mvp/innskraning', async () => {
+  it('/innskráning (Unicode á) → /innskraning', async () => {
     const res = await middleware(makeReq('/innskráning'))
     expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/auth-mvp/innskraning')
+    expect(redirectedTo(res)).toBe('/innskraning')
   })
 
   it('query string is preserved through the alias redirect', async () => {
-    const res = await middleware(makeReq('/innskraning?next=%2Fminn-profill'))
+    const res = await middleware(makeReq('/auth-mvp/innskraning?next=%2Fminn-profill'))
     expect(res.status).toBe(307)
     const loc = new URL(res.headers.get('location')!)
-    expect(loc.pathname).toBe('/auth-mvp/innskraning')
+    expect(loc.pathname).toBe('/innskraning')
     expect(loc.search).toBe('?next=%2Fminn-profill')
   })
 })
@@ -138,71 +138,80 @@ describe('middleware — unauthenticated private route', () => {
     mockGetUser.mockResolvedValue({ data: { user: null } })
   })
 
-  it('unauthenticated request to /home → /login (not /auth-mvp/innskraning)', async () => {
+  it('unauthenticated request to /home → /login (not /innskraning)', async () => {
     const res = await middleware(makeReq('/home'))
     expect(res.status).toBe(307)
     expect(redirectedTo(res)).toBe('/login')
   })
 })
 
-// ── /auth-mvp/heim redirects ────────────────────────────────────────────────
+// ── /auth-mvp/heim and private route redirects ─────────────────────────────
 
 describe('middleware — /auth-mvp/heim route', () => {
   let savedAuthMvp: string | undefined
+  let savedLoans: string | undefined
 
   beforeEach(() => {
     savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    savedLoans = process.env.LOANS_ENABLED
     process.env.AUTH_MVP_ENABLED = 'true'
+    process.env.LOANS_ENABLED = 'true'
     vi.clearAllMocks()
   })
 
   afterEach(() => {
     if (savedAuthMvp !== undefined) process.env.AUTH_MVP_ENABLED = savedAuthMvp
     else delete process.env.AUTH_MVP_ENABLED
+    if (savedLoans !== undefined) process.env.LOANS_ENABLED = savedLoans
+    else delete process.env.LOANS_ENABLED
   })
 
-  it('unauthenticated /auth-mvp/heim → /auth-mvp/innskraning', async () => {
+  it('unauthenticated /auth-mvp/heim → /innskraning', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } })
     const res = await middleware(makeReq('/auth-mvp/heim'))
     expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/auth-mvp/innskraning')
+    expect(redirectedTo(res)).toBe('/innskraning')
   })
 
-  it('authenticated user on /auth-mvp/innskraning → /auth-mvp/heim (not minn-profill)', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
-    const res = await middleware(makeReq('/auth-mvp/innskraning'))
+  it('unauthenticated /auth-mvp/minn-profill → /innskraning', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/minn-profill'))
     expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/auth-mvp/heim')
+    expect(redirectedTo(res)).toBe('/innskraning')
   })
 
-  it('authenticated user on /auth-mvp/nyr-adgangur → /auth-mvp/heim', async () => {
+  it('unauthenticated /auth-mvp/lanad-og-skilad → /innskraning', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/lanad-og-skilad'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/innskraning')
+  })
+
+  it('authenticated user on /innskraning passes through (whitelist check is page-level)', async () => {
+    // Middleware no longer redirects authenticated users from /innskraning.
+    // Only allowlisted users are redirected — that check runs in the page server component.
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/innskraning'))
+    expect(res.status).toBe(200)
+  })
+
+  it('authenticated user on /auth-mvp/nyr-adgangur passes through', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
     const res = await middleware(makeReq('/auth-mvp/nyr-adgangur'))
-    expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/auth-mvp/heim')
+    expect(res.status).toBe(200)
   })
 })
 
-// ── Canonical route is not redirected ──────────────────────────────────────
+// ── Canonical /innskraning passes through without redirect ─────────────────
 
-describe('middleware — canonical route passes through alias check', () => {
-  let savedAuthMvp: string | undefined
-
+describe('middleware — canonical /innskraning passes through', () => {
   beforeEach(() => {
-    savedAuthMvp = process.env.AUTH_MVP_ENABLED
-    process.env.AUTH_MVP_ENABLED = 'true'
     mockGetUser.mockResolvedValue({ data: { user: null } })
   })
 
-  afterEach(() => {
-    if (savedAuthMvp !== undefined) process.env.AUTH_MVP_ENABLED = savedAuthMvp
-    else delete process.env.AUTH_MVP_ENABLED
-  })
-
-  it('/auth-mvp/innskraning (canonical, public) passes through alias check — no redirect loop', async () => {
-    const res = await middleware(makeReq('/auth-mvp/innskraning'))
-    // Canonical is in PUBLIC_PATHS: no auth redirect. Alias block does not fire.
-    // NextResponse.next() returns 200.
+  it('/innskraning (canonical, unauthenticated) — no redirect loop, returns 200', async () => {
+    const res = await middleware(makeReq('/innskraning'))
+    // Canonical is in PUBLIC_PATHS and not in alias block — passes through.
     expect(res.status).toBe(200)
   })
 })

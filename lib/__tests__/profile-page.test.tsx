@@ -10,13 +10,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import React from 'react'
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock('next/navigation', () => ({
-  useRouter: vi.fn().mockReturnValue({ replace: vi.fn(), push: vi.fn() }),
+  useRouter: vi.fn().mockReturnValue({ replace: vi.fn(), push: mockPush }),
 }))
 
 vi.mock('next-intl', () => ({
@@ -47,9 +47,14 @@ vi.mock('next/link', () => ({
     React.createElement('a', { href, ...props }, children),
 }))
 
+const { mockSignOut, mockPush } = vi.hoisted(() => ({
+  mockSignOut: vi.fn().mockResolvedValue({}),
+  mockPush: vi.fn(),
+}))
+
 vi.mock('@/lib/supabase/client', () => ({
   createClient: vi.fn().mockReturnValue({
-    auth: { signOut: vi.fn().mockResolvedValue({}) },
+    auth: { signOut: mockSignOut },
   }),
 }))
 
@@ -173,5 +178,18 @@ describe('AuthMvpProfilePage — DOM order', () => {
     const form = container.querySelector('form')!
     const logo = bottomLogoLink(container)!
     expect(form.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// ── Logout redirect ────────────────────────────────────────────────────────
+
+describe('AuthMvpProfilePage — logout redirect', () => {
+  it('clicking logout signs out and pushes to /innskraning', async () => {
+    render(React.createElement(AuthMvpProfilePage))
+    await screen.findByText('Vista')
+    const logoutBtn = screen.getByText('Útskrá')
+    fireEvent.click(logoutBtn)
+    await waitFor(() => expect(mockSignOut).toHaveBeenCalled())
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/innskraning'))
   })
 })

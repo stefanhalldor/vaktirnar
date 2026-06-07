@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createUserCode } from '@/lib/auth/user-codes'
 import { sendUserLoginCode } from '@/lib/auth/email'
 import { isAuthMvpAllowedEmail } from '@/lib/auth/allowlist'
+import { getAdmin } from '@/lib/supabase/admin'
 
 const schema = z.object({
   email: z.string().email().max(320).transform((e) => e.toLowerCase().trim()),
@@ -21,11 +22,21 @@ export async function POST(request: NextRequest) {
 
   if (parsed.success) {
     try {
-      // Allowlist check: silently do nothing for non-allowlisted emails.
-      // No code created, no email sent, no row in auth_email_codes.
-      // Client receives identical success response — no enumeration leak.
+      // Allowlist check: non-allowlisted emails go to the waitlist.
+      // No code created, no email sent — client receives identical success response.
       const allowed = await isAuthMvpAllowedEmail(parsed.data.email)
       if (!allowed) {
+        try {
+          const { error } = await getAdmin()
+            .from('login_waitlist')
+            .insert({ email: parsed.data.email })
+          // Duplicate entry (23505) is idempotent — treat as success
+          if (error && error.code !== '23505') {
+            console.error('[auth-mvp/request-code] waitlist insert error (not exposed to client)')
+          }
+        } catch {
+          // Swallow silently — client always receives success
+        }
         return NextResponse.json({ success: true })
       }
 

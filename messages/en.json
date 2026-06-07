@@ -278,10 +278,11 @@
       "copyright": "© 2026 Teskeið. All rights reserved."
     },
     "auth": {
-      "mvpLabel": "MVP test route",
+      "betaLabel": "Teskeið is in closed beta",
       "loginTitle": "Sign in",
+      "emailHint": "We're opening up to more users over the coming days. Enter your email. If you have access you'll receive a sign-in code. Otherwise we'll add you to the waitlist and you may get access sooner.",
+      "emailSubmitted": "If your email has access you'll receive a code shortly. Otherwise your email is now on the waitlist and we'll let you know when your turn comes.",
       "codeTitle": "Enter the code",
-      "codeSent": "We're sending a code to {email}. Valid for 10 minutes.",
       "codeLabel": "Code",
       "continue": "Continue",
       "continuing": "Sending...",
