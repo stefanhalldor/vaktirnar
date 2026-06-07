@@ -81,7 +81,7 @@ export default function AuthMvpLoginPage() {
         return
       }
 
-      router.push('/auth-mvp/minn-profill')
+      router.push('/auth-mvp/heim')
       router.refresh()
     } catch {
       setError(t('genericError'))

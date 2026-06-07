@@ -56,3 +56,139 @@ Supabase-project.
 gagnagrunni, environment variables eða blandað. Forgangstillaga er DB-stýrt
 release-stage og DB-stýrð beta-allowlist svo hægt sé að færa `beta` í `public`
 án nýs deploys.
+
+#5
+## Samræmd mobile app-upplifun á öllu Teskeið.is
+
+**Staða:** Bíður
+
+**Umfang:** Reglurnar í þessu atriði gilda alls staðar á `teskeid.is`, bæði á
+opinberum síðum, innskráningu, prófíl, heimaskjá og inni í öllum Teskeiðum.
+
+**Vandamál:** Í farsíma þysjar vafrinn sjálfkrafa inn þegar notandi slær í
+ákveðna innsláttarreiti, meðal annars netfangið á Teskeið-innskráningarsíðunni.
+Eftir innslátt þarf notandinn að þysja handvirkt út aftur. Sambærileg
+viewport-, keyboard-, overflow- og layout-vandamál mega ekki koma upp annars
+staðar á vefnum. Allt `teskeid.is` á að upplifast eins og samræmt mobile app.
+
+**Ósk:**
+
+- Tryggja að engir innsláttarreitir á `teskeid.is` valdi óæskilegu
+  mobile-zoom, sérstaklega í Safari/iOS.
+- Halda eðlilegri aðgengilegri textastærð og forðast að banna notandanum
+  almennt að zooma síðuna.
+- Yfirfara öll form og controls á vefnum, þar á meðal netfang, kóða,
+  dagsetningar, leit, textarea, select og tengdar auth-síður.
+- Endurhanna Teskeið-innskráningarsíðuna samkvæmt `Design.md`, með canonical
+  Teskeið-litunum, spacing, typography, controls, focus-visible og
+  mobile-first app-upplifun.
+- Ekki láta gamalt Krakkavaktar-lúkk leka inn í Teskeið-innskráninguna.
+- Nota reglurnar í `Design.md` sem skyldubundið viðmið fyrir alla nýja og
+  breytta skjái á `teskeid.is`.
+- Prófa sérstaklega við 360-460 px viewport, með mobile keyboard opið og í
+  portrait og landscape þar sem það skiptir máli.
+- Staðfesta að enginn texti, hnappur eða input skarist og að síðan haldi réttri
+  breidd og scroll-stöðu eftir að lyklaborði er lokað.
+- Staðfesta að fixed/sticky controls, modals og neðri aðgerðir fari ekki undir
+  mobile keyboard, browser chrome eða safe-area.
+
+#6
+## Endurhanna lógó Teskeiðar
+
+**Staða:** Bíður
+
+![Núverandi lógóhugmynd Teskeiðar](feedback/images/teskeid-logo-reference.png)
+
+### Samþykkt aðalviðmið
+
+![Samþykkt hringlaga skeiðarmaskott Teskeiðar](feedback/images/teskeid-circular-spoon-mascot-logo-reference.png)
+
+**Vandamál:** Samþykkta lógóhugmyndin er nú til sem raster-viðmiðsmynd en ekki
+sem hreint, skalanlegt og production-ready SVG. Það þarf að endurgera hana eins
+nákvæmlega og mögulegt er í vector-formi, ekki hanna almennt eða lauslega tengt
+val.
+
+**Forgangur:** Hringlaga skeiðarmaskottið á nýju viðmiðsmyndinni er samþykkta
+aðalstefnan. Eldri lárétta skeiðarhugmyndin hér að ofan er varðveitt sem saga og
+samhengi, en á ekki að stýra SVG-endurgerðinni.
+
+**Viðmið úr skjámynd Stebba:**
+
+- Hringlaga badge með þykkum dökkgrænum ytri hring.
+- Hlýr off-white eða mjög ljós krembakgrunnur.
+- Upprétt dökkgræn skeið, miðjuð lóðrétt.
+- Einfalt vinalegt andlit með ljósum sólgleraugum og litlu brosi.
+- Baseball-húfa með ljósu framstykki, dökkgrænni útlínu og skyggni.
+- Textinn `A/10` miðjaður á framstykki húfunnar.
+- Boginn texti `Teskeið.is` eftir neðri innri boga hringsins.
+- Enginn glans eða shiny highlight á skeiðinni.
+- Lúkkið skal vera minimal, hreint, flatt, örlítið leikandi og svolítið
+  cheeky án þess að verða flókið.
+- Litatillaga: dökkgrænn nálægt `#145A32` og hlýr ljós litur nálægt `#F7F4EE`.
+
+**Ósk:**
+
+- Endurgera samþykkta mynd eins nákvæmlega og mögulegt er sem handunnið inline
+  SVG. Ekki búa til generic alternative, raster-mynd eða canvas-lausn.
+- Ytri hringurinn skal vera ráðandi rammi, skeiðin sitja þægilega í miðju,
+  húfan sitja eðlilega og bogni textinn vera skýrt læsilegur.
+- Tryggja að lógóið skali hreint og haldist skarpt og auðþekkjanlegt í navbar,
+  profile-marki, favicon/app-icon og stærri birtingu.
+- Búa til reusable React component:
+  `TeskeidLogo.tsx`.
+- Component skal nota inline SVG og engin external dependencies.
+- Props:
+  - `size?: number`, sjálfgefið `160`
+  - `className?: string`
+  - `showBackground?: boolean`
+- Þegar `showBackground` er `false` skal SVG-bakgrunnurinn vera transparent en
+  ytri hringur, maskott og aðrir lógóhlutar haldast.
+- Aðgengi:
+  - `<title>Teskeið.is logo</title>`
+  - styðja decorative notkun með `aria-hidden` þar sem við á
+- Nota SVG paths, circles, `textPath` og grouped shapes eftir þörfum, með hreinni
+  og viðhaldanlegri vector-uppbyggingu.
+- Skila component-skránni og stuttum usage-dæmum fyrir sjálfgefna stærð, lítinn
+  navbar og stærri hero.
+- Ekki skipta út núverandi logo-assets eða setja nýja componentinn í production
+  UI fyrr en Stebbi hefur séð samanburð við viðmiðsmyndina og samþykkt útkomuna.
+
+#7
+## Langlíf innskráning með app-líkri mobile-upplifun
+
+**Staða:** Bíður
+
+**Vandamál:** Stuttur eða óvæntur session-timeout getur gert mobile-upplifun
+Teskeiðar óþarflega veflega. Notandi sem hefur þegar skráð sig inn á eigin síma
+ætti almennt ekki að þurfa að sækja nýjan tölvupóstkóða eftir app-switching,
+lokun vafra eða eðlilega óvirkni.
+
+**Markmið:** Innskráning haldist áreiðanlega virk líkt og í appi, sérstaklega á
+persónulegum mobile-tækjum, án þess að veikja server-side session-staðfestingu
+eða gera stolna session ótímabundna.
+
+**Ósk og atriði til ákvörðunar:**
+
+- Kortleggja núverandi Supabase access-token, refresh-token, cookie-líftíma og
+  sjálfvirka session-endurnýjun áður en timeout-hegðun er breytt.
+- Nota langlífa, endurnýjanlega session með öruggum refresh-token fremur en að
+  gera eitt access-token mjög langlíft.
+- Láta innskráningu lifa browserlokun, app-switching, skjálæsingu og eðlilega
+  óvirkni þegar notandi er á eigin tæki.
+- Ekki treysta eingöngu á user-agent til að ákveða hver fær langa session.
+  Meta hvort sama app-líka hegðun eigi við á öllum persónulegum tækjum eða hvort
+  bjóða eigi skýrt val á borð við „Haltu mér innskráðum“.
+- Halda skýrri „Skrá út“ aðgerð sem afturkallar session á öruggan hátt.
+- Ákveða raunhæfan hámarkslíftíma, til dæmis 30-90 daga, og hvort virk notkun
+  endurnýi tímann.
+- Endurstaðfesta auðkenni síðar fyrir sérstaklega viðkvæmar aðgerðir ef slíkar
+  aðgerðir verða hluti af Teskeið.
+- Meðhöndla útrunnið eða afturkallað refresh-token án redirect-loopa og varðveita
+  ætlaða áfangasíðu eftir nýja innskráningu.
+- Prófa Safari/iOS, Chrome/Android, standalone/PWA og venjulegan mobile browser,
+  meðal annars browserlokun, tæki offline, token refresh og handvirka útskráningu.
+- Bæta regression-prófum fyrir session refresh, expiry, revocation og logout.
+
+**Öryggisviðmið:** Ekki slökkva á expiry alfarið. Langlíf innskráning skal byggja
+á öruggri token-endurnýjun, `httpOnly`/secure cookie-hegðun Supabase þar sem það
+á við og áframhaldandi server-side auth-vörnum.

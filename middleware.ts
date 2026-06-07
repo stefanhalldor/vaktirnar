@@ -104,6 +104,11 @@ export async function middleware(request: NextRequest) {
   }
 
   // Teskeið auth MVP hidden routes (only reachable when flag is on)
+  if (!user && pathname.startsWith('/auth-mvp/heim')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth-mvp/innskraning'
+    return NextResponse.redirect(url)
+  }
   if (!user && pathname.startsWith('/auth-mvp/minn-profill')) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth-mvp/innskraning'
@@ -116,7 +121,7 @@ export async function middleware(request: NextRequest) {
   }
   if (user && (pathname.startsWith('/auth-mvp/innskraning') || pathname.startsWith('/auth-mvp/nyr-adgangur'))) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth-mvp/minn-profill'
+    url.pathname = '/auth-mvp/heim'
     return NextResponse.redirect(url)
   }
 

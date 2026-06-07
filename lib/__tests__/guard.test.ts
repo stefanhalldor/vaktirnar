@@ -27,6 +27,7 @@ vi.mock('@/lib/auth/allowlist', () => ({
   isAuthMvpAllowedEmail: mockIsAllowedEmail,
 }))
 
+import { guardTeskeidAccess } from '@/lib/auth/guard'
 import { guardLoanAccess } from '@/lib/loans/guard'
 
 // ── Env helpers ───────────────────────────────────────────────────────────────
@@ -37,6 +38,76 @@ function setEnv(key: string, value: string | undefined) {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+// ── guardTeskeidAccess ────────────────────────────────────────────────────────
+
+describe('guardTeskeidAccess — feature flag', () => {
+  let savedAuth: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedAuth = process.env.AUTH_MVP_ENABLED
+    process.env.LOANS_ENABLED = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('AUTH_MVP_ENABLED', savedAuth)
+  })
+
+  it('redirects to / without calling Supabase when AUTH_MVP_ENABLED is not true', async () => {
+    process.env.AUTH_MVP_ENABLED = 'false'
+    await expect(guardTeskeidAccess()).rejects.toThrow('NEXT_REDIRECT:/')
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+
+  it('redirects to / when AUTH_MVP_ENABLED is absent', async () => {
+    delete process.env.AUTH_MVP_ENABLED
+    await expect(guardTeskeidAccess()).rejects.toThrow('NEXT_REDIRECT:/')
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('guardTeskeidAccess — session and allowlist', () => {
+  let savedAuth: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedAuth = process.env.AUTH_MVP_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('AUTH_MVP_ENABLED', savedAuth)
+  })
+
+  it('redirects to /auth-mvp/innskraning when there is no session', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    await expect(guardTeskeidAccess()).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/innskraning')
+  })
+
+  it('redirects to / when email is not on the allowlist', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'x@example.com' } } })
+    mockIsAllowedEmail.mockResolvedValue(false)
+    await expect(guardTeskeidAccess()).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('returns user when all checks pass', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com' } } })
+    mockIsAllowedEmail.mockResolvedValue(true)
+    const result = await guardTeskeidAccess()
+    expect(result).toEqual({ user: { id: 'u1', email: 'user@example.com' } })
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it('lowercases and trims email before allowlist check', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: '  USER@EXAMPLE.COM  ' } } })
+    mockIsAllowedEmail.mockResolvedValue(true)
+    await guardTeskeidAccess()
+    expect(mockIsAllowedEmail).toHaveBeenCalledWith('user@example.com')
+  })
+})
+
+// ── guardLoanAccess ───────────────────────────────────────────────────────────
 
 describe('guardLoanAccess — feature flags', () => {
   let savedAuthMvp: string | undefined

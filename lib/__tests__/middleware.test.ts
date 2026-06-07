@@ -145,6 +145,44 @@ describe('middleware — unauthenticated private route', () => {
   })
 })
 
+// ── /auth-mvp/heim redirects ────────────────────────────────────────────────
+
+describe('middleware — /auth-mvp/heim route', () => {
+  let savedAuthMvp: string | undefined
+
+  beforeEach(() => {
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    if (savedAuthMvp !== undefined) process.env.AUTH_MVP_ENABLED = savedAuthMvp
+    else delete process.env.AUTH_MVP_ENABLED
+  })
+
+  it('unauthenticated /auth-mvp/heim → /auth-mvp/innskraning', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/heim'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/auth-mvp/innskraning')
+  })
+
+  it('authenticated user on /auth-mvp/innskraning → /auth-mvp/heim (not minn-profill)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/auth-mvp/innskraning'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/auth-mvp/heim')
+  })
+
+  it('authenticated user on /auth-mvp/nyr-adgangur → /auth-mvp/heim', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/auth-mvp/nyr-adgangur'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/auth-mvp/heim')
+  })
+})
+
 // ── Canonical route is not redirected ──────────────────────────────────────
 
 describe('middleware — canonical route passes through alias check', () => {

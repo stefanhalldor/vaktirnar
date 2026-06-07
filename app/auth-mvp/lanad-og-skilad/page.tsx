@@ -1,5 +1,6 @@
 import { getTranslations } from 'next-intl/server'
 import Link from 'next/link'
+import { Home } from 'lucide-react'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { LoanList } from '@/components/loans/LoanList'
@@ -31,10 +32,11 @@ export default async function LoanPage() {
       <header className="flex items-center justify-between px-5 h-14 border-b border-black/5 bg-[#fbf9f4]">
         <h1 className="text-base font-semibold text-[#154212]">{t('title')}</h1>
         <Link
-          href="/auth-mvp/minn-profill"
-          className="text-xs text-[#72796e] hover:text-[#154212] transition-colors"
+          href="/auth-mvp/heim"
+          className="flex items-center justify-center w-10 h-10 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          aria-label={t('homeLink')}
         >
-          {t('profile')}
+          <Home size={20} aria-hidden />
         </Link>
       </header>
 

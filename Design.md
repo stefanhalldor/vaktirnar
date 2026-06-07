@@ -140,6 +140,31 @@ Reglur:
 - Primary action skal vera auðfundin, en ekki alltaf floating action button.
 - Neðsta efni skal hafa nægt rými fyrir mobile browser chrome og safe areas.
 
+### Mobile app-upplifun á öllu Teskeið.is
+
+Þessar reglur gilda um alla skjái á `teskeid.is`, ekki aðeins innskráða
+app-hlutann:
+
+- Texti í `input`, `textarea` og `select` skal vera minnst 16 px á mobile svo
+  Safari/iOS þysji ekki sjálfkrafa inn þegar control fær focus.
+- Ekki banna notanda að þysja með `maximum-scale`, `user-scalable=no` eða
+  sambærilegum viewport-hömlum.
+- Opnun og lokun mobile keyboard má ekki skilja síðuna eftir þysjaða, of
+  breiða, skakka eða með rangri scroll-stöðu.
+- Controls, texti og page-wrapper mega ekki valda láréttu overflowi.
+- Fixed og sticky aðgerðir þurfa að virða mobile keyboard, browser chrome og
+  `env(safe-area-inset-*)` þar sem við á.
+- Form skulu halda samhengi og sýnilegri aðalaðgerð þegar lyklaborð er opið,
+  án þess að mikilvæg controls fari undir lyklaborðið.
+- Touch targets skulu almennt vera minnst 40x40 px og hafa nægt bil sín á milli.
+- Focus-visible, validation og villuskilaboð mega ekki valda layout shift sem
+  ýtir virka controlinu út af skjánum.
+- Prófa skal nýja og breytta skjái við 360 px, 390 px og 460 px breidd, með
+  mobile keyboard opið og lokað. Prófa skal sérstaklega Safari/iOS-hegðun
+  þegar form eða innsláttarreitir koma við sögu.
+- Reglurnar eiga einnig við um opinberar síður, auth, prófíl, admin og hverja
+  einstaka Teskeið.
+
 ## Yfirborð og form
 
 ### Page sections

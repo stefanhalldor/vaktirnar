@@ -309,9 +309,23 @@
         "saveFailed": "Vistun tókst ekki. Reyndu aftur."
       }
     },
+    "home": {
+      "greeting": "Góðan dag, {displayName}",
+      "greetingFallback": "Góðan dag",
+      "agenda": "Hvað er á dagskrá?",
+      "loansTitle": "Lánað og skilað",
+      "loansNewItem": "Skrá nýjan hlut",
+      "recent": "Nýlegt",
+      "recentSeeAll": "Sjá allt",
+      "noRecent": "Engin lán skráð enn.",
+      "noRecentCta": "Skrá fyrsta lán",
+      "profileLink": "Minn aðgangur",
+      "pendingBadgeLabel": "{count} boð í bið"
+    },
     "loans": {
       "title": "Lánað og skilað",
       "profile": "Minn aðgangur",
+      "homeLink": "Heim",
       "newItem": "Skrá hlut",
       "open": "Í láni",
       "returned": "Skilað",

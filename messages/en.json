@@ -305,9 +305,23 @@
         "saveFailed": "Save failed. Please try again."
       }
     },
+    "home": {
+      "greeting": "Hello, {displayName}",
+      "greetingFallback": "Hello",
+      "agenda": "What's on the agenda?",
+      "loansTitle": "Lent and returned",
+      "loansNewItem": "Log a new item",
+      "recent": "Recent",
+      "recentSeeAll": "See all",
+      "noRecent": "No loans logged yet.",
+      "noRecentCta": "Log your first loan",
+      "profileLink": "My account",
+      "pendingBadgeLabel": "{count, plural, one {1 pending invitation} other {# pending invitations}}"
+    },
     "loans": {
       "title": "Loaned and returned",
       "profile": "Account",
+      "homeLink": "Home",
       "newItem": "Add item",
       "open": "Outstanding",
       "returned": "Done",
