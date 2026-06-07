@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from 'react'
 import type { Idea, Submission, IdeaCategory } from '@/lib/teskeid/types'
 import { IDEA_CATEGORIES } from '@/lib/teskeid/types'
 import { StatusBadge } from '@/components/teskeid/StatusBadge'
+import { pickPeriod } from '@/lib/admin/period'
 
 type IdeaStatus = Idea['status']
 type SubmissionStatus = Submission['status']
@@ -118,8 +119,9 @@ export default function AdminPage() {
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
-  const [tab, setTab] = useState<'ideas' | 'submissions' | 'stats'>('ideas')
+  const [tab, setTab] = useState<'ideas' | 'submissions' | 'stats'>('stats')
   const [period, setPeriod] = useState('7d')
+  const [periodReady, setPeriodReady] = useState(false)
   const [drillFilter, setDrillFilter] = useState<DrillFilter | null>(null)
   const [drillIdeaId, setDrillIdeaId] = useState<string | null>(null)
   const [drillIdeaData, setDrillIdeaData] = useState<AnalyticsData | null>(null)
@@ -148,6 +150,31 @@ export default function AdminPage() {
   const [linkDraft, setLinkDraft] = useState<Record<string, string>>({})
   const [linkError, setLinkError] = useState('')
 
+  // Auto-select analytics period based on time since last admin page visit.
+  // Reads stored timestamp, picks the smallest PERIOD that covers the elapsed
+  // time, then updates the timestamp for next visit.
+  // Sets periodReady=true in finally so the analytics fetch only starts after
+  // the period is resolved (prevents a race where the first request fires with
+  // the default '7d' before localStorage is read).
+  // localStorage errors are swallowed so the page never breaks.
+  useEffect(() => {
+    const LS_KEY = 'admin_last_opened'
+    try {
+      const stored = localStorage.getItem(LS_KEY)
+      if (stored !== null) {
+        const elapsed = Date.now() - Number(stored)
+        if (!isNaN(elapsed) && elapsed >= 0) {
+          setPeriod(pickPeriod(elapsed))
+        }
+      }
+      localStorage.setItem(LS_KEY, String(Date.now()))
+    } catch {
+      // localStorage unavailable or corrupted — retain default period
+    } finally {
+      setPeriodReady(true)
+    }
+  }, [])
+
   useEffect(() => {
     Promise.all([
       fetch('/api/admin/ideas').then((r) => r.json()),
@@ -160,7 +187,7 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-    if (tab !== 'stats') return
+    if (tab !== 'stats' || !periodReady) return
     setStatsLoading(true)
     const params = new URLSearchParams({ period })
     if (drillFilter) {
@@ -174,7 +201,7 @@ export default function AdminPage() {
         setStatsLoading(false)
       })
       .catch(() => setStatsLoading(false))
-  }, [tab, period, drillFilter])
+  }, [tab, period, drillFilter, periodReady])
 
   useEffect(() => {
     if (!drillIdeaId) { setDrillIdeaData(null); return }

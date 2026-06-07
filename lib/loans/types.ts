@@ -107,6 +107,15 @@ export type CreateLoanInput = z.infer<typeof CreateLoanSchema>
 export type EditLoanInput = z.infer<typeof EditLoanSchema>
 export type AddInvitationInput = z.infer<typeof AddInvitationSchema>
 
+/**
+ * Returns 0 (Sun)–6 (Sat) for a YYYY-MM-DD string, parsed as a local date
+ * to avoid UTC midnight timezone shift.
+ */
+export function loanedAtWeekday(dateStr: string): number {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(year, month - 1, day).getDay()
+}
+
 // Return/undo controls appear only when both parties have joined.
 export function canShowReturnControls(
   invitationStatus: LoanItem['invitation_status'],

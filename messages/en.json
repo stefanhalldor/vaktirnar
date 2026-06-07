@@ -316,6 +316,16 @@
       "borrowed": "I borrowed",
       "itemName": "Item",
       "loanedAt": "Loaned on",
+      "loanedAtFull": "Lent on {weekday}, {date}",
+      "weekdays": {
+        "0": "Sunday",
+        "1": "Monday",
+        "2": "Tuesday",
+        "3": "Wednesday",
+        "4": "Thursday",
+        "5": "Friday",
+        "6": "Saturday"
+      },
       "dueDateOptional": "Due date (optional)",
       "noteOptional": "Note (optional)",
       "recipientEmail": "Recipient email",

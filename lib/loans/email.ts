@@ -10,7 +10,7 @@ export type EmailSendResult = 'sent' | 'failed' | 'uncertain'
  */
 export interface EmailContext {
   recipientRole: 'lender' | 'borrower'
-  templateVersion: 'v2'
+  templateVersion: 'v2' | 'v3'
   itemName: string | null
   creatorDisplayName: string | null
 }
@@ -24,6 +24,21 @@ function esc(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+/**
+ * Inserts ZERO WIDTH SPACE (U+200B) to prevent email clients (e.g. Gmail)
+ * from auto-linking URLs, www-domains, email addresses, and bare domains in
+ * user-supplied display values. Applied identically to both HTML (before
+ * esc()) and plain-text payloads so both use the same deterministic
+ * transformation. Normal names without dots, URLs, www, or @ are unchanged.
+ */
+function preventAutoLink(s: string): string {
+  return s
+    .replace(/https?(?=:\/\/)/gi, (m) => m + '\u200B')
+    .replace(/www(?=\.)/gi, 'www\u200B')
+    .replace(/@/g, '\u200B@\u200B')
+    .replace(/\./g, '.\u200B')
 }
 
 /**
@@ -103,9 +118,10 @@ export async function sendLoanInvitationEmail(
   const from = process.env.EMAIL_FROM ?? DEFAULT_FROM
   const claimUrl = `${SITE_URL}/auth-mvp/lanad-og-skilad/claim/${esc(invitationId)}`
 
-  const subject = 'Þér hefur verið sent lánaboð á Teskeið'
+  let subject = 'Þér hefur verið sent lánaboð á Teskeið'
 
   let html: string
+  let text: string | undefined
   if (!context) {
     html = [
       '<p>Þér hefur verið sent lánaboð á Teskeið.</p>',
@@ -142,6 +158,35 @@ export async function sendLoanInvitationEmail(
           '<p>Teskeið</p>',
         ].join('\n')
       }
+    } else if (ver === 'v3') {
+      // v3: no links, no URLs, no recipient email, no role label.
+      // Both html and text are included to support plain-text email clients.
+      // itemName and creatorDisplayName pass through preventAutoLink (same for
+      // both payloads), then esc() for HTML; plain-text uses the
+      // preventAutoLink output directly.
+      subject = 'Nýr hlutur í \u201ELánað og skilað\u201C á Teskeið.is'
+      const itemNameRaw = context.itemName !== null
+        ? preventAutoLink(context.itemName)
+        : 'Ekki tilgreint'
+      const creatorNameRaw = context.creatorDisplayName !== null
+        ? preventAutoLink(context.creatorDisplayName)
+        : 'Notanda á Teskeið'
+      html = [
+        '<p>Teskeiðin hjálpar fólki að halda utan um það sem annars gleymist auðveldlega, hluti sem eru lánaðir, hluti sem á að skila, útgjöld sem á að jafna og annað smávesen sem allir vilja hafa á hreinu, en verður oft of mikið vesen í daglegu lífi.</p>',
+        '<p>Til að tryggja öryggi þitt eru engir hlekkir í þessum pósti. Opnaðu Teskeið sjálf/ur og skráðu þig inn með sama netfangi og þessi póstur barst á.</p>',
+        `<p>Hlutur í láni: ${esc(itemNameRaw)}<br>Skráð af: ${esc(creatorNameRaw)}</p>`,
+        '<p>Teskeiðin hjálpar þér að vera með allt upp á 10.</p>',
+      ].join('\n')
+      text = [
+        'Teskeiðin hjálpar fólki að halda utan um það sem annars gleymist auðveldlega, hluti sem eru lánaðir, hluti sem á að skila, útgjöld sem á að jafna og annað smávesen sem allir vilja hafa á hreinu, en verður oft of mikið vesen í daglegu lífi.',
+        '',
+        'Til að tryggja öryggi þitt eru engir hlekkir í þessum pósti. Opnaðu Teskeið sjálf/ur og skráðu þig inn með sama netfangi og þessi póstur barst á.',
+        '',
+        `Hlutur í láni: ${itemNameRaw}`,
+        `Skráð af: ${creatorNameRaw}`,
+        '',
+        'Teskeiðin hjálpar þér að vera með allt upp á 10.',
+      ].join('\n')
     } else {
       // Defense in depth: unknown version — caller should have blocked this, but
       // never silently send with a mismatched template and corrupt the idempotency key.
@@ -153,8 +198,11 @@ export async function sendLoanInvitationEmail(
     const { Resend } = await import('resend')
     const resend = new Resend(process.env.RESEND_API_KEY)
 
+    const basePayload = { from, to: recipientEmail, subject, html }
+    const emailPayload = text !== undefined ? { ...basePayload, text } : basePayload
+
     const { data, error } = await resend.emails.send(
-      { from, to: recipientEmail, subject, html },
+      emailPayload,
       { idempotencyKey },
     )
 

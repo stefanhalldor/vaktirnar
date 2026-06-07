@@ -50,6 +50,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
+  // Canonicalize Teskeið login aliases → /auth-mvp/innskraning.
+  // Placed after feature-flag checks so a disabled AUTH_MVP flag takes priority
+  // over the /auth-mvp/innskráning alias. decodeURIComponent covers percent-
+  // encoded variants (/auth-mvp/innskr%C3%A1ning → /auth-mvp/innskráning).
+  const decodedPathname = (() => {
+    try { return decodeURIComponent(pathname) } catch { return pathname }
+  })()
+  if (
+    decodedPathname === '/auth-mvp/innskráning' ||
+    decodedPathname === '/innskraning' ||
+    decodedPathname === '/innskráning'
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth-mvp/innskraning'
+    return NextResponse.redirect(url)
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

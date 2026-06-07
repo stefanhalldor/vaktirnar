@@ -710,6 +710,75 @@ describe('addLoanInvitation orchestration', () => {
   })
 })
 
+// ── v3 reservation scenarios ──────────────────────────────────────────────────
+
+describe('sendInvitationEmail — v3 reservation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSendEmail.mockResolvedValue('sent')
+  })
+
+  it('email_template_version = v3 → sendLoanInvitationEmail called with templateVersion v3', async () => {
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({
+            data: { recipient_role: 'borrower', item_name_snapshot: 'Bók', creator_display_name_snapshot: 'Anna', email_template_version: 'v3' },
+            error: null,
+          }),
+        }),
+      }),
+    }))
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'reserve_invitation_send') return {
+        data: [{ attempt_number: 1, can_send: true, reason: 'ok', recipient_email: 'r@example.com' }],
+        error: null,
+      }
+      if (name === 'update_invitation_delivery') return { data: 'ok', error: null }
+      return { data: null, error: null }
+    })
+
+    await sendInvitationEmail(INV_ID)
+
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      'r@example.com',
+      INV_ID,
+      1,
+      { recipientRole: 'borrower', templateVersion: 'v3', itemName: 'Bók', creatorDisplayName: 'Anna' },
+    )
+  })
+
+  it('reserved v2 attempt → sendLoanInvitationEmail called with templateVersion v2 (unaffected by sql/37)', async () => {
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({
+            data: { recipient_role: 'lender', item_name_snapshot: 'Reiðhjól', creator_display_name_snapshot: 'Jón', email_template_version: 'v2' },
+            error: null,
+          }),
+        }),
+      }),
+    }))
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'reserve_invitation_send') return {
+        data: [{ attempt_number: 1, can_send: true, reason: 'ok', recipient_email: 'r@example.com' }],
+        error: null,
+      }
+      if (name === 'update_invitation_delivery') return { data: 'ok', error: null }
+      return { data: null, error: null }
+    })
+
+    await sendInvitationEmail(INV_ID)
+
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      'r@example.com',
+      INV_ID,
+      1,
+      { recipientRole: 'lender', templateVersion: 'v2', itemName: 'Reiðhjól', creatorDisplayName: 'Jón' },
+    )
+  })
+})
+
 // ── Manual / integration test plan (not runnable without live Supabase) ─────
 
 describe.skip('sendInvitationEmail — integration (requires disposable Supabase env)', () => {

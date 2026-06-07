@@ -320,6 +320,16 @@
       "borrowed": "Ég fékk lánað",
       "itemName": "Hvað var lánað?",
       "loanedAt": "Dagsetning",
+      "loanedAtFull": "Lánað {weekday} {date}",
+      "weekdays": {
+        "0": "sunnudaginn",
+        "1": "mánudaginn",
+        "2": "þriðjudaginn",
+        "3": "miðvikudaginn",
+        "4": "fimmtudaginn",
+        "5": "föstudaginn",
+        "6": "laugardaginn"
+      },
       "dueDateOptional": "Skiladagur (valfrjálst)",
       "noteOptional": "Athugasemd (valfrjálst)",
       "recipientEmail": "Netfang viðtakanda",

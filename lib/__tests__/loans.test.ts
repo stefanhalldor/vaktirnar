@@ -3,7 +3,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 
 const ROOT = join(__dirname, '..', '..')
-import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, canShowReturnControls, getLoanCardControls } from '../loans/types'
+import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, canShowReturnControls, getLoanCardControls, loanedAtWeekday } from '../loans/types'
 import type { LoanItem } from '../loans/types'
 
 const baseCreate = {
@@ -752,5 +752,74 @@ describe('sql/36 — optional recipient migration', () => {
     for (const line of grantLines) {
       expect(line).not.toMatch(/\b(anon|authenticated|PUBLIC)\b/)
     }
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/37 email template v3
+// ============================================================
+
+describe('sql/37 — email template v3 migration', () => {
+  const sql37 = readFileSync(join(ROOT, 'sql', '37_loan_email_template_v3.sql'), 'utf8')
+
+  it('contains BEGIN and COMMIT', () => {
+    expect(sql37).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql37).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops the v2-only check constraint with IF EXISTS', () => {
+    expect(sql37).toContain('DROP CONSTRAINT IF EXISTS loan_invitations_email_template_version_check')
+  })
+
+  it('adds new constraint allowing both v2 and v3', () => {
+    expect(sql37).toContain("email_template_version IN ('v2', 'v3')")
+  })
+
+  it('constraint also allows NULL', () => {
+    expect(sql37).toContain('email_template_version IS NULL OR email_template_version IN')
+  })
+
+  it('reserve_invitation_send sets email_template_version = v3 on new reservation', () => {
+    expect(sql37).toContain("email_template_version = 'v3'")
+  })
+
+  it('reserve_invitation_send does NOT set email_template_version = v2 (new reservations use v3)', () => {
+    // The function body should not hardcode 'v2' as the assigned value
+    const fnBody = sql37.slice(sql37.indexOf('CREATE OR REPLACE FUNCTION public.reserve_invitation_send'))
+    expect(fnBody).not.toContain("email_template_version = 'v2'")
+  })
+
+  it('retry path does not update email_template_version (existing v2 retries stay v2)', () => {
+    // The known-version retry branch returns without an UPDATE, so there is no
+    // SET email_template_version assignment there. Only the increment UPDATE path
+    // assigns 'v3'. Lines starting with -- are SQL comments and are excluded.
+    const assignmentLines = sql37.split('\n').filter(
+      l => /^\s+email_template_version\s*=\s*'v3'/.test(l),
+    )
+    expect(assignmentLines).toHaveLength(1)
+  })
+
+  it('includes idempotent REVOKE/GRANT for reserve_invitation_send', () => {
+    const revokeIdx = sql37.indexOf('REVOKE EXECUTE ON FUNCTION public.reserve_invitation_send')
+    const grantIdx  = sql37.search(/GRANT\s+EXECUTE ON FUNCTION public\.reserve_invitation_send/)
+    expect(revokeIdx).toBeGreaterThan(-1)
+    expect(grantIdx).toBeGreaterThan(revokeIdx)
+  })
+
+  it('does not grant reserve_invitation_send to anon or authenticated', () => {
+    const grantLines = sql37.split('\n').filter(l => /GRANT.*reserve_invitation_send/.test(l))
+    for (const line of grantLines) {
+      expect(line).not.toMatch(/\b(anon|authenticated|PUBLIC)\b/)
+    }
+  })
+})
+
+// ============================================================
+// loanedAtWeekday
+// ============================================================
+
+describe('loanedAtWeekday', () => {
+  it('2026-06-06 is Saturday (6)', () => {
+    expect(loanedAtWeekday('2026-06-06')).toBe(6)
   })
 })

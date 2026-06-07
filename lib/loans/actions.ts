@@ -102,9 +102,10 @@ async function performInvitationSend(
   // POST-RESERVE VERSION READ
   // Re-read email_template_version to reflect the value committed to DB
   // for this specific attempt:
-  //   - Fresh reservation: SQL just set it to 'v2'.
-  //   - Retry of existing reserved: SQL only allows can_send=true when
-  //     email_template_version IS NOT NULL, so it must be 'v2'.
+  //   - Fresh reservation (post-sql/37): SQL sets it to 'v3'.
+  //   - Fresh reservation (post-sql/36, pre-sql/37): SQL sets it to 'v2'.
+  //   - Retry of existing reserved: version is unchanged from the original
+  //     reservation (v2 retries stay v2; v3 retries stay v3).
   // recipient_role and snapshots are immutable and come from preflight.
   // ------------------------------------------------------------------
   let version: string | null
@@ -124,16 +125,16 @@ async function performInvitationSend(
     return { emailStatus: 'uncertain' }
   }
 
-  if (version !== 'v2') {
-    // Defense in depth: SQL invariant guarantees 'v2' here, but never send
-    // with an unrecognized version — would corrupt the idempotency key.
+  if (version !== 'v2' && version !== 'v3') {
+    // Defense in depth: never send with an unrecognized version — would
+    // corrupt the idempotency key for this attempt.
     console.error('[loans/email] unexpected email_template_version after reserve:', version)
     return { emailStatus: 'uncertain' }
   }
 
   const emailContext: EmailContext = {
     recipientRole: preflight.recipient_role as 'lender' | 'borrower',
-    templateVersion: version as 'v2',
+    templateVersion: version as 'v2' | 'v3',
     itemName: preflight.item_name_snapshot,
     creatorDisplayName: preflight.creator_display_name_snapshot,
   }

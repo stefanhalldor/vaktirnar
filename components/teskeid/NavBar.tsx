@@ -23,7 +23,7 @@ export function BottomNav() {
   const items = [
     { href: '/', label: 'Hugmyndir', icon: Lightbulb },
     { href: '/senda-hugmynd', label: 'Ný hugmynd', icon: Send },
-    { href: '/innskraning', label: 'Innskráning', icon: User },
+    { href: '/auth-mvp/innskraning', label: 'Innskráning', icon: User },
   ]
 
   return (

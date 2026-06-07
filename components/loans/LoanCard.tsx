@@ -11,7 +11,7 @@ import {
   sendInvitationEmail,
   cancelInvitation,
 } from '@/lib/loans/actions'
-import { getLoanCardControls } from '@/lib/loans/types'
+import { getLoanCardControls, loanedAtWeekday } from '@/lib/loans/types'
 import type { LoanItem } from '@/lib/loans/types'
 
 interface Props {
@@ -36,6 +36,19 @@ export function LoanCard({ item }: Props) {
       month: 'short',
       year: 'numeric',
     })
+  }
+
+  function formatLoanedAt(dateStr: string): string {
+    const weekdayIndex = loanedAtWeekday(dateStr)
+    const weekday = t(`weekdays.${weekdayIndex}`)
+    const [year, month, day] = dateStr.split('-').map(Number)
+    const dateLocale = locale === 'en' ? 'en-US' : displayLocale
+    const date = new Date(year, month - 1, day).toLocaleDateString(dateLocale, {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+    return t('loanedAtFull', { weekday, date })
   }
 
   const [isPending, startTransition] = useTransition()
@@ -145,7 +158,7 @@ export function LoanCard({ item }: Props) {
 
       {/* Dates */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#72796e]">
-        <span>{t('loanedAt')}: {formatDate(item.loaned_at)}</span>
+        <span>{formatLoanedAt(item.loaned_at)}</span>
         {item.due_at && (
           <span className={`flex items-center gap-1 ${overdue ? 'text-amber-600 font-medium' : ''}`}>
             {overdue && <AlertTriangle size={12} aria-hidden />}
