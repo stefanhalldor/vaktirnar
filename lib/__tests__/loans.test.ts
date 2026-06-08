@@ -335,8 +335,8 @@ describe.skip('Security boundary — requires live DB', () => {
     // Verify: feature flag OFF stops list retrieval; no admin.rpc() call is made
   })
 
-  it('create_loan rejects creator not on allowlist (RPC layer)', () => {
-    // Verify: admin.rpc("create_loan", { p_actor_id: uid_not_on_allowlist, ... }) → exception 'recipient_unavailable'
+  it('create_loan rejects self-email recipient (RPC layer)', () => {
+    // Verify: admin.rpc("create_loan", { p_actor_id: uid, p_recipient_email: same_as_actor, ... }) → exception 'recipient_unavailable'
   })
 
   it('crash after Resend success but before update_delivery: retry uses same attempt/key', () => {

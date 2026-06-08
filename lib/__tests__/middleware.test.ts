@@ -197,9 +197,9 @@ describe('middleware — /auth-mvp/heim route', () => {
     expect(redirectedTo(res)).toBe('/innskraning')
   })
 
-  it('authenticated user on /innskraning passes through (whitelist check is page-level)', async () => {
+  it('authenticated user on /innskraning passes through (session check is page-level)', async () => {
     // Middleware no longer redirects authenticated users from /innskraning.
-    // Only allowlisted users are redirected — that check runs in the page server component.
+    // Redirect to /auth-mvp/heim runs in the page server component when AUTH_MVP_ENABLED=true.
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
     const res = await middleware(makeReq('/innskraning'))
     expect(res.status).toBe(200)

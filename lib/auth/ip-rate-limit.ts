@@ -28,9 +28,8 @@ export function hashIp(ip: string, windowDate: string, secret: string): string {
 // - Missing IP header: skip rate-limit check (no shared bucket throttle).
 // - RPC error or unexpected exception: allow the request through.
 //
-// Rationale: the IP rate-limit is best-effort abuse mitigation; the allowlist
-// is the primary security gate. Failing closed would block all OTP requests
-// during Supabase outages or misconfigured deployments.
+// Rationale: the IP rate-limit is best-effort abuse mitigation. Failing closed
+// would block all OTP requests during Supabase outages or misconfigured deployments.
 export async function checkIpRateLimit(ip: string): Promise<boolean> {
   // Fail open: no IP header means we cannot distinguish users — do not create
   // a shared 'unknown' bucket that throttles all login requests at once.
