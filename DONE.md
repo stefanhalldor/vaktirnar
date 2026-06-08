@@ -180,3 +180,93 @@ textar og virkni sectionanna eru óbreytt. DOM-próf staðfestir röðina.
 Skrár:
 - `app/auth-mvp/heim/page.tsx` — Nýlegt-section á undan Teskeiðar-section
 - `lib/__tests__/home-page.test.tsx` — DOM-order próf: „Nýlegt" á undan „Teskeiðar"
+
+---
+
+## #4 — Minimal opnunarstýring fyrir fyrstu public Teskeið
+
+**Lokið:** 2026-06-08
+**Staðfest af Codex:** já (post-release review eftir commit `c1f98ac`)
+
+Fyrsta public opnun Teskeiðar notar áfram einfalt feature-flag mynstur í stað
+stórs release-stage kerfis. `AUTH_MVP_ENABLED` lokar `/auth-mvp/*` síðum og
+`/api/auth-mvp/*` endpoints þegar flaggið er ekki virkt, og `LOANS_ENABLED`
+stýrir `Lánað og skilað`. Óþekkt feature keys faila lokuð og server-side
+`guardLoanAccess()` er áfram defense-in-depth á öllum lánasíðum og server
+actions.
+
+`sql/43_open_loans.sql` fjarlægði allowlist-kröfur úr loan RPC föllum án þess að
+veikja service-role mörk, self-email vörn eða invitation rate limits. Codex
+keyrði ekki SQL; staða byggir á útgáfu frá Claude Code/Stebba og post-release
+kóða- og SQL-rýni.
+
+Skrár:
+- `lib/loans/guard.ts` — `Lánað og skilað` opið öllum innskráðum notendum þegar `LOANS_ENABLED=true`
+- `sql/43_open_loans.sql` — allowlist fjarlægð úr `create_loan`, `add_loan_invitation` og `reserve_invitation_send`
+- `lib/__tests__/guard.test.ts` — feature-flag og guard regression-próf
+- `lib/__tests__/home-page.test.tsx` — sýnir/felur `Lánað og skilað` eftir feature-aðgangi
+
+Staðfest:
+- `npm run type-check` — exit 0
+- `npm run test:run` — exit 0
+- `npm run build` — exit 0, með fyrirliggjandi lint warnings sem tengjast ekki þessari opnun
+
+---
+
+## #5A — Mobile login baseline: iOS auto-zoom og lógó-hlekkur
+
+**Lokið:** 2026-06-08
+**Staðfest af Stebbi:** já (Vercel build gekk í gegn, localhost handprófun eftir útgáfu)
+
+Email input á `/innskraning` notaði `text-sm` (14 px) sem veldur iOS/Safari
+sjálfvirkri aðdrætti. Breytt í `text-base sm:text-sm` (16 px á mobile) í samræmi
+við `Design.md:148-149`.
+
+Neðsta lógó á `/innskraning` er nú wrapped í `Link`. Serverhlutinn (page.tsx)
+sendir `logoHref="/"` til forms; óinnskráður notandi fer á `/` við smelli.
+`TeskeidLoginForm` fær `logoHref` prop (default `"/"`) til að forðast
+hydration-misræmi.
+
+Skrár:
+- `components/teskeid/TeskeidLoginForm.tsx` — `logoHref` prop, `text-base sm:text-sm`, `Link` um neðsta lógó
+- `app/innskraning/page.tsx` — `logoHref="/"` sent til forms
+- `lib/__tests__/login-form.test.tsx` — mobile font-size próf, lógó-link próf (3 próf)
+- `lib/__tests__/innskraning-page.test.tsx` — `logoHref` prop próf
+
+Staðfest:
+- `npm run type-check` — exit 0
+- `npm run test:run` — 28 skrár, allt grín
+- Vercel build — tókst
+
+---
+
+## #9 — Opin innskráning og public `Lánað og skilað`
+
+**Lokið:** 2026-06-08
+**Staðfest af Codex:** já (post-release review eftir commit `c1f98ac`)
+
+Teskeiðarinnskráning er ekki lengur bundin við `auth_mvp_allowlist`. Allir
+notendur með gilt netfang geta óskað eftir kóða, staðfest hann og fengið session.
+Generic auth-svör, IP rate-limit, per-email OTP rate-limit, atomic OTP verify og
+log-safety eru áfram varðveitt.
+
+`Lánað og skilað` er public fyrir alla innskráða notendur þegar bæði
+`AUTH_MVP_ENABLED=true` og `LOANS_ENABLED=true`. Loan RPC föllin leyfa einnig
+boðum til netfanga sem eru ekki á allowlist, en eru áfram aðeins keyranleg af
+`service_role`.
+
+Sýnilegar `/auth-mvp/*` notendaslóðir voru meðvitað geymdar til að minnka
+útgáfuáhættu. Sú eftirvinna er skráð sem TODO #22.
+
+Skrár:
+- `app/api/auth-mvp/request-code/route.ts` — opin OTP beiðni með generic response og IP rate-limit
+- `app/api/auth-mvp/verify-code/route.ts` — staðfesting án allowlist-checks
+- `app/innskraning/page.tsx` — innskráður notandi fer á `/auth-mvp/heim`
+- `components/teskeid/TeskeidLoginForm.tsx` — public beta login copy
+- `messages/is.json`, `messages/en.json` — uppfærðir login/public beta textar
+- `sql/43_open_loans.sql` — public loan RPC opnun
+
+Staðfest:
+- `npm run type-check` — exit 0
+- `npm run test:run` — exit 0
+- `npm run build` — exit 0, með fyrirliggjandi lint warnings sem tengjast ekki þessari opnun
