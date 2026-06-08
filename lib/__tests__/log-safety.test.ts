@@ -106,6 +106,9 @@ const SERVER_HELPERS: string[] = [
   'lib/auth/codes.ts',
   'lib/auth/user-codes.ts',
   'lib/auth/unsubscribe.ts',
+  'lib/auth/ip-rate-limit.ts',
+  // auth / Teskeid guards
+  'lib/loans/guard.ts',
   // legacy helpers
   'lib/legacy/guard.ts',
   'lib/legacy/access.ts',

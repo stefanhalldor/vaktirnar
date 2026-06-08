@@ -107,6 +107,67 @@ lógóútgáfur eru sýnilegar. Build og prófanir standast.
 
 ---
 
+## #14 — Öryggisforsendur fyrir opna beta
+
+**Lokið:** 2026-06-08
+**Staðfest af Codex:** v017 (14C), v021 (14B), v026 (14D lokafrágangi) — sql/42 keyrt af Stebbi 2026-06-08
+
+Sex launch-blockers leystir, prófaðir og rýndir:
+
+**1. Einangrun Teskeiðar frá eldri app-flötum (`LEGACY_ENABLED`)**
+Middleware framfylgir `LEGACY_ENABLED`-flaggi. Legacy-slóðir (`/home`, `/children`, `/contacts`, `/chat`, `/settings` o.fl.) og API-slóðir þeirra skila 404 eða redirect til `/` þegar `LEGACY_ENABLED !== 'true'`. Teskeið-slóðir eru óhreyfðar. 38 regression-próf í `lib/__tests__/legacy-guard.test.ts`.
+
+**2. Herðing `profiles_select` (sql/41)**
+`profiles_select` policy breytt úr `USING (true)` í `USING (id = auth.uid())`. Nýr Teskeið-notandi les bara eigin prófíl. Defensive optional chaining bætt við `app/(app)/children/[id]/page.tsx` til að koma í veg fyrir crash þegar co-parent prófíll er ekki sýnilegur. 10 static regression-próf í `lib/__tests__/profiles-14a.test.ts`. SQL keyrt í production.
+
+**3. IP/abuse rate-limit á `/api/auth-mvp/request-code` (sql/42)**
+Nýtt `otp_ip_rate_limit`-tafla og `check_and_increment_ip_rate_limit` RPC (SECURITY DEFINER, bounded cleanup, service_role only). IP er HMAC-hash — engin hrátt IP geymd. `checkIpRateLimit()` í `lib/auth/ip-rate-limit.ts` er fail-open þegar AUTH_CODE_SECRET vantar/er of stutt, þegar IP-header vantar, eða þegar RPC mistekst. 27 próf í `lib/__tests__/ip-rate-limit.test.ts` ásamt sql/42 static contract. SQL keyrt í production af Stebba 2026-06-08.
+
+**4. Atomic OTP-staðfesting (sql/38)**
+`verify_user_otp_code` og `verify_admin_otp_code` RPC framkvæma attempt-talningu, `used_at`-uppfærslu og HMAC-samanburð í einni atóm Postgres-færslu með `FOR UPDATE` lás. Concurrent og replay-árásir blokkast. 30+ próf og sql/38 static contract í `lib/__tests__/otp-verification.test.ts`. SQL keyrt í production.
+
+**5. Aðskilnaður session-aðgangs og feature-aðgangs (Phase 14C)**
+`guardTeskeidSession()` (session-only) og `guardTeskeidAccess()` (session + allowlist) aðskilin í `lib/auth/guard.ts`. `checkFeatureAccess()` og `guardFeatureAccess()` bætt við `lib/loans/guard.ts`. `/auth-mvp/heim` notar `guardTeskeidSession()` + `checkFeatureAccess()`. `/auth-mvp/minn-profill` fær server-side layout-guard. `/api/teskeid/profile` framfylgir `AUTH_MVP_ENABLED`, session og email-presence. 40+ próf í `guard.test.ts`, `home-page.test.tsx`, `teskeid-profile-route.test.ts`.
+
+**6. PII úr production-logs fjarlægt**
+Netföng, OTP-kóðar og tokens eru ekki í `console.error`/`warn` í neinum server-side skrám. AST-scanner í `lib/__tests__/log-safety.test.ts` yfirferð yfir 50+ skrár við hverja keyrslu — þar á meðal `lib/auth/ip-rate-limit.ts` og `lib/loans/guard.ts` sem bætt var við í þessum fasa. Handvirkir próf í `lib/__tests__/auth-log.test.ts`.
+
+**Lokastaða prófa:**
+
+```
+Test Files  28 passed (28)
+Tests       813 passed | 22 skipped | 8 todo (843)
+```
+
+**Deployment:**
+- `sql/41_profiles_select_own.sql` — keyrt í production.
+- `sql/42_ip_rate_limit.sql` — keyrt í production (Stebbi, 2026-06-08).
+
+Skrár:
+- `sql/41_profiles_select_own.sql` — keyrt
+- `sql/42_ip_rate_limit.sql` — keyrt í production af Stebba 2026-06-08
+- `lib/auth/guard.ts` — `guardTeskeidSession()` + refactored `guardTeskeidAccess()`
+- `lib/auth/ip-rate-limit.ts` — `hashIp()`, `checkIpRateLimit()` (ný)
+- `lib/loans/guard.ts` — `checkFeatureAccess()`, `guardFeatureAccess()`, uppfærður `guardLoanAccess()`
+- `lib/legacy/guard.ts` — `legacyGuard()` (ný)
+- `app/(app)/children/[id]/page.tsx` — optional chaining
+- `app/auth-mvp/heim/page.tsx` — session-only guard + `checkFeatureAccess()`
+- `app/auth-mvp/minn-profill/layout.tsx` — server-side layout guard (ný)
+- `app/api/auth-mvp/request-code/route.ts` — IP rate-limit check bætt við
+- `app/api/teskeid/profile/route.ts` — `AUTH_MVP_ENABLED` + email-presence guard
+- `lib/__tests__/legacy-guard.test.ts` — 38 próf (ný)
+- `lib/__tests__/profiles-14a.test.ts` — 10 próf (ný)
+- `lib/__tests__/otp-verification.test.ts` — 30+ próf (ný)
+- `lib/__tests__/auth-log.test.ts` — 7 próf (ný)
+- `lib/__tests__/log-safety.test.ts` — AST-scanner, 50+ skrár (ný)
+- `lib/__tests__/guard.test.ts` — viðbætur
+- `lib/__tests__/home-page.test.tsx` — viðbætur
+- `lib/__tests__/request-code.test.ts` — viðbætur
+- `lib/__tests__/ip-rate-limit.test.ts` — 27+ próf ásamt sql/42 contract (ný)
+- `lib/__tests__/teskeid-profile-route.test.ts` — 13 próf (ný)
+
+---
+
 ## #11 — „Nýlegt" fyrir ofan „Teskeiðar" á `/heim`
 
 **Lokið:** 2026-06-07

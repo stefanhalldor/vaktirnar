@@ -4,7 +4,8 @@ import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
 import { UserCircle, ChevronRight } from 'lucide-react'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
-import { guardTeskeidAccess } from '@/lib/auth/guard'
+import { guardTeskeidSession } from '@/lib/auth/guard'
+import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import type { LoanItem, PendingInvitation } from '@/lib/loans/types'
@@ -49,7 +50,7 @@ function computeRecentSignature(loans: LoanItem[]): string {
 }
 
 export default async function HeimPage() {
-  const { user } = await guardTeskeidAccess()
+  const { user } = await guardTeskeidSession()
 
   const [t, tLoans, locale] = await Promise.all([
     getTranslations('teskeid.home'),
@@ -76,7 +77,7 @@ export default async function HeimPage() {
   // LOANS_ENABLED must be exactly 'true' for loan sections to appear.
   // getAdmin() is wrapped independently. Each RPC is settled via
   // Promise.allSettled so one rejection cannot suppress the other.
-  const loansEnabled = process.env.LOANS_ENABLED === 'true'
+  const loansEnabled = await checkFeatureAccess(user.id, user.email!, 'lanad-og-skilad')
   let loans: LoanItem[] = []
   let pendingInvitations: PendingInvitation[] = []
   let loansError = false

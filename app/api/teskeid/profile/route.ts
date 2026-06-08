@@ -8,10 +8,14 @@ const patchSchema = z.object({
 })
 
 export async function GET() {
+  if (process.env.AUTH_MVP_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
+  if (!user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -23,15 +27,19 @@ export async function GET() {
 
   return NextResponse.json({
     display_name: profile?.display_name ?? '',
-    email: user.email ?? '',
+    email: user.email,
   })
 }
 
 export async function PATCH(request: NextRequest) {
+  if (process.env.AUTH_MVP_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
+  if (!user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -53,6 +61,6 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({
     display_name: data.display_name,
-    email: user.email ?? '',
+    email: user.email,
   })
 }

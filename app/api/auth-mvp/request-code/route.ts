@@ -5,20 +5,27 @@ import { createUserCode } from '@/lib/auth/user-codes'
 import { sendUserLoginCode } from '@/lib/auth/email'
 import { isAuthMvpAllowedEmail } from '@/lib/auth/allowlist'
 import { getAdmin } from '@/lib/supabase/admin'
+import { checkIpRateLimit } from '@/lib/auth/ip-rate-limit'
 
 const schema = z.object({
   email: z.string().email().max(320).transform((e) => e.toLowerCase().trim()),
 })
 
 // Always returns { success: true } — never leaks whether email exists,
-// whether rate limit was hit, or whether email sending succeeded.
+// whether the IP is rate-limited, or whether email sending succeeded.
 export async function POST(request: NextRequest) {
+  // IP rate-limit check (best-effort; fails open so an RPC outage doesn't
+  // block all logins). Must happen before body parsing to reject abuse early.
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+          ?? request.headers.get('x-real-ip')?.trim()
+          ?? ''
+  const withinLimit = await checkIpRateLimit(ip)
+  if (!withinLimit) {
+    return NextResponse.json({ success: true })
+  }
+
   const body = await request.json().catch(() => null)
   const parsed = schema.safeParse(body)
-
-  // TODO: add IP-based rate limiting here (e.g. Upstash Ratelimit on x-forwarded-for)
-  // before calling createUserCode, to prevent multi-email spam from a single IP.
-  // Email-based rate limit (5/hr) is the current protection.
 
   if (parsed.success) {
     try {

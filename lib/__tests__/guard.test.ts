@@ -27,8 +27,8 @@ vi.mock('@/lib/auth/allowlist', () => ({
   isAuthMvpAllowedEmail: mockIsAllowedEmail,
 }))
 
-import { guardTeskeidAccess } from '@/lib/auth/guard'
-import { guardLoanAccess } from '@/lib/loans/guard'
+import { guardTeskeidAccess, guardTeskeidSession } from '@/lib/auth/guard'
+import { guardLoanAccess, checkFeatureAccess, guardFeatureAccess } from '@/lib/loans/guard'
 
 // ── Env helpers ───────────────────────────────────────────────────────────────
 
@@ -104,6 +104,127 @@ describe('guardTeskeidAccess — session and allowlist', () => {
     mockIsAllowedEmail.mockResolvedValue(true)
     await guardTeskeidAccess()
     expect(mockIsAllowedEmail).toHaveBeenCalledWith('user@example.com')
+  })
+})
+
+// ── guardTeskeidSession ───────────────────────────────────────────────────────
+
+describe('guardTeskeidSession — feature flag', () => {
+  let savedAuth: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedAuth = process.env.AUTH_MVP_ENABLED
+  })
+
+  afterEach(() => {
+    setEnv('AUTH_MVP_ENABLED', savedAuth)
+  })
+
+  it('redirects to / without calling Supabase when AUTH_MVP_ENABLED is not true', async () => {
+    process.env.AUTH_MVP_ENABLED = 'false'
+    await expect(guardTeskeidSession()).rejects.toThrow('NEXT_REDIRECT:/')
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+
+  it('redirects to /innskraning when there is no session', async () => {
+    process.env.AUTH_MVP_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    await expect(guardTeskeidSession()).rejects.toThrow('NEXT_REDIRECT:/innskraning')
+  })
+
+  it('returns user regardless of allowlist when session is valid', async () => {
+    process.env.AUTH_MVP_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'anyone@example.com' } } })
+    const result = await guardTeskeidSession()
+    expect(result).toEqual({ user: { id: 'u1', email: 'anyone@example.com' } })
+    expect(mockIsAllowedEmail).not.toHaveBeenCalled()
+  })
+})
+
+// ── checkFeatureAccess ────────────────────────────────────────────────────────
+
+describe('checkFeatureAccess', () => {
+  let savedLoans: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedLoans = process.env.LOANS_ENABLED
+    process.env.LOANS_ENABLED = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('LOANS_ENABLED', savedLoans)
+  })
+
+  it('returns false for unknown feature key', async () => {
+    mockIsAllowedEmail.mockResolvedValue(true)
+    const result = await checkFeatureAccess('uid', 'user@example.com', 'unknown-feature')
+    expect(result).toBe(false)
+    expect(mockIsAllowedEmail).not.toHaveBeenCalled()
+  })
+
+  it('returns false when LOANS_ENABLED is not true', async () => {
+    process.env.LOANS_ENABLED = 'false'
+    const result = await checkFeatureAccess('uid', 'user@example.com', 'lanad-og-skilad')
+    expect(result).toBe(false)
+    expect(mockIsAllowedEmail).not.toHaveBeenCalled()
+  })
+
+  it('returns false when email is not on allowlist', async () => {
+    mockIsAllowedEmail.mockResolvedValue(false)
+    const result = await checkFeatureAccess('uid', 'user@example.com', 'lanad-og-skilad')
+    expect(result).toBe(false)
+  })
+
+  it('returns true when LOANS_ENABLED and email is on allowlist', async () => {
+    mockIsAllowedEmail.mockResolvedValue(true)
+    const result = await checkFeatureAccess('uid', 'user@example.com', 'lanad-og-skilad')
+    expect(result).toBe(true)
+  })
+
+  it('returns false (fail-closed) when allowlist lookup throws', async () => {
+    mockIsAllowedEmail.mockRejectedValue(new Error('db error'))
+    const result = await checkFeatureAccess('uid', 'user@example.com', 'lanad-og-skilad')
+    expect(result).toBe(false)
+  })
+
+  it('lowercases and trims email before allowlist check', async () => {
+    mockIsAllowedEmail.mockResolvedValue(true)
+    await checkFeatureAccess('uid', '  USER@EXAMPLE.COM  ', 'lanad-og-skilad')
+    expect(mockIsAllowedEmail).toHaveBeenCalledWith('user@example.com')
+  })
+})
+
+// ── guardFeatureAccess ────────────────────────────────────────────────────────
+
+describe('guardFeatureAccess', () => {
+  let savedLoans: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedLoans = process.env.LOANS_ENABLED
+    process.env.LOANS_ENABLED = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('LOANS_ENABLED', savedLoans)
+  })
+
+  it('redirects to / when LOANS_ENABLED is false', async () => {
+    process.env.LOANS_ENABLED = 'false'
+    await expect(guardFeatureAccess('user@example.com', 'lanad-og-skilad')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('redirects to / when email is not on allowlist', async () => {
+    mockIsAllowedEmail.mockResolvedValue(false)
+    await expect(guardFeatureAccess('user@example.com', 'lanad-og-skilad')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('does not redirect when access is granted', async () => {
+    mockIsAllowedEmail.mockResolvedValue(true)
+    await expect(guardFeatureAccess('user@example.com', 'lanad-og-skilad')).resolves.toBeUndefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 })
 

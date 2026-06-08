@@ -9,16 +9,17 @@ export interface TeskeidAccess {
 }
 
 /**
- * Guards all access to Teskeið authenticated routes.
+ * Guards session-only access to Teskeið routes.
  * Checks (in order):
  *   1. AUTH_MVP_ENABLED feature flag (before any Supabase work)
  *   2. Valid Supabase session
  *   3. Email present on session
- *   4. Email on auth_mvp_allowlist
  *
- * Redirects on any failure — never leaks allowlist information.
+ * Does NOT check the allowlist — use guardTeskeidAccess() or
+ * guardFeatureAccess() when feature-level access is required.
+ * Redirects on any failure.
  */
-export async function guardTeskeidAccess(): Promise<TeskeidAccess> {
+export async function guardTeskeidSession(): Promise<TeskeidAccess> {
   // 1. Feature flag — checked before any Supabase work
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
     redirect('/')
@@ -34,8 +35,24 @@ export async function guardTeskeidAccess(): Promise<TeskeidAccess> {
     redirect('/innskraning')
   }
 
-  // 4. Allowlist
-  const allowed = await isAuthMvpAllowedEmail(user.email.toLowerCase().trim())
+  return { user }
+}
+
+/**
+ * Guards all access to Teskeið authenticated routes.
+ * Checks (in order):
+ *   1. AUTH_MVP_ENABLED feature flag (before any Supabase work)
+ *   2. Valid Supabase session
+ *   3. Email present on session
+ *   4. Email on auth_mvp_allowlist
+ *
+ * Composed from guardTeskeidSession() + allowlist check.
+ * Redirects on any failure — never leaks allowlist information.
+ */
+export async function guardTeskeidAccess(): Promise<TeskeidAccess> {
+  const { user } = await guardTeskeidSession()
+
+  const allowed = await isAuthMvpAllowedEmail(user.email!.toLowerCase().trim())
   if (!allowed) {
     redirect('/')
   }

@@ -7,12 +7,20 @@
  *   - Duplicate waitlist entry: idempotent success (23505 is not an error)
  *   - API responses never reveal whitelist status (always { success: true })
  *   - Invalid payload: still returns success (no validation leak)
+ *   - IP rate-limit: blocked IPs return { success: true } without further work
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
+
+const { mockCheckIpRateLimit } = vi.hoisted(() => ({
+  mockCheckIpRateLimit: vi.fn(),
+}))
+vi.mock('@/lib/auth/ip-rate-limit', () => ({
+  checkIpRateLimit: mockCheckIpRateLimit,
+}))
 
 const { mockIsAllowedEmail } = vi.hoisted(() => ({
   mockIsAllowedEmail: vi.fn(),
@@ -49,10 +57,10 @@ import { POST } from '@/app/api/auth-mvp/request-code/route'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeRequest(body: unknown): NextRequest {
+function makeRequest(body: unknown, headers?: Record<string, string>): NextRequest {
   return new Request('https://teskeid.is/api/auth-mvp/request-code', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   }) as unknown as NextRequest
 }
@@ -61,6 +69,7 @@ function makeRequest(body: unknown): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockCheckIpRateLimit.mockResolvedValue(true) // allowed by default
   mockGetAdmin.mockReturnValue({ from: mockFrom })
   mockFrom.mockReturnValue({ insert: mockInsert })
   mockInsert.mockResolvedValue({ error: null })
@@ -165,5 +174,70 @@ describe('POST /api/auth-mvp/request-code — no whitelist enumeration', () => {
     const res = await POST(makeRequest({}))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ success: true })
+  })
+})
+
+// ── IP rate-limit ─────────────────────────────────────────────────────────────
+
+describe('POST /api/auth-mvp/request-code — IP rate-limit', () => {
+  it('returns { success: true } when rate-limited (same generic response)', async () => {
+    mockCheckIpRateLimit.mockResolvedValue(false)
+    const res = await POST(makeRequest({ email: 'allowed@example.com' }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ success: true })
+  })
+
+  it('does not check allowlist when rate-limited', async () => {
+    mockCheckIpRateLimit.mockResolvedValue(false)
+    await POST(makeRequest({ email: 'allowed@example.com' }))
+    expect(mockIsAllowedEmail).not.toHaveBeenCalled()
+  })
+
+  it('does not create a code when rate-limited', async () => {
+    mockCheckIpRateLimit.mockResolvedValue(false)
+    await POST(makeRequest({ email: 'allowed@example.com' }))
+    expect(mockCreateUserCode).not.toHaveBeenCalled()
+  })
+
+  it('does not insert into waitlist when rate-limited', async () => {
+    mockCheckIpRateLimit.mockResolvedValue(false)
+    await POST(makeRequest({ email: 'unknown@example.com' }))
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('rate-limited response is indistinguishable from normal response', async () => {
+    mockCheckIpRateLimit.mockResolvedValue(false)
+    const blockedRes = await POST(makeRequest({ email: 'allowed@example.com' }))
+
+    mockCheckIpRateLimit.mockResolvedValue(true)
+    mockIsAllowedEmail.mockResolvedValue(true)
+    const normalRes = await POST(makeRequest({ email: 'allowed@example.com' }))
+
+    expect(blockedRes.status).toBe(normalRes.status)
+    expect(await blockedRes.json()).toEqual(await normalRes.json())
+  })
+})
+
+// ── IP extraction ─────────────────────────────────────────────────────────────
+
+describe('POST /api/auth-mvp/request-code — IP extraction', () => {
+  it('passes the first x-forwarded-for IP to checkIpRateLimit', async () => {
+    await POST(makeRequest({ email: 'x@x.com' }, { 'x-forwarded-for': '1.2.3.4, 5.6.7.8' }))
+    expect(mockCheckIpRateLimit).toHaveBeenCalledWith('1.2.3.4')
+  })
+
+  it('trims whitespace from the extracted x-forwarded-for IP', async () => {
+    await POST(makeRequest({ email: 'x@x.com' }, { 'x-forwarded-for': '  9.8.7.6  , 1.1.1.1' }))
+    expect(mockCheckIpRateLimit).toHaveBeenCalledWith('9.8.7.6')
+  })
+
+  it('falls back to x-real-ip when x-forwarded-for is absent', async () => {
+    await POST(makeRequest({ email: 'x@x.com' }, { 'x-real-ip': '10.0.0.1' }))
+    expect(mockCheckIpRateLimit).toHaveBeenCalledWith('10.0.0.1')
+  })
+
+  it('passes empty string to checkIpRateLimit when no IP header is present', async () => {
+    await POST(makeRequest({ email: 'x@x.com' }))
+    expect(mockCheckIpRateLimit).toHaveBeenCalledWith('')
   })
 })

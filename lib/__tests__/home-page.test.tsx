@@ -13,11 +13,18 @@ import React from 'react'
 
 // ── Mocks (declared before dynamic import) ──────────────────────────────────
 
-const { mockGuardTeskeidAccess } = vi.hoisted(() => ({
-  mockGuardTeskeidAccess: vi.fn(),
+const { mockGuardTeskeidSession } = vi.hoisted(() => ({
+  mockGuardTeskeidSession: vi.fn(),
 }))
 vi.mock('@/lib/auth/guard', () => ({
-  guardTeskeidAccess: mockGuardTeskeidAccess,
+  guardTeskeidSession: mockGuardTeskeidSession,
+}))
+
+const { mockCheckFeatureAccess } = vi.hoisted(() => ({
+  mockCheckFeatureAccess: vi.fn(),
+}))
+vi.mock('@/lib/loans/guard', () => ({
+  checkFeatureAccess: mockCheckFeatureAccess,
 }))
 
 // next-intl/server: getTranslations returns a sync translator keyed by namespace
@@ -157,8 +164,9 @@ function makeInvitation(overrides: Partial<PendingInvitation> = {}): PendingInvi
 
 // ── Setup helpers ────────────────────────────────────────────────────────────
 
-function setupGuard() {
-  mockGuardTeskeidAccess.mockResolvedValue({ user: TEST_USER })
+function setupGuard(featureAccess = true) {
+  mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
+  mockCheckFeatureAccess.mockResolvedValue(featureAccess)
 }
 
 function setupProfile(displayName: string | null) {
@@ -273,25 +281,23 @@ describe('HeimPage — Teskeiðar section', () => {
     expect(screen.getByText('Teskeiðar')).toBeDefined()
   })
 
-  it('renders "Teskeiðar" heading even when LOANS_ENABLED is false', async () => {
-    process.env.LOANS_ENABLED = 'false'
-    setupGuard()
+  it('renders "Teskeiðar" heading even when feature access is false', async () => {
+    setupGuard(false)
     setupProfile(null)
     render(await HeimPage())
     expect(screen.getByText('Teskeiðar')).toBeDefined()
   })
 
-  it('shows "Lánað og skilað" link when LOANS_ENABLED is true', async () => {
-    setupGuard()
+  it('shows "Lánað og skilað" link when feature access is granted', async () => {
+    setupGuard(true)
     setupProfile(null)
     setupRpcs([], [])
     render(await HeimPage())
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
-  it('hides "Lánað og skilað" link when LOANS_ENABLED is false', async () => {
-    process.env.LOANS_ENABLED = 'false'
-    setupGuard()
+  it('hides "Lánað og skilað" link when feature access is denied', async () => {
+    setupGuard(false)
     setupProfile(null)
     render(await HeimPage())
     expect(screen.queryByText('Lánað og skilað')).toBeNull()
@@ -339,9 +345,8 @@ describe('HeimPage — upcoming rows', () => {
     })
   })
 
-  it('renders upcoming rows even when LOANS_ENABLED is false', async () => {
-    process.env.LOANS_ENABLED = 'false'
-    setupGuard()
+  it('renders upcoming rows even when feature access is false', async () => {
+    setupGuard(false)
     setupProfile(null)
     render(await HeimPage())
     for (const label of UPCOMING_LABELS) {
@@ -450,9 +455,8 @@ describe('HeimPage — Nýlegt section', () => {
     expect(screen.queryByText('Engin lán skráð enn.')).toBeNull()
   })
 
-  it('hides Nýlegt section when LOANS_ENABLED is not true', async () => {
-    process.env.LOANS_ENABLED = 'false'
-    setupGuard()
+  it('hides Nýlegt section when feature access is denied', async () => {
+    setupGuard(false)
     setupProfile('Guðrún')
     render(await HeimPage())
     expect(screen.queryByText('Nýlegt')).toBeNull()
