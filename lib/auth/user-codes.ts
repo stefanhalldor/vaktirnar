@@ -1,11 +1,9 @@
 import 'server-only'
-import { timingSafeEqual } from 'crypto'
 // Reuse hashing and code generation from codes.ts — no duplication
 import { hashCode, generateCode } from '@/lib/auth/codes'
 import { getAdmin } from '@/lib/supabase/admin'
 
 const MAX_CODES_PER_HOUR = 5
-const MAX_ATTEMPTS_PER_CODE = 5
 const CODE_TTL_MINUTES = 10
 
 /**
@@ -50,50 +48,34 @@ export async function createUserCode(email: string): Promise<string | null> {
 
 /**
  * Verify a submitted code against the latest active code for the email.
- * - Pre-increments attempt counter before comparison (prevents timing oracle)
- * - Uses timing-safe comparison
- * - Marks code as used on success
- * Returns true only if code is valid, unexpired, and within attempt limit.
+ *
+ * Delegates all atomicity guarantees to the verify_user_otp_code Postgres RPC:
+ * - Row is locked with FOR UPDATE before any mutation
+ * - Attempts increment and used_at are set in a single transaction
+ * - Concurrent correct submissions produce exactly one true result
+ *
+ * The HMAC hash is computed here using AUTH_CODE_SECRET; the plaintext code
+ * and the secret are never passed to Postgres.
+ *
+ * Returns true only if the RPC confirms a successful, non-concurrent claim.
  */
 export async function verifyUserCode(email: string, code: string): Promise<boolean> {
-  const { data: rows } = await getAdmin()
-    .from('auth_email_codes')
-    .select('id, code_hash, attempts')
-    .eq('email', email)
-    .is('used_at', null)
-    .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false })
-    .limit(1)
-
-  if (!rows || rows.length === 0) return false
-
-  const row = rows[0]
-
-  if (row.attempts >= MAX_ATTEMPTS_PER_CODE) return false
-
-  // TODO: move attempts increment + used_at update into a single Postgres RPC/transaction
-  // to make verification atomic before this route goes public. Currently two separate
-  // writes — acceptable for hidden MVP but a race condition under concurrent requests.
-
-  // Increment attempts before comparison — always, regardless of outcome
-  await getAdmin()
-    .from('auth_email_codes')
-    .update({ attempts: row.attempts + 1 })
-    .eq('id', row.id)
-
-  // Timing-safe comparison
-  const expected = Buffer.from(row.code_hash, 'hex')
-  const actual = Buffer.from(hashCode(email, code), 'hex')
-
-  if (expected.length !== actual.length) return false
-  const valid = timingSafeEqual(expected, actual)
-
-  if (valid) {
-    await getAdmin()
-      .from('auth_email_codes')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', row.id)
+  const normalizedEmail = email.toLowerCase().trim()
+  let submittedHash: string
+  try {
+    submittedHash = hashCode(normalizedEmail, code)
+  } catch {
+    // AUTH_CODE_SECRET is not set or hashCode failed — already logged in hashCode
+    return false
   }
 
-  return valid
+  const { data, error } = await getAdmin()
+    .rpc('verify_user_otp_code', { p_email: normalizedEmail, p_submitted_hash: submittedHash })
+
+  if (error) {
+    console.error('[user-codes] rpc verify_user_otp_code failed')
+    return false
+  }
+
+  return data === true
 }

@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
   const { data: events, error } = await query
 
   if (error) {
-    console.error('[api/admin/analytics] query error:', error.message)
+    console.error('[api/admin/analytics] query failed')
     return NextResponse.json({ error: 'Query failed' }, { status: 500 })
   }
 

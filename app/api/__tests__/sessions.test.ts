@@ -1,5 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+
+// Mock Supabase server client — used by sessions/route.ts and dashboard/route.ts
+// after auth was added in the security hardening phase.
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: vi.fn(async () => ({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'test-user-id' } } }),
+    },
+  })),
+}))
+
+// Mock legacy access guard — allow access for all sessions/dashboard tests.
+vi.mock('@/lib/legacy/access', () => ({
+  guardLegacyAccess: vi.fn().mockResolvedValue(null),
+}))
 
 // Mock store
 const mockStore = {
@@ -27,6 +42,11 @@ vi.mock('@/lib/utils', async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.NEXT_PUBLIC_BASE_URL = 'http://localhost:3000';
+  process.env.LEGACY_ENABLED = 'true';
+});
+
+afterEach(() => {
+  delete process.env.LEGACY_ENABLED;
 });
 
 describe('POST /api/sessions', () => {
@@ -443,6 +463,16 @@ describe('DELETE /api/sessions/[id]/logs/[logId]', () => {
 });
 
 describe('GET /api/dashboard', () => {
+  let savedLegacy: string | undefined
+  beforeEach(() => {
+    savedLegacy = process.env.LEGACY_ENABLED
+    process.env.LEGACY_ENABLED = 'true'
+  })
+  afterEach(() => {
+    if (savedLegacy !== undefined) process.env.LEGACY_ENABLED = savedLegacy
+    else delete process.env.LEGACY_ENABLED
+  })
+
   it('returns stats with cache-control header', async () => {
     const mockStats = {
       totalSessions: 5, activeSessions: 2, totalKids: 10, totalActivities: 20,

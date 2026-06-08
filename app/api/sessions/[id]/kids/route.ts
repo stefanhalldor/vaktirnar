@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { store } from '@/lib/store';
 import { Kid } from '@/lib/types';
+import { legacyGuard } from '@/lib/legacy/guard';
 
 const SESSION_ID_PATTERN = /^[a-z0-9]{6,16}$/;
 
@@ -15,6 +16,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = legacyGuard(); if (guard) return guard;
   try {
     const { id: sessionId } = await params;
 
@@ -61,7 +63,7 @@ export async function POST(
         { status: 400 }
       );
     }
-    console.error('Error adding kid:', error);
+    console.error('[sessions/kids] add failed');
     return NextResponse.json(
       { error: 'Failed to add kid' },
       { status: 500 }

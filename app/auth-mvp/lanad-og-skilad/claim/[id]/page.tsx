@@ -32,7 +32,7 @@ export default async function ClaimPage({
   })
 
   if (error) {
-    console.error('[loans/claim] get_invitation_for_claim error:', error.code)
+    console.error('[loans/claim] get_invitation_for_claim failed')
     return (
       <LoanShell nav={nav} homeLabel={t('homeLink')}>
         <p className="text-sm text-red-600 py-8 text-center">{t('errors.loadFailed')}</p>

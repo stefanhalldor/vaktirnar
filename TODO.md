@@ -8,15 +8,18 @@ tilvísanir og verkefnasaga rofni ekki.
 | Röð | Atriði | Forgangur og samhengi |
 | --- | --- | --- |
 | 1 | **#14 Öryggisforsendur fyrir opna beta** | Sex launch-blockers sem verða að vera leystir og prófaðir áður en whitelist er fjarlægð eða innskráning opnuð almennt. |
-| 2 | **#15 Íslenskar dagsetningar á lánaspjöldum** | Afmarkað UI-atriði: laga lánadagsetningu og sýna skiladagsetningu með sama sniði. |
-| 3 | **#12 Skýrari kosningatakki** | Lítið UI/copy-atriði sem má loka með núverandi útlitsvinnu án breytinga á kosningavirkni. |
-| 4 | **#8 Teskeið-loader** | Byggja standalone preview úr endanlega samþykkta SVG-lógóinu áður en loader er settur í almenna notkun. |
-| 5 | **#4 Beta-aðgangur og útgáfustig** | Setja server-side grunnvörn fyrir `off`, `beta` og `public` áður en almenn innskráning er opnuð. |
-| 6 | **#13 Umsjón með whitelist í admin** | Sýna og breyta aðgangslistanum með öruggum admin-only aðgerðum eftir að hlutverk hans í #4 hefur verið skilgreint. |
-| 7 | **#5 Samræmd mobile app-upplifun** | Samræma innskráningu, form, viewport, keyboard og mobile layout áður en fleiri notendur fá aðgang. |
-| 8 | **#7 Langlíf innskráning** | Gera session app-líkt og öruggt eftir mobile-yfirferð, en áður en innskráning er opnuð almennt. |
-| 9 | **#9 Opin innskráning með aðgangsstýrðum Teskeiðum** | Lokaáfangi eftir #14, #4, #5 og #7. Beta-merki eða fyrirvari kemur ekki í stað þessara varna. |
-| 10 | **#10 Gáfuleg opnun tölfræðisíðu** | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið. |
+| 2 | **#16 Væntingastýring fyrir mobile-first beta** | Segja notendum skýrt að Teskeið sé minimalískt, hannað fyrst fyrir síma og leggi grunn að framtíðarappi. |
+| 3 | **#18 Persónulegri headerkveðja fyrir innskráðan notanda** | Skipta „Góðan dag, fullt nafn“ út fyrir hlýrri kveðju með fyrsta nafni notanda. |
+| 4 | **#15 Íslenskar dagsetningar á lánaspjöldum** | Afmarkað UI-atriði: laga lánadagsetningu og sýna skiladagsetningu með sama sniði. |
+| 5 | **#12 Skýrari kosningatakki** | Lítið UI/copy-atriði sem má loka með núverandi útlitsvinnu án breytinga á kosningavirkni. |
+| 6 | **#8 Teskeið-loader** | Byggja standalone preview úr endanlega samþykkta SVG-lógóinu áður en loader er settur í almenna notkun. |
+| 7 | **#4 Beta-aðgangur og útgáfustig** | Setja server-side grunnvörn fyrir `off`, `beta` og `public` áður en almenn innskráning er opnuð. |
+| 8 | **#13 Umsjón með whitelist í admin** | Sýna og breyta aðgangslistanum með öruggum admin-only aðgerðum eftir að hlutverk hans í #4 hefur verið skilgreint. |
+| 9 | **#5 Samræmd mobile app-upplifun** | Samræma innskráningu, form, viewport, keyboard og mobile layout áður en fleiri notendur fá aðgang. |
+| 10 | **#7 Langlíf innskráning** | Gera session app-líkt og öruggt eftir mobile-yfirferð, en áður en innskráning er opnuð almennt. |
+| 11 | **#9 Opin innskráning með aðgangsstýrðum Teskeiðum** | Lokaáfangi eftir #14, #4, #5 og #7. Beta-merki eða fyrirvari kemur ekki í stað þessara varna. |
+| 12 | **#17 Hugmyndir úr hugmyndabankanum á `/heim`** | Skipta disabled `Væntanlegt` listanum út fyrir mobile-first carousel með raunverulegum, birtum hugmyndum. |
+| 13 | **#10 Gáfuleg opnun tölfræðisíðu** | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið. |
 
 #14
 ## Öryggisforsendur fyrir opna beta
@@ -65,7 +68,11 @@ rýnd.
 - Færa lestur, attempt-talningu, samanburðarniðurstöðu og notkun kóða í atomic
   Postgres RPC/transaction svo samhliða beiðnir komist ekki fram hjá mörkum
   eða noti sama kóða oftar en einu sinni.
-- Varðveita timing-safe samanburð, TTL og hámarksfjölda tilrauna.
+- Timing-safe samanburður: SQL `=` samanburður er viðunandi vegna HMAC
+  pre-image vörnar (Valkostur B; sjá skjal í sql/38). Geymd hash er
+  HMAC-SHA256 — timing-oracle gefur ekki raunhæfa árás án AUTH_CODE_SECRET.
+  AUTH_CODE_SECRET verður að vera a.m.k. 32 bæti (framfylgt í hashCode()).
+  SAMÞYKKT AF STEBBA: Stebbi, 8. júní 2026
 - Bæta concurrency- og replay-prófum.
 
 ### 5. Aðskilja session-aðgang og feature-aðgang
@@ -96,6 +103,53 @@ rýnd.
 - Bein slóð, server action, API og RPC framfylgja sömu feature-reglum.
 - Production-logs innihalda hvorki netföng, kóða né tokens.
 - Kill switches virka áfram og loka aðgangi án gagnabreytinga.
+
+#16
+## Væntingastýring fyrir minimalíska mobile-first beta
+
+**Staða:** Bíður
+
+**Markmið:** Segja beta-notendum frá því að Teskeið sé meðvitað hannað sem
+minimalísk og mobile-first lausn. Sú nálgun flýtir þróun, heldur upplifuninni
+einfaldri og leggur grunn að sérstakri app-útgáfu síðar.
+
+**Tillaga að notendatexta:**
+
+> Teskeið er í beta og hannað fyrst fyrir símann. Markmiðið er einföld og hröð
+> upplifun sem leggur grunn að framtíðarappi. Útlit á stærri skjám getur því enn
+> tekið breytingum.
+
+**Við útfærslu:**
+
+- Birta skilaboðin á beta-/innskráningarsíðunni eða einu sinni við fyrstu
+  innskráningu, ekki sem síendurtekinn banner inni í allri lausninni.
+- Setja textann í `messages/is.json` og `messages/en.json`.
+- Orða þetta sem meðvitaða hönnunarákvörðun og stefnu, ekki afsökun fyrir
+  ókláruðu viðmóti.
+- Desktop skal áfram vera nothæft, aðgengilegt og án layout-vandamála þótt
+  mobile sé fyrsti hönnunarpunkturinn.
+- Halda framsetningunni stuttri, rólegri og samræmdri núverandi beta-texta.
+
+#18
+## Persónulegri headerkveðja fyrir innskráðan notanda
+
+**Staða:** Bíður
+
+**Vandamál:** Header innskráðs notanda segir nú „Góðan dag, fullt nafn“. Það er
+rétt en svolítið almennt og notar fullt nafn þar sem fyrsta nafn væri hlýrra.
+
+**Ósk:** Láta headerinn frekar segja „Fyrsta nafn, þú ert með allt í teskeið!“.
+Í tilfelli Stebba væri textinn:
+
+> Stefán, þú ert með allt í teskeið!
+
+**Við útfærslu:**
+
+- Nota fyrsta nafn notanda, ekki fullt nafn.
+- Skilgreina öruggt fallback ef nafn vantar eða er tómt.
+- Setja notendatextann í `messages/is.json` og `messages/en.json`, ekki
+  hardcode-a hann í component.
+- Halda tóninum stuttum, hlýjum og samræmdum Teskeið.
 
 #4
 ## Beta-aðgangur og útgáfustig fyrir nýjar Teskeiðar
@@ -161,6 +215,12 @@ staðar á vefnum. Allt `teskeid.is` á að upplifast eins og samræmt mobile ap
 - Endurhanna Teskeið-innskráningarsíðuna samkvæmt `Design.md`, með canonical
   Teskeið-litunum, spacing, typography, controls, focus-visible og
   mobile-first app-upplifun.
+- Setja canonical Teskeið-lógóið neðst á `/innskraning`, í sama stærðar- og
+  staðsetningarmynstri og á öðrum Teskeið-síðum, og hafa það smellanlegt.
+- Áfangastaður lógósins skal ráðast af staðfestri server-side session-stöðu:
+  innskráður notandi fer á `/heim`, en óinnskráður notandi fer á forsíðu
+  Teskeiðar (`/`). Lausnin má ekki valda client/server hydration-misræmi eða
+  sýna rangan áfangastað á meðan session er lesin.
 - Ekki láta gamalt Krakkavaktar-lúkk leka inn í Teskeið-innskráninguna.
 - Nota reglurnar í `Design.md` sem skyldubundið viðmið fyrir alla nýja og
   breytta skjái á `teskeid.is`.
@@ -222,6 +282,10 @@ eða gera stolna session ótímabundna.
 einhvern. Viðkomandi brosir að lokum og myndin umbreytist eða rennur saman við
 nýja hringlaga Teskeiðarlógóið.
 
+**Hönnunarmarkmið:** Halda upplifuninni minimalískri, rólegri og mobile first.
+Loaderinn og hugmyndaheitin eiga að styðja hleðsluna án þess að skjárinn verði
+þungur, skrautlegur eða yfirfullur.
+
 **Forsenda:** Formlega SVG-lógóið í TODO #6 þarf fyrst að vera hannað og
 samþykkt. Loaderinn skal byggja á sömu vector-formum, hlutföllum, litum og
 andliti svo loka-frame sé raunverulega lógóið, ekki laus eftirlíking.
@@ -232,16 +296,22 @@ andliti svo loka-frame sé raunverulega lógóið, ekki laus eftirlíking.
 - Sýna skeið fara að munni eða andliti, einfalt mataratriði og bros sem
   niðurstöðu.
 - Láta síðasta frame umbreytast mjúklega í hringlaga Teskeiðarlógóið.
-- Merkingin á derhúfunni í loka-frame skal vera `A&10`, nákvæmlega eins og í
+- Merkingin á derhúfunni í loka-frame skal vera aðeins `10`, nákvæmlega eins og í
   endanlega samþykkta lógóinu.
 - Halda stílnum minimal, flötum og samræmdum við samþykkta lógóið.
 - Nota SVG/CSS animation eða sambærilega létta veflausn, ekki þunga myndbandsskrá.
 - Forðast óþarfa dependencies og tryggja að animation valdi ekki layout shift.
 - Loaderinn skal virka í litlum mobile-stærðum og á stærri skjám.
+- Á meðan hleðsla stendur yfir skal loaderinn geta flett í gegnum heiti þeirra
+  hugmynda sem hafa verið birtar í hugmyndabankanum.
+- Hvert hugmyndaheiti skal að jafnaði fá um eina sekúndu á skjánum áður en
+  næsta heiti tekur við, með mjúkri og læsilegri skiptingu.
+- Sýna aðeins birtar hugmyndir sem almenningur má sjá og skilgreina öruggt
+  fallback ef listinn er tómur eða ekki næst að sækja hann.
 - Prófa hvaða biðtímar réttlæta fulla animation. Fyrir mjög stutta bið skal
   forðast flökt eða að sýna aðeins brot úr sögunni.
 - Ekki tefja raunverulega navigation eða gagnabirtingu til að animation nái að
-  klárast.
+  klárast eða til að hvert hugmyndaheiti nái fullri sekúndu.
 - Styðja `prefers-reduced-motion`: sýna kyrrt lógó eða mjög einfalda fade-stöðu
   án matarhreyfingar.
 - Tryggja að loader hafi aðgengilegt loading-heiti þar sem það á við, en að
@@ -267,6 +337,20 @@ inni á heimaskjánum.
 - Whitelist eða release-stage stýrir aðgangi að hverri Teskeið.
 - Óaðgengilegar Teskeiðar eru faldar, læstar eða merktar `Væntanlegt` eftir
   þeirri upplifun sem verður ákveðin.
+
+**Endanlegar notendaslóðir:**
+
+- Fjarlægja tímabundna `/auth-mvp` forskeytið úr sýnilegum Teskeið-slóðum.
+- Nota stuttar canonical slóðir, meðal annars `/heim`, `/minn-profill` og
+  `/lanad-og-skilad`, ásamt samsvarandi undirsíðum hverrar Teskeiðar.
+- Uppfæra öll innri link, redirect, middleware-reglur, auth-flæði og próf svo
+  nýju slóðirnar séu eina leiðin sem viðmótið vísar á.
+- Halda server-side redirectum frá gömlu `/auth-mvp/*` slóðunum yfir á réttar
+  nýjar slóðir svo eldri bókamerki og tenglar brotni ekki.
+- Forðast redirect-lykkjur og varðveita query parameters sem hafa gildi, til
+  dæmis invitation- eða claim-samhengi.
+- Meðhöndla innri `/api/auth-mvp/*` heiti sem sérstaka tæknilega ákvörðun. Þau
+  þurfa ekki að breytast aðeins til að hreinsa sýnilegar notendaslóðir.
 
 **Tillaga að útfærslu:**
 
@@ -302,6 +386,55 @@ inni á heimaskjánum.
 - Whitelist-notandi fær áfram fullan aðgang að `Lánað og skilað`.
 - Rate limiting, röng kóðahegðun, útrunninn kóði og almenn villuskilaboð virka
   áfram án upplýsingaleka.
+
+#17
+## Hugmyndir úr hugmyndabankanum á `/heim`
+
+**Staða:** Bíður
+
+**Markmið:** Skipta núverandi disabled röðum merktum `Væntanlegt` á `/heim`
+út fyrir mobile-first carousel sem sýnir raunverulegar hugmyndir úr opinbera
+hugmyndabankanum.
+
+**Ósk:**
+
+- Halda útgefnum og aðgengilegum Teskeiðum, eins og `Lánað og skilað`, sem
+  skýrum aðgerðum á heimaskjánum.
+- Fjarlægja harðkóðaða disabled listann yfir væntanlegar Teskeiðar.
+- Sýna þar í staðinn sérstakt carousel með hugmyndum sem hafa þegar verið
+  birtar í hugmyndabankanum.
+- Hvert atriði skal sýna heiti hugmyndar og nægilegt samhengi til að notandi
+  skilji að um hugmynd úr bankanum sé að ræða, ekki virka Teskeið.
+- Smellur á hugmynd fer á canonical hugmyndasíðuna, t.d.
+  `/hugmyndir/[slug]`.
+
+**Gagna- og öryggisreglur:**
+
+- Nota sama canonical gagnagjafa og opinberi hugmyndabankinn.
+- Sýna aðeins birtar hugmyndir sem almenningur má þegar sjá.
+- Drög, falin atriði, admin-gögn og óútgefnar hugmyndir mega aldrei leka inn í
+  carousel-ið.
+- Forðast tvítekna sérlausn eða harðkóðaðan hugmyndalista.
+- Skilgreina rólegt fallback ef engar birtar hugmyndir finnast eða gagnalestur
+  mistekst.
+
+**Mobile-first upplifun:**
+
+- Nota snertivænt lárétt swipe/scroll-snap mynstur sem virkar vel á litlum
+  skjám og með lyklaborði á desktop.
+- Tryggja skýran focus-stíl, aðgengilegt heiti og nægilega stór snertisvæði.
+- Forðast sjálfvirkt carousel sem hreyfist án aðgerðar notanda.
+- Virða `prefers-reduced-motion` og valda hvorki layout shift né láréttu
+  page-overflow.
+- Samræma útlit, bil, letur og litaval við `Design.md`.
+
+**Prófanir:**
+
+- Birt hugmynd birtist og tengist réttri `/hugmyndir/[slug]` slóð.
+- Drög og falin hugmynd birtast ekki.
+- Virk Teskeið helst aðgengileg og ruglast ekki saman við hugmyndir.
+- Tómt eða bilað gagnasvar brýtur ekki `/heim`.
+- Carousel virkar við 360-460 px viewport, með snertingu og lyklaborði.
 
 #10
 ## Gáfuleg opnun tölfræðisíðu út frá nýjustu heimsókn

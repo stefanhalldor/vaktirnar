@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       }
     }
   } catch (err) {
-    console.error('[request-code] internal error (not exposed to client):', err)
+    console.error('[request-code] internal error')
   }
 
   // Always return identical success response

@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { store } from '@/lib/store';
 import { SessionData } from '@/lib/types';
+import { legacyGuard } from '@/lib/legacy/guard';
 
 const SESSION_ID_PATTERN = /^[a-z0-9]{6,16}$/;
 
@@ -10,6 +11,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const guard = legacyGuard(); if (guard) return guard;
   try {
     const { id } = await params;
 
@@ -43,7 +45,7 @@ export async function GET(
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error('Error fetching session:', error);
+    console.error('[sessions/id] fetch failed');
     return NextResponse.json(
       { error: 'Failed to fetch session' },
       { status: 500 }

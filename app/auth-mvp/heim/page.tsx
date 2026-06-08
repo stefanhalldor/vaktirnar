@@ -86,9 +86,8 @@ export default async function HeimPage() {
     let admin: ReturnType<typeof getAdmin> | null = null
     try {
       admin = getAdmin()
-    } catch (err) {
-      const errType = err instanceof Error ? err.constructor.name : typeof err
-      console.error('[heim/page] getAdmin:', errType)
+    } catch {
+      console.error('[heim/page] getAdmin failed')
       loansError = true
       invitationsError = true
     }
@@ -100,28 +99,20 @@ export default async function HeimPage() {
       ])
 
       if (loansResult.status === 'rejected') {
-        const errType =
-          loansResult.reason instanceof Error
-            ? loansResult.reason.constructor.name
-            : typeof loansResult.reason
-        console.error('[heim/page] get_my_loans:', errType)
+        console.error('[heim/page] get_my_loans failed')
         loansError = true
       } else if (loansResult.value.error) {
-        console.error('[heim/page] get_my_loans:', loansResult.value.error.code)
+        console.error('[heim/page] get_my_loans failed')
         loansError = true
       } else {
         loans = (loansResult.value.data ?? []) as LoanItem[]
       }
 
       if (invitationsResult.status === 'rejected') {
-        const errType =
-          invitationsResult.reason instanceof Error
-            ? invitationsResult.reason.constructor.name
-            : typeof invitationsResult.reason
-        console.error('[heim/page] get_my_pending_invitations:', errType)
+        console.error('[heim/page] get_my_pending_invitations failed')
         invitationsError = true
       } else if (invitationsResult.value.error) {
-        console.error('[heim/page] get_my_pending_invitations:', invitationsResult.value.error.code)
+        console.error('[heim/page] get_my_pending_invitations failed')
         invitationsError = true
       } else {
         pendingInvitations = (invitationsResult.value.data ?? []) as PendingInvitation[]

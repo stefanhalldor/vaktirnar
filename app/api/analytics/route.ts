@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (err) {
     // Log but never surface errors to client — tracking must be silent
-    console.error('[api/analytics] insert error:', err instanceof Error ? err.message : err)
+    console.error('[api/analytics] insert failed')
   }
 
   const response = NextResponse.json({ ok: true })

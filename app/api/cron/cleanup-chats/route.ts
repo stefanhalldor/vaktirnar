@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { legacyGuard } from '@/lib/legacy/guard'
 
 // Runs hourly via Vercel cron (vercel.json)
 // Deletes chats that ended more than 24 hours ago
 export async function GET(request: Request) {
+  const g = legacyGuard()
+  if (g) return g
+
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -133,9 +133,19 @@ describe('middleware — feature flag takes priority over alias redirect', () =>
 // ── Private Krakkavaktin route → /login ────────────────────────────────────
 
 describe('middleware — unauthenticated private route', () => {
+  let savedLegacy: string | undefined
+
   beforeEach(() => {
+    savedLegacy = process.env.LEGACY_ENABLED
+    // Must enable legacy so /home passes the legacy block and hits the auth check
+    process.env.LEGACY_ENABLED = 'true'
     vi.clearAllMocks()
     mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  afterEach(() => {
+    if (savedLegacy !== undefined) process.env.LEGACY_ENABLED = savedLegacy
+    else delete process.env.LEGACY_ENABLED
   })
 
   it('unauthenticated request to /home → /login (not /innskraning)', async () => {
@@ -212,6 +222,44 @@ describe('middleware — canonical /innskraning passes through', () => {
   it('/innskraning (canonical, unauthenticated) — no redirect loop, returns 200', async () => {
     const res = await middleware(makeReq('/innskraning'))
     // Canonical is in PUBLIC_PATHS and not in alias block — passes through.
+    expect(res.status).toBe(200)
+  })
+})
+
+// ── /dashboard is not public — requires authentication ─────────────────────
+
+describe('middleware — /dashboard requires authentication', () => {
+  let savedLegacy: string | undefined
+
+  beforeEach(() => {
+    savedLegacy = process.env.LEGACY_ENABLED
+    process.env.LEGACY_ENABLED = 'true'
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    if (savedLegacy !== undefined) process.env.LEGACY_ENABLED = savedLegacy
+    else delete process.env.LEGACY_ENABLED
+  })
+
+  it('unauthenticated /dashboard → /login (not in PUBLIC_PATHS)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/dashboard'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/login')
+  })
+
+  it('LEGACY_ENABLED=false + /dashboard → / (legacy block takes priority)', async () => {
+    process.env.LEGACY_ENABLED = 'false'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/dashboard'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/')
+  })
+
+  it('/s/[id] is still public (session viewer route)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/s/abc123'))
     expect(res.status).toBe(200)
   })
 })

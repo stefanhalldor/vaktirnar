@@ -19,10 +19,10 @@ export default async function LoanPage() {
   ])
 
   if (loansResult.error) {
-    console.error('[loans/page] get_my_loans error:', loansResult.error.code)
+    console.error('[loans/page] get_my_loans failed')
   }
   if (invitationsResult.error) {
-    console.error('[loans/page] get_my_pending_invitations error:', invitationsResult.error.code)
+    console.error('[loans/page] get_my_pending_invitations failed')
   }
 
   const items = (loansResult.data ?? []) as LoanItem[]

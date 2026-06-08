@@ -59,7 +59,7 @@ async function performInvitationSend(
       .single()
 
     if (pfError) {
-      console.error('[loans/email] invitation preflight error:', pfError.code)
+      console.error('[loans/email] invitation preflight failed')
       return { emailStatus: 'uncertain' }
     }
     preflight = pfData as PreflightRow
@@ -77,7 +77,7 @@ async function performInvitationSend(
   )
 
   if (reserveError) {
-    console.error('[loans] reserve_invitation_send error:', reserveError.code)
+    console.error('[loans] reserve_invitation_send failed')
     return { emailStatus: 'uncertain' }
   }
 
@@ -117,7 +117,7 @@ async function performInvitationSend(
       .single()
 
     if (vError) {
-      console.error('[loans/email] version post-reserve read error:', vError.code)
+      console.error('[loans/email] version post-reserve read failed')
       return { emailStatus: 'uncertain' }
     }
     version = (vData as { email_template_version: string | null }).email_template_version
@@ -128,7 +128,7 @@ async function performInvitationSend(
   if (version !== 'v2' && version !== 'v3') {
     // Defense in depth: never send with an unrecognized version — would
     // corrupt the idempotency key for this attempt.
-    console.error('[loans/email] unexpected email_template_version after reserve:', version)
+    console.error('[loans/email] unexpected email_template_version after reserve')
     return { emailStatus: 'uncertain' }
   }
 
@@ -165,7 +165,7 @@ async function performInvitationSend(
 
   if (updateError) {
     // Resend may have confirmed 'sent' but we could not record it — uncertain
-    console.error('[loans] update_invitation_delivery error:', updateError.code)
+    console.error('[loans] update_invitation_delivery failed')
     return { emailStatus: 'uncertain' }
   }
 
@@ -209,7 +209,7 @@ export async function createLoan(input: unknown): Promise<ActionResult> {
     if (msg.includes('invalid_role'))          return { ok: false, error: 'invalid_input' }
     if (msg.includes('invalid_item_name'))     return { ok: false, error: 'invalid_input' }
     if (msg.includes('rate_limited'))          return { ok: false, error: 'rate_limited' }
-    console.error('[loans/createLoan]', error.code)
+    console.error('[loans/createLoan] RPC failed')
     return { ok: false, error: 'save_failed' }
   }
 
@@ -250,7 +250,7 @@ export async function updateLoan(loanId: string, input: unknown): Promise<Action
   })
 
   if (error) {
-    console.error('[loans/updateLoan]', error.code)
+    console.error('[loans/updateLoan] RPC failed')
     return { ok: false, error: 'save_failed' }
   }
 
@@ -280,7 +280,7 @@ export async function markReturned(loanId: string): Promise<ActionResult> {
   })
 
   if (error) {
-    console.error('[loans/markReturned]', error.code)
+    console.error('[loans/markReturned] RPC failed')
     return { ok: false, error: 'save_failed' }
   }
 
@@ -307,7 +307,7 @@ export async function undoReturn(loanId: string): Promise<ActionResult> {
   })
 
   if (error) {
-    console.error('[loans/undoReturn]', error.code)
+    console.error('[loans/undoReturn] RPC failed')
     return { ok: false, error: 'save_failed' }
   }
 
@@ -334,7 +334,7 @@ export async function deleteLoan(loanId: string): Promise<ActionResult> {
   })
 
   if (error) {
-    console.error('[loans/deleteLoan]', error.code)
+    console.error('[loans/deleteLoan] RPC failed')
     return { ok: false, error: 'delete_failed' }
   }
 
@@ -374,7 +374,7 @@ export async function addLoanInvitation(loanId: string, input: unknown): Promise
     if (msg.includes('not_found'))              return { ok: false, error: 'not_found' }
     if (msg.includes('already_has_party'))      return { ok: false, error: 'already_has_party' }
     if (msg.includes('already_has_invitation')) return { ok: false, error: 'already_has_invitation' }
-    console.error('[loans/addLoanInvitation]', error.code)
+    console.error('[loans/addLoanInvitation] RPC failed')
     return { ok: false, error: 'save_failed' }
   }
 
@@ -423,7 +423,7 @@ export async function claimInvitation(invitationId: string): Promise<ActionResul
   })
 
   if (error) {
-    console.error('[loans/claimInvitation]', error.code)
+    console.error('[loans/claimInvitation] RPC failed')
     return { ok: false, error: 'claim_failed' }
   }
 
@@ -449,7 +449,7 @@ export async function declineInvitation(invitationId: string): Promise<ActionRes
   })
 
   if (error) {
-    console.error('[loans/declineInvitation]', error.code)
+    console.error('[loans/declineInvitation] RPC failed')
     return { ok: false, error: 'save_failed' }
   }
 
@@ -475,7 +475,7 @@ export async function cancelInvitation(loanId: string): Promise<ActionResult> {
   })
 
   if (error) {
-    console.error('[loans/cancelInvitation]', error.code)
+    console.error('[loans/cancelInvitation] RPC failed')
     return { ok: false, error: 'save_failed' }
   }
 

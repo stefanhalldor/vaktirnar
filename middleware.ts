@@ -6,7 +6,6 @@ const PUBLIC_PATHS = [
   '/signup',
   '/forgot-password',
   '/reset-password',
-  '/dashboard',
   '/s/',
   '/krakkavaktin',
   '/preview',
@@ -24,6 +23,7 @@ const PUBLIC_PATHS = [
   '/api/teskeid/profile',
   '/admin/login',
   '/api/auth',
+  '/api/sessions/',
 ]
 
 export async function middleware(request: NextRequest) {
@@ -47,6 +47,33 @@ export async function middleware(request: NextRequest) {
     process.env.LOANS_ENABLED !== 'true'
   ) {
     return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  // Feature flag: block all legacy Krakkavaktin routes when LEGACY_ENABLED is not 'true'.
+  // Default-deny: the flag must be explicitly set to 'true' to allow legacy routes.
+  // Segment-safe matching: /chat blocks /chat/new but not /chatty.
+  if (process.env.LEGACY_ENABLED !== 'true') {
+    const matchesLegacy = (prefixes: string[]) =>
+      prefixes.some((p) => pathname === p || pathname.startsWith(p + '/'))
+
+    const LEGACY_API_PREFIXES = [
+      '/api/chats', '/api/children', '/api/contacts',
+      '/api/dashboard', '/api/push', '/api/cron/cleanup-chats',
+      '/api/sessions',
+    ]
+    if (matchesLegacy(LEGACY_API_PREFIXES)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    const LEGACY_UI_PREFIXES = [
+      '/home', '/children', '/chat', '/contacts', '/settings',
+      '/login', '/signup', '/forgot-password', '/reset-password',
+      '/dashboard', '/auth/callback',
+      '/s',
+    ]
+    if (matchesLegacy(LEGACY_UI_PREFIXES)) {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
   }
 
   // Canonicalize Teskeið login aliases → /innskraning.

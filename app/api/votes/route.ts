@@ -44,7 +44,7 @@ const postSchema = z.object({
 export async function POST(request: NextRequest) {
   const envError = checkPostEnv()
   if (envError) {
-    console.error('[api/votes] POST:', envError)
+    console.error('[api/votes] POST env not configured')
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     if (error.code === '23505') {
       return NextResponse.json({ error: 'Already voted' }, { status: 409 })
     }
-    console.error('[api/votes] POST insert error:', error.code, error.message)
+    console.error('[api/votes] POST insert failed')
     return NextResponse.json({ error: 'Insert failed' }, { status: 500 })
   }
 
@@ -102,7 +102,7 @@ const getSchema = z.object({
 export async function GET(request: NextRequest) {
   const envError = checkGetEnv()
   if (envError) {
-    console.error('[api/votes] GET blocked by missing env:', envError)
+    console.error('[api/votes] GET env not configured')
     return NextResponse.json({ error: 'Query failed' }, { status: 500 })
   }
 
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
         .in('idea_id', idea_ids)
 
       if (votesErr) {
-        console.error('[api/votes] GET votes query error:', votesErr.code, votesErr.message)
+        console.error('[api/votes] GET votes query failed')
         return NextResponse.json({ error: 'Query failed' }, { status: 500 })
       }
 
@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
       .in('id', idea_ids)
 
     if (ideasErr) {
-      console.error('[api/votes] GET ideas query error:', ideasErr.code, ideasErr.message)
+      console.error('[api/votes] GET ideas query failed')
       return NextResponse.json({ error: 'Query failed' }, { status: 500 })
     }
 
@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ voted, counts })
   } catch (err) {
-    console.error('[api/votes] GET unexpected error:', err instanceof Error ? err.message : err)
+    console.error('[api/votes] GET unexpected error')
     return NextResponse.json({ error: 'Query failed' }, { status: 500 })
   }
 }

@@ -11,7 +11,7 @@ export async function createAdminSession(email: string): Promise<{ error?: strin
 
   // Ignore "already registered" error
   if (createError && !createError.message.includes('already been registered') && !createError.message.includes('already registered')) {
-    console.error('[createAdminSession] createUser error:', createError.message)
+    console.error('[createAdminSession] createUser failed')
     return { error: 'session_error' }
   }
 
@@ -22,7 +22,7 @@ export async function createAdminSession(email: string): Promise<{ error?: strin
   })
 
   if (linkError || !linkData?.properties?.hashed_token) {
-    console.error('[createAdminSession] generateLink error:', linkError?.message)
+    console.error('[createAdminSession] generateLink failed')
     return { error: 'session_error' }
   }
 
@@ -34,7 +34,7 @@ export async function createAdminSession(email: string): Promise<{ error?: strin
   })
 
   if (otpError) {
-    console.error('[createAdminSession] verifyOtp error:', otpError.message)
+    console.error('[createAdminSession] verifyOtp failed')
     return { error: 'session_error' }
   }
 
@@ -55,7 +55,7 @@ export async function createUserSession(email: string): Promise<{ error?: string
   })
 
   if (createError && !createError.message.includes('already been registered') && !createError.message.includes('already registered')) {
-    console.error('[createUserSession] createUser error:', createError.message)
+    console.error('[createUserSession] createUser failed')
     return { error: 'session_error' }
   }
 
@@ -66,7 +66,7 @@ export async function createUserSession(email: string): Promise<{ error?: string
   })
 
   if (linkError || !linkData?.properties?.hashed_token) {
-    console.error('[createUserSession] generateLink error:', linkError?.message)
+    console.error('[createUserSession] generateLink failed')
     return { error: 'session_error' }
   }
 
@@ -78,7 +78,7 @@ export async function createUserSession(email: string): Promise<{ error?: string
   })
 
   if (otpError) {
-    console.error('[createUserSession] verifyOtp error:', otpError.message)
+    console.error('[createUserSession] verifyOtp failed')
     return { error: 'session_error' }
   }
 

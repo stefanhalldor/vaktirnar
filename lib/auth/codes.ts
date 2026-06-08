@@ -1,9 +1,8 @@
 import 'server-only'
-import { createHmac, timingSafeEqual, randomInt } from 'crypto'
+import { createHmac, randomInt } from 'crypto'
 import { getAdmin } from '@/lib/supabase/admin'
 
 const MAX_CODES_PER_HOUR = 5
-const MAX_ATTEMPTS_PER_CODE = 5
 const CODE_TTL_MINUTES = 10
 
 export function generateCode(): string {
@@ -15,6 +14,10 @@ export function hashCode(email: string, code: string): string {
   if (!secret) {
     console.error('[auth/codes] AUTH_CODE_SECRET is not set')
     throw new Error('AUTH_CODE_SECRET is not configured')
+  }
+  if (Buffer.byteLength(secret, 'utf8') < 32) {
+    console.error('[auth/codes] AUTH_CODE_SECRET is too short')
+    throw new Error('AUTH_CODE_SECRET must be at least 32 bytes')
   }
   return createHmac('sha256', secret)
     .update(email.toLowerCase() + ':' + code)
@@ -54,48 +57,39 @@ export async function createLoginCode(email: string): Promise<string | null> {
   return code
 }
 
+/**
+ * Verify a submitted code against the latest active admin login code.
+ *
+ * Delegates all atomicity guarantees to the verify_admin_otp_code Postgres RPC:
+ * - Row is locked with FOR UPDATE before any mutation
+ * - Attempts increment and used_at are set in a single transaction
+ * - Concurrent correct submissions produce exactly one true result
+ *
+ * The HMAC hash is computed here using AUTH_CODE_SECRET; the plaintext code
+ * and the secret are never passed to Postgres.
+ *
+ * Returns true only if the RPC confirms a successful, non-concurrent claim.
+ */
 export async function verifyLoginCode(
   email: string,
   code: string
 ): Promise<boolean> {
-  // Find the most recent unexpired, unused code for this email
-  const { data: rows } = await getAdmin()
-    .from('admin_login_codes')
-    .select('id, code_hash, attempts')
-    .eq('email', email)
-    .is('used_at', null)
-    .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false })
-    .limit(1)
-
-  if (!rows || rows.length === 0) return false
-
-  const row = rows[0]
-
-  // Reject if too many attempts
-  if (row.attempts >= MAX_ATTEMPTS_PER_CODE) {
+  const normalizedEmail = email.toLowerCase().trim()
+  let submittedHash: string
+  try {
+    submittedHash = hashCode(normalizedEmail, code)
+  } catch {
+    // AUTH_CODE_SECRET is not set or hashCode failed — already logged in hashCode
     return false
   }
 
-  // Always increment attempts first (before timing-safe compare)
-  await getAdmin()
-    .from('admin_login_codes')
-    .update({ attempts: row.attempts + 1 })
-    .eq('id', row.id)
+  const { data, error } = await getAdmin()
+    .rpc('verify_admin_otp_code', { p_email: normalizedEmail, p_submitted_hash: submittedHash })
 
-  // Timing-safe comparison
-  const expected = Buffer.from(row.code_hash, 'hex')
-  const actual = Buffer.from(hashCode(email, code), 'hex')
-
-  if (expected.length !== actual.length) return false
-  const valid = timingSafeEqual(expected, actual)
-
-  if (valid) {
-    await getAdmin()
-      .from('admin_login_codes')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', row.id)
+  if (error) {
+    console.error('[auth/codes] rpc verify_admin_otp_code failed')
+    return false
   }
 
-  return valid
+  return data === true
 }

@@ -63,7 +63,7 @@ export async function POST(
     .single()
 
   if (ideaError) {
-    console.error('[create-idea] insert error:', ideaError.message, ideaError.code)
+    console.error('[create-idea] insert failed')
     if (ideaError.code === '23505') {
       return NextResponse.json({ error: 'duplicate_slug' }, { status: 409 })
     }

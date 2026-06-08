@@ -1,9 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { BottomNav } from '@/components/layout/BottomNav'
 import { guardLegacyAccess } from '@/lib/legacy/access'
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   if (process.env.LEGACY_ENABLED !== 'true') {
     redirect('/')
   }
@@ -18,12 +17,5 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const ag = await guardLegacyAccess(user.id)
   if (ag) redirect('/')
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <main className="mx-auto max-w-md pb-24">
-        {children}
-      </main>
-      <BottomNav />
-    </div>
-  )
+  return <>{children}</>
 }

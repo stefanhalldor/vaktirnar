@@ -30,7 +30,7 @@ export default async function EditLoanPage({
   const { data, error } = await admin.rpc('get_my_loans', { p_actor_id: user.id })
 
   if (error) {
-    console.error('[loans/breyta] get_my_loans error:', error.code)
+    console.error('[loans/breyta] get_my_loans failed')
     return (
       <LoanShell nav={nav} homeLabel={t('homeLink')}>
         <p className="text-sm text-red-600 py-8 text-center">{t('errors.loadFailed')}</p>

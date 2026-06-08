@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { store } from '@/lib/store';
 import { LogEntry, ActivityCategory, LogStatus } from '@/lib/types';
+import { legacyGuard } from '@/lib/legacy/guard';
 
 const SESSION_ID_PATTERN = /^[a-z0-9]{6,16}$/;
 
@@ -20,6 +21,7 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const guard = legacyGuard(); if (guard) return guard;
   try {
     const params = await context.params;
     const sessionId = params.id;
@@ -67,7 +69,7 @@ export async function POST(
         { status: 400 }
       );
     }
-    console.error('Error creating log:', error);
+    console.error('[sessions/logs] create failed');
     return NextResponse.json(
       { error: 'Failed to create log' },
       { status: 500 }

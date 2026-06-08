@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { store } from '@/lib/store';
+import { legacyGuard } from '@/lib/legacy/guard';
 
 const SESSION_ID_PATTERN = /^[a-z0-9]{6,16}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20,6 +21,7 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string; logId: string }> }
 ) {
+  const guard = legacyGuard(); if (guard) return guard;
   try {
     const params = await context.params;
     const sessionId = params.id;
@@ -69,7 +71,7 @@ export async function PATCH(
         { status: 400 }
       );
     }
-    console.error('Error updating log:', error);
+    console.error('[sessions/logs] update failed');
     return NextResponse.json(
       { error: 'Failed to update log' },
       { status: 500 }
@@ -81,6 +83,7 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string; logId: string }> }
 ) {
+  const guard = legacyGuard(); if (guard) return guard;
   try {
     const params = await context.params;
     const sessionId = params.id;
@@ -121,7 +124,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting log:', error);
+    console.error('[sessions/logs] delete failed');
     return NextResponse.json(
       { error: 'Failed to delete log' },
       { status: 500 }

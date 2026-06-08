@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { legacyGuard } from '@/lib/legacy/guard'
+import { guardLegacyAccess } from '@/lib/legacy/access'
 
 export async function GET() {
+  const g = legacyGuard()
+  if (g) return g
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const ag = await guardLegacyAccess(user.id)
+  if (ag) return ag
 
   const { data: myChildren } = await supabase
     .from('parent_child')
@@ -30,9 +38,15 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const g = legacyGuard()
+  if (g) return g
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const ag = await guardLegacyAccess(user.id)
+  if (ag) return ag
 
   const { contact_id } = await request.json()
   if (!contact_id) return NextResponse.json({ error: 'contact_id required' }, { status: 400 })
