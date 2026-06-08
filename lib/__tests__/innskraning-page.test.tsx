@@ -27,8 +27,13 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({ auth: { getUser: mockGetUser } })),
 }))
 
+const { mockLoginFormProps } = vi.hoisted(() => ({ mockLoginFormProps: { current: {} as Record<string, unknown> } }))
+
 vi.mock('@/components/teskeid/TeskeidLoginForm', () => ({
-  TeskeidLoginForm: () => React.createElement('div', { 'data-testid': 'login-form' }, 'LoginForm'),
+  TeskeidLoginForm: (props: Record<string, unknown>) => {
+    mockLoginFormProps.current = props
+    return React.createElement('div', { 'data-testid': 'login-form' }, 'LoginForm')
+  },
 }))
 
 import InnskraningPage from '@/app/innskraning/page'
@@ -63,6 +68,12 @@ describe('InnskraningPage — unauthenticated', () => {
   it('does not redirect', async () => {
     await InnskraningPage()
     expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it('passes logoHref="/" to the login form', async () => {
+    const Page = await InnskraningPage()
+    render(Page as React.ReactElement)
+    expect(mockLoginFormProps.current.logoHref).toBe('/')
   })
 })
 

@@ -19,5 +19,5 @@ export default async function InnskraningPage() {
     }
     if (hasSession) redirect('/auth-mvp/heim')
   }
-  return <TeskeidLoginForm />
+  return <TeskeidLoginForm logoHref="/" />
 }

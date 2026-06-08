@@ -18,6 +18,11 @@ vi.mock('next/navigation', () => ({
   useRouter: vi.fn().mockReturnValue({ push: vi.fn(), refresh: vi.fn() }),
 }))
 
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...props }: { href: string; children: React.ReactNode; [k: string]: unknown }) =>
+    React.createElement('a', { href, ...props }, children),
+}))
+
 vi.mock('next-intl', () => ({
   useTranslations: vi.fn().mockImplementation((ns: string) => {
     const T: Record<string, Record<string, string>> = {
@@ -96,5 +101,37 @@ describe('TeskeidLoginForm — email step copy', () => {
   it('continue button renders with "Áfram" label', () => {
     render(React.createElement(TeskeidLoginForm))
     expect(screen.getByRole('button', { name: 'Áfram' })).toBeDefined()
+  })
+})
+
+// ── Mobile input size ─────────────────────────────────────────────────────────
+
+describe('TeskeidLoginForm — mobile input size', () => {
+  it('email input has text-base class to prevent iOS auto-zoom', () => {
+    const { container } = render(React.createElement(TeskeidLoginForm))
+    const input = container.querySelector('input[type="email"]') as HTMLInputElement
+    expect(input?.className).toContain('text-base')
+  })
+})
+
+// ── Bottom logo link ──────────────────────────────────────────────────────────
+
+describe('TeskeidLoginForm — bottom logo link', () => {
+  it('bottom logo is wrapped in a link', () => {
+    render(React.createElement(TeskeidLoginForm))
+    const link = screen.getByRole('link', { name: 'Teskeið' })
+    expect(link).toBeDefined()
+  })
+
+  it('bottom logo link uses default href "/"', () => {
+    render(React.createElement(TeskeidLoginForm))
+    const link = screen.getByRole('link', { name: 'Teskeið' }) as HTMLAnchorElement
+    expect(link.href).toContain('/')
+  })
+
+  it('bottom logo link uses logoHref prop', () => {
+    render(React.createElement(TeskeidLoginForm, { logoHref: '/auth-mvp/heim' }))
+    const link = screen.getByRole('link', { name: 'Teskeið' }) as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('/auth-mvp/heim')
   })
 })

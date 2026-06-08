@@ -3,12 +3,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import Link from 'next/link'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 
 type Step = 'email' | 'code'
 const RESEND_COOLDOWN = 60
 
-export function TeskeidLoginForm() {
+export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
   const t = useTranslations('teskeid.auth')
   const router = useRouter()
 
@@ -123,7 +124,7 @@ export function TeskeidLoginForm() {
                     placeholder={t('emailPlaceholder')}
                     autoComplete="email"
                     required
-                    className="h-10 rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
+                    className="h-10 rounded-xl border border-gray-200 px-3 text-base sm:text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
                   />
                 </label>
                 {error && <p className="text-sm text-red-600">{error}</p>}
@@ -185,8 +186,14 @@ export function TeskeidLoginForm() {
           )}
         </div>
         <div className="flex justify-center pt-6">
-          <TeskeidLogo size={140} decorative className="sm:hidden" />
-          <TeskeidLogo size={160} decorative className="hidden sm:block" />
+          <Link
+            href={logoHref}
+            aria-label="Teskeið"
+            className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-2"
+          >
+            <TeskeidLogo size={140} decorative className="sm:hidden" />
+            <TeskeidLogo size={160} decorative className="hidden sm:block" />
+          </Link>
         </div>
       </div>
     </div>
