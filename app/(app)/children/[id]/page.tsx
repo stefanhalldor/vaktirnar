@@ -48,12 +48,12 @@ export default async function EditChildPage({ params }: { params: Promise<{ id: 
           <div>
             <p className="mb-2 text-sm font-medium text-gray-700">{t('coparents')}</p>
             <div className="flex flex-col gap-2">
-              {parents.map((row: any) => (
-                <div key={row.parent.id} className="flex items-center gap-3 rounded-2xl bg-white border border-gray-100 px-4 py-3">
-                  <Avatar name={row.parent.display_name || '?'} size="sm" />
+              {parents.map((row: any, idx: number) => (
+                <div key={row.parent?.id ?? `parent-${idx}`} className="flex items-center gap-3 rounded-2xl bg-white border border-gray-100 px-4 py-3">
+                  <Avatar name={row.parent?.display_name || '?'} size="sm" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">
-                      {row.parent.display_name || '—'}
+                      {row.parent?.display_name || '—'}
                     </p>
                   </div>
                   <span className="text-xs text-gray-400">
