@@ -8,20 +8,19 @@ tilvísanir og verkefnasaga rofni ekki.
 | Röð | Atriði                                                        | Forgangur og samhengi                                                                                                                                |
 | --- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | **#16 Væntingastýring fyrir mobile-first beta**               | Segja notendum skýrt að Teskeið sé minimalískt og mobile-first, án þess að beta-merkja `Lánað og skilað` sérstaklega.                                |
-| 2   | **#4 Minimal opnunarstýring fyrir fyrstu public Teskeið**     | Sleppa fullu release-stage kerfi í bili: `Lánað og skilað` verður public fyrir alla innskráða, með server-side kill switches áfram.                   |
-| 3   | **#9 Opin innskráning og public `Lánað og skilað`**           | Opna innskráningu fyrir öll netföng og opna `Lánað og skilað` fyrir alla innskráða notendur án whitelist-hliðs.                                      |
-| 4   | **#18 Persónulegri headerkveðja fyrir innskráðan notanda**    | Skipta „Góðan dag, fullt nafn” út fyrir hlýrri kveðju með fyrsta nafni notanda.                                                                      |
-| 5   | **#19 Lesnir hlutir birtist ekki aftur sem `Nýlegt`**         | Laga að lesnir hlutir komi ekki aftur inn sem nýlegir þegar nýr hlutur er búinn til eða listi endurhlaðinn.                                          |
-| 6   | **#15 Íslenskar dagsetningar á lánaspjöldum**                 | Afmarkað UI-atriði: laga lánadagsetningu og sýna skiladagsetningu með sama sniði.                                                                    |
-| 7   | **#12 Skýrari kosningatakki**                                 | Lítið UI/copy-atriði sem má loka með núverandi útlitsvinnu án breytinga á kosningavirkni.                                                            |
-| 8   | **#8 Teskeið-loader**                                         | Byggja standalone preview úr endanlega samþykkta SVG-lógóinu og birtum hugmyndaheitum úr hugmyndabankanum áður en loader er settur í almenna notkun. |
-| 9   | **#21 Derhúfumerking verði `10,5`**                           | Breyta merkingu á derhúfu úr `A&10` í `10,5` í samþykkta lógó-/loader-vinnunni.                                                                      |
-| 10  | **#13 Umsjón með whitelist í admin**                          | Sýna og breyta aðgangslistanum með öruggum admin-only aðgerðum eftir að hlutverk hans í #4 hefur verið skilgreint.                                   |
+| 2   | **#18 Persónulegri headerkveðja fyrir innskráðan notanda**    | Skipta „Góðan dag, fullt nafn” út fyrir hlýrri kveðju með fyrsta nafni notanda.                                                                      |
+| 3   | **#15 Íslenskar dagsetningar á lánaspjöldum**                 | Afmarkað UI-atriði: laga lánadagsetningu og sýna skiladagsetningu með sama sniði.                                                                    |
+| 4   | **#23 Breyta nafni á lánaða hlutnum**                         | Leyfa réttum aðila, t.d. skráningaraðila og/eða lánveitanda, að leiðrétta heiti hlutar án þess að opna edit-rétt fyrir óviðkomandi.                  |
+| 5   | **#12 Skýrari kosningatakki**                                 | Lítið UI/copy-atriði sem má loka með núverandi útlitsvinnu án breytinga á kosningavirkni.                                                            |
+| 6   | **#20 Bottom bar innskráning þarf stundum tvísmell á mobile** | Rýna mobile tap/navigation hegðun þar sem fyrra tap á `Innskráning` gerir stundum ekkert.                                                            |
+| 7   | **#19 Lesnir hlutir birtist ekki aftur sem `Nýlegt`**         | Laga að lesnir hlutir komi ekki aftur inn sem nýlegir þegar nýr hlutur er búinn til eða listi endurhlaðinn.                                          |
+| 8   | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                 | Public notendaslóðir ættu að verða `/heim`, `/minn-profill` og `/lanad-og-skilad`; geymt úr hraðri opnun til að minnka áhættu.                      |
+| 9   | **#8 Teskeið-loader**                                         | Byggja standalone preview úr endanlega samþykkta SVG-lógóinu og birtum hugmyndaheitum úr hugmyndabankanum áður en loader er settur í almenna notkun. |
+| 10  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**        | Whitelist stýrir ekki lengur public login/loans; ákveða hvort listinn verði framtíðar beta-listi, admin-tól eða verði arkiveraður.                   |
 | 11  | **#5 Samræmd mobile app-upplifun**                            | Samræma innskráningu, form, viewport, keyboard og mobile layout sem framhaldsverk eftir opnun nema ný blocker finnist.                                |
 | 12  | **#7 Langlíf innskráning**                                    | Gera session app-líkt og öruggt sem framhaldsverk eftir opnun nema session-hegðun reynist blocker í prófun.                                          |
 | 13  | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**               | Skipta disabled `Væntanlegt` listanum út fyrir mobile-first framsetningu með raunverulegum, birtum hugmyndum og kosningarmöguleika.                  |
 | 14  | **#10 Gáfuleg opnun tölfræðisíðu**                            | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið.                                                                        |
-| 15  | **#20 Bottom bar innskráning þarf stundum tvísmell á mobile** | Rýna mobile tap/navigation hegðun þar sem fyrra tap á `Innskráning` gerir stundum ekkert.                                                            |
 
 #16
 ## Væntingastýring fyrir minimalíska mobile-first beta
@@ -47,6 +46,9 @@ einfaldri og leggur grunn að sérstakri app-útgáfu síðar.
   ókláruðu viðmóti.
 - Ekki beta-merkja `Lánað og skilað` sérstaklega; væntingastýringin á að gilda
   fyrir Teskeið sem heild og skýra að lausnin sé í fyrstu mobile-first útgáfu.
+- Eftir public-opnun 2026-06-08 er opinn beta-texti kominn á login, en enn
+  vantar skýra mobile-first/minimal væntingastýringu. Þess vegna er #16 áfram
+  opið.
 - Desktop skal áfram vera nothæft, aðgengilegt og án layout-vandamála þótt
   mobile sé fyrsti hönnunarpunkturinn.
 - Halda framsetningunni stuttri, rólegri og samræmdri núverandi beta-texta.
@@ -95,48 +97,6 @@ lesna. Hlutir sem hafa verið merktir lesnir mega ekki koma aftur inn í
   nýjustu fetch- eða created/updated-röðun.
 - Bæta regression-prófi þar sem notandi merkir hlut lesinn, býr til nýjan hlut
   og gamli hluturinn birtist ekki aftur sem `Nýlegt`.
-
-#4
-## Minimal opnunarstýring fyrir fyrstu public Teskeið
-
-**Staða:** Bíður
-
-**Ákvörðun Stebba 2026-06-08:** `Lánað og skilað` á að opnast fyrir alla
-innskráða notendur. Engin önnur Teskeið er raunverulega í vinnslu og því þarf
-ekki fullbúið `off`/`beta`/`public` release-stage kerfi eða beta-merkingu fyrir
-aðrar Teskeiðar að svo stöddu.
-
-**Markmið:** Halda opnuninni einfaldri og öruggri: ein virk public Teskeið,
-server-side session-vörn og kill switches áfram.
-
-**Tillaga að útfærslu:**
-
-- Halda `AUTH_MVP_ENABLED` sem global kill switch fyrir Teskeið auth-flæðið.
-- Halda `LOANS_ENABLED` sem global kill switch fyrir `Lánað og skilað`.
-- Láta `lanad-og-skilad` vera public feature þegar:
-  - `AUTH_MVP_ENABLED === 'true'`
-  - `LOANS_ENABLED === 'true'`
-  - notandi er með gilda Supabase session og netfang
-- Fjarlægja `auth_mvp_allowlist` sem feature-hlið fyrir `Lánað og skilað`.
-- Halda óþekktum eða framtíðar `featureKey` gildum fail-closed.
-- Ekki byggja DB-stýrt release-stage eða beta-allowlist fyrr en önnur raunveruleg
-  Teskeið þarf að fara í lokaða beta.
-- Ekki veikja RLS, grants eða service-role mörk. Loan RPCs skulu áfram nota
-  server-side session user id, ekki client-provided user id.
-- Halda disabled/væntanlegum hlutum á heimaskjá óvirkum þar til þeir verða
-  raunveruleg Teskeið eða hugmyndaframsetning.
-
-**Prófanir:**
-
-- `LOANS_ENABLED=false` felur eða lokar `Lánað og skilað`.
-- `AUTH_MVP_ENABLED=false` lokar Teskeið auth-flæðinu.
-- Innskráður notandi utan gamla allowlist fær aðgang að `Lánað og skilað` þegar
-  bæði flögg eru virk.
-- Óinnskráður notandi kemst ekki á `/auth-mvp/heim`, `/auth-mvp/minn-profill`
-  eða `/auth-mvp/lanad-og-skilad`.
-- Óþekktur `featureKey` skilar áfram engum aðgangi.
-- Bein slóð, layout guard og server actions fyrir lán nota sömu server-side
-  session- og `LOANS_ENABLED`-vörn.
 
 #5
 ## Samræmd mobile app-upplifun á öllu Teskeið.is
@@ -269,79 +229,6 @@ andliti svo loka-frame sé raunverulega lógóið, ekki laus eftirlíking.
 - Útbúa fyrst standalone demo/samanburð fyrir Stebba áður en loaderinn er settur
   inn almennt í navigation eða gagnasöfnun.
 
-#9
-## Opin innskráning og public `Lánað og skilað`
-
-**Staða:** Bíður
-
-**Ákvörðun Stebba 2026-06-08:** Opna `Lánað og skilað` fyrir alla innskráða
-notendur. Whitelist á ekki lengur að loka á innskráningu, `/auth-mvp/heim`,
-`/auth-mvp/minn-profill` eða `Lánað og skilað`.
-
-**Markmið:** Aðgreina auðkenningu frá framtíðar feature-stýringu án þess að
-byggja óþarfa release-stage kerfi núna:
-
-- Innskráning staðfestir hver notandinn er.
-- Öll gild netföng geta beðið um kóða og skráð sig inn, með almennum svörum sem
-  leka ekki stöðu notanda.
-- `/auth-mvp/heim` og `/auth-mvp/minn-profill` eru aðgengileg öllum rétt
-  innskráðum notendum.
-- `Lánað og skilað` er public fyrir alla innskráða notendur þegar
-  `LOANS_ENABLED === 'true'`.
-- Aðrar Teskeiðar eru ekki beta-merktar núna; þær eru annað hvort óvirkar,
-  væntanlegar eða hluti af síðar skilgreindri hugmyndaframsetningu.
-
-**Afmörkun fyrir hraða og örugga opnun:**
-
-- Ekki sameina þetta við stórt route-rename nema Claude Code sýni að það sé
-  mjög lítil áhætta.
-- Opnun má fara fram á núverandi `/auth-mvp/*` slóðum.
-- Canonical slóðahreinsun, t.d. `/heim`, `/minn-profill` og `/lanad-og-skilad`,
-  má vera sér áfangi ef hún stækkar áhættuna eða prófunarflötinn.
-- Innri `/api/auth-mvp/*` heiti þurfa ekki að breytast fyrir þessa opnun.
-
-**Tillaga að útfærslu:**
-
-- Fjarlægja allowlist-hlið úr `/api/auth-mvp/request-code`.
-- Fjarlægja waitlist-insert úr venjulegri login-beiðni, nema Stebbi ákveði
-  sérstaklega að geyma public login-attempts þar.
-- Fjarlægja allowlist-hlið úr `/api/auth-mvp/verify-code`.
-- Uppfæra `/innskraning` þannig að innskráður notandi með gilda session fari á
-  `/auth-mvp/heim` án allowlist-athugunar.
-- Halda API-svörum almennum svo þau leki ekki hvort netfang sé til, hvort kóði
-  hafi verið sendur eða hvort rate-limit hafi gripið inn í.
-- Halda IP-rate-limit og per-email kóðamörkum óbreyttum.
-- Breyta `checkFeatureAccess('lanad-og-skilad')` þannig að hún skili true fyrir
-  alla innskráða notendur þegar `LOANS_ENABLED === 'true'`.
-- Halda óþekktum feature keys fail-closed.
-- Halda `guardLoanAccess()` server-side og láta loan RPCs áfram fá actor id úr
-  staðfestri session, ekki frá client.
-- Setja væntingastýringartexta úr #16 í `messages/is.json` og `messages/en.json`
-  og birta á rólegum stað í innskráningar- eða fyrstu heimaupplifun.
-
-**Öryggi og misnotkunarvarnir:**
-
-- Halda rate limiting á beiðnum um innskráningarkóða og staðfestingartilraunum.
-- Fylgjast sérstaklega með Resend-kostnaði og misnotkun eftir opnun.
-- Meta CAPTCHA eða sambærilega vörn síðar ef opin kóðasending veldur misnotkun.
-- Ekki leka því hvort netfang, notandi eða kóði sé til.
-- Halda allri loan-aðgangsstýringu server-side og varðveita RLS, grants og
-  service-role mörk.
-
-**Prófanir:**
-
-- Óinnskráður notandi kemst á innskráningarsíðuna en ekki inn á `/auth-mvp/heim`.
-- Netfang utan gamla whitelist getur fengið kóða, skráð sig inn og séð
-  `/auth-mvp/heim`.
-- Sami notandi sér `Lánað og skilað` á heimaskjá og kemst inn í tóma eða virka
-  loan-upplifun.
-- Óinnskráður notandi kemst ekki beint inn á `Lánað og skilað`.
-- `LOANS_ENABLED=false` felur eða lokar `Lánað og skilað` þótt notandi sé
-  innskráður.
-- Whitelist-notandi heldur áfram að virka.
-- Rate limiting, röng kóðahegðun, útrunninn kóði og almenn villuskilaboð virka
-  áfram án upplýsingaleka.
-
 #17
 ## Hugmyndir úr hugmyndabankanum á `/heim`
 
@@ -446,6 +333,38 @@ hversu langt er liðið síðan þá.
 - Fyrsta render sýnir strax rétt tímabil án sýnilegs filter-stökks.
 - Samtímaopnanir skemma ekki næsta útreikning.
 
+#22
+## Hreinsa sýnilegar `/auth-mvp/` slóðir
+
+**Staða:** Bíður
+
+**Samhengi:** Public beta var opnuð hratt og meðvitað var ákveðið að geyma
+sýnilegu `/auth-mvp/*` slóðirnar til að minnka útgáfuáhættu. Það er tæknilega
+í lagi í bili, en sem public UX lítur `/auth-mvp/` út eins og innri MVP-slóð.
+
+**Ósk:** Færa sýnilegar notendaslóðir yfir á styttri canonical slóðir:
+
+- `/heim`
+- `/minn-profill`
+- `/lanad-og-skilad`
+- `/lanad-og-skilad/ny`
+- aðrar undirsíður `Lánað og skilað` eftir sama mynstri
+
+**Við útfærslu:**
+
+- Halda gömlu `/auth-mvp/*` slóðunum sem server-side redirects á nýju slóðirnar
+  svo eldri tenglar og bókamerki brotni ekki.
+- Varðveita mikilvæg query params, sérstaklega claim/invitation samhengi.
+- Forðast redirect-lykkjur í middleware.
+- Uppfæra öll sýnileg links, redirects, forms og client `router.push`.
+- Meðhöndla `/api/auth-mvp/*` sem sér tæknilega ákvörðun; API-heiti má vera
+  óbreytt ef það minnkar áhættu.
+- Bæta regression-prófum fyrir gömul aliases, ný canonical route, query params,
+  óinnskráðan aðgang og innskráðan aðgang.
+
+**Öryggisviðmið:** Þetta má ekki veikja `AUTH_MVP_ENABLED`, `LOANS_ENABLED`,
+session guards, loan guards, RLS, service-role mörk eða claim/invitation flæði.
+
 #15
 ## Íslenskar dagsetningar á lánaspjöldum
 
@@ -477,6 +396,47 @@ heldur ekki skýrt hvenær skilin áttu sér stað.
 - `returned_at` nálægt miðnætti birtir réttan dag í `Atlantic/Reykjavik`.
 - Enskt locale sýnir ekki íslensk heiti vikudaga eða mánaða.
 
+#23
+## Breyta nafni á lánaða hlutnum
+
+**Staða:** Bíður
+
+**Vandamál:** Ef heiti hlutar er rangt, óskýrt eða þarf að leiðrétta eftir
+skráningu, virðist rétti aðilinn ekki geta breytt nafninu á hlutnum sem er
+lánaður eða fenginn að láni.
+
+**Ósk:** Sá sem skráði hlutinn og/eða sá sem lánaði hlutinn eigi að geta breytt
+nafninu á hlutnum.
+
+**Við útfærslu:**
+
+- Kortleggja núverandi edit-réttindi fyrir lán: `created_by`, `lender_user_id`,
+  `borrower_user_id`, samþykkt boð og pending boð.
+- Skilgreina nákvæma reglu áður en breyting er gerð: að minnsta kosti
+  skráningaraðili má breyta heiti, og meta hvort lánveitandi megi líka breyta
+  þegar hann er annar en skráningaraðili.
+- Framfylgja reglunni server-side í RPC/server action, ekki aðeins með földum
+  client-hnappi.
+- Leyfa aðeins breytingu á `item_name`, ekki öðrum lánagögnum, nema það sé
+  sérstaklega ákveðið.
+- Varðveita núverandi aðgangsmörk: óviðkomandi notandi má ekki geta breytt
+  nafni með beinni API/RPC köllun.
+- Ef heiti birtist í pending invitation snapshot eða tölvupósti, ákveða hvort
+  breyting á heiti uppfæri snapshot, aðeins framtíðarsýn eða þurfi sérstaka
+  skýringu í UI.
+- Halda validation samræmdri nýskráningu: ekki tómt heiti, hámarkslengd og
+  eðlilegt trim.
+
+**Prófanir:**
+
+- Skráningaraðili getur breytt heiti á eigin láni.
+- Lánveitandi getur eða getur ekki breytt heiti samkvæmt samþykktri reglu.
+- Lántaki sem hefur ekki réttindi getur ekki breytt heiti.
+- Óviðkomandi innskráður notandi getur ekki breytt heiti með beinni köllun.
+- Tómt eða of langt heiti er hafnað.
+- Eftir breytingu birtist nýtt heiti á listum, detail/edit síðu og relevant
+  recent/home framsetningu.
+
 #12
 ## Skýrari kosningatakki á hugmyndasíðum
 
@@ -502,16 +462,24 @@ af Teskeið. Orðalag gæti verið á borð við:
   ekki hardcode-a hann í component.
 
 #13
-## Umsjón með whitelist í admin
+## Endurskilgreina hlutverk whitelist/admin-lista
 
 **Staða:** Bíður
 
-**Markmið:** Admin geti séð núverandi whitelist, bætt netfangi við listann og
-fjarlægt netfang af honum án þess að þurfa að keyra SQL handvirkt.
+**Samhengi:** Eftir public beta opnun 2026-06-08 stýrir
+`auth_mvp_allowlist` ekki lengur almennri Teskeið-innskráningu eða aðgangi að
+`Lánað og skilað`. Listinn getur samt mögulega nýst síðar sem beta-/feature-listi
+fyrir nýjar Teskeiðar, en hlutverk hans þarf að ákveða áður en admin UI er byggt.
+
+**Markmið:** Ákveða hvort whitelist/admin-listi eigi áfram að vera virkur
+hluti af Teskeið, og ef já, í hvaða tilgangi.
 
 **Ósk:**
 
-- Bæta afmörkuðu whitelist-yfirliti við núverandi admin-viðmót.
+- Meta hvort `auth_mvp_allowlist` eigi að verða beta-listi fyrir framtíðar
+  Teskeiðar, admin-prófunarlisti eða hvort hann eigi að verða arkiveraður.
+- Ef listinn á áfram að vera virkur, bæta afmörkuðu whitelist-yfirliti við
+  núverandi admin-viðmót.
 - Sýna netföng á listanum og viðeigandi lýsigögn sem þegar eru geymd, til dæmis
   athugasemd og skráningartíma.
 - Leyfa admin að bæta við netfangi með skýrri staðfestingu.
@@ -531,8 +499,8 @@ fjarlægt netfang af honum án þess að þurfa að keyra SQL handvirkt.
 - Nota afmarkað admin API/server action og varðveita núverandi RLS og grants.
 - Ekki skila whitelist-gögnum í logs, almenn API-svör eða client-cache sem
   óviðkomandi notandi getur lesið.
-- Ákveða við útfærslu hvernig listinn tengist beta-aðgangi í #4 og opinni
-  innskráningu í #9, svo sama tafla fái ekki tvær ósamræmdar merkingar.
+- Forðast að endurvekja whitelist sem ósýnilega hindrun fyrir public login eða
+  public `Lánað og skilað`.
 
 **Prófanir:**
 
@@ -570,7 +538,7 @@ virðist stundum ekki gera neitt.
 #21
 ## Derhúfumerking verði `10,5`
 
-**Staða:** Bíður
+**Staða:** Lokið — 2026-06-08
 
 **Vandamál:** Núverandi merking á derhúfu er eða vísar til `A&10`, en Stebbi vill
 að merkingin verði `10,5`.

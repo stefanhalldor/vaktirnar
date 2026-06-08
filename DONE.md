@@ -213,6 +213,23 @@ Staðfest:
 
 ---
 
+## #21 — Derhúfumerking verði `10,5`
+
+**Lokið:** 2026-06-08
+**Staðfest af Stebbi:** já (forskoðun samþykkt á `/preview/teskeid-logo/codex` og `/preview/favicons/codex`)
+
+Merkingin á derhúfu lógósins breytt úr `A&10` í `10,5`. Þar sem `A&10` er bökuð
+sem vector-shapes í `TESKEID_CREAM_DETAILS_PATH` var notuð overlay-nálgun: cream
+rect hylja gamlar letter-holur og dökkgrænn `<text>10,5</text>` settur ofan á.
+
+Skrár:
+- `components/teskeid/TeskeidLogo.tsx` — cream rect + green text overlay bætt við
+- `app/icon.svg` — sömu overlay bætt við favicon SVG
+- `public/favicon-options/cap-mark-10-5-preview.svg` — favicon forskoðun (commit `409d075`)
+- `public/teskeid-logo-10-5-preview.svg` — fullur lógó forskoðun (commit `7903f69`)
+
+---
+
 ## #5A — Mobile login baseline: iOS auto-zoom og lógó-hlekkur
 
 **Lokið:** 2026-06-08
