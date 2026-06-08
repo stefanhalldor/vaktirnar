@@ -282,12 +282,12 @@
       "copyright": "© 2026 Teskeið. Öll réttindi áskilin."
     },
     "auth": {
-      "betaLabel": "Teskeið.is opnar smátt og smátt og er núna í lokuðum beta-prófunum",
-      "loginTitle": "Athugaðu aðganginn þinn",
-      "emailHint": "Sláðu inn netfangið þitt. Ef þú ert með aðgang færðu innskráningarkóða. Ef ekki, setjum við þig á biðlistann og opnum fyrir þig um leið og röðin kemur að þér.",
+      "betaLabel": "Teskeið.is er í opnum beta",
+      "loginTitle": "Innskráning",
+      "emailHint": "Sláðu inn netfangið þitt og við sendum þér innskráningarkóða.",
       "emailLabel": "Netfang",
       "emailPlaceholder": "þitt@netfang.is",
-      "emailSubmitted": "Ef netfangið þitt er með aðgang færðu kóða innan skamms. Annars er netfangið komið á biðlistann og við látum þig vita þegar röðin kemur að þér.",
+      "emailSubmitted": "Kóðinn er á leiðinni. Athugaðu tölvupóstinn þinn.",
       "codeTitle": "Sláðu inn kóðann",
       "codeLabel": "Kóði",
       "continue": "Áfram",

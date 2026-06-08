@@ -3,9 +3,8 @@
  *
  * Covers:
  *   - Unauthenticated user: form rendered, no redirect
- *   - Authenticated + allowlisted: redirects to /auth-mvp/heim
- *   - Authenticated + non-allowlisted: form rendered, no redirect
- *   - AUTH_MVP_ENABLED=false: no whitelist check, form rendered
+ *   - Authenticated with session: redirects to /auth-mvp/heim (no allowlist check)
+ *   - AUTH_MVP_ENABLED=false: no session check, form rendered
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -21,16 +20,11 @@ const { mockRedirect } = vi.hoisted(() => ({
 }))
 
 const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
-const { mockIsAllowedEmail } = vi.hoisted(() => ({ mockIsAllowedEmail: vi.fn() }))
 
 vi.mock('next/navigation', () => ({ redirect: mockRedirect }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({ auth: { getUser: mockGetUser } })),
-}))
-
-vi.mock('@/lib/auth/allowlist', () => ({
-  isAuthMvpAllowedEmail: mockIsAllowedEmail,
 }))
 
 vi.mock('@/components/teskeid/TeskeidLoginForm', () => ({
@@ -72,7 +66,7 @@ describe('InnskraningPage — unauthenticated', () => {
   })
 })
 
-describe('InnskraningPage — authenticated + allowlisted', () => {
+describe('InnskraningPage — authenticated with session', () => {
   let savedAuth: string | undefined
 
   beforeEach(() => {
@@ -80,7 +74,6 @@ describe('InnskraningPage — authenticated + allowlisted', () => {
     savedAuth = process.env.AUTH_MVP_ENABLED
     process.env.AUTH_MVP_ENABLED = 'true'
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com' } } })
-    mockIsAllowedEmail.mockResolvedValue(true)
   })
 
   afterEach(() => setEnv('AUTH_MVP_ENABLED', savedAuth))
@@ -89,35 +82,9 @@ describe('InnskraningPage — authenticated + allowlisted', () => {
     await expect(InnskraningPage()).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/heim')
   })
 
-  it('checks lowercased + trimmed email against allowlist', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: '  USER@EXAMPLE.COM  ' } } })
+  it('redirects regardless of email domain', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'anyone@gmail.com' } } })
     await expect(InnskraningPage()).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/heim')
-    expect(mockIsAllowedEmail).toHaveBeenCalledWith('user@example.com')
-  })
-})
-
-describe('InnskraningPage — authenticated + non-allowlisted', () => {
-  let savedAuth: string | undefined
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    savedAuth = process.env.AUTH_MVP_ENABLED
-    process.env.AUTH_MVP_ENABLED = 'true'
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com' } } })
-    mockIsAllowedEmail.mockResolvedValue(false)
-  })
-
-  afterEach(() => setEnv('AUTH_MVP_ENABLED', savedAuth))
-
-  it('renders the login form', async () => {
-    const Page = await InnskraningPage()
-    render(Page as React.ReactElement)
-    expect(screen.getByTestId('login-form')).toBeDefined()
-  })
-
-  it('does not redirect', async () => {
-    await InnskraningPage()
-    expect(mockRedirect).not.toHaveBeenCalled()
   })
 })
 
@@ -132,11 +99,10 @@ describe('InnskraningPage — AUTH_MVP_ENABLED=false', () => {
 
   afterEach(() => setEnv('AUTH_MVP_ENABLED', savedAuth))
 
-  it('skips whitelist check and renders form', async () => {
+  it('skips session check and renders form', async () => {
     const Page = await InnskraningPage()
     render(Page as React.ReactElement)
     expect(screen.getByTestId('login-form')).toBeDefined()
     expect(mockGetUser).not.toHaveBeenCalled()
-    expect(mockIsAllowedEmail).not.toHaveBeenCalled()
   })
 })

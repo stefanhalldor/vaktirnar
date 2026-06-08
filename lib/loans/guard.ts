@@ -2,7 +2,6 @@ import 'server-only'
 import { redirect } from 'next/navigation'
 import type { User } from '@supabase/supabase-js'
 import { guardTeskeidSession } from '@/lib/auth/guard'
-import { isAuthMvpAllowedEmail } from '@/lib/auth/allowlist'
 
 export interface LoanAccess {
   user: User
@@ -10,30 +9,21 @@ export interface LoanAccess {
 
 /**
  * Non-redirecting server-side feature availability check.
- * Returns true only if both LOANS_ENABLED is 'true' AND the user's email
- * is on the allowlist for the given featureKey.
+ * Returns true when LOANS_ENABLED is 'true' for the lanad-og-skilad feature.
+ * All authenticated users have access when the feature is enabled.
  *
- * Fail-closed: any allowlist lookup error returns false.
  * Unknown feature keys return false (no accidental allow-by-default).
  * Never throws, never redirects.
  */
 export async function checkFeatureAccess(
   _userId: string,
-  email: string,
+  _email: string,
   featureKey: string,
 ): Promise<boolean> {
   if (featureKey !== 'lanad-og-skilad') {
     return false
   }
-  if (process.env.LOANS_ENABLED !== 'true') {
-    return false
-  }
-  try {
-    return await isAuthMvpAllowedEmail(email.toLowerCase().trim())
-  } catch {
-    console.error('[feature-access] allowlist lookup failed')
-    return false
-  }
+  return process.env.LOANS_ENABLED === 'true'
 }
 
 /**
@@ -55,9 +45,8 @@ export async function guardFeatureAccess(
  * Checks (in order):
  *   1. LOANS_ENABLED feature flag (before any Supabase work)
  *   2. AUTH_MVP_ENABLED + session + email (via guardTeskeidSession)
- *   3. Email on allowlist (via checkFeatureAccess)
  *
- * Redirects on auth/access failure — never leaks allowlist information.
+ * Redirects on auth/access failure.
  * Called from layout (access guard), pages (user needed for RPC), and
  * every server action (defense-in-depth).
  */
@@ -69,9 +58,6 @@ export async function guardLoanAccess(): Promise<LoanAccess> {
 
   // 2. AUTH_MVP_ENABLED, session, email
   const { user } = await guardTeskeidSession()
-
-  // 3. Allowlist (feature access)
-  await guardFeatureAccess(user.email!, 'lanad-og-skilad')
 
   return { user }
 }

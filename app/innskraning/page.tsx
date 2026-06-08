@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { TeskeidLoginForm } from '@/components/teskeid/TeskeidLoginForm'
 import { createClient } from '@/lib/supabase/server'
-import { isAuthMvpAllowedEmail } from '@/lib/auth/allowlist'
 
 export const metadata: Metadata = {
   title: 'Innskráning | Teskeið',
@@ -10,17 +9,15 @@ export const metadata: Metadata = {
 
 export default async function InnskraningPage() {
   if (process.env.AUTH_MVP_ENABLED === 'true') {
-    let allowlisted = false
+    let hasSession = false
     try {
       const supabase = await createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (user?.email) {
-        allowlisted = await isAuthMvpAllowedEmail(user.email.toLowerCase().trim())
-      }
+      hasSession = !!user?.email
     } catch {
-      // Supabase unavailable — show form, never expose whitelist status
+      // Supabase unavailable — show form
     }
-    if (allowlisted) redirect('/auth-mvp/heim')
+    if (hasSession) redirect('/auth-mvp/heim')
   }
   return <TeskeidLoginForm />
 }

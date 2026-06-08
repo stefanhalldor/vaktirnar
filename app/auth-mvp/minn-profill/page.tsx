@@ -16,7 +16,6 @@ export default function AuthMvpProfilePage() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -53,8 +52,7 @@ export default function AuthMvpProfilePage() {
       body: JSON.stringify({ display_name: displayName.trim() }),
     })
     if (res.ok) {
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      router.push('/auth-mvp/heim')
     } else {
       setError(t('errors.saveFailed'))
     }
@@ -116,7 +114,7 @@ export default function AuthMvpProfilePage() {
                 disabled={saving}
                 className="mt-2 h-10 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
               >
-                {saving ? t('saving') : saved ? t('saved') : t('save')}
+                {saving ? t('saving') : t('save')}
               </button>
             </form>
             <button

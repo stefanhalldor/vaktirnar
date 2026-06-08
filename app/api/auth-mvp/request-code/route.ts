@@ -3,8 +3,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createUserCode } from '@/lib/auth/user-codes'
 import { sendUserLoginCode } from '@/lib/auth/email'
-import { isAuthMvpAllowedEmail } from '@/lib/auth/allowlist'
-import { getAdmin } from '@/lib/supabase/admin'
 import { checkIpRateLimit } from '@/lib/auth/ip-rate-limit'
 
 const schema = z.object({
@@ -29,24 +27,6 @@ export async function POST(request: NextRequest) {
 
   if (parsed.success) {
     try {
-      // Allowlist check: non-allowlisted emails go to the waitlist.
-      // No code created, no email sent — client receives identical success response.
-      const allowed = await isAuthMvpAllowedEmail(parsed.data.email)
-      if (!allowed) {
-        try {
-          const { error } = await getAdmin()
-            .from('login_waitlist')
-            .insert({ email: parsed.data.email })
-          // Duplicate entry (23505) is idempotent — treat as success
-          if (error && error.code !== '23505') {
-            console.error('[auth-mvp/request-code] waitlist insert error (not exposed to client)')
-          }
-        } catch {
-          // Swallow silently — client always receives success
-        }
-        return NextResponse.json({ success: true })
-      }
-
       const code = await createUserCode(parsed.data.email)
       if (code) {
         // Operational alert: warn if email infra is unconfigured (no code/email logged)

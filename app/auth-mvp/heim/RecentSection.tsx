@@ -56,9 +56,12 @@ export function RecentSection({ loans, signature, initialRead, displayLocale, la
   if (loans.length === 0) {
     return (
       <section>
-        <h2 className="text-sm font-medium text-muted-foreground mb-3">{labels.recent}</h2>
-        <div className="text-center py-8">
-          <p className="text-sm text-muted-foreground">{labels.noRecent}</p>
+        <div
+          role="status"
+          className="flex items-center gap-3 py-5 px-4 bg-card border border-border rounded-xl"
+        >
+          <CheckCircle2 size={20} className="text-primary shrink-0" aria-hidden />
+          <p className="text-sm font-medium text-foreground">{labels.done}</p>
         </div>
       </section>
     )

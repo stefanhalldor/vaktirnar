@@ -420,12 +420,12 @@ describe('HeimPage — Nýlegt section', () => {
     expect(screen.queryByText('Item 4')).toBeNull()
   })
 
-  it('shows empty state when there are no loans', async () => {
+  it('shows done banner when there are no loans', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([], [])
     render(await HeimPage())
-    expect(screen.getByText('Engin lán skráð enn.')).toBeDefined()
+    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
   })
 
   it('regression: home page contains no direct link to /auth-mvp/lanad-og-skilad/ny', async () => {
@@ -452,7 +452,7 @@ describe('HeimPage — Nýlegt section', () => {
     setupRpcError('get_my_loans')
     render(await HeimPage())
     expect(screen.queryByText('Nýlegt')).toBeNull()
-    expect(screen.queryByText('Engin lán skráð enn.')).toBeNull()
+    expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
   })
 
   it('hides Nýlegt section when feature access is denied', async () => {

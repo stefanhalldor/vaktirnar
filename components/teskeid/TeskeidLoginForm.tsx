@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 
 type Step = 'email' | 'code'
 const RESEND_COOLDOWN = 60
@@ -80,7 +81,10 @@ export function TeskeidLoginForm() {
         return
       }
 
-      router.push('/auth-mvp/heim')
+      const profileRes = await fetch('/api/teskeid/profile')
+      const profileData = profileRes.ok ? await profileRes.json().catch(() => ({})) : {}
+      const hasName = !!profileData.display_name?.trim()
+      router.push(hasName ? '/auth-mvp/heim' : '/auth-mvp/minn-profill')
       router.refresh()
     } catch {
       setError(t('genericError'))
@@ -179,6 +183,10 @@ export function TeskeidLoginForm() {
               </div>
             </>
           )}
+        </div>
+        <div className="flex justify-center pt-6">
+          <TeskeidLogo size={140} decorative className="sm:hidden" />
+          <TeskeidLogo size={160} decorative className="hidden sm:block" />
         </div>
       </div>
     </div>

@@ -158,7 +158,6 @@ describe('checkFeatureAccess', () => {
   })
 
   it('returns false for unknown feature key', async () => {
-    mockIsAllowedEmail.mockResolvedValue(true)
     const result = await checkFeatureAccess('uid', 'user@example.com', 'unknown-feature')
     expect(result).toBe(false)
     expect(mockIsAllowedEmail).not.toHaveBeenCalled()
@@ -171,28 +170,16 @@ describe('checkFeatureAccess', () => {
     expect(mockIsAllowedEmail).not.toHaveBeenCalled()
   })
 
-  it('returns false when email is not on allowlist', async () => {
-    mockIsAllowedEmail.mockResolvedValue(false)
-    const result = await checkFeatureAccess('uid', 'user@example.com', 'lanad-og-skilad')
-    expect(result).toBe(false)
-  })
-
-  it('returns true when LOANS_ENABLED and email is on allowlist', async () => {
-    mockIsAllowedEmail.mockResolvedValue(true)
+  it('returns true when LOANS_ENABLED=true for lanad-og-skilad', async () => {
     const result = await checkFeatureAccess('uid', 'user@example.com', 'lanad-og-skilad')
     expect(result).toBe(true)
+    expect(mockIsAllowedEmail).not.toHaveBeenCalled()
   })
 
-  it('returns false (fail-closed) when allowlist lookup throws', async () => {
-    mockIsAllowedEmail.mockRejectedValue(new Error('db error'))
+  it('returns false when LOANS_ENABLED is absent', async () => {
+    delete process.env.LOANS_ENABLED
     const result = await checkFeatureAccess('uid', 'user@example.com', 'lanad-og-skilad')
     expect(result).toBe(false)
-  })
-
-  it('lowercases and trims email before allowlist check', async () => {
-    mockIsAllowedEmail.mockResolvedValue(true)
-    await checkFeatureAccess('uid', '  USER@EXAMPLE.COM  ', 'lanad-og-skilad')
-    expect(mockIsAllowedEmail).toHaveBeenCalledWith('user@example.com')
   })
 })
 
@@ -216,13 +203,7 @@ describe('guardFeatureAccess', () => {
     await expect(guardFeatureAccess('user@example.com', 'lanad-og-skilad')).rejects.toThrow('NEXT_REDIRECT:/')
   })
 
-  it('redirects to / when email is not on allowlist', async () => {
-    mockIsAllowedEmail.mockResolvedValue(false)
-    await expect(guardFeatureAccess('user@example.com', 'lanad-og-skilad')).rejects.toThrow('NEXT_REDIRECT:/')
-  })
-
-  it('does not redirect when access is granted', async () => {
-    mockIsAllowedEmail.mockResolvedValue(true)
+  it('does not redirect when LOANS_ENABLED=true', async () => {
     await expect(guardFeatureAccess('user@example.com', 'lanad-og-skilad')).resolves.toBeUndefined()
     expect(mockRedirect).not.toHaveBeenCalled()
   })
@@ -243,7 +224,6 @@ describe('guardLoanAccess — feature flags', () => {
     mockGetUser.mockResolvedValue({
       data: { user: { id: 'u1', email: 'user@example.com' } },
     })
-    mockIsAllowedEmail.mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -277,11 +257,11 @@ describe('guardLoanAccess — feature flags', () => {
     expect(mockGetUser).not.toHaveBeenCalled()
   })
 
-  it('proceeds to session and allowlist checks when both flags are true', async () => {
+  it('proceeds to session check when both flags are true', async () => {
     const result = await guardLoanAccess()
     expect(mockRedirect).not.toHaveBeenCalled()
     expect(mockGetUser).toHaveBeenCalled()
-    expect(mockIsAllowedEmail).toHaveBeenCalledWith('user@example.com')
+    expect(mockIsAllowedEmail).not.toHaveBeenCalled()
     expect(result).toEqual({ user: { id: 'u1', email: 'user@example.com' } })
   })
 })

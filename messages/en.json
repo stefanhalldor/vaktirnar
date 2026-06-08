@@ -278,12 +278,12 @@
       "copyright": "© 2026 Teskeið. All rights reserved."
     },
     "auth": {
-      "betaLabel": "Teskeið.is is opening up gradually and is currently in closed beta",
-      "loginTitle": "Check your access",
-      "emailHint": "Enter your email. If you have access you'll receive a sign-in code. If not, we'll add you to the waitlist and open up for you as soon as your turn comes.",
+      "betaLabel": "Teskeið.is is in open beta",
+      "loginTitle": "Sign in",
+      "emailHint": "Enter your email and we'll send you a sign-in code.",
       "emailLabel": "Email",
       "emailPlaceholder": "your@email.com",
-      "emailSubmitted": "If your email has access you'll receive a code shortly. Otherwise your email is now on the waitlist and we'll let you know when your turn comes.",
+      "emailSubmitted": "Your code is on its way. Check your inbox.",
       "codeTitle": "Enter the code",
       "codeLabel": "Code",
       "continue": "Continue",
