@@ -61,7 +61,7 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
       {open && (
         <div className="absolute right-0 top-full mt-1 w-52 bg-[#fbf9f4] border border-black/10 rounded-xl shadow-lg z-50 overflow-hidden">
           {items.map(({ href, labelKey, icon: Icon }) => {
-            const active = pathname === href
+            const active = pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
             return (
               <Link
                 key={href}
