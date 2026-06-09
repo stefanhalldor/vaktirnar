@@ -126,6 +126,15 @@ export function LoanList({ items }: Props) {
           {t('borrowed')}
           <span className="opacity-70">({borrowedCount})</span>
         </button>
+        <button
+          type="button"
+          aria-pressed={roleFilter === null}
+          onClick={() => setRoleFilter(null)}
+          className={`${pillBase} ${roleFilter === null ? pillActive : pillInactive}`}
+        >
+          {t('all')}
+          <span className="opacity-70">({lentCount + borrowedCount})</span>
+        </button>
       </div>
 
       {/* Search + Sort */}

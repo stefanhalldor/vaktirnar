@@ -95,18 +95,19 @@ describe('LoanList — status pills', () => {
     expect(screen.queryByTestId('card-b2')).toBeNull()
   })
 
-  it('Allt pill shows all items (open and returned)', () => {
+  it('Allt status pill shows all items (open and returned)', () => {
     render(<LoanList items={ALL_ITEMS} />)
-    fireEvent.click(screen.getByRole('button', { name: /Allt/ }))
+    // First Allt button is the status pill, second is the role pill
+    fireEvent.click(screen.getAllByRole('button', { name: /Allt/ })[0])
     expect(screen.getByTestId('card-a1')).toBeDefined()
     expect(screen.getByTestId('card-a2')).toBeDefined()
     expect(screen.getByTestId('card-b1')).toBeDefined()
     expect(screen.getByTestId('card-b2')).toBeDefined()
   })
 
-  it('Allt pill count shows total (4)', () => {
+  it('Allt status pill count shows total (4)', () => {
     render(<LoanList items={ALL_ITEMS} />)
-    expect(screen.getByRole('button', { name: /Allt/ }).textContent).toContain('(4)')
+    expect(screen.getAllByRole('button', { name: /Allt/ })[0].textContent).toContain('(4)')
   })
 
   it('clicking Skilað shows returned loans and hides open', () => {
@@ -160,6 +161,23 @@ describe('LoanList — role pills', () => {
     render(<LoanList items={ALL_ITEMS} />)
     fireEvent.click(screen.getByRole('button', { name: /Ég fékk lánað/ }))
     expect(screen.queryByTestId('card-a1')).toBeNull()
+    expect(screen.getByTestId('card-a2')).toBeDefined()
+  })
+
+  it('Allt role pill is selected by default (no role filter)', () => {
+    render(<LoanList items={ALL_ITEMS} />)
+    const alltButtons = screen.getAllByRole('button', { name: /Allt/ })
+    // Second Allt button is the role one (first is status)
+    const roleAllt = alltButtons[1]
+    expect(roleAllt.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('clicking Allt role pill after filter clears role filter', () => {
+    render(<LoanList items={ALL_ITEMS} />)
+    fireEvent.click(screen.getByRole('button', { name: /Ég lánaði/ }))
+    expect(screen.queryByTestId('card-a2')).toBeNull()
+    const alltButtons = screen.getAllByRole('button', { name: /Allt/ })
+    fireEvent.click(alltButtons[1])
     expect(screen.getByTestId('card-a2')).toBeDefined()
   })
 
