@@ -13,12 +13,11 @@ tilvísanir og verkefnasaga rofni ekki.
 | 4   | **#20 Bottom bar innskráning þarf stundum tvísmell á mobile** | Rýna mobile tap/navigation hegðun þar sem fyrra tap á `Innskráning` gerir stundum ekkert.                                                            |
 | 5   | **#19 Lesnir hlutir birtist ekki aftur sem `Nýlegt`**         | Laga að lesnir hlutir komi ekki aftur inn sem nýlegir þegar nýr hlutur er búinn til eða listi endurhlaðinn.                                          |
 | 6   | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                 | Public notendaslóðir ættu að verða `/heim`, `/minn-profill` og `/lanad-og-skilad`; geymt úr hraðri opnun til að minnka áhættu.                      |
-| 7   | **#8 Teskeið-loader**                                         | Byggja standalone preview úr endanlega samþykkta SVG-lógóinu og birtum hugmyndaheitum úr hugmyndabankanum áður en loader er settur í almenna notkun. |
-| 8   | **#13 Endurskilgreina hlutverk whitelist/admin-lista**        | Whitelist stýrir ekki lengur public login/loans; ákveða hvort listinn verði framtíðar beta-listi, admin-tól eða verði arkiveraður.                   |
-| 9   | **#5 Samræmd mobile app-upplifun**                            | Samræma innskráningu, form, viewport, keyboard og mobile layout sem framhaldsverk eftir opnun nema ný blocker finnist.                                |
-| 10  | **#7 Langlíf innskráning**                                    | Gera session app-líkt og öruggt sem framhaldsverk eftir opnun nema session-hegðun reynist blocker í prófun.                                          |
-| 11  | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**               | Skipta disabled `Væntanlegt` listanum út fyrir mobile-first framsetningu með raunverulegum, birtum hugmyndum og kosningarmöguleika.                  |
-| 12  | **#10 Gáfuleg opnun tölfræðisíðu**                            | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið.                                                                        |
+| 7   | **#13 Endurskilgreina hlutverk whitelist/admin-lista**        | Whitelist stýrir ekki lengur public login/loans; ákveða hvort listinn verði framtíðar beta-listi, admin-tól eða verði arkiveraður.                   |
+| 8   | **#5 Samræmd mobile app-upplifun**                            | Samræma innskráningu, form, viewport, keyboard og mobile layout sem framhaldsverk eftir opnun nema ný blocker finnist.                                |
+| 9   | **#7 Langlíf innskráning**                                    | Gera session app-líkt og öruggt sem framhaldsverk eftir opnun nema session-hegðun reynist blocker í prófun.                                          |
+| 10  | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**               | Skipta disabled `Væntanlegt` listanum út fyrir mobile-first framsetningu með raunverulegum, birtum hugmyndum og kosningarmöguleika.                  |
+| 11  | **#10 Gáfuleg opnun tölfræðisíðu**                            | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið.                                                                        |
 
 #16
 ## Væntingastýring fyrir minimalíska mobile-first beta
@@ -180,7 +179,7 @@ eða gera stolna session ótímabundna.
 #8
 ## Teskeið-loader með hugmyndaheitum úr hugmyndabankanum
 
-**Staða:** Bíður
+**Staða:** Lokið — 2026-06-09
 
 ![Viðmið fyrir loader og merkingu á derhúfu](feedback/images/teskeid-loader-and-cap-mark-reference.png)
 

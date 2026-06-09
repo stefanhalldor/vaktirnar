@@ -302,6 +302,27 @@ Staðfest:
 
 ---
 
+## #8 — Teskeið-loader með hugmyndaheitum úr hugmyndabankanum
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** handprófun á `/preview/teskeid-loader` (bíður)
+
+Standalone `TeskeidLoader` client component með hringlaga lógó og titla-cycling.
+Titlar eru sóttir úr `ideas`-töflunni (public, featured/votes-ordered, limit 8),
+hreinsuðir (trim, dedup, filter empty), og birtir einn í einu með 1 s millibili.
+`prefers-reduced-motion` slær af `animate-pulse` og `setInterval`. Fallback ef
+titlalisti er tómur. Aðgengilegt `role="status"` með `aria-label`; lógó decorative.
+
+Preview síða á `/preview/teskeid-loader` (noindex) sýnir live + fallback sýn.
+
+Skrár:
+- `components/teskeid/TeskeidLoader.tsx` — client component (ný)
+- `app/preview/teskeid-loader/page.tsx` — preview server component (ný)
+- `lib/__tests__/teskeid-loader.test.tsx` — 8 próf (ný)
+- `messages/is.json`, `messages/en.json` — `teskeid.loader` hluti
+
+---
+
 ## #9 — Opin innskráning og public `Lánað og skilað`
 
 **Lokið:** 2026-06-08
