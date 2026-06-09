@@ -17,6 +17,7 @@ vi.mock('next-intl', () => ({
       'teskeid.loans': {
         open: 'Enn í láni',
         returned: 'Skilað',
+        all: 'Allt',
         lent: 'Ég lánaði',
         borrowed: 'Ég fékk lánað',
         noOpen: 'Ekkert í láni.',
@@ -92,6 +93,20 @@ describe('LoanList — status pills', () => {
     expect(screen.getByTestId('card-a2')).toBeDefined()
     expect(screen.queryByTestId('card-b1')).toBeNull()
     expect(screen.queryByTestId('card-b2')).toBeNull()
+  })
+
+  it('Allt pill shows all items (open and returned)', () => {
+    render(<LoanList items={ALL_ITEMS} />)
+    fireEvent.click(screen.getByRole('button', { name: /Allt/ }))
+    expect(screen.getByTestId('card-a1')).toBeDefined()
+    expect(screen.getByTestId('card-a2')).toBeDefined()
+    expect(screen.getByTestId('card-b1')).toBeDefined()
+    expect(screen.getByTestId('card-b2')).toBeDefined()
+  })
+
+  it('Allt pill count shows total (4)', () => {
+    render(<LoanList items={ALL_ITEMS} />)
+    expect(screen.getByRole('button', { name: /Allt/ }).textContent).toContain('(4)')
   })
 
   it('clicking Skilað shows returned loans and hides open', () => {

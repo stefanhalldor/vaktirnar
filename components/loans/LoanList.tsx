@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl'
 import { LoanCard } from './LoanCard'
 import type { LoanItem } from '@/lib/loans/types'
 
-type Status = 'open' | 'returned'
+type Status = 'open' | 'returned' | 'all'
 type RoleFilter = 'lender' | 'borrower' | null
 type Sort = 'newest' | 'oldest'
 
@@ -23,11 +23,14 @@ export function LoanList({ items }: Props) {
   // Counts — stable, not affected by role or search
   const openCount = items.filter((i) => i.returned_at === null).length
   const returnedCount = items.filter((i) => i.returned_at !== null).length
+  const allCount = items.length
 
   // Status-filtered items, before role/search — used for role pill counts
-  const statusItems = items.filter((i) =>
-    status === 'open' ? i.returned_at === null : i.returned_at !== null,
-  )
+  const statusItems = items.filter((i) => {
+    if (status === 'open') return i.returned_at === null
+    if (status === 'returned') return i.returned_at !== null
+    return true
+  })
   const lentCount = statusItems.filter((i) => i.my_role === 'lender').length
   const borrowedCount = statusItems.filter((i) => i.my_role === 'borrower').length
 
@@ -60,7 +63,9 @@ export function LoanList({ items }: Props) {
     ? 'noSearchResults'
     : status === 'open'
       ? 'noOpen'
-      : 'noReturned'
+      : status === 'returned'
+        ? 'noReturned'
+        : 'noOpen'
 
   const pillBase =
     'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors min-h-[32px]'
@@ -89,6 +94,15 @@ export function LoanList({ items }: Props) {
         >
           {t('returned')}
           <span className="opacity-70">({returnedCount})</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={status === 'all'}
+          onClick={() => { setStatus('all'); setRoleFilter(null) }}
+          className={`${pillBase} ${status === 'all' ? pillActive : pillInactive}`}
+        >
+          {t('all')}
+          <span className="opacity-70">({allCount})</span>
         </button>
       </div>
 
