@@ -765,13 +765,12 @@ describe('HeimPage — DOM order', () => {
     expect(container.querySelector('header')).toBeNull()
   })
 
-  it('profile link points to /auth-mvp/minn-profill', async () => {
+  it('renders authenticated TeskeidMenu in greeting row', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([], [])
-    render(await HeimPage())
-    const link = screen.getByLabelText('Minn aðgangur')
-    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/minn-profill')
+    const { container } = render(await HeimPage())
+    expect(container.querySelector('[data-testid="teskeid-menu-authenticated"]')).not.toBeNull()
   })
 })
 

@@ -76,10 +76,8 @@ import AuthMvpProfilePage from '@/app/auth-mvp/minn-profill/page'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function navHomeLink(container: HTMLElement): Element | undefined {
-  return Array.from(container.querySelectorAll('a[href="/auth-mvp/heim"]')).find(
-    (el) => el.querySelectorAll('svg').length === 1,
-  )
+function navMenu(container: HTMLElement): Element | null {
+  return container.querySelector('[data-testid="teskeid-menu-authenticated"]')
 }
 
 function bottomLogoLink(container: HTMLElement): Element | undefined {
@@ -104,24 +102,19 @@ describe('AuthMvpProfilePage — layout', () => {
   })
 })
 
-// ── Nav Home link ─────────────────────────────────────────────────────────────
+// ── TeskeidMenu ───────────────────────────────────────────────────────────────
 
-describe('AuthMvpProfilePage — nav Home link', () => {
-  it('renders nav Home link pointing to /auth-mvp/heim', () => {
+describe('AuthMvpProfilePage — TeskeidMenu', () => {
+  it('renders authenticated TeskeidMenu in nav row', () => {
     const { container } = render(React.createElement(AuthMvpProfilePage))
-    expect(navHomeLink(container)).toBeDefined()
+    expect(navMenu(container)).not.toBeNull()
   })
 
-  it('nav Home link has aria-label="Heim"', () => {
-    const { container } = render(React.createElement(AuthMvpProfilePage))
-    expect(navHomeLink(container)?.getAttribute('aria-label')).toBe('Heim')
-  })
-
-  it('nav Home link is visible during loading state', () => {
+  it('TeskeidMenu is visible during loading state', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
     const { container } = render(React.createElement(AuthMvpProfilePage))
     expect(screen.getByText('Hleð...')).toBeDefined()
-    expect(navHomeLink(container)).toBeDefined()
+    expect(navMenu(container)).not.toBeNull()
   })
 })
 
@@ -154,19 +147,19 @@ describe('AuthMvpProfilePage — bottom logo', () => {
 // ── DOM order ─────────────────────────────────────────────────────────────────
 
 describe('AuthMvpProfilePage — DOM order', () => {
-  it('nav Home link appears before bottom logo', () => {
+  it('TeskeidMenu appears before bottom logo', () => {
     const { container } = render(React.createElement(AuthMvpProfilePage))
-    const nav = navHomeLink(container)!
+    const menu = navMenu(container)!
     const logo = bottomLogoLink(container)!
-    expect(nav.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(menu.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('nav Home link appears before bottom logo during loading state', () => {
+  it('TeskeidMenu appears before bottom logo during loading state', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
     const { container } = render(React.createElement(AuthMvpProfilePage))
-    const nav = navHomeLink(container)!
+    const menu = navMenu(container)!
     const logo = bottomLogoLink(container)!
-    expect(nav.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(menu.compareDocumentPosition(logo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('loading text appears before bottom logo', () => {

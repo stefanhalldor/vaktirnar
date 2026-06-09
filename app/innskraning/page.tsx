@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { TeskeidLoginForm } from '@/components/teskeid/TeskeidLoginForm'
+import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { createClient } from '@/lib/supabase/server'
 
 export const metadata: Metadata = {
@@ -19,5 +20,12 @@ export default async function InnskraningPage() {
     }
     if (hasSession) redirect('/auth-mvp/heim')
   }
-  return <TeskeidLoginForm logoHref="/" />
+  return (
+    <div className="relative">
+      <div className="absolute top-3 right-3 z-10">
+        <TeskeidMenu variant="public" />
+      </div>
+      <TeskeidLoginForm logoHref="/" />
+    </div>
+  )
 }

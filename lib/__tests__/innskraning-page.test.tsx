@@ -36,6 +36,11 @@ vi.mock('@/components/teskeid/TeskeidLoginForm', () => ({
   },
 }))
 
+vi.mock('@/components/teskeid/TeskeidMenu', () => ({
+  TeskeidMenu: ({ variant }: { variant: string }) =>
+    React.createElement('div', { 'data-testid': `teskeid-menu-${variant}` }),
+}))
+
 import InnskraningPage from '@/app/innskraning/page'
 
 // ── Env helpers ───────────────────────────────────────────────────────────────
