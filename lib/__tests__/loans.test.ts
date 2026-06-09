@@ -3,7 +3,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 
 const ROOT = join(__dirname, '..', '..')
-import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, canShowReturnControls, getLoanCardControls, loanedAtWeekday } from '../loans/types'
+import { CreateLoanSchema, EditLoanSchema, EditLoanItemDetailsSchema, AddInvitationSchema, canShowReturnControls, getLoanCardControls, loanedAtWeekday } from '../loans/types'
 import type { LoanItem } from '../loans/types'
 
 const baseCreate = {
@@ -202,7 +202,7 @@ describe('EditLoanSchema — date validation', () => {
 // ============================================================
 
 type ControlItem = Pick<LoanItem,
-  'invitation_status' | 'invitation_attempt_status' | 'can_send_invitation' | 'is_creator'
+  'invitation_status' | 'invitation_attempt_status' | 'can_send_invitation' | 'is_creator' | 'my_role'
 >
 
 const BASE: ControlItem = {
@@ -210,6 +210,7 @@ const BASE: ControlItem = {
   invitation_attempt_status: null,
   can_send_invitation: false,
   is_creator: true,
+  my_role: 'lender',
 }
 
 describe('getLoanCardControls — expired invitation', () => {
@@ -811,6 +812,87 @@ describe('sql/37 — email template v3 migration', () => {
     for (const line of grantLines) {
       expect(line).not.toMatch(/\b(anon|authenticated|PUBLIC)\b/)
     }
+  })
+})
+
+// ============================================================
+// getLoanCardControls — canEditItemDetails (sql/44)
+// Creator OR lender may edit item_name and note at any time.
+// Pure borrower (non-creator) may not.
+// ============================================================
+
+describe('getLoanCardControls — canEditItemDetails', () => {
+  it('true when creator, lender, pre-acceptance', () => {
+    const c = getLoanCardControls({ ...BASE, is_creator: true, my_role: 'lender', invitation_status: null })
+    expect(c.canEditItemDetails).toBe(true)
+  })
+
+  it('true when creator, borrower role, pre-acceptance', () => {
+    const c = getLoanCardControls({ ...BASE, is_creator: true, my_role: 'borrower', invitation_status: null })
+    expect(c.canEditItemDetails).toBe(true)
+  })
+
+  it('true when creator, accepted (even though canEdit is false)', () => {
+    const c = getLoanCardControls({ ...BASE, is_creator: true, my_role: 'lender', invitation_status: 'accepted' })
+    expect(c.canEditItemDetails).toBe(true)
+    expect(c.canEdit).toBe(false)
+  })
+
+  it('true when non-creator lender', () => {
+    const c = getLoanCardControls({ ...BASE, is_creator: false, my_role: 'lender', invitation_status: 'accepted' })
+    expect(c.canEditItemDetails).toBe(true)
+  })
+
+  it('false when non-creator borrower', () => {
+    const c = getLoanCardControls({ ...BASE, is_creator: false, my_role: 'borrower', invitation_status: 'accepted' })
+    expect(c.canEditItemDetails).toBe(false)
+  })
+
+  it('false when non-creator borrower with pending invitation', () => {
+    const c = getLoanCardControls({ ...BASE, is_creator: false, my_role: 'borrower', invitation_status: 'pending' })
+    expect(c.canEditItemDetails).toBe(false)
+  })
+})
+
+// ============================================================
+// EditLoanItemDetailsSchema (sql/44)
+// ============================================================
+
+describe('EditLoanItemDetailsSchema', () => {
+  it('accepts item_name with no note', () => {
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók' }).success).toBe(true)
+  })
+
+  it('accepts item_name and note', () => {
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: 'Góð bók' }).success).toBe(true)
+  })
+
+  it('rejects empty item_name', () => {
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: '' }).success).toBe(false)
+  })
+
+  it('rejects whitespace-only item_name', () => {
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: '   ' }).success).toBe(false)
+  })
+
+  it('rejects item_name over 200 chars', () => {
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'a'.repeat(201) }).success).toBe(false)
+  })
+
+  it('rejects note over 1000 chars', () => {
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: 'a'.repeat(1001) }).success).toBe(false)
+  })
+
+  it('transforms empty string note to null', () => {
+    const result = EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: '' })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.note).toBeNull()
+  })
+
+  it('trims whitespace-only note to null', () => {
+    const result = EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: '   ' })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.note).toBeNull()
   })
 })
 

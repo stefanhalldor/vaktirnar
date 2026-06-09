@@ -334,7 +334,7 @@
       "title": "Loaned and returned",
       "profile": "Account",
       "homeLink": "Home",
-      "newItem": "Add item",
+      "newItem": "Add loaned item",
       "open": "Outstanding",
       "returned": "Done",
       "all": "All",

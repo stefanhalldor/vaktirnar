@@ -74,6 +74,7 @@ export function LoanCard({ item }: Props) {
     bothPartiesJoined,
     canEdit,
     canDelete,
+    canEditItemDetails,
     showSendInvite,
     showInviteSent,
     showCancelInvite,
@@ -157,7 +158,7 @@ export function LoanCard({ item }: Props) {
                 : ''}
           </p>
         </div>
-        {canEdit && (
+        {canEditItemDetails && (
           <Link
             href={`/auth-mvp/lanad-og-skilad/breyta/${item.id}`}
             className="text-[#72796e] hover:text-[#154212] transition-colors shrink-0"

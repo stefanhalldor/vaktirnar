@@ -47,6 +47,12 @@ export default async function LoanPage() {
         <p className="text-sm text-red-600 py-8 text-center">{t('errors.loadFailed')}</p>
       ) : (
         <>
+          <Link
+            href="/auth-mvp/lanad-og-skilad/ny"
+            className="flex items-center justify-center h-10 rounded-xl border border-dashed border-[#154212]/30 text-sm text-[#154212] hover:bg-[#154212]/5 transition-colors"
+          >
+            + {t('newItem')}
+          </Link>
           {pendingInvitations.length > 0 && (
             <section className="flex flex-col gap-3">
               <h2 className="text-sm font-medium text-[#42493e]">{t('pendingInvitations')}</h2>

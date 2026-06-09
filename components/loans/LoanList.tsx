@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { LoanCard } from './LoanCard'
 import type { LoanItem } from '@/lib/loans/types'
@@ -77,13 +76,6 @@ export function LoanList({ items }: Props) {
         </div>
       )}
 
-      {/* Add button */}
-      <Link
-        href="/auth-mvp/lanad-og-skilad/ny"
-        className="flex items-center justify-center h-10 rounded-xl border border-dashed border-[#154212]/30 text-sm text-[#154212] hover:bg-[#154212]/5 transition-colors"
-      >
-        + {t('newItem')}
-      </Link>
     </div>
   )
 }

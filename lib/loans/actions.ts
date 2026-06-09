@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
-import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema } from '@/lib/loans/types'
+import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, EditLoanItemDetailsSchema } from '@/lib/loans/types'
 import { sendLoanInvitationEmail, type EmailContext } from '@/lib/loans/email'
 
 const LOANS_PATH = '/auth-mvp/lanad-og-skilad'
@@ -458,6 +458,45 @@ export async function declineInvitation(invitationId: string): Promise<ActionRes
   if (result !== 'ok')        return { ok: false, error: 'save_failed' }
 
   revalidatePath(LOANS_PATH)
+  return { ok: true }
+}
+
+// ============================================================
+// updateLoanItemDetails
+// Narrow edit: item_name + note only.
+// Allowed for: created_by OR lender_user_id.
+// ============================================================
+
+export async function updateLoanItemDetails(loanId: string, input: unknown): Promise<ActionResult> {
+  const { user } = await guardLoanAccess()
+
+  const parsed = EditLoanItemDetailsSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: 'invalid_input' }
+
+  const { item_name, note } = parsed.data
+
+  const admin = getAdmin()
+  const { data, error } = await admin.rpc('update_loan_item_details', {
+    p_actor_id:  user.id,
+    p_loan_id:   loanId,
+    p_item_name: item_name,
+    p_note:      note ?? null,
+  })
+
+  if (error) {
+    console.error('[loans/updateLoanItemDetails] RPC failed')
+    return { ok: false, error: 'save_failed' }
+  }
+
+  const result = data as string
+  if (result === 'not_found') return { ok: false, error: 'not_found' }
+  if (result === 'invalid_item_name' || result === 'invalid_note') {
+    return { ok: false, error: 'invalid_input' }
+  }
+  if (result !== 'ok') return { ok: false, error: 'save_failed' }
+
+  revalidatePath(LOANS_PATH)
+  revalidatePath('/auth-mvp/heim')
   return { ok: true }
 }
 

@@ -82,6 +82,17 @@ export const CreateLoanSchema = z
     path: ['due_at'],
   })
 
+export const EditLoanItemDetailsSchema = z.object({
+  item_name: z.string().trim().min(1, 'required').max(200),
+  note: z
+    .string()
+    .max(1000)
+    .nullable()
+    .optional()
+    .transform((v) => v?.trim() || null),
+})
+export type EditLoanItemDetailsInput = z.infer<typeof EditLoanItemDetailsSchema>
+
 export const EditLoanSchema = z
   .object({
     item_name: z.string().trim().min(1, 'required').max(200),
@@ -134,10 +145,11 @@ export interface LoanCardControls {
   showCancelInvite: boolean
   isResend: boolean
   showAddParty: boolean
+  canEditItemDetails: boolean
 }
 
 export function getLoanCardControls(
-  item: Pick<LoanItem, 'invitation_status' | 'invitation_attempt_status' | 'can_send_invitation' | 'is_creator'>,
+  item: Pick<LoanItem, 'invitation_status' | 'invitation_attempt_status' | 'can_send_invitation' | 'is_creator' | 'my_role'>,
 ): LoanCardControls {
   return {
     bothPartiesJoined: canShowReturnControls(item.invitation_status),
@@ -155,5 +167,6 @@ export function getLoanCardControls(
       item.is_creator &&
       item.invitation_status !== 'pending' &&
       item.invitation_status !== 'accepted',
+    canEditItemDetails: item.is_creator || item.my_role === 'lender',
   }
 }

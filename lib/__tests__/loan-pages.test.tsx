@@ -38,6 +38,8 @@ vi.mock('next-intl/server', () => ({
       homeLink: 'Fara á heimasíðu',
       backToList: '← Til baka',
       newTitle: 'Skrá nýtt lán',
+      newItem: 'Skrá hlut í láni',
+      editTitle: 'Breyta láni',
       pendingInvitations: 'Boð í bið',
       'errors.loadFailed': 'Villa við hleðslu',
     }
@@ -61,13 +63,22 @@ vi.mock('@/components/loans/PendingInvitationCard', () => ({
 vi.mock('@/components/loans/LoanForm', () => ({
   LoanForm: () => React.createElement('form', { 'data-testid': 'loan-form' }),
 }))
+vi.mock('@/components/loans/LoanItemDetailsForm', () => ({
+  LoanItemDetailsForm: () => React.createElement('form', { 'data-testid': 'loan-item-details-form' }),
+}))
 vi.mock('@/lib/loans/actions', () => ({
   createLoan: vi.fn(),
+  updateLoan: vi.fn(),
+  updateLoanItemDetails: vi.fn(),
+}))
+vi.mock('next/navigation', () => ({
+  notFound: vi.fn(() => { throw new Error('NEXT_NOT_FOUND') }),
 }))
 
 import { LoanShell } from '@/components/loans/LoanShell'
 import LoanPage from '@/app/auth-mvp/lanad-og-skilad/page'
 import NewLoanPage from '@/app/auth-mvp/lanad-og-skilad/ny/page'
+import EditLoanPage from '@/app/auth-mvp/lanad-og-skilad/breyta/[id]/page'
 
 const TEST_USER = { id: 'uid-1', email: 'user@example.com' }
 
@@ -236,5 +247,89 @@ describe('NewLoanPage — page structure', () => {
     expect(
       backLink.compareDocumentPosition(logoLink) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+  })
+})
+
+// ── LoanPage — new item CTA ───────────────────────────────────────────────────
+
+describe('LoanPage — new item CTA', () => {
+  it('renders CTA link with exact text "Skrá hlut í láni"', async () => {
+    render(await LoanPage())
+    const links = screen.getAllByRole('link')
+    const cta = links.find((l) => l.textContent?.trim() === '+ Skrá hlut í láni')
+    expect(cta).toBeDefined()
+    expect((cta as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/ny')
+  })
+})
+
+// ── EditLoanPage — routing split ──────────────────────────────────────────────
+
+const ITEM_BASE = {
+  id: 'loan-id-1',
+  item_name: 'Bók',
+  note: null,
+  loaned_at: '2026-01-01',
+  due_at: null,
+  returned_at: null,
+  invitation_id: null,
+  invitation_status: null as null,
+  invitation_attempt_status: null as null,
+  can_send_invitation: false,
+  other_display_name: null,
+  is_creator: false,
+  my_role: 'lender' as const,
+}
+
+describe('EditLoanPage — routing', () => {
+  it('renders LoanForm for creator pre-acceptance', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: true, my_role: 'lender', invitation_status: null }],
+      error: null,
+    })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(container.querySelector('[data-testid="loan-form"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="loan-item-details-form"]')).toBeNull()
+  })
+
+  it('renders LoanItemDetailsForm for non-creator lender', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: false, my_role: 'lender', invitation_status: 'accepted' }],
+      error: null,
+    })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(container.querySelector('[data-testid="loan-item-details-form"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="loan-form"]')).toBeNull()
+  })
+
+  it('renders LoanItemDetailsForm for creator post-acceptance', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: true, my_role: 'lender', invitation_status: 'accepted' }],
+      error: null,
+    })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(container.querySelector('[data-testid="loan-item-details-form"]')).not.toBeNull()
+  })
+
+  it('throws notFound for borrower non-creator', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: false, my_role: 'borrower', invitation_status: 'accepted' }],
+      error: null,
+    })
+    await expect(
+      EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('throws notFound when item is not in the list', async () => {
+    mockRpc.mockResolvedValue({ data: [], error: null })
+    await expect(
+      EditLoanPage({ params: Promise.resolve({ id: 'loan-id-missing' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
   })
 })

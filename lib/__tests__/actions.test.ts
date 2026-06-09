@@ -29,7 +29,7 @@ vi.mock('@/lib/loans/email', () => ({
   sendLoanInvitationEmail: mockSendEmail,
 }))
 
-import { sendInvitationEmail, createLoan, addLoanInvitation } from '@/lib/loans/actions'
+import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails } from '@/lib/loans/actions'
 import { guardLoanAccess } from '@/lib/loans/guard'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -776,6 +776,61 @@ describe('sendInvitationEmail — v3 reservation', () => {
       1,
       { recipientRole: 'lender', templateVersion: 'v2', itemName: 'Reiðhjól', creatorDisplayName: 'Jón' },
     )
+  })
+})
+
+// ── updateLoanItemDetails orchestration ──────────────────────────────────────
+
+const ITEM_LOAN_ID = 'loan-uuid-item-1'
+
+describe('updateLoanItemDetails orchestration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns ok on happy path', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', note: null })
+
+    expect(result).toEqual({ ok: true })
+    const call = mockRpc.mock.calls.find((c: string[]) => c[0] === 'update_loan_item_details')
+    expect(call).toBeDefined()
+    expect(call![1]).toMatchObject({
+      p_loan_id:   ITEM_LOAN_ID,
+      p_item_name: 'Bók',
+      p_note:      null,
+    })
+  })
+
+  it('returns invalid_input for empty item_name (fails schema)', async () => {
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: '' })
+    expect(result).toEqual({ ok: false, error: 'invalid_input' })
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('returns not_found when RPC returns "not_found"', async () => {
+    mockRpc.mockResolvedValue({ data: 'not_found', error: null })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    expect(result).toEqual({ ok: false, error: 'not_found' })
+  })
+
+  it('returns invalid_input when RPC returns "invalid_item_name"', async () => {
+    mockRpc.mockResolvedValue({ data: 'invalid_item_name', error: null })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    expect(result).toEqual({ ok: false, error: 'invalid_input' })
+  })
+
+  it('returns invalid_input when RPC returns "invalid_note"', async () => {
+    mockRpc.mockResolvedValue({ data: 'invalid_note', error: null })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    expect(result).toEqual({ ok: false, error: 'invalid_input' })
+  })
+
+  it('returns save_failed on RPC transport error', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301', message: 'Transport error' } })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    expect(result).toEqual({ ok: false, error: 'save_failed' })
   })
 })
 

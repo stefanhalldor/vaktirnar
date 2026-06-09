@@ -3,9 +3,11 @@ import { getTranslations } from 'next-intl/server'
 import Link from 'next/link'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
-import { updateLoan } from '@/lib/loans/actions'
+import { updateLoan, updateLoanItemDetails } from '@/lib/loans/actions'
 import { LoanForm } from '@/components/loans/LoanForm'
+import { LoanItemDetailsForm } from '@/components/loans/LoanItemDetailsForm'
 import { LoanShell } from '@/components/loans/LoanShell'
+import { getLoanCardControls } from '@/lib/loans/types'
 import type { LoanItem } from '@/lib/loans/types'
 
 export default async function EditLoanPage({
@@ -40,19 +42,30 @@ export default async function EditLoanPage({
 
   const item = (data as LoanItem[]).find((i) => i.id === id)
 
-  // Not found, not a participant, or not the creator
-  if (!item || !item.is_creator) notFound()
+  if (!item) notFound()
 
-  // Pre-acceptance only: invitation must not be accepted
-  if (item.invitation_status === 'accepted') notFound()
+  const { canEdit, canEditItemDetails } = getLoanCardControls(item)
 
-  const boundAction = updateLoan.bind(null, id)
+  if (!canEditItemDetails) notFound()
 
+  if (canEdit) {
+    const boundAction = updateLoan.bind(null, id)
+    return (
+      <LoanShell nav={nav} homeLabel={t('homeLink')}>
+        <div>
+          <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('editTitle')}</h2>
+          <LoanForm action={boundAction} initial={item} />
+        </div>
+      </LoanShell>
+    )
+  }
+
+  const boundAction = updateLoanItemDetails.bind(null, id)
   return (
     <LoanShell nav={nav} homeLabel={t('homeLink')}>
       <div>
         <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('editTitle')}</h2>
-        <LoanForm action={boundAction} initial={item} />
+        <LoanItemDetailsForm action={boundAction} initial={item} />
       </div>
     </LoanShell>
   )
