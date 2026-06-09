@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import Link from 'next/link'
 import { Home } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 
 export default function AuthMvpProfilePage() {
@@ -72,13 +73,16 @@ export default function AuthMvpProfilePage() {
         {/* ── Nav row: title left, Home icon right ─────────────── */}
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-base font-semibold text-[#154212]">{t('title')}</h1>
-          <Link
-            href="/auth-mvp/heim"
-            className="flex items-center justify-center w-11 h-11 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-            aria-label={t('homeLink')}
-          >
-            <Home size={20} aria-hidden />
-          </Link>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/auth-mvp/heim"
+              className="flex items-center justify-center w-11 h-11 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              aria-label={t('homeLink')}
+            >
+              <Home size={20} aria-hidden />
+            </Link>
+            <TeskeidMenu variant="authenticated" />
+          </div>
         </div>
 
         {/* ── Content ──────────────────────────────────────────── */}

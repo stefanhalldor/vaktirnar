@@ -230,7 +230,14 @@
     "nav": {
       "back": "Til baka",
       "submit": "Ný hugmynd",
-      "submitIdea": "Ný hugmynd"
+      "submitIdea": "Ný hugmynd",
+      "menu": "Valmynd",
+      "closeMenu": "Loka valmynd",
+      "ideas": "Hugmyndabankinn",
+      "login": "Innskráning",
+      "home": "Heim",
+      "profile": "Minn prófíll",
+      "loans": "Lánað og skilað"
     },
     "hero": {
       "tagline": "Ertu með allt í Teskeið?",

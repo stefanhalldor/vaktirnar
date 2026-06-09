@@ -73,6 +73,12 @@ vi.mock('@/lib/loans/actions', () => ({
 }))
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => { throw new Error('NEXT_NOT_FOUND') }),
+  usePathname: vi.fn().mockReturnValue('/auth-mvp/lanad-og-skilad'),
+}))
+
+vi.mock('@/components/teskeid/TeskeidMenu', () => ({
+  TeskeidMenu: ({ variant }: { variant: string }) =>
+    React.createElement('div', { 'data-testid': `teskeid-menu-${variant}` }),
 }))
 
 import { LoanShell } from '@/components/loans/LoanShell'

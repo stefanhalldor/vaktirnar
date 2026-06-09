@@ -17,6 +17,7 @@ import React from 'react'
 
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn().mockReturnValue({ replace: vi.fn(), push: mockPush }),
+  usePathname: vi.fn().mockReturnValue('/auth-mvp/minn-profill'),
 }))
 
 vi.mock('next-intl', () => ({
@@ -45,6 +46,11 @@ vi.mock('next-intl', () => ({
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode; [k: string]: unknown }) =>
     React.createElement('a', { href, ...props }, children),
+}))
+
+vi.mock('@/components/teskeid/TeskeidMenu', () => ({
+  TeskeidMenu: ({ variant }: { variant: string }) =>
+    React.createElement('div', { 'data-testid': `teskeid-menu-${variant}` }),
 }))
 
 const { mockSignOut, mockPush } = vi.hoisted(() => ({

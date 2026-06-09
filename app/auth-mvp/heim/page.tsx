@@ -3,6 +3,7 @@ import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
 import { UserCircle, ChevronRight } from 'lucide-react'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
+import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
@@ -137,14 +138,17 @@ export default async function HeimPage() {
         {/* ── Kveðja + profile-icon í sömu línu ──────────────────── */}
         <section className="flex items-center justify-between gap-3">
           <p className="text-xl font-semibold text-primary">{greeting}</p>
-          <Link
-            href="/auth-mvp/minn-profill"
-            className="flex items-center justify-center w-10 h-10 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 shrink-0"
-            aria-label={t('profileLink')}
-            title={t('profileLink')}
-          >
-            <UserCircle size={22} aria-hidden />
-          </Link>
+          <div className="flex items-center gap-1 shrink-0">
+            <Link
+              href="/auth-mvp/minn-profill"
+              className="flex items-center justify-center w-10 h-10 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              aria-label={t('profileLink')}
+              title={t('profileLink')}
+            >
+              <UserCircle size={22} aria-hidden />
+            </Link>
+            <TeskeidMenu variant="authenticated" />
+          </div>
         </section>
 
         {/* ── Nýlegt — hidden when LOANS_ENABLED=false or RPC failed ─ */}

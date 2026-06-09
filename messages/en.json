@@ -230,7 +230,14 @@
     "nav": {
       "back": "Back",
       "submit": "New idea",
-      "submitIdea": "New idea"
+      "submitIdea": "New idea",
+      "menu": "Menu",
+      "closeMenu": "Close menu",
+      "ideas": "Ideas",
+      "login": "Sign in",
+      "home": "Home",
+      "profile": "My profile",
+      "loans": "Loaned and returned"
     },
     "hero": {
       "tagline": "Got everything in Teskeið?",

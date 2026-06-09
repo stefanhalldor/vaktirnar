@@ -119,6 +119,11 @@ vi.mock('next/link', () => ({
     React.createElement('a', { href, ...props }, children),
 }))
 
+vi.mock('@/components/teskeid/TeskeidMenu', () => ({
+  TeskeidMenu: ({ variant }: { variant: string }) =>
+    React.createElement('div', { 'data-testid': `teskeid-menu-${variant}` }),
+}))
+
 import HeimPage from '@/app/auth-mvp/heim/page'
 import { sortLoansForHome } from '@/lib/loans/sort'
 import { computeRecentReadKey } from '@/lib/loans/recent-read.server'
