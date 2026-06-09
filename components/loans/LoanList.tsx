@@ -5,8 +5,9 @@ import { useTranslations } from 'next-intl'
 import { LoanCard } from './LoanCard'
 import type { LoanItem } from '@/lib/loans/types'
 
-type RoleFilter = 'all' | 'lender' | 'borrower'
-type Tab = 'open' | 'returned'
+type Status = 'open' | 'returned'
+type RoleFilter = 'lender' | 'borrower' | null
+type Sort = 'newest' | 'oldest'
 
 interface Props {
   items: LoanItem[]
@@ -14,60 +15,134 @@ interface Props {
 
 export function LoanList({ items }: Props) {
   const t = useTranslations('teskeid.loans')
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
-  const [tab, setTab] = useState<Tab>('open')
+  const [status, setStatus] = useState<Status>('open')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>(null)
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<Sort>('newest')
 
-  const filtered = items.filter((item) => {
-    const matchesTab =
-      tab === 'open' ? item.returned_at === null : item.returned_at !== null
-    const matchesRole =
-      roleFilter === 'all' || item.my_role === roleFilter
-    return matchesTab && matchesRole
-  })
+  // Counts — stable, not affected by role or search
+  const openCount = items.filter((i) => i.returned_at === null).length
+  const returnedCount = items.filter((i) => i.returned_at !== null).length
+
+  // Status-filtered items, before role/search — used for role pill counts
+  const statusItems = items.filter((i) =>
+    status === 'open' ? i.returned_at === null : i.returned_at !== null,
+  )
+  const lentCount = statusItems.filter((i) => i.my_role === 'lender').length
+  const borrowedCount = statusItems.filter((i) => i.my_role === 'borrower').length
+
+  // Final filtered + sorted list
+  const query = search.trim().toLocaleLowerCase('is-IS')
+  const filtered = statusItems
+    .filter((i) => roleFilter === null || i.my_role === roleFilter)
+    .filter((i) => {
+      if (!query) return true
+      return (
+        i.item_name.toLocaleLowerCase('is-IS').includes(query) ||
+        (i.note?.toLocaleLowerCase('is-IS').includes(query) ?? false) ||
+        (i.other_display_name?.toLocaleLowerCase('is-IS').includes(query) ?? false)
+      )
+    })
+    .slice()
+    .sort((a, b) => {
+      const dateA = status === 'returned' ? (a.returned_at ?? a.loaned_at) : a.loaned_at
+      const dateB = status === 'returned' ? (b.returned_at ?? b.loaned_at) : b.loaned_at
+      const cmp = dateA < dateB ? -1 : dateA > dateB ? 1 : 0
+      const byDate = sort === 'newest' ? -cmp : cmp
+      if (byDate !== 0) return byDate
+      return sort === 'newest'
+        ? b.id.localeCompare(a.id)
+        : a.id.localeCompare(b.id)
+    })
+
+  const hasActiveFilter = query !== '' || roleFilter !== null
+  const emptyKey = hasActiveFilter
+    ? 'noSearchResults'
+    : status === 'open'
+      ? 'noOpen'
+      : 'noReturned'
+
+  const pillBase =
+    'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors min-h-[32px]'
+  const pillActive = 'bg-[#154212] text-white border-[#154212]'
+  const pillInactive = 'bg-white text-[#42493e] border-gray-200 hover:border-[#154212]'
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Role filter */}
-      <div className="flex rounded-xl border border-gray-200 overflow-hidden">
-        {(['all', 'lender', 'borrower'] as RoleFilter[]).map((r) => (
-          <button
-            key={r}
-            type="button"
-            onClick={() => setRoleFilter(r)}
-            className={`flex-1 py-2 text-xs font-medium transition-colors ${
-              roleFilter === r
-                ? 'bg-[#154212] text-white'
-                : 'bg-white text-[#42493e] hover:bg-gray-50'
-            }`}
-          >
-            {r === 'all' ? t('all') : r === 'lender' ? t('lent') : t('borrowed')}
-          </button>
-        ))}
+
+      {/* Status pills */}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          type="button"
+          aria-pressed={status === 'open'}
+          onClick={() => { setStatus('open'); setRoleFilter(null) }}
+          className={`${pillBase} ${status === 'open' ? pillActive : pillInactive}`}
+        >
+          {t('open')}
+          <span className="opacity-70">({openCount})</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={status === 'returned'}
+          onClick={() => { setStatus('returned'); setRoleFilter(null) }}
+          className={`${pillBase} ${status === 'returned' ? pillActive : pillInactive}`}
+        >
+          {t('returned')}
+          <span className="opacity-70">({returnedCount})</span>
+        </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-100">
-        {(['open', 'returned'] as Tab[]).map((t_) => (
-          <button
-            key={t_}
-            type="button"
-            onClick={() => setTab(t_)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              tab === t_
-                ? 'border-[#154212] text-[#154212]'
-                : 'border-transparent text-[#72796e] hover:text-[#154212]'
-            }`}
+      {/* Role pills */}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          type="button"
+          aria-pressed={roleFilter === 'lender'}
+          onClick={() => setRoleFilter(roleFilter === 'lender' ? null : 'lender')}
+          className={`${pillBase} ${roleFilter === 'lender' ? pillActive : pillInactive}`}
+        >
+          {t('lent')}
+          <span className="opacity-70">({lentCount})</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={roleFilter === 'borrower'}
+          onClick={() => setRoleFilter(roleFilter === 'borrower' ? null : 'borrower')}
+          className={`${pillBase} ${roleFilter === 'borrower' ? pillActive : pillInactive}`}
+        >
+          {t('borrowed')}
+          <span className="opacity-70">({borrowedCount})</span>
+        </button>
+      </div>
+
+      {/* Search + Sort */}
+      <div className="flex gap-2 items-center">
+        <label className="flex-1 min-w-0">
+          <span className="sr-only">{t('searchLabel')}</span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('searchLabel')}
+            className="w-full h-9 rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-[#72796e] shrink-0">
+          <span className="sr-only">{t('sortLabel')}</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as Sort)}
+            aria-label={t('sortLabel')}
+            className="text-xs text-[#42493e] border border-gray-200 rounded-xl px-2 py-2 bg-white outline-none focus:border-[#2d5a27] h-9"
           >
-            {t_ === 'open' ? t('open') : t('returned')}
-          </button>
-        ))}
+            <option value="newest">{t('sortNewest')}</option>
+            <option value="oldest">{t('sortOldest')}</option>
+          </select>
+        </label>
       </div>
 
       {/* List */}
       {filtered.length === 0 ? (
-        <p className="text-sm text-[#72796e] py-8 text-center">
-          {tab === 'open' ? t('noOpen') : t('noReturned')}
-        </p>
+        <p className="text-sm text-[#72796e] py-8 text-center">{t(emptyKey)}</p>
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map((item) => (

@@ -56,6 +56,11 @@ export function LoanCard({ item }: Props) {
     return t('loanedAtFull', { weekday, date: buildDateString(year, month, day) })
   }
 
+  function formatDueAt(dateStr: string): string {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    return buildDateString(year, month, day)
+  }
+
   function formatReturnedAt(timestamp: string): string {
     const localDate = new Date(timestamp).toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
     const [year, month, day] = localDate.split('-').map(Number)
@@ -171,7 +176,7 @@ export function LoanCard({ item }: Props) {
       </div>
 
       {/* Dates */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#72796e]">
+      <div className="flex flex-col gap-0.5 text-xs text-[#72796e]">
         <span>{formatLoanedAt(item.loaned_at)}</span>
         {item.returned_at && (
           <span>{formatReturnedAt(item.returned_at)}</span>
@@ -179,7 +184,8 @@ export function LoanCard({ item }: Props) {
         {!item.returned_at && item.due_at && (
           <span className={`flex items-center gap-1 ${overdue ? 'text-amber-600 font-medium' : ''}`}>
             {overdue && <AlertTriangle size={12} aria-hidden />}
-            {overdue ? t('overdue') : formatDate(item.due_at)}
+            {t('dueAtFull', { date: formatDueAt(item.due_at) })}
+            {overdue && <span className="sr-only">{t('overdue')}</span>}
           </span>
         )}
       </div>
