@@ -213,6 +213,51 @@ Staðfest:
 
 ---
 
+## #16 — Væntingastýring fyrir mobile-first beta
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+`betaLabel` á `/innskraning` uppfært í báðum tungumálum:
+"Teskeið.is er í opnum beta prófunum og virkar best í síma eins og staðan er núna."
+
+Skrár:
+- `messages/is.json` — betaLabel
+- `messages/en.json` — betaLabel
+
+---
+
+## #18 — Persónulegri headerkveðja
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+Kveðja á `/auth-mvp/heim` notar nú fyrsta nafn: "{firstName}, þú ert með allt í teskeið!"
+firstName er dregið út með `displayName.trim().split(/\s+/)[0]`.
+
+Skrár:
+- `app/auth-mvp/heim/page.tsx` — firstName derivation
+- `messages/is.json` — greeting
+- `messages/en.json` — greeting
+
+---
+
+## #15 — Íslenskar dagsetningar á lánaspjöldum
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+Lánaspjöld sýna nú "Lánað laugardaginn 7. júní 2026" með íslenskum mánaðarheitum
+úr messages (ekki Intl-locale sem er óáreiðanlegt á Vercel). Bætt við "Skilað"
+línu með `returned_at` í `Atlantic/Reykjavik` timezone.
+
+Skrár:
+- `components/loans/LoanCard.tsx` — buildDateString, formatReturnedAt, returned date row
+- `messages/is.json` — months, returnedAtFull
+- `messages/en.json` — months, returnedAtFull
+
+---
+
 ## #21 — Derhúfumerking verði `10,5`
 
 **Lokið:** 2026-06-08
