@@ -371,6 +371,7 @@
         "10": "nóvember",
         "11": "desember"
       },
+      "datePlaceholder": "Veldu dag",
       "dueDateOptional": "Skiladagur (valfrjálst)",
       "noteOptional": "Athugasemd (valfrjálst)",
       "recipientEmail": "Netfang viðtakanda",

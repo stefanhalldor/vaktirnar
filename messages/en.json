@@ -367,6 +367,7 @@
         "10": "November",
         "11": "December"
       },
+      "datePlaceholder": "Select date",
       "dueDateOptional": "Due date (optional)",
       "noteOptional": "Note (optional)",
       "recipientEmail": "Recipient email",
