@@ -130,7 +130,7 @@ export default function SettingsPage() {
                 <select
                   value={locale}
                   onChange={(e) => setLocale(e.target.value)}
-                  className="h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+                  className="h-10 rounded-xl border border-gray-200 bg-white px-3 text-base outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                 >
                   <option value="is">Íslenska</option>
                   <option value="en">English</option>

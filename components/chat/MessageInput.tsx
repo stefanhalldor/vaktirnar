@@ -42,7 +42,7 @@ export function MessageInput({ onSend, onActivityClick, disabled }: MessageInput
             onChange={(e) => setText(e.target.value)}
             placeholder={t('messagePlaceholder')}
             disabled={disabled || sending}
-            className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm outline-none focus:border-violet-400 focus:bg-white transition-colors disabled:opacity-50"
+            className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-base outline-none focus:border-violet-400 focus:bg-white transition-colors disabled:opacity-50"
           />
           <button
             type="submit"

@@ -55,7 +55,7 @@ export function VaktSuggestionForm({ placeholder, emailPlaceholder, buttonLabel,
         onChange={e => setSuggestion(e.target.value)}
         placeholder={placeholder}
         rows={3}
-        className="text-sm border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-violet-400 transition-colors resize-none"
+        className="text-base border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-violet-400 transition-colors resize-none"
       />
       <div className="flex flex-col sm:flex-row gap-2">
         <input
@@ -63,7 +63,7 @@ export function VaktSuggestionForm({ placeholder, emailPlaceholder, buttonLabel,
           value={email}
           onChange={e => setEmail(e.target.value)}
           placeholder={emailPlaceholder}
-          className="flex-1 text-sm border border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-violet-400 transition-colors"
+          className="flex-1 text-base border border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-violet-400 transition-colors"
         />
         <button
           type="submit"

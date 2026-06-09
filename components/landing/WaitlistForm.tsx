@@ -47,7 +47,7 @@ export function WaitlistForm({ product, locale, placeholder, buttonLabel, succes
         value={email}
         onChange={e => setEmail(e.target.value)}
         placeholder={placeholder}
-        className="flex-1 text-sm border border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-violet-400 transition-colors"
+        className="flex-1 text-base border border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-violet-400 transition-colors"
       />
       <button
         type="submit"

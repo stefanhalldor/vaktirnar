@@ -96,7 +96,7 @@ export default function AuthMvpProfilePage() {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   maxLength={200}
-                  className="h-10 rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
+                  className="h-10 rounded-xl border border-gray-200 px-3 text-base outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
                 />
               </label>
               <label className="flex flex-col gap-1">
@@ -105,7 +105,7 @@ export default function AuthMvpProfilePage() {
                   type="email"
                   value={email}
                   readOnly
-                  className="h-10 rounded-xl border border-gray-100 bg-gray-50 px-3 text-sm text-gray-500 outline-none cursor-default"
+                  className="h-10 rounded-xl border border-gray-100 bg-gray-50 px-3 text-base text-gray-500 outline-none cursor-default"
                 />
               </label>
               {error && <p className="text-sm text-red-600">{error}</p>}

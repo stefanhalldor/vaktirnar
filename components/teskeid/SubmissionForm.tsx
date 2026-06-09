@@ -78,7 +78,7 @@ export function SubmissionForm() {
           maxLength={2000}
           rows={4}
           placeholder="Lýstu vandanum sem þú lendir í..."
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
+          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
         />
       </div>
 
@@ -92,7 +92,7 @@ export function SubmissionForm() {
           maxLength={2000}
           rows={3}
           placeholder="Excel, WhatsApp, minnismiðar... eða ekkert?"
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
+          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
         />
       </div>
 
@@ -106,7 +106,7 @@ export function SubmissionForm() {
           maxLength={2000}
           rows={3}
           placeholder="Draumurinn minn er..."
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
+          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
         />
       </div>
 
@@ -115,7 +115,7 @@ export function SubmissionForm() {
         <select
           value={form.category}
           onChange={(e) => set('category', e.target.value)}
-          className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white"
+          className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white"
         >
           <option value="">Veldu flokk (valkvætt)</option>
           {IDEA_CATEGORIES.map((cat) => (
@@ -163,7 +163,7 @@ export function SubmissionForm() {
             onChange={(e) => set('name', e.target.value)}
             maxLength={200}
             placeholder="Nafn þitt"
-            className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+            className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-violet-400"
           />
         </div>
         <div>
@@ -176,7 +176,7 @@ export function SubmissionForm() {
             onChange={(e) => set('email', e.target.value)}
             maxLength={320}
             placeholder="netfang@dæmi.is"
-            className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+            className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-violet-400"
           />
         </div>
       </div>
