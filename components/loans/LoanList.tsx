@@ -146,7 +146,7 @@ export function LoanList({ items }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('searchLabel')}
-            className="w-full h-9 rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
+            className="w-full h-9 rounded-xl border border-gray-200 px-3 text-base outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
           />
         </label>
         <label className="flex items-center gap-1.5 text-xs text-[#72796e] shrink-0">

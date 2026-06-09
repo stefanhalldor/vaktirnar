@@ -16,6 +16,8 @@ const AUTH_ITEMS = [
   { href: '/auth-mvp/heim', labelKey: 'home', icon: Home },
   { href: '/auth-mvp/minn-profill', labelKey: 'profile', icon: UserCircle },
   { href: '/auth-mvp/lanad-og-skilad', labelKey: 'loans', icon: Archive },
+  { href: '/', labelKey: 'ideas', icon: Lightbulb },
+  { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },
 ] as const
 
 interface TeskeidMenuProps {
