@@ -41,7 +41,7 @@ BEGIN
   END IF;
 
   -- Validate item_name
-  IF char_length(trim(p_item_name)) = 0 OR char_length(p_item_name) > 200 THEN
+  IF char_length(trim(p_item_name)) = 0 OR char_length(trim(p_item_name)) > 200 THEN
     RETURN 'invalid_item_name';
   END IF;
 
