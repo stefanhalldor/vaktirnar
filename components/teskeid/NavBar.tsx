@@ -38,7 +38,7 @@ export function BottomNav() {
               className={`flex flex-col items-center justify-center rounded-2xl px-6 py-2 transition-colors ${
                 active
                   ? 'bg-[#2d5a27] text-[#9dd090]'
-                  : 'text-[#42493e] hover:bg-[#e4e2dd]'
+                  : 'text-[#42493e]'
               }`}
             >
               <Icon size={20} />

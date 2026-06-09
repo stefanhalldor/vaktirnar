@@ -249,6 +249,8 @@
       "launchedWhy": "Af hverju hún skiptir máli",
       "launchedSolution": "Tilbúin lausn",
       "votePrompt": "Þykir þér þetta mikilvægt?",
+      "voteLabel": "Já, ég vil þetta",
+      "votedLabel": "Kosið",
       "followPrompt": "Láta vita þegar eitthvað breytist",
       "otherIdeas": "Aðrar hugmyndir"
     },
@@ -372,7 +374,8 @@
         "11": "desember"
       },
       "datePlaceholder": "Veldu dag",
-      "dueDateOptional": "Skiladagur (valfrjálst)",
+      "dueDateOptional": "Skila fyrir (valfrjálst)",
+      "clearDueDate": "Hreinsa skiladag",
       "noteOptional": "Athugasemd (valfrjálst)",
       "recipientEmail": "Netfang viðtakanda",
       "recipientEmailOptional": "Netfang viðtakanda (valfrjálst)",

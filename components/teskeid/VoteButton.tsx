@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { ChevronUp, ThumbsUp, Plus, Check } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { trackEvent } from '@/lib/teskeid/analytics'
 
 interface VoteButtonProps {
@@ -12,6 +13,7 @@ interface VoteButtonProps {
 }
 
 export function VoteButton({ ideaId, initialCount, compact = false, variant }: VoteButtonProps) {
+  const t = useTranslations('teskeid.ideas')
   const [count, setCount] = useState(initialCount)
   const [voted, setVoted] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -92,9 +94,9 @@ export function VoteButton({ ideaId, initialCount, compact = false, variant }: V
           } disabled:opacity-60`}
         >
           {voted ? (
-            <><Check size={14} />Kosið</>
+            <><Check size={14} />{t('votedLabel')}</>
           ) : (
-            <><Plus size={14} />Kjósa</>
+            <><Plus size={14} />{t('voteLabel')}</>
           )}
         </button>
       </div>
@@ -123,7 +125,7 @@ export function VoteButton({ ideaId, initialCount, compact = false, variant }: V
     <button
       onClick={handleVote}
       disabled={voted || loading || !checked}
-      aria-label="Kjósa þessa hugmynd"
+      aria-label={voted ? t('votedLabel') : t('voteLabel')}
       className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors border ${
         voted
           ? 'bg-[#154212] text-white border-[#154212] cursor-default'
@@ -132,7 +134,7 @@ export function VoteButton({ ideaId, initialCount, compact = false, variant }: V
     >
       <ChevronUp size={14} />
       <span>{count}</span>
-      {voted && <span className="text-xs opacity-80">Kosið</span>}
+      <span className="text-xs opacity-80">{voted ? t('votedLabel') : t('voteLabel')}</span>
     </button>
   )
 }

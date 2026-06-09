@@ -245,6 +245,8 @@
       "launchedWhy": "Why it matters",
       "launchedSolution": "Available now",
       "votePrompt": "Think this matters?",
+      "voteLabel": "Yes, I want this",
+      "votedLabel": "Voted",
       "followPrompt": "Get notified when something changes",
       "otherIdeas": "Other ideas"
     },
@@ -368,7 +370,8 @@
         "11": "December"
       },
       "datePlaceholder": "Select date",
-      "dueDateOptional": "Due date (optional)",
+      "dueDateOptional": "Return by (optional)",
+      "clearDueDate": "Clear return date",
       "noteOptional": "Note (optional)",
       "recipientEmail": "Recipient email",
       "recipientEmailOptional": "Recipient email (optional)",

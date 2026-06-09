@@ -140,12 +140,26 @@ export function LoanForm({ action, initial }: Props) {
       />
 
       {/* Due date (optional) */}
-      <LoanDateField
-        label={t('dueDateOptional')}
-        value={dueAt}
-        onChange={setDueAt}
-        min={loanedAt}
-      />
+      <div className="flex gap-2 items-end">
+        <div className="flex-1 min-w-0">
+          <LoanDateField
+            label={t('dueDateOptional')}
+            value={dueAt}
+            onChange={setDueAt}
+            min={loanedAt}
+          />
+        </div>
+        {dueAt && (
+          <button
+            type="button"
+            onClick={() => setDueAt('')}
+            aria-label={t('clearDueDate')}
+            className="h-10 w-10 rounded-xl border border-gray-200 text-[#72796e] hover:bg-gray-50 transition-colors shrink-0 flex items-center justify-center text-base"
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       {/* Note (optional) */}
       <label className="flex flex-col gap-1">
