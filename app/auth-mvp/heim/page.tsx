@@ -1,4 +1,3 @@
-import { createHash } from 'crypto'
 import { cookies } from 'next/headers'
 import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
@@ -10,10 +9,11 @@ import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import type { LoanItem, PendingInvitation } from '@/lib/loans/types'
 import { sortLoansForHome } from '@/lib/loans/sort'
+import { RECENT_READ_COOKIE, parseRecentReadCookie } from '@/lib/loans/recent-read'
+import { computeRecentReadKey } from '@/lib/loans/recent-read.server'
 import { RecentSection, type RecentLabels } from './RecentSection'
 
 const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
-const RECENT_COOKIE = 'teskeid_recent_read'
 
 const UPCOMING_KEYS = [
   'upcomingEmail',
@@ -25,29 +25,6 @@ const UPCOMING_KEYS = [
   'upcomingOutToPlay',
 ] as const
 
-function getTodayReykjavik(): string {
-  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
-}
-
-function computeRecentSignature(loans: LoanItem[]): string {
-  const today = getTodayReykjavik()
-  const payload = loans
-    .map((l) => {
-      const overdue = !!l.due_at && !l.returned_at && l.due_at < today
-      return [
-        l.id,
-        l.item_name,
-        l.loaned_at,
-        l.due_at ?? '',
-        l.returned_at ?? '',
-        l.my_role,
-        l.other_display_name ?? '',
-        overdue ? '1' : '0',
-      ].join('|')
-    })
-    .join('\n')
-  return createHash('sha256').update(payload).digest('hex')
-}
 
 export default async function HeimPage() {
   const { user } = await guardTeskeidSession()
@@ -122,17 +99,21 @@ export default async function HeimPage() {
   }
 
   // Read-state cookie for Nýlegt completion banner.
-  // The signature is computed from the visible sorted recent rows.
-  const recentLoans = sortLoansForHome(loans).slice(0, 3)
-  const recentSig = computeRecentSignature(recentLoans)
-  let readSig: string | null = null
+  // Per-item keys allow new loans to surface even after marking existing loans read.
+  let readCookieValue: string | null = null
   try {
     const jar = await cookies()
-    readSig = jar.get(RECENT_COOKIE)?.value ?? null
+    readCookieValue = jar.get(RECENT_READ_COOKIE)?.value ?? null
   } catch {
     // cookies() unavailable in this context — treat as unread
   }
-  const initialRead = recentLoans.length > 0 && readSig === recentSig
+  const readKeys = parseRecentReadCookie(readCookieValue)
+  const recentRows = sortLoansForHome(loans)
+    .map((loan) => ({ loan, key: computeRecentReadKey(user.id, loan) }))
+    .filter(({ key }) => !readKeys.has(key))
+    .slice(0, 3)
+  const rowBatch = recentRows.map((r) => r.key).join('.')
+  const initialRead = loans.length > 0 && recentRows.length === 0
 
   const pendingCount = pendingInvitations.length
   const firstName = displayName ? (displayName.trim().split(/\s+/)[0] ?? displayName) : null
@@ -169,8 +150,8 @@ export default async function HeimPage() {
         {/* ── Nýlegt — hidden when LOANS_ENABLED=false or RPC failed ─ */}
         {loansEnabled && !loansError && (
           <RecentSection
-            loans={recentLoans}
-            signature={recentSig}
+            key={rowBatch}
+            rows={recentRows}
             initialRead={initialRead}
             displayLocale={displayLocale}
             labels={recentLabels}

@@ -3,14 +3,16 @@
 import { useState } from 'react'
 import { CheckCircle2, AlertTriangle } from 'lucide-react'
 import type { LoanItem } from '@/lib/loans/types'
+import {
+  RECENT_READ_COOKIE,
+  parseRecentReadCookie,
+  serializeRecentReadKeys,
+  writeRecentReadCookie,
+} from '@/lib/loans/recent-read'
 
-const COOKIE_NAME = 'teskeid_recent_read'
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 days
-
-function setCookieRead(sig: string) {
-  const secure =
-    typeof window !== 'undefined' && window.location.protocol === 'https:' ? '; Secure' : ''
-  document.cookie = `${COOKIE_NAME}=${sig}; path=/auth-mvp/heim; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE}${secure}`
+export interface RecentRow {
+  loan: LoanItem
+  key: string
 }
 
 function isOverdue(item: LoanItem): boolean {
@@ -38,22 +40,31 @@ export interface RecentLabels {
 }
 
 interface Props {
-  loans: LoanItem[]
-  signature: string
+  rows: RecentRow[]
   initialRead: boolean
   displayLocale: string
   labels: RecentLabels
 }
 
-export function RecentSection({ loans, signature, initialRead, displayLocale, labels }: Props) {
+export function RecentSection({ rows, initialRead, displayLocale, labels }: Props) {
   const [isRead, setIsRead] = useState(initialRead)
 
   function handleMarkRead() {
     setIsRead(true)
-    setCookieRead(signature)
+    const currentValue =
+      document.cookie
+        .split(';')
+        .find((c) => c.trim().startsWith(RECENT_READ_COOKIE + '='))
+        ?.split('=')
+        .slice(1)
+        .join('=')
+        .trim() ?? null
+    const existing = parseRecentReadCookie(currentValue)
+    const newKeys = rows.map((r) => r.key)
+    writeRecentReadCookie(serializeRecentReadKeys(existing, newKeys))
   }
 
-  if (loans.length === 0) {
+  if (rows.length === 0) {
     return (
       <section>
         <div
@@ -94,7 +105,7 @@ export function RecentSection({ loans, signature, initialRead, displayLocale, la
         </button>
       </div>
       <div className="flex flex-col divide-y divide-border bg-card border border-border rounded-xl overflow-hidden">
-        {loans.map((item) => {
+        {rows.map(({ loan: item }) => {
           const overdue = isOverdue(item)
           return (
             <div key={item.id} className="flex items-center gap-3 px-4 min-h-[48px]">

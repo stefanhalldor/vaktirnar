@@ -6,7 +6,6 @@
  * dependencies (guard, next-intl/server, Supabase, Next.js primitives).
  */
 
-import { createHash } from 'crypto'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import React from 'react'
@@ -122,6 +121,7 @@ vi.mock('next/link', () => ({
 
 import HeimPage from '@/app/auth-mvp/heim/page'
 import { sortLoansForHome } from '@/lib/loans/sort'
+import { computeRecentReadKey } from '@/lib/loans/recent-read.server'
 import type { LoanItem, PendingInvitation } from '@/lib/loans/types'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -190,37 +190,10 @@ function setupRpcError(fn: 'get_my_loans' | 'get_my_pending_invitations') {
   })
 }
 
-// Mirror the server-side computeRecentSignature logic exactly.
-// overdueOverrides lets tests force the overdue flag to a specific value
-// (e.g. to simulate what the signature was before a loan became overdue).
-function computeTestSignature(
-  loans: LoanItem[],
-  overdueOverrides?: Map<string, boolean>,
-): string {
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
-  const sorted = sortLoansForHome(loans).slice(0, 3)
-  const payload = sorted
-    .map((l) => {
-      const overdue = overdueOverrides?.has(l.id)
-        ? overdueOverrides.get(l.id)!
-        : (!!l.due_at && !l.returned_at && l.due_at < today)
-      return [
-        l.id,
-        l.item_name,
-        l.loaned_at,
-        l.due_at ?? '',
-        l.returned_at ?? '',
-        l.my_role,
-        l.other_display_name ?? '',
-        overdue ? '1' : '0',
-      ].join('|')
-    })
-    .join('\n')
-  return createHash('sha256').update(payload).digest('hex')
-}
-
-function setupCookie(sig: string | null) {
-  mockCookiesGet.mockReturnValue(sig ? { value: sig } : undefined)
+function setupCookieV2(keys: string[]) {
+  mockCookiesGet.mockReturnValue(
+    keys.length > 0 ? { value: keys.join('.') } : undefined
+  )
 }
 
 // ── Env helpers ──────────────────────────────────────────────────────────────
@@ -467,12 +440,12 @@ describe('HeimPage — Nýlegt section', () => {
   })
 })
 
-describe('HeimPage — Lesið / read state', () => {
-  it('shows "Lesið" button when loans exist and cookie is unset', async () => {
+describe('HeimPage — Lesið / read state (per-item keys)', () => {
+  it('shows "Lesið" button when loan exists and cookie is empty', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([makeLoan()], [])
-    setupCookie(null)
+    setupRpcs([makeLoan({ item_name: 'Bók' })], [])
+    setupCookieV2([])
     render(await HeimPage())
     expect(screen.getByText('Lesið')).toBeDefined()
   })
@@ -481,81 +454,100 @@ describe('HeimPage — Lesið / read state', () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([makeLoan({ item_name: 'Bók' })], [])
-    setupCookie(null)
+    setupCookieV2([])
     render(await HeimPage())
-    const btn = screen.getByText('Lesið')
-    fireEvent.click(btn)
+    fireEvent.click(screen.getByText('Lesið'))
     expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
     expect(screen.queryByText('Lesið')).toBeNull()
   })
 
-  it('shows done banner immediately when cookie matches current signature', async () => {
+  it('shows done banner immediately when cookie contains key for visible loan', async () => {
     const loan = makeLoan({ item_name: 'Skór' })
-    const sig = computeTestSignature([loan])
+    const key = computeRecentReadKey(TEST_USER.id, loan)
     setupGuard()
     setupProfile(null)
     setupRpcs([loan], [])
-    setupCookie(sig)
+    setupCookieV2([key])
     render(await HeimPage())
     expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
     expect(screen.queryByText('Lesið')).toBeNull()
   })
 
-  it('shows loan list (not done banner) when cookie has stale signature', async () => {
+  it('shows loan when cookie does NOT contain its key', async () => {
     const loan = makeLoan({ item_name: 'Jakki' })
     setupGuard()
     setupProfile(null)
     setupRpcs([loan], [])
-    setupCookie('stale-signature-that-does-not-match')
+    setupCookieV2(['aaaabbbbccccdddd1111222233334444']) // different key
     render(await HeimPage())
     expect(screen.getByText('Jakki')).toBeDefined()
     expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
   })
 
-  it('cookie signature is an opaque SHA-256 hex string (not loan data)', async () => {
-    const loan = makeLoan({ item_name: 'Leikur' })
-    const sig = computeTestSignature([loan])
-    // Verify it is a 64-char hex string
-    expect(sig).toMatch(/^[0-9a-f]{64}$/)
-    // Verify it does not contain the item name
-    expect(sig).not.toContain('Leikur')
+  it('core regression: read loan disappears, new unread loan surfaces', async () => {
+    const loanA = makeLoan({ id: '00000000-0000-0000-0000-000000000001', item_name: 'Gamla', loaned_at: '2026-05-01' })
+    const loanB = makeLoan({ id: '00000000-0000-0000-0000-000000000002', item_name: 'Nýja', loaned_at: '2026-05-02' })
+    const keyA = computeRecentReadKey(TEST_USER.id, loanA)
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([loanB, loanA], [])
+    setupCookieV2([keyA]) // loanA is read
+    render(await HeimPage())
+    expect(screen.getByText('Nýja')).toBeDefined()
+    expect(screen.queryByText('Gamla')).toBeNull()
+  })
+
+  it('surfaces 4th loan when first 3 are all read', async () => {
+    const loans = [
+      makeLoan({ id: 'a1', item_name: 'Item 1', loaned_at: '2026-05-05' }),
+      makeLoan({ id: 'a2', item_name: 'Item 2', loaned_at: '2026-05-04' }),
+      makeLoan({ id: 'a3', item_name: 'Item 3', loaned_at: '2026-05-03' }),
+      makeLoan({ id: 'a4', item_name: 'Item 4', loaned_at: '2026-05-02' }),
+    ]
+    const readKeys = loans.slice(0, 3).map((l) => computeRecentReadKey(TEST_USER.id, l))
+    setupGuard()
+    setupProfile(null)
+    setupRpcs(loans, [])
+    setupCookieV2(readKeys)
+    render(await HeimPage())
+    expect(screen.queryByText('Item 1')).toBeNull()
+    expect(screen.queryByText('Item 2')).toBeNull()
+    expect(screen.queryByText('Item 3')).toBeNull()
+    expect(screen.getByText('Item 4')).toBeDefined()
   })
 
   it('does not show "Lesið" button when there are no loans', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([], [])
-    setupCookie(null)
+    setupCookieV2([])
     render(await HeimPage())
     expect(screen.queryByText('Lesið')).toBeNull()
   })
 
-  it('regression: cookie becomes stale when loan transitions from current to overdue', async () => {
-    // Loan with a past due date — currently overdue
-    const loan = makeLoan({ id: 'overdue-loan', item_name: 'Bók', due_at: '2020-01-01' })
-
-    // Compute what the signature was when this loan had not yet passed its due date
-    const sigWhenCurrent = computeTestSignature([loan], new Map([['overdue-loan', false]]))
-
+  it('key changes when loan transitions to overdue — stale key does not mark read', async () => {
+    const loanCurrent = makeLoan({ id: 'overdue-loan', item_name: 'Bók', due_at: '2099-12-31' })
+    const keyWhenCurrent = computeRecentReadKey(TEST_USER.id, loanCurrent) // overdue=false
+    const loanOverdue = { ...loanCurrent, due_at: '2020-01-01' } // now overdue
     setupGuard()
     setupProfile(null)
-    setupRpcs([loan], [])
-    setupCookie(sigWhenCurrent) // cookie was written when loan was "current"
-
+    setupRpcs([loanOverdue], [])
+    setupCookieV2([keyWhenCurrent])
     render(await HeimPage())
-
-    // Loan is now overdue → signature includes overdue=1 → cookie no longer matches
-    expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
     expect(screen.getByText('Bók')).toBeDefined()
+    expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
   })
 
-  it('signature differs between current and overdue state of the same loan', () => {
-    const loan = makeLoan({ id: 'sig-diff', item_name: 'Kassi', due_at: '2026-06-01' })
-    const sigCurrent = computeTestSignature([loan], new Map([['sig-diff', false]]))
-    const sigOverdue = computeTestSignature([loan], new Map([['sig-diff', true]]))
-    expect(sigCurrent).not.toBe(sigOverdue)
-    expect(sigCurrent).toMatch(/^[0-9a-f]{64}$/)
-    expect(sigOverdue).toMatch(/^[0-9a-f]{64}$/)
+  it('key changes when returned_at is set — stale key does not mark read', async () => {
+    const loan = makeLoan({ id: 'return-loan', item_name: 'Kassi' })
+    const keyBefore = computeRecentReadKey(TEST_USER.id, loan)
+    const loanReturned = { ...loan, returned_at: '2026-06-01' }
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([loanReturned], [])
+    setupCookieV2([keyBefore])
+    render(await HeimPage())
+    expect(screen.getByText('Kassi')).toBeDefined()
   })
 })
 
@@ -564,7 +556,7 @@ describe('HeimPage — Lesið / read state', () => {
 // property on the document instance. afterEach deletes the own property so
 // the jsdom prototype implementation is restored for other test suites.
 
-describe('HeimPage — Lesið cookie write', () => {
+describe('HeimPage — Lesið cookie write (v2)', () => {
   const cookieWrites: string[] = []
 
   beforeEach(() => {
@@ -580,14 +572,14 @@ describe('HeimPage — Lesið cookie write', () => {
     Reflect.deleteProperty(document, 'cookie')
   })
 
-  it('clicking "Lesið" writes teskeid_recent_read with expected SHA-256, required attributes, and no raw loan data', async () => {
+  it('clicking "Lesið" writes teskeid_recent_read_v2 with dot-separated 32-char hex keys, path=/, SameSite=Lax, no raw loan data', async () => {
     const loan = makeLoan({ id: 'write-test-id', item_name: 'Teppi' })
-    const expectedSig = computeTestSignature([loan])
+    const expectedKey = computeRecentReadKey(TEST_USER.id, loan)
 
     setupGuard()
     setupProfile(null)
     setupRpcs([loan], [])
-    setupCookie(null)
+    setupCookieV2([])
 
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lesið'))
@@ -595,16 +587,21 @@ describe('HeimPage — Lesið cookie write', () => {
     expect(cookieWrites.length).toBeGreaterThan(0)
     const written = cookieWrites[cookieWrites.length - 1]
 
-    // Value is the expected opaque SHA-256 hex
-    expect(written).toContain(`teskeid_recent_read=${expectedSig}`)
-    expect(written).toMatch(/teskeid_recent_read=[0-9a-f]{64}/)
+    // Cookie name is v2
+    expect(written).toContain('teskeid_recent_read_v2=')
+    // Value contains the expected 32-char key
+    expect(written).toContain(expectedKey)
+    expect(written).toMatch(/teskeid_recent_read_v2=[0-9a-f]{32}/)
+
+    // path=/ (not /auth-mvp/heim)
+    expect(written).toContain('path=/')
+    expect(written).not.toContain('path=/auth-mvp/heim')
 
     // Required cookie attributes
-    expect(written).toContain('path=/auth-mvp/heim')
     expect(written).toContain('SameSite=Lax')
     expect(written).toContain('Max-Age=')
 
-    // Does not contain item name, loan ID, or any user-facing text
+    // Does not contain item name or loan ID
     expect(written).not.toContain('Teppi')
     expect(written).not.toContain('write-test-id')
   })
