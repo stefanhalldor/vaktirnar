@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import type { ActionResult } from '@/lib/loans/actions'
 import type { LoanItem } from '@/lib/loans/types'
 
@@ -13,6 +13,8 @@ interface Props {
 
 export function LoanForm({ action, initial }: Props) {
   const t = useTranslations('teskeid.loans')
+  const locale = useLocale()
+  const dateLocale = locale === 'is' ? 'is-IS' : 'en-GB'
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
@@ -79,7 +81,7 @@ export function LoanForm({ action, initial }: Props) {
   }
 
   const inputClass =
-    'h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10'
+    'h-10 w-full min-w-0 max-w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10'
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
@@ -131,10 +133,11 @@ export function LoanForm({ action, initial }: Props) {
       )}
 
       {/* Loaned at */}
-      <label className="flex flex-col gap-1">
+      <label className="flex flex-col gap-1 min-w-0">
         <span className="text-sm font-medium text-[#42493e]">{t('loanedAt')}</span>
         <input
           type="date"
+          lang={dateLocale}
           value={loanedAt}
           onChange={(e) => setLoanedAt(e.target.value)}
           required
@@ -143,10 +146,11 @@ export function LoanForm({ action, initial }: Props) {
       </label>
 
       {/* Due date (optional) */}
-      <label className="flex flex-col gap-1">
+      <label className="flex flex-col gap-1 min-w-0">
         <span className="text-sm font-medium text-[#42493e]">{t('dueDateOptional')}</span>
         <input
           type="date"
+          lang={dateLocale}
           value={dueAt}
           onChange={(e) => setDueAt(e.target.value)}
           min={loanedAt}
