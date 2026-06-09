@@ -16,9 +16,13 @@ import React from 'react'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const { mockPathname } = vi.hoisted(() => ({ mockPathname: vi.fn().mockReturnValue('/') }))
+const { mockPathname, mockPush } = vi.hoisted(() => ({
+  mockPathname: vi.fn().mockReturnValue('/'),
+  mockPush: vi.fn(),
+}))
 vi.mock('next/navigation', () => ({
   usePathname: mockPathname,
+  useRouter: vi.fn(() => ({ push: mockPush })),
 }))
 
 vi.mock('next-intl', () => ({
@@ -29,14 +33,28 @@ vi.mock('next-intl', () => ({
         closeMenu: 'Loka valmynd',
         ideas: 'Hugmyndabankinn',
         submitIdea: 'Ný hugmynd',
-        login: 'Innskráning',
+        login: 'Nýskráning / innskráning',
         home: 'Heim',
         profile: 'Minn prófíll',
         loans: 'Lánað og skilað',
+        signOut: 'Útskrá',
       },
     }
     return (key: string) => T[ns]?.[key] ?? key
   }),
+}))
+
+const { mockGetSession, mockSignOut } = vi.hoisted(() => ({
+  mockGetSession: vi.fn().mockResolvedValue({ data: { session: null } }),
+  mockSignOut: vi.fn().mockResolvedValue({}),
+}))
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: vi.fn(() => ({
+    auth: {
+      getSession: mockGetSession,
+      signOut: mockSignOut,
+    },
+  })),
 }))
 
 vi.mock('next/link', () => ({
@@ -49,6 +67,7 @@ import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 beforeEach(() => {
   vi.clearAllMocks()
   mockPathname.mockReturnValue('/')
+  mockGetSession.mockResolvedValue({ data: { session: null } })
 })
 
 // ── Button label ──────────────────────────────────────────────────────────────
@@ -85,7 +104,7 @@ describe('TeskeidMenu — public variant items', () => {
     fireEvent.click(screen.getByRole('button'))
     expect(screen.getByText('Hugmyndabankinn')).toBeDefined()
     expect(screen.getByText('Ný hugmynd')).toBeDefined()
-    expect(screen.getByText('Innskráning')).toBeDefined()
+    expect(screen.getByText('Nýskráning / innskráning')).toBeDefined()
   })
 
   it('links point to correct hrefs', () => {
@@ -125,7 +144,7 @@ describe('TeskeidMenu — authenticated variant items', () => {
   it('does not show public-only items', () => {
     render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button'))
-    expect(screen.queryByText('Innskráning')).toBeNull()
+    expect(screen.queryByText('Nýskráning / innskráning')).toBeNull()
   })
 })
 
@@ -156,7 +175,7 @@ describe('TeskeidMenu — open and close', () => {
   it('closes when a menu item is clicked', () => {
     render(<TeskeidMenu variant="public" />)
     fireEvent.click(screen.getByRole('button'))
-    fireEvent.click(screen.getByText('Innskráning'))
+    fireEvent.click(screen.getByText('Nýskráning / innskráning'))
     expect(screen.queryByText('Hugmyndabankinn')).toBeNull()
   })
 })
@@ -210,5 +229,62 @@ describe('TeskeidMenu — active state', () => {
     fireEvent.click(screen.getByRole('button'))
     const heimLink = container.querySelector('a[href="/auth-mvp/heim"]')
     expect(heimLink?.className).not.toContain('bg-[#2d5a27]')
+  })
+})
+
+// ── Sign out ──────────────────────────────────────────────────────────────────
+
+describe('TeskeidMenu — sign out', () => {
+  it('shows Útskrá button in authenticated variant', () => {
+    render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    expect(screen.getByRole('button', { name: 'Útskrá' })).toBeDefined()
+  })
+
+  it('does not show Útskrá button in public variant', () => {
+    render(<TeskeidMenu variant="public" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    expect(screen.queryByRole('button', { name: 'Útskrá' })).toBeNull()
+  })
+
+  it('calls signOut and router.push when Útskrá is clicked', async () => {
+    render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Útskrá' }))
+    await vi.waitFor(() => expect(mockSignOut).toHaveBeenCalledTimes(1))
+    expect(mockPush).toHaveBeenCalledWith('/innskraning')
+  })
+
+  it('closes the menu when Útskrá is clicked', async () => {
+    render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    expect(screen.getByText('Heim')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Útskrá' }))
+    expect(screen.queryByText('Heim')).toBeNull()
+  })
+})
+
+// ── User email display ────────────────────────────────────────────────────────
+
+describe('TeskeidMenu — user email', () => {
+  it('shows user email at top of authenticated menu when session exists', async () => {
+    mockGetSession.mockResolvedValue({
+      data: { session: { user: { email: 'user@example.com' } } },
+    })
+    render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    await vi.waitFor(() => expect(screen.getByText('user@example.com')).toBeDefined())
+  })
+
+  it('does not show email when session is null', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } })
+    render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    await vi.waitFor(() => expect(screen.queryByText('@')).toBeNull())
+  })
+
+  it('does not fetch session in public variant', () => {
+    render(<TeskeidMenu variant="public" />)
+    expect(mockGetSession).not.toHaveBeenCalled()
   })
 })

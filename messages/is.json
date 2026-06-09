@@ -234,10 +234,11 @@
       "menu": "Valmynd",
       "closeMenu": "Loka valmynd",
       "ideas": "Hugmyndabankinn",
-      "login": "Innskráning",
+      "login": "Nýskráning / innskráning",
       "home": "Heim",
       "profile": "Minn prófíll",
-      "loans": "Lánað og skilað"
+      "loans": "Lánað og skilað",
+      "signOut": "Útskrá"
     },
     "hero": {
       "tagline": "Ertu með allt í Teskeið?",
@@ -292,8 +293,8 @@
     },
     "auth": {
       "betaLabel": "Teskeið.is er í opnum beta prófunum og virkar best í síma eins og staðan er núna.",
-      "loginTitle": "Innskráning",
-      "emailHint": "Sláðu inn netfangið þitt og við sendum þér innskráningarkóða.",
+      "loginTitle": "Allt í teskeið = allt á hreinu",
+      "emailHint": "Sláðu inn netfangið þitt og við sendum þér kóða til að komast nær því að vera með allt í teskeið!",
       "emailLabel": "Netfang",
       "emailPlaceholder": "þitt@netfang.is",
       "emailSubmitted": "Kóðinn er á leiðinni. Athugaðu tölvupóstinn þinn.",

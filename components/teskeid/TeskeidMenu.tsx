@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { Menu, X, Lightbulb, Send, LogIn, Home, UserCircle, Archive } from 'lucide-react'
+import { Menu, X, Lightbulb, Send, LogIn, Home, UserCircle, Archive, LogOut } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 const PUBLIC_ITEMS = [
   { href: '/', labelKey: 'ideas', icon: Lightbulb },
@@ -27,10 +28,19 @@ interface TeskeidMenuProps {
 export function TeskeidMenu({ variant }: TeskeidMenuProps) {
   const t = useTranslations('teskeid.nav')
   const pathname = usePathname()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   const items = variant === 'public' ? PUBLIC_ITEMS : AUTH_ITEMS
+
+  useEffect(() => {
+    if (variant !== 'authenticated') return
+    createClient().auth.getSession().then(({ data }) => {
+      setUserEmail(data.session?.user?.email ?? null)
+    })
+  }, [variant])
 
   useEffect(() => {
     if (!open) return
@@ -48,6 +58,12 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
     }
   }, [open])
 
+  async function handleSignOut() {
+    setOpen(false)
+    await createClient().auth.signOut()
+    router.push('/innskraning')
+  }
+
   return (
     <div ref={ref} className="relative">
       <button
@@ -61,7 +77,14 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-52 bg-[#fbf9f4] border border-black/10 rounded-xl shadow-lg z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 w-56 bg-[#fbf9f4] border border-black/10 rounded-xl shadow-lg z-50 overflow-hidden">
+          {variant === 'authenticated' && userEmail && (
+            <>
+              <div className="px-4 py-2.5 border-b border-black/5">
+                <p className="text-[11px] text-[#72796e] truncate">{userEmail}</p>
+              </div>
+            </>
+          )}
           {items.map(({ href, labelKey, icon: Icon }) => {
             const active = pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
             return (
@@ -80,6 +103,18 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
               </Link>
             )
           })}
+          {variant === 'authenticated' && (
+            <div className="border-t border-black/5">
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors min-h-[44px] w-full"
+              >
+                <LogOut size={16} aria-hidden />
+                <span>{t('signOut')}</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

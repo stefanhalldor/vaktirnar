@@ -9,17 +9,20 @@ export default async function Home() {
   const t = await getTranslations('teskeid')
 
   const supabase = await createClient()
-  const { data: ideas } = await supabase
-    .from('ideas')
-    .select('*')
-    .eq('is_public', true)
-    .order('is_featured', { ascending: false })
-    .order('votes_count', { ascending: false })
+  const [{ data: { user } }, { data: ideas }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase
+      .from('ideas')
+      .select('*')
+      .eq('is_public', true)
+      .order('is_featured', { ascending: false })
+      .order('votes_count', { ascending: false }),
+  ])
 
   return (
     <main className="min-h-screen bg-[#fbf9f4] pb-32">
       <PageViewTracker />
-      <NavBar />
+      <NavBar variant={user ? 'authenticated' : 'public'} />
       <HeroSection
         supportingLine={t('hero.supportingLine')}
         expandLabel={t('hero.expandLabel')}

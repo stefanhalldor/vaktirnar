@@ -234,10 +234,11 @@
       "menu": "Menu",
       "closeMenu": "Close menu",
       "ideas": "Ideas",
-      "login": "Sign in",
+      "login": "Register / sign in",
       "home": "Home",
       "profile": "My profile",
-      "loans": "Loaned and returned"
+      "loans": "Loaned and returned",
+      "signOut": "Sign out"
     },
     "hero": {
       "tagline": "Got everything in Teskeið?",
@@ -288,8 +289,8 @@
     },
     "auth": {
       "betaLabel": "Teskeið.is is in open beta testing and currently works best on a phone.",
-      "loginTitle": "Sign in",
-      "emailHint": "Enter your email and we'll send you a sign-in code.",
+      "loginTitle": "Sign in / register",
+      "emailHint": "Enter your email and we'll send you a code to continue.",
       "emailLabel": "Email",
       "emailPlaceholder": "your@email.com",
       "emailSubmitted": "Your code is on its way. Check your inbox.",

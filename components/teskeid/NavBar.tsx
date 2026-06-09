@@ -6,7 +6,11 @@ import { Lightbulb, Send, User } from 'lucide-react'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 
-export function NavBar() {
+interface NavBarProps {
+  variant?: 'public' | 'authenticated'
+}
+
+export function NavBar({ variant = 'public' }: NavBarProps) {
   return (
     <header className="w-full bg-[#fbf9f4] border-b border-black/5">
       <div className="max-w-[768px] mx-auto h-28 sm:h-32 px-3 grid grid-cols-[44px_1fr_44px] items-center">
@@ -15,7 +19,7 @@ export function NavBar() {
           <TeskeidLogo size={80} decorative />
         </Link>
         <div className="flex justify-end">
-          <TeskeidMenu variant="public" />
+          <TeskeidMenu variant={variant} />
         </div>
       </div>
     </header>
