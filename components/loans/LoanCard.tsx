@@ -38,17 +38,30 @@ export function LoanCard({ item }: Props) {
     })
   }
 
+  function buildDateString(year: number, month: number, day: number): string {
+    if (locale === 'en') {
+      return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      })
+    }
+    return `${day}. ${t(`months.${month - 1}`)} ${year}`
+  }
+
   function formatLoanedAt(dateStr: string): string {
     const weekdayIndex = loanedAtWeekday(dateStr)
     const weekday = t(`weekdays.${weekdayIndex}`)
     const [year, month, day] = dateStr.split('-').map(Number)
-    const dateLocale = locale === 'en' ? 'en-US' : displayLocale
-    const date = new Date(year, month - 1, day).toLocaleDateString(dateLocale, {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    })
-    return t('loanedAtFull', { weekday, date })
+    return t('loanedAtFull', { weekday, date: buildDateString(year, month, day) })
+  }
+
+  function formatReturnedAt(timestamp: string): string {
+    const localDate = new Date(timestamp).toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
+    const [year, month, day] = localDate.split('-').map(Number)
+    const weekdayIndex = new Date(year, month - 1, day).getDay()
+    const weekday = t(`weekdays.${weekdayIndex}`)
+    return t('returnedAtFull', { weekday, date: buildDateString(year, month, day) })
   }
 
   const [isPending, startTransition] = useTransition()
@@ -159,7 +172,10 @@ export function LoanCard({ item }: Props) {
       {/* Dates */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#72796e]">
         <span>{formatLoanedAt(item.loaned_at)}</span>
-        {item.due_at && (
+        {item.returned_at && (
+          <span>{formatReturnedAt(item.returned_at)}</span>
+        )}
+        {!item.returned_at && item.due_at && (
           <span className={`flex items-center gap-1 ${overdue ? 'text-amber-600 font-medium' : ''}`}>
             {overdue && <AlertTriangle size={12} aria-hidden />}
             {overdue ? t('overdue') : formatDate(item.due_at)}

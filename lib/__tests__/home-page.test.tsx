@@ -32,7 +32,7 @@ vi.mock('next-intl/server', () => ({
   getTranslations: vi.fn().mockImplementation(async (ns: string) => {
     const T: Record<string, Record<string, string>> = {
       'teskeid.home': {
-        greeting: 'Góðan dag, {displayName}',
+        greeting: '{firstName}, þú ert með allt í teskeið!',
         greetingFallback: 'Góðan dag',
         featuresTitle: 'Teskeiðar',
         loansTitle: 'Lánað og skilað',
@@ -252,7 +252,7 @@ describe('HeimPage — greeting', () => {
     setupProfile('Jón')
     setupRpcs([], [])
     render(await HeimPage())
-    expect(screen.getByText('Góðan dag, Jón')).toBeDefined()
+    expect(screen.getByText('Jón, þú ert með allt í teskeið!')).toBeDefined()
   })
 
   it('shows fallback greeting when display_name is null', async () => {
@@ -462,7 +462,7 @@ describe('HeimPage — Nýlegt section', () => {
     expect(screen.queryByText('Nýlegt')).toBeNull()
     expect(screen.queryByText('Lánað og skilað')).toBeNull()
     // Greeting and Teskeiðar still show
-    expect(screen.getByText('Góðan dag, Guðrún')).toBeDefined()
+    expect(screen.getByText('Guðrún, þú ert með allt í teskeið!')).toBeDefined()
     expect(screen.getByText('Teskeiðar')).toBeDefined()
   })
 })
@@ -673,7 +673,7 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     mockGetAdmin.mockImplementationOnce(() => { throw new Error('admin init failed') })
     render(await HeimPage())
     // Greeting and Teskeiðar section still render
-    expect(screen.getByText('Góðan dag, Brynja')).toBeDefined()
+    expect(screen.getByText('Brynja, þú ert með allt í teskeið!')).toBeDefined()
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
     // Nýlegt hidden (loansError = true)
     expect(screen.queryByText('Nýlegt')).toBeNull()
@@ -723,7 +723,7 @@ describe('HeimPage — DOM order', () => {
     setupProfile('Jón')
     setupRpcs([], [])
     render(await HeimPage())
-    const greeting = screen.getByText('Góðan dag, Jón')
+    const greeting = screen.getByText('Jón, þú ert með allt í teskeið!')
     const featuresHeading = screen.getByText('Teskeiðar')
     expect(
       greeting.compareDocumentPosition(featuresHeading) & Node.DOCUMENT_POSITION_FOLLOWING,

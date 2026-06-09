@@ -135,7 +135,8 @@ export default async function HeimPage() {
   const initialRead = recentLoans.length > 0 && readSig === recentSig
 
   const pendingCount = pendingInvitations.length
-  const greeting = displayName ? t('greeting', { displayName }) : t('greetingFallback')
+  const firstName = displayName ? (displayName.trim().split(/\s+/)[0] ?? displayName) : null
+  const greeting = firstName ? t('greeting', { firstName }) : t('greetingFallback')
   const displayLocale = LOCALE_MAP[locale] ?? locale
 
   const recentLabels: RecentLabels = {

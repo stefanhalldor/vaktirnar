@@ -45,7 +45,7 @@ export function TeskeidLogo({
       <path d={TESKEID_GREEN_PATH} fill={GREEN} fillRule="evenodd" />
       <path d={TESKEID_CREAM_DETAILS_PATH} fill={CREAM} fillRule="evenodd" />
       {/* Erase A&10 vector holes and replace with 10,5 */}
-      <rect x={514} y={224} width={188} height={66} fill={CREAM} />
+      {showBackground && <rect x={514} y={224} width={188} height={66} fill={CREAM} />}
       <text
         x={608}
         y={260}
