@@ -431,6 +431,12 @@
         "alreadyHasInvitation": "This item already has an open invitation.",
         "alreadyHasParty": "This item already has another party registered."
       }
+    },
+    "loader": {
+      "loadingLabel": "Loading Teskeið",
+      "fallbackIdeaTitle": "Everything in Teskeið",
+      "livePreview": "With published ideas",
+      "fallbackPreview": "Fallback when no ideas are available"
     }
   }
 }

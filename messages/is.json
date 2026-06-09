@@ -435,6 +435,12 @@
         "alreadyHasInvitation": "Þessi hlutur er þegar með opið lánaboð.",
         "alreadyHasParty": "Þessi hlutur er þegar með skráðan aðila."
       }
+    },
+    "loader": {
+      "loadingLabel": "Hleður Teskeið",
+      "fallbackIdeaTitle": "Allt í Teskeið",
+      "livePreview": "Með birtum hugmyndum",
+      "fallbackPreview": "Fallback ef hugmyndir finnast ekki"
     }
   }
 }
