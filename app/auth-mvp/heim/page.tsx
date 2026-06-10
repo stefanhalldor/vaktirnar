@@ -136,7 +136,7 @@ export default async function HeimPage() {
           if (!isDeleted && event.entity_id) {
             viewHref = isInvitation
               ? `/auth-mvp/lanad-og-skilad?invitation=${event.entity_id}`
-              : `/auth-mvp/lanad-og-skilad/breyta/${event.entity_id}`
+              : '/auth-mvp/lanad-og-skilad'
           }
           const tFn = (key: string, params?: Record<string, string>) =>
             t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])

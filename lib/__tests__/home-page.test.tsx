@@ -43,13 +43,13 @@ vi.mock('next-intl/server', () => ({
         upcomingKidsShift:    'Fyrsta vakt krakkanna',
         upcomingThirdShift:   'Þriðja vaktin',
         upcomingOutToPlay:    'Út að leika',
-        recent:               'Nýlegt',
+        recent:               'Ólesið',
         recentMarkRead:       'Lesið',
         recentMarkAllRead:    'Allt lesið',
         recentView:           'Skoða',
         recentClose:          'Loka',
         recentDone:           'Njóttu lífsins með allt í Teskeið...',
-        noRecent:             'Engin atburðir enn.',
+        noRecent:             'Engin ólesin atriði.',
         profileLink:          'Minn aðgangur',
         pendingBadgeLabel:    '{count, plural, one {1 boð í bið} other {# boð í bið}}',
         eventLoanCreated:     'Búinn til: {itemName}',
@@ -404,7 +404,7 @@ describe('HeimPage — pending invitations badge', () => {
   })
 })
 
-describe('HeimPage — Nýlegt section (event-based)', () => {
+describe('HeimPage — Ólesið section (event-based)', () => {
   it('shows done banner when there are no events', async () => {
     setupGuard()
     setupProfile(null)
@@ -414,13 +414,13 @@ describe('HeimPage — Nýlegt section (event-based)', () => {
     expect(screen.getByText('Njóttu lífsins með allt í Teskeið...')).toBeDefined()
   })
 
-  it('shows "Nýlegt" heading and "Allt lesið" button when events exist', async () => {
+  it('shows "Ólesið" heading and "Allt lesið" button when events exist', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ payload: { itemName: 'Bók' } })])
     render(await HeimPage())
-    expect(screen.getByText('Nýlegt')).toBeDefined()
+    expect(screen.getByText('Ólesið')).toBeDefined()
     expect(screen.getByText('Allt lesið')).toBeDefined()
   })
 
@@ -519,22 +519,22 @@ describe('HeimPage — Nýlegt section (event-based)', () => {
     expect(list?.className).not.toContain('overflow-y-auto')
   })
 
-  it('hides Nýlegt section when feature access is denied', async () => {
+  it('hides Ólesið section when feature access is denied', async () => {
     setupGuard(false)
     setupProfile('Guðrún')
     render(await HeimPage())
-    expect(screen.queryByText('Nýlegt')).toBeNull()
+    expect(screen.queryByText('Ólesið')).toBeNull()
     expect(screen.getByText('Guðrún, þú ert með allt í teskeið!')).toBeDefined()
     expect(screen.getByText('Teskeiðar')).toBeDefined()
   })
 
-  it('hides Nýlegt when events query fails', async () => {
+  it('hides Ólesið when events query fails', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
-    expect(screen.queryByText('Nýlegt')).toBeNull()
+    expect(screen.queryByText('Ólesið')).toBeNull()
     expect(screen.queryByText('Njóttu lífsins með allt í Teskeið...')).toBeNull()
   })
 
@@ -602,32 +602,32 @@ describe('HeimPage — partial error resilience', () => {
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
-  it('shows Teskeiðar section but hides Nýlegt when events query fails', async () => {
+  it('shows Teskeiðar section but hides Ólesið when events query fails', async () => {
     setupGuard()
     setupProfile('Stebbi')
     setupRpcs([])
     mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
-    expect(screen.queryByText('Nýlegt')).toBeNull()
+    expect(screen.queryByText('Ólesið')).toBeNull()
   })
 })
 
 // ── HeimPage — getAdmin / RPC rejection resilience ───────────────────────────
 
 describe('HeimPage — getAdmin / RPC rejection resilience', () => {
-  it('renders greeting and Teskeiðar link when getAdmin() throws, hiding Nýlegt and badge', async () => {
+  it('renders greeting and Teskeiðar link when getAdmin() throws, hiding Ólesið and badge', async () => {
     setupGuard()
     setupProfile('Brynja')
     mockGetAdmin.mockImplementationOnce(() => { throw new Error('admin init failed') })
     render(await HeimPage())
     expect(screen.getByText('Brynja, þú ert með allt í teskeið!')).toBeDefined()
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
-    expect(screen.queryByText('Nýlegt')).toBeNull()
+    expect(screen.queryByText('Ólesið')).toBeNull()
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
 
-  it('hides Nýlegt but shows badge when events query throws and invitations succeed', async () => {
+  it('hides Ólesið but shows badge when events query throws and invitations succeed', async () => {
     setupGuard()
     setupProfile('Hildur')
     mockRpc.mockImplementation((fn: string) => {
@@ -636,18 +636,18 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     })
     mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
-    expect(screen.queryByText('Nýlegt')).toBeNull()
+    expect(screen.queryByText('Ólesið')).toBeNull()
     expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
-  it('shows Nýlegt but hides badge when get_my_pending_invitations rejects and events succeed', async () => {
+  it('shows Ólesið but hides badge when get_my_pending_invitations rejects and events succeed', async () => {
     setupGuard()
     setupProfile(null)
     mockRpc.mockRejectedValue(new Error('invitations rpc failed'))
     setupRecentEvents([makeEvent({ payload: { itemName: 'Sykur' } })])
     render(await HeimPage())
-    expect(screen.getByText('Nýlegt')).toBeDefined()
+    expect(screen.getByText('Ólesið')).toBeDefined()
     expect(screen.getByText('Búinn til: Sykur')).toBeDefined()
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
@@ -668,13 +668,13 @@ describe('HeimPage — DOM order', () => {
     ).toBeTruthy()
   })
 
-  it('"Nýlegt" appears before "Teskeiðar" in DOM', async () => {
+  it('"Ólesið" appears before "Teskeiðar" in DOM', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent()])
     render(await HeimPage())
-    const nylegt = screen.getByText('Nýlegt')
+    const nylegt = screen.getByText('Ólesið')
     const teskeidar = screen.getByText('Teskeiðar')
     expect(
       nylegt.compareDocumentPosition(teskeidar) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -732,7 +732,7 @@ describe('HeimPage — event drawer', () => {
     expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad?invitation=inv-uuid-1234')
   })
 
-  it('drawer "Skoða" link for loan_invitation_accepted points to loan edit page', async () => {
+  it('drawer "Skoða" link for loan_invitation_accepted points to loan list', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
@@ -740,10 +740,11 @@ describe('HeimPage — event drawer', () => {
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lánaboð samþykkt: Reiðhjól'))
     const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
-    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/breyta/loan-uuid-5678')
+    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad')
+    expect(skoðaLink.getAttribute('href')).not.toContain('/breyta/')
   })
 
-  it('drawer "Skoða" link for loan_invitation_declined points to loan edit page', async () => {
+  it('drawer "Skoða" link for loan_invitation_declined points to loan list', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
@@ -751,7 +752,20 @@ describe('HeimPage — event drawer', () => {
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lánaboði hafnað: Kassi'))
     const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
-    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/breyta/loan-uuid-9999')
+    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad')
+    expect(skoðaLink.getAttribute('href')).not.toContain('/breyta/')
+  })
+
+  it('drawer "Skoða" link for loan_updated does not point to edit route', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 8, event_type: 'loan_updated', entity_type: 'loan', entity_id: 'loan-uuid-updated', payload: { itemName: 'Borvél' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Breytt: Borvél'))
+    const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
+    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad')
+    expect(skoðaLink.getAttribute('href')).not.toContain('/breyta/')
   })
 
   it('drawer does not show "Skoða" for deleted events', async () => {
