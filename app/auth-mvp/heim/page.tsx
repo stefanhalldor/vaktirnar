@@ -1,4 +1,3 @@
-import { cookies } from 'next/headers'
 import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
@@ -8,10 +7,9 @@ import { guardTeskeidSession } from '@/lib/auth/guard'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-import type { LoanItem, PendingInvitation } from '@/lib/loans/types'
-import { sortLoansForHome } from '@/lib/loans/sort'
-import { RECENT_READ_COOKIE, parseRecentReadCookie } from '@/lib/loans/recent-read'
-import { computeRecentReadKey } from '@/lib/loans/recent-read.server'
+import type { PendingInvitation } from '@/lib/loans/types'
+import { getUnreadRecentEventsForUser } from '@/lib/recent-events/helpers.server'
+import type { RecentEventDisplay } from '@/lib/recent-events/types'
 import { RecentSection, type RecentLabels } from './RecentSection'
 
 const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
@@ -25,6 +23,15 @@ const UPCOMING_KEYS = [
   'upcomingThirdShift',
   'upcomingOutToPlay',
 ] as const
+
+const EVENT_TYPE_TO_KEY: Record<string, string> = {
+  loan_created:             'eventLoanCreated',
+  loan_updated:             'eventLoanUpdated',
+  loan_returned:            'eventLoanReturned',
+  loan_return_undone:       'eventLoanReturnUndone',
+  loan_deleted:             'eventLoanDeleted',
+  loan_invitation_received: 'eventLoanInvitationReceived',
+}
 
 
 export default async function HeimPage() {
@@ -51,15 +58,12 @@ export default async function HeimPage() {
     // Profile unavailable — fall through to generic greeting
   }
 
-  // Loan data via service_role RPCs.
-  // LOANS_ENABLED must be exactly 'true' for loan sections to appear.
-  // getAdmin() is wrapped independently. Each RPC is settled via
-  // Promise.allSettled so one rejection cannot suppress the other.
   const loansEnabled = await checkFeatureAccess(user.id, user.email!, 'lanad-og-skilad')
-  let loans: LoanItem[] = []
+
   let pendingInvitations: PendingInvitation[] = []
-  let loansError = false
   let invitationsError = false
+  let recentEvents: RecentEventDisplay[] = []
+  let eventsError = false
 
   if (loansEnabled) {
     let admin: ReturnType<typeof getAdmin> | null = null
@@ -67,68 +71,64 @@ export default async function HeimPage() {
       admin = getAdmin()
     } catch {
       console.error('[heim/page] getAdmin failed')
-      loansError = true
       invitationsError = true
+      eventsError = true
     }
 
     if (admin !== null) {
-      const [loansResult, invitationsResult] = await Promise.allSettled([
-        admin.rpc('get_my_loans', { p_actor_id: user.id }),
-        admin.rpc('get_my_pending_invitations', { p_actor_id: user.id }),
-      ])
+      const invitationsResult = await Promise.resolve(
+        admin.rpc('get_my_pending_invitations', { p_actor_id: user.id })
+      ).catch(() => null)
 
-      if (loansResult.status === 'rejected') {
-        console.error('[heim/page] get_my_loans failed')
-        loansError = true
-      } else if (loansResult.value.error) {
-        console.error('[heim/page] get_my_loans failed')
-        loansError = true
+      if (!invitationsResult || invitationsResult.error) {
+        console.error('[heim/page] get_my_pending_invitations failed')
+        invitationsError = true
       } else {
-        loans = (loansResult.value.data ?? []) as LoanItem[]
+        pendingInvitations = (invitationsResult.data ?? []) as PendingInvitation[]
       }
 
-      if (invitationsResult.status === 'rejected') {
-        console.error('[heim/page] get_my_pending_invitations failed')
-        invitationsError = true
-      } else if (invitationsResult.value.error) {
-        console.error('[heim/page] get_my_pending_invitations failed')
-        invitationsError = true
-      } else {
-        pendingInvitations = (invitationsResult.value.data ?? []) as PendingInvitation[]
+      try {
+        const rows = await getUnreadRecentEventsForUser(user.id, 3)
+        recentEvents = rows.map((event) => {
+          const labelKey = EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type
+          const itemName = event.payload.itemName ?? ''
+          const isDeleted = event.event_type === 'loan_deleted'
+          const isInvitation = event.event_type === 'loan_invitation_received'
+          let viewHref: string | null = null
+          if (!isDeleted && event.entity_id) {
+            viewHref = isInvitation
+              ? `/auth-mvp/lanad-og-skilad/claim/${event.entity_id}`
+              : `/auth-mvp/lanad-og-skilad/breyta/${event.entity_id}`
+          }
+          return {
+            id:    event.id,
+            label: t(labelKey as Parameters<typeof t>[0], { itemName }),
+            href:  event.href,
+            viewHref,
+            isDeleted,
+          }
+        })
+      } catch {
+        console.error('[heim/page] recent events query failed')
+        eventsError = true
       }
     }
   }
 
-  // Read-state cookie for Nýlegt completion banner.
-  // Per-item keys allow new loans to surface even after marking existing loans read.
-  let readCookieValue: string | null = null
-  try {
-    const jar = await cookies()
-    readCookieValue = jar.get(RECENT_READ_COOKIE)?.value ?? null
-  } catch {
-    // cookies() unavailable in this context — treat as unread
-  }
-  const readKeys = parseRecentReadCookie(readCookieValue)
-  const recentRows = sortLoansForHome(loans)
-    .map((loan) => ({ loan, key: computeRecentReadKey(user.id, loan) }))
-    .filter(({ key }) => !readKeys.has(key))
-    .slice(0, 3)
-  const rowBatch = recentRows.map((r) => r.key).join('.')
-  const initialRead = loans.length > 0 && recentRows.length === 0
-
+  const rowBatch = recentEvents.map((e) => String(e.id)).join('.')
   const pendingCount = pendingInvitations.length
   const firstName = displayName ? (displayName.trim().split(/\s+/)[0] ?? displayName) : null
   const greeting = firstName ? t('greeting', { firstName }) : t('greetingFallback')
   const displayLocale = LOCALE_MAP[locale] ?? locale
 
   const recentLabels: RecentLabels = {
-    recent: t('recent'),
-    markRead: t('recentMarkRead'),
-    done: t('recentDone'),
-    noRecent: t('noRecent'),
-    lent: tLoans('lent'),
-    borrowed: tLoans('borrowed'),
-    overdue: tLoans('overdue'),
+    recent:      t('recent'),
+    markAllRead: t('recentMarkAllRead'),
+    markOneRead: t('recentMarkRead'),
+    done:        t('recentDone'),
+    noRecent:    t('noRecent'),
+    viewItem:    t('recentView'),
+    closeDrawer: t('recentClose'),
   }
 
   return (
@@ -141,12 +141,11 @@ export default async function HeimPage() {
           <TeskeidMenu variant="authenticated" />
         </section>
 
-        {/* ── Nýlegt — hidden when LOANS_ENABLED=false or RPC failed ─ */}
-        {loansEnabled && !loansError && (
+        {/* ── Nýlegt — hidden when LOANS_ENABLED=false or events query failed ─ */}
+        {loansEnabled && !eventsError && (
           <RecentSection
             key={rowBatch}
-            rows={recentRows}
-            initialRead={initialRead}
+            rows={recentEvents}
             displayLocale={displayLocale}
             labels={recentLabels}
           />

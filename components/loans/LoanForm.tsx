@@ -16,6 +16,8 @@ export function LoanForm({ action, initial }: Props) {
   const t = useTranslations('teskeid.loans')
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const saving = isSubmitting || isPending
 
   const isCreate = !initial
   const today = new Date().toISOString().slice(0, 10)
@@ -30,10 +32,11 @@ export function LoanForm({ action, initial }: Props) {
   const [dueAt, setDueAt] = useState(initial?.due_at ?? '')
   const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
-  const [saveEmailStatus, setSaveEmailStatus] = useState<'sent' | 'failed' | 'uncertain' | null>(null)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (saving) return
+    setIsSubmitting(true)
     setError('')
 
     const input = isCreate
@@ -54,27 +57,24 @@ export function LoanForm({ action, initial }: Props) {
         }
 
     startTransition(async () => {
-      const result = await action(input)
-      if (result.ok) {
-        if (isCreate && result.emailStatus !== undefined) {
-          // Show email delivery feedback before navigating away
-          setSaveEmailStatus(result.emailStatus)
-          setTimeout(() => {
-            router.push('/auth-mvp/lanad-og-skilad')
-            router.refresh()
-          }, 2500)
-        } else {
+      try {
+        const result = await action(input)
+        if (result.ok) {
           router.push('/auth-mvp/lanad-og-skilad')
           router.refresh()
-        }
-      } else {
-        if (result.error === 'recipient_unavailable') {
-          setError(t('errors.recipientUnavailable'))
-        } else if (result.error === 'rate_limited') {
-          setError(t('errors.rateLimited'))
         } else {
-          setError(t('errors.saveFailed'))
+          setIsSubmitting(false)
+          if (result.error === 'recipient_unavailable') {
+            setError(t('errors.recipientUnavailable'))
+          } else if (result.error === 'rate_limited') {
+            setError(t('errors.rateLimited'))
+          } else {
+            setError(t('errors.saveFailed'))
+          }
         }
+      } catch {
+        setIsSubmitting(false)
+        setError(t('errors.saveFailed'))
       }
     })
   }
@@ -174,30 +174,22 @@ export function LoanForm({ action, initial }: Props) {
       </label>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
-      {saveEmailStatus !== null && (
-        <p className={`text-sm ${saveEmailStatus === 'sent' ? 'text-[#154212]' : 'text-amber-600'}`}>
-          {saveEmailStatus === 'sent'
-            ? t('createSaved')
-            : saveEmailStatus === 'failed'
-              ? t('createSavedEmailFailed')
-              : t('createSavedEmailUncertain')}
-        </p>
-      )}
 
       <div className="flex gap-3 pt-1">
         <button
           type="button"
           onClick={() => router.back()}
-          className="flex-1 h-10 rounded-xl border border-gray-200 text-sm text-[#42493e] hover:bg-gray-50 transition-colors"
+          disabled={saving}
+          className="flex-1 h-10 rounded-xl border border-gray-200 text-sm text-[#42493e] hover:bg-gray-50 transition-colors disabled:opacity-50"
         >
           {t('cancel')}
         </button>
         <button
           type="submit"
-          disabled={isPending}
+          disabled={saving}
           className="flex-1 h-10 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
         >
-          {isPending ? '...' : t('save')}
+          {saving ? t('saving') : t('save')}
         </button>
       </div>
     </form>

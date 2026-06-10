@@ -8,7 +8,8 @@ for collaboration between Stebbi, Codex, and Claude Code.
 - Use one file per handoff or review.
 - Do not overwrite older handoff or review files.
 - Use filenames in this format:
-  `YYYY-MM-DD-todo-XYZ-vNNN-agent-description.md`
+  `YYYY-MM-DD-HHMM-todo-XYZ-vNNN-agent-description.md`
+- `HHMM` is 24-hour local time when the file is created.
 - Do not use `#` in filenames.
 - `todo-XYZ` should match the relevant TODO item number, zero-padded to three
   digits where practical.
@@ -18,4 +19,3 @@ for collaboration between Stebbi, Codex, and Claude Code.
 - Treat Markdown handoff/review files like production code review: be critical,
   check sequencing, auth, RLS, Supabase, migrations, production data, and edge
   cases.
-

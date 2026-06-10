@@ -14,6 +14,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { mockRpc } = vi.hoisted(() => ({ mockRpc: vi.fn() }))
 const { mockSendEmail } = vi.hoisted(() => ({ mockSendEmail: vi.fn() }))
 const { mockFrom } = vi.hoisted(() => ({ mockFrom: vi.fn() }))
+const { mockGetUserByEmail } = vi.hoisted(() => ({ mockGetUserByEmail: vi.fn() }))
+const { mockRecordEvent } = vi.hoisted(() => ({ mockRecordEvent: vi.fn() }))
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
@@ -22,7 +24,15 @@ vi.mock('@/lib/loans/guard', () => ({
 }))
 
 vi.mock('@/lib/supabase/admin', () => ({
-  getAdmin: vi.fn(() => ({ rpc: mockRpc, from: mockFrom })),
+  getAdmin: vi.fn(() => ({
+    rpc: mockRpc,
+    from: mockFrom,
+    auth: { admin: { getUserByEmail: mockGetUserByEmail } },
+  })),
+}))
+
+vi.mock('@/lib/recent-events/helpers.server', () => ({
+  recordRecentEvent: mockRecordEvent,
 }))
 
 vi.mock('@/lib/loans/email', () => ({
@@ -91,6 +101,9 @@ describe('sendInvitationEmail orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSendEmail.mockResolvedValue('sent')
+    mockRecordEvent.mockResolvedValue(undefined)
+    // Default: recipient not registered — no event recorded
+    mockGetUserByEmail.mockResolvedValue({ data: { user: null }, error: null })
     setupMockFrom()
   })
 
@@ -831,6 +844,156 @@ describe('updateLoanItemDetails orchestration', () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301', message: 'Transport error' } })
     const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
     expect(result).toEqual({ ok: false, error: 'save_failed' })
+  })
+})
+
+// ── Revalidation — both loan paths revalidated ───────────────────────────────
+
+import { revalidatePath } from 'next/cache'
+
+describe('revalidation — createLoan revalidates both paths', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({
+            data: { recipient_role: 'borrower', item_name_snapshot: null, creator_display_name_snapshot: null, email_template_version: 'v2' },
+            error: null,
+          }),
+        }),
+      }),
+    }))
+  })
+
+  it('createLoan revalidates /auth-mvp/lanad-og-skilad and /auth-mvp/heim', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ loan_id: 'loan-uuid-1', invitation_id: null }],
+      error: null,
+    })
+
+    await createLoan({
+      item_name: 'Revalidation test',
+      creator_role: 'lender',
+      loaned_at: '2026-01-01',
+      request_id: '00000000-0000-0000-0000-000000000001',
+    })
+
+    const calls = vi.mocked(revalidatePath).mock.calls.map((c) => c[0])
+    expect(calls).toContain('/auth-mvp/lanad-og-skilad')
+    expect(calls).toContain('/auth-mvp/heim')
+  })
+
+  it('updateLoanItemDetails revalidates /auth-mvp/lanad-og-skilad and /auth-mvp/heim', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+
+    const calls = vi.mocked(revalidatePath).mock.calls.map((c) => c[0])
+    expect(calls).toContain('/auth-mvp/lanad-og-skilad')
+    expect(calls).toContain('/auth-mvp/heim')
+  })
+})
+
+// ── loan_invitation_received event emission ───────────────────────────────────
+
+describe('sendInvitationEmail — loan_invitation_received event', () => {
+  function setupMockFrom(role: 'borrower' | 'lender' = 'borrower') {
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({
+            data: {
+              recipient_role: role,
+              item_name_snapshot: 'Borvél',
+              creator_display_name_snapshot: 'Anna',
+              email_template_version: 'v3',
+            },
+            error: null,
+          }),
+        }),
+      }),
+    }))
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSendEmail.mockResolvedValue('sent')
+    mockRecordEvent.mockResolvedValue(undefined)
+    setupMockFrom()
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'reserve_invitation_send') return {
+        data: [{ attempt_number: 1, can_send: true, reason: 'ok', recipient_email: 'recipient@example.com' }],
+        error: null,
+      }
+      if (name === 'update_invitation_delivery') return { data: 'ok', error: null }
+      return { data: null, error: null }
+    })
+  })
+
+  it('records loan_invitation_received for recipient when registered', async () => {
+    mockGetUserByEmail.mockResolvedValue({ data: { user: { id: 'recipient-uuid' } }, error: null })
+
+    await sendInvitationEmail(INV_ID)
+
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId:           'recipient-uuid',
+        eventType:        'loan_invitation_received',
+        entityId:         INV_ID,
+        updateOnConflict: false,
+        payload:          { itemName: 'Borvél' },
+      })
+    )
+  })
+
+  it('does not record event when recipient has no Teskeid account', async () => {
+    mockGetUserByEmail.mockResolvedValue({ data: { user: null }, error: null })
+
+    await sendInvitationEmail(INV_ID)
+
+    const invitationCalls = mockRecordEvent.mock.calls.filter(
+      ([args]) => args?.eventType === 'loan_invitation_received'
+    )
+    expect(invitationCalls.length).toBe(0)
+  })
+
+  it('does not record event when getUserByEmail fails', async () => {
+    mockGetUserByEmail.mockRejectedValue(new Error('auth error'))
+
+    await sendInvitationEmail(INV_ID)
+
+    const invitationCalls = mockRecordEvent.mock.calls.filter(
+      ([args]) => args?.eventType === 'loan_invitation_received'
+    )
+    expect(invitationCalls.length).toBe(0)
+  })
+
+  it('does not record event for already_sent reserve (idempotent)', async () => {
+    mockGetUserByEmail.mockResolvedValue({ data: { user: { id: 'recipient-uuid' } }, error: null })
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'reserve_invitation_send') return {
+        data: [{ attempt_number: 0, can_send: false, reason: 'already_sent', recipient_email: null }],
+        error: null,
+      }
+      return { data: null, error: null }
+    })
+
+    await sendInvitationEmail(INV_ID)
+
+    const invitationCalls = mockRecordEvent.mock.calls.filter(
+      ([args]) => args?.eventType === 'loan_invitation_received'
+    )
+    expect(invitationCalls.length).toBe(0)
+  })
+
+  it('email send still proceeds even if getUserByEmail throws', async () => {
+    mockGetUserByEmail.mockRejectedValue(new Error('auth error'))
+
+    const result = await sendInvitationEmail(INV_ID)
+
+    expect(result).toEqual({ ok: true, emailStatus: 'sent' })
+    expect(mockSendEmail).toHaveBeenCalled()
   })
 })
 

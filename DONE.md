@@ -213,6 +213,170 @@ Staðfest:
 
 ---
 
+## #23 — Breyta nafni á lánaða hlutnum
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já (`sql/44_loan_item_details_edit.sql` keyrð og localhost-prófun staðfest)
+
+Sá sem skráði lán og/eða lánveitandi getur breytt heiti hlutar í `Lánað og skilað`.
+Server-side RPC `update_loan_item_details` leyfir aðeins þrönga breytingu á
+`item_name` og `note`, með réttindareglu á `created_by` eða `lender_user_id`.
+Óviðkomandi notandi fær áfram ekki að breyta láninu.
+
+Skrár:
+- `sql/44_loan_item_details_edit.sql` — nýtt service-role RPC fyrir heiti og nótu
+- `components/loans/*` — edit/save flæði fyrir hlutaupplýsingar
+- `messages/is.json`, `messages/en.json` — notendatextar
+
+---
+
+## #24 — Athugasemdir á hluti í `Lánað og skilað`
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já (`sql/44_loan_item_details_edit.sql` keyrð og localhost-prófun staðfest)
+
+Einföld athugasemd/nóta er komin á lánahluti. Sama þrönga RPC og #23 sér um að
+vista `note`, trimma tóma strengi í `null` og halda hámarkslengd í skefjum.
+Athugasemdakerfið er vísvitandi ekki fullur comment-thread í þessum áfanga.
+
+Skrár:
+- `sql/44_loan_item_details_edit.sql` — `p_note` með validation og `NULLIF(trim(...), '')`
+- `components/loans/*` — birting og breyting á nótu
+- `messages/is.json`, `messages/en.json` — notendatextar
+
+---
+
+## #26 — Hreinsa `Skila fyrir (valfrjálst)`
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+`Skila fyrir (valfrjálst)` er hreinsanlegt í bæði nýrri færslu og breytingu á
+færslu. Hreinsun sendir `due_at: null` eða samsvarandi tómt gildi og skyldureitur
+fyrir lánadag helst áfram skyldureitur.
+
+Skrár:
+- `components/loans/*` — due-date clear hegðun í loan formi
+- `messages/is.json`, `messages/en.json` — `Skila fyrir (valfrjálst)` og hreinsa-textar
+
+---
+
+## #28 — Fallegri `Skila fyrir` birting á lánaspjaldi
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+Skiladagur birtist nú á sér línu á lánaspjaldi sem `Skila fyrir 9. júní 2026`,
+án vikudags. Birtingin heldur dagsetningunni skýrri á mobile og sýnir skiladag
+áfram þegar hann er kominn fram yfir, með aðgengilegri overdue merkingu.
+
+Skrár:
+- `components/loans/LoanCard.tsx` — sér lína fyrir `Skila fyrir`
+- `messages/is.json`, `messages/en.json` — due-date textar
+
+---
+
+## #31 — Einfalda lánalistann með pillum, röðun og leit
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+`Lánað og skilað` listinn er kominn í einfaldara flat-lista mynstur með
+status-pillum, role-pillum, leit, talningum og einföldu sort vali. Sjálfgefið
+sýnir listinn opin lán nýjast fyrst; hægt er að sía eftir skiluðum lánum,
+hlutverki, textaleit og raða elst fyrst.
+
+Skrár:
+- `components/loans/LoanList.tsx` — pillur, leit, talningar og röðun
+- `lib/__tests__/loan-list.test.tsx` — regression próf fyrir listann
+- `messages/is.json`, `messages/en.json` — lánalista textar
+
+Staðfest:
+- `npm run test:run -- lib/__tests__/loan-list.test.tsx` — exit 0, 31 próf
+
+---
+
+## #29 — Sýnilegri innskráning og context-aware nav
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+Hamborgaravalmynd er komin sem context-aware leiðsögn fyrir Teskeið. Innskráðir
+notendur fá leiðir á `Heim`, `Minn prófíll`, `Lánað og skilað` og public
+hugmyndaleiðir þar sem það á við. Óinnskráðir notendur fá áfram public leiðir og
+nýskráningar-/innskráningarleið. Public hugmyndasíður velja menu-variant út frá
+server-side session stöðu.
+
+Skrár:
+- `components/teskeid/TeskeidMenu.tsx` — hamburger menu og route-aware items
+- `components/teskeid/NavBar.tsx` — menu variant og bottom nav copy
+- `app/page.tsx`, `app/senda-hugmynd/page.tsx` — server-derived menu variant
+- `messages/is.json`, `messages/en.json` — navigation textar
+- `lib/__tests__/teskeid-menu.test.tsx` — menu regression próf
+
+---
+
+## #32 — Skýrari texti fyrir nýskráningu/innskráningu
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+Navigation copy gerir nú skýrara að sama einfalda tölvupóstkóða-flæði þjónar
+bæði nýskráningu og innskráningu. Hamburger og bottom-nav textar voru lagaðir svo
+nýr notandi upplifi ekki að hann þurfi þegar að vera með aðgang.
+
+Skrár:
+- `messages/is.json`, `messages/en.json` — auth/navigation copy
+- `components/teskeid/TeskeidMenu.tsx`, `components/teskeid/NavBar.tsx` — birting texta
+- `lib/__tests__/teskeid-menu.test.tsx` — uppfærð label-próf
+
+---
+
+## #12 — Skýrari kosningatakki á hugmyndasíðum
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+Kosningatakki á hugmyndasíðum er orðaður skýrar þannig að notandi skilji að hann
+sé að kjósa hugmynd inn í Teskeið. Atkvæðavirkni og vörn gegn tvöföldum
+atkvæðum er óbreytt.
+
+Skrár:
+- `components/teskeid/VoteButton.tsx` — skýrari button copy
+- `messages/is.json`, `messages/en.json` — kosningatextar þar sem við á
+
+---
+
+## #20 — Bottom bar innskráning þarf stundum tvísmell á mobile
+
+**Lokið:** 2026-06-09
+**Staðfest af Stebbi:** já
+
+Mobile navigation var yfirfarin og auth/navigation copy lagað samhliða
+hamborgaravalmyndinni. Stebbi staðfesti að bottom bar innskráningarleiðin krefst
+ekki lengur tvísmells í prófun.
+
+Skrár:
+- `components/teskeid/NavBar.tsx` — bottom nav label/navigation polish
+- `messages/is.json`, `messages/en.json` — auth/navigation copy
+
+---
+
+## #25 — `Skrá hlut í láni` efst á lánalista
+
+**Lokið:** 2026-06-09
+**Staðfest af Codex:** já (read-only kóðayfirferð)
+
+Aðal CTA fyrir nýja lánaskráningu er efst í efni `Lánað og skilað` og notar
+þýðanlega textann `Skrá hlut í láni`. Smellur heldur áfram á nýja færslu.
+
+Skrár:
+- `app/auth-mvp/lanad-og-skilad/page.tsx` — CTA link efst í LoanShell efni
+- `messages/is.json`, `messages/en.json` — `teskeid.loans.newItem`
+- `lib/__tests__/loan-pages.test.tsx` — próf fyrir nákvæman CTA texta
+
+---
+
 ## #16 — Væntingastýring fyrir mobile-first beta
 
 **Lokið:** 2026-06-09
@@ -305,7 +469,7 @@ Staðfest:
 ## #8 — Teskeið-loader með hugmyndaheitum úr hugmyndabankanum
 
 **Lokið:** 2026-06-09
-**Staðfest af Stebbi:** handprófun á `/preview/teskeid-loader` (bíður)
+**Staðfest af Stebbi:** já
 
 Standalone `TeskeidLoader` client component með hringlaga lógó og titla-cycling.
 Titlar eru sóttir úr `ideas`-töflunni (public, featured/votes-ordered, limit 8),

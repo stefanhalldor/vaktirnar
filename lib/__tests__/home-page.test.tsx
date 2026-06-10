@@ -26,42 +26,49 @@ vi.mock('@/lib/loans/guard', () => ({
   checkFeatureAccess: mockCheckFeatureAccess,
 }))
 
-// next-intl/server: getTranslations returns a sync translator keyed by namespace
+// next-intl/server
 vi.mock('next-intl/server', () => ({
   getTranslations: vi.fn().mockImplementation(async (ns: string) => {
     const T: Record<string, Record<string, string>> = {
       'teskeid.home': {
-        greeting: '{firstName}, þú ert með allt í teskeið!',
-        greetingFallback: 'Góðan dag',
-        featuresTitle: 'Teskeiðar',
-        loansTitle: 'Lánað og skilað',
-        upcoming: 'Væntanlegt',
-        upcomingEmail: 'Póstflóðið einfaldað',
-        upcomingExpenses: 'Útlagt og endurgreitt',
-        upcomingPartner: 'Maki/kæró',
-        upcomingWeather: 'Veðrið',
-        upcomingKidsShift: 'Fyrsta vakt krakkanna',
-        upcomingThirdShift: 'Þriðja vaktin',
-        upcomingOutToPlay: 'Út að leika',
-        recent: 'Nýlegt',
-        recentMarkRead: 'Lesið',
-        recentDone: 'Þú getur slakað á því þú ert með allt í Teskeið, vel gert!',
-        recentSeeAll: 'Sjá allt',
-        noRecent: 'Engin lán skráð enn.',
-        profileLink: 'Minn aðgangur',
-        pendingBadgeLabel: '{count, plural, one {1 boð í bið} other {# boð í bið}}',
+        greeting:             '{firstName}, þú ert með allt í teskeið!',
+        greetingFallback:     'Góðan dag',
+        featuresTitle:        'Teskeiðar',
+        loansTitle:           'Lánað og skilað',
+        upcoming:             'Væntanlegt',
+        upcomingEmail:        'Póstflóðið einfaldað',
+        upcomingExpenses:     'Útlagt og endurgreitt',
+        upcomingPartner:      'Maki/kæró',
+        upcomingWeather:      'Veðrið',
+        upcomingKidsShift:    'Fyrsta vakt krakkanna',
+        upcomingThirdShift:   'Þriðja vaktin',
+        upcomingOutToPlay:    'Út að leika',
+        recent:               'Nýlegt',
+        recentMarkRead:       'Lesið',
+        recentMarkAllRead:    'Allt lesið',
+        recentView:           'Skoða',
+        recentClose:          'Loka',
+        recentDone:           'Þú getur slakað á því þú ert með allt í Teskeið, vel gert!',
+        noRecent:             'Engin atburðir enn.',
+        profileLink:          'Minn aðgangur',
+        pendingBadgeLabel:    '{count, plural, one {1 boð í bið} other {# boð í bið}}',
+        eventLoanCreated:     'Búinn til: {itemName}',
+        eventLoanUpdated:     'Breytt: {itemName}',
+        eventLoanReturned:    'Skilað: {itemName}',
+        eventLoanReturnUndone: 'Skilað afturkallað: {itemName}',
+        eventLoanDeleted:             'Eytt: {itemName}',
+        eventLoanInvitationReceived:  'Lánaboð: {itemName}',
       },
       'teskeid.loans': {
-        lent: 'Ég lánaði',
+        lent:     'Ég lánaði',
         borrowed: 'Ég fékk lánað',
-        overdue: 'Komið fram yfir skiladag',
+        overdue:  'Komið fram yfir skiladag',
         homeLink: 'Fara á heimasíðu',
       },
     }
     return (key: string, params?: Record<string, string | number>) => {
       let val = T[ns]?.[key] ?? key
       if (!params) return val
-      // ICU plural: {varName, plural, one {oneText} other {otherText}}
       val = val.replace(
         /\{(\w+),\s*plural,\s*one\s*\{([^}]*)\}\s*other\s*\{([^}]*)\}\}/g,
         (_: string, varName: string, oneText: string, otherText: string) => {
@@ -69,7 +76,6 @@ vi.mock('next-intl/server', () => ({
           return (count === 1 ? oneText : otherText).replace('#', String(count))
         }
       )
-      // Simple {key} substitution
       return val.replace(/\{(\w+)\}/g, (_: string, k: string) =>
         params[k] !== undefined ? String(params[k]) : `{${k}}`
       )
@@ -79,35 +85,46 @@ vi.mock('next-intl/server', () => ({
 }))
 
 // Supabase server client — profile chain mock
-const { mockMaybeSingle, mockEq, mockSelect, mockFrom } = vi.hoisted(() => {
+const { mockMaybeSingle, mockMaybeSingleEq, mockFrom } = vi.hoisted(() => {
   const mockMaybeSingle = vi.fn()
-  const mockEq = vi.fn(() => ({ maybeSingle: mockMaybeSingle }))
-  const mockSelect = vi.fn(() => ({ eq: mockEq }))
-  const mockFrom = vi.fn(() => ({ select: mockSelect }))
-  return { mockMaybeSingle, mockEq, mockSelect, mockFrom }
+  const mockMaybeSingleEq = vi.fn(() => ({ maybeSingle: mockMaybeSingle }))
+  const mockMaybeSingleSelect = vi.fn(() => ({ eq: mockMaybeSingleEq }))
+  const mockFrom = vi.fn(() => ({ select: mockMaybeSingleSelect }))
+  return { mockMaybeSingle, mockMaybeSingleEq, mockFrom }
 })
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn().mockResolvedValue({
-    from: mockFrom,
-  }),
+  createClient: vi.fn().mockResolvedValue({ from: mockFrom }),
 }))
 
-// Supabase admin — RPC mock and getAdmin mock
-const { mockRpc, mockGetAdmin } = vi.hoisted(() => {
+// Supabase admin — RPC + from chain mock for recent_events query
+// Chain: from().select().eq().is().order().order().limit() → { data, error }
+const { mockRpc, mockAdminLimit, mockGetAdmin } = vi.hoisted(() => {
   const mockRpc = vi.fn()
-  const mockGetAdmin = vi.fn(() => ({ rpc: mockRpc }))
-  return { mockRpc, mockGetAdmin }
+  const mockAdminLimit = vi.fn()
+  const mockAdminOrder2 = vi.fn(() => ({ limit: mockAdminLimit }))
+  const mockAdminOrder1 = vi.fn(() => ({ order: mockAdminOrder2 }))
+  const mockAdminIs = vi.fn(() => ({ order: mockAdminOrder1 }))
+  const mockAdminEq = vi.fn(() => ({ is: mockAdminIs }))
+  const mockAdminSelect = vi.fn(() => ({ eq: mockAdminEq }))
+  const mockAdminFrom = vi.fn(() => ({ select: mockAdminSelect }))
+  const mockGetAdmin = vi.fn(() => ({ rpc: mockRpc, from: mockAdminFrom }))
+  return { mockRpc, mockAdminLimit, mockGetAdmin }
 })
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: mockGetAdmin,
 }))
 
-// next/headers — cookies mock
-const { mockCookiesGet } = vi.hoisted(() => ({
-  mockCookiesGet: vi.fn(),
+// Server action mock
+const { mockAckRecentEvents } = vi.hoisted(() => ({
+  mockAckRecentEvents: vi.fn(),
 }))
-vi.mock('next/headers', () => ({
-  cookies: vi.fn().mockResolvedValue({ get: mockCookiesGet }),
+vi.mock('@/app/auth-mvp/heim/actions', () => ({
+  ackRecentEvents: mockAckRecentEvents,
+}))
+
+// next/navigation mock (used by RecentSection)
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }))
 
 // Next.js primitives
@@ -118,36 +135,32 @@ vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode; [k: string]: unknown }) =>
     React.createElement('a', { href, ...props }, children),
 }))
-
 vi.mock('@/components/teskeid/TeskeidMenu', () => ({
   TeskeidMenu: ({ variant }: { variant: string }) =>
     React.createElement('div', { 'data-testid': `teskeid-menu-${variant}` }),
 }))
 
 import HeimPage from '@/app/auth-mvp/heim/page'
-import { sortLoansForHome } from '@/lib/loans/sort'
-import { computeRecentReadKey } from '@/lib/loans/recent-read.server'
-import type { LoanItem, PendingInvitation } from '@/lib/loans/types'
+import type { PendingInvitation } from '@/lib/loans/types'
+import type { RecentEventRow } from '@/lib/recent-events/types'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
 const TEST_USER = { id: 'uid-1', email: 'user@example.com' }
 
-function makeLoan(overrides: Partial<LoanItem> = {}): LoanItem {
+function makeEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
   return {
-    id: '00000000-0000-0000-0000-000000000001',
-    item_name: 'Test item',
-    note: null,
-    loaned_at: '2026-05-01',
-    due_at: null,
-    returned_at: null,
-    my_role: 'lender',
-    other_display_name: null,
-    invitation_id: null,
-    invitation_status: null,
-    invitation_attempt_status: null,
-    can_send_invitation: false,
-    is_creator: true,
+    id: 1,
+    user_id: TEST_USER.id,
+    source: 'loans',
+    event_type: 'loan_created',
+    entity_type: 'loan',
+    entity_id: '00000000-0000-0000-0000-000000000001',
+    event_key: 'loans:loan:00000000-0000-0000-0000-000000000001:created',
+    payload: { itemName: 'Test item' },
+    href: '/auth-mvp/lanad-og-skilad',
+    occurred_at: '2026-06-09T20:00:00Z',
+    ack_at: null,
     ...overrides,
   }
 }
@@ -178,27 +191,15 @@ function setupProfile(displayName: string | null) {
   mockMaybeSingle.mockResolvedValue({ data: displayName ? { display_name: displayName } : null })
 }
 
-function setupRpcs(loans: LoanItem[], invitations: PendingInvitation[]) {
+function setupRpcs(invitations: PendingInvitation[]) {
   mockRpc.mockImplementation((fn: string) => {
-    if (fn === 'get_my_loans') return Promise.resolve({ data: loans, error: null })
     if (fn === 'get_my_pending_invitations') return Promise.resolve({ data: invitations, error: null })
     return Promise.resolve({ data: null, error: { code: 'unknown' } })
   })
 }
 
-function setupRpcError(fn: 'get_my_loans' | 'get_my_pending_invitations') {
-  mockRpc.mockImplementation((name: string) => {
-    if (name === fn) return Promise.resolve({ data: null, error: { code: 'PGRST301' } })
-    if (name === 'get_my_loans') return Promise.resolve({ data: [], error: null })
-    if (name === 'get_my_pending_invitations') return Promise.resolve({ data: [], error: null })
-    return Promise.resolve({ data: null, error: { code: 'unknown' } })
-  })
-}
-
-function setupCookieV2(keys: string[]) {
-  mockCookiesGet.mockReturnValue(
-    keys.length > 0 ? { value: keys.join('.') } : undefined
-  )
+function setupRecentEvents(events: RecentEventRow[]) {
+  mockAdminLimit.mockResolvedValue({ data: events, error: null })
 }
 
 // ── Env helpers ──────────────────────────────────────────────────────────────
@@ -212,7 +213,8 @@ beforeEach(() => {
   process.env.LOANS_ENABLED = 'true'
   process.env.AUTH_MVP_ENABLED = 'true'
   vi.clearAllMocks()
-  mockCookiesGet.mockReturnValue(undefined)
+  setupRecentEvents([])
+  mockAckRecentEvents.mockResolvedValue({ ok: true })
 })
 
 afterEach(() => {
@@ -228,7 +230,7 @@ describe('HeimPage — greeting', () => {
   it('shows personalised greeting when display_name is set', async () => {
     setupGuard()
     setupProfile('Jón')
-    setupRpcs([], [])
+    setupRpcs([])
     render(await HeimPage())
     expect(screen.getByText('Jón, þú ert með allt í teskeið!')).toBeDefined()
   })
@@ -236,7 +238,7 @@ describe('HeimPage — greeting', () => {
   it('shows fallback greeting when display_name is null', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     render(await HeimPage())
     expect(screen.getByText('Góðan dag')).toBeDefined()
   })
@@ -244,7 +246,7 @@ describe('HeimPage — greeting', () => {
   it('shows fallback greeting when profile fetch throws', async () => {
     setupGuard()
     mockMaybeSingle.mockRejectedValue(new Error('db error'))
-    setupRpcs([], [])
+    setupRpcs([])
     render(await HeimPage())
     expect(screen.getByText('Góðan dag')).toBeDefined()
   })
@@ -254,7 +256,7 @@ describe('HeimPage — Teskeiðar section', () => {
   it('renders "Teskeiðar" heading', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     render(await HeimPage())
     expect(screen.getByText('Teskeiðar')).toBeDefined()
   })
@@ -269,7 +271,7 @@ describe('HeimPage — Teskeiðar section', () => {
   it('shows "Lánað og skilað" link when feature access is granted', async () => {
     setupGuard(true)
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     render(await HeimPage())
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
@@ -296,7 +298,7 @@ describe('HeimPage — upcoming rows', () => {
   it('renders all 7 upcoming rows', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     render(await HeimPage())
     for (const label of UPCOMING_LABELS) {
       expect(screen.getByText(label)).toBeDefined()
@@ -306,7 +308,7 @@ describe('HeimPage — upcoming rows', () => {
   it('all upcoming rows are disabled buttons', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     const { container } = render(await HeimPage())
     const disabledButtons = container.querySelectorAll('button[disabled]')
     expect(disabledButtons.length).toBe(UPCOMING_LABELS.length)
@@ -315,7 +317,7 @@ describe('HeimPage — upcoming rows', () => {
   it('renders all 7 upcoming rows in correct order', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     const { container } = render(await HeimPage())
     const buttons = container.querySelectorAll('button[disabled]')
     UPCOMING_LABELS.forEach((label, i) => {
@@ -335,7 +337,7 @@ describe('HeimPage — upcoming rows', () => {
   it('each upcoming row shows "Væntanlegt" status', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     const { container } = render(await HeimPage())
     const statusSpans = container.querySelectorAll('button[disabled] span:last-child')
     statusSpans.forEach((span) => {
@@ -348,7 +350,7 @@ describe('HeimPage — pending invitations badge', () => {
   it('shows badge with accessible label for count 1', async () => {
     setupGuard()
     setupProfile('Anna')
-    setupRpcs([], [makeInvitation()])
+    setupRpcs([makeInvitation()])
     render(await HeimPage())
     expect(screen.getByText('1')).toBeDefined()
     expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
@@ -357,7 +359,7 @@ describe('HeimPage — pending invitations badge', () => {
   it('shows badge with accessible label for count 2', async () => {
     setupGuard()
     setupProfile('Anna')
-    setupRpcs([], [makeInvitation(), makeInvitation({ invitation_id: 'inv-2' })])
+    setupRpcs([makeInvitation(), makeInvitation({ invitation_id: 'inv-2' })])
     render(await HeimPage())
     expect(screen.getByText('2')).toBeDefined()
     expect(screen.getByLabelText('2 boð í bið')).toBeDefined()
@@ -366,7 +368,7 @@ describe('HeimPage — pending invitations badge', () => {
   it('does not show badge when pending count is zero', async () => {
     setupGuard()
     setupProfile('Anna')
-    setupRpcs([], [])
+    setupRpcs([])
     render(await HeimPage())
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
@@ -374,63 +376,81 @@ describe('HeimPage — pending invitations badge', () => {
   it('does not show badge when invitations RPC fails', async () => {
     setupGuard()
     setupProfile('Anna')
-    setupRpcError('get_my_pending_invitations')
+    mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
 })
 
-describe('HeimPage — Nýlegt section', () => {
-  it('shows at most 3 loans even when more are provided', async () => {
+describe('HeimPage — Nýlegt section (event-based)', () => {
+  it('shows done banner when there are no events', async () => {
     setupGuard()
     setupProfile(null)
-    const loans = [
-      makeLoan({ id: 'a1', item_name: 'Item 1', loaned_at: '2026-05-05' }),
-      makeLoan({ id: 'a2', item_name: 'Item 2', loaned_at: '2026-05-04' }),
-      makeLoan({ id: 'a3', item_name: 'Item 3', loaned_at: '2026-05-03' }),
-      makeLoan({ id: 'a4', item_name: 'Item 4', loaned_at: '2026-05-02' }),
-    ]
-    setupRpcs(loans, [])
-    render(await HeimPage())
-    expect(screen.getByText('Item 1')).toBeDefined()
-    expect(screen.getByText('Item 2')).toBeDefined()
-    expect(screen.getByText('Item 3')).toBeDefined()
-    expect(screen.queryByText('Item 4')).toBeNull()
-  })
-
-  it('shows done banner when there are no loans', async () => {
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
+    setupRecentEvents([])
     render(await HeimPage())
     expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
   })
 
-  it('regression: home page contains no direct link to /auth-mvp/lanad-og-skilad/ny', async () => {
+  it('shows "Nýlegt" heading and "Allt lesið" button when events exist', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
-    const { container } = render(await HeimPage())
-    const nyLinks = container.querySelectorAll('a[href*="/lanad-og-skilad/ny"]')
-    expect(nyLinks.length).toBe(0)
-  })
-
-  it('regression: home page contains no link to /auth-mvp/lanad-og-skilad/ny even with loans present', async () => {
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([makeLoan({ item_name: 'Bók' })], [])
-    const { container } = render(await HeimPage())
-    const nyLinks = container.querySelectorAll('a[href*="/lanad-og-skilad/ny"]')
-    expect(nyLinks.length).toBe(0)
-  })
-
-  it('hides Nýlegt section when loans RPC fails', async () => {
-    setupGuard()
-    setupProfile(null)
-    setupRpcError('get_my_loans')
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ payload: { itemName: 'Bók' } })])
     render(await HeimPage())
-    expect(screen.queryByText('Nýlegt')).toBeNull()
-    expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
+    expect(screen.getByText('Nýlegt')).toBeDefined()
+    expect(screen.getByText('Allt lesið')).toBeDefined()
+  })
+
+  it('renders loan_created event label', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ event_type: 'loan_created', payload: { itemName: 'Borvél' } })])
+    render(await HeimPage())
+    expect(screen.getByText('Búinn til: Borvél')).toBeDefined()
+  })
+
+  it('renders loan_returned event label', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 2, event_type: 'loan_returned', payload: { itemName: 'Hjól' } })])
+    render(await HeimPage())
+    expect(screen.getByText('Skilað: Hjól')).toBeDefined()
+  })
+
+  it('renders loan_deleted event label', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 3, event_type: 'loan_deleted', payload: { itemName: 'Kassi' } })])
+    render(await HeimPage())
+    expect(screen.getByText('Eytt: Kassi')).toBeDefined()
+  })
+
+  it('renders loan_invitation_received event label', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 5, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-1234', payload: { itemName: 'Borvél' } })])
+    render(await HeimPage())
+    expect(screen.getByText('Lánaboð: Borvél')).toBeDefined()
+  })
+
+  it('shows at most 3 events (server limits to 3)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([
+      makeEvent({ id: 1, payload: { itemName: 'Item 1' } }),
+      makeEvent({ id: 2, payload: { itemName: 'Item 2' } }),
+      makeEvent({ id: 3, payload: { itemName: 'Item 3' } }),
+    ])
+    render(await HeimPage())
+    expect(screen.getByText('Búinn til: Item 1')).toBeDefined()
+    expect(screen.getByText('Búinn til: Item 2')).toBeDefined()
+    expect(screen.getByText('Búinn til: Item 3')).toBeDefined()
   })
 
   it('hides Nýlegt section when feature access is denied', async () => {
@@ -438,209 +458,56 @@ describe('HeimPage — Nýlegt section', () => {
     setupProfile('Guðrún')
     render(await HeimPage())
     expect(screen.queryByText('Nýlegt')).toBeNull()
-    expect(screen.queryByText('Lánað og skilað')).toBeNull()
-    // Greeting and Teskeiðar still show
     expect(screen.getByText('Guðrún, þú ert með allt í teskeið!')).toBeDefined()
     expect(screen.getByText('Teskeiðar')).toBeDefined()
   })
-})
 
-describe('HeimPage — Lesið / read state (per-item keys)', () => {
-  it('shows "Lesið" button when loan exists and cookie is empty', async () => {
+  it('hides Nýlegt when events query fails', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([makeLoan({ item_name: 'Bók' })], [])
-    setupCookieV2([])
+    setupRpcs([])
+    mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
-    expect(screen.getByText('Lesið')).toBeDefined()
-  })
-
-  it('clicking "Lesið" shows done banner', async () => {
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([makeLoan({ item_name: 'Bók' })], [])
-    setupCookieV2([])
-    render(await HeimPage())
-    fireEvent.click(screen.getByText('Lesið'))
-    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
-    expect(screen.queryByText('Lesið')).toBeNull()
-  })
-
-  it('shows done banner immediately when cookie contains key for visible loan', async () => {
-    const loan = makeLoan({ item_name: 'Skór' })
-    const key = computeRecentReadKey(TEST_USER.id, loan)
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([loan], [])
-    setupCookieV2([key])
-    render(await HeimPage())
-    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
-    expect(screen.queryByText('Lesið')).toBeNull()
-  })
-
-  it('shows loan when cookie does NOT contain its key', async () => {
-    const loan = makeLoan({ item_name: 'Jakki' })
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([loan], [])
-    setupCookieV2(['aaaabbbbccccdddd1111222233334444']) // different key
-    render(await HeimPage())
-    expect(screen.getByText('Jakki')).toBeDefined()
+    expect(screen.queryByText('Nýlegt')).toBeNull()
     expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
   })
 
-  it('core regression: read loan disappears, new unread loan surfaces', async () => {
-    const loanA = makeLoan({ id: '00000000-0000-0000-0000-000000000001', item_name: 'Gamla', loaned_at: '2026-05-01' })
-    const loanB = makeLoan({ id: '00000000-0000-0000-0000-000000000002', item_name: 'Nýja', loaned_at: '2026-05-02' })
-    const keyA = computeRecentReadKey(TEST_USER.id, loanA)
+  it('regression: home page contains no link to /auth-mvp/lanad-og-skilad/ny', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([loanB, loanA], [])
-    setupCookieV2([keyA]) // loanA is read
-    render(await HeimPage())
-    expect(screen.getByText('Nýja')).toBeDefined()
-    expect(screen.queryByText('Gamla')).toBeNull()
-  })
-
-  it('surfaces 4th loan when first 3 are all read', async () => {
-    const loans = [
-      makeLoan({ id: 'a1', item_name: 'Item 1', loaned_at: '2026-05-05' }),
-      makeLoan({ id: 'a2', item_name: 'Item 2', loaned_at: '2026-05-04' }),
-      makeLoan({ id: 'a3', item_name: 'Item 3', loaned_at: '2026-05-03' }),
-      makeLoan({ id: 'a4', item_name: 'Item 4', loaned_at: '2026-05-02' }),
-    ]
-    const readKeys = loans.slice(0, 3).map((l) => computeRecentReadKey(TEST_USER.id, l))
-    setupGuard()
-    setupProfile(null)
-    setupRpcs(loans, [])
-    setupCookieV2(readKeys)
-    render(await HeimPage())
-    expect(screen.queryByText('Item 1')).toBeNull()
-    expect(screen.queryByText('Item 2')).toBeNull()
-    expect(screen.queryByText('Item 3')).toBeNull()
-    expect(screen.getByText('Item 4')).toBeDefined()
-  })
-
-  it('does not show "Lesið" button when there are no loans', async () => {
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([], [])
-    setupCookieV2([])
-    render(await HeimPage())
-    expect(screen.queryByText('Lesið')).toBeNull()
-  })
-
-  it('key changes when loan transitions to overdue — stale key does not mark read', async () => {
-    const loanCurrent = makeLoan({ id: 'overdue-loan', item_name: 'Bók', due_at: '2099-12-31' })
-    const keyWhenCurrent = computeRecentReadKey(TEST_USER.id, loanCurrent) // overdue=false
-    const loanOverdue = { ...loanCurrent, due_at: '2020-01-01' } // now overdue
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([loanOverdue], [])
-    setupCookieV2([keyWhenCurrent])
-    render(await HeimPage())
-    expect(screen.getByText('Bók')).toBeDefined()
-    expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
-  })
-
-  it('key changes when returned_at is set — stale key does not mark read', async () => {
-    const loan = makeLoan({ id: 'return-loan', item_name: 'Kassi' })
-    const keyBefore = computeRecentReadKey(TEST_USER.id, loan)
-    const loanReturned = { ...loan, returned_at: '2026-06-01' }
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([loanReturned], [])
-    setupCookieV2([keyBefore])
-    render(await HeimPage())
-    expect(screen.getByText('Kassi')).toBeDefined()
+    setupRpcs([])
+    const { container } = render(await HeimPage())
+    expect(container.querySelectorAll('a[href*="/lanad-og-skilad/ny"]').length).toBe(0)
   })
 })
 
-// ── HeimPage — Lesið cookie write ────────────────────────────────────────────
-// Tests in this block intercept document.cookie writes by shadowing the
-// property on the document instance. afterEach deletes the own property so
-// the jsdom prototype implementation is restored for other test suites.
-
-describe('HeimPage — Lesið cookie write (v2)', () => {
-  const cookieWrites: string[] = []
-
-  beforeEach(() => {
-    cookieWrites.length = 0
-    Object.defineProperty(document, 'cookie', {
-      set(val: string) { cookieWrites.push(val) },
-      get() { return '' },
-      configurable: true,
-    })
-  })
-
-  afterEach(() => {
-    Reflect.deleteProperty(document, 'cookie')
-  })
-
-  it('clicking "Lesið" writes teskeid_recent_read_v2 with dot-separated 32-char hex keys, path=/, SameSite=Lax, no raw loan data', async () => {
-    const loan = makeLoan({ id: 'write-test-id', item_name: 'Teppi' })
-    const expectedKey = computeRecentReadKey(TEST_USER.id, loan)
-
+describe('HeimPage — Lesið / ack events', () => {
+  it('clicking "Allt lesið" shows done banner optimistically', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([loan], [])
-    setupCookieV2([])
-
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ payload: { itemName: 'Bók' } })])
     render(await HeimPage())
-    fireEvent.click(screen.getByText('Lesið'))
-
-    expect(cookieWrites.length).toBeGreaterThan(0)
-    const written = cookieWrites[cookieWrites.length - 1]
-
-    // Cookie name is v2
-    expect(written).toContain('teskeid_recent_read_v2=')
-    // Value contains the expected 32-char key
-    expect(written).toContain(expectedKey)
-    expect(written).toMatch(/teskeid_recent_read_v2=[0-9a-f]{32}/)
-
-    // path=/ (not /auth-mvp/heim)
-    expect(written).toContain('path=/')
-    expect(written).not.toContain('path=/auth-mvp/heim')
-
-    // Required cookie attributes
-    expect(written).toContain('SameSite=Lax')
-    expect(written).toContain('Max-Age=')
-
-    // Does not contain item name or loan ID
-    expect(written).not.toContain('Teppi')
-    expect(written).not.toContain('write-test-id')
-  })
-})
-
-describe('HeimPage — sort order: loaned_at DESC, id DESC tie-breaker', () => {
-  it('places the loan with the later loaned_at first', async () => {
-    setupGuard()
-    setupProfile(null)
-    const loans = [
-      makeLoan({ id: 'b1', item_name: 'Older', loaned_at: '2026-04-01' }),
-      makeLoan({ id: 'b2', item_name: 'Newer', loaned_at: '2026-05-01' }),
-    ]
-    // Provide in reverse order to verify sorting is applied
-    setupRpcs([loans[0], loans[1]], [])
-    const { container } = render(await HeimPage())
-    const items = container.querySelectorAll('[class*="truncate"]')
-    expect(items[0].textContent).toContain('Newer')
-    expect(items[1].textContent).toContain('Older')
+    fireEvent.click(screen.getByText('Allt lesið'))
+    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
+    expect(screen.queryByText('Allt lesið')).toBeNull()
   })
 
-  it('uses id DESC as tie-breaker when loaned_at is equal', async () => {
+  it('regression: acked event does not reappear after new event is added', async () => {
+    // When events query returns only unread events (server-side filter),
+    // an acked event should never appear in the rendered list.
+    // This simulates: eventA was acked, eventB is new unread — only B renders.
     setupGuard()
     setupProfile(null)
-    // '...0002' > '...0001' lexicographically → should come first
-    const loans = [
-      makeLoan({ id: '00000000-0000-0000-0000-000000000001', item_name: 'ID 001', loaned_at: '2026-05-01' }),
-      makeLoan({ id: '00000000-0000-0000-0000-000000000002', item_name: 'ID 002', loaned_at: '2026-05-01' }),
-    ]
-    setupRpcs(loans, [])
-    const { container } = render(await HeimPage())
-    const items = container.querySelectorAll('[class*="truncate"]')
-    expect(items[0].textContent).toContain('ID 002')
-    expect(items[1].textContent).toContain('ID 001')
+    setupRpcs([])
+    setupRecentEvents([
+      makeEvent({ id: 2, payload: { itemName: 'Nýja' }, event_type: 'loan_created' }),
+      // eventA (id:1) is not in this list — it was acked and filtered server-side
+    ])
+    render(await HeimPage())
+    expect(screen.getByText('Búinn til: Nýja')).toBeDefined()
+    // Old acked event is not present
+    expect(screen.queryByText('Búinn til: Test item')).toBeNull()
   })
 })
 
@@ -648,25 +515,24 @@ describe('HeimPage — partial error resilience', () => {
   it('shows generic greeting but keeps loan section when profile fails', async () => {
     setupGuard()
     mockMaybeSingle.mockRejectedValue(new Error('profile db error'))
-    setupRpcs([makeLoan({ item_name: 'Bók' })], [])
+    setupRpcs([])
     render(await HeimPage())
     expect(screen.getByText('Góðan dag')).toBeDefined()
-    expect(screen.getByText('Bók')).toBeDefined()
+    expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
-  it('shows Teskeiðar section but hides Nýlegt when only loans RPC fails', async () => {
+  it('shows Teskeiðar section but hides Nýlegt when events query fails', async () => {
     setupGuard()
     setupProfile('Stebbi')
-    setupRpcError('get_my_loans')
+    setupRpcs([])
+    mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
-    // Teskeiðar section still renders (invitations RPC succeeded)
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
-    // Nýlegt hidden
     expect(screen.queryByText('Nýlegt')).toBeNull()
   })
 })
 
-// ── HeimPage — getAdmin / RPC promise rejection resilience ───────────────────
+// ── HeimPage — getAdmin / RPC rejection resilience ───────────────────────────
 
 describe('HeimPage — getAdmin / RPC rejection resilience', () => {
   it('renders greeting and Teskeiðar link when getAdmin() throws, hiding Nýlegt and badge', async () => {
@@ -674,45 +540,34 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     setupProfile('Brynja')
     mockGetAdmin.mockImplementationOnce(() => { throw new Error('admin init failed') })
     render(await HeimPage())
-    // Greeting and Teskeiðar section still render
     expect(screen.getByText('Brynja, þú ert með allt í teskeið!')).toBeDefined()
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
-    // Nýlegt hidden (loansError = true)
     expect(screen.queryByText('Nýlegt')).toBeNull()
-    // Badge hidden (invitationsError = true)
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
 
-  it('hides Nýlegt but shows badge when get_my_loans rejects and invitations succeed', async () => {
+  it('hides Nýlegt but shows badge when events query throws and invitations succeed', async () => {
     setupGuard()
     setupProfile('Hildur')
     mockRpc.mockImplementation((fn: string) => {
-      if (fn === 'get_my_loans') return Promise.reject(new Error('loans rpc failed'))
       if (fn === 'get_my_pending_invitations') return Promise.resolve({ data: [makeInvitation()], error: null })
       return Promise.resolve({ data: null, error: { code: 'unknown' } })
     })
+    mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
-    // Nýlegt hidden (loansError = true)
     expect(screen.queryByText('Nýlegt')).toBeNull()
-    // Badge visible (invitations succeeded with 1 item)
     expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
-    // Teskeiðar link still renders
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
-  it('shows Nýlegt but hides badge when get_my_pending_invitations rejects and loans succeed', async () => {
+  it('shows Nýlegt but hides badge when get_my_pending_invitations rejects and events succeed', async () => {
     setupGuard()
     setupProfile(null)
-    mockRpc.mockImplementation((fn: string) => {
-      if (fn === 'get_my_loans') return Promise.resolve({ data: [makeLoan({ item_name: 'Sykur' })], error: null })
-      if (fn === 'get_my_pending_invitations') return Promise.reject(new Error('invitations rpc failed'))
-      return Promise.resolve({ data: null, error: { code: 'unknown' } })
-    })
+    mockRpc.mockRejectedValue(new Error('invitations rpc failed'))
+    setupRecentEvents([makeEvent({ payload: { itemName: 'Sykur' } })])
     render(await HeimPage())
-    // Nýlegt shows (loansError = false)
     expect(screen.getByText('Nýlegt')).toBeDefined()
-    expect(screen.getByText('Sykur')).toBeDefined()
-    // Badge hidden (invitationsError = true)
+    expect(screen.getByText('Búinn til: Sykur')).toBeDefined()
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
 })
@@ -723,7 +578,7 @@ describe('HeimPage — DOM order', () => {
   it('greeting appears before Teskeiðar heading in DOM', async () => {
     setupGuard()
     setupProfile('Jón')
-    setupRpcs([], [])
+    setupRpcs([])
     render(await HeimPage())
     const greeting = screen.getByText('Jón, þú ert með allt í teskeið!')
     const featuresHeading = screen.getByText('Teskeiðar')
@@ -732,23 +587,11 @@ describe('HeimPage — DOM order', () => {
     ).toBeTruthy()
   })
 
-  it('logo SVG appears after Teskeiðar heading in DOM', async () => {
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([], [])
-    const { container } = render(await HeimPage())
-    const featuresHeading = screen.getByText('Teskeiðar')
-    const svgs = container.querySelectorAll('svg')
-    const lastSvg = svgs[svgs.length - 1]
-    expect(
-      featuresHeading.compareDocumentPosition(lastSvg) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-  })
-
   it('"Nýlegt" appears before "Teskeiðar" in DOM', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([makeLoan()], [])
+    setupRpcs([])
+    setupRecentEvents([makeEvent()])
     render(await HeimPage())
     const nylegt = screen.getByText('Nýlegt')
     const teskeidar = screen.getByText('Teskeiðar')
@@ -760,7 +603,7 @@ describe('HeimPage — DOM order', () => {
   it('page contains no <header> element', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     const { container } = render(await HeimPage())
     expect(container.querySelector('header')).toBeNull()
   })
@@ -768,9 +611,80 @@ describe('HeimPage — DOM order', () => {
   it('renders authenticated TeskeidMenu in greeting row', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     const { container } = render(await HeimPage())
     expect(container.querySelector('[data-testid="teskeid-menu-authenticated"]')).not.toBeNull()
+  })
+})
+
+// ── HeimPage — drawer ────────────────────────────────────────────────────────
+
+describe('HeimPage — event drawer', () => {
+  it('clicking an event row opens the drawer', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ event_type: 'loan_created', payload: { itemName: 'Borvél' } })])
+    const { container } = render(await HeimPage())
+    fireEvent.click(screen.getByText('Búinn til: Borvél'))
+    expect(container.querySelector('[data-testid="recent-drawer"]')).not.toBeNull()
+  })
+
+  it('drawer shows "Skoða" link for non-deleted events', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 1, event_type: 'loan_created', entity_id: 'aaa-bbb-ccc', payload: { itemName: 'Borvél' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Búinn til: Borvél'))
+    expect(screen.getByRole('link', { name: 'Skoða' })).toBeDefined()
+  })
+
+  it('drawer "Skoða" link for invitation event points to claim page', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 5, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-1234', payload: { itemName: 'Borvél' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Lánaboð: Borvél'))
+    const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
+    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/claim/inv-uuid-1234')
+  })
+
+  it('drawer does not show "Skoða" for deleted events', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 3, event_type: 'loan_deleted', payload: { itemName: 'Kassi' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Eytt: Kassi'))
+    expect(screen.getByTestId('recent-drawer')).not.toBeNull()
+    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
+  })
+
+  it('drawer shows per-event "Lesið" button for all event types', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ event_type: 'loan_created', payload: { itemName: 'Bók' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Búinn til: Bók'))
+    const drawer = screen.getByTestId('recent-drawer')
+    expect(drawer.querySelector('button')).not.toBeNull()
+  })
+
+  it('clicking per-event "Lesið" removes that event from the list', async () => {
+    mockAckRecentEvents.mockResolvedValue({ ok: true })
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 1, event_type: 'loan_created', payload: { itemName: 'Bók' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Búinn til: Bók'))
+    // "Lesið" appears in the drawer (header has "Allt lesið")
+    fireEvent.click(screen.getByRole('button', { name: 'Lesið' }))
+    expect(screen.queryByTestId('recent-drawer')).toBeNull()
+    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
   })
 })
 
@@ -780,17 +694,16 @@ describe('HeimPage — bottom logo link', () => {
   it('bottom logo link points to /auth-mvp/heim', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     const { container } = render(await HeimPage())
     const logoLink = container.querySelector('a[href="/auth-mvp/heim"]')
-    expect(logoLink).toBeDefined()
     expect(logoLink).not.toBeNull()
   })
 
   it('bottom logo SVGs are decorative (aria-hidden=true)', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([], [])
+    setupRpcs([])
     const { container } = render(await HeimPage())
     const logoLink = container.querySelector('a[href="/auth-mvp/heim"]')!
     const svgs = logoLink.querySelectorAll('svg')
@@ -798,43 +711,5 @@ describe('HeimPage — bottom logo link', () => {
     svgs.forEach((svg) => {
       expect(svg.getAttribute('aria-hidden')).toBe('true')
     })
-  })
-})
-
-// ── sortLoansForHome — pure unit tests ────────────────────────────────────────
-
-describe('sortLoansForHome', () => {
-  it('sorts by loaned_at DESC', () => {
-    const items = [
-      makeLoan({ id: 'c1', loaned_at: '2026-03-01' }),
-      makeLoan({ id: 'c2', loaned_at: '2026-05-01' }),
-      makeLoan({ id: 'c3', loaned_at: '2026-04-01' }),
-    ]
-    const sorted = sortLoansForHome(items)
-    expect(sorted.map((i) => i.loaned_at)).toEqual(['2026-05-01', '2026-04-01', '2026-03-01'])
-  })
-
-  it('uses id DESC as tie-breaker for equal loaned_at', () => {
-    const items = [
-      makeLoan({ id: '00000000-0000-0000-0000-000000000001', loaned_at: '2026-05-01' }),
-      makeLoan({ id: '00000000-0000-0000-0000-000000000003', loaned_at: '2026-05-01' }),
-      makeLoan({ id: '00000000-0000-0000-0000-000000000002', loaned_at: '2026-05-01' }),
-    ]
-    const sorted = sortLoansForHome(items)
-    expect(sorted.map((i) => i.id)).toEqual([
-      '00000000-0000-0000-0000-000000000003',
-      '00000000-0000-0000-0000-000000000002',
-      '00000000-0000-0000-0000-000000000001',
-    ])
-  })
-
-  it('does not mutate the original array', () => {
-    const items = [
-      makeLoan({ id: 'x1', loaned_at: '2026-03-01' }),
-      makeLoan({ id: 'x2', loaned_at: '2026-05-01' }),
-    ]
-    const original = [...items]
-    sortLoansForHome(items)
-    expect(items[0].id).toBe(original[0].id)
   })
 })

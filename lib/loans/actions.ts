@@ -5,8 +5,46 @@ import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, EditLoanItemDetailsSchema } from '@/lib/loans/types'
 import { sendLoanInvitationEmail, type EmailContext } from '@/lib/loans/email'
+import { recordRecentEvent } from '@/lib/recent-events/helpers.server'
 
 const LOANS_PATH = '/auth-mvp/lanad-og-skilad'
+const HOME_PATH = '/auth-mvp/heim'
+
+function revalidateLoanViews(): void {
+  revalidatePath(LOANS_PATH)
+  revalidatePath(HOME_PATH)
+}
+
+async function lookupUserIdByEmail(
+  admin: ReturnType<typeof getAdmin>,
+  email: string,
+): Promise<string | null> {
+  try {
+    // @ts-expect-error getUserByEmail removed from GoTrueAdminApi types in auth-js 2.x;
+    // this is best-effort — the catch returns null if the runtime call fails.
+    const { data, error } = await admin.auth.admin.getUserByEmail(email)
+    if (error || !data?.user?.id) return null
+    return data.user.id
+  } catch {
+    return null
+  }
+}
+
+async function fetchLoanItemName(
+  admin: ReturnType<typeof getAdmin>,
+  loanId: string,
+): Promise<string | null> {
+  try {
+    const { data } = await admin
+      .from('loan_items')
+      .select('item_name')
+      .eq('id', loanId)
+      .maybeSingle()
+    return (data as { item_name: string } | null)?.item_name ?? null
+  } catch {
+    return null
+  }
+}
 
 export type ActionResult =
   | { ok: true; emailStatus?: 'sent' | 'failed' | 'uncertain' }
@@ -97,6 +135,23 @@ async function performInvitationSend(
   }
 
   const { attempt_number, recipient_email } = row
+
+  // Best-effort: emit loan_invitation_received for recipient if registered.
+  // recipient_email is never logged.
+  const recipientUserId = await lookupUserIdByEmail(admin, recipient_email)
+  if (recipientUserId) {
+    await recordRecentEvent({
+      userId:           recipientUserId,
+      source:           'loans',
+      eventType:        'loan_invitation_received',
+      entityType:       'invitation',
+      entityId:         invitationId,
+      eventKey:         `loans:invitation:${invitationId}:received`,
+      payload:          preflight.item_name_snapshot ? { itemName: preflight.item_name_snapshot } : {},
+      href:             LOANS_PATH,
+      updateOnConflict: false,
+    })
+  }
 
   // ------------------------------------------------------------------
   // POST-RESERVE VERSION READ
@@ -223,7 +278,19 @@ export async function createLoan(input: unknown): Promise<ActionResult> {
     emailStatus = sendResult.emailStatus
   }
 
-  revalidatePath(LOANS_PATH)
+  await recordRecentEvent({
+    userId:          user.id,
+    source:          'loans',
+    eventType:       'loan_created',
+    entityType:      'loan',
+    entityId:        row.loan_id,
+    eventKey:        `loans:loan:${row.loan_id}:created`,
+    payload:         { itemName: item_name },
+    href:            '/auth-mvp/lanad-og-skilad',
+    updateOnConflict: false,
+  })
+
+  revalidateLoanViews()
   return { ok: true, emailStatus }
 }
 
@@ -262,7 +329,18 @@ export async function updateLoan(loanId: string, input: unknown): Promise<Action
   }
   if (result !== 'ok') return { ok: false, error: 'save_failed' }
 
-  revalidatePath(LOANS_PATH)
+  await recordRecentEvent({
+    userId:     user.id,
+    source:     'loans',
+    eventType:  'loan_updated',
+    entityType: 'loan',
+    entityId:   loanId,
+    eventKey:   `loans:loan:${loanId}:updated:${new Date().toISOString()}`,
+    payload:    { itemName: item_name },
+    href:       '/auth-mvp/lanad-og-skilad',
+  })
+
+  revalidateLoanViews()
   return { ok: true }
 }
 
@@ -289,7 +367,19 @@ export async function markReturned(loanId: string): Promise<ActionResult> {
   if (result === 'invitation_not_accepted') return { ok: false, error: 'invitation_not_accepted' }
   if (result !== 'ok' && result !== 'already_returned') return { ok: false, error: 'save_failed' }
 
-  revalidatePath(LOANS_PATH)
+  const itemName = await fetchLoanItemName(admin, loanId)
+  await recordRecentEvent({
+    userId:     user.id,
+    source:     'loans',
+    eventType:  'loan_returned',
+    entityType: 'loan',
+    entityId:   loanId,
+    eventKey:   `loans:loan:${loanId}:returned:${new Date().toISOString()}`,
+    payload:    itemName ? { itemName } : {},
+    href:       '/auth-mvp/lanad-og-skilad',
+  })
+
+  revalidateLoanViews()
   return { ok: true }
 }
 
@@ -316,7 +406,19 @@ export async function undoReturn(loanId: string): Promise<ActionResult> {
   if (result === 'invitation_not_accepted') return { ok: false, error: 'invitation_not_accepted' }
   if (result !== 'ok') return { ok: false, error: 'save_failed' }
 
-  revalidatePath(LOANS_PATH)
+  const itemName = await fetchLoanItemName(admin, loanId)
+  await recordRecentEvent({
+    userId:     user.id,
+    source:     'loans',
+    eventType:  'loan_return_undone',
+    entityType: 'loan',
+    entityId:   loanId,
+    eventKey:   `loans:loan:${loanId}:return-undone:${new Date().toISOString()}`,
+    payload:    itemName ? { itemName } : {},
+    href:       '/auth-mvp/lanad-og-skilad',
+  })
+
+  revalidateLoanViews()
   return { ok: true }
 }
 
@@ -328,6 +430,9 @@ export async function deleteLoan(loanId: string): Promise<ActionResult> {
   const { user } = await guardLoanAccess()
 
   const admin = getAdmin()
+  // Capture item name before deletion — the row will be gone after the RPC
+  const itemNameSnapshot = await fetchLoanItemName(admin, loanId)
+
   const { data, error } = await admin.rpc('delete_loan', {
     p_actor_id: user.id,
     p_loan_id:  loanId,
@@ -343,7 +448,19 @@ export async function deleteLoan(loanId: string): Promise<ActionResult> {
   if (result === 'not_deletable') return { ok: false, error: 'delete_failed' }
   if (result !== 'ok')           return { ok: false, error: 'delete_failed' }
 
-  revalidatePath(LOANS_PATH)
+  await recordRecentEvent({
+    userId:          user.id,
+    source:          'loans',
+    eventType:       'loan_deleted',
+    entityType:      'loan',
+    entityId:        loanId,
+    eventKey:        `loans:loan:${loanId}:deleted`,
+    payload:         itemNameSnapshot ? { itemName: itemNameSnapshot } : {},
+    href:            '/auth-mvp/lanad-og-skilad',
+    updateOnConflict: false,
+  })
+
+  revalidateLoanViews()
   return { ok: true }
 }
 
@@ -387,7 +504,7 @@ export async function addLoanInvitation(loanId: string, input: unknown): Promise
     emailStatus = sendResult.emailStatus
   }
 
-  revalidatePath(LOANS_PATH)
+  revalidateLoanViews()
   return { ok: true, emailStatus }
 }
 
@@ -405,7 +522,7 @@ export async function sendInvitationEmail(invitationId: string): Promise<ActionR
   if (emailStatus === 'uncertain') return { ok: false, error: 'send_uncertain' }
   if (emailStatus === 'failed')    return { ok: false, error: 'send_failed' }
 
-  revalidatePath(LOANS_PATH)
+  revalidateLoanViews()
   return { ok: true, emailStatus }
 }
 
@@ -429,7 +546,7 @@ export async function claimInvitation(invitationId: string): Promise<ActionResul
 
   const result = data as string
   if (result === 'ok') {
-    revalidatePath(LOANS_PATH)
+    revalidateLoanViews()
     return { ok: true }
   }
   return { ok: false, error: result }
@@ -457,7 +574,7 @@ export async function declineInvitation(invitationId: string): Promise<ActionRes
   if (result === 'not_found') return { ok: false, error: 'not_found' }
   if (result !== 'ok')        return { ok: false, error: 'save_failed' }
 
-  revalidatePath(LOANS_PATH)
+  revalidateLoanViews()
   return { ok: true }
 }
 
@@ -495,8 +612,18 @@ export async function updateLoanItemDetails(loanId: string, input: unknown): Pro
   }
   if (result !== 'ok') return { ok: false, error: 'save_failed' }
 
-  revalidatePath(LOANS_PATH)
-  revalidatePath('/auth-mvp/heim')
+  await recordRecentEvent({
+    userId:     user.id,
+    source:     'loans',
+    eventType:  'loan_updated',
+    entityType: 'loan',
+    entityId:   loanId,
+    eventKey:   `loans:loan:${loanId}:updated:${new Date().toISOString()}`,
+    payload:    { itemName: item_name },
+    href:       '/auth-mvp/lanad-og-skilad',
+  })
+
+  revalidateLoanViews()
   return { ok: true }
 }
 
@@ -522,6 +649,6 @@ export async function cancelInvitation(loanId: string): Promise<ActionResult> {
   if (result === 'not_found') return { ok: false, error: 'not_found' }
   if (result !== 'ok')        return { ok: false, error: 'save_failed' }
 
-  revalidatePath(LOANS_PATH)
+  revalidateLoanViews()
   return { ok: true }
 }

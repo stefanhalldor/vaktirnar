@@ -185,6 +185,9 @@ Gera skal ráð fyrir að samtal geti compactast og samhengi tapast.
 - Claude Code skal stoppa eftir mikilvægan áfanga og skila Codex handoff.
 - Ekki halda áfram í næsta stóran áfanga fyrr en Stebbi hefur fengið handoff
   sem hægt er að senda Codex.
+- Handoff/review skrár í `ai-handoff/` skulu nota filename-format:
+  `YYYY-MM-DD-HHMM-todo-XYZ-vNNN-agent-description.md`, þar sem `HHMM` er
+  24-klst staðartími þegar skráin er búin til.
 - Ef verkefni verður stórt eða flókið skal halda tímabundið utan um það í
   `AI_HANDOFF.md` eða `docs/ai-handoff.md`, ef Stebbi samþykkir það.
 

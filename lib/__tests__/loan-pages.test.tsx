@@ -259,10 +259,9 @@ describe('NewLoanPage — page structure', () => {
 // ── LoanPage — new item CTA ───────────────────────────────────────────────────
 
 describe('LoanPage — new item CTA', () => {
-  it('renders CTA link with exact text "Skrá hlut í láni"', async () => {
+  it('renders CTA link to /auth-mvp/lanad-og-skilad/ny with accessible text "Skrá hlut í láni"', async () => {
     render(await LoanPage())
-    const links = screen.getAllByRole('link')
-    const cta = links.find((l) => l.textContent?.trim() === '+ Skrá hlut í láni')
+    const cta = screen.getByRole('link', { name: /Skrá hlut í láni/i })
     expect(cta).toBeDefined()
     expect((cta as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/ny')
   })

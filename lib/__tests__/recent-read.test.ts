@@ -136,4 +136,59 @@ describe('computeRecentReadKey', () => {
       computeRecentReadKey('user-1', loanReturned)
     )
   })
+
+  it('does not encode raw item_name in the key', () => {
+    const loan = makeLoan({ item_name: 'SensitiveItemName' })
+    const key = computeRecentReadKey('user-1', loan)
+    // The key should not contain the raw item name as a substring
+    expect(key).not.toContain('SensitiveItemName')
+    expect(key).not.toContain('sensitive')
+  })
+
+  it('does not encode raw other_display_name in the key', () => {
+    const loan = makeLoan({ other_display_name: 'SensitivePersonName' })
+    const key = computeRecentReadKey('user-1', loan)
+    expect(key).not.toContain('SensitivePersonName')
+  })
+})
+
+describe('read-state filter-before-slice behaviour', () => {
+  it('surfaces 4th loan when first 3 are read (filter happens before slice)', () => {
+    const loans = [
+      makeLoan({ id: 'id-1', item_name: 'Item 1', loaned_at: '2026-05-05' }),
+      makeLoan({ id: 'id-2', item_name: 'Item 2', loaned_at: '2026-05-04' }),
+      makeLoan({ id: 'id-3', item_name: 'Item 3', loaned_at: '2026-05-03' }),
+      makeLoan({ id: 'id-4', item_name: 'Item 4', loaned_at: '2026-05-02' }),
+    ]
+    const userId = 'user-filter-test'
+    const readStateMap = new Map(
+      loans.slice(0, 3).map((l) => [l.id, computeRecentReadKey(userId, l)])
+    )
+
+    const rows = loans
+      .map((loan) => ({ loan, key: computeRecentReadKey(userId, loan) }))
+      .filter(({ loan, key }) => readStateMap.get(loan.id) !== key)
+      .slice(0, 3)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].loan.item_name).toBe('Item 4')
+  })
+
+  it('a read older loan does not reappear after a new unread loan is added', () => {
+    const oldLoan = makeLoan({ id: 'old', item_name: 'Old Loan', loaned_at: '2026-04-01' })
+    const newLoan = makeLoan({ id: 'new', item_name: 'New Loan', loaned_at: '2026-05-01' })
+    const userId = 'user-stability-test'
+
+    // oldLoan was read
+    const readStateMap = new Map([[oldLoan.id, computeRecentReadKey(userId, oldLoan)]])
+
+    const rows = [newLoan, oldLoan]
+      .map((loan) => ({ loan, key: computeRecentReadKey(userId, loan) }))
+      .filter(({ loan, key }) => readStateMap.get(loan.id) !== key)
+      .slice(0, 3)
+
+    const names = rows.map((r) => r.loan.item_name)
+    expect(names).toContain('New Loan')
+    expect(names).not.toContain('Old Loan')
+  })
 })

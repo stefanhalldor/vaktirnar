@@ -1,6 +1,6 @@
 import { getTranslations } from 'next-intl/server'
 import Link from 'next/link'
-import { Home } from 'lucide-react'
+import { Home, Plus } from 'lucide-react'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { LoanList } from '@/components/loans/LoanList'
@@ -49,9 +49,10 @@ export default async function LoanPage() {
         <>
           <Link
             href="/auth-mvp/lanad-og-skilad/ny"
-            className="flex items-center justify-center h-10 rounded-xl border border-dashed border-[#154212]/30 text-sm text-[#154212] hover:bg-[#154212]/5 transition-colors"
+            className="flex items-center justify-center gap-2 h-12 rounded-xl bg-[#154212] text-white text-sm font-semibold shadow-sm hover:bg-[#2d5a27] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           >
-            + {t('newItem')}
+            <Plus size={18} aria-hidden />
+            <span>{t('newItem')}</span>
           </Link>
           {pendingInvitations.length > 0 && (
             <section className="flex flex-col gap-3">
