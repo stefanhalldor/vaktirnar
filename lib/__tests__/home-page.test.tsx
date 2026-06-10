@@ -48,7 +48,7 @@ vi.mock('next-intl/server', () => ({
         recentMarkAllRead:    'Allt lesið',
         recentView:           'Skoða',
         recentClose:          'Loka',
-        recentDone:           'Þú getur slakað á því þú ert með allt í Teskeið, vel gert!',
+        recentDone:           'Njóttu lífsins með allt í Teskeið...',
         noRecent:             'Engin atburðir enn.',
         profileLink:          'Minn aðgangur',
         pendingBadgeLabel:    '{count, plural, one {1 boð í bið} other {# boð í bið}}',
@@ -409,7 +409,7 @@ describe('HeimPage — Nýlegt section (event-based)', () => {
     setupRpcs([])
     setupRecentEvents([])
     render(await HeimPage())
-    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
+    expect(screen.getByText('Njóttu lífsins með allt í Teskeið...')).toBeDefined()
   })
 
   it('shows "Nýlegt" heading and "Allt lesið" button when events exist', async () => {
@@ -457,6 +457,7 @@ describe('HeimPage — Nýlegt section (event-based)', () => {
     render(await HeimPage())
     expect(screen.getByText('Lánaboð: Borvél')).toBeDefined()
   })
+
 
   it('renders all unread events when 3 events exist', async () => {
     setupGuard()
@@ -532,7 +533,7 @@ describe('HeimPage — Nýlegt section (event-based)', () => {
     mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
     expect(screen.queryByText('Nýlegt')).toBeNull()
-    expect(screen.queryByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeNull()
+    expect(screen.queryByText('Njóttu lífsins með allt í Teskeið...')).toBeNull()
   })
 
   it('regression: home page contains no link to /auth-mvp/lanad-og-skilad/ny', async () => {
@@ -552,7 +553,7 @@ describe('HeimPage — Lesið / ack events', () => {
     setupRecentEvents([makeEvent({ payload: { itemName: 'Bók' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Allt lesið'))
-    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
+    expect(screen.getByText('Njóttu lífsins með allt í Teskeið...')).toBeDefined()
     expect(screen.queryByText('Allt lesið')).toBeNull()
   })
 
@@ -718,7 +719,7 @@ describe('HeimPage — event drawer', () => {
     expect(screen.getByRole('link', { name: 'Skoða' })).toBeDefined()
   })
 
-  it('drawer "Skoða" link for invitation event points to claim page', async () => {
+  it('drawer "Skoða" link for invitation event points to loan list with ?invitation= param', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
@@ -726,7 +727,7 @@ describe('HeimPage — event drawer', () => {
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lánaboð: Borvél'))
     const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
-    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/claim/inv-uuid-1234')
+    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad?invitation=inv-uuid-1234')
   })
 
   it('drawer does not show "Skoða" for deleted events', async () => {
@@ -779,7 +780,7 @@ describe('HeimPage — event drawer', () => {
     // "Lesið" appears in the drawer (header has "Allt lesið")
     fireEvent.click(screen.getByRole('button', { name: 'Lesið' }))
     expect(screen.queryByTestId('recent-drawer')).toBeNull()
-    expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
+    expect(screen.getByText('Njóttu lífsins með allt í Teskeið...')).toBeDefined()
   })
 })
 

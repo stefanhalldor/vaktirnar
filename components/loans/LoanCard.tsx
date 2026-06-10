@@ -10,6 +10,8 @@ import {
   deleteLoan,
   sendInvitationEmail,
   cancelInvitation,
+  claimInvitation,
+  declineInvitation,
 } from '@/lib/loans/actions'
 import { getLoanCardControls, loanedAtWeekday } from '@/lib/loans/types'
 import type { LoanItem } from '@/lib/loans/types'
@@ -85,6 +87,8 @@ export function LoanCard({ item }: Props) {
     showCancelInvite,
     isResend,
     showAddParty,
+    canAcknowledge,
+    canDeclineAcknowledgement,
   } = getLoanCardControls(item)
 
   function handleMarkReturned() {
@@ -146,6 +150,31 @@ export function LoanCard({ item }: Props) {
     })
   }
 
+  function handleAcknowledge() {
+    if (!item.invitation_id) return
+    setActionError('')
+    startTransition(async () => {
+      const result = await claimInvitation(item.invitation_id!)
+      if (!result.ok) {
+        if (result.error === 'wrong_email')          setActionError(t('errors.wrongEmail'))
+        else if (result.error === 'already_claimed') setActionError(t('errors.alreadyClaimed'))
+        else if (result.error === 'not_claimable')   setActionError(t('errors.notClaimable'))
+        else if (result.error === 'expired')         setActionError(t('errors.expiredInvite'))
+        else if (result.error === 'self_claim')      setActionError(t('errors.selfClaim'))
+        else                                         setActionError(t('errors.claimFailed'))
+      }
+    })
+  }
+
+  function handleDeclineAcknowledgement() {
+    if (!item.invitation_id) return
+    setActionError('')
+    startTransition(async () => {
+      const result = await declineInvitation(item.invitation_id!)
+      if (!result.ok) setActionError(t('errors.saveFailed'))
+    })
+  }
+
   return (
     <div className="bg-white border border-black/5 rounded-2xl p-4 flex flex-col gap-3">
       {/* Header row */}
@@ -155,12 +184,16 @@ export function LoanCard({ item }: Props) {
             {item.item_name}
           </p>
           <p className="text-xs text-[#72796e] mt-0.5">
-            {item.my_role === 'lender' ? t('lent') : t('borrowed')}
-            {item.other_display_name
-              ? ` · ${item.other_display_name}`
-              : item.invitation_status === 'pending'
-                ? ` · ${t('inviteStatus.pending')}`
-                : ''}
+            {item.requires_acknowledgement && item.other_display_name
+              ? t('newEntryFrom', { name: item.other_display_name })
+              : item.my_role === 'lender' ? t('lent') : t('borrowed')}
+            {!item.requires_acknowledgement && (
+              item.other_display_name
+                ? ` · ${item.other_display_name}`
+                : item.invitation_status === 'pending'
+                  ? ` · ${t('inviteStatus.pending')}`
+                  : ''
+            )}
           </p>
         </div>
         {canEditItemDetails && (
@@ -229,10 +262,36 @@ export function LoanCard({ item }: Props) {
         </div>
       ) : (
         <div className="flex flex-col gap-2 pt-1">
+          {/* Acknowledge / decline for pending recipient rows */}
+          {(canAcknowledge || canDeclineAcknowledgement) && (
+            <div className="flex gap-2">
+              {canDeclineAcknowledgement && (
+                <button
+                  type="button"
+                  onClick={handleDeclineAcknowledgement}
+                  disabled={isPending}
+                  className="flex-1 h-8 rounded-lg border border-gray-200 text-xs text-[#42493e] hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  {t('declineAcknowledgement')}
+                </button>
+              )}
+              {canAcknowledge && (
+                <button
+                  type="button"
+                  onClick={handleAcknowledge}
+                  disabled={isPending}
+                  className="flex-1 h-8 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
+                >
+                  {t('acknowledge')}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Return / undo row */}
           <div className="flex gap-2">
             {!bothPartiesJoined ? (
-              item.invitation_status === 'pending' ? (
+              item.invitation_status === 'pending' && !canAcknowledge ? (
                 <p className="flex-1 text-xs text-[#72796e] py-1.5">
                   {t('awaitingAcceptance')}
                 </p>

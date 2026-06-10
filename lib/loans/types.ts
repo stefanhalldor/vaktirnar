@@ -18,6 +18,7 @@ export interface LoanItem {
   invitation_attempt_status: 'reserved' | 'sent' | 'failed' | null
   can_send_invitation: boolean
   is_creator: boolean
+  requires_acknowledgement: boolean
 }
 
 export interface PendingInvitation {
@@ -146,11 +147,14 @@ export interface LoanCardControls {
   isResend: boolean
   showAddParty: boolean
   canEditItemDetails: boolean
+  canAcknowledge: boolean
+  canDeclineAcknowledgement: boolean
 }
 
 export function getLoanCardControls(
-  item: Pick<LoanItem, 'invitation_status' | 'invitation_attempt_status' | 'can_send_invitation' | 'is_creator' | 'my_role'>,
+  item: Pick<LoanItem, 'invitation_status' | 'invitation_attempt_status' | 'can_send_invitation' | 'is_creator' | 'my_role' | 'requires_acknowledgement'>,
 ): LoanCardControls {
+  const isPendingRecipient = item.requires_acknowledgement
   return {
     bothPartiesJoined: canShowReturnControls(item.invitation_status),
     canEdit:  item.is_creator && item.invitation_status !== 'accepted',
@@ -167,6 +171,9 @@ export function getLoanCardControls(
       item.is_creator &&
       item.invitation_status !== 'pending' &&
       item.invitation_status !== 'accepted',
-    canEditItemDetails: item.is_creator || item.my_role === 'lender',
+    // Pending recipient can't edit: RPC authorizes only created_by or lender_user_id
+    canEditItemDetails: !isPendingRecipient && (item.is_creator || item.my_role === 'lender'),
+    canAcknowledge: isPendingRecipient,
+    canDeclineAcknowledgement: isPendingRecipient,
   }
 }

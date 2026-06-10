@@ -82,6 +82,26 @@ export async function getUnreadRecentEventsForUser(
 }
 
 /**
+ * Best-effort: ack the event matching (userId, eventKey).
+ * Never throws — failure is logged and suppressed.
+ */
+export async function ackRecentEventByKey(userId: string, eventKey: string): Promise<void> {
+  try {
+    const admin = getAdmin()
+    const { error } = await admin
+      .from(TABLE)
+      .update({ ack_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('event_key', eventKey)
+    if (error) {
+      console.error('[recent-events] ackRecentEventByKey failed')
+    }
+  } catch {
+    console.error('[recent-events] ackRecentEventByKey failed')
+  }
+}
+
+/**
  * Sets ack_at on the given event IDs, but only for rows owned by userId.
  * Throws on DB error.
  */

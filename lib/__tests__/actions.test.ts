@@ -16,6 +16,7 @@ const { mockSendEmail } = vi.hoisted(() => ({ mockSendEmail: vi.fn() }))
 const { mockFrom } = vi.hoisted(() => ({ mockFrom: vi.fn() }))
 const { mockGetUserByEmail } = vi.hoisted(() => ({ mockGetUserByEmail: vi.fn() }))
 const { mockRecordEvent } = vi.hoisted(() => ({ mockRecordEvent: vi.fn() }))
+const { mockAckRecentEventByKey } = vi.hoisted(() => ({ mockAckRecentEventByKey: vi.fn() }))
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
@@ -33,13 +34,14 @@ vi.mock('@/lib/supabase/admin', () => ({
 
 vi.mock('@/lib/recent-events/helpers.server', () => ({
   recordRecentEvent: mockRecordEvent,
+  ackRecentEventByKey: mockAckRecentEventByKey,
 }))
 
 vi.mock('@/lib/loans/email', () => ({
   sendLoanInvitationEmail: mockSendEmail,
 }))
 
-import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails, updateLoan } from '@/lib/loans/actions'
+import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails, updateLoan, claimInvitation, declineInvitation } from '@/lib/loans/actions'
 import { guardLoanAccess } from '@/lib/loans/guard'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1224,5 +1226,73 @@ describe('actor own-action events — initiallyRead: true', () => {
     expect(mockRecordEvent).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'loan_deleted', initiallyRead: true }),
     )
+  })
+})
+
+// ============================================================
+// claimInvitation / declineInvitation — ackRecentEventByKey
+// After success, the received event for this invitation should
+// be acked so it no longer appears as unread in Nýlegt.
+// ============================================================
+
+describe('claimInvitation — acks received event on success', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAckRecentEventByKey.mockResolvedValue(undefined)
+  })
+
+  it('calls ackRecentEventByKey with correct key on success', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    const result = await claimInvitation('inv-abc-123')
+
+    expect(result.ok).toBe(true)
+    expect(mockAckRecentEventByKey).toHaveBeenCalledWith(
+      'actor-uuid',
+      'loans:invitation:inv-abc-123:received',
+    )
+  })
+
+  it('does not call ackRecentEventByKey when RPC returns an error result', async () => {
+    mockRpc.mockResolvedValue({ data: 'wrong_email', error: null })
+
+    await claimInvitation('inv-abc-123')
+
+    expect(mockAckRecentEventByKey).not.toHaveBeenCalled()
+  })
+
+  it('does not call ackRecentEventByKey when RPC itself fails', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'db error' } })
+
+    await claimInvitation('inv-abc-123')
+
+    expect(mockAckRecentEventByKey).not.toHaveBeenCalled()
+  })
+})
+
+describe('declineInvitation — acks received event on success', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAckRecentEventByKey.mockResolvedValue(undefined)
+  })
+
+  it('calls ackRecentEventByKey with correct key on success', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    const result = await declineInvitation('inv-xyz-999')
+
+    expect(result.ok).toBe(true)
+    expect(mockAckRecentEventByKey).toHaveBeenCalledWith(
+      'actor-uuid',
+      'loans:invitation:inv-xyz-999:received',
+    )
+  })
+
+  it('does not call ackRecentEventByKey when decline returns not_found', async () => {
+    mockRpc.mockResolvedValue({ data: 'not_found', error: null })
+
+    await declineInvitation('inv-xyz-999')
+
+    expect(mockAckRecentEventByKey).not.toHaveBeenCalled()
   })
 })

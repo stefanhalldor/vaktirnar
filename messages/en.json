@@ -338,7 +338,7 @@
       "recentMarkAllRead": "Mark all done",
       "recentView": "View",
       "recentClose": "Close",
-      "recentDone": "You can relax, you have everything in Teskeið. Well done!",
+      "recentDone": "Enjoy life with everything in Teskeið...",
       "noRecent": "Nothing recent yet.",
       "eventLoanCreated": "Created: {itemName}",
       "eventLoanUpdated": "Updated: {itemName}",
@@ -441,6 +441,9 @@
       "invitedBy": "Invited by",
       "accept": "Accept",
       "decline": "Decline",
+      "acknowledge": "I know about this",
+      "declineAcknowledgement": "I don't recognise this",
+      "newEntryFrom": "New entry from {name}",
       "inviteStatus": {
         "pending": "Pending",
         "accepted": "Accepted",

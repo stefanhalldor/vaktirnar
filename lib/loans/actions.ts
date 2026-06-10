@@ -5,7 +5,7 @@ import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, EditLoanItemDetailsSchema } from '@/lib/loans/types'
 import { sendLoanInvitationEmail, type EmailContext } from '@/lib/loans/email'
-import { recordRecentEvent } from '@/lib/recent-events/helpers.server'
+import { recordRecentEvent, ackRecentEventByKey } from '@/lib/recent-events/helpers.server'
 import { computeLoanChanges } from '@/lib/loans/event-diff'
 
 const LOANS_PATH = '/auth-mvp/lanad-og-skilad'
@@ -565,6 +565,7 @@ export async function claimInvitation(invitationId: string): Promise<ActionResul
 
   const result = data as string
   if (result === 'ok') {
+    await ackRecentEventByKey(user.id, `loans:invitation:${invitationId}:received`)
     revalidateLoanViews()
     return { ok: true }
   }
@@ -593,6 +594,7 @@ export async function declineInvitation(invitationId: string): Promise<ActionRes
   if (result === 'not_found') return { ok: false, error: 'not_found' }
   if (result !== 'ok')        return { ok: false, error: 'save_failed' }
 
+  await ackRecentEventByKey(user.id, `loans:invitation:${invitationId}:received`)
   revalidateLoanViews()
   return { ok: true }
 }

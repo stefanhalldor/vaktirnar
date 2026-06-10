@@ -202,7 +202,7 @@ describe('EditLoanSchema — date validation', () => {
 // ============================================================
 
 type ControlItem = Pick<LoanItem,
-  'invitation_status' | 'invitation_attempt_status' | 'can_send_invitation' | 'is_creator' | 'my_role'
+  'invitation_status' | 'invitation_attempt_status' | 'can_send_invitation' | 'is_creator' | 'my_role' | 'requires_acknowledgement'
 >
 
 const BASE: ControlItem = {
@@ -211,6 +211,7 @@ const BASE: ControlItem = {
   can_send_invitation: false,
   is_creator: true,
   my_role: 'lender',
+  requires_acknowledgement: false,
 }
 
 describe('getLoanCardControls — expired invitation', () => {
@@ -291,6 +292,37 @@ describe('getLoanCardControls — non-creator', () => {
     // can_send_invitation from RPC already incorporates invited_by = p_actor_id
     expect(c.showSendInvite).toBe(true)
   })
+})
+
+describe('getLoanCardControls — pending recipient (requires_acknowledgement)', () => {
+  const c = getLoanCardControls({
+    ...BASE,
+    is_creator: false,
+    invitation_status: 'pending',
+    invitation_attempt_status: 'sent',
+    can_send_invitation: false,
+    requires_acknowledgement: true,
+  })
+
+  it('canAcknowledge is true', () => { expect(c.canAcknowledge).toBe(true) })
+  it('canDeclineAcknowledgement is true', () => { expect(c.canDeclineAcknowledgement).toBe(true) })
+  it('canDelete is false for pending recipient', () => { expect(c.canDelete).toBe(false) })
+  it('showSendInvite is false for pending recipient', () => { expect(c.showSendInvite).toBe(false) })
+  it('showCancelInvite is false for pending recipient (not creator)', () => { expect(c.showCancelInvite).toBe(false) })
+  it('canEditItemDetails is false for pending recipient', () => { expect(c.canEditItemDetails).toBe(false) })
+  it('bothPartiesJoined is false for pending recipient', () => { expect(c.bothPartiesJoined).toBe(false) })
+})
+
+describe('getLoanCardControls — normal accepted row (requires_acknowledgement: false)', () => {
+  const c = getLoanCardControls({
+    ...BASE,
+    invitation_status: 'accepted',
+    requires_acknowledgement: false,
+  })
+
+  it('canAcknowledge is false for accepted row', () => { expect(c.canAcknowledge).toBe(false) })
+  it('canDeclineAcknowledgement is false for accepted row', () => { expect(c.canDeclineAcknowledgement).toBe(false) })
+  it('bothPartiesJoined is true for accepted row', () => { expect(c.bothPartiesJoined).toBe(true) })
 })
 
 // ============================================================
@@ -496,18 +528,16 @@ describe('loans/page — error handling (regression)', () => {
     expect(pageSrc).toContain('loansResult.error')
   })
 
-  it('shows loadFailed if get_my_pending_invitations returns an error', () => {
-    expect(pageSrc).toContain('invitationsResult.error')
-  })
-
-  it('error condition covers both RPCs with OR', () => {
-    expect(pageSrc).toMatch(/loansResult\.error\s*\|\|\s*invitationsResult\.error/)
+  it('page no longer calls get_my_pending_invitations separately', () => {
+    // Pending rows are included via UNION ALL in get_my_loans (sql/50)
+    expect(pageSrc).not.toContain('invitationsResult.error')
+    expect(pageSrc).not.toContain('get_my_pending_invitations')
   })
 
   it('does not expose error.message or DB details to client', () => {
     // The error branch must only render the translated key, not any raw error property
     const errorBranch = pageSrc.slice(
-      pageSrc.indexOf('loansResult.error || invitationsResult.error'),
+      pageSrc.indexOf('loansResult.error'),
       pageSrc.indexOf('</main>'),
     )
     expect(errorBranch).not.toContain('error.message')

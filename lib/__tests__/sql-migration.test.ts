@@ -82,3 +82,107 @@ describe('sql/47_fix_href_constraint.sql — static checks', () => {
     expect(sql47).toMatch(/COMMIT/)
   })
 })
+
+const sql50 = readFileSync(
+  join(process.cwd(), 'sql/50_loan_soft_acknowledgement.sql'),
+  'utf8'
+)
+
+describe('sql/50_loan_soft_acknowledgement.sql — static checks', () => {
+  it('drops get_my_loans before recreating (return-shape migration safety)', () => {
+    expect(sql50).toMatch(/DROP FUNCTION IF EXISTS public\.get_my_loans\(uuid\)/)
+  })
+
+  it('recreates get_my_loans with CREATE FUNCTION (not CREATE OR REPLACE) after drop', () => {
+    // After DROP IF EXISTS, plain CREATE FUNCTION is used — no return-type conflict
+    const dropPos = sql50.indexOf('DROP FUNCTION IF EXISTS public.get_my_loans')
+    const createPos = sql50.indexOf('CREATE FUNCTION public.get_my_loans', dropPos)
+    expect(createPos).toBeGreaterThan(dropPos)
+  })
+
+  it('returns requires_acknowledgement boolean column', () => {
+    expect(sql50).toMatch(/requires_acknowledgement\s+boolean/)
+  })
+
+  it('has a UNION ALL branch for pending invitation rows', () => {
+    expect(sql50).toMatch(/UNION ALL/)
+  })
+
+  it('pending branch matches actor email to recipient_email_normalized', () => {
+    expect(sql50).toMatch(/recipient_email_normalized\s*=\s*v_actor_norm/)
+  })
+
+  it('pending branch does not expose recipient_email_normalized as a selected column', () => {
+    // recipient_email_normalized must only appear in the WHERE clause, not as a SELECT column.
+    // We find the SELECT...FROM block for branch 2 and check its column expressions.
+    const branch2 = sql50.slice(sql50.indexOf('UNION ALL'))
+    // Isolate between SELECT keyword and the FROM keyword that follows the column list
+    const selectKeyword = branch2.indexOf('SELECT\n')
+    const fromKeyword = branch2.indexOf('  FROM public.loan_invitations', selectKeyword)
+    const columnList = branch2.slice(selectKeyword, fromKeyword)
+    // The column list must not reference recipient_email_normalized
+    expect(columnList).not.toMatch(/recipient_email_normalized/)
+  })
+
+  it('pending branch requires inv.status = pending', () => {
+    expect(sql50).toMatch(/inv\.status\s*=\s*'pending'/)
+  })
+
+  it('pending branch excludes rows where actor is already lender or borrower', () => {
+    expect(sql50).toMatch(/IS DISTINCT FROM p_actor_id/)
+  })
+
+  it('existing participant rows return requires_acknowledgement = false', () => {
+    // Branch 1 must end with false for requires_acknowledgement
+    const branch1 = sql50.slice(0, sql50.indexOf('UNION ALL'))
+    // false appears at the end of the SELECT list before FROM (may have spaces/CRLF)
+    expect(branch1).toMatch(/false[\s\r\n]+FROM public\.loan_items/)
+  })
+
+  it('pending invitation rows return requires_acknowledgement = true', () => {
+    const branch2 = sql50.slice(sql50.indexOf('UNION ALL'))
+    expect(branch2).toMatch(/true[\s\r\n]+FROM public\.loan_invitations/)
+  })
+
+  it('function uses SET search_path = empty string', () => {
+    expect(sql50).toMatch(/SET search_path = ''/)
+  })
+
+  it('revokes execute from PUBLIC, anon, authenticated', () => {
+    expect(sql50).toMatch(/REVOKE EXECUTE.*FROM PUBLIC, anon, authenticated/)
+  })
+
+  it('grants execute to service_role only', () => {
+    expect(sql50).toMatch(/GRANT\s+EXECUTE.*TO service_role/)
+    expect(sql50).not.toMatch(/GRANT.*TO authenticated/)
+    expect(sql50).not.toMatch(/GRANT.*TO anon/)
+  })
+
+  it('wraps in a transaction', () => {
+    expect(sql50).toMatch(/BEGIN/)
+    expect(sql50).toMatch(/COMMIT/)
+  })
+
+  it('drops claim_loan_invitation before recreating', () => {
+    expect(sql50).toMatch(/DROP FUNCTION IF EXISTS public\.claim_loan_invitation\(uuid, uuid\)/)
+  })
+
+  it('recreates claim_loan_invitation without expires_at expiry check', () => {
+    const claimFnStart = sql50.indexOf('CREATE FUNCTION public.claim_loan_invitation')
+    const claimFnEnd = sql50.indexOf('$$;', claimFnStart)
+    const claimFnBody = sql50.slice(claimFnStart, claimFnEnd)
+    expect(claimFnBody).not.toMatch(/expires_at/)
+  })
+
+  it('claim_loan_invitation still checks status = pending', () => {
+    const claimFnStart = sql50.indexOf('CREATE FUNCTION public.claim_loan_invitation')
+    const claimFnEnd = sql50.indexOf('$$;', claimFnStart)
+    const claimFnBody = sql50.slice(claimFnStart, claimFnEnd)
+    expect(claimFnBody).toMatch(/status\s*!=\s*'pending'/)
+  })
+
+  it('claim_loan_invitation grants remain service_role only', () => {
+    const claimGrant = sql50.slice(sql50.indexOf('GRANT  EXECUTE ON FUNCTION public.claim_loan_invitation'))
+    expect(claimGrant).toMatch(/TO service_role/)
+  })
+})

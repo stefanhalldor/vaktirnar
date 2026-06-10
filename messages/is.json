@@ -342,7 +342,7 @@
       "recentMarkAllRead": "Allt lesið",
       "recentView": "Skoða",
       "recentClose": "Loka",
-      "recentDone": "Þú getur slakað á því þú ert með allt í Teskeið, vel gert!",
+      "recentDone": "Njóttu lífsins með allt í Teskeið...",
       "noRecent": "Engin atburðir enn.",
       "eventLoanCreated": "Búinn til: {itemName}",
       "eventLoanUpdated": "Breytt: {itemName}",
@@ -445,6 +445,9 @@
       "invitedBy": "Boðið af",
       "accept": "Samþykkja",
       "decline": "Hafna",
+      "acknowledge": "Þekki málið",
+      "declineAcknowledgement": "Kannast ekki við þetta",
+      "newEntryFrom": "Ný skráning frá {name}",
       "inviteStatus": {
         "pending": "Bíður svars",
         "accepted": "Samþykkt",

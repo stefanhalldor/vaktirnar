@@ -256,6 +256,16 @@ describe('NewLoanPage — page structure', () => {
   })
 })
 
+// ── LoanPage — soft acknowledgement (pending rows via get_my_loans) ───────────
+
+describe('LoanPage — PendingInvitationCard section removed', () => {
+  it('does not render pending-card elements from get_my_pending_invitations', async () => {
+    // LoanPage no longer calls get_my_pending_invitations; only get_my_loans is used
+    const { container } = render(await LoanPage())
+    expect(container.querySelectorAll('[data-testid="pending-card"]').length).toBe(0)
+  })
+})
+
 // ── LoanPage — new item CTA ───────────────────────────────────────────────────
 
 describe('LoanPage — new item CTA', () => {
@@ -283,6 +293,7 @@ const ITEM_BASE = {
   other_display_name: null,
   is_creator: false,
   my_role: 'lender' as const,
+  requires_acknowledgement: false,
 }
 
 describe('EditLoanPage — routing', () => {

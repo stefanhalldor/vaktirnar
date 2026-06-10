@@ -57,7 +57,7 @@ export function ClaimForm({ invitationId }: Props) {
           disabled={isPending}
           className="flex-1 h-10 rounded-xl border border-gray-200 text-sm text-[#42493e] hover:bg-gray-50 transition-colors disabled:opacity-50"
         >
-          {t('decline')}
+          {t('declineAcknowledgement')}
         </button>
         <button
           type="button"
@@ -65,7 +65,7 @@ export function ClaimForm({ invitationId }: Props) {
           disabled={isPending}
           className="flex-1 h-10 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
         >
-          {t('accept')}
+          {t('acknowledge')}
         </button>
       </div>
     </div>

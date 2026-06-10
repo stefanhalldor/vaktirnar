@@ -57,6 +57,7 @@ function makeItem(overrides: Partial<LoanItem> & { id: string }): LoanItem {
     invitation_attempt_status: null,
     can_send_invitation: false,
     is_creator: true,
+    requires_acknowledgement: false,
     ...overrides,
   }
 }
