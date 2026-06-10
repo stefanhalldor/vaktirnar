@@ -31,19 +31,60 @@ async function lookupUserIdByEmail(
   }
 }
 
-async function fetchLoanItemName(
+interface LoanEventContext {
+  itemName:       string | null
+  lenderUserId:   string | null
+  borrowerUserId: string | null
+}
+
+async function fetchLoanEventContext(
   admin: ReturnType<typeof getAdmin>,
   loanId: string,
-): Promise<string | null> {
+): Promise<LoanEventContext> {
   try {
     const { data } = await admin
       .from('loan_items')
-      .select('item_name')
+      .select('item_name, lender_user_id, borrower_user_id')
       .eq('id', loanId)
       .maybeSingle()
-    return (data as { item_name: string } | null)?.item_name ?? null
+    if (!data) return { itemName: null, lenderUserId: null, borrowerUserId: null }
+    const row = data as { item_name: string; lender_user_id: string | null; borrower_user_id: string | null }
+    return { itemName: row.item_name, lenderUserId: row.lender_user_id, borrowerUserId: row.borrower_user_id }
   } catch {
-    return null
+    return { itemName: null, lenderUserId: null, borrowerUserId: null }
+  }
+}
+
+interface InvitationContext {
+  itemName:      string | null
+  loanId:        string | null
+  creatorUserId: string | null
+}
+
+async function fetchInvitationContext(
+  admin: ReturnType<typeof getAdmin>,
+  invitationId: string,
+): Promise<InvitationContext> {
+  try {
+    const { data: inv } = await admin
+      .from('loan_invitations')
+      .select('invited_by, loan_id')
+      .eq('id', invitationId)
+      .maybeSingle()
+    if (!inv) return { itemName: null, loanId: null, creatorUserId: null }
+    const row = inv as { invited_by: string | null; loan_id: string }
+    const { data: item } = await admin
+      .from('loan_items')
+      .select('item_name')
+      .eq('id', row.loan_id)
+      .maybeSingle()
+    return {
+      itemName:      (item as { item_name: string } | null)?.item_name ?? null,
+      loanId:        row.loan_id,
+      creatorUserId: row.invited_by ?? null,
+    }
+  } catch {
+    return { itemName: null, loanId: null, creatorUserId: null }
   }
 }
 
@@ -383,18 +424,26 @@ export async function markReturned(loanId: string): Promise<ActionResult> {
   if (result === 'invitation_not_accepted') return { ok: false, error: 'invitation_not_accepted' }
   if (result !== 'ok' && result !== 'already_returned') return { ok: false, error: 'save_failed' }
 
-  const itemName = await fetchLoanItemName(admin, loanId)
-  await recordRecentEvent({
-    userId:        user.id,
-    source:        'loans',
-    eventType:     'loan_returned',
-    entityType:    'loan',
-    entityId:      loanId,
-    eventKey:      `loans:loan:${loanId}:returned:${new Date().toISOString()}`,
-    payload:       itemName ? { itemName } : {},
-    href:          '/auth-mvp/lanad-og-skilad',
-    initiallyRead: true,
-  })
+  if (result === 'ok') {
+    const { itemName, lenderUserId, borrowerUserId } = await fetchLoanEventContext(admin, loanId)
+    const eventKey = `loans:loan:${loanId}:returned:${new Date().toISOString()}`
+    const payload  = itemName ? { itemName } : {}
+    await recordRecentEvent({
+      userId: user.id, source: 'loans', eventType: 'loan_returned',
+      entityType: 'loan', entityId: loanId, eventKey, payload,
+      href: '/auth-mvp/lanad-og-skilad', initiallyRead: true,
+    })
+    const counterpartUserId = user.id === lenderUserId
+      ? borrowerUserId
+      : user.id === borrowerUserId ? lenderUserId : null
+    if (counterpartUserId) {
+      await recordRecentEvent({
+        userId: counterpartUserId, source: 'loans', eventType: 'loan_returned',
+        entityType: 'loan', entityId: loanId, eventKey, payload,
+        href: '/auth-mvp/lanad-og-skilad',
+      })
+    }
+  }
 
   revalidateLoanViews()
   return { ok: true }
@@ -423,18 +472,24 @@ export async function undoReturn(loanId: string): Promise<ActionResult> {
   if (result === 'invitation_not_accepted') return { ok: false, error: 'invitation_not_accepted' }
   if (result !== 'ok') return { ok: false, error: 'save_failed' }
 
-  const itemName = await fetchLoanItemName(admin, loanId)
+  const { itemName, lenderUserId, borrowerUserId } = await fetchLoanEventContext(admin, loanId)
+  const eventKey = `loans:loan:${loanId}:return-undone:${new Date().toISOString()}`
+  const payload  = itemName ? { itemName } : {}
   await recordRecentEvent({
-    userId:        user.id,
-    source:        'loans',
-    eventType:     'loan_return_undone',
-    entityType:    'loan',
-    entityId:      loanId,
-    eventKey:      `loans:loan:${loanId}:return-undone:${new Date().toISOString()}`,
-    payload:       itemName ? { itemName } : {},
-    href:          '/auth-mvp/lanad-og-skilad',
-    initiallyRead: true,
+    userId: user.id, source: 'loans', eventType: 'loan_return_undone',
+    entityType: 'loan', entityId: loanId, eventKey, payload,
+    href: '/auth-mvp/lanad-og-skilad', initiallyRead: true,
   })
+  const counterpartUserId = user.id === lenderUserId
+    ? borrowerUserId
+    : user.id === borrowerUserId ? lenderUserId : null
+  if (counterpartUserId) {
+    await recordRecentEvent({
+      userId: counterpartUserId, source: 'loans', eventType: 'loan_return_undone',
+      entityType: 'loan', entityId: loanId, eventKey, payload,
+      href: '/auth-mvp/lanad-og-skilad',
+    })
+  }
 
   revalidateLoanViews()
   return { ok: true }
@@ -449,7 +504,7 @@ export async function deleteLoan(loanId: string): Promise<ActionResult> {
 
   const admin = getAdmin()
   // Capture item name before deletion — the row will be gone after the RPC
-  const itemNameSnapshot = await fetchLoanItemName(admin, loanId)
+  const { itemName: itemNameSnapshot } = await fetchLoanEventContext(admin, loanId)
 
   const { data, error } = await admin.rpc('delete_loan', {
     p_actor_id: user.id,
@@ -566,6 +621,16 @@ export async function claimInvitation(invitationId: string): Promise<ActionResul
   const result = data as string
   if (result === 'ok') {
     await ackRecentEventByKey(user.id, `loans:invitation:${invitationId}:received`)
+    const { itemName, loanId, creatorUserId } = await fetchInvitationContext(admin, invitationId)
+    if (creatorUserId && creatorUserId !== user.id) {
+      await recordRecentEvent({
+        userId: creatorUserId, source: 'loans', eventType: 'loan_invitation_accepted',
+        entityType: 'loan', entityId: loanId,
+        eventKey: `loans:invitation:${invitationId}:accepted`,
+        payload: itemName ? { itemName } : {},
+        href: '/auth-mvp/lanad-og-skilad',
+      })
+    }
     revalidateLoanViews()
     return { ok: true }
   }
@@ -595,6 +660,16 @@ export async function declineInvitation(invitationId: string): Promise<ActionRes
   if (result !== 'ok')        return { ok: false, error: 'save_failed' }
 
   await ackRecentEventByKey(user.id, `loans:invitation:${invitationId}:received`)
+  const { itemName, loanId, creatorUserId } = await fetchInvitationContext(admin, invitationId)
+  if (creatorUserId && creatorUserId !== user.id) {
+    await recordRecentEvent({
+      userId: creatorUserId, source: 'loans', eventType: 'loan_invitation_declined',
+      entityType: 'loan', entityId: loanId,
+      eventKey: `loans:invitation:${invitationId}:declined`,
+      payload: itemName ? { itemName } : {},
+      href: '/auth-mvp/lanad-og-skilad',
+    })
+  }
   revalidateLoanViews()
   return { ok: true }
 }

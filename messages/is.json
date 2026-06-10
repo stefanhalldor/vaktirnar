@@ -350,6 +350,8 @@
       "eventLoanReturnUndone": "Skilað afturkallað: {itemName}",
       "eventLoanDeleted": "Eytt: {itemName}",
       "eventLoanInvitationReceived": "Lánaboð: {itemName}",
+      "eventLoanInvitationAccepted": "Lánaboð samþykkt: {itemName}",
+      "eventLoanInvitationDeclined": "Lánaboði hafnað: {itemName}",
       "profileLink": "Minn aðgangur",
       "pendingBadgeLabel": "{count} boð í bið",
       "eventDetailReturnDateRemoved": "Skiladagur fjarlægður: {date}",

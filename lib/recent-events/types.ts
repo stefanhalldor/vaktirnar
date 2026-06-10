@@ -5,6 +5,8 @@ export type RecentEventType =
   | 'loan_return_undone'
   | 'loan_deleted'
   | 'loan_invitation_received'
+  | 'loan_invitation_accepted'
+  | 'loan_invitation_declined'
 
 export type LoanFieldChangeType = 'changed' | 'added' | 'removed'
 

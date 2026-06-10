@@ -41,7 +41,7 @@ vi.mock('@/lib/loans/email', () => ({
   sendLoanInvitationEmail: mockSendEmail,
 }))
 
-import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails, updateLoan, claimInvitation, declineInvitation } from '@/lib/loans/actions'
+import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails, updateLoan, claimInvitation, declineInvitation, markReturned, undoReturn, deleteLoan } from '@/lib/loans/actions'
 import { guardLoanAccess } from '@/lib/loans/guard'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1162,8 +1162,6 @@ describe('updateLoanItemDetails — diff + counterpart events', () => {
 
 // ── Actor initiallyRead: true — all own-action events ────────────────────────
 
-import { markReturned, undoReturn, deleteLoan } from '@/lib/loans/actions'
-
 describe('actor own-action events — initiallyRead: true', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -1294,5 +1292,273 @@ describe('declineInvitation — acks received event on success', () => {
     await declineInvitation('inv-xyz-999')
 
     expect(mockAckRecentEventByKey).not.toHaveBeenCalled()
+  })
+})
+
+// ============================================================
+// markReturned — counterpart events
+// ============================================================
+
+// actor-uuid is the actor (from guardLoanAccess mock); make them the lender
+function makeLoanItemRow(overrides: Partial<{ item_name: string; lender_user_id: string | null; borrower_user_id: string | null }> = {}) {
+  return {
+    item_name: 'Borvél',
+    lender_user_id: 'actor-uuid',
+    borrower_user_id: 'borrower-uuid',
+    ...overrides,
+  }
+}
+
+describe('markReturned — counterpart event emission', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRecordEvent.mockResolvedValue(undefined)
+    // Default: actor is lender; loan has both parties
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({ data: makeLoanItemRow(), error: null }),
+        }),
+      }),
+    }))
+  })
+
+  it('emits actor (initiallyRead) and counterpart events on ok', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    const result = await markReturned('loan-aaa')
+
+    expect(result.ok).toBe(true)
+    expect(mockRecordEvent).toHaveBeenCalledTimes(2)
+    const [actorCall, counterpartCall] = mockRecordEvent.mock.calls
+    expect(actorCall[0]).toMatchObject({ userId: 'actor-uuid', eventType: 'loan_returned', initiallyRead: true })
+    expect(counterpartCall[0]).toMatchObject({ userId: 'borrower-uuid', eventType: 'loan_returned' })
+    expect(counterpartCall[0]).not.toHaveProperty('initiallyRead', true)
+    // Same eventKey for independent ack
+    expect(actorCall[0].eventKey).toBe(counterpartCall[0].eventKey)
+  })
+
+  it('does not emit any events for already_returned', async () => {
+    mockRpc.mockResolvedValue({ data: 'already_returned', error: null })
+
+    const result = await markReturned('loan-aaa')
+
+    expect(result.ok).toBe(true)
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not emit counterpart event when borrower_user_id is null (solo loan)', async () => {
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({ data: makeLoanItemRow({ borrower_user_id: null }), error: null }),
+        }),
+      }),
+    }))
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    await markReturned('loan-aaa')
+
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+    expect(mockRecordEvent.mock.calls[0][0]).toMatchObject({ userId: 'actor-uuid' })
+  })
+})
+
+// ============================================================
+// undoReturn — counterpart events
+// ============================================================
+
+describe('undoReturn — counterpart event emission', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRecordEvent.mockResolvedValue(undefined)
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({ data: makeLoanItemRow(), error: null }),
+        }),
+      }),
+    }))
+  })
+
+  it('emits actor and counterpart events on ok', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    const result = await undoReturn('loan-bbb')
+
+    expect(result.ok).toBe(true)
+    expect(mockRecordEvent).toHaveBeenCalledTimes(2)
+    const [actorCall, counterpartCall] = mockRecordEvent.mock.calls
+    expect(actorCall[0]).toMatchObject({ userId: 'actor-uuid', eventType: 'loan_return_undone', initiallyRead: true })
+    expect(counterpartCall[0]).toMatchObject({ userId: 'borrower-uuid', eventType: 'loan_return_undone' })
+    expect(actorCall[0].eventKey).toBe(counterpartCall[0].eventKey)
+  })
+
+  it('does not emit counterpart event when no counterpart', async () => {
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({ data: makeLoanItemRow({ lender_user_id: null, borrower_user_id: null }), error: null }),
+        }),
+      }),
+    }))
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    await undoReturn('loan-bbb')
+
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ============================================================
+// claimInvitation — creator notification
+// ============================================================
+
+describe('claimInvitation — creator receives loan_invitation_accepted', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAckRecentEventByKey.mockResolvedValue(undefined)
+    mockRecordEvent.mockResolvedValue(undefined)
+    // Two sequential from() calls: loan_invitations, then loan_items
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) {
+        // loan_invitations query
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { invited_by: 'creator-uuid', loan_id: 'loan-ccc' }, error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      // loan_items query
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: { item_name: 'Reiðhjól' }, error: null }),
+          }),
+        }),
+      }
+    })
+  })
+
+  it('emits loan_invitation_accepted for the creator on ok with loan entityId', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    const result = await claimInvitation('inv-ccc')
+
+    expect(result.ok).toBe(true)
+    expect(mockRecordEvent).toHaveBeenCalledOnce()
+    const call = mockRecordEvent.mock.calls[0][0]
+    expect(call).toMatchObject({
+      userId:     'creator-uuid',
+      eventType:  'loan_invitation_accepted',
+      entityType: 'loan',
+      entityId:   'loan-ccc',
+      eventKey:   'loans:invitation:inv-ccc:accepted',
+      payload:    { itemName: 'Reiðhjól' },
+    })
+    // Payload must not contain any email fields
+    expect(call.payload).not.toHaveProperty('recipient_email')
+    expect(call.payload).not.toHaveProperty('recipient_email_normalized')
+  })
+
+  it('does not emit creator event when claim fails', async () => {
+    mockRpc.mockResolvedValue({ data: 'wrong_email', error: null })
+
+    await claimInvitation('inv-ccc')
+
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not emit creator event when creator equals actor', async () => {
+    // invited_by === actor-uuid (same user)
+    mockFrom.mockImplementationOnce(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: { invited_by: 'actor-uuid', loan_id: 'loan-ccc' }, error: null,
+          }),
+        }),
+      }),
+    })).mockImplementationOnce(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({ data: { item_name: 'Reiðhjól' }, error: null }),
+        }),
+      }),
+    }))
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    await claimInvitation('inv-ccc')
+
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+})
+
+// ============================================================
+// declineInvitation — creator notification
+// ============================================================
+
+describe('declineInvitation — creator receives loan_invitation_declined', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAckRecentEventByKey.mockResolvedValue(undefined)
+    mockRecordEvent.mockResolvedValue(undefined)
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { invited_by: 'creator-uuid', loan_id: 'loan-ddd' }, error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: { item_name: 'Bokvél' }, error: null }),
+          }),
+        }),
+      }
+    })
+  })
+
+  it('emits loan_invitation_declined for the creator on ok with loan entityId', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    const result = await declineInvitation('inv-ddd')
+
+    expect(result.ok).toBe(true)
+    expect(mockRecordEvent).toHaveBeenCalledOnce()
+    const call = mockRecordEvent.mock.calls[0][0]
+    expect(call).toMatchObject({
+      userId:     'creator-uuid',
+      eventType:  'loan_invitation_declined',
+      entityType: 'loan',
+      entityId:   'loan-ddd',
+      eventKey:   'loans:invitation:inv-ddd:declined',
+      payload:    { itemName: 'Bokvél' },
+    })
+    // Payload must not contain any email fields
+    expect(call.payload).not.toHaveProperty('recipient_email')
+    expect(call.payload).not.toHaveProperty('recipient_email_normalized')
+  })
+
+  it('does not emit creator event when decline fails', async () => {
+    mockRpc.mockResolvedValue({ data: 'not_found', error: null })
+
+    await declineInvitation('inv-ddd')
+
+    expect(mockRecordEvent).not.toHaveBeenCalled()
   })
 })

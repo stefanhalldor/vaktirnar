@@ -48,6 +48,10 @@ export function LoanList({ items }: Props) {
     })
     .slice()
     .sort((a, b) => {
+      // Pending acknowledgement rows always float to top (newest) or bottom (oldest)
+      const ackA = a.requires_acknowledgement ? 1 : 0
+      const ackB = b.requires_acknowledgement ? 1 : 0
+      if (ackA !== ackB) return sort === 'newest' ? ackB - ackA : ackA - ackB
       const dateA = status === 'returned' ? (a.returned_at ?? a.loaned_at) : a.loaned_at
       const dateB = status === 'returned' ? (b.returned_at ?? b.loaned_at) : b.loaned_at
       const cmp = dateA < dateB ? -1 : dateA > dateB ? 1 : 0

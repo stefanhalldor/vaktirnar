@@ -213,6 +213,42 @@ Staðfest:
 
 ---
 
+## #34 — Meira áberandi `Skrá hlut í láni` takki
+
+**Lokið:** 2026-06-10
+**Staðfest af Claude Code:** já, sjá `ai-handoff/2026-06-10-0635-todo-034-035-v003-claude-loan-cta-save-loader-post-implementation.md` og `ai-handoff/2026-06-10-0652-todo-034-035-v004-claude-codex-findings-resolved.md`
+
+`Skrá hlut í láni` á `/auth-mvp/lanad-og-skilad` var gerður að skýrari primary CTA. Ghost/dashed stíll var skipt út fyrir solid dökkgrænan hnapp með `Plus` iconi, meiri hæð, sterkari textaáherslu, hover state, shadow og focus-visible ring. Aðgengilegt textalabel var varðveitt.
+
+Skrár:
+- `app/auth-mvp/lanad-og-skilad/page.tsx` — primary CTA uppfærður
+- `lib/__tests__/loan-pages.test.tsx` — CTA próf uppfært til að byggja á aðgengilegu nafni
+
+Staðfest:
+- `npx vitest run lib/__tests__/loan-pages.test.tsx` — 22 passed
+- Sjá #35 fyrir lokapróf sama pakka eftir findings-resolved
+
+---
+
+## #35 — Vista-state helst virkt þar til redirect klárast
+
+**Lokið:** 2026-06-10
+**Staðfest af Claude Code:** já, sjá `ai-handoff/2026-06-10-0652-todo-034-035-v004-claude-codex-findings-resolved.md`
+
+Nýskráningarformið fyrir lán heldur nú loading/disabled state virku frá submit þar til redirect klárast eða villa kemur upp. `Vista` og `Hætta við` eru disabled meðan vistun stendur yfir, duplicate submit er varinn, success-texti var fjarlægður og failure/throw paths endurheimta formið eðlilega.
+
+Skrár:
+- `components/loans/LoanForm.tsx` — `isSubmitting`, try/catch, disabled cancel, success text fjarlægður
+- `messages/is.json`, `messages/en.json` — `teskeid.loans.saving`
+- `lib/__tests__/loan-form.test.tsx` — 8 ný formhegðunarpróf
+- `lib/__tests__/loan-pages.test.tsx` — page-level próf
+
+Staðfest:
+- `npx vitest run lib/__tests__/loan-pages.test.tsx lib/__tests__/loan-form.test.tsx` — 30 passed
+- `npx tsc --noEmit` — no errors
+
+---
+
 ## #23 — Breyta nafni á lánaða hlutnum
 
 **Lokið:** 2026-06-09

@@ -21,10 +21,8 @@ tilvísanir og verkefnasaga rofni ekki.
 | 12  | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | Skipta disabled `Væntanlegt` listanum út fyrir mobile-first framsetningu með raunverulegum, birtum hugmyndum og kosningarmöguleika.                   |
 | 13  | **#10 Gáfuleg opnun tölfræðisíðu**                           | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið.                                                                         |
 | 14  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | Bæta einfaldri notendatalningu við admin tölfræði; skilgreina fyrst hvort telja eigi skráða notendur, virka notendur eða virkar sessions.             |
-| 15  | **#34 Meira áberandi `Skrá hlut í láni` takki**              | Gera aðalaðgerðina í `Lánað og skilað` sýnilegri svo nýskráning hlutar sé ekki of falin eða veik í UI.                                                |
-| 16  | **#35 Vista-state helst virkt þar til redirect klárast**     | Þegar smellt er á `Vista` birtast punktar fyrst, en takkinn má ekki verða eðlilegur aftur á meðan 2-3 sekúndna redirect-bið stendur yfir.             |
-| 17  | **#36 Mannlegra orðalag á lánahlutverki**                    | Breyta `Ég er lánveitandinn` / `Ég er lántakandinn` í náttúrulegra orðalag í lánaskráningu, t.d. `Ég er að lána` / `Ég er að fá lánað`.               |
-| 18  | **#41 Umönnun sem feature-flagged Teskeið**                  | Sýna Umönnun sem Teskeið undir feature flag og útskýra að hún sé áfram sér app vegna viðkvæmra gagna, notifications og spjalls.                         |
+| 15  | **#36 Mannlegra orðalag á lánahlutverki**                    | Breyta `Ég er lánveitandinn` / `Ég er lántakandinn` í náttúrulegra orðalag í lánaskráningu, t.d. `Ég er að lána` / `Ég er að fá lánað`.               |
+| 16  | **#41 Umönnun sem feature-flagged Teskeið**                  | Sýna Umönnun sem Teskeið undir feature flag og útskýra að hún sé áfram sér app vegna viðkvæmra gagna, notifications og spjalls.                         |
 
 #19
 ## Lesnir hlutir birtist ekki aftur sem `Nýlegt`
@@ -70,8 +68,8 @@ lesna. Hlutir sem hafa verið merktir lesnir mega ekki koma aftur inn í
 
 **Staða:** Bíður
 
-**Næsta handoff:** Sjá framhaldsplan fyrir #19, #27 og #37:
-`ai-handoff/2026-06-10-0708-todo-019-027-037-v014-codex-nylegt-all-unread-event-detail-plan.md`.
+**Næsta handoff:** Sjá sameiginlegan pakka fyrir #36, #37, #38, #39 og #40:
+`ai-handoff/2026-06-10-1721-todo-036-037-038-039-040-v001-codex-loans-polish-events-package.md`.
 
 **Samhengi:** `Nýlegt` er að verða mikilvæg inngangsleið fyrir #27 mýkra
 lánaboðsflæði. Ef þar birtast aðeins þrjú atriði getur notandi misst af ólesnum
@@ -124,6 +122,9 @@ tiltekin dagsetning.
 
 **Staða:** Bíður
 
+**Næsta handoff:** Sjá sameiginlegan pakka fyrir #36, #37, #38, #39 og #40:
+`ai-handoff/2026-06-10-1721-todo-036-037-038-039-040-v001-codex-loans-polish-events-package.md`.
+
 **Samhengi:** Þetta tengist #27 mýkra lánaboðsflæði og #37 event-sögu í
 `Nýlegt`. Þegar mótaðili tekur afstöðu til lánaboðs er það mikilvæg breyting
 fyrir þann sem sendi boðið.
@@ -163,6 +164,9 @@ hafnað.
 
 **Staða:** Bíður
 
+**Næsta handoff:** Sjá sameiginlegan pakka fyrir #36, #37, #38, #39 og #40:
+`ai-handoff/2026-06-10-1721-todo-036-037-038-039-040-v001-codex-loans-polish-events-package.md`.
+
 **Samhengi:** Í `Lánað og skilað` getur mótaðili verið búinn að samþykkja boð.
 Stebbi vill samt að lánveitandi geti eytt hlutnum ef hann á að hverfa úr
 kerfinu.
@@ -199,6 +203,9 @@ atburðasöguna sína svo eyðingin sé ekki þögul eða ruglingsleg.
 ## Filterar í lánalista hafi sjálfstætt state
 
 **Staða:** Bíður
+
+**Næsta handoff:** Sjá sameiginlegan pakka fyrir #36, #37, #38, #39 og #40:
+`ai-handoff/2026-06-10-1721-todo-036-037-038-039-040-v001-codex-loans-polish-events-package.md`.
 
 **Samhengi:** Lánalistinn er með filtera efst sem notandi notar til að skoða
 mismunandi stöðu eða samhengi lána.
@@ -504,87 +511,13 @@ stöðumat eftir public beta opnun.
 - Talningin virkar þegar engir notendur, einn notandi eða margir notendur eru til.
 - Engin netföng eða notendaupplýsingar leka í client payload, logs eða test output.
 
-#34
-## Meira áberandi `Skrá hlut í láni` takki
-
-**Staða:** Bíður
-
-**Næsta handoff:** Sjá quick-fix plan fyrir #34 og #35:
-`ai-handoff/2026-06-10-0017-todo-034-035-v002-codex-loan-cta-save-redirect-gap-plan.md`.
-
-**Samhengi:** `Skrá hlut í láni` er aðalaðgerðin í `Lánað og skilað`, en Stebbi
-vill að hún verði meira áberandi.
-
-**Vandamál:** Aðgerðin er til staðar, en hún grípur ekki augað nógu vel miðað
-við mikilvægi hennar. Notandi getur misst af því hvar hann á að byrja að skrá
-nýjan hlut í láni.
-
-**Ósk:** Gera `Skrá hlut í láni` takkann sýnilegri og augljósari án þess að
-gera síðuna háværa eða klunnalega.
-
-**Við útfærslu:**
-
-- Skoða staðsetningu, stærð, lit, icon og texta takkans á mobile og desktop.
-- Tryggja að takkinn sé greinilega primary action á lánalistanum.
-- Halda orðalaginu `Skrá hlut í láni`.
-- Passa að takkinn virki vel með hamborgaranum, bottom nav og öðrum sticky/fixed
-  svæðum.
-- Forðast að taka of mikið pláss frá listanum sjálfum á litlum skjám.
-- Prófa tóman lista, lista með mörgum hlutum og bæði `Enn í láni`/`Skilað`
-  samhengi ef nýja pilluviðmótið er komið.
-
-**Prófanir:**
-
-- Takkinn sést strax eða mjög auðveldlega á lánalistanum á 360-460 px viewport.
-- Takkinn er enn aðgengilegur með lyklaborði og skjálesara.
-- Enginn horizontal scroll eða overlap verður til.
-- Smellur fer á rétta nýskráningarleið.
-
-#35
-## Vista-state helst virkt þar til redirect klárast
-
-**Staða:** Bíður
-
-**Næsta handoff:** Sjá quick-fix plan fyrir #34 og #35:
-`ai-handoff/2026-06-10-0017-todo-034-035-v002-codex-loan-cta-save-redirect-gap-plan.md`.
-
-**Vandamál:** Þegar Stebbi er að vista nýjan hlut og smellir á `Vista` koma
-punktar fyrst á takkann. Síðan verður `Vista` takkinn aftur eðlilegur og það
-líða 2-3 sekúndur þangað til redirect gerist og hluturinn sést sem vistaður.
-Þessi millitími lætur líta út fyrir að aðgerðin sé búin eða hafi ekki virkað og
-getur ýtt undir tvísmelli eða óöryggi.
-
-**Ósk:** Pending/loading-state á að birtast strax og haldast virkt þar til
-redirect er klárað eða vistun mistekst.
-
-**Við útfærslu:**
-
-- Kortleggja nýskráningarformið fyrir lánahlut og hvernig `Vista` kallar
-  server action.
-- Athuga sérstaklega bilið eftir successful server action og áður en
-  `router.push`/redirect klárast.
-- Setja loading-state samstundis við submit og halda því virku í gegnum
-  success-feedback/redirect-biðina.
-- Disable-a `Vista` meðan vistun og redirect-bið stendur yfir til að koma í veg
-  fyrir tvísmelli.
-- Sýna spinner, loader eða skýran texta sem passar við núverandi Teskeið UI.
-- Endurheimta takkann rétt ef validation eða vistun mistekst.
-- Halda field validation og error skilaboðum óbreyttum.
-- Tryggja að loader birtist líka á hægu neti og í mobile Safari.
-
-**Prófanir:**
-
-- Loader/pending-state birtist strax eftir fyrsta smell á `Vista`.
-- Takkinn verður ekki aftur venjulegur `Vista` á meðan beðið er eftir redirect.
-- Takkinn er disabled meðan vistun og redirect-bið stendur yfir.
-- Tvísmellur býr ekki til tvítekna færslu.
-- Validation villa fjarlægir loader og sýnir villu eðlilega.
-- Successful save fer áfram á réttan stað og skilur ekki eftir fastan loader.
-
 #36
 ## Mannlegra orðalag á lánahlutverki
 
 **Staða:** Bíður
+
+**Næsta handoff:** Sjá sameiginlegan pakka fyrir #36, #37, #38, #39 og #40:
+`ai-handoff/2026-06-10-1721-todo-036-037-038-039-040-v001-codex-loans-polish-events-package.md`.
 
 **Samhengi:** Í nýskráningarformi fyrir `Lánað og skilað` velur notandi hvort
 hann er í hlutverki þess sem lánar eða fær lánað.

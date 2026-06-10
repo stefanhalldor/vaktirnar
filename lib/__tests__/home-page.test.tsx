@@ -58,6 +58,8 @@ vi.mock('next-intl/server', () => ({
         eventLoanReturnUndone: 'Skilað afturkallað: {itemName}',
         eventLoanDeleted:             'Eytt: {itemName}',
         eventLoanInvitationReceived:  'Lánaboð: {itemName}',
+        eventLoanInvitationAccepted:  'Lánaboð samþykkt: {itemName}',
+        eventLoanInvitationDeclined:  'Lánaboði hafnað: {itemName}',
         eventDetailItemNameChanged:   'Nafni breytt: {oldName} -> {newName}',
         eventDetailReturnDateAdded:   'Skiladegi bætt við: {date}',
         eventDetailReturnDateRemoved: 'Skiladagur fjarlægður: {date}',
@@ -728,6 +730,28 @@ describe('HeimPage — event drawer', () => {
     fireEvent.click(screen.getByText('Lánaboð: Borvél'))
     const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
     expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad?invitation=inv-uuid-1234')
+  })
+
+  it('drawer "Skoða" link for loan_invitation_accepted points to loan edit page', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 6, event_type: 'loan_invitation_accepted', entity_type: 'loan', entity_id: 'loan-uuid-5678', payload: { itemName: 'Reiðhjól' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Lánaboð samþykkt: Reiðhjól'))
+    const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
+    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/breyta/loan-uuid-5678')
+  })
+
+  it('drawer "Skoða" link for loan_invitation_declined points to loan edit page', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 7, event_type: 'loan_invitation_declined', entity_type: 'loan', entity_id: 'loan-uuid-9999', payload: { itemName: 'Kassi' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Lánaboði hafnað: Kassi'))
+    const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
+    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/breyta/loan-uuid-9999')
   })
 
   it('drawer does not show "Skoða" for deleted events', async () => {

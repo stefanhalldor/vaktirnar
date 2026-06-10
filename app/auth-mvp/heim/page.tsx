@@ -59,12 +59,14 @@ const UPCOMING_KEYS = [
 ] as const
 
 const EVENT_TYPE_TO_KEY: Record<string, string> = {
-  loan_created:             'eventLoanCreated',
-  loan_updated:             'eventLoanUpdated',
-  loan_returned:            'eventLoanReturned',
-  loan_return_undone:       'eventLoanReturnUndone',
-  loan_deleted:             'eventLoanDeleted',
-  loan_invitation_received: 'eventLoanInvitationReceived',
+  loan_created:              'eventLoanCreated',
+  loan_updated:              'eventLoanUpdated',
+  loan_returned:             'eventLoanReturned',
+  loan_return_undone:        'eventLoanReturnUndone',
+  loan_deleted:              'eventLoanDeleted',
+  loan_invitation_received:  'eventLoanInvitationReceived',
+  loan_invitation_accepted:  'eventLoanInvitationAccepted',
+  loan_invitation_declined:  'eventLoanInvitationDeclined',
 }
 
 
