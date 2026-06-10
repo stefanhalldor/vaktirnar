@@ -711,61 +711,54 @@ describe('HeimPage — event drawer', () => {
     expect(container.querySelector('[data-testid="recent-drawer"]')).not.toBeNull()
   })
 
-  it('drawer shows "Skoða" link for non-deleted events', async () => {
+  it('drawer temporarily hides "Skoða" link for all unread events (loan_created)', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ id: 1, event_type: 'loan_created', entity_id: 'aaa-bbb-ccc', payload: { itemName: 'Borvél' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Búinn til: Borvél'))
-    expect(screen.getByRole('link', { name: 'Skoða' })).toBeDefined()
+    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
   })
 
-  it('drawer "Skoða" link for invitation event points to loan list with ?invitation= param', async () => {
+  it('drawer temporarily hides "Skoða" link for loan_invitation_received', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ id: 5, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-1234', payload: { itemName: 'Borvél' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lánaboð: Borvél'))
-    const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
-    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad?invitation=inv-uuid-1234')
+    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
   })
 
-  it('drawer "Skoða" link for loan_invitation_accepted points to loan list', async () => {
+  it('drawer temporarily hides "Skoða" link for loan_invitation_accepted', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ id: 6, event_type: 'loan_invitation_accepted', entity_type: 'loan', entity_id: 'loan-uuid-5678', payload: { itemName: 'Reiðhjól' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lánaboð samþykkt: Reiðhjól'))
-    const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
-    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad')
-    expect(skoðaLink.getAttribute('href')).not.toContain('/breyta/')
+    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
   })
 
-  it('drawer "Skoða" link for loan_invitation_declined points to loan list', async () => {
+  it('drawer temporarily hides "Skoða" link for loan_invitation_declined', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ id: 7, event_type: 'loan_invitation_declined', entity_type: 'loan', entity_id: 'loan-uuid-9999', payload: { itemName: 'Kassi' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lánaboði hafnað: Kassi'))
-    const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
-    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad')
-    expect(skoðaLink.getAttribute('href')).not.toContain('/breyta/')
+    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
   })
 
-  it('drawer "Skoða" link for loan_updated does not point to edit route', async () => {
+  it('drawer temporarily hides "Skoða" link for loan_updated', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ id: 8, event_type: 'loan_updated', entity_type: 'loan', entity_id: 'loan-uuid-updated', payload: { itemName: 'Borvél' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Breytt: Borvél'))
-    const skoðaLink = screen.getByRole('link', { name: 'Skoða' })
-    expect(skoðaLink.getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad')
-    expect(skoðaLink.getAttribute('href')).not.toContain('/breyta/')
+    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
   })
 
   it('drawer does not show "Skoða" for deleted events', async () => {

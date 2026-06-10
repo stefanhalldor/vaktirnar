@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { CheckCircle2, X } from 'lucide-react'
 import type { RecentEventDisplay } from '@/lib/recent-events/types'
 import { ackRecentEvents } from './actions'
@@ -135,14 +134,6 @@ export function RecentSection({ rows, labels }: Props) {
               </button>
             </div>
             <div className="flex gap-3">
-              {drawerEvent.viewHref && (
-                <Link
-                  href={drawerEvent.viewHref}
-                  className="flex-1 inline-flex items-center justify-center h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {labels.viewItem}
-                </Link>
-              )}
               <button
                 type="button"
                 onClick={() => handleMarkOne(drawerEvent)}
