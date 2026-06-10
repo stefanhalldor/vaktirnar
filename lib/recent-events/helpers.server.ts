@@ -16,6 +16,9 @@ export interface RecordEventArgs {
    *  resetting ack_at and refreshing occurred_at + payload.
    *  Set false for creation events where the first write should win. */
   updateOnConflict?: boolean
+  /** When true, ack_at is set immediately so the event does not appear as
+   *  unread in Nýlegt. Use for the actor's own change events. */
+  initiallyRead?: boolean
 }
 
 /**
@@ -29,6 +32,7 @@ export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
   }
   try {
     const admin = getAdmin()
+    const occurredAt = new Date().toISOString()
     const row = {
       user_id:     args.userId,
       source:      args.source,
@@ -38,8 +42,8 @@ export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
       event_key:   args.eventKey,
       payload:     args.payload,
       href:        args.href,
-      occurred_at: new Date().toISOString(),
-      ack_at:      null,
+      occurred_at: occurredAt,
+      ack_at:      args.initiallyRead ? occurredAt : null,
     }
     const { error } = await admin
       .from(TABLE)
@@ -56,22 +60,23 @@ export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
 }
 
 /**
- * Returns the latest unread events for a user, newest first.
+ * Returns all unread events for a user, newest first.
+ * Pass an explicit limit only when a hard cap is intentional.
  * Throws on DB error — caller is responsible for graceful degradation.
  */
 export async function getUnreadRecentEventsForUser(
   userId: string,
-  limit = 3,
+  limit?: number,
 ): Promise<RecentEventRow[]> {
   const admin = getAdmin()
-  const { data, error } = await admin
+  const base = admin
     .from(TABLE)
     .select('id, user_id, source, event_type, entity_type, entity_id, event_key, payload, href, occurred_at, ack_at')
     .eq('user_id', userId)
     .is('ack_at', null)
     .order('occurred_at', { ascending: false })
     .order('id', { ascending: false })
-    .limit(limit)
+  const { data, error } = await (typeof limit === 'number' ? base.limit(limit) : base)
   if (error) throw error
   return (data ?? []) as RecentEventRow[]
 }

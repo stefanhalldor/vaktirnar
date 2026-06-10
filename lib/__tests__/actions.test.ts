@@ -39,7 +39,7 @@ vi.mock('@/lib/loans/email', () => ({
   sendLoanInvitationEmail: mockSendEmail,
 }))
 
-import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails } from '@/lib/loans/actions'
+import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails, updateLoan } from '@/lib/loans/actions'
 import { guardLoanAccess } from '@/lib/loans/guard'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -802,12 +802,12 @@ describe('updateLoanItemDetails orchestration', () => {
   })
 
   it('returns ok on happy path', async () => {
-    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+    mockRpc.mockResolvedValue({ data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, counterpart_user_id: null }], error: null })
 
     const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', note: null })
 
     expect(result).toEqual({ ok: true })
-    const call = mockRpc.mock.calls.find((c: string[]) => c[0] === 'update_loan_item_details')
+    const call = mockRpc.mock.calls.find((c: string[]) => c[0] === 'update_loan_item_details_with_diff')
     expect(call).toBeDefined()
     expect(call![1]).toMatchObject({
       p_loan_id:   ITEM_LOAN_ID,
@@ -823,19 +823,19 @@ describe('updateLoanItemDetails orchestration', () => {
   })
 
   it('returns not_found when RPC returns "not_found"', async () => {
-    mockRpc.mockResolvedValue({ data: 'not_found', error: null })
+    mockRpc.mockResolvedValue({ data: [{ status: 'not_found', before_item_name: null, before_note: null, counterpart_user_id: null }], error: null })
     const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
     expect(result).toEqual({ ok: false, error: 'not_found' })
   })
 
   it('returns invalid_input when RPC returns "invalid_item_name"', async () => {
-    mockRpc.mockResolvedValue({ data: 'invalid_item_name', error: null })
+    mockRpc.mockResolvedValue({ data: [{ status: 'invalid_item_name', before_item_name: null, before_note: null, counterpart_user_id: null }], error: null })
     const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
     expect(result).toEqual({ ok: false, error: 'invalid_input' })
   })
 
   it('returns invalid_input when RPC returns "invalid_note"', async () => {
-    mockRpc.mockResolvedValue({ data: 'invalid_note', error: null })
+    mockRpc.mockResolvedValue({ data: [{ status: 'invalid_note', before_item_name: null, before_note: null, counterpart_user_id: null }], error: null })
     const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
     expect(result).toEqual({ ok: false, error: 'invalid_input' })
   })
@@ -885,7 +885,7 @@ describe('revalidation — createLoan revalidates both paths', () => {
   })
 
   it('updateLoanItemDetails revalidates /auth-mvp/lanad-og-skilad and /auth-mvp/heim', async () => {
-    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+    mockRpc.mockResolvedValue({ data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, counterpart_user_id: null }], error: null })
 
     await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
 
@@ -1005,4 +1005,224 @@ describe.skip('sendInvitationEmail — integration (requires disposable Supabase
   it('rate limit: 11th invitation from same user within 24 hours returns rate_limited')
   it('expiry: invitation past expires_at is marked expired and cannot be sent')
   it('concurrent claim and send: one wins, the other sees appropriate status')
+})
+
+// ── updateLoan — diff events ──────────────────────────────────────────────────
+
+const UL_LOAN_ID = 'loan-uuid-updateLoan'
+const BASE_INPUT = { item_name: 'Bók', note: null as null, loaned_at: '2026-01-01', due_at: null as null }
+const BASE_BEFORE = { status: 'ok', before_item_name: 'Bók', before_note: null, before_loaned_at: '2026-01-01', before_due_at: null }
+
+describe('updateLoan — diff events', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRecordEvent.mockResolvedValue(undefined)
+  })
+
+  it('calls update_loan_with_diff RPC', async () => {
+    mockRpc.mockResolvedValue({ data: [{ ...BASE_BEFORE, before_item_name: 'Gamla nafn' }], error: null })
+    await updateLoan(UL_LOAN_ID, { ...BASE_INPUT, item_name: 'Nýtt nafn' })
+    expect(mockRpc).toHaveBeenCalledWith('update_loan_with_diff', expect.objectContaining({ p_loan_id: UL_LOAN_ID }))
+  })
+
+  it('records event with changes and initiallyRead: true when field changed', async () => {
+    mockRpc.mockResolvedValue({ data: [{ ...BASE_BEFORE, before_item_name: 'Gamla nafn' }], error: null })
+    await updateLoan(UL_LOAN_ID, { ...BASE_INPUT, item_name: 'Nýtt nafn' })
+    expect(mockRecordEvent).toHaveBeenCalledWith(expect.objectContaining({
+      initiallyRead: true,
+      payload: expect.objectContaining({
+        changes: expect.arrayContaining([expect.objectContaining({ field: 'item_name' })]),
+      }),
+    }))
+  })
+
+  it('does not record event on no-op save', async () => {
+    mockRpc.mockResolvedValue({ data: [BASE_BEFORE], error: null })
+    await updateLoan(UL_LOAN_ID, BASE_INPUT)
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('returns { ok: true } on no-op save', async () => {
+    mockRpc.mockResolvedValue({ data: [BASE_BEFORE], error: null })
+    const result = await updateLoan(UL_LOAN_ID, BASE_INPUT)
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('returns not_found for not_found status', async () => {
+    mockRpc.mockResolvedValue({ data: [{ status: 'not_found', before_item_name: null, before_note: null, before_loaned_at: null, before_due_at: null }], error: null })
+    const result = await updateLoan(UL_LOAN_ID, BASE_INPUT)
+    expect(result).toEqual({ ok: false, error: 'not_found' })
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('returns not_editable for not_editable status', async () => {
+    mockRpc.mockResolvedValue({ data: [{ status: 'not_editable', before_item_name: null, before_note: null, before_loaned_at: null, before_due_at: null }], error: null })
+    const result = await updateLoan(UL_LOAN_ID, BASE_INPUT)
+    expect(result).toEqual({ ok: false, error: 'not_editable' })
+  })
+
+  it('returns save_failed when RPC transport error occurs', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
+    const result = await updateLoan(UL_LOAN_ID, BASE_INPUT)
+    expect(result).toEqual({ ok: false, error: 'save_failed' })
+  })
+})
+
+// ── updateLoanItemDetails — diff + counterpart events ─────────────────────────
+
+const ULD_LOAN_ID = 'loan-uuid-updateLoanItemDetails'
+
+function detailsDiffOk(counterpart_user_id: string | null = 'borrower-uuid') {
+  return {
+    data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, counterpart_user_id }],
+    error: null,
+  }
+}
+
+describe('updateLoanItemDetails — diff + counterpart events', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRecordEvent.mockResolvedValue(undefined)
+  })
+
+  it('calls update_loan_item_details_with_diff RPC', async () => {
+    mockRpc.mockResolvedValue(detailsDiffOk())
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    expect(mockRpc).toHaveBeenCalledWith('update_loan_item_details_with_diff', expect.objectContaining({ p_loan_id: ULD_LOAN_ID }))
+  })
+
+  it('records actor event with initiallyRead: true when changes exist', async () => {
+    mockRpc.mockResolvedValue(detailsDiffOk())
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    const actorCall = mockRecordEvent.mock.calls.find(
+      (c: unknown[]) => (c[0] as { userId: string }).userId === 'actor-uuid',
+    )
+    expect(actorCall).toBeDefined()
+    expect((actorCall![0] as { initiallyRead: boolean }).initiallyRead).toBe(true)
+  })
+
+  it('records counterpart event (no initiallyRead) when counterpart differs from actor', async () => {
+    mockRpc.mockResolvedValue(detailsDiffOk('borrower-uuid'))
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    const counterpartCall = mockRecordEvent.mock.calls.find(
+      (c: unknown[]) => (c[0] as { userId: string }).userId === 'borrower-uuid',
+    )
+    expect(counterpartCall).toBeDefined()
+    expect((counterpartCall![0] as { initiallyRead?: boolean }).initiallyRead).toBeUndefined()
+  })
+
+  it('actor and counterpart share the same eventKey', async () => {
+    mockRpc.mockResolvedValue(detailsDiffOk('borrower-uuid'))
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    expect(mockRecordEvent).toHaveBeenCalledTimes(2)
+    const keys = mockRecordEvent.mock.calls.map((c: unknown[]) => (c[0] as { eventKey: string }).eventKey)
+    expect(keys[0]).toBe(keys[1])
+  })
+
+  it('records only actor event when counterpart_user_id is null', async () => {
+    mockRpc.mockResolvedValue(detailsDiffOk(null))
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+    expect((mockRecordEvent.mock.calls[0][0] as { userId: string }).userId).toBe('actor-uuid')
+  })
+
+  it('records only actor event when counterpart_user_id equals actor', async () => {
+    mockRpc.mockResolvedValue(detailsDiffOk('actor-uuid'))
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not record any event on no-op save', async () => {
+    mockRpc.mockResolvedValue(detailsDiffOk())  // before_item_name: 'Bók'
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null })
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('returns { ok: true } on no-op save', async () => {
+    mockRpc.mockResolvedValue(detailsDiffOk())
+    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null })
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('returns not_found when status is not_found', async () => {
+    mockRpc.mockResolvedValue({ data: [{ status: 'not_found', before_item_name: null, before_note: null, counterpart_user_id: null }], error: null })
+    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null })
+    expect(result).toEqual({ ok: false, error: 'not_found' })
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('returns save_failed when data is null (defensive parse)', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
+    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null })
+    expect(result).toEqual({ ok: false, error: 'save_failed' })
+  })
+})
+
+// ── Actor initiallyRead: true — all own-action events ────────────────────────
+
+import { markReturned, undoReturn, deleteLoan } from '@/lib/loans/actions'
+
+describe('actor own-action events — initiallyRead: true', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRecordEvent.mockResolvedValue(undefined)
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({ data: { item_name: 'Bók' } }),
+          single: vi.fn().mockResolvedValue({
+            data: { recipient_role: 'borrower', item_name_snapshot: null, creator_display_name_snapshot: null, email_template_version: 'v2' },
+            error: null,
+          }),
+        }),
+      }),
+    }))
+  })
+
+  it('createLoan records loan_created with initiallyRead: true', async () => {
+    mockRpc.mockResolvedValue({ data: [{ loan_id: 'loan-uuid-cl', invitation_id: null }], error: null })
+
+    await createLoan({
+      item_name: 'Bók',
+      creator_role: 'lender',
+      loaned_at: '2026-01-01',
+      request_id: '00000000-0000-0000-0000-000000000099',
+    })
+
+    const call = mockRecordEvent.mock.calls.find(
+      ([args]) => args?.eventType === 'loan_created',
+    )
+    expect(call).toBeDefined()
+    expect(call![0]).toMatchObject({ eventType: 'loan_created', initiallyRead: true })
+  })
+
+  it('markReturned records loan_returned with initiallyRead: true', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    await markReturned('loan-uuid-mr')
+
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'loan_returned', initiallyRead: true }),
+    )
+  })
+
+  it('undoReturn records loan_return_undone with initiallyRead: true', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    await undoReturn('loan-uuid-ur')
+
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'loan_return_undone', initiallyRead: true }),
+    )
+  })
+
+  it('deleteLoan records loan_deleted with initiallyRead: true', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+
+    await deleteLoan('loan-uuid-dl')
+
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'loan_deleted', initiallyRead: true }),
+    )
+  })
 })

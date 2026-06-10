@@ -188,6 +188,17 @@ Gera skal ráð fyrir að samtal geti compactast og samhengi tapast.
 - Handoff/review skrár í `ai-handoff/` skulu nota filename-format:
   `YYYY-MM-DD-HHMM-todo-XYZ-vNNN-agent-description.md`, þar sem `HHMM` er
   24-klst staðartími þegar skráin er búin til.
+- Öll implementation plan, handoff og review skjöl skulu innihalda kaflann
+  `Localhost checks for Stebbi` frá v001. Þetta er skylda jafnvel þegar
+  tæknilega breytingin virðist augljós, því notendaprófanir Stebba hjálpa
+  honum að skilja breytinguna í vörunni. Ef ekkert notendasýnilegt er til að
+  prófa skal kaflinn samt vera til staðar og segja skýrt af hverju hann á ekki
+  við.
+- `Localhost checks for Stebbi` skal segja nákvæmlega hvað Stebbi á að prófa
+  fyrir útgáfu: síðu eða flæði, nauðsynlegt auth/gagna-state, skrefin,
+  vænta niðurstöðu og helstu regressions sem þarf að passa. Ef breyting snertir
+  Supabase, auth, RLS, deployment, billing, secrets eða notendagögn skal líka
+  taka fram hvað má ekki prófa kæruleysislega og hvað krefst sérstaks leyfis.
 - Ef verkefni verður stórt eða flókið skal halda tímabundið utan um það í
   `AI_HANDOFF.md` eða `docs/ai-handoff.md`, ef Stebbi samþykkir það.
 
@@ -206,6 +217,8 @@ Handoff frá Claude Code skal vera í einni copy/paste blokk og innihalda:
 11. Spurningar sem Codex á sérstaklega að rýna.
 12. Fyrir Supabase: SQL-skrá, hvort hún var keyrð og áhrif á gögn, RLS, auth,
     policies, functions og production.
+13. `Localhost checks for Stebbi`: hvað Stebbi á sjálfur að prófa á localhost,
+    með skrefum, væntri niðurstöðu og öryggis-/gagnavarúð ef við á.
 
 ## Rýni Codex
 

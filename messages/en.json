@@ -347,7 +347,15 @@
       "eventLoanDeleted": "Deleted: {itemName}",
       "eventLoanInvitationReceived": "Loan invitation: {itemName}",
       "profileLink": "My account",
-      "pendingBadgeLabel": "{count, plural, one {1 pending invitation} other {# pending invitations}}"
+      "pendingBadgeLabel": "{count, plural, one {1 pending invitation} other {# pending invitations}}",
+      "eventDetailReturnDateRemoved": "Return date removed: {date}",
+      "eventDetailReturnDateChanged": "Return date changed: {oldDate} -> {newDate}",
+      "eventDetailReturnDateAdded": "Return date added: {date}",
+      "eventDetailItemNameChanged": "Name changed: {oldName} -> {newName}",
+      "eventDetailLoanedAtChanged": "Loan date changed: {oldDate} -> {newDate}",
+      "eventDetailNoteAdded": "Note added: {content}",
+      "eventDetailNoteRemoved": "Note removed: {content}",
+      "eventDetailNoteChanged": "Note changed: {oldContent} -> {newContent}"
     },
     "loans": {
       "title": "Loaned and returned",

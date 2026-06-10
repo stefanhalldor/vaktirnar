@@ -9,10 +9,44 @@ import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import type { PendingInvitation } from '@/lib/loans/types'
 import { getUnreadRecentEventsForUser } from '@/lib/recent-events/helpers.server'
-import type { RecentEventDisplay } from '@/lib/recent-events/types'
+import type { RecentEventDisplay, LoanFieldChange } from '@/lib/recent-events/types'
 import { RecentSection, type RecentLabels } from './RecentSection'
 
 const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
+
+function formatDateStr(dateStr: string | null | undefined, locale: string): string {
+  if (!dateStr) return ''
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(
+    new Date(year, (month ?? 1) - 1, day ?? 1),
+  )
+}
+
+function buildDetailLines(
+  changes: LoanFieldChange[] | undefined,
+  t: (key: string, params?: Record<string, string>) => string,
+  displayLocale: string,
+): string[] {
+  if (!changes?.length) return []
+  return changes.map((change) => {
+    const fmt = (v: string | null | undefined) => formatDateStr(v, displayLocale)
+    if (change.field === 'item_name') {
+      return t('eventDetailItemNameChanged', { oldName: change.oldValue ?? '', newName: change.newValue ?? '' })
+    }
+    if (change.field === 'loaned_at') {
+      return t('eventDetailLoanedAtChanged', { oldDate: fmt(change.oldValue), newDate: fmt(change.newValue) })
+    }
+    if (change.field === 'due_at') {
+      if (change.changeType === 'added')   return t('eventDetailReturnDateAdded',   { date: fmt(change.newValue) })
+      if (change.changeType === 'removed') return t('eventDetailReturnDateRemoved', { date: fmt(change.oldValue) })
+      return t('eventDetailReturnDateChanged', { oldDate: fmt(change.oldValue), newDate: fmt(change.newValue) })
+    }
+    // note
+    if (change.changeType === 'added')   return t('eventDetailNoteAdded',   { content: change.newValue ?? '' })
+    if (change.changeType === 'removed') return t('eventDetailNoteRemoved', { content: change.oldValue ?? '' })
+    return t('eventDetailNoteChanged', { oldContent: change.oldValue ?? '', newContent: change.newValue ?? '' })
+  })
+}
 
 const UPCOMING_KEYS = [
   'upcomingEmail',
@@ -60,6 +94,8 @@ export default async function HeimPage() {
 
   const loansEnabled = await checkFeatureAccess(user.id, user.email!, 'lanad-og-skilad')
 
+  const displayLocale = LOCALE_MAP[locale] ?? locale
+
   let pendingInvitations: PendingInvitation[] = []
   let invitationsError = false
   let recentEvents: RecentEventDisplay[] = []
@@ -88,7 +124,7 @@ export default async function HeimPage() {
       }
 
       try {
-        const rows = await getUnreadRecentEventsForUser(user.id, 3)
+        const rows = await getUnreadRecentEventsForUser(user.id)
         recentEvents = rows.map((event) => {
           const labelKey = EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type
           const itemName = event.payload.itemName ?? ''
@@ -100,12 +136,15 @@ export default async function HeimPage() {
               ? `/auth-mvp/lanad-og-skilad/claim/${event.entity_id}`
               : `/auth-mvp/lanad-og-skilad/breyta/${event.entity_id}`
           }
+          const tFn = (key: string, params?: Record<string, string>) =>
+            t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])
           return {
-            id:    event.id,
-            label: t(labelKey as Parameters<typeof t>[0], { itemName }),
-            href:  event.href,
+            id:          event.id,
+            label:       t(labelKey as Parameters<typeof t>[0], { itemName }),
+            href:        event.href,
             viewHref,
             isDeleted,
+            detailLines: buildDetailLines(event.payload.changes, tFn, displayLocale),
           }
         })
       } catch {
@@ -119,7 +158,6 @@ export default async function HeimPage() {
   const pendingCount = pendingInvitations.length
   const firstName = displayName ? (displayName.trim().split(/\s+/)[0] ?? displayName) : null
   const greeting = firstName ? t('greeting', { firstName }) : t('greetingFallback')
-  const displayLocale = LOCALE_MAP[locale] ?? locale
 
   const recentLabels: RecentLabels = {
     recent:      t('recent'),

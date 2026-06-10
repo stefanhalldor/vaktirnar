@@ -351,7 +351,15 @@
       "eventLoanDeleted": "Eytt: {itemName}",
       "eventLoanInvitationReceived": "Lánaboð: {itemName}",
       "profileLink": "Minn aðgangur",
-      "pendingBadgeLabel": "{count} boð í bið"
+      "pendingBadgeLabel": "{count} boð í bið",
+      "eventDetailReturnDateRemoved": "Skiladagur fjarlægður: {date}",
+      "eventDetailReturnDateChanged": "Skiladegi breytt: {oldDate} -> {newDate}",
+      "eventDetailReturnDateAdded": "Skiladegi bætt við: {date}",
+      "eventDetailItemNameChanged": "Nafni breytt: {oldName} -> {newName}",
+      "eventDetailLoanedAtChanged": "Lánsdegi breytt: {oldDate} -> {newDate}",
+      "eventDetailNoteAdded": "Athugasemd bætt við: {content}",
+      "eventDetailNoteRemoved": "Athugasemd fjarlægð: {content}",
+      "eventDetailNoteChanged": "Athugasemd breytt: {oldContent} -> {newContent}"
     },
     "loans": {
       "title": "Lánað og skilað",

@@ -6,8 +6,18 @@ export type RecentEventType =
   | 'loan_deleted'
   | 'loan_invitation_received'
 
+export type LoanFieldChangeType = 'changed' | 'added' | 'removed'
+
+export interface LoanFieldChange {
+  field: 'item_name' | 'loaned_at' | 'due_at' | 'note'
+  changeType: LoanFieldChangeType
+  oldValue?: string | null
+  newValue?: string | null
+}
+
 export interface RecentEventPayload {
   itemName?: string
+  changes?: LoanFieldChange[]
 }
 
 export interface RecentEventRow {
@@ -32,4 +42,6 @@ export interface RecentEventDisplay {
   /** Link to the specific item inside its teskeid. Null for deleted items. */
   viewHref: string | null
   isDeleted: boolean
+  /** Server-computed localized detail lines for the drawer. */
+  detailLines?: string[]
 }

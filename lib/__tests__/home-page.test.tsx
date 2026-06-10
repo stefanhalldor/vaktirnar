@@ -58,6 +58,14 @@ vi.mock('next-intl/server', () => ({
         eventLoanReturnUndone: 'Skilað afturkallað: {itemName}',
         eventLoanDeleted:             'Eytt: {itemName}',
         eventLoanInvitationReceived:  'Lánaboð: {itemName}',
+        eventDetailItemNameChanged:   'Nafni breytt: {oldName} -> {newName}',
+        eventDetailReturnDateAdded:   'Skiladegi bætt við: {date}',
+        eventDetailReturnDateRemoved: 'Skiladagur fjarlægður: {date}',
+        eventDetailReturnDateChanged: 'Skiladegi breytt: {oldDate} -> {newDate}',
+        eventDetailLoanedAtChanged:   'Lánsdegi breytt: {oldDate} -> {newDate}',
+        eventDetailNoteAdded:         'Athugasemd bætt við: {content}',
+        eventDetailNoteRemoved:       'Athugasemd fjarlægð: {content}',
+        eventDetailNoteChanged:       'Athugasemd breytt: {oldContent} -> {newContent}',
       },
       'teskeid.loans': {
         lent:     'Ég lánaði',
@@ -97,11 +105,23 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 // Supabase admin — RPC + from chain mock for recent_events query
-// Chain: from().select().eq().is().order().order().limit() → { data, error }
+// The helper conditionally calls .limit() — the terminal node must be thenable
+// both when .limit() is chained and when awaited directly.
+// Both paths delegate to mockAdminLimit so setupRecentEvents only needs one mock.
 const { mockRpc, mockAdminLimit, mockGetAdmin } = vi.hoisted(() => {
   const mockRpc = vi.fn()
   const mockAdminLimit = vi.fn()
-  const mockAdminOrder2 = vi.fn(() => ({ limit: mockAdminLimit }))
+  const mockAdminOrder2 = vi.fn(() => {
+    // Thenable so `await base` works; also has .limit() for `await base.limit(n)`
+    const node: Record<string, unknown> = { limit: mockAdminLimit }
+    node.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
+      mockAdminLimit().then(onFulfilled, onRejected)
+    node.catch = (onRejected: (e: unknown) => unknown) =>
+      mockAdminLimit().catch(onRejected)
+    node.finally = (onFinally: () => void) =>
+      mockAdminLimit().finally(onFinally)
+    return node
+  })
   const mockAdminOrder1 = vi.fn(() => ({ order: mockAdminOrder2 }))
   const mockAdminIs = vi.fn(() => ({ order: mockAdminOrder1 }))
   const mockAdminEq = vi.fn(() => ({ is: mockAdminIs }))
@@ -438,7 +458,7 @@ describe('HeimPage — Nýlegt section (event-based)', () => {
     expect(screen.getByText('Lánaboð: Borvél')).toBeDefined()
   })
 
-  it('shows at most 3 events (server limits to 3)', async () => {
+  it('renders all unread events when 3 events exist', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
@@ -451,6 +471,49 @@ describe('HeimPage — Nýlegt section (event-based)', () => {
     expect(screen.getByText('Búinn til: Item 1')).toBeDefined()
     expect(screen.getByText('Búinn til: Item 2')).toBeDefined()
     expect(screen.getByText('Búinn til: Item 3')).toBeDefined()
+  })
+
+  it('renders all 4 unread events when more than 3 exist', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([
+      makeEvent({ id: 1, payload: { itemName: 'Item 1' } }),
+      makeEvent({ id: 2, payload: { itemName: 'Item 2' } }),
+      makeEvent({ id: 3, payload: { itemName: 'Item 3' } }),
+      makeEvent({ id: 4, payload: { itemName: 'Item 4' } }),
+    ])
+    render(await HeimPage())
+    expect(screen.getByText('Búinn til: Item 1')).toBeDefined()
+    expect(screen.getByText('Búinn til: Item 2')).toBeDefined()
+    expect(screen.getByText('Búinn til: Item 3')).toBeDefined()
+    expect(screen.getByText('Búinn til: Item 4')).toBeDefined()
+  })
+
+  it('adds scroll container when more than 5 rows', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([1, 2, 3, 4, 5, 6].map((i) =>
+      makeEvent({ id: i, payload: { itemName: `Item ${i}` } }),
+    ))
+    const { container } = render(await HeimPage())
+    const list = container.querySelector('[data-testid="recent-list"]')
+    expect(list?.className).toContain('max-h-72')
+    expect(list?.className).toContain('overflow-y-auto')
+  })
+
+  it('no scroll container when 5 or fewer rows', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([1, 2, 3, 4, 5].map((i) =>
+      makeEvent({ id: i, payload: { itemName: `Item ${i}` } }),
+    ))
+    const { container } = render(await HeimPage())
+    const list = container.querySelector('[data-testid="recent-list"]')
+    expect(list?.className).not.toContain('max-h-72')
+    expect(list?.className).not.toContain('overflow-y-auto')
   })
 
   it('hides Nýlegt section when feature access is denied', async () => {
@@ -491,6 +554,21 @@ describe('HeimPage — Lesið / ack events', () => {
     fireEvent.click(screen.getByText('Allt lesið'))
     expect(screen.getByText('Þú getur slakað á því þú ert með allt í Teskeið, vel gert!')).toBeDefined()
     expect(screen.queryByText('Allt lesið')).toBeNull()
+  })
+
+  it('clicking "Allt lesið" sends all fetched event IDs to ackRecentEvents', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([
+      makeEvent({ id: 1, payload: { itemName: 'Item 1' } }),
+      makeEvent({ id: 2, payload: { itemName: 'Item 2' } }),
+      makeEvent({ id: 3, payload: { itemName: 'Item 3' } }),
+      makeEvent({ id: 4, payload: { itemName: 'Item 4' } }),
+    ])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Allt lesið'))
+    expect(mockAckRecentEvents).toHaveBeenCalledWith({ event_ids: [1, 2, 3, 4] })
   })
 
   it('regression: acked event does not reappear after new event is added', async () => {
@@ -671,6 +749,23 @@ describe('HeimPage — event drawer', () => {
     fireEvent.click(screen.getByText('Búinn til: Bók'))
     const drawer = screen.getByTestId('recent-drawer')
     expect(drawer.querySelector('button')).not.toBeNull()
+  })
+
+  it('drawer renders detailLines for loan_updated event with changes payload', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({
+      id: 1,
+      event_type: 'loan_updated',
+      payload: {
+        itemName: 'Bók',
+        changes: [{ field: 'item_name', changeType: 'changed', oldValue: 'Gamla nafn', newValue: 'Bók' }],
+      },
+    })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Breytt: Bók'))
+    expect(screen.getByText('Nafni breytt: Gamla nafn -> Bók')).toBeDefined()
   })
 
   it('clicking per-event "Lesið" removes that event from the list', async () => {

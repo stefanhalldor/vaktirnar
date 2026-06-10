@@ -89,17 +89,22 @@ export function RecentSection({ rows, labels }: Props) {
             {labels.markAllRead}
           </button>
         </div>
-        <div className="flex flex-col divide-y divide-border bg-card border border-border rounded-xl overflow-hidden">
-          {displayedRows.map((event) => (
-            <button
-              key={event.id}
-              type="button"
-              onClick={() => setDrawerEvent(event)}
-              className="w-full flex items-center px-4 min-h-[48px] hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset text-left"
-            >
-              <p className="text-sm font-medium text-foreground py-3 truncate">{event.label}</p>
-            </button>
-          ))}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div
+            data-testid="recent-list"
+            className={`flex flex-col divide-y divide-border${displayedRows.length > 5 ? ' max-h-72 overflow-y-auto' : ''}`}
+          >
+            {displayedRows.map((event) => (
+              <button
+                key={event.id}
+                type="button"
+                onClick={() => setDrawerEvent(event)}
+                className="w-full flex items-center px-4 min-h-[48px] hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset text-left"
+              >
+                <p className="text-sm font-medium text-foreground py-3 truncate">{event.label}</p>
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -114,7 +119,12 @@ export function RecentSection({ rows, labels }: Props) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
-              <p className="text-base font-medium text-foreground">{drawerEvent.label}</p>
+              <div className="flex flex-col gap-1">
+                <p className="text-base font-medium text-foreground">{drawerEvent.label}</p>
+                {drawerEvent.detailLines?.map((line, i) => (
+                  <p key={i} className="text-sm text-muted-foreground break-words">{line}</p>
+                ))}
+              </div>
               <button
                 type="button"
                 onClick={() => setDrawerEvent(null)}

@@ -6,6 +6,7 @@ import { getAdmin } from '@/lib/supabase/admin'
 import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, EditLoanItemDetailsSchema } from '@/lib/loans/types'
 import { sendLoanInvitationEmail, type EmailContext } from '@/lib/loans/email'
 import { recordRecentEvent } from '@/lib/recent-events/helpers.server'
+import { computeLoanChanges } from '@/lib/loans/event-diff'
 
 const LOANS_PATH = '/auth-mvp/lanad-og-skilad'
 const HOME_PATH = '/auth-mvp/heim'
@@ -279,15 +280,16 @@ export async function createLoan(input: unknown): Promise<ActionResult> {
   }
 
   await recordRecentEvent({
-    userId:          user.id,
-    source:          'loans',
-    eventType:       'loan_created',
-    entityType:      'loan',
-    entityId:        row.loan_id,
-    eventKey:        `loans:loan:${row.loan_id}:created`,
-    payload:         { itemName: item_name },
-    href:            '/auth-mvp/lanad-og-skilad',
+    userId:           user.id,
+    source:           'loans',
+    eventType:        'loan_created',
+    entityType:       'loan',
+    entityId:         row.loan_id,
+    eventKey:         `loans:loan:${row.loan_id}:created`,
+    payload:          { itemName: item_name },
+    href:             '/auth-mvp/lanad-og-skilad',
     updateOnConflict: false,
+    initiallyRead:    true,
   })
 
   revalidateLoanViews()
@@ -307,7 +309,7 @@ export async function updateLoan(loanId: string, input: unknown): Promise<Action
   const { item_name, note, loaned_at, due_at } = parsed.data
 
   const admin = getAdmin()
-  const { data, error } = await admin.rpc('update_loan', {
+  const { data, error } = await admin.rpc('update_loan_with_diff', {
     p_actor_id:  user.id,
     p_loan_id:   loanId,
     p_item_name: item_name,
@@ -321,24 +323,38 @@ export async function updateLoan(loanId: string, input: unknown): Promise<Action
     return { ok: false, error: 'save_failed' }
   }
 
-  const result = data as string
-  if (result === 'not_found')        return { ok: false, error: 'not_found' }
-  if (result === 'not_editable')     return { ok: false, error: 'not_editable' }
-  if (result === 'invalid_item_name' || result === 'invalid_due_date') {
+  const row = (data as Array<{
+    status: string
+    before_item_name: string | null
+    before_note: string | null
+    before_loaned_at: string | null
+    before_due_at: string | null
+  }>)?.[0]
+  const status = row?.status ?? 'save_failed'
+  if (status === 'not_found')        return { ok: false, error: 'not_found' }
+  if (status === 'not_editable')     return { ok: false, error: 'not_editable' }
+  if (status === 'invalid_item_name' || status === 'invalid_due_date') {
     return { ok: false, error: 'invalid_input' }
   }
-  if (result !== 'ok') return { ok: false, error: 'save_failed' }
+  if (status !== 'ok') return { ok: false, error: 'save_failed' }
 
-  await recordRecentEvent({
-    userId:     user.id,
-    source:     'loans',
-    eventType:  'loan_updated',
-    entityType: 'loan',
-    entityId:   loanId,
-    eventKey:   `loans:loan:${loanId}:updated:${new Date().toISOString()}`,
-    payload:    { itemName: item_name },
-    href:       '/auth-mvp/lanad-og-skilad',
-  })
+  const changes = computeLoanChanges(
+    { item_name: row.before_item_name, note: row.before_note, loaned_at: row.before_loaned_at, due_at: row.before_due_at },
+    { item_name: item_name, note: note ?? null, loaned_at: loaned_at, due_at: due_at ?? null },
+  )
+  if (changes.length > 0) {
+    await recordRecentEvent({
+      userId:        user.id,
+      source:        'loans',
+      eventType:     'loan_updated',
+      entityType:    'loan',
+      entityId:      loanId,
+      eventKey:      `loans:loan:${loanId}:updated:${new Date().toISOString()}`,
+      payload:       { itemName: item_name, changes },
+      href:          '/auth-mvp/lanad-og-skilad',
+      initiallyRead: true,
+    })
+  }
 
   revalidateLoanViews()
   return { ok: true }
@@ -369,14 +385,15 @@ export async function markReturned(loanId: string): Promise<ActionResult> {
 
   const itemName = await fetchLoanItemName(admin, loanId)
   await recordRecentEvent({
-    userId:     user.id,
-    source:     'loans',
-    eventType:  'loan_returned',
-    entityType: 'loan',
-    entityId:   loanId,
-    eventKey:   `loans:loan:${loanId}:returned:${new Date().toISOString()}`,
-    payload:    itemName ? { itemName } : {},
-    href:       '/auth-mvp/lanad-og-skilad',
+    userId:        user.id,
+    source:        'loans',
+    eventType:     'loan_returned',
+    entityType:    'loan',
+    entityId:      loanId,
+    eventKey:      `loans:loan:${loanId}:returned:${new Date().toISOString()}`,
+    payload:       itemName ? { itemName } : {},
+    href:          '/auth-mvp/lanad-og-skilad',
+    initiallyRead: true,
   })
 
   revalidateLoanViews()
@@ -408,14 +425,15 @@ export async function undoReturn(loanId: string): Promise<ActionResult> {
 
   const itemName = await fetchLoanItemName(admin, loanId)
   await recordRecentEvent({
-    userId:     user.id,
-    source:     'loans',
-    eventType:  'loan_return_undone',
-    entityType: 'loan',
-    entityId:   loanId,
-    eventKey:   `loans:loan:${loanId}:return-undone:${new Date().toISOString()}`,
-    payload:    itemName ? { itemName } : {},
-    href:       '/auth-mvp/lanad-og-skilad',
+    userId:        user.id,
+    source:        'loans',
+    eventType:     'loan_return_undone',
+    entityType:    'loan',
+    entityId:      loanId,
+    eventKey:      `loans:loan:${loanId}:return-undone:${new Date().toISOString()}`,
+    payload:       itemName ? { itemName } : {},
+    href:          '/auth-mvp/lanad-og-skilad',
+    initiallyRead: true,
   })
 
   revalidateLoanViews()
@@ -449,15 +467,16 @@ export async function deleteLoan(loanId: string): Promise<ActionResult> {
   if (result !== 'ok')           return { ok: false, error: 'delete_failed' }
 
   await recordRecentEvent({
-    userId:          user.id,
-    source:          'loans',
-    eventType:       'loan_deleted',
-    entityType:      'loan',
-    entityId:        loanId,
-    eventKey:        `loans:loan:${loanId}:deleted`,
-    payload:         itemNameSnapshot ? { itemName: itemNameSnapshot } : {},
-    href:            '/auth-mvp/lanad-og-skilad',
+    userId:           user.id,
+    source:           'loans',
+    eventType:        'loan_deleted',
+    entityType:       'loan',
+    entityId:         loanId,
+    eventKey:         `loans:loan:${loanId}:deleted`,
+    payload:          itemNameSnapshot ? { itemName: itemNameSnapshot } : {},
+    href:             '/auth-mvp/lanad-og-skilad',
     updateOnConflict: false,
+    initiallyRead:    true,
   })
 
   revalidateLoanViews()
@@ -593,7 +612,7 @@ export async function updateLoanItemDetails(loanId: string, input: unknown): Pro
   const { item_name, note } = parsed.data
 
   const admin = getAdmin()
-  const { data, error } = await admin.rpc('update_loan_item_details', {
+  const { data, error } = await admin.rpc('update_loan_item_details_with_diff', {
     p_actor_id:  user.id,
     p_loan_id:   loanId,
     p_item_name: item_name,
@@ -605,23 +624,52 @@ export async function updateLoanItemDetails(loanId: string, input: unknown): Pro
     return { ok: false, error: 'save_failed' }
   }
 
-  const result = data as string
-  if (result === 'not_found') return { ok: false, error: 'not_found' }
-  if (result === 'invalid_item_name' || result === 'invalid_note') {
+  const row = (data as Array<{
+    status: string
+    before_item_name: string | null
+    before_note: string | null
+    counterpart_user_id: string | null
+  }>)?.[0]
+  const status = row?.status ?? 'save_failed'
+  if (status === 'not_found') return { ok: false, error: 'not_found' }
+  if (status === 'invalid_item_name' || status === 'invalid_note') {
     return { ok: false, error: 'invalid_input' }
   }
-  if (result !== 'ok') return { ok: false, error: 'save_failed' }
+  if (status !== 'ok') return { ok: false, error: 'save_failed' }
 
-  await recordRecentEvent({
-    userId:     user.id,
-    source:     'loans',
-    eventType:  'loan_updated',
-    entityType: 'loan',
-    entityId:   loanId,
-    eventKey:   `loans:loan:${loanId}:updated:${new Date().toISOString()}`,
-    payload:    { itemName: item_name },
-    href:       '/auth-mvp/lanad-og-skilad',
-  })
+  // Normalize to match DB storage (trim + NULLIF) for accurate diff
+  const normalizedItemName = item_name.trim()
+  const normalizedNote = note?.trim() || null
+  const changes = computeLoanChanges(
+    { item_name: row.before_item_name, note: row.before_note },
+    { item_name: normalizedItemName, note: normalizedNote },
+  )
+  if (changes.length > 0) {
+    const eventKey = `loans:loan:${loanId}:updated:${new Date().toISOString()}`
+    await recordRecentEvent({
+      userId:        user.id,
+      source:        'loans',
+      eventType:     'loan_updated',
+      entityType:    'loan',
+      entityId:      loanId,
+      eventKey,
+      payload:       { itemName: normalizedItemName, changes },
+      href:          '/auth-mvp/lanad-og-skilad',
+      initiallyRead: true,
+    })
+    if (row.counterpart_user_id && row.counterpart_user_id !== user.id) {
+      await recordRecentEvent({
+        userId:     row.counterpart_user_id,
+        source:     'loans',
+        eventType:  'loan_updated',
+        entityType: 'loan',
+        entityId:   loanId,
+        eventKey,
+        payload:    { itemName: normalizedItemName, changes },
+        href:       '/auth-mvp/lanad-og-skilad',
+      })
+    }
+  }
 
   revalidateLoanViews()
   return { ok: true }
