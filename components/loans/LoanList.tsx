@@ -84,7 +84,7 @@ export function LoanList({ items }: Props) {
         <button
           type="button"
           aria-pressed={status === 'open'}
-          onClick={() => { setStatus('open'); setRoleFilter(null) }}
+          onClick={() => setStatus('open')}
           className={`${pillBase} ${status === 'open' ? pillActive : pillInactive}`}
         >
           {t('open')}
@@ -93,7 +93,7 @@ export function LoanList({ items }: Props) {
         <button
           type="button"
           aria-pressed={status === 'returned'}
-          onClick={() => { setStatus('returned'); setRoleFilter(null) }}
+          onClick={() => setStatus('returned')}
           className={`${pillBase} ${status === 'returned' ? pillActive : pillInactive}`}
         >
           {t('returned')}
@@ -102,7 +102,7 @@ export function LoanList({ items }: Props) {
         <button
           type="button"
           aria-pressed={status === 'all'}
-          onClick={() => { setStatus('all'); setRoleFilter(null) }}
+          onClick={() => setStatus('all')}
           className={`${pillBase} ${status === 'all' ? pillActive : pillInactive}`}
         >
           {t('all')}

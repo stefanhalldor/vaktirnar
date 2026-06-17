@@ -190,12 +190,21 @@ describe('LoanList — role pills', () => {
     expect(screen.getByTestId('card-a2')).toBeDefined()
   })
 
-  it('switching status tab clears role filter', () => {
+  it('switching status tab preserves role filter', () => {
     render(<LoanList items={ALL_ITEMS} />)
     fireEvent.click(screen.getByRole('button', { name: /Ég lánaði/ }))
     expect(screen.getByRole('button', { name: /Ég lánaði/ }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: /Skilað/ }))
-    expect(screen.getByRole('button', { name: /Ég lánaði/ }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: /Ég lánaði/ }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('switching status to Allt preserves borrower role filter', () => {
+    render(<LoanList items={ALL_ITEMS} />)
+    fireEvent.click(screen.getByRole('button', { name: /Ég fékk lánað/ }))
+    expect(screen.getByRole('button', { name: /Ég fékk lánað/ }).getAttribute('aria-pressed')).toBe('true')
+    const alltButtons = screen.getAllByRole('button', { name: /Allt/ })
+    fireEvent.click(alltButtons[0]) // first Allt is the status filter
+    expect(screen.getByRole('button', { name: /Ég fékk lánað/ }).getAttribute('aria-pressed')).toBe('true')
   })
 })
 
