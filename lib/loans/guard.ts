@@ -2,6 +2,8 @@ import 'server-only'
 import { redirect } from 'next/navigation'
 import type { User } from '@supabase/supabase-js'
 import { guardTeskeidSession } from '@/lib/auth/guard'
+import { getAdmin } from '@/lib/supabase/admin'
+import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 
 export interface LoanAccess {
   user: User
@@ -9,21 +11,49 @@ export interface LoanAccess {
 
 /**
  * Non-redirecting server-side feature availability check.
- * Returns true when LOANS_ENABLED is 'true' for the lanad-og-skilad feature.
- * All authenticated users have access when the feature is enabled.
+ * Returns true when the user has access to the given feature.
+ *
+ * lanad-og-skilad: global LOANS_ENABLED env var. All authenticated users
+ * have access when the flag is on.
+ *
+ * umonnun: two-level gate.
+ *   1. UMONNUN_ENABLED must be 'true' (global kill-switch).
+ *   2. If UMONNUN_FLAG is 'true', the user's canonical email must be in the
+ *      feature_access table. If UMONNUN_FLAG is unset or not 'true', all
+ *      authenticated users have access (graduation path: just unset the flag).
  *
  * Unknown feature keys return false (no accidental allow-by-default).
  * Never throws, never redirects.
  */
 export async function checkFeatureAccess(
   _userId: string,
-  _email: string,
+  email: string,
   featureKey: string,
 ): Promise<boolean> {
-  if (featureKey !== 'lanad-og-skilad') {
-    return false
+  if (featureKey === 'lanad-og-skilad') return process.env.LOANS_ENABLED === 'true'
+  if (featureKey === 'umonnun') {
+    if (process.env.UMONNUN_ENABLED !== 'true') return false
+    if (process.env.UMONNUN_FLAG !== 'true') return true
+    const canonical = normalizeEmailForAccess(email)
+    if (!canonical) return false
+    try {
+      const { data, error } = await getAdmin()
+        .from('feature_access')
+        .select('email')
+        .eq('email', canonical)
+        .eq('feature_key', 'umonnun')
+        .maybeSingle()
+      if (error) {
+        console.error('[loans/guard] feature_access lookup failed')
+        return false
+      }
+      return data !== null
+    } catch {
+      console.error('[loans/guard] feature_access lookup failed')
+      return false
+    }
   }
-  return process.env.LOANS_ENABLED === 'true'
+  return false
 }
 
 /**

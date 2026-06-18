@@ -7,7 +7,7 @@
  *   - Open/close by click
  *   - Escape key closes the menu
  *   - Active state: exact match
- *   - Active state: descendant match for /auth-mvp/lanad-og-skilad subroutes
+ *   - Active state: activePrefixes match for Teskeiðar item (lanad-og-skilad, umonnun routes)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -37,6 +37,7 @@ vi.mock('next-intl', () => ({
         home: 'Heim',
         profile: 'Minn prófíll',
         loans: 'Lánað og skilað',
+        teskeidar: 'Teskeiðar',
         signOut: 'Útskrá',
       },
     }
@@ -125,12 +126,17 @@ describe('TeskeidMenu — public variant items', () => {
 // ── Authenticated items ───────────────────────────────────────────────────────
 
 describe('TeskeidMenu — authenticated variant items', () => {
-  it('shows Heim, Minn prófíll, Lánað og skilað when open', () => {
+  it('shows Teskeiðar and Minn prófíll when open', () => {
     render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button'))
-    expect(screen.getByText('Heim')).toBeDefined()
+    expect(screen.getByText('Teskeiðar')).toBeDefined()
     expect(screen.getByText('Minn prófíll')).toBeDefined()
-    expect(screen.getByText('Lánað og skilað')).toBeDefined()
+  })
+
+  it('does not show a separate Heim item', () => {
+    render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.queryByText('Heim')).toBeNull()
   })
 
   it('links point to correct hrefs', () => {
@@ -138,7 +144,6 @@ describe('TeskeidMenu — authenticated variant items', () => {
     fireEvent.click(screen.getByRole('button'))
     expect(container.querySelector('a[href="/auth-mvp/heim"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/minn-profill"]')).not.toBeNull()
-    expect(container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')).not.toBeNull()
   })
 
   it('does not show public-only items', () => {
@@ -199,36 +204,52 @@ describe('TeskeidMenu — active state', () => {
     expect(ideasLink?.className).not.toContain('bg-[#2d5a27]')
   })
 
-  it('marks /auth-mvp/lanad-og-skilad as active on exact route', () => {
-    mockPathname.mockReturnValue('/auth-mvp/lanad-og-skilad')
+  it('marks Teskeiðar as active on /auth-mvp/heim', () => {
+    mockPathname.mockReturnValue('/auth-mvp/heim')
     const { container } = render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button'))
-    const link = container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')
+    const link = container.querySelector('a[href="/auth-mvp/heim"]')
     expect(link?.className).toContain('bg-[#2d5a27]')
   })
 
-  it('marks /auth-mvp/lanad-og-skilad as active on subroute /auth-mvp/lanad-og-skilad/ny', () => {
+  it('marks Teskeiðar as active on /auth-mvp/lanad-og-skilad (exact)', () => {
+    mockPathname.mockReturnValue('/auth-mvp/lanad-og-skilad')
+    const { container } = render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button'))
+    const link = container.querySelector('a[href="/auth-mvp/heim"]')
+    expect(link?.className).toContain('bg-[#2d5a27]')
+  })
+
+  it('marks Teskeiðar as active on subroute /auth-mvp/lanad-og-skilad/ny', () => {
     mockPathname.mockReturnValue('/auth-mvp/lanad-og-skilad/ny')
     const { container } = render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button'))
-    const link = container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')
+    const link = container.querySelector('a[href="/auth-mvp/heim"]')
     expect(link?.className).toContain('bg-[#2d5a27]')
   })
 
-  it('marks /auth-mvp/lanad-og-skilad as active on deep subroute /auth-mvp/lanad-og-skilad/breyta/abc', () => {
+  it('marks Teskeiðar as active on deep subroute /auth-mvp/lanad-og-skilad/breyta/abc', () => {
     mockPathname.mockReturnValue('/auth-mvp/lanad-og-skilad/breyta/abc')
     const { container } = render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button'))
-    const link = container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')
+    const link = container.querySelector('a[href="/auth-mvp/heim"]')
     expect(link?.className).toContain('bg-[#2d5a27]')
   })
 
-  it('does not mark /auth-mvp/heim as active on /auth-mvp/lanad-og-skilad', () => {
-    mockPathname.mockReturnValue('/auth-mvp/lanad-og-skilad')
+  it('marks Teskeiðar as active on /auth-mvp/umonnun', () => {
+    mockPathname.mockReturnValue('/auth-mvp/umonnun')
     const { container } = render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button'))
-    const heimLink = container.querySelector('a[href="/auth-mvp/heim"]')
-    expect(heimLink?.className).not.toContain('bg-[#2d5a27]')
+    const link = container.querySelector('a[href="/auth-mvp/heim"]')
+    expect(link?.className).toContain('bg-[#2d5a27]')
+  })
+
+  it('does not mark Teskeiðar as active on /auth-mvp/minn-profill', () => {
+    mockPathname.mockReturnValue('/auth-mvp/minn-profill')
+    const { container } = render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button'))
+    const link = container.querySelector('a[href="/auth-mvp/heim"]')
+    expect(link?.className).not.toContain('bg-[#2d5a27]')
   })
 })
 
@@ -258,9 +279,9 @@ describe('TeskeidMenu — sign out', () => {
   it('closes the menu when Útskrá is clicked', async () => {
     render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
-    expect(screen.getByText('Heim')).toBeDefined()
+    expect(screen.getByText('Teskeiðar')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Útskrá' }))
-    expect(screen.queryByText('Heim')).toBeNull()
+    expect(screen.queryByText('Teskeiðar')).toBeNull()
   })
 })
 

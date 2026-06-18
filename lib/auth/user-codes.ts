@@ -3,31 +3,42 @@ import 'server-only'
 import { hashCode, generateCode } from '@/lib/auth/codes'
 import { getAdmin } from '@/lib/supabase/admin'
 
-const MAX_CODES_PER_HOUR = 5
+const MAX_CODES_PER_HOUR = 20
 const CODE_TTL_MINUTES = 10
+
+export type CreateCodeResult =
+  | string                                          // plaintext code — send to user
+  | { rateLimited: true; retryAfter: string }       // ISO timestamp when window clears
 
 /**
  * Generate and store a new OTP code for the given email.
- * Returns the plaintext code (to be emailed), or null if rate-limited or on error.
+ * Returns the plaintext code, a rateLimited object with retryAfter time, or
+ * null on DB error.
  * The code is stored only as an HMAC-SHA256 hash — never plaintext.
  */
-export async function createUserCode(email: string): Promise<string | null> {
+export async function createUserCode(email: string): Promise<CreateCodeResult | null> {
   // Clean up codes older than 24h
   await getAdmin()
     .from('auth_email_codes')
     .delete()
     .lt('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
 
-  // Rate limit: max 5 codes per email per hour (silently deny if exceeded)
+  // Rate limit: fetch codes in the current 1-hour window, oldest first so we
+  // can calculate exactly when the window clears for the user-facing message.
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-  const { count } = await getAdmin()
+  const { data: recentCodes, error: rateError } = await getAdmin()
     .from('auth_email_codes')
-    .select('*', { count: 'exact', head: true })
+    .select('created_at')
     .eq('email', email)
     .gte('created_at', oneHourAgo)
+    .order('created_at', { ascending: true })
 
-  if ((count ?? 0) >= MAX_CODES_PER_HOUR) {
-    return null
+  if (!rateError && (recentCodes?.length ?? 0) >= MAX_CODES_PER_HOUR) {
+    const oldestCreatedAt = recentCodes?.[0]?.created_at
+    const retryAfter = new Date(
+      (oldestCreatedAt ? new Date(oldestCreatedAt).getTime() : Date.now()) + 60 * 60 * 1000
+    ).toISOString()
+    return { rateLimited: true, retryAfter }
   }
 
   const code = generateCode()

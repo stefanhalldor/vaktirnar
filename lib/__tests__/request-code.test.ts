@@ -109,11 +109,14 @@ describe('POST /api/auth-mvp/request-code — no information leak', () => {
 // ── IP rate-limit ─────────────────────────────────────────────────────────────
 
 describe('POST /api/auth-mvp/request-code — IP rate-limit', () => {
-  it('returns { success: true } when rate-limited (same generic response)', async () => {
+  it('returns success:true with rateLimited:true and retryAfter when IP rate-limited', async () => {
     mockCheckIpRateLimit.mockResolvedValue(false)
     const res = await POST(makeRequest({ email: 'allowed@example.com' }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ success: true })
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(body.rateLimited).toBe(true)
+    expect(typeof body.retryAfter).toBe('string')
   })
 
   it('does not create a code when rate-limited', async () => {
@@ -128,15 +131,20 @@ describe('POST /api/auth-mvp/request-code — IP rate-limit', () => {
     expect(mockSendUserLoginCode).not.toHaveBeenCalled()
   })
 
-  it('rate-limited response is indistinguishable from normal response', async () => {
+  it('retryAfter is next midnight UTC (Reykjavik timezone)', async () => {
     mockCheckIpRateLimit.mockResolvedValue(false)
-    const blockedRes = await POST(makeRequest({ email: 'user@example.com' }))
-
-    mockCheckIpRateLimit.mockResolvedValue(true)
-    const normalRes = await POST(makeRequest({ email: 'user@example.com' }))
-
-    expect(blockedRes.status).toBe(normalRes.status)
-    expect(await blockedRes.json()).toEqual(await normalRes.json())
+    const before = Date.now()
+    const res = await POST(makeRequest({ email: 'user@example.com' }))
+    const body = await res.json()
+    const retryAfter = new Date(body.retryAfter).getTime()
+    // retryAfter must be in the future and within 48 hours
+    expect(retryAfter).toBeGreaterThan(before)
+    expect(retryAfter).toBeLessThan(before + 48 * 60 * 60 * 1000)
+    // Must be exactly midnight UTC
+    const d = new Date(body.retryAfter)
+    expect(d.getUTCHours()).toBe(0)
+    expect(d.getUTCMinutes()).toBe(0)
+    expect(d.getUTCSeconds()).toBe(0)
   })
 })
 

@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import React from 'react'
+import type { Idea } from '@/lib/teskeid/types'
 
 // ── Mocks (declared before dynamic import) ──────────────────────────────────
 
@@ -34,15 +35,16 @@ vi.mock('next-intl/server', () => ({
         greeting:             '{firstName}, þú ert með allt í teskeið!',
         greetingFallback:     'Góðan dag',
         featuresTitle:        'Teskeiðar',
+        readyTeskeidarTitle:  'Tilbúnar Teskeiðar',
+        readyTeskeidOpen:     'Opna',
+        homeIdeasDrawerOpen:  'Skoða hugmyndir',
+        homeIdeasDrawerClose: 'Fela hugmyndir',
         loansTitle:           'Lánað og skilað',
-        upcoming:             'Væntanlegt',
-        upcomingEmail:        'Póstflóðið einfaldað',
-        upcomingExpenses:     'Útlagt og endurgreitt',
-        upcomingPartner:      'Maki/kæró',
-        upcomingWeather:      'Veðrið',
-        upcomingKidsShift:    'Fyrsta vakt krakkanna',
-        upcomingThirdShift:   'Þriðja vaktin',
-        upcomingOutToPlay:    'Út að leika',
+        homeIdeasTitle:       'Hugmyndir sem verða líklega að Teskeiðum',
+        umonnunTitle:         'Umönnun',
+        umonnunInfoHeading:   'Umönnun er í sér appi',
+        umonnunOpenLink:      'Opna umonnun.is',
+        umonnunBackLink:      'Til baka',
         recent:               'Ólesið',
         recentMarkRead:       'Lesið',
         recentMarkAllRead:    'Allt lesið',
@@ -94,16 +96,51 @@ vi.mock('next-intl/server', () => ({
   getLocale: vi.fn().mockResolvedValue('is'),
 }))
 
-// Supabase server client — profile chain mock
-const { mockMaybeSingle, mockMaybeSingleEq, mockFrom } = vi.hoisted(() => {
+// Supabase server client — profile chain + ideas chain mock
+const { mockMaybeSingle, mockMaybeSingleEq, mockFrom, mockIdeasResult, mockIdeasEq, mockIdeasNeq, mockIdeasOrder } = vi.hoisted(() => {
+  // Profile chain: .from('profiles').select().eq().maybeSingle()
   const mockMaybeSingle = vi.fn()
   const mockMaybeSingleEq = vi.fn(() => ({ maybeSingle: mockMaybeSingle }))
   const mockMaybeSingleSelect = vi.fn(() => ({ eq: mockMaybeSingleEq }))
-  const mockFrom = vi.fn(() => ({ select: mockMaybeSingleSelect }))
-  return { mockMaybeSingle, mockMaybeSingleEq, mockFrom }
+
+  // Ideas chain: .from('ideas').select().eq().neq().order().order() → thenable
+  const mockIdeasResult = vi.fn().mockResolvedValue({ data: [], error: null })
+  const mockIdeasEq = vi.fn()
+  const mockIdeasNeq = vi.fn()
+  const mockIdeasOrder = vi.fn()
+  const ideasChain: Record<string, unknown> = {
+    eq: mockIdeasEq,
+    neq: mockIdeasNeq,
+    order: mockIdeasOrder,
+    then: (f: (v: unknown) => unknown, r?: (e: unknown) => unknown) => mockIdeasResult().then(f, r),
+    catch: (r: (e: unknown) => unknown) => mockIdeasResult().catch(r),
+    finally: (f: () => void) => mockIdeasResult().finally(f),
+  }
+  mockIdeasEq.mockReturnValue(ideasChain)
+  mockIdeasNeq.mockReturnValue(ideasChain)
+  mockIdeasOrder.mockReturnValue(ideasChain)
+  const mockIdeasSelect = vi.fn(() => ideasChain)
+
+  const mockFrom = vi.fn((table: string) =>
+    table === 'ideas'
+      ? { select: mockIdeasSelect }
+      : { select: mockMaybeSingleSelect }
+  )
+  return { mockMaybeSingle, mockMaybeSingleEq, mockFrom, mockIdeasResult, mockIdeasEq, mockIdeasNeq, mockIdeasOrder }
 })
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn().mockResolvedValue({ from: mockFrom }),
+}))
+
+vi.mock('@/components/teskeid/PersonalizedIdeaGrid', () => ({
+  PersonalizedIdeaGrid: ({ ideas }: { ideas: Idea[] }) =>
+    React.createElement(
+      'div',
+      { 'data-testid': 'personalized-idea-grid' },
+      ...ideas.map((idea) =>
+        React.createElement('a', { key: idea.slug, href: `/hugmyndir/${idea.slug}` }, idea.title)
+      )
+    ),
 }))
 
 // Supabase admin — RPC + from chain mock for recent_events query
@@ -202,11 +239,41 @@ function makeInvitation(overrides: Partial<PendingInvitation> = {}): PendingInvi
   }
 }
 
+function makeIdea(overrides: Partial<Idea> = {}): Idea {
+  return {
+    id: 'idea-1',
+    title: 'Test idea',
+    slug: 'test-idea',
+    short_description: 'A test idea',
+    problem_description: null,
+    possible_solution: null,
+    category: 'Annað',
+    status: 'idea',
+    source: 'seed',
+    votes_count: 0,
+    followers_count: 0,
+    is_public: true,
+    is_featured: false,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+const LAUNCHED_LOAN_IDEA    = makeIdea({ id: 'idea-loans',   slug: 'lanad-og-skilad', title: 'Lánað og skilað', status: 'launched' })
+const LAUNCHED_UMONNUN_IDEA = makeIdea({ id: 'idea-umonnun', slug: 'umonnun',          title: 'Umönnun',         status: 'launched' })
+
 // ── Setup helpers ────────────────────────────────────────────────────────────
 
-function setupGuard(featureAccess = true) {
+function setupGuard(loansAccess = true, umonnunAccess = false) {
   mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
-  mockCheckFeatureAccess.mockResolvedValue(featureAccess)
+  mockCheckFeatureAccess.mockImplementation(
+    async (_uid: string, _email: string, featureKey: string) => {
+      if (featureKey === 'lanad-og-skilad') return loansAccess
+      if (featureKey === 'umonnun') return umonnunAccess
+      return false
+    },
+  )
 }
 
 function setupProfile(displayName: string | null) {
@@ -237,6 +304,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   setupRecentEvents([])
   mockAckRecentEvents.mockResolvedValue({ ok: true })
+  mockIdeasResult.mockResolvedValue({ data: [LAUNCHED_LOAN_IDEA, LAUNCHED_UMONNUN_IDEA], error: null })
 })
 
 afterEach(() => {
@@ -275,22 +343,22 @@ describe('HeimPage — greeting', () => {
 })
 
 describe('HeimPage — Teskeiðar section', () => {
-  it('renders "Teskeiðar" heading', async () => {
+  it('renders "Tilbúnar Teskeiðar" heading', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     render(await HeimPage())
-    expect(screen.getByText('Teskeiðar')).toBeDefined()
+    expect(screen.getByText('Tilbúnar Teskeiðar')).toBeDefined()
   })
 
-  it('renders "Teskeiðar" heading even when feature access is false', async () => {
+  it('renders "Tilbúnar Teskeiðar" heading even when feature access is false', async () => {
     setupGuard(false)
     setupProfile(null)
     render(await HeimPage())
-    expect(screen.getByText('Teskeiðar')).toBeDefined()
+    expect(screen.getByText('Tilbúnar Teskeiðar')).toBeDefined()
   })
 
-  it('shows "Lánað og skilað" link when feature access is granted', async () => {
+  it('shows "Lánað og skilað" ready card when feature access is granted', async () => {
     setupGuard(true)
     setupProfile(null)
     setupRpcs([])
@@ -298,73 +366,118 @@ describe('HeimPage — Teskeiðar section', () => {
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
-  it('hides "Lánað og skilað" link when feature access is denied', async () => {
+  it('hides "Lánað og skilað" card when feature access is denied', async () => {
     setupGuard(false)
     setupProfile(null)
     render(await HeimPage())
     expect(screen.queryByText('Lánað og skilað')).toBeNull()
   })
+
+  it('Teskeiðar section has id="teskeidar" for anchor navigation', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    const { container } = render(await HeimPage())
+    expect(container.querySelector('section#teskeidar')).not.toBeNull()
+  })
 })
 
-describe('HeimPage — upcoming rows', () => {
-  const UPCOMING_LABELS = [
-    'Póstflóðið einfaldað',
-    'Útlagt og endurgreitt',
-    'Maki/kæró',
-    'Veðrið',
-    'Fyrsta vakt krakkanna',
-    'Þriðja vaktin',
-    'Út að leika',
-  ]
-
-  it('renders all 7 upcoming rows', async () => {
+describe('HeimPage — home ideas section', () => {
+  it('renders homeIdeasTitle as drawer toggle', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     render(await HeimPage())
-    for (const label of UPCOMING_LABELS) {
-      expect(screen.getByText(label)).toBeDefined()
-    }
+    expect(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum')).toBeDefined()
   })
 
-  it('all upcoming rows are disabled buttons', async () => {
+  it('drawer is collapsed by default — future ideas not visible', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
-    const { container } = render(await HeimPage())
-    const disabledButtons = container.querySelectorAll('button[disabled]')
-    expect(disabledButtons.length).toBe(UPCOMING_LABELS.length)
+    mockIdeasResult.mockResolvedValueOnce({ data: [makeIdea({ slug: 'borvél', title: 'Borvél', status: 'idea' })], error: null })
+    render(await HeimPage())
+    expect(screen.queryByText('Borvél')).toBeNull()
   })
 
-  it('renders all 7 upcoming rows in correct order', async () => {
+  it('renders future ideas in PersonalizedIdeaGrid after opening drawer', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
-    const { container } = render(await HeimPage())
-    const buttons = container.querySelectorAll('button[disabled]')
-    UPCOMING_LABELS.forEach((label, i) => {
-      expect(buttons[i].textContent).toContain(label)
-    })
+    mockIdeasResult.mockResolvedValueOnce({ data: [makeIdea({ slug: 'borvél', title: 'Borvél', status: 'idea' })], error: null })
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum'))
+    expect(screen.getByText('Borvél')).toBeDefined()
   })
 
-  it('renders upcoming rows even when feature access is false', async () => {
+  it('renders canonical link to /hugmyndir/[slug] after opening drawer', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    mockIdeasResult.mockResolvedValueOnce({ data: [makeIdea({ slug: 'my-idea', title: 'My Idea', status: 'idea' })], error: null })
+    const { container } = render(await HeimPage())
+    fireEvent.click(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum'))
+    expect(container.querySelector('a[href="/hugmyndir/my-idea"]')).not.toBeNull()
+  })
+
+  it('query uses is_public=true filter', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    render(await HeimPage())
+    expect(mockIdeasEq).toHaveBeenCalledWith('is_public', true)
+  })
+
+  it('query does not filter out launched status (split happens in JS)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    render(await HeimPage())
+    expect(mockIdeasNeq).not.toHaveBeenCalledWith('status', 'launched')
+  })
+
+  it('query orders by is_featured desc then votes_count desc', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    render(await HeimPage())
+    expect(mockIdeasOrder).toHaveBeenCalledWith('is_featured', { ascending: false })
+    expect(mockIdeasOrder).toHaveBeenCalledWith('votes_count', { ascending: false })
+  })
+
+  it('drawer toggle visible when feature access is false', async () => {
     setupGuard(false)
     setupProfile(null)
     render(await HeimPage())
-    for (const label of UPCOMING_LABELS) {
-      expect(screen.getByText(label)).toBeDefined()
-    }
+    expect(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum')).toBeDefined()
   })
 
-  it('each upcoming row shows "Væntanlegt" status', async () => {
+  it('ideas section still renders when query returns error', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
+    mockIdeasResult.mockResolvedValueOnce({ data: null, error: { code: 'PGRST301' } })
+    render(await HeimPage())
+    expect(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum')).toBeDefined()
+    expect(screen.queryByText('Test idea')).toBeNull()
+  })
+
+  it('launched idea appears as ready card, not in drawer', async () => {
+    setupGuard(true)
+    setupProfile(null)
+    setupRpcs([])
+    // LAUNCHED_LOAN_IDEA is launched — should show as ready card, not in drawer
+    mockIdeasResult.mockResolvedValueOnce({ data: [LAUNCHED_LOAN_IDEA], error: null })
     const { container } = render(await HeimPage())
-    const statusSpans = container.querySelectorAll('button[disabled] span:last-child')
-    statusSpans.forEach((span) => {
-      expect(span.textContent).toBe('Væntanlegt')
-    })
+    // Ready card is visible without opening drawer
+    expect(screen.getByText('Lánað og skilað')).toBeDefined()
+    expect(container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')).not.toBeNull()
+    // Drawer toggle is visible
+    expect(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum')).toBeDefined()
+    // Opening drawer does NOT show the launched idea there
+    fireEvent.click(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum'))
+    const grid = screen.getByTestId('personalized-idea-grid')
+    expect(grid.querySelector('a[href="/hugmyndir/lanad-og-skilad"]')).toBeNull()
   })
 })
 
@@ -525,7 +638,7 @@ describe('HeimPage — Ólesið section (event-based)', () => {
     render(await HeimPage())
     expect(screen.queryByText('Ólesið')).toBeNull()
     expect(screen.getByText('Guðrún, þú ert með allt í teskeið!')).toBeDefined()
-    expect(screen.getByText('Teskeiðar')).toBeDefined()
+    expect(screen.getByText('Tilbúnar Teskeiðar')).toBeDefined()
   })
 
   it('hides Ólesið when events query fails', async () => {
@@ -656,26 +769,26 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
 // ── HeimPage — DOM order ──────────────────────────────────────────────────────
 
 describe('HeimPage — DOM order', () => {
-  it('greeting appears before Teskeiðar heading in DOM', async () => {
+  it('greeting appears before "Tilbúnar Teskeiðar" heading in DOM', async () => {
     setupGuard()
     setupProfile('Jón')
     setupRpcs([])
     render(await HeimPage())
     const greeting = screen.getByText('Jón, þú ert með allt í teskeið!')
-    const featuresHeading = screen.getByText('Teskeiðar')
+    const featuresHeading = screen.getByText('Tilbúnar Teskeiðar')
     expect(
       greeting.compareDocumentPosition(featuresHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   })
 
-  it('"Ólesið" appears before "Teskeiðar" in DOM', async () => {
+  it('"Ólesið" appears before "Tilbúnar Teskeiðar" in DOM', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent()])
     render(await HeimPage())
     const nylegt = screen.getByText('Ólesið')
-    const teskeidar = screen.getByText('Teskeiðar')
+    const teskeidar = screen.getByText('Tilbúnar Teskeiðar')
     expect(
       nylegt.compareDocumentPosition(teskeidar) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
@@ -838,5 +951,85 @@ describe('HeimPage — bottom logo link', () => {
     svgs.forEach((svg) => {
       expect(svg.getAttribute('aria-hidden')).toBe('true')
     })
+  })
+})
+
+// ── HeimPage — Umönnun feature flag (#41) ─────────────────────────────────────
+
+describe('HeimPage — Umönnun feature flag (#41)', () => {
+  it('hides Umönnun card when flag is off (default)', async () => {
+    // Default mockIdeasResult includes LAUNCHED_UMONNUN_IDEA but umonnunEnabled=false → no card
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    render(await HeimPage())
+    expect(screen.queryByText('Umönnun')).toBeNull()
+  })
+
+  it('shows Umönnun card when flag is on', async () => {
+    // Default mockIdeasResult includes LAUNCHED_UMONNUN_IDEA and umonnunEnabled=true → card shows
+    setupGuard(true, true)
+    setupProfile(null)
+    setupRpcs([])
+    render(await HeimPage())
+    expect(screen.getByText('Umönnun')).toBeDefined()
+  })
+
+  it('Umönnun card links to internal informational route', async () => {
+    setupGuard(true, true)
+    setupProfile(null)
+    setupRpcs([])
+    const { container } = render(await HeimPage())
+    expect(container.querySelector('a[href="/auth-mvp/umonnun"]')).not.toBeNull()
+  })
+
+  it('Umönnun card does not link directly to external umonnun.is from home', async () => {
+    setupGuard(true, true)
+    setupProfile(null)
+    setupRpcs([])
+    const { container } = render(await HeimPage())
+    expect(container.querySelector('a[href^="https://umonnun.is"]')).toBeNull()
+  })
+
+  it('Umönnun card is visible even when loansEnabled is false', async () => {
+    setupGuard(false, true)
+    setupProfile(null)
+    render(await HeimPage())
+    expect(screen.getByText('Umönnun')).toBeDefined()
+  })
+})
+
+// ── HeimPage — active vs upcoming separation (#42) ────────────────────────────
+
+describe('HeimPage — active vs upcoming separation (#42)', () => {
+  it('active Teskeid ready card appears before drawer ideas grid in DOM', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    const { container } = render(await HeimPage())
+    // Open the drawer to get the grid in the DOM
+    fireEvent.click(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum'))
+    const loansLink = container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')
+    const ideasGrid = container.querySelector('[data-testid="personalized-idea-grid"]')
+    expect(loansLink).not.toBeNull()
+    expect(ideasGrid).not.toBeNull()
+    expect(
+      loansLink!.compareDocumentPosition(ideasGrid!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('homeIdeasTitle drawer toggle is always visible', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    render(await HeimPage())
+    expect(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum')).toBeDefined()
+  })
+
+  it('homeIdeasTitle drawer toggle visible even when feature access is false', async () => {
+    setupGuard(false)
+    setupProfile(null)
+    render(await HeimPage())
+    expect(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum')).toBeDefined()
   })
 })

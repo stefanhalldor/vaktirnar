@@ -4,6 +4,49 @@ Saga kláraðra og staðfestra atriða.
 
 ---
 
+## #40 — Filterar í lánalista hafa sjálfstætt state
+
+**Lokið:** 2026-06-17  
+**Staðfest af Codex:** já (post-release review á commit `bef246e`)
+
+Status-filterar í `Lánað og skilað` endurstilla ekki lengur hlutverkafilterinn.
+`Enn í láni`, `Skilað` og `Allt` breyta aðeins efri status-state; neðri
+hlutverkaval helst óbreytt þar til notandi breytir því sjálfur. Ef samsetning
+filtera skilar engum niðurstöðum birtist empty-state í stað sjálfvirks resets.
+
+Skrár:
+- `components/loans/LoanList.tsx` — `setRoleFilter(null)` fjarlægt úr status-pillum
+- `lib/__tests__/loan-list.test.tsx` — regression-próf fyrir varðveitt hlutverkaval
+
+Staðfest:
+- `npm run test:run -- lib/__tests__/loan-list.test.tsx` — 32 passed
+- `npm run type-check` — exit 0
+
+Engar SQL-, Supabase-, RLS-, auth- eða production-gagnabreytingar.
+
+---
+
+## #36 — Mannlegra orðalag á lánahlutverki
+
+**Lokið:** 2026-06-17  
+**Staðfest af Codex:** já (post-release review á commit `7416ab9`)
+
+Hlutverkaval í nýskráningarformi fyrir `Lánað og skilað` notar nú náttúrulegra
+orðalag. Íslenska fór úr `Ég er lánveitandinn` / `Ég er lántakandinn` yfir í
+`Ég er að lána` / `Ég er að fá lánað`. Enska samsvörunin fór úr
+`I am the lender` / `I am the borrower` yfir í `I am lending` / `I am borrowing`.
+
+Skrár:
+- `messages/is.json` — `creatorRoleLender`, `creatorRoleBorrowed`
+- `messages/en.json` — `creatorRoleLender`, `creatorRoleBorrowed`
+
+Staðfest:
+- `npm run type-check` — exit 0
+
+Engar SQL-, Supabase-, RLS-, auth- eða production-gagnabreytingar.
+
+---
+
 ## #1 — Lendingarsíða fyrir innskráðan notanda
 
 **Lokið:** 2026-06-07

@@ -1,6 +1,5 @@
 import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
-import { ChevronRight } from 'lucide-react'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { guardTeskeidSession } from '@/lib/auth/guard'
@@ -8,6 +7,9 @@ import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import type { PendingInvitation } from '@/lib/loans/types'
+import type { Idea } from '@/lib/teskeid/types'
+import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
+import { HomeIdeasDrawer } from '@/components/teskeid/HomeIdeasDrawer'
 import { getUnreadRecentEventsForUser } from '@/lib/recent-events/helpers.server'
 import type { RecentEventDisplay, LoanFieldChange } from '@/lib/recent-events/types'
 import { RecentSection, type RecentLabels } from './RecentSection'
@@ -48,16 +50,6 @@ function buildDetailLines(
   })
 }
 
-const UPCOMING_KEYS = [
-  'upcomingEmail',
-  'upcomingExpenses',
-  'upcomingPartner',
-  'upcomingWeather',
-  'upcomingKidsShift',
-  'upcomingThirdShift',
-  'upcomingOutToPlay',
-] as const
-
 const EVENT_TYPE_TO_KEY: Record<string, string> = {
   loan_created:              'eventLoanCreated',
   loan_updated:              'eventLoanUpdated',
@@ -79,24 +71,50 @@ export default async function HeimPage() {
     getLocale(),
   ])
 
-  // Profile via authenticated RLS client — no service_role needed.
-  // Failure is silent: generic greeting is shown, page continues.
+  // Profile + home ideas via authenticated RLS client — no service_role needed.
+  // allSettled so a profile failure doesn't also wipe out the ideas list.
   let displayName: string | null = null
+  let allIdeas: Idea[] = []
   try {
     const supabase = await createClient()
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('display_name')
-      .eq('id', user.id)
-      .maybeSingle()
-    displayName = profile?.display_name?.trim() || null
+    const [profileSettled, ideasSettled] = await Promise.allSettled([
+      supabase.from('profiles').select('display_name').eq('id', user.id).maybeSingle(),
+      supabase.from('ideas').select('*')
+        .eq('is_public', true)
+        .order('is_featured', { ascending: false })
+        .order('votes_count', { ascending: false }),
+    ])
+    if (profileSettled.status === 'fulfilled') {
+      displayName = profileSettled.value.data?.display_name?.trim() || null
+    }
+    if (ideasSettled.status === 'fulfilled') {
+      if (ideasSettled.value.error) {
+        console.error('[heim/page] ideas query failed')
+      } else {
+        allIdeas = (ideasSettled.value.data ?? []) as Idea[]
+      }
+    }
   } catch {
-    // Profile unavailable — fall through to generic greeting
+    // createClient() failed — fall through to defaults
   }
 
-  const loansEnabled = await checkFeatureAccess(user.id, user.email!, 'lanad-og-skilad')
+  const [loansEnabled, umonnunEnabled] = await Promise.all([
+    checkFeatureAccess(user.id, user.email!, 'lanad-og-skilad'),
+    checkFeatureAccess(user.id, user.email!, 'umonnun'),
+  ])
 
   const displayLocale = LOCALE_MAP[locale] ?? locale
+
+  const READY_TESKEID_ROUTES: Record<string, { href: string; enabled: boolean }> = {
+    'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', enabled: loansEnabled },
+    'umonnun':         { href: '/auth-mvp/umonnun',         enabled: umonnunEnabled },
+  }
+
+  const launchedIdeas = allIdeas.filter((i) => i.status === 'launched')
+  const futureIdeas   = allIdeas.filter((i) => i.status !== 'launched')
+  const readyCards    = launchedIdeas
+    .filter((i) => READY_TESKEID_ROUTES[i.slug]?.enabled)
+    .map((i) => ({ idea: i, href: READY_TESKEID_ROUTES[i.slug]!.href }))
 
   let pendingInvitations: PendingInvitation[] = []
   let invitationsError = false
@@ -191,42 +209,34 @@ export default async function HeimPage() {
           />
         )}
 
-        {/* ── Teskeiðar — always renders; active row is loans-gated ── */}
-        <section>
-          <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('featuresTitle')}</h2>
-          <div className="bg-card border border-border rounded-xl overflow-hidden divide-y divide-border">
-            {loansEnabled && (
-              <Link
-                href="/auth-mvp/lanad-og-skilad"
-                className="flex items-center justify-between px-4 hover:bg-background transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-              >
-                <div className="flex items-center gap-2.5 py-3">
-                  <span className="text-sm font-medium text-foreground">{t('loansTitle')}</span>
-                  {!invitationsError && pendingCount > 0 && (
-                    <span
-                      className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-primary-foreground text-xs font-medium"
-                      aria-label={t('pendingBadgeLabel', { count: pendingCount })}
-                    >
-                      <span aria-hidden="true">{pendingCount}</span>
-                    </span>
-                  )}
-                </div>
-                <ChevronRight size={16} className="text-muted-foreground shrink-0" aria-hidden />
-              </Link>
-            )}
+        {/* ── Teskeiðar — ready cards first, future ideas in collapsed drawer ── */}
+        <section id="teskeidar">
+          <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('readyTeskeidarTitle')}</h2>
 
-            {UPCOMING_KEYS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                disabled
-                className="w-full flex items-center justify-between px-4 py-3 min-h-[44px] opacity-60 cursor-not-allowed"
-              >
-                <span className="text-sm font-medium text-foreground">{t(key)}</span>
-                <span className="text-xs text-muted-foreground">{t('upcoming')}</span>
-              </button>
-            ))}
-          </div>
+          {readyCards.length > 0 && (
+            <div className="flex flex-col gap-3 mb-4">
+              {readyCards.map(({ idea, href }) => {
+                const pending = idea.slug === 'lanad-og-skilad' && !invitationsError && pendingCount > 0
+                  ? pendingCount
+                  : undefined
+                return (
+                  <ReadyTeskeidCard
+                    key={idea.slug}
+                    idea={idea}
+                    href={href}
+                    openLabel={t('readyTeskeidOpen')}
+                    pendingBadge={pending}
+                    pendingBadgeLabel={pending !== undefined ? t('pendingBadgeLabel', { count: pending }) : undefined}
+                  />
+                )
+              })}
+            </div>
+          )}
+
+          <HomeIdeasDrawer
+            title={t('homeIdeasTitle')}
+            ideas={futureIdeas}
+          />
         </section>
 
         {/* ── Lógó — miðjað neðst ────────────────────────────────── */}

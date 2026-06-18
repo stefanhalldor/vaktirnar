@@ -33,18 +33,31 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
     }
   }, [step])
 
-  // Returns true on 200, false on network failure or non-2xx.
-  // Does NOT distinguish rate-limited vs. waitlisted vs. allowed — intentional.
-  async function requestCode(targetEmail: string): Promise<boolean> {
+  function formatRetryTime(isoString: string): string {
+    return new Date(isoString).toLocaleTimeString('is-IS', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Atlantic/Reykjavik',
+    })
+  }
+
+  type RequestCodeResult = { ok: true } | { ok: false; rateLimited: true; retryAfter: string } | { ok: false; rateLimited?: false }
+
+  async function requestCode(targetEmail: string): Promise<RequestCodeResult> {
     try {
       const res = await fetch('/api/auth-mvp/request-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: targetEmail }),
       })
-      return res.ok
+      if (!res.ok) return { ok: false }
+      const data = await res.json().catch(() => ({}))
+      if (data.rateLimited && data.retryAfter) {
+        return { ok: false, rateLimited: true, retryAfter: data.retryAfter }
+      }
+      return { ok: true }
     } catch {
-      return false
+      return { ok: false }
     }
   }
 
@@ -52,9 +65,13 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const ok = await requestCode(email)
-    if (!ok) {
-      setError(t('genericError'))
+    const result = await requestCode(email)
+    if (!result.ok) {
+      if ('rateLimited' in result && result.rateLimited) {
+        setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
+      } else {
+        setError(t('genericError'))
+      }
       setLoading(false)
       return
     }
@@ -97,7 +114,11 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
     if (resendCountdown > 0) return
     setError('')
     setCode('')
-    await requestCode(email)
+    const result = await requestCode(email)
+    if (!result.ok && 'rateLimited' in result && result.rateLimited) {
+      setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
+      return
+    }
     setResendCountdown(RESEND_COOLDOWN)
     codeInputRef.current?.focus()
   }
@@ -140,7 +161,7 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
           ) : (
             <>
               <h2 className="mb-2 text-center text-xl font-semibold text-[#154212]">{t('codeTitle')}</h2>
-              <p className="mb-6 text-center text-sm text-[#72796e]">{t('emailSubmitted')}</p>
+              <p className="mb-6 text-center text-sm text-[#72796e]">{t('emailSubmitted', { email })}</p>
               <form onSubmit={handleCodeSubmit} className="flex flex-col gap-4">
                 <label className="flex flex-col gap-1">
                   <span className="text-sm font-medium text-[#42493e]">{t('codeLabel')}</span>

@@ -19,7 +19,12 @@ export async function POST(request: NextRequest) {
           ?? ''
   const withinLimit = await checkIpRateLimit(ip)
   if (!withinLimit) {
-    return NextResponse.json({ success: true })
+    console.error('[auth-mvp/request-code] IP rate limit exceeded')
+    // Reykjavik is UTC+0 year-round — next window opens at next calendar midnight UTC
+    const todayRvk = new Date().toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
+    const [y, m, d] = todayRvk.split('-').map(Number)
+    const retryAfter = new Date(Date.UTC(y!, m! - 1, d! + 1)).toISOString()
+    return NextResponse.json({ success: true, rateLimited: true, retryAfter })
   }
 
   const body = await request.json().catch(() => null)
@@ -27,18 +32,25 @@ export async function POST(request: NextRequest) {
 
   if (parsed.success) {
     try {
-      const code = await createUserCode(parsed.data.email)
-      if (code) {
-        // Operational alert: warn if email infra is unconfigured (no code/email logged)
-        if (!process.env.RESEND_API_KEY && process.env.NODE_ENV === 'production') {
-          console.error('[auth-mvp/request-code] RESEND_API_KEY not configured — code generated but email will not be sent')
-        }
-        await sendUserLoginCode(parsed.data.email, code)
+      const result = await createUserCode(parsed.data.email)
+      if (result && typeof result === 'object' && 'rateLimited' in result) {
+        return NextResponse.json({ success: true, rateLimited: true, retryAfter: result.retryAfter })
       }
-      // null code = silently rate-limited; do nothing
+      if (result === null) {
+        // DB insert failed — surface as generic error so user is not left on code step
+        console.error('[auth-mvp/request-code] code creation failed (DB error)')
+        return NextResponse.json({ success: false }, { status: 500 })
+      }
+      // result is the plaintext code
+      if (!process.env.RESEND_API_KEY && process.env.NODE_ENV === 'production') {
+        console.error('[auth-mvp/request-code] RESEND_API_KEY not configured — code generated but email will not be sent')
+      }
+      await sendUserLoginCode(parsed.data.email, result)
+      return NextResponse.json({ success: true })
     } catch {
-      // Log only safe metadata — no email address, no code
+      // Catches createUserCode throws or sendUserLoginCode (Resend) failures
       console.error('[auth-mvp/request-code] internal error (not exposed to client)')
+      return NextResponse.json({ success: false }, { status: 500 })
     }
   }
   // Invalid payload: still return success (no validation leak)

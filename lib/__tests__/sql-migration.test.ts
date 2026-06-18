@@ -186,3 +186,132 @@ describe('sql/50_loan_soft_acknowledgement.sql — static checks', () => {
     expect(claimGrant).toMatch(/TO service_role/)
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/51 pending creator return
+// ============================================================
+
+const sql51 = readFileSync(
+  join(process.cwd(), 'sql/51_allow_pending_creator_return.sql'),
+  'utf8'
+)
+
+describe('sql/51_allow_pending_creator_return.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql51).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql51).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('redefines mark_returned with CREATE OR REPLACE', () => {
+    expect(sql51).toContain('CREATE OR REPLACE FUNCTION public.mark_returned')
+  })
+
+  it('redefines undo_return with CREATE OR REPLACE', () => {
+    expect(sql51).toContain('CREATE OR REPLACE FUNCTION public.undo_return')
+  })
+
+  it('mark_returned does not contain the both-parties NULL guard', () => {
+    const fnStart = sql51.indexOf('CREATE OR REPLACE FUNCTION public.mark_returned')
+    const fnEnd   = sql51.indexOf('$$;', fnStart)
+    const fnBody  = sql51.slice(fnStart, fnEnd)
+    expect(fnBody).not.toContain('invitation_not_accepted')
+    expect(fnBody).not.toMatch(/lender_user_id IS NULL OR v_loan\.borrower_user_id IS NULL/)
+  })
+
+  it('undo_return does not contain the both-parties NULL guard', () => {
+    const fnStart = sql51.indexOf('CREATE OR REPLACE FUNCTION public.undo_return')
+    const fnEnd   = sql51.indexOf('$$;', fnStart)
+    const fnBody  = sql51.slice(fnStart, fnEnd)
+    expect(fnBody).not.toContain('invitation_not_accepted')
+    expect(fnBody).not.toMatch(/lender_user_id IS NULL OR v_loan\.borrower_user_id IS NULL/)
+  })
+
+  it('mark_returned still checks actor is direct participant', () => {
+    const fnStart = sql51.indexOf('CREATE OR REPLACE FUNCTION public.mark_returned')
+    const fnEnd   = sql51.indexOf('$$;', fnStart)
+    const fnBody  = sql51.slice(fnStart, fnEnd)
+    expect(fnBody).toContain('lender_user_id IS DISTINCT FROM p_actor_id')
+    expect(fnBody).toContain('borrower_user_id IS DISTINCT FROM p_actor_id')
+  })
+
+  it('undo_return still checks actor is direct participant', () => {
+    const fnStart = sql51.indexOf('CREATE OR REPLACE FUNCTION public.undo_return')
+    const fnEnd   = sql51.indexOf('$$;', fnStart)
+    const fnBody  = sql51.slice(fnStart, fnEnd)
+    expect(fnBody).toContain('lender_user_id IS DISTINCT FROM p_actor_id')
+    expect(fnBody).toContain('borrower_user_id IS DISTINCT FROM p_actor_id')
+  })
+
+  it('grants remain service_role only — no anon or authenticated', () => {
+    const grantLines = sql51.split('\n').filter(l => /^\s*GRANT\b/.test(l))
+    for (const line of grantLines) {
+      expect(line).not.toMatch(/\b(PUBLIC|anon|authenticated)\b/)
+    }
+  })
+
+  it('revokes execute from PUBLIC, anon, authenticated for both functions', () => {
+    expect(sql51).toContain('REVOKE EXECUTE ON FUNCTION public.mark_returned(uuid, uuid) FROM PUBLIC, anon, authenticated')
+    expect(sql51).toContain('REVOKE EXECUTE ON FUNCTION public.undo_return(uuid, uuid)   FROM PUBLIC, anon, authenticated')
+  })
+
+  it('grants execute to service_role for both functions', () => {
+    expect(sql51).toContain('GRANT EXECUTE ON FUNCTION public.mark_returned(uuid, uuid) TO service_role')
+    expect(sql51).toContain('GRANT EXECUTE ON FUNCTION public.undo_return(uuid, uuid)   TO service_role')
+  })
+
+  it('uses SET search_path on both functions', () => {
+    const markStart = sql51.indexOf('CREATE OR REPLACE FUNCTION public.mark_returned')
+    const markEnd   = sql51.indexOf('$$;', markStart)
+    expect(sql51.slice(markStart, markEnd)).toContain("SET search_path = ''")
+
+    const undoStart = sql51.indexOf('CREATE OR REPLACE FUNCTION public.undo_return')
+    const undoEnd   = sql51.indexOf('$$;', undoStart)
+    expect(sql51.slice(undoStart, undoEnd)).toContain("SET search_path = ''")
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/52 feature_access table
+// ============================================================
+
+const sql52 = readFileSync(
+  join(process.cwd(), 'sql/52_feature_access.sql'),
+  'utf8'
+)
+
+describe('sql/52_feature_access.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql52).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql52).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('creates the feature_access table', () => {
+    expect(sql52).toMatch(/CREATE TABLE IF NOT EXISTS public\.feature_access/)
+  })
+
+  it('enables RLS on the table', () => {
+    expect(sql52).toMatch(/ALTER TABLE public\.feature_access ENABLE ROW LEVEL SECURITY/)
+  })
+
+  it('restricts feature_key to umonnun in Phase A', () => {
+    expect(sql52).toMatch(/CHECK\s*\(feature_key IN \('umonnun'\)\)/)
+  })
+
+  it('primary key covers (feature_key, email)', () => {
+    expect(sql52).toMatch(/PRIMARY KEY\s*\(feature_key,\s*email\)/)
+  })
+
+  it('revokes all access from PUBLIC, anon, authenticated', () => {
+    expect(sql52).toMatch(/REVOKE ALL ON public\.feature_access FROM PUBLIC, anon, authenticated/)
+  })
+
+  it('grants only to service_role', () => {
+    expect(sql52).toMatch(/GRANT SELECT, INSERT, DELETE ON public\.feature_access TO service_role/)
+    expect(sql52).not.toMatch(/GRANT.*TO anon/)
+    expect(sql52).not.toMatch(/GRANT.*TO authenticated/)
+  })
+
+  it('does not define any RLS policies (service_role only)', () => {
+    expect(sql52).not.toMatch(/CREATE POLICY/)
+  })
+})

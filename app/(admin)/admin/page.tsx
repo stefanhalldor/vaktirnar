@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, useTransition } from 'react'
 import type { Idea, Submission, IdeaCategory } from '@/lib/teskeid/types'
 import { IDEA_CATEGORIES } from '@/lib/teskeid/types'
 import { StatusBadge } from '@/components/teskeid/StatusBadge'
@@ -112,6 +112,119 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
         </li>
       ))}
     </ul>
+  )
+}
+
+type FeatureAccessEntry = { email: string; granted_at: string }
+
+function FeatureAccessSection() {
+  const [entries, setEntries] = useState<FeatureAccessEntry[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [emailInput, setEmailInput] = useState('')
+  const [status, setStatus] = useState('')
+  const [isPending, startTransition] = useTransition()
+
+  useEffect(() => {
+    fetch('/api/admin/feature-access')
+      .then((r) => {
+        if (!r.ok) { setLoadError(true); setLoaded(true); return null }
+        return r.json()
+      })
+      .then((data) => {
+        if (data === null) return
+        if (Array.isArray(data)) { setEntries(data); setLoaded(true) }
+        else { setLoadError(true); setLoaded(true) }
+      })
+      .catch(() => { setLoadError(true); setLoaded(true) })
+  }, [])
+
+  function handleGrant() {
+    const trimmed = emailInput.trim()
+    if (!trimmed.includes('@')) { setStatus('Ógilt netfang'); return }
+    setStatus('')
+    startTransition(async () => {
+      const res = await fetch('/api/admin/feature-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: trimmed }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setStatus(data.error ?? 'Villa'); return }
+      setEmailInput('')
+      setStatus('Aðgangur veittur: ' + (data.email ?? trimmed))
+      fetch('/api/admin/feature-access')
+        .then((r) => r.json())
+        .then((d) => { if (Array.isArray(d)) setEntries(d) })
+        .catch(() => {})
+    })
+  }
+
+  function handleRevoke(email: string) {
+    setStatus('')
+    startTransition(async () => {
+      const res = await fetch('/api/admin/feature-access', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (!res.ok) { setStatus('Villa við að fjarlægja'); return }
+      setEntries((prev) => prev.filter((e) => e.email !== email))
+    })
+  }
+
+  return (
+    <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
+      <h2 className="text-sm font-semibold text-gray-700 mb-4">Umönnun-aðgangur</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        Stjórnar hverjir sjá Umönnun þegar <code className="font-mono">UMONNUN_FLAG=true</code>.
+      </p>
+      {loadError ? (
+        <p className="text-xs text-red-600 mb-4">
+          Náði ekki að sækja Umönnun-aðgang. Staðfestu migration eða prófaðu aftur.
+        </p>
+      ) : !loaded ? (
+        <p className="text-xs text-gray-400 mb-4">Hleður...</p>
+      ) : entries.length === 0 ? (
+        <p className="text-xs text-gray-400 mb-4">Enginn í lista.</p>
+      ) : (
+        <ul className="flex flex-col gap-1 mb-4">
+          {entries.map((e) => (
+            <li key={e.email} className="flex items-center justify-between gap-2 text-xs border-b border-gray-100 py-1.5 last:border-0">
+              <span className="text-gray-700 font-mono break-all">{e.email}</span>
+              <button
+                type="button"
+                onClick={() => handleRevoke(e.email)}
+                disabled={isPending}
+                className="shrink-0 px-2 py-0.5 rounded border border-gray-200 text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                Fjarlægja
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="email"
+          value={emailInput}
+          onChange={(e) => setEmailInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleGrant() }}
+          placeholder="netfang@dæmi.is"
+          disabled={isPending}
+          className="flex-1 h-8 rounded-lg border border-gray-200 px-2 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#154212] disabled:opacity-50"
+        />
+        <button
+          type="button"
+          onClick={handleGrant}
+          disabled={isPending}
+          className="h-8 px-3 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
+        >
+          Gefa aðgang
+        </button>
+      </div>
+      {status && <p className="mt-2 text-xs text-gray-500">{status}</p>}
+    </div>
   )
 }
 
@@ -1251,6 +1364,9 @@ export default function AdminPage() {
             )}
           </div>
         )}
+
+        <hr className="border-[#c2c9bb] my-8" />
+        <FeatureAccessSection />
       </div>
     </div>
   )

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { Menu, X, Lightbulb, Send, LogIn, Home, UserCircle, Archive, LogOut } from 'lucide-react'
+import { Menu, X, Lightbulb, Send, LogIn, UserCircle, LayoutGrid, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 const PUBLIC_ITEMS = [
@@ -14,9 +14,8 @@ const PUBLIC_ITEMS = [
 ] as const
 
 const AUTH_ITEMS = [
-  { href: '/auth-mvp/heim', labelKey: 'home', icon: Home },
+  { href: '/auth-mvp/heim', labelKey: 'teskeidar', icon: LayoutGrid, activePrefixes: ['/auth-mvp/heim', '/auth-mvp/lanad-og-skilad', '/auth-mvp/umonnun'] },
   { href: '/auth-mvp/minn-profill', labelKey: 'profile', icon: UserCircle },
-  { href: '/auth-mvp/lanad-og-skilad', labelKey: 'loans', icon: Archive },
   { href: '/', labelKey: 'ideas', icon: Lightbulb },
   { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },
 ] as const
@@ -85,8 +84,11 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
               </div>
             </>
           )}
-          {items.map(({ href, labelKey, icon: Icon }) => {
-            const active = pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
+          {items.map((item) => {
+            const { href, labelKey, icon: Icon } = item
+            const active = 'activePrefixes' in item
+              ? item.activePrefixes.some((p) => pathname === p || pathname.startsWith(p + '/'))
+              : pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
             return (
               <Link
                 key={href}

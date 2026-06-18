@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import AdminPage from '@/app/(admin)/admin/page'
 
 vi.mock('@/components/teskeid/StatusBadge', () => ({
@@ -26,9 +26,10 @@ function makeFetch(analyticsCalls: string[]) {
   return vi.fn((url: string) => {
     if (url.includes('/api/admin/analytics')) {
       analyticsCalls.push(url)
-      return Promise.resolve({ json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
     }
-    return Promise.resolve({ json: () => Promise.resolve([]) })
+    // feature-access and other admin endpoints return empty arrays
+    return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
   })
 }
 
@@ -72,5 +73,56 @@ describe('AdminPage initialization', () => {
 
     expect(analyticsCalls).toHaveLength(1)
     expect(analyticsCalls[0]).toContain('period=1h')
+  })
+})
+
+describe('AdminPage — FeatureAccessSection', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('renders Umönnun-aðgangur heading', async () => {
+    vi.stubGlobal('fetch', makeFetch([]))
+    render(<AdminPage />)
+    await waitFor(() => {
+      expect(screen.getByText('Umönnun-aðgangur')).toBeInTheDocument()
+    })
+  })
+
+  it('renders empty list message when feature_access returns []', async () => {
+    vi.stubGlobal('fetch', makeFetch([]))
+    render(<AdminPage />)
+    await waitFor(() => {
+      expect(screen.getByText('Enginn í lista.')).toBeInTheDocument()
+    })
+  })
+
+  it('renders Gefa aðgang button', async () => {
+    vi.stubGlobal('fetch', makeFetch([]))
+    render(<AdminPage />)
+    await waitFor(() => {
+      expect(screen.getByText('Gefa aðgang')).toBeInTheDocument()
+    })
+  })
+
+  it('shows load error message when feature-access API returns 500', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('/api/admin/analytics')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      }
+      if (url.includes('/api/admin/feature-access')) {
+        return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'Query failed' }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+    }))
+    render(<AdminPage />)
+    await waitFor(() => {
+      expect(screen.getByText(/Náði ekki að sækja Umönnun-aðgang/)).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Enginn í lista.')).not.toBeInTheDocument()
   })
 })

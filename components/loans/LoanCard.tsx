@@ -77,8 +77,17 @@ export function LoanCard({ item }: Props) {
 
   const isReturned = item.returned_at !== null
   const overdue = isOverdue(item)
+  const pendingStatusShownInHeader =
+    item.invitation_status === 'pending' &&
+    !item.requires_acknowledgement &&
+    !item.other_display_name
+  const showInvitationStatus =
+    item.invitation_status !== null &&
+    item.invitation_status !== 'accepted' &&
+    !pendingStatusShownInHeader &&
+    !(item.invitation_status === 'pending' && item.requires_acknowledgement)
   const {
-    bothPartiesJoined,
+    canToggleReturned,
     canEdit,
     canDelete,
     canEditItemDetails,
@@ -229,7 +238,7 @@ export function LoanCard({ item }: Props) {
       )}
 
       {/* Invitation status */}
-      {item.invitation_status && item.invitation_status !== 'accepted' && (
+      {showInvitationStatus && (
         <p className="text-xs text-[#72796e]">
           {t(`inviteStatus.${item.invitation_status}`)}
         </p>
@@ -289,43 +298,41 @@ export function LoanCard({ item }: Props) {
           )}
 
           {/* Return / undo row */}
-          <div className="flex gap-2">
-            {!bothPartiesJoined ? (
-              item.invitation_status === 'pending' && !canAcknowledge ? (
-                <p className="flex-1 text-xs text-[#72796e] py-1.5">
-                  {t('awaitingAcceptance')}
-                </p>
-              ) : null
-            ) : !isReturned ? (
-              <button
-                type="button"
-                onClick={handleMarkReturned}
-                disabled={isPending}
-                className="flex-1 h-8 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
-              >
-                {t('markReturned')}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleUndoReturn}
-                disabled={isPending}
-                className="flex-1 h-8 rounded-lg border border-gray-200 text-xs text-[#42493e] hover:bg-gray-50 transition-colors disabled:opacity-50"
-              >
-                {t('undoReturn')}
-              </button>
-            )}
-            {canDelete && (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                disabled={isPending}
-                className="h-8 px-3 rounded-lg border border-gray-200 text-xs text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
-              >
-                {t('deleteItem')}
-              </button>
-            )}
-          </div>
+          {(canToggleReturned || canDelete) && (
+            <div className="flex gap-2 justify-end">
+              {canToggleReturned && (
+                !isReturned ? (
+                  <button
+                    type="button"
+                    onClick={handleMarkReturned}
+                    disabled={isPending}
+                    className="flex-1 h-8 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
+                  >
+                    {t('markReturned')}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleUndoReturn}
+                    disabled={isPending}
+                    className="flex-1 h-8 rounded-lg border border-gray-200 text-xs text-[#42493e] hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    {t('undoReturn')}
+                  </button>
+                )
+              )}
+              {canDelete && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={isPending}
+                  className="h-8 px-3 rounded-lg border border-gray-200 text-xs text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  {t('deleteItem')}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Add party */}
           {showAddParty && !isReturned && (
@@ -343,7 +350,7 @@ export function LoanCard({ item }: Props) {
           {(showSendInvite || showInviteSent || showCancelInvite) && (
             <div className="flex gap-2 items-center">
               {showInviteSent && (
-                <span className="flex-1 text-xs text-[#154212]">
+                <span className="min-w-0 flex-1 text-xs leading-snug text-[#154212]">
                   {t('inviteSent')}
                 </span>
               )}

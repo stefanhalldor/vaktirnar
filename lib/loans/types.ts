@@ -139,6 +139,7 @@ export function canShowReturnControls(
 // Single source of truth used by both LoanCard and tests.
 export interface LoanCardControls {
   bothPartiesJoined: boolean
+  canToggleReturned: boolean
   canEdit: boolean
   canDelete: boolean
   showSendInvite: boolean
@@ -157,6 +158,9 @@ export function getLoanCardControls(
   const isPendingRecipient = item.requires_acknowledgement
   return {
     bothPartiesJoined: canShowReturnControls(item.invitation_status),
+    canToggleReturned:
+      item.invitation_status === 'accepted' ||
+      (item.is_creator && item.invitation_status === 'pending' && !isPendingRecipient),
     canEdit:  item.is_creator && item.invitation_status !== 'accepted',
     canDelete: item.is_creator && item.invitation_status !== 'accepted',
     showSendInvite: item.can_send_invitation,

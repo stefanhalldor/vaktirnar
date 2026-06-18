@@ -927,6 +927,68 @@ describe('EditLoanItemDetailsSchema', () => {
 })
 
 // ============================================================
+// getLoanCardControls — canToggleReturned (#44)
+// Pending creator may toggle returned; pending recipient may not.
+// ============================================================
+
+describe('getLoanCardControls — canToggleReturned', () => {
+  it('true when invitation accepted', () => {
+    const c = getLoanCardControls({ ...BASE, invitation_status: 'accepted' })
+    expect(c.canToggleReturned).toBe(true)
+  })
+
+  it('true when creator, pending, not pending recipient', () => {
+    const c = getLoanCardControls({
+      ...BASE,
+      is_creator: true,
+      invitation_status: 'pending',
+      requires_acknowledgement: false,
+    })
+    expect(c.canToggleReturned).toBe(true)
+  })
+
+  it('false when pending recipient (requires_acknowledgement)', () => {
+    const c = getLoanCardControls({
+      ...BASE,
+      is_creator: false,
+      invitation_status: 'pending',
+      requires_acknowledgement: true,
+    })
+    expect(c.canToggleReturned).toBe(false)
+  })
+
+  it('false when non-creator pending (not yet in participant columns)', () => {
+    const c = getLoanCardControls({
+      ...BASE,
+      is_creator: false,
+      invitation_status: 'pending',
+      requires_acknowledgement: false,
+    })
+    expect(c.canToggleReturned).toBe(false)
+  })
+
+  it('false when invitation declined', () => {
+    const c = getLoanCardControls({ ...BASE, invitation_status: 'declined' })
+    expect(c.canToggleReturned).toBe(false)
+  })
+
+  it('false when invitation cancelled', () => {
+    const c = getLoanCardControls({ ...BASE, invitation_status: 'cancelled' })
+    expect(c.canToggleReturned).toBe(false)
+  })
+
+  it('false when invitation expired', () => {
+    const c = getLoanCardControls({ ...BASE, invitation_status: 'expired' })
+    expect(c.canToggleReturned).toBe(false)
+  })
+
+  it('false when invitation_status is null (solo loan, no invite)', () => {
+    const c = getLoanCardControls({ ...BASE, invitation_status: null })
+    expect(c.canToggleReturned).toBe(false)
+  })
+})
+
+// ============================================================
 // loanedAtWeekday
 // ============================================================
 
