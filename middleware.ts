@@ -124,8 +124,13 @@ export async function middleware(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
   const isAuthCallback = pathname.startsWith('/auth/callback')
 
-  // Landing page (/) is always public
+  // Landing page (/): public for guests, but authenticated users go to Teskeiðar.
   if (isRoot) {
+    if (user && process.env.AUTH_MVP_ENABLED === 'true') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/auth-mvp/heim'
+      return NextResponse.redirect(url)
+    }
     return supabaseResponse
   }
 

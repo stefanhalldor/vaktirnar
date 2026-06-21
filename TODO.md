@@ -11,21 +11,25 @@ tilvísanir og verkefnasaga rofni ekki.
 | 2   | **#44 Merkja hlut skilaðan áður en mótaðili þekkir málið**   | Leyfa sendanda/viðtakanda að merkja pending soft-ack lán sem skilað án þess að bíða eftir `Þekki málið`, með öruggri server-side heimild og skýrri event-hegðun. |
 | 3   | **#45 Per-user aðgangur að feature-flagged Teskeiðum**       | `feature_access` tafla + admin UI á `/admin`; UMONNUN_FLAG=true kveikir á per-user checki, ósett = allir sjá. |
 | 4   | **#46 User+pass fallback þegar kóði berst ekki**             | Bæta öruggri email+lykilorð innskráningu sem valkosti á kóðasendingarsíðu þegar tölvupóstkóði berst ekki, án þess að veikja núverandi OTP flæði.      |
-| 5   | **#19 Lesnir hlutir birtist ekki aftur sem `Nýlegt`**        | Taka næst: byggja varanlegan server-side `recent_events` grunn svo `Nýlegt` verði áreiðanlegt fyrir allar Teskeiðar, ekki lánasértækan read-state plástur. |
-| 6   | **#27 Mýkra lánaboðsflæði**                                  | Taka með #19 sem framtíðarundirbúning: `Nýlegt` verður inngangsleið fyrir pending boð, en full #27 útfærsla bíður eftir event-feed grunni og Codex-rýni. |
-| 7   | **#37 `Nýlegt` sýni öll ólesin events og breytingasamhengi** | Sýna ekki bara þrjú nýleg atriði; `Nýlegt` á að vera ólesinn inbox og geta útskýrt hvað breyttist, t.d. fyrri og ný skiladagsetning.                  |
-| 8   | **#38 Event þegar lánaboði er hafnað**                       | Þegar viðtakandi hafnar lánaboði þarf sá sem sendi boðið að fá event, því það er mikilvæg breyting á láninu.                                           |
-| 9   | **#39 Lánveitandi geti eytt samþykktum hlut**                 | Lánveitandi þarf að geta eytt hlut þó mótaðili sé búinn að samþykkja, og mótaðilinn á að fá event um eyðinguna.                                      |
-| 10  | **#30 Stærra `10,5` og ný favicon-tillaga**                  | Stækka `10,5` á derhúfunni svo það sjáist betur og gera tillögu að favicon sem sýnir bara `10,5`.                                                     |
-| 11  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | Public notendaslóðir ættu að verða `/heim`, `/minn-profill` og `/lanad-og-skilad`; geymt úr hraðri opnun til að minnka áhættu.                       |
-| 12  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | Whitelist stýrir ekki lengur public login/loans; ákveða hvort listinn verði framtíðar beta-listi, admin-tól eða verði arkiveraður.                    |
-| 13  | **#5 Samræmd mobile app-upplifun**                           | Samræma innskráningu, form, viewport, keyboard og mobile layout sem framhaldsverk eftir opnun nema ný blocker finnist.                                 |
-| 14  | **#7 Langlíf innskráning**                                   | Gera session app-líkt og öruggt sem framhaldsverk eftir opnun nema session-hegðun reynist blocker í prófun.                                           |
-| 15  | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | Skipta disabled `Væntanlegt` listanum út fyrir mobile-first framsetningu með raunverulegum, birtum hugmyndum og kosningarmöguleika.                   |
-| 16  | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | Gera virkar/tilbúnar Teskeiðar meira áberandi efst á `/heim`, aðskildar frá væntanlegum Teskeiðum, og raða dýnamískt per notanda eftir síðast opnuðu. |
-| 17  | **#10 Gáfuleg opnun tölfræðisíðu**                           | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið.                                                                         |
-| 18  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | Bæta einfaldri notendatalningu við admin tölfræði; skilgreina fyrst hvort telja eigi skráða notendur, virka notendur eða virkar sessions.             |
-| 19  | **#41 Umönnun sem feature-flagged Teskeið**                  | Sýna Umönnun sem Teskeið undir feature flag; skýra að hún sé sér app vegna viðkvæmra gagna og eldri útgáfu, og taka síðar stefnumótandi ákvörðun um hvort hún falli undir Teskeið eða verði áfram sér app. |
+| 5   | **#47 Lán: bæta við netfangi í edit og laga vistunarvillu** | Creator þarf að geta bætt við viðtakandanetfangi eftir að lán var stofnað án viðtakanda, og nafnabreyting eins og `Gítarstandur?` → `Gítarstandur` má ekki falla á almennri vistunarvillu. |
+| 6   | **#48 Endurkomunotandi fari sjálfgefið á Teskeiðar**         | Innskráður notandi sem kemur aftur inn í Teskeið á að lenda sjálfgefið á `Teskeiðar`, ekki hugmyndabankanum. |
+| 7   | **#49 Vinir og þekktir viðtakendur þvert á Teskeiðar**        | Þegar Stebbi hefur tengst notanda í lánum eða síðar öðrum Teskeiðum á viðkomandi að vistast sem vinur/þekktur viðtakandi með einkanafni og einkalýsingu. |
+| 8   | **#50 Fjölskyldan í stillingum**                             | Bæta við `/stillingar/fjolskyldan` þar sem notandi getur skráð fjölskyldumeðlimi; fyrsta nýting verður `Fyrsta vakt krakkanna`. |
+| 9   | **#19 Lesnir hlutir birtist ekki aftur sem `Nýlegt`**        | Taka næst: byggja varanlegan server-side `recent_events` grunn svo `Nýlegt` verði áreiðanlegt fyrir allar Teskeiðar, ekki lánasértækan read-state plástur. |
+| 10  | **#27 Mýkra lánaboðsflæði**                                  | Taka með #19 sem framtíðarundirbúning: `Nýlegt` verður inngangsleið fyrir pending boð, en full #27 útfærsla bíður eftir event-feed grunni og Codex-rýni. |
+| 11  | **#37 `Nýlegt` sýni öll ólesin events og breytingasamhengi** | Sýna ekki bara þrjú nýleg atriði; `Nýlegt` á að vera ólesinn inbox og geta útskýrt hvað breyttist, t.d. fyrri og ný skiladagsetning.                  |
+| 12  | **#38 Event þegar lánaboði er hafnað**                       | Þegar viðtakandi hafnar lánaboði þarf sá sem sendi boðið að fá event, því það er mikilvæg breyting á láninu.                                           |
+| 13  | **#39 Lánveitandi geti eytt samþykktum hlut**                 | Lánveitandi þarf að geta eytt hlut þó mótaðili sé búinn að samþykkja, og mótaðilinn á að fá event um eyðinguna.                                      |
+| 14  | **#30 Stærra `10,5` og ný favicon-tillaga**                  | Stækka `10,5` á derhúfunni svo það sjáist betur og gera tillögu að favicon sem sýnir bara `10,5`.                                                     |
+| 15  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | Public notendaslóðir ættu að verða `/heim`, `/minn-profill` og `/lanad-og-skilad`; geymt úr hraðri opnun til að minnka áhættu.                       |
+| 16  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | Whitelist stýrir ekki lengur public login/loans; ákveða hvort listinn verði framtíðar beta-listi, admin-tól eða verði arkiveraður.                    |
+| 17  | **#5 Samræmd mobile app-upplifun**                           | Samræma innskráningu, form, viewport, keyboard og mobile layout sem framhaldsverk eftir opnun nema ný blocker finnist.                                 |
+| 18  | **#7 Langlíf innskráning**                                   | Gera session app-líkt og öruggt sem framhaldsverk eftir opnun nema session-hegðun reynist blocker í prófun.                                           |
+| 19  | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | Skipta disabled `Væntanlegt` listanum út fyrir mobile-first framsetningu með raunverulegum, birtum hugmyndum og kosningarmöguleika.                   |
+| 20  | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | Gera virkar/tilbúnar Teskeiðar meira áberandi efst á `/heim`, aðskildar frá væntanlegum Teskeiðum, og raða dýnamískt per notanda eftir síðast opnuðu. |
+| 21  | **#10 Gáfuleg opnun tölfræðisíðu**                           | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið.                                                                         |
+| 22  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | Bæta einfaldri notendatalningu við admin tölfræði; skilgreina fyrst hvort telja eigi skráða notendur, virka notendur eða virkar sessions.             |
+| 23  | **#41 Umönnun sem feature-flagged Teskeið**                  | Sýna Umönnun sem Teskeið undir feature flag; skýra að hún sé sér app vegna viðkvæmra gagna og eldri útgáfu, og taka síðar stefnumótandi ákvörðun um hvort hún falli undir Teskeið eða verði áfram sér app. |
 
 #43
 ## Gmail-punktar og útrunnin soft-ack lánaboð
@@ -327,6 +331,250 @@ einfalda kóða-flæðinu.
   overlap eða óæskilegs zooms.
 - Regression: admin login, feature access, `Lánað og skilað` og Umönnun route
   gating breytast ekki óvart.
+
+#47
+## Lán: bæta við netfangi í edit og laga vistunarvillu
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-06-21
+
+**Samhengi frá Stebba:** Stebbi stofnaði lán fyrir hlutinn `Gítarstandur?` án þess
+að skrá hjá hverjum hluturinn væri í láni. Þegar Stebbi fékk það staðfest síðar
+vildi hann fara í edit og bæta við netfangi viðtakanda, en sá hvergi leið til þess.
+Í leiðinni reyndi Stebbi að breyta nafninu úr `Gítarstandur?` í `Gítarstandur`, en
+fékk villuna `Ekki tókst að vista. Reyndu aftur.`
+
+**Viðbót frá Stebba:** Villan kemur bæði í iPhone og á PC tölvu, þannig að þetta
+virðist ekki vera sértæk vafra- eða tækjavilla.
+
+**Vandamál:**
+
+- Edit-síðan fyrir lán sýnir ekki leið til að bæta við viðtakandanetfangi þegar
+  lán var stofnað án viðtakanda.
+- Nafnabreyting í edit virðist falla á server/app/DB-flæði og birtir of almenna
+  villu, án þess að Stebbi sjái hvort vandinn sé ókeyrð migration, SQL/RPC villa,
+  invalid input, `not_editable` eða annað.
+
+**Ósk:** Claude Code á að rýna og framkvæma afmarkaða lagfæringu þannig að:
+
+- Creator geti bætt við viðtakandanetfangi út frá edit-flæði þegar lán hefur engan
+  mótaðila eða virkt pending/accepted boð.
+- Nafnabreyting á eigin pre-acceptance láni virki, þar á meðal `Gítarstandur?` →
+  `Gítarstandur`.
+- Ef vistun mistekst áfram fái notandi eða developer skýrari greiningu án þess að
+  leka viðkvæmum gögnum.
+
+**Við útfærslu:**
+
+- Nota núverandi `addLoanInvitation` / `add_loan_invitation` flæði ef mögulegt er,
+  frekar en að búa til nýtt invitation-flæði.
+- Meta hvort edit-síðan eigi að sýna einfaldan link/hnapp yfir á núverandi
+  `/baeta-vid-adila/[id]` route eða inline form. Forðast ruglingslegt tveggja-forma
+  UI með tveimur jafngildum `Vista` hnöppum nema copy og layout geri greinilegan
+  mun á „breyta hlut“ og „bæta við viðtakanda“.
+- Ekki sameina nafnabreytingu og sendingu lánaboðs í eina server action nema
+  Claude Code hafi skýrt plan fyrir partial failure, email side effect,
+  idempotency og retry.
+- Greina vistunarvilluna áður en fallback er skrifað. Líkleg áhætta er að
+  `update_loan_with_diff` úr `sql/48_update_loan_with_diff.sql` sé ekki til í
+  viðkomandi Supabase umhverfi eða schema cache sé ósamstillt, en það þarf að
+  staðfesta með logs/prófum frekar en giska.
+- Ef lausnin krefst SQL eða Supabase schema-cache aðgerðar þarf sérstakt
+  samþykki frá Stebba áður en nokkuð er keyrt.
+
+**Öryggi og gögn:**
+
+- Ekki veikja RLS, grants eða service-role mörk.
+- Ekki sýna recipient email öðrum en creator þegar það er nauðsynlegt.
+- Ekki logga full netföng, invitation token, secrets eða önnur viðkvæm gögn.
+- Ekki keyra SQL, migration eða production data correction án sérstakrar
+  Stebba-samþykktar, preflight og rollback/recovery plans.
+
+**Prófanir:**
+
+- Stofna lán án viðtakanda, opna edit og sjá skýra leið til að bæta við
+  viðtakandanetfangi.
+- Breyta nafni úr `Gítarstandur?` í `Gítarstandur` og vista án villu.
+- Bæta við gildu viðtakandanetfangi úr edit-flæði; boð vistast og notandi fer á
+  skiljanlega síðu/stöðu eftir vistun.
+- Ógilt netfang sýnir skýra villu og býr ekki til boð.
+- Ef lán er þegar pending eða accepted birtist ekki óörugg eða röng leið til að
+  bæta við öðrum viðtakanda.
+- Mobile 360-460 px og desktop sýna edit, villur og add-party leið án overlap,
+  horizontal scroll eða óskýrrar tvöfaldar vistunar.
+
+#48
+## Endurkomunotandi fari sjálfgefið á Teskeiðar
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-06-21
+
+**Samhengi frá Stebba:** Stebbi vill að innskráður notandi sem kemur aftur inn í
+Teskeið fari sjálfgefið á `Teskeiðar`, ekki hugmyndabankann.
+
+**Ósk:** Endurkomuflæðið fyrir innskráðan notanda á að forgangsraða virku
+Teskeiða-yfirliti. Hugmyndabankinn á áfram að vera aðgengilegur, en ekki vera
+sjálfgefinn áfangastaður fyrir notanda sem er að koma aftur inn til að nota appið.
+
+**Við útfærslu:**
+
+- Kortleggja núverandi redirects fyrir `/`, `/innskraning`, `/auth-mvp/innskraning`,
+  `/auth-mvp/heim`, middleware og auth callback áður en breyting er gerð.
+- Ákveða nákvæmlega hvaða route telst `Teskeiðar` í núverandi kerfi, líklega
+  `/auth-mvp/heim#teskeidar` eða framtíðar canonical route þegar #22 verður tekið.
+- Passa að óinnskráðir gestir geti áfram séð public hugmyndabankann ef það er
+  núverandi product-regla.
+- Ekki búa til redirect-lykkjur, sérstaklega milli login, callback og heimasíðu.
+
+**Prófanir:**
+
+- Innskráður notandi sem opnar rót eða login-entry lendir sjálfgefið á Teskeiðum.
+- Óinnskráður gestur fær enn rétt public/login hegðun.
+- Auth callback og logout virka óbreytt.
+- Mobile og desktop sýna réttan fyrsta skjá án stökks eða redirect loop.
+
+#49
+## Vinir og þekktir viðtakendur þvert á Teskeiðar
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-06-21
+
+**Samhengi frá Stebba:** Þegar Stebbi hefur lánað ákveðnum notanda eða fengið
+lánað frá notanda vill Stebbi að sá notandi vistist sem `Þekktur viðtakandi` og
+sé hægt að velja úr fellilista næst. Þessi tengiliður á þó ekki að vera
+lánasértækur. Hann á að vistast þvert á allar Teskeiðar og verða fyrsti vísir að
+almennum stillingum og vina-/tengiliðakerfi.
+
+**Ósk:** Lánaformið eigi að geta boðið upp á þekkta viðtakendur svo Stebbi þurfi
+ekki að muna eða slá inn sama netfang aftur og aftur. Sama grunnkerfi á síðar að
+nýtast öðrum Teskeiðum sem þurfa að vísa í fólk, vini eða tengiliði. Stebbi vill
+líka geta sett einkanafn og stutta einkalýsingu á tengiliðinn sem aðeins Stebbi
+sér, ekki viðkomandi.
+
+**Stillingar:** Þetta atriði á að móta fyrsta almennilega `/stillingar` svæðið:
+
+- `/stillingar/minn-profill` fyrir eigið nafn, prófíl og notendastillingar.
+- `/stillingar/vinir` fyrir vini, þekkta viðtakendur og tengiliði sem notandi
+  hefur vistað eða kerfið hefur lagt til.
+
+**Hönnunarleiðarljós:** Ein af lykilhugmyndunum í Teskeið er að samnýta íhluti
+milli mismunandi Teskeiða. `Vinir`, tengiliðaval, prófílupplýsingar og stillingar
+eiga því að vera almennir, endurnýtanlegir grunníhlutir sem `Lánað og skilað`
+notar fyrst, en aðrar Teskeiðar geta nýtt síðar án þess að afrita lánasértæka
+lógík eða UI.
+
+**Við útfærslu:**
+
+- Þetta er stærra gagna- og privacy-atriði og þarf sérstakt plan áður en
+  framkvæmd hefst.
+- Skilgreina gagnamódel fyrir per-user contact list þar sem hver notandi sér
+  aðeins sína eigin tengiliði, einkanafn og einkalýsingu.
+- Gagnamódelið má ekki vera bundið við `Lánað og skilað`; lán geta verið fyrsti
+  triggerinn, en tengiliðurinn þarf að geta nýst öðrum Teskeiðum síðar.
+- Forðast að búa til `LoanKnownRecipient`-sérlausn ef almennur `Friend` /
+  `Contact` grunnur leysir sama mál á öruggari og endurnýtanlegri hátt.
+- Ef nýir UI-íhlutir verða til, t.d. tengiliðaval eða vinakort, skulu þeir hannaðir
+  þannig að fleiri Teskeiðar geti notað þá með props/config frekar en copy-paste.
+- Skilgreina hvort heitið í vörunni eigi að vera `Vinir`, `Tengiliðir`,
+  `Þekktir viðtakendur` eða blanda, og passa að copy rugli ekki saman social
+  vinum og praktískum viðtakendum.
+- Velja hvort tengiliðir vistist sjálfkrafa þegar lán er samþykkt, þegar boð er
+  sent, þegar netfang er slegið inn, eða eftir skýrt samþykki notanda.
+- Meta hvort kerfið eigi fyrst að búa til „tillögu að vini“ sem notandi staðfestir
+  í `/stillingar/vinir`, frekar en að auto-vista alla sem endanlega vini.
+- Kortleggja núverandi `/auth-mvp/minn-profill` og framtíðar #22 canonical route
+  áður en `/stillingar/minn-profill` er útfært, svo ekki verði tvær ósamræmdar
+  prófílsíður.
+- Passa að einkanafn og lýsing leki aldrei til mótaðila.
+- Gera ráð fyrir email canonicalization og Gmail-punktamálinu í #43 áður en
+  tengiliðir byggja á netföngum.
+- Ekki veikja RLS eða opna direct client access nema með vel skilgreindum policies.
+
+**Prófanir:**
+
+- Eftir að notandi hefur lánað eða fengið lánað birtist mótaðili sem þekktur
+  viðtakandi í næsta lánaformi og í `/stillingar/vinir`.
+- Sami tengiliður er almennur notendatengiliður, ekki aðeins lánasértæk færsla.
+- Tengiliðaval eða sambærilegur UI-íhlutur er hægt að endurnýta utan `Lánað og
+  skilað` án þess að flytja með lánasértæka texta eða business-lógík.
+- Notandi getur valið þekktan viðtakanda og netfang fyllist rétt út.
+- Notandi getur sett eða breytt einkanafni og einkalýsingu.
+- Mótaðili sér ekki einkanafnið eða lýsinguna.
+- Einn notandi sér ekki þekkta viðtakendur annars notanda.
+- `/stillingar/minn-profill` og `/stillingar/vinir` eru varin fyrir óinnskráðum
+  notendum og leka ekki gögnum milli notenda.
+- Rangt/úrelt netfang, eyddur auth-notandi og Gmail-punktatilvik fá skýra hegðun.
+
+#50
+## Fjölskyldan í stillingum
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-06-21
+
+**Samhengi frá Stebba:** Bæta þarf við `/stillingar/fjolskyldan` þar sem notandi
+getur sett inn fjölskyldumeðlimi sína. Fyrsta nýting á þessum grunni verður
+Teskeiðin `Fyrsta vakt krakkanna`.
+
+**Ósk:** Fjölskyldan á að verða almennur, endurnýtanlegur stillinga- og
+gagnagrunnur fyrir Teskeiðar sem þurfa að vita hverjir tilheyra heimili eða
+fjölskyldu notanda. `Fyrsta vakt krakkanna` á að nota þetta fyrst, en lausnin má
+ekki vera sérsniðin þannig að hún nýtist aðeins þeirri Teskeið.
+
+**Tengist:**
+
+- #49 `Vinir og þekktir viðtakendur þvert á Teskeiðar`
+- Fyrsta `/stillingar` grunninum:
+  - `/stillingar/minn-profill`
+  - `/stillingar/vinir`
+  - `/stillingar/fjolskyldan`
+
+**Við útfærslu:**
+
+- Skilgreina gagnamódel fyrir fjölskyldumeðlimi sem er bundið við eiganda/notanda
+  og lekur ekki milli reikninga.
+- Ákveða hvaða lágmarksgögn þarf fyrst: nafn, hlutverk/tengsl, fæðingarár eða
+  aldur ef `Fyrsta vakt krakkanna` þarf aldurstengt samhengi.
+- Safna aðeins þeim gögnum sem fyrsta notkun þarf. Ekki safna óþarfa
+  persónuupplýsingum um börn eða fjölskyldumeðlimi.
+- Hönnunin á að styðja endurnýtingu milli Teskeiða: fjölskyldumeðlima-val,
+  fjölskyldukort og stillingasíður eiga að vera almennir íhlutir, ekki
+  `Fyrsta vakt krakkanna`-sérlausn.
+- Kortleggja hvernig `/stillingar/fjolskyldan` tengist `/stillingar/minn-profill`
+  og `/stillingar/vinir` svo stillingasvæðið verði samhangandi.
+- Ákveða hvort fjölskyldumeðlimir séu aðeins local/private records hjá notanda eða
+  hvort þeir geti síðar tengst raunverulegum auth-notendum.
+- Ef fjölskyldumeðlimur er barn eða óinnskráður aðili má ekki gera ráð fyrir að
+  hann hafi eigin Teskeið-aðgang eða samþykki.
+
+**Öryggi og gögn:**
+
+- Fjölskyldu- og barnaupplýsingar eru viðkvæmari en venjulegt UI-state. Meðhöndla
+  þetta sem persónugögn með sérstöku varúðarstigi.
+- Ekki birta fjölskyldumeðlimi í client payload nema innskráður eigandi hafi
+  raunverulega aðgang að þeim.
+- Ekki veita `anon` eða almennum `authenticated` notendum beinan aðgang að
+  fjölskyldutöflum nema RLS sé nákvæmlega skilgreint og prófað.
+- Ekki logga nöfn barna, fæðingardagsetningar, aldur eða aðrar viðkvæmar
+  fjölskylduupplýsingar.
+- Ef SQL migration þarf að búa til fjölskyldutöflur þarf sérstakt plan,
+  rollback/recovery, RLS-rýni og samþykki Stebba áður en keyrt er.
+
+**Prófanir:**
+
+- Innskráður notandi getur opnað `/stillingar/fjolskyldan`.
+- Notandi getur bætt við fjölskyldumeðlimi með lágmarksgögnum sem þarf fyrir
+  fyrstu útgáfu.
+- Notandi getur breytt og fjarlægt eigin fjölskyldumeðlimi.
+- Annar notandi sér ekki fjölskyldumeðlimi fyrsta notandans.
+- Óinnskráður notandi kemst ekki inn á `/stillingar/fjolskyldan`.
+- `Fyrsta vakt krakkanna` getur valið fjölskyldumeðlimi úr sama grunni án þess að
+  tvítaka gögn eða búa til sér lista.
+- Mobile 360-460 px sýnir stillingasíðuna og fjölskylduform án overlap,
+  horizontal scroll eða óæskilegs zooms.
 
 #19
 ## Lesnir hlutir birtist ekki aftur sem `Nýlegt`

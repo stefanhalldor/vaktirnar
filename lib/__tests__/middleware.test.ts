@@ -212,6 +212,43 @@ describe('middleware — /auth-mvp/heim route', () => {
   })
 })
 
+// ── / (root): authenticated users → /auth-mvp/heim ────────────────────────
+
+describe('middleware — root / redirect for authenticated users', () => {
+  let savedAuthMvp: string | undefined
+
+  beforeEach(() => {
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    if (savedAuthMvp !== undefined) process.env.AUTH_MVP_ENABLED = savedAuthMvp
+    else delete process.env.AUTH_MVP_ENABLED
+  })
+
+  it('authenticated user on / → /auth-mvp/heim', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/auth-mvp/heim')
+  })
+
+  it('unauthenticated user on / → passes through (200)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/'))
+    expect(res.status).toBe(200)
+  })
+
+  it('authenticated user on / with AUTH_MVP_ENABLED=false → passes through (200)', async () => {
+    process.env.AUTH_MVP_ENABLED = 'false'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/'))
+    expect(res.status).toBe(200)
+  })
+})
+
 // ── Canonical /innskraning passes through without redirect ─────────────────
 
 describe('middleware — canonical /innskraning passes through', () => {

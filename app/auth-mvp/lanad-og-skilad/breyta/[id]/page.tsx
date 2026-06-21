@@ -44,9 +44,20 @@ export default async function EditLoanPage({
 
   if (!item) notFound()
 
-  const { canEdit, canEditItemDetails } = getLoanCardControls(item)
+  const { canEdit, canEditItemDetails, showAddParty } = getLoanCardControls(item)
 
   if (!canEditItemDetails) notFound()
+
+  const addPartyCta = showAddParty ? (
+    <div className="mt-6 pt-6 border-t border-border">
+      <Link
+        href={`/auth-mvp/lanad-og-skilad/baeta-vid-adila/${id}`}
+        className="inline-flex items-center min-h-[44px] text-sm font-medium text-[#154212] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded"
+      >
+        {t('addParty')}
+      </Link>
+    </div>
+  ) : null
 
   if (canEdit) {
     const boundAction = updateLoan.bind(null, id)
@@ -55,6 +66,7 @@ export default async function EditLoanPage({
         <div>
           <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('editTitle')}</h2>
           <LoanForm action={boundAction} initial={item} />
+          {addPartyCta}
         </div>
       </LoanShell>
     )
@@ -66,6 +78,7 @@ export default async function EditLoanPage({
       <div>
         <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('editTitle')}</h2>
         <LoanItemDetailsForm action={boundAction} initial={item} />
+        {addPartyCta}
       </div>
     </LoanShell>
   )

@@ -41,6 +41,7 @@ vi.mock('next-intl/server', () => ({
       newItem: 'Skrá hlut í láni',
       editTitle: 'Breyta láni',
       pendingInvitations: 'Boð í bið',
+      addParty: 'Bæta við aðila',
       'errors.loadFailed': 'Villa við hleðslu',
     }
     return (key: string) => T[key] ?? key
@@ -347,5 +348,46 @@ describe('EditLoanPage — routing', () => {
     await expect(
       EditLoanPage({ params: Promise.resolve({ id: 'loan-id-missing' }) }),
     ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+})
+
+// ── EditLoanPage — add-party CTA ──────────────────────────────────────────────
+
+describe('EditLoanPage — add-party CTA', () => {
+  it('shows add-party link when creator has no invitation yet', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: true, my_role: 'lender', invitation_status: null }],
+      error: null,
+    })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    const link = container.querySelector('a[href="/auth-mvp/lanad-og-skilad/baeta-vid-adila/loan-id-1"]')
+    expect(link).not.toBeNull()
+    expect(link?.textContent).toBe('Bæta við aðila')
+  })
+
+  it('does not show add-party link when invitation is pending', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: true, my_role: 'lender', invitation_status: 'pending' }],
+      error: null,
+    })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    const link = container.querySelector('a[href="/auth-mvp/lanad-og-skilad/baeta-vid-adila/loan-id-1"]')
+    expect(link).toBeNull()
+  })
+
+  it('does not show add-party link when invitation is accepted', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: true, my_role: 'lender', invitation_status: 'accepted' }],
+      error: null,
+    })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    const link = container.querySelector('a[href="/auth-mvp/lanad-og-skilad/baeta-vid-adila/loan-id-1"]')
+    expect(link).toBeNull()
   })
 })

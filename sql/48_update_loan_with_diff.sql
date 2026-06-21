@@ -67,8 +67,8 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM public.loan_invitations
-    WHERE loan_id = p_loan_id AND status = 'accepted'
+    SELECT 1 FROM public.loan_invitations li
+    WHERE li.loan_id = p_loan_id AND li.status = 'accepted'
   ) THEN
     RETURN QUERY SELECT 'not_editable'::text, NULL::text, NULL::text, NULL::date, NULL::date;
     RETURN;
