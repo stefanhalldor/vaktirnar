@@ -66,7 +66,13 @@ vi.mock('next-intl/server', () => ({
   }),
 }))
 
+vi.mock('@/components/teskeid/TeskeidLoader', () => ({
+  TeskeidLoader: () => React.createElement('div', { role: 'status' }),
+}))
+
 import TengslDetailPage from '@/app/stillingar/tengsl/[id]/page'
+import TengslListLoading from '@/app/stillingar/tengsl/loading'
+import TengslDetailLoading from '@/app/stillingar/tengsl/[id]/loading'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -193,5 +199,21 @@ describe('TengslDetailPage — details form', () => {
   it('renders RelationshipDetailsForm', async () => {
     render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
     expect(screen.getByTestId('details-form')).toBeDefined()
+  })
+})
+
+// ── Loading screens ───────────────────────────────────────────────────────────
+
+describe('Tengsl list loading screen', () => {
+  it('renders a status element via TeskeidLoader', async () => {
+    render(await TengslListLoading())
+    expect(screen.getByRole('status')).toBeDefined()
+  })
+})
+
+describe('Tengsl detail loading screen', () => {
+  it('renders a status element via TeskeidLoader', async () => {
+    render(await TengslDetailLoading())
+    expect(screen.getByRole('status')).toBeDefined()
   })
 })
