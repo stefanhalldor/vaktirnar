@@ -55,3 +55,43 @@ export async function updateRelationshipTag(
 
   return { ok: true }
 }
+
+export type UpdateDetailsResult =
+  | { ok: true }
+  | { ok: false; error: 'not_found' | 'save_failed' }
+
+export async function updateRelationshipDetails(
+  relationshipId: string,
+  { note, privateDisplayName }: { note: string; privateDisplayName: string },
+): Promise<UpdateDetailsResult> {
+  const { user } = await guardTeskeidSession()
+  await guardFeatureAccess(user.email!, 'tengsl')
+
+  const admin = getAdmin()
+
+  // Verify ownership
+  const { data: rel } = await admin
+    .from('relationships')
+    .select('id')
+    .eq('id', relationshipId)
+    .eq('owner_id', user.id)
+    .maybeSingle()
+
+  if (!rel) return { ok: false, error: 'not_found' }
+
+  const noteVal = note.trim() || null
+  const nameVal = privateDisplayName.trim() || null
+
+  const { error } = await admin
+    .from('relationships')
+    .update({ note: noteVal, private_display_name: nameVal })
+    .eq('id', relationshipId)
+    .eq('owner_id', user.id)
+
+  if (error) return { ok: false, error: 'save_failed' }
+
+  revalidatePath('/stillingar/tengsl')
+  revalidatePath(`/stillingar/tengsl/${relationshipId}`)
+
+  return { ok: true }
+}

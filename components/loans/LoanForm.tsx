@@ -6,13 +6,15 @@ import { useTranslations } from 'next-intl'
 import { LoanDateField } from './LoanDateField'
 import type { ActionResult } from '@/lib/loans/actions'
 import type { LoanItem } from '@/lib/loans/types'
+import type { RelationshipRecipientOption } from '@/lib/relationships/actions'
 
 interface Props {
   action: (input: unknown) => Promise<ActionResult>
   initial?: LoanItem
+  relationshipOptions?: RelationshipRecipientOption[]
 }
 
-export function LoanForm({ action, initial }: Props) {
+export function LoanForm({ action, initial, relationshipOptions }: Props) {
   const t = useTranslations('teskeid.loans')
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -117,18 +119,42 @@ export function LoanForm({ action, initial }: Props) {
         />
       </label>
 
-      {/* Recipient email — optional, create mode only */}
+      {/* Recipient — optional, create mode only */}
       {isCreate && (
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-[#42493e]">{t('recipientEmailOptional')}</span>
-          <input
-            type="email"
-            value={recipientEmail}
-            onChange={(e) => setRecipientEmail(e.target.value)}
-            maxLength={320}
-            className={inputClass}
-          />
-        </label>
+        <div className="flex flex-col gap-2">
+          {relationshipOptions && relationshipOptions.length > 0 && (
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-[#42493e]">{t('recipientFromContacts')}</span>
+              <select
+                className={inputClass}
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+              >
+                <option value="">{t('recipientSelectPlaceholder')}</option>
+                {relationshipOptions.map((opt) => (
+                  <option key={opt.id} value={opt.email}>
+                    {opt.selfDisplayName
+                      ? `${opt.selfDisplayName} (${opt.email})`
+                      : opt.privateDisplayName
+                        ? `${opt.privateDisplayName} · ${opt.email}`
+                        : opt.email}
+                    {opt.note ? ` — ${opt.note}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-[#42493e]">{t('recipientEmailOptional')}</span>
+            <input
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              maxLength={320}
+              className={inputClass}
+            />
+          </label>
+        </div>
       )}
 
       {/* Loaned at */}

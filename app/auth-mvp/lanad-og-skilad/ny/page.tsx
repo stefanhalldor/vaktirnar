@@ -1,11 +1,16 @@
 import { getTranslations } from 'next-intl/server'
 import Link from 'next/link'
 import { createLoan } from '@/lib/loans/actions'
+import { guardLoanAccess } from '@/lib/loans/guard'
+import { checkFeatureAccess } from '@/lib/loans/guard'
+import { getRelationshipRecipientOptions } from '@/lib/relationships/actions'
 import { LoanForm } from '@/components/loans/LoanForm'
 import { LoanShell } from '@/components/loans/LoanShell'
+import type { RelationshipRecipientOption } from '@/lib/relationships/actions'
 
 export default async function NewLoanPage() {
   const t = await getTranslations('teskeid.loans')
+  const { user } = await guardLoanAccess()
 
   const nav = (
     <Link
@@ -16,11 +21,22 @@ export default async function NewLoanPage() {
     </Link>
   )
 
+  let relationshipOptions: RelationshipRecipientOption[] | undefined
+  try {
+    const hasTengsl = await checkFeatureAccess(user.id, user.email!, 'tengsl')
+    if (hasTengsl) {
+      const opts = await getRelationshipRecipientOptions(user.id)
+      if (opts.length > 0) relationshipOptions = opts
+    }
+  } catch {
+    // non-fatal — form works without picker
+  }
+
   return (
     <LoanShell nav={nav} homeLabel={t('homeLink')}>
       <div>
         <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('newTitle')}</h2>
-        <LoanForm action={createLoan} />
+        <LoanForm action={createLoan} relationshipOptions={relationshipOptions} />
       </div>
     </LoanShell>
   )

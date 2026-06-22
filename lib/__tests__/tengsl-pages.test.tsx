@@ -1,8 +1,8 @@
 /**
  * Tests for app/stillingar/tengsl/[id]/page.tsx
  *
- * Covers: deep link URL format (regression for ?id= → /[id]),
- * inaccessible loan not shown, loan name rendered.
+ * Covers: dynamic loan activity lookup, deep link URL format,
+ * counterpart name display, and security boundaries.
  */
 
 import { render, screen } from '@testing-library/react'
@@ -31,18 +31,21 @@ vi.mock('@/lib/loans/guard', () => ({
   checkFeatureAccess: vi.fn(async () => false),
 }))
 
-const { mockGetRelationship } = vi.hoisted(() => ({ mockGetRelationship: vi.fn() }))
+const { mockGetRelationship, mockGetRelationshipLoanActivity } = vi.hoisted(() => ({
+  mockGetRelationship: vi.fn(),
+  mockGetRelationshipLoanActivity: vi.fn(),
+}))
 vi.mock('@/lib/relationships/actions', () => ({
   getRelationship: mockGetRelationship,
-}))
-
-const { mockRpc } = vi.hoisted(() => ({ mockRpc: vi.fn() }))
-vi.mock('@/lib/supabase/admin', () => ({
-  getAdmin: vi.fn(() => ({ rpc: mockRpc })),
+  getRelationshipLoanActivity: mockGetRelationshipLoanActivity,
 }))
 
 vi.mock('@/components/tengsl/TagSelectForm', () => ({
   TagSelectForm: () => React.createElement('div', { 'data-testid': 'tag-select-form' }),
+}))
+
+vi.mock('@/components/tengsl/RelationshipDetailsForm', () => ({
+  RelationshipDetailsForm: () => React.createElement('div', { 'data-testid': 'details-form' }),
 }))
 
 vi.mock('next-intl/server', () => ({
@@ -53,7 +56,10 @@ vi.mock('next-intl/server', () => ({
       sourceLoans: 'Lánað og skilað',
       openLoan: 'Opna lán',
       loanedPrefix: 'Lánað',
+      loanReturned: 'Skilað',
       flokkur: 'Flokkur',
+      teskeidName: 'Nafn í Teskeið',
+      minarNótur: 'Mínar nótur',
       'errors.notFound': 'Tengsl finnast ekki.',
     }
     return (key: string) => T[key] ?? key
@@ -66,9 +72,12 @@ import TengslDetailPage from '@/app/stillingar/tengsl/[id]/page'
 
 const REL_ID = 'rel-uuid-1'
 const LOAN_ID = 'loan-uuid-1'
+const LOAN_ID_2 = 'loan-uuid-2'
 
 const BASE_RELATIONSHIP = {
   id: REL_ID,
+  counterpart_user_id: null as string | null,
+  counterpart_display_name: null as string | null,
   private_display_name: 'Jón',
   email_canonical: 'jon@example.com',
   note: null,
@@ -77,31 +86,21 @@ const BASE_RELATIONSHIP = {
   loan_source_ids: [] as string[],
 }
 
-const BASE_LOAN = {
+const BASE_LOAN_ACTIVITY = {
   id: LOAN_ID,
   item_name: 'Bók',
-  note: null,
   loaned_at: '2026-06-01',
-  due_at: null,
-  returned_at: null,
+  returned_at: null as string | null,
   my_role: 'lender' as const,
-  other_display_name: null,
-  invitation_id: null,
-  invitation_status: null,
-  invitation_attempt_status: null,
-  can_send_invitation: false,
-  is_creator: true,
-  requires_acknowledgement: false,
-  recipient_email: null,
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockGetRelationship.mockResolvedValue(BASE_RELATIONSHIP)
-  mockRpc.mockResolvedValue({ data: [], error: null })
+  mockGetRelationshipLoanActivity.mockResolvedValue([])
 })
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── notFound ──────────────────────────────────────────────────────────────────
 
 describe('TengslDetailPage — notFound', () => {
   it('throws notFound when relationship is null', async () => {
@@ -112,67 +111,87 @@ describe('TengslDetailPage — notFound', () => {
   })
 })
 
-describe('TengslDetailPage — loan source deep link', () => {
-  it('renders deep link /auth-mvp/lanad-og-skilad/[id] (not ?id= query param)', async () => {
-    mockGetRelationship.mockResolvedValue({
-      ...BASE_RELATIONSHIP,
-      loan_source_ids: [LOAN_ID],
-    })
-    mockRpc.mockResolvedValue({ data: [BASE_LOAN], error: null })
+// ── Dynamic loan activity ─────────────────────────────────────────────────────
 
-    const { container } = render(
-      await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }),
-    )
-
-    const openLoanLink = container.querySelector(`a[href="/auth-mvp/lanad-og-skilad/${LOAN_ID}"]`)
-    expect(openLoanLink).not.toBeNull()
-
-    // Regression: must NOT use ?id= format
-    const badLink = container.querySelector(`a[href="/auth-mvp/lanad-og-skilad?id=${LOAN_ID}"]`)
-    expect(badLink).toBeNull()
-  })
-
-  it('renders loan item_name under source loans section', async () => {
-    mockGetRelationship.mockResolvedValue({
-      ...BASE_RELATIONSHIP,
-      loan_source_ids: [LOAN_ID],
-    })
-    mockRpc.mockResolvedValue({ data: [BASE_LOAN], error: null })
-
+describe('TengslDetailPage — dynamic loan activity', () => {
+  it('shows loan item_name from activity lookup', async () => {
+    mockGetRelationshipLoanActivity.mockResolvedValue([BASE_LOAN_ACTIVITY])
     render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
-
     expect(screen.getByText('Bók')).toBeDefined()
   })
 
-  it('does not render loan source when loan is not in get_my_loans (access denied)', async () => {
-    mockGetRelationship.mockResolvedValue({
-      ...BASE_RELATIONSHIP,
-      loan_source_ids: [LOAN_ID],
-    })
-    // get_my_loans returns empty — this loan is not accessible to the user
-    mockRpc.mockResolvedValue({ data: [], error: null })
-
-    const { container } = render(
-      await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }),
-    )
-
-    const openLoanLink = container.querySelector(`a[href="/auth-mvp/lanad-og-skilad/${LOAN_ID}"]`)
-    expect(openLoanLink).toBeNull()
-    expect(screen.queryByText('Bók')).toBeNull()
+  it('shows multiple loans for same relationship', async () => {
+    mockGetRelationshipLoanActivity.mockResolvedValue([
+      BASE_LOAN_ACTIVITY,
+      { ...BASE_LOAN_ACTIVITY, id: LOAN_ID_2, item_name: 'Hjól', loaned_at: '2026-05-01' },
+    ])
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+    expect(screen.getByText('Bók')).toBeDefined()
+    expect(screen.getByText('Hjól')).toBeDefined()
   })
 
-  it('does not render source loans section when loan_source_ids is empty', async () => {
-    mockGetRelationship.mockResolvedValue({
-      ...BASE_RELATIONSHIP,
-      loan_source_ids: [],
-    })
-
+  it('shows no loans section when activity is empty', async () => {
+    mockGetRelationshipLoanActivity.mockResolvedValue([])
     const { container } = render(
       await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }),
     )
-
-    // sourceLoans heading should not appear
     expect(screen.queryByText('Lánað og skilað')).toBeNull()
     expect(container.querySelectorAll('a[href^="/auth-mvp/lanad-og-skilad/"]').length).toBe(0)
+  })
+
+  it('renders deep link /auth-mvp/lanad-og-skilad/[id] for each loan', async () => {
+    mockGetRelationshipLoanActivity.mockResolvedValue([BASE_LOAN_ACTIVITY])
+    const { container } = render(
+      await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }),
+    )
+    const link = container.querySelector(`a[href="/auth-mvp/lanad-og-skilad/${LOAN_ID}"]`)
+    expect(link).not.toBeNull()
+    // Regression: must NOT use ?id= format
+    expect(container.querySelector(`a[href="/auth-mvp/lanad-og-skilad?id=${LOAN_ID}"]`)).toBeNull()
+  })
+
+  it('calls getRelationshipLoanActivity with owner user id and relationship', async () => {
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+    expect(mockGetRelationshipLoanActivity).toHaveBeenCalledWith(
+      'owner-id',
+      expect.objectContaining({ counterpart_user_id: null, email_canonical: 'jon@example.com' }),
+    )
+  })
+})
+
+// ── Counterpart display name ───────────────────────────────────────────────────
+
+describe('TengslDetailPage — counterpart display name', () => {
+  it('shows "Nafn í Teskeið" label when counterpart_display_name is set and differs from private_display_name', async () => {
+    mockGetRelationship.mockResolvedValue({
+      ...BASE_RELATIONSHIP,
+      counterpart_user_id: 'user-b',
+      counterpart_display_name: 'Jónína Björnsdóttir',
+      private_display_name: 'Jón',
+    })
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+    expect(screen.getByText(/Nafn í Teskeið/)).toBeDefined()
+    expect(screen.getByText(/Jónína Björnsdóttir/)).toBeDefined()
+  })
+
+  it('does not show teskeidName label when counterpart_display_name is null', async () => {
+    mockGetRelationship.mockResolvedValue({
+      ...BASE_RELATIONSHIP,
+      counterpart_user_id: null,
+      counterpart_display_name: null,
+    })
+    const { container } = render(
+      await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }),
+    )
+    expect(container.textContent).not.toContain('Nafn í Teskeið')
+  })
+})
+
+// ── Details form ──────────────────────────────────────────────────────────────
+
+describe('TengslDetailPage — details form', () => {
+  it('renders RelationshipDetailsForm', async () => {
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+    expect(screen.getByTestId('details-form')).toBeDefined()
   })
 })

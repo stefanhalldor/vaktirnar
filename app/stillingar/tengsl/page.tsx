@@ -2,7 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import Link from 'next/link'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { guardFeatureAccess } from '@/lib/loans/guard'
-import { getRelationships } from '@/lib/relationships/actions'
+import { getRelationshipDirectory } from '@/lib/relationships/actions'
 import type { RelationshipListItem } from '@/lib/relationships/actions'
 
 export default async function TengslPage() {
@@ -10,7 +10,7 @@ export default async function TengslPage() {
   await guardFeatureAccess(user.email!, 'tengsl')
   const t = await getTranslations('teskeid.stillingar.tengsl')
 
-  const items: RelationshipListItem[] = await getRelationships(user.id)
+  const items: RelationshipListItem[] = await getRelationshipDirectory(user.id, user.email!)
 
   return (
     <div className="min-h-screen bg-background">

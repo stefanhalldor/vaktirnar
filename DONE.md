@@ -4,6 +4,107 @@ Saga kláraðra og staðfestra atriða.
 
 ---
 
+## #53 - Netfang viðtakanda á lánakortum
+
+**Lokið:** 2026-06-22  
+**Staðfest af Codex:** já (rýni á v002 lagfæringu og staða færð úr TODO)
+
+`get_my_loans` skilar nú `recipient_email` fyrir creator svo pending lánakort og
+detail-síða geti sýnt hverjum boðið var sent í stað almenns `Bíður svars`
+texta. Viðtakandi fær ekki netfangið til baka úr RPC-inu; privacy-boundary er
+því creator-scoped.
+
+Skrár:
+- `sql/55_get_my_loans_add_recipient_email.sql` - endursmíðar `get_my_loans`
+  með `recipient_email`, varðveitir soft-ack branch og service-role grant
+- `lib/loans/types.ts` - `LoanItem.recipient_email`
+- `components/loans/LoanSummaryCard.tsx` - sýnir viðtakandanetfang þegar nafn vantar
+- `components/loans/LoanCard.tsx` - tekur við `recipientDisplay`
+- `app/auth-mvp/lanad-og-skilad/[id]/page.tsx` - sendir recipient display í detail-kort
+
+Supabase/rollout:
+- Migration 55 breytir function signature og þarf því `DROP FUNCTION` + recreate
+  í transaction.
+- Eftir keyrslu þarf PostgREST/Supabase schema cache reload áður en appkóði sem
+  les nýja dálkinn er notaður.
+- Engar töflur, RLS policies eða production gögn eru breytt.
+
+---
+
+## #45 - Per-user aðgangur að feature-flagged Teskeiðum
+
+**Lokið:** 2026-06-22  
+**Staðfest af Codex:** já (rýni eftir að fail-closed og admin load-error atriði voru lagfærð)
+
+Feature-aðgangur er kominn í sameiginlegan grunn með `feature_access` og admin UI
+á `/admin`. Fyrir Umönnun og Tengsl er hægt að hafa global flag opið, eða kveikja
+á per-user gating með `UMONNUN_FLAG=true` / `TENGSL_FLAG=true`.
+
+Skrár:
+- `sql/52_feature_access.sql` - grunnur fyrir `feature_access`
+- `sql/53_feature_access_tengsl.sql` - stækkun fyrir Tengsl
+- `lib/auth/email-normalization.ts` - samræmd normalisering netfanga
+- `lib/loans/guard.ts` - fail-closed feature access check
+- `app/api/admin/feature-access/route.ts` - admin API fyrir aðgangsstýringu
+- `app/(admin)/admin/page.tsx` - Umönnun- og Tengsl-aðgangsstýring í admin
+- `lib/__tests__/guard.test.ts`, `lib/__tests__/admin-page.test.tsx` - regression-próf
+
+Supabase/öryggi:
+- Per-user check fellur lokað ef query bilar.
+- Admin UI sýnir load-villu í stað þess að líta út fyrir tóman aðgangslista.
+- Engin RLS-veiking; feature access er lesið og skrifað í gegnum afmörkuð server/admin lög.
+
+---
+
+## #44 - Merkja hlut skilaðan áður en mótaðili þekkir málið
+
+**Lokið:** 2026-06-17  
+**Staðfest af Codex:** já (flutt úr TODO eftir Claude Code done-handoff og tilheyrandi migration/próf)
+
+Creator/direct participant getur merkt pending lán sem skilað áður en mótaðili
+hefur valið `Þekki málið`. Server-side heimildin byggir áfram á því að actor sé
+`lender_user_id` eða `borrower_user_id` á láninu; pending recipient sem er ekki
+kominn sem direct participant fær ekki nýja leið inn.
+
+Skrár:
+- `sql/51_allow_pending_creator_return.sql` - fjarlægir both-parties-joined guard
+  úr `mark_returned` og `undo_return`, grants áfram service_role only
+- `components/loans/LoanCard.tsx` / `components/loans/LoanSummaryCard.tsx` - pending
+  return controls og stöðutextar
+- `lib/loans/logic.ts` - control-state fyrir pending return
+- `lib/__tests__/loan-card.test.tsx`, `lib/__tests__/loans.test.ts` - regression-próf
+
+Supabase/öryggi:
+- Engar töflu-, dálka-, index-, RLS- eða policy-breytingar.
+- SQL breytir function bodies og þarf að vera keyrt í því umhverfi þar sem
+  pending return á að virka.
+- Ótengdur notandi á áfram að fá `not_found`.
+
+---
+
+## #19 - Lesnir hlutir birtast ekki aftur sem `Nýlegt`
+
+**Lokið:** 2026-06-10  
+**Staðfest af Stebba/Codex:** já (síðari handoff segir að #19 sé done og að `recent_events` sé grunnurinn)
+
+Lánasértækur cookie/read-state plástur var lagður til hliðar og varanlegri
+server-side `recent_events` grunnur tekinn upp fyrir `Nýlegt`. Atriðið sem eftir
+stendur er ekki lengur #19 heldur framhaldið: að gera `Nýlegt` að fullum ólesnum
+inbox með breytingasamhengi (#37) og að birta pending lánaboð þar (#52).
+
+Skrár og samhengi:
+- `sql/46_recent_events.sql` - server-side event/read-state grunnur
+- `app/auth-mvp/heim/RecentSection.tsx` - `Nýlegt` UI
+- `lib/loans/events.ts` og tengd server actions - skráning og lestur events
+- `ai-handoff/2026-06-10-1704-todo-027-v019-codex-soft-ack-final-handoff.md` -
+  skráir að #19 sé done og eigi ekki að opna aftur sem sérstakt grunnatriði
+
+Eftir í TODO:
+- #37 - `Nýlegt` sýni öll ólesin events og breytingasamhengi
+- #52 - pending lánaboð birtist í `Ólesið` og opnist beint
+
+---
+
 ## #40 — Filterar í lánalista hafa sjálfstætt state
 
 **Lokið:** 2026-06-17  
