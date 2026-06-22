@@ -26,10 +26,10 @@
 --   get_my_pending_invitations, get_invitation_for_claim, decline_invitation.
 --
 -- auth_mvp_allowlist note:
---   The allowlist check uses normalize_email_canonical(email) = v_actor_norm.
---   If any allowlist entry is a Gmail address stored in dotted form, it will
---   need to be updated to canonical form (or backfilled) separately.
---   Non-Gmail allowlist entries are unaffected.
+--   This migration does NOT touch allowlist logic. Feature access is enforced
+--   in TypeScript (guardFeatureAccess / checkFeatureAccess) which already uses
+--   normalizeEmailForAccess() — the same Gmail-canonical logic as this helper.
+--   No allowlist backfill is required for existing allowlist entries.
 --
 -- No table schema changes. No data migration in this migration.
 -- An optional read-only preflight is provided at the bottom (commented out).
@@ -53,6 +53,10 @@
 BEGIN;
 
 -- ── 1. normalize_email_canonical ──────────────────────────────────────────────
+-- Canonicalizer only, not a validator. Empty or malformed inputs pass through
+-- as lower(trim(input)). STRICT: NULL input → NULL output. Callers are
+-- expected to validate email format before writing (TypeScript enforces this
+-- at the application boundary).
 
 CREATE OR REPLACE FUNCTION public.normalize_email_canonical(p_email text)
 RETURNS text
@@ -210,9 +214,11 @@ LANGUAGE plpgsql
 SET search_path = ''
 AS $$
 DECLARE
-  v_actor_email text;
-  v_inv         public.loan_invitations;
-  v_loan        public.loan_items;
+  v_actor_email    text;
+  v_actor_norm     text;
+  v_recipient_norm text;
+  v_inv            public.loan_invitations;
+  v_loan           public.loan_items;
 BEGIN
   SELECT au.email INTO v_actor_email FROM auth.users au WHERE au.id = p_actor_id;
   IF NOT FOUND THEN RETURN 'unauthenticated'; END IF;
@@ -227,7 +233,13 @@ BEGIN
   IF v_inv.status = 'accepted' THEN RETURN 'already_claimed'; END IF;
   IF v_inv.status != 'pending' THEN RETURN 'not_claimable';   END IF;
 
-  IF public.normalize_email_canonical(v_actor_email) != public.normalize_email_canonical(v_inv.recipient_email_normalized) THEN
+  v_actor_norm     := public.normalize_email_canonical(v_actor_email);
+  v_recipient_norm := public.normalize_email_canonical(v_inv.recipient_email_normalized);
+
+  -- IS DISTINCT FROM is NULL-safe: treats NULL != NULL correctly.
+  -- NULL actor_norm guard ensures an auth.users row with a NULL email
+  -- cannot bypass the ownership check.
+  IF v_actor_norm IS NULL OR v_actor_norm IS DISTINCT FROM v_recipient_norm THEN
     RETURN 'wrong_email';
   END IF;
 
@@ -585,6 +597,10 @@ GRANT  EXECUTE ON FUNCTION public.add_loan_invitation(uuid,uuid,text) TO service
 
 -- ── 6. get_my_pending_invitations ─────────────────────────────────────────────
 -- Change from sql/32: normalize both sides of the email match.
+-- Note: the expires_at > now() filter is intentionally kept. This function
+-- powers the home-page badge (heim/page.tsx) for invitations reachable via
+-- email link. The canonical post-expiry view is get_my_loans branch 2 (soft-ack);
+-- claim_loan_invitation accepts claims regardless of email-link expiry.
 
 CREATE OR REPLACE FUNCTION public.get_my_pending_invitations(p_actor_id uuid)
 RETURNS TABLE (
@@ -694,8 +710,10 @@ LANGUAGE plpgsql
 SET search_path = ''
 AS $$
 DECLARE
-  v_actor_email text;
-  v_inv         public.loan_invitations;
+  v_actor_email    text;
+  v_actor_norm     text;
+  v_recipient_norm text;
+  v_inv            public.loan_invitations;
 BEGIN
   SELECT au.email INTO v_actor_email FROM auth.users au WHERE au.id = p_actor_id;
   IF NOT FOUND THEN RETURN 'unauthenticated'; END IF;
@@ -706,9 +724,15 @@ BEGIN
   FOR UPDATE;
 
   IF NOT FOUND THEN RETURN 'not_found'; END IF;
-  IF public.normalize_email_canonical(v_actor_email)
-       != public.normalize_email_canonical(v_inv.recipient_email_normalized)
-  THEN RETURN 'not_found'; END IF;
+
+  v_actor_norm     := public.normalize_email_canonical(v_actor_email);
+  v_recipient_norm := public.normalize_email_canonical(v_inv.recipient_email_normalized);
+
+  -- IS DISTINCT FROM is NULL-safe. NULL actor_norm guard prevents bypass
+  -- if auth.users.email is unexpectedly NULL.
+  IF v_actor_norm IS NULL OR v_actor_norm IS DISTINCT FROM v_recipient_norm THEN
+    RETURN 'not_found';
+  END IF;
   IF v_inv.status != 'pending' THEN RETURN 'not_claimable'; END IF;
 
   UPDATE public.loan_invitations
@@ -725,19 +749,38 @@ GRANT  EXECUTE ON FUNCTION public.decline_invitation(uuid, uuid) TO service_role
 COMMIT;
 
 -- =============================================================================
--- Optional read-only preflight (run before applying to check data impact)
+-- Read-only verification queries
+-- NOTE: The queries below use public.normalize_email_canonical() which is
+-- created by this migration. Run them AFTER applying the migration.
+-- For a standalone pre-migration check (no helper required) see the inline
+-- expression at the bottom of this section.
 -- =============================================================================
--- -- Invitations whose stored email would change after canonicalization:
+-- -- Post-migration: invitations whose stored email differs from canonical form:
 -- SELECT id, recipient_email_normalized,
 --        public.normalize_email_canonical(recipient_email_normalized) AS canonical
 -- FROM public.loan_invitations
 -- WHERE recipient_email_normalized
---         != public.normalize_email_canonical(recipient_email_normalized);
+--         IS DISTINCT FROM public.normalize_email_canonical(recipient_email_normalized);
 --
--- -- Relationship rows that would deduplicate after canonicalization:
--- SELECT owner_id, normalize_email_canonical(email_canonical) AS canon_email,
+-- -- Post-migration: relationship rows sharing a canonical email per owner:
+-- SELECT owner_id, public.normalize_email_canonical(email_canonical) AS canon_email,
 --        count(*) AS row_count
 -- FROM public.relationships
 -- WHERE email_canonical IS NOT NULL
--- GROUP BY owner_id, normalize_email_canonical(email_canonical)
+-- GROUP BY owner_id, public.normalize_email_canonical(email_canonical)
 -- HAVING count(*) > 1;
+--
+-- -- Pre-migration standalone check (inline Gmail logic, no helper required):
+-- SELECT id, recipient_email_normalized,
+--        CASE
+--          WHEN split_part(lower(trim(recipient_email_normalized)),'@',2)
+--               IN ('gmail.com','googlemail.com')
+--          THEN replace(split_part(lower(trim(recipient_email_normalized)),'@',1),'.','')
+--               || '@gmail.com'
+--          ELSE lower(trim(recipient_email_normalized))
+--        END AS canonical_would_be
+-- FROM public.loan_invitations
+-- WHERE recipient_email_normalized IS NOT NULL
+--   AND (lower(trim(recipient_email_normalized)) LIKE '%@gmail.com'
+--     OR lower(trim(recipient_email_normalized)) LIKE '%@googlemail.com')
+--   AND recipient_email_normalized LIKE '%.%@%';

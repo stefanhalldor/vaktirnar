@@ -595,9 +595,13 @@ describe('sql/56: normalize_email_canonical', () => {
     expect(branch2).toMatch(/public\.normalize_email_canonical\(inv\.recipient_email_normalized\)\s*=\s*v_actor_norm/)
   })
 
-  it('claim_loan_invitation normalizes both sides of email check', () => {
+  it('claim_loan_invitation uses IS DISTINCT FROM for NULL-safe email check', () => {
     const claimFn = sql56.slice(sql56.indexOf('claim_loan_invitation'))
-    expect(claimFn).toMatch(/normalize_email_canonical\(v_actor_email\).*!=.*normalize_email_canonical\(v_inv\.recipient_email_normalized\)/)
+    // Must compute norm variables, not inline the calls inside the IF
+    expect(claimFn).toMatch(/v_actor_norm\s*:=\s*public\.normalize_email_canonical\(v_actor_email\)/)
+    expect(claimFn).toMatch(/v_recipient_norm\s*:=\s*public\.normalize_email_canonical\(v_inv\.recipient_email_normalized\)/)
+    // NULL-safe comparison: != would silently pass for NULL actor email
+    expect(claimFn).toMatch(/v_actor_norm\s+IS\s+NULL\s+OR\s+v_actor_norm\s+IS\s+DISTINCT\s+FROM\s+v_recipient_norm/)
   })
 
   it('create_loan uses normalize_email_canonical for v_recipient_norm', () => {
@@ -615,10 +619,13 @@ describe('sql/56: normalize_email_canonical', () => {
     expect(addFn).toMatch(/normalize_email_canonical\(v_inv\.recipient_email_normalized\)\s*=\s*v_recipient_norm/)
   })
 
-  it('decline_invitation normalizes both sides of email check', () => {
+  it('decline_invitation uses IS DISTINCT FROM for NULL-safe email check', () => {
     const declineFn = sql56.slice(sql56.indexOf('decline_invitation'))
-    expect(declineFn).toMatch(/normalize_email_canonical\(v_actor_email\)/)
-    expect(declineFn).toMatch(/normalize_email_canonical\(v_inv\.recipient_email_normalized\)/)
+    // Must compute norm variables, not inline the calls inside the IF
+    expect(declineFn).toMatch(/v_actor_norm\s*:=\s*public\.normalize_email_canonical\(v_actor_email\)/)
+    expect(declineFn).toMatch(/v_recipient_norm\s*:=\s*public\.normalize_email_canonical\(v_inv\.recipient_email_normalized\)/)
+    // NULL-safe comparison
+    expect(declineFn).toMatch(/v_actor_norm\s+IS\s+NULL\s+OR\s+v_actor_norm\s+IS\s+DISTINCT\s+FROM\s+v_recipient_norm/)
   })
 
   it('wrapped in BEGIN/COMMIT transaction', () => {
