@@ -520,6 +520,7 @@
         "note": "My note",
         "vistaDetails": "Save",
         "detailsVistadur": "Saved.",
+        "unknownContact": "Unknown contact",
         "errors": {
           "loadFailed": "Failed to load. Please try again.",
           "notFound": "Relationship not found.",

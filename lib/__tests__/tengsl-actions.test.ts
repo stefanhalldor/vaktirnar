@@ -226,7 +226,7 @@ describe('getRelationshipDirectory — empty state', () => {
       switch (callCount) {
         case 1: return makePersistedSelect([])
         case 2: return makeDirectLoansSelect([])
-        default: return makeInvitationsEqSelect([]) // soft-ack check
+        default: return makeInSelect([]) // soft-ack uses .in()
       }
     })
     const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
@@ -253,7 +253,7 @@ describe('getRelationshipDirectory — persisted only', () => {
       switch (callCount) {
         case 1: return makePersistedSelect([persistedRow])
         case 2: return makeDirectLoansSelect([]) // no direct loans
-        default: return makeInvitationsEqSelect([]) // soft-ack
+        default: return makeInSelect([]) // soft-ack
       }
     })
 
@@ -274,6 +274,7 @@ describe('getRelationshipDirectory — inferred counterpart by user_id', () => {
       id: 'new-rel',
       private_display_name: null,
       email_canonical: null,
+      counterpart_user_id: 'user-b',
       created_at: '2026-06-22T00:00:00Z',
       relationship_tags: [{ tag: 'unclassified' }],
     }
@@ -284,12 +285,14 @@ describe('getRelationshipDirectory — inferred counterpart by user_id', () => {
       switch (callCount) {
         case 1: return makePersistedSelect([])
         case 2: return makeDirectLoansSelect([directLoan])
-        case 3: return makeInvitationsInSelect([])      // pending invitations for owner's loans
-        case 4: return makeInvitationsEqSelect([])      // soft-ack
-        case 5: return makeExistenceCheck(false)        // check if user-b already persisted
+        case 3: return makeInvitationsInSelect([])   // pending invitations for owner's loans
+        case 4: return makeInSelect([])              // soft-ack (.in())
+        // getUserById throws (not mocked) → inner catch → normal upsert
+        case 5: return makeExistenceCheck(false)
         case 6: return makeInsertRelationship('new-rel')
         case 7: return makeInsertTag()
-        case 8: return makePersistedSelect([newRow])    // re-fetch after upsert
+        case 8: return makePersistedSelect([newRow]) // re-fetch after upsert
+        case 9: return makeInSelect([{ id: 'user-b', display_name: null }]) // profile batch
         default: return makePersistedSelect([])
       }
     })
@@ -298,6 +301,7 @@ describe('getRelationshipDirectory — inferred counterpart by user_id', () => {
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('new-rel')
     expect(result[0].tags).toEqual(['unclassified'])
+    expect(result[0].counterpart_display_name).toBeNull()
   })
 
   it('skips upsert when counterpart_user_id already in persisted relationships', async () => {
@@ -318,15 +322,18 @@ describe('getRelationshipDirectory — inferred counterpart by user_id', () => {
         case 1: return makePersistedSelect([persistedRow])
         case 2: return makeDirectLoansSelect([directLoan])
         case 3: return makeInvitationsInSelect([])
-        default: return makeInvitationsEqSelect([])
+        case 4: return makeInSelect([])  // soft-ack
+        // no missing → profile fetch for counterpart_user_id 'user-b'
+        default: return makeInSelect([{ id: 'user-b', display_name: 'Jón' }])
       }
     })
 
     const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('rel-existing')
-    // No insert calls should happen — call count stays low
-    expect(callCount).toBeLessThanOrEqual(4)
+    expect(result[0].counterpart_display_name).toBe('Jón')
+    // 4 pre-upsert calls + 1 profile fetch = 5 max
+    expect(callCount).toBeLessThanOrEqual(5)
   })
 })
 
@@ -340,6 +347,7 @@ describe('getRelationshipDirectory — inferred counterpart by email', () => {
       id: 'email-rel',
       private_display_name: null,
       email_canonical: 'bob@example.com',
+      counterpart_user_id: null,
       created_at: '2026-06-22T00:00:00Z',
       relationship_tags: [{ tag: 'unclassified' }],
     }
@@ -351,7 +359,7 @@ describe('getRelationshipDirectory — inferred counterpart by email', () => {
         case 1: return makePersistedSelect([])
         case 2: return makeDirectLoansSelect([directLoan])
         case 3: return makeInvitationsInSelect([invitation]) // pending invitations
-        case 4: return makeInvitationsEqSelect([])           // soft-ack
+        case 4: return makeInSelect([])                      // soft-ack (.in())
         case 5: return makeExistenceCheck(false)             // check if email exists
         case 6: return makeInsertRelationship('email-rel')
         case 7: return makeInsertTag()
@@ -377,6 +385,7 @@ describe('getRelationshipDirectory — soft-ack reverse direction', () => {
       id: 'soft-rel',
       private_display_name: null,
       email_canonical: null,
+      counterpart_user_id: 'lender-a',
       created_at: '2026-06-22T00:00:00Z',
       relationship_tags: [{ tag: 'unclassified' }],
     }
@@ -386,14 +395,16 @@ describe('getRelationshipDirectory — soft-ack reverse direction', () => {
       callCount++
       switch (callCount) {
         case 1: return makePersistedSelect([])
-        case 2: return makeDirectLoansSelect([])          // no direct loans as owner
-        // no ownerLoanIds → no invitations.in call
-        case 3: return makeInvitationsEqSelect([softAckInv]) // soft-ack lookup by owner email
-        case 4: return makeInSelect([softAckLoan])           // loan_items.in(softAckLoanIds) → select lender_user_id
+        case 2: return makeDirectLoansSelect([])     // no direct loans
+        // no ownerLoanIds → no invitations.in for loan_ids
+        case 3: return makeInSelect([softAckInv])    // soft-ack .in() with data
+        case 4: return makeInSelect([softAckLoan])   // loan_items.in for soft-ack loans
+        // getUserById throws → inner catch → normal upsert
         case 5: return makeExistenceCheck(false)
         case 6: return makeInsertRelationship('soft-rel')
         case 7: return makeInsertTag()
         case 8: return makePersistedSelect([newRow])
+        case 9: return makeInSelect([{ id: 'lender-a', display_name: null }]) // profile batch
         default: return makePersistedSelect([])
       }
     })

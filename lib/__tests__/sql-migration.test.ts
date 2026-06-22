@@ -542,3 +542,101 @@ describe('sql/55_get_my_loans_add_recipient_email.sql — static checks', () => 
     expect(sql55).not.toMatch(/GRANT.*TO anon/)
   })
 })
+
+// ── sql/56: normalize_email_canonical ─────────────────────────────────────────
+
+describe('sql/56: normalize_email_canonical', () => {
+  const sql56 = readFileSync('sql/56_normalize_email_canonical.sql', 'utf8')
+
+  it('file exists and is non-empty', () => {
+    expect(sql56.length).toBeGreaterThan(100)
+  })
+
+  it('creates normalize_email_canonical function', () => {
+    expect(sql56).toMatch(/CREATE OR REPLACE FUNCTION public\.normalize_email_canonical/)
+  })
+
+  it('function is IMMUTABLE STRICT PARALLEL SAFE', () => {
+    expect(sql56).toMatch(/IMMUTABLE/)
+    expect(sql56).toMatch(/STRICT/)
+    expect(sql56).toMatch(/PARALLEL SAFE/)
+  })
+
+  it('strips dots from gmail.com local-part', () => {
+    expect(sql56).toMatch(/replace\(.*'\.', ''\)/)
+    expect(sql56).toContain("'gmail.com'")
+    expect(sql56).toContain("'googlemail.com'")
+  })
+
+  it('normalizes googlemail.com to gmail.com', () => {
+    const fnBody = sql56.slice(sql56.indexOf('normalize_email_canonical'))
+    expect(fnBody).toContain("'googlemail.com'")
+    expect(fnBody).toMatch(/\|\| '@gmail\.com'/)
+  })
+
+  it('does not strip dots for non-Gmail domains (ELSE branch)', () => {
+    expect(sql56).toMatch(/ELSE\s+lower\(trim\(p_email\)\)/)
+  })
+
+  it('uses SET search_path empty string', () => {
+    expect(sql56).toMatch(/SET search_path = ''/)
+  })
+
+  it('revokes execute from PUBLIC anon authenticated', () => {
+    expect(sql56).toMatch(/REVOKE EXECUTE ON FUNCTION public\.normalize_email_canonical/)
+  })
+
+  it('grants execute to service_role', () => {
+    expect(sql56).toMatch(/GRANT\s+EXECUTE ON FUNCTION public\.normalize_email_canonical.*TO service_role/)
+  })
+
+  it('get_my_loans Branch 2 uses normalize_email_canonical on both sides', () => {
+    const branch2 = sql56.slice(sql56.indexOf('Branch 2'))
+    expect(branch2).toMatch(/public\.normalize_email_canonical\(inv\.recipient_email_normalized\)\s*=\s*v_actor_norm/)
+  })
+
+  it('claim_loan_invitation normalizes both sides of email check', () => {
+    const claimFn = sql56.slice(sql56.indexOf('claim_loan_invitation'))
+    expect(claimFn).toMatch(/normalize_email_canonical\(v_actor_email\).*!=.*normalize_email_canonical\(v_inv\.recipient_email_normalized\)/)
+  })
+
+  it('create_loan uses normalize_email_canonical for v_recipient_norm', () => {
+    const createFn = sql56.slice(sql56.indexOf('create_loan'))
+    expect(createFn).toMatch(/v_recipient_norm\s*:=\s*public\.normalize_email_canonical\(p_recipient_email\)/)
+  })
+
+  it('add_loan_invitation uses normalize_email_canonical for v_recipient_norm', () => {
+    const addFn = sql56.slice(sql56.indexOf('add_loan_invitation'))
+    expect(addFn).toMatch(/v_recipient_norm\s*:=\s*public\.normalize_email_canonical\(p_recipient_email\)/)
+  })
+
+  it('add_loan_invitation idempotency check normalizes stored email', () => {
+    const addFn = sql56.slice(sql56.indexOf('add_loan_invitation'))
+    expect(addFn).toMatch(/normalize_email_canonical\(v_inv\.recipient_email_normalized\)\s*=\s*v_recipient_norm/)
+  })
+
+  it('decline_invitation normalizes both sides of email check', () => {
+    const declineFn = sql56.slice(sql56.indexOf('decline_invitation'))
+    expect(declineFn).toMatch(/normalize_email_canonical\(v_actor_email\)/)
+    expect(declineFn).toMatch(/normalize_email_canonical\(v_inv\.recipient_email_normalized\)/)
+  })
+
+  it('wrapped in BEGIN/COMMIT transaction', () => {
+    expect(sql56).toMatch(/^BEGIN;/m)
+    expect(sql56).toMatch(/^COMMIT;/m)
+  })
+
+  it('does not remove dots for non-gmail in normalize function body', () => {
+    const fnBody = sql56.slice(
+      sql56.indexOf('normalize_email_canonical(p_email text)'),
+      sql56.indexOf('REVOKE EXECUTE ON FUNCTION public.normalize_email_canonical'),
+    )
+    // The ELSE branch should be lower(trim(p_email)) — no dot removal
+    expect(fnBody).toMatch(/ELSE\s+lower\(trim\(p_email\)\)/)
+    // Must not have unconditional replace(... '.', '')
+    const elseIdx = fnBody.lastIndexOf('ELSE')
+    const beforeElse = fnBody.slice(0, elseIdx)
+    // replace(... '.') only in the THEN branch, not after ELSE
+    expect(beforeElse).toMatch(/replace\(.*'\.', ''\)/)
+  })
+})

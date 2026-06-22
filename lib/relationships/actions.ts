@@ -8,6 +8,7 @@ export type RelationshipListItem = {
   id: string
   private_display_name: string | null
   email_canonical: string | null
+  counterpart_display_name: string | null
   created_at: string
   tags: string[]
 }
@@ -159,22 +160,39 @@ export async function getRelationships(ownerUserId: string): Promise<Relationshi
 
   const { data, error } = await admin
     .from('relationships')
-    .select('id, private_display_name, email_canonical, created_at, relationship_tags(tag)')
+    .select('id, private_display_name, email_canonical, counterpart_user_id, created_at, relationship_tags(tag)')
     .eq('owner_id', ownerUserId)
     .order('created_at', { ascending: false })
 
   if (error || !data) return []
 
-  return (data as Array<{
+  type Row = {
     id: string
     private_display_name: string | null
     email_canonical: string | null
+    counterpart_user_id: string | null
     created_at: string
     relationship_tags: Array<{ tag: string }>
-  }>).map((r) => ({
+  }
+  const rows = data as Row[]
+
+  const userIds = rows.filter((r) => r.counterpart_user_id).map((r) => r.counterpart_user_id as string)
+  const displayNameMap = new Map<string, string | null>()
+  if (userIds.length > 0) {
+    const { data: profiles } = await admin
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', userIds)
+    for (const p of (profiles as Array<{ id: string; display_name: string | null }> | null) ?? []) {
+      displayNameMap.set(p.id, p.display_name)
+    }
+  }
+
+  return rows.map((r) => ({
     id: r.id,
     private_display_name: r.private_display_name,
     email_canonical: r.email_canonical,
+    counterpart_display_name: r.counterpart_user_id ? (displayNameMap.get(r.counterpart_user_id) ?? null) : null,
     created_at: r.created_at,
     tags: r.relationship_tags.map((t) => t.tag),
   }))
@@ -197,6 +215,8 @@ export async function getRelationshipDirectory(
 ): Promise<RelationshipListItem[]> {
   const admin = getAdmin()
   const ownerEmailNorm = normalizeEmailForAccess(ownerEmail)
+  // Raw lowercase form: matches old non-canonical data written before sql/56
+  const ownerEmailRaw = ownerEmail.trim().toLowerCase()
 
   // ── 1. Fetch persisted relationships ──────────────────────────────────────
   type PersistedRow = {
@@ -219,8 +239,12 @@ export async function getRelationshipDirectory(
   const persistedByUserId = new Set(
     persisted.filter((r) => r.counterpart_user_id).map((r) => r.counterpart_user_id as string),
   )
-  const persistedByEmail = new Set(
-    persisted.filter((r) => r.email_canonical).map((r) => r.email_canonical as string),
+  // Build canonical email set so Gmail dotted/undotted variants are treated as one
+  const persistedByEmailCanon = new Set(
+    persisted
+      .filter((r) => r.email_canonical)
+      .map((r) => normalizeEmailForAccess(r.email_canonical as string))
+      .filter(Boolean) as string[],
   )
 
   // ── 2a. Direct loan counterparts (owner is a confirmed participant) ────────
@@ -246,6 +270,7 @@ export async function getRelationshipDirectory(
   inferredUserIds.delete(ownerUserId)
 
   // ── 2b. Pending invitations where owner is the lender ────────────────────
+  // Store canonical form to prevent Gmail dotted/undotted duplicates
   const inferredEmails = new Set<string>()
 
   if (ownerLoanIds.length > 0) {
@@ -254,16 +279,22 @@ export async function getRelationshipDirectory(
       .select('recipient_email_normalized')
       .in('loan_id', ownerLoanIds)
     for (const inv of (invData ?? []) as Array<{ recipient_email_normalized: string }>) {
-      if (inv.recipient_email_normalized) inferredEmails.add(inv.recipient_email_normalized)
+      const canon = normalizeEmailForAccess(inv.recipient_email_normalized)
+      if (canon) inferredEmails.add(canon)
     }
   }
 
   // ── 2c. Soft-ack reverse: owner is the email recipient, counterpart is lender
-  if (ownerEmailNorm) {
+  // Match both canonical and raw forms to handle old non-canonical stored data
+  const ownerEmailsToMatch = new Set<string>()
+  if (ownerEmailNorm) ownerEmailsToMatch.add(ownerEmailNorm)
+  if (ownerEmailRaw) ownerEmailsToMatch.add(ownerEmailRaw)
+
+  if (ownerEmailsToMatch.size > 0) {
     const { data: softAckData } = await admin
       .from('loan_invitations')
       .select('loan_id')
-      .eq('recipient_email_normalized', ownerEmailNorm)
+      .in('recipient_email_normalized', [...ownerEmailsToMatch])
     const softAckLoanIds = (softAckData ?? []).map((d: { loan_id: string }) => d.loan_id)
     if (softAckLoanIds.length > 0) {
       const { data: softAckLoans } = await admin
@@ -278,30 +309,65 @@ export async function getRelationshipDirectory(
 
   // Remove owner's own email from inferred set
   if (ownerEmailNorm) inferredEmails.delete(ownerEmailNorm)
+  if (ownerEmailRaw) inferredEmails.delete(ownerEmailRaw)
 
   // ── 3. Identify counterparts not yet persisted ────────────────────────────
   const missingUserIds = [...inferredUserIds].filter((id) => !persistedByUserId.has(id))
-  const missingEmails = [...inferredEmails].filter((email) => !persistedByEmail.has(email))
+  const missingEmails = [...inferredEmails].filter((email) => !persistedByEmailCanon.has(email))
 
   // ── 4. Lazy-upsert missing counterparts ──────────────────────────────────
+  // For user_id counterparts: first try to merge into an existing email row
+  // by looking up the user's auth email. This prevents duplicate rows when
+  // an email-only relationship already exists for the same person.
+  let didUpsert = false
+
   try {
     for (const cid of missingUserIds) {
-      const { data: existing } = await admin
-        .from('relationships')
-        .select('id')
-        .eq('owner_id', ownerUserId)
-        .eq('counterpart_user_id', cid)
-        .maybeSingle()
-      if (!existing) {
-        const { data: inserted } = await admin
+      let mergedIntoExisting = false
+
+      try {
+        const { data: authUser } = await admin.auth.admin.getUserById(cid)
+        const userEmail = (authUser as { user?: { email?: string } } | null)?.user?.email
+        const userEmailNorm = userEmail ? normalizeEmailForAccess(userEmail) : null
+        if (userEmailNorm) {
+          const emailRow = persisted.find(
+            (r) => r.email_canonical !== null &&
+              !r.counterpart_user_id &&
+              normalizeEmailForAccess(r.email_canonical) === userEmailNorm,
+          )
+          if (emailRow) {
+            await admin
+              .from('relationships')
+              .update({ counterpart_user_id: cid })
+              .eq('id', emailRow.id)
+              .eq('owner_id', ownerUserId)
+            mergedIntoExisting = true
+            didUpsert = true
+          }
+        }
+      } catch {
+        // auth lookup unavailable — fall through to normal upsert
+      }
+
+      if (!mergedIntoExisting) {
+        const { data: existing } = await admin
           .from('relationships')
-          .insert({ owner_id: ownerUserId, counterpart_user_id: cid })
           .select('id')
-          .single()
-        if (inserted) {
-          await admin
-            .from('relationship_tags')
-            .insert({ relationship_id: (inserted as { id: string }).id, tag: 'unclassified' })
+          .eq('owner_id', ownerUserId)
+          .eq('counterpart_user_id', cid)
+          .maybeSingle()
+        if (!existing) {
+          const { data: inserted } = await admin
+            .from('relationships')
+            .insert({ owner_id: ownerUserId, counterpart_user_id: cid })
+            .select('id')
+            .single()
+          if (inserted) {
+            await admin
+              .from('relationship_tags')
+              .insert({ relationship_id: (inserted as { id: string }).id, tag: 'unclassified' })
+            didUpsert = true
+          }
         }
       }
     }
@@ -323,6 +389,7 @@ export async function getRelationshipDirectory(
           await admin
             .from('relationship_tags')
             .insert({ relationship_id: (inserted as { id: string }).id, tag: 'unclassified' })
+          didUpsert = true
         }
       }
     }
@@ -330,33 +397,47 @@ export async function getRelationshipDirectory(
     console.error('[relationships] directory lazy-upsert failed')
   }
 
-  // ── 5. Return: re-fetch if we upserted, otherwise return cached data ──────
-  if (missingUserIds.length === 0 && missingEmails.length === 0) {
-    return persisted.map((r) => ({
-      id: r.id,
-      private_display_name: r.private_display_name,
-      email_canonical: r.email_canonical,
-      created_at: r.created_at,
-      tags: r.relationship_tags.map((t) => t.tag),
-    }))
-  }
-
-  const { data: allData } = await admin
-    .from('relationships')
-    .select('id, private_display_name, email_canonical, created_at, relationship_tags(tag)')
-    .eq('owner_id', ownerUserId)
-    .order('created_at', { ascending: false })
-
-  return ((allData ?? []) as Array<{
+  // ── 5. Determine final row set ────────────────────────────────────────────
+  type FinalRow = {
     id: string
     private_display_name: string | null
     email_canonical: string | null
+    counterpart_user_id: string | null
     created_at: string
     relationship_tags: Array<{ tag: string }>
-  }>).map((r) => ({
+  }
+
+  let finalRows: FinalRow[]
+
+  if (didUpsert) {
+    const { data: refetchData } = await admin
+      .from('relationships')
+      .select('id, private_display_name, email_canonical, counterpart_user_id, created_at, relationship_tags(tag)')
+      .eq('owner_id', ownerUserId)
+      .order('created_at', { ascending: false })
+    finalRows = (refetchData ?? []) as FinalRow[]
+  } else {
+    finalRows = persisted
+  }
+
+  // ── 6. Batch-fetch profiles for counterpart display names ─────────────────
+  const counterpartIds = finalRows.filter((r) => r.counterpart_user_id).map((r) => r.counterpart_user_id as string)
+  const displayNameMap = new Map<string, string | null>()
+  if (counterpartIds.length > 0) {
+    const { data: profiles } = await admin
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', counterpartIds)
+    for (const p of (profiles as Array<{ id: string; display_name: string | null }> | null) ?? []) {
+      displayNameMap.set(p.id, p.display_name)
+    }
+  }
+
+  return finalRows.map((r) => ({
     id: r.id,
     private_display_name: r.private_display_name,
     email_canonical: r.email_canonical,
+    counterpart_display_name: r.counterpart_user_id ? (displayNameMap.get(r.counterpart_user_id) ?? null) : null,
     created_at: r.created_at,
     tags: r.relationship_tags.map((t) => t.tag),
   }))

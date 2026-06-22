@@ -524,6 +524,7 @@
         "note": "Mín skýring",
         "vistaDetails": "Vista",
         "detailsVistadur": "Vistað.",
+        "unknownContact": "Óþekktur tengiliður",
         "errors": {
           "loadFailed": "Villa við hleðslu. Reyndu aftur.",
           "notFound": "Tengsl finnast ekki.",

@@ -38,7 +38,7 @@ export default async function TengslPage() {
                   className="block rounded-xl border border-border bg-card px-4 py-3 hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <p className="text-sm font-medium text-foreground">
-                    {item.private_display_name ?? item.email_canonical ?? item.id}
+                    {item.private_display_name ?? item.counterpart_display_name ?? item.email_canonical ?? t('unknownContact')}
                   </p>
                   {item.tags.length > 0 && (
                     <p className="text-xs text-muted-foreground mt-1">
