@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Pencil, AlertTriangle } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
 import {
@@ -18,6 +19,8 @@ import type { LoanItem } from '@/lib/loans/types'
 
 interface Props {
   item: LoanItem
+  afterDeleteHref?: string
+  recipientDisplay?: string
 }
 
 function isOverdue(item: LoanItem): boolean {
@@ -27,7 +30,7 @@ function isOverdue(item: LoanItem): boolean {
 
 const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
 
-export function LoanCard({ item }: Props) {
+export function LoanCard({ item, afterDeleteHref, recipientDisplay }: Props) {
   const t = useTranslations('teskeid.loans')
   const locale = useLocale()
   const displayLocale = LOCALE_MAP[locale] ?? locale
@@ -71,20 +74,16 @@ export function LoanCard({ item }: Props) {
     return t('returnedAtFull', { weekday, date: buildDateString(year, month, day) })
   }
 
+  const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [actionError, setActionError] = useState('')
 
   const isReturned = item.returned_at !== null
   const overdue = isOverdue(item)
-  const pendingStatusShownInHeader =
-    item.invitation_status === 'pending' &&
-    !item.requires_acknowledgement &&
-    !item.other_display_name
   const showInvitationStatus =
     item.invitation_status !== null &&
     item.invitation_status !== 'accepted' &&
-    !pendingStatusShownInHeader &&
     !(item.invitation_status === 'pending' && item.requires_acknowledgement)
   const {
     canToggleReturned,
@@ -132,7 +131,11 @@ export function LoanCard({ item }: Props) {
     setActionError('')
     startTransition(async () => {
       const result = await deleteLoan(item.id)
-      if (!result.ok) setActionError(t('errors.deleteFailed'))
+      if (result.ok) {
+        if (afterDeleteHref) router.push(afterDeleteHref)
+      } else {
+        setActionError(t('errors.deleteFailed'))
+      }
     })
   }
 
@@ -199,8 +202,8 @@ export function LoanCard({ item }: Props) {
             {!item.requires_acknowledgement && (
               item.other_display_name
                 ? ` · ${item.other_display_name}`
-                : item.invitation_status === 'pending'
-                  ? ` · ${t('inviteStatus.pending')}`
+                : recipientDisplay
+                  ? ` · ${recipientDisplay}`
                   : ''
             )}
           </p>

@@ -4,17 +4,27 @@ import { getAdmin } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/teskeid/admin-auth'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 
-const FEATURE_KEY = 'umonnun'
+const ALLOWED_FEATURES = ['umonnun', 'tengsl'] as const
+type FeatureKey = (typeof ALLOWED_FEATURES)[number]
 
-export async function GET() {
+function resolveFeatureKey(request: NextRequest): FeatureKey | null {
+  const feature = request.nextUrl.searchParams.get('feature') ?? 'umonnun'
+  if (!(ALLOWED_FEATURES as readonly string[]).includes(feature)) return null
+  return feature as FeatureKey
+}
+
+export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const auth = await requireAdmin(supabase)
   if (auth.error) return auth.error
 
+  const featureKey = resolveFeatureKey(request)
+  if (!featureKey) return NextResponse.json({ error: 'invalid feature' }, { status: 400 })
+
   const { data, error } = await getAdmin()
     .from('feature_access')
     .select('email, granted_at')
-    .eq('feature_key', FEATURE_KEY)
+    .eq('feature_key', featureKey)
     .order('granted_at', { ascending: false })
 
   if (error) {
@@ -29,6 +39,9 @@ export async function POST(request: NextRequest) {
   const auth = await requireAdmin(supabase)
   if (auth.error) return auth.error
 
+  const featureKey = resolveFeatureKey(request)
+  if (!featureKey) return NextResponse.json({ error: 'invalid feature' }, { status: 400 })
+
   const body = await request.json().catch(() => null)
   if (!body || typeof body.email !== 'string') {
     return NextResponse.json({ error: 'email required' }, { status: 400 })
@@ -41,7 +54,7 @@ export async function POST(request: NextRequest) {
 
   const { error } = await getAdmin()
     .from('feature_access')
-    .insert({ feature_key: FEATURE_KEY, email: canonical })
+    .insert({ feature_key: featureKey, email: canonical })
 
   if (error) {
     if (error.code === '23505') {
@@ -58,6 +71,9 @@ export async function DELETE(request: NextRequest) {
   const auth = await requireAdmin(supabase)
   if (auth.error) return auth.error
 
+  const featureKey = resolveFeatureKey(request)
+  if (!featureKey) return NextResponse.json({ error: 'invalid feature' }, { status: 400 })
+
   const body = await request.json().catch(() => null)
   if (!body || typeof body.email !== 'string') {
     return NextResponse.json({ error: 'email required' }, { status: 400 })
@@ -71,7 +87,7 @@ export async function DELETE(request: NextRequest) {
   const { error } = await getAdmin()
     .from('feature_access')
     .delete()
-    .eq('feature_key', FEATURE_KEY)
+    .eq('feature_key', featureKey)
     .eq('email', canonical)
 
   if (error) {

@@ -58,6 +58,10 @@ vi.mock('@/lib/supabase/admin', () => ({
 vi.mock('@/components/loans/LoanList', () => ({
   LoanList: () => React.createElement('div', { 'data-testid': 'loan-list' }),
 }))
+vi.mock('@/components/loans/LoanCard', () => ({
+  LoanCard: ({ item }: { item: { item_name: string } }) =>
+    React.createElement('div', { 'data-testid': 'loan-card' }, item.item_name),
+}))
 vi.mock('@/components/loans/PendingInvitationCard', () => ({
   PendingInvitationCard: () => React.createElement('div', { 'data-testid': 'pending-card' }),
 }))
@@ -86,6 +90,7 @@ import { LoanShell } from '@/components/loans/LoanShell'
 import LoanPage from '@/app/auth-mvp/lanad-og-skilad/page'
 import NewLoanPage from '@/app/auth-mvp/lanad-og-skilad/ny/page'
 import EditLoanPage from '@/app/auth-mvp/lanad-og-skilad/breyta/[id]/page'
+import LoanDetailPage from '@/app/auth-mvp/lanad-og-skilad/[id]/page'
 
 const TEST_USER = { id: 'uid-1', email: 'user@example.com' }
 
@@ -295,6 +300,7 @@ const ITEM_BASE = {
   is_creator: false,
   my_role: 'lender' as const,
   requires_acknowledgement: false,
+  recipient_email: null,
 }
 
 describe('EditLoanPage — routing', () => {
@@ -389,5 +395,53 @@ describe('EditLoanPage — add-party CTA', () => {
     )
     const link = container.querySelector('a[href="/auth-mvp/lanad-og-skilad/baeta-vid-adila/loan-id-1"]')
     expect(link).toBeNull()
+  })
+})
+
+// ── LoanDetailPage ────────────────────────────────────────────────────────────
+
+describe('LoanDetailPage — routing and guards', () => {
+  it('renders LoanCard with item_name when loan is found', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, id: 'loan-id-1', item_name: 'Bók' }],
+      error: null,
+    })
+    render(await LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-1' }) }))
+    expect(screen.getByTestId('loan-card').textContent).toBe('Bók')
+  })
+
+  it('throws notFound when item is not in get_my_loans', async () => {
+    mockRpc.mockResolvedValue({ data: [], error: null })
+    await expect(
+      LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-missing' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('throws notFound when id belongs to a different user (not in list)', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, id: 'other-loan' }],
+      error: null,
+    })
+    await expect(
+      LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('shows errors.loadFailed when get_my_loans errors', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'DB error' } })
+    render(await LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-1' }) }))
+    expect(screen.getByText('Villa við hleðslu')).toBeDefined()
+  })
+
+  it('back link points to /auth-mvp/lanad-og-skilad', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, id: 'loan-id-1' }],
+      error: null,
+    })
+    const { container } = render(
+      await LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    const back = container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')
+    expect(back).not.toBeNull()
   })
 })

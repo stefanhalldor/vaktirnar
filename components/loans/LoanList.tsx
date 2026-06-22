@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { LoanCard } from './LoanCard'
+import { LoanSummaryCard } from './LoanSummaryCard'
 import type { LoanItem } from '@/lib/loans/types'
 
 type Status = 'open' | 'returned' | 'all'
@@ -173,7 +173,7 @@ export function LoanList({ items }: Props) {
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map((item) => (
-            <LoanCard key={item.id} item={item} />
+            <LoanSummaryCard key={item.id} item={item} />
           ))}
         </div>
       )}

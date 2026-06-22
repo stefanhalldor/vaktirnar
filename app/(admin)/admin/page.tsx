@@ -117,7 +117,13 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 
 type FeatureAccessEntry = { email: string; granted_at: string }
 
-function FeatureAccessSection() {
+interface FeatureAccessSectionProps {
+  featureKey: 'umonnun' | 'tengsl'
+  heading: string
+  flagName: string
+}
+
+function FeatureAccessSection({ featureKey, heading, flagName }: FeatureAccessSectionProps) {
   const [entries, setEntries] = useState<FeatureAccessEntry[]>([])
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -125,8 +131,10 @@ function FeatureAccessSection() {
   const [status, setStatus] = useState('')
   const [isPending, startTransition] = useTransition()
 
+  const apiUrl = `/api/admin/feature-access?feature=${featureKey}`
+
   useEffect(() => {
-    fetch('/api/admin/feature-access')
+    fetch(apiUrl)
       .then((r) => {
         if (!r.ok) { setLoadError(true); setLoaded(true); return null }
         return r.json()
@@ -137,6 +145,7 @@ function FeatureAccessSection() {
         else { setLoadError(true); setLoaded(true) }
       })
       .catch(() => { setLoadError(true); setLoaded(true) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function handleGrant() {
@@ -144,7 +153,7 @@ function FeatureAccessSection() {
     if (!trimmed.includes('@')) { setStatus('Ógilt netfang'); return }
     setStatus('')
     startTransition(async () => {
-      const res = await fetch('/api/admin/feature-access', {
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: trimmed }),
@@ -153,7 +162,7 @@ function FeatureAccessSection() {
       if (!res.ok) { setStatus(data.error ?? 'Villa'); return }
       setEmailInput('')
       setStatus('Aðgangur veittur: ' + (data.email ?? trimmed))
-      fetch('/api/admin/feature-access')
+      fetch(apiUrl)
         .then((r) => r.json())
         .then((d) => { if (Array.isArray(d)) setEntries(d) })
         .catch(() => {})
@@ -163,7 +172,7 @@ function FeatureAccessSection() {
   function handleRevoke(email: string) {
     setStatus('')
     startTransition(async () => {
-      const res = await fetch('/api/admin/feature-access', {
+      const res = await fetch(apiUrl, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
@@ -175,13 +184,13 @@ function FeatureAccessSection() {
 
   return (
     <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
-      <h2 className="text-sm font-semibold text-gray-700 mb-4">Umönnun-aðgangur</h2>
+      <h2 className="text-sm font-semibold text-gray-700 mb-4">{heading}</h2>
       <p className="text-xs text-gray-500 mb-4">
-        Stjórnar hverjir sjá Umönnun þegar <code className="font-mono">UMONNUN_FLAG=true</code>.
+        Stjórnar hverjir sjá þetta þegar <code className="font-mono">{flagName}=true</code>.
       </p>
       {loadError ? (
         <p className="text-xs text-red-600 mb-4">
-          Náði ekki að sækja Umönnun-aðgang. Staðfestu migration eða prófaðu aftur.
+          Náði ekki að sækja aðgangslista. Staðfestu migration eða prófaðu aftur.
         </p>
       ) : !loaded ? (
         <p className="text-xs text-gray-400 mb-4">Hleður...</p>
@@ -1366,7 +1375,18 @@ export default function AdminPage() {
         )}
 
         <hr className="border-[#c2c9bb] my-8" />
-        <FeatureAccessSection />
+        <div className="flex flex-col gap-6">
+          <FeatureAccessSection
+            featureKey="umonnun"
+            heading="Umönnun-aðgangur"
+            flagName="UMONNUN_FLAG"
+          />
+          <FeatureAccessSection
+            featureKey="tengsl"
+            heading="Tengsl-aðgangur"
+            flagName="TENGSL_FLAG"
+          />
+        </div>
       </div>
     </div>
   )

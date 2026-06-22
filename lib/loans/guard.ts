@@ -25,6 +25,27 @@ export interface LoanAccess {
  * Unknown feature keys return false (no accidental allow-by-default).
  * Never throws, never redirects.
  */
+async function checkPerUserAccess(email: string, featureKey: string): Promise<boolean> {
+  const canonical = normalizeEmailForAccess(email)
+  if (!canonical) return false
+  try {
+    const { data, error } = await getAdmin()
+      .from('feature_access')
+      .select('email')
+      .eq('email', canonical)
+      .eq('feature_key', featureKey)
+      .maybeSingle()
+    if (error) {
+      console.error('[loans/guard] feature_access lookup failed')
+      return false
+    }
+    return data !== null
+  } catch {
+    console.error('[loans/guard] feature_access lookup failed')
+    return false
+  }
+}
+
 export async function checkFeatureAccess(
   _userId: string,
   email: string,
@@ -34,24 +55,12 @@ export async function checkFeatureAccess(
   if (featureKey === 'umonnun') {
     if (process.env.UMONNUN_ENABLED !== 'true') return false
     if (process.env.UMONNUN_FLAG !== 'true') return true
-    const canonical = normalizeEmailForAccess(email)
-    if (!canonical) return false
-    try {
-      const { data, error } = await getAdmin()
-        .from('feature_access')
-        .select('email')
-        .eq('email', canonical)
-        .eq('feature_key', 'umonnun')
-        .maybeSingle()
-      if (error) {
-        console.error('[loans/guard] feature_access lookup failed')
-        return false
-      }
-      return data !== null
-    } catch {
-      console.error('[loans/guard] feature_access lookup failed')
-      return false
-    }
+    return checkPerUserAccess(email, 'umonnun')
+  }
+  if (featureKey === 'tengsl') {
+    if (process.env.TENGSL_ENABLED !== 'true') return false
+    if (process.env.TENGSL_FLAG !== 'true') return true
+    return checkPerUserAccess(email, 'tengsl')
   }
   return false
 }

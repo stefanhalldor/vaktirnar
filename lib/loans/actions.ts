@@ -7,6 +7,7 @@ import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, EditLoanItemDeta
 import { sendLoanInvitationEmail, type EmailContext } from '@/lib/loans/email'
 import { recordRecentEvent, ackRecentEventByKey } from '@/lib/recent-events/helpers.server'
 import { computeLoanChanges } from '@/lib/loans/event-diff'
+import { upsertLoanRelationship } from '@/lib/relationships/actions'
 
 const LOANS_PATH = '/auth-mvp/lanad-og-skilad'
 const HOME_PATH = '/auth-mvp/heim'
@@ -318,6 +319,10 @@ export async function createLoan(input: unknown): Promise<ActionResult> {
   if (invitationId) {
     const sendResult = await performInvitationSend(user.id, invitationId)
     emailStatus = sendResult.emailStatus
+    // Best-effort: save relationship. Never fails the loan creation.
+    if (recipient_email) {
+      await upsertLoanRelationship(user.id, user.email!, recipient_email, row.loan_id)
+    }
   }
 
   await recordRecentEvent({
@@ -576,6 +581,8 @@ export async function addLoanInvitation(loanId: string, input: unknown): Promise
   if (row.invitation_id) {
     const sendResult = await performInvitationSend(user.id, row.invitation_id)
     emailStatus = sendResult.emailStatus
+    // Best-effort: save relationship. Never fails the invitation flow.
+    await upsertLoanRelationship(user.id, user.email!, recipient_email, loanId)
   }
 
   revalidateLoanViews()

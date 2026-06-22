@@ -97,7 +97,8 @@ describe('AdminPage — FeatureAccessSection', () => {
     vi.stubGlobal('fetch', makeFetch([]))
     render(<AdminPage />)
     await waitFor(() => {
-      expect(screen.getByText('Enginn í lista.')).toBeInTheDocument()
+      // Two sections (umonnun + tengsl) each show the empty message
+      expect(screen.getAllByText('Enginn í lista.').length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -105,7 +106,8 @@ describe('AdminPage — FeatureAccessSection', () => {
     vi.stubGlobal('fetch', makeFetch([]))
     render(<AdminPage />)
     await waitFor(() => {
-      expect(screen.getByText('Gefa aðgang')).toBeInTheDocument()
+      // Two sections each have a Gefa aðgang button
+      expect(screen.getAllByText('Gefa aðgang').length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -121,7 +123,8 @@ describe('AdminPage — FeatureAccessSection', () => {
     }))
     render(<AdminPage />)
     await waitFor(() => {
-      expect(screen.getByText(/Náði ekki að sækja Umönnun-aðgang/)).toBeInTheDocument()
+      // Both sections show the generic load error
+      expect(screen.getAllByText(/Náði ekki að sækja aðgangslista/).length).toBeGreaterThanOrEqual(1)
     })
     expect(screen.queryByText('Enginn í lista.')).not.toBeInTheDocument()
   })

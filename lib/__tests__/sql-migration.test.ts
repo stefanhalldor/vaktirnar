@@ -315,3 +315,230 @@ describe('sql/52_feature_access.sql — static checks', () => {
     expect(sql52).not.toMatch(/CREATE POLICY/)
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/53 feature_access tengsl
+// ============================================================
+
+const sql53 = readFileSync(
+  join(process.cwd(), 'sql/53_feature_access_tengsl.sql'),
+  'utf8'
+)
+
+describe('sql/53_feature_access_tengsl.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql53).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql53).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops the old constraint before adding the new one', () => {
+    const dropPos = sql53.indexOf('DROP CONSTRAINT IF EXISTS feature_access_feature_key_check')
+    const addPos  = sql53.indexOf('ADD CONSTRAINT feature_access_feature_key_check', dropPos)
+    expect(dropPos).toBeGreaterThan(-1)
+    expect(addPos).toBeGreaterThan(dropPos)
+  })
+
+  it('new constraint allows umonnun and tengsl', () => {
+    expect(sql53).toMatch(/CHECK\s*\(feature_key IN \('umonnun',\s*'tengsl'\)\)/)
+  })
+
+  it('does not touch grants, RLS, or data', () => {
+    expect(sql53).not.toMatch(/GRANT/)
+    expect(sql53).not.toMatch(/REVOKE/)
+    expect(sql53).not.toMatch(/ENABLE ROW LEVEL SECURITY/)
+    expect(sql53).not.toMatch(/INSERT|UPDATE|DELETE/)
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/54 relationships tables
+// ============================================================
+
+const sql54 = readFileSync(
+  join(process.cwd(), 'sql/54_relationships.sql'),
+  'utf8'
+)
+
+describe('sql/54_relationships.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql54).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql54).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('creates the relationships table', () => {
+    expect(sql54).toMatch(/CREATE TABLE public\.relationships/)
+  })
+
+  it('creates the relationship_tags table', () => {
+    expect(sql54).toMatch(/CREATE TABLE public\.relationship_tags/)
+  })
+
+  it('creates the relationship_sources table', () => {
+    expect(sql54).toMatch(/CREATE TABLE public\.relationship_sources/)
+  })
+
+  it('has has_identifier CHECK to prevent fully anonymous rows', () => {
+    expect(sql54).toMatch(/relationships_has_identifier/)
+  })
+
+  it('has not_self CHECK to prevent self-relationships', () => {
+    expect(sql54).toMatch(/relationships_not_self/)
+  })
+
+  it('uses partial unique index for counterpart_user_id (not UNIQUE NULLS NOT DISTINCT)', () => {
+    expect(sql54).toContain('relationships_owner_counterpart_user_idx')
+    expect(sql54).toMatch(/WHERE counterpart_user_id IS NOT NULL/)
+  })
+
+  it('uses partial unique index for email_canonical', () => {
+    expect(sql54).toContain('relationships_owner_email_canonical_idx')
+    expect(sql54).toMatch(/WHERE email_canonical IS NOT NULL/)
+  })
+
+  it('relationship_tags enforces canonical tag values', () => {
+    expect(sql54).toMatch(/CHECK\s*\(tag IN \('unclassified', 'family', 'friends', 'recipients'\)\)/)
+  })
+
+  it('relationship_sources source_type is restricted to loans in v1', () => {
+    expect(sql54).toMatch(/CHECK\s*\(source_type IN \('loans'\)\)/)
+  })
+
+  it('relationship_sources has UNIQUE on (relationship_id, source_type, source_id) for idempotency', () => {
+    expect(sql54).toMatch(/UNIQUE\s*\(relationship_id,\s*source_type,\s*source_id\)/)
+  })
+
+  it('enables RLS on all three tables', () => {
+    expect(sql54).toMatch(/ALTER TABLE public\.relationships\s+ENABLE ROW LEVEL SECURITY/)
+    expect(sql54).toMatch(/ALTER TABLE public\.relationship_tags\s+ENABLE ROW LEVEL SECURITY/)
+    expect(sql54).toMatch(/ALTER TABLE public\.relationship_sources\s+ENABLE ROW LEVEL SECURITY/)
+  })
+
+  it('revokes all access from PUBLIC, anon, authenticated for all three tables', () => {
+    expect(sql54).toMatch(/REVOKE ALL ON public\.relationships\s+FROM PUBLIC, anon, authenticated/)
+    expect(sql54).toMatch(/REVOKE ALL ON public\.relationship_tags\s+FROM PUBLIC, anon, authenticated/)
+    expect(sql54).toMatch(/REVOKE ALL ON public\.relationship_sources\s+FROM PUBLIC, anon, authenticated/)
+  })
+
+  it('grants only to service_role for all three tables', () => {
+    expect(sql54).toMatch(/GRANT.*ON public\.relationships\s+TO service_role/)
+    expect(sql54).toMatch(/GRANT.*ON public\.relationship_tags\s+TO service_role/)
+    expect(sql54).toMatch(/GRANT.*ON public\.relationship_sources\s+TO service_role/)
+    expect(sql54).not.toMatch(/GRANT.*TO anon/)
+    expect(sql54).not.toMatch(/GRANT.*TO authenticated/)
+  })
+
+  it('does not define any RLS policies (service_role bypasses RLS)', () => {
+    expect(sql54).not.toMatch(/CREATE POLICY/)
+  })
+
+  it('does not use UNIQUE NULLS NOT DISTINCT (wrong for multi-private-entry case)', () => {
+    expect(sql54).not.toMatch(/UNIQUE NULLS NOT DISTINCT/)
+  })
+
+  it('attaches updated_at trigger using existing teskeid_set_updated_at function', () => {
+    expect(sql54).toMatch(/EXECUTE FUNCTION public\.teskeid_set_updated_at\(\)/)
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/55 get_my_loans recipient_email
+// ============================================================
+
+const sql55 = readFileSync(
+  join(process.cwd(), 'sql/55_get_my_loans_add_recipient_email.sql'),
+  'utf8'
+)
+
+describe('sql/55_get_my_loans_add_recipient_email.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql55).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql55).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops get_my_loans before recreating (return-shape migration safety)', () => {
+    expect(sql55).toMatch(/DROP FUNCTION IF EXISTS public\.get_my_loans\(uuid\)/)
+  })
+
+  it('uses CREATE FUNCTION (not CREATE OR REPLACE) after drop', () => {
+    const dropPos = sql55.indexOf('DROP FUNCTION IF EXISTS public.get_my_loans')
+    const createPos = sql55.indexOf('CREATE FUNCTION public.get_my_loans', dropPos)
+    expect(createPos).toBeGreaterThan(dropPos)
+    // Must not use CREATE OR REPLACE (would fail on return-shape change)
+    expect(sql55).not.toMatch(/CREATE OR REPLACE FUNCTION public\.get_my_loans/)
+  })
+
+  it('returns requires_acknowledgement boolean column (preserved from sql/50)', () => {
+    expect(sql55).toMatch(/requires_acknowledgement\s+boolean/)
+  })
+
+  it('returns new recipient_email text column', () => {
+    expect(sql55).toMatch(/recipient_email\s+text/)
+  })
+
+  it('has a UNION ALL branch (soft-ack preserved from sql/50)', () => {
+    expect(sql55).toMatch(/UNION ALL/)
+  })
+
+  it('pending branch still matches actor email to recipient_email_normalized', () => {
+    expect(sql55).toMatch(/recipient_email_normalized\s*=\s*v_actor_norm/)
+  })
+
+  it('pending branch still requires inv.status = pending', () => {
+    const branch2 = sql55.slice(sql55.indexOf('UNION ALL'))
+    expect(branch2).toMatch(/inv\.status\s*=\s*'pending'/)
+  })
+
+  it('pending branch still excludes rows where actor is already lender or borrower', () => {
+    const branch2 = sql55.slice(sql55.indexOf('UNION ALL'))
+    expect(branch2).toMatch(/IS DISTINCT FROM p_actor_id/)
+  })
+
+  it('branch 1 returns requires_acknowledgement = false', () => {
+    const branch1 = sql55.slice(0, sql55.indexOf('UNION ALL'))
+    // false for requires_acknowledgement appears before recipient_email CASE expression
+    const falsePos = branch1.lastIndexOf('\n    false,')
+    const casePos = branch1.indexOf('CASE WHEN li.created_by = p_actor_id THEN inv.recipient_email_normalized')
+    expect(falsePos).toBeGreaterThan(-1)
+    expect(casePos).toBeGreaterThan(falsePos)
+  })
+
+  it('branch 2 returns requires_acknowledgement = true', () => {
+    const branch2 = sql55.slice(sql55.indexOf('UNION ALL'))
+    expect(branch2).toMatch(/true,[\s\r\n]+NULL::text[\s\r\n]+FROM public\.loan_invitations/)
+  })
+
+  it('branch 1 exposes recipient_email only to creator (CASE WHEN created_by)', () => {
+    const branch1 = sql55.slice(0, sql55.indexOf('UNION ALL'))
+    expect(branch1).toMatch(/CASE WHEN li\.created_by\s*=\s*p_actor_id\s+THEN inv\.recipient_email_normalized/)
+  })
+
+  it('branch 1 returns NULL for non-creator (ELSE NULL::text)', () => {
+    const branch1 = sql55.slice(0, sql55.indexOf('UNION ALL'))
+    expect(branch1).toMatch(/ELSE NULL::text\s+END/)
+  })
+
+  it('branch 2 returns NULL::text for recipient_email (recipient sees their own email, not exposed here)', () => {
+    const branch2 = sql55.slice(sql55.indexOf('UNION ALL'))
+    // NULL::text must appear in the column list (recipient_email)
+    expect(branch2).toContain('NULL::text')
+    // inv.recipient_email_normalized (qualified) must not appear as a selected column
+    // — it only belongs in the WHERE clause. Comments use the unqualified name.
+    const fromStart = branch2.indexOf('FROM public.loan_invitations')
+    const selectPart = branch2.slice(0, fromStart)
+    expect(selectPart).not.toMatch(/inv\.recipient_email_normalized/)
+  })
+
+  it('function uses SET search_path = empty string', () => {
+    expect(sql55).toMatch(/SET search_path = ''/)
+  })
+
+  it('revokes execute from PUBLIC, anon, authenticated', () => {
+    expect(sql55).toMatch(/REVOKE EXECUTE.*FROM PUBLIC, anon, authenticated/)
+  })
+
+  it('grants execute to service_role only', () => {
+    expect(sql55).toMatch(/GRANT\s+EXECUTE.*TO service_role/)
+    expect(sql55).not.toMatch(/GRANT.*TO authenticated/)
+    expect(sql55).not.toMatch(/GRANT.*TO anon/)
+  })
+})

@@ -495,6 +495,28 @@
       "fallbackIdeaTitle": "Everything in Teskeið",
       "livePreview": "With published ideas",
       "fallbackPreview": "Fallback when no ideas are available"
+    },
+    "stillingar": {
+      "tengsl": {
+        "title": "Relationships",
+        "backToList": "← Back",
+        "empty": "No relationships yet.",
+        "sourceLoans": "Loans",
+        "tagUnclassified": "Unclassified",
+        "tagFamily": "Family",
+        "tagFriends": "Friends",
+        "tagRecipients": "Recipients",
+        "openLoan": "Open loan",
+        "flokkur": "Category",
+        "vistaFlokk": "Save category",
+        "flokkVistadur": "Category saved.",
+        "loanedPrefix": "Loaned",
+        "errors": {
+          "loadFailed": "Failed to load. Please try again.",
+          "notFound": "Relationship not found.",
+          "updateFailed": "Failed to update. Please try again."
+        }
+      }
     }
   }
 }

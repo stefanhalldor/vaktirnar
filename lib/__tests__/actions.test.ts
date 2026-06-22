@@ -22,6 +22,7 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 vi.mock('@/lib/loans/guard', () => ({
   guardLoanAccess: vi.fn().mockResolvedValue({ user: { id: 'actor-uuid' } }),
+  checkFeatureAccess: vi.fn().mockResolvedValue(false),
 }))
 
 vi.mock('@/lib/supabase/admin', () => ({

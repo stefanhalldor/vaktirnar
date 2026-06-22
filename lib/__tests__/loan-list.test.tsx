@@ -11,7 +11,13 @@ import React from 'react'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...props }: { href: string; children: React.ReactNode; [k: string]: unknown }) =>
+    React.createElement('a', { href, ...props }, children),
+}))
+
 vi.mock('next-intl', () => ({
+  useLocale: vi.fn(() => 'is'),
   useTranslations: vi.fn().mockImplementation((ns: string) => {
     const T: Record<string, Record<string, string>> = {
       'teskeid.loans': {
@@ -33,8 +39,8 @@ vi.mock('next-intl', () => ({
   }),
 }))
 
-vi.mock('@/components/loans/LoanCard', () => ({
-  LoanCard: ({ item }: { item: { id: string; item_name: string } }) =>
+vi.mock('@/components/loans/LoanSummaryCard', () => ({
+  LoanSummaryCard: ({ item }: { item: { id: string; item_name: string } }) =>
     React.createElement('div', { 'data-testid': `card-${item.id}` }, item.item_name),
 }))
 
@@ -58,6 +64,7 @@ function makeItem(overrides: Partial<LoanItem> & { id: string }): LoanItem {
     can_send_invitation: false,
     is_creator: true,
     requires_acknowledgement: false,
+    recipient_email: null,
     ...overrides,
   }
 }

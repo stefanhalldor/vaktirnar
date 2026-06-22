@@ -49,6 +49,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
+  // Feature flag: guard /stillingar/tengsl and all sub-paths.
+  // TENGSL_ENABLED must be 'true'. Per-user gating is enforced in server guards.
+  if (
+    pathname.startsWith('/stillingar/tengsl') &&
+    process.env.TENGSL_ENABLED !== 'true'
+  ) {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   // Feature flag: block all legacy Krakkavaktin routes when LEGACY_ENABLED is not 'true'.
   // Default-deny: the flag must be explicitly set to 'true' to allow legacy routes.
   // Segment-safe matching: /chat blocks /chat/new but not /chatty.
@@ -135,6 +144,12 @@ export async function middleware(request: NextRequest) {
   }
 
   // Teskeið auth MVP hidden routes (only reachable when flag is on)
+  if (!user && pathname.startsWith('/stillingar')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/innskraning'
+    return NextResponse.redirect(url)
+  }
+
   if (!user && pathname.startsWith('/auth-mvp/heim')) {
     const url = request.nextUrl.clone()
     url.pathname = '/innskraning'

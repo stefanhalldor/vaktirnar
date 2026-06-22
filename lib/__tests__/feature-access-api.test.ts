@@ -53,12 +53,22 @@ function makeForbiddenResponse() {
   return { json: async () => ({ error: 'Forbidden' }), status: 403, ok: false }
 }
 
-function makeRequest(body?: unknown, method = 'POST') {
-  return new NextRequest('http://localhost/api/admin/feature-access', {
+function makeRequest(body?: unknown, method = 'POST', feature?: string) {
+  const url = feature
+    ? `http://localhost/api/admin/feature-access?feature=${feature}`
+    : 'http://localhost/api/admin/feature-access'
+  return new NextRequest(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
+}
+
+function makeGetRequest(feature?: string) {
+  const url = feature
+    ? `http://localhost/api/admin/feature-access?feature=${feature}`
+    : 'http://localhost/api/admin/feature-access'
+  return new NextRequest(url, { method: 'GET' })
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -68,20 +78,32 @@ describe('GET /api/admin/feature-access — auth', () => {
 
   it('returns 401 when not authenticated', async () => {
     mockRequireAdmin.mockResolvedValue({ error: makeUnauthorizedResponse() })
-    const res = await GET()
+    const res = await GET(makeGetRequest())
     expect(res.status).toBe(401)
   })
 
   it('returns 403 when authenticated but not admin', async () => {
     mockRequireAdmin.mockResolvedValue({ error: makeForbiddenResponse() })
-    const res = await GET()
+    const res = await GET(makeGetRequest())
     expect(res.status).toBe(403)
   })
 
-  it('returns 200 with list when admin', async () => {
+  it('returns 200 with list when admin (default umonnun)', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
-    const res = await GET()
+    const res = await GET(makeGetRequest())
     expect(res.status).toBe(200)
+  })
+
+  it('returns 200 for ?feature=tengsl', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('tengsl'))
+    expect(res.status).toBe(200)
+  })
+
+  it('returns 400 for unknown ?feature=badkey', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('badkey'))
+    expect(res.status).toBe(400)
   })
 })
 
@@ -122,12 +144,24 @@ describe('POST /api/admin/feature-access — auth and validation', () => {
     expect(body.email).toBe('user@example.com')
   })
 
-  it('client cannot inject arbitrary feature_key — only umonnun is stored', async () => {
+  it('client cannot inject arbitrary feature_key via body — route uses ?feature= param only', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
     mockAdminQuery.mockResolvedValue({ error: null })
-    // Even if client sends feature_key, route hardcodes 'umonnun'
+    // Extra fields in body are ignored; feature key comes from ?feature= query param (default umonnun)
     const res = await POST(makeRequest({ email: 'user@example.com', feature_key: 'lanad-og-skilad' }))
-    // Should still succeed (extra fields ignored) and use hardcoded key
+    expect(res.status).toBe(201)
+  })
+
+  it('returns 400 for unknown ?feature=badkey', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'badkey'))
+    expect(res.status).toBe(400)
+  })
+
+  it('?feature=tengsl is accepted', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'tengsl'))
     expect(res.status).toBe(201)
   })
 

@@ -15,6 +15,10 @@ vi.mock('next/link', () => ({
   }) => React.createElement('a', { href, ...props }, children),
 }))
 
+vi.mock('next/navigation', () => ({
+  useRouter: vi.fn(() => ({ push: vi.fn() })),
+}))
+
 vi.mock('next-intl', () => ({
   useLocale: () => 'is',
   useTranslations: () => {
@@ -35,6 +39,8 @@ vi.mock('next-intl', () => ({
       declineAcknowledgement: 'Kannast ekki við þetta',
       addParty: 'Bæta við aðila',
       awaitingAcceptance: 'Bíður samþykkis',
+      returned: 'Skilað',
+      'newEntryFrom': 'Nýtt frá {name}',
       'inviteStatus.pending': 'Bíður svars',
       'inviteStatus.accepted': 'Samþykkt',
       'inviteStatus.declined': 'Hafnað',
@@ -84,6 +90,7 @@ vi.mock('@/lib/loans/actions', () => ({
 }))
 
 import { LoanCard } from '@/components/loans/LoanCard'
+import { LoanSummaryCard } from '@/components/loans/LoanSummaryCard'
 
 function makeLoanItem(overrides: Partial<LoanItem> = {}): LoanItem {
   return {
@@ -101,6 +108,7 @@ function makeLoanItem(overrides: Partial<LoanItem> = {}): LoanItem {
     can_send_invitation: false,
     is_creator: true,
     requires_acknowledgement: false,
+    recipient_email: null,
     ...overrides,
   }
 }
@@ -152,5 +160,94 @@ describe('LoanCard — pending creator return controls (#44)', () => {
       })} />,
     )
     expect(getByText('Afturkalla')).toBeInTheDocument()
+  })
+})
+
+// ── LoanCard — recipientDisplay (#53) ─────────────────────────────────────────
+
+describe('LoanCard — recipientDisplay', () => {
+  it('shows recipientDisplay email in header when no other_display_name', () => {
+    const { container } = render(
+      <LoanCard
+        item={makeLoanItem({ other_display_name: null, invitation_status: 'pending' })}
+        recipientDisplay="jon@example.com"
+      />,
+    )
+    expect(container.textContent).toContain('· jon@example.com')
+  })
+
+  it('shows "Bíður svars" as standalone status line when recipientDisplay is set', () => {
+    const { getAllByText } = render(
+      <LoanCard
+        item={makeLoanItem({ other_display_name: null, invitation_status: 'pending' })}
+        recipientDisplay="jon@example.com"
+      />,
+    )
+    // "Bíður svars" appears once as the standalone invitation status section
+    expect(getAllByText('Bíður svars')).toHaveLength(1)
+  })
+
+  it('prefers other_display_name over recipientDisplay', () => {
+    const { container } = render(
+      <LoanCard
+        item={makeLoanItem({ other_display_name: 'Jón', invitation_status: 'accepted' })}
+        recipientDisplay="jon@example.com"
+      />,
+    )
+    expect(container.textContent).toContain('· Jón')
+    expect(container.textContent).not.toContain('jon@example.com')
+  })
+})
+
+// ── LoanSummaryCard — recipient_email (#53) ───────────────────────────────────
+
+describe('LoanSummaryCard — recipient_email', () => {
+  function makeSummaryItem(overrides: Partial<Parameters<typeof makeLoanItem>[0]> = {}) {
+    return makeLoanItem({ ...overrides })
+  }
+
+  it('shows recipient_email when other_display_name is null and invite is pending', () => {
+    const { container } = render(
+      <LoanSummaryCard item={makeSummaryItem({
+        other_display_name: null,
+        recipient_email: 'jon@example.com',
+        invitation_status: 'pending',
+      })} />,
+    )
+    expect(container.textContent).toContain('jon@example.com')
+  })
+
+  it('does not show "Bíður svars" when invite is pending and recipient_email is set', () => {
+    const { container } = render(
+      <LoanSummaryCard item={makeSummaryItem({
+        other_display_name: null,
+        recipient_email: 'jon@example.com',
+        invitation_status: 'pending',
+      })} />,
+    )
+    expect(container.textContent).not.toContain('Bíður svars')
+  })
+
+  it('does not show "Bíður svars" when invite is pending and recipient_email is null', () => {
+    const { container } = render(
+      <LoanSummaryCard item={makeSummaryItem({
+        other_display_name: null,
+        recipient_email: null,
+        invitation_status: 'pending',
+      })} />,
+    )
+    expect(container.textContent).not.toContain('Bíður svars')
+  })
+
+  it('prefers other_display_name over recipient_email', () => {
+    const { container } = render(
+      <LoanSummaryCard item={makeSummaryItem({
+        other_display_name: 'Jón',
+        recipient_email: 'jon@example.com',
+        invitation_status: 'accepted',
+      })} />,
+    )
+    expect(container.textContent).toContain('Jón')
+    expect(container.textContent).not.toContain('jon@example.com')
   })
 })

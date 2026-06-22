@@ -19,6 +19,7 @@ function makeLoan(overrides: Partial<LoanItem> = {}): LoanItem {
     can_send_invitation: false,
     is_creator: true,
     requires_acknowledgement: false,
+    recipient_email: null,
     ...overrides,
   }
 }

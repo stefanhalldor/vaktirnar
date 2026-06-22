@@ -249,6 +249,57 @@ describe('middleware — root / redirect for authenticated users', () => {
   })
 })
 
+// ── /stillingar/tengsl — TENGSL_ENABLED kill + auth guard ─────────────────
+
+describe('middleware — /stillingar/tengsl kill-switch and auth guard', () => {
+  let savedAuthMvp: string | undefined
+  let savedTengsl: string | undefined
+
+  beforeEach(() => {
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    savedTengsl  = process.env.TENGSL_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    if (savedAuthMvp !== undefined) process.env.AUTH_MVP_ENABLED = savedAuthMvp
+    else delete process.env.AUTH_MVP_ENABLED
+    if (savedTengsl !== undefined) process.env.TENGSL_ENABLED = savedTengsl
+    else delete process.env.TENGSL_ENABLED
+  })
+
+  it('TENGSL_ENABLED=false + /stillingar/tengsl → / (kill-switch, before auth check)', async () => {
+    process.env.TENGSL_ENABLED = 'false'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/stillingar/tengsl'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/')
+  })
+
+  it('TENGSL_ENABLED=true + unauthenticated /stillingar/tengsl → /innskraning', async () => {
+    process.env.TENGSL_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/stillingar/tengsl'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/innskraning')
+  })
+
+  it('TENGSL_ENABLED=true + authenticated /stillingar/tengsl → passes through (200)', async () => {
+    process.env.TENGSL_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/stillingar/tengsl'))
+    expect(res.status).toBe(200)
+  })
+
+  it('TENGSL_ENABLED=true + authenticated /stillingar/tengsl/some-id → passes through (200)', async () => {
+    process.env.TENGSL_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/stillingar/tengsl/some-id'))
+    expect(res.status).toBe(200)
+  })
+})
+
 // ── Canonical /innskraning passes through without redirect ─────────────────
 
 describe('middleware — canonical /innskraning passes through', () => {

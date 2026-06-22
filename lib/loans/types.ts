@@ -19,6 +19,7 @@ export interface LoanItem {
   can_send_invitation: boolean
   is_creator: boolean
   requires_acknowledgement: boolean
+  recipient_email: string | null
 }
 
 export interface PendingInvitation {

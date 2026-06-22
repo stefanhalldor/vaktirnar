@@ -499,6 +499,28 @@
       "fallbackIdeaTitle": "Allt í Teskeið",
       "livePreview": "Með birtum hugmyndum",
       "fallbackPreview": "Fallback ef hugmyndir finnast ekki"
+    },
+    "stillingar": {
+      "tengsl": {
+        "title": "Tengsl",
+        "backToList": "← Til baka",
+        "empty": "Engin tengsl enn sem komið er.",
+        "sourceLoans": "Lánað og skilað",
+        "tagUnclassified": "Óflokkaður",
+        "tagFamily": "Fjölskylda",
+        "tagFriends": "Vinir",
+        "tagRecipients": "Viðtakendur",
+        "openLoan": "Opna lán",
+        "flokkur": "Flokkur",
+        "vistaFlokk": "Vista flokk",
+        "flokkVistadur": "Flokkur vistaður.",
+        "loanedPrefix": "Lánað",
+        "errors": {
+          "loadFailed": "Villa við hleðslu. Reyndu aftur.",
+          "notFound": "Tengsl finnast ekki.",
+          "updateFailed": "Villa við vistun. Reyndu aftur."
+        }
+      }
     }
   }
 }

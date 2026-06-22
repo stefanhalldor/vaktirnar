@@ -21,7 +21,7 @@ export default async function EditLoanPage({
 
   const nav = (
     <Link
-      href="/auth-mvp/lanad-og-skilad"
+      href={`/auth-mvp/lanad-og-skilad/${id}`}
       className="inline-flex items-center min-h-[44px] text-sm text-[#72796e] hover:text-[#154212] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded self-start"
     >
       {t('backToList')}
