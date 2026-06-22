@@ -38,7 +38,7 @@ vi.mock('next/cache', () => ({ revalidatePath: mockRevalidatePath }))
 import { updateRelationshipTag } from '@/lib/relationships/tag-action'
 // ALLOWED_TAGS is in lib/relationships/types.ts — not exported from 'use server' file
 
-import { getRelationshipDirectory } from '@/lib/relationships/actions'
+import { getRelationshipDirectory, getRelationship, getRelationshipLoanActivity } from '@/lib/relationships/actions'
 
 const OWNER_ID = 'owner-id'
 const OWNER_EMAIL = 'owner@example.com'
@@ -222,6 +222,68 @@ function makeUpdate() {
     update: vi.fn(() => ({
       eq: vi.fn(() => ({
         eq: vi.fn(async () => ({ error: null })),
+      })),
+    })),
+  }
+}
+
+// .select().eq().eq().maybeSingle() — for getRelationship initial fetch
+function makeRelDetailSelect(row: unknown) {
+  return {
+    select: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          maybeSingle: vi.fn(async () => ({ data: row, error: null })),
+        })),
+      })),
+    })),
+  }
+}
+
+// .select().eq().maybeSingle() — for profile fetch by id
+function makeProfileMaybeSingle(displayName: string | null) {
+  return {
+    select: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        maybeSingle: vi.fn(async () => ({
+          data: displayName !== null ? { display_name: displayName } : null,
+          error: null,
+        })),
+      })),
+    })),
+  }
+}
+
+// .select().in().eq() — for accepted invitation lookup
+function makeInEqSelect(rows: unknown[]) {
+  return {
+    select: vi.fn(() => ({
+      in: vi.fn(() => ({
+        eq: vi.fn(async () => ({ data: rows, error: null })),
+      })),
+    })),
+  }
+}
+
+// .select().in().or() — awaited directly (getRelationship loan filter)
+function makeInOrSelect(rows: unknown[]) {
+  return {
+    select: vi.fn(() => ({
+      in: vi.fn(() => ({
+        or: vi.fn(async () => ({ data: rows, error: null })),
+      })),
+    })),
+  }
+}
+
+// .select().in().or().order() — for getRelationshipLoanActivity (chains .order())
+function makeInOrOrderSelect(rows: unknown[]) {
+  return {
+    select: vi.fn(() => ({
+      in: vi.fn(() => ({
+        or: vi.fn(() => ({
+          order: vi.fn(async () => ({ data: rows, error: null })),
+        })),
       })),
     })),
   }
@@ -505,7 +567,7 @@ describe('getRelationshipDirectory — thin-row merge', () => {
     expect(result[0].counterpart_display_name).toBe('Carol')
   })
 
-  it('does not merge when rich row already has counterpart_user_id set', async () => {
+  it('does not merge when both rows already have counterpart_user_id set (different users)', async () => {
     const thinRow = {
       id: 'thin-rel',
       private_display_name: null,
@@ -545,5 +607,218 @@ describe('getRelationshipDirectory — thin-row merge', () => {
     const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
     // Both rows kept — no merge possible
     expect(result).toHaveLength(2)
+  })
+})
+
+// ── getRelationshipDirectory — Gmail dotted/canonical email dedup (step 5.6) ──
+
+describe('getRelationshipDirectory — Gmail email-pair dedup', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('merges dotted and canonical Gmail email rows into one, keeping the richer row', async () => {
+    // Row created before sql/56 with dotted stored form + private name
+    const dottedRow = {
+      id: 'dotted-rel',
+      private_display_name: 'Bob Friend',
+      email_canonical: 'dotted.user@gmail.com',
+      counterpart_user_id: null,
+      created_at: '2026-06-01T00:00:00Z',
+      relationship_tags: [{ tag: 'friends' }],
+    }
+    // Row created after sql/56 with canonical form, no private fields
+    const canonicalRow = {
+      id: 'canonical-rel',
+      private_display_name: null,
+      email_canonical: 'dotteduser@gmail.com',
+      counterpart_user_id: null,
+      created_at: '2026-06-22T00:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        case 1: return makePersistedSelect([dottedRow, canonicalRow])
+        case 2: return makeDirectLoansSelect([])
+        case 3: return makeInSelect([])
+        // step 5.5: no thin rows (both have email_canonical)
+        // step 5.6: normalise dottedRow email to canonical + hide canonicalRow
+        case 4: return makeUpdate()  // update dottedRow email_canonical to 'dotteduser@gmail.com'
+        // no profile batch (no counterpart_user_id)
+        default: return makePersistedSelect([])
+      }
+    })
+
+    const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('dotted-rel')
+    expect(result[0].private_display_name).toBe('Bob Friend')
+    expect(result[0].tags).toContain('friends')
+    expect(result[0].email_canonical).toBe('dotteduser@gmail.com') // normalised in memory
+  })
+
+  it('non-Gmail rows with similar local-parts are NOT merged', async () => {
+    const row1 = {
+      id: 'rel-a',
+      private_display_name: null,
+      email_canonical: 'dot.ted@example.com',
+      counterpart_user_id: null,
+      created_at: '2026-06-01T00:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+    const row2 = {
+      id: 'rel-b',
+      private_display_name: null,
+      email_canonical: 'dotted@example.com',
+      counterpart_user_id: null,
+      created_at: '2026-06-02T00:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        case 1: return makePersistedSelect([row1, row2])
+        case 2: return makeDirectLoansSelect([])
+        case 3: return makeInSelect([])
+        // no dedup — different canonical forms for non-Gmail
+        default: return makePersistedSelect([])
+      }
+    })
+
+    const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
+    expect(result).toHaveLength(2)
+  })
+})
+
+// ── getRelationshipLoanActivity — canonical email normalization ────────────────
+
+describe('getRelationshipLoanActivity — canonical email normalization', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('finds activity when stored invitation uses dotted Gmail but relationship stores canonical', async () => {
+    // Relationship stores canonical form; old invitation stored dotted form
+    const relationship = { counterpart_user_id: null, email_canonical: 'dotteduser@gmail.com' }
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        // invite lookup: .select().in() — should search both 'dotteduser@gmail.com' and itself
+        case 1: return makeInSelect([{ loan_id: 'loan-1' }])
+        // loan filter: .select().in().or().order()
+        case 2: return makeInOrOrderSelect([{
+          id: 'loan-1',
+          item_name: 'Reiknivél',
+          loaned_at: '2026-06-01',
+          returned_at: null,
+          lender_user_id: OWNER_ID,
+        }])
+        default: return makeInSelect([])
+      }
+    })
+
+    const result = await getRelationshipLoanActivity(OWNER_ID, relationship)
+    expect(result).toHaveLength(1)
+    expect(result[0].item_name).toBe('Reiknivél')
+  })
+
+  it('finds activity when stored invitation uses canonical but relationship stores dotted', async () => {
+    // Relationship stores dotted form; invitation stored canonical form (post sql/56)
+    const relationship = { counterpart_user_id: null, email_canonical: 'dotted.user@gmail.com' }
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        // invite lookup: searches ['dotted.user@gmail.com', 'dotteduser@gmail.com']
+        case 1: return makeInSelect([{ loan_id: 'loan-2' }])
+        case 2: return makeInOrOrderSelect([{
+          id: 'loan-2',
+          item_name: 'Hjól',
+          loaned_at: '2026-06-10',
+          returned_at: null,
+          lender_user_id: OWNER_ID,
+        }])
+        default: return makeInSelect([])
+      }
+    })
+
+    const result = await getRelationshipLoanActivity(OWNER_ID, relationship)
+    expect(result).toHaveLength(1)
+    expect(result[0].item_name).toBe('Hjól')
+  })
+})
+
+// ── getRelationship — email-only counterpart confirmation ─────────────────────
+
+describe('getRelationship — email-only counterpart confirmation', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('returns counterpart_display_name via accepted claim when email-only row has no counterpart_user_id', async () => {
+    const relRow = {
+      id: 'rel-email',
+      counterpart_user_id: null,
+      private_display_name: 'Bob',
+      email_canonical: 'dotted.user@gmail.com',
+      note: null,
+      created_at: '2026-06-01T00:00:00Z',
+      relationship_tags: [{ tag: 'friends' }],
+      relationship_sources: [],
+    }
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        case 1: return makeRelDetailSelect(relRow)          // initial select
+        case 2: return makeInEqSelect([                     // accepted invitations
+          { loan_id: 'loan-1', recipient_role: 'borrower' },
+        ])
+        case 3: return makeInOrSelect([{                    // owner-participant loan filter
+          id: 'loan-1', lender_user_id: OWNER_ID, borrower_user_id: 'user-b',
+        }])
+        case 4: return makeProfileMaybeSingle('Bob Jonsson')// profile
+        case 5: return makeUpdate()                         // lazy DB enrichment
+        default: return makeRelDetailSelect(null)
+      }
+    })
+
+    const result = await getRelationship(OWNER_ID, 'rel-email')
+    expect(result).not.toBeNull()
+    expect(result!.counterpart_display_name).toBe('Bob Jonsson')
+    expect(result!.private_display_name).toBe('Bob')
+    expect(result!.tags).toContain('friends')
+  })
+
+  it('returns no counterpart_display_name for email-only row with no accepted claims', async () => {
+    const relRow = {
+      id: 'rel-pending',
+      counterpart_user_id: null,
+      private_display_name: null,
+      email_canonical: 'pending@example.com',
+      note: null,
+      created_at: '2026-06-01T00:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+      relationship_sources: [],
+    }
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        case 1: return makeRelDetailSelect(relRow)   // initial select
+        case 2: return makeInEqSelect([])            // no accepted invitations
+        default: return makeRelDetailSelect(null)
+      }
+    })
+
+    const result = await getRelationship(OWNER_ID, 'rel-pending')
+    expect(result).not.toBeNull()
+    expect(result!.counterpart_display_name).toBeNull()
+    // Only 2 DB calls — no profile lookup for unconfirmed email-only contact
+    expect(callCount).toBe(2)
   })
 })

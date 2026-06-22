@@ -507,6 +507,73 @@ export async function getRelationshipDirectory(
     }
   }
 
+  // ── 5.6. Dedup Gmail dotted/undotted email rows ────────────────────────────
+  // After sql/56, new writes store canonical Gmail form. Old rows may still
+  // have the dotted form (e.g. 'dotted.user@gmail.com') because the unique
+  // index is on the literal stored value, not the canonical expression. A
+  // second row may then exist for 'dotteduser@gmail.com'. Group by canonical
+  // email, keep the richest row, hide duplicates, and lazily normalise the
+  // primary's stored email_canonical in the DB.
+  // Priority: private_display_name(4) > non-unclassified tag(2) > counterpart_user_id(1)
+  // Tie-break: older created_at (the row the owner created first).
+  const byCanonEmail = new Map<string, FinalRow[]>()
+  for (const r of finalRows) {
+    if (r.email_canonical) {
+      const canon = normalizeEmailForAccess(r.email_canonical)
+      if (canon) {
+        const group = byCanonEmail.get(canon) ?? []
+        group.push(r)
+        byCanonEmail.set(canon, group)
+      }
+    }
+  }
+
+  const emailDupIds = new Set<string>()
+  for (const [canon, group] of byCanonEmail) {
+    if (group.length < 2) continue
+
+    group.sort((a, b) => {
+      const score = (r: FinalRow) =>
+        (r.private_display_name ? 4 : 0) +
+        (r.relationship_tags.some((t) => t.tag !== 'unclassified') ? 2 : 0) +
+        (r.counterpart_user_id ? 1 : 0)
+      const diff = score(b) - score(a)
+      return diff !== 0 ? diff : (a.created_at < b.created_at ? -1 : 1)
+    })
+
+    const primary = group[0]
+    for (const dup of group.slice(1)) {
+      emailDupIds.add(dup.id)
+
+      const updates: Record<string, unknown> = {}
+      // Transfer counterpart_user_id from dup to primary if primary lacks it
+      if (!primary.counterpart_user_id && dup.counterpart_user_id) {
+        updates.counterpart_user_id = dup.counterpart_user_id
+        primary.counterpart_user_id = dup.counterpart_user_id
+      }
+      // Normalise primary's stored email to canonical form
+      if (primary.email_canonical !== canon) {
+        updates.email_canonical = canon
+        primary.email_canonical = canon
+      }
+      if (Object.keys(updates).length > 0) {
+        try {
+          await admin
+            .from('relationships')
+            .update(updates)
+            .eq('id', primary.id)
+            .eq('owner_id', ownerUserId)
+        } catch {
+          // best-effort
+        }
+      }
+    }
+  }
+
+  if (emailDupIds.size > 0) {
+    finalRows = finalRows.filter((r) => !emailDupIds.has(r.id))
+  }
+
   // ── 6. Batch-fetch profiles for counterpart display names ─────────────────
   const counterpartIds = finalRows.filter((r) => r.counterpart_user_id).map((r) => r.counterpart_user_id as string)
   const displayNameMap = new Map<string, string | null>()
@@ -577,9 +644,13 @@ export async function getRelationship(
     .filter((s) => s.source_type === 'loans')
     .map((s) => s.source_id)
 
-  // Fetch counterpart display name only when we have a confirmed user ID.
-  // Avoids account enumeration for email-only relationships.
+  // Fetch counterpart display name when we have a confirmed user ID.
+  // For email-only rows, confirm the counterpart via accepted claims on loans
+  // the owner is already a participant in — safe and owner-scoped.
+  // Never enumerates accounts from a bare email: only shows a profile name
+  // when shared loan activity proves the link.
   let counterpartDisplayName: string | null = null
+
   if (row.counterpart_user_id) {
     const { data: profile } = await admin
       .from('profiles')
@@ -587,6 +658,61 @@ export async function getRelationship(
       .eq('id', row.counterpart_user_id)
       .maybeSingle()
     counterpartDisplayName = (profile as { display_name: string | null } | null)?.display_name ?? null
+  } else if (row.email_canonical) {
+    const emailNorm = normalizeEmailForAccess(row.email_canonical)
+    const emailsToMatch: string[] = [row.email_canonical]
+    if (emailNorm && emailNorm !== row.email_canonical) emailsToMatch.push(emailNorm)
+
+    const { data: acceptedInvs } = await admin
+      .from('loan_invitations')
+      .select('loan_id, recipient_role')
+      .in('recipient_email_normalized', emailsToMatch)
+      .eq('status', 'accepted')
+
+    const acceptedList = (acceptedInvs as Array<{ loan_id: string; recipient_role: string }> | null) ?? []
+
+    if (acceptedList.length > 0) {
+      const acceptedLoanIds = [...new Set(acceptedList.map((d) => d.loan_id))]
+
+      const { data: confirmedLoans } = await admin
+        .from('loan_items')
+        .select('id, lender_user_id, borrower_user_id')
+        .in('id', acceptedLoanIds)
+        .or(`lender_user_id.eq.${ownerUserId},borrower_user_id.eq.${ownerUserId}`)
+
+      const loans = (confirmedLoans as Array<{ id: string; lender_user_id: string | null; borrower_user_id: string | null }> | null) ?? []
+
+      let confirmedUserId: string | null = null
+      for (const inv of acceptedList) {
+        const loan = loans.find((l) => l.id === inv.loan_id)
+        if (!loan) continue
+        const candidate = inv.recipient_role === 'borrower' ? loan.borrower_user_id : loan.lender_user_id
+        if (candidate && candidate !== ownerUserId) {
+          confirmedUserId = candidate
+          break
+        }
+      }
+
+      if (confirmedUserId) {
+        const { data: profile } = await admin
+          .from('profiles')
+          .select('display_name')
+          .eq('id', confirmedUserId)
+          .maybeSingle()
+        counterpartDisplayName = (profile as { display_name: string | null } | null)?.display_name ?? null
+
+        // Lazy DB enrichment so future detail-page visits skip this lookup
+        try {
+          await admin
+            .from('relationships')
+            .update({ counterpart_user_id: confirmedUserId })
+            .eq('id', row.id)
+            .eq('owner_id', ownerUserId)
+        } catch {
+          // best-effort
+        }
+      }
+    }
   }
 
   return {
@@ -644,10 +770,15 @@ export async function getRelationshipLoanActivity(
     rows = (data as LoanRow[] | null) ?? []
   } else if (relationship.email_canonical) {
     // Step 1: find loan IDs where this email was a recipient
+    // Normalize to catch both dotted and canonical Gmail forms in old data.
+    const emailNorm = normalizeEmailForAccess(relationship.email_canonical)
+    const emailsToSearch: string[] = [relationship.email_canonical]
+    if (emailNorm && emailNorm !== relationship.email_canonical) emailsToSearch.push(emailNorm)
+
     const { data: invData } = await admin
       .from('loan_invitations')
       .select('loan_id')
-      .eq('recipient_email_normalized', relationship.email_canonical)
+      .in('recipient_email_normalized', emailsToSearch)
 
     const loanIds = (invData as Array<{ loan_id: string }> | null)?.map((d) => d.loan_id) ?? []
     if (loanIds.length > 0) {
