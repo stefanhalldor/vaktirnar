@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
 const { mockFrom }    = vi.hoisted(() => ({ mockFrom: vi.fn() }))
 const { mockRevalidatePath } = vi.hoisted(() => ({ mockRevalidatePath: vi.fn() }))
+const { mockGetUserById }   = vi.hoisted(() => ({ mockGetUserById: vi.fn() }))
 
 vi.mock('@/lib/auth/guard', () => ({
   guardTeskeidSession: vi.fn(async () => ({
@@ -28,7 +29,7 @@ vi.mock('@/lib/loans/guard', () => ({
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: vi.fn(() => ({
     from: mockFrom,
-    auth: { admin: { getUserByEmail: mockGetUser } },
+    auth: { admin: { getUserByEmail: mockGetUser, getUserById: mockGetUserById } },
   })),
 }))
 
@@ -213,6 +214,16 @@ function makeInsertRelationship(newId: string) {
 function makeInsertTag() {
   return {
     insert: vi.fn(async () => ({ error: null })),
+  }
+}
+
+function makeUpdate() {
+  return {
+    update: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        eq: vi.fn(async () => ({ error: null })),
+      })),
+    })),
   }
 }
 
@@ -412,5 +423,127 @@ describe('getRelationshipDirectory — soft-ack reverse direction', () => {
     const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('soft-rel')
+  })
+})
+
+// ── getRelationshipDirectory — thin-row merge ──────────────────────────────
+
+describe('getRelationshipDirectory — thin-row merge', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('merges thin user-id row into rich email row and hides the duplicate', async () => {
+    // thin: created by upsertLoanRelationship after claim, no private fields
+    const thinRow = {
+      id: 'thin-rel',
+      private_display_name: null,
+      email_canonical: null,
+      counterpart_user_id: 'user-b',
+      created_at: '2026-06-22T01:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+    // rich: manually created email contact with private name + tag
+    const richRow = {
+      id: 'rich-rel',
+      private_display_name: 'Bob the Builder',
+      email_canonical: 'bob@example.com',
+      counterpart_user_id: null,
+      created_at: '2026-06-21T00:00:00Z',
+      relationship_tags: [{ tag: 'friends' }],
+    }
+
+    mockGetUserById.mockResolvedValue({ data: { user: { email: 'bob@example.com' } } })
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        case 1: return makePersistedSelect([thinRow, richRow]) // persisted
+        case 2: return makeDirectLoansSelect([])               // direct loans
+        case 3: return makeInSelect([])                        // soft-ack
+        case 4: return makeUpdate()                            // enrich rich row in DB
+        case 5: return makeInSelect([{ id: 'user-b', display_name: 'Bob' }]) // profiles
+        default: return makePersistedSelect([])
+      }
+    })
+
+    const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('rich-rel')
+    expect(result[0].private_display_name).toBe('Bob the Builder')
+    expect(result[0].tags).toContain('friends')
+    expect(result[0].counterpart_display_name).toBe('Bob')
+  })
+
+  it('keeps thin row when no rich email row exists for the same person', async () => {
+    const thinRow = {
+      id: 'thin-rel',
+      private_display_name: null,
+      email_canonical: null,
+      counterpart_user_id: 'user-c',
+      created_at: '2026-06-22T01:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+
+    mockGetUserById.mockResolvedValue({ data: { user: { email: 'carol@example.com' } } })
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        case 1: return makePersistedSelect([thinRow])
+        case 2: return makeDirectLoansSelect([])
+        case 3: return makeInSelect([])
+        // no DB update (no merge happened)
+        case 4: return makeInSelect([{ id: 'user-c', display_name: 'Carol' }]) // profiles
+        default: return makePersistedSelect([])
+      }
+    })
+
+    const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('thin-rel')
+    expect(result[0].counterpart_display_name).toBe('Carol')
+  })
+
+  it('does not merge when rich row already has counterpart_user_id set', async () => {
+    const thinRow = {
+      id: 'thin-rel',
+      private_display_name: null,
+      email_canonical: null,
+      counterpart_user_id: 'user-b',
+      created_at: '2026-06-22T01:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+    // rich row already has a different counterpart_user_id → no merge
+    const richRow = {
+      id: 'rich-rel',
+      private_display_name: 'Bob',
+      email_canonical: 'bob@example.com',
+      counterpart_user_id: 'some-other-user',
+      created_at: '2026-06-21T00:00:00Z',
+      relationship_tags: [{ tag: 'friends' }],
+    }
+
+    mockGetUserById.mockResolvedValue({ data: { user: { email: 'bob@example.com' } } })
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        case 1: return makePersistedSelect([thinRow, richRow])
+        case 2: return makeDirectLoansSelect([])
+        case 3: return makeInSelect([])
+        // no update — rich row already has counterpart_user_id
+        case 4: return makeInSelect([
+          { id: 'user-b', display_name: 'Bob via B' },
+          { id: 'some-other-user', display_name: 'Bob via Other' },
+        ])
+        default: return makePersistedSelect([])
+      }
+    })
+
+    const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
+    // Both rows kept — no merge possible
+    expect(result).toHaveLength(2)
   })
 })

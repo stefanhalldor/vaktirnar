@@ -88,16 +88,35 @@ export async function upsertLoanRelationship(
       if (existing) {
         relationshipId = (existing as { id: string }).id
       } else {
-        const { data: inserted } = await admin
+        // Check for an email-only row first — prevents a thin duplicate when
+        // the counterpart was manually added as an email contact before claiming.
+        const { data: emailRow } = await admin
           .from('relationships')
-          .insert({ owner_id: ownerUserId, counterpart_user_id: counterpartUserId, email_canonical: emailCanonical })
           .select('id')
-          .single()
-        if (inserted) {
-          relationshipId = (inserted as { id: string }).id
+          .eq('owner_id', ownerUserId)
+          .eq('email_canonical', emailCanonical)
+          .is('counterpart_user_id', null)
+          .maybeSingle()
+
+        if (emailRow) {
           await admin
-            .from('relationship_tags')
-            .insert({ relationship_id: relationshipId, tag: 'unclassified' })
+            .from('relationships')
+            .update({ counterpart_user_id: counterpartUserId })
+            .eq('id', (emailRow as { id: string }).id)
+            .eq('owner_id', ownerUserId)
+          relationshipId = (emailRow as { id: string }).id
+        } else {
+          const { data: inserted } = await admin
+            .from('relationships')
+            .insert({ owner_id: ownerUserId, counterpart_user_id: counterpartUserId, email_canonical: emailCanonical })
+            .select('id')
+            .single()
+          if (inserted) {
+            relationshipId = (inserted as { id: string }).id
+            await admin
+              .from('relationship_tags')
+              .insert({ relationship_id: relationshipId, tag: 'unclassified' })
+          }
         }
       }
     } else {
@@ -418,6 +437,74 @@ export async function getRelationshipDirectory(
     finalRows = (refetchData ?? []) as FinalRow[]
   } else {
     finalRows = persisted
+  }
+
+  // ── 5.5. Merge thin user-id rows with rich email rows ─────────────────────
+  // A "thin" row has counterpart_user_id but no email_canonical, no
+  // private_display_name, and only 'unclassified' tags. This occurs when a
+  // person claims a loan invitation after an email-only relationship row already
+  // exists for them (e.g. the owner had manually named/tagged them). We confirm
+  // the match via getUserById → canonical email, then:
+  //   a) update the rich row's counterpart_user_id in DB (lazy enrichment)
+  //   b) inject it in memory so the profile batch below resolves display name
+  //   c) suppress the thin duplicate from the output
+  // Privacy: we only confirm identity from activity the owner directly
+  // participated in, not from blind email enumeration.
+  const thinRows = finalRows.filter(
+    (r) =>
+      r.counterpart_user_id &&
+      !r.email_canonical &&
+      !r.private_display_name &&
+      r.relationship_tags.length > 0 &&
+      r.relationship_tags.every((t) => t.tag === 'unclassified'),
+  )
+
+  if (thinRows.length > 0) {
+    const richByCanonEmail = new Map<string, FinalRow>()
+    for (const r of finalRows) {
+      if (r.email_canonical) {
+        const canon = normalizeEmailForAccess(r.email_canonical)
+        if (canon) richByCanonEmail.set(canon, r)
+      }
+    }
+
+    const thinIdsToHide = new Set<string>()
+    const enrichMap = new Map<string, string>() // richRow.id → counterpart_user_id
+
+    for (const thin of thinRows) {
+      try {
+        const { data: authUser } = await admin.auth.admin.getUserById(thin.counterpart_user_id!)
+        const email = (authUser as { user?: { email?: string } } | null)?.user?.email
+        const canon = email ? normalizeEmailForAccess(email) : null
+        if (canon) {
+          const richRow = richByCanonEmail.get(canon)
+          if (richRow && !richRow.counterpart_user_id) {
+            thinIdsToHide.add(thin.id)
+            enrichMap.set(richRow.id, thin.counterpart_user_id!)
+            try {
+              await admin
+                .from('relationships')
+                .update({ counterpart_user_id: thin.counterpart_user_id })
+                .eq('id', richRow.id)
+                .eq('owner_id', ownerUserId)
+            } catch {
+              // DB update is best-effort; in-memory enrichment still applies
+            }
+          }
+        }
+      } catch {
+        // getUserById unavailable — cannot confirm identity, skip merge
+      }
+    }
+
+    if (thinIdsToHide.size > 0 || enrichMap.size > 0) {
+      for (const r of finalRows) {
+        if (enrichMap.has(r.id)) {
+          r.counterpart_user_id = enrichMap.get(r.id)!
+        }
+      }
+      finalRows = finalRows.filter((r) => !thinIdsToHide.has(r.id))
+    }
   }
 
   // ── 6. Batch-fetch profiles for counterpart display names ─────────────────
