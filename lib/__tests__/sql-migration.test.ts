@@ -633,6 +633,26 @@ describe('sql/56: normalize_email_canonical', () => {
     expect(sql56).toMatch(/^COMMIT;/m)
   })
 
+  it('claim_loan_invitation in sql/56 does NOT check expires_at — pending rows always claimable (soft-ack)', () => {
+    const claimFnStart = sql56.indexOf('CREATE OR REPLACE FUNCTION public.claim_loan_invitation')
+    const claimFnEnd = sql56.indexOf('$$;', claimFnStart)
+    const claimFnBody = sql56.slice(claimFnStart, claimFnEnd)
+    expect(claimFnBody).not.toMatch(/expires_at/)
+  })
+
+  it('get_my_loans Branch 2 in sql/56 does NOT filter by expires_at — expired-link pending rows remain soft-ack visible', () => {
+    const branch2 = sql56.slice(sql56.indexOf('UNION ALL'))
+    const whereClause = branch2.slice(0, branch2.indexOf('ORDER BY'))
+    expect(whereClause).not.toMatch(/expires_at/)
+  })
+
+  it('get_my_pending_invitations in sql/56 keeps expires_at > now() filter — email-link-only flow, intentionally stricter', () => {
+    const fnStart = sql56.indexOf('CREATE OR REPLACE FUNCTION public.get_my_pending_invitations')
+    const fnEnd = sql56.indexOf('$$;', fnStart)
+    const fnBody = sql56.slice(fnStart, fnEnd)
+    expect(fnBody).toMatch(/expires_at\s*>\s*now\(\)/)
+  })
+
   it('does not remove dots for non-gmail in normalize function body', () => {
     const fnBody = sql56.slice(
       sql56.indexOf('normalize_email_canonical(p_email text)'),
