@@ -152,7 +152,7 @@ export function LoanList({ items, highlightInvitationId }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('searchLabel')}
-            className="w-full h-9 rounded-xl border border-gray-200 px-3 text-base outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
+            className="w-full h-9 rounded-xl border border-gray-200 px-3 text-xs font-medium text-[#42493e] placeholder:text-gray-400 outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
           />
         </label>
         <div className="relative shrink-0">
@@ -160,7 +160,7 @@ export function LoanList({ items, highlightInvitationId }: Props) {
             value={sort}
             onChange={(e) => setSort(e.target.value as Sort)}
             aria-label={t('sortLabel')}
-            className="appearance-none h-9 rounded-xl border border-gray-200 bg-white text-base text-[#42493e] pl-3 pr-8 outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10 cursor-pointer"
+            className="appearance-none h-9 rounded-xl border border-gray-200 bg-white text-xs font-medium text-[#42493e] pl-3 pr-8 outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10 cursor-pointer"
           >
             <option value="newest">{t('sortNewest')}</option>
             <option value="oldest">{t('sortOldest')}</option>
