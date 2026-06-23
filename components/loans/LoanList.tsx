@@ -153,6 +153,7 @@ export function LoanList({ items, highlightInvitationId }: Props) {
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('searchLabel')}
             className="w-full h-9 rounded-xl border border-gray-200 px-3 text-xs font-medium text-[#42493e] placeholder:text-gray-400 outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
+            style={{ fontSize: '16px' }}
           />
         </label>
         <div className="relative shrink-0">
