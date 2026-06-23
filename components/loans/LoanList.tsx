@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { ChevronDown } from 'lucide-react'
 import { LoanSummaryCard } from './LoanSummaryCard'
 import type { LoanItem } from '@/lib/loans/types'
 
@@ -154,18 +155,18 @@ export function LoanList({ items, highlightInvitationId }: Props) {
             className="w-full h-9 rounded-xl border border-gray-200 px-3 text-base outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
           />
         </label>
-        <label className="flex items-center gap-1.5 text-xs text-[#72796e] shrink-0">
-          <span className="sr-only">{t('sortLabel')}</span>
+        <div className="relative shrink-0">
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as Sort)}
             aria-label={t('sortLabel')}
-            className="text-base text-[#42493e] border border-gray-200 rounded-xl px-2 py-2 bg-white outline-none focus:border-[#2d5a27] h-9"
+            className="appearance-none h-9 rounded-xl border border-gray-200 bg-white text-base text-[#42493e] pl-3 pr-8 outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10 cursor-pointer"
           >
             <option value="newest">{t('sortNewest')}</option>
             <option value="oldest">{t('sortOldest')}</option>
           </select>
-        </label>
+          <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#72796e]" aria-hidden />
+        </div>
       </div>
 
       {/* List */}
