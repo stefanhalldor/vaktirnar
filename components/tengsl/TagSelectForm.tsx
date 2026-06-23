@@ -48,7 +48,7 @@ export function TagSelectForm({ relationshipId, currentTag }: Props) {
           value={selected}
           onChange={(e) => { setSelected(e.target.value); setSaved(false) }}
           disabled={isPending}
-          className="h-10 rounded-xl border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+          className="h-10 rounded-xl border border-border bg-background px-3 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
         >
           {ALLOWED_TAGS.map((tag) => (
             <option key={tag} value={tag}>

@@ -34,7 +34,7 @@ export function RelationshipDetailsForm({ relationshipId, initialNote, initialPr
   }
 
   const inputClass =
-    'h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10'
+    'h-10 w-full rounded-xl border border-gray-200 px-3 text-base outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10'
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -55,7 +55,7 @@ export function RelationshipDetailsForm({ relationshipId, initialNote, initialPr
           onChange={(e) => { setNote(e.target.value); setStatus('idle') }}
           maxLength={1000}
           rows={3}
-          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10 resize-none"
+          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-base outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10 resize-none"
         />
       </label>
       {status === 'saved' && (
