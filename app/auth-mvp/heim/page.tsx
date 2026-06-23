@@ -6,7 +6,7 @@ import { guardTeskeidSession } from '@/lib/auth/guard'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-import type { PendingInvitation } from '@/lib/loans/types'
+import type { LoanItem } from '@/lib/loans/types'
 import type { Idea } from '@/lib/teskeid/types'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
 import { HomeIdeasDrawer } from '@/components/teskeid/HomeIdeasDrawer'
@@ -116,7 +116,7 @@ export default async function HeimPage() {
     .filter((i) => READY_TESKEID_ROUTES[i.slug]?.enabled)
     .map((i) => ({ idea: i, href: READY_TESKEID_ROUTES[i.slug]!.href }))
 
-  let pendingInvitations: PendingInvitation[] = []
+  let pendingCount = 0
   let invitationsError = false
   let recentEvents: RecentEventDisplay[] = []
   let eventsError = false
@@ -132,15 +132,18 @@ export default async function HeimPage() {
     }
 
     if (admin !== null) {
-      const invitationsResult = await Promise.resolve(
-        admin.rpc('get_my_pending_invitations', { p_actor_id: user.id })
+      const loansResult = await Promise.resolve(
+        admin.rpc('get_my_loans', { p_actor_id: user.id })
       ).catch(() => null)
 
-      if (!invitationsResult || invitationsResult.error) {
-        console.error('[heim/page] get_my_pending_invitations failed')
+      if (!loansResult || loansResult.error) {
+        console.error('[heim/page] pending loan badge query failed')
         invitationsError = true
       } else {
-        pendingInvitations = (invitationsResult.data ?? []) as PendingInvitation[]
+        const loans = (loansResult.data ?? []) as LoanItem[]
+        pendingCount = loans.filter(
+          (loan) => loan.requires_acknowledgement && loan.invitation_status === 'pending'
+        ).length
       }
 
       try {
@@ -175,7 +178,6 @@ export default async function HeimPage() {
   }
 
   const rowBatch = recentEvents.map((e) => String(e.id)).join('.')
-  const pendingCount = pendingInvitations.length
   const firstName = displayName ? (displayName.trim().split(/\s+/)[0] ?? displayName) : null
   const greeting = firstName ? t('greeting', { firstName }) : t('greetingFallback')
 

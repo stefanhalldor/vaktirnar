@@ -3,9 +3,8 @@
 import Link from 'next/link'
 import { AlertTriangle } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
+import { loanedAtWeekday } from '@/lib/loans/types'
 import type { LoanItem } from '@/lib/loans/types'
-
-const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
 
 interface Props {
   item: LoanItem
@@ -14,7 +13,6 @@ interface Props {
 export function LoanSummaryCard({ item }: Props) {
   const t = useTranslations('teskeid.loans')
   const locale = useLocale()
-  const displayLocale = LOCALE_MAP[locale] ?? locale
 
   const isReturned = item.returned_at !== null
   const isOverdue = !isReturned && !!item.due_at && item.due_at < new Date().toISOString().slice(0, 10)
@@ -30,12 +28,26 @@ export function LoanSummaryCard({ item }: Props) {
     : null
   const counterpart = counterpartName ? ` · ${counterpartName}` : ''
 
-  const [year, month, day] = item.loaned_at.split('-').map(Number)
-  const dateStr = new Date(year, month - 1, day).toLocaleDateString(displayLocale, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
+  function buildDateString(year: number, month: number, day: number): string {
+    if (locale === 'en') {
+      return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      })
+    }
+    return `${day}. ${t(`months.${month - 1}`)} ${year}`
+  }
+
+  const [lYear, lMonth, lDay] = item.loaned_at.split('-').map(Number)
+  const loanedWeekday = t(`weekdays.${loanedAtWeekday(item.loaned_at)}`)
+  const loanedDateStr = t('loanedAtFull', { weekday: loanedWeekday, date: buildDateString(lYear, lMonth, lDay) })
+
+  let dueDateStr: string | null = null
+  if (!isReturned && item.due_at) {
+    const [dYear, dMonth, dDay] = item.due_at.split('-').map(Number)
+    dueDateStr = t('dueAtFull', { date: buildDateString(dYear, dMonth, dDay) })
+  }
 
   return (
     <Link
@@ -48,11 +60,18 @@ export function LoanSummaryCard({ item }: Props) {
       <p className="text-xs text-[#72796e] mt-0.5 truncate">
         {roleLabel}{counterpart}
       </p>
-      <p className={`text-xs mt-0.5 flex items-center gap-1 ${isOverdue ? 'text-amber-600 font-medium' : 'text-[#72796e]'}`}>
-        {isOverdue && <AlertTriangle size={11} aria-hidden />}
-        {dateStr}
-        {isReturned && ` · ${t('returned')}`}
-      </p>
+      <div className="flex flex-col gap-0.5 mt-0.5">
+        <p className="text-xs text-[#72796e]">
+          {loanedDateStr}
+          {isReturned && ` · ${t('returned')}`}
+        </p>
+        {dueDateStr && (
+          <p className={`text-xs flex items-center gap-1 ${isOverdue ? 'text-amber-600 font-medium' : 'text-[#72796e]'}`}>
+            {isOverdue && <AlertTriangle size={11} aria-hidden />}
+            {dueDateStr}
+          </p>
+        )}
+      </div>
     </Link>
   )
 }

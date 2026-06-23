@@ -14,6 +14,14 @@ interface Props {
   relationshipOptions?: RelationshipRecipientOption[]
 }
 
+function relationshipOptionName(option: RelationshipRecipientOption) {
+  return option.privateDisplayName ?? option.selfDisplayName ?? option.email
+}
+
+function relationshipOptionShowsEmail(option: RelationshipRecipientOption) {
+  return relationshipOptionName(option) !== option.email
+}
+
 export function LoanForm({ action, initial, relationshipOptions }: Props) {
   const t = useTranslations('teskeid.loans')
   const router = useRouter()
@@ -123,26 +131,43 @@ export function LoanForm({ action, initial, relationshipOptions }: Props) {
       {isCreate && (
         <div className="flex flex-col gap-2">
           {relationshipOptions && relationshipOptions.length > 0 && (
-            <label className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-[#42493e]">{t('recipientFromContacts')}</span>
-              <select
-                className={inputClass}
-                value={recipientEmail}
-                onChange={(e) => setRecipientEmail(e.target.value)}
+              <div
+                role="listbox"
+                aria-label={t('recipientFromContacts')}
+                className="max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white"
               >
-                <option value="">{t('recipientSelectPlaceholder')}</option>
                 {relationshipOptions.map((opt) => (
-                  <option key={opt.id} value={opt.email}>
-                    {opt.selfDisplayName
-                      ? `${opt.selfDisplayName} (${opt.email})`
-                      : opt.privateDisplayName
-                        ? `${opt.privateDisplayName} · ${opt.email}`
-                        : opt.email}
-                    {opt.note ? ` — ${opt.note}` : ''}
-                  </option>
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="option"
+                    aria-selected={recipientEmail === opt.email}
+                    onClick={() => setRecipientEmail(opt.email)}
+                    className={`block w-full border-b border-gray-100 px-3 py-2 text-left text-sm last:border-b-0 transition-colors ${
+                      recipientEmail === opt.email
+                        ? 'bg-[#154212]/10 text-[#154212]'
+                        : 'bg-white text-[#1f261d] hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="block min-w-0 break-words font-medium">
+                      {relationshipOptionName(opt)}
+                    </span>
+                    {relationshipOptionShowsEmail(opt) && (
+                      <span className="mt-0.5 block min-w-0 break-all text-xs text-[#72796e]">
+                        {opt.email}
+                      </span>
+                    )}
+                    {opt.note && (
+                      <span className="mt-1 block min-w-0 break-words border-l-2 border-[#154212]/20 pl-3 text-xs text-[#72796e]">
+                        {opt.note}
+                      </span>
+                    )}
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+            </div>
           )}
           <label className="flex flex-col gap-1">
             <span className="text-sm font-medium text-[#42493e]">{t('recipientEmailOptional')}</span>

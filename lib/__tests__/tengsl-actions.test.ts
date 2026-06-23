@@ -38,7 +38,7 @@ vi.mock('next/cache', () => ({ revalidatePath: mockRevalidatePath }))
 import { updateRelationshipTag } from '@/lib/relationships/tag-action'
 // ALLOWED_TAGS is in lib/relationships/types.ts — not exported from 'use server' file
 
-import { getRelationshipDirectory, getRelationship, getRelationshipLoanActivity } from '@/lib/relationships/actions'
+import { getRelationshipDirectory, getRelationship, getRelationshipLoanActivity, getRelationshipRecipientOptions } from '@/lib/relationships/actions'
 
 const OWNER_ID = 'owner-id'
 const OWNER_EMAIL = 'owner@example.com'
@@ -276,12 +276,36 @@ function makeInOrSelect(rows: unknown[]) {
   }
 }
 
-// .select().in().or().order() — for getRelationshipLoanActivity (chains .order())
+// .select().in().or().order() — legacy helper kept for reference
 function makeInOrOrderSelect(rows: unknown[]) {
   return {
     select: vi.fn(() => ({
       in: vi.fn(() => ({
         or: vi.fn(() => ({
+          order: vi.fn(async () => ({ data: rows, error: null })),
+        })),
+      })),
+    })),
+  }
+}
+
+// .select().or().order() — for getRelationshipLoanActivity owner loans query
+function makeOrOrderSelect(rows: unknown[]) {
+  return {
+    select: vi.fn(() => ({
+      or: vi.fn(() => ({
+        order: vi.fn(async () => ({ data: rows, error: null })),
+      })),
+    })),
+  }
+}
+
+// .select().eq().not().order() — for getRelationshipRecipientOptions initial fetch
+function makeRecipientOptionsSelect(rows: unknown[]) {
+  return {
+    select: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        not: vi.fn(() => ({
           order: vi.fn(async () => ({ data: rows, error: null })),
         })),
       })),
@@ -706,16 +730,16 @@ describe('getRelationshipLoanActivity — canonical email normalization', () => 
     mockFrom.mockImplementation(() => {
       callCount++
       switch (callCount) {
-        // invite lookup: .select().in() — should search both 'dotteduser@gmail.com' and itself
-        case 1: return makeInSelect([{ loan_id: 'loan-1' }])
-        // loan filter: .select().in().or().order()
-        case 2: return makeInOrOrderSelect([{
+        // owner loans first: .select().or().order()
+        case 1: return makeOrOrderSelect([{
           id: 'loan-1',
           item_name: 'Reiknivél',
           loaned_at: '2026-06-01',
           returned_at: null,
           lender_user_id: OWNER_ID,
         }])
+        // then filter invitations for those loan IDs: .select().in()
+        case 2: return makeInSelect([{ loan_id: 'loan-1', recipient_email_normalized: 'dotted.user@gmail.com' }])
         default: return makeInSelect([])
       }
     })
@@ -733,15 +757,16 @@ describe('getRelationshipLoanActivity — canonical email normalization', () => 
     mockFrom.mockImplementation(() => {
       callCount++
       switch (callCount) {
-        // invite lookup: searches ['dotted.user@gmail.com', 'dotteduser@gmail.com']
-        case 1: return makeInSelect([{ loan_id: 'loan-2' }])
-        case 2: return makeInOrOrderSelect([{
+        // owner loans first
+        case 1: return makeOrOrderSelect([{
           id: 'loan-2',
           item_name: 'Hjól',
           loaned_at: '2026-06-10',
           returned_at: null,
           lender_user_id: OWNER_ID,
         }])
+        // invitations with canonical stored form
+        case 2: return makeInSelect([{ loan_id: 'loan-2', recipient_email_normalized: 'dotteduser@gmail.com' }])
         default: return makeInSelect([])
       }
     })
@@ -773,15 +798,15 @@ describe('getRelationship — email-only counterpart confirmation', () => {
     mockFrom.mockImplementation(() => {
       callCount++
       switch (callCount) {
-        case 1: return makeRelDetailSelect(relRow)          // initial select
-        case 2: return makeInEqSelect([                     // accepted invitations
-          { loan_id: 'loan-1', recipient_role: 'borrower' },
-        ])
-        case 3: return makeInOrSelect([{                    // owner-participant loan filter
+        case 1: return makeRelDetailSelect(relRow)   // initial select
+        case 2: return makeDirectLoansSelect([{      // owner loans first: .select().or()
           id: 'loan-1', lender_user_id: OWNER_ID, borrower_user_id: 'user-b',
         }])
-        case 4: return makeProfileMaybeSingle('Bob Jonsson')// profile
-        case 5: return makeUpdate()                         // lazy DB enrichment
+        case 3: return makeInEqSelect([{             // accepted invitations for those loan IDs
+          loan_id: 'loan-1', recipient_role: 'borrower', recipient_email_normalized: 'dotteduser@gmail.com',
+        }])
+        case 4: return makeProfileMaybeSingle('Bob Jonsson') // profile
+        case 5: return makeUpdate()                          // lazy DB enrichment
         default: return makeRelDetailSelect(null)
       }
     })
@@ -810,7 +835,7 @@ describe('getRelationship — email-only counterpart confirmation', () => {
       callCount++
       switch (callCount) {
         case 1: return makeRelDetailSelect(relRow)   // initial select
-        case 2: return makeInEqSelect([])            // no accepted invitations
+        case 2: return makeDirectLoansSelect([])     // no owner loans → no invitations query
         default: return makeRelDetailSelect(null)
       }
     })
@@ -820,5 +845,92 @@ describe('getRelationship — email-only counterpart confirmation', () => {
     expect(result!.counterpart_display_name).toBeNull()
     // Only 2 DB calls — no profile lookup for unconfirmed email-only contact
     expect(callCount).toBe(2)
+  })
+})
+
+// ── getRelationshipRecipientOptions — Gmail canonical dedup ───────────────────
+
+describe('getRelationshipRecipientOptions — Gmail dedup', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('returns one option when dotted and canonical Gmail rows both exist, keeping the richer row', async () => {
+    const dottedRow = {
+      id: 'rel-dotted',
+      email_canonical: 'dotted.user@gmail.com',
+      counterpart_user_id: null,
+      private_display_name: 'Bob Friend',
+      note: 'Skóvin',
+      created_at: '2026-06-01T00:00:00Z',
+      relationship_tags: [{ tag: 'friends' }],
+    }
+    const canonicalRow = {
+      id: 'rel-canonical',
+      email_canonical: 'dotteduser@gmail.com',
+      counterpart_user_id: null,
+      private_display_name: null,
+      note: null,
+      created_at: '2026-06-22T00:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+
+    mockFrom.mockImplementation(() => makeRecipientOptionsSelect([dottedRow, canonicalRow]))
+
+    const result = await getRelationshipRecipientOptions(OWNER_ID)
+    expect(result).toHaveLength(1)
+    expect(result[0].email).toBe('dotteduser@gmail.com') // canonical output
+    expect(result[0].privateDisplayName).toBe('Bob Friend')
+    expect(result[0].note).toBe('Skóvin')
+  })
+
+  it('does not merge non-Gmail rows with similar local-parts', async () => {
+    const rowA = {
+      id: 'rel-a',
+      email_canonical: 'dot.ted@example.com',
+      counterpart_user_id: null,
+      private_display_name: null,
+      note: null,
+      created_at: '2026-06-01T00:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+    const rowB = {
+      id: 'rel-b',
+      email_canonical: 'dotted@example.com',
+      counterpart_user_id: null,
+      private_display_name: null,
+      note: null,
+      created_at: '2026-06-02T00:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+
+    mockFrom.mockImplementation(() => makeRecipientOptionsSelect([rowA, rowB]))
+
+    const result = await getRelationshipRecipientOptions(OWNER_ID)
+    expect(result).toHaveLength(2)
+  })
+
+  it('fetches selfDisplayName from profile when counterpart_user_id is set', async () => {
+    const row = {
+      id: 'rel-1',
+      email_canonical: 'alice@example.com',
+      counterpart_user_id: 'user-a',
+      private_display_name: null,
+      note: null,
+      created_at: '2026-06-01T00:00:00Z',
+      relationship_tags: [{ tag: 'unclassified' }],
+    }
+
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      switch (callCount) {
+        case 1: return makeRecipientOptionsSelect([row])
+        case 2: return makeInSelect([{ id: 'user-a', display_name: 'Alice Smith' }])
+        default: return makeRecipientOptionsSelect([])
+      }
+    })
+
+    const result = await getRelationshipRecipientOptions(OWNER_ID)
+    expect(result).toHaveLength(1)
+    expect(result[0].selfDisplayName).toBe('Alice Smith')
   })
 })

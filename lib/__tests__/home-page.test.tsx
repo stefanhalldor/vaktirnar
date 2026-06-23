@@ -239,6 +239,10 @@ function makeInvitation(overrides: Partial<PendingInvitation> = {}): PendingInvi
   }
 }
 
+function makeSoftAckLoan(overrides: Record<string, unknown> = {}) {
+  return { requires_acknowledgement: true, invitation_status: 'pending', ...overrides }
+}
+
 function makeIdea(overrides: Partial<Idea> = {}): Idea {
   return {
     id: 'idea-1',
@@ -280,9 +284,9 @@ function setupProfile(displayName: string | null) {
   mockMaybeSingle.mockResolvedValue({ data: displayName ? { display_name: displayName } : null })
 }
 
-function setupRpcs(invitations: PendingInvitation[]) {
+function setupRpcs(softAckLoans: Array<{ requires_acknowledgement: boolean; invitation_status: string | null }> = []) {
   mockRpc.mockImplementation((fn: string) => {
-    if (fn === 'get_my_pending_invitations') return Promise.resolve({ data: invitations, error: null })
+    if (fn === 'get_my_loans') return Promise.resolve({ data: softAckLoans, error: null })
     return Promise.resolve({ data: null, error: { code: 'unknown' } })
   })
 }
@@ -485,7 +489,7 @@ describe('HeimPage — pending invitations badge', () => {
   it('shows badge with accessible label for count 1', async () => {
     setupGuard()
     setupProfile('Anna')
-    setupRpcs([makeInvitation()])
+    setupRpcs([makeSoftAckLoan()])
     render(await HeimPage())
     expect(screen.getByText('1')).toBeDefined()
     expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
@@ -494,10 +498,18 @@ describe('HeimPage — pending invitations badge', () => {
   it('shows badge with accessible label for count 2', async () => {
     setupGuard()
     setupProfile('Anna')
-    setupRpcs([makeInvitation(), makeInvitation({ invitation_id: 'inv-2' })])
+    setupRpcs([makeSoftAckLoan(), makeSoftAckLoan()])
     render(await HeimPage())
     expect(screen.getByText('2')).toBeDefined()
     expect(screen.getByLabelText('2 boð í bið')).toBeDefined()
+  })
+
+  it('does not show badge for loan without requires_acknowledgement', async () => {
+    setupGuard()
+    setupProfile('Anna')
+    setupRpcs([{ requires_acknowledgement: false, invitation_status: 'pending' }])
+    render(await HeimPage())
+    expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
 
   it('does not show badge when pending count is zero', async () => {
@@ -740,11 +752,11 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
   })
 
-  it('hides Ólesið but shows badge when events query throws and invitations succeed', async () => {
+  it('hides Ólesið but shows badge when events query throws and loans RPC succeeds', async () => {
     setupGuard()
     setupProfile('Hildur')
     mockRpc.mockImplementation((fn: string) => {
-      if (fn === 'get_my_pending_invitations') return Promise.resolve({ data: [makeInvitation()], error: null })
+      if (fn === 'get_my_loans') return Promise.resolve({ data: [makeSoftAckLoan()], error: null })
       return Promise.resolve({ data: null, error: { code: 'unknown' } })
     })
     mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
@@ -754,10 +766,10 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
-  it('shows Ólesið but hides badge when get_my_pending_invitations rejects and events succeed', async () => {
+  it('shows Ólesið but hides badge when get_my_loans rejects and events succeed', async () => {
     setupGuard()
     setupProfile(null)
-    mockRpc.mockRejectedValue(new Error('invitations rpc failed'))
+    mockRpc.mockRejectedValue(new Error('loans rpc failed'))
     setupRecentEvents([makeEvent({ payload: { itemName: 'Sykur' } })])
     render(await HeimPage())
     expect(screen.getByText('Ólesið')).toBeDefined()
