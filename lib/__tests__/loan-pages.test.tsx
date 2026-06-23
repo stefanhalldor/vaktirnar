@@ -65,7 +65,8 @@ vi.mock('@/lib/supabase/admin', () => ({
 }))
 
 vi.mock('@/components/loans/LoanList', () => ({
-  LoanList: () => React.createElement('div', { 'data-testid': 'loan-list' }),
+  LoanList: ({ highlightInvitationId }: { highlightInvitationId?: string }) =>
+    React.createElement('div', { 'data-testid': 'loan-list', 'data-highlight': highlightInvitationId ?? '' }),
 }))
 vi.mock('@/components/loans/LoanCard', () => ({
   LoanCard: ({ item }: { item: { item_name: string } }) =>
@@ -200,17 +201,17 @@ describe('LoanShell — no header element', () => {
 
 describe('LoanPage — page structure', () => {
   it('renders page title', async () => {
-    render(await LoanPage())
+    render(await LoanPage({}))
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
   it('contains no <header> element', async () => {
-    const { container } = render(await LoanPage())
+    const { container } = render(await LoanPage({}))
     expect(container.querySelector('header')).toBeNull()
   })
 
   it('nav Home link points to /auth-mvp/heim with correct aria-label', async () => {
-    const { container } = render(await LoanPage())
+    const { container } = render(await LoanPage({}))
     // The nav Home icon has exactly 1 SVG (lucide Home); the logo link has 2 (mobile + desktop)
     const allHomeLinks = Array.from(container.querySelectorAll('a[href="/auth-mvp/heim"]'))
     expect(allHomeLinks.length).toBeGreaterThanOrEqual(2)
@@ -219,7 +220,7 @@ describe('LoanPage — page structure', () => {
   })
 
   it('bottom logo link points to /auth-mvp/heim and contains decorative SVGs', async () => {
-    const { container } = render(await LoanPage())
+    const { container } = render(await LoanPage({}))
     // Logo link has 2 SVGs (sm:hidden + hidden sm:block variants)
     const logoLink = Array.from(container.querySelectorAll('a[href="/auth-mvp/heim"]')).find(
       (el) => el.querySelectorAll('svg').length > 1,
@@ -231,7 +232,7 @@ describe('LoanPage — page structure', () => {
   })
 
   it('page title appears before bottom logo in DOM', async () => {
-    const { container } = render(await LoanPage())
+    const { container } = render(await LoanPage({}))
     const title = screen.getByText('Lánað og skilað')
     const logoLink = Array.from(container.querySelectorAll('a[href="/auth-mvp/heim"]')).find(
       (el) => el.querySelectorAll('svg').length > 1,
@@ -239,6 +240,20 @@ describe('LoanPage — page structure', () => {
     expect(
       title.compareDocumentPosition(logoLink) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+  })
+
+  it('forwards searchParams.invitation as highlightInvitationId to LoanList (#52)', async () => {
+    const { container } = render(
+      await LoanPage({ searchParams: Promise.resolve({ invitation: 'inv-abc-123' }) }),
+    )
+    const list = container.querySelector('[data-testid="loan-list"]')
+    expect(list?.getAttribute('data-highlight')).toBe('inv-abc-123')
+  })
+
+  it('passes no highlightInvitationId when searchParams has no invitation param', async () => {
+    const { container } = render(await LoanPage({}))
+    const list = container.querySelector('[data-testid="loan-list"]')
+    expect(list?.getAttribute('data-highlight')).toBe('')
   })
 })
 
@@ -287,7 +302,7 @@ describe('NewLoanPage — page structure', () => {
 describe('LoanPage — PendingInvitationCard section removed', () => {
   it('does not render pending-card elements from get_my_pending_invitations', async () => {
     // LoanPage no longer calls get_my_pending_invitations; only get_my_loans is used
-    const { container } = render(await LoanPage())
+    const { container } = render(await LoanPage({}))
     expect(container.querySelectorAll('[data-testid="pending-card"]').length).toBe(0)
   })
 })
@@ -296,7 +311,7 @@ describe('LoanPage — PendingInvitationCard section removed', () => {
 
 describe('LoanPage — new item CTA', () => {
   it('renders CTA link to /auth-mvp/lanad-og-skilad/ny with accessible text "Skrá hlut í láni"', async () => {
-    render(await LoanPage())
+    render(await LoanPage({}))
     const cta = screen.getByRole('link', { name: /Skrá hlut í láni/i })
     expect(cta).toBeDefined()
     expect((cta as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/ny')

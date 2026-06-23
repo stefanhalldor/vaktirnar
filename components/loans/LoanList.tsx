@@ -11,9 +11,10 @@ type Sort = 'newest' | 'oldest'
 
 interface Props {
   items: LoanItem[]
+  highlightInvitationId?: string
 }
 
-export function LoanList({ items }: Props) {
+export function LoanList({ items, highlightInvitationId }: Props) {
   const t = useTranslations('teskeid.loans')
   const [status, setStatus] = useState<Status>('open')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>(null)
@@ -173,7 +174,11 @@ export function LoanList({ items }: Props) {
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map((item) => (
-            <LoanSummaryCard key={item.id} item={item} />
+            <LoanSummaryCard
+              key={item.id}
+              item={item}
+              isHighlighted={highlightInvitationId !== undefined && item.invitation_id === highlightInvitationId}
+            />
           ))}
         </div>
       )}

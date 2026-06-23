@@ -7,10 +7,17 @@ import { LoanList } from '@/components/loans/LoanList'
 import { LoanShell } from '@/components/loans/LoanShell'
 import type { LoanItem } from '@/lib/loans/types'
 
-export default async function LoanPage() {
+export default async function LoanPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}) {
   const { user } = await guardLoanAccess()
   const t = await getTranslations('teskeid.loans')
   const admin = getAdmin()
+
+  const params = searchParams ? await searchParams : {}
+  const highlightInvitationId = typeof params.invitation === 'string' ? params.invitation : undefined
 
   const loansResult = await admin.rpc('get_my_loans', { p_actor_id: user.id })
 
@@ -46,7 +53,7 @@ export default async function LoanPage() {
             <Plus size={18} aria-hidden />
             <span>{t('newItem')}</span>
           </Link>
-          <LoanList items={items} />
+          <LoanList items={items} highlightInvitationId={highlightInvitationId} />
         </>
       )}
     </LoanShell>

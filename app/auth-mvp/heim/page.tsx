@@ -10,7 +10,7 @@ import type { LoanItem } from '@/lib/loans/types'
 import type { Idea } from '@/lib/teskeid/types'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
 import { HomeIdeasDrawer } from '@/components/teskeid/HomeIdeasDrawer'
-import { getUnreadRecentEventsForUser } from '@/lib/recent-events/helpers.server'
+import { getUnreadRecentEventsForUser, recordRecentEvent } from '@/lib/recent-events/helpers.server'
 import type { RecentEventDisplay, LoanFieldChange } from '@/lib/recent-events/types'
 import { RecentSection, type RecentLabels } from './RecentSection'
 
@@ -120,6 +120,7 @@ export default async function HeimPage() {
   let invitationsError = false
   let recentEvents: RecentEventDisplay[] = []
   let eventsError = false
+  let loans: LoanItem[] = []
 
   if (loansEnabled) {
     let admin: ReturnType<typeof getAdmin> | null = null
@@ -140,13 +141,38 @@ export default async function HeimPage() {
         console.error('[heim/page] pending loan badge query failed')
         invitationsError = true
       } else {
-        const loans = (loansResult.data ?? []) as LoanItem[]
+        loans = (loansResult.data ?? []) as LoanItem[]
         pendingCount = loans.filter(
           (loan) =>
             loan.requires_acknowledgement &&
             loan.invitation_status === 'pending' &&
             loan.returned_at === null,
         ).length
+        // Best-effort event guarantor: ensure each pending invitation has a recent_events row.
+        // updateOnConflict: false means the first write wins — existing rows are never overwritten.
+        await Promise.allSettled(
+          loans
+            .filter(
+              (loan) =>
+                loan.requires_acknowledgement &&
+                loan.invitation_status === 'pending' &&
+                loan.returned_at === null &&
+                loan.invitation_id !== null,
+            )
+            .map((loan) =>
+              recordRecentEvent({
+                userId: user.id,
+                source: 'loans',
+                eventType: 'loan_invitation_received',
+                entityType: 'invitation',
+                entityId: loan.invitation_id!,
+                eventKey: `loans:invitation:${loan.invitation_id}:received`,
+                payload: { itemName: loan.item_name },
+                href: '/auth-mvp/lanad-og-skilad',
+                updateOnConflict: false,
+              }),
+            ),
+        )
       }
 
       try {
@@ -155,12 +181,16 @@ export default async function HeimPage() {
           const labelKey = EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type
           const itemName = event.payload.itemName ?? ''
           const isDeleted = event.event_type === 'loan_deleted'
-          const isInvitation = event.event_type === 'loan_invitation_received'
           let viewHref: string | null = null
           if (!isDeleted && event.entity_id) {
-            viewHref = isInvitation
-              ? `/auth-mvp/lanad-og-skilad?invitation=${event.entity_id}`
-              : '/auth-mvp/lanad-og-skilad'
+            if (event.entity_type === 'invitation') {
+              const matchingLoan = loans.find((l) => l.invitation_id === event.entity_id)
+              viewHref = matchingLoan
+                ? `/auth-mvp/lanad-og-skilad/${matchingLoan.id}`
+                : `/auth-mvp/lanad-og-skilad?invitation=${event.entity_id}`
+            } else if (event.entity_type === 'loan') {
+              viewHref = `/auth-mvp/lanad-og-skilad/${event.entity_id}`
+            }
           }
           const tFn = (key: string, params?: Record<string, string>) =>
             t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])

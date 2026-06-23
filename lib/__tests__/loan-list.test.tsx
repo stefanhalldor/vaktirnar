@@ -40,8 +40,8 @@ vi.mock('next-intl', () => ({
 }))
 
 vi.mock('@/components/loans/LoanSummaryCard', () => ({
-  LoanSummaryCard: ({ item }: { item: { id: string; item_name: string } }) =>
-    React.createElement('div', { 'data-testid': `card-${item.id}` }, item.item_name),
+  LoanSummaryCard: ({ item, isHighlighted }: { item: { id: string; item_name: string }; isHighlighted?: boolean }) =>
+    React.createElement('div', { 'data-testid': `card-${item.id}`, 'data-highlighted': String(isHighlighted ?? false) }, item.item_name),
 }))
 
 import { LoanList } from '@/components/loans/LoanList'
@@ -327,5 +327,36 @@ describe('LoanList — empty states', () => {
   it('shows noOpen when items list is empty', () => {
     render(<LoanList items={[]} />)
     expect(screen.getByText('Ekkert í láni.')).toBeDefined()
+  })
+})
+
+// ── highlightInvitationId ──────────────────────────────────────────────────────
+
+describe('LoanList — highlightInvitationId (#52)', () => {
+  const ITEMS_WITH_INV = [
+    makeItem({ id: 'h1', item_name: 'Highlighted', invitation_id: 'inv-abc' }),
+    makeItem({ id: 'h2', item_name: 'Normal', invitation_id: null }),
+  ]
+
+  it('passes isHighlighted=true to card whose invitation_id matches', () => {
+    const { container } = render(<LoanList items={ITEMS_WITH_INV} highlightInvitationId="inv-abc" />)
+    expect(container.querySelector('[data-testid="card-h1"]')?.getAttribute('data-highlighted')).toBe('true')
+  })
+
+  it('passes isHighlighted=false to card whose invitation_id does not match', () => {
+    const { container } = render(<LoanList items={ITEMS_WITH_INV} highlightInvitationId="inv-abc" />)
+    expect(container.querySelector('[data-testid="card-h2"]')?.getAttribute('data-highlighted')).toBe('false')
+  })
+
+  it('does not crash when highlightInvitationId matches no item', () => {
+    expect(() =>
+      render(<LoanList items={ITEMS_WITH_INV} highlightInvitationId="inv-nonexistent" />),
+    ).not.toThrow()
+  })
+
+  it('all cards get isHighlighted=false when highlightInvitationId is undefined', () => {
+    const { container } = render(<LoanList items={ITEMS_WITH_INV} />)
+    expect(container.querySelector('[data-testid="card-h1"]')?.getAttribute('data-highlighted')).toBe('false')
+    expect(container.querySelector('[data-testid="card-h2"]')?.getAttribute('data-highlighted')).toBe('false')
   })
 })

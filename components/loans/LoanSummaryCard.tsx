@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle } from 'lucide-react'
@@ -11,14 +11,22 @@ import type { LoanItem } from '@/lib/loans/types'
 
 interface Props {
   item: LoanItem
+  isHighlighted?: boolean
 }
 
-export function LoanSummaryCard({ item }: Props) {
+export function LoanSummaryCard({ item, isHighlighted }: Props) {
   const t = useTranslations('teskeid.loans')
   const locale = useLocale()
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [actionError, setActionError] = useState('')
+  const highlightRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (isHighlighted) {
+      highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [isHighlighted])
 
   const isReturned = item.returned_at !== null
   const isOverdue = !isReturned && !!item.due_at && item.due_at < new Date().toISOString().slice(0, 10)
@@ -111,44 +119,48 @@ export function LoanSummaryCard({ item }: Props) {
 
   if (item.requires_acknowledgement) {
     return (
-      <article className="bg-white border border-black/5 rounded-2xl hover:border-[#154212]/30 transition-colors">
-        <Link
-          href={`/auth-mvp/lanad-og-skilad/${item.id}`}
-          className="block p-4 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded-t-2xl"
-        >
-          {cardBody}
-        </Link>
-        {actionError && (
-          <p className="px-4 pb-1 text-xs text-red-600">{actionError}</p>
-        )}
-        <div className="px-4 pb-4 flex gap-2">
-          <button
-            type="button"
-            onClick={handleDecline}
-            disabled={isPending}
-            className="flex-1 h-8 rounded-lg border border-gray-200 text-xs text-[#42493e] hover:bg-gray-50 transition-colors disabled:opacity-50"
+      <div ref={highlightRef}>
+        <article className={`bg-white border border-black/5 rounded-2xl hover:border-[#154212]/30 transition-colors${isHighlighted ? ' ring-2 ring-[#154212] ring-offset-1' : ''}`}>
+          <Link
+            href={`/auth-mvp/lanad-og-skilad/${item.id}`}
+            className="block p-4 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded-t-2xl"
           >
-            {t('declineAcknowledgement')}
-          </button>
-          <button
-            type="button"
-            onClick={handleAcknowledge}
-            disabled={isPending}
-            className="flex-1 h-8 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
-          >
-            {t('acknowledge')}
-          </button>
-        </div>
-      </article>
+            {cardBody}
+          </Link>
+          {actionError && (
+            <p className="px-4 pb-1 text-xs text-red-600">{actionError}</p>
+          )}
+          <div className="px-4 pb-4 flex gap-2">
+            <button
+              type="button"
+              onClick={handleDecline}
+              disabled={isPending}
+              className="flex-1 h-8 rounded-lg border border-gray-200 text-xs text-[#42493e] hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {t('declineAcknowledgement')}
+            </button>
+            <button
+              type="button"
+              onClick={handleAcknowledge}
+              disabled={isPending}
+              className="flex-1 h-8 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
+            >
+              {t('acknowledge')}
+            </button>
+          </div>
+        </article>
+      </div>
     )
   }
 
   return (
-    <Link
-      href={`/auth-mvp/lanad-og-skilad/${item.id}`}
-      className="block bg-white border border-black/5 rounded-2xl p-4 hover:border-[#154212]/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-    >
-      {cardBody}
-    </Link>
+    <div ref={highlightRef}>
+      <Link
+        href={`/auth-mvp/lanad-og-skilad/${item.id}`}
+        className={`block bg-white border border-black/5 rounded-2xl p-4 hover:border-[#154212]/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1${isHighlighted ? ' ring-2 ring-[#154212] ring-offset-1' : ''}`}
+      >
+        {cardBody}
+      </Link>
+    </div>
   )
 }

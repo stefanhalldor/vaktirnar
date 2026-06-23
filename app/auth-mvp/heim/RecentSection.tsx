@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { CheckCircle2, X } from 'lucide-react'
 import type { RecentEventDisplay } from '@/lib/recent-events/types'
 import { ackRecentEvents } from './actions'
@@ -134,6 +135,18 @@ export function RecentSection({ rows, labels }: Props) {
               </button>
             </div>
             <div className="flex gap-3">
+              {drawerEvent.viewHref && !drawerEvent.isDeleted && (
+                <Link
+                  href={drawerEvent.viewHref}
+                  onClick={() => {
+                    setAckedIds((prev) => new Set([...prev, drawerEvent.id]))
+                    void ackRecentEvents({ event_ids: [drawerEvent.id] })
+                  }}
+                  className="flex-1 inline-flex items-center justify-center h-10 px-4 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {labels.viewItem}
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={() => handleMarkOne(drawerEvent)}

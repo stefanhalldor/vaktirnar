@@ -284,7 +284,7 @@ function setupProfile(displayName: string | null) {
   mockMaybeSingle.mockResolvedValue({ data: displayName ? { display_name: displayName } : null })
 }
 
-function setupRpcs(softAckLoans: Array<{ requires_acknowledgement: boolean; invitation_status: string | null; returned_at?: string | null }> = []) {
+function setupRpcs(softAckLoans: Array<Record<string, unknown>> = []) {
   mockRpc.mockImplementation((fn: string) => {
     if (fn === 'get_my_loans') return Promise.resolve({ data: softAckLoans, error: null })
     return Promise.resolve({ data: null, error: { code: 'unknown' } })
@@ -852,54 +852,64 @@ describe('HeimPage — event drawer', () => {
     expect(container.querySelector('[data-testid="recent-drawer"]')).not.toBeNull()
   })
 
-  it('drawer temporarily hides "Skoða" link for all unread events (loan_created)', async () => {
+  it('drawer shows "Skoða" link for loan_invitation_received pointing to detail route when loan matches (#52)', async () => {
     setupGuard()
     setupProfile(null)
-    setupRpcs([])
-    setupRecentEvents([makeEvent({ id: 1, event_type: 'loan_created', entity_id: 'aaa-bbb-ccc', payload: { itemName: 'Borvél' } })])
+    setupRpcs([{ id: 'loan-xyz', invitation_id: 'inv-uuid-1234', requires_acknowledgement: true, invitation_status: 'pending', returned_at: null, item_name: 'Borvél' }])
+    setupRecentEvents([makeEvent({ id: 5, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-1234', payload: { itemName: 'Borvél' } })])
     render(await HeimPage())
-    fireEvent.click(screen.getByText('Búinn til: Borvél'))
-    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
+    fireEvent.click(screen.getByText('Lánaboð: Borvél'))
+    const link = screen.getByRole('link', { name: 'Skoða' })
+    expect(link).toBeDefined()
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/loan-xyz')
   })
 
-  it('drawer temporarily hides "Skoða" link for loan_invitation_received', async () => {
+  it('drawer Skoða for loan_invitation_received falls back to ?invitation= when no matching loan (#52)', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ id: 5, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-1234', payload: { itemName: 'Borvél' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lánaboð: Borvél'))
-    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
+    const link = screen.getByRole('link', { name: 'Skoða' })
+    expect(link).toBeDefined()
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad?invitation=inv-uuid-1234')
   })
 
-  it('drawer temporarily hides "Skoða" link for loan_invitation_accepted', async () => {
+  it('clicking "Skoða" acks the event so it disappears from Ólesið (#52)', async () => {
+    mockAckRecentEvents.mockResolvedValue({ ok: true })
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 5, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-1234', payload: { itemName: 'Borvél' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Lánaboð: Borvél'))
+    fireEvent.click(screen.getByRole('link', { name: 'Skoða' }))
+    expect(mockAckRecentEvents).toHaveBeenCalledWith({ event_ids: [5] })
+  })
+
+  it('drawer shows "Skoða" link pointing to detail route for loan_created event (#52)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 1, event_type: 'loan_created', entity_type: 'loan', entity_id: 'aaa-bbb-ccc', payload: { itemName: 'Borvél' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Búinn til: Borvél'))
+    const link = screen.getByRole('link', { name: 'Skoða' })
+    expect(link).toBeDefined()
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/aaa-bbb-ccc')
+  })
+
+  it('drawer shows "Skoða" link pointing to detail route for loan_invitation_accepted event (#52)', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ id: 6, event_type: 'loan_invitation_accepted', entity_type: 'loan', entity_id: 'loan-uuid-5678', payload: { itemName: 'Reiðhjól' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Lánaboð samþykkt: Reiðhjól'))
-    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
-  })
-
-  it('drawer temporarily hides "Skoða" link for loan_invitation_declined', async () => {
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([])
-    setupRecentEvents([makeEvent({ id: 7, event_type: 'loan_invitation_declined', entity_type: 'loan', entity_id: 'loan-uuid-9999', payload: { itemName: 'Kassi' } })])
-    render(await HeimPage())
-    fireEvent.click(screen.getByText('Lánaboði hafnað: Kassi'))
-    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
-  })
-
-  it('drawer temporarily hides "Skoða" link for loan_updated', async () => {
-    setupGuard()
-    setupProfile(null)
-    setupRpcs([])
-    setupRecentEvents([makeEvent({ id: 8, event_type: 'loan_updated', entity_type: 'loan', entity_id: 'loan-uuid-updated', payload: { itemName: 'Borvél' } })])
-    render(await HeimPage())
-    fireEvent.click(screen.getByText('Breytt: Borvél'))
-    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
+    const link = screen.getByRole('link', { name: 'Skoða' })
+    expect(link).toBeDefined()
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/loan-uuid-5678')
   })
 
   it('drawer does not show "Skoða" for deleted events', async () => {
