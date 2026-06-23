@@ -29,6 +29,11 @@ const options = [
     note: 'Forskoðun á 10,5 merkingu með leturstaf. Þarf samþykki Stebba áður en framleiðsluleiðir eru uppfærðar með nýrri tilvísunarMynd.',
   },
   {
+    name: 'Allt/10 derhúfa (forskoðun — tveggja lína leturstafur)',
+    file: 'cap-mark-allt-10-preview.svg',
+    note: 'Forskoðun á tvílínu Allt/10 merkingu með leturstaf. Til samanburðar við 10,5 útgáfuna.',
+  },
+  {
     name: 'Gleraugu og bros',
     file: 'glasses-smile.svg',
     note: 'Einfaldasta merkið og læsilegasta útgáfan við 16 px.',
