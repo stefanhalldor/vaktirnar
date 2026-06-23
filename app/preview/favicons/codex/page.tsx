@@ -39,6 +39,11 @@ const options = [
     note: 'Favicon-útgáfa. Bara 10, stórt og miðjað. Ekkert Allt — besta læsileiki í litlum stærðum.',
   },
   {
+    name: '10 minimal — grænn bakgrunnur, krem tala',
+    file: 'ten-minimal-preview.svg',
+    note: 'Einfaldasta favicon-útgáfan. Engin derhúfa eða persóna — bara 10 á grænum bakgrunni.',
+  },
+  {
     name: 'Gleraugu og bros',
     file: 'glasses-smile.svg',
     note: 'Einfaldasta merkið og læsilegasta útgáfan við 16 px.',
