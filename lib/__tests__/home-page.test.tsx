@@ -240,7 +240,7 @@ function makeInvitation(overrides: Partial<PendingInvitation> = {}): PendingInvi
 }
 
 function makeSoftAckLoan(overrides: Record<string, unknown> = {}) {
-  return { requires_acknowledgement: true, invitation_status: 'pending', ...overrides }
+  return { requires_acknowledgement: true, invitation_status: 'pending', returned_at: null, ...overrides }
 }
 
 function makeIdea(overrides: Partial<Idea> = {}): Idea {
@@ -284,7 +284,7 @@ function setupProfile(displayName: string | null) {
   mockMaybeSingle.mockResolvedValue({ data: displayName ? { display_name: displayName } : null })
 }
 
-function setupRpcs(softAckLoans: Array<{ requires_acknowledgement: boolean; invitation_status: string | null }> = []) {
+function setupRpcs(softAckLoans: Array<{ requires_acknowledgement: boolean; invitation_status: string | null; returned_at?: string | null }> = []) {
   mockRpc.mockImplementation((fn: string) => {
     if (fn === 'get_my_loans') return Promise.resolve({ data: softAckLoans, error: null })
     return Promise.resolve({ data: null, error: { code: 'unknown' } })
@@ -526,6 +526,22 @@ describe('HeimPage — pending invitations badge', () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+  })
+
+  it('does not show badge for pending acknowledgement loan that is already returned (#55)', async () => {
+    setupGuard()
+    setupProfile('Anna')
+    setupRpcs([makeSoftAckLoan({ returned_at: '2026-06-22T21:33:08Z' })])
+    render(await HeimPage())
+    expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+  })
+
+  it('still shows badge for open (not returned) pending acknowledgement loan (#55)', async () => {
+    setupGuard()
+    setupProfile('Anna')
+    setupRpcs([makeSoftAckLoan({ returned_at: null })])
+    render(await HeimPage())
+    expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
   })
 })
 

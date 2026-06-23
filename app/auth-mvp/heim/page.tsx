@@ -142,7 +142,10 @@ export default async function HeimPage() {
       } else {
         const loans = (loansResult.data ?? []) as LoanItem[]
         pendingCount = loans.filter(
-          (loan) => loan.requires_acknowledgement && loan.invitation_status === 'pending'
+          (loan) =>
+            loan.requires_acknowledgement &&
+            loan.invitation_status === 'pending' &&
+            loan.returned_at === null,
         ).length
       }
 

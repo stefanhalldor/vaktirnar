@@ -1,5 +1,5 @@
-import { render } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render, fireEvent, act } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import React from 'react'
 import type { LoanItem } from '@/lib/loans/types'
 
@@ -15,8 +15,11 @@ vi.mock('next/link', () => ({
   }) => React.createElement('a', { href, ...props }, children),
 }))
 
+const mockRefresh = vi.fn()
+const mockPush = vi.fn()
+
 vi.mock('next/navigation', () => ({
-  useRouter: vi.fn(() => ({ push: vi.fn() })),
+  useRouter: vi.fn(() => ({ push: mockPush, refresh: mockRefresh })),
 }))
 
 vi.mock('next-intl', () => ({
@@ -48,6 +51,12 @@ vi.mock('next-intl', () => ({
       'inviteStatus.expired': 'Útrunnið',
       'errors.saveFailed': 'Villa við vistun',
       'errors.invitationNotAccepted': 'Báðir aðilar þurfa að vera skráðir.',
+      'errors.claimFailed': 'Gat ekki skráð þig. Reyndu aftur.',
+      'errors.wrongEmail': 'Þetta boð er ekki sent á þig.',
+      'errors.alreadyClaimed': 'Þetta lán er þegar skráð.',
+      'errors.notClaimable': 'Þetta boð er ekki lengur opið.',
+      'errors.expiredInvite': 'Þetta boð er útrunnið.',
+      'errors.selfClaim': 'Þú getur ekki samþykkt lán við sjálfan þig.',
       'weekdays.0': 'sunnudaginn',
       'weekdays.1': 'mánudaginn',
       'weekdays.2': 'þriðjudaginn',
@@ -89,8 +98,13 @@ vi.mock('@/lib/loans/actions', () => ({
   declineInvitation: vi.fn(),
 }))
 
+import { claimInvitation, declineInvitation } from '@/lib/loans/actions'
 import { LoanCard } from '@/components/loans/LoanCard'
 import { LoanSummaryCard } from '@/components/loans/LoanSummaryCard'
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 function makeLoanItem(overrides: Partial<LoanItem> = {}): LoanItem {
   return {
@@ -249,5 +263,100 @@ describe('LoanSummaryCard — recipient_email', () => {
     )
     expect(container.textContent).toContain('Jón')
     expect(container.textContent).not.toContain('jon@example.com')
+  })
+})
+
+// ── LoanSummaryCard — pending recipient actions (#55) ─────────────────────────
+
+describe('LoanSummaryCard — pending recipient actions (#55)', () => {
+  function makePendingRecipient(overrides: Partial<LoanItem> = {}): LoanItem {
+    return makeLoanItem({
+      is_creator: false,
+      invitation_status: 'pending',
+      requires_acknowledgement: true,
+      invitation_id: 'invite-55',
+      ...overrides,
+    })
+  }
+
+  it('shows Þekki málið and Kannast ekki við þetta for pending recipient row', () => {
+    const { getByText } = render(<LoanSummaryCard item={makePendingRecipient()} />)
+    expect(getByText('Þekki málið')).toBeInTheDocument()
+    expect(getByText('Kannast ekki við þetta')).toBeInTheDocument()
+  })
+
+  it('does not show action buttons for creator pending row', () => {
+    const { queryByText } = render(
+      <LoanSummaryCard item={makeLoanItem({
+        is_creator: true,
+        invitation_status: 'pending',
+        requires_acknowledgement: false,
+      })} />,
+    )
+    expect(queryByText('Þekki málið')).toBeNull()
+    expect(queryByText('Kannast ekki við þetta')).toBeNull()
+  })
+
+  it('does not show action buttons for accepted loan', () => {
+    const { queryByText } = render(
+      <LoanSummaryCard item={makeLoanItem({
+        invitation_status: 'accepted',
+        requires_acknowledgement: false,
+      })} />,
+    )
+    expect(queryByText('Þekki málið')).toBeNull()
+    expect(queryByText('Kannast ekki við þetta')).toBeNull()
+  })
+
+  it('clicking Þekki málið calls claimInvitation and router.refresh on success', async () => {
+    vi.mocked(claimInvitation).mockResolvedValue({ ok: true })
+
+    const { getByText } = render(<LoanSummaryCard item={makePendingRecipient()} />)
+
+    await act(async () => {
+      fireEvent.click(getByText('Þekki málið'))
+    })
+
+    expect(claimInvitation).toHaveBeenCalledWith('invite-55')
+    expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('clicking Kannast ekki við þetta calls declineInvitation and router.refresh on success', async () => {
+    vi.mocked(declineInvitation).mockResolvedValue({ ok: true })
+
+    const { getByText } = render(<LoanSummaryCard item={makePendingRecipient()} />)
+
+    await act(async () => {
+      fireEvent.click(getByText('Kannast ekki við þetta'))
+    })
+
+    expect(declineInvitation).toHaveBeenCalledWith('invite-55')
+    expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('shows error text and does not refresh on claimInvitation failure', async () => {
+    vi.mocked(claimInvitation).mockResolvedValue({ ok: false, error: 'claim_failed' })
+
+    const { getByText, queryByText } = render(<LoanSummaryCard item={makePendingRecipient()} />)
+
+    await act(async () => {
+      fireEvent.click(getByText('Þekki málið'))
+    })
+
+    expect(getByText('Gat ekki skráð þig. Reyndu aftur.')).toBeInTheDocument()
+    expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('shows error text and does not refresh on declineInvitation failure', async () => {
+    vi.mocked(declineInvitation).mockResolvedValue({ ok: false, error: 'save_failed' })
+
+    const { getByText, queryByText } = render(<LoanSummaryCard item={makePendingRecipient()} />)
+
+    await act(async () => {
+      fireEvent.click(getByText('Kannast ekki við þetta'))
+    })
+
+    expect(getByText('Villa við vistun')).toBeInTheDocument()
+    expect(mockRefresh).not.toHaveBeenCalled()
   })
 })

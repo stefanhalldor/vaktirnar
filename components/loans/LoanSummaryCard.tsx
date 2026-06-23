@@ -1,8 +1,11 @@
 'use client'
 
+import { useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { AlertTriangle } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
+import { claimInvitation, declineInvitation } from '@/lib/loans/actions'
 import { loanedAtWeekday } from '@/lib/loans/types'
 import type { LoanItem } from '@/lib/loans/types'
 
@@ -13,6 +16,9 @@ interface Props {
 export function LoanSummaryCard({ item }: Props) {
   const t = useTranslations('teskeid.loans')
   const locale = useLocale()
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [actionError, setActionError] = useState('')
 
   const isReturned = item.returned_at !== null
   const isOverdue = !isReturned && !!item.due_at && item.due_at < new Date().toISOString().slice(0, 10)
@@ -49,11 +55,39 @@ export function LoanSummaryCard({ item }: Props) {
     dueDateStr = t('dueAtFull', { date: buildDateString(dYear, dMonth, dDay) })
   }
 
-  return (
-    <Link
-      href={`/auth-mvp/lanad-og-skilad/${item.id}`}
-      className="block bg-white border border-black/5 rounded-2xl p-4 hover:border-[#154212]/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-    >
+  function handleAcknowledge() {
+    if (!item.invitation_id) return
+    setActionError('')
+    startTransition(async () => {
+      const result = await claimInvitation(item.invitation_id!)
+      if (result.ok) {
+        router.refresh()
+      } else {
+        if (result.error === 'wrong_email')          setActionError(t('errors.wrongEmail'))
+        else if (result.error === 'already_claimed') setActionError(t('errors.alreadyClaimed'))
+        else if (result.error === 'not_claimable')   setActionError(t('errors.notClaimable'))
+        else if (result.error === 'expired')         setActionError(t('errors.expiredInvite'))
+        else if (result.error === 'self_claim')      setActionError(t('errors.selfClaim'))
+        else                                         setActionError(t('errors.claimFailed'))
+      }
+    })
+  }
+
+  function handleDecline() {
+    if (!item.invitation_id) return
+    setActionError('')
+    startTransition(async () => {
+      const result = await declineInvitation(item.invitation_id!)
+      if (result.ok) {
+        router.refresh()
+      } else {
+        setActionError(t('errors.saveFailed'))
+      }
+    })
+  }
+
+  const cardBody = (
+    <>
       <p className="font-medium text-[#1b1c19] text-sm leading-tight truncate">
         {item.item_name}
       </p>
@@ -72,6 +106,49 @@ export function LoanSummaryCard({ item }: Props) {
           </p>
         )}
       </div>
+    </>
+  )
+
+  if (item.requires_acknowledgement) {
+    return (
+      <article className="bg-white border border-black/5 rounded-2xl hover:border-[#154212]/30 transition-colors">
+        <Link
+          href={`/auth-mvp/lanad-og-skilad/${item.id}`}
+          className="block p-4 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded-t-2xl"
+        >
+          {cardBody}
+        </Link>
+        {actionError && (
+          <p className="px-4 pb-1 text-xs text-red-600">{actionError}</p>
+        )}
+        <div className="px-4 pb-4 flex gap-2">
+          <button
+            type="button"
+            onClick={handleDecline}
+            disabled={isPending}
+            className="flex-1 h-8 rounded-lg border border-gray-200 text-xs text-[#42493e] hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            {t('declineAcknowledgement')}
+          </button>
+          <button
+            type="button"
+            onClick={handleAcknowledge}
+            disabled={isPending}
+            className="flex-1 h-8 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
+          >
+            {t('acknowledge')}
+          </button>
+        </div>
+      </article>
+    )
+  }
+
+  return (
+    <Link
+      href={`/auth-mvp/lanad-og-skilad/${item.id}`}
+      className="block bg-white border border-black/5 rounded-2xl p-4 hover:border-[#154212]/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+    >
+      {cardBody}
     </Link>
   )
 }
