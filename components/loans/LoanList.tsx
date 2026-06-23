@@ -159,7 +159,7 @@ export function LoanList({ items }: Props) {
             value={sort}
             onChange={(e) => setSort(e.target.value as Sort)}
             aria-label={t('sortLabel')}
-            className="text-xs text-[#42493e] border border-gray-200 rounded-xl px-2 py-2 bg-white outline-none focus:border-[#2d5a27] h-9"
+            className="text-base text-[#42493e] border border-gray-200 rounded-xl px-2 py-2 bg-white outline-none focus:border-[#2d5a27] h-9"
           >
             <option value="newest">{t('sortNewest')}</option>
             <option value="oldest">{t('sortOldest')}</option>
