@@ -29,9 +29,14 @@ const options = [
     note: 'Forskoðun á 10,5 merkingu með leturstaf. Þarf samþykki Stebba áður en framleiðsluleiðir eru uppfærðar með nýrri tilvísunarMynd.',
   },
   {
-    name: 'Allt/10 derhúfa (forskoðun — tveggja lína leturstafur)',
+    name: 'Allt/10 derhúfa — stærra lógó/brand mark',
     file: 'cap-mark-allt-10-preview.svg',
-    note: 'Forskoðun á tvílínu Allt/10 merkingu með leturstaf. Til samanburðar við 10,5 útgáfuna.',
+    note: 'Canonical production lógó. Allt (hóflegt) yfir 10 (stórt, ríkjandi). Ekki ætlað sem favicon.',
+  },
+  {
+    name: '10 derhúfa — favicon/app-icon (app/icon.svg)',
+    file: 'cap-mark-10-only-preview.svg',
+    note: 'Favicon-útgáfa. Bara 10, stórt og miðjað. Ekkert Allt — besta læsileiki í litlum stærðum.',
   },
   {
     name: 'Gleraugu og bros',

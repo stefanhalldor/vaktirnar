@@ -44,20 +44,32 @@ export function TeskeidLogo({
       {showBackground && <rect width={WIDTH} height={HEIGHT} fill={CREAM} />}
       <path d={TESKEID_GREEN_PATH} fill={GREEN} fillRule="evenodd" />
       <path d={TESKEID_CREAM_DETAILS_PATH} fill={CREAM} fillRule="evenodd" />
-      {/* Erase A&10 vector holes and replace with 10,5 */}
+      {/* Erase A&10 vector holes; replace with Allt (small label) over 10 (dominant) */}
       {showBackground && <rect x={514} y={224} width={188} height={66} fill={CREAM} />}
       <text
         x={608}
-        y={260}
+        y={233}
         textAnchor="middle"
         dominantBaseline="middle"
         fontFamily="Arial Black, Arial, Helvetica, sans-serif"
         fontWeight="900"
-        fontSize={46}
+        fontSize={18}
+        fill={GREEN}
+      >
+        Allt
+      </text>
+      <text
+        x={608}
+        y={267}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontFamily="Arial Black, Arial, Helvetica, sans-serif"
+        fontWeight="900"
+        fontSize={44}
         fill={GREEN}
         letterSpacing="-1"
       >
-        10,5
+        10
       </text>
     </svg>
   )
