@@ -24,11 +24,20 @@ vi.mock('next/link', () => ({
   }) => React.createElement('a', { href, ...props }, children),
 }))
 
-const { mockGuardLoanAccess } = vi.hoisted(() => ({
+const { mockGuardLoanAccess, mockCheckFeatureAccess } = vi.hoisted(() => ({
   mockGuardLoanAccess: vi.fn(),
+  mockCheckFeatureAccess: vi.fn(),
 }))
 vi.mock('@/lib/loans/guard', () => ({
   guardLoanAccess: mockGuardLoanAccess,
+  checkFeatureAccess: mockCheckFeatureAccess,
+}))
+
+const { mockGetRelationshipRecipientOptions } = vi.hoisted(() => ({
+  mockGetRelationshipRecipientOptions: vi.fn(),
+}))
+vi.mock('@/lib/relationships/actions', () => ({
+  getRelationshipRecipientOptions: mockGetRelationshipRecipientOptions,
 }))
 
 vi.mock('next-intl/server', () => ({
@@ -71,6 +80,13 @@ vi.mock('@/components/loans/LoanForm', () => ({
 vi.mock('@/components/loans/LoanItemDetailsForm', () => ({
   LoanItemDetailsForm: () => React.createElement('form', { 'data-testid': 'loan-item-details-form' }),
 }))
+vi.mock('@/components/loans/AddPartyForm', () => ({
+  AddPartyForm: ({ relationshipOptions }: { relationshipOptions?: Array<unknown> }) =>
+    React.createElement('div', {
+      'data-testid': 'add-party-form',
+      'data-has-options': String(!!relationshipOptions?.length),
+    }),
+}))
 vi.mock('@/lib/loans/actions', () => ({
   createLoan: vi.fn(),
   updateLoan: vi.fn(),
@@ -78,6 +94,7 @@ vi.mock('@/lib/loans/actions', () => ({
 }))
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => { throw new Error('NEXT_NOT_FOUND') }),
+  redirect: vi.fn(() => { throw new Error('NEXT_REDIRECT') }),
   usePathname: vi.fn().mockReturnValue('/auth-mvp/lanad-og-skilad'),
 }))
 
@@ -91,6 +108,7 @@ import LoanPage from '@/app/auth-mvp/lanad-og-skilad/page'
 import NewLoanPage from '@/app/auth-mvp/lanad-og-skilad/ny/page'
 import EditLoanPage from '@/app/auth-mvp/lanad-og-skilad/breyta/[id]/page'
 import LoanDetailPage from '@/app/auth-mvp/lanad-og-skilad/[id]/page'
+import AddPartyPage from '@/app/auth-mvp/lanad-og-skilad/baeta-vid-adila/[id]/page'
 
 const TEST_USER = { id: 'uid-1', email: 'user@example.com' }
 
@@ -98,6 +116,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockGuardLoanAccess.mockResolvedValue({ user: TEST_USER })
   mockRpc.mockResolvedValue({ data: [], error: null })
+  mockCheckFeatureAccess.mockResolvedValue(false)
+  mockGetRelationshipRecipientOptions.mockResolvedValue([])
 })
 
 // ── LoanShell — unit tests ────────────────────────────────────────────────────
@@ -443,5 +463,80 @@ describe('LoanDetailPage — routing and guards', () => {
     )
     const back = container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')
     expect(back).not.toBeNull()
+  })
+})
+
+// ── AddPartyPage ───────────────────────────────────────────────────────────────
+
+const ADD_PARTY_ITEM = { ...ITEM_BASE, is_creator: true, my_role: 'lender' as const, invitation_status: null }
+
+describe('AddPartyPage — routing and guards', () => {
+  it('throws notFound when item is not in get_my_loans', async () => {
+    mockRpc.mockResolvedValue({ data: [], error: null })
+    await expect(
+      AddPartyPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('throws notFound when user is not creator', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ADD_PARTY_ITEM, is_creator: false }],
+      error: null,
+    })
+    await expect(
+      AddPartyPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('redirects when invitation is already pending', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ADD_PARTY_ITEM, invitation_status: 'pending' }],
+      error: null,
+    })
+    await expect(
+      AddPartyPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    ).rejects.toThrow('NEXT_REDIRECT')
+  })
+
+  it('renders AddPartyForm when creator has no invitation', async () => {
+    mockRpc.mockResolvedValue({ data: [ADD_PARTY_ITEM], error: null })
+    render(await AddPartyPage({ params: Promise.resolve({ id: 'loan-id-1' }) }))
+    expect(screen.getByTestId('add-party-form')).toBeDefined()
+  })
+})
+
+describe('AddPartyPage — relationship picker', () => {
+  it('passes relationship options when user has tengsl and options exist', async () => {
+    mockRpc.mockResolvedValue({ data: [ADD_PARTY_ITEM], error: null })
+    mockCheckFeatureAccess.mockResolvedValue(true)
+    mockGetRelationshipRecipientOptions.mockResolvedValue([
+      { id: 'rel-1', email: 'jon@example.com', selfDisplayName: null, privateDisplayName: 'Jón', note: null, tags: [] },
+    ])
+    const { getByTestId } = render(
+      await AddPartyPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(getByTestId('add-party-form').getAttribute('data-has-options')).toBe('true')
+  })
+
+  it('does not pass options when tengsl feature is disabled', async () => {
+    mockRpc.mockResolvedValue({ data: [ADD_PARTY_ITEM], error: null })
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    mockGetRelationshipRecipientOptions.mockResolvedValue([
+      { id: 'rel-1', email: 'jon@example.com', selfDisplayName: null, privateDisplayName: 'Jón', note: null, tags: [] },
+    ])
+    const { getByTestId } = render(
+      await AddPartyPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(getByTestId('add-party-form').getAttribute('data-has-options')).toBe('false')
+  })
+
+  it('does not pass options when recipient options list is empty', async () => {
+    mockRpc.mockResolvedValue({ data: [ADD_PARTY_ITEM], error: null })
+    mockCheckFeatureAccess.mockResolvedValue(true)
+    mockGetRelationshipRecipientOptions.mockResolvedValue([])
+    const { getByTestId } = render(
+      await AddPartyPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(getByTestId('add-party-form').getAttribute('data-has-options')).toBe('false')
   })
 })

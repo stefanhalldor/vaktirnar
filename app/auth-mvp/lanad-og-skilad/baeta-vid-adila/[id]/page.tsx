@@ -1,12 +1,14 @@
 import { notFound, redirect } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import Link from 'next/link'
-import { guardLoanAccess } from '@/lib/loans/guard'
+import { guardLoanAccess, checkFeatureAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { getLoanCardControls } from '@/lib/loans/types'
+import { getRelationshipRecipientOptions } from '@/lib/relationships/actions'
 import { AddPartyForm } from '@/components/loans/AddPartyForm'
 import { LoanShell } from '@/components/loans/LoanShell'
 import type { LoanItem } from '@/lib/loans/types'
+import type { RelationshipRecipientOption } from '@/lib/relationships/actions'
 
 export default async function AddPartyPage({
   params,
@@ -45,12 +47,23 @@ export default async function AddPartyPage({
   const controls = getLoanCardControls(item)
   if (!controls.showAddParty) redirect('/auth-mvp/lanad-og-skilad')
 
+  let relationshipOptions: RelationshipRecipientOption[] | undefined
+  try {
+    const hasTengsl = await checkFeatureAccess(user.id, user.email!, 'tengsl')
+    if (hasTengsl) {
+      const opts = await getRelationshipRecipientOptions(user.id)
+      if (opts.length > 0) relationshipOptions = opts
+    }
+  } catch {
+    // non-fatal — form works without picker
+  }
+
   return (
     <LoanShell nav={nav} homeLabel={t('homeLink')}>
       <div>
         <h2 className="text-xl font-semibold text-[#154212] mb-2">{t('addPartyTitle')}</h2>
         <p className="text-sm text-[#72796e] mb-6">{item.item_name}</p>
-        <AddPartyForm loanId={id} />
+        <AddPartyForm loanId={id} relationshipOptions={relationshipOptions} />
       </div>
     </LoanShell>
   )
