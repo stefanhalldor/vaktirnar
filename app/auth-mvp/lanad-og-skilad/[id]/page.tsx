@@ -9,16 +9,21 @@ import type { LoanItem } from '@/lib/loans/types'
 
 export default async function LoanDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { id } = await params
+  const [{ id }, spRaw] = await Promise.all([params, searchParams ?? Promise.resolve({})])
+  const sp = spRaw as Record<string, string | string[] | undefined>
+  const from = typeof sp['from'] === 'string' ? sp['from'] : undefined
+  const backHref = from === 'heim' ? '/auth-mvp/heim' : '/auth-mvp/lanad-og-skilad'
   const { user } = await guardLoanAccess()
   const t = await getTranslations('teskeid.loans')
 
   const nav = (
     <Link
-      href="/auth-mvp/lanad-og-skilad"
+      href={backHref}
       className="inline-flex items-center min-h-[44px] text-sm text-[#72796e] hover:text-[#154212] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded self-start"
     >
       {t('backToList')}

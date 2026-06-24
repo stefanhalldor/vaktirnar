@@ -479,6 +479,36 @@ describe('LoanDetailPage — routing and guards', () => {
     const back = container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')
     expect(back).not.toBeNull()
   })
+
+  it('back link points to /auth-mvp/heim when from=heim (#37)', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, id: 'loan-id-1' }],
+      error: null,
+    })
+    const { container } = render(
+      await LoanDetailPage({
+        params: Promise.resolve({ id: 'loan-id-1' }),
+        searchParams: Promise.resolve({ from: 'heim' }),
+      }),
+    )
+    const back = container.querySelector('a[href="/auth-mvp/heim"]')
+    expect(back).not.toBeNull()
+  })
+
+  it('back link falls back to /auth-mvp/lanad-og-skilad for unknown from param (#37)', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, id: 'loan-id-1' }],
+      error: null,
+    })
+    const { container } = render(
+      await LoanDetailPage({
+        params: Promise.resolve({ id: 'loan-id-1' }),
+        searchParams: Promise.resolve({ from: 'other' }),
+      }),
+    )
+    const back = container.querySelector('a[href="/auth-mvp/lanad-og-skilad"]')
+    expect(back).not.toBeNull()
+  })
 })
 
 // ── AddPartyPage ───────────────────────────────────────────────────────────────

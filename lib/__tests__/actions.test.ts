@@ -1020,6 +1020,18 @@ describe('updateLoan — diff events', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRecordEvent.mockResolvedValue(undefined)
+    // Default: no pending invitation → no recipient notification
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+          }),
+        }),
+      }),
+    }))
+    // Default: get_user_ids_by_canonical_email returns empty
+    mockRpc.mockResolvedValue({ data: [], error: null })
   })
 
   it('calls update_loan_with_diff RPC', async () => {
@@ -1068,6 +1080,171 @@ describe('updateLoan — diff events', () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     const result = await updateLoan(UL_LOAN_ID, BASE_INPUT)
     expect(result).toEqual({ ok: false, error: 'save_failed' })
+  })
+})
+
+// ── updateLoan — pending recipient notification (#37) ─────────────────────────
+
+const URN_LOAN_ID = 'loan-uuid-updateLoan-recipient'
+const URN_INPUT = { item_name: 'Nýtt nafn', note: null as null, loaned_at: '2026-01-01', due_at: null as null }
+
+function urnDiffOk() {
+  return { data: [{ status: 'ok', before_item_name: 'Gamla nafn', before_note: null, before_loaned_at: '2026-01-01', before_due_at: null }], error: null }
+}
+
+describe('updateLoan — pending recipient notification (#37)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRecordEvent.mockResolvedValue(undefined)
+  })
+
+  function setupRpcWithRecipient(recipientUserIds: string[]) {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'update_loan_with_diff') return urnDiffOk()
+      if (name === 'get_user_ids_by_canonical_email')
+        return { data: recipientUserIds.map((id) => ({ user_id: id })), error: null }
+      return { data: null, error: null }
+    })
+  }
+
+  function setupInvitation(email: string | null) {
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: email ? { recipient_email_normalized: email } : null,
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    }))
+  }
+
+  it('records recipient event for a regular pending invitation', async () => {
+    setupRpcWithRecipient(['recipient-uuid'])
+    setupInvitation('recipient@example.com')
+    await updateLoan(URN_LOAN_ID, URN_INPUT)
+    const recipientCall = mockRecordEvent.mock.calls.find(
+      (c: unknown[]) => (c[0] as { userId: string }).userId === 'recipient-uuid',
+    )
+    expect(recipientCall).toBeDefined()
+    expect((recipientCall![0] as { eventType: string }).eventType).toBe('loan_updated')
+  })
+
+  it('recipient event has no initiallyRead; actor event does', async () => {
+    setupRpcWithRecipient(['recipient-uuid'])
+    setupInvitation('recipient@example.com')
+    await updateLoan(URN_LOAN_ID, URN_INPUT)
+    const actorCall = mockRecordEvent.mock.calls.find(
+      (c: unknown[]) => (c[0] as { userId: string }).userId === 'actor-uuid',
+    )
+    const recipientCall = mockRecordEvent.mock.calls.find(
+      (c: unknown[]) => (c[0] as { userId: string }).userId === 'recipient-uuid',
+    )
+    expect((actorCall![0] as { initiallyRead: boolean }).initiallyRead).toBe(true)
+    expect((recipientCall![0] as { initiallyRead?: boolean }).initiallyRead).toBeUndefined()
+  })
+
+  it('actor and recipient share the same eventKey', async () => {
+    setupRpcWithRecipient(['recipient-uuid'])
+    setupInvitation('recipient@example.com')
+    await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(mockRecordEvent).toHaveBeenCalledTimes(2)
+    const keys = mockRecordEvent.mock.calls.map((c: unknown[]) => (c[0] as { eventKey: string }).eventKey)
+    expect(keys[0]).toBe(keys[1])
+  })
+
+  it('skips recording when recipient ID equals actor ID', async () => {
+    setupRpcWithRecipient(['actor-uuid'])
+    setupInvitation('actor@example.com')
+    await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+    expect((mockRecordEvent.mock.calls[0][0] as { userId: string }).userId).toBe('actor-uuid')
+  })
+
+  it('records events for all users when canonical duplicate (2 matches)', async () => {
+    setupRpcWithRecipient(['recipient-uuid-1', 'recipient-uuid-2'])
+    setupInvitation('ab@gmail.com')
+    await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(mockRecordEvent).toHaveBeenCalledTimes(3)
+    const userIds = mockRecordEvent.mock.calls.map((c: unknown[]) => (c[0] as { userId: string }).userId)
+    expect(userIds).toContain('recipient-uuid-1')
+    expect(userIds).toContain('recipient-uuid-2')
+  })
+
+  it('records only actor event when no pending invitation exists', async () => {
+    setupRpcWithRecipient([])
+    setupInvitation(null)
+    await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+    expect((mockRecordEvent.mock.calls[0][0] as { userId: string }).userId).toBe('actor-uuid')
+  })
+
+  it('no throw and actor event still recorded when get_user_ids_by_canonical_email returns error', async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'update_loan_with_diff') return urnDiffOk()
+      if (name === 'get_user_ids_by_canonical_email') return { data: null, error: { message: 'RPC error' } }
+      return { data: null, error: null }
+    })
+    setupInvitation('recipient@example.com')
+    const result = await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(result).toEqual({ ok: true })
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+    expect((mockRecordEvent.mock.calls[0][0] as { userId: string }).userId).toBe('actor-uuid')
+  })
+
+  it('no throw and actor event still recorded when get_user_ids_by_canonical_email throws', async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'update_loan_with_diff') return urnDiffOk()
+      if (name === 'get_user_ids_by_canonical_email') throw new Error('network error')
+      return { data: null, error: null }
+    })
+    setupInvitation('recipient@example.com')
+    const result = await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(result).toEqual({ ok: true })
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('no throw and actor event still recorded when invitation query itself throws', async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'update_loan_with_diff') return urnDiffOk()
+      return { data: null, error: null }
+    })
+    // Simulate the .from() chain throwing at the network level
+    mockFrom.mockImplementation(() => { throw new Error('network failure') })
+    const result = await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(result).toEqual({ ok: true })
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+    expect((mockRecordEvent.mock.calls[0][0] as { userId: string }).userId).toBe('actor-uuid')
+  })
+
+  it('no throw and actor event still recorded when invitation query returns error', async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'update_loan_with_diff') return urnDiffOk()
+      return { data: null, error: null }
+    })
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+          }),
+        }),
+      }),
+    }))
+    const result = await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(result).toEqual({ ok: true })
+    expect(mockRecordEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not record any event (including recipient) on no-op save', async () => {
+    // same values as URN_INPUT → no changes
+    mockRpc.mockResolvedValue({ data: [{ status: 'ok', before_item_name: 'Nýtt nafn', before_note: null, before_loaned_at: '2026-01-01', before_due_at: null }], error: null })
+    setupInvitation('recipient@example.com')
+    await updateLoan(URN_LOAN_ID, URN_INPUT)
+    expect(mockRecordEvent).not.toHaveBeenCalled()
   })
 })
 

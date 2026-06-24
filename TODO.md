@@ -1,181 +1,75 @@
 # TODO
 
+## Vinnuregla áður en næsta atriði fer í framkvæmd
+
+Áður en Codex eða Claude Code útbýr eða framkvæmir næsta handoff skal alltaf
+rýna hvort atriðið eigi enn rétt á sér miðað við nýjustu kóðastöðu, DONE-sögu og
+raunverulega notendaþörf.
+
+Fyrir hvert opið atriði skal fyrst skrá:
+
+- hvort atriðið sé enn opið, að hluta lokið, úrelt eða tilbúið í DONE án frekari
+  kóðabreytinga;
+- hvaða hlutar vandans eru staðfestir í kóða, prófum eða localhost og hvaða
+  hlutar eru aðeins tilgátur;
+- nákvæm manual pre-check skref fyrir Stebba til að prófa núverandi hegðun áður
+  en framkvæmd hefst, svo hann átti sig á hvort hann vill raunverulega breytinguna;
+- nákvæm `Localhost checks for Stebbi` fyrir eftir breytingu, með skrefum,
+  væntri niðurstöðu og regressions sem þarf að passa;
+- hvort öruggasta niðurstaðan sé að framkvæma, þrengja atriðið, færa það í DONE,
+  færa það síðar í röðina eða loka því sem ekki lengur þörf.
+
+Ef manual pre-check sýnir að notendaþörfin er ekki lengur til staðar skal ekki
+framkvæma óþarfa breytingu. Þá skal færa atriðið í DONE eða uppfæra TODO með
+skýrum rökum, eftir staðfestingu Stebba.
+
 ## Forgangsröðun
 
 Þetta yfirlit stýrir vinnuröðinni. Númer atriðanna haldast óbreytt svo eldri
 tilvísanir og verkefnasaga rofni ekki.
 
-| Röð | Atriði                                                        | Forgangur og samhengi                                                                                                                                 |
+| Röð | Atriði                                                        | Vinnupakki og samhengi                                                                                                                                 |
 | --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **#43 Gmail-punktar og útrunnin soft-ack lánaboð**           | Efsti forgangur: rangt punktanetfang í Gmail getur fengið email en ekki passað við login, og `Þekki málið` má ekki skila útrunnu/not-claimable boði ef pending soft-ack á enn að vera virkt. |
-| 2   | **#46 User+pass fallback þegar kóði berst ekki**             | Bæta öruggri email+lykilorð innskráningu sem valkosti á kóðasendingarsíðu þegar tölvupóstkóði berst ekki, án þess að veikja núverandi OTP flæði.      |
-| 3   | **#47 Lán: bæta við netfangi í edit og laga vistunarvillu** | Creator þarf að geta bætt við viðtakandanetfangi eftir að lán var stofnað án viðtakanda, og nafnabreyting eins og `Gítarstandur?` → `Gítarstandur` má ekki falla á almennri vistunarvillu. |
-| 4   | **#48 Endurkomunotandi fari sjálfgefið á Teskeiðar**         | Innskráður notandi sem kemur aftur inn í Teskeið á að lenda sjálfgefið á `Teskeiðar`, ekki hugmyndabankanum. |
-| 5   | **#49 Tengsl þvert á Teskeiðar**                             | Einn staður `/stillingar/tengsl` safnar tengdu fólki þvert á Teskeiðar, með tags eins og `Óflokkaður`, uppruna og sameiginlegri virkni. |
-| 6   | **#50 Fjölskyldumeðlimir sem tengsl**                        | Fjölskyldumeðlimir verða hluti af sama `/stillingar/tengsl` grunni með sér tag/tegund; fyrsta nýting verður `Fyrsta vakt krakkanna`. |
-| 7   | **#27 Mýkra lánaboðsflæði**                                  | Taka með event-feed grunninum sem framtíðarundirbúning: `Nýlegt` verður inngangsleið fyrir pending boð, en full #27 útfærsla bíður eftir event-feed grunni og Codex-rýni. |
-| 8   | **#37 `Nýlegt` sýni öll ólesin events og breytingasamhengi** | Sýna ekki bara þrjú nýleg atriði; `Nýlegt` á að vera ólesinn inbox og geta útskýrt hvað breyttist, t.d. fyrri og ný skiladagsetning.                  |
-| 9   | **#52 Lánaboð birtist í `Ólesið` og opnast beint**           | Pending lánaboð sem telst sem event á `Lánað og skilað` á líka að birtast í `Ólesið`, og smellur þaðan á að opna rétta hlutinn beint.                  |
-| 10  | **#38 Event þegar lánaboði er hafnað**                       | Þegar viðtakandi hafnar lánaboði þarf sá sem sendi boðið að fá event, því það er mikilvæg breyting á láninu.                                           |
-| 11  | **#39 Lánveitandi geti eytt samþykktum hlut**                | Lánveitandi þarf að geta eytt hlut þó mótaðili sé búinn að samþykkja, og mótaðilinn á að fá event um eyðinguna.                                      |
-| 12  | **#30 Stærra `10,5` og ný favicon-tillaga**                  | Stækka `10,5` á derhúfunni svo það sjáist betur og gera tillögu að favicon sem sýnir bara `10,5`.                                                     |
-| 13  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | Public notendaslóðir ættu að verða `/heim`, `/minn-profill` og `/lanad-og-skilad`; geymt úr hraðri opnun til að minnka áhættu.                       |
-| 14  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | Whitelist stýrir ekki lengur public login/loans; ákveða hvort listinn verði framtíðar beta-listi, admin-tól eða verði arkiveraður.                    |
-| 15  | **#5 Samræmd mobile app-upplifun**                           | Samræma innskráningu, form, viewport, keyboard og mobile layout sem framhaldsverk eftir opnun nema ný blocker finnist.                                 |
-| 16  | **#7 Langlíf innskráning**                                   | Gera session app-líkt og öruggt sem framhaldsverk eftir opnun nema session-hegðun reynist blocker í prófun.                                           |
-| 17  | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | Skipta disabled `Væntanlegt` listanum út fyrir mobile-first framsetningu með raunverulegum, birtum hugmyndum og kosningarmöguleika.                   |
-| 18  | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | Gera virkar/tilbúnar Teskeiðar meira áberandi efst á `/heim`, aðskildar frá væntanlegum Teskeiðum, og raða dýnamískt per notanda eftir síðast opnuðu. |
-| 19  | **#10 Gáfuleg opnun tölfræðisíðu**                           | Sjálfstætt admin-atriði sem má taka eftir að notendaaðgangsflæðið er tilbúið.                                                                         |
-| 20  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | Bæta einfaldri notendatalningu við admin tölfræði; skilgreina fyrst hvort telja eigi skráða notendur, virka notendur eða virkar sessions.             |
-| 21  | **#41 Umönnun sem feature-flagged Teskeið**                  | Sýna Umönnun sem Teskeið undir feature flag; skýra að hún sé sér app vegna viðkvæmra gagna og eldri útgáfu, og taka síðar stefnumótandi ákvörðun um hvort hún falli undir Teskeið eða verði áfram sér app. |
-| 22  | **#51 Tengja Facebook við prófílinn sinn**                   | Notandi geti tengt Facebook við Teskeið-prófílinn sinn á öruggan hátt, með skýrum account-linking reglum, privacy-mörkum og OAuth/secret-varúð.         |
+| 1   | **#37 `Nýlegt` sýni öll ólesin events og breytingasamhengi** | **Event/Ólesið grunnur.** Gera ólesið að raunverulegum inbox, ekki bara stuttu preview. |
+| 2   | **#56 Breyta lánsdagsetningu og skiladegi á samþykktum lánum** | **Event/Ólesið pakki.** Lánveitandi geti breytt `loaned_at` og `due_at` jafnvel þegar lán er samþykkt. Þarfnast SQL/RPC breytinga. |
+| 3   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki.** Bæta decline-eventi og ack/read-state samhliða #37. |
+| 4   | **#39 Lánveitandi geti eytt samþykktum hlut**                | **Event/heimildir pakki.** Taka með event payload og delete-heimildir þegar event-grunnurinn er opinn. |
+| 5   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #37/#38/#39 séu orðin traust. |
+| 6   | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
+| 7   | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
+| 8   | **#41 Umönnun sem feature-flagged Teskeið**                  | **Feature-card/info quick win.** Sýna sem varlega feature-flagged Teskeið án þess að flytja Umönnun-gögn inn. |
+| 9   | **#46 User+pass fallback þegar kóði berst ekki**             | **Auth reliability pakki.** Mikilvægt ef kóðar berast illa, en snertir auth/rate limit/reset og á að vera sér áfangi. |
+| 10  | **#7 Langlíf innskráning**                                   | **Auth/session pakki.** Taka með #46 eða strax á eftir, en ekki blanda við láns/event quick wins. |
+| 11  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | **Route cleanup.** Gera eftir að `/heim`, `/stillingar/*` og loan flæði eru stöðug; þarf redirect- og query-param próf. |
+| 12  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | **Admin/access ákvörðun.** Ákveða hlutverk listans áður en meira admin UI byggist á honum. |
+| 13  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | **Admin quick win eftir #13.** Einföld talning, en skilgreining og service-role mörk þurfa að vera skýr. |
+| 14  | **#10 Gáfuleg opnun tölfræðisíðu**                           | **Admin stats sérpakki.** Server-side heimsóknarrökfræði, race conditions og fallback; ekki opnunarblocker. |
+| 15  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
+| 16  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
+| 17  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
+| 18  | **#51 Tengja Facebook við prófílinn sinn**                   | **OAuth/secrets sérverk.** Ekki quick win; þarf sérstakt plan, provider-stillingar og privacy-rýni. |
 
-#43
-## Gmail-punktar og útrunnin soft-ack lánaboð
+## Vinnupakkar
 
-**Staða:** Bíður
+**Pakki A — `Ólesið`, events og lánaboð:** #37, #38, #39 og síðan #27.
+Þessi atriði eiga mjög vel saman: næst er að byggja traustan ólesinn/event grunn
+og enda á mýkra lánaboðsflæði.
 
-**Forgangur:** Efsti forgangur, þarf að greina og laga áður en lánaboðsflæði er
-talið öruggt fyrir fleiri notendur.
+**Pakki B — heimaskjár og virkar Teskeiðar:** #17, #42 og #41. Þetta mótar hvað
+notandi sér fyrst eftir innskráningu: virkar Teskeiðar, hugmyndir og varlega
+feature-flagged Umönnun.
 
-**Stofnað:** 2026-06-17
+**Pakki C — auth reliability:** #46 og #7. Þetta er mikilvægt, en snertir
+innskráningu, sessions, reset/rate-limit og öryggi; best sem sérpakki með
+sérstakri rýni.
 
-**Samhengi frá Stebba:** Stebbi bjó til þrjá hluti í láni og sendi óvart á
-Gmail-netfang með punkti í local-part, en raunverulegt login-netfang viðtakanda
-er sama Gmail-netfang án punkts. Gmail virðist hafa skilað tölvupóstinum samt,
-en þegar viðtakandi skráði sig inn með punktalausa netfanginu beið hans aðeins
-einn hlutur. Þegar Stebbi setti svo rétt punktalaust netfang á annan hlut og
-viðtakandi refresh-aði birtist hluturinn, en `Þekki málið` skilaði villu á borð
-við að boðið væri ekki lengur í gildi.
+**Pakki D — routes og admin:** #22, #13, #33 og #10. Taka þegar core notendaflæði
+eru stöðug, svo canonical slóðir og admin-tölfræði byggist ekki á fljótandi
+grunnhegðun.
 
-**Persónugagnavarúð:** Raunnetföngin sem komu fram í samtali Stebba á ekki að
-setja í migration, test fixture, log, handoff sem gæti verið deilt, eða client
-payload. Nota skal synthetic dæmi eins og `fyrri.seinni@gmail.com` og
-`fyrriseinni@gmail.com` í prófum.
-
-**Líklegar orsakir út frá read-only kóðaskoðun Codex:**
-
-- SQL og TypeScript normalisera recipient email nú með `lower(trim(...))`.
-  Þetta er rétt fyrir almenn netföng, en tekur ekki tillit til þess að Gmail
-  afhendir oft `first.last@gmail.com` og `firstlast@gmail.com` í sama pósthólf.
-- `get_my_loans`, `get_my_pending_invitations`, `get_invitation_for_claim` og
-  `claim_loan_invitation` bera `recipient_email_normalized` saman við
-  `lower(trim(auth.users.email))`. Því getur notandi fengið Gmail-póstinn en
-  samt ekki passað við innskráða Teskeið-netfangið sitt.
-- `sql/50_loan_soft_acknowledgement.sql` á að fjarlægja expiry-check úr
-  `claim_loan_invitation` þannig að pending soft-ack sé áfram claimable þó
-  `expires_at` sé liðið. Eldri SQL-föll, t.d. í `sql/32_loan_functions.sql`, gera
-  hins vegar `expires_at` check og skila `expired`.
-- Ef production function er enn eldri útgáfa, schema cache er ósamstillt, eða
-  boð var þegar fært í `expired` status af eldri kóða, getur `Þekki málið`
-  skilað `expired` eða `not_claimable`.
-- Gamla email-claim route-ið `app/auth-mvp/lanad-og-skilad/claim/[id]/page.tsx`
-  reiknar enn `isExpired` út frá `invitation.expires_at < new Date().toISOString()`.
-  Það getur verið ósamræmi við soft-ack ákvörðunina ef logged-in claim route á
-  líka að leyfa pending boð eftir email-link expiry.
-- Það að aðeins einn af þremur röngum punktaboðum hafi birst hjá viðtakanda þarf
-  read-only gagnagrunnsúttekt. Mögulegar skýringar eru að einn hlutur hafi í raun
-  verið með réttu netfangi, að status/expiry hafi verið mismunandi milli boða, að
-  eldri boð hafi verið `expired`/`cancelled`, eða að production function sé ekki
-  í sama ástandi og repo-migration segir.
-
-**Markmið:** Lánaboð eigi að vera fyrirsjáanleg, leiðréttanleg og örugg þegar
-Gmail-punktar eða typo koma upp:
-
-- Viðtakandi á ekki að fá póst sem virðist vera til hans en geta svo ekki séð eða
-  afgreitt boðið án skiljanlegrar skýringar.
-- `Þekki málið` á ekki að skila útrunnu/not-claimable boði ef boðið er enn
-  pending og soft-ack product ákvörðunin er að pending boð haldist afgreiðanleg.
-- Sendandi þarf örugga leið til að leiðrétta rangt pending recipient-netfang án
-  þess að eyða hlutnum eða búa til óljóst nýtt boð.
-- Lausnin má ekki veikja auth, RLS, service-role mörk eða leka netföngum milli
-  ótengdra notenda.
-
-**Read-only preflight áður en lausn er skrifuð:**
-
-- Staðfesta nákvæma production function bodies fyrir:
-  - `public.get_my_loans(uuid)`
-  - `public.claim_loan_invitation(uuid, uuid)`
-  - `public.get_invitation_for_claim(uuid, uuid)`
-  - `public.add_loan_invitation(uuid, uuid, text)`
-  - `public.create_loan(...)`
-- Staðfesta hvort `sql/50_loan_soft_acknowledgement.sql` hafi raunverulega verið
-  keyrð og hvort Supabase/PostgREST schema cache hafi verið reloadað.
-- Með Stebba-samþykki og read-only SQL: finna affected `loan_invitations` rows
-  fyrir þessa þrjá hluti, án þess að setja full netföng í logs eða handoff. Skoða
-  aðeins nauðsynleg svið: `loan_id`, `status`, masked/canonical recipient email,
-  `expires_at`, `attempt_status`, `email_sent_at`, `created_at`, `updated_at`.
-- Staðfesta hvort eitthvað boð hafi verið fært í `expired` status af eldri claim
-  path og hvort það þurfi handvirka recovery-aðgerð.
-- Staðfesta nákvæmlega hvort villan hjá viðtakanda var `expired`,
-  `not_claimable`, `wrong_email` eða generic `claim_failed`.
-
-**Tillaga að lagfæringarleið:**
-
-- Búa til sameiginlega, testaða email-canonicalization stefnu. Lágmarksleið:
-  `lower(trim(email))` fyrir öll netföng og sérregla aðeins fyrir `gmail.com` /
-  `googlemail.com` þar sem punktar í local-part og mögulega `+tag` eru fjarlægð.
-  Ekki beita Gmail-reglum á custom domains eða almenn lén þar sem punktar geta
-  verið merkingarbærir.
-- Nota sömu canonicalization í TypeScript validation/preflight og SQL/RPC
-  matching. Forðast að hafa eina reglu í client/server og aðra í database.
-- Meta hvort bæta eigi við nýjum dálki eða SQL helper, t.d.
-  `public.canonical_email(text)`, frekar en að dreifa regex/string logic um mörg
-  föll. Ef migration er notuð þarf transaction, idempotency, rollback og
-  production preflight.
-- Uppfæra matching í `get_my_loans`, `get_my_pending_invitations`,
-  `get_invitation_for_claim`, `claim_loan_invitation`, `create_loan`,
-  `add_loan_invitation`, rate-limit checks og duplicate/idempotency checks þannig
-  að sama canonical recipient sé notað alls staðar.
-- Samræma soft-ack expiry hegðun:
-  - Ef pending soft-ack á að haldast claimable, tryggja að production
-    `claim_loan_invitation` sé `sql/50`-hegðun eða nýrri.
-  - Uppfæra `claim/[id]` route eða copy þannig að email-link expiry og logged-in
-    soft-ack gefi ekki mótsagnakennd skilaboð.
-  - Skilgreina recovery fyrir boð sem eldri kóði hefur þegar sett í `expired` en
-    Stebbi vill enduropna.
-- Bæta creator-side UX til að leiðrétta pending recipient email:
-  - Sýna sendanda hvaða netfang boðið fór á, aðeins á creator-kortinu.
-  - Bjóða örugga `Breyta netfangi` eða `Afturkalla og senda á annað netfang`
-    leið fyrir pending boð.
-  - Ef rangt email er leiðrétt, tryggja idempotency og að gamalt boð verði
-    `cancelled` áður en nýtt boð er búið til.
-- Bæta skýrari villutexta fyrir `wrong_email`, `expired` og `not_claimable`:
-  skilaboðin eiga að segja notanda hvort hann sé innskráður á annað netfang en
-  boðið var sent á, hvort sendandi þurfi að senda aftur, eða hvort boðið hafi
-  verið afgreitt/aflýst.
-
-**Öryggis- og gagnareglur:**
-
-- Ekki veikja RLS eða veita `authenticated` beinan aðgang að `loan_invitations`.
-- Ekki sýna recipient email öðrum en creator/sendanda og aðeins þar sem það er
-  nauðsynlegt til leiðréttingar.
-- Ekki logga full recipient email í server logs, test output eða handoff.
-- Ekki gera Gmail-dot canonicalization fyrir önnur lén en `gmail.com` og
-  `googlemail.com`.
-- Ekki framkvæma data correction á production án sérstakrar Stebba-samþykktar,
-  read-only preflight og skýrs rollback/recovery plans.
-
-**Prófanir:**
-
-- Creator sendir boð á synthetic `first.last@gmail.com`; viðtakandi skráir sig
-  inn sem `firstlast@gmail.com`; pending row birtist og `Þekki málið` virkar.
-- Sama próf með `googlemail.com` ef reglan nær þangað.
-- Sama próf með non-Gmail léni, t.d. `first.last@example.com` vs
-  `firstlast@example.com`, má ekki matcha.
-- `+tag` hegðun sé annaðhvort studd skýrt fyrir Gmail eða vísvitandi ekki studd,
-  með prófi sem festir ákvörðunina.
-- Þrjú pending boð til sama canonical Gmail notanda birtast öll hjá réttum
-  viðtakanda, nema status þeirra sé ekki `pending`.
-- `Þekki málið` virkar fyrir pending boð þó `expires_at` sé liðið, ef það er
-  áfram product ákvörðunin fyrir soft-ack listann.
-- Gamalt email-claim route gefur samræmda hegðun/copy við soft-ack ákvörðun.
-- Creator getur leiðrétt rangt pending recipient email án duplicate active invite
-  og án þess að recipient fái tvö virk boð fyrir sama hlut.
-- Wrong-email notandi getur ekki séð eða claim-að boð sem canonical email hans á
-  ekki að eiga.
-- Event/read-state uppfærist rétt eftir claim/decline og lekur ekki email í
-  payload.
+**Pakki E — stærri framtíðareiginleikar:** #50, #54 og #51. Þetta eru ekki
+fyrstu quick wins: þau snerta viðkvæmari gögn, nýja gagnastrúktúra, spjall eða
+ytri OAuth provider.
 
 #46
 ## User+pass fallback þegar kóði berst ekki
@@ -211,7 +105,7 @@ einfalda kóða-flæðinu.
 - Halda núverandi tölvupóstkóða-flæði áfram sem aðalflæði.
 - Halda session-hegðun, redirect eftir login og logout samræmdu við núverandi
   Teskeið-innskráningu.
-- Huga að því hvort user+pass fallback tengist #7 langlífri innskráningu og #5
+- Huga að því hvort user+pass fallback tengist #7 langlífri innskráningu og
   mobile auth-upplifun.
 
 **Öryggi og gögn:**
@@ -245,227 +139,6 @@ einfalda kóða-flæðinu.
   overlap eða óæskilegs zooms.
 - Regression: admin login, feature access, `Lánað og skilað` og Umönnun route
   gating breytast ekki óvart.
-
-#47
-## Lán: bæta við netfangi í edit og laga vistunarvillu
-
-**Staða:** Bíður
-
-**Stofnað:** 2026-06-21
-
-**Samhengi frá Stebba:** Stebbi stofnaði lán fyrir hlutinn `Gítarstandur?` án þess
-að skrá hjá hverjum hluturinn væri í láni. Þegar Stebbi fékk það staðfest síðar
-vildi hann fara í edit og bæta við netfangi viðtakanda, en sá hvergi leið til þess.
-Í leiðinni reyndi Stebbi að breyta nafninu úr `Gítarstandur?` í `Gítarstandur`, en
-fékk villuna `Ekki tókst að vista. Reyndu aftur.`
-
-**Viðbót frá Stebba:** Villan kemur bæði í iPhone og á PC tölvu, þannig að þetta
-virðist ekki vera sértæk vafra- eða tækjavilla.
-
-**Vandamál:**
-
-- Edit-síðan fyrir lán sýnir ekki leið til að bæta við viðtakandanetfangi þegar
-  lán var stofnað án viðtakanda.
-- Nafnabreyting í edit virðist falla á server/app/DB-flæði og birtir of almenna
-  villu, án þess að Stebbi sjái hvort vandinn sé ókeyrð migration, SQL/RPC villa,
-  invalid input, `not_editable` eða annað.
-
-**Ósk:** Claude Code á að rýna og framkvæma afmarkaða lagfæringu þannig að:
-
-- Creator geti bætt við viðtakandanetfangi út frá edit-flæði þegar lán hefur engan
-  mótaðila eða virkt pending/accepted boð.
-- Nafnabreyting á eigin pre-acceptance láni virki, þar á meðal `Gítarstandur?` →
-  `Gítarstandur`.
-- Ef vistun mistekst áfram fái notandi eða developer skýrari greiningu án þess að
-  leka viðkvæmum gögnum.
-
-**Við útfærslu:**
-
-- Nota núverandi `addLoanInvitation` / `add_loan_invitation` flæði ef mögulegt er,
-  frekar en að búa til nýtt invitation-flæði.
-- Meta hvort edit-síðan eigi að sýna einfaldan link/hnapp yfir á núverandi
-  `/baeta-vid-adila/[id]` route eða inline form. Forðast ruglingslegt tveggja-forma
-  UI með tveimur jafngildum `Vista` hnöppum nema copy og layout geri greinilegan
-  mun á „breyta hlut“ og „bæta við viðtakanda“.
-- Ekki sameina nafnabreytingu og sendingu lánaboðs í eina server action nema
-  Claude Code hafi skýrt plan fyrir partial failure, email side effect,
-  idempotency og retry.
-- Greina vistunarvilluna áður en fallback er skrifað. Líkleg áhætta er að
-  `update_loan_with_diff` úr `sql/48_update_loan_with_diff.sql` sé ekki til í
-  viðkomandi Supabase umhverfi eða schema cache sé ósamstillt, en það þarf að
-  staðfesta með logs/prófum frekar en giska.
-- Ef lausnin krefst SQL eða Supabase schema-cache aðgerðar þarf sérstakt
-  samþykki frá Stebba áður en nokkuð er keyrt.
-
-**Öryggi og gögn:**
-
-- Ekki veikja RLS, grants eða service-role mörk.
-- Ekki sýna recipient email öðrum en creator þegar það er nauðsynlegt.
-- Ekki logga full netföng, invitation token, secrets eða önnur viðkvæm gögn.
-- Ekki keyra SQL, migration eða production data correction án sérstakrar
-  Stebba-samþykktar, preflight og rollback/recovery plans.
-
-**Prófanir:**
-
-- Stofna lán án viðtakanda, opna edit og sjá skýra leið til að bæta við
-  viðtakandanetfangi.
-- Breyta nafni úr `Gítarstandur?` í `Gítarstandur` og vista án villu.
-- Bæta við gildu viðtakandanetfangi úr edit-flæði; boð vistast og notandi fer á
-  skiljanlega síðu/stöðu eftir vistun.
-- Ógilt netfang sýnir skýra villu og býr ekki til boð.
-- Ef lán er þegar pending eða accepted birtist ekki óörugg eða röng leið til að
-  bæta við öðrum viðtakanda.
-- Mobile 360-460 px og desktop sýna edit, villur og add-party leið án overlap,
-  horizontal scroll eða óskýrrar tvöfaldar vistunar.
-
-#48
-## Endurkomunotandi fari sjálfgefið á Teskeiðar
-
-**Staða:** Bíður
-
-**Stofnað:** 2026-06-21
-
-**Samhengi frá Stebba:** Stebbi vill að innskráður notandi sem kemur aftur inn í
-Teskeið fari sjálfgefið á `Teskeiðar`, ekki hugmyndabankann.
-
-**Ósk:** Endurkomuflæðið fyrir innskráðan notanda á að forgangsraða virku
-Teskeiða-yfirliti. Hugmyndabankinn á áfram að vera aðgengilegur, en ekki vera
-sjálfgefinn áfangastaður fyrir notanda sem er að koma aftur inn til að nota appið.
-
-**Við útfærslu:**
-
-- Kortleggja núverandi redirects fyrir `/`, `/innskraning`, `/auth-mvp/innskraning`,
-  `/auth-mvp/heim`, middleware og auth callback áður en breyting er gerð.
-- Ákveða nákvæmlega hvaða route telst `Teskeiðar` í núverandi kerfi, líklega
-  `/auth-mvp/heim#teskeidar` eða framtíðar canonical route þegar #22 verður tekið.
-- Passa að óinnskráðir gestir geti áfram séð public hugmyndabankann ef það er
-  núverandi product-regla.
-- Ekki búa til redirect-lykkjur, sérstaklega milli login, callback og heimasíðu.
-
-**Prófanir:**
-
-- Innskráður notandi sem opnar rót eða login-entry lendir sjálfgefið á Teskeiðum.
-- Óinnskráður gestur fær enn rétt public/login hegðun.
-- Auth callback og logout virka óbreytt.
-- Mobile og desktop sýna réttan fyrsta skjá án stökks eða redirect loop.
-
-#49
-## Tengsl þvert á Teskeiðar
-
-**Staða:** Bíður
-
-**Stofnað:** 2026-06-21
-
-**Samhengi frá Stebba:** Þegar Stebbi hefur lánað ákveðnum notanda eða fengið
-lánað frá notanda vill Stebbi að sá notandi vistist í `Tengsl` og sé hægt að
-velja úr fellilista næst. Þessi tengiliður á ekki að vera lánasértækur. Hann á
-að vistast þvert á allar Teskeiðar og verða fyrsti vísir að almennum stillingum
-fyrir fólk, tengsl, viðtakendur og fjölskyldu.
-
-**Ósk:** Nota einn stað: `/stillingar/tengsl`. Þar safnast fólk sjálfkrafa inn úr
-hinum og þessum Teskeiðum, t.d. `Lánað og skilað`, en ný tengsl byrja sem
-`Óflokkaður`. Á tengslinu þarf að sjást hvaðan það kom, t.d. að viðkomandi sé í
-tengslum vegna `Lánað og skilað`. Stebbi vill geta sett einkanafn og stutta
-einkalýsingu á tengslin sem aðeins Stebbi sér, ekki viðkomandi.
-
-**Tengslasíða einstaklings:** Notandi á að geta opnað tengdan einstakling og séð
-sameiginlega virkni þvert á Teskeiðar. Dæmi: ef Stebbi hefur lánað einstaklingi
-hlut og á síðar sameiginlega færslu með honum í annarri Teskeið, á Stebbi að geta
-farið beint í `Tengsl`, fundið einstaklinginn, séð sameiginlega sögu og smellt á
-færslu sem opnar rétta hlutinn í uppruna-Teskeiðinni.
-
-**Stillingar:** Þetta atriði á að móta fyrsta almennilega `/stillingar` svæðið:
-
-- `/stillingar/minn-profill` fyrir eigið nafn, prófíl og notendastillingar.
-- `/stillingar/tengsl` fyrir fólk, tengiliði, vini, kunningja, viðtakendur og
-  fjölskyldumeðlimi, raðað og síað með tags.
-
-**Route-stefna:** Ekki bæta við nýjum notendasýnilegum `/auth-mvp/stillingar/*`
-slóðum ef hægt er að komast hjá því. Nota frekar canonical `/stillingar/tengsl`
-fyrir tengsl og `/stillingar/minn-profill` fyrir minn prófíl, og bæta við skýrum
-middleware/session guard fyrir stillingasvæðið. Ekki taka þó allt `/auth-mvp`
-route-hreinsunarverkefnið (#22) inn í sama stóra schema- og Tengsl-verk nema það
-sé sérstaklega afmarkað sem sér áfangi.
-
-**Hönnunarleiðarljós:** Ein af lykilhugmyndunum í Teskeið er að samnýta íhluti
-milli mismunandi Teskeiða. `Tengsl`, tengslaval, prófílupplýsingar, tags,
-upprunamerkingar og sameiginleg virkni eiga því að vera almennir,
-endurnýtanlegir grunníhlutir sem `Lánað og skilað` notar fyrst, en aðrar
-Teskeiðar geta nýtt síðar án þess að afrita lánasértæka lógík eða UI.
-
-**Við útfærslu:**
-
-- Þetta er stærra gagna- og privacy-atriði og þarf sérstakt plan áður en
-  framkvæmd hefst.
-- Skilgreina gagnamódel fyrir per-user tengslalista þar sem hver notandi sér
-  aðeins sín eigin tengsl, einkanafn, einkalýsingu, tags og upprunasamhengi.
-- Gagnamódelið má ekki vera bundið við `Lánað og skilað`; lán geta verið fyrsti
-  triggerinn, en tengslin þurfa að geta nýst öðrum Teskeiðum síðar.
-- Forðast að búa til `LoanKnownRecipient`-sérlausn ef almennur `Friend` /
-  `Contact` / `Relationship` grunnur leysir sama mál á öruggari og
-  endurnýtanlegri hátt.
-- Nota tags í stað aðskildra route-a fyrir `vinir`, `fjölskylda`, `kunningjar` og
-  `viðtakendur`. Fyrsti sjálfgefni tagginn fyrir auto-vistuð tengsl er
-  `Óflokkaður`.
-- Vista alltaf viðtakanda úr lausnum eins og `Lánað og skilað` inn í `Tengsl`,
-  en merkja uppruna tengslanna svo notandi sjái af hverju viðkomandi birtist þar.
-- Fyrsta product-ákvörðun: tengsl úr `Lánað og skilað` vistast þegar lánaboð er
-  sent/stofnað með gildum viðtakanda, ekki bara þegar boðið er samþykkt. Útfærsla
-  þarf samt að meðhöndla email-failure, typo og afturköllun boðs án þess að búa til
-  ruglingsleg eða óeyðanleg tengsl.
-- Setja `Tengsl` undir feature flag í byrjun, bæði route og allar actions sem lesa
-  eða skrifa tengslagögn. Product-ákvörðun: `Tengsl` á að styðja per-user gating
-  strax í v1 með sama mynstri og Umönnun, t.d. `TENGSL_ENABLED` + `TENGSL_FLAG`
-  og `feature_access`.
-- Töflu- og dálkaheiti í SQL eiga að vera á ensku, í sama anda og
-  `loan_items`, `loan_invitations` og `feature_access`. Íslensk orð birtast í UI
-  í gegnum `messages/is.json`, ekki sem schema-heiti.
-- Skilgreina hvernig tengslasíða einstaklings sækir sameiginlega virkni úr mörgum
-  Teskeiðum án þess að leka gögnum milli ótengdra notenda.
-- Hver virkni-færsla á tengslasíðu þarf canonical deep-link aftur í uppruna
-  Teskeið, t.d. ákveðinn hlut í `Lánað og skilað` eða ákveðna færslu í
-  `Útlagt og endurgreitt`.
-- Ef nýir UI-íhlutir verða til, t.d. tengslaval eða tengslakort, skulu þeir hannaðir
-  þannig að fleiri Teskeiðar geti notað þá með props/config frekar en copy-paste.
-- Skilgreina product-copy fyrir `Tengsl`, `Óflokkaður`, `Fjölskylda`, `Vinir`,
-  `Kunningjar` og mögulega `Viðtakendur` þannig að tags séu skiljanleg en ekki
-  of félagslega þvingandi.
-- Velja hvort tengsl vistist sjálfkrafa þegar lánaboð er sent, þegar lán er
-  samþykkt, þegar netfang er slegið inn, eða eftir að einhver gagnkvæm virkni er
-  komin til. Stebbi hallast að því að vista alltaf viðtakanda úr lausnum og láta
-  hann byrja sem `Óflokkaður`.
-- Meta hvort notandi geti handvirkt sameinað, flokkað eða falið tengsl.
-- Kortleggja núverandi `/auth-mvp/minn-profill` og framtíðar #22 canonical route
-  áður en `/stillingar/minn-profill` er útfært, svo ekki verði tvær ósamræmdar
-  prófílsíður.
-- Product-ákvörðun frá Stebba: `Minn prófíll` á að vera undir
-  `/stillingar/minn-profill`, ekki sem standalone `/minn-profill`.
-- Passa að einkanafn og lýsing leki aldrei til mótaðila.
-- Gera ráð fyrir email canonicalization og Gmail-punktamálinu í #43 áður en
-  tengiliðir byggja á netföngum.
-- Ekki veikja RLS eða opna direct client access nema með vel skilgreindum policies.
-
-**Prófanir:**
-
-- Eftir að notandi hefur lánað eða fengið lánað birtist mótaðili í
-  `/stillingar/tengsl` með tagginu `Óflokkaður` og sýnilegum uppruna
-  `Lánað og skilað`.
-- Sama tengslafærsla er almenn notendatengsl, ekki aðeins lánasértæk færsla.
-- Tengslaval eða sambærilegur UI-íhlutur er hægt að endurnýta utan `Lánað og
-  skilað` án þess að flytja með lánasértæka texta eða business-lógík.
-- Notandi getur valið tengsl í lánaformi og netfang fyllist rétt út ef tengslin
-  hafa netfang sem má nota í þeirri Teskeið.
-- Notandi getur opnað tengslasíðu einstaklings og séð sameiginlega virkni úr
-  fleiri en einni Teskeið þegar slík virkni er til.
-- Smellur á virkni-færslu opnar rétta færslu í uppruna-Teskeiðinni.
-- Notandi getur sett eða breytt einkanafni og einkalýsingu.
-- Mótaðili sér ekki einkanafnið eða lýsinguna.
-- Einn notandi sér ekki tengsl annars notanda.
-- `/stillingar/minn-profill` og `/stillingar/tengsl` eru varin fyrir óinnskráðum
-  notendum og leka ekki gögnum milli notenda.
-- Feature flag slekkur örugglega á `/stillingar/tengsl` og tengsla-actions án þess
-  að raska öðrum Teskeiðum.
-- Rangt/úrelt netfang, eyddur auth-notandi og Gmail-punktatilvik fá skýra hegðun.
 
 #50
 ## Fjölskyldumeðlimir sem tengsl
@@ -634,89 +307,78 @@ tiltekin dagsetning.
 - Óviðkomandi notandi getur ekki séð event eða payload annars notanda.
 - Mobile 360-460 px sýnir mörg ólesin atriði án overlap eða horizontal scroll.
 
-#52
-## Lánaboð birtist í `Ólesið` og opnast beint
+#54
+## Spjall á hverjum lánaða hlut
 
 **Staða:** Bíður
 
-**Stofnað:** 2026-06-22
+**Stofnað:** 2026-06-23
 
-**Skjámynd:** Stebbi límdi skjámynd í samtal 2026-06-22 sem sýnir að
-heimaskjárinn birtir `Lánað og skilað` með event-badge `1`, en sama pending
-lánaboð birtist ekki í `Ólesið`.
+**Samhengi frá Stebba:** Nú er hver lánaður hlutur með sína sér síðu í
+`Lánað og skilað`. Það opnar möguleika á að nota detail-síðuna sem stað fyrir
+afmarkað spjall um nákvæmlega þann hlut.
 
-**Athugið:** Codex fann ekki myndaskrá á disk til að vista í
-`feedback/images/`, þannig að myndin er varðveitt í samtalinu en ekki sem
-repository-skrá.
+**Vandamál:** Samskipti um lánaðan hlut geta annars lent í SMS, Messenger,
+tölvupósti eða almennu samtali án samhengis. Þá týnist hvað var verið að ræða um:
+skiladag, ástand hlutar, hvar hann er, hvort hann sé tilbúinn til afhendingar
+eða hvort eitthvað hafi breyst.
 
-**Samhengi frá Stebba:** Á `/heim` sést að `Lánað og skilað` er með eitt event.
-Þetta event er pending lánaboð sem var sent til Stebba. Stebba finnst að sama
-event eigi líka að koma fram í `Ólesið`, og þaðan eigi hann að geta smellt beint
-á viðkomandi hlut.
+**Ósk:** Búa síðar til item-scoped spjall inni á hverri lánadetail-síðu þannig
+að aðilarnir sem hafa aðgang að láninu geti rætt um hlutinn í sama samhengi og
+lánaupplýsingarnar.
 
-**Vandamál:** Badge á Teskeiðinni segir að eitthvað bíði inni í `Lánað og
-skilað`, en `Ólesið` virðist ekki sýna sama ólesna lánaboð. Notandi þarf þá að
-opna alla Teskeiðina og leita að hlutnum sjálfur, sem veikjar tilganginn með
-ólesnum inngangi.
+**Við útfærslu þarf að skilgreina:**
 
-**Ósk:** Pending lánaboð sem birtist sem ólesið/event á `Lánað og skilað` á líka
-að birtast í `Ólesið` eða samsvarandi ólesnum lista á heimaskjánum. Smellur á
-það atriði á að opna rétta hlutinn beint í `Lánað og skilað`, helst með
-highlight/scroll á viðkomandi spjald.
+- Hverjir mega lesa og skrifa í spjallinu:
+  - creator/lender/borrower,
+  - pending recipient áður en boð er samþykkt,
+  - eða aðeins staðfestir aðilar eftir claim.
+- Hvort pending invitation recipient megi sjá fyrri skilaboð áður en hann velur
+  `Þekki málið`.
+- Hvernig spjall birtist á lánadetail-síðu án þess að kæfa aðalaðgerðir eins og
+  `Þekki málið`, `Kannast ekki við þetta`, `Skilað`, `Breyta` eða `Eyða`.
+- Hvort `Ólesið` / recent events eigi að sýna ný spjallskilaboð.
+- Hvort spjall eigi að styðja aðeins texta í fyrstu útgáfu, eða síðar myndir,
+  afhendingartíma, staðsetningu eða attachment.
+- Hvernig eydd, cancelled, declined, expired eða returned lán haga sér gagnvart
+  spjalli.
+- Hvort skilaboð séu immutable eða hvort notandi geti eytt/leiðrétt eigin
+  skilaboð.
 
-**Tengist:**
+**Öryggi og gagnamörk:**
 
-- #19 server-side grunnur fyrir lesin/ólesin events er kominn og skráður í DONE
-- #37 að `Nýlegt`/`Ólesið` sýni öll ólesin events og breytingasamhengi
-- #27 mýkra lánaboðsflæði þar sem pending boð eru sýnilegri inni í appinu
-- #43 Gmail-punktar og claim/soft-ack edge cases
+- Spjall má aldrei leka milli ótengdra notenda eða milli lána.
+- Access þarf að vera bundinn við sama owner/participant/invitation-samhengi og
+  loan detail access.
+- Ekki veita almennan `authenticated` lestur að spjalltöflum.
+- Ef Supabase Realtime eða polling verður notað þarf að rýna RLS, channel
+  authorization og billing/usage áhrif áður en það er virkjað.
+- Ekki logga skilaboðainnihald, netföng eða viðkvæmar upplýsingar í server logs.
+- Í fyrstu útgáfu skal forðast attachments nema sérstakt öryggisplan sé gert.
 
-**Við útfærslu:**
+**Hönnun og mobile:**
 
-- Kortleggja núverandi mun á badge-talningu á `Lánað og skilað` og því sem
-  `Ólesið` sækir eða birtir.
-- Skilgreina hvort þetta eigi að heita `Ólesið`, `Nýlegt`, eða hvort núverandi
-  UI sé að þróast úr `Nýlegt` yfir í `Ólesið`.
-- Tryggja að pending invitation-derived rows fái event sem er tengt réttum
-  viðtakanda, ekki bara Teskeið-badge.
-- Event payload þarf að innihalda öruggt deep-link samhengi, t.d. `loan_id` eða
-  annað internal auðkenni sem server-side route getur sannreynt.
-- Smellur úr `Ólesið` á ekki bara að opna `/auth-mvp/lanad-og-skilad`; hann á að
-  opna eða scrolla/highlighta réttan hlut ef það er tæknilega hægt.
-- Ef hluturinn er ekki lengur sýnilegur, t.d. boð afturkallað, hafnað eða
-  afgreitt í öðrum flipa, á eventið að fá rólega fallback-hegðun og ekki brjóta
-  síðuna.
-- Skilgreina hvenær eventið telst lesið:
-  - þegar notandi opnar `Ólesið`,
-  - þegar notandi smellir á eventið,
-  - eða þegar hann tekur afstöðu með `Þekki málið` / `Kannast ekki við þetta`.
-- Samræma þetta við framtíðar event-feed grunn svo ekki verði til sértæk
-  lánasértæk read-state lausn sem þarf síðar að rífa út.
-
-**Öryggi og gögn:**
-
-- Óviðkomandi innskráður notandi má ekki sjá pending lánaboð eða event annars
-  notanda með því að giska á `loan_id`, `invitation_id` eða event id.
-- Recipient email má ekki leka í `Ólesið`, event payload, logs eða client state
-  nema það sé sérstaklega heimilað og nauðsynlegt.
-- Server-side opnun frá eventi þarf að staðfesta að notandi hafi aðgang að
-  láninu/pending boðinu með sömu reglum og `get_my_loans`.
-- Ekki veikja RLS, service-role mörk eða grants til að gera `Ólesið` einfaldara.
-- Ef þetta kallar á SQL migration eða breytingu á recent-events grunni þarf
-  sérstakt handoff, rollback og Supabase-rýni.
+- Fylgja `Design.md`; spjallið á að líða eins og hluti af appinu, ekki innbyggt
+  iframe eða legacy chat.
+- Mobile keyboard má ekki valda óæskilegu zoomi, láréttu overflowi eða því að
+  inputið fari undir browser chrome/safe-area.
+- Textarea/input skal vera minnst 16 px á mobile.
+- Spjallflæði þarf loading, empty, sending, failed og retry states.
+- Skilaboð eiga að vera læsileg við 360-460 px viewport og ekki ýta mikilvægum
+  loan-actions óaðgengilega langt í burtu.
 
 **Prófanir:**
 
-- Notandi fær pending lánaboð; `Lánað og skilað` sýnir badge `1`.
-- Sama boð birtist í `Ólesið` með skiljanlegum texta og heiti hlutar ef tiltækt.
-- Smellur úr `Ólesið` opnar réttan hlut í `Lánað og skilað`, ekki bara almenna
-  listann.
-- Eftir að notandi smellir eða tekur afstöðu uppfærist ólesið/badge-state eins
-  og product-reglan segir.
-- Afturkallað, hafnað eða samþykkt boð skilur ekki eftir brotinn deep-link.
-- Óviðkomandi notandi getur ekki séð eða opnað eventið með beinni slóð.
-- Mobile 360-460 px sýnir `Ólesið` atriðið án overlap, horizontal scroll eða
-  texta sem skerðist.
+- Aðili með aðgang að láninu sér spjallið á réttum hlut.
+- Óviðkomandi notandi sér ekki spjallið og getur ekki sent skilaboð.
+- Skilaboð í einu láni birtast ekki í öðru láni.
+- Pending/accepted/declined/cancelled/returned states fylgja skilgreindri
+  product-ákvörðun.
+- Ný skilaboð birtast rétt í UI og failed send má reyna aftur.
+- Mobile 360-460 px með keyboard opið/lokað veldur ekki zoomi, overlapi eða
+  scroll-villu.
+- Ef `Ólesið` tengist spjalli síðar, þá uppfærist read/unread state án
+  duplicate events eða leka milli notenda.
 
 #38
 ## Event þegar lánaboði er hafnað
@@ -845,56 +507,13 @@ bjóða upp á hlekki á App Store, Play Store og beint á `umonnun.is`.
 - Engin viðkvæm Umönnun gögn eða secrets birtast í client payload, UI eða logs.
 - Mobile 360-460 px sýnir texta og hlekki án overlap eða horizontal scroll.
 
-#5
-## Samræmd mobile app-upplifun á öllu Teskeið.is
-
-**Staða:** Bíður
-
-**Næsta handoff:** Sjá sameiginlegan rýni-fyrst pakka fyrir #30, #5, #7 og #17:
-`ai-handoff/2026-06-09-2341-todo-030-005-007-017-v001-codex-mobile-home-identity-review-plan.md`.
-
-**Umfang:** Reglurnar í þessu atriði gilda alls staðar á `teskeid.is`, bæði á
-opinberum síðum, innskráningu, prófíl, heimaskjá og inni í öllum Teskeiðum.
-
-**Vandamál:** Í farsíma þysjar vafrinn sjálfkrafa inn þegar notandi slær í
-ákveðna innsláttarreiti, meðal annars netfangið á Teskeið-innskráningarsíðunni.
-Eftir innslátt þarf notandinn að þysja handvirkt út aftur. Sambærileg
-viewport-, keyboard-, overflow- og layout-vandamál mega ekki koma upp annars
-staðar á vefnum. Allt `teskeid.is` á að upplifast eins og samræmt mobile app.
-
-**Ósk:**
-
-- Tryggja að engir innsláttarreitir á `teskeid.is` valdi óæskilegu
-  mobile-zoom, sérstaklega í Safari/iOS.
-- Halda eðlilegri aðgengilegri textastærð og forðast að banna notandanum
-  almennt að zooma síðuna.
-- Yfirfara öll form og controls á vefnum, þar á meðal netfang, kóða,
-  dagsetningar, leit, textarea, select og tengdar auth-síður.
-- Endurhanna Teskeið-innskráningarsíðuna samkvæmt `Design.md`, með canonical
-  Teskeið-litunum, spacing, typography, controls, focus-visible og
-  mobile-first app-upplifun.
-- Setja canonical Teskeið-lógóið neðst á `/innskraning`, í sama stærðar- og
-  staðsetningarmynstri og á öðrum Teskeið-síðum, og hafa það smellanlegt.
-- Áfangastaður lógósins skal ráðast af staðfestri server-side session-stöðu:
-  innskráður notandi fer á `/heim`, en óinnskráður notandi fer á forsíðu
-  Teskeiðar (`/`). Lausnin má ekki valda client/server hydration-misræmi eða
-  sýna rangan áfangastað á meðan session er lesin.
-- Ekki láta gamalt Krakkavaktar-lúkk leka inn í Teskeið-innskráninguna.
-- Nota reglurnar í `Design.md` sem skyldubundið viðmið fyrir alla nýja og
-  breytta skjái á `teskeid.is`.
-- Prófa sérstaklega við 360-460 px viewport, með mobile keyboard opið og í
-  portrait og landscape þar sem það skiptir máli.
-- Staðfesta að enginn texti, hnappur eða input skarist og að síðan haldi réttri
-  breidd og scroll-stöðu eftir að lyklaborði er lokað.
-- Staðfesta að fixed/sticky controls, modals og neðri aðgerðir fari ekki undir
-  mobile keyboard, browser chrome eða safe-area.
-
 #7
 ## Langlíf innskráning með app-líkri mobile-upplifun
 
 **Staða:** Bíður
 
-**Næsta handoff:** Sjá sameiginlegan rýni-fyrst pakka fyrir #30, #5, #7 og #17:
+**Næsta handoff:** Bíður nýs handoff þegar auth/session pakkinn fer af stað.
+Eldra samhengi er í
 `ai-handoff/2026-06-09-2341-todo-030-005-007-017-v001-codex-mobile-home-identity-review-plan.md`.
 
 **Vandamál:** Stuttur eða óvæntur session-timeout getur gert mobile-upplifun
@@ -937,7 +556,8 @@ eða gera stolna session ótímabundna.
 
 **Staða:** Bíður
 
-**Næsta handoff:** Sjá sameiginlegan rýni-fyrst pakka fyrir #30, #5, #7 og #17:
+**Næsta handoff:** Bíður nýs handoff þegar heimaskjár pakkinn (#17/#42/#41)
+fer af stað. Eldra samhengi er í
 `ai-handoff/2026-06-09-2341-todo-030-005-007-017-v001-codex-mobile-home-identity-review-plan.md`.
 
 **Markmið:** Skipta núverandi disabled röðum merktum `Væntanlegt` á `/heim`
@@ -1209,7 +829,7 @@ hluti af Teskeið, og ef já, í hvaða tilgangi.
 #27
 ## Mýkra lánaboðsflæði
 
-**Staða:** Bíður eftir áframhaldandi event-feed vinnu í #37 og #52 áður en full
+**Staða:** Bíður eftir áframhaldandi event-feed vinnu í #37 áður en full
 útfærsla hefst
 
 **Samhengi:** Núverandi lánaboð virka sem sérstakt samþykkisflæði. Viðtakandi
@@ -1261,46 +881,62 @@ skýra leið til að staðfesta eða hafna.
 **Handoff:** Sjá
 `ai-handoff/2026-06-09-1630-todo-027-v001-codex-loan-soft-ack-package-plan.md`.
 
-**Næsta tengda skref:** #37 og #52 byggja á #19 server-side event-feed grunninum
+**Næsta tengda skref:** #37 byggir á #19 server-side event-feed grunninum
 svo `Nýlegt` verði örugg og áreiðanleg inngangsleið fyrir framtíðar #27:
 `ai-handoff/2026-06-10-0708-todo-019-027-037-v014-codex-nylegt-all-unread-event-detail-plan.md`.
 
-#30
-## Stærra `10,5` og ný favicon-tillaga
+#56
+## Breyta lánsdagsetningu og skiladegi á samþykktum lánum
 
 **Staða:** Bíður
 
-**Næsta handoff:** Sjá sameiginlegan rýni-fyrst pakka fyrir #30, #5, #7 og #17:
-`ai-handoff/2026-06-09-2341-todo-030-005-007-017-v001-codex-mobile-home-identity-review-plan.md`.
+**Stofnað:** 2026-06-24
 
-**Vandamál:** Merkingin `10,5` á derhúfunni er komin inn, en hún mætti vera
-sýnilegri. Í favicon-stærðum er hætta á að fulla lógóið og derhúfumerkingin verði
-of smá til að lesa vel.
+**Samhengi:** Komið upp sem follow-up við #37. Stebbi bað upphaflega um að geta breytt `Lánað` og `Skila fyrir` jafnvel þegar lán er samþykkt (accepted), amk sem sá sem lánaði. Þetta var ekki hluti af #37 scope en tilheyrir sama event/Ólesið pakka.
 
-**Ósk:** Stækka `10,5` á derhúfunni þannig að það verði sýnilegra og gera
-tillögu að nýju favicon sem sýnir bara:
+**Vandamál:** Þegar lán er samþykkt fer edit-síðan í `LoanItemDetailsForm`, sem breytir aðeins nafni og athugasemd. SQL `update_loan_with_diff` stoppar samþykkt lán með `not_editable`. Lánveitandi getur ekki breytt `loaned_at` eða `due_at` eftir samþykki.
 
-> 10,5
+**Ósk:** Lánveitandi geti breytt lánsdagsetningu og skiladegi á samþykktum lánum. Breytingarnar eiga að birtast í `Ólesið` hjá mótaðila sem `Breytt lánsdagsetning` og `Breyttur skiladagur` - label-grunnurinn er þegar til frá #37.
 
 **Við útfærslu:**
 
-- Skoða núverandi `TeskeidLogo`, `app/icon.svg` og tengdar favicon/preview
-  útgáfur áður en breyting er hönnuð.
-- Stækka `10,5` á derhúfunni án þess að skemma andlit, hlutföll eða almennt
-  karakter lógósins.
-- Gera aðskilda favicon-tillögu þar sem aðeins `10,5` er sýnilegt og læsilegt í
-  mjög litlum stærðum.
-- Ekki skipta út production favicon fyrr en Stebbi hefur séð og samþykkt
-  tillöguna.
-- Útbúa preview/samanburð ef það hjálpar Stebba að velja á milli núverandi og
-  nýrrar útgáfu.
-- Tryggja að `10,5` sé læsilegt í 16x16, 32x32, 192x192 og 512x512 samhengi ef
-  favicon/app-icons verða uppfærð.
-- Halda litum og formmáli samræmdu canonical Teskeið-lógóinu.
+- Skilgreina nákvæmlega hvaða hlutverks notendur fá leyfi til að breyta dagsetningum á samþykktum lánum (lánveitandi, skráningaraðili, eða báðir).
+- Breyta eða bæta við SQL/RPC sem leyfir þessa breytingu án þess að hafa áhrif á önnur heimildarlag.
+- Uppfæra `LoanItemDetailsForm` eða búa til nýtt form sem inniheldur dagsetningasvið þegar notandi hefur leyfi.
+- Tryggja að mótaðili fái `loan_updated` event með `Breytt lánsdagsetning`/`Breyttur skiladagur` label í `Ólesið`.
+- Halda `not_editable` vörn fyrir aðrar aðstæður þar sem hún á við.
+
+**Öryggi:** Framfylgja heimildum server-side í RPC, ekki aðeins í UI. Enginn notandi má breyta dagsetningum á láni sem hann á ekki rétt á að breyta.
 
 **Prófanir:**
 
-- `10,5` sést skýrar á derhúfunni án þess að lógóið verði klunnalegt.
-- Sér favicon-tillaga með bara `10,5` er læsileg í litlum stærðum.
-- Preview sýnir samanburð á núverandi og nýrri tillögu.
-- Engin production icon-skrá er skipt út án samþykkis Stebba.
+- Lánveitandi getur breytt `loaned_at` og `due_at` á samþykktum láni.
+- Lántakandi (sem á ekki leyfi) fær viðeigandi villu.
+- Mótaðili fær `Breytt lánsdagsetning` / `Breyttur skiladagur` event í `Ólesið`.
+- Regression: aðrar heimildar- og breytingareglur breytast ekki.
+
+#57
+## Timestamp format í ensku locale
+
+**Staða:** Bíður (tech debt, lágt forgangsstig)
+
+**Stofnað:** 2026-06-24
+
+**Samhengi:** Komið upp sem follow-up við #37. `formatEventTimestamp` í `app/auth-mvp/heim/page.tsx` setur saman timestamp-streng með íslenskri orðröð og `kl.` sem er utan þýðingaskrár.
+
+**Vandamál:** Í ensku locale mun timestamp líta skrítið út, t.d. `Tuesday 9. June kl. 20:00`. `kl.` er harðkóðað utan `messages/is.json` og `messages/en.json`.
+
+**Athugið:** Þetta hefur engin áhrif í dag þar sem íslenska er eina supported locale í notkun.
+
+**Ósk:** Setja timestamp-template í `messages/is.json` og `messages/en.json` þannig að orðröð og `kl.`-jafngildi séu locale-specific, eða nota `Intl.DateTimeFormat` með `timeZone: 'Atlantic/Reykjavik'`.
+
+**Tillögur:**
+
+- is: `{weekday} {day}. {month} kl. {time}`
+- en: `{weekday}, {month} {day} at {time}`
+
+**Prófanir:**
+
+- Íslenska timestamp lítur eins út og áður: `Miðvikudaginn 24. júní kl. 7:40`.
+- Enska timestamp fylgir enskri orðröð og orðalagi.
+- Engin regression á öðrum event labels.

@@ -46,4 +46,6 @@ export interface RecentEventDisplay {
   isDeleted: boolean
   /** Server-computed localized detail lines for the drawer. */
   detailLines?: string[]
+  /** Server-formatted timestamp label, e.g. "Miðvikudaginn 24. júní kl. 7:40". */
+  occurredAtLabel: string
 }

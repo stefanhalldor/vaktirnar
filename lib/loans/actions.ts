@@ -32,6 +32,25 @@ async function lookupUserIdByEmail(
   }
 }
 
+// Returns all user IDs whose email canonical-matches p_email (via SQL57).
+// Best-effort: returns [] on any error, never throws, never logs email or IDs.
+async function getUserIdsByCanonicalEmail(
+  admin: ReturnType<typeof getAdmin>,
+  email: string,
+): Promise<string[]> {
+  try {
+    const { data, error } = await admin.rpc('get_user_ids_by_canonical_email', { p_email: email })
+    if (error || !data) {
+      console.error('[loans/updateLoan] canonical recipient lookup failed')
+      return []
+    }
+    return ((data ?? []) as Array<{ user_id: string }>).map((row) => row.user_id).filter(Boolean)
+  } catch {
+    console.error('[loans/updateLoan] canonical recipient lookup failed')
+    return []
+  }
+}
+
 interface LoanEventContext {
   itemName:       string | null
   lenderUserId:   string | null
@@ -389,17 +408,48 @@ export async function updateLoan(loanId: string, input: unknown): Promise<Action
     { item_name: item_name, note: note ?? null, loaned_at: loaned_at, due_at: due_at ?? null },
   )
   if (changes.length > 0) {
+    const eventKey = `loans:loan:${loanId}:updated:${new Date().toISOString()}`
     await recordRecentEvent({
       userId:        user.id,
       source:        'loans',
       eventType:     'loan_updated',
       entityType:    'loan',
       entityId:      loanId,
-      eventKey:      `loans:loan:${loanId}:updated:${new Date().toISOString()}`,
+      eventKey,
       payload:       { itemName: item_name, changes },
       href:          '/auth-mvp/lanad-og-skilad',
       initiallyRead: true,
     })
+
+    // Best-effort: notify pending recipient(s) via canonical email match (#37)
+    try {
+      const { data: invData, error: invError } = await admin
+        .from('loan_invitations')
+        .select('recipient_email_normalized')
+        .eq('loan_id', loanId)
+        .eq('status', 'pending')
+        .maybeSingle()
+
+      if (!invError && invData) {
+        const inv = invData as { recipient_email_normalized: string }
+        const recipientIds = await getUserIdsByCanonicalEmail(admin, inv.recipient_email_normalized)
+        for (const recipientId of recipientIds) {
+          if (recipientId === user.id) continue
+          await recordRecentEvent({
+            userId:     recipientId,
+            source:     'loans',
+            eventType:  'loan_updated',
+            entityType: 'loan',
+            entityId:   loanId,
+            eventKey,
+            payload:    { itemName: item_name, changes },
+            href:       '/auth-mvp/lanad-og-skilad',
+          })
+        }
+      }
+    } catch {
+      console.error('[loans/updateLoan] pending recipient notification failed')
+    }
   }
 
   revalidateLoanViews()

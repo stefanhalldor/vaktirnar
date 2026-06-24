@@ -32,7 +32,7 @@ vi.mock('next-intl/server', () => ({
   getTranslations: vi.fn().mockImplementation(async (ns: string) => {
     const T: Record<string, Record<string, string>> = {
       'teskeid.home': {
-        greeting:             '{firstName}, þú ert með allt í teskeið!',
+        greeting:             '{firstName}',
         greetingFallback:     'Góðan dag',
         featuresTitle:        'Teskeiðar',
         readyTeskeidarTitle:  'Tilbúnar Teskeiðar',
@@ -50,12 +50,16 @@ vi.mock('next-intl/server', () => ({
         recentMarkAllRead:    'Allt lesið',
         recentView:           'Skoða',
         recentClose:          'Loka',
-        recentDone:           'Njóttu lífsins með allt í Teskeið...',
+        recentDone:           'Allt uppá 10 hjá þér í Teskeiðinni',
         noRecent:             'Engin ólesin atriði.',
         profileLink:          'Minn aðgangur',
         pendingBadgeLabel:    '{count, plural, one {1 boð í bið} other {# boð í bið}}',
         eventLoanCreated:     'Búinn til: {itemName}',
-        eventLoanUpdated:     'Breytt: {itemName}',
+        eventLoanUpdated:         'Breytt: {itemName}',
+        eventLoanUpdatedName:     'Breytt nafn: {itemName}',
+        eventLoanUpdatedNote:     'Breytt athugasemd: {itemName}',
+        eventLoanUpdatedDueAt:    'Breyttur skiladagur: {itemName}',
+        eventLoanUpdatedLoanedAt: 'Breytt lánsdagsetning: {itemName}',
         eventLoanReturned:    'Skilað: {itemName}',
         eventLoanReturnUndone: 'Skilað afturkallað: {itemName}',
         eventLoanDeleted:             'Eytt: {itemName}',
@@ -76,6 +80,25 @@ vi.mock('next-intl/server', () => ({
         borrowed: 'Ég fékk lánað',
         overdue:  'Komið fram yfir skiladag',
         homeLink: 'Fara á heimasíðu',
+        'weekdays.0': 'sunnudaginn',
+        'weekdays.1': 'mánudaginn',
+        'weekdays.2': 'þriðjudaginn',
+        'weekdays.3': 'miðvikudaginn',
+        'weekdays.4': 'fimmtudaginn',
+        'weekdays.5': 'föstudaginn',
+        'weekdays.6': 'laugardaginn',
+        'months.0': 'janúar',
+        'months.1': 'febrúar',
+        'months.2': 'mars',
+        'months.3': 'apríl',
+        'months.4': 'maí',
+        'months.5': 'júní',
+        'months.6': 'júlí',
+        'months.7': 'ágúst',
+        'months.8': 'september',
+        'months.9': 'október',
+        'months.10': 'nóvember',
+        'months.11': 'desember',
       },
     }
     return (key: string, params?: Record<string, string | number>) => {
@@ -321,12 +344,13 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('HeimPage — greeting', () => {
-  it('shows personalised greeting when display_name is set', async () => {
+  it('shows first name only when display_name is set', async () => {
     setupGuard()
-    setupProfile('Jón')
+    setupProfile('Stefán Haraldsson')
     setupRpcs([])
     render(await HeimPage())
-    expect(screen.getByText('Jón, þú ert með allt í teskeið!')).toBeDefined()
+    expect(screen.getByText('Stefán')).toBeDefined()
+    expect(screen.queryByText('Stefán Haraldsson')).toBeNull()
   })
 
   it('shows fallback greeting when display_name is null', async () => {
@@ -552,7 +576,7 @@ describe('HeimPage — Ólesið section (event-based)', () => {
     setupRpcs([])
     setupRecentEvents([])
     render(await HeimPage())
-    expect(screen.getByText('Njóttu lífsins með allt í Teskeið...')).toBeDefined()
+    expect(screen.getByText('Allt uppá 10 hjá þér í Teskeiðinni')).toBeDefined()
   })
 
   it('shows "Ólesið" heading and "Allt lesið" button when events exist', async () => {
@@ -665,7 +689,7 @@ describe('HeimPage — Ólesið section (event-based)', () => {
     setupProfile('Guðrún')
     render(await HeimPage())
     expect(screen.queryByText('Ólesið')).toBeNull()
-    expect(screen.getByText('Guðrún, þú ert með allt í teskeið!')).toBeDefined()
+    expect(screen.getByText('Guðrún')).toBeDefined()
     expect(screen.getByText('Tilbúnar Teskeiðar')).toBeDefined()
   })
 
@@ -676,7 +700,7 @@ describe('HeimPage — Ólesið section (event-based)', () => {
     mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
     expect(screen.queryByText('Ólesið')).toBeNull()
-    expect(screen.queryByText('Njóttu lífsins með allt í Teskeið...')).toBeNull()
+    expect(screen.queryByText('Allt uppá 10 hjá þér í Teskeiðinni')).toBeNull()
   })
 
   it('regression: home page contains no link to /auth-mvp/lanad-og-skilad/ny', async () => {
@@ -696,7 +720,7 @@ describe('HeimPage — Lesið / ack events', () => {
     setupRecentEvents([makeEvent({ payload: { itemName: 'Bók' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Allt lesið'))
-    expect(screen.getByText('Njóttu lífsins með allt í Teskeið...')).toBeDefined()
+    expect(screen.getByText('Allt uppá 10 hjá þér í Teskeiðinni')).toBeDefined()
     expect(screen.queryByText('Allt lesið')).toBeNull()
   })
 
@@ -762,7 +786,7 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     setupProfile('Brynja')
     mockGetAdmin.mockImplementationOnce(() => { throw new Error('admin init failed') })
     render(await HeimPage())
-    expect(screen.getByText('Brynja, þú ert með allt í teskeið!')).toBeDefined()
+    expect(screen.getByText('Brynja')).toBeDefined()
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
     expect(screen.queryByText('Ólesið')).toBeNull()
     expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
@@ -802,7 +826,7 @@ describe('HeimPage — DOM order', () => {
     setupProfile('Jón')
     setupRpcs([])
     render(await HeimPage())
-    const greeting = screen.getByText('Jón, þú ert með allt í teskeið!')
+    const greeting = screen.getByText('Jón')
     const featuresHeading = screen.getByText('Tilbúnar Teskeiðar')
     expect(
       greeting.compareDocumentPosition(featuresHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -861,7 +885,7 @@ describe('HeimPage — event drawer', () => {
     fireEvent.click(screen.getByText('Lánaboð: Borvél'))
     const link = screen.getByRole('link', { name: 'Skoða' })
     expect(link).toBeDefined()
-    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/loan-xyz')
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/loan-xyz?from=heim')
   })
 
   it('drawer Skoða for loan_invitation_received falls back to ?invitation= when no matching loan (#52)', async () => {
@@ -873,7 +897,7 @@ describe('HeimPage — event drawer', () => {
     fireEvent.click(screen.getByText('Lánaboð: Borvél'))
     const link = screen.getByRole('link', { name: 'Skoða' })
     expect(link).toBeDefined()
-    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad?invitation=inv-uuid-1234')
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad?invitation=inv-uuid-1234&from=heim')
   })
 
   it('clicking "Skoða" acks the event so it disappears from Ólesið (#52)', async () => {
@@ -897,7 +921,7 @@ describe('HeimPage — event drawer', () => {
     fireEvent.click(screen.getByText('Búinn til: Borvél'))
     const link = screen.getByRole('link', { name: 'Skoða' })
     expect(link).toBeDefined()
-    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/aaa-bbb-ccc')
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/aaa-bbb-ccc?from=heim')
   })
 
   it('drawer shows "Skoða" link pointing to detail route for loan_invitation_accepted event (#52)', async () => {
@@ -909,7 +933,7 @@ describe('HeimPage — event drawer', () => {
     fireEvent.click(screen.getByText('Lánaboð samþykkt: Reiðhjól'))
     const link = screen.getByRole('link', { name: 'Skoða' })
     expect(link).toBeDefined()
-    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/loan-uuid-5678')
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/auth-mvp/lanad-og-skilad/loan-uuid-5678?from=heim')
   })
 
   it('drawer does not show "Skoða" for deleted events', async () => {
@@ -947,8 +971,92 @@ describe('HeimPage — event drawer', () => {
       },
     })])
     render(await HeimPage())
-    fireEvent.click(screen.getByText('Breytt: Bók'))
+    fireEvent.click(screen.getByText('Breytt nafn: Bók'))
     expect(screen.getByText('Nafni breytt: Gamla nafn -> Bók')).toBeDefined()
+  })
+
+  it('loan_updated with single note change shows "Breytt athugasemd" label (#37)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({
+      event_type: 'loan_updated',
+      payload: {
+        itemName: 'Bók',
+        changes: [{ field: 'note', changeType: 'changed', oldValue: 'Gömul', newValue: 'Ný' }],
+      },
+    })])
+    render(await HeimPage())
+    expect(screen.getByText('Breytt athugasemd: Bók')).toBeDefined()
+  })
+
+  it('loan_updated with single due_at change shows "Breyttur skiladagur" label (#37)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({
+      event_type: 'loan_updated',
+      payload: {
+        itemName: 'Bók',
+        changes: [{ field: 'due_at', changeType: 'changed', oldValue: '2026-06-01', newValue: '2026-07-01' }],
+      },
+    })])
+    render(await HeimPage())
+    expect(screen.getByText('Breyttur skiladagur: Bók')).toBeDefined()
+  })
+
+  it('loan_updated with single loaned_at change shows "Breytt lánsdagsetning" label (#37)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({
+      event_type: 'loan_updated',
+      payload: {
+        itemName: 'Bók',
+        changes: [{ field: 'loaned_at', changeType: 'changed', oldValue: '2026-05-01', newValue: '2026-05-15' }],
+      },
+    })])
+    render(await HeimPage())
+    expect(screen.getByText('Breytt lánsdagsetning: Bók')).toBeDefined()
+  })
+
+  it('loan_updated with multiple changes falls back to generic "Breytt" label (#37)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({
+      event_type: 'loan_updated',
+      payload: {
+        itemName: 'Bók',
+        changes: [
+          { field: 'item_name', changeType: 'changed', oldValue: 'Gamla', newValue: 'Bók' },
+          { field: 'note', changeType: 'added', newValue: 'Athugasemd' },
+        ],
+      },
+    })])
+    render(await HeimPage())
+    expect(screen.getByText('Breytt: Bók')).toBeDefined()
+  })
+
+  it('occurredAtLabel rendered in list row (#37)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    // occurred_at: '2026-06-09T20:00:00Z' — Tuesday June 9, UTC hour 20
+    setupRecentEvents([makeEvent({ event_type: 'loan_created', payload: { itemName: 'Bók' } })])
+    render(await HeimPage())
+    expect(screen.getByText('Þriðjudaginn 9. júní kl. 20:00')).toBeDefined()
+  })
+
+  it('occurredAtLabel rendered in drawer (#37)', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ event_type: 'loan_created', payload: { itemName: 'Bók' } })])
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Búinn til: Bók'))
+    const drawer = screen.getByTestId('recent-drawer')
+    expect(drawer.textContent).toContain('Þriðjudaginn 9. júní kl. 20:00')
   })
 
   it('clicking per-event "Lesið" removes that event from the list', async () => {
@@ -962,7 +1070,7 @@ describe('HeimPage — event drawer', () => {
     // "Lesið" appears in the drawer (header has "Allt lesið")
     fireEvent.click(screen.getByRole('button', { name: 'Lesið' }))
     expect(screen.queryByTestId('recent-drawer')).toBeNull()
-    expect(screen.getByText('Njóttu lífsins með allt í Teskeið...')).toBeDefined()
+    expect(screen.getByText('Allt uppá 10 hjá þér í Teskeiðinni')).toBeDefined()
   })
 })
 

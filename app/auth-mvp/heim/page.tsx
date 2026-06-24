@@ -61,6 +61,33 @@ const EVENT_TYPE_TO_KEY: Record<string, string> = {
   loan_invitation_declined:  'eventLoanInvitationDeclined',
 }
 
+function formatEventTimestamp(
+  isoStr: string,
+  tLoans: (key: string) => string,
+): string {
+  const d = new Date(isoStr)
+  if (isNaN(d.getTime())) return ''
+  // Iceland = UTC year-round (no daylight saving). UTC methods give correct local time.
+  const weekday = tLoans(`weekdays.${d.getUTCDay()}`)
+  const day = d.getUTCDate()
+  const month = tLoans(`months.${d.getUTCMonth()}`)
+  const hours = d.getUTCHours()   // no leading zero
+  const mins = String(d.getUTCMinutes()).padStart(2, '0')
+  const capitalized = weekday.charAt(0).toUpperCase() + weekday.slice(1)
+  return `${capitalized} ${day}. ${month} kl. ${hours}:${mins}`
+}
+
+function pickLoanUpdatedLabelKey(changes: LoanFieldChange[] | undefined): string {
+  if (changes?.length === 1) {
+    const field = changes[0]!.field
+    if (field === 'item_name') return 'eventLoanUpdatedName'
+    if (field === 'note')      return 'eventLoanUpdatedNote'
+    if (field === 'due_at')    return 'eventLoanUpdatedDueAt'
+    if (field === 'loaned_at') return 'eventLoanUpdatedLoanedAt'
+  }
+  return 'eventLoanUpdated'
+}
+
 
 export default async function HeimPage() {
   const { user } = await guardTeskeidSession()
@@ -178,29 +205,40 @@ export default async function HeimPage() {
       try {
         const rows = await getUnreadRecentEventsForUser(user.id)
         recentEvents = rows.map((event) => {
-          const labelKey = EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type
           const itemName = event.payload.itemName ?? ''
           const isDeleted = event.event_type === 'loan_deleted'
+          const labelKey = event.event_type === 'loan_updated'
+            ? pickLoanUpdatedLabelKey(event.payload.changes)
+            : (EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type)
           let viewHref: string | null = null
           if (!isDeleted && event.entity_id) {
             if (event.entity_type === 'invitation') {
               const matchingLoan = loans.find((l) => l.invitation_id === event.entity_id)
-              viewHref = matchingLoan
-                ? `/auth-mvp/lanad-og-skilad/${matchingLoan.id}`
-                : `/auth-mvp/lanad-og-skilad?invitation=${event.entity_id}`
+              if (matchingLoan) {
+                const params = new URLSearchParams({ from: 'heim' })
+                viewHref = `/auth-mvp/lanad-og-skilad/${matchingLoan.id}?${params}`
+              } else {
+                const params = new URLSearchParams({ invitation: event.entity_id, from: 'heim' })
+                viewHref = `/auth-mvp/lanad-og-skilad?${params}`
+              }
             } else if (event.entity_type === 'loan') {
-              viewHref = `/auth-mvp/lanad-og-skilad/${event.entity_id}`
+              const params = new URLSearchParams({ from: 'heim' })
+              viewHref = `/auth-mvp/lanad-og-skilad/${event.entity_id}?${params}`
             }
           }
           const tFn = (key: string, params?: Record<string, string>) =>
             t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])
           return {
-            id:          event.id,
-            label:       t(labelKey as Parameters<typeof t>[0], { itemName }),
-            href:        event.href,
+            id:             event.id,
+            label:          t(labelKey as Parameters<typeof t>[0], { itemName }),
+            href:           event.href,
             viewHref,
             isDeleted,
-            detailLines: buildDetailLines(event.payload.changes, tFn, displayLocale),
+            detailLines:    buildDetailLines(event.payload.changes, tFn, displayLocale),
+            occurredAtLabel: formatEventTimestamp(
+              event.occurred_at,
+              (key) => tLoans(key as Parameters<typeof tLoans>[0]),
+            ),
           }
         })
       } catch {

@@ -290,7 +290,7 @@
     },
     "auth": {
       "betaLabel": "Teskeið.is is in open beta testing and currently works best on a phone.",
-      "loginTitle": "Sign in / register",
+      "loginTitle": "Everything is 10/10 with Teskeið.is",
       "emailHint": "Enter your email and we'll send you a code to continue.",
       "emailLabel": "Email",
       "emailPlaceholder": "your@email.com",
@@ -322,7 +322,7 @@
       }
     },
     "home": {
-      "greeting": "{firstName}, everything is in one place.",
+      "greeting": "{firstName}",
       "greetingFallback": "Hello",
       "featuresTitle": "Teskeiðar",
       "loansTitle": "Lent and returned",
@@ -355,10 +355,14 @@
       "recentMarkAllRead": "Mark all done",
       "recentView": "View",
       "recentClose": "Close",
-      "recentDone": "Enjoy life with everything in Teskeið...",
+      "recentDone": "Everything is 10/10 for you in Teskeið.",
       "noRecent": "No unread items.",
       "eventLoanCreated": "Created: {itemName}",
       "eventLoanUpdated": "Updated: {itemName}",
+      "eventLoanUpdatedName": "Name updated: {itemName}",
+      "eventLoanUpdatedNote": "Note updated: {itemName}",
+      "eventLoanUpdatedDueAt": "Return date updated: {itemName}",
+      "eventLoanUpdatedLoanedAt": "Loan date updated: {itemName}",
       "eventLoanReturned": "Returned: {itemName}",
       "eventLoanReturnUndone": "Return undone: {itemName}",
       "eventLoanDeleted": "Deleted: {itemName}",

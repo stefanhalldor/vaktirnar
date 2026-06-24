@@ -101,7 +101,12 @@ export function RecentSection({ rows, labels }: Props) {
                 onClick={() => setDrawerEvent(event)}
                 className="w-full flex items-center px-4 min-h-[48px] hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset text-left"
               >
-                <p className="text-sm font-medium text-foreground py-3 truncate">{event.label}</p>
+                <div className="flex flex-col py-3 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{event.label}</p>
+                  {event.occurredAtLabel && (
+                    <p className="text-xs text-muted-foreground truncate">{event.occurredAtLabel}</p>
+                  )}
+                </div>
               </button>
             ))}
           </div>
@@ -121,6 +126,9 @@ export function RecentSection({ rows, labels }: Props) {
             <div className="flex items-start justify-between gap-3">
               <div className="flex flex-col gap-1">
                 <p className="text-base font-medium text-foreground">{drawerEvent.label}</p>
+                {drawerEvent.occurredAtLabel && (
+                  <p className="text-xs text-muted-foreground">{drawerEvent.occurredAtLabel}</p>
+                )}
                 {drawerEvent.detailLines?.map((line, i) => (
                   <p key={i} className="text-sm text-muted-foreground break-words">{line}</p>
                 ))}

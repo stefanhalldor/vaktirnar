@@ -294,7 +294,7 @@
     },
     "auth": {
       "betaLabel": "Teskeið.is er í opnum beta prófunum og virkar best í síma eins og staðan er núna.",
-      "loginTitle": "Allt í teskeið = allt á hreinu",
+      "loginTitle": "Allt uppá 10 með Teskeið.is",
       "emailHint": "Sláðu inn netfangið þitt og við sendum þér kóða til að komast nær því að vera með allt í teskeið!",
       "emailLabel": "Netfang",
       "emailPlaceholder": "þitt@netfang.is",
@@ -326,7 +326,7 @@
       }
     },
     "home": {
-      "greeting": "{firstName}, þú ert með allt í teskeið!",
+      "greeting": "{firstName}",
       "greetingFallback": "Góðan dag",
       "featuresTitle": "Teskeiðar",
       "loansTitle": "Lánað og skilað",
@@ -359,10 +359,14 @@
       "recentMarkAllRead": "Allt lesið",
       "recentView": "Skoða",
       "recentClose": "Loka",
-      "recentDone": "Njóttu lífsins með allt í Teskeið...",
+      "recentDone": "Allt uppá 10 hjá þér í Teskeiðinni",
       "noRecent": "Engin ólesin atriði.",
       "eventLoanCreated": "Búinn til: {itemName}",
       "eventLoanUpdated": "Breytt: {itemName}",
+      "eventLoanUpdatedName": "Breytt nafn: {itemName}",
+      "eventLoanUpdatedNote": "Breytt athugasemd: {itemName}",
+      "eventLoanUpdatedDueAt": "Breyttur skiladagur: {itemName}",
+      "eventLoanUpdatedLoanedAt": "Breytt lánsdagsetning: {itemName}",
       "eventLoanReturned": "Skilað: {itemName}",
       "eventLoanReturnUndone": "Skilað afturkallað: {itemName}",
       "eventLoanDeleted": "Eytt: {itemName}",
