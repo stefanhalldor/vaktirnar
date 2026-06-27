@@ -1,5 +1,15 @@
 # AGENTS.md - Teskeið
 
+> **Hard stop:** Sjálfgefinn vinnuhamur er ráðgjöf, rýni og planagerð.
+> Codex og Claude Code mega ekki breyta skrám, skrifa migration, keyra migration,
+> commit-a, push-a, deploya eða gera production-breytingar nema Stebbi gefi
+> skýrt og afmarkað framkvæmdarleyfi.
+> "Rýni", "plan", "handoff", "skoða", "meta stöðu", "virkar", "flott",
+> "samþykkt" og sambærilegt eru ekki framkvæmdarleyfi.
+> Ef vafi er á leyfi, er svarið nei.
+>
+> Fullar reglur eru í `WORKFLOW.md`. Lesið hana við upphaf hvers session.
+
 Þessi skrá skilgreinir vinnulag Stebba, Claude Code og Codex í þessu
 verkefni. Reglurnar gilda í öllum samtölum og eiga að halda samhengi þótt
 samtal compactist eða nýtt samtal hefjist.
@@ -65,6 +75,28 @@ og aðeins einni copy/paste blokk sem má líma óbreytta inn.
   gert og hvaða próf eða skipanir voru keyrðar.
 - Ekki commit-a, push-a, deploya eða keyra SQL nema Stebbi biðji sérstaklega
   um það.
+
+## Hönnun og mobile app-upplifun
+
+`Design.md` er skyldubundið viðmið fyrir allar UI-, layout-, form-,
+navigation- og mobile-hegðunarbreytingar. Claude Code og Codex eiga að lesa
+viðeigandi kafla í `Design.md` áður en slík breyting er plönuð, útfærð eða
+rýnd, og nefna í handoff/review hvernig lausnin fylgir skjalinu eða hvaða
+frávik þarf að samþykkja.
+
+Teskeið á að upplifast eins og app í farsíma. Það má ekki þurfa að minna á
+þetta í hverju máli: nýir og breyttir skjáir mega ekki valda óæskilegu mobile
+zoom-i, láréttu overflowi, overlap-i, röngum scroll-state eftir keyboard/focus,
+eða controls sem notandi þarf að þysja handvirkt út úr. Þetta gildir sérstaklega
+um `input`, `textarea`, `select`, leit, dagsetningar, stillingar og
+`/stillingar/tengsl`.
+
+Navigation þarf alltaf sýnilegt feedback þegar notandi bíður eftir síðu, gögnum
+eða route-transition. Ný eða breytt route-segment sem getur beðið eftir server
+component, auth, feature gate eða gagnalestri skal hafa `loading.tsx` með
+canonical Teskeið-loader, nema frávik sé rökstutt. Client navigation með
+`router.push`, `router.replace`, `router.back` eða sambærilegri aðgerð skal hafa
+pending/loader-state svo linkar og buttons virðist ekki dauðir.
 
 ## Leyfi og samþykki
 
