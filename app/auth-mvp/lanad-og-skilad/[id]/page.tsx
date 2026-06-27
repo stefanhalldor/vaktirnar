@@ -77,6 +77,13 @@ export default async function LoanDetailPage({
             title: t('history.title'),
             empty: t('history.empty'),
           }}
+          loanId={id}
+          chatLabels={{
+            fieldLabel: t('history.chatFieldLabel'),
+            placeholder: t('history.chatPlaceholder'),
+            send: t('history.chatSend'),
+            error: t('history.chatError'),
+          }}
         />
       </div>
     </LoanShell>

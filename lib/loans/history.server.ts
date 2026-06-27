@@ -12,6 +12,7 @@ export interface LoanHistoryItem {
   occurredAtLabel: string
   detailLines: string[]
   actorLabel?: string
+  chatBody?: string
 }
 
 interface RawHistoryRow {
@@ -20,9 +21,12 @@ interface RawHistoryRow {
   payload: { itemName?: string; changes?: LoanFieldChange[] }
   occurred_at: string
   actor_display_name: string | null
+  row_kind: string       // 'event' | 'chat'
+  chat_body: string | null
+  chat_message_id: string | null
 }
 
-// Returns de-duplicated, chronological history for a loan.
+// Returns de-duplicated, chronological history for a loan (events + chat).
 // Returns [] on any error — never throws.
 export async function getLoanHistory(
   admin: ReturnType<typeof getAdmin>,
@@ -44,7 +48,8 @@ export async function getLoanHistory(
 
     const rows = (data ?? []) as RawHistoryRow[]
 
-    // De-duplicate by event_key in TypeScript as a second line of defence
+    // De-duplicate by event_key in TypeScript as a second line of defence.
+    // Chat rows have unique synthetic keys and are never deduplicated with events.
     const seen = new Set<string>()
     return rows
       .filter((row) => {
@@ -53,6 +58,20 @@ export async function getLoanHistory(
         return true
       })
       .map((row) => {
+        if (row.row_kind === 'chat') {
+          // Chat row: show sender name as label, body as separate field
+          const label = row.actor_display_name
+            ? tLoans('history.chatLabel', { name: row.actor_display_name })
+            : tLoans('history.chatLabelUnknown')
+          return {
+            label,
+            occurredAtLabel: formatEventTimestamp(row.occurred_at, tLoans),
+            detailLines:     [],
+            chatBody:        row.chat_body ?? '',
+          }
+        }
+
+        // Event row
         const itemName = row.payload.itemName ?? ''
         const labelKey = row.event_type === 'loan_updated'
           ? pickLoanUpdatedLabelKey(row.payload.changes)

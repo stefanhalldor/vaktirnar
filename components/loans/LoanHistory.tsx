@@ -1,4 +1,5 @@
 import type { LoanHistoryItem } from '@/lib/loans/history.server'
+import { LoanChatForm, type ChatLabels } from './LoanChatForm'
 
 interface Labels {
   title: string
@@ -8,9 +9,11 @@ interface Labels {
 interface Props {
   rows: LoanHistoryItem[]
   labels: Labels
+  loanId: string
+  chatLabels: ChatLabels
 }
 
-export function LoanHistory({ rows, labels }: Props) {
+export function LoanHistory({ rows, labels, loanId, chatLabels }: Props) {
   return (
     <section
       aria-label={labels.title}
@@ -28,6 +31,9 @@ export function LoanHistory({ rows, labels }: Props) {
               {row.actorLabel && (
                 <p className="text-xs text-[#72796e]">{row.actorLabel}</p>
               )}
+              {row.chatBody !== undefined && (
+                <p className="text-sm text-[#1b1c19] whitespace-pre-wrap mt-0.5">{row.chatBody}</p>
+              )}
               {row.detailLines.map((line, j) => (
                 <p key={j} className="text-xs text-[#72796e] pl-2 border-l border-black/10">{line}</p>
               ))}
@@ -35,6 +41,7 @@ export function LoanHistory({ rows, labels }: Props) {
           ))}
         </ol>
       )}
+      <LoanChatForm loanId={loanId} labels={chatLabels} />
     </section>
   )
 }

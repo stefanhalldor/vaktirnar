@@ -55,6 +55,10 @@ vi.mock('next-intl/server', () => ({
       'history.title': 'Saga hlutarins',
       'history.empty': 'Engar skráðar aðgerðir.',
       'history.actor': 'Framkvæmt af {name}',
+      'history.chatFieldLabel': 'Skilaboð',
+      'history.chatPlaceholder': 'Skrifaðu skilaboð...',
+      'history.chatSend': 'Senda',
+      'history.chatError': 'Villa við sendingu',
     }
     return (key: string) => T[key] ?? key
   }),
@@ -96,6 +100,7 @@ vi.mock('@/lib/loans/actions', () => ({
   createLoan: vi.fn(),
   updateLoan: vi.fn(),
   updateLoanItemDetails: vi.fn(),
+  sendLoanChatMessage: vi.fn(),
 }))
 
 vi.mock('@/lib/loans/history.server', () => ({

@@ -54,6 +54,7 @@ export const EVENT_TYPE_TO_KEY: Record<string, string> = {
   loan_invitation_received:  'eventLoanInvitationReceived',
   loan_invitation_accepted:  'eventLoanInvitationAccepted',
   loan_invitation_declined:  'eventLoanInvitationDeclined',
+  loan_chat_message:         'eventLoanChatMessage',
 }
 
 export function formatEventTimestamp(

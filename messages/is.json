@@ -373,6 +373,7 @@
       "eventLoanInvitationReceived": "Lánaboð: {itemName}",
       "eventLoanInvitationAccepted": "Lánaboð samþykkt: {itemName}",
       "eventLoanInvitationDeclined": "Lánaboði hafnað: {itemName}",
+      "eventLoanChatMessage": "Ný skilaboð: {itemName}",
       "profileLink": "Minn aðgangur",
       "pendingBadgeLabel": "{count} boð í bið",
       "eventDetailReturnDateRemoved": "Skiladagur fjarlægður: {date}",
@@ -483,7 +484,13 @@
       "history": {
         "title": "Saga hlutarins",
         "empty": "Engar skráðar aðgerðir.",
-        "actor": "Framkvæmt af {name}"
+        "actor": "Framkvæmt af {name}",
+        "chatLabel": "{name} skrifaði",
+        "chatLabelUnknown": "Skilaboð",
+        "chatFieldLabel": "Skilaboð",
+        "chatPlaceholder": "Skrifaðu skilaboð",
+        "chatSend": "Senda",
+        "chatError": "Tókst ekki að senda. Reyndu aftur."
       },
       "errors": {
         "saveFailed": "Ekki tókst að vista. Reyndu aftur.",

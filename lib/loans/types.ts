@@ -123,6 +123,10 @@ export const AddInvitationSchema = z.object({
   recipient_email: z.string().trim().email('invalid_email').max(320).transform((v) => v.toLowerCase()),
 })
 
+export const SendLoanChatMessageSchema = z.object({
+  body: z.string().trim().min(1, 'required').max(1000),
+})
+
 export type CreateLoanInput = z.infer<typeof CreateLoanSchema>
 export type EditLoanInput = z.infer<typeof EditLoanSchema>
 export type AddInvitationInput = z.infer<typeof AddInvitationSchema>

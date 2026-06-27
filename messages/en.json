@@ -369,6 +369,7 @@
       "eventLoanInvitationReceived": "Loan invitation: {itemName}",
       "eventLoanInvitationAccepted": "Loan accepted: {itemName}",
       "eventLoanInvitationDeclined": "Loan declined: {itemName}",
+      "eventLoanChatMessage": "New message: {itemName}",
       "profileLink": "My account",
       "pendingBadgeLabel": "{count, plural, one {1 pending invitation} other {# pending invitations}}",
       "eventDetailReturnDateRemoved": "Return date removed: {date}",
@@ -479,7 +480,13 @@
       "history": {
         "title": "Item history",
         "empty": "No recorded actions.",
-        "actor": "Done by {name}"
+        "actor": "Done by {name}",
+        "chatLabel": "{name} wrote",
+        "chatLabelUnknown": "Message",
+        "chatFieldLabel": "Message",
+        "chatPlaceholder": "Write a message",
+        "chatSend": "Send",
+        "chatError": "Failed to send. Try again."
       },
       "errors": {
         "saveFailed": "Save failed. Please try again.",

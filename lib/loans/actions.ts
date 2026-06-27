@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
-import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, EditLoanItemDetailsSchema } from '@/lib/loans/types'
+import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, EditLoanItemDetailsSchema, SendLoanChatMessageSchema } from '@/lib/loans/types'
 import { sendLoanInvitationEmail, type EmailContext } from '@/lib/loans/email'
 import { recordRecentEvent, ackRecentEventByKey } from '@/lib/recent-events/helpers.server'
 import { computeLoanChanges } from '@/lib/loans/event-diff'
@@ -819,6 +819,90 @@ export async function updateLoanItemDetails(loanId: string, input: unknown): Pro
   }
 
   revalidateLoanViews()
+  return { ok: true }
+}
+
+// ============================================================
+// sendLoanChatMessage
+// Sends a chat message scoped to a loan. The message is stored
+// in loan_chat_messages and surfaces in Saga hlutarins.
+// Counterparts get an unread recent_event; the actor does not.
+// Message body is never logged or stored in recent_events.payload.
+// ============================================================
+
+export async function sendLoanChatMessage(loanId: string, input: unknown): Promise<ActionResult> {
+  const { user } = await guardLoanAccess()
+
+  const parsed = SendLoanChatMessageSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: 'invalid_input' }
+
+  const { body } = parsed.data
+
+  const admin = getAdmin()
+  const { data, error } = await admin.rpc('create_loan_chat_message', {
+    p_actor_id: user.id,
+    p_loan_id:  loanId,
+    p_body:     body,
+  })
+
+  if (error) {
+    console.error('[loans/sendLoanChatMessage] RPC failed')
+    return { ok: false, error: 'save_failed' }
+  }
+
+  const row = (data as Array<{ status: string; message_id: string | null }>)?.[0]
+  const status = row?.status ?? 'save_failed'
+  if (status === 'not_found')    return { ok: false, error: 'not_found' }
+  if (status === 'invalid_body') return { ok: false, error: 'invalid_input' }
+  if (status !== 'ok')           return { ok: false, error: 'save_failed' }
+
+  const messageId = row?.message_id
+  if (messageId) {
+    const eventKey = `loans:loan:${loanId}:chat:${messageId}`
+    const { itemName, lenderUserId, borrowerUserId } = await fetchLoanEventContext(admin, loanId)
+    const payload = itemName ? { itemName } : {}
+
+    // Build notification audience: known parties minus actor
+    const notifyIds = new Set<string>()
+    if (lenderUserId  && lenderUserId  !== user.id) notifyIds.add(lenderUserId)
+    if (borrowerUserId && borrowerUserId !== user.id) notifyIds.add(borrowerUserId)
+
+    // Also notify pending recipient via canonical email (covers pre-claim flæði)
+    try {
+      const { data: invData, error: invError } = await admin
+        .from('loan_invitations')
+        .select('recipient_email_normalized')
+        .eq('loan_id', loanId)
+        .eq('status', 'pending')
+        .maybeSingle()
+      if (!invError && invData) {
+        const inv = invData as { recipient_email_normalized: string }
+        const recipientIds = await getUserIdsByCanonicalEmail(admin, inv.recipient_email_normalized)
+        for (const rid of recipientIds) {
+          if (rid !== user.id) notifyIds.add(rid)
+        }
+      }
+    } catch {
+      console.error('[loans/sendLoanChatMessage] pending recipient lookup failed')
+    }
+
+    for (const uid of notifyIds) {
+      await recordRecentEvent({
+        userId:      uid,
+        source:      'loans',
+        eventType:   'loan_chat_message',
+        entityType:  'loan',
+        entityId:    loanId,
+        eventKey,
+        payload,
+        href:        `/auth-mvp/lanad-og-skilad/${loanId}`,
+        actorUserId: user.id,
+      })
+    }
+  }
+
+  revalidateLoanViews()
+  revalidatePath(`/auth-mvp/lanad-og-skilad/${loanId}`)
   return { ok: true }
 }
 
