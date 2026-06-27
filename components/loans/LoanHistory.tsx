@@ -12,18 +12,24 @@ interface Props {
 
 export function LoanHistory({ rows, labels }: Props) {
   return (
-    <section aria-label={labels.title} className="pt-6 border-t border-border">
-      <h2 className="text-sm font-medium text-muted-foreground mb-3">{labels.title}</h2>
+    <section
+      aria-label={labels.title}
+      className="bg-[#f0f0ed] rounded-2xl p-4 flex flex-col gap-3"
+    >
+      <h2 className="text-xs font-medium text-[#72796e] uppercase tracking-wide">{labels.title}</h2>
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{labels.empty}</p>
+        <p className="text-sm text-[#72796e]">{labels.empty}</p>
       ) : (
         <ol className="flex flex-col gap-3">
           {rows.map((row, i) => (
             <li key={i} className="flex flex-col gap-0.5">
-              <p className="text-sm text-foreground">{row.label}</p>
-              <p className="text-xs text-muted-foreground">{row.occurredAtLabel}</p>
+              <p className="text-sm text-[#1b1c19]">{row.label}</p>
+              <p className="text-xs text-[#72796e]">{row.occurredAtLabel}</p>
+              {row.actorLabel && (
+                <p className="text-xs text-[#72796e]">{row.actorLabel}</p>
+              )}
               {row.detailLines.map((line, j) => (
-                <p key={j} className="text-xs text-muted-foreground pl-2 border-l border-border">{line}</p>
+                <p key={j} className="text-xs text-[#72796e] pl-2 border-l border-black/10">{line}</p>
               ))}
             </li>
           ))}

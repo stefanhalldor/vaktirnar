@@ -11,6 +11,7 @@ export interface LoanHistoryItem {
   label: string
   occurredAtLabel: string
   detailLines: string[]
+  actorLabel?: string
 }
 
 interface RawHistoryRow {
@@ -18,6 +19,7 @@ interface RawHistoryRow {
   event_type: string
   payload: { itemName?: string; changes?: LoanFieldChange[] }
   occurred_at: string
+  actor_display_name: string | null
 }
 
 // Returns de-duplicated, chronological history for a loan.
@@ -27,7 +29,7 @@ export async function getLoanHistory(
   loanId: string,
   actorId: string,
   tHome: (key: string, params?: Record<string, string>) => string,
-  tLoans: (key: string) => string,
+  tLoans: (key: string, params?: Record<string, string>) => string,
   displayLocale: string,
 ): Promise<LoanHistoryItem[]> {
   try {
@@ -57,10 +59,14 @@ export async function getLoanHistory(
           : (EVENT_TYPE_TO_KEY[row.event_type] ?? row.event_type)
         const tFn = (key: string, params?: Record<string, string>) =>
           tHome(key as Parameters<typeof tHome>[0], params as Parameters<typeof tHome>[1])
+        const actorLabel = row.actor_display_name
+          ? tLoans('history.actor', { name: row.actor_display_name })
+          : undefined
         return {
-          label:          tHome(labelKey as Parameters<typeof tHome>[0], { itemName }),
+          label:           tHome(labelKey as Parameters<typeof tHome>[0], { itemName }),
           occurredAtLabel: formatEventTimestamp(row.occurred_at, tLoans),
-          detailLines:    buildDetailLines(row.payload.changes, tFn, displayLocale),
+          detailLines:     buildDetailLines(row.payload.changes, tFn, displayLocale),
+          actorLabel,
         }
       })
   } catch {

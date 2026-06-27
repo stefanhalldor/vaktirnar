@@ -58,7 +58,8 @@ export default async function LoanDetailPage({
 
   const tHomeFn = (key: string, params?: Record<string, string>) =>
     tHome(key as Parameters<typeof tHome>[0], params as Parameters<typeof tHome>[1])
-  const tLoansFn = (key: string) => tLoans(key as Parameters<typeof tLoans>[0])
+  const tLoansFn = (key: string, params?: Record<string, string>) =>
+    tLoans(key as Parameters<typeof tLoans>[0], params as Parameters<typeof tLoans>[1])
 
   const historyRows = await getLoanHistory(admin, id, user.id, tHomeFn, tLoansFn, displayLocale)
 

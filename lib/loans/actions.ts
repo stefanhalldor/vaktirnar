@@ -355,6 +355,7 @@ export async function createLoan(input: unknown): Promise<ActionResult> {
     href:             '/auth-mvp/lanad-og-skilad',
     updateOnConflict: false,
     initiallyRead:    true,
+    actorUserId:      user.id,
   })
 
   revalidateLoanViews()
@@ -419,6 +420,7 @@ export async function updateLoan(loanId: string, input: unknown): Promise<Action
       payload:       { itemName: item_name, changes },
       href:          '/auth-mvp/lanad-og-skilad',
       initiallyRead: true,
+      actorUserId:   user.id,
     })
 
     // Best-effort: notify pending recipient(s) via canonical email match (#37)
@@ -436,14 +438,15 @@ export async function updateLoan(loanId: string, input: unknown): Promise<Action
         for (const recipientId of recipientIds) {
           if (recipientId === user.id) continue
           await recordRecentEvent({
-            userId:     recipientId,
-            source:     'loans',
-            eventType:  'loan_updated',
-            entityType: 'loan',
-            entityId:   loanId,
+            userId:      recipientId,
+            source:      'loans',
+            eventType:   'loan_updated',
+            entityType:  'loan',
+            entityId:    loanId,
             eventKey,
-            payload:    { itemName: item_name, changes },
-            href:       '/auth-mvp/lanad-og-skilad',
+            payload:     { itemName: item_name, changes },
+            href:        '/auth-mvp/lanad-og-skilad',
+            actorUserId: user.id,
           })
         }
       }
@@ -486,7 +489,7 @@ export async function markReturned(loanId: string): Promise<ActionResult> {
     await recordRecentEvent({
       userId: user.id, source: 'loans', eventType: 'loan_returned',
       entityType: 'loan', entityId: loanId, eventKey, payload,
-      href: '/auth-mvp/lanad-og-skilad', initiallyRead: true,
+      href: '/auth-mvp/lanad-og-skilad', initiallyRead: true, actorUserId: user.id,
     })
     const counterpartUserId = user.id === lenderUserId
       ? borrowerUserId
@@ -495,7 +498,7 @@ export async function markReturned(loanId: string): Promise<ActionResult> {
       await recordRecentEvent({
         userId: counterpartUserId, source: 'loans', eventType: 'loan_returned',
         entityType: 'loan', entityId: loanId, eventKey, payload,
-        href: '/auth-mvp/lanad-og-skilad',
+        href: '/auth-mvp/lanad-og-skilad', actorUserId: user.id,
       })
     }
   }
@@ -533,7 +536,7 @@ export async function undoReturn(loanId: string): Promise<ActionResult> {
   await recordRecentEvent({
     userId: user.id, source: 'loans', eventType: 'loan_return_undone',
     entityType: 'loan', entityId: loanId, eventKey, payload,
-    href: '/auth-mvp/lanad-og-skilad', initiallyRead: true,
+    href: '/auth-mvp/lanad-og-skilad', initiallyRead: true, actorUserId: user.id,
   })
   const counterpartUserId = user.id === lenderUserId
     ? borrowerUserId
@@ -542,7 +545,7 @@ export async function undoReturn(loanId: string): Promise<ActionResult> {
     await recordRecentEvent({
       userId: counterpartUserId, source: 'loans', eventType: 'loan_return_undone',
       entityType: 'loan', entityId: loanId, eventKey, payload,
-      href: '/auth-mvp/lanad-og-skilad',
+      href: '/auth-mvp/lanad-og-skilad', actorUserId: user.id,
     })
   }
 
@@ -587,6 +590,7 @@ export async function deleteLoan(loanId: string): Promise<ActionResult> {
     href:             '/auth-mvp/lanad-og-skilad',
     updateOnConflict: false,
     initiallyRead:    true,
+    actorUserId:      user.id,
   })
 
   revalidateLoanViews()
@@ -686,6 +690,7 @@ export async function claimInvitation(invitationId: string): Promise<ActionResul
         eventKey: `loans:invitation:${invitationId}:accepted`,
         payload: itemName ? { itemName } : {},
         href: '/auth-mvp/lanad-og-skilad',
+        actorUserId: user.id,
       })
     }
     revalidateLoanViews()
@@ -725,6 +730,7 @@ export async function declineInvitation(invitationId: string): Promise<ActionRes
       eventKey: `loans:invitation:${invitationId}:declined`,
       payload: itemName ? { itemName } : {},
       href: '/auth-mvp/lanad-og-skilad',
+      actorUserId: user.id,
     })
   }
   revalidateLoanViews()
@@ -795,17 +801,19 @@ export async function updateLoanItemDetails(loanId: string, input: unknown): Pro
       payload:       { itemName: normalizedItemName, changes },
       href:          '/auth-mvp/lanad-og-skilad',
       initiallyRead: true,
+      actorUserId:   user.id,
     })
     if (row.counterpart_user_id && row.counterpart_user_id !== user.id) {
       await recordRecentEvent({
-        userId:     row.counterpart_user_id,
-        source:     'loans',
-        eventType:  'loan_updated',
-        entityType: 'loan',
-        entityId:   loanId,
+        userId:      row.counterpart_user_id,
+        source:      'loans',
+        eventType:   'loan_updated',
+        entityType:  'loan',
+        entityId:    loanId,
         eventKey,
-        payload:    { itemName: normalizedItemName, changes },
-        href:       '/auth-mvp/lanad-og-skilad',
+        payload:     { itemName: normalizedItemName, changes },
+        href:        '/auth-mvp/lanad-og-skilad',
+        actorUserId: user.id,
       })
     }
   }

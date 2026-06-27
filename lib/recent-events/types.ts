@@ -20,6 +20,7 @@ export interface LoanFieldChange {
 export interface RecentEventPayload {
   itemName?: string
   changes?: LoanFieldChange[]
+  actorUserId?: string
 }
 
 export interface RecentEventRow {

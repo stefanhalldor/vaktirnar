@@ -478,7 +478,8 @@
       },
       "history": {
         "title": "Item history",
-        "empty": "No recorded actions."
+        "empty": "No recorded actions.",
+        "actor": "Done by {name}"
       },
       "errors": {
         "saveFailed": "Save failed. Please try again.",

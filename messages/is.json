@@ -481,8 +481,9 @@
         "expired": "Útrunnið"
       },
       "history": {
-        "title": "Ferill hlutarins",
-        "empty": "Engar skráðar aðgerðir."
+        "title": "Saga hlutarins",
+        "empty": "Engar skráðar aðgerðir.",
+        "actor": "Framkvæmt af {name}"
       },
       "errors": {
         "saveFailed": "Ekki tókst að vista. Reyndu aftur.",

@@ -19,6 +19,9 @@ export interface RecordEventArgs {
   /** When true, ack_at is set immediately so the event does not appear as
    *  unread in Nýlegt. Use for the actor's own change events. */
   initiallyRead?: boolean
+  /** The user ID of the person who performed the action. Merged into payload
+   *  as actorUserId so history can display "Done by {name}". */
+  actorUserId?: string
 }
 
 /**
@@ -33,6 +36,9 @@ export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
   try {
     const admin = getAdmin()
     const occurredAt = new Date().toISOString()
+    const mergedPayload = args.actorUserId
+      ? { ...args.payload, actorUserId: args.actorUserId }
+      : args.payload
     const row = {
       user_id:     args.userId,
       source:      args.source,
@@ -40,7 +46,7 @@ export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
       entity_type: args.entityType,
       entity_id:   args.entityId,
       event_key:   args.eventKey,
-      payload:     args.payload,
+      payload:     mergedPayload,
       href:        args.href,
       occurred_at: occurredAt,
       ack_at:      args.initiallyRead ? occurredAt : null,

@@ -52,8 +52,9 @@ vi.mock('next-intl/server', () => ({
       pendingInvitations: 'Boð í bið',
       addParty: 'Bæta við aðila',
       'errors.loadFailed': 'Villa við hleðslu',
-      'history.title': 'Ferill hlutarins',
+      'history.title': 'Saga hlutarins',
       'history.empty': 'Engar skráðar aðgerðir.',
+      'history.actor': 'Framkvæmt af {name}',
     }
     return (key: string) => T[key] ?? key
   }),
