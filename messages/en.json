@@ -476,6 +476,10 @@
         "cancelled": "Cancelled",
         "expired": "Expired"
       },
+      "history": {
+        "title": "Item history",
+        "empty": "No recorded actions."
+      },
       "errors": {
         "saveFailed": "Save failed. Please try again.",
         "deleteFailed": "Delete failed. Please try again.",

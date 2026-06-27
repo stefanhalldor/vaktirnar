@@ -480,6 +480,10 @@
         "cancelled": "Afturkallað",
         "expired": "Útrunnið"
       },
+      "history": {
+        "title": "Ferill hlutarins",
+        "empty": "Engar skráðar aðgerðir."
+      },
       "errors": {
         "saveFailed": "Ekki tókst að vista. Reyndu aftur.",
         "deleteFailed": "Ekki tókst að eyða. Reyndu aftur.",

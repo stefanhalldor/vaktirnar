@@ -52,9 +52,12 @@ vi.mock('next-intl/server', () => ({
       pendingInvitations: 'Boð í bið',
       addParty: 'Bæta við aðila',
       'errors.loadFailed': 'Villa við hleðslu',
+      'history.title': 'Ferill hlutarins',
+      'history.empty': 'Engar skráðar aðgerðir.',
     }
     return (key: string) => T[key] ?? key
   }),
+  getLocale: vi.fn().mockResolvedValue('is'),
 }))
 
 const { mockRpc } = vi.hoisted(() => ({
@@ -92,6 +95,15 @@ vi.mock('@/lib/loans/actions', () => ({
   createLoan: vi.fn(),
   updateLoan: vi.fn(),
   updateLoanItemDetails: vi.fn(),
+}))
+
+vi.mock('@/lib/loans/history.server', () => ({
+  getLoanHistory: vi.fn().mockResolvedValue([]),
+}))
+
+vi.mock('@/components/loans/LoanHistory', () => ({
+  LoanHistory: ({ rows }: { rows: unknown[] }) =>
+    React.createElement('div', { 'data-testid': 'loan-history', 'data-count': rows.length }),
 }))
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => { throw new Error('NEXT_NOT_FOUND') }),

@@ -1,10 +1,13 @@
 import { notFound } from 'next/navigation'
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, getLocale } from 'next-intl/server'
 import Link from 'next/link'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { LoanCard } from '@/components/loans/LoanCard'
 import { LoanShell } from '@/components/loans/LoanShell'
+import { LoanHistory } from '@/components/loans/LoanHistory'
+import { getLoanHistory } from '@/lib/loans/history.server'
+import { getDisplayLocale } from '@/lib/recent-events/display'
 import type { LoanItem } from '@/lib/loans/types'
 
 export default async function LoanDetailPage({
@@ -19,7 +22,15 @@ export default async function LoanDetailPage({
   const from = typeof sp['from'] === 'string' ? sp['from'] : undefined
   const backHref = from === 'heim' ? '/auth-mvp/heim' : '/auth-mvp/lanad-og-skilad'
   const { user } = await guardLoanAccess()
-  const t = await getTranslations('teskeid.loans')
+
+  const [t, tHome, tLoans, locale] = await Promise.all([
+    getTranslations('teskeid.loans'),
+    getTranslations('teskeid.home'),
+    getTranslations('teskeid.loans'),
+    getLocale(),
+  ])
+
+  const displayLocale = getDisplayLocale(locale)
 
   const nav = (
     <Link
@@ -30,7 +41,8 @@ export default async function LoanDetailPage({
     </Link>
   )
 
-  const { data, error } = await getAdmin().rpc('get_my_loans', { p_actor_id: user.id })
+  const admin = getAdmin()
+  const { data, error } = await admin.rpc('get_my_loans', { p_actor_id: user.id })
 
   if (error) {
     console.error('[loans/detail] get_my_loans failed')
@@ -44,13 +56,28 @@ export default async function LoanDetailPage({
   const item = (data as LoanItem[]).find((i) => i.id === id)
   if (!item) notFound()
 
+  const tHomeFn = (key: string, params?: Record<string, string>) =>
+    tHome(key as Parameters<typeof tHome>[0], params as Parameters<typeof tHome>[1])
+  const tLoansFn = (key: string) => tLoans(key as Parameters<typeof tLoans>[0])
+
+  const historyRows = await getLoanHistory(admin, id, user.id, tHomeFn, tLoansFn, displayLocale)
+
   return (
     <LoanShell nav={nav} homeLabel={t('homeLink')}>
-      <LoanCard
-        item={item}
-        afterDeleteHref="/auth-mvp/lanad-og-skilad"
-        recipientDisplay={item.recipient_email ?? undefined}
-      />
+      <div className="flex flex-col gap-6">
+        <LoanCard
+          item={item}
+          afterDeleteHref="/auth-mvp/lanad-og-skilad"
+          recipientDisplay={item.recipient_email ?? undefined}
+        />
+        <LoanHistory
+          rows={historyRows}
+          labels={{
+            title: t('history.title'),
+            empty: t('history.empty'),
+          }}
+        />
+      </div>
     </LoanShell>
   )
 }
