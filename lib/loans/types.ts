@@ -84,15 +84,22 @@ export const CreateLoanSchema = z
     path: ['due_at'],
   })
 
-export const EditLoanItemDetailsSchema = z.object({
-  item_name: z.string().trim().min(1, 'required').max(200),
-  note: z
-    .string()
-    .max(1000)
-    .nullable()
-    .optional()
-    .transform((v) => v?.trim() || null),
-})
+export const EditLoanItemDetailsSchema = z
+  .object({
+    item_name: z.string().trim().min(1, 'required').max(200),
+    note: z
+      .string()
+      .max(1000)
+      .nullable()
+      .optional()
+      .transform((v) => v?.trim() || null),
+    loaned_at: dateField,
+    due_at: dateField.nullable().optional().transform((v) => v ?? null),
+  })
+  .refine((d) => !d.due_at || d.due_at >= d.loaned_at, {
+    message: 'due_at must be on or after loaned_at',
+    path: ['due_at'],
+  })
 export type EditLoanItemDetailsInput = z.infer<typeof EditLoanItemDetailsSchema>
 
 export const EditLoanSchema = z
@@ -176,8 +183,9 @@ export function getLoanCardControls(
       item.is_creator &&
       item.invitation_status !== 'pending' &&
       item.invitation_status !== 'accepted',
-    // Pending recipient can't edit: RPC authorizes only created_by or lender_user_id
-    canEditItemDetails: !isPendingRecipient && (item.is_creator || item.my_role === 'lender'),
+    // Accepted borrower may now edit via SQL58 (borrower_user_id authorized in new RPC).
+    // Pending recipients cannot edit: borrower_user_id is only set after claim.
+    canEditItemDetails: !isPendingRecipient && (item.is_creator || item.my_role === 'lender' || item.invitation_status === 'accepted'),
     canAcknowledge: isPendingRecipient,
     canDeclineAcknowledgement: isPendingRecipient,
   }

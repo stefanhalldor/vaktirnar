@@ -805,47 +805,48 @@ describe('updateLoanItemDetails orchestration', () => {
   })
 
   it('returns ok on happy path', async () => {
-    mockRpc.mockResolvedValue({ data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, counterpart_user_id: null }], error: null })
+    mockRpc.mockResolvedValue({ data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, before_loaned_at: '2026-01-01', before_due_at: null, counterpart_user_id: null }], error: null })
 
-    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', note: null })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', note: null, loaned_at: '2026-01-01' })
 
     expect(result).toEqual({ ok: true })
-    const call = mockRpc.mock.calls.find((c: string[]) => c[0] === 'update_loan_item_details_with_diff')
+    const call = mockRpc.mock.calls.find((c: string[]) => c[0] === 'update_loan_item_details_and_dates_with_diff')
     expect(call).toBeDefined()
     expect(call![1]).toMatchObject({
       p_loan_id:   ITEM_LOAN_ID,
       p_item_name: 'Bók',
       p_note:      null,
+      p_loaned_at: '2026-01-01',
     })
   })
 
   it('returns invalid_input for empty item_name (fails schema)', async () => {
-    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: '' })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: '', loaned_at: '2026-01-01' })
     expect(result).toEqual({ ok: false, error: 'invalid_input' })
     expect(mockRpc).not.toHaveBeenCalled()
   })
 
   it('returns not_found when RPC returns "not_found"', async () => {
-    mockRpc.mockResolvedValue({ data: [{ status: 'not_found', before_item_name: null, before_note: null, counterpart_user_id: null }], error: null })
-    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    mockRpc.mockResolvedValue({ data: [{ status: 'not_found', before_item_name: null, before_note: null, before_loaned_at: null, before_due_at: null, counterpart_user_id: null }], error: null })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', loaned_at: '2026-01-01' })
     expect(result).toEqual({ ok: false, error: 'not_found' })
   })
 
   it('returns invalid_input when RPC returns "invalid_item_name"', async () => {
-    mockRpc.mockResolvedValue({ data: [{ status: 'invalid_item_name', before_item_name: null, before_note: null, counterpart_user_id: null }], error: null })
-    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    mockRpc.mockResolvedValue({ data: [{ status: 'invalid_item_name', before_item_name: null, before_note: null, before_loaned_at: null, before_due_at: null, counterpart_user_id: null }], error: null })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', loaned_at: '2026-01-01' })
     expect(result).toEqual({ ok: false, error: 'invalid_input' })
   })
 
   it('returns invalid_input when RPC returns "invalid_note"', async () => {
-    mockRpc.mockResolvedValue({ data: [{ status: 'invalid_note', before_item_name: null, before_note: null, counterpart_user_id: null }], error: null })
-    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    mockRpc.mockResolvedValue({ data: [{ status: 'invalid_note', before_item_name: null, before_note: null, before_loaned_at: null, before_due_at: null, counterpart_user_id: null }], error: null })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', loaned_at: '2026-01-01' })
     expect(result).toEqual({ ok: false, error: 'invalid_input' })
   })
 
   it('returns save_failed on RPC transport error', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301', message: 'Transport error' } })
-    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    const result = await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', loaned_at: '2026-01-01' })
     expect(result).toEqual({ ok: false, error: 'save_failed' })
   })
 })
@@ -888,9 +889,9 @@ describe('revalidation — createLoan revalidates both paths', () => {
   })
 
   it('updateLoanItemDetails revalidates /auth-mvp/lanad-og-skilad and /auth-mvp/heim', async () => {
-    mockRpc.mockResolvedValue({ data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, counterpart_user_id: null }], error: null })
+    mockRpc.mockResolvedValue({ data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, before_loaned_at: '2026-01-01', before_due_at: null, counterpart_user_id: null }], error: null })
 
-    await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók' })
+    await updateLoanItemDetails(ITEM_LOAN_ID, { item_name: 'Bók', loaned_at: '2026-01-01' })
 
     const calls = vi.mocked(revalidatePath).mock.calls.map((c) => c[0])
     expect(calls).toContain('/auth-mvp/lanad-og-skilad')
@@ -1254,7 +1255,7 @@ const ULD_LOAN_ID = 'loan-uuid-updateLoanItemDetails'
 
 function detailsDiffOk(counterpart_user_id: string | null = 'borrower-uuid') {
   return {
-    data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, counterpart_user_id }],
+    data: [{ status: 'ok', before_item_name: 'Bók', before_note: null, before_loaned_at: '2026-01-01', before_due_at: null, counterpart_user_id }],
     error: null,
   }
 }
@@ -1265,15 +1266,15 @@ describe('updateLoanItemDetails — diff + counterpart events', () => {
     mockRecordEvent.mockResolvedValue(undefined)
   })
 
-  it('calls update_loan_item_details_with_diff RPC', async () => {
+  it('calls update_loan_item_details_and_dates_with_diff RPC', async () => {
     mockRpc.mockResolvedValue(detailsDiffOk())
-    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
-    expect(mockRpc).toHaveBeenCalledWith('update_loan_item_details_with_diff', expect.objectContaining({ p_loan_id: ULD_LOAN_ID }))
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null, loaned_at: '2026-01-01' })
+    expect(mockRpc).toHaveBeenCalledWith('update_loan_item_details_and_dates_with_diff', expect.objectContaining({ p_loan_id: ULD_LOAN_ID }))
   })
 
   it('records actor event with initiallyRead: true when changes exist', async () => {
     mockRpc.mockResolvedValue(detailsDiffOk())
-    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null, loaned_at: '2026-01-01' })
     const actorCall = mockRecordEvent.mock.calls.find(
       (c: unknown[]) => (c[0] as { userId: string }).userId === 'actor-uuid',
     )
@@ -1283,7 +1284,7 @@ describe('updateLoanItemDetails — diff + counterpart events', () => {
 
   it('records counterpart event (no initiallyRead) when counterpart differs from actor', async () => {
     mockRpc.mockResolvedValue(detailsDiffOk('borrower-uuid'))
-    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null, loaned_at: '2026-01-01' })
     const counterpartCall = mockRecordEvent.mock.calls.find(
       (c: unknown[]) => (c[0] as { userId: string }).userId === 'borrower-uuid',
     )
@@ -1293,7 +1294,7 @@ describe('updateLoanItemDetails — diff + counterpart events', () => {
 
   it('actor and counterpart share the same eventKey', async () => {
     mockRpc.mockResolvedValue(detailsDiffOk('borrower-uuid'))
-    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null, loaned_at: '2026-01-01' })
     expect(mockRecordEvent).toHaveBeenCalledTimes(2)
     const keys = mockRecordEvent.mock.calls.map((c: unknown[]) => (c[0] as { eventKey: string }).eventKey)
     expect(keys[0]).toBe(keys[1])
@@ -1301,39 +1302,39 @@ describe('updateLoanItemDetails — diff + counterpart events', () => {
 
   it('records only actor event when counterpart_user_id is null', async () => {
     mockRpc.mockResolvedValue(detailsDiffOk(null))
-    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null, loaned_at: '2026-01-01' })
     expect(mockRecordEvent).toHaveBeenCalledTimes(1)
     expect((mockRecordEvent.mock.calls[0][0] as { userId: string }).userId).toBe('actor-uuid')
   })
 
   it('records only actor event when counterpart_user_id equals actor', async () => {
     mockRpc.mockResolvedValue(detailsDiffOk('actor-uuid'))
-    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null })
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Borvél', note: null, loaned_at: '2026-01-01' })
     expect(mockRecordEvent).toHaveBeenCalledTimes(1)
   })
 
   it('does not record any event on no-op save', async () => {
-    mockRpc.mockResolvedValue(detailsDiffOk())  // before_item_name: 'Bók'
-    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null })
+    mockRpc.mockResolvedValue(detailsDiffOk())  // before_item_name: 'Bók', before_loaned_at: '2026-01-01'
+    await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null, loaned_at: '2026-01-01' })
     expect(mockRecordEvent).not.toHaveBeenCalled()
   })
 
   it('returns { ok: true } on no-op save', async () => {
     mockRpc.mockResolvedValue(detailsDiffOk())
-    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null })
+    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null, loaned_at: '2026-01-01' })
     expect(result).toEqual({ ok: true })
   })
 
   it('returns not_found when status is not_found', async () => {
-    mockRpc.mockResolvedValue({ data: [{ status: 'not_found', before_item_name: null, before_note: null, counterpart_user_id: null }], error: null })
-    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null })
+    mockRpc.mockResolvedValue({ data: [{ status: 'not_found', before_item_name: null, before_note: null, before_loaned_at: null, before_due_at: null, counterpart_user_id: null }], error: null })
+    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null, loaned_at: '2026-01-01' })
     expect(result).toEqual({ ok: false, error: 'not_found' })
     expect(mockRecordEvent).not.toHaveBeenCalled()
   })
 
   it('returns save_failed when data is null (defensive parse)', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
-    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null })
+    const result = await updateLoanItemDetails(ULD_LOAN_ID, { item_name: 'Bók', note: null, loaned_at: '2026-01-01' })
     expect(result).toEqual({ ok: false, error: 'save_failed' })
   })
 })

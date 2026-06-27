@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import { LoanDateField } from './LoanDateField'
 import type { ActionResult } from '@/lib/loans/actions'
 import type { LoanItem } from '@/lib/loans/types'
 
@@ -17,6 +18,8 @@ export function LoanItemDetailsForm({ action, initial }: Props) {
   const [isPending, startTransition] = useTransition()
   const [itemName, setItemName] = useState(initial.item_name)
   const [note, setNote] = useState(initial.note ?? '')
+  const [loanedAt, setLoanedAt] = useState(initial.loaned_at)
+  const [dueAt, setDueAt] = useState(initial.due_at ?? '')
   const [error, setError] = useState('')
 
   const inputClass =
@@ -26,7 +29,12 @@ export function LoanItemDetailsForm({ action, initial }: Props) {
     e.preventDefault()
     setError('')
     startTransition(async () => {
-      const result = await action({ item_name: itemName, note: note || null })
+      const result = await action({
+        item_name: itemName,
+        note: note || null,
+        loaned_at: loanedAt,
+        due_at: dueAt || null,
+      })
       if (result.ok) {
         router.push('/auth-mvp/lanad-og-skilad')
         router.refresh()
@@ -49,6 +57,36 @@ export function LoanItemDetailsForm({ action, initial }: Props) {
           className={inputClass}
         />
       </label>
+
+      {/* Loaned at */}
+      <LoanDateField
+        label={t('loanedAt')}
+        value={loanedAt}
+        onChange={setLoanedAt}
+        required
+      />
+
+      {/* Due date (optional) */}
+      <div className="flex gap-2 items-end">
+        <div className="flex-1 min-w-0">
+          <LoanDateField
+            label={t('dueDateOptional')}
+            value={dueAt}
+            onChange={setDueAt}
+            min={loanedAt}
+          />
+        </div>
+        {dueAt && (
+          <button
+            type="button"
+            onClick={() => setDueAt('')}
+            aria-label={t('clearDueDate')}
+            className="h-10 w-10 rounded-xl border border-gray-200 text-[#72796e] hover:bg-gray-50 transition-colors shrink-0 flex items-center justify-center text-base"
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       <label className="flex flex-col gap-1">
         <span className="text-sm font-medium text-[#42493e]">{t('noteOptional')}</span>
@@ -76,7 +114,7 @@ export function LoanItemDetailsForm({ action, initial }: Props) {
           disabled={isPending}
           className="flex-1 h-10 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
         >
-          {isPending ? '...' : t('save')}
+          {isPending ? t('saving') : t('save')}
         </button>
       </div>
     </form>

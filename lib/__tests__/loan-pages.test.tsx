@@ -374,14 +374,15 @@ describe('EditLoanPage — routing', () => {
     expect(container.querySelector('[data-testid="loan-item-details-form"]')).not.toBeNull()
   })
 
-  it('throws notFound for borrower non-creator', async () => {
+  it('renders LoanItemDetailsForm for accepted borrower non-creator (#56)', async () => {
     mockRpc.mockResolvedValue({
       data: [{ ...ITEM_BASE, is_creator: false, my_role: 'borrower', invitation_status: 'accepted' }],
       error: null,
     })
-    await expect(
-      EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
-    ).rejects.toThrow('NEXT_NOT_FOUND')
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(container.querySelector('[data-testid="loan-item-details-form"]')).not.toBeNull()
   })
 
   it('throws notFound when item is not in the list', async () => {

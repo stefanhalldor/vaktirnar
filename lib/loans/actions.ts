@@ -733,8 +733,9 @@ export async function declineInvitation(invitationId: string): Promise<ActionRes
 
 // ============================================================
 // updateLoanItemDetails
-// Narrow edit: item_name + note only.
-// Allowed for: created_by OR lender_user_id.
+// Post-acceptance edit: item_name, note, loaned_at, due_at.
+// Allowed for: created_by OR lender_user_id OR borrower_user_id (#56).
+// borrower_user_id is only set after claim, so pending recipients are excluded.
 // ============================================================
 
 export async function updateLoanItemDetails(loanId: string, input: unknown): Promise<ActionResult> {
@@ -743,14 +744,16 @@ export async function updateLoanItemDetails(loanId: string, input: unknown): Pro
   const parsed = EditLoanItemDetailsSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: 'invalid_input' }
 
-  const { item_name, note } = parsed.data
+  const { item_name, note, loaned_at, due_at } = parsed.data
 
   const admin = getAdmin()
-  const { data, error } = await admin.rpc('update_loan_item_details_with_diff', {
+  const { data, error } = await admin.rpc('update_loan_item_details_and_dates_with_diff', {
     p_actor_id:  user.id,
     p_loan_id:   loanId,
     p_item_name: item_name,
     p_note:      note ?? null,
+    p_loaned_at: loaned_at,
+    p_due_at:    due_at ?? null,
   })
 
   if (error) {
@@ -762,11 +765,13 @@ export async function updateLoanItemDetails(loanId: string, input: unknown): Pro
     status: string
     before_item_name: string | null
     before_note: string | null
+    before_loaned_at: string | null
+    before_due_at: string | null
     counterpart_user_id: string | null
   }>)?.[0]
   const status = row?.status ?? 'save_failed'
   if (status === 'not_found') return { ok: false, error: 'not_found' }
-  if (status === 'invalid_item_name' || status === 'invalid_note') {
+  if (status === 'invalid_item_name' || status === 'invalid_note' || status === 'invalid_due_date') {
     return { ok: false, error: 'invalid_input' }
   }
   if (status !== 'ok') return { ok: false, error: 'save_failed' }
@@ -775,8 +780,8 @@ export async function updateLoanItemDetails(loanId: string, input: unknown): Pro
   const normalizedItemName = item_name.trim()
   const normalizedNote = note?.trim() || null
   const changes = computeLoanChanges(
-    { item_name: row.before_item_name, note: row.before_note },
-    { item_name: normalizedItemName, note: normalizedNote },
+    { item_name: row.before_item_name, note: row.before_note, loaned_at: row.before_loaned_at, due_at: row.before_due_at },
+    { item_name: normalizedItemName, note: normalizedNote, loaned_at: loaned_at, due_at: due_at ?? null },
   )
   if (changes.length > 0) {
     const eventKey = `loans:loan:${loanId}:updated:${new Date().toISOString()}`

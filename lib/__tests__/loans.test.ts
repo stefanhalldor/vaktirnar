@@ -846,9 +846,9 @@ describe('sql/37 — email template v3 migration', () => {
 })
 
 // ============================================================
-// getLoanCardControls — canEditItemDetails (sql/44)
-// Creator OR lender may edit item_name and note at any time.
-// Pure borrower (non-creator) may not.
+// getLoanCardControls — canEditItemDetails (sql/58)
+// Creator, lender, OR accepted borrower may edit item_name, note, loaned_at, due_at.
+// Pending recipients (borrower_user_id not yet set) may not.
 // ============================================================
 
 describe('getLoanCardControls — canEditItemDetails', () => {
@@ -873,9 +873,9 @@ describe('getLoanCardControls — canEditItemDetails', () => {
     expect(c.canEditItemDetails).toBe(true)
   })
 
-  it('false when non-creator borrower', () => {
+  it('true when non-creator accepted borrower (#56)', () => {
     const c = getLoanCardControls({ ...BASE, is_creator: false, my_role: 'borrower', invitation_status: 'accepted' })
-    expect(c.canEditItemDetails).toBe(false)
+    expect(c.canEditItemDetails).toBe(true)
   })
 
   it('false when non-creator borrower with pending invitation', () => {
@@ -885,42 +885,50 @@ describe('getLoanCardControls — canEditItemDetails', () => {
 })
 
 // ============================================================
-// EditLoanItemDetailsSchema (sql/44)
+// EditLoanItemDetailsSchema (sql/58)
 // ============================================================
 
 describe('EditLoanItemDetailsSchema', () => {
   it('accepts item_name with no note', () => {
-    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók' }).success).toBe(true)
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', loaned_at: '2026-01-01' }).success).toBe(true)
   })
 
   it('accepts item_name and note', () => {
-    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: 'Góð bók' }).success).toBe(true)
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: 'Góð bók', loaned_at: '2026-01-01' }).success).toBe(true)
+  })
+
+  it('rejects missing loaned_at', () => {
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók' }).success).toBe(false)
   })
 
   it('rejects empty item_name', () => {
-    expect(EditLoanItemDetailsSchema.safeParse({ item_name: '' }).success).toBe(false)
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: '', loaned_at: '2026-01-01' }).success).toBe(false)
   })
 
   it('rejects whitespace-only item_name', () => {
-    expect(EditLoanItemDetailsSchema.safeParse({ item_name: '   ' }).success).toBe(false)
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: '   ', loaned_at: '2026-01-01' }).success).toBe(false)
   })
 
   it('rejects item_name over 200 chars', () => {
-    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'a'.repeat(201) }).success).toBe(false)
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'a'.repeat(201), loaned_at: '2026-01-01' }).success).toBe(false)
   })
 
   it('rejects note over 1000 chars', () => {
-    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: 'a'.repeat(1001) }).success).toBe(false)
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: 'a'.repeat(1001), loaned_at: '2026-01-01' }).success).toBe(false)
+  })
+
+  it('rejects due_at before loaned_at', () => {
+    expect(EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', loaned_at: '2026-06-01', due_at: '2026-05-01' }).success).toBe(false)
   })
 
   it('transforms empty string note to null', () => {
-    const result = EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: '' })
+    const result = EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: '', loaned_at: '2026-01-01' })
     expect(result.success).toBe(true)
     if (result.success) expect(result.data.note).toBeNull()
   })
 
   it('trims whitespace-only note to null', () => {
-    const result = EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: '   ' })
+    const result = EditLoanItemDetailsSchema.safeParse({ item_name: 'Bók', note: '   ', loaned_at: '2026-01-01' })
     expect(result.success).toBe(true)
     if (result.success) expect(result.data.note).toBeNull()
   })
