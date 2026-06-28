@@ -4,6 +4,69 @@ Saga kláraðra og staðfestra atriða.
 
 ---
 
+## #62 - Breyta hvort ég lánaði eða fékk lánað
+
+**Lokið:** 2026-06-28  
+**Staðfesting:** Claude Code post-release handoff segir að þetta sé komið í
+production og að ekkert sé opið frá #62.
+
+Notandi getur nú leiðrétt hvort hann sé lánveitandi eða lántaki á láni sem var
+stofnað öfugt. Aðgerðin virkar í báðar áttir, skráir `Saga hlutarins` /
+`Ólesið` event og treystir server-side stöðu frekar en client-sendu hlutverki.
+
+Helstu niðurstöður:
+- Actual party notar edit-flæðið og sér `Leiðrétta í: Ég lánaði` eða
+  `Leiðrétta í: Ég fékk lánað` fyrir ofan formið.
+- Pending recipient sér `Leiðrétta hlutverk` á lánaspjaldinu, kemst í
+  afmarkað edit-route og sér þar aðeins role-switch aðgerð, ekki item-edit form.
+- `switchLoanRole` kallar `switch_loan_role` RPC og sækir `newRole` úr
+  gagnagrunni eftir swap; client input ræður ekki nýju hlutverki.
+- Pending invitation er uppfært án þess að senda nýjan tölvupóst.
+- History sýnir samþykkt product-orðalag:
+  `Hlutverki breytt: Ég lánaði` eða `Hlutverki breytt: Ég fékk lánað`.
+
+Skrár og samhengi:
+- `sql/63_switch_loan_role.sql` - `switch_loan_role` og
+  `get_loan_for_pending_recipient`.
+- `sql/64_fix_switch_loan_role_ambiguous_status.sql` - patch á ambiguous
+  `status` í `switch_loan_role`.
+- `lib/loans/actions.ts` - `switchLoanRole` server action og event-skráning.
+- `lib/loans/types.ts` - `canSwitchRole` og control visibility.
+- `components/loans/SwitchRoleButton.tsx` - role-switch action.
+- `components/loans/LoanCard.tsx` - pending recipient link.
+- `app/auth-mvp/lanad-og-skilad/breyta/[id]/page.tsx` - edit-route með pending
+  fallback.
+- `lib/loans/history.server.ts`, `messages/is.json` og `messages/en.json` -
+  history/event textar.
+- `lib/__tests__/actions.test.ts`, `lib/__tests__/loans.test.ts`,
+  `lib/__tests__/loan-card.test.tsx`, `lib/__tests__/loan-pages.test.tsx` og
+  `lib/__tests__/history-server.test.ts` - regression-próf.
+
+Release og staðfesting:
+- Claude Code post-release handoff:
+  `ai-handoff/2026-06-28-2217-todo-062-v028-claude-post-release.md`.
+- Codex loka-rýni:
+  `ai-handoff/2026-06-28-2205-todo-062-v026-codex-v025-review.md`.
+- Commit `0d390ed` á `main`, Vercel Ready í production samkvæmt handoff.
+- Prófanir í handoff: 1358 tests passing og TypeScript án villna.
+
+Supabase/rollout:
+- SQL63 var keyrt á Supabase samkvæmt post-release handoff.
+- SQL64 var keyrt á Supabase samkvæmt post-release handoff.
+- PostgREST schema cache var reloadað samkvæmt post-release handoff.
+- `switch_loan_role` og `get_loan_for_pending_recipient` eru service-role RPCs
+  og eiga ekki að veikja RLS eða gefa `anon`/`authenticated` beinan DB-aðgang.
+- Codex keyrði ekki SQL63/SQL64 og staðfesti ekki Vercel build-log sjálfstætt.
+
+Eftir í TODO:
+- #60 - Spjall sem hluti af sögu hlutar.
+- #61 - Aðila-flæði birtist í sögu hlutar.
+- #38 - Event þegar lánaboði er hafnað.
+- #39 - Gera samþykktan hlut óvirkan við eyðingu.
+- #59 - Deilanlegur hlekkur á lánadetail.
+
+---
+
 ## #58 - Saga hlutarins á detail-síðu
 
 **Lokið:** 2026-06-27  

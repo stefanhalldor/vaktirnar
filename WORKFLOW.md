@@ -224,6 +224,17 @@ Ef aðgerðin getur haft áhrif á Supabase, production gögn, auth/login, secre
 
 ---
 
+## Vercel útgáfur
+
+Þegar Claude Code push-ar á main, á Claude Code að fylgjast með Vercel build þar til build lýkur.
+
+- Nota: `vercel ls` til að fylgjast með deployment stöðu (Vercel CLI er til staðar).
+- Ef Vercel build mistekst, tilkynna Stebba strax með nákvæmri villu og tillögu að lagfæringu.
+- Ekki lýsa push sem "lokið" fyrr en Vercel build er staðfest grænt.
+- Staðbundin testa og TypeScript-check ganga ekki í gegn með Vercel build - báðar þurfa að vera grænar.
+
+---
+
 ## Localhost/dev serverar
 
 - Stebbi keyrir localhost/dev servera sjálfur.

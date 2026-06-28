@@ -869,3 +869,60 @@ describe('sql/64_fix_switch_loan_role_ambiguous_status.sql — static checks', (
     expect(sql64).not.toContain('get_loan_for_pending_recipient')
   })
 })
+
+// Static SQL regression tests — sql/65 SECURITY DEFINER fix
+// ============================================================
+
+const sql65 = readFileSync(
+  join(process.cwd(), 'sql/65_fix_switch_loan_role_security_definer.sql'),
+  'utf8'
+)
+
+describe('sql/65_fix_switch_loan_role_security_definer.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql65).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql65).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops both functions before recreating', () => {
+    const dropPending  = sql65.indexOf('DROP FUNCTION IF EXISTS public.get_loan_for_pending_recipient')
+    const dropSwitch   = sql65.indexOf('DROP FUNCTION IF EXISTS public.switch_loan_role')
+    const createPending = sql65.indexOf('CREATE OR REPLACE FUNCTION public.get_loan_for_pending_recipient')
+    const createSwitch  = sql65.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    expect(dropPending).toBeGreaterThan(-1)
+    expect(dropSwitch).toBeGreaterThan(-1)
+    expect(createPending).toBeGreaterThan(dropPending)
+    expect(createSwitch).toBeGreaterThan(dropSwitch)
+  })
+
+  it('uses SECURITY DEFINER on switch_loan_role', () => {
+    const fnStart = sql65.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd   = sql65.indexOf('$$;', fnStart)
+    expect(sql65.slice(fnStart, fnEnd)).toContain('SECURITY DEFINER')
+  })
+
+  it('uses SECURITY DEFINER on get_loan_for_pending_recipient', () => {
+    const fnStart = sql65.indexOf('CREATE OR REPLACE FUNCTION public.get_loan_for_pending_recipient')
+    const fnEnd   = sql65.indexOf('$$;', fnStart)
+    expect(sql65.slice(fnStart, fnEnd)).toContain('SECURITY DEFINER')
+  })
+
+  it('retains SET search_path on both functions', () => {
+    const switchStart   = sql65.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const pendingStart  = sql65.indexOf('CREATE OR REPLACE FUNCTION public.get_loan_for_pending_recipient')
+    expect(sql65.slice(switchStart,  sql65.indexOf('$$;', switchStart))).toContain("SET search_path = ''")
+    expect(sql65.slice(pendingStart, sql65.indexOf('$$;', pendingStart))).toContain("SET search_path = ''")
+  })
+
+  it('grants EXECUTE on both functions to service_role', () => {
+    expect(sql65).toContain('GRANT  EXECUTE ON FUNCTION public.switch_loan_role(uuid, uuid) TO service_role')
+    expect(sql65).toContain('GRANT  EXECUTE ON FUNCTION public.get_loan_for_pending_recipient(uuid, uuid) TO service_role')
+  })
+
+  it('preserves return contract of switch_loan_role', () => {
+    const fnStart = sql65.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const returnsBlock = sql65.slice(fnStart, sql65.indexOf('LANGUAGE plpgsql', fnStart))
+    expect(returnsBlock).toMatch(/status\s+text/)
+    expect(returnsBlock).toMatch(/pending_user_ids\s+uuid\[\]/)
+  })
+})

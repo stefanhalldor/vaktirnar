@@ -924,6 +924,7 @@ export async function switchLoanRole(loanId: string): Promise<ActionResult> {
 
   if (error) {
     console.error('[loans/switchLoanRole] RPC failed')
+    console.log('[loans/switchLoanRole] diagnostic', error.code, error.message, error.details, error.hint)
     return { ok: false, error: 'save_failed' }
   }
 

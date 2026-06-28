@@ -32,11 +32,11 @@ tilvísanir og verkefnasaga rofni ekki.
 | --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | **#60 Spjall sem hluti af sögu hlutar**                      | **Chat/history pakki.** Bæta einföldu spjalli inn í `Saga hlutarins` þannig að skilaboð falli í tímaröð með öðrum eventum. |
 | 2   | **#61 Aðila-flæði birtist í sögu hlutar**                    | **Event/history pakki.** Skrá í `Saga hlutarins` þegar aðila er bætt við, boð samþykkt eða boði hafnað. |
-| 3   | **#62 Breyta hvort ég lánaði eða fékk lánað**                | **Loan correction pakki.** Notandi geti leiðrétt hvort hann sé lánveitandi eða lántaki þegar hlutur var stofnaður öfugt. |
-| 4   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki.** Bæta decline-eventi og ack/read-state ofan á staðfestan `Ólesið` grunn; samræma við #61. |
-| 5   | **#39 Gera samþykktan hlut óvirkan við eyðingu**             | **Event/heimildir pakki.** Delete á samþykktum hlut er soft delete: hlutur verður disabled og áfram aðgengilegur sem slíkur. |
-| 6   | **#59 Deilanlegur hlekkur á lánadetail**                     | **Detail/access pakki.** Notandi geti sent hlekk á hlut; hlekkurinn virkar aðeins hjá þeim sem hafa aðgang í Teskeið. |
-| 7   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #38/#39/#59/#61/#62 séu orðin traust. |
+| 3   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki.** Bæta decline-eventi og ack/read-state ofan á staðfestan `Ólesið` grunn; samræma við #61. |
+| 4   | **#39 Gera samþykktan hlut óvirkan við eyðingu**             | **Event/heimildir pakki.** Delete á samþykktum hlut er soft delete: hlutur verður disabled og áfram aðgengilegur sem slíkur. |
+| 5   | **#59 Deilanlegur hlekkur á lánadetail**                     | **Detail/access pakki.** Notandi geti sent hlekk á hlut; hlekkurinn virkar aðeins hjá þeim sem hafa aðgang í Teskeið. |
+| 6   | **#63 Endurnefna „Lánað og skilað“ í „Minnið“**              | **Product/IA quick win.** Gera núverandi lánakerfi að fyrstu tegundinni inni í `Minnið`, án gagnamódelsbreytinga í v1. |
+| 7   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #38/#39/#59/#61 séu orðin traust og að #63 hafi skýrt orðalagið. |
 | 8   | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
 | 9   | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
 | 10  | **#41 Umönnun sem feature-flagged Teskeið**                  | **Feature-card/info quick win.** Sýna sem varlega feature-flagged Teskeið án þess að flytja Umönnun-gögn inn. |
@@ -53,15 +53,16 @@ tilvísanir og verkefnasaga rofni ekki.
 
 ## Vinnupakkar
 
-**Pakki A — saga, `Ólesið`, events, leiðréttingar og lánaboð:** #60, #61, #62,
-#38, #39, #59 og síðan #27. Grunnurinn úr #37, #56 og #58 er kominn í DONE.
+**Pakki A — saga, `Ólesið`, events og lánaboð:** #60, #61, #38, #39, #59
+og síðan #27. Grunnurinn úr #37, #56, #58 og #62 er kominn í DONE.
 Næst er að setja einfalt spjall inn í `Saga hlutarins`, klára aðila-events,
-bæta við leið til að leiðrétta lánshlutverk, decline-, soft-delete- og
-detail-hlekkjaheimildir og enda á mýkra lánaboðsflæði.
+decline-, soft-delete- og detail-hlekkjaheimildir. Áður en #27 fer í fulla
+texta- og UI-vinnu er rökrétt að klára #63 svo lánaboðsflæðið byggi á réttu
+`Minnið`-orðalagi frá byrjun.
 
-**Pakki B — heimaskjár og virkar Teskeiðar:** #17, #42 og #41. Þetta mótar hvað
-notandi sér fyrst eftir innskráningu: virkar Teskeiðar, hugmyndir og varlega
-feature-flagged Umönnun.
+**Pakki B — Minnið, heimaskjár og virkar Teskeiðar:** #63, #17, #42 og #41.
+Þetta mótar hvað notandi sér fyrst eftir innskráningu: `Minnið`, virkar
+Teskeiðar, hugmyndir og varlega feature-flagged Umönnun.
 
 **Pakki C — auth reliability:** #46 og #7. Þetta er mikilvægt, en snertir
 innskráningu, sessions, reset/rate-limit og öryggi; best sem sérpakki með
@@ -449,76 +450,6 @@ birtist í sögunni, vantar mikilvægt samhengi fyrir báða aðila.
 - Óviðkomandi notandi sér ekkert með beinum hlekk eða RPC-kalli.
 - Eventin birtast ekki tvöfalt þótt `recent_events` hafi actor/counterpart rows.
 - Actor-lína birtist á nýjum events.
-
-#62
-## Breyta hvort ég lánaði eða fékk lánað
-
-**Staða:** Bíður
-
-**Stofnað:** 2026-06-27
-
-**Næsta handoff:** Sjá
-`ai-handoff/2026-06-28-2205-todo-062-v026-codex-v025-review.md`.
-
-**Samhengi frá Stebba:** Stebbi stofnaði óvart lán með röngu hlutverki: hlutur
-var skráður eins og hann hefði fengið hann lánaðan, en í raun átti hlutverkið að
-vera hin áttin. Það vantar leið til að leiðrétta þetta eftir á, og það þarf að
-vera hægt í báðar áttir.
-
-**Vandamál:** `Lánað og skilað` byggir mikið á því hvort notandi sé að lána hlut
-eða hafi fengið hann lánaðan. Ef hlutverkið er rangt verður texti, flokkun,
-aðgerðir, mótaðili og saga hlutarins villandi. Nú virðist ekki vera skýr leið til
-að breyta þessu eftir að hlutur er stofnaður.
-
-**Ósk:** Notandi á að geta leiðrétt hlutverk láns:
-
-- úr `Ég lánaði` yfir í `Ég fékk lánað`
-- úr `Ég fékk lánað` yfir í `Ég lánaði`
-
-**Við útfærslu þarf að skilgreina:**
-
-- Hvar stillingin á að búa, líklega í edit-flæði hlutarins eða sem skýr
-  `Breyta hlutverki` aðgerð á detail-síðu.
-- Hvort hægt sé að breyta hlutverki þegar:
-  - enginn mótaðili er kominn á hlutinn
-  - boð til mótaðila er í bið
-  - mótaðili hefur þegar valið `Þekki málið`
-  - hlutnum hefur verið skilað eða skráning er óvirk
-- Hvernig `lender_user_id`, `borrower_user_id`, `created_by` og
-  `loan_invitations.recipient_role` eiga að breytast án þess að missa aðgang eða
-  búa til dangling invitation.
-- Hvort pending invitation á að uppfærast, falla úr gildi eða krefjast þess að
-  notandi afturkalli boðið áður en hlutverki er breytt.
-- Hvort accepted lán þurfi staðfestingu frá báðum aðilum eða hvort við treystum
-  einföldu samstarfsviðmóti eins og í #58.
-- Hvaða event á að birtast í `Saga hlutarins`, t.d. `Hlutverki breytt`, með
-  actor nafni og öruggum payload.
-- Hvort `Ólesið` á að láta mótaðila vita þegar hlutverki er breytt.
-
-**Öryggi og gögn:**
-
-- Ekki veikja RLS, grants eða service-role mörk.
-- Breyting þarf að vera atomic í SQL/RPC svo lán lendi aldrei hálfskiptu milli
-  `lender_user_id` og `borrower_user_id`.
-- Óviðkomandi notandi má hvorki geta breytt hlutverki né séð meiri gögn við
-  beina RPC- eða detail-slóð.
-- Ekki leka recipient email, raw invitation email eða user-id í client payload.
-- Ef hlutverk er breytt á pending invitation þarf að passa sérstaklega að
-  canonical email-reglur úr #56/#57 haldist réttar.
-
-**Prófanir:**
-
-- Notandi getur breytt solo-láni úr `Ég lánaði` í `Ég fékk lánað`.
-- Notandi getur breytt solo-láni úr `Ég fékk lánað` í `Ég lánaði`.
-- Lán flyst í réttan flokk/lista eftir breytingu.
-- Detail-síða sýnir réttan texta og rétt hlutverk eftir refresh.
-- `Saga hlutarins` sýnir event um hlutverksbreytinguna.
-- Ef pending invitation er til er hegðun skýr og prófuð: uppfærsla, blokk eða
-  afturköllun, eftir þeirri leið sem verður valin.
-- Ef accepted loan er leyft að breytast sjá báðir aðilar rétta stöðu og enginn
-  missir aðgang óvart.
-- Óviðkomandi notandi getur ekki breytt hlutverki með beinu RPC-kalli.
-- Mobile edit/detail flæði virkar við 360-460 px án zooms, overflow eða overlap.
 
 #38
 ## Event þegar lánaboði er hafnað
@@ -982,11 +913,94 @@ hluti af Teskeið, og ef já, í hvaða tilgangi.
 - Fjarlæging á netfangi hefur skilgreind áhrif á núverandi session og virkan
   Teskeið-aðgang.
 
+#63
+## Endurnefna „Lánað og skilað“ í „Minnið“
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-06-28
+
+**Forgangur:** Röð 6, eftir #59 og á undan #27. Þetta er afmörkuð
+product-/information-architecture breyting sem ætti að koma áður en við
+endurskrifum meira af lánaboðsflæðinu og heimaskjánum.
+
+**Samhengi frá Stebba:** Núverandi `Lánað og skilað` virðist vera fyrsta
+birtingarmynd stærra sameiginlegs minnis: hlutir sem fólk þarf að muna saman
+án þess að þeir týnist í SMS, Messenger, tölvupósti eða óljósu
+`ég hélt að...` samhengi.
+
+**Mat Codex:** Þetta ætti fyrst að vera yfirborðs- og orðalagsbreyting, ekki
+gagnamódelsbreyting. Núverandi lánakerfi verður áfram virka flæðið, en er sett
+fram sem fyrsta tegundin inni í `Minnið`. Þannig fáum við betra product-heiti
+nú strax án þess að festa okkur of snemma í stærra `Minnið`-schema.
+
+**Ósk:** Breyta sýnilegri framsetningu úr `Lánað og skilað` yfir í `Minnið`,
+með `Lánað og skilað` sem fyrstu tegund/kafla innan Minniðs.
+
+**Scope v1:**
+
+- Heimakort, valmyndir og tilbúnar Teskeiðar mega sýna `Minnið`.
+- Lánasíða má heita `Minnið`, með undirfyrirsögn, section eða tab fyrir
+  `Lánað og skilað`.
+- CTA má áfram vera lánsmiðuð þegar notandi er að skrá hlut í láni.
+- Núverandi route má fyrst áfram vera `/auth-mvp/lanad-og-skilad`; canonical
+  route rename bíður #22 eða sér plan.
+- Ekki breyta `loan_items`, `loan_invitations`, RPC nöfnum, event source
+  `loans` eða SQL í þessum áfanga.
+- Ekki bæta `Minnispunktur` við sem nýrri gagnategund í þessum áfanga nema
+  Stebbi biðji sérstaklega um það. Það þarf sér gagnamódel, aðgangsreglur og
+  hönnun.
+
+**Við útfærslu þarf að skoða:**
+
+- `messages/is.json` og `messages/en.json` fyrir titla, heimakort, menu,
+  source labels og CTA.
+- Ready/idea cards, heimaskjá og Teskeiða-yfirlit.
+- Loan list, detail, edit, claim og email texta: sumt á að verða `Minnið`,
+  annað á áfram að vera nákvæm láns-aðgerð.
+- `Ólesið` / recent event labels: ekki breyta atburðatitlum ef þeir lýsa
+  raunverulegri lánaaðgerð, en source/feature-label getur orðið `Minnið`.
+- Tengsl-síður sem sýna source `Lánað og skilað`; ákveða hvort þar eigi að
+  standa `Minnið` eða `Lánað og skilað`.
+- Athuga hvort núverandi hugmyndin `Minningar` rekist málfræðilega eða
+  vörulega á `Minnið`.
+
+**Hönnun og texti:**
+
+- Lesa viðeigandi kafla í `Design.md` áður en UI er plönuð eða breytt.
+- Mælt product copy:
+  - `Minnið`
+  - `Munum þetta saman`
+  - `Minnið heldur utan um það sem annars gleymist, misskilst eða týnist í
+    skilaboðum.`
+- Forðast að kynna þetta sem bókhald, todo-app eða samningskerfi.
+- Halda tóninum léttum, mannlegum og Teskeiðarlegum.
+
+**Öryggi og gögn:**
+
+- Þetta á að vera texta-/IA-breyting fyrst, ekki heimildar- eða gagnabreyting.
+- Ekki breyta RLS, grants, SQL eða auth guard án sér rýni.
+- Ekki búa til nýja `Minnið` route sem bypassar núverandi loan guards.
+- Ef route rename verður tekið síðar þarf redirect-, auth- og deep-link plan.
+
+**Prófanir:**
+
+- Heimaskjár sýnir `Minnið` án þess að missa pending badge, talningar eða
+  virkni núverandi loan-korts.
+- Opnun úr heimaskjá fer áfram í virkt lánaflæði.
+- Lánalisti/detail/edit/claim eru skiljanleg: notandi sér að hann er í
+  `Minnið`, en aðgerðirnar snúast um lánaðan hlut.
+- Hamburger/menu/ready card/idea card sýna samræmdan texta.
+- `Ólesið` links og event labels virka áfram.
+- Email claim link og subject verða ekki ruglingsleg.
+- Mobile 360-460 px: enginn texti overflowar, veldur óvæntu zoomi eða layout
+  shift.
+
 #27
 ## Mýkra lánaboðsflæði
 
-**Staða:** Bíður eftir áframhaldandi event-, heimilda-, hlutverka- og
-lánaboðavinnu í #38/#39/#59/#62 áður en full útfærsla hefst
+**Staða:** Bíður eftir áframhaldandi event-, heimilda- og lánaboðavinnu í
+#38/#39/#59/#61 og Minnið-orðalagi í #63 áður en full útfærsla hefst
 
 **Samhengi:** Núverandi lánaboð virka sem sérstakt samþykkisflæði. Viðtakandi
 sér pending boð í sérstöku spjaldi og þarf að fara á claim-síðu áður en hluturinn
@@ -1039,7 +1053,8 @@ skýra leið til að staðfesta eða hafna.
 
 **Næsta tengda skref:** #37, #56 og #58 eru komin í DONE og byggja á #19
 server-side event-feed grunninum. #27 á áfram að byggja á þeim grunni þegar
-#38/#39/#59/#62 hafa verið þrengd eða kláruð.
+#38/#39/#59/#61 hafa verið þrengd eða kláruð og #63 hefur skýrt
+product-orðalagið.
 
 #59
 ## Deilanlegur hlekkur á lánadetail
