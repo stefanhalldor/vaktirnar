@@ -370,6 +370,8 @@
       "eventLoanInvitationAccepted": "Loan accepted: {itemName}",
       "eventLoanInvitationDeclined": "Loan declined: {itemName}",
       "eventLoanChatMessage": "New message: {itemName}",
+      "eventLoanRoleSwitched": "Role changed: {itemName}",
+      "eventLoanRoleSwitchedToRole": "Role changed: {roleName}",
       "profileLink": "My account",
       "pendingBadgeLabel": "{count, plural, one {1 pending invitation} other {# pending invitations}}",
       "eventDetailReturnDateRemoved": "Return date removed: {date}",
@@ -486,7 +488,16 @@
         "chatFieldLabel": "Message",
         "chatPlaceholder": "Write a message",
         "chatSend": "Send",
-        "chatError": "Failed to send. Try again."
+        "chatError": "Failed to send. Try again.",
+        "roleLender": "I lent this",
+        "roleBorrower": "I borrowed this"
+      },
+      "switchRole": {
+        "switchToLender": "Correct to: I lent this",
+        "switchToBorrower": "Correct to: I borrowed this",
+        "correctRole": "Correct role",
+        "pendingWarning": "This updates the open invitation. No new email will be sent.",
+        "error": "Failed to change role. Please try again."
       },
       "errors": {
         "saveFailed": "Save failed. Please try again.",

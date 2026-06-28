@@ -4,9 +4,555 @@ Saga kláraðra og staðfestra atriða.
 
 ---
 
+## #58 - Saga hlutarins á detail-síðu
+
+**Lokið:** 2026-06-27  
+**Staðfesting:** Claude Code post-release handoff segir að þetta hafi verið
+keyrt á localhost og virkað.
+
+Detail-síða láns sýnir nú `Saga hlutarins` undir lánaspjaldinu. Þar birtast
+loan-events í tímaröð með label, timestamp og actor-línu fyrir ný events þar sem
+framkvæmdaaðili er þekktur, til dæmis `Framkvæmt af Stefáni`.
+
+Helstu niðurstöður:
+- `Saga hlutarins` birtist á `/auth-mvp/lanad-og-skilad/[id]`.
+- Events eru de-duplicate-uð eftir `event_key` og birt í tímaröð.
+- Ný events fá `actorUserId` í payload og history sýnir display-nafn actor.
+- Gömul events án actor metadata halda áfram að birtast án actor-línu.
+- Pending invitation viðtakandi getur séð history áður en hann samþykkir boðið.
+- History section var pússuð sjónrænt og er nú rólegur rammi undir lánaspjaldi.
+
+Skrár og samhengi:
+- `sql/59_get_loan_event_history.sql` - upphaflegt history RPC.
+- `sql/60_get_loan_event_history_pending_access.sql` - pending access og
+  `actor_display_name`.
+- `lib/recent-events/types.ts` og `lib/recent-events/helpers.server.ts` -
+  `actorUserId` í event payload.
+- `lib/loans/actions.ts` - actor metadata sett á loan events.
+- `lib/loans/history.server.ts` - history formatting og `actorLabel`.
+- `components/loans/LoanHistory.tsx` - `Saga hlutarins` UI.
+- `app/auth-mvp/lanad-og-skilad/[id]/page.tsx` - detail-síða sækir og birtir
+  history.
+- `messages/is.json` og `messages/en.json` - history textar.
+
+Release og staðfesting:
+- Claude Code post-release handoff:
+  `ai-handoff/2026-06-27-1121-todo-058-v006-claude-post-release.md`.
+- Tveir commits á `main` samkvæmt handoff:
+  `4bbee0d feat: loan history section on detail page (#58)` og
+  `46e1f92 feat: actor attribution and Saga section in loan history (#58)`.
+- SQL60 var keyrt á Supabase samkvæmt Claude Code post-release handoff.
+- Prófanir í handoff: `npm run type-check` og `npm run test:run` fóru í gegn,
+  42 test files, 1309 passed, 22 skipped, 8 todo.
+
+Supabase/rollout:
+- SQL60 breytir `get_loan_event_history` með `CREATE OR REPLACE`.
+- Engar gagnabreytingar fylgdu SQL60 samkvæmt handoff.
+- Execute er áfram aðeins fyrir `service_role`; ekki fyrir `PUBLIC`, `anon` eða
+  `authenticated`.
+- Codex keyrði ekki SQL60 og staðfesti ekki production/Vercel build-log
+  sjálfstætt.
+
+Eftir í TODO:
+- #60 - Spjall sem hluti af sögu hlutar.
+- #38 - Event þegar lánaboði er hafnað.
+- #39 - Gera samþykktan hlut óvirkan við eyðingu.
+- #59 - Deilanlegur hlekkur á lánadetail.
+
+---
+
+## #56 - Breyta lánsdagsetningu og skiladegi á samþykktum lánum
+
+**Lokið:** 2026-06-27  
+**Staðfest af Stebba:** já, 2026-06-27
+
+Báðir aðilar að samþykktu láni geta nú breytt nafni, athugasemd,
+lánsdagsetningu og skiladegi í sama edit-flæði. Breytingar á
+`loaned_at` og `due_at` birtast í `Ólesið` hjá mótaðila með sértækum
+event-labels, til dæmis `Breytt lánsdagsetning` og `Breyttur skiladagur`.
+
+Helstu niðurstöður:
+- `LoanItemDetailsForm` sýnir nú `Lánað` og `Skila fyrir` fyrir samþykkt lán.
+- `EditLoanItemDetailsSchema` validate-ar `loaned_at`, optional `due_at` og
+  `due_at >= loaned_at`.
+- `updateLoanItemDetails` kallar nýtt SQL58 RPC og diff-ar dagsetningar með
+  sama `loan_updated` event-grunni og #37.
+- `canEditItemDetails` leyfir accepted borrower/mótaðila að opna edit-flowið,
+  ekki aðeins creator/lender.
+- Pending recipient og óviðkomandi notendur eiga áfram að fá `not_found` eða
+  `notFound`.
+
+Skrár og samhengi:
+- `sql/58_update_loan_item_details_and_dates_with_diff.sql` - nýtt
+  service-role RPC `update_loan_item_details_and_dates_with_diff`.
+- `lib/loans/types.ts` - schema og control-visibility.
+- `lib/loans/actions.ts` - action kallar SQL58, skráir actor/counterpart events.
+- `components/loans/LoanItemDetailsForm.tsx` - dagsetningasvið í accepted edit.
+- `lib/__tests__/actions.test.ts`, `lib/__tests__/loans.test.ts` og
+  `lib/__tests__/loan-pages.test.tsx` - uppfærð regression-próf.
+
+Release og staðfesting:
+- Claude Code post-release handoff:
+  `ai-handoff/2026-06-27-0940-todo-056-v005-claude-post-release.md`.
+- Codex pre-release review:
+  `ai-handoff/2026-06-27-0852-todo-056-058-039-059-v003-codex-scope-review.md`.
+- Commit `078c60f` á `main`, deployað/pushað á Vercel samkvæmt Claude Code
+  handoff. Codex staðfesti ekki Vercel build-log sjálfstætt.
+- Stebbi staðfesti að localhost-prófun virkaði: lánveitandi og lántakandi geta
+  breytt dagsetningum og mótaðili fær event í `Ólesið`.
+
+Supabase/rollout:
+- SQL58 bætir við nýju falli og breytir ekki töflugögnum.
+- Fallið notar explicit `p_actor_id`, ekki `auth.uid()`, og `date`, ekki
+  `timestamptz`.
+- Execute er aðeins veitt `service_role`; `PUBLIC`, `anon` og `authenticated`
+  fá ekki execute.
+- Codex keyrði ekki SQL58.
+
+Eftir í TODO:
+- #60 - Spjall sem hluti af sögu hlutar.
+- #38 - Event þegar lánaboði er hafnað.
+- #39 - Gera samþykktan hlut óvirkan við eyðingu.
+- #59 - Deilanlegur hlekkur á lánadetail.
+
+---
+
+## #37 - `Nýlegt` sýni öll ólesin events og breytingasamhengi
+
+**Lokið:** 2026-06-24  
+**Staðfest af Stebbi:** já, 2026-06-25
+
+`Ólesið` á `/auth-mvp/heim` var gert að raunverulegri ólesinni event-yfirsýn
+fyrir lán. Stebbi staðfesti eftir útgáfu að breytingin virkaði.
+
+Helstu niðurstöður:
+- `Ólesið` sýnir öll ólesin events úr `recent_events`, ekki aðeins stutt preview.
+- `loan_updated` fær field-specific labels þegar ein breyting er gerð:
+  `Breytt nafn`, `Breytt athugasemd`, `Breyttur skiladagur` og
+  `Breytt lánsdagsetning`.
+- Timestamp birtist undir hverju event í lista og drawer, t.d.
+  `Miðvikudaginn 24. júní kl. 7:40`.
+- `Skoða` úr `Ólesið` fer á rétta lánadetail-síðu með `?from=heim`, og `Til baka`
+  endar aftur á `/auth-mvp/heim`.
+- `updateLoan` tilkynnir pending recipient(s) með canonical email matchi gegnum
+  SQL57, þar með talið dotted Gmail/Googlemail tilvik.
+- Best-effort notification er varin með `try/catch` og lekur ekki recipient email,
+  canonical email eða user IDs í logs, UI eða client payload.
+
+Skrár og samhengi:
+- `app/auth-mvp/heim/page.tsx` - event labels, timestamp formatting, `viewHref`
+  með `from=heim`.
+- `app/auth-mvp/heim/RecentSection.tsx` - timestamp í lista og drawer.
+- `app/auth-mvp/lanad-og-skilad/[id]/page.tsx` - dynamic back-href út frá
+  `searchParams.from`.
+- `lib/loans/actions.ts` - canonical recipient lookup og pending recipient
+  notification í `updateLoan`.
+- `lib/recent-events/types.ts` - `occurredAtLabel` í display type.
+- `messages/is.json` og `messages/en.json` - nýir event-label textar.
+- `sql/57_get_user_ids_by_canonical_email.sql` - service-role RPC fyrir canonical
+  email lookup.
+- `lib/__tests__/home-page.test.tsx`, `lib/__tests__/loan-pages.test.tsx` og
+  `lib/__tests__/actions.test.ts` - regression-próf fyrir labels, timestamp,
+  navigation og recipient notification.
+
+Release og staðfesting:
+- Claude Code post-release handoff:
+  `ai-handoff/2026-06-24-0943-todo-037-056-057-v061-claude-post-release.md`.
+- Codex loka-rýni:
+  `ai-handoff/2026-06-24-0937-todo-037-v060-codex-pre-release-final-review.md`.
+- Commit `873eb27` á `main`, deployað á Vercel samkvæmt Claude Code handoff.
+- Prófanir í release-handoff: `npm run type-check` og 209 tests passed, 5 todo.
+
+Supabase/rollout:
+- `sql/57_get_user_ids_by_canonical_email.sql` var keyrt á Supabase af Stebba.
+- PostgREST schema cache var reloadað.
+- Engar töflubreytingar eða gagnabreytingar fylgdu SQL57.
+- RPC-fallið er aðeins executable fyrir `service_role` og skilar bara `user_id`.
+
+Eftir í TODO:
+- #60 - Spjall sem hluti af sögu hlutar.
+- #57 - Timestamp format í ensku locale.
+
+---
+
+## #52 - Lánaboð í `Ólesið` og beint í detail-síðu
+
+**Lokið:** 2026-06-23
+**Staðfest af Stebba:** já (Stebbi prófaði `Skoða` úr `Ólesið` á localhost og
+staðfesti að rétt detail-síða opnaðist)
+
+Pending og accepted loan-events úr `Ólesið`/heimaskjá geta nú opnað rétta
+`Lánað og skilað` detail-síðu beint. Heimasíðan tryggir einnig best-effort
+`recent_events` færslu fyrir pending actionable lánaboð, svo badge og `Ólesið`
+tala saman betur.
+
+Útfærslan notar `invitation_id` til að finna samsvarandi `loan_id` úr
+server-side `get_my_loans` niðurstöðu og býr til detail-hlekk á
+`/auth-mvp/lanad-og-skilad/<loan_id>`. Ef loan-match finnst ekki er rólegur
+fallback á listann með `?invitation=<id>` og listinn getur highlightað rétt
+boð. `Skoða` ack-ar eventið fire-and-forget svo navigation byrji strax og
+route-loaderinn sjáist.
+
+Skrár og samhengi:
+- `app/auth-mvp/heim/page.tsx` - tryggir pending invitation event og reiknar
+  `viewHref` fyrir invitation/loan events.
+- `app/auth-mvp/heim/RecentSection.tsx` - `Skoða` notar hlekk og ack-ar án þess
+  að tefja navigation.
+- `app/auth-mvp/lanad-og-skilad/page.tsx` - tekur við `invitation` query fallback.
+- `components/loans/LoanList.tsx` og `components/loans/LoanSummaryCard.tsx` -
+  highlight/scroll fallback fyrir invitation query.
+- `lib/__tests__/home-page.test.tsx`,
+  `lib/__tests__/loan-list.test.tsx` og
+  `lib/__tests__/loan-pages.test.tsx` - regression-próf fyrir deep-link,
+  fallback, ack og highlight.
+
+Staðfesting:
+- Codex handoff:
+  `ai-handoff/2026-06-23-2211-todo-052-v001-codex-olesid-invitation-direct-open-handoff.md`
+- Claude Code closeout:
+  `ai-handoff/2026-06-23-2352-todo-052-v002-claude-olesid-invitation-post-release.md`
+- Claude Code nefndi commit `78dddb3` á main/Vercel fyrir post-release
+  closeoutið.
+- Stebbi staðfesti í samtali 2026-06-23 að hann hefði prófað að skoða ólesið
+  lánaboð og að það virkaði.
+
+Supabase/rollout:
+- Engin SQL skipun var keyrð í closeoutinu.
+- Engar schema-, RLS-, auth-, grants- eða function-breytingar fylgdu.
+- Notaður er núverandi `recent_events` grunnur með best-effort insert og engin
+  recipient email eiga að leka í event payload eða client state.
+
+Eftirstandandi:
+- Breiðari event-feed og fleiri ólesin events halda áfram í #37.
+- Sérstök loader-vinna fyrir `Merkja sem skilað`, ef hún reynist enn þörf, á að
+  opna sem þrengra TODO frekar en að halda #52 opnu.
+
+---
+
+## #5 - Samræmd mobile app-upplifun
+
+**Lokið:** 2026-06-23
+**Staðfest af Stebba:** já (Stebbi prófaði v008 localhost checklist og staðfesti
+að allt virkaði)
+
+Mobile app-upplifun var tekin í afmörkuðum v007-v008 audit hring. Stebbi prófaði
+virk flæði á localhost við mobile breidd og staðfesti að engin óæskileg zoom-,
+overflow- eða navigation-vandamál væru eftir í þessum áfanga.
+
+Helsta kóðabreytingin í lokahringnum var að röðunarvalið í `Lánað og skilað`
+fékk 16 px textastærð á mobile svo iOS/Safari þysi ekki inn þegar select fær
+focus. Kóðarýni staðfesti líka að virk form og controls í innskráningu,
+lánaskráningu, Tengslum og add-party/edit flæðum fylgja no-zoom reglunni.
+
+Skrár og samhengi:
+- `components/loans/LoanList.tsx` - sort `<select>` breytt úr `text-xs` í
+  `text-base`.
+- `Design.md` - áfram skyldubundið viðmið fyrir app-líka mobile upplifun,
+  navigation loadera, 16 px input/control texta og route `loading.tsx`.
+- `app/auth-mvp/heim/loading.tsx`,
+  `app/auth-mvp/lanad-og-skilad/loading.tsx`,
+  `app/auth-mvp/lanad-og-skilad/ny/loading.tsx`,
+  `app/stillingar/tengsl/loading.tsx` og tengd route loading-states voru rýnd sem
+  hluti af v007-v008 samhengi.
+
+Staðfesting:
+- Codex handoff:
+  `ai-handoff/2026-06-23-2154-todo-005-v007-codex-mobile-app-localhost-audit-handoff.md`
+- Stebbi/Codex closeout:
+  `ai-handoff/2026-06-23-2203-todo-005-v008-stebbi-og-codex-mobile-closeout.md`
+- Stebbi staðfesti í samtali 2026-06-23 að hann hefði prófað og að allt virkaði.
+
+Supabase/rollout:
+- Engin SQL skipun var keyrð.
+- Engar schema-, RLS-, auth-, grants-, functions- eða production-gagnabreytingar
+  voru hluti af #5 closeoutinu.
+
+Eftirstandandi vinnuregla:
+- Nýir og breyttir skjáir þurfa áfram að fylgja `Design.md`.
+- Ef ný mobile/navigation vandamál finnast síðar skal opna nýtt, þrengra TODO í
+  stað þess að halda #5 sem eilífu safn-itemi.
+
+---
+
+## #55 - Lánaboðsás og soft-ack takkar á forsíðu `Lánað og skilað`
+
+**Lokið:** 2026-06-23
+**Staðfest af Stebba:** já (manual próf staðfesti að bólumálið væri leyst)
+
+Pending lánaboð eru nú afgreiðanleg beint á listasíðu `Lánað og skilað`.
+`LoanSummaryCard` sýnir `Þekki málið` og `Kannast ekki við þetta` fyrir pending
+recipient rows án þess að notandi þurfi að opna detail-síðu. Cardið notar
+`<article>` með sér `<Link>` fyrir efnishlutann og sjálfstæðan button-row undir,
+svo enginn `<button>` er nested inni í `<Link>`.
+
+Heimaskjás-badge var einnig þrengt: það telur nú aðeins pending acknowledgement
+rows þar sem `returned_at === null`. Þar með heldur pending boð á þegar skiluðum
+hlut, eins og `tengslatest`, ekki lengur bólunni fastri og notandi þarf ekki að
+smella `Þekki málið` á skiluðum hlut til að losna við hana.
+
+Skrár:
+- `components/loans/LoanSummaryCard.tsx` - soft-ack buttons á listasíðu,
+  pending/loading state, villubirting og `router.refresh()` á success.
+- `app/auth-mvp/heim/page.tsx` - heimabólan telur ekki pending boð á skiluðum
+  lánum.
+- `lib/__tests__/loan-card.test.tsx` - regression-próf fyrir pending recipient
+  list actions, creator/accepted rows, action calls, refresh og failure state.
+- `lib/__tests__/home-page.test.tsx` - regression-próf fyrir að returned pending
+  invitation haldi ekki heimabólunni fastri.
+
+Staðfesting:
+- Codex handoff:
+  `ai-handoff/2026-06-23-2042-todo-055-v001-codex-loan-invitation-front-page-actions-handoff.md`
+- Post-release handoff:
+  `ai-handoff/2026-06-23-2116-todo-055-v002-codex-loan-invitation-list-actions-post-release.md`
+- Reopen/edge-case handoff:
+  `ai-handoff/2026-06-23-2143-todo-055-v003-codex-reopen-list-actions-returned-badge-handoff.md`
+- Stebbi staðfesti í manual prófi að málið væri komið.
+
+Supabase/rollout:
+- Engin SQL migration fylgdi pakkanum.
+- Engar schema-, RLS-, auth-, grants-, functions- eða production-gagnabreytingar
+  voru hluti af #55 UI-lagfæringunni.
+
+---
+
+## #30 - Derhúfumerki og ný favicon-tillaga
+
+**Lokið:** 2026-06-23
+**Staðfest af Stebba:** já (Stebbi samþykkti síðustu `Allt` yfir `10` útgáfuna
+eftir preview-tweaks)
+
+Derhúfumerkið var fært frá fyrri `10,5`/`A&10` hugmynd yfir í skýrari
+`Allt` fyrir ofan stærra `10` inni í derhúfunni. `Allt` var haldið í sömu
+stærð og staðsetningu eftir síðustu umferð, en `10` var stækkað og fært nær
+derlínunni án þess að lenda ofan í henni. Favicon-tillagan var aðskilin frá
+stóra lógóinu: einfaldari grænn `10`-kostur er til fyrir litlar stærðir.
+
+Skrár:
+- `components/teskeid/TeskeidLogo.tsx` - canonical SVG-lógóið notar nú
+  `Allt` yfir stærra `10`.
+- `public/favicon-options/cap-mark-allt-10-preview.svg` - preview fyrir
+  derhúfumerkið.
+- `public/favicon-options/ten-minimal-preview.svg` - minimal `10` favicon
+  preview, sjónrænt miðjað betur.
+- `app/icon.svg`, `public/favicon-options/cap-mark-10-only-preview.svg`,
+  `app/preview/favicons/codex/page.tsx` og
+  `app/preview/teskeid-logo/codex/page.tsx` voru hluti af Claude/Codex
+  icon-preview áfanganum.
+
+Staðfesting:
+- Codex handoff:
+  `ai-handoff/2026-06-23-1842-todo-030-v003-codex-icon-favicon-recipe-handoff.md`
+- Claude closeout:
+  `ai-handoff/2026-06-23-1855-todo-030-v004-claude-icon-favicon-closeout.md`
+- Codex keyrði:
+  - `npm run test:run -- lib/__tests__/teskeid-logo.test.tsx` - pass
+  - `npm run type-check` - pass
+
+Supabase/rollout:
+- Engin SQL skipun var keyrð.
+- Engin schema-, RLS-, auth-, grants-, functions- eða production-gagnabreyting.
+
+Eftirstandandi athugasemd:
+- Browser favicon cache getur sýnt eldri útgáfu þar til cache hreinsast.
+- Ef installed/PWA icon á að uppfærast sérstaklega þarf að staðfesta hvort
+  binary PNG icon-skrárnar (`public/icon-192.png`, `public/icon-512.png`) þurfi
+  að endurgenera úr samþykkta SVG-grunninum.
+
+---
+
+## #48 - Endurkomunotandi fari sjálfgefið á Teskeiðar
+
+**Lokið:** 2026-06-23
+**Staðfest af Stebba:** já (Stebbi bað að færa #48 í DONE eftir Codex handoff)
+
+Atriðinu var lokað sem product/UX ákvörðun án nýrrar kóðabreytingar í þessum
+áfanga. Codex-rýni sýndi að núverandi kóði uppfyllir kjarnaþörfina: innskráður
+notandi sem opnar rótina fer á `/auth-mvp/heim`, innskráður notandi sem opnar
+`/innskraning` fer einnig á `/auth-mvp/heim`, og successful code-login fyrir
+notanda með display name fer á `/auth-mvp/heim`.
+
+`/auth-mvp/heim#teskeidar` var ekki innleitt núna. Ef Stebbi vill síðar
+strakari anchor-lendingu beint á `Tilbúnar Teskeiðar` má opna atriðið aftur, en
+það þarf þá sérstaklega að rýna hvort hash-scroll valdi óþægilegu mobile-stökki
+eða sleppi yfir mikilvægt `Ólesið`/recent samhengi.
+
+Skrár sem voru rýndar:
+- `middleware.ts` - root redirect fyrir innskráða notendur.
+- `app/innskraning/page.tsx` - server-side session redirect af login-síðu.
+- `components/teskeid/TeskeidLoginForm.tsx` - successful code-login redirect.
+- `app/auth-mvp/heim/page.tsx` - heimaskjár með `section#teskeidar`.
+- `lib/__tests__/middleware.test.ts`, `lib/__tests__/innskraning-page.test.tsx`,
+  `lib/__tests__/home-page.test.tsx` - núverandi regression-próf fyrir redirect
+  og `#teskeidar` anchor.
+
+Staðfesting:
+- Codex handoff:
+  `ai-handoff/2026-06-23-1652-todo-048-v001-codex-returning-user-default-teskeidar-handoff.md`
+- Engin test voru keyrð sérstaklega fyrir lokunina, þar sem engum app-kóða var
+  breytt í þessum áfanga.
+
+Supabase/rollout:
+- Engin SQL skipun var keyrð.
+- Engin schema-, RLS-, auth-, grants-, functions- eða production-gagnabreyting.
+
+---
+
+## #47 - Lán: bæta við netfangi í edit og laga vistunarvillu
+
+**Lokið:** 2026-06-23
+**Staðfest af Codex:** já (rýni á Claude closeout `5e46db7` og staða færð úr TODO)
+
+Edit-flæði fyrir lán án viðtakanda er nú komið með skýra leið til að bæta við
+viðtakanda eftir á. Add-party skjárinn notar áfram örugga `addLoanInvitation` /
+`add_loan_invitation` leiðina, en getur nú líka sýnt Tengsl recipient picker
+þegar `Tengsl` er virkt og notandi á tengsl með netfangi. Handvirkur
+netfangsreitur er áfram til staðar sem fallback.
+
+Stebbi staðfesti í Claude closeout að upprunalega vistunarvillan væri leyst:
+`Gítarstandur?` var hægt að breyta í `Gítarstandur` án `Ekki tókst að vista`
+villunnar, og edit/add-party CTA virkaði í raunflæði.
+
+Skrár:
+- `app/auth-mvp/lanad-og-skilad/breyta/[id]/page.tsx` - edit-síðan sýnir
+  add-party CTA þegar creator má bæta við viðtakanda.
+- `app/auth-mvp/lanad-og-skilad/baeta-vid-adila/[id]/page.tsx` - sækir
+  `getRelationshipRecipientOptions` þegar Tengsl feature access leyfir.
+- `components/loans/AddPartyForm.tsx` - sýnir Tengsl picker ofan við handvirka
+  netfangsreitinn og fyllir netfangið þegar tengsl er valið.
+- `lib/loans/actions.ts` - áfram notuð fyrir `updateLoan` og
+  `addLoanInvitation`; engin ný invitation-leið var búin til.
+- `lib/__tests__/loan-pages.test.tsx` - regression-próf fyrir add-party route,
+  guards, redirect þegar boð er pending og recipient options forwarding.
+
+Staðfesting:
+- Claude closeout: `ai-handoff/2026-06-23-0915-todo-047-049-v018-claude-add-party-picker-closeout.md`
+- Commit rýndur af Codex: `5e46db7`
+- Codex fann engin blocking findings.
+- Codex keyrði:
+  - `npm run test:run -- lib/__tests__/loan-pages.test.tsx lib/__tests__/loan-form.test.tsx lib/__tests__/actions.test.ts` - 126 passed, 5 todo
+  - `npm run type-check` - pass
+
+Supabase/rollout:
+- Codex keyrði enga SQL skipun og breytti engum production gögnum.
+- Closeoutið segir að engar SQL functions, schema eða data breytingar hafi verið
+  gerðar í þessum áfanga.
+- Engar RLS policies eða service-role mörk voru veikt.
+
+Eftirstandandi áhætta:
+- `loan-pages.test.tsx` mockar `AddPartyForm`, þannig að automated coverage
+  staðfestir að options séu send í formið en ekki beint að raunverulegi listbox
+  pickerinn fylli netfangið. Stebbi/Claude staðfestu þetta í manual flæði; halda
+  má þessu sem residual UI-prófsgati frekar en blocker.
+- Ef save-villa birtist aftur síðar þarf fyrst að staðfesta Supabase
+  `update_loan_with_diff` / schema-cache stöðu áður en app-kóði er breytt.
+
+---
+
+## #49 - Tengsl þvert á Teskeiðar
+
+**Lokið:** 2026-06-23
+**Staðfest af Codex:** já (rýni á Claude closeout `fa86e4c` og staða færð úr TODO)
+
+Tengsl v1 er komið í lokað grunnflæði: `/stillingar/tengsl` listar tengsl,
+tengsl-detail sýnir nafn/netfang, flokk, einkanafn, einkaskýringu og sameiginlega
+lánavirkni, og lánaformið getur valið viðtakanda úr Tengsl-grunninum. Gmail
+dotted/undotted tilvik eru sameinuð í UI-grunni og recipient picker notar
+canonical samanburð þannig að sama manneskja birtist ekki sem tvær línur vegna
+Gmail-punkta.
+
+Skrár:
+- `sql/54_relationships.sql` - relationship-grunnur, RLS og service-role
+  aðgangsmynstur fyrir per-user tengsl.
+- `lib/relationships/actions.ts` - directory, detail, loan activity,
+  recipient options, canonical dedup og owner-scoped gagnasækni.
+- `lib/relationships/tag-action.ts` - owner-varin uppfærsla á flokki,
+  einkanafni og einkaskýringu.
+- `app/stillingar/tengsl/page.tsx`, `app/stillingar/tengsl/[id]/page.tsx`,
+  `app/stillingar/tengsl/loading.tsx`,
+  `app/stillingar/tengsl/[id]/loading.tsx` - Tengsl listi, detail og
+  navigation loaderar.
+- `components/tengsl/RelationshipDetailsForm.tsx`,
+  `components/tengsl/TagSelectForm.tsx` - edit-form með no-zoom input/select
+  stærðum.
+- `components/loans/LoanForm.tsx`, `app/auth-mvp/lanad-og-skilad/ny/page.tsx`
+  - recipient picker í stofnun nýs láns.
+- `messages/is.json`, `messages/en.json` - notendatextar fyrir Tengsl og
+  recipient picker.
+- `lib/__tests__/tengsl-actions.test.ts`,
+  `lib/__tests__/tengsl-pages.test.tsx`, `lib/__tests__/loan-form.test.tsx`
+  - regression-próf fyrir Tengsl, detail, picker og form.
+
+Staðfesting:
+- Claude closeout: `ai-handoff/2026-06-23-0845-todo-049-v017-claude-tengsl-v1-closeout-done.md`
+- Codex rýndi `fa86e4c` og fann engin blocking findings.
+- Codex keyrði:
+  - `npm run test:run -- lib/__tests__/tengsl-actions.test.ts lib/__tests__/tengsl-pages.test.tsx lib/__tests__/loan-form.test.tsx` - 44/44 pass
+  - `npm run type-check` - pass
+
+Supabase/rollout:
+- Codex keyrði enga SQL skipun og breytti engum production gögnum í þessari
+  lokarýni.
+- #49 byggir á áður skilgreindum `relationships` grunni og service-role actions;
+  engar RLS policies voru veiktar í closeout-lagfæringunni.
+- Stebbi þarf enn að gera loka localhost reykpróf ef hann vill staðfesta
+  raunverulega mobile Safari no-zoom hegðun og loadera með eigin dev server.
+
+Eftir í tengdum TODO:
+- #50 - fjölskyldumeðlimir sem tengsl bíður eftir raunnotkun og næsta gagnalagi.
+- #54 - spjall á lána-detail getur síðar nýtt að detail-síður og Tengsl eru til.
+
+---
+
+## #43 - Gmail-punktar og útrunnin soft-ack lánaboð
+
+**Lokið:** 2026-06-23
+**Staðfest af Codex:** já (rýni á Claude closeout `1b04e54` og staða færð úr TODO)
+
+Lánaboðsflæðið notar nú samræmda Gmail-aware canonical email reglu þannig að
+punktar í Gmail/Googlemail local-part valda ekki lengur ósamræmi milli þess
+netfangs sem fékk boðið og þess netfangs sem notandi skráir sig inn með.
+Pending soft-ack boð haldast einnig sýnileg og claimable í `get_my_loans` /
+`claim_loan_invitation` þó email-link `expires_at` sé liðið, á meðan boðið er
+enn í `pending` stöðu.
+
+Skrár:
+- `sql/56_normalize_email_canonical.sql` - bætir við
+  `public.normalize_email_canonical(text)` og uppfærir loan invitation RPC-föll
+  til að nota canonical samanburð.
+- `lib/auth/email-normalization.ts` - TypeScript canonicalization sem passar við
+  SQL-regluna fyrir raunveruleg netföng.
+- `lib/relationships/actions.ts` - Tengsl/loan-activity notar canonical
+  samanburð án þess að missa legacy dotted Gmail invitation rows.
+- `app/auth-mvp/heim/page.tsx` - badge notar `get_my_loans` og telur pending
+  soft-ack rows sem eru raunverulega actionable.
+- `lib/__tests__/sql-migration.test.ts` - regression-próf fyrir SQL56, þar á
+  meðal að `claim_loan_invitation` og `get_my_loans` Branch 2 hafi ekki
+  `expires_at` síu.
+- `lib/__tests__/email-normalization.test.ts`, `lib/__tests__/tengsl-actions.test.ts`,
+  `lib/__tests__/home-page.test.tsx` - regression-próf fyrir helpera, Tengsl
+  dedup/loan activity og badge-hegðun.
+
+Staðfesting:
+- Claude closeout: `ai-handoff/2026-06-23-0810-todo-043-v017-claude-closeout-done.md`
+- Codex keyrði:
+  - `npm run test:run -- lib/__tests__/sql-migration.test.ts` - 109/109 pass
+  - `npm run type-check` - pass
+
+Supabase/rollout:
+- Stebbi hafði þegar keyrt SQL56 og `NOTIFY pgrst, 'reload schema';`.
+- Codex keyrði enga SQL skipun og breytti engum production gögnum.
+- Engar RLS policies voru veiktar og function grants halda áfram að miða við
+  service-role þar sem það á við.
+
+Eftir í tengdum TODO:
+- #52/#37 - pending lánaboð í `Ólesið` og fullur ólesinn event grunnur.
+
+---
+
 ## #53 - Netfang viðtakanda á lánakortum
 
-**Lokið:** 2026-06-22  
+**Lokið:** 2026-06-22
 **Staðfest af Codex:** já (rýni á v002 lagfæringu og staða færð úr TODO)
 
 `get_my_loans` skilar nú `recipient_email` fyrir creator svo pending lánakort og
@@ -33,7 +579,7 @@ Supabase/rollout:
 
 ## #45 - Per-user aðgangur að feature-flagged Teskeiðum
 
-**Lokið:** 2026-06-22  
+**Lokið:** 2026-06-22
 **Staðfest af Codex:** já (rýni eftir að fail-closed og admin load-error atriði voru lagfærð)
 
 Feature-aðgangur er kominn í sameiginlegan grunn með `feature_access` og admin UI
@@ -58,7 +604,7 @@ Supabase/öryggi:
 
 ## #44 - Merkja hlut skilaðan áður en mótaðili þekkir málið
 
-**Lokið:** 2026-06-17  
+**Lokið:** 2026-06-17
 **Staðfest af Codex:** já (flutt úr TODO eftir Claude Code done-handoff og tilheyrandi migration/próf)
 
 Creator/direct participant getur merkt pending lán sem skilað áður en mótaðili
@@ -84,7 +630,7 @@ Supabase/öryggi:
 
 ## #19 - Lesnir hlutir birtast ekki aftur sem `Nýlegt`
 
-**Lokið:** 2026-06-10  
+**Lokið:** 2026-06-10
 **Staðfest af Stebba/Codex:** já (síðari handoff segir að #19 sé done og að `recent_events` sé grunnurinn)
 
 Lánasértækur cookie/read-state plástur var lagður til hliðar og varanlegri
@@ -107,7 +653,7 @@ Eftir í TODO:
 
 ## #40 — Filterar í lánalista hafa sjálfstætt state
 
-**Lokið:** 2026-06-17  
+**Lokið:** 2026-06-17
 **Staðfest af Codex:** já (post-release review á commit `bef246e`)
 
 Status-filterar í `Lánað og skilað` endurstilla ekki lengur hlutverkafilterinn.
@@ -129,7 +675,7 @@ Engar SQL-, Supabase-, RLS-, auth- eða production-gagnabreytingar.
 
 ## #36 — Mannlegra orðalag á lánahlutverki
 
-**Lokið:** 2026-06-17  
+**Lokið:** 2026-06-17
 **Staðfest af Codex:** já (post-release review á commit `7416ab9`)
 
 Hlutverkaval í nýskráningarformi fyrir `Lánað og skilað` notar nú náttúrulegra

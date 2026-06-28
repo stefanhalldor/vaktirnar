@@ -30,30 +30,34 @@ tilvísanir og verkefnasaga rofni ekki.
 
 | Röð | Atriði                                                        | Vinnupakki og samhengi                                                                                                                                 |
 | --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **#37 `Nýlegt` sýni öll ólesin events og breytingasamhengi** | **Event/Ólesið grunnur.** Gera ólesið að raunverulegum inbox, ekki bara stuttu preview. |
-| 2   | **#56 Breyta lánsdagsetningu og skiladegi á samþykktum lánum** | **Event/Ólesið pakki.** Lánveitandi geti breytt `loaned_at` og `due_at` jafnvel þegar lán er samþykkt. Þarfnast SQL/RPC breytinga. |
-| 3   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki.** Bæta decline-eventi og ack/read-state samhliða #37. |
-| 4   | **#39 Lánveitandi geti eytt samþykktum hlut**                | **Event/heimildir pakki.** Taka með event payload og delete-heimildir þegar event-grunnurinn er opinn. |
-| 5   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #37/#38/#39 séu orðin traust. |
-| 6   | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
-| 7   | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
-| 8   | **#41 Umönnun sem feature-flagged Teskeið**                  | **Feature-card/info quick win.** Sýna sem varlega feature-flagged Teskeið án þess að flytja Umönnun-gögn inn. |
-| 9   | **#46 User+pass fallback þegar kóði berst ekki**             | **Auth reliability pakki.** Mikilvægt ef kóðar berast illa, en snertir auth/rate limit/reset og á að vera sér áfangi. |
-| 10  | **#7 Langlíf innskráning**                                   | **Auth/session pakki.** Taka með #46 eða strax á eftir, en ekki blanda við láns/event quick wins. |
-| 11  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | **Route cleanup.** Gera eftir að `/heim`, `/stillingar/*` og loan flæði eru stöðug; þarf redirect- og query-param próf. |
-| 12  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | **Admin/access ákvörðun.** Ákveða hlutverk listans áður en meira admin UI byggist á honum. |
-| 13  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | **Admin quick win eftir #13.** Einföld talning, en skilgreining og service-role mörk þurfa að vera skýr. |
-| 14  | **#10 Gáfuleg opnun tölfræðisíðu**                           | **Admin stats sérpakki.** Server-side heimsóknarrökfræði, race conditions og fallback; ekki opnunarblocker. |
-| 15  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
-| 16  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
-| 17  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
-| 18  | **#51 Tengja Facebook við prófílinn sinn**                   | **OAuth/secrets sérverk.** Ekki quick win; þarf sérstakt plan, provider-stillingar og privacy-rýni. |
+| 1   | **#60 Spjall sem hluti af sögu hlutar**                      | **Chat/history pakki.** Bæta einföldu spjalli inn í `Saga hlutarins` þannig að skilaboð falli í tímaröð með öðrum eventum. |
+| 2   | **#61 Aðila-flæði birtist í sögu hlutar**                    | **Event/history pakki.** Skrá í `Saga hlutarins` þegar aðila er bætt við, boð samþykkt eða boði hafnað. |
+| 3   | **#62 Breyta hvort ég lánaði eða fékk lánað**                | **Loan correction pakki.** Notandi geti leiðrétt hvort hann sé lánveitandi eða lántaki þegar hlutur var stofnaður öfugt. |
+| 4   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki.** Bæta decline-eventi og ack/read-state ofan á staðfestan `Ólesið` grunn; samræma við #61. |
+| 5   | **#39 Gera samþykktan hlut óvirkan við eyðingu**             | **Event/heimildir pakki.** Delete á samþykktum hlut er soft delete: hlutur verður disabled og áfram aðgengilegur sem slíkur. |
+| 6   | **#59 Deilanlegur hlekkur á lánadetail**                     | **Detail/access pakki.** Notandi geti sent hlekk á hlut; hlekkurinn virkar aðeins hjá þeim sem hafa aðgang í Teskeið. |
+| 7   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #38/#39/#59/#61/#62 séu orðin traust. |
+| 8   | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
+| 9   | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
+| 10  | **#41 Umönnun sem feature-flagged Teskeið**                  | **Feature-card/info quick win.** Sýna sem varlega feature-flagged Teskeið án þess að flytja Umönnun-gögn inn. |
+| 11  | **#46 User+pass fallback þegar kóði berst ekki**             | **Auth reliability pakki.** Mikilvægt ef kóðar berast illa, en snertir auth/rate limit/reset og á að vera sér áfangi. |
+| 12  | **#7 Langlíf innskráning**                                   | **Auth/session pakki.** Taka með #46 eða strax á eftir, en ekki blanda við láns/event quick wins. |
+| 13  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | **Route cleanup.** Gera eftir að `/heim`, `/stillingar/*` og loan flæði eru stöðug; þarf redirect- og query-param próf. |
+| 14  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | **Admin/access ákvörðun.** Ákveða hlutverk listans áður en meira admin UI byggist á honum. |
+| 15  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | **Admin quick win eftir #13.** Einföld talning, en skilgreining og service-role mörk þurfa að vera skýr. |
+| 16  | **#10 Gáfuleg opnun tölfræðisíðu**                           | **Admin stats sérpakki.** Server-side heimsóknarrökfræði, race conditions og fallback; ekki opnunarblocker. |
+| 17  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
+| 18  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
+| 19  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
+| 20  | **#51 Tengja Facebook við prófílinn sinn**                   | **OAuth/secrets sérverk.** Ekki quick win; þarf sérstakt plan, provider-stillingar og privacy-rýni. |
 
 ## Vinnupakkar
 
-**Pakki A — `Ólesið`, events og lánaboð:** #37, #38, #39 og síðan #27.
-Þessi atriði eiga mjög vel saman: næst er að byggja traustan ólesinn/event grunn
-og enda á mýkra lánaboðsflæði.
+**Pakki A — saga, `Ólesið`, events, leiðréttingar og lánaboð:** #60, #61, #62,
+#38, #39, #59 og síðan #27. Grunnurinn úr #37, #56 og #58 er kominn í DONE.
+Næst er að setja einfalt spjall inn í `Saga hlutarins`, klára aðila-events,
+bæta við leið til að leiðrétta lánshlutverk, decline-, soft-delete- og
+detail-hlekkjaheimildir og enda á mýkra lánaboðsflæði.
 
 **Pakki B — heimaskjár og virkar Teskeiðar:** #17, #42 og #41. Þetta mótar hvað
 notandi sér fyrst eftir innskráningu: virkar Teskeiðar, hugmyndir og varlega
@@ -68,8 +72,8 @@ eru stöðug, svo canonical slóðir og admin-tölfræði byggist ekki á fljót
 grunnhegðun.
 
 **Pakki E — stærri framtíðareiginleikar:** #50, #54 og #51. Þetta eru ekki
-fyrstu quick wins: þau snerta viðkvæmari gögn, nýja gagnastrúktúra, spjall eða
-ytri OAuth provider.
+fyrstu quick wins: þau snerta viðkvæmari gögn, nýja gagnastrúktúra eða ytri
+OAuth provider. #60 er afmarkaður fyrsti spjall-áfangi inni í sögu hlutarins.
 
 #46
 ## User+pass fallback þegar kóði berst ekki
@@ -253,60 +257,6 @@ Teskeið-prófílinn sinn.
 - Rangur OAuth callback, hafnað consent og útrunnið state/token fá skýra og
   örugga hegðun.
 
-#37
-## `Nýlegt` sýni öll ólesin events og breytingasamhengi
-
-**Staða:** Bíður
-
-**Næsta handoff:** Sjá sameiginlegan pakka fyrir #36, #37, #38, #39 og #40:
-`ai-handoff/2026-06-10-1721-todo-036-037-038-039-040-v001-codex-loans-polish-events-package.md`.
-
-**Samhengi:** `Nýlegt` er að verða mikilvæg inngangsleið fyrir #27 mýkra
-lánaboðsflæði. Ef þar birtast aðeins þrjú atriði getur notandi misst af ólesnum
-events, sérstaklega þegar pending lánaboð eiga að birtast þar.
-
-**Vandamál:** Núverandi hegðun virðist sækja aðeins takmarkaðan fjölda atriða í
-`Nýlegt`, líklega þrjú nýjustu. Það gerir `Nýlegt` að stuttu preview-i frekar en
-áreiðanlegum ólesnum inbox. Auk þess segir event aðeins að hlutur hafi breyst,
-en sýnir ekki endilega breytinguna sjálfa.
-
-**Ósk:** `Nýlegt` eigi að sýna öll events sem notandinn á eftir að lesa. Þegar
-notandi smellir á atriði sem var að breytast á hann að sjá hvað breyttist, t.d.
-að skiladagsetning hafi verið tekin út og að fyrri skiladagsetning hafi verið
-tiltekin dagsetning.
-
-**Við útfærslu:**
-
-- Kortleggja hvar `Nýlegt` setur fjöldatakmörk, meðal annars server-side fetch,
-  helper defaults og UI rendering.
-- Breyta hegðuninni þannig að öll ólesin events birtist eða, ef tæknilegt þak er
-  nauðsynlegt, að notandi sjái skýrt fjölda og geti opnað öll ólesin atriði.
-- Hönnun skal halda mobile-first upplifun rólegri þótt mörg ólesin events séu til
-  staðar; forðast layout shift, horizontal overflow og of langan fyrsta skjá.
-- Skilgreina event-detail/diff payload fyrir breytingar á lánum, þar á meðal
-  fyrra og nýtt gildi fyrir heiti, nótu, lánadagsetningu, skiladagsetningu,
-  skilað/óskilað state og pending invitation state þar sem við á.
-- Ekki setja viðkvæm eða óþörf gögn í event payload. Sérstaklega má recipient
-  email ekki leka í client payload, logs eða `Nýlegt`.
-- Þegar notandi opnar event skal leiðin sýna viðeigandi samhengi, t.d. detail,
-  edit, claim eða highlighted list row, ekki bara generíska síðu ef hægt er að
-  gera betur.
-- Event sem tengist claim/decline í #27 þarf að ack-ast eða uppfærast þannig að
-  sama boð haldist ekki ólesið eftir að notandi hefur tekið afstöðu.
-- Halda SQL migrations idempotent og með skýrt rollout/recovery plan ef breyta
-  þarf `recent_events` payload eða helper contracti.
-
-**Prófanir:**
-
-- Fleiri en þrjú ólesin events birtast eða eru aðgengileg sem öll ólesin atriði.
-- `Lesið`/mark-read fjarlægir aðeins rétt events og þau birtast ekki aftur.
-- Breytt skiladagsetning sýnir fyrra og nýtt gildi.
-- Fjarlægð skiladagsetning sýnir að dagsetning hafi verið tekin út og hver hún
-  var áður.
-- Pending lánaboð úr #27 birtist ekki tvöfalt eða týnist í `Nýlegt`.
-- Óviðkomandi notandi getur ekki séð event eða payload annars notanda.
-- Mobile 360-460 px sýnir mörg ólesin atriði án overlap eða horizontal scroll.
-
 #54
 ## Spjall á hverjum lánaða hlut
 
@@ -338,6 +288,9 @@ lánaupplýsingarnar.
 - Hvernig spjall birtist á lánadetail-síðu án þess að kæfa aðalaðgerðir eins og
   `Þekki málið`, `Kannast ekki við þetta`, `Skilað`, `Breyta` eða `Eyða`.
 - Hvort `Ólesið` / recent events eigi að sýna ný spjallskilaboð.
+- Spjall á ekki að vera alveg sér aðskilinn heimur ef #60 er samþykkt; ný
+  skilaboð eiga þá að birtast sem spjallfærslur inni í `Saga hlutarins`,
+  innan um aðrar history-færslur.
 - Hvort spjall eigi að styðja aðeins texta í fyrstu útgáfu, eða síðar myndir,
   afhendingartíma, staðsetningu eða attachment.
 - Hvernig eydd, cancelled, declined, expired eða returned lán haga sér gagnvart
@@ -380,10 +333,197 @@ lánaupplýsingarnar.
 - Ef `Ólesið` tengist spjalli síðar, þá uppfærist read/unread state án
   duplicate events eða leka milli notenda.
 
+#60
+## Spjall sem hluti af sögu hlutar
+
+**Staða:** Næst, handoff tilbúið
+
+**Stofnað:** 2026-06-27
+
+**Næsta handoff / nýjasta staða:** Sjá
+`ai-handoff/2026-06-27-1659-todo-060-v008-codex-sql62-incident-review-request.md`.
+SQL62 bíður rýni frá Claude Code áður en Stebbi keyrir það. v005 var leyst af
+hólmi eftir að Stebbi hafnaði feature-flag nálguninni.
+Eldra grunnplan er í
+`ai-handoff/2026-06-27-1123-todo-060-v001-codex-chat-in-history-handoff.md`.
+
+**Samhengi frá Stebba:** Stebbi vill að spjallið á lánaða hlutnum sé ekki
+aðskilið frá `Saga hlutarins`. Spjallið á að falla inn í söguna sem
+spjallfærslur innan um önnur history events.
+
+**Ósk:** Þegar item-scoped spjall verður útfært, eiga skilaboðin að birtast inni
+í `Saga hlutarins` á detail-síðu hlutarins. Notandi á þá að sjá eina samfellda
+sögu: lán búið til, dagsetningum breytt, hlut skilað, afturkallað og spjallað
+um hlutinn, allt í réttri tímaröð.
+
+**Við útfærslu þarf að skilgreina:**
+
+- Hvort spjallskilaboð séu geymd sem sér `chat_messages` tafla og sameinuð við
+  history í query/formatter, eða sem sérstök event-gerð í history-grunni.
+- Hvernig spjallfærslur birtast sjónrænt innan um önnur events án þess að
+  history verði ólæsilegt.
+- Hvernig ný skilaboð verða merkt ólesin fyrir mótaðila.
+- Hvort spjallskilaboð megi vera sýnileg pending viðtakanda áður en hann smellir
+  á `Þekki málið`.
+- Hvernig eydd, leiðrétt eða misheppnuð skilaboð birtast í ferlinum.
+- Hvort history síi eða hópi saman mörg stutt skilaboð ef þau koma í hrinu.
+
+**Öryggi og gögn:**
+
+- Spjallfærslur mega aldrei leka milli ótengdra notenda eða milli lána.
+- Aðgangur þarf að fylgja sömu reglum og detail-síða og `Saga hlutarins`.
+- Ekki skila netföngum, user-id eða raw payload í client nema það sé sérstaklega
+  hannað og rýnt.
+- Ef Realtime verður notað þarf sér rýni á RLS, channel authorization og
+  notkunarkostnað.
+
+**Prófanir:**
+
+- Spjallskilaboð birtast í réttri tímaröð innan um önnur history events.
+- Mótaðili sér spjallfærslur og önnur events í sama ferli.
+- Óviðkomandi notandi sér hvorki history né spjall með beinum hlekk.
+- Ný spjallskilaboð brjóta ekki de-duplication á venjulegum loan events.
+- Mobile 360-460 px sýnir history og spjall án overlap, zooms eða lárétts
+  overflow.
+
+#61
+## Aðila-flæði birtist í sögu hlutar
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-06-27
+
+**Samhengi frá Stebba:** Í `Saga hlutarins` vantar event þegar aðila er bætt við
+hlut. Stebbi bendir líka á að það vanti líklega event þegar viðtakandi velur
+`Þekki málið` eða `Kannast ekki við þetta`.
+
+**Vandamál:** Saga hlutarins á að vera traust samfelld saga af því sem gerðist
+við lánið. Ef aðili er boðinn inn, samþykkir boðið eða hafnar því án þess að það
+birtist í sögunni, vantar mikilvægt samhengi fyrir báða aðila.
+
+**Ósk:** Skrá og birta aðila-flæðið í `Saga hlutarins`:
+
+- þegar aðila er bætt við hlut
+- þegar boð er sent eða virkjað ef það er aðskilið frá því að aðila sé bætt við
+- þegar viðtakandi velur `Þekki málið`
+- þegar viðtakandi velur `Kannast ekki við þetta`
+
+**Við útfærslu:**
+
+- Kortleggja núverandi event-skráningu í `addLoanInvitation`,
+  `performInvitationSend`, `claimInvitation` og `declineInvitation`.
+- Staðfesta hvað vantar raunverulega eftir #58/#60: sum accepted/declined events
+  gætu þegar verið skráð fyrir `Ólesið`, en ekki endilega með réttu history
+  samhengi eða fyrir réttan audience.
+- Bæta við skýrum event types ef þarf, t.d. `loan_party_added`,
+  `loan_invitation_sent`, `loan_invitation_accepted` og
+  `loan_invitation_declined`.
+- Tryggja að eventin hafi `entity_type='loan'` og `entity_id=loanId` ef þau eiga
+  að birtast í `Saga hlutarins`.
+- Setja `actorUserId` á ný events svo `Framkvæmt af {name}` virki.
+- Ekki nota `recent_events.user_id` sem actor.
+- Halda payload öruggu: `itemName`, role eða stutt state er í lagi; ekki skila
+  recipient email, raw invitation email eða user-id í client.
+- Samræma texta við product-orðalag:
+  - `Aðila bætt við`
+  - `Þekkti málið`
+  - `Kannast ekki við þetta`
+- Ef #38 er enn opið þegar þetta er útfært, má sameina decline-hlutann við #61
+  eða loka #38 sem leystu undiratriði, eftir rýni.
+
+**Öryggi og gögn:**
+
+- Event má aðeins birtast þeim sem hafa aðgang að láninu samkvæmt sömu reglum og
+  `Saga hlutarins`.
+- Ekki leka netfangi boðaðs aðila til óviðkomandi eða til viðtakanda ef
+  núverandi product-reglur leyfa það ekki.
+- Pending recipient má aðeins sjá sögu ef SQL60-reglurnar heimila það.
+- Service-role helper/RPC má ekki logga recipient email, user IDs eða raw payload.
+
+**Prófanir:**
+
+- Þegar aðila er bætt við hlut birtist event í `Saga hlutarins`.
+- Þegar viðtakandi velur `Þekki málið` birtist event í sögunni.
+- Þegar viðtakandi velur `Kannast ekki við þetta` birtist event í sögunni.
+- Báðir aðilar sjá sama örugga samhengi þegar þeir hafa aðgang.
+- Óviðkomandi notandi sér ekkert með beinum hlekk eða RPC-kalli.
+- Eventin birtast ekki tvöfalt þótt `recent_events` hafi actor/counterpart rows.
+- Actor-lína birtist á nýjum events.
+
+#62
+## Breyta hvort ég lánaði eða fékk lánað
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-06-27
+
+**Næsta handoff:** Sjá
+`ai-handoff/2026-06-28-2205-todo-062-v026-codex-v025-review.md`.
+
+**Samhengi frá Stebba:** Stebbi stofnaði óvart lán með röngu hlutverki: hlutur
+var skráður eins og hann hefði fengið hann lánaðan, en í raun átti hlutverkið að
+vera hin áttin. Það vantar leið til að leiðrétta þetta eftir á, og það þarf að
+vera hægt í báðar áttir.
+
+**Vandamál:** `Lánað og skilað` byggir mikið á því hvort notandi sé að lána hlut
+eða hafi fengið hann lánaðan. Ef hlutverkið er rangt verður texti, flokkun,
+aðgerðir, mótaðili og saga hlutarins villandi. Nú virðist ekki vera skýr leið til
+að breyta þessu eftir að hlutur er stofnaður.
+
+**Ósk:** Notandi á að geta leiðrétt hlutverk láns:
+
+- úr `Ég lánaði` yfir í `Ég fékk lánað`
+- úr `Ég fékk lánað` yfir í `Ég lánaði`
+
+**Við útfærslu þarf að skilgreina:**
+
+- Hvar stillingin á að búa, líklega í edit-flæði hlutarins eða sem skýr
+  `Breyta hlutverki` aðgerð á detail-síðu.
+- Hvort hægt sé að breyta hlutverki þegar:
+  - enginn mótaðili er kominn á hlutinn
+  - boð til mótaðila er í bið
+  - mótaðili hefur þegar valið `Þekki málið`
+  - hlutnum hefur verið skilað eða skráning er óvirk
+- Hvernig `lender_user_id`, `borrower_user_id`, `created_by` og
+  `loan_invitations.recipient_role` eiga að breytast án þess að missa aðgang eða
+  búa til dangling invitation.
+- Hvort pending invitation á að uppfærast, falla úr gildi eða krefjast þess að
+  notandi afturkalli boðið áður en hlutverki er breytt.
+- Hvort accepted lán þurfi staðfestingu frá báðum aðilum eða hvort við treystum
+  einföldu samstarfsviðmóti eins og í #58.
+- Hvaða event á að birtast í `Saga hlutarins`, t.d. `Hlutverki breytt`, með
+  actor nafni og öruggum payload.
+- Hvort `Ólesið` á að láta mótaðila vita þegar hlutverki er breytt.
+
+**Öryggi og gögn:**
+
+- Ekki veikja RLS, grants eða service-role mörk.
+- Breyting þarf að vera atomic í SQL/RPC svo lán lendi aldrei hálfskiptu milli
+  `lender_user_id` og `borrower_user_id`.
+- Óviðkomandi notandi má hvorki geta breytt hlutverki né séð meiri gögn við
+  beina RPC- eða detail-slóð.
+- Ekki leka recipient email, raw invitation email eða user-id í client payload.
+- Ef hlutverk er breytt á pending invitation þarf að passa sérstaklega að
+  canonical email-reglur úr #56/#57 haldist réttar.
+
+**Prófanir:**
+
+- Notandi getur breytt solo-láni úr `Ég lánaði` í `Ég fékk lánað`.
+- Notandi getur breytt solo-láni úr `Ég fékk lánað` í `Ég lánaði`.
+- Lán flyst í réttan flokk/lista eftir breytingu.
+- Detail-síða sýnir réttan texta og rétt hlutverk eftir refresh.
+- `Saga hlutarins` sýnir event um hlutverksbreytinguna.
+- Ef pending invitation er til er hegðun skýr og prófuð: uppfærsla, blokk eða
+  afturköllun, eftir þeirri leið sem verður valin.
+- Ef accepted loan er leyft að breytast sjá báðir aðilar rétta stöðu og enginn
+  missir aðgang óvart.
+- Óviðkomandi notandi getur ekki breytt hlutverki með beinu RPC-kalli.
+- Mobile edit/detail flæði virkar við 360-460 px án zooms, overflow eða overlap.
+
 #38
 ## Event þegar lánaboði er hafnað
 
-**Staða:** Bíður
+**Staða:** Bíður, tengt #61
 
 **Næsta handoff:** Sjá sameiginlegan pakka fyrir #36, #37, #38, #39 og #40:
 `ai-handoff/2026-06-10-1721-todo-036-037-038-039-040-v001-codex-loans-polish-events-package.md`.
@@ -391,6 +531,10 @@ lánaupplýsingarnar.
 **Samhengi:** Þetta tengist #27 mýkra lánaboðsflæði og #37 event-sögu í
 `Nýlegt`. Þegar mótaðili tekur afstöðu til lánaboðs er það mikilvæg breyting
 fyrir þann sem sendi boðið.
+
+**Athugið:** #61 er breiðara history-atriði sem nær líka yfir
+`Kannast ekki við þetta`. Ef #61 leysir decline-eventið bæði í `Saga hlutarins`
+og `Ólesið` má loka #38 sem hluta af þeirri vinnu.
 
 **Vandamál:** Stebbi hafnaði lánaboði frá öðrum notanda, en sá sem sendi boðið
 fékk það ekki upp sem event. Það er atburður sem sendandi ætti klárlega að fá
@@ -423,7 +567,7 @@ hafnað.
 - Eventið birtist í `Nýlegt`/atburðasögu með réttu heiti og linki.
 
 #39
-## Lánveitandi geti eytt samþykktum hlut
+## Gera samþykktan hlut óvirkan við eyðingu
 
 **Staða:** Bíður
 
@@ -431,36 +575,48 @@ hafnað.
 `ai-handoff/2026-06-10-1721-todo-036-037-038-039-040-v001-codex-loans-polish-events-package.md`.
 
 **Samhengi:** Í `Lánað og skilað` getur mótaðili verið búinn að samþykkja boð.
-Stebbi vill samt að lánveitandi geti eytt hlutnum ef hann á að hverfa úr
-kerfinu.
+Stebbi vill að delete á samþykktum hlut sé ekki hörð eyðing heldur geri hlutinn
+óvirkan. Hluturinn á að vera áfram aðgengilegur sem óvirkur hlutur, meðal annars
+fyrir feril, `Ólesið` og beinan detail-hlekk.
 
-**Vandamál:** Sem lánveitandi þarf notandi að geta eytt hlut þó að mótaðili sé
-búinn að samþykkja. Núverandi réttindi eða UI virðast ekki endilega leyfa það.
+**Vandamál:** Ef samþykktur hlutur er fjarlægður alveg getur mótaðili misst
+samhengi um hvað gerðist, event/hlekkur getur vísað á horfinn hlut og ferill
+hlutarins verður ófullkominn.
 
-**Ósk:** Lánveitandi geti eytt samþykktum hlut. Mótaðilinn á að fá event í
-atburðasöguna sína svo eyðingin sé ekki þögul eða ruglingsleg.
+**Ósk:** Notandi með réttan aðgang geti eytt samþykktum hlut þannig að hann
+verði disabled/óvirkur en áfram sýnilegur sem slíkur þeim aðilum sem höfðu
+aðgang. Mótaðilinn á að fá event í atburðasöguna sína svo aðgerðin sé ekki
+þögul eða ruglingsleg.
 
 **Við útfærslu:**
 
 - Kortleggja núverandi delete-réttindi í UI, server action og SQL/RPC.
-- Skilgreina nákvæmlega hver má eyða samþykktum hlut:
-  lánveitandi, skráningaraðili, eða báðir eftir skýrum reglum.
+- Skilgreina nákvæmlega hver má gera samþykktan hlut óvirkan. Nýjasta
+  product-stefna Stebba fyrir lán er einföld samvinnuhegðun: báðir aðilar sem
+  hafa aðgang að samþykktu láni mega almennt framkvæma aðgerðir, en
+  óviðkomandi notendur mega aldrei komast að.
 - Framfylgja reglunni server-side í RPC/server action, ekki aðeins með földum
   client-hnappi.
+- Nota soft-delete/disabled state, ekki harða eyðingu á `loan_items`, nema
+  Stebbi samþykki sérstaklega annað.
+- Óvirkur hlutur skal áfram hafa detail-síðu sem sýnir disabled state og feril,
+  en hættulegar eða óviðeigandi aðgerðir skulu vera óvirkar.
 - Þegar hlutur er eyddur skal skrá event fyrir mótaðila ef hann er til staðar.
 - Event payload má ekki leka recipient email eða óþarfa persónugögnum.
-- Ákveða hvort eyddur hlutur birtist sem sögufærsla í `Nýlegt` án þess að hafa
-  clickable edit/detail slóð á horfinn hlut.
+- `Ólesið`/history hlekkur má vísa á detail-síðu óvirka hlutarins svo
+  samhengi tapist ekki.
 - Tryggja að eyðing veikji ekki RLS, grants, service-role mörk eða aðgangsmörk
   óviðkomandi notenda.
 
 **Prófanir:**
 
-- Lánveitandi getur eytt samþykktum hlut.
+- Aðili með aðgang getur gert samþykktan hlut óvirkan.
 - Mótaðili fær event um eyðinguna.
-- Óviðkomandi notandi getur ekki eytt hlut með beinni köllun.
+- Óviðkomandi notandi getur ekki gert hlut óvirkan með beinni köllun.
 - Recipient email eða önnur óþörf gögn leka ekki í event payload eða logs.
-- Eyddur hlutur hverfur úr venjulega lánalistanum en eventið er áfram skiljanlegt.
+- Óvirkur hlutur er áfram aðgengilegur á detail-síðu með skýru disabled state.
+- Óvirkur hlutur birtist ekki sem venjulegur virkur hlutur í lista, nema
+  sérstaklega sé hannað söguyfirlit eða filter fyrir óvirka hluti.
 
 #41
 ## Umönnun sem feature-flagged Teskeið
@@ -829,8 +985,8 @@ hluti af Teskeið, og ef já, í hvaða tilgangi.
 #27
 ## Mýkra lánaboðsflæði
 
-**Staða:** Bíður eftir áframhaldandi event-feed vinnu í #37 áður en full
-útfærsla hefst
+**Staða:** Bíður eftir áframhaldandi event-, heimilda-, hlutverka- og
+lánaboðavinnu í #38/#39/#59/#62 áður en full útfærsla hefst
 
 **Samhengi:** Núverandi lánaboð virka sem sérstakt samþykkisflæði. Viðtakandi
 sér pending boð í sérstöku spjaldi og þarf að fara á claim-síðu áður en hluturinn
@@ -881,39 +1037,67 @@ skýra leið til að staðfesta eða hafna.
 **Handoff:** Sjá
 `ai-handoff/2026-06-09-1630-todo-027-v001-codex-loan-soft-ack-package-plan.md`.
 
-**Næsta tengda skref:** #37 byggir á #19 server-side event-feed grunninum
-svo `Nýlegt` verði örugg og áreiðanleg inngangsleið fyrir framtíðar #27:
-`ai-handoff/2026-06-10-0708-todo-019-027-037-v014-codex-nylegt-all-unread-event-detail-plan.md`.
+**Næsta tengda skref:** #37, #56 og #58 eru komin í DONE og byggja á #19
+server-side event-feed grunninum. #27 á áfram að byggja á þeim grunni þegar
+#38/#39/#59/#62 hafa verið þrengd eða kláruð.
 
-#56
-## Breyta lánsdagsetningu og skiladegi á samþykktum lánum
+#59
+## Deilanlegur hlekkur á lánadetail
 
 **Staða:** Bíður
 
-**Stofnað:** 2026-06-24
+**Stofnað:** 2026-06-27
 
-**Samhengi:** Komið upp sem follow-up við #37. Stebbi bað upphaflega um að geta breytt `Lánað` og `Skila fyrir` jafnvel þegar lán er samþykkt (accepted), amk sem sá sem lánaði. Þetta var ekki hluti af #37 scope en tilheyrir sama event/Ólesið pakka.
+**Samhengi frá Stebba:** Nú er hver hlutur með detail-síðu. Stebbi vill að
+notendur geti sent hlekk á hlutinn, til dæmis í Messenger, og að hlekkurinn sé
+opnanlegur eingöngu hjá þeim sem hafa aðgang að hlutnum í Teskeið.
 
-**Vandamál:** Þegar lán er samþykkt fer edit-síðan í `LoanItemDetailsForm`, sem breytir aðeins nafni og athugasemd. SQL `update_loan_with_diff` stoppar samþykkt lán með `not_editable`. Lánveitandi getur ekki breytt `loaned_at` eða `due_at` eftir samþykki.
+**Mat Codex:** Þetta er framkvæmanlegt og getur verið öruggt ef hlekkurinn er
+ekki public share-link heldur venjuleg innskráð detail-slóð sem fer alltaf í
+gegnum sama access guard og detail-síðan. Núverandi detail-síða notar
+`get_my_loans` og `notFound()` ef hluturinn er ekki í aðgangsmengi innskráða
+notandans; það er góður grunnur.
 
-**Ósk:** Lánveitandi geti breytt lánsdagsetningu og skiladegi á samþykktum lánum. Breytingarnar eiga að birtast í `Ólesið` hjá mótaðila sem `Breytt lánsdagsetning` og `Breyttur skiladagur` - label-grunnurinn er þegar til frá #37.
+**Ósk:** Bæta við skýrri leið til að afrita eða deila detail-hlekk á lánaðan
+hlut. Hlekkurinn má aðeins opnast hjá innskráðum notanda sem hefur aðgang að
+hlutnum sem aðili að láninu eða með gildum pending invitation-reglum sem
+kerfið samþykkir.
 
 **Við útfærslu:**
 
-- Skilgreina nákvæmlega hvaða hlutverks notendur fá leyfi til að breyta dagsetningum á samþykktum lánum (lánveitandi, skráningaraðili, eða báðir).
-- Breyta eða bæta við SQL/RPC sem leyfir þessa breytingu án þess að hafa áhrif á önnur heimildarlag.
-- Uppfæra `LoanItemDetailsForm` eða búa til nýtt form sem inniheldur dagsetningasvið þegar notandi hefur leyfi.
-- Tryggja að mótaðili fái `loan_updated` event með `Breytt lánsdagsetning`/`Breyttur skiladagur` label í `Ólesið`.
-- Halda `not_editable` vörn fyrir aðrar aðstæður þar sem hún á við.
+- Nota canonical detail-slóð, t.d. `/auth-mvp/lanad-og-skilad/[id]` fyrst, eða
+  nýja canonical slóð þegar #22 hreinsar `/auth-mvp/` úr sýnilegum URL-um.
+- Bæta við copy/share action á detail-síðu eða loan-card detail context, með
+  mobile-friendly UI.
+- Nota Web Share API þar sem það er tiltækt, með copy-to-clipboard fallback.
+- Hlekkurinn skal ekki innihalda netfang, token, display name eða önnur
+  persónugögn í query string.
+- Ef notandi sem fær hlekkinn er ekki innskráður, fer hann í innskráningu og
+  kemur síðan aftur á ætlaða slóð ef auth-flæðið styður það.
+- Ef innskráður notandi hefur ekki aðgang, skal hann fá `notFound` eða öruggt
+  almennt aðgangssvar, ekki upplýsingar um að hluturinn sé til.
+- Ekki búa til public share token eða “anyone with link” hegðun án sér
+  security-plan og samþykkis frá Stebba.
 
-**Öryggi:** Framfylgja heimildum server-side í RPC, ekki aðeins í UI. Enginn notandi má breyta dagsetningum á láni sem hann á ekki rétt á að breyta.
+**Öryggi og gögn:**
+
+- Hlekkur er ekki heimild. Aðgangur kemur alltaf frá server-side auth og
+  þátttöku í láninu.
+- UUID í slóð má ekki duga eitt og sér til að sjá gögn.
+- Hlekkurinn má ekki leka recipient email eða pending invitation details til
+  óviðkomandi.
+- Ef pending invitation hlekkir eru studdir þarf að nota canonical email
+  matching/reglur sem þegar eru til, ekki veikari query-param lausn.
 
 **Prófanir:**
 
-- Lánveitandi getur breytt `loaned_at` og `due_at` á samþykktum láni.
-- Lántakandi (sem á ekki leyfi) fær viðeigandi villu.
-- Mótaðili fær `Breytt lánsdagsetning` / `Breyttur skiladagur` event í `Ólesið`.
-- Regression: aðrar heimildar- og breytingareglur breytast ekki.
+- Aðili að láni getur afritað/deilt hlekk og opnað hann í sama eða öðru tæki.
+- Mótaðili með aðgang getur opnað sama hlekk eftir innskráningu.
+- Óviðkomandi innskráður notandi sér ekki hlutinn með sama hlekk.
+- Óinnskráður notandi er sendur í innskráningu og kemst aðeins áfram ef hann
+  hefur aðgang eftir innskráningu.
+- Hlekkurinn inniheldur engin netföng, tokens eða persónugögn.
+- Mobile share/copy UI virkar við 360-460 px án zooms eða overlap.
 
 #57
 ## Timestamp format í ensku locale

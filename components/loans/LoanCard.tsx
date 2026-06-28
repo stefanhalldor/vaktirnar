@@ -97,6 +97,7 @@ export function LoanCard({ item, afterDeleteHref, recipientDisplay }: Props) {
     showAddParty,
     canAcknowledge,
     canDeclineAcknowledgement,
+    canSwitchRole,
   } = getLoanCardControls(item)
 
   function handleMarkReturned() {
@@ -298,6 +299,16 @@ export function LoanCard({ item, afterDeleteHref, recipientDisplay }: Props) {
                 </button>
               )}
             </div>
+          )}
+
+          {/* Role correction link for pending recipients */}
+          {canSwitchRole && (
+            <Link
+              href={`/auth-mvp/lanad-og-skilad/breyta/${item.id}`}
+              className="inline-flex items-center min-h-[40px] text-xs text-[#72796e] hover:text-[#154212] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded"
+            >
+              {t('switchRole.correctRole')}
+            </Link>
           )}
 
           {/* Return / undo row */}

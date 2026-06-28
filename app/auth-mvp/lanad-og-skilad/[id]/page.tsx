@@ -54,7 +54,25 @@ export default async function LoanDetailPage({
   }
 
   const item = (data as LoanItem[]).find((i) => i.id === id)
-  if (!item) notFound()
+
+  let activeItem: LoanItem
+  if (item) {
+    activeItem = item
+  } else {
+    // Pending recipient fallback: actor is not yet an actual party but has a
+    // pending invitation for this loan (canonical email match).
+    const { data: pendingData, error: pendingError } = await admin.rpc(
+      'get_loan_for_pending_recipient',
+      { p_actor_id: user.id, p_loan_id: id },
+    )
+    if (pendingError) {
+      console.error('[loans/detail] get_loan_for_pending_recipient failed')
+      notFound()
+    }
+    const pendingItem = (pendingData as LoanItem[] | null)?.[0] ?? null
+    if (!pendingItem) notFound()
+    activeItem = pendingItem
+  }
 
   const tHomeFn = (key: string, params?: Record<string, string>) =>
     tHome(key as Parameters<typeof tHome>[0], params as Parameters<typeof tHome>[1])
@@ -67,9 +85,9 @@ export default async function LoanDetailPage({
     <LoanShell nav={nav} homeLabel={t('homeLink')}>
       <div className="flex flex-col gap-6">
         <LoanCard
-          item={item}
+          item={activeItem}
           afterDeleteHref="/auth-mvp/lanad-og-skilad"
-          recipientDisplay={item.recipient_email ?? undefined}
+          recipientDisplay={activeItem.recipient_email ?? undefined}
         />
         <LoanHistory
           rows={historyRows}

@@ -18,7 +18,7 @@ export interface LoanHistoryItem {
 interface RawHistoryRow {
   event_key: string
   event_type: string
-  payload: { itemName?: string; changes?: LoanFieldChange[] }
+  payload: { itemName?: string; changes?: LoanFieldChange[]; newRole?: string }
   occurred_at: string
   actor_display_name: string | null
   row_kind: string       // 'event' | 'chat'
@@ -81,8 +81,17 @@ export async function getLoanHistory(
         const actorLabel = row.actor_display_name
           ? tLoans('history.actor', { name: row.actor_display_name })
           : undefined
+        let label: string
+        if (row.event_type === 'loan_role_switched' && row.payload.newRole) {
+          const roleName = row.payload.newRole === 'lender'
+            ? tLoans('history.roleLender')
+            : tLoans('history.roleBorrower')
+          label = tHome('eventLoanRoleSwitchedToRole' as Parameters<typeof tHome>[0], { roleName })
+        } else {
+          label = tHome(labelKey as Parameters<typeof tHome>[0], { itemName })
+        }
         return {
-          label:           tHome(labelKey as Parameters<typeof tHome>[0], { itemName }),
+          label,
           occurredAtLabel: formatEventTimestamp(row.occurred_at, tLoans),
           detailLines:     buildDetailLines(row.payload.changes, tFn, displayLocale),
           actorLabel,

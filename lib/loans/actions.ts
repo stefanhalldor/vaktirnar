@@ -907,6 +907,106 @@ export async function sendLoanChatMessage(loanId: string, input: unknown): Promi
 }
 
 // ============================================================
+// switchLoanRole
+// Swaps the actor's role (lender/borrower) on a loan. Works for
+// actual parties and pending recipients. No email is sent.
+// Records loan_role_switched in Saga hlutarins and Ólesið.
+// ============================================================
+
+export async function switchLoanRole(loanId: string): Promise<ActionResult> {
+  const { user } = await guardLoanAccess()
+
+  const admin = getAdmin()
+  const { data, error } = await admin.rpc('switch_loan_role', {
+    p_actor_id: user.id,
+    p_loan_id:  loanId,
+  })
+
+  if (error) {
+    console.error('[loans/switchLoanRole] RPC failed')
+    return { ok: false, error: 'save_failed' }
+  }
+
+  const row = (data as Array<{
+    status:              string
+    item_name:           string | null
+    counterpart_user_id: string | null
+    pending_user_ids:    string[] | null
+  }>)?.[0]
+
+  const status = row?.status ?? 'save_failed'
+  if (status === 'not_found')     return { ok: false, error: 'not_found' }
+  if (status === 'invalid_state') return { ok: false, error: 'save_failed' }
+  if (status !== 'ok')            return { ok: false, error: 'save_failed' }
+
+  const itemName = row?.item_name ?? null
+
+  // Fetch the actual new role from the DB after the swap — do not trust client input.
+  let newRole: 'lender' | 'borrower' | undefined
+  const { data: loansData } = await admin.rpc('get_my_loans', { p_actor_id: user.id })
+  const loanItem = (loansData as Array<{ id: string; my_role: string }> | null)?.find((i) => i.id === loanId)
+  if (loanItem?.my_role === 'lender' || loanItem?.my_role === 'borrower') {
+    newRole = loanItem.my_role
+  } else {
+    // Pending recipients may not appear in get_my_loans.
+    const { data: pendingData } = await admin.rpc('get_loan_for_pending_recipient', {
+      p_actor_id: user.id,
+      p_loan_id:  loanId,
+    })
+    const pendingItem = (pendingData as Array<{ my_role: string }> | null)?.[0] ?? null
+    if (pendingItem?.my_role === 'lender' || pendingItem?.my_role === 'borrower') {
+      newRole = pendingItem.my_role
+    }
+  }
+  if (!newRole) {
+    console.error('[loans/switchLoanRole] could not resolve newRole after swap')
+  }
+
+  const eventKey = `loans:loan:${loanId}:role-switched:${new Date().toISOString()}`
+  const payload  = { ...(itemName ? { itemName } : {}), ...(newRole ? { newRole } : {}) }
+
+  await recordRecentEvent({
+    userId:        user.id,
+    source:        'loans',
+    eventType:     'loan_role_switched',
+    entityType:    'loan',
+    entityId:      loanId,
+    eventKey,
+    payload,
+    href:          `/auth-mvp/lanad-og-skilad/${loanId}`,
+    initiallyRead: true,
+    actorUserId:   user.id,
+  })
+
+  // Build the set of users to notify, excluding the actor.
+  // Use a Set to deduplicate in case counterpart_user_id appears in pending_user_ids.
+  const notifyIds = new Set<string>()
+  const counterpartUserId = row?.counterpart_user_id ?? null
+  if (counterpartUserId && counterpartUserId !== user.id) notifyIds.add(counterpartUserId)
+  for (const pendingId of row?.pending_user_ids ?? []) {
+    if (pendingId && pendingId !== user.id) notifyIds.add(pendingId)
+  }
+
+  for (const uid of notifyIds) {
+    await recordRecentEvent({
+      userId:      uid,
+      source:      'loans',
+      eventType:   'loan_role_switched',
+      entityType:  'loan',
+      entityId:    loanId,
+      eventKey,
+      payload,
+      href:        `/auth-mvp/lanad-og-skilad/${loanId}`,
+      actorUserId: user.id,
+    })
+  }
+
+  revalidateLoanViews()
+  revalidatePath(`/auth-mvp/lanad-og-skilad/${loanId}`)
+  return { ok: true }
+}
+
+// ============================================================
 // cancelInvitation
 // ============================================================
 

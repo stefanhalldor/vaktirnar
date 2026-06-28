@@ -667,3 +667,205 @@ describe('sql/56: normalize_email_canonical', () => {
     expect(beforeElse).toMatch(/replace\(.*'\.', ''\)/)
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/63 switch_loan_role
+// ============================================================
+
+const sql63 = readFileSync(
+  join(process.cwd(), 'sql/63_switch_loan_role.sql'),
+  'utf8'
+)
+
+describe('sql/63_switch_loan_role.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql63).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql63).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops both functions before recreating to handle return-type changes', () => {
+    expect(sql63).toContain('DROP FUNCTION IF EXISTS public.switch_loan_role(uuid, uuid)')
+    expect(sql63).toContain('DROP FUNCTION IF EXISTS public.get_loan_for_pending_recipient(uuid, uuid)')
+    // DROPs must appear before CREATE OR REPLACE
+    const dropSwitchPos  = sql63.indexOf('DROP FUNCTION IF EXISTS public.switch_loan_role')
+    const dropPendingPos = sql63.indexOf('DROP FUNCTION IF EXISTS public.get_loan_for_pending_recipient')
+    const createSwitchPos  = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const createPendingPos = sql63.indexOf('CREATE OR REPLACE FUNCTION public.get_loan_for_pending_recipient')
+    expect(dropSwitchPos).toBeGreaterThan(-1)
+    expect(dropPendingPos).toBeGreaterThan(-1)
+    expect(createSwitchPos).toBeGreaterThan(dropSwitchPos)
+    expect(createPendingPos).toBeGreaterThan(dropPendingPos)
+  })
+
+  it('defines get_loan_for_pending_recipient RPC', () => {
+    expect(sql63).toContain('CREATE OR REPLACE FUNCTION public.get_loan_for_pending_recipient')
+  })
+
+  it('defines switch_loan_role RPC', () => {
+    expect(sql63).toContain('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+  })
+
+  it('uses SET search_path on get_loan_for_pending_recipient', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.get_loan_for_pending_recipient')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    expect(sql63.slice(fnStart, fnEnd)).toContain("SET search_path = ''")
+  })
+
+  it('uses SET search_path on switch_loan_role', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    expect(sql63.slice(fnStart, fnEnd)).toContain("SET search_path = ''")
+  })
+
+  it('revokes and grants get_loan_for_pending_recipient to service_role only', () => {
+    expect(sql63).toContain('GRANT  EXECUTE ON FUNCTION public.get_loan_for_pending_recipient(uuid, uuid) TO service_role')
+    expect(sql63).toContain('REVOKE EXECUTE ON FUNCTION public.get_loan_for_pending_recipient(uuid, uuid) FROM PUBLIC, anon, authenticated')
+  })
+
+  it('revokes and grants switch_loan_role to service_role only', () => {
+    expect(sql63).toContain('GRANT  EXECUTE ON FUNCTION public.switch_loan_role(uuid, uuid) TO service_role')
+    expect(sql63).toContain('REVOKE EXECUTE ON FUNCTION public.switch_loan_role(uuid, uuid) FROM PUBLIC, anon, authenticated')
+  })
+
+  it('switch_loan_role returns pending_user_ids uuid[] not single uuid', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const returnsBlock = sql63.slice(fnStart, sql63.indexOf('LANGUAGE plpgsql', fnStart))
+    expect(returnsBlock).toMatch(/pending_user_ids\s+uuid\[\]/)
+    expect(returnsBlock).not.toMatch(/pending_user_id\b(?!\s*s)/)
+  })
+
+  it('switch_loan_role uses ARRAY() subquery for pending_user_ids, not LIMIT 1', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    const fnBody = sql63.slice(fnStart, fnEnd)
+    expect(fnBody).toMatch(/SELECT ARRAY\(/)
+    // The ARRAY() subquery must not have LIMIT 1 inside it
+    const arraySubStart = fnBody.indexOf('SELECT ARRAY(')
+    const pendingIdsBlock = fnBody.slice(arraySubStart, fnBody.indexOf('INTO v_pending_ids', arraySubStart))
+    expect(pendingIdsBlock).not.toMatch(/LIMIT 1/)
+  })
+
+  it('switch_loan_role uses canonical email match in pending_user_ids lookup', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    const fnBody = sql63.slice(fnStart, fnEnd)
+    expect(fnBody).toMatch(/normalize_email_canonical\(au\.email\)/)
+    expect(fnBody).toMatch(/normalize_email_canonical\(v_inv\.recipient_email_normalized\)/)
+  })
+
+  it('switch_loan_role returns invalid_state when multiple pending invitations exist', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    const fnBody = sql63.slice(fnStart, fnEnd)
+    expect(fnBody).toContain("'invalid_state'")
+    // Both guards check pending count > 1
+    expect(fnBody).toMatch(/v_pending_count\s*>\s*1/)
+  })
+
+  it('switch_loan_role has second invalid_state guard for actual-party with dirty pending data', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    const fnBody = sql63.slice(fnStart, fnEnd)
+    // Second guard checks v_pending_count IS NULL (meaning Step 1 found v_inv_id)
+    // and then counts before deciding
+    expect(fnBody).toMatch(/v_pending_count IS NULL/)
+    // Must have two separate v_pending_count > 1 checks
+    const firstGuard  = fnBody.indexOf('v_pending_count > 1')
+    const secondGuard = fnBody.indexOf('v_pending_count > 1', firstGuard + 1)
+    expect(firstGuard).toBeGreaterThan(-1)
+    expect(secondGuard).toBeGreaterThan(firstGuard)
+  })
+
+  it('switch_loan_role locks invitation before loan_items (deadlock prevention)', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    const fnBody = sql63.slice(fnStart, fnEnd)
+    // Invitation lock uses WHERE id = v_inv_id, loan lock uses WHERE id = p_loan_id.
+    // These strings are unique within the function body and avoid CRLF sensitivity.
+    const invLockPos  = fnBody.indexOf('WHERE id = v_inv_id')
+    const loanLockPos = fnBody.indexOf('WHERE id = p_loan_id')
+    expect(invLockPos).toBeGreaterThan(-1)
+    expect(loanLockPos).toBeGreaterThan(-1)
+    expect(invLockPos).toBeLessThan(loanLockPos)
+  })
+
+  it('get_loan_for_pending_recipient uses ORDER BY and LIMIT 1 for determinism', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.get_loan_for_pending_recipient')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    const fnBody = sql63.slice(fnStart, fnEnd)
+    expect(fnBody).toMatch(/ORDER BY inv\.created_at DESC, inv\.id DESC/)
+    expect(fnBody).toMatch(/LIMIT 1/)
+  })
+
+  it('switch_loan_role qualifies all loan_invitations column refs to avoid RETURNS TABLE ambiguity', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql63.indexOf('$$;', fnStart)
+    const fnBody = sql63.slice(fnStart, fnEnd)
+    // Bare 'status = pending' conflicts with the RETURNS TABLE 'status' output column.
+    // All references must be prefixed with a table alias (inv.).
+    expect(fnBody).not.toMatch(/\bAND status\s*=/)
+    expect(fnBody).not.toMatch(/\bWHERE loan_id\s*=/)
+  })
+
+  it('switch_loan_role return type does not expose email addresses', () => {
+    const fnStart = sql63.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const returnsEnd = sql63.indexOf('LANGUAGE plpgsql', fnStart)
+    const returnBlock = sql63.slice(fnStart, returnsEnd)
+    expect(returnBlock).not.toMatch(/email/)
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/64 fix ambiguous status
+// ============================================================
+
+const sql64 = readFileSync(
+  join(process.cwd(), 'sql/64_fix_switch_loan_role_ambiguous_status.sql'),
+  'utf8'
+)
+
+describe('sql/64_fix_switch_loan_role_ambiguous_status.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql64).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql64).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops switch_loan_role before recreating', () => {
+    const dropPos   = sql64.indexOf('DROP FUNCTION IF EXISTS public.switch_loan_role')
+    const createPos = sql64.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    expect(dropPos).toBeGreaterThan(-1)
+    expect(createPos).toBeGreaterThan(dropPos)
+  })
+
+  it('preserves the same return contract as SQL63', () => {
+    const fnStart = sql64.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const returnsBlock = sql64.slice(fnStart, sql64.indexOf('LANGUAGE plpgsql', fnStart))
+    expect(returnsBlock).toMatch(/status\s+text/)
+    expect(returnsBlock).toMatch(/item_name\s+text/)
+    expect(returnsBlock).toMatch(/counterpart_user_id\s+uuid/)
+    expect(returnsBlock).toMatch(/pending_user_ids\s+uuid\[\]/)
+  })
+
+  it('qualifies all loan_invitations column refs — no ambiguous bare status or loan_id', () => {
+    const fnStart = sql64.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql64.indexOf('$$;', fnStart)
+    const fnBody = sql64.slice(fnStart, fnEnd)
+    expect(fnBody).not.toMatch(/\bAND status\s*=/)
+    expect(fnBody).not.toMatch(/\bWHERE loan_id\s*=/)
+  })
+
+  it('uses SET search_path', () => {
+    const fnStart = sql64.indexOf('CREATE OR REPLACE FUNCTION public.switch_loan_role')
+    const fnEnd = sql64.indexOf('$$;', fnStart)
+    expect(sql64.slice(fnStart, fnEnd)).toContain("SET search_path = ''")
+  })
+
+  it('revokes and grants to service_role only', () => {
+    expect(sql64).toContain('GRANT  EXECUTE ON FUNCTION public.switch_loan_role(uuid, uuid) TO service_role')
+    expect(sql64).toContain('REVOKE EXECUTE ON FUNCTION public.switch_loan_role(uuid, uuid) FROM PUBLIC, anon, authenticated')
+  })
+
+  it('does not touch get_loan_for_pending_recipient', () => {
+    expect(sql64).not.toContain('get_loan_for_pending_recipient')
+  })
+})

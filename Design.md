@@ -38,6 +38,12 @@ Við hönnun og útfærslu skal nota þessa röð:
 4. Reglur og component-skrá í þessu skjali
 5. Skjámyndir og viðmið í `design-assets/`
 
+Þetta skjal er skyldubundið viðmið fyrir allar nýjar eða breyttar UI-, layout-,
+form- og navigation-breytingar í Teskeið. Claude Code og Codex eiga ekki að
+treysta á minni eða staka skjámynd þegar UI er snert: lesa skal viðeigandi kafla
+í `Design.md` fyrst, nefna í handoff/review hvernig breytingin fylgir skjalinu
+og kalla skýrt út ef vikið er frá því.
+
 `components/ui/` er ekki sjálfkrafa allt canonical. Núverandi components sem
 nota violet, gamalt gray-theme eða Krakkavaktar-mynstur þarf að samræma við
 Teskeið áður en þeir eru notaðir sem fyrirmynd í nýjum skjám.
@@ -145,6 +151,9 @@ Reglur:
 Þessar reglur gilda um alla skjái á `teskeid.is`, ekki aðeins innskráða
 app-hlutann:
 
+- Teskeið skal upplifast eins og app í farsíma. Það er baseline, ekki sérósk:
+  síður mega ekki þysjast óvænt inn, detta í ranga scroll-stöðu, sýna lárétt
+  overflow eða neyða notanda til að laga viewport handvirkt eftir innslátt.
 - Texti í `input`, `textarea` og `select` skal vera minnst 16 px á mobile svo
   Safari/iOS þysji ekki sjálfkrafa inn þegar control fær focus.
 - Ekki banna notanda að þysja með `maximum-scale`, `user-scalable=no` eða
@@ -162,8 +171,8 @@ app-hlutann:
 - Prófa skal nýja og breytta skjái við 360 px, 390 px og 460 px breidd, með
   mobile keyboard opið og lokað. Prófa skal sérstaklega Safari/iOS-hegðun
   þegar form eða innsláttarreitir koma við sögu.
-- Reglurnar eiga einnig við um opinberar síður, auth, prófíl, admin og hverja
-  einstaka Teskeið.
+- Reglurnar eiga einnig við um opinberar síður, auth, prófíl, admin,
+  `/stillingar/tengsl` og hverja einstaka Teskeið.
 
 ## Yfirborð og form
 
@@ -292,6 +301,26 @@ Header á að:
 Ný innskráð Teskeið-upplifun skal ekki byggja á gamla `components/layout/`
 Krakkavaktar-shellinu nema það hafi fyrst verið samræmt við Teskeið.
 
+### Navigation feedback og loader
+
+Navigation í Teskeið skal alltaf gefa sýnilegt feedback þegar notandi bíður
+eftir nýrri síðu, gögnum eða route-transition. Þetta er hluti af app-líkri
+upplifun og þarf ekki sérstaka beiðni í hverju máli.
+
+- Route segment sem getur beðið eftir server component, auth, feature gate eða
+  gagnalestri skal hafa `loading.tsx` sem notar canonical Teskeið-loader, nema
+  skýrt sé rökstutt að segmentið geti ekki lent í sýnilegri bið.
+- Client navigation með `router.push`, `router.replace`, `router.back` eða
+  sambærilegri aðgerð skal sýna pending state eða opna sameiginlegan loader ef
+  notandi bíður eftir route-breytingu.
+- Linkar og buttons sem hefja navigation mega ekki virðast dauðir. Þeir skulu
+  annaðhvort disable-ast, sýna loading state eða setja appið í augljóst
+  navigation-pending ástand.
+- Loaderinn á að vera rólegur, aðgengilegur (`role="status"` eða sambærilegt)
+  og ekki valda layout shift, láréttu overflowi eða mobile zoomi.
+- Loading state skal ekki breyta breidd controls eða ýta mikilvægu efni út af
+  skjánum.
+
 ## Heimaskjár innskráðra notenda
 
 TODO #1 skal fylgja þessum ramma:
@@ -385,23 +414,30 @@ Dæmi:
 - Forðist stöðuga eða skrautlega hreyfingu í operational app-flæði.
 - Controls mega ekki hoppa eða breyta stærð við hover/loading.
 
-## Ferli fyrir nýjan skjá
+## Ferli fyrir nýjan eða breyttan skjá
 
-Áður en Claude Code útfærir nýjan stóran skjá skal:
+Áður en Claude Code útfærir nýjan skjá eða breytir núverandi skjá sem snertir
+layout, form, navigation, mobile hegðun eða sjónrænt mynstur skal:
 
-1. Lesa þessa skrá.
+1. Lesa þessa skrá og vísa í viðeigandi reglur í handoff eða lokaskilum.
 2. Skoða nálæga Teskeið-skjái og components.
 3. Skrá hvaða canonical components verða endurnýttir.
 4. Skrá hvaða primitives vantar og af hverju.
 5. Leggja fram mobile-first wireframe eða component-tree.
 6. Staðfesta raunverulegar data sources og states.
-7. Fá samþykki Stebba áður en útfærsla hefst.
+7. Staðfesta að breytingin geti ekki valdið óæskilegu mobile zoomi, láréttu
+   overflowi eða rangri scroll-stöðu eftir keyboard/focus.
+8. Staðfesta að navigation inn, út og til baka úr skjánum sýni loader eða
+   pending state þegar route/data bíður.
+9. Fá samþykki Stebba áður en útfærsla hefst ef breytingin er stór eða breytir
+   samþykktu mynstri.
 
 Eftir útfærslu skal athuga:
 
 - mobile og desktop
 - overflow og text wrapping
 - loading, empty og error states
+- route navigation, back navigation og client pending states
 - keyboard/focus
 - íslensku og ensku
 - raunveruleg gögn, ekki placeholders

@@ -101,6 +101,11 @@ vi.mock('@/lib/loans/actions', () => ({
   updateLoan: vi.fn(),
   updateLoanItemDetails: vi.fn(),
   sendLoanChatMessage: vi.fn(),
+  switchLoanRole: vi.fn(),
+}))
+
+vi.mock('@/components/loans/SwitchRoleButton', () => ({
+  SwitchRoleButton: () => React.createElement('div', { 'data-testid': 'switch-role-button' }),
 }))
 
 vi.mock('@/lib/loans/history.server', () => ({
@@ -403,11 +408,58 @@ describe('EditLoanPage — routing', () => {
     expect(container.querySelector('[data-testid="loan-item-details-form"]')).not.toBeNull()
   })
 
-  it('throws notFound when item is not in the list', async () => {
+  it('throws notFound when item is not in get_my_loans and not a pending recipient', async () => {
+    // Both get_my_loans and get_loan_for_pending_recipient return empty
     mockRpc.mockResolvedValue({ data: [], error: null })
     await expect(
       EditLoanPage({ params: Promise.resolve({ id: 'loan-id-missing' }) }),
     ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('renders SwitchRoleButton above LoanForm for actual party with canEdit', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: true, my_role: 'lender', invitation_status: null }],
+      error: null,
+    })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    const switchBtn = container.querySelector('[data-testid="switch-role-button"]')
+    const form = container.querySelector('[data-testid="loan-form"]')
+    expect(switchBtn).not.toBeNull()
+    expect(form).not.toBeNull()
+    // switch button must appear before the form in DOM order
+    expect(switchBtn!.compareDocumentPosition(form!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('renders SwitchRoleButton above LoanItemDetailsForm for accepted party', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, is_creator: false, my_role: 'borrower', invitation_status: 'accepted' }],
+      error: null,
+    })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    const switchBtn = container.querySelector('[data-testid="switch-role-button"]')
+    const form = container.querySelector('[data-testid="loan-item-details-form"]')
+    expect(switchBtn).not.toBeNull()
+    expect(form).not.toBeNull()
+    expect(switchBtn!.compareDocumentPosition(form!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('renders only SwitchRoleButton for pending recipient — no edit form', async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: [], error: null })  // get_my_loans: not found
+      .mockResolvedValueOnce({                           // get_loan_for_pending_recipient
+        data: [{ ...ITEM_BASE, requires_acknowledgement: true, my_role: 'borrower', invitation_status: 'pending' }],
+        error: null,
+      })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(container.querySelector('[data-testid="switch-role-button"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="loan-form"]')).toBeNull()
+    expect(container.querySelector('[data-testid="loan-item-details-form"]')).toBeNull()
   })
 })
 
@@ -472,10 +524,11 @@ describe('LoanDetailPage — routing and guards', () => {
   })
 
   it('throws notFound when id belongs to a different user (not in list)', async () => {
-    mockRpc.mockResolvedValue({
-      data: [{ ...ITEM_BASE, id: 'other-loan' }],
-      error: null,
-    })
+    // First call (get_my_loans) returns a different loan; second call
+    // (get_loan_for_pending_recipient fallback) returns empty.
+    mockRpc
+      .mockResolvedValueOnce({ data: [{ ...ITEM_BASE, id: 'other-loan' }], error: null })
+      .mockResolvedValueOnce({ data: [], error: null })
     await expect(
       LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
     ).rejects.toThrow('NEXT_NOT_FOUND')
@@ -512,6 +565,35 @@ describe('LoanDetailPage — routing and guards', () => {
     )
     const back = container.querySelector('a[href="/auth-mvp/heim"]')
     expect(back).not.toBeNull()
+  })
+
+  it('renders LoanCard for pending recipient via get_loan_for_pending_recipient fallback', async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: [], error: null }) // get_my_loans: not found
+      .mockResolvedValueOnce({
+        data: [{ ...ITEM_BASE, id: 'loan-id-1', item_name: 'Bók', requires_acknowledgement: true }],
+        error: null,
+      }) // get_loan_for_pending_recipient: found
+    render(await LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-1' }) }))
+    expect(screen.getByTestId('loan-card').textContent).toBe('Bók')
+  })
+
+  it('throws notFound when both get_my_loans and get_loan_for_pending_recipient return empty', async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: [], error: null })
+    await expect(
+      LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-missing' }) }),
+    ).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  it('does not render SwitchRoleButton on detail page (moved to edit page)', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ ...ITEM_BASE, id: 'loan-id-1', item_name: 'Bók' }],
+      error: null,
+    })
+    render(await LoanDetailPage({ params: Promise.resolve({ id: 'loan-id-1' }) }))
+    expect(screen.queryByTestId('switch-role-button')).toBeNull()
   })
 
   it('back link falls back to /auth-mvp/lanad-og-skilad for unknown from param (#37)', async () => {

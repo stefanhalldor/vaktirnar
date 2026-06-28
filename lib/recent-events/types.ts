@@ -8,6 +8,7 @@ export type RecentEventType =
   | 'loan_invitation_accepted'
   | 'loan_invitation_declined'
   | 'loan_chat_message'
+  | 'loan_role_switched'
 
 export type LoanFieldChangeType = 'changed' | 'added' | 'removed'
 

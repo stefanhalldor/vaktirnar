@@ -374,6 +374,8 @@
       "eventLoanInvitationAccepted": "Lánaboð samþykkt: {itemName}",
       "eventLoanInvitationDeclined": "Lánaboði hafnað: {itemName}",
       "eventLoanChatMessage": "Ný skilaboð: {itemName}",
+      "eventLoanRoleSwitched": "Hlutverki breytt: {itemName}",
+      "eventLoanRoleSwitchedToRole": "Hlutverki breytt: {roleName}",
       "profileLink": "Minn aðgangur",
       "pendingBadgeLabel": "{count} boð í bið",
       "eventDetailReturnDateRemoved": "Skiladagur fjarlægður: {date}",
@@ -490,7 +492,16 @@
         "chatFieldLabel": "Skilaboð",
         "chatPlaceholder": "Skrifaðu skilaboð",
         "chatSend": "Senda",
-        "chatError": "Tókst ekki að senda. Reyndu aftur."
+        "chatError": "Tókst ekki að senda. Reyndu aftur.",
+        "roleLender": "Ég lánaði",
+        "roleBorrower": "Ég fékk lánað"
+      },
+      "switchRole": {
+        "switchToLender": "Leiðrétta í: Ég lánaði",
+        "switchToBorrower": "Leiðrétta í: Ég fékk lánað",
+        "correctRole": "Leiðrétta hlutverk",
+        "pendingWarning": "Þetta uppfærir opna boðið. Nýr tölvupóstur verður ekki sendur.",
+        "error": "Tókst ekki að breyta hlutverki. Reyndu aftur."
       },
       "errors": {
         "saveFailed": "Ekki tókst að vista. Reyndu aftur.",

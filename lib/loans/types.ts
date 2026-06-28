@@ -162,6 +162,7 @@ export interface LoanCardControls {
   canEditItemDetails: boolean
   canAcknowledge: boolean
   canDeclineAcknowledgement: boolean
+  canSwitchRole: boolean
 }
 
 export function getLoanCardControls(
@@ -192,5 +193,6 @@ export function getLoanCardControls(
     canEditItemDetails: !isPendingRecipient && (item.is_creator || item.my_role === 'lender' || item.invitation_status === 'accepted'),
     canAcknowledge: isPendingRecipient,
     canDeclineAcknowledgement: isPendingRecipient,
+    canSwitchRole: isPendingRecipient,
   }
 }

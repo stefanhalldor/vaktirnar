@@ -7,6 +7,7 @@ import { updateLoan, updateLoanItemDetails } from '@/lib/loans/actions'
 import { LoanForm } from '@/components/loans/LoanForm'
 import { LoanItemDetailsForm } from '@/components/loans/LoanItemDetailsForm'
 import { LoanShell } from '@/components/loans/LoanShell'
+import { SwitchRoleButton } from '@/components/loans/SwitchRoleButton'
 import { getLoanCardControls } from '@/lib/loans/types'
 import type { LoanItem } from '@/lib/loans/types'
 
@@ -42,11 +43,59 @@ export default async function EditLoanPage({
 
   const item = (data as LoanItem[]).find((i) => i.id === id)
 
-  if (!item) notFound()
+  let activeItem: LoanItem
+  let isPendingRecipient = false
 
-  const { canEdit, canEditItemDetails, showAddParty } = getLoanCardControls(item)
+  if (item) {
+    activeItem = item
+  } else {
+    // Pending recipient fallback: actor has a pending invitation but is not yet
+    // an actual party. They can switch their role but cannot edit item details.
+    const { data: pendingData, error: pendingError } = await admin.rpc(
+      'get_loan_for_pending_recipient',
+      { p_actor_id: user.id, p_loan_id: id },
+    )
+    if (pendingError) {
+      console.error('[loans/breyta] get_loan_for_pending_recipient failed')
+      notFound()
+    }
+    const pendingItem = (pendingData as LoanItem[] | null)?.[0] ?? null
+    if (!pendingItem) notFound()
+    activeItem = pendingItem
+    isPendingRecipient = true
+  }
 
-  if (!canEditItemDetails) notFound()
+  const { canEdit, canEditItemDetails, showAddParty } = getLoanCardControls(activeItem)
+
+  // Actual parties must have canEditItemDetails to reach this page.
+  // Pending recipients bypass this check — they can only switch role.
+  if (!isPendingRecipient && !canEditItemDetails) notFound()
+
+  const switchRoleButton = (
+    <SwitchRoleButton
+      loanId={id}
+      currentRole={activeItem.my_role as 'lender' | 'borrower'}
+      hasPendingInvitation={activeItem.invitation_status === 'pending'}
+      labels={{
+        switchToLender:   t('switchRole.switchToLender'),
+        switchToBorrower: t('switchRole.switchToBorrower'),
+        pendingWarning:   t('switchRole.pendingWarning'),
+        error:            t('switchRole.error'),
+      }}
+    />
+  )
+
+  // Pending recipients can only switch their role — no item editing.
+  if (isPendingRecipient) {
+    return (
+      <LoanShell nav={nav} homeLabel={t('homeLink')}>
+        <div>
+          <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('editTitle')}</h2>
+          {switchRoleButton}
+        </div>
+      </LoanShell>
+    )
+  }
 
   const addPartyCta = showAddParty ? (
     <div className="mt-6 pt-6 border-t border-border">
@@ -65,7 +114,8 @@ export default async function EditLoanPage({
       <LoanShell nav={nav} homeLabel={t('homeLink')}>
         <div>
           <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('editTitle')}</h2>
-          <LoanForm action={boundAction} initial={item} />
+          <div className="mb-5">{switchRoleButton}</div>
+          <LoanForm action={boundAction} initial={activeItem} />
           {addPartyCta}
         </div>
       </LoanShell>
@@ -77,7 +127,8 @@ export default async function EditLoanPage({
     <LoanShell nav={nav} homeLabel={t('homeLink')}>
       <div>
         <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('editTitle')}</h2>
-        <LoanItemDetailsForm action={boundAction} initial={item} />
+        <div className="mb-5">{switchRoleButton}</div>
+        <LoanItemDetailsForm action={boundAction} initial={activeItem} />
         {addPartyCta}
       </div>
     </LoanShell>

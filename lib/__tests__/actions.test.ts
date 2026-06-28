@@ -42,7 +42,7 @@ vi.mock('@/lib/loans/email', () => ({
   sendLoanInvitationEmail: mockSendEmail,
 }))
 
-import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails, updateLoan, claimInvitation, declineInvitation, markReturned, undoReturn, deleteLoan } from '@/lib/loans/actions'
+import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails, updateLoan, claimInvitation, declineInvitation, markReturned, undoReturn, deleteLoan, switchLoanRole } from '@/lib/loans/actions'
 import { guardLoanAccess } from '@/lib/loans/guard'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1739,5 +1739,163 @@ describe('declineInvitation — creator receives loan_invitation_declined', () =
     await declineInvitation('inv-ddd')
 
     expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('switchLoanRole — role switch events', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRecordEvent.mockResolvedValue(undefined)
+  })
+
+  it('returns ok and records actor event with initiallyRead: true', async () => {
+    mockRpc
+      .mockResolvedValueOnce({
+        data: [{ status: 'ok', item_name: 'Bók', counterpart_user_id: null, pending_user_ids: null }],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: [{ id: 'loan-role-1', my_role: 'borrower' }],
+        error: null,
+      })
+
+    const result = await switchLoanRole('loan-role-1')
+
+    expect(result.ok).toBe(true)
+    expect(mockRecordEvent).toHaveBeenCalledOnce()
+    const call = mockRecordEvent.mock.calls[0][0]
+    expect(call).toMatchObject({
+      userId:        'actor-uuid',
+      eventType:     'loan_role_switched',
+      entityType:    'loan',
+      entityId:      'loan-role-1',
+      payload:       { itemName: 'Bók', newRole: 'borrower' },
+      initiallyRead: true,
+      actorUserId:   'actor-uuid',
+    })
+  })
+
+  it('records counterpart event when counterpart_user_id differs from actor', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ status: 'ok', item_name: 'Bók', counterpart_user_id: 'cpart-uuid', pending_user_ids: null }],
+      error: null,
+    })
+
+    await switchLoanRole('loan-role-2')
+
+    expect(mockRecordEvent).toHaveBeenCalledTimes(2)
+    const counterpartCall = mockRecordEvent.mock.calls[1][0]
+    expect(counterpartCall.userId).toBe('cpart-uuid')
+    expect(counterpartCall.eventType).toBe('loan_role_switched')
+    expect(counterpartCall).not.toHaveProperty('initiallyRead')
+  })
+
+  it('records event for each pending_user_id that differs from actor', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ status: 'ok', item_name: 'Bók', counterpart_user_id: null, pending_user_ids: ['pending-uuid-1', 'pending-uuid-2'] }],
+      error: null,
+    })
+
+    await switchLoanRole('loan-role-3')
+
+    expect(mockRecordEvent).toHaveBeenCalledTimes(3)
+    expect(mockRecordEvent.mock.calls[1][0].userId).toBe('pending-uuid-1')
+    expect(mockRecordEvent.mock.calls[2][0].userId).toBe('pending-uuid-2')
+  })
+
+  it('deduplicates when counterpart_user_id appears in pending_user_ids', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ status: 'ok', item_name: 'Bók', counterpart_user_id: 'shared-uuid', pending_user_ids: ['shared-uuid'] }],
+      error: null,
+    })
+
+    await switchLoanRole('loan-role-4a')
+
+    // actor + one deduplicated other
+    expect(mockRecordEvent).toHaveBeenCalledTimes(2)
+    expect(mockRecordEvent.mock.calls[1][0].userId).toBe('shared-uuid')
+  })
+
+  it('does not record extra events when all ids equal actor', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ status: 'ok', item_name: 'Bók', counterpart_user_id: 'actor-uuid', pending_user_ids: ['actor-uuid'] }],
+      error: null,
+    })
+
+    await switchLoanRole('loan-role-4')
+
+    // Only the actor's own event
+    expect(mockRecordEvent).toHaveBeenCalledOnce()
+  })
+
+  it('returns not_found when RPC status is not_found', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ status: 'not_found', item_name: null, counterpart_user_id: null, pending_user_ids: null }],
+      error: null,
+    })
+
+    const result = await switchLoanRole('loan-role-5')
+
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; error: string }).error).toBe('not_found')
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('returns save_failed when RPC status is invalid_state', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ status: 'invalid_state', item_name: null, counterpart_user_id: null, pending_user_ids: null }],
+      error: null,
+    })
+
+    const result = await switchLoanRole('loan-role-6b')
+
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; error: string }).error).toBe('save_failed')
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('returns save_failed when RPC errors', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'DB error' } })
+
+    const result = await switchLoanRole('loan-role-6')
+
+    expect(result.ok).toBe(false)
+    expect((result as { ok: false; error: string }).error).toBe('save_failed')
+    expect(mockRecordEvent).not.toHaveBeenCalled()
+  })
+
+  it('fetches newRole from DB after swap and puts it in the event payload', async () => {
+    mockRpc
+      .mockResolvedValueOnce({
+        data: [{ status: 'ok', item_name: 'Bók', counterpart_user_id: null, pending_user_ids: null }],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: [{ id: 'loan-role-7', my_role: 'lender' }],
+        error: null,
+      })
+
+    await switchLoanRole('loan-role-7')
+
+    const call = mockRecordEvent.mock.calls[0][0]
+    expect(call.payload).toMatchObject({ newRole: 'lender' })
+  })
+
+  it('falls back to get_loan_for_pending_recipient for newRole when not in get_my_loans', async () => {
+    mockRpc
+      .mockResolvedValueOnce({
+        data: [{ status: 'ok', item_name: 'Bók', counterpart_user_id: null, pending_user_ids: null }],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({
+        data: [{ my_role: 'borrower' }],
+        error: null,
+      })
+
+    await switchLoanRole('loan-role-8')
+
+    const call = mockRecordEvent.mock.calls[0][0]
+    expect(call.payload).toMatchObject({ newRole: 'borrower' })
   })
 })

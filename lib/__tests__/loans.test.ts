@@ -311,6 +311,7 @@ describe('getLoanCardControls — pending recipient (requires_acknowledgement)',
   it('showCancelInvite is false for pending recipient (not creator)', () => { expect(c.showCancelInvite).toBe(false) })
   it('canEditItemDetails is false for pending recipient', () => { expect(c.canEditItemDetails).toBe(false) })
   it('bothPartiesJoined is false for pending recipient', () => { expect(c.bothPartiesJoined).toBe(false) })
+  it('canSwitchRole is true for pending recipient', () => { expect(c.canSwitchRole).toBe(true) })
 })
 
 describe('getLoanCardControls — normal accepted row (requires_acknowledgement: false)', () => {
@@ -323,6 +324,7 @@ describe('getLoanCardControls — normal accepted row (requires_acknowledgement:
   it('canAcknowledge is false for accepted row', () => { expect(c.canAcknowledge).toBe(false) })
   it('canDeclineAcknowledgement is false for accepted row', () => { expect(c.canDeclineAcknowledgement).toBe(false) })
   it('bothPartiesJoined is true for accepted row', () => { expect(c.bothPartiesJoined).toBe(true) })
+  it('canSwitchRole is false for accepted row', () => { expect(c.canSwitchRole).toBe(false) })
 })
 
 // ============================================================

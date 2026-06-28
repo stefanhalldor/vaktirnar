@@ -41,6 +41,7 @@ vi.mock('next-intl', () => ({
       acknowledge: 'Þekki málið',
       declineAcknowledgement: 'Kannast ekki við þetta',
       addParty: 'Bæta við aðila',
+      'switchRole.correctRole': 'Leiðrétta hlutverk',
       awaitingAcceptance: 'Bíður samþykkis',
       returned: 'Skilað',
       'newEntryFrom': 'Nýtt frá {name}',
@@ -174,6 +175,34 @@ describe('LoanCard — pending creator return controls (#44)', () => {
       })} />,
     )
     expect(getByText('Afturkalla')).toBeInTheDocument()
+  })
+})
+
+// ── LoanCard — role correction link (#62) ─────────────────────────────────────
+
+describe('LoanCard — role correction link for pending recipient', () => {
+  it('shows "Leiðrétta hlutverk" link for pending recipient', () => {
+    const { getByText } = render(
+      <LoanCard item={makeLoanItem({
+        id: 'loan-62',
+        is_creator: false,
+        invitation_status: 'pending',
+        requires_acknowledgement: true,
+      })} />,
+    )
+    const link = getByText('Leiðrétta hlutverk').closest('a')
+    expect(link).toHaveAttribute('href', '/auth-mvp/lanad-og-skilad/breyta/loan-62')
+  })
+
+  it('does not show "Leiðrétta hlutverk" for actual party (non-pending-recipient)', () => {
+    const { queryByText } = render(
+      <LoanCard item={makeLoanItem({
+        is_creator: true,
+        invitation_status: 'pending',
+        requires_acknowledgement: false,
+      })} />,
+    )
+    expect(queryByText('Leiðrétta hlutverk')).toBeNull()
   })
 })
 

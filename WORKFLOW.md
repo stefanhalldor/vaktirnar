@@ -21,6 +21,10 @@ Framkvæmdarleyfi þarf að vera orðað skýrt, til dæmis:
 
 Óljós orð eins og "klára þetta", "græja þetta", "redda þessu", "halda áfram", "gera næsta skref", "loka þessu", "setja þetta í gegn" eða "gefa út" mega ekki sjálfkrafa túlkast sem leyfi fyrir kóðabreytingu, commit, push, deploy eða migration.
 
+**Ef Stebbi sendir handoff-skrárheiti án frekari skýringar** þýðir það alltaf
+rýni á viðkomandi handoff - ekki framkvæmd. Claude Code og Codex eiga að lesa
+skrána og skila rýni.
+
 Ef Stebbi notar óljóst orðalag á Codex eða Claude Code að stoppa og spyrja:
 
 > "Á Stebbi við ráðgjöf/plan/review eða má [Codex/Claude Code] framkvæma? Ef framkvæmd: á það að fela í sér kóðabreytingu, commit, push, deploy eða migration?"
@@ -182,6 +186,7 @@ Ef aðgerðin getur haft áhrif á Supabase, production gögn, auth/login, secre
 - Ekki má endurnýta dagsetningu eða tíma úr dæmum.
 - `YYYY-MM-DD-HHMM` í filename á að endurspegla raunverulegan tíma þegar skráin er búin til.
 - Nota skal staðartíma verkefnisins/Stebba (Atlantic/Reykjavik) ef ekki er annað tekið fram.
+- Claude Code nær í raunverulegan tíma með bash skipun: `date +%H%M`
 - Í handoff skjalinu sjálfu á einnig að koma fram:
   - Created: `YYYY-MM-DD HH:MM`
   - Timezone: `Atlantic/Reykjavik`
