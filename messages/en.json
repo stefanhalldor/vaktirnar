@@ -369,6 +369,7 @@
       "eventLoanInvitationReceived": "Loan invitation: {itemName}",
       "eventLoanInvitationAccepted": "Loan accepted: {itemName}",
       "eventLoanInvitationDeclined": "Loan declined: {itemName}",
+      "eventLoanPartyAdded": "Party added: {itemName}",
       "eventLoanChatMessage": "New message: {itemName}",
       "eventLoanRoleSwitched": "Role changed: {itemName}",
       "eventLoanRoleSwitchedToRole": "Role changed: {roleName}",

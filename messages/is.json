@@ -373,6 +373,7 @@
       "eventLoanInvitationReceived": "Lánaboð: {itemName}",
       "eventLoanInvitationAccepted": "Lánaboð samþykkt: {itemName}",
       "eventLoanInvitationDeclined": "Lánaboði hafnað: {itemName}",
+      "eventLoanPartyAdded": "Aðila bætt við: {itemName}",
       "eventLoanChatMessage": "Ný skilaboð: {itemName}",
       "eventLoanRoleSwitched": "Hlutverki breytt: {itemName}",
       "eventLoanRoleSwitchedToRole": "Hlutverki breytt: {roleName}",

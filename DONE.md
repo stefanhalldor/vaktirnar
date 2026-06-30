@@ -59,7 +59,55 @@ Supabase/rollout:
 - Codex keyrði ekki SQL63/SQL64 og staðfesti ekki Vercel build-log sjálfstætt.
 
 Eftir í TODO:
-- #60 - Spjall sem hluti af sögu hlutar.
+- #61 - Aðila-flæði birtist í sögu hlutar.
+- #38 - Event þegar lánaboði er hafnað.
+- #39 - Gera samþykktan hlut óvirkan við eyðingu.
+- #59 - Deilanlegur hlekkur á lánadetail.
+
+---
+
+## #60 - Spjall sem hluti af sögu hlutar
+
+**Lokið:** 2026-06-28  
+**Staðfesting:** Stebbi staðfesti í samtali að #60 væri komið og bað Codex að
+færa atriðið í DONE.
+
+Spjall á lánahlut er nú hluti af `Saga hlutarins` á detail-síðu hlutarins.
+Skilaboð birtast sem history-röð innan um önnur loan-events í stað þess að vera
+alveg aðskilið spjall.
+
+Helstu niðurstöður:
+- `loan_chat_messages` geymir skilaboð per lán.
+- `create_loan_chat_message` RPC stofnar skilaboð með server-side access check.
+- `get_loan_event_history` sameinar venjuleg loan-events og chat rows í sömu
+  tímaröð.
+- Chat rows eru aðgreind með `row_kind = 'chat'` og `chat_message_id`.
+- `loan_chat_message` recent-events eru notuð fyrir tilkynningar en síuð úr
+  history-event query svo skilaboð birtist ekki tvöfalt.
+- Spjallformið er á detail-síðu og sendir skilaboð án þess að leka milli lána.
+
+Skrár og samhengi:
+- `sql/61_loan_chat_messages_in_history.sql` - tafla, send-RPC og útvíkkað
+  history RPC.
+- `sql/62_fix_loan_event_history_chat_union_ambiguity.sql` - patch á ambiguous
+  column references í history UNION.
+- `lib/loans/actions.ts` - `createLoanChatMessage`/send action og unread event
+  fyrir mótaðila.
+- `lib/loans/history.server.ts` - formatter fyrir event rows og chat rows.
+- `components/loans/LoanHistory.tsx` - history og chat UI.
+- `app/auth-mvp/lanad-og-skilad/[id]/page.tsx` - detail-síða birtir history og
+  spjall.
+- `messages/is.json` og `messages/en.json` - history/chat textar.
+
+Supabase/rollout:
+- SQL61 og SQL62 þurfa að vera keyrð á Supabase og schema cache reloadað til að
+  chat/history return shape sé rétt.
+- `loan_chat_messages` er RLS-varið og beinn aðgangur er ekki veittur
+  `PUBLIC`, `anon` eða `authenticated`.
+- Codex keyrði ekki SQL61/SQL62 sjálfur og staðfesti ekki production/Vercel
+  build-log sjálfstætt.
+
+Eftir í TODO:
 - #61 - Aðila-flæði birtist í sögu hlutar.
 - #38 - Event þegar lánaboði er hafnað.
 - #39 - Gera samþykktan hlut óvirkan við eyðingu.
@@ -117,7 +165,6 @@ Supabase/rollout:
   sjálfstætt.
 
 Eftir í TODO:
-- #60 - Spjall sem hluti af sögu hlutar.
 - #38 - Event þegar lánaboði er hafnað.
 - #39 - Gera samþykktan hlut óvirkan við eyðingu.
 - #59 - Deilanlegur hlekkur á lánadetail.

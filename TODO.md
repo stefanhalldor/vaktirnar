@@ -30,12 +30,12 @@ tilvísanir og verkefnasaga rofni ekki.
 
 | Röð | Atriði                                                        | Vinnupakki og samhengi                                                                                                                                 |
 | --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **#60 Spjall sem hluti af sögu hlutar**                      | **Chat/history pakki.** Bæta einföldu spjalli inn í `Saga hlutarins` þannig að skilaboð falli í tímaröð með öðrum eventum. |
-| 2   | **#61 Aðila-flæði birtist í sögu hlutar**                    | **Event/history pakki.** Skrá í `Saga hlutarins` þegar aðila er bætt við, boð samþykkt eða boði hafnað. |
-| 3   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki.** Bæta decline-eventi og ack/read-state ofan á staðfestan `Ólesið` grunn; samræma við #61. |
-| 4   | **#39 Gera samþykktan hlut óvirkan við eyðingu**             | **Event/heimildir pakki.** Delete á samþykktum hlut er soft delete: hlutur verður disabled og áfram aðgengilegur sem slíkur. |
-| 5   | **#59 Deilanlegur hlekkur á lánadetail**                     | **Detail/access pakki.** Notandi geti sent hlekk á hlut; hlekkurinn virkar aðeins hjá þeim sem hafa aðgang í Teskeið. |
-| 6   | **#63 Endurnefna „Lánað og skilað“ í „Minnið“**              | **Product/IA quick win.** Gera núverandi lánakerfi að fyrstu tegundinni inni í `Minnið`, án gagnamódelsbreytinga í v1. |
+| 1   | **#61 Aðila-flæði birtist í sögu hlutar**                    | **Event/history pakki með #38.** Skrá í `Saga hlutarins` þegar aðila er bætt við, boð samþykkt eða boði hafnað. |
+| 2   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki með #61.** Bæta decline-eventi og ack/read-state ofan á staðfestan `Ólesið` grunn; loka sem undiratriði ef #61 leysir það. |
+| 3   | **#39 Gera samþykktan hlut óvirkan við eyðingu**             | **Event/heimildir pakki.** Delete á samþykktum hlut er soft delete: hlutur verður disabled og áfram aðgengilegur sem slíkur. |
+| 4   | **#59 Deilanlegur hlekkur á lánadetail**                     | **Detail/access pakki.** Notandi geti sent hlekk á hlut; hlekkurinn virkar aðeins hjá þeim sem hafa aðgang í Teskeið. |
+| 5   | **#63 Endurnefna „Lánað og skilað“ í „Minnið“**              | **Product/IA quick win.** Gera núverandi lánakerfi að fyrstu tegundinni inni í `Minnið`, án gagnamódelsbreytinga í v1. |
+| 6   | **#64 Fallegra hlutverkaval í edit-viðmóti**                 | **UI polish eftir #62.** Skipta ljótum `Leiðrétta í...` takka út fyrir tvær pillur: `Ég lánaði` og `Ég fékk lánað`. |
 | 7   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #38/#39/#59/#61 séu orðin traust og að #63 hafi skýrt orðalagið. |
 | 8   | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
 | 9   | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
@@ -53,16 +53,16 @@ tilvísanir og verkefnasaga rofni ekki.
 
 ## Vinnupakkar
 
-**Pakki A — saga, `Ólesið`, events og lánaboð:** #60, #61, #38, #39, #59
+**Pakki A — saga, `Ólesið`, events og lánaboð:** #61, #38, #39, #59
 og síðan #27. Grunnurinn úr #37, #56, #58 og #62 er kominn í DONE.
-Næst er að setja einfalt spjall inn í `Saga hlutarins`, klára aðila-events,
-decline-, soft-delete- og detail-hlekkjaheimildir. Áður en #27 fer í fulla
-texta- og UI-vinnu er rökrétt að klára #63 svo lánaboðsflæðið byggi á réttu
-`Minnið`-orðalagi frá byrjun.
+Næst er að klára aðila-events og decline-event saman, síðan soft-delete- og
+detail-hlekkjaheimildir. Áður en #27 fer í fulla texta- og UI-vinnu er rökrétt
+að klára #63 og snyrta #64 svo lánaboðsflæðið byggi á réttu `Minnið`-orðalagi
+og skýrri hlutverka-upplifun frá byrjun.
 
-**Pakki B — Minnið, heimaskjár og virkar Teskeiðar:** #63, #17, #42 og #41.
-Þetta mótar hvað notandi sér fyrst eftir innskráningu: `Minnið`, virkar
-Teskeiðar, hugmyndir og varlega feature-flagged Umönnun.
+**Pakki B — Minnið, role-switch UI, heimaskjár og virkar Teskeiðar:** #63, #64,
+#17, #42 og #41. Þetta mótar hvað notandi sér fyrst eftir innskráningu og hvað
+hann upplifir inni í fyrsta virka `Minnið`-flæðinu.
 
 **Pakki C — auth reliability:** #46 og #7. Þetta er mikilvægt, en snertir
 innskráningu, sessions, reset/rate-limit og öryggi; best sem sérpakki með
@@ -74,7 +74,9 @@ grunnhegðun.
 
 **Pakki E — stærri framtíðareiginleikar:** #50, #54 og #51. Þetta eru ekki
 fyrstu quick wins: þau snerta viðkvæmari gögn, nýja gagnastrúktúra eða ytri
-OAuth provider. #60 er afmarkaður fyrsti spjall-áfangi inni í sögu hlutarins.
+OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
+hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
+fullkomnara.
 
 #46
 ## User+pass fallback þegar kóði berst ekki
@@ -289,9 +291,9 @@ lánaupplýsingarnar.
 - Hvernig spjall birtist á lánadetail-síðu án þess að kæfa aðalaðgerðir eins og
   `Þekki málið`, `Kannast ekki við þetta`, `Skilað`, `Breyta` eða `Eyða`.
 - Hvort `Ólesið` / recent events eigi að sýna ný spjallskilaboð.
-- Spjall á ekki að vera alveg sér aðskilinn heimur ef #60 er samþykkt; ný
-  skilaboð eiga þá að birtast sem spjallfærslur inni í `Saga hlutarins`,
-  innan um aðrar history-færslur.
+- #60 hefur sett fyrsta afmarkaða spjallið inn í `Saga hlutarins`; #54 á aðeins
+  að halda áfram ef við viljum stærri spjallupplifun, t.d. betri states,
+  attachments, realtime eða ítarlegri skilaboðastjórnun.
 - Hvort spjall eigi að styðja aðeins texta í fyrstu útgáfu, eða síðar myndir,
   afhendingartíma, staðsetningu eða attachment.
 - Hvernig eydd, cancelled, declined, expired eða returned lán haga sér gagnvart
@@ -333,59 +335,6 @@ lánaupplýsingarnar.
   scroll-villu.
 - Ef `Ólesið` tengist spjalli síðar, þá uppfærist read/unread state án
   duplicate events eða leka milli notenda.
-
-#60
-## Spjall sem hluti af sögu hlutar
-
-**Staða:** Næst, handoff tilbúið
-
-**Stofnað:** 2026-06-27
-
-**Næsta handoff / nýjasta staða:** Sjá
-`ai-handoff/2026-06-27-1659-todo-060-v008-codex-sql62-incident-review-request.md`.
-SQL62 bíður rýni frá Claude Code áður en Stebbi keyrir það. v005 var leyst af
-hólmi eftir að Stebbi hafnaði feature-flag nálguninni.
-Eldra grunnplan er í
-`ai-handoff/2026-06-27-1123-todo-060-v001-codex-chat-in-history-handoff.md`.
-
-**Samhengi frá Stebba:** Stebbi vill að spjallið á lánaða hlutnum sé ekki
-aðskilið frá `Saga hlutarins`. Spjallið á að falla inn í söguna sem
-spjallfærslur innan um önnur history events.
-
-**Ósk:** Þegar item-scoped spjall verður útfært, eiga skilaboðin að birtast inni
-í `Saga hlutarins` á detail-síðu hlutarins. Notandi á þá að sjá eina samfellda
-sögu: lán búið til, dagsetningum breytt, hlut skilað, afturkallað og spjallað
-um hlutinn, allt í réttri tímaröð.
-
-**Við útfærslu þarf að skilgreina:**
-
-- Hvort spjallskilaboð séu geymd sem sér `chat_messages` tafla og sameinuð við
-  history í query/formatter, eða sem sérstök event-gerð í history-grunni.
-- Hvernig spjallfærslur birtast sjónrænt innan um önnur events án þess að
-  history verði ólæsilegt.
-- Hvernig ný skilaboð verða merkt ólesin fyrir mótaðila.
-- Hvort spjallskilaboð megi vera sýnileg pending viðtakanda áður en hann smellir
-  á `Þekki málið`.
-- Hvernig eydd, leiðrétt eða misheppnuð skilaboð birtast í ferlinum.
-- Hvort history síi eða hópi saman mörg stutt skilaboð ef þau koma í hrinu.
-
-**Öryggi og gögn:**
-
-- Spjallfærslur mega aldrei leka milli ótengdra notenda eða milli lána.
-- Aðgangur þarf að fylgja sömu reglum og detail-síða og `Saga hlutarins`.
-- Ekki skila netföngum, user-id eða raw payload í client nema það sé sérstaklega
-  hannað og rýnt.
-- Ef Realtime verður notað þarf sér rýni á RLS, channel authorization og
-  notkunarkostnað.
-
-**Prófanir:**
-
-- Spjallskilaboð birtast í réttri tímaröð innan um önnur history events.
-- Mótaðili sér spjallfærslur og önnur events í sama ferli.
-- Óviðkomandi notandi sér hvorki history né spjall með beinum hlekk.
-- Ný spjallskilaboð brjóta ekki de-duplication á venjulegum loan events.
-- Mobile 360-460 px sýnir history og spjall án overlap, zooms eða lárétts
-  overflow.
 
 #61
 ## Aðila-flæði birtist í sögu hlutar
@@ -920,7 +869,7 @@ hluti af Teskeið, og ef já, í hvaða tilgangi.
 
 **Stofnað:** 2026-06-28
 
-**Forgangur:** Röð 6, eftir #59 og á undan #27. Þetta er afmörkuð
+**Forgangur:** Röð 5, eftir #59 og á undan #64/#27. Þetta er afmörkuð
 product-/information-architecture breyting sem ætti að koma áður en við
 endurskrifum meira af lánaboðsflæðinu og heimaskjánum.
 
@@ -996,11 +945,60 @@ með `Lánað og skilað` sem fyrstu tegund/kafla innan Minniðs.
 - Mobile 360-460 px: enginn texti overflowar, veldur óvæntu zoomi eða layout
   shift.
 
+#64
+## Fallegra hlutverkaval í edit-viðmóti
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-06-28
+
+**Forgangur:** Röð 6, eftir #63 og á undan #27. Þetta er afmarkað UI-polish á
+núverandi #62 hlutverkaskiptaflæði, ekki nýtt gagnamódel eða SQL-vinna.
+
+**Samhengi frá Stebba:** Núverandi viðmót fyrir að leiðrétta hvort notandi
+`Ég lánaði` eða `Ég fékk lánað` er of ljótt og of mikið eins og stór command
+takkinn `Leiðrétta í...`. Textinn endurtekur líka hlutverkið á óþægilegan hátt.
+
+**Ósk:** Setja tvær pillur efst á breytingaspjaldinu, fyrir ofan
+`Hvað var lánað?`: `Ég lánaði` og `Ég fékk lánað`. Notandi smellir einfaldlega á
+hitt hlutverkið ef hann þarf að leiðrétta.
+
+**Scope v1:**
+
+- Skipta núverandi `Leiðrétta í: ...` framsetningu út fyrir segmented
+  pill-control efst í edit-forminu.
+- Sýna núverandi hlutverk sem active/selected pill.
+- Sýna hitt hlutverkið sem skýra, clickable leiðréttingu.
+- Nota núverandi server action/RPC contract fyrir hlutverkaskipti; ekki breyta
+  SQL eða business logic í þessu atriði.
+- Halda pending/open invitation skýringu stuttri og rólegri ef hún á við.
+- Halda textum í `messages/is.json` og `messages/en.json`, ekki hardcode-a.
+- Lesa viðeigandi kafla í `Design.md` áður en UI er útfært.
+
+**Hönnun:**
+
+- Þetta á að líta út eins og role selector, ekki eins og stór save-/danger-action.
+- Active pill má vera mild græn eða filled samkvæmt Teskeið-stíl.
+- Inactive pill má vera hvít/border og greinilega smellanleg.
+- Disabled/pending state þarf að vera sýnilegt þegar action er að keyra.
+- Mobile 360-460 px: pillurnar þurfa að passa án horizontal overflow, óvænts
+  zooms eða layout shift.
+
+**Prófanir:**
+
+- Actual party á edit-síðu sér tvær pillur ofan við `Hvað var lánað?`.
+- Núverandi hlutverk er selected og hitt hlutverkið er hægt að velja.
+- Smellur á hitt hlutverkið breytir hlutverki með núverandi server action.
+- Virkt hlutverk helst rétt eftir refresh.
+- Pending invitation tilfelli og samþykktur/skilaður hlutur virka áfram.
+- Villumeldingar og pending-state eru skýr en ekki yfirþyrmandi.
+
 #27
 ## Mýkra lánaboðsflæði
 
 **Staða:** Bíður eftir áframhaldandi event-, heimilda- og lánaboðavinnu í
-#38/#39/#59/#61 og Minnið-orðalagi í #63 áður en full útfærsla hefst
+#38/#39/#59/#61, Minnið-orðalagi í #63 og skýrri role-switch upplifun í #64
+áður en full útfærsla hefst
 
 **Samhengi:** Núverandi lánaboð virka sem sérstakt samþykkisflæði. Viðtakandi
 sér pending boð í sérstöku spjaldi og þarf að fara á claim-síðu áður en hluturinn

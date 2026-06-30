@@ -24,8 +24,11 @@ function makeAdmin(rows: unknown[]) {
 }
 
 function makeTHome(key: string, params?: Record<string, string>): string {
-  if (key === 'eventLoanRoleSwitchedToRole') return `Hlutverki breytt: ${params?.roleName ?? ''}`
-  if (key === 'eventLoanRoleSwitched')       return `Hlutverki breytt: ${params?.itemName ?? ''}`
+  if (key === 'eventLoanRoleSwitchedToRole')  return `Hlutverki breytt: ${params?.roleName ?? ''}`
+  if (key === 'eventLoanRoleSwitched')        return `Hlutverki breytt: ${params?.itemName ?? ''}`
+  if (key === 'eventLoanPartyAdded')          return `Aðila bætt við: ${params?.itemName ?? ''}`
+  if (key === 'eventLoanInvitationAccepted')  return `Lánaboð samþykkt: ${params?.itemName ?? ''}`
+  if (key === 'eventLoanInvitationDeclined')  return `Lánaboði hafnað: ${params?.itemName ?? ''}`
   return key
 }
 
@@ -111,5 +114,68 @@ describe('getLoanHistory — loan_role_switched', () => {
     const rows = await getLoanHistory(admin, 'loan-1', 'actor-1', makeTHome, makeTLoans, 'is')
 
     expect(rows).toEqual([])
+  })
+})
+
+describe('getLoanHistory — loan_party_added', () => {
+  it('shows "Aðila bætt við: {itemName}" label', async () => {
+    const admin = makeAdmin([
+      baseRow({ event_type: 'loan_party_added', payload: { itemName: 'Bók' } }),
+    ])
+
+    const rows = await getLoanHistory(admin, 'loan-1', 'actor-1', makeTHome, makeTLoans, 'is')
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].label).toBe('Aðila bætt við: Bók')
+  })
+
+  it('renders actor label when actor_display_name is present', async () => {
+    const admin = makeAdmin([
+      baseRow({
+        event_type:         'loan_party_added',
+        payload:            { itemName: 'Bók' },
+        actor_display_name: 'Jón Jónsson',
+      }),
+    ])
+
+    const rows = await getLoanHistory(admin, 'loan-1', 'actor-1', makeTHome, makeTLoans, 'is')
+
+    expect(rows[0].actorLabel).toBe('Framkvæmt af Jón Jónsson')
+  })
+})
+
+describe('getLoanHistory — loan_invitation_accepted / loan_invitation_declined', () => {
+  it('shows "Lánaboð samþykkt" for loan_invitation_accepted', async () => {
+    const admin = makeAdmin([
+      baseRow({ event_type: 'loan_invitation_accepted', payload: { itemName: 'Reiðhjól' } }),
+    ])
+
+    const rows = await getLoanHistory(admin, 'loan-1', 'actor-1', makeTHome, makeTLoans, 'is')
+
+    expect(rows[0].label).toBe('Lánaboð samþykkt: Reiðhjól')
+  })
+
+  it('shows "Lánaboði hafnað" for loan_invitation_declined', async () => {
+    const admin = makeAdmin([
+      baseRow({ event_type: 'loan_invitation_declined', payload: { itemName: 'Reiðhjól' } }),
+    ])
+
+    const rows = await getLoanHistory(admin, 'loan-1', 'actor-1', makeTHome, makeTLoans, 'is')
+
+    expect(rows[0].label).toBe('Lánaboði hafnað: Reiðhjól')
+  })
+
+  it('renders actor label for loan_invitation_accepted', async () => {
+    const admin = makeAdmin([
+      baseRow({
+        event_type:         'loan_invitation_accepted',
+        payload:            { itemName: 'Reiðhjól' },
+        actor_display_name: 'Anna Sigríður',
+      }),
+    ])
+
+    const rows = await getLoanHistory(admin, 'loan-1', 'actor-1', makeTHome, makeTLoans, 'is')
+
+    expect(rows[0].actorLabel).toBe('Framkvæmt af Anna Sigríður')
   })
 })

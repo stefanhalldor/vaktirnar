@@ -639,6 +639,23 @@ export async function addLoanInvitation(loanId: string, input: unknown): Promise
     await upsertLoanRelationship(user.id, user.email!, recipient_email, loanId)
   }
 
+  // Record loan-scoped history event so the party addition appears in Saga hlutarins.
+  // recipient_email is never included in payload.
+  const { itemName: partyAddedItemName } = await fetchLoanEventContext(admin, loanId)
+  await recordRecentEvent({
+    userId:           user.id,
+    source:           'loans',
+    eventType:        'loan_party_added',
+    entityType:       'loan',
+    entityId:         loanId,
+    eventKey:         `loans:loan:${loanId}:party-added:${row.invitation_id}`,
+    payload:          partyAddedItemName ? { itemName: partyAddedItemName } : {},
+    href:             '/auth-mvp/lanad-og-skilad',
+    updateOnConflict: false,
+    initiallyRead:    true,
+    actorUserId:      user.id,
+  })
+
   revalidateLoanViews()
   return { ok: true, emailStatus }
 }

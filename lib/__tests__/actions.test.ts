@@ -617,6 +617,10 @@ describe('addLoanInvitation orchestration', () => {
             },
             error: null,
           }),
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: { item_name: 'Reiðhjól', lender_user_id: null, borrower_user_id: null },
+            error: null,
+          }),
         }),
       }),
     }))
@@ -723,6 +727,51 @@ describe('addLoanInvitation orchestration', () => {
     ]
     expect(mockSendEmail.mock.calls[0]).toEqual(expectedArgs)
     expect(mockSendEmail.mock.calls[1]).toEqual(expectedArgs)
+  })
+
+  it('records loan_party_added event with loan scope after success', async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'add_loan_invitation') return { data: [{ invitation_id: ADD_INV_ID }], error: null }
+      if (name === 'reserve_invitation_send') return {
+        data: [{ attempt_number: 1, can_send: true, reason: 'ok', recipient_email: 'r@example.com' }],
+        error: null,
+      }
+      if (name === 'update_invitation_delivery') return { data: 'ok', error: null }
+      return { data: null, error: null }
+    })
+
+    await addLoanInvitation(LOAN_ID, { recipient_email: 'r@example.com' })
+
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType:        'loan_party_added',
+        entityType:       'loan',
+        entityId:         LOAN_ID,
+        eventKey:         `loans:loan:${LOAN_ID}:party-added:${ADD_INV_ID}`,
+        actorUserId:      'actor-uuid',
+        initiallyRead:    true,
+        updateOnConflict: false,
+      }),
+    )
+  })
+
+  it('loan_party_added payload does not include recipient email', async () => {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'add_loan_invitation') return { data: [{ invitation_id: ADD_INV_ID }], error: null }
+      if (name === 'reserve_invitation_send') return {
+        data: [{ attempt_number: 1, can_send: true, reason: 'ok', recipient_email: 'r@example.com' }],
+        error: null,
+      }
+      if (name === 'update_invitation_delivery') return { data: 'ok', error: null }
+      return { data: null, error: null }
+    })
+
+    await addLoanInvitation(LOAN_ID, { recipient_email: 'sensitive@example.com' })
+
+    const partyAddedCall = mockRecordEvent.mock.calls.find(
+      ([args]) => args.eventType === 'loan_party_added',
+    )
+    expect(JSON.stringify(partyAddedCall?.[0]?.payload ?? {})).not.toContain('sensitive')
   })
 })
 
