@@ -209,7 +209,10 @@ async function performInvitationSend(
       entityType:       'invitation',
       entityId:         invitationId,
       eventKey:         `loans:invitation:${invitationId}:received`,
-      payload:          preflight.item_name_snapshot ? { itemName: preflight.item_name_snapshot } : {},
+      payload:          {
+        ...(preflight.item_name_snapshot ? { itemName: preflight.item_name_snapshot } : {}),
+        recipientRole: preflight.recipient_role as 'lender' | 'borrower',
+      },
       href:             LOANS_PATH,
       updateOnConflict: false,
     })

@@ -447,13 +447,28 @@ describe('EditLoanPage — routing', () => {
     expect(switchBtn!.compareDocumentPosition(form!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('renders only SwitchRoleButton for pending recipient — no edit form', async () => {
+  it('renders only SwitchRoleButton for pending recipient — no edit form (fallback path)', async () => {
     mockRpc
       .mockResolvedValueOnce({ data: [], error: null })  // get_my_loans: not found
       .mockResolvedValueOnce({                           // get_loan_for_pending_recipient
         data: [{ ...ITEM_BASE, requires_acknowledgement: true, my_role: 'borrower', invitation_status: 'pending' }],
         error: null,
       })
+    const { container } = render(
+      await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
+    )
+    expect(container.querySelector('[data-testid="switch-role-button"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="loan-form"]')).toBeNull()
+    expect(container.querySelector('[data-testid="loan-item-details-form"]')).toBeNull()
+  })
+
+  it('renders only SwitchRoleButton when get_my_loans returns pending-recipient row — no 404, no edit form', async () => {
+    // Bug #65: isPendingRecipient was only set in the fallback branch, so when
+    // get_my_loans returned a pending row, the page called notFound().
+    mockRpc.mockResolvedValueOnce({
+      data: [{ ...ITEM_BASE, requires_acknowledgement: true, my_role: 'borrower', invitation_status: 'pending' }],
+      error: null,
+    })
     const { container } = render(
       await EditLoanPage({ params: Promise.resolve({ id: 'loan-id-1' }) }),
     )

@@ -367,6 +367,8 @@
       "eventLoanReturnUndone": "Return undone: {itemName}",
       "eventLoanDeleted": "Deleted: {itemName}",
       "eventLoanInvitationReceived": "Loan invitation: {itemName}",
+      "eventLoanInvitationReceivedBorrower": "You were lent: {itemName}",
+      "eventLoanInvitationReceivedLender": "You lent: {itemName}",
       "eventLoanInvitationAccepted": "Loan accepted: {itemName}",
       "eventLoanInvitationDeclined": "Loan declined: {itemName}",
       "eventLoanPartyAdded": "Party added: {itemName}",

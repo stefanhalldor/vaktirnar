@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { guardTeskeidSession } from '@/lib/auth/guard'
-import { ackRecentEventsForUser } from '@/lib/recent-events/helpers.server'
+import { ackRecentEventsForUser, ackAllUnreadRecentEventsForUser } from '@/lib/recent-events/helpers.server'
 import type { ActionResult } from '@/lib/loans/actions'
 
 const MAX_IDS = 10
@@ -29,6 +29,20 @@ export async function ackRecentEvents(input: unknown): Promise<ActionResult> {
     await ackRecentEventsForUser(user.id, eventIds)
   } catch {
     console.error('[ackRecentEvents] ackRecentEventsForUser failed')
+    return { ok: false, error: 'save_failed' }
+  }
+
+  revalidatePath('/auth-mvp/heim')
+  return { ok: true }
+}
+
+export async function ackAllRecentEvents(): Promise<ActionResult> {
+  const { user } = await guardTeskeidSession()
+
+  try {
+    await ackAllUnreadRecentEventsForUser(user.id)
+  } catch {
+    console.error('[ackAllRecentEvents] ackAllUnreadRecentEventsForUser failed')
     return { ok: false, error: 'save_failed' }
   }
 

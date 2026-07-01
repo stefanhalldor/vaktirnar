@@ -108,6 +108,20 @@ export async function ackRecentEventByKey(userId: string, eventKey: string): Pro
 }
 
 /**
+ * Sets ack_at on all unread events for userId.
+ * Throws on DB error.
+ */
+export async function ackAllUnreadRecentEventsForUser(userId: string): Promise<void> {
+  const admin = getAdmin()
+  const { error } = await admin
+    .from(TABLE)
+    .update({ ack_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .is('ack_at', null)
+  if (error) throw error
+}
+
+/**
  * Sets ack_at on the given event IDs, but only for rows owned by userId.
  * Throws on DB error.
  */

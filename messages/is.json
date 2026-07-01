@@ -371,6 +371,8 @@
       "eventLoanReturnUndone": "Skilað afturkallað: {itemName}",
       "eventLoanDeleted": "Eytt: {itemName}",
       "eventLoanInvitationReceived": "Lánaboð: {itemName}",
+      "eventLoanInvitationReceivedBorrower": "Þú varst að fá lánað: {itemName}",
+      "eventLoanInvitationReceivedLender": "Þú varst að lána: {itemName}",
       "eventLoanInvitationAccepted": "Lánaboð samþykkt: {itemName}",
       "eventLoanInvitationDeclined": "Lánaboði hafnað: {itemName}",
       "eventLoanPartyAdded": "Aðila bætt við: {itemName}",

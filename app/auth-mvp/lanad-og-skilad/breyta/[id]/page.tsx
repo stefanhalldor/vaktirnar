@@ -48,6 +48,7 @@ export default async function EditLoanPage({
 
   if (item) {
     activeItem = item
+    isPendingRecipient = item.requires_acknowledgement === true
   } else {
     // Pending recipient fallback: actor has a pending invitation but is not yet
     // an actual party. They can switch their role but cannot edit item details.

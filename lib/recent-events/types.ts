@@ -24,6 +24,7 @@ export interface RecentEventPayload {
   itemName?: string
   changes?: LoanFieldChange[]
   actorUserId?: string
+  recipientRole?: 'lender' | 'borrower'
 }
 
 export interface RecentEventRow {

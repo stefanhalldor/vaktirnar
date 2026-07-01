@@ -995,7 +995,7 @@ describe('sendInvitationEmail — loan_invitation_received event', () => {
         eventType:        'loan_invitation_received',
         entityId:         INV_ID,
         updateOnConflict: false,
-        payload:          { itemName: 'Borvél' },
+        payload:          expect.objectContaining({ itemName: 'Borvél', recipientRole: 'borrower' }),
       })
     )
   })

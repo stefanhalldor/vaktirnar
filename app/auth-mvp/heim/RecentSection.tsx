@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle2, X } from 'lucide-react'
 import type { RecentEventDisplay } from '@/lib/recent-events/types'
-import { ackRecentEvents } from './actions'
+import { ackRecentEvents, ackAllRecentEvents } from './actions'
 
 export interface RecentLabels {
   recent: string
@@ -32,10 +32,9 @@ export function RecentSection({ rows, labels }: Props) {
   const displayedRows = rows.filter((r) => !ackedIds.has(r.id))
 
   function handleMarkAll() {
-    const allIds = rows.map((r) => r.id)
-    setAckedIds(new Set(allIds))
+    setAckedIds(new Set(rows.map((r) => r.id)))
     startTransition(async () => {
-      const result = await ackRecentEvents({ event_ids: allIds })
+      const result = await ackAllRecentEvents()
       if (result.ok) {
         router.refresh()
       } else {

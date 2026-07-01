@@ -65,7 +65,10 @@ vi.mock('next-intl/server', () => ({
         eventLoanDeleted:             'Eytt: {itemName}',
         eventLoanInvitationReceived:  'Lánaboð: {itemName}',
         eventLoanInvitationAccepted:  'Lánaboð samþykkt: {itemName}',
-        eventLoanInvitationDeclined:  'Lánaboði hafnað: {itemName}',
+        eventLoanInvitationDeclined:          'Lánaboði hafnað: {itemName}',
+        eventLoanPartyAdded:                  'Aðila bætt við: {itemName}',
+        eventLoanInvitationReceivedBorrower:  'Þú varst að fá lánað: {itemName}',
+        eventLoanInvitationReceivedLender:    'Þú varst að lána: {itemName}',
         eventDetailItemNameChanged:   'Nafni breytt: {oldName} -> {newName}',
         eventDetailReturnDateAdded:   'Skiladegi bætt við: {date}',
         eventDetailReturnDateRemoved: 'Skiladagur fjarlægður: {date}',
@@ -197,11 +200,13 @@ vi.mock('@/lib/supabase/admin', () => ({
 }))
 
 // Server action mock
-const { mockAckRecentEvents } = vi.hoisted(() => ({
-  mockAckRecentEvents: vi.fn(),
+const { mockAckRecentEvents, mockAckAllRecentEvents } = vi.hoisted(() => ({
+  mockAckRecentEvents:    vi.fn(),
+  mockAckAllRecentEvents: vi.fn(),
 }))
 vi.mock('@/app/auth-mvp/heim/actions', () => ({
-  ackRecentEvents: mockAckRecentEvents,
+  ackRecentEvents:    mockAckRecentEvents,
+  ackAllRecentEvents: mockAckAllRecentEvents,
 }))
 
 // next/navigation mock (used by RecentSection)
@@ -331,6 +336,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   setupRecentEvents([])
   mockAckRecentEvents.mockResolvedValue({ ok: true })
+  mockAckAllRecentEvents.mockResolvedValue({ ok: true })
   mockIdeasResult.mockResolvedValue({ data: [LAUNCHED_LOAN_IDEA, LAUNCHED_UMONNUN_IDEA], error: null })
 })
 
@@ -616,13 +622,31 @@ describe('HeimPage — Ólesið section (event-based)', () => {
     expect(screen.getByText('Eytt: Kassi')).toBeDefined()
   })
 
-  it('renders loan_invitation_received event label', async () => {
+  it('renders loan_invitation_received event label — fallback (no recipientRole)', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ id: 5, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-1234', payload: { itemName: 'Borvél' } })])
     render(await HeimPage())
     expect(screen.getByText('Lánaboð: Borvél')).toBeDefined()
+  })
+
+  it('renders loan_invitation_received borrower label when recipientRole=borrower', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 6, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-2345', payload: { itemName: 'Hjól', recipientRole: 'borrower' } })])
+    render(await HeimPage())
+    expect(screen.getByText('Þú varst að fá lánað: Hjól')).toBeDefined()
+  })
+
+  it('renders loan_invitation_received lender label when recipientRole=lender', async () => {
+    setupGuard()
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeEvent({ id: 7, event_type: 'loan_invitation_received', entity_type: 'invitation', entity_id: 'inv-uuid-3456', payload: { itemName: 'Sjónvarp', recipientRole: 'lender' } })])
+    render(await HeimPage())
+    expect(screen.getByText('Þú varst að lána: Sjónvarp')).toBeDefined()
   })
 
 
@@ -724,7 +748,7 @@ describe('HeimPage — Lesið / ack events', () => {
     expect(screen.queryByText('Allt lesið')).toBeNull()
   })
 
-  it('clicking "Allt lesið" sends all fetched event IDs to ackRecentEvents', async () => {
+  it('clicking "Allt lesið" calls ackAllRecentEvents (no ID list sent)', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
@@ -736,7 +760,8 @@ describe('HeimPage — Lesið / ack events', () => {
     ])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Allt lesið'))
-    expect(mockAckRecentEvents).toHaveBeenCalledWith({ event_ids: [1, 2, 3, 4] })
+    expect(mockAckAllRecentEvents).toHaveBeenCalled()
+    expect(mockAckRecentEvents).not.toHaveBeenCalledWith(expect.objectContaining({ event_ids: [1, 2, 3, 4] }))
   })
 
   it('regression: acked event does not reappear after new event is added', async () => {

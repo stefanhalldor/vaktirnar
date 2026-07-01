@@ -27,13 +27,17 @@ vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: vi.fn(() => ({ from: mockAdminFrom })),
 }))
 
-// Mock the helper directly so we can test the action in isolation
-const { mockAckHelper } = vi.hoisted(() => ({ mockAckHelper: vi.fn() }))
+// Mock the helpers directly so we can test the actions in isolation
+const { mockAckHelper, mockAckAllHelper } = vi.hoisted(() => ({
+  mockAckHelper:    vi.fn(),
+  mockAckAllHelper: vi.fn(),
+}))
 vi.mock('@/lib/recent-events/helpers.server', () => ({
-  ackRecentEventsForUser: mockAckHelper,
+  ackRecentEventsForUser:           mockAckHelper,
+  ackAllUnreadRecentEventsForUser:  mockAckAllHelper,
 }))
 
-import { ackRecentEvents } from '@/app/auth-mvp/heim/actions'
+import { ackRecentEvents, ackAllRecentEvents } from '@/app/auth-mvp/heim/actions'
 import { revalidatePath } from 'next/cache'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 
@@ -60,6 +64,12 @@ describe('ackRecentEvents — input validation', () => {
   it('returns ok for empty array (nothing to do)', async () => {
     expect(await ackRecentEvents({ event_ids: [] })).toEqual({ ok: true })
     expect(mockAckHelper).not.toHaveBeenCalled()
+  })
+
+  it('returns ok when exactly 10 IDs provided', async () => {
+    mockAckHelper.mockResolvedValue(undefined)
+    const ids = Array.from({ length: 10 }, (_, i) => i + 1)
+    expect(await ackRecentEvents({ event_ids: ids })).toEqual({ ok: true })
   })
 
   it('returns invalid_input when more than 10 IDs provided', async () => {
@@ -120,5 +130,39 @@ describe('ackRecentEvents — revalidation and error handling', () => {
     mockAckHelper.mockRejectedValue(new Error('DB error'))
     await ackRecentEvents({ event_ids: [1] })
     expect(vi.mocked(revalidatePath)).not.toHaveBeenCalled()
+  })
+})
+
+describe('ackAllRecentEvents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAckAllHelper.mockResolvedValue(undefined)
+  })
+
+  it('calls ackAllUnreadRecentEventsForUser with actor user_id', async () => {
+    await ackAllRecentEvents()
+    expect(mockAckAllHelper).toHaveBeenCalledWith('actor-uuid')
+  })
+
+  it('revalidates /auth-mvp/heim on success', async () => {
+    await ackAllRecentEvents()
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith('/auth-mvp/heim')
+  })
+
+  it('returns save_failed when helper throws', async () => {
+    mockAckAllHelper.mockRejectedValue(new Error('DB error'))
+    const result = await ackAllRecentEvents()
+    expect(result).toEqual({ ok: false, error: 'save_failed' })
+  })
+
+  it('does not revalidate when helper fails', async () => {
+    mockAckAllHelper.mockRejectedValue(new Error('DB error'))
+    await ackAllRecentEvents()
+    expect(vi.mocked(revalidatePath)).not.toHaveBeenCalled()
+  })
+
+  it('throws redirect when guard redirects (auth required)', async () => {
+    vi.mocked(guardTeskeidSession).mockRejectedValueOnce(new Error('NEXT_REDIRECT:/'))
+    await expect(ackAllRecentEvents()).rejects.toThrow('NEXT_REDIRECT:/')
   })
 })

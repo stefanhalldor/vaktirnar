@@ -127,7 +127,7 @@ export default async function HeimPage() {
                 entityType: 'invitation',
                 entityId: loan.invitation_id!,
                 eventKey: `loans:invitation:${loan.invitation_id}:received`,
-                payload: { itemName: loan.item_name },
+                payload: { itemName: loan.item_name, recipientRole: loan.my_role },
                 href: '/auth-mvp/lanad-og-skilad',
                 updateOnConflict: false,
               }),
@@ -140,9 +140,16 @@ export default async function HeimPage() {
         recentEvents = rows.map((event) => {
           const itemName = event.payload.itemName ?? ''
           const isDeleted = event.event_type === 'loan_deleted'
-          const labelKey = event.event_type === 'loan_updated'
-            ? pickLoanUpdatedLabelKey(event.payload.changes)
-            : (EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type)
+          let labelKey: string
+          if (event.event_type === 'loan_invitation_received' && event.payload.recipientRole) {
+            labelKey = event.payload.recipientRole === 'borrower'
+              ? 'eventLoanInvitationReceivedBorrower'
+              : 'eventLoanInvitationReceivedLender'
+          } else if (event.event_type === 'loan_updated') {
+            labelKey = pickLoanUpdatedLabelKey(event.payload.changes)
+          } else {
+            labelKey = EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type
+          }
           let viewHref: string | null = null
           if (!isDeleted && event.entity_id) {
             if (event.entity_type === 'invitation') {
