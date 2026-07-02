@@ -109,6 +109,56 @@ describe('GET /api/teskeid/profile — feature flag', () => {
   })
 })
 
+describe('GET /api/teskeid/profile — facebook fields', () => {
+  let savedAuth: string | undefined
+  let savedFb: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedAuth = process.env.AUTH_MVP_ENABLED
+    savedFb = process.env.FACEBOOK_OAUTH_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('AUTH_MVP_ENABLED', savedAuth)
+    setEnv('FACEBOOK_OAUTH_ENABLED', savedFb)
+  })
+
+  it('returns facebook_oauth_allowed: false and facebook_connected: false when FACEBOOK_OAUTH_ENABLED not set', async () => {
+    delete process.env.FACEBOOK_OAUTH_ENABLED
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com', identities: [{ provider: 'facebook' }] } } })
+    mockSingle.mockResolvedValue({ data: { display_name: 'Jón' } })
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.facebook_oauth_allowed).toBe(false)
+    expect(body.facebook_connected).toBe(false)
+  })
+
+  it('returns facebook_oauth_allowed: true and facebook_connected: false when FACEBOOK_OAUTH_ENABLED=true and not linked', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com', identities: [{ provider: 'email' }] } } })
+    mockSingle.mockResolvedValue({ data: { display_name: 'Jón' } })
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.facebook_oauth_allowed).toBe(true)
+    expect(body.facebook_connected).toBe(false)
+  })
+
+  it('returns facebook_connected: true when FACEBOOK_OAUTH_ENABLED=true and facebook identity present', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com', identities: [{ provider: 'email' }, { provider: 'facebook' }] } } })
+    mockSingle.mockResolvedValue({ data: { display_name: 'Jón' } })
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.facebook_oauth_allowed).toBe(true)
+    expect(body.facebook_connected).toBe(true)
+  })
+})
+
 describe('PATCH /api/teskeid/profile — feature flag', () => {
   let savedAuth: string | undefined
 

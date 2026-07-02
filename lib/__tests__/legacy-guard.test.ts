@@ -207,10 +207,11 @@ describe('middleware — LEGACY_ENABLED=false: legacy UI routes redirect to /', 
     expect(redirectedTo(res)).toBe('/')
   })
 
-  it('/auth/callback → /', async () => {
+  it('/auth/callback is not blocked (OAuth infrastructure route)', async () => {
     const res = await middleware(makeReq('/auth/callback'))
-    expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/')
+    // /auth/callback was removed from LEGACY_UI_PREFIXES — it must remain
+    // reachable for Supabase OAuth callbacks (Facebook linking etc.)
+    expect(res.status).not.toBe(307)
   })
 })
 

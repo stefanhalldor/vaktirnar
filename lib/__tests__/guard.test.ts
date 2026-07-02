@@ -366,6 +366,143 @@ describe('guardFeatureAccess — umonnun', () => {
   })
 })
 
+// ── checkFeatureAccess — facebook-oauth ───────────────────────────────────────
+
+describe('checkFeatureAccess — facebook-oauth (global kill-switch)', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.FACEBOOK_OAUTH_ENABLED
+    savedFlag = process.env.FACEBOOK_OAUTH_FLAG
+  })
+
+  afterEach(() => {
+    setEnv('FACEBOOK_OAUTH_ENABLED', savedEnabled)
+    setEnv('FACEBOOK_OAUTH_FLAG', savedFlag)
+  })
+
+  it('returns false when FACEBOOK_OAUTH_ENABLED is not set', async () => {
+    delete process.env.FACEBOOK_OAUTH_ENABLED
+    delete process.env.FACEBOOK_OAUTH_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'facebook-oauth')).toBe(false)
+  })
+
+  it('returns false when FACEBOOK_OAUTH_ENABLED=false', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'false'
+    delete process.env.FACEBOOK_OAUTH_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'facebook-oauth')).toBe(false)
+  })
+
+  it('returns true when FACEBOOK_OAUTH_ENABLED=true and FLAG unset (open to all)', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'true'
+    delete process.env.FACEBOOK_OAUTH_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'facebook-oauth')).toBe(true)
+  })
+
+  it('returns true when FACEBOOK_OAUTH_ENABLED=true and FLAG=false (open to all)', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'true'
+    process.env.FACEBOOK_OAUTH_FLAG = 'false'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'facebook-oauth')).toBe(true)
+  })
+})
+
+describe('checkFeatureAccess — facebook-oauth (per-user FLAG=true)', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.FACEBOOK_OAUTH_ENABLED
+    savedFlag = process.env.FACEBOOK_OAUTH_FLAG
+    process.env.FACEBOOK_OAUTH_ENABLED = 'true'
+    process.env.FACEBOOK_OAUTH_FLAG = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('FACEBOOK_OAUTH_ENABLED', savedEnabled)
+    setEnv('FACEBOOK_OAUTH_FLAG', savedFlag)
+  })
+
+  it('returns true when row exists in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'facebook-oauth')).toBe(true)
+  })
+
+  it('returns false when no row in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'facebook-oauth')).toBe(false)
+  })
+
+  it('returns false when DB query returns an error (fail-closed)', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'connection refused' } })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'facebook-oauth')).toBe(false)
+  })
+
+  it('returns false for invalid email', async () => {
+    expect(await checkFeatureAccess('uid', 'not-an-email', 'facebook-oauth')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns false when query throws an exception (fail-closed)', async () => {
+    mockFeatureAccessQuery.mockRejectedValue(new Error('DB connection error'))
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'facebook-oauth')).toBe(false)
+  })
+})
+
+// ── guardFeatureAccess — facebook-oauth ───────────────────────────────────────
+
+describe('guardFeatureAccess — facebook-oauth', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.FACEBOOK_OAUTH_ENABLED
+    savedFlag = process.env.FACEBOOK_OAUTH_FLAG
+  })
+
+  afterEach(() => {
+    setEnv('FACEBOOK_OAUTH_ENABLED', savedEnabled)
+    setEnv('FACEBOOK_OAUTH_FLAG', savedFlag)
+  })
+
+  it('redirects to / when FACEBOOK_OAUTH_ENABLED is not set', async () => {
+    delete process.env.FACEBOOK_OAUTH_ENABLED
+    delete process.env.FACEBOOK_OAUTH_FLAG
+    await expect(guardFeatureAccess('user@example.com', 'facebook-oauth')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('redirects to / when FACEBOOK_OAUTH_ENABLED=false', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'false'
+    delete process.env.FACEBOOK_OAUTH_FLAG
+    await expect(guardFeatureAccess('user@example.com', 'facebook-oauth')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('does not redirect when FACEBOOK_OAUTH_ENABLED=true and FLAG unset', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'true'
+    delete process.env.FACEBOOK_OAUTH_FLAG
+    await expect(guardFeatureAccess('user@example.com', 'facebook-oauth')).resolves.toBeUndefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it('redirects when FLAG=true and user not in feature_access', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'true'
+    process.env.FACEBOOK_OAUTH_FLAG = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    await expect(guardFeatureAccess('user@example.com', 'facebook-oauth')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('does not redirect when FLAG=true and user is in feature_access', async () => {
+    process.env.FACEBOOK_OAUTH_ENABLED = 'true'
+    process.env.FACEBOOK_OAUTH_FLAG = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    await expect(guardFeatureAccess('user@example.com', 'facebook-oauth')).resolves.toBeUndefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+})
+
 // ── guardLoanAccess ───────────────────────────────────────────────────────────
 
 describe('guardLoanAccess — feature flags', () => {

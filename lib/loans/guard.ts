@@ -62,6 +62,11 @@ export async function checkFeatureAccess(
     if (process.env.TENGSL_FLAG !== 'true') return true
     return checkPerUserAccess(email, 'tengsl')
   }
+  if (featureKey === 'facebook-oauth') {
+    if (process.env.FACEBOOK_OAUTH_ENABLED !== 'true') return false
+    if (process.env.FACEBOOK_OAUTH_FLAG !== 'true') return true
+    return checkPerUserAccess(email, 'facebook-oauth')
+  }
   return false
 }
 

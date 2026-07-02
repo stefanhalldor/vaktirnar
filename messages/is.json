@@ -323,6 +323,17 @@
       "homeLink": "Heim",
       "errors": {
         "saveFailed": "Vistun tókst ekki. Reyndu aftur."
+      },
+      "facebook": {
+        "title": "Facebook",
+        "connected": "Tengt við Facebook",
+        "notConnected": "Ekki tengt við Facebook",
+        "link": "Tengja Facebook",
+        "unlink": "Aftengja Facebook",
+        "linking": "Tengist...",
+        "unlinking": "Aftengist...",
+        "error": "Villa við Facebook tengingu. Reyndu aftur.",
+        "unlinkError": "Villa við aftengingu. Reyndu aftur."
       }
     },
     "home": {

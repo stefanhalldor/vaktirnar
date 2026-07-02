@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
@@ -17,30 +17,85 @@ export default function AuthMvpProfilePage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [facebookAllowed, setFacebookAllowed] = useState(false)
+  const [facebookConnected, setFacebookConnected] = useState(false)
+  const [facebookStatus, setFacebookStatus] = useState<'idle' | 'linking' | 'unlinking'>('idle')
+  const [facebookError, setFacebookError] = useState('')
+
+  const loadProfile = useCallback(async () => {
+    try {
+      const res = await fetch('/api/teskeid/profile')
+      if (res.status === 401) {
+        router.replace('/innskraning')
+        return
+      }
+      if (res.ok) {
+        const data = await res.json()
+        setDisplayName(data.display_name ?? '')
+        setEmail(data.email ?? '')
+        setFacebookAllowed(data.facebook_oauth_allowed ?? false)
+        setFacebookConnected(data.facebook_connected ?? false)
+      } else {
+        setError(tCommon('error'))
+      }
+    } catch {
+      setError(tCommon('error'))
+    } finally {
+      setLoading(false)
+    }
+  }, [router, tCommon])
 
   useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch('/api/teskeid/profile')
-        if (res.status === 401) {
-          router.replace('/innskraning')
-          return
-        }
-        if (res.ok) {
-          const data = await res.json()
-          setDisplayName(data.display_name ?? '')
-          setEmail(data.email ?? '')
-        } else {
-          setError(tCommon('error'))
-        }
-      } catch {
-        setError(tCommon('error'))
-      } finally {
-        setLoading(false)
-      }
+    loadProfile()
+  }, [loadProfile])
+
+  // Detect OAuth return from Facebook linking
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    const fb = sp.get('facebook')
+    if (!fb) return
+
+    const url = new URL(window.location.href)
+    url.searchParams.delete('facebook')
+    window.history.replaceState({}, '', url.toString())
+
+    if (fb === 'linked') {
+      loadProfile()
+    } else {
+      setFacebookError(t('facebook.error'))
     }
-    load()
-  }, [router, tCommon])
+  }, [loadProfile, t])
+
+  async function handleFacebookLink() {
+    setFacebookStatus('linking')
+    setFacebookError('')
+    const supabase = createClient()
+    const { error: linkError } = await supabase.auth.linkIdentity({
+      provider: 'facebook',
+      options: {
+        redirectTo:
+          `${window.location.origin}/auth/callback` +
+          `?next=${encodeURIComponent('/auth-mvp/minn-profill?facebook=linked')}`,
+      },
+    })
+    if (linkError) {
+      setFacebookError(t('facebook.error'))
+      setFacebookStatus('idle')
+    }
+    // No else — successful linkIdentity redirects the page to Facebook
+  }
+
+  async function handleFacebookUnlink() {
+    setFacebookStatus('unlinking')
+    setFacebookError('')
+    const res = await fetch('/api/teskeid/profile/facebook', { method: 'POST' })
+    if (res.ok) {
+      setFacebookConnected(false)
+    } else {
+      setFacebookError(t('facebook.unlinkError'))
+    }
+    setFacebookStatus('idle')
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
@@ -111,6 +166,49 @@ export default function AuthMvpProfilePage() {
                 {saving ? t('saving') : t('save')}
               </button>
             </form>
+
+            {/* ── Facebook section ──────────────────────────────── */}
+            {facebookAllowed && (
+              <div className="border-t border-gray-100 pt-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-[#42493e]">
+                    {t('facebook.title')}
+                  </span>
+                  <span className="text-sm text-[#72796e]">
+                    {facebookConnected
+                      ? t('facebook.connected')
+                      : t('facebook.notConnected')}
+                  </span>
+                </div>
+                {facebookError && (
+                  <p className="text-sm text-red-600">{facebookError}</p>
+                )}
+                {facebookConnected ? (
+                  <button
+                    type="button"
+                    onClick={handleFacebookUnlink}
+                    disabled={facebookStatus !== 'idle'}
+                    className="w-full h-10 rounded-xl border border-gray-200 text-[#42493e] text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    {facebookStatus === 'unlinking'
+                      ? t('facebook.unlinking')
+                      : t('facebook.unlink')}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleFacebookLink}
+                    disabled={facebookStatus !== 'idle'}
+                    className="w-full h-10 rounded-xl border border-gray-200 text-[#42493e] text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    {facebookStatus === 'linking'
+                      ? t('facebook.linking')
+                      : t('facebook.link')}
+                  </button>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleLogout}

@@ -319,6 +319,17 @@
       "homeLink": "Home",
       "errors": {
         "saveFailed": "Save failed. Please try again."
+      },
+      "facebook": {
+        "title": "Facebook",
+        "connected": "Connected to Facebook",
+        "notConnected": "Not connected to Facebook",
+        "link": "Connect Facebook",
+        "unlink": "Disconnect Facebook",
+        "linking": "Connecting...",
+        "unlinking": "Disconnecting...",
+        "error": "Error connecting Facebook. Please try again.",
+        "unlinkError": "Error disconnecting. Please try again."
       }
     },
     "home": {

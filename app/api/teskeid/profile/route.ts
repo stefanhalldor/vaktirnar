@@ -1,6 +1,7 @@
 import 'server-only'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { checkFeatureAccess } from '@/lib/loans/guard'
 import { z } from 'zod'
 
 const patchSchema = z.object({
@@ -25,9 +26,16 @@ export async function GET() {
     .eq('id', user.id)
     .single()
 
+  const facebookAllowed = await checkFeatureAccess('', user.email, 'facebook-oauth')
+  const facebookConnected = facebookAllowed
+    ? (user.identities?.some((i) => i.provider === 'facebook') ?? false)
+    : false
+
   return NextResponse.json({
     display_name: profile?.display_name ?? '',
     email: user.email,
+    facebook_oauth_allowed: facebookAllowed,
+    facebook_connected: facebookConnected,
   })
 }
 

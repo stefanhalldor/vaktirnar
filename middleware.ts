@@ -77,7 +77,7 @@ export async function middleware(request: NextRequest) {
     const LEGACY_UI_PREFIXES = [
       '/home', '/children', '/chat', '/contacts', '/settings',
       '/login', '/signup', '/forgot-password', '/reset-password',
-      '/dashboard', '/auth/callback',
+      '/dashboard',
       '/s',
     ]
     if (matchesLegacy(LEGACY_UI_PREFIXES)) {

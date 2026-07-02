@@ -4,7 +4,7 @@ import { getAdmin } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/teskeid/admin-auth'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 
-const ALLOWED_FEATURES = ['umonnun', 'tengsl'] as const
+const ALLOWED_FEATURES = ['umonnun', 'tengsl', 'facebook-oauth'] as const
 type FeatureKey = (typeof ALLOWED_FEATURES)[number]
 
 function resolveFeatureKey(request: NextRequest): FeatureKey | null {
