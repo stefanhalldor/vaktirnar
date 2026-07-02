@@ -36,20 +36,21 @@ tilvísanir og verkefnasaga rofni ekki.
 | 4   | **#59 Deilanlegur hlekkur á lánadetail**                     | **Detail/access pakki.** Notandi geti sent hlekk á hlut; hlekkurinn virkar aðeins hjá þeim sem hafa aðgang í Teskeið. |
 | 5   | **#63 Endurnefna „Lánað og skilað“ í „Minnið“**              | **Product/IA quick win.** Gera núverandi lánakerfi að fyrstu tegundinni inni í `Minnið`, án gagnamódelsbreytinga í v1. |
 | 6   | **#64 Fallegra hlutverkaval í edit-viðmóti**                 | **UI polish eftir #62.** Skipta ljótum `Leiðrétta í...` takka út fyrir tvær pillur: `Ég lánaði` og `Ég fékk lánað`. |
-| 7   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #38/#39/#59/#61 séu orðin traust og að #63 hafi skýrt orðalagið. |
-| 8   | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
-| 9   | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
-| 10  | **#41 Umönnun sem feature-flagged Teskeið**                  | **Feature-card/info quick win.** Sýna sem varlega feature-flagged Teskeið án þess að flytja Umönnun-gögn inn. |
-| 11  | **#46 User+pass fallback þegar kóði berst ekki**             | **Auth reliability pakki.** Mikilvægt ef kóðar berast illa, en snertir auth/rate limit/reset og á að vera sér áfangi. |
-| 12  | **#7 Langlíf innskráning**                                   | **Auth/session pakki.** Taka með #46 eða strax á eftir, en ekki blanda við láns/event quick wins. |
-| 13  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | **Route cleanup.** Gera eftir að `/heim`, `/stillingar/*` og loan flæði eru stöðug; þarf redirect- og query-param próf. |
-| 14  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | **Admin/access ákvörðun.** Ákveða hlutverk listans áður en meira admin UI byggist á honum. |
-| 15  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | **Admin quick win eftir #13.** Einföld talning, en skilgreining og service-role mörk þurfa að vera skýr. |
-| 16  | **#10 Gáfuleg opnun tölfræðisíðu**                           | **Admin stats sérpakki.** Server-side heimsóknarrökfræði, race conditions og fallback; ekki opnunarblocker. |
-| 17  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
-| 18  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
-| 19  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
-| 20  | **#51 Tengja Facebook við prófílinn sinn**                   | **OAuth/secrets sérverk.** Ekki quick win; þarf sérstakt plan, provider-stillingar og privacy-rýni. |
+| 7   | **#66 Flytja lánaðan hlut á annan aðila**                    | **Minnið/aðila-edit eftir #64.** Notandi geti skipt út staðfestum mótaðila þegar hlutur endar hjá öðrum, án þess að loka og stofna nýtt lán. |
+| 8   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #38/#39/#59/#61 séu orðin traust og að #63/#64/#66 séu skýr. |
+| 9   | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
+| 10  | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
+| 11  | **#41 Umönnun sem feature-flagged Teskeið**                  | **Feature-card/info quick win.** Sýna sem varlega feature-flagged Teskeið án þess að flytja Umönnun-gögn inn. |
+| 12  | **#46 User+pass fallback þegar kóði berst ekki**             | **Auth reliability pakki.** Mikilvægt ef kóðar berast illa, en snertir auth/rate limit/reset og á að vera sér áfangi. |
+| 13  | **#7 Langlíf innskráning**                                   | **Auth/session pakki.** Taka með #46 eða strax á eftir, en ekki blanda við láns/event quick wins. |
+| 14  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | **Route cleanup.** Gera eftir að `/heim`, `/stillingar/*` og loan flæði eru stöðug; þarf redirect- og query-param próf. |
+| 15  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | **Admin/access ákvörðun.** Ákveða hlutverk listans áður en meira admin UI byggist á honum. |
+| 16  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | **Admin quick win eftir #13.** Einföld talning, en skilgreining og service-role mörk þurfa að vera skýr. |
+| 17  | **#10 Gáfuleg opnun tölfræðisíðu**                           | **Admin stats sérpakki.** Server-side heimsóknarrökfræði, race conditions og fallback; ekki opnunarblocker. |
+| 18  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
+| 19  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
+| 20  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
+| 21  | **#51 Staðfest Facebook-tenging**                           | **Phase 1 kóðinn er tilbúinn og shipped (commit 547f367) en disabled - kveikja með `FACEBOOK_OAUTH_ENABLED=true` + Supabase/Facebook stillingar (sjá v015 handoff). Phase 2 badge í lánaboðssamhengi er ólokið.** |
 
 ## Vinnupakkar
 
@@ -57,12 +58,12 @@ tilvísanir og verkefnasaga rofni ekki.
 og síðan #27. Grunnurinn úr #37, #56, #58 og #62 er kominn í DONE.
 Næst er að klára aðila-events og decline-event saman, síðan soft-delete- og
 detail-hlekkjaheimildir. Áður en #27 fer í fulla texta- og UI-vinnu er rökrétt
-að klára #63 og snyrta #64 svo lánaboðsflæðið byggi á réttu `Minnið`-orðalagi
-og skýrri hlutverka-upplifun frá byrjun.
+að klára #63, snyrta #64 og skilgreina #66 svo lánaboðsflæðið byggi á réttu
+`Minnið`-orðalagi og skýrri aðila-/hlutverka-upplifun frá byrjun.
 
 **Pakki B — Minnið, role-switch UI, heimaskjár og virkar Teskeiðar:** #63, #64,
-#17, #42 og #41. Þetta mótar hvað notandi sér fyrst eftir innskráningu og hvað
-hann upplifir inni í fyrsta virka `Minnið`-flæðinu.
+#66, #17, #42 og #41. Þetta mótar hvað notandi sér fyrst eftir innskráningu og
+hvað hann upplifir inni í fyrsta virka `Minnið`-flæðinu.
 
 **Pakki C — auth reliability:** #46 og #7. Þetta er mikilvægt, en snertir
 innskráningu, sessions, reset/rate-limit og öryggi; best sem sérpakki með
@@ -218,47 +219,84 @@ lausnin má ekki vera sérsniðin þannig að hún nýtist aðeins þeirri Teske
   horizontal scroll eða óæskilegs zooms.
 
 #51
-## Tengja Facebook við prófílinn sinn
+## Staðfest Facebook-tenging
 
 **Staða:** Bíður
 
 **Stofnað:** 2026-06-21
 
-**Samhengi frá Stebba:** Stebbi vill að notandi geti tengt Facebook við
-prófílinn sinn.
+**Uppfært:** 2026-07-01
 
-**Ósk:** Bæta við möguleika fyrir innskráðan notanda að tengja Facebook við
-Teskeið-prófílinn sinn.
+**Samhengi frá Stebba:** Stebbi vill að notandi geti tengt Facebook við
+prófílinn sinn, en aðeins sem staðfesta tengingu. Manual Facebook-hlekkur er
+ekki áhugaverður, því þá gæti notandi slegið inn `facebook.com/einhver` óháð
+því hvort það sé raunverulega hann. Tilgangurinn er fyrst og fremst traust í
+lánaboðum og tengslum: þegar notandi fær lánaboð á hann að geta séð að sendandi
+hefur staðfesta Facebook-tengingu og þannig betur metið hvort þetta sé rétti
+aðilinn áður en hann smellir á `Þekki málið`.
+
+**Ósk:** Bæta við staðfestri Facebook OAuth-tengingu fyrir innskráðan notanda,
+án manual Facebook-slóðar og án þess að gera Facebook-login að innskráningarleið
+í fyrsta áfanga.
 
 **Við útfærslu:**
 
-- Skilgreina fyrst hvort Facebook-tenging á að vera aðeins sýnilegur
-  prófíl-hlekkur, account-linking fyrir innskráningu, eða bæði.
-- Ef þetta er account-linking þarf sérstakt auth-plan áður en kóðavinna hefst.
-- Nota öruggt OAuth-mynstur og geyma client secret aðeins server-side.
-- Skilgreina hvaða Facebook gögn má sækja og vista. Safna aðeins lágmarksgögnum.
-- Passa að Facebook-tenging leki ekki einkagögnum til annarra notenda.
-- Skilgreina hvernig notandi getur aftengt Facebook aftur.
-- Meta áhrif á núverandi kóða-/OTP-innskráningu og framtíðar
-  user+pass fallback (#46), svo Facebook brjóti ekki núverandi auth-flæði.
-- Ekki setja Facebook App ID, secret eða redirect URLs í client-kóða eða
-  handahófskennda logs.
+- Nota OAuth/identity-linking mynstur fyrir innskráðan notanda, líklega
+  Supabase `linkIdentity({ provider: 'facebook' })`, ef núverandi Supabase Auth
+  og SSR/callback mynstur styður það örugglega.
+- Ekki bjóða manual Facebook URL reit í v1.
+- Ekki setja `Skrá inn með Facebook` á innskráningarsíðu í þessum áfanga.
+- Bæta við UI á `/stillingar/minn-profill` þar sem notandi sér stöðu:
+  `Facebook ekki tengt`, `Staðfest með Facebook` eða villa/pending state.
+- Notandi getur tengt Facebook, hætt við OAuth og aftengt Facebook aftur án þess
+  að missa núverandi Teskeið-aðgang.
+- Meta hvort Supabase manual identity linking þarf að vera sérstaklega virkt í
+  Auth-stillingum áður en kóði er skrifaður.
+- Staðfesta hvaða Facebook identity metadata Supabase skilar í raun:
+  provider id, nafn, mynd, email og hvort örugg/opnanleg prófílslóð fæst. Ekki
+  lofa `Skoða Facebook` nema provider-gögn og permissions styðji það.
+- Birta staðfestingu aðeins í samhengi þar sem notandi hefur raunverulegan
+  aðgang, t.d. lánaboð frá viðkomandi, sameiginlegt lán eða samþykkt tengsl.
+- Halda allri notendatextagerð í `messages/is.json` og `messages/en.json`.
+- Lesa viðeigandi kafla í `Design.md` áður en UI er útfært.
+- Ekki setja Facebook App ID, secret, access token, callback URL eða provider
+  config í client-kóða, logs eða handahófskenndar skjöl.
 
 **Öryggi og gögn:**
 
 - Þetta snertir auth/account-linking, ytri OAuth provider, secrets og
   persónugögn og þarf því sérstakt plan og rýni áður en framkvæmd hefst.
-- Ef Supabase Auth provider stillingum þarf að breyta skal fá sérstakt samþykki
-  frá Stebba áður en það er gert.
+- Facebook-staðfesting er traustmerki, ekki almenn heimild. Hún má ekki veita
+  aðgang að lánum, tengslum eða notendagögnum.
+- Ekki búa til public directory eða global leit yfir Facebook-tengda notendur í
+  fyrsta áfanga.
+- Ekki geyma OAuth access tokens í public töflu eða client-readable payload.
+- Ef provider metadata er speglað í public schema þarf afmarkað schema/RLS-plan
+  með lágmarksgögnum og skýru sýnileikasamhengi.
+- Ef Supabase Auth provider stillingum, Facebook appi, secrets eða redirect
+  allow-list þarf að breyta skal fá sérstakt samþykki frá Stebba áður en það er
+  gert.
+- Ef SQL migration þarf skal gera rollback/recovery plan og rýna áhrif á RLS,
+  auth, grants, functions, production og notendagögn áður en hún er skrifuð eða
+  keyrð.
+
+**Handoff:** Sjá
+`ai-handoff/2026-07-01-2208-todo-051-v002-codex-facebook-oauth-plan.md`.
 
 **Prófanir:**
 
-- Innskráður notandi getur tengt Facebook við sinn eigin prófíl.
-- Notandi getur aftengt Facebook aftur.
-- Annar notandi sér ekki Facebook gögn sem eiga að vera private.
+- Innskráður notandi getur tengt Facebook við sinn eigin prófíl með OAuth.
+- Notandi getur hætt við OAuth consent og fær skýra, örugga hegðun.
+- Notandi getur aftengt Facebook aftur án þess að missa Teskeið-session.
+- `Minn prófíll` sýnir rétta tengingarstöðu, loading/pending og villur.
+- Viðtakandi lánaboðs sér staðfesta Facebook-stöðu sendanda aðeins ef boðið
+  gefur honum raunverulegt samhengi við sendanda.
+- Annar notandi sér ekki Facebook gögn án heimildarsamhengis.
 - Núverandi kóða-/OTP-innskráning virkar áfram óbreytt.
 - Rangur OAuth callback, hafnað consent og útrunnið state/token fá skýra og
   örugga hegðun.
+- Mobile 360-460 px: prófíl UI, OAuth pending/return, villur og lánaboð sýna
+  enga óvænta zoom-, overflow-, keyboard- eða overlap-villu.
 
 #54
 ## Spjall á hverjum lánaða hlut
@@ -993,12 +1031,89 @@ hitt hlutverkið ef hann þarf að leiðrétta.
 - Pending invitation tilfelli og samþykktur/skilaður hlutur virka áfram.
 - Villumeldingar og pending-state eru skýr en ekki yfirþyrmandi.
 
+#66
+## Flytja lánaðan hlut á annan aðila
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-01
+
+**Forgangur:** Röð 7, eftir #64 og á undan #27. Þetta er næsta praktíska
+aðila-edit þörf í `Minnið`/lánaflæðinu: ekki bara skipta um hvort Stebbi er
+lánveitandi eða lántakandi, heldur breyta hver hinn aðilinn er þegar raunheimur
+breytist eftir að boð hefur verið samþykkt.
+
+**Samhengi frá Stebba:** Stebbi vill geta breytt hver er með í láni / fékk
+lánað. Í dæminu sem Stebbi sendi er `stefanhalldor@gmail.com` búinn að smella á
+`Þekki málið`, en hluturinn endaði svo hjá öðrum aðila. Stebbi vill geta flutt
+hlutinn á þann aðila í staðinn fyrir að loka núverandi láni og stofna nýtt.
+
+**Skjámynd:** Stebbi límdi skjámynd í samtalið af detail-spjaldi fyrir `Sög og
+borvél frá Palla`, þar sem mótaðili er `Stefán Halldór Jónsson` og aðalaction er
+`Merkja sem skilað`.
+
+**Vandamál:** Núverandi flæði virðist gera ráð fyrir að staðfestur mótaðili sé
+orðinn réttur eftir `Þekki málið`. Ef hluturinn endar hjá öðrum þarf notandi að
+loka/skila eldri skráningu og stofna nýja, sem tapar samhengi, sögu og getur
+gert `Minnið` óþarflega bókhaldslegt.
+
+**Ósk:** Bæta við öruggri leið fyrir réttan aðila til að skipta út mótaðila á
+virku láni, svo hluturinn haldi áfram sem sama minnisfærsla með réttri sögu.
+
+**Við útfærslu þarf að skilgreina:**
+
+- Hver má flytja hlut á annan aðila: creator, núverandi lender/borrower, eða
+  aðeins sá sem skráði hlutinn upphaflega.
+- Hvort nýr aðili þarf að samþykkja með `Þekki málið`, eða hvort eigandi má
+  færa beint yfir á þekkt tengsl/netfang.
+- Hvað gerist við gamla staðfesta aðilann:
+  - missir hann strax aðgang að láninu,
+  - heldur hann lesaðgangi að sögu,
+  - eða birtist honum event um að hann sé ekki lengur aðili.
+- Hvernig þetta tengist `loan_invitations`, accepted invitation state,
+  `loan_items.lender_user_id` / `borrower_user_id` og event-sögu.
+- Hvort flæðið á að endurnýta núverandi invitation/claim mechanism eða þurfi
+  sér RPC/server action fyrir transfer.
+- Hvernig UI á að vera á detail/edit-síðu: líklega `Breyta aðila` eða
+  `Flytja á annan` frekar en að blanda þessu saman við `Ég lánaði` /
+  `Ég fékk lánað`.
+- Lesa viðeigandi kafla í `Design.md` áður en UI er plannað eða breytt.
+
+**Öryggi og gögn:**
+
+- Ekki veikja RLS, grants, loan guards eða service-role mörk.
+- Óviðkomandi notandi má ekki geta tekið yfir lán með því að giska á UUID eða
+  slá inn eigið netfang.
+- Ekki skila netföngum eða gömlum/nýjum aðilagögnum til client nema
+  innskráður notandi hafi raunverulegan aðgang.
+- Ef gamall aðili missir aðgang þarf að passa að cached/recent/detail leiðir
+  leki ekki áfram upplýsingum.
+- Transfer þarf að vera idempotent eða hafa skýra vörn gegn tvísmelli og
+  samhliða breytingum.
+- Ef SQL/RPC migration þarf, skal gera sérstakt plan með rollback/recovery og
+  RLS/auth-rýni áður en hún er skrifuð eða keyrð.
+
+**Prófanir:**
+
+- Notandi getur opnað virkt samþykkt lán og valið að flytja hlutinn á annan
+  aðila.
+- Nýr aðili fær skilgreint boð/staðfestingarflæði og sér hlutinn aðeins þegar
+  reglurnar leyfa.
+- Gamall aðili missir eða heldur aðgangi nákvæmlega samkvæmt product-ákvörðun.
+- Saga hlutarins sýnir skýran event um að aðili hafi breyst, þegar #61/event
+  grunnurinn styður það.
+- Detail, listi, `Nýlegt`, unread/read-state og email notification ruglast ekki
+  milli gamla og nýja aðilans.
+- Óviðkomandi authenticated notandi getur hvorki séð né yfirtekið lán.
+- Mobile 360-460 px: aðila-edit UI veldur ekki horizontal overflow,
+  óæskilegu zoomi, keyboard/focus vandamálum eða overlapi.
+
 #27
 ## Mýkra lánaboðsflæði
 
 **Staða:** Bíður eftir áframhaldandi event-, heimilda- og lánaboðavinnu í
-#38/#39/#59/#61, Minnið-orðalagi í #63 og skýrri role-switch upplifun í #64
-áður en full útfærsla hefst
+#38/#39/#59/#61, Minnið-orðalagi í #63, skýrri role-switch upplifun í #64 og
+aðila-transfer ákvörðun í #66 áður en full útfærsla hefst
 
 **Samhengi:** Núverandi lánaboð virka sem sérstakt samþykkisflæði. Viðtakandi
 sér pending boð í sérstöku spjaldi og þarf að fara á claim-síðu áður en hluturinn
