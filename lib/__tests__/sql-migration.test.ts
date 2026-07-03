@@ -926,3 +926,87 @@ describe('sql/65_fix_switch_loan_role_security_definer.sql — static checks', (
     expect(returnsBlock).toMatch(/pending_user_ids\s+uuid\[\]/)
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/68 feature_access_vedrid
+// ============================================================
+
+const sql68 = readFileSync(
+  join(process.cwd(), 'sql/68_feature_access_vedrid.sql'),
+  'utf8'
+)
+
+describe('sql/68_feature_access_vedrid.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql68).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql68).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops the old constraint before adding the new one', () => {
+    const dropPos = sql68.indexOf('DROP CONSTRAINT IF EXISTS feature_access_feature_key_check')
+    const addPos  = sql68.indexOf('ADD CONSTRAINT feature_access_feature_key_check', dropPos)
+    expect(dropPos).toBeGreaterThan(-1)
+    expect(addPos).toBeGreaterThan(dropPos)
+  })
+
+  it('new constraint allows umonnun, tengsl, facebook-oauth, and vedrid', () => {
+    expect(sql68).toMatch(/CHECK\s*\(feature_key IN \('umonnun',\s*'tengsl',\s*'facebook-oauth',\s*'vedrid'\)\)/)
+  })
+
+  it('does not touch grants, RLS, or data', () => {
+    expect(sql68).not.toMatch(/GRANT/)
+    expect(sql68).not.toMatch(/REVOKE/)
+    expect(sql68).not.toMatch(/ENABLE ROW LEVEL SECURITY/)
+    expect(sql68).not.toMatch(/INSERT|UPDATE|DELETE/)
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/67 weather_cache table
+// ============================================================
+
+const sql67 = readFileSync(
+  join(process.cwd(), 'sql/67_weather_cache.sql'),
+  'utf8'
+)
+
+describe('sql/67_weather_cache.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql67).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql67).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('creates the weather_cache table', () => {
+    expect(sql67).toMatch(/CREATE TABLE IF NOT EXISTS public\.weather_cache/)
+  })
+
+  it('has cache_key as PRIMARY KEY', () => {
+    expect(sql67).toMatch(/cache_key\s+text\s+PRIMARY KEY/)
+  })
+
+  it('has expires_at timestamptz column', () => {
+    expect(sql67).toMatch(/expires_at\s+timestamptz/)
+  })
+
+  it('has last_modified text column for HTTP cache headers', () => {
+    expect(sql67).toMatch(/last_modified\s+text/)
+  })
+
+  it('enables RLS on the table', () => {
+    expect(sql67).toMatch(/ALTER TABLE public\.weather_cache ENABLE ROW LEVEL SECURITY/)
+  })
+
+  it('does not define any RLS policies (service_role bypasses RLS)', () => {
+    expect(sql67).not.toMatch(/CREATE POLICY/)
+  })
+
+  it('revokes all access from PUBLIC, anon, authenticated', () => {
+    expect(sql67).toMatch(/REVOKE ALL ON public\.weather_cache FROM PUBLIC, anon, authenticated/)
+  })
+
+  it('grants only to service_role', () => {
+    expect(sql67).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON public\.weather_cache TO service_role/)
+    expect(sql67).not.toMatch(/GRANT.*TO anon/)
+    expect(sql67).not.toMatch(/GRANT.*TO authenticated/)
+  })
+})

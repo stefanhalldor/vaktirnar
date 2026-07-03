@@ -100,6 +100,12 @@ describe('GET /api/admin/feature-access — auth', () => {
     expect(res.status).toBe(200)
   })
 
+  it('returns 200 for ?feature=vedrid', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('vedrid'))
+    expect(res.status).toBe(200)
+  })
+
   it('returns 400 for unknown ?feature=badkey', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
     const res = await GET(makeGetRequest('badkey'))

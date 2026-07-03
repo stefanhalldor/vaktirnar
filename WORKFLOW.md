@@ -45,6 +45,14 @@ Claude Code má hjálpa Stebba og Codex að meta tæknilega útfærslu, benda á
 
 Codex framkvæmir ekki kóðabreytingar nema Stebbi biðji sérstaklega um það. Codex má og á að hjálpa Stebba að hugsa upphátt, brainstorma, móta hugmyndir, einfalda þær, finna áhættur og breyta óljósri pælingu í skýrt plan fyrir Claude Code.
 
+Í stærri málum, rýnihringjum og planagerð er lykilhlutverk Codex að breyta
+niðurstöðunni í handoff/review/plan skrá í `ai-handoff/` þegar næsta eðlilega
+skref er að Stebbi sendi niðurstöðu áfram til Claude Code eða varðveiti
+ákvarðanir. Stebbi á ekki að þurfa að biðja sérstaklega um handoff skrá í
+hvert skipti. Codex á að búa hana til sjálfgefið nema Stebbi biðji sérstaklega
+um að fá aðeins stutt samtalssvar, málið sé greinilega smátt eða skrá sé
+óviðeigandi.
+
 ---
 
 ## Orðalag
@@ -181,15 +189,27 @@ Ef aðgerðin getur haft áhrif á Supabase, production gögn, auth/login, secre
 
 ## Réttur tími í handoff skjölum
 
-- Þegar Codex eða Claude Code búa til handoff/review/plan skrá, eiga þeir alltaf að sækja réttan núverandi tíma sjálfir áður en filename er ákveðið.
+**Hard rule: Claude Code VERÐUR að keyra tímaskipun áður en handoff skrá er búin til.
+Giska á tíma, nota fyrri tíma eða nota tíma úr dæmum er bönnuð.**
+
+Claude Code keyrir þessa skipun rétt áður en skráin er búin til:
+
+```bash
+TZ="Atlantic/Reykjavik" date "+%Y-%m-%d %H:%M"
+```
+
+Síðan er úttakið notað bæði í filename og í `Created:` línu inni í skjalinu.
+Þetta á við um HVERT handoff/review/plan skjal, án undantekninga.
+
+Önnur reglur:
+
 - Ekki má giska á dagsetningu eða tíma.
-- Ekki má endurnýta dagsetningu eða tíma úr dæmum.
+- Ekki má endurnýta dagsetningu eða tíma úr dæmum eða fyrri skjölum.
 - `YYYY-MM-DD-HHMM` í filename á að endurspegla raunverulegan tíma þegar skráin er búin til.
-- Nota skal staðartíma verkefnisins/Stebba (Atlantic/Reykjavik) ef ekki er annað tekið fram.
-- Claude Code nær í raunverulegan tíma með bash skipun: `date +%H%M`
+- Nota skal staðartíma verkefnisins/Stebba (Atlantic/Reykjavik).
 - Í handoff skjalinu sjálfu á einnig að koma fram:
-  - Created: `YYYY-MM-DD HH:MM`
-  - Timezone: `Atlantic/Reykjavik`
+  - `Created: YYYY-MM-DD HH:MM`
+  - `Timezone: Atlantic/Reykjavik`
 
 ---
 
@@ -218,6 +238,14 @@ Ef aðgerðin getur haft áhrif á Supabase, production gögn, auth/login, secre
 ## Handoff skjöl
 
 - Þegar málið er stærra, eiga stærri plön, review, áhættumat og stöðuskil að fara í `ai-handoff/`.
+- Að búa til nýja Markdown handoff/review/plan skrá í `ai-handoff/` er hluti
+  af ráðgjafarhlutverki Codex í stærri verkefnum og krefst ekki sérstakrar
+  framkvæmdarbeiðni í hvert skipti þegar Stebbi er í rýni-, plan- eða
+  handoff-hring.
+- Þessi regla heimilar aðeins ný handoff/review/plan skjöl í `ai-handoff/`.
+  Hún heimilar ekki kóðabreytingar, SQL, migrations, env-breytingar,
+  Supabase-breytingar, `TODO.md`/`DONE.md` breytingar, commit, push, deploy eða
+  production-breytingar.
 - Lesa skal `ai-handoff/README.md` áður en ný handoff skrá er búin til.
 - Codex og Claude Code eiga ekki að yfirskrifa skrár hvors annars.
 - Nota skal eina skrá per handoff/review.

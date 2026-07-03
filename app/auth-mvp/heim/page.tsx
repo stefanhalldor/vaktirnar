@@ -58,9 +58,10 @@ export default async function HeimPage() {
     // createClient() failed — fall through to defaults
   }
 
-  const [loansEnabled, umonnunEnabled] = await Promise.all([
+  const [loansEnabled, umonnunEnabled, weatherEnabled] = await Promise.all([
     checkFeatureAccess(user.id, user.email!, 'lanad-og-skilad'),
     checkFeatureAccess(user.id, user.email!, 'umonnun'),
+    checkFeatureAccess(user.id, user.email!, 'vedrid'),
   ])
 
   const displayLocale = getDisplayLocale(locale)
@@ -68,6 +69,7 @@ export default async function HeimPage() {
   const READY_TESKEID_ROUTES: Record<string, { href: string; enabled: boolean }> = {
     'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', enabled: loansEnabled },
     'umonnun':         { href: '/auth-mvp/umonnun',         enabled: umonnunEnabled },
+    'vedrid':          { href: '/auth-mvp/vedrid',          enabled: weatherEnabled },
   }
 
   const launchedIdeas = allIdeas.filter((i) => i.status === 'launched')

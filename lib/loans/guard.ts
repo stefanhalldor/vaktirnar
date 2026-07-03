@@ -67,6 +67,11 @@ export async function checkFeatureAccess(
     if (process.env.FACEBOOK_OAUTH_FLAG !== 'true') return true
     return checkPerUserAccess(email, 'facebook-oauth')
   }
+  if (featureKey === 'vedrid') {
+    if (process.env.WEATHER_ENABLED !== 'true') return false
+    if (process.env.WEATHER_FLAG !== 'true') return true
+    return checkPerUserAccess(email, 'vedrid')
+  }
   return false
 }
 

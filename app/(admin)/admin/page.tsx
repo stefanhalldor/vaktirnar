@@ -118,7 +118,7 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 type FeatureAccessEntry = { email: string; granted_at: string }
 
 interface FeatureAccessSectionProps {
-  featureKey: 'umonnun' | 'tengsl'
+  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid'
   heading: string
   flagName: string
 }
@@ -1385,6 +1385,11 @@ export default function AdminPage() {
             featureKey="tengsl"
             heading="Tengsl-aðgangur"
             flagName="TENGSL_FLAG"
+          />
+          <FeatureAccessSection
+            featureKey="vedrid"
+            heading="Veðrið-aðgangur"
+            flagName="WEATHER_FLAG"
           />
         </div>
       </div>

@@ -503,6 +503,143 @@ describe('guardFeatureAccess — facebook-oauth', () => {
   })
 })
 
+// ── checkFeatureAccess — vedrid ───────────────────────────────────────────────
+
+describe('checkFeatureAccess — vedrid (global kill-switch)', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedFlag = process.env.WEATHER_FLAG
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_FLAG', savedFlag)
+  })
+
+  it('returns false when WEATHER_ENABLED is not set', async () => {
+    delete process.env.WEATHER_ENABLED
+    delete process.env.WEATHER_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
+  })
+
+  it('returns false when WEATHER_ENABLED=false', async () => {
+    process.env.WEATHER_ENABLED = 'false'
+    delete process.env.WEATHER_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
+  })
+
+  it('returns true when WEATHER_ENABLED=true and FLAG unset (open to all)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    delete process.env.WEATHER_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+
+  it('returns true when WEATHER_ENABLED=true and FLAG=false (open to all)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_FLAG = 'false'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+})
+
+describe('checkFeatureAccess — vedrid (per-user FLAG=true)', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedFlag = process.env.WEATHER_FLAG
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_FLAG = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_FLAG', savedFlag)
+  })
+
+  it('returns true when row exists in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+
+  it('returns false when no row in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
+  })
+
+  it('returns false when DB query returns an error (fail-closed)', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'connection refused' } })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
+  })
+
+  it('returns false for invalid email', async () => {
+    expect(await checkFeatureAccess('uid', 'not-an-email', 'vedrid')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns false when query throws an exception (fail-closed)', async () => {
+    mockFeatureAccessQuery.mockRejectedValue(new Error('DB connection error'))
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
+  })
+})
+
+// ── guardFeatureAccess — vedrid ───────────────────────────────────────────────
+
+describe('guardFeatureAccess — vedrid', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedFlag = process.env.WEATHER_FLAG
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_FLAG', savedFlag)
+  })
+
+  it('redirects to / when WEATHER_ENABLED is not set', async () => {
+    delete process.env.WEATHER_ENABLED
+    delete process.env.WEATHER_FLAG
+    await expect(guardFeatureAccess('user@example.com', 'vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('redirects to / when WEATHER_ENABLED=false', async () => {
+    process.env.WEATHER_ENABLED = 'false'
+    delete process.env.WEATHER_FLAG
+    await expect(guardFeatureAccess('user@example.com', 'vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('does not redirect when WEATHER_ENABLED=true and FLAG unset', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    delete process.env.WEATHER_FLAG
+    await expect(guardFeatureAccess('user@example.com', 'vedrid')).resolves.toBeUndefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it('redirects when FLAG=true and user not in feature_access', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_FLAG = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    await expect(guardFeatureAccess('user@example.com', 'vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('does not redirect when FLAG=true and user is in feature_access', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_FLAG = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    await expect(guardFeatureAccess('user@example.com', 'vedrid')).resolves.toBeUndefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+})
+
 // ── guardLoanAccess ───────────────────────────────────────────────────────────
 
 describe('guardLoanAccess — feature flags', () => {

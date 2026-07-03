@@ -568,6 +568,28 @@
           "updateFailed": "Failed to update. Please try again."
         }
       }
+    },
+    "vedrid": {
+      "title": "Weather",
+      "backLink": "Back",
+      "prompt": "Ask about the weather",
+      "placeholder": "E.g.: Is it good grilling weather in Reykjavík tonight?",
+      "submit": "Ask",
+      "submitting": "Searching...",
+      "errorGeneral": "Something went wrong. Please try again.",
+      "errorUnsupportedIntent": "This type of question is not supported yet. Try e.g.: \"Is it good grilling weather in Reykjavík tonight?\"",
+      "errorUnknownPlace": "I don't recognise that place. Try e.g. Mósó, Reykjavík or Grafarholt.",
+      "errorForecastUnavailable": "Weather forecast unavailable. Please try again.",
+      "errorProviderNotConfigured": "Route weather forecasting is in development — this feature is coming soon.",
+      "statusGraent": "Good",
+      "statusGult": "Fair",
+      "statusRautt": "Poor",
+      "whyLabel": "Why?",
+      "aiSource": "This forecast was processed using AI.",
+      "attribution": "Weather data from the Icelandic Met Office via met.no",
+      "exampleQuestion1": "Is it good grilling weather in Reykjavík tonight?",
+      "exampleQuestion2": "Is it good grilling weather in Selfoss tomorrow?",
+      "exampleQuestion3": "Is it good grilling weather in Akureyri this afternoon?"
     }
   }
 }

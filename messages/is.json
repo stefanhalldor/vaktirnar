@@ -572,6 +572,28 @@
           "updateFailed": "Villa við vistun. Reyndu aftur."
         }
       }
+    },
+    "vedrid": {
+      "title": "Veðrið",
+      "backLink": "Til baka",
+      "prompt": "Spurðu um veðrið",
+      "placeholder": "T.d.: Er grillveður í Mósó í kvöld?",
+      "submit": "Spyrja",
+      "submitting": "Leita...",
+      "errorGeneral": "Eitthvað fór úrskeiðis. Reyndu aftur.",
+      "errorUnsupportedIntent": "Þessi tegund spurningar er ekki studd enn. Prófaðu t.d.: \"Er grillveður í Mósó í kvöld?\"",
+      "errorUnknownPlace": "Þetta staðarheiti þekki ég ekki. Prófaðu t.d. Mósó, Reykjavík eða Grafarholt.",
+      "errorForecastUnavailable": "Veðurspá ekki aðgengileg. Reyndu aftur.",
+      "errorProviderNotConfigured": "Veðurspá á leiðinni er í þróun — þessi virkni kemur síðar.",
+      "statusGraent": "Gott",
+      "statusGult": "Meðgótt",
+      "statusRautt": "Slæmt",
+      "whyLabel": "Af hverju?",
+      "aiSource": "Veðurspáin er unnin með gervigreind.",
+      "attribution": "Veðurgögn frá Veðurstofu Íslands í gegnum met.no",
+      "exampleQuestion1": "Er grillveður í Mósó í kvöld?",
+      "exampleQuestion2": "Er grillveður í Reykjavík á morgun?",
+      "exampleQuestion3": "Er grillveður í Selfoss seinnipartinn?"
     }
   }
 }
