@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { checkGrillWeather, checkGolfWindow } from '@/lib/weather/tools'
+import { checkGrillWeather, checkGolfWindow, checkRouteWeather } from '@/lib/weather/tools'
 import type { HourPoint } from '@/lib/weather/types'
 
 function makeHour(overrides: Partial<HourPoint> = {}): HourPoint {
@@ -410,6 +410,187 @@ describe('checkGrillWeather — result shape', () => {
       fromIso: FROM,
       toIso: TO,
     })
+    expect(result.timeWindow?.from).toBe(FROM)
+    expect(result.timeWindow?.to).toBe(TO)
+  })
+})
+
+// ── checkRouteWeather ─────────────────────────────────────────────────────────
+
+// Route thresholds: cautionWindMs=13, redWindMs=18, redGustMs=25
+
+function makeRouteInput(
+  windMs: number,
+  gustMs: number,
+  precipMmPerHour = 0,
+  pointCount = 3,
+) {
+  const hours = Array.from({ length: pointCount }, (_, i) =>
+    makeHour({
+      time: `2026-07-03T${(18 + i).toString().padStart(2, '0')}:00:00Z`,
+      windSpeedMs: windMs,
+      windGustMs: gustMs,
+      precipitationMmPerHour: precipMmPerHour,
+    })
+  )
+  return {
+    trailerKind: 'caravan' as const,
+    originName: 'Reykjavík',
+    destinationName: 'Akureyri',
+    distanceM: 380000,
+    durationS: 14400,
+    pointForecasts: Array.from({ length: pointCount }, () => ({ hours })),
+    fromIso: FROM,
+    toIso: TO,
+  }
+}
+
+describe('checkRouteWeather — stada graent', () => {
+  it('returns graent when wind and precip are below thresholds', () => {
+    const result = checkRouteWeather(makeRouteInput(10, 12))
+    expect(result.stada).toBe('graent')
+    expect(result.source).toBe('deterministic')
+    expect(result.toolName).toBe('checkRouteWeather')
+  })
+
+  it('includes route names in svar', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 8))
+    expect(result.svar).toContain('Reykjavík')
+    expect(result.svar).toContain('Akureyri')
+  })
+
+  it('includes point count in svar', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 8, 0, 5))
+    expect(result.svar).toContain('5')
+  })
+
+  it('wind at 12 m/s is not gult', () => {
+    const result = checkRouteWeather(makeRouteInput(12, 14))
+    expect(result.stada).toBe('graent')
+  })
+})
+
+describe('checkRouteWeather — stada gult (caution wind)', () => {
+  it('returns gult when wind reaches cautionWindMs (13 m/s)', () => {
+    const result = checkRouteWeather(makeRouteInput(13, 16))
+    expect(result.stada).toBe('gult')
+    expect(result.reasonCode).toBe('caution_wind_trailer')
+    expect(result.suggestedAction).toBeDefined()
+  })
+
+  it('returns gult when wind exceeds cautionWindMs', () => {
+    const result = checkRouteWeather(makeRouteInput(15, 18))
+    expect(result.stada).toBe('gult')
+  })
+
+  it('returns gult on precipitation even with calm wind', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 7, 0.5))
+    expect(result.stada).toBe('gult')
+    expect(result.reasonCode).toBe('precipitation')
+  })
+
+  it('precipitation at exactly 0.1 mm/h is not gult', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 7, 0.1))
+    expect(result.stada).not.toBe('gult')
+  })
+})
+
+describe('checkRouteWeather — stada rautt (too windy)', () => {
+  it('returns rautt when wind reaches redWindMs (18 m/s)', () => {
+    const result = checkRouteWeather(makeRouteInput(18, 22))
+    expect(result.stada).toBe('rautt')
+    expect(result.reasonCode).toBe('too_windy_trailer')
+  })
+
+  it('returns rautt when gust reaches redGustMs (25 m/s)', () => {
+    const result = checkRouteWeather(makeRouteInput(16, 25))
+    expect(result.stada).toBe('rautt')
+    expect(result.reasonCode).toBe('too_windy_trailer')
+  })
+
+  it('wind value appears in rautt svar', () => {
+    const result = checkRouteWeather(makeRouteInput(20, 26))
+    expect(result.svar).toContain('20')
+  })
+})
+
+describe('checkRouteWeather — worst-case aggregation', () => {
+  it('uses max wind across all route points', () => {
+    const calmHours = [makeHour({ time: FROM, windSpeedMs: 5, windGustMs: 7 })]
+    const windyHours = [makeHour({ time: FROM, windSpeedMs: 19, windGustMs: 24 })]
+    const result = checkRouteWeather({
+      trailerKind: 'caravan',
+      originName: 'Selfoss',
+      destinationName: 'Reykjavík',
+      distanceM: 50000,
+      durationS: 2400,
+      pointForecasts: [{ hours: calmHours }, { hours: windyHours }],
+      fromIso: FROM,
+      toIso: TO,
+    })
+    expect(result.stada).toBe('rautt')
+  })
+})
+
+describe('checkRouteWeather — horse_trailer caveat', () => {
+  it('includes horse trailer note in facts for horse_trailer kind', () => {
+    const input = { ...makeRouteInput(5, 8), trailerKind: 'horse_trailer' as const }
+    const result = checkRouteWeather(input)
+    expect(result.facts!.some((f) => f.includes('Hestakerra'))).toBe(true)
+  })
+
+  it('does not include horse trailer note for caravan kind', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 8))
+    expect(result.facts!.some((f) => f.includes('Hestakerra'))).toBe(false)
+  })
+})
+
+describe('checkRouteWeather — disclosure', () => {
+  it('includes legal disclaimer in facts', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 8))
+    expect(result.facts!.some((f) => f.includes('veðurmat'))).toBe(true)
+  })
+
+  it('includes point count in facts', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 8, 0, 4))
+    expect(result.facts!.some((f) => f.includes('4'))).toBe(true)
+  })
+
+  it('includes distance and duration in facts', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 8))
+    // 380000m = 380 km, 14400s = 4h
+    expect(result.facts![0]).toContain('380')
+    expect(result.facts![0]).toContain('4')
+  })
+})
+
+describe('checkRouteWeather — no data', () => {
+  it('returns gult with no_data when all hours are outside time window', () => {
+    const futureHour = makeHour({ time: '2026-07-05T12:00:00Z' })
+    const result = checkRouteWeather({
+      trailerKind: 'caravan',
+      originName: 'Reykjavík',
+      destinationName: 'Selfoss',
+      distanceM: 50000,
+      durationS: 2400,
+      pointForecasts: [{ hours: [futureHour] }, { hours: [futureHour] }],
+      fromIso: FROM,
+      toIso: TO,
+    })
+    expect(result.stada).toBe('gult')
+    expect(result.reasonCode).toBe('no_data')
+    expect(result.svar).toContain('Reykjavík')
+    expect(result.svar).toContain('Selfoss')
+  })
+})
+
+describe('checkRouteWeather — result shape', () => {
+  it('id starts with dr_', () => {
+    expect(checkRouteWeather(makeRouteInput(5, 8)).id).toMatch(/^dr_/)
+  })
+
+  it('includes timeWindow', () => {
+    const result = checkRouteWeather(makeRouteInput(5, 8))
     expect(result.timeWindow?.from).toBe(FROM)
     expect(result.timeWindow?.to).toBe(TO)
   })

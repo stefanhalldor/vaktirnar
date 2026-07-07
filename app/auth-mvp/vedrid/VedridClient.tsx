@@ -1,16 +1,22 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, CloudSun, ChevronDown, ChevronUp } from 'lucide-react'
+import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
+import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import type { WeatherAnswerEnvelope, WeatherStatus } from '@/lib/weather/types'
+import { MapConfirmation } from '@/components/weather/MapConfirmation'
+import { PlaceSearch, type PlaceResult } from '@/components/weather/PlaceSearch'
 
 const STATUS_STYLES: Record<WeatherStatus, { dot: string; label: string }> = {
   graent: { dot: 'bg-[#2d5a27]', label: 'text-[#2d5a27]' },
   gult:   { dot: 'bg-amber-500', label: 'text-amber-700' },
   rautt:  { dot: 'bg-destructive', label: 'text-destructive' },
 }
+
+type ConfirmedPlace = { name: string; lat: number; lon: number }
 
 export function VedridClient() {
   const t = useTranslations('teskeid.vedrid')
@@ -24,21 +30,25 @@ export function VedridClient() {
   const [result, setResult] = useState<WeatherAnswerEnvelope | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [showPlaceSearch, setShowPlaceSearch] = useState(false)
+  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!question.trim() || loading) return
+  const submitQuestion = useCallback(async (q: string, confirmedPlace?: ConfirmedPlace) => {
     setLoading(true)
     setResult(null)
     setError(null)
     setShowDetails(false)
+    setShowPlaceSearch(false)
 
     try {
       const res = await fetch('/api/teskeid/weather/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: question.trim() }),
+        body: JSON.stringify({
+          question: q,
+          confirmedPlace: confirmedPlace ?? undefined,
+        }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -47,17 +57,33 @@ export function VedridClient() {
           unknown_place: 'errorUnknownPlace',
           forecast_unavailable: 'errorForecastUnavailable',
           provider_not_configured: 'errorProviderNotConfigured',
+          unknown_route: 'errorUnknownRoute',
+          route_unavailable: 'errorRouteUnavailable',
         }
-        const key = errorCodeKeys[data?.error] ?? 'errorGeneral'
-        setError(t(key))
+        // unknown_place with a pending question → offer PlaceSearch
+        if (data?.error === 'unknown_place') {
+          setPendingQuestion(q)
+          setShowPlaceSearch(true)
+          setError(t('errorUnknownPlace'))
+        } else {
+          const key = errorCodeKeys[data?.error] ?? 'errorGeneral'
+          setError(t(key))
+        }
       } else {
         setResult(data as WeatherAnswerEnvelope)
+        setPendingQuestion(q)
       }
     } catch {
       setError(t('errorGeneral'))
     } finally {
       setLoading(false)
     }
+  }, [t])
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!question.trim() || loading) return
+    await submitQuestion(question.trim())
   }
 
   function handleChip(q: string) {
@@ -65,8 +91,19 @@ export function VedridClient() {
     textareaRef.current?.focus()
   }
 
+  function handlePlaceSelected(place: PlaceResult) {
+    setShowPlaceSearch(false)
+    const q = pendingQuestion ?? question.trim()
+    submitQuestion(q, { name: place.name, lat: place.lat, lon: place.lon })
+  }
+
+  function handleChangePlace() {
+    setShowPlaceSearch(true)
+  }
+
   const status = result?.deterministic.stada
   const statusStyle = status ? STATUS_STYLES[status] : null
+  const placeInfo = result?.place
 
   return (
     <div className="min-h-screen bg-background">
@@ -81,11 +118,15 @@ export function VedridClient() {
           >
             <ChevronLeft size={20} aria-hidden />
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-2">
             <CloudSun size={20} className="text-primary" aria-hidden />
             <h1 className="text-lg font-semibold text-primary">{t('title')}</h1>
           </div>
+          <TeskeidMenu variant="authenticated" />
         </div>
+
+        {/* Beta banner */}
+        <WeatherBetaBanner />
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -128,8 +169,16 @@ export function VedridClient() {
           </button>
         </form>
 
-        {/* Error */}
-        {error && (
+        {/* Place search — shown on unknown_place or when user clicks "Breyta stað" */}
+        {showPlaceSearch && (
+          <PlaceSearch
+            onPlaceSelected={handlePlaceSelected}
+            onCancel={() => setShowPlaceSearch(false)}
+          />
+        )}
+
+        {/* Error (shown alongside PlaceSearch for unknown_place) */}
+        {error && !showPlaceSearch && (
           <p role="alert" className="text-sm text-destructive bg-destructive/10 rounded-xl px-4 py-3">
             {error}
           </p>
@@ -177,6 +226,17 @@ export function VedridClient() {
                     )}
                   </ul>
                 )}
+              </div>
+            )}
+
+            {/* Map confirmation */}
+            {placeInfo?.staticMapUrl && !showPlaceSearch && (
+              <div className="border-t border-border pt-3">
+                <MapConfirmation
+                  placeName={placeInfo.name}
+                  staticMapUrl={placeInfo.staticMapUrl}
+                  onChangePlace={handleChangePlace}
+                />
               </div>
             )}
           </div>

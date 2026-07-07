@@ -83,7 +83,32 @@ describe('parseMetnoForecast', () => {
     }
     const result = parseMetnoForecast(raw)
     expect(result[0].symbolCode).toBe('rain')
-    expect(result[0].precipitationMmPerHour).toBe(2)
+    // next_6_hours.precipitation_amount is a 6-hour total; divide by 6 for mm/hour
+    expect(result[0].precipitationMmPerHour).toBeCloseTo(2 / 6, 5)
+  })
+
+  it('divides next_6_hours precipitation by 6 to get mm/hour', () => {
+    const raw = {
+      properties: {
+        timeseries: [{
+          time: '2026-07-03T18:00:00Z',
+          data: {
+            instant: { details: { air_temperature: 10, wind_speed: 3 } },
+            next_6_hours: {
+              summary: { symbol_code: 'rain' },
+              details: { precipitation_amount: 6.0 },
+            },
+          },
+        }],
+      },
+    }
+    const result = parseMetnoForecast(raw)
+    expect(result[0].precipitationMmPerHour).toBeCloseTo(1.0, 5)
+  })
+
+  it('does not divide next_1_hours precipitation', () => {
+    const result = parseMetnoForecast(makeRaw({ precipitation_amount: 0.7 }))
+    expect(result[0].precipitationMmPerHour).toBe(0.7)
   })
 
   it('returns empty array for empty timeseries', () => {

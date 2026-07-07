@@ -41,7 +41,13 @@ export function parseMetnoForecast(raw: unknown): HourPoint[] {
     const next1 = ts.data?.next_1_hours
     const next6 = ts.data?.next_6_hours
     const symbolCode = next1?.summary?.symbol_code ?? next6?.summary?.symbol_code ?? 'clearsky_day'
-    const precipitation = next1?.details?.precipitation_amount ?? next6?.details?.precipitation_amount ?? 0
+    const next1Precip = next1?.details?.precipitation_amount
+    const next6Precip = next6?.details?.precipitation_amount
+    const precipitation = next1Precip !== undefined
+      ? next1Precip
+      : next6Precip !== undefined
+        ? next6Precip / 6
+        : 0
 
     return {
       time: ts.time,

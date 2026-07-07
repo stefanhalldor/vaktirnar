@@ -239,9 +239,14 @@ Síðan er úttakið notað bæði í filename og í `Created:` línu inni í sk
 
 - Þegar málið er stærra, eiga stærri plön, review, áhættumat og stöðuskil að fara í `ai-handoff/`.
 - Að búa til nýja Markdown handoff/review/plan skrá í `ai-handoff/` er hluti
-  af ráðgjafarhlutverki Codex í stærri verkefnum og krefst ekki sérstakrar
-  framkvæmdarbeiðni í hvert skipti þegar Stebbi er í rýni-, plan- eða
-  handoff-hring.
+  af ráðgjafarhlutverki Codex **og Claude Code** í stærri verkefnum og krefst
+  ekki sérstakrar framkvæmdarbeiðni í hvert skipti þegar Stebbi er í rýni-,
+  plan- eða handoff-hring.
+- **Claude Code á alltaf að skrifa rýni, stöðumat, plan og svör við handoff
+  skrám í `ai-handoff/` skrá — ekki beint í spjallgluggann.** Þetta á við þegar
+  Stebbi biður Claude Code um að lesa handoff, gera rýni eða meta stöðu. Einzar
+  undantekningar: stutt staðfestingarspurningar (já/nei), eða ef Stebbi biður
+  sérstaklega um stutt samtalssvar.
 - Þessi regla heimilar aðeins ný handoff/review/plan skjöl í `ai-handoff/`.
   Hún heimilar ekki kóðabreytingar, SQL, migrations, env-breytingar,
   Supabase-breytingar, `TODO.md`/`DONE.md` breytingar, commit, push, deploy eða

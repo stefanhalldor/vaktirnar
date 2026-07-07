@@ -1,4 +1,5 @@
 import type { HourPoint, DeterministicResult, GolfWindow, WeatherStatus } from './types'
+import type { TrailerKind } from './question'
 import { WEATHER_THRESHOLDS } from './thresholds'
 import { filterHours } from './forecast'
 
@@ -152,6 +153,105 @@ export function checkGolfWindow(input: GolfInput): DeterministicResult {
   }
 }
 
+// ── Route weather ─────────────────────────────────────────────────────────────
+
+export type RouteWeatherInput = {
+  trailerKind: TrailerKind
+  originName: string
+  destinationName: string
+  distanceM: number
+  durationS: number
+  pointForecasts: Array<{ hours: HourPoint[] }>
+  fromIso: string
+  toIso: string
+}
+
+export function checkRouteWeather(input: RouteWeatherInput): DeterministicResult {
+  const { trailerKind, originName, destinationName, distanceM, durationS, pointForecasts, fromIso, toIso } = input
+
+  const distanceKm = Math.round(distanceM / 1000)
+  const durationH = Math.round(durationS / 3600)
+  const routeDesc = `${originName} → ${destinationName} (${distanceKm} km, um ${durationH} klst.)`
+
+  let worstWindMs = 0
+  let worstGustMs = 0
+  let worstPrecipMmPerHour = 0
+  let hasData = false
+
+  for (const { hours } of pointForecasts) {
+    const filtered = filterHours(hours, fromIso, toIso)
+    if (filtered.length === 0) continue
+    hasData = true
+    worstWindMs = Math.max(worstWindMs, ...filtered.map((h) => h.windSpeedMs))
+    worstGustMs = Math.max(worstGustMs, ...filtered.map((h) => h.windGustMs))
+    worstPrecipMmPerHour = Math.max(worstPrecipMmPerHour, ...filtered.map((h) => h.precipitationMmPerHour))
+  }
+
+  if (!hasData) {
+    return {
+      id: makeId(),
+      source: 'deterministic',
+      toolName: 'checkRouteWeather',
+      createdAt: new Date().toISOString(),
+      svar: `Engar veðurspár fundust fyrir leiðina ${originName} → ${destinationName}.`,
+      stada: 'gult',
+      reasonCode: 'no_data',
+      timeWindow: { from: fromIso, to: toIso },
+    }
+  }
+
+  const { cautionWindMs, redWindMs, redGustMs } = WEATHER_THRESHOLDS.caravan
+
+  let stada: WeatherStatus = 'graent'
+  let reasonCode: string | undefined
+  let suggestedAction: string | undefined
+
+  if (worstWindMs >= redWindMs || worstGustMs >= redGustMs) {
+    stada = 'rautt'
+    reasonCode = 'too_windy_trailer'
+    suggestedAction = 'Hættulegt að aka með eftirvagn í þessum vindum.'
+  } else if (worstWindMs >= cautionWindMs || worstPrecipMmPerHour > WEATHER_THRESHOLDS.dry.maxPrecipMmPerHour) {
+    stada = 'gult'
+    reasonCode = worstWindMs >= cautionWindMs ? 'caution_wind_trailer' : 'precipitation'
+    suggestedAction = 'Gaumgæfni ráðlögð. Vindur getur valdið óstöðugleika á eftirvagni.'
+  }
+
+  const pointCount = pointForecasts.length
+
+  const svar =
+    stada === 'rautt'
+      ? `Hættulegt að aka með eftirvagn á leiðinni ${routeDesc}. Vindur nær ${worstWindMs.toFixed(0)} m/s á einhverjum stöðum.`
+      : stada === 'gult'
+      ? `Óþægilegar aðstæður á leiðinni ${routeDesc}. Skoðaði ${pointCount} veðurpunkta.`
+      : `Veðrið lítur vel út á leiðinni ${routeDesc}. Skoðaði ${pointCount} veðurpunkta.`
+
+  const facts: string[] = [
+    `Leið: ${routeDesc}`,
+    `Skoðaði ${pointCount} veðurpunkta á leiðinni`,
+    `Versti vindur: ${worstWindMs.toFixed(1)} m/s (hviður: ${worstGustMs.toFixed(1)} m/s)`,
+    `Mesta úrkoma: ${worstPrecipMmPerHour.toFixed(1)} mm/klst`,
+  ]
+
+  if (trailerKind === 'horse_trailer') {
+    facts.push('Hestakerra: gæti krafist sérstaks ökuréttindaflokks (BE) og er viðkvæmari fyrir hliðarvindum.')
+  }
+
+  facts.push('Þetta er veðurmat, ekki umferðar- eða farartrygging.')
+
+  return {
+    id: makeId(),
+    source: 'deterministic',
+    toolName: 'checkRouteWeather',
+    createdAt: new Date().toISOString(),
+    svar,
+    stada,
+    reasonCode,
+    facts,
+    suggestedAction,
+    timeWindow: { from: fromIso, to: toIso },
+  }
+}
+
 // ── Grill ────────────────────────────────────────────────────────────────────
 
 export type GrillInput = {
@@ -196,7 +296,7 @@ export function checkGrillWeather(input: GrillInput): DeterministicResult {
   if (maxWind > WEATHER_THRESHOLDS.grill.tooWindyMs) {
     stada = 'rautt'
     reasonCode = 'too_windy'
-    suggestedAction = 'Ekki mælt með grilli. Vindurinn er of sterkur.'
+    suggestedAction = 'Hættulegt að grilla. Vindurinn er of sterkur.'
   } else if (maxPrecip > WEATHER_THRESHOLDS.dry.maxPrecipMmPerHour) {
     stada = 'gult'
     reasonCode = 'precipitation'
@@ -212,7 +312,7 @@ export function checkGrillWeather(input: GrillInput): DeterministicResult {
       ? `Já, þetta lítur vel út til að grilla í ${placeName}!`
       : stada === 'gult'
       ? `Mögulega grillveður í ${placeName}, en með fyrirvara.`
-      : `Ekki mælt með grilli í ${placeName} á þessum tíma.`
+      : `Hættulegt að grilla í ${placeName} á þessum tíma.`
 
   return {
     id: makeId(),

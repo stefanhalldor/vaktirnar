@@ -51,6 +51,7 @@ tilvísanir og verkefnasaga rofni ekki.
 | 19  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
 | 20  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
 | 21  | **#51 Staðfest Facebook-tenging**                           | **Phase 1 kóðinn er tilbúinn og shipped (commit 547f367) en disabled - kveikja með `FACEBOOK_OAUTH_ENABLED=true` + Supabase/Facebook stillingar (sjá v015 handoff). Phase 2 badge í lánaboðssamhengi er ólokið.** |
+| 22  | **#67 Veður: óæskilegur keyrslutími dags**                  | **Ferðalagið follow-up.** Notandi geti sagt hvaða tíma dags hann vill alls ekki vera að keyra, t.d. að nóttu til, og ferðaveðurmatið taki tillit til þess. |
 
 ## Vinnupakkar
 
@@ -78,6 +79,11 @@ fyrstu quick wins: þau snerta viðkvæmari gögn, nýja gagnastrúktúra eða y
 OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
 hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
 fullkomnara.
+
+**Pakki F — Veðrið / Ferðalagið:** #67 og áframhaldandi `todo-067` handoff.
+Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
+traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
+brottfarar- eða heimferðartíma kerfið mælir með.
 
 #46
 ## User+pass fallback þegar kóði berst ekki
@@ -1252,3 +1258,53 @@ kerfið samþykkir.
 - Íslenska timestamp lítur eins út og áður: `Miðvikudaginn 24. júní kl. 7:40`.
 - Enska timestamp fylgir enskri orðröð og orðalagi.
 - Engin regression á öðrum event labels.
+
+#67
+## Veður: óæskilegur keyrslutími dags
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-06
+
+**Samhengi frá Stebba:** Í Ferðalagið-flæðinu þarf notandi að geta sagt til um
+hvaða tíma dags hann vill alls ekki vera að keyra, til dæmis að nóttu til.
+
+**Vandamál:** Nú getur ferðaveðurmatið lagt til tíma út frá veðri, leið og
+spágögnum, en það veit ekki endilega hvort notandinn vill forðast ákveðna
+tíma dags. Ef besta veðurglugginn er til dæmis um miðja nótt getur niðurstaðan
+verið tæknilega rétt en ópraktísk eða óþægileg fyrir notandann.
+
+**Ósk:** Bæta við einfaldri stillingu í Ferðalagið-flæðinu þar sem notandi getur
+merkt hvaða tíma dags hann vill ekki keyra. Fyrsta útgáfa má byrja á einföldum
+valkosti eins og `Ég vil ekki keyra að nóttu til`, en hönnunin þarf að geta
+stækkað í nákvæmara tímabil síðar, t.d. `forðast keyrslu frá 23:00 til 07:00`.
+
+**Við útfærslu:**
+
+- Lesa `Design.md` áður en UI er plannað eða breytt.
+- Halda þessu sem user preference fyrir þessa ferð fyrst, ekki global
+  stillingu, nema Stebbi ákveði annað sérstaklega.
+- Láta stillinguna hafa áhrif á tillögur að brottför, heimferð og
+  `nextCaution`/gluggaútreikninga þar sem það á við.
+- Ekki blanda þessu saman við veðurhættu. Þetta er notendaval eða þægindaregla,
+  ekki merki um að veðrið sé slæmt.
+- Ef kerfið finnur aðeins góðan veðurglugga innan óæskilegs keyrslutíma skal
+  segja það skýrt, t.d. að veðrið sé best þá en tíminn sé utan óska notandans.
+- Ef enginn góður gluggi finnst innan leyfðs keyrslutíma skal útskýra muninn á
+  `veðurslega best` og `innan tímans sem þú vilt keyra`.
+- Gæta að mobile upplifun: controls mega ekki valda zoomi, horizontal overflowi
+  eða rugla focus/keyboard state.
+
+**Prófanir:**
+
+- Notandi getur valið að forðast næturkeyrslu í Ferðalagið-flæðinu.
+- Tillögur að brottför velja ekki óæskilegan tíma ef annar ásættanlegur gluggi
+  er til.
+- Ef veðurgluggi utan óska er augljóslega bestur, segir UI það á mannamáli án
+  þess að rugla því saman við hættumat.
+- Ef enginn góður gluggi er innan leyfðs tíma, fær notandi skýra niðurstöðu og
+  sér hvað veldur.
+- Existing route/weather result virkar áfram ef notandi velur enga
+  tímastillingu.
+- Mobile 360-460 px sýnir valkostinn án overlap, óæskilegs zooms eða
+  horizontal scrolls.
