@@ -590,7 +590,7 @@
       "aiSource": "This forecast was processed using AI.",
       "attribution": "Based on data from MET Norway (met.no)",
       "betaBannerTitle": "Test version",
-      "betaBannerBody": "We are still developing the travel weather assessment. Compare it with official forecasts and road conditions. If something is unclear or wrong, send us a Facebook message with a screenshot and explanation.",
+      "betaBannerBody": "We are still developing the travel weather assessment. Compare it with official forecasts and road conditions. If you know a road section where wind direction, gusts, crosswind or trailers change the risk, send us a Facebook message with a screenshot and explanation.",
       "betaBannerFeedback": "Send feedback",
       "exampleQuestion1": "Is it good grilling weather in Reykjavík tonight?",
       "exampleQuestion2": "Is it good grilling weather in Selfoss tomorrow?",
