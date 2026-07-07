@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MapPin, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { PlaceSearch, type PlaceResult } from './PlaceSearch'
+import { PlaceSearch, type PlaceResult, type SavedPlace } from './PlaceSearch'
 import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weather/googleMaps.client'
 import { toLngLat } from './travelAuditMap.helpers'
 import type { RouteOption } from '@/lib/weather/provider.types'
@@ -39,6 +39,9 @@ type RouteSelectionStepProps = {
   ferryPortId?: FerryPortId | null
   onFerryPortSelected?: (id: FerryPortId) => void
   ferryFinalDestinationName?: string | null
+  // Saved places
+  savedPlaces?: SavedPlace[]
+  onDeleteSavedPlace?: (id: string) => void
 }
 
 type ActiveField = 'origin' | 'destination' | null
@@ -73,6 +76,8 @@ export function RouteSelectionStep({
   ferryPortId = null,
   onFerryPortSelected,
   ferryFinalDestinationName = null,
+  savedPlaces,
+  onDeleteSavedPlace,
 }: RouteSelectionStepProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -300,6 +305,8 @@ export function RouteSelectionStep({
             onPlaceSelected={handleOriginSelected}
             autoFocus={activeField === 'origin'}
             placeholder={tf('routeSelectOriginPrompt')}
+            savedPlaces={savedPlaces}
+            onDeleteSavedPlace={onDeleteSavedPlace}
           />
         )}
       </div>
@@ -335,6 +342,8 @@ export function RouteSelectionStep({
             onPlaceSelected={handleDestinationSelected}
             autoFocus={activeField === 'destination'}
             placeholder={tf('routeSelectDestinationPrompt')}
+            savedPlaces={savedPlaces}
+            onDeleteSavedPlace={onDeleteSavedPlace}
           />
         )}
       </div>

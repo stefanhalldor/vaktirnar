@@ -606,7 +606,10 @@
         "error": "Villa við leit. Reyndu aftur.",
         "errorAllProviders": "Leit virkar ekki núna. Reyndu aftur seinna.",
         "noResults": "Enginn staður fannst. Prófaðu annað heiti eða bættu við sveitarfélagi.",
-        "cancel": "Hætta við"
+        "cancel": "Hætta við",
+        "savedPlacesTitle": "Nýlegir staðir",
+        "savedPlaceDelete": "Eyða vistuðum stað",
+        "savedPlacesUnavailable": "Náði ekki að sækja vistaða staði."
       },
       "mapConfirmation": {
         "changePlace": "Breyta stað",

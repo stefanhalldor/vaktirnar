@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
 import { createClient } from '@/lib/supabase/server'
-import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
+import { PublicTopNav } from '@/components/teskeid/PublicTopNav'
 import { StatusBadge } from '@/components/teskeid/StatusBadge'
 import { VoteButton } from '@/components/teskeid/VoteButton'
 import { Footer } from '@/components/landing/Footer'
@@ -75,13 +75,9 @@ export default async function IdeaPage({
   return (
     <main className="min-h-screen bg-[#FAFAFA]">
       <PageViewTracker ideaId={idea.id} />
+      <PublicTopNav />
 
       <article className="max-w-2xl mx-auto px-6 pt-10 pb-12">
-        <div className="flex justify-center mb-8">
-          <TeskeidLogo size={140} showBackground={false} decorative className="sm:hidden" />
-          <TeskeidLogo size={170} showBackground={false} decorative className="hidden sm:block" />
-        </div>
-
         <Link href="/" className="text-xs text-gray-400 hover:text-gray-600 transition-colors mb-8 inline-block">
           ← {t('nav.back')}
         </Link>

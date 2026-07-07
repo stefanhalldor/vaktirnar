@@ -3,11 +3,20 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { loadPlacesLibrary } from '@/lib/weather/googleMaps.client'
-import { Search } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 
 export type PlaceResult = {
   name: string
   formattedAddress: string
+  lat: number
+  lon: number
+}
+
+/** Minimal shape required by PlaceSearch; compatible with SavedWeatherPlace. */
+export type SavedPlace = {
+  id: string
+  name: string
+  formattedAddress?: string
   lat: number
   lon: number
 }
@@ -17,6 +26,8 @@ type PlaceSearchProps = {
   onCancel?: () => void
   autoFocus?: boolean
   placeholder?: string
+  savedPlaces?: SavedPlace[]
+  onDeleteSavedPlace?: (id: string) => void
 }
 
 type SearchSuggestion =
@@ -30,7 +41,7 @@ type ServerSearchOutcome =
 // How long to wait for Google Places before falling back to server search.
 const GOOGLE_TIMEOUT_MS = 4_000
 
-export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, placeholder }: PlaceSearchProps) {
+export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, placeholder, savedPlaces, onDeleteSavedPlace }: PlaceSearchProps) {
   const t = useTranslations('teskeid.vedrid.placeSearch')
   const [input, setInput] = useState('')
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
@@ -216,6 +227,43 @@ export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, place
 
       {noResults && !fetchError && (
         <p className="text-xs text-muted-foreground px-1">{t('noResults')}</p>
+      )}
+
+      {!input.trim() && savedPlaces && savedPlaces.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-muted-foreground px-1">{t('savedPlacesTitle')}</p>
+          <ul
+            role="listbox"
+            className="flex flex-col rounded-xl border border-border bg-card overflow-hidden"
+          >
+            {savedPlaces.map((p) => (
+              <li key={p.id} role="option" aria-selected={false}>
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => onPlaceSelected({ name: p.name, formattedAddress: p.formattedAddress ?? '', lat: p.lat, lon: p.lon })}
+                    className="flex-1 text-left px-4 py-2.5 hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  >
+                    <span className="block text-sm text-foreground truncate">{p.name}</span>
+                    {p.formattedAddress && p.formattedAddress !== p.name && (
+                      <span className="block text-xs text-muted-foreground truncate">{p.formattedAddress}</span>
+                    )}
+                  </button>
+                  {onDeleteSavedPlace && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onDeleteSavedPlace(p.id) }}
+                      className="px-3 py-2.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t('savedPlaceDelete')}
+                    >
+                      <X size={13} aria-hidden />
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {suggestions.length > 0 && (

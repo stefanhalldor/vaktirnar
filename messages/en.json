@@ -602,7 +602,10 @@
         "error": "Search failed. Please try again.",
         "errorAllProviders": "Search is unavailable right now. Please try again later.",
         "noResults": "No place found. Try another name or add the municipality.",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "savedPlacesTitle": "Recent places",
+        "savedPlaceDelete": "Remove saved place",
+        "savedPlacesUnavailable": "Could not load saved places."
       },
       "mapConfirmation": {
         "changePlace": "Change place",

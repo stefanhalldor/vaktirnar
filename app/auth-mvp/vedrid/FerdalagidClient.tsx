@@ -14,6 +14,7 @@ import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { formatKlTime, candidateToIssue, normalizeLocale, formatNum } from '@/components/weather/travelAuditMap.helpers'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
+import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 
 type WizardStep = 'route' | 'trailer' | 'thresholds' | 'result' | 'assumptions'
 
@@ -66,6 +67,9 @@ export function FerdalagidClient() {
   const [routeRetryCount, setRouteRetryCount] = useState(0)
   const [routeFallback, setRouteFallback] = useState(false)
 
+  // Saved places (recent route places)
+  const [savedPlaces, setSavedPlaces] = useState<SavedWeatherPlace[]>([])
+
   // Ferry port selection (Vestmannaeyjar / Herjólfur)
   type FerrySelection = {
     ferryPortId: FerryPortId
@@ -78,6 +82,23 @@ export function FerdalagidClient() {
   const effectiveDestinationName = ferrySelection
     ? ferrySelection.ferryPort.name
     : (destination?.name ?? '')
+
+  // Fetch saved places once on mount
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/teskeid/weather/saved-places', { credentials: 'same-origin' })
+        if (!cancelled && res.ok) {
+          const data = await res.json()
+          setSavedPlaces(data.places ?? [])
+        }
+      } catch {
+        // Best-effort — saved places are non-critical
+      }
+    })()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Populate threshold draft inputs when entering the thresholds step
   useEffect(() => {
@@ -192,10 +213,54 @@ export function FerdalagidClient() {
     if (idx > 0) setStep(STEP_ORDER[idx - 1])
   }
 
+  async function savePlaceBestEffort(place: RoutePlace) {
+    try {
+      const saveRes = await fetch('/api/teskeid/weather/saved-places', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: place.name,
+          formattedAddress: place.formattedAddress ?? '',
+          lat: place.lat,
+          lon: place.lon,
+        }),
+      })
+      if (!saveRes.ok) return
+      const listRes = await fetch('/api/teskeid/weather/saved-places', { credentials: 'same-origin' })
+      if (listRes.ok) {
+        const data = await listRes.json()
+        setSavedPlaces(data.places ?? [])
+      }
+    } catch {
+      // Best-effort — never block UX
+    }
+  }
+
+  async function handleDeleteSavedPlace(id: string) {
+    const previous = savedPlaces
+    setSavedPlaces(prev => prev.filter(p => p.id !== id))
+    try {
+      const res = await fetch(`/api/teskeid/weather/saved-places/${id}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      })
+      if (!res.ok) setSavedPlaces(previous)
+    } catch {
+      setSavedPlaces(previous)
+    }
+  }
+
+  function handleOriginSelected(place: RoutePlace) {
+    setOrigin(place)
+    savePlaceBestEffort(place)
+  }
+
   function handleDestinationSelected(place: RoutePlace) {
     setDestination(place)
     // Always clear ferry selection — if new dest is also Vestmannaeyjar, user re-picks port
     setFerrySelection(null)
+    savePlaceBestEffort(place)
   }
 
   function handleFerryPortSelected(portId: FerryPortId) {
@@ -551,7 +616,7 @@ export function FerdalagidClient() {
 <RouteSelectionStep
               origin={origin}
               destination={destination}
-              onOriginSelected={setOrigin}
+              onOriginSelected={handleOriginSelected}
               onDestinationSelected={handleDestinationSelected}
               onClearOrigin={() => setOrigin(null)}
               onClearDestination={() => { setDestination(null); setFerrySelection(null) }}
@@ -570,6 +635,8 @@ export function FerdalagidClient() {
               ferryPortId={ferrySelection?.ferryPortId ?? null}
               onFerryPortSelected={handleFerryPortSelected}
               ferryFinalDestinationName={ferrySelection?.finalDestination.name ?? destination?.name ?? null}
+              savedPlaces={savedPlaces}
+              onDeleteSavedPlace={handleDeleteSavedPlace}
             />
           </div>
         )}

@@ -25,22 +25,66 @@ vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: mockGetAdmin,
 }))
 
-import { hashIp, checkIpRateLimit } from '@/lib/auth/ip-rate-limit'
+import { hashIp, checkIpRateLimit, getIpDailyLimit } from '@/lib/auth/ip-rate-limit'
 
 // ── Env helpers ───────────────────────────────────────────────────────────────
 
 let savedSecret: string | undefined
+let savedIpLimit: string | undefined
 
 beforeEach(() => {
   vi.clearAllMocks()
   savedSecret = process.env.AUTH_CODE_SECRET
+  savedIpLimit = process.env.AUTH_CODE_IP_DAILY_LIMIT
   // 32-byte valid secret
   process.env.AUTH_CODE_SECRET = 'abcdefghijklmnopqrstuvwxyz123456'
+  delete process.env.AUTH_CODE_IP_DAILY_LIMIT
 })
 
 afterEach(() => {
   if (savedSecret !== undefined) process.env.AUTH_CODE_SECRET = savedSecret
   else delete process.env.AUTH_CODE_SECRET
+  if (savedIpLimit !== undefined) process.env.AUTH_CODE_IP_DAILY_LIMIT = savedIpLimit
+  else delete process.env.AUTH_CODE_IP_DAILY_LIMIT
+})
+
+// ── getIpDailyLimit ───────────────────────────────────────────────────────────
+
+describe('getIpDailyLimit', () => {
+  it('returns 250 when AUTH_CODE_IP_DAILY_LIMIT is not set', () => {
+    delete process.env.AUTH_CODE_IP_DAILY_LIMIT
+    expect(getIpDailyLimit()).toBe(250)
+  })
+
+  it('returns the configured value when valid', () => {
+    process.env.AUTH_CODE_IP_DAILY_LIMIT = '500'
+    expect(getIpDailyLimit()).toBe(500)
+  })
+
+  it('floors decimal values', () => {
+    process.env.AUTH_CODE_IP_DAILY_LIMIT = '99.9'
+    expect(getIpDailyLimit()).toBe(99)
+  })
+
+  it('caps at 5000 when env exceeds max', () => {
+    process.env.AUTH_CODE_IP_DAILY_LIMIT = '9999'
+    expect(getIpDailyLimit()).toBe(5000)
+  })
+
+  it('returns default when env is not a number', () => {
+    process.env.AUTH_CODE_IP_DAILY_LIMIT = 'bad'
+    expect(getIpDailyLimit()).toBe(250)
+  })
+
+  it('returns default when env is zero', () => {
+    process.env.AUTH_CODE_IP_DAILY_LIMIT = '0'
+    expect(getIpDailyLimit()).toBe(250)
+  })
+
+  it('returns default when env is negative', () => {
+    process.env.AUTH_CODE_IP_DAILY_LIMIT = '-10'
+    expect(getIpDailyLimit()).toBe(250)
+  })
 })
 
 // ── hashIp ────────────────────────────────────────────────────────────────────
@@ -143,11 +187,19 @@ describe('checkIpRateLimit — allowed', () => {
     expect(args.p_window_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
-  it('passes p_max_requests = 10', async () => {
+  it('passes p_max_requests = 250 (default)', async () => {
     mockRpc.mockResolvedValue({ data: true, error: null })
     await checkIpRateLimit('5.6.7.8')
     const args = mockRpc.mock.calls[0][1] as Record<string, unknown>
-    expect(args.p_max_requests).toBe(10)
+    expect(args.p_max_requests).toBe(250)
+  })
+
+  it('passes p_max_requests from AUTH_CODE_IP_DAILY_LIMIT when set', async () => {
+    process.env.AUTH_CODE_IP_DAILY_LIMIT = '400'
+    mockRpc.mockResolvedValue({ data: true, error: null })
+    await checkIpRateLimit('5.6.7.8')
+    const args = mockRpc.mock.calls[0][1] as Record<string, unknown>
+    expect(args.p_max_requests).toBe(400)
   })
 
   it('p_ip_hash and p_window_date are derived from the same date', async () => {

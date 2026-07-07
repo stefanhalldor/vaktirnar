@@ -3,7 +3,16 @@ import { createHmac } from 'crypto'
 import { getAdmin } from '@/lib/supabase/admin'
 
 // Maximum OTP requests per IP per rolling daily window.
-const MAX_REQUESTS = 10
+// Configurable via AUTH_CODE_IP_DAILY_LIMIT env var; defaults to 250.
+// Hard-capped at 5000 to guard against misconfigured deployments.
+const DEFAULT_IP_DAILY_LIMIT = 250
+const MAX_IP_DAILY_LIMIT = 5000
+
+export function getIpDailyLimit(): number {
+  const raw = Number(process.env.AUTH_CODE_IP_DAILY_LIMIT)
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_IP_DAILY_LIMIT
+  return Math.min(Math.floor(raw), MAX_IP_DAILY_LIMIT)
+}
 
 // Window keyed to Reykjavik calendar date so the limit resets at midnight
 // local time regardless of server timezone.
@@ -54,7 +63,7 @@ export async function checkIpRateLimit(ip: string): Promise<boolean> {
     const { data, error } = await getAdmin().rpc('check_and_increment_ip_rate_limit', {
       p_ip_hash:      ipHash,
       p_window_date:  windowDate,
-      p_max_requests: MAX_REQUESTS,
+      p_max_requests: getIpDailyLimit(),
     })
 
     if (error) {
