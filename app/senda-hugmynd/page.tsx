@@ -1,6 +1,7 @@
 import { getTranslations } from 'next-intl/server'
 import { createClient } from '@/lib/supabase/server'
 import { NavBar } from '@/components/teskeid/NavBar'
+import { PublicTopNav } from '@/components/teskeid/PublicTopNav'
 import { SubmissionForm } from '@/components/teskeid/SubmissionForm'
 import { Footer } from '@/components/landing/Footer'
 
@@ -13,6 +14,7 @@ export default async function SendaHugmyndPage() {
 
   return (
     <main className="min-h-screen bg-[#FAFAFA]">
+      {!user && <PublicTopNav />}
       <NavBar variant={user ? 'authenticated' : 'public'} />
 
       <div className="max-w-2xl mx-auto px-6 pt-10 pb-20">

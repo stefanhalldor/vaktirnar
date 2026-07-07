@@ -26,6 +26,8 @@ type RouteSelectionStepProps = {
   routeOptionsLoading: boolean
   routeOptionsError: string | null
   onRetryRoutes: () => void
+  routeFallback: boolean
+  onUseFallback: () => void
   selectedRouteId: string | null
   onRouteSelected: (id: string) => void
   onConfirm: () => void
@@ -54,6 +56,8 @@ export function RouteSelectionStep({
   routeOptionsLoading,
   routeOptionsError,
   onRetryRoutes,
+  routeFallback,
+  onUseFallback,
   selectedRouteId,
   onRouteSelected,
   onConfirm,
@@ -343,17 +347,29 @@ export function RouteSelectionStep({
             <p className="text-xs text-muted-foreground py-2">{tf('routeOptionsLoading')}</p>
           )}
 
-          {routeOptionsError && !routeOptionsLoading && (
+          {routeOptionsError && !routeOptionsLoading && !routeFallback && (
             <div className="flex flex-col gap-2">
               <p className="text-xs text-destructive">{routeOptionsError}</p>
-              <button
-                type="button"
-                onClick={onRetryRoutes}
-                className="self-start text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-              >
-                {tf('routeOptionsRetry')}
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={onRetryRoutes}
+                  className="text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                >
+                  {tf('routeOptionsRetry')}
+                </button>
+                <button
+                  type="button"
+                  onClick={onUseFallback}
+                  className="text-xs text-muted-foreground underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                >
+                  {tf('routeOptionsFallback')}
+                </button>
+              </div>
             </div>
+          )}
+          {routeFallback && (
+            <p className="text-xs text-muted-foreground py-1">{tf('routeOptionsFallbackNote')}</p>
           )}
 
           {routeOptions && routeOptions.map((ro, idx) => {

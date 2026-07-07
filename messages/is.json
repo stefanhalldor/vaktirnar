@@ -765,13 +765,16 @@
         "routeOptionsLoading": "Sæki leiðarmöguleika...",
         "routeOptionsUnavailable": "Ekki tókst að sækja leiðir. Reyndu aftur.",
         "routeOptionsRetry": "Reyna aftur",
-        "routeOptionShortest": "Stysta leið",
+        "routeOptionShortest": "Fljótlegasta leið",
         "routeOptionDefault": "Sjálfgefin Google-leið",
         "routeOptionOther": "Önnur leið",
         "routeOptionDuration": "{hours} klst. {minutes} mín.",
         "routeOptionDurationMinutes": "{minutes} mín.",
         "routeConfirmSelected": "Nota þessa leið",
-        "selectedRouteUnavailable": "Valin leið fannst ekki. Veldu aðra leið og reyndu aftur."
+        "selectedRouteUnavailable": "Valin leið fannst ekki. Veldu aðra leið og reyndu aftur.",
+        "routeOptionsFallback": "Nota sjálfgefna leið",
+        "routeOptionsFallbackNote": "Leiðir fundust ekki. Nota sjálfgefna Google-leið.",
+        "routeConfirmFallback": "Nota sjálfgefna leið"
       }
     }
   }

@@ -275,15 +275,36 @@ describe('googleProvider.getRouteOptions', () => {
     expect(results[1].isDefault).toBe(false)
   })
 
-  it('assigns stable ids with provider prefix and index', async () => {
-    mockFetch(makeMultiRouteResponse([
+  it('assigns stable fingerprint ids based on route properties, not array index', async () => {
+    const twoRoutes = makeMultiRouteResponse([
       { numPoints: 5, labels: ['DEFAULT_ROUTE'] },
-      { numPoints: 5, labels: ['DEFAULT_ROUTE_ALTERNATE'] },
-    ]))
+      { numPoints: 8, labels: ['DEFAULT_ROUTE_ALTERNATE'] },
+    ])
+    mockFetch(twoRoutes)
     const results = await googleProvider.getRouteOptions(FROM, TO)
-    expect(results[0].id).toBe('google-0')
-    expect(results[1].id).toBe('google-1')
+    // Ids are based on distance + duration + coordinates, not index
+    expect(results[0].id).toContain('google-')
+    expect(results[0].id).not.toBe('google-0')
+    expect(results[1].id).not.toBe('google-1')
     expect(results[0].provider).toBe('google')
+    // Same route properties always produce same id
+    expect(results[0].id).toBe(results[0].id)
+  })
+
+  it('same route produces same id regardless of order in response', async () => {
+    const routeA = { numPoints: 5, labels: ['DEFAULT_ROUTE'] }
+    const routeB = { numPoints: 10, labels: ['DEFAULT_ROUTE_ALTERNATE'] }
+    mockFetch(makeMultiRouteResponse([routeA, routeB]))
+    const first = await googleProvider.getRouteOptions(FROM, TO)
+    vi.restoreAllMocks()
+    mockFetch(makeMultiRouteResponse([routeB, routeA]))
+    const second = await googleProvider.getRouteOptions(FROM, TO)
+
+    // Route with 5 points should have same id in both calls
+    const idA1 = first.find(r => r.distanceM === 5 * 5000)?.id
+    const idA2 = second.find(r => r.distanceM === 5 * 5000)?.id
+    expect(idA1).toBeDefined()
+    expect(idA1).toBe(idA2)
   })
 
   it('single route still works', async () => {

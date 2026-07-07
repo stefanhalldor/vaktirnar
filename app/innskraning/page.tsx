@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { TeskeidLoginForm } from '@/components/teskeid/TeskeidLoginForm'
-import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
+import { PublicTopNav } from '@/components/teskeid/PublicTopNav'
 import { createClient } from '@/lib/supabase/server'
 
 export const metadata: Metadata = {
@@ -22,13 +22,7 @@ export default async function InnskraningPage() {
   }
   return (
     <>
-      <div className="fixed top-0 left-0 right-0 z-50 pointer-events-none">
-        <div className="max-w-lg mx-auto px-4 pt-8 flex justify-end pointer-events-none">
-          <div className="pointer-events-auto">
-            <TeskeidMenu variant="public" />
-          </div>
-        </div>
-      </div>
+      <PublicTopNav />
       <TeskeidLoginForm logoHref="/" />
     </>
   )

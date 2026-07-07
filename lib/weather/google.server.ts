@@ -160,20 +160,31 @@ async function getRouteOptions(
   if (!data.routes || data.routes.length === 0) return []
 
   return data.routes.map((route, idx) => {
-    const allPoints = route.polyline.geoJsonLinestring.coordinates.map(
-      ([lon, lat]) => ({ lat, lon })
-    )
+    const coords = route.polyline.geoJsonLinestring.coordinates
+    const allPoints = coords.map(([lon, lat]) => ({ lat, lon }))
     const points = samplePoints(allPoints, MAX_ROUTE_POINTS)
     const labels = route.routeLabels ?? []
+    const durationS = parseInt(route.duration.replace('s', ''), 10)
+
+    // Stable fingerprint from route properties — not array index — so the same
+    // route gets the same id even if Google returns alternatives in a different
+    // order on a subsequent call.
+    const first = coords[0]
+    const last = coords[coords.length - 1]
+    const fp = first && last
+      ? `${route.distanceMeters}-${durationS}-${first[1].toFixed(4)},${first[0].toFixed(4)}-${last[1].toFixed(4)},${last[0].toFixed(4)}`
+      : `${route.distanceMeters}-${durationS}-${idx}`
+    const id = `google-${fp}`
+
     return {
-      id: `google-${idx}`,
+      id,
       routeIndex: idx,
       provider: 'google' as const,
       labels,
       isDefault: labels.includes('DEFAULT_ROUTE'),
       points,
       distanceM: route.distanceMeters,
-      durationS: parseInt(route.duration.replace('s', ''), 10),
+      durationS,
     }
   })
 }

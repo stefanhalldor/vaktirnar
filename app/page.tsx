@@ -1,6 +1,7 @@
 import { getTranslations } from 'next-intl/server'
 import { createClient } from '@/lib/supabase/server'
-import { NavBar, BottomNav } from '@/components/teskeid/NavBar'
+import { NavBar } from '@/components/teskeid/NavBar'
+import { PublicTopNav } from '@/components/teskeid/PublicTopNav'
 import { HeroSection } from '@/components/teskeid/HeroSection'
 import { PersonalizedIdeaGrid } from '@/components/teskeid/PersonalizedIdeaGrid'
 import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
@@ -20,8 +21,9 @@ export default async function Home() {
   ])
 
   return (
-    <main className="min-h-screen bg-[#fbf9f4] pb-32">
+    <main className="min-h-screen bg-[#fbf9f4]">
       <PageViewTracker />
+      {!user && <PublicTopNav />}
       <NavBar variant={user ? 'authenticated' : 'public'} />
       <HeroSection
         supportingLine={t('hero.supportingLine')}
@@ -45,7 +47,6 @@ export default async function Home() {
         </div>
       </footer>
 
-      <BottomNav />
     </main>
   )
 }

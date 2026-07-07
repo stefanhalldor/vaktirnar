@@ -761,13 +761,16 @@
         "routeOptionsLoading": "Fetching route options...",
         "routeOptionsUnavailable": "Could not fetch routes. Please try again.",
         "routeOptionsRetry": "Try again",
-        "routeOptionShortest": "Shortest route",
+        "routeOptionShortest": "Fastest route",
         "routeOptionDefault": "Google default route",
         "routeOptionOther": "Alternative route",
         "routeOptionDuration": "{hours} hr {minutes} min",
         "routeOptionDurationMinutes": "{minutes} min",
         "routeConfirmSelected": "Use this route",
-        "selectedRouteUnavailable": "Selected route not found. Choose another route and try again."
+        "selectedRouteUnavailable": "Selected route not found. Choose another route and try again.",
+        "routeOptionsFallback": "Use default route",
+        "routeOptionsFallbackNote": "Could not fetch routes. Using Google default route.",
+        "routeConfirmFallback": "Use default route"
       }
     }
   }

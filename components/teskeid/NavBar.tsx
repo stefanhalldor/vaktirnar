@@ -19,7 +19,7 @@ export function NavBar({ variant = 'public' }: NavBarProps) {
           <TeskeidLogo size={80} decorative />
         </Link>
         <div className="flex justify-end">
-          <TeskeidMenu variant={variant} />
+          {variant === 'authenticated' && <TeskeidMenu variant="authenticated" />}
         </div>
       </div>
     </header>

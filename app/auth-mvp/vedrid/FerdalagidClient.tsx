@@ -63,6 +63,7 @@ export function FerdalagidClient() {
   const [routeOptionsError, setRouteOptionsError] = useState<string | null>(null)
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [routeRetryCount, setRouteRetryCount] = useState(0)
+  const [routeFallback, setRouteFallback] = useState(false)
 
   // Populate threshold draft inputs when entering the thresholds step
   useEffect(() => {
@@ -99,6 +100,7 @@ export function FerdalagidClient() {
     setRouteOptions(null)
     setSelectedRouteId(null)
     setRouteOptionsError(null)
+    setRouteFallback(false)
 
     if (!origin || !destination) {
       setRouteOptionsLoading(false)
@@ -282,6 +284,7 @@ export function FerdalagidClient() {
     setRouteOptionsError(null)
     setSelectedRouteId(null)
     setRouteRetryCount(0)
+    setRouteFallback(false)
   }
 
   // Auto-select when outbound filter hides the currently selected slot, or when no slot is selected
@@ -505,11 +508,13 @@ export function FerdalagidClient() {
               routeOptionsLoading={routeOptionsLoading}
               routeOptionsError={routeOptionsError}
               onRetryRoutes={() => setRouteRetryCount(c => c + 1)}
+              routeFallback={routeFallback}
+              onUseFallback={() => setRouteFallback(true)}
               selectedRouteId={selectedRouteId}
               onRouteSelected={setSelectedRouteId}
               onConfirm={() => goNext('route')}
-              confirmLabel={tf('routeConfirmSelected')}
-              confirmDisabled={!origin || !destination || !selectedRouteId}
+              confirmLabel={routeFallback ? tf('routeConfirmFallback') : tf('routeConfirmSelected')}
+              confirmDisabled={!origin || !destination || (!selectedRouteId && !routeFallback)}
             />
           </div>
         )}

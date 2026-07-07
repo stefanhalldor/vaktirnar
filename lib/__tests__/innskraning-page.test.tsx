@@ -41,6 +41,10 @@ vi.mock('@/components/teskeid/TeskeidMenu', () => ({
     React.createElement('div', { 'data-testid': `teskeid-menu-${variant}` }),
 }))
 
+vi.mock('@/components/teskeid/PublicTopNav', () => ({
+  PublicTopNav: () => React.createElement('nav', { 'data-testid': 'public-top-nav' }),
+}))
+
 import InnskraningPage from '@/app/innskraning/page'
 
 // ── Env helpers ───────────────────────────────────────────────────────────────
