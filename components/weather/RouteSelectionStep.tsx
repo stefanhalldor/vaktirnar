@@ -7,6 +7,7 @@ import { PlaceSearch, type PlaceResult } from './PlaceSearch'
 import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weather/googleMaps.client'
 import { toLngLat } from './travelAuditMap.helpers'
 import type { RouteOption } from '@/lib/weather/provider.types'
+import { FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 
 export type RoutePlace = {
   name: string
@@ -33,6 +34,11 @@ type RouteSelectionStepProps = {
   onConfirm: () => void
   confirmLabel: string
   confirmDisabled?: boolean
+  // Ferry support
+  isVestmannaeyjar?: boolean
+  ferryPortId?: FerryPortId | null
+  onFerryPortSelected?: (id: FerryPortId) => void
+  ferryFinalDestinationName?: string | null
 }
 
 type ActiveField = 'origin' | 'destination' | null
@@ -63,6 +69,10 @@ export function RouteSelectionStep({
   onConfirm,
   confirmLabel,
   confirmDisabled,
+  isVestmannaeyjar = false,
+  ferryPortId = null,
+  onFerryPortSelected,
+  ferryFinalDestinationName = null,
 }: RouteSelectionStepProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -79,6 +89,12 @@ export function RouteSelectionStep({
   const routeLinesRef = useRef<google.maps.Polyline[]>([])
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapError, setMapError] = useState(false)
+
+  // When a ferry port is selected, the map shows routes to the port, not Vestmannaeyjar
+  const ferryPort = ferryPortId ? FERRY_PORTS[ferryPortId] : null
+  const effectMapDest: RoutePlace | null = ferryPort
+    ? { name: ferryPort.name, lat: ferryPort.lat, lon: ferryPort.lon }
+    : destination
 
   // Effect 1: Initialize map (mount only)
   useEffect(() => {
@@ -130,7 +146,7 @@ export function RouteSelectionStep({
     return () => { cancelled = true }
   }, [origin?.lat, origin?.lon, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Effect 3: Destination marker only
+  // Effect 3: Destination marker only (uses ferry port position when a port is selected)
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return
     let cancelled = false
@@ -138,19 +154,19 @@ export function RouteSelectionStep({
       destMarkerRef.current.setMap(null)
       destMarkerRef.current = null
     }
-    if (!destination) return
+    if (!effectMapDest) return
     loadMarkerLibrary().then(markerLib => {
       if (cancelled || !mapRef.current) return
       destMarkerRef.current = new markerLib.Marker({
-        position: toLngLat(destination),
+        position: toLngLat(effectMapDest),
         map: mapRef.current!,
         label: { text: tf('destinationMarkerLabel'), color: '#fff', fontSize: '8px', fontWeight: 'bold' },
         icon: makeIcon('#4A90E2'),
-        title: destination.name,
+        title: effectMapDest.name,
       })
     })
     return () => { cancelled = true }
-  }, [destination?.lat, destination?.lon, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [destination?.lat, destination?.lon, ferryPortId, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Effect 4a: Draw all route polylines (or fallback straight line) and fit bounds.
   // Does NOT depend on selectedRouteId — initial styles use selectedRouteId at closure time,
@@ -162,7 +178,7 @@ export function RouteSelectionStep({
     routeLinesRef.current.forEach(l => l.setMap(null))
     routeLinesRef.current = []
 
-    if (!origin && !destination) return
+    if (!origin && !effectMapDest) return
 
     let cancelled = false
 
@@ -190,10 +206,10 @@ export function RouteSelectionStep({
           routeLinesRef.current[idx] = line
           path.forEach(p => bounds.extend(p))
         })
-      } else if (origin && destination) {
+      } else if (origin && effectMapDest) {
         // Fallback: thin straight line while routes are loading or unavailable
         const line = new mapsLib.Polyline({
-          path: [toLngLat(origin), toLngLat(destination)],
+          path: [toLngLat(origin), toLngLat(effectMapDest)],
           geodesic: true,
           strokeColor: '#4A90E2',
           strokeOpacity: 0.4,
@@ -202,20 +218,20 @@ export function RouteSelectionStep({
         })
         routeLinesRef.current[0] = line
         bounds.extend(toLngLat(origin))
-        bounds.extend(toLngLat(destination))
+        bounds.extend(toLngLat(effectMapDest))
       }
 
       if (origin) bounds.extend(toLngLat(origin))
-      if (destination) bounds.extend(toLngLat(destination))
+      if (effectMapDest) bounds.extend(toLngLat(effectMapDest))
 
       if (!bounds.isEmpty()) {
-        if (origin && destination) {
+        if (origin && effectMapDest) {
           mapRef.current!.fitBounds(bounds, { top: 48, bottom: 48, left: 48, right: 48 })
         } else if (origin) {
           mapRef.current!.setCenter(toLngLat(origin))
           mapRef.current!.setZoom(10)
-        } else if (destination) {
-          mapRef.current!.setCenter(toLngLat(destination))
+        } else if (effectMapDest) {
+          mapRef.current!.setCenter(toLngLat(effectMapDest))
           mapRef.current!.setZoom(10)
         }
       }
@@ -223,7 +239,7 @@ export function RouteSelectionStep({
 
     updateLines()
     return () => { cancelled = true }
-  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, routeOptions, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, ferryPortId, routeOptions, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Effect 4b: Update polyline styles when selection changes — no refit, no redraw.
   useEffect(() => {
@@ -338,8 +354,44 @@ export function RouteSelectionStep({
         )}
       </div>
 
-      {/* Route options — shown once both origin and destination are selected */}
-      {origin && destination && (
+      {/* Ferry picker — shown when destination is in Vestmannaeyjar */}
+      {destination && isVestmannaeyjar && (
+        <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
+          <p className="text-sm font-semibold text-foreground">{tf('ferryVestmannaeyjarTitle')}</p>
+          <p className="text-xs text-muted-foreground leading-relaxed">{tf('ferryVestmannaeyjarBody')}</p>
+          <div className="flex flex-col gap-2">
+            {(['landeyjahofn', 'thorlakshofn'] as FerryPortId[]).map(id => {
+              const label = id === 'landeyjahofn' ? tf('ferryPortLandeyjahofn') : tf('ferryPortThorlakshofn')
+              const isSelected = ferryPortId === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => onFerryPortSelected?.(id)}
+                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    isSelected
+                      ? 'border-primary bg-primary/5 text-primary'
+                      : 'border-border bg-background hover:border-primary/40 text-foreground'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          {ferryPortId && ferryFinalDestinationName && (
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {tf('ferrySelectedNote', {
+                finalDestination: ferryFinalDestinationName,
+                portName: FERRY_PORTS[ferryPortId].name,
+              })}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Route options — shown once both origin and destination are selected (and ferry port chosen if Vestmannaeyjar) */}
+      {origin && destination && (!isVestmannaeyjar || ferryPortId) && (
         <div className="flex flex-col gap-2">
           <p className="text-xs font-medium text-muted-foreground">{tf('routeOptionsTitle')}</p>
 
@@ -407,8 +459,8 @@ export function RouteSelectionStep({
         </div>
       )}
 
-      {/* Confirm button */}
-      {origin && destination && (
+      {/* Confirm button — shown only after ferry port is chosen (if Vestmannaeyjar) */}
+      {origin && destination && (!isVestmannaeyjar || ferryPortId) && (
         <button
           type="button"
           onClick={onConfirm}

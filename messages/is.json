@@ -774,7 +774,13 @@
         "selectedRouteUnavailable": "Valin leið fannst ekki. Veldu aðra leið og reyndu aftur.",
         "routeOptionsFallback": "Nota sjálfgefna leið",
         "routeOptionsFallbackNote": "Leiðir fundust ekki. Nota sjálfgefna Google-leið.",
-        "routeConfirmFallback": "Nota sjálfgefna leið"
+        "routeConfirmFallback": "Nota sjálfgefna leið",
+        "ferryVestmannaeyjarTitle": "Þú ert að fara til Vestmannaeyja",
+        "ferryVestmannaeyjarBody": "Ferðaveðrið metur aksturinn að ferjuhöfninni. Það metur ekki siglingu Herjólfs eða sjólag. Hvaða höfn ætlarðu að keyra að?",
+        "ferryPortLandeyjahofn": "Landeyjahöfn",
+        "ferryPortThorlakshofn": "Þorlákshöfn",
+        "ferrySelectedNote": "Áfangastaður eftir ferju: {finalDestination}. Veðurmatið hér er fyrir aksturinn að {portName}. Athugaðu stöðu Herjólfs áður en þú leggur af stað.",
+        "ferryResultNote": "Ferðaveðrið er reiknað fyrir akstur að {portName}. Það metur ekki siglingu Herjólfs."
       }
     }
   }

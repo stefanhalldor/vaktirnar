@@ -770,7 +770,13 @@
         "selectedRouteUnavailable": "Selected route not found. Choose another route and try again.",
         "routeOptionsFallback": "Use default route",
         "routeOptionsFallbackNote": "Could not fetch routes. Using Google default route.",
-        "routeConfirmFallback": "Use default route"
+        "routeConfirmFallback": "Use default route",
+        "ferryVestmannaeyjarTitle": "You are travelling to the Westman Islands",
+        "ferryVestmannaeyjarBody": "Ferðaveðrið assesses the drive to the ferry port. It does not assess Herjólfur sailing conditions or sea safety. Which port are you driving to?",
+        "ferryPortLandeyjahofn": "Landeyjahöfn",
+        "ferryPortThorlakshofn": "Þorlákshöfn",
+        "ferrySelectedNote": "Final destination after ferry: {finalDestination}. Weather assessment here is for the drive to {portName}. Check Herjólfur status before you leave.",
+        "ferryResultNote": "Weather assessment is for the drive to {portName}. Herjólfur sailing conditions are not assessed."
       }
     }
   }

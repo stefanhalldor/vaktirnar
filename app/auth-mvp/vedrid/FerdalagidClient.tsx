@@ -13,6 +13,7 @@ import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteS
 import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { formatKlTime, candidateToIssue, normalizeLocale, formatNum } from '@/components/weather/travelAuditMap.helpers'
+import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 
 type WizardStep = 'route' | 'trailer' | 'thresholds' | 'result' | 'assumptions'
 
@@ -65,6 +66,19 @@ export function FerdalagidClient() {
   const [routeRetryCount, setRouteRetryCount] = useState(0)
   const [routeFallback, setRouteFallback] = useState(false)
 
+  // Ferry port selection (Vestmannaeyjar / Herjólfur)
+  type FerrySelection = {
+    ferryPortId: FerryPortId
+    ferryPort: RoutePlace
+    finalDestination: RoutePlace
+  }
+  const [ferrySelection, setFerrySelection] = useState<FerrySelection | null>(null)
+
+  const isVestmannaeyjar = destination ? isVestmannaeyjarDestination(destination) : false
+  const effectiveDestinationName = ferrySelection
+    ? ferrySelection.ferryPort.name
+    : (destination?.name ?? '')
+
   // Populate threshold draft inputs when entering the thresholds step
   useEffect(() => {
     if (step === 'thresholds') {
@@ -95,14 +109,20 @@ export function FerdalagidClient() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon])
 
-  // Fetch route options whenever both places are set (or on explicit retry)
+  // Fetch route options whenever both places are set (or on explicit retry).
+  // When destination is Vestmannaeyjar, waits until a ferry port is selected.
   useEffect(() => {
     setRouteOptions(null)
     setSelectedRouteId(null)
     setRouteOptionsError(null)
     setRouteFallback(false)
 
-    if (!origin || !destination) {
+    // Compute effective destination: ferry port if Vestmannaeyjar, otherwise regular destination
+    const effectiveDest = (isVestmannaeyjar && ferrySelection)
+      ? ferrySelection.ferryPort
+      : (!isVestmannaeyjar ? destination : null)
+
+    if (!origin || !effectiveDest) {
       setRouteOptionsLoading(false)
       return
     }
@@ -116,7 +136,7 @@ export function FerdalagidClient() {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ origin, destination }),
+          body: JSON.stringify({ origin, destination: effectiveDest }),
         })
         if (cancelled) return
 
@@ -146,7 +166,7 @@ export function FerdalagidClient() {
 
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, routeRetryCount])
+  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, routeRetryCount, ferrySelection?.ferryPortId])
 
   function goNext(from: WizardStep) {
     if (returnToStep) {
@@ -172,6 +192,36 @@ export function FerdalagidClient() {
     if (idx > 0) setStep(STEP_ORDER[idx - 1])
   }
 
+  function handleDestinationSelected(place: RoutePlace) {
+    setDestination(place)
+    // Always clear ferry selection — if new dest is also Vestmannaeyjar, user re-picks port
+    setFerrySelection(null)
+  }
+
+  function handleFerryPortSelected(portId: FerryPortId) {
+    if (!destination) return
+    if (ferrySelection?.ferryPortId === portId) return  // same port re-clicked, no-op
+    const port = FERRY_PORTS[portId]
+    const newFerry: FerrySelection = {
+      ferryPortId: portId,
+      ferryPort: { name: port.name, lat: port.lat, lon: port.lon },
+      finalDestination: destination,
+    }
+    // Clear route state (re-fetch for new port) and any stale result
+    setSelectedRouteId(null)
+    setRouteOptions(null)
+    setRouteOptionsError(null)
+    setRouteFallback(false)
+    setResult(null)
+    setError(null)
+    setShowDetails(false)
+    setShowExplainer(false)
+    setSelectedHeatmapIdx(null)
+    setSelectedReturnHeatmapIdx(null)
+    setSubmittedThresholds(null)
+    setFerrySelection(newFerry)
+  }
+
   async function handleSubmit(overridesParam?: TravelThresholdOverrides) {
     if (loading) return
     setLoading(true)
@@ -193,7 +243,7 @@ export function FerdalagidClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           origin,
-          destination,
+          destination: ferrySelection?.ferryPort ?? destination,
           trailerKind,
           selectedRouteId: selectedRouteId ?? undefined,
           thresholdOverrides: Object.keys(overridesToSend).length > 0 ? overridesToSend : undefined,
@@ -285,6 +335,7 @@ export function FerdalagidClient() {
     setSelectedRouteId(null)
     setRouteRetryCount(0)
     setRouteFallback(false)
+    setFerrySelection(null)
   }
 
   // Auto-select when outbound filter hides the currently selected slot, or when no slot is selected
@@ -371,7 +422,7 @@ export function FerdalagidClient() {
   const thresholdsUsed = result?.travelPlan?.thresholdsUsed
   const heatmapHighlightedIssue =
     selectedReturnHeatmapIdx !== null && returnCandidates[selectedReturnHeatmapIdx]
-      ? (candidateToIssue(returnCandidates[selectedReturnHeatmapIdx], 'return', { routeDistanceM, legStartName: destination?.name, thresholdsUsed }) ?? result?.travelPlan?.highlightedIssue)
+      ? (candidateToIssue(returnCandidates[selectedReturnHeatmapIdx], 'return', { routeDistanceM, legStartName: effectiveDestinationName, thresholdsUsed }) ?? result?.travelPlan?.highlightedIssue)
     : selectedHeatmapIdx !== null && outboundDisplayCandidates[selectedHeatmapIdx]
       ? (candidateToIssue(outboundDisplayCandidates[selectedHeatmapIdx], 'outbound', { legStartName: origin?.name, thresholdsUsed }) ?? result?.travelPlan?.highlightedIssue)
     : result?.travelPlan?.highlightedIssue
@@ -501,9 +552,9 @@ export function FerdalagidClient() {
               origin={origin}
               destination={destination}
               onOriginSelected={setOrigin}
-              onDestinationSelected={setDestination}
+              onDestinationSelected={handleDestinationSelected}
               onClearOrigin={() => setOrigin(null)}
-              onClearDestination={() => setDestination(null)}
+              onClearDestination={() => { setDestination(null); setFerrySelection(null) }}
               routeOptions={routeOptions}
               routeOptionsLoading={routeOptionsLoading}
               routeOptionsError={routeOptionsError}
@@ -515,6 +566,10 @@ export function FerdalagidClient() {
               onConfirm={() => goNext('route')}
               confirmLabel={routeFallback ? tf('routeConfirmFallback') : tf('routeConfirmSelected')}
               confirmDisabled={!origin || !destination || (!selectedRouteId && !routeFallback)}
+              isVestmannaeyjar={isVestmannaeyjar}
+              ferryPortId={ferrySelection?.ferryPortId ?? null}
+              onFerryPortSelected={handleFerryPortSelected}
+              ferryFinalDestinationName={ferrySelection?.finalDestination.name ?? destination?.name ?? null}
             />
           </div>
         )}
@@ -652,7 +707,7 @@ export function FerdalagidClient() {
         {step === 'result' && (
           <div className="flex flex-col gap-4">
             {origin && destination && (
-              <RouteSummary originName={origin.name} destinationName={destination.name} />
+              <RouteSummary originName={origin.name} destinationName={effectiveDestinationName} />
             )}
 
             {/* Actions at the top — before result card */}
@@ -702,6 +757,13 @@ export function FerdalagidClient() {
                 </div>
 
                 <p className="text-sm text-foreground leading-relaxed">{result.svar}</p>
+
+                {/* Ferry context note */}
+                {ferrySelection && (
+                  <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 leading-relaxed">
+                    {tf('ferryResultNote', { portName: ferrySelection.ferryPort.name })}
+                  </p>
+                )}
 
                 {/* Best departure window badge */}
                 {result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
@@ -821,7 +883,7 @@ export function FerdalagidClient() {
               <TravelAuditMap
                 key={result.id}
                 originName={origin.name}
-                destinationName={destination.name}
+                destinationName={effectiveDestinationName}
                 routePoints={result.travelPlan?.route.auditPolylinePoints ?? []}
                 weatherPoints={result.travelPlan!.routeWeatherPoints!}
                 highlightedIssue={heatmapHighlightedIssue}
@@ -855,7 +917,7 @@ export function FerdalagidClient() {
                 <DepartureHeatmap
                   candidates={result.travelPlan!.return!.candidates}
                   bestWindow={result.travelPlan!.return!.bestWindow}
-                  originName={destination?.name ?? ''}
+                  originName={effectiveDestinationName}
                   selectedIdx={selectedReturnHeatmapIdx}
                   onSelectIdx={handleReturnSelect}
                   title={tf('heatmapReturnTitle')}
