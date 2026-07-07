@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS public.weather_saved_places (
 CREATE INDEX IF NOT EXISTS weather_saved_places_user_last_used_idx
   ON public.weather_saved_places (user_id, last_used_at DESC);
 
+DROP TRIGGER IF EXISTS weather_saved_places_set_updated_at
+  ON public.weather_saved_places;
+
 CREATE TRIGGER weather_saved_places_set_updated_at
   BEFORE UPDATE ON public.weather_saved_places
   FOR EACH ROW EXECUTE FUNCTION public.teskeid_set_updated_at();

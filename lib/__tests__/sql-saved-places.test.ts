@@ -90,8 +90,15 @@ describe('sql/69_weather_saved_places.sql — static checks', () => {
     expect(sql).toMatch(/ON public\.weather_saved_places \(user_id, last_used_at DESC\)/)
   })
 
-  it('has updated_at trigger', () => {
-    expect(sql).toMatch(/weather_saved_places_set_updated_at/)
+  it('drops trigger before creating it (idempotent rerun)', () => {
+    const dropIdx = sql.indexOf('DROP TRIGGER IF EXISTS weather_saved_places_set_updated_at')
+    const createIdx = sql.indexOf('CREATE TRIGGER weather_saved_places_set_updated_at')
+    expect(dropIdx).toBeGreaterThan(-1)
+    expect(createIdx).toBeGreaterThan(-1)
+    expect(dropIdx).toBeLessThan(createIdx)
+  })
+
+  it('has updated_at trigger calling teskeid_set_updated_at', () => {
     expect(sql).toMatch(/teskeid_set_updated_at\(\)/)
   })
 
