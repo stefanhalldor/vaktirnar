@@ -756,7 +756,18 @@
         "stepNavTrailer": "Trailer",
         "stepNavThresholds": "Thresholds",
         "stepNavResult": "Result",
-        "thresholdsDirtyNavHint": "Thresholds changed - recalculation required"
+        "thresholdsDirtyNavHint": "Thresholds changed - recalculation required",
+        "routeOptionsTitle": "Routes Google found",
+        "routeOptionsLoading": "Fetching route options...",
+        "routeOptionsUnavailable": "Could not fetch routes. Please try again.",
+        "routeOptionsRetry": "Try again",
+        "routeOptionShortest": "Shortest route",
+        "routeOptionDefault": "Google default route",
+        "routeOptionOther": "Alternative route",
+        "routeOptionDuration": "{hours} hr {minutes} min",
+        "routeOptionDurationMinutes": "{minutes} min",
+        "routeConfirmSelected": "Use this route",
+        "selectedRouteUnavailable": "Selected route not found. Choose another route and try again."
       }
     }
   }

@@ -228,6 +228,107 @@ describe('googleProvider.getRouteGeometry', () => {
   })
 })
 
+// ── getRouteOptions ───────────────────────────────────────────────────────────
+
+describe('googleProvider.getRouteOptions', () => {
+  beforeEach(() => {
+    process.env.GOOGLE_MAPS_SERVER_KEY = 'test-server-key'
+  })
+  afterEach(() => {
+    delete process.env.GOOGLE_MAPS_SERVER_KEY
+    vi.restoreAllMocks()
+  })
+
+  function makeMultiRouteResponse(routes: Array<{ numPoints: number; labels: string[]; durationMultiplier?: number }>) {
+    return {
+      routes: routes.map(({ numPoints, labels, durationMultiplier = 1 }) => ({
+        polyline: {
+          geoJsonLinestring: {
+            coordinates: Array.from({ length: numPoints }, (_, i) => [-21 + i * 0.1, 64 + i * 0.05] as [number, number]),
+          },
+        },
+        distanceMeters: numPoints * 5000,
+        duration: `${numPoints * 300 * durationMultiplier}s`,
+        routeLabels: labels,
+      })),
+    }
+  }
+
+  it('returns multiple routes with parsed labels', async () => {
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'] },
+      { numPoints: 8, labels: ['DEFAULT_ROUTE_ALTERNATE'] },
+    ]))
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results).toHaveLength(2)
+    expect(results[0].labels).toContain('DEFAULT_ROUTE')
+    expect(results[1].labels).toContain('DEFAULT_ROUTE_ALTERNATE')
+  })
+
+  it('sets isDefault=true only for DEFAULT_ROUTE label', async () => {
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'] },
+      { numPoints: 8, labels: ['DEFAULT_ROUTE_ALTERNATE'] },
+    ]))
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results[0].isDefault).toBe(true)
+    expect(results[1].isDefault).toBe(false)
+  })
+
+  it('assigns stable ids with provider prefix and index', async () => {
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 5, labels: ['DEFAULT_ROUTE'] },
+      { numPoints: 5, labels: ['DEFAULT_ROUTE_ALTERNATE'] },
+    ]))
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results[0].id).toBe('google-0')
+    expect(results[1].id).toBe('google-1')
+    expect(results[0].provider).toBe('google')
+  })
+
+  it('single route still works', async () => {
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'] },
+    ]))
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results).toHaveLength(1)
+    expect(results[0].distanceM).toBeGreaterThan(0)
+    expect(results[0].durationS).toBeGreaterThan(0)
+    expect(results[0].points.length).toBeGreaterThan(0)
+  })
+
+  it('returns empty array when no routes in response', async () => {
+    mockFetch({ routes: [] })
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results).toHaveLength(0)
+  })
+
+  it('returns empty array on HTTP error', async () => {
+    mockFetch(null, false, 500)
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results).toHaveLength(0)
+  })
+
+  it('requests computeAlternativeRoutes in the body', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM, TO)
+    const callBody = JSON.parse(spy.mock.calls[0][1]?.body as string)
+    expect(callBody.computeAlternativeRoutes).toBe(true)
+  })
+
+  it('includes routeLabels in the field mask', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM, TO)
+    const headers = spy.mock.calls[0][1]?.headers as Record<string, string>
+    expect(headers['X-Goog-FieldMask']).toContain('routes.routeLabels')
+  })
+
+  it('throws if server key is not set', async () => {
+    delete process.env.GOOGLE_MAPS_SERVER_KEY
+    await expect(googleProvider.getRouteOptions(FROM, TO)).rejects.toThrow('GOOGLE_MAPS_SERVER_KEY')
+  })
+})
+
 // ── provider.server.ts ────────────────────────────────────────────────────────
 
 describe('getWeatherMapProvider', () => {

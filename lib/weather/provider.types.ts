@@ -15,6 +15,14 @@ export type RouteGeometry = {
   durationS: number
 }
 
+export type RouteOption = RouteGeometry & {
+  id: string
+  routeIndex: number
+  provider: 'google' | 'mapbox'
+  labels: string[]
+  isDefault: boolean
+}
+
 export type StaticMapParams = {
   lat: number
   lon: number
@@ -26,5 +34,6 @@ export type StaticMapParams = {
 export type WeatherMapProvider = {
   geocodePlace(query: string): Promise<PlaceCandidate[]>
   getRouteGeometry(from: PlaceCandidate, to: PlaceCandidate): Promise<RouteGeometry | null>
+  getRouteOptions(from: PlaceCandidate, to: PlaceCandidate): Promise<RouteOption[]>
   staticMapUrl(params: StaticMapParams): string
 }

@@ -162,10 +162,21 @@ export async function POST(request: Request) {
     lon: destination.lon,
   }
 
-  // Get route geometry
+  // Get route geometry — use selected route if provided, otherwise first available
+  const selectedRouteId = typeof body.selectedRouteId === 'string' ? body.selectedRouteId : null
+
   let routeGeometry
   try {
-    routeGeometry = await provider.getRouteGeometry(originCandidate, destCandidate)
+    if (selectedRouteId) {
+      const routeOptions = await provider.getRouteOptions(originCandidate, destCandidate)
+      const matched = routeOptions.find(r => r.id === selectedRouteId)
+      if (!matched) {
+        return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
+      }
+      routeGeometry = matched
+    } else {
+      routeGeometry = await provider.getRouteGeometry(originCandidate, destCandidate)
+    }
   } catch {
     return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
   }

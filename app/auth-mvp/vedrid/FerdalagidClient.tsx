@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useTranslations, useLocale } from 'next-intl'
 import { ChevronLeft, CloudSun, ChevronDown, ChevronUp, MapPin, Route, Truck, SlidersHorizontal, CheckCircle2 } from 'lucide-react'
 import type { DeterministicResult, WeatherStatus, RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelThresholdOverrides, TravelCandidate } from '@/lib/weather/types'
+import type { RouteOption } from '@/lib/weather/provider.types'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import { TravelAuditMap } from '@/components/weather/TravelAuditMap'
 import { DepartureHeatmap, type SlotStatus } from '@/components/weather/DepartureHeatmap'
@@ -56,6 +57,13 @@ export function FerdalagidClient() {
   // Track which thresholds were last submitted to detect dirty drafts
   const [submittedThresholds, setSubmittedThresholds] = useState<TravelThresholdOverrides | null>(null)
 
+  // Route selection state
+  const [routeOptions, setRouteOptions] = useState<RouteOption[] | null>(null)
+  const [routeOptionsLoading, setRouteOptionsLoading] = useState(false)
+  const [routeOptionsError, setRouteOptionsError] = useState<string | null>(null)
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
+  const [routeRetryCount, setRouteRetryCount] = useState(0)
+
   // Populate threshold draft inputs when entering the thresholds step
   useEffect(() => {
     if (step === 'thresholds') {
@@ -76,6 +84,67 @@ export function FerdalagidClient() {
     setReturnHiddenStatuses(new Set<SlotStatus>(['graent']))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.id])
+
+  // Clear result/error whenever origin or destination coordinates change
+  useEffect(() => {
+    setResult(null)
+    setError(null)
+    setSelectedHeatmapIdx(null)
+    setSelectedReturnHeatmapIdx(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon])
+
+  // Fetch route options whenever both places are set (or on explicit retry)
+  useEffect(() => {
+    setRouteOptions(null)
+    setSelectedRouteId(null)
+    setRouteOptionsError(null)
+
+    if (!origin || !destination) {
+      setRouteOptionsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setRouteOptionsLoading(true)
+
+    ;(async () => {
+      try {
+        const res = await fetch('/api/teskeid/weather/travel/routes', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ origin, destination }),
+        })
+        if (cancelled) return
+
+        const contentType = res.headers.get('content-type') ?? ''
+        if (res.status === 401 || !contentType.includes('application/json')) {
+          setRouteOptionsError(tf('errorAuthExpired'))
+          return
+        }
+
+        const data = await res.json()
+        if (cancelled) return
+
+        if (!res.ok) {
+          setRouteOptionsError(tf('routeOptionsUnavailable'))
+          return
+        }
+
+        const options = data.routes as RouteOption[]
+        setRouteOptions(options)
+        if (options.length > 0) setSelectedRouteId(options[0].id)
+      } catch {
+        if (!cancelled) setRouteOptionsError(tf('routeOptionsUnavailable'))
+      } finally {
+        if (!cancelled) setRouteOptionsLoading(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, routeRetryCount])
 
   function goNext(from: WizardStep) {
     if (returnToStep) {
@@ -124,6 +193,7 @@ export function FerdalagidClient() {
           origin,
           destination,
           trailerKind,
+          selectedRouteId: selectedRouteId ?? undefined,
           thresholdOverrides: Object.keys(overridesToSend).length > 0 ? overridesToSend : undefined,
         }),
       })
@@ -141,6 +211,7 @@ export function FerdalagidClient() {
         const errMap: Record<string, string> = {
           provider_not_configured: tf('errorProviderNotConfigured'),
           route_unavailable: tf('errorRouteUnavailable'),
+          selected_route_unavailable: tf('selectedRouteUnavailable'),
           forecast_unavailable: tf('errorForecastUnavailable'),
           times_invalid: tf('errorTimesInvalid'),
           thresholds_invalid: tf('thresholdValidationError'),
@@ -206,6 +277,11 @@ export function FerdalagidClient() {
     setSelectedHeatmapIdx(null)
     setSelectedReturnHeatmapIdx(null)
     setSubmittedThresholds(null)
+    setRouteOptions(null)
+    setRouteOptionsLoading(false)
+    setRouteOptionsError(null)
+    setSelectedRouteId(null)
+    setRouteRetryCount(0)
   }
 
   // Auto-select when outbound filter hides the currently selected slot, or when no slot is selected
@@ -425,9 +501,15 @@ export function FerdalagidClient() {
               onDestinationSelected={setDestination}
               onClearOrigin={() => setOrigin(null)}
               onClearDestination={() => setDestination(null)}
+              routeOptions={routeOptions}
+              routeOptionsLoading={routeOptionsLoading}
+              routeOptionsError={routeOptionsError}
+              onRetryRoutes={() => setRouteRetryCount(c => c + 1)}
+              selectedRouteId={selectedRouteId}
+              onRouteSelected={setSelectedRouteId}
               onConfirm={() => goNext('route')}
-              confirmLabel={tf('next')}
-              confirmDisabled={!origin || !destination}
+              confirmLabel={tf('routeConfirmSelected')}
+              confirmDisabled={!origin || !destination || !selectedRouteId}
             />
           </div>
         )}

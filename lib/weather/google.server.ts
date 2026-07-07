@@ -1,5 +1,5 @@
 import 'server-only'
-import type { PlaceCandidate, RouteGeometry, StaticMapParams, WeatherMapProvider } from './provider.types'
+import type { PlaceCandidate, RouteGeometry, RouteOption, StaticMapParams, WeatherMapProvider } from './provider.types'
 
 // Maximum sampled route points sent to met.no. Keeps API calls bounded.
 const MAX_ROUTE_POINTS = 80
@@ -27,6 +27,7 @@ type RoutesResponse = {
     }
     distanceMeters: number
     duration: string  // e.g. "1234s"
+    routeLabels?: string[]  // e.g. ["DEFAULT_ROUTE"] or ["DEFAULT_ROUTE_ALTERNATE"]
   }>
 }
 
@@ -127,6 +128,56 @@ async function getRouteGeometry(
   }
 }
 
+async function getRouteOptions(
+  from: PlaceCandidate,
+  to: PlaceCandidate
+): Promise<RouteOption[]> {
+  const key = process.env.GOOGLE_MAPS_SERVER_KEY
+  if (!key) throw new Error('GOOGLE_MAPS_SERVER_KEY not set')
+
+  const body = {
+    origin: { location: { latLng: { latitude: from.lat, longitude: from.lon } } },
+    destination: { location: { latLng: { latitude: to.lat, longitude: to.lon } } },
+    travelMode: 'DRIVE',
+    polylineEncoding: 'GEO_JSON_LINESTRING',
+    computeAlternativeRoutes: true,
+  }
+
+  const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': key,
+      'X-Goog-FieldMask': 'routes.polyline,routes.distanceMeters,routes.duration,routes.routeLabels',
+    },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  })
+
+  if (!res.ok) return []
+
+  const data = (await res.json()) as RoutesResponse
+  if (!data.routes || data.routes.length === 0) return []
+
+  return data.routes.map((route, idx) => {
+    const allPoints = route.polyline.geoJsonLinestring.coordinates.map(
+      ([lon, lat]) => ({ lat, lon })
+    )
+    const points = samplePoints(allPoints, MAX_ROUTE_POINTS)
+    const labels = route.routeLabels ?? []
+    return {
+      id: `google-${idx}`,
+      routeIndex: idx,
+      provider: 'google' as const,
+      labels,
+      isDefault: labels.includes('DEFAULT_ROUTE'),
+      points,
+      distanceM: route.distanceMeters,
+      durationS: parseInt(route.duration.replace('s', ''), 10),
+    }
+  })
+}
+
 /**
  * Returns a Static Maps URL using the browser-restricted key.
  * Safe to include in API responses — the browser key has HTTP referrer restrictions.
@@ -151,5 +202,6 @@ function staticMapUrl(params: StaticMapParams): string {
 export const googleProvider: WeatherMapProvider = {
   geocodePlace,
   getRouteGeometry,
+  getRouteOptions,
   staticMapUrl,
 }

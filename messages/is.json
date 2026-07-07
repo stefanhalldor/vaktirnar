@@ -760,7 +760,18 @@
         "stepNavTrailer": "Eftirvagn",
         "stepNavThresholds": "Veðurmörk",
         "stepNavResult": "Niðurstaða",
-        "thresholdsDirtyNavHint": "Veðurmörkin hafa breyst - þarf endurútreikning"
+        "thresholdsDirtyNavHint": "Veðurmörkin hafa breyst - þarf endurútreikning",
+        "routeOptionsTitle": "Leiðir sem Google fann",
+        "routeOptionsLoading": "Sæki leiðarmöguleika...",
+        "routeOptionsUnavailable": "Ekki tókst að sækja leiðir. Reyndu aftur.",
+        "routeOptionsRetry": "Reyna aftur",
+        "routeOptionShortest": "Stysta leið",
+        "routeOptionDefault": "Sjálfgefin Google-leið",
+        "routeOptionOther": "Önnur leið",
+        "routeOptionDuration": "{hours} klst. {minutes} mín.",
+        "routeOptionDurationMinutes": "{minutes} mín.",
+        "routeConfirmSelected": "Nota þessa leið",
+        "selectedRouteUnavailable": "Valin leið fannst ekki. Veldu aðra leið og reyndu aftur."
       }
     }
   }

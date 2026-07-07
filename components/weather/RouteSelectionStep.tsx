@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import { PlaceSearch, type PlaceResult } from './PlaceSearch'
 import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weather/googleMaps.client'
 import { toLngLat } from './travelAuditMap.helpers'
+import type { RouteOption } from '@/lib/weather/provider.types'
 
 export type RoutePlace = {
   name: string
@@ -21,12 +22,25 @@ type RouteSelectionStepProps = {
   onDestinationSelected: (p: RoutePlace) => void
   onClearOrigin: () => void
   onClearDestination: () => void
+  routeOptions: RouteOption[] | null
+  routeOptionsLoading: boolean
+  routeOptionsError: string | null
+  onRetryRoutes: () => void
+  selectedRouteId: string | null
+  onRouteSelected: (id: string) => void
   onConfirm: () => void
   confirmLabel: string
   confirmDisabled?: boolean
 }
 
 type ActiveField = 'origin' | 'destination' | null
+
+function formatDuration(tf: ReturnType<typeof useTranslations>, totalS: number): string {
+  const hours = Math.floor(totalS / 3600)
+  const minutes = Math.floor((totalS % 3600) / 60)
+  if (hours > 0) return tf('routeOptionDuration', { hours, minutes })
+  return tf('routeOptionDurationMinutes', { minutes })
+}
 
 /** Google Maps-like single-screen origin + destination selection with interactive map. */
 export function RouteSelectionStep({
@@ -36,6 +50,12 @@ export function RouteSelectionStep({
   onDestinationSelected,
   onClearOrigin,
   onClearDestination,
+  routeOptions,
+  routeOptionsLoading,
+  routeOptionsError,
+  onRetryRoutes,
+  selectedRouteId,
+  onRouteSelected,
   onConfirm,
   confirmLabel,
   confirmDisabled,
@@ -52,7 +72,7 @@ export function RouteSelectionStep({
   const mapRef = useRef<google.maps.Map | null>(null)
   const originMarkerRef = useRef<google.maps.Marker | null>(null)
   const destMarkerRef = useRef<google.maps.Marker | null>(null)
-  const routeLineRef = useRef<google.maps.Polyline | null>(null)
+  const routeLinesRef = useRef<google.maps.Polyline[]>([])
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapError, setMapError] = useState(false)
 
@@ -84,7 +104,7 @@ export function RouteSelectionStep({
     return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Effect 2: Origin marker only — not responsible for route line
+  // Effect 2: Origin marker only
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return
     let cancelled = false
@@ -106,7 +126,7 @@ export function RouteSelectionStep({
     return () => { cancelled = true }
   }, [origin?.lat, origin?.lon, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Effect 3: Destination marker only — not responsible for route line
+  // Effect 3: Destination marker only
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return
     let cancelled = false
@@ -128,54 +148,94 @@ export function RouteSelectionStep({
     return () => { cancelled = true }
   }, [destination?.lat, destination?.lon, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Effect 4: Route line + map bounds — always in sync with BOTH origin and destination.
-  // Clearing and redrawing here (not in effects 2/3) ensures the line is never stale when
-  // only one of the two points changes.
+  // Effect 4a: Draw all route polylines (or fallback straight line) and fit bounds.
+  // Does NOT depend on selectedRouteId — initial styles use selectedRouteId at closure time,
+  // and Effect 4b handles style updates when selection changes without refitting the map.
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return
 
-    // Always remove the old route line first
-    if (routeLineRef.current) {
-      routeLineRef.current.setMap(null)
-      routeLineRef.current = null
-    }
+    // Clear all previous route lines
+    routeLinesRef.current.forEach(l => l.setMap(null))
+    routeLinesRef.current = []
 
     if (!origin && !destination) return
 
     let cancelled = false
 
-    async function updateLineAndBounds() {
+    async function updateLines() {
       if (!mapRef.current) return
+      const [mapsLib, coreLib] = await Promise.all([loadMapsLibrary(), loadCoreLibrary()])
+      if (cancelled || !mapRef.current) return
 
-      if (origin && destination) {
-        const [mapsLib, coreLib] = await Promise.all([loadMapsLibrary(), loadCoreLibrary()])
-        if (cancelled || !mapRef.current) return
-        routeLineRef.current = new mapsLib.Polyline({
+      const bounds = new coreLib.LatLngBounds()
+
+      if (routeOptions && routeOptions.length > 0) {
+        // Draw all returned route polylines simultaneously
+        routeOptions.forEach((ro, idx) => {
+          const isSelected = ro.id === selectedRouteId
+          const path = ro.points.map(p => ({ lat: p.lat, lng: p.lon }))
+          const line = new mapsLib.Polyline({
+            path,
+            geodesic: true,
+            strokeColor: isSelected ? '#4A90E2' : '#9CA3AF',
+            strokeOpacity: isSelected ? 0.9 : 0.45,
+            strokeWeight: isSelected ? 5 : 2,
+            zIndex: isSelected ? 2 : 1,
+            map: mapRef.current!,
+          })
+          routeLinesRef.current[idx] = line
+          path.forEach(p => bounds.extend(p))
+        })
+      } else if (origin && destination) {
+        // Fallback: thin straight line while routes are loading or unavailable
+        const line = new mapsLib.Polyline({
           path: [toLngLat(origin), toLngLat(destination)],
           geodesic: true,
           strokeColor: '#4A90E2',
-          strokeOpacity: 0.7,
-          strokeWeight: 3,
-          map: mapRef.current,
+          strokeOpacity: 0.4,
+          strokeWeight: 2,
+          map: mapRef.current!,
         })
-        const bounds = new coreLib.LatLngBounds()
+        routeLinesRef.current[0] = line
         bounds.extend(toLngLat(origin))
         bounds.extend(toLngLat(destination))
-        mapRef.current.fitBounds(bounds, { top: 48, bottom: 48, left: 48, right: 48 })
-      } else if (origin) {
-        if (cancelled) return
-        mapRef.current.setCenter(toLngLat(origin))
-        mapRef.current.setZoom(10)
-      } else if (destination) {
-        if (cancelled) return
-        mapRef.current.setCenter(toLngLat(destination))
-        mapRef.current.setZoom(10)
+      }
+
+      if (origin) bounds.extend(toLngLat(origin))
+      if (destination) bounds.extend(toLngLat(destination))
+
+      if (!bounds.isEmpty()) {
+        if (origin && destination) {
+          mapRef.current!.fitBounds(bounds, { top: 48, bottom: 48, left: 48, right: 48 })
+        } else if (origin) {
+          mapRef.current!.setCenter(toLngLat(origin))
+          mapRef.current!.setZoom(10)
+        } else if (destination) {
+          mapRef.current!.setCenter(toLngLat(destination))
+          mapRef.current!.setZoom(10)
+        }
       }
     }
 
-    updateLineAndBounds()
+    updateLines()
     return () => { cancelled = true }
-  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, routeOptions, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Effect 4b: Update polyline styles when selection changes — no refit, no redraw.
+  useEffect(() => {
+    if (!mapLoaded || !routeOptions || routeLinesRef.current.length === 0) return
+    routeOptions.forEach((ro, idx) => {
+      const line = routeLinesRef.current[idx]
+      if (!line) return
+      const isSelected = ro.id === selectedRouteId
+      line.setOptions({
+        strokeColor: isSelected ? '#4A90E2' : '#9CA3AF',
+        strokeOpacity: isSelected ? 0.9 : 0.45,
+        strokeWeight: isSelected ? 5 : 2,
+        zIndex: isSelected ? 2 : 1,
+      })
+    })
+  }, [selectedRouteId, routeOptions, mapLoaded])
 
   function handleOriginSelected(p: PlaceResult) {
     onOriginSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress })
@@ -273,6 +333,63 @@ export function RouteSelectionStep({
           </div>
         )}
       </div>
+
+      {/* Route options — shown once both origin and destination are selected */}
+      {origin && destination && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-medium text-muted-foreground">{tf('routeOptionsTitle')}</p>
+
+          {routeOptionsLoading && (
+            <p className="text-xs text-muted-foreground py-2">{tf('routeOptionsLoading')}</p>
+          )}
+
+          {routeOptionsError && !routeOptionsLoading && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-destructive">{routeOptionsError}</p>
+              <button
+                type="button"
+                onClick={onRetryRoutes}
+                className="self-start text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+              >
+                {tf('routeOptionsRetry')}
+              </button>
+            </div>
+          )}
+
+          {routeOptions && routeOptions.map((ro, idx) => {
+            const isSelected = ro.id === selectedRouteId
+            const label = idx === 0
+              ? tf('routeOptionShortest')
+              : ro.isDefault
+                ? tf('routeOptionDefault')
+                : tf('routeOptionOther')
+            const km = (ro.distanceM / 1000).toFixed(0)
+            const duration = formatDuration(tf, ro.durationS)
+            return (
+              <button
+                key={ro.id}
+                type="button"
+                onClick={() => onRouteSelected(ro.id)}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-colors min-h-[52px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  isSelected
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-card hover:border-primary/40'
+                }`}
+              >
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className={`text-sm font-medium truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}>
+                    {label}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{km} km</span>
+                </div>
+                <span className={`text-sm font-semibold shrink-0 ml-3 ${isSelected ? 'text-primary' : 'text-foreground'}`}>
+                  {duration}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* Confirm button */}
       {origin && destination && (
