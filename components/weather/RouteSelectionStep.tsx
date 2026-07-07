@@ -81,6 +81,18 @@ export function RouteSelectionStep({
 }: RouteSelectionStepProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
+  // Filter saved places so the already-selected opposite place doesn't appear in the list.
+  // Uses the same coordinate key as the server to compare places.
+  function savedPlaceKey(p: { lat: number; lon: number }) {
+    return `${p.lat.toFixed(5)}:${p.lon.toFixed(5)}`
+  }
+  const originSavedPlaces = destination
+    ? savedPlaces?.filter(p => savedPlaceKey(p) !== savedPlaceKey(destination))
+    : savedPlaces
+  const destinationSavedPlaces = origin
+    ? savedPlaces?.filter(p => savedPlaceKey(p) !== savedPlaceKey(origin))
+    : savedPlaces
+
   const [activeField, setActiveField] = useState<ActiveField>(() => {
     if (!origin) return 'origin'
     if (!destination) return 'destination'
@@ -305,7 +317,7 @@ export function RouteSelectionStep({
             onPlaceSelected={handleOriginSelected}
             autoFocus={activeField === 'origin'}
             placeholder={tf('routeSelectOriginPrompt')}
-            savedPlaces={savedPlaces}
+            savedPlaces={originSavedPlaces}
             onDeleteSavedPlace={onDeleteSavedPlace}
           />
         )}
@@ -342,7 +354,7 @@ export function RouteSelectionStep({
             onPlaceSelected={handleDestinationSelected}
             autoFocus={activeField === 'destination'}
             placeholder={tf('routeSelectDestinationPrompt')}
-            savedPlaces={savedPlaces}
+            savedPlaces={destinationSavedPlaces}
             onDeleteSavedPlace={onDeleteSavedPlace}
           />
         )}
