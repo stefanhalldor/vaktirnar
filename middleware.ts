@@ -166,6 +166,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
   if (!user && !isPublic && !isAuthCallback) {
+    // API routes must return JSON — never redirect to a login page.
+    // The route handlers enforce their own auth and feature access.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

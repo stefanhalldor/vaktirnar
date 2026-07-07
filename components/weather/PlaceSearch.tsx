@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { loadPlacesLibrary } from '@/lib/weather/googleMaps.client'
 import { Search } from 'lucide-react'
@@ -19,47 +19,114 @@ type PlaceSearchProps = {
   placeholder?: string
 }
 
+type SearchSuggestion =
+  | { source: 'google'; label: string; raw: google.maps.places.AutocompleteSuggestion }
+  | { source: 'server'; label: string; place: PlaceResult }
+
+type ServerSearchOutcome =
+  | { ok: true; results: SearchSuggestion[] }
+  | { ok: false; results: [] }
+
+// How long to wait for Google Places before falling back to server search.
+const GOOGLE_TIMEOUT_MS = 4_000
+
 export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, placeholder }: PlaceSearchProps) {
   const t = useTranslations('teskeid.vedrid.placeSearch')
   const [input, setInput] = useState('')
-  const [suggestions, setSuggestions] = useState<google.maps.places.AutocompleteSuggestion[]>([])
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [loading, setLoading] = useState(false)
   const [fetchError, setFetchError] = useState(false)
+  const [noResults, setNoResults] = useState(false)
 
+  // Once Google fails in this component instance, stick to the server fallback.
+  const googleUnavailableRef = useRef(false)
   const sessionTokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null)
   const requestIdRef = useRef(0)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef(input)
+  inputRef.current = input
+
+  // Clear debounce timer on unmount to avoid state updates after unmount.
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [])
+
+  async function searchViaGoogle(value: string): Promise<SearchSuggestion[]> {
+    const { AutocompleteSuggestion, AutocompleteSessionToken } = await loadPlacesLibrary()
+    if (!sessionTokenRef.current) {
+      sessionTokenRef.current = new AutocompleteSessionToken()
+    }
+    const { suggestions: results } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
+      input: value,
+      sessionToken: sessionTokenRef.current,
+      includedRegionCodes: ['is'],
+      language: 'is',
+    })
+    return results.map(raw => ({
+      source: 'google' as const,
+      label: raw.placePrediction?.text.text ?? '',
+      raw,
+    }))
+  }
+
+  async function searchViaServer(value: string): Promise<ServerSearchOutcome> {
+    try {
+      const res = await fetch(`/api/place/search?q=${encodeURIComponent(value)}`)
+      if (!res.ok) return { ok: false, results: [] }
+      const data = (await res.json()) as { results: PlaceResult[] }
+      return {
+        ok: true,
+        results: (data.results ?? []).map(place => ({
+          source: 'server' as const,
+          label: place.formattedAddress || place.name,
+          place,
+        })),
+      }
+    } catch {
+      return { ok: false, results: [] }
+    }
+  }
 
   const search = useCallback(async (value: string) => {
     if (value.length < 2) {
       setSuggestions([])
       setFetchError(false)
+      setNoResults(false)
       return
     }
 
     const requestId = ++requestIdRef.current
     setLoading(true)
     setFetchError(false)
+    setNoResults(false)
 
     try {
-      const { AutocompleteSuggestion, AutocompleteSessionToken } = await loadPlacesLibrary()
-
-      // Reuse session token across keystrokes — reset only after selection
-      if (!sessionTokenRef.current) {
-        sessionTokenRef.current = new AutocompleteSessionToken()
+      if (!googleUnavailableRef.current) {
+        try {
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), GOOGLE_TIMEOUT_MS),
+          )
+          const results = await Promise.race([searchViaGoogle(value), timeoutPromise])
+          if (requestId !== requestIdRef.current) return
+          setSuggestions(results)
+          setLoading(false)
+          return
+        } catch {
+          googleUnavailableRef.current = true
+        }
       }
 
-      const { suggestions: results } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
-        input: value,
-        sessionToken: sessionTokenRef.current,
-        includedRegionCodes: ['is'],
-        language: 'is',
-      })
-
-      // Stale guard — discard response if a newer request has started
+      // Server fallback
+      const outcome = await searchViaServer(value)
       if (requestId !== requestIdRef.current) return
-
-      setSuggestions(results)
+      setSuggestions(outcome.results)
+      if (!outcome.ok) {
+        setFetchError(true)
+      } else if (outcome.results.length === 0) {
+        setNoResults(true)
+      }
     } catch {
       if (requestId === requestIdRef.current) {
         setSuggestions([])
@@ -72,6 +139,7 @@ export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, place
 
   function handleInputChange(value: string) {
     setInput(value)
+    setNoResults(false)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!value.trim()) {
       setSuggestions([])
@@ -80,24 +148,42 @@ export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, place
     debounceRef.current = setTimeout(() => search(value), 300)
   }
 
-  async function handleSelect(suggestion: google.maps.places.AutocompleteSuggestion) {
-    const place = suggestion.placePrediction!.toPlace()
-    // sessionToken is included automatically in the first fetchFields call — do NOT pass it explicitly
-    await place.fetchFields({
-      fields: ['displayName', 'formattedAddress', 'location'],
-    })
+  async function handleSelect(suggestion: SearchSuggestion) {
+    if (suggestion.source === 'server') {
+      setSuggestions([])
+      setInput('')
+      onPlaceSelected(suggestion.place)
+      return
+    }
 
-    // Session ends after fetchFields — reset token for next independent search
-    sessionTokenRef.current = null
-    setSuggestions([])
-    setInput('')
-
-    onPlaceSelected({
-      name: place.displayName ?? '',
-      formattedAddress: place.formattedAddress ?? '',
-      lat: place.location!.lat(),
-      lon: place.location!.lng(),
-    })
+    // Google path: fetch coordinates via fetchFields. Don't clear input until success
+    // so that if fetchFields fails the user still sees what they typed.
+    try {
+      const place = suggestion.raw.placePrediction!.toPlace()
+      await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] })
+      sessionTokenRef.current = null
+      setSuggestions([])
+      setInput('')
+      onPlaceSelected({
+        name: place.displayName ?? '',
+        formattedAddress: place.formattedAddress ?? '',
+        lat: place.location!.lat(),
+        lon: place.location!.lng(),
+      })
+    } catch {
+      // Google fetchFields failed — mark Google as unavailable and try server fallback.
+      googleUnavailableRef.current = true
+      const fallbackQuery = inputRef.current || suggestion.label
+      if (fallbackQuery.length >= 2) {
+        const outcome = await searchViaServer(fallbackQuery)
+        setSuggestions(outcome.results)
+        if (!outcome.ok) { setNoResults(false); setFetchError(true) }
+        else if (outcome.results.length === 0) { setFetchError(false); setNoResults(true) }
+      } else {
+        setSuggestions([])
+        setFetchError(true)
+      }
+    }
   }
 
   return (
@@ -125,7 +211,11 @@ export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, place
       )}
 
       {fetchError && (
-        <p className="text-xs text-destructive px-1">{t('error')}</p>
+        <p className="text-xs text-destructive px-1">{t('errorAllProviders')}</p>
+      )}
+
+      {noResults && !fetchError && (
+        <p className="text-xs text-muted-foreground px-1">{t('noResults')}</p>
       )}
 
       {suggestions.length > 0 && (
@@ -133,20 +223,17 @@ export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, place
           role="listbox"
           className="flex flex-col rounded-xl border border-border bg-card overflow-hidden"
         >
-          {suggestions.map((s, i) => {
-            const text = s.placePrediction?.text.text ?? ''
-            return (
-              <li key={i} role="option" aria-selected={false}>
-                <button
-                  type="button"
-                  onClick={() => handleSelect(s)}
-                  className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                >
-                  {text}
-                </button>
-              </li>
-            )
-          })}
+          {suggestions.map((s, i) => (
+            <li key={i} role="option" aria-selected={false}>
+              <button
+                type="button"
+                onClick={() => handleSelect(s)}
+                className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+              >
+                {s.label}
+              </button>
+            </li>
+          ))}
         </ul>
       )}
 

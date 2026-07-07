@@ -153,6 +153,20 @@ describe('middleware — unauthenticated private route', () => {
     expect(res.status).toBe(307)
     expect(redirectedTo(res)).toBe('/login')
   })
+
+  it('unauthenticated API request → 401 JSON, not redirect', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/travel'))
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe('Unauthorized')
+  })
+
+  it('unauthenticated place search API → 401 JSON, not redirect', async () => {
+    const res = await middleware(makeReq('/api/place/search?q=reykjavik'))
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe('Unauthorized')
+  })
 })
 
 // ── /auth-mvp/heim and private route redirects ─────────────────────────────

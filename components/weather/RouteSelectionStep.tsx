@@ -54,6 +54,7 @@ export function RouteSelectionStep({
   const destMarkerRef = useRef<google.maps.Marker | null>(null)
   const routeLineRef = useRef<google.maps.Polyline | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [mapError, setMapError] = useState(false)
 
   // Effect 1: Initialize map (mount only)
   useEffect(() => {
@@ -76,7 +77,7 @@ export function RouteSelectionStep({
         })
         setMapLoaded(true)
       } catch {
-        // Map fails gracefully; mapLoaded stays false
+        if (!cancelled) setMapError(true)
       }
     }
     init()
@@ -261,9 +262,14 @@ export function RouteSelectionStep({
       {/* Interactive map */}
       <div className="relative overflow-hidden rounded-xl border border-border">
         <div ref={mapDivRef} className="h-[220px] sm:h-[280px] w-full" />
-        {!mapLoaded && (
+        {!mapLoaded && !mapError && (
           <div className="absolute inset-0 flex items-center justify-center bg-muted/40">
             <p className="text-xs text-muted-foreground">{tf('interactiveMapLoading')}</p>
+          </div>
+        )}
+        {mapError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-muted/20 p-4">
+            <p className="text-xs text-muted-foreground text-center">{tf('routeMapUnavailable')}</p>
           </div>
         )}
       </div>

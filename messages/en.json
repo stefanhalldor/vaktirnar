@@ -600,6 +600,8 @@
         "ariaLabel": "Search for a place",
         "loading": "Searching...",
         "error": "Search failed. Please try again.",
+        "errorAllProviders": "Search is unavailable right now. Please try again later.",
+        "noResults": "No place found. Try another name or add the municipality.",
         "cancel": "Cancel"
       },
       "mapConfirmation": {
@@ -607,7 +609,7 @@
         "mapAlt": "Map of {place}"
       },
       "ferdalagid": {
-        "title": "The Trip",
+        "title": "Travel Weather",
         "stepOriginTitle": "Where are you leaving from?",
         "stepDestinationTitle": "Where are you going?",
         "stepTimesTitle": "When?",
@@ -664,6 +666,8 @@
         "howAssessedBody": "The travel assessment is calculated from the route, timing and forecast values along the route. AI does not make the decision. It may help phrase the result, but wind, gusts, precipitation, time and location drive the assessment.",
         "interactiveMapLoading": "Loading map...",
         "interactiveMapUnavailable": "Map could not be loaded.",
+        "routeMapUnavailable": "The map could not load in this browser. You can still choose origin and destination and calculate the trip.",
+        "auditMapUnavailable": "The map did not load. The result is calculated from route and forecast data and is correct even without the map.",
         "worstPointTitle": "Worst point",
         "pointTimeLine": "at {time}",
         "pointEtaLabel": "ETA on route",
@@ -688,6 +692,7 @@
         "errorForecastUnavailable": "Weather forecast unavailable. Please try again.",
         "errorTimesInvalid": "The times are not logical. Check departure and return.",
         "errorGeneral": "Something went wrong. Please try again.",
+        "errorAuthExpired": "Your session expired. Sign in again and try the trip.",
         "aboveThresholdShort": "above threshold {threshold} {unit}",
         "aboveThresholdWithExcess": "({excess} above the {threshold} {unit} limit)",
         "showWorstPoint": "Jump to worst point",
@@ -712,7 +717,6 @@
         "assumptionTrailer": "Trailer",
         "assumptionNotSet": "Not set",
         "edit": "Edit",
-        "stepRouteTitle": "Where are you going?",
         "routeSelectOriginPrompt": "Select departure point",
         "routeSelectDestinationPrompt": "Select destination",
         "heatmapReturnTitle": "When is the best time to head home?",

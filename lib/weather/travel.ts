@@ -5,7 +5,7 @@ import type {
   TravelThresholdOverrides, ResolvedTravelThresholds,
 } from './types'
 import type { TrailerKind } from './question'
-import { WEATHER_THRESHOLDS, deriveThreshold, resolveThresholds } from './thresholds'
+import { deriveThreshold, resolveThresholds } from './thresholds'
 
 const CANDIDATE_INTERVAL_S = 30 * 60 // 30-minute intervals between candidate departures
 const NEXT_CAUTION_STEP_S = 3600 // 1-hour steps for next-caution scan

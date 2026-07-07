@@ -329,11 +329,13 @@ describe('middleware — LEGACY_ENABLED=true: /s/* and /api/sessions/* allowed',
     expect(res.status).toBe(200)
   })
 
-  it('POST /api/sessions (exact) requires auth → 307 to /login when unauthenticated', async () => {
-    // Exact /api/sessions is NOT in PUBLIC_PATHS (only /api/sessions/ is)
+  it('POST /api/sessions (exact) requires auth → 401 JSON when unauthenticated', async () => {
+    // Exact /api/sessions is NOT in PUBLIC_PATHS (only /api/sessions/ is).
+    // API routes return JSON 401 rather than redirecting to a login page.
     const res = await middleware(makeReq('/api/sessions'))
-    expect(res.status).toBe(307)
-    expect(redirectedTo(res)).toBe('/login')
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe('Unauthorized')
   })
 
   it('/s/example passes through (200, public)', async () => {

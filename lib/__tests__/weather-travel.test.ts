@@ -63,18 +63,23 @@ describe('checkTravelWeather', () => {
       expect(result.reasonCode).toBe('too_windy_driving')
     })
 
-    it('returns graent with light rain (1.5 mm/h) and calm wind — below new 2.0 threshold', () => {
+    it('returns graent with light rain (1.5 mm/h) and calm wind — below new 5.0 threshold', () => {
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 1.5)] })
       expect(result.stada).toBe('graent')
     })
 
-    it('returns graent at exactly 2.0 mm/h (strict > threshold)', () => {
-      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 2.0)] })
+    it('returns graent at exactly 5.0 mm/h (strict > threshold)', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 5.0)] })
       expect(result.stada).toBe('graent')
     })
 
-    it('returns gult with precipitation (> 2.0 mm/h)', () => {
-      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 2.1)] })
+    it('returns graent at 4.9 mm/h (below new 5.0 threshold)', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 4.9)] })
+      expect(result.stada).toBe('graent')
+    })
+
+    it('returns gult with precipitation (> 5.0 mm/h)', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 5.1)] })
       expect(result.stada).toBe('gult')
       expect(result.reasonCode).toBe('precipitation')
     })
@@ -99,8 +104,8 @@ describe('checkTravelWeather', () => {
       expect(result.reasonCode).toBe('too_windy_trailer')
     })
 
-    it('returns gult with precipitation and caravan (> 2.0 mm/h)', () => {
-      const result = checkTravelWeather({ ...BASE_INPUT, trailerKind: 'caravan', pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 2.1)] })
+    it('returns gult with precipitation and caravan (> 5.0 mm/h)', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, trailerKind: 'caravan', pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 5.1)] })
       expect(result.stada).toBe('gult')
       expect(result.reasonCode).toBe('precipitation')
     })
@@ -386,7 +391,7 @@ describe('checkTravelWeather', () => {
     })
 
     it('highlighted issue has correct metric when only precipitation drives the result', () => {
-      const rainy = makeForecast('2026-07-10T08:00:00Z', 8, 5, 7, 3.0, { lat: 64.0, lon: -22.0, routeIndex: 0, distanceFromOriginM: 0 })
+      const rainy = makeForecast('2026-07-10T08:00:00Z', 8, 5, 7, 5.1, { lat: 64.0, lon: -22.0, routeIndex: 0, distanceFromOriginM: 0 })
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [rainy] })
       expect(result.stada).toBe('gult')
       expect(result.reasonCode).toBe('precipitation')
@@ -454,7 +459,7 @@ describe('checkTravelWeather', () => {
 
     it('precipitation issue has metric=precipitation and points to the rainy point', () => {
       const calm = makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 0, { lat: 64.0, lon: -22.0, routeIndex: 0, distanceFromOriginM: 0 })
-      const rainy = makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 3.0, { lat: 65.0, lon: -19.0, routeIndex: 1, distanceFromOriginM: 200_000 })
+      const rainy = makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 5.1, { lat: 65.0, lon: -19.0, routeIndex: 1, distanceFromOriginM: 200_000 })
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [calm, rainy] })
       const issue = result.travelPlan?.highlightedIssue
       expect(issue?.metric).toBe('precipitation')
@@ -597,12 +602,12 @@ describe('checkTravelWeather', () => {
     })
 
     it('finds future precipitation caution after green current departure', () => {
-      // Hours 0-8: calm, hours 9+: heavy precip (2.1 mm/h > cautionPrecipMmPerHour 2.0)
+      // Hours 0-8: calm, hours 9+: heavy precip (5.1 mm/h > cautionPrecipMmPerHour 5.0)
       const calmHours = Array.from({ length: 9 }, (_, i) =>
         makeHour(new Date(new Date('2026-07-10T08:00:00Z').getTime() + i * 3600_000).toISOString(), 5, 7, 0)
       )
       const rainyHours = Array.from({ length: 30 }, (_, i) =>
-        makeHour(new Date(new Date('2026-07-10T17:00:00Z').getTime() + i * 3600_000).toISOString(), 5, 7, 2.1)
+        makeHour(new Date(new Date('2026-07-10T17:00:00Z').getTime() + i * 3600_000).toISOString(), 5, 7, 5.1)
       )
       const forecast: TravelPointForecast = {
         hours: [...calmHours, ...rainyHours],
@@ -628,12 +633,12 @@ describe('checkTravelWeather', () => {
       expect(nc!.scannedHours).toBeGreaterThan(0)
     })
 
-    it('does not trigger caution for precip exactly at 2.0 mm/h (strict > threshold)', () => {
+    it('does not trigger caution for precip exactly at 5.0 mm/h (strict > threshold)', () => {
       const calmHours = Array.from({ length: 9 }, (_, i) =>
         makeHour(new Date(new Date('2026-07-10T08:00:00Z').getTime() + i * 3600_000).toISOString(), 5, 7, 0)
       )
       const atThresholdHours = Array.from({ length: 30 }, (_, i) =>
-        makeHour(new Date(new Date('2026-07-10T17:00:00Z').getTime() + i * 3600_000).toISOString(), 5, 7, 2.0)
+        makeHour(new Date(new Date('2026-07-10T17:00:00Z').getTime() + i * 3600_000).toISOString(), 5, 7, 5.0)
       )
       const forecast: TravelPointForecast = {
         hours: [...calmHours, ...atThresholdHours],
@@ -643,7 +648,7 @@ describe('checkTravelWeather', () => {
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [forecast] })
       expect(result.stada).toBe('graent')
       const nc = result.travelPlan?.outbound.nextCaution
-      // 2.0 mm/h is NOT > 2.0 → should not trigger caution
+      // 5.0 mm/h is NOT > 5.0 → should not trigger caution
       expect(nc?.departureIso).toBeUndefined()
     })
   })
@@ -784,7 +789,7 @@ describe('checkTravelWeather', () => {
       expect(r.cautionWindMs).toBe(15)
       expect(r.redWindMs).toBe(20)
       expect(r.redGustMs).toBe(28)
-      expect(r.cautionPrecipMmPerHour).toBe(2.0)
+      expect(r.cautionPrecipMmPerHour).toBe(5.0)
     })
 
     it('resolveThresholds returns caravan defaults for non-none trailer', () => {

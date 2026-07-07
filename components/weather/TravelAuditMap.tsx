@@ -109,6 +109,7 @@ export function TravelAuditMap({
 
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapError, setMapError] = useState(false)
+  const [staticMapFailed, setStaticMapFailed] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(() =>
     initialSelectedIndex(weatherPoints, highlightedIssue),
   )
@@ -370,9 +371,9 @@ export function TravelAuditMap({
     ? weatherPoints.findIndex(p => p.lat === highlightedIssue.lat && p.lon === highlightedIssue.lon)
     : -1
 
-  // Fallback: static map or nothing
+  // Fallback: static map or text
   if (mapError) {
-    if (staticMapUrl) {
+    if (staticMapUrl && !staticMapFailed) {
       return (
         <div className="rounded-xl overflow-hidden border border-border">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -381,12 +382,13 @@ export function TravelAuditMap({
             alt={tf('auditMapAlt', { origin: originName, destination: destinationName })}
             className="w-full block"
             style={{ height: 'auto', maxWidth: '100%' }}
+            onError={() => setStaticMapFailed(true)}
           />
         </div>
       )
     }
     return (
-      <p className="text-xs text-muted-foreground">{tf('interactiveMapUnavailable')}</p>
+      <p className="text-xs text-muted-foreground">{tf('auditMapUnavailable')}</p>
     )
   }
 

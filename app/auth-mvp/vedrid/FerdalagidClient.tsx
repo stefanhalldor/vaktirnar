@@ -118,6 +118,7 @@ export function FerdalagidClient() {
     try {
       const res = await fetch('/api/teskeid/weather/travel', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           origin,
@@ -126,6 +127,13 @@ export function FerdalagidClient() {
           thresholdOverrides: Object.keys(overridesToSend).length > 0 ? overridesToSend : undefined,
         }),
       })
+
+      // Guard against auth redirects and non-JSON responses (middleware intercept, CDN error pages).
+      const contentType = res.headers.get('content-type') ?? ''
+      if (res.status === 401 || !contentType.includes('application/json')) {
+        setError(tf('errorAuthExpired'))
+        return
+      }
 
       const data = await res.json()
 
@@ -410,8 +418,7 @@ export function FerdalagidClient() {
         {/* Step: Route */}
         {step === 'route' && (
           <div className="flex flex-col gap-4">
-            <p className="text-sm font-medium text-foreground">{tf('stepRouteTitle')}</p>
-            <RouteSelectionStep
+<RouteSelectionStep
               origin={origin}
               destination={destination}
               onOriginSelected={setOrigin}

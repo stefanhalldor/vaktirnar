@@ -604,6 +604,8 @@
         "ariaLabel": "Leit að stað",
         "loading": "Leita...",
         "error": "Villa við leit. Reyndu aftur.",
+        "errorAllProviders": "Leit virkar ekki núna. Reyndu aftur seinna.",
+        "noResults": "Enginn staður fannst. Prófaðu annað heiti eða bættu við sveitarfélagi.",
         "cancel": "Hætta við"
       },
       "mapConfirmation": {
@@ -611,7 +613,7 @@
         "mapAlt": "Kort af {place}"
       },
       "ferdalagid": {
-        "title": "Ferðalagið",
+        "title": "Ferðaveðrið",
         "stepOriginTitle": "Hvar hefst ferðalagið?",
         "stepDestinationTitle": "Hvar endar ferðalagið?",
         "stepTimesTitle": "Hvenær?",
@@ -668,6 +670,8 @@
         "howAssessedBody": "Veðurmatið er reiknað úr leiðinni, tímasetningu og veðurspá á punktum meðfram leiðinni. Gervigreind tekur ekki ákvörðunina sjálf. Hún má hjálpa okkur að orða niðurstöðuna, en vindur, hviður, úrkoma, tími og staðsetning ráða matinu.",
         "interactiveMapLoading": "Hleð kort...",
         "interactiveMapUnavailable": "Kortið náði ekki að hlaðast.",
+        "routeMapUnavailable": "Kortið náði ekki að hlaðast í þessum vafra. Þú getur samt valið brottfararstað og áfangastað og reiknað ferðina.",
+        "auditMapUnavailable": "Kortið hlóðst ekki. Niðurstaðan er reiknuð úr leið og veðurspá og er rétt þótt kort sé ekki sýnilegt.",
         "worstPointTitle": "Versti punktur",
         "pointTimeLine": "kl. {time}",
         "pointEtaLabel": "Áætlað á leið",
@@ -692,6 +696,7 @@
         "errorForecastUnavailable": "Veðurspá ekki aðgengileg. Reyndu aftur.",
         "errorTimesInvalid": "Tímar eru ekki rökréttir. Athugaðu brottför og heimkomu.",
         "errorGeneral": "Eitthvað fór úrskeiðis. Reyndu aftur.",
+        "errorAuthExpired": "Innskráningin rann út. Skráðu þig inn aftur og prófaðu svo ferðina.",
         "aboveThresholdShort": "yfir mörkum {threshold} {unit}",
         "aboveThresholdWithExcess": "({excess} yfir {threshold} {unit} mörkum)",
         "showWorstPoint": "Fara á versta punkt",
@@ -716,7 +721,6 @@
         "assumptionTrailer": "Eftirvagn",
         "assumptionNotSet": "Ekki sett",
         "edit": "Breyta",
-        "stepRouteTitle": "Hvert ert þú að fara?",
         "routeSelectOriginPrompt": "Veldu brottfararstað",
         "routeSelectDestinationPrompt": "Veldu áfangastað",
         "heatmapReturnTitle": "Hvenær er best að leggja á heimleiðina?",

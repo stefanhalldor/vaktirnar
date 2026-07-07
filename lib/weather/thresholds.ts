@@ -25,8 +25,7 @@ export const WEATHER_THRESHOLDS = {
     tooWindyMs: 8,
   },
   travel: {
-    cautionPrecipMmPerHour: 2.0,
-    heavyPrecipMmPerHour: 3.0,
+    cautionPrecipMmPerHour: 5.0,
   },
   laundry: {
     goodDryHours: 4,
