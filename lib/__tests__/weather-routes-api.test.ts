@@ -165,4 +165,38 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     const body = await res.json()
     expect(body.routes.map((r: { durationS: number }) => r.durationS)).toEqual([3600, 5400, 7200])
   })
+
+  it('forwards a valid string placeId to the provider', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    await POST(makeRequest({
+      origin: { ...VALID_ORIGIN, placeId: 'ChIJorigin123' },
+      destination: { ...VALID_DEST, placeId: 'ChIJdest456' },
+    }))
+    const call = mockGetRouteOptions.mock.calls[0]
+    expect(call[0].placeId).toBe('ChIJorigin123')
+    expect(call[1].placeId).toBe('ChIJdest456')
+  })
+
+  it('treats empty string placeId as missing (uses confirmed sentinel)', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    await POST(makeRequest({
+      origin: { ...VALID_ORIGIN, placeId: '' },
+      destination: VALID_DEST,
+    }))
+    const call = mockGetRouteOptions.mock.calls[0]
+    expect(call[0].placeId).toBe('confirmed')
+  })
+
+  it('ignores non-string placeId (uses confirmed sentinel)', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    await POST(makeRequest({
+      origin: { ...VALID_ORIGIN, placeId: 12345 },
+      destination: VALID_DEST,
+    }))
+    const call = mockGetRouteOptions.mock.calls[0]
+    expect(call[0].placeId).toBe('confirmed')
+  })
 })

@@ -22,7 +22,7 @@ function isRateLimited(ip: string): boolean {
 // In-memory cache per normalized (trimmed + lowercased) query. 10-minute TTL, best-effort (Vercel process-level).
 const CACHE_TTL_MS = 10 * 60 * 1000
 
-type PlaceSearchResult = { name: string; formattedAddress: string; lat: number; lon: number }
+type PlaceSearchResult = { name: string; formattedAddress: string; lat: number; lon: number; placeId?: string }
 const cache = new Map<string, { results: PlaceSearchResult[]; expiresAt: number }>()
 
 export async function GET(request: NextRequest) {
@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
         formattedAddress: c.formattedAddress,
         lat: c.lat,
         lon: c.lon,
+        placeId: c.placeId || undefined,
       }))
     cache.set(normalizedQ, { results, expiresAt: Date.now() + CACHE_TTL_MS })
     return NextResponse.json({ results })

@@ -14,6 +14,7 @@ export type RoutePlace = {
   lat: number
   lon: number
   formattedAddress?: string
+  placeId?: string
 }
 
 type RouteSelectionStepProps = {
@@ -275,12 +276,12 @@ export function RouteSelectionStep({
   }, [selectedRouteId, routeOptions, mapLoaded])
 
   function handleOriginSelected(p: PlaceResult) {
-    onOriginSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress })
+    onOriginSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress, placeId: p.placeId })
     setActiveField('destination')
   }
 
   function handleDestinationSelected(p: PlaceResult) {
-    onDestinationSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress })
+    onDestinationSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress, placeId: p.placeId })
     setActiveField(null)
   }
 
@@ -447,11 +448,13 @@ export function RouteSelectionStep({
 
           {routeOptions && routeOptions.map((ro, idx) => {
             const isSelected = ro.id === selectedRouteId
-            const label = idx === 0
-              ? tf('routeOptionShortest')
-              : ro.isDefault
-                ? tf('routeOptionDefault')
-                : tf('routeOptionOther')
+            const label = ro.labels.includes('CURATED_VIA_THRENGSLAVEGUR')
+              ? tf('routeOptionViaThrengslavegur')
+              : idx === 0
+                ? tf('routeOptionShortest')
+                : ro.isDefault
+                  ? tf('routeOptionDefault')
+                  : tf('routeOptionOther')
             const km = (ro.distanceM / 1000).toFixed(0)
             const duration = formatDuration(tf, ro.durationS)
             return (
@@ -469,6 +472,9 @@ export function RouteSelectionStep({
                   <span className={`text-sm font-medium truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}>
                     {label}
                   </span>
+                  {ro.description && (
+                    <span className="text-xs text-muted-foreground">{ro.description}</span>
+                  )}
                   <span className="text-xs text-muted-foreground">{km} km</span>
                 </div>
                 <span className={`text-sm font-semibold shrink-0 ml-3 ${isSelected ? 'text-primary' : 'text-foreground'}`}>

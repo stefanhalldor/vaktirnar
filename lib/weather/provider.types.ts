@@ -21,6 +21,7 @@ export type RouteOption = RouteGeometry & {
   provider: 'google' | 'mapbox'
   labels: string[]
   isDefault: boolean
+  description?: string
 }
 
 export type StaticMapParams = {

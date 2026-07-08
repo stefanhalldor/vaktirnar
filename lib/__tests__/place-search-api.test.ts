@@ -107,6 +107,26 @@ describe('GET /api/place/search', () => {
     expect(body.results[0]).toMatchObject({ name: 'Reykjavík', lat: 64.135, lon: -21.895 })
   })
 
+  it('includes placeId in results when provider returns it', async () => {
+    authedUser()
+    mockGeocodePlace.mockResolvedValue([
+      { placeId: 'ChIJreykjavik123', displayName: 'Reykjavík', formattedAddress: 'Reykjavík, Ísland', lat: 64.135, lon: -21.895 },
+    ])
+    const res = await GET(makeRequest('reykjavik-placeid'))
+    const body = await res.json()
+    expect(body.results[0].placeId).toBe('ChIJreykjavik123')
+  })
+
+  it('omits placeId from results when provider returns empty string', async () => {
+    authedUser()
+    mockGeocodePlace.mockResolvedValue([
+      { placeId: '', displayName: 'Akureyri', formattedAddress: 'Akureyri, Ísland', lat: 65.683, lon: -18.1 },
+    ])
+    const res = await GET(makeRequest('akureyri-noplaceid'))
+    const body = await res.json()
+    expect(body.results[0].placeId).toBeUndefined()
+  })
+
   it('filters out non-Iceland coordinates', async () => {
     authedUser()
     mockGeocodePlace.mockResolvedValue([

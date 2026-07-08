@@ -15,6 +15,13 @@ function validateConfirmedPlace(raw: unknown): raw is { name: string; lat: numbe
   )
 }
 
+function normalizeOptionalPlaceId(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed.length > 500) return undefined
+  return trimmed
+}
+
 export async function POST(request: Request) {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -51,8 +58,15 @@ export async function POST(request: Request) {
   const origin = body.origin as { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string }
   const destination = body.destination as { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string }
 
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[routes/routes] placeId in request body:', {
+      origin: origin.placeId ? `present (${String(origin.placeId).slice(0, 20)})` : 'absent',
+      destination: destination.placeId ? `present (${String(destination.placeId).slice(0, 20)})` : 'absent',
+    })
+  }
+
   const originCandidate: PlaceCandidate = {
-    placeId: origin.placeId ?? 'confirmed',
+    placeId: normalizeOptionalPlaceId(origin.placeId) ?? 'confirmed',
     displayName: origin.name.trim(),
     formattedAddress: (origin.formattedAddress ?? origin.name).trim(),
     lat: origin.lat,
@@ -60,7 +74,7 @@ export async function POST(request: Request) {
   }
 
   const destCandidate: PlaceCandidate = {
-    placeId: destination.placeId ?? 'confirmed',
+    placeId: normalizeOptionalPlaceId(destination.placeId) ?? 'confirmed',
     displayName: destination.name.trim(),
     formattedAddress: (destination.formattedAddress ?? destination.name).trim(),
     lat: destination.lat,

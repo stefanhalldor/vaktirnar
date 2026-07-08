@@ -10,6 +10,7 @@ export type PlaceResult = {
   formattedAddress: string
   lat: number
   lon: number
+  placeId?: string
 }
 
 /** Minimal shape required by PlaceSearch; compatible with SavedWeatherPlace. */
@@ -163,6 +164,9 @@ export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, place
     if (suggestion.source === 'server') {
       setSuggestions([])
       setInput('')
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[PlaceSearch] selected (server fallback):', { name: suggestion.place.name, placeId: suggestion.place.placeId ?? 'none' })
+      }
       onPlaceSelected(suggestion.place)
       return
     }
@@ -175,11 +179,15 @@ export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, place
       sessionTokenRef.current = null
       setSuggestions([])
       setInput('')
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[PlaceSearch] selected (google):', { name: place.displayName, placeId: place.id ?? 'null — place.id was null/undefined' })
+      }
       onPlaceSelected({
         name: place.displayName ?? '',
         formattedAddress: place.formattedAddress ?? '',
         lat: place.location!.lat(),
         lon: place.location!.lng(),
+        placeId: place.id ?? undefined,
       })
     } catch {
       // Google fetchFields failed — mark Google as unavailable and try server fallback.
@@ -241,7 +249,12 @@ export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, place
                 <div className="flex items-center">
                   <button
                     type="button"
-                    onClick={() => onPlaceSelected({ name: p.name, formattedAddress: p.formattedAddress ?? '', lat: p.lat, lon: p.lon })}
+                    onClick={() => {
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.log('[PlaceSearch] selected (saved place):', { name: p.name, placeId: 'none — saved places have no placeId' })
+                      }
+                      onPlaceSelected({ name: p.name, formattedAddress: p.formattedAddress ?? '', lat: p.lat, lon: p.lon })
+                    }}
                     className="flex-1 text-left px-4 py-2.5 hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                   >
                     <span className="block text-sm text-foreground truncate">{p.name}</span>

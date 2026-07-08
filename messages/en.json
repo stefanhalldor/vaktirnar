@@ -792,6 +792,7 @@
         "routeOptionsUnavailable": "Could not fetch routes. Please try again.",
         "routeOptionsRetry": "Try again",
         "routeOptionShortest": "Fastest route",
+        "routeOptionViaThrengslavegur": "Via Þrengslavegur",
         "routeOptionDefault": "Google default route",
         "routeOptionOther": "Alternative route",
         "routeOptionDuration": "{hours} hr {minutes} min",

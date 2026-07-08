@@ -9,18 +9,48 @@ import type { PlaceCandidate } from '@/lib/weather/provider.types'
 
 // Minimal place candidates for route tests
 const FROM: PlaceCandidate = {
-  placeId: 'p1',
+  placeId: 'ChIJreykjavik',
   displayName: 'Reykjavík',
   formattedAddress: 'Reykjavík, Iceland',
   lat: 64.135,
   lon: -21.895,
 }
 const TO: PlaceCandidate = {
-  placeId: 'p2',
+  placeId: 'ChIJakureyri',
   displayName: 'Akureyri',
   formattedAddress: 'Akureyri, Iceland',
   lat: 65.683,
   lon: -18.1,
+}
+const FROM_NO_PLACEID: PlaceCandidate = {
+  placeId: 'confirmed',
+  displayName: 'Curated Port',
+  formattedAddress: 'Curated Port, Iceland',
+  lat: 63.9,
+  lon: -21.5,
+}
+
+// Candidates for curated Þrengslavegur tests
+const FROM_GARDABAER: PlaceCandidate = {
+  placeId: 'ChIJgardabaer',
+  displayName: 'Garðabær',
+  formattedAddress: 'Garðabær, Iceland',
+  lat: 64.09,   // in capital-area bounds
+  lon: -21.93,
+}
+const TO_THORLAKSHOFN: PlaceCandidate = {
+  placeId: 'ChIJU1N290hC1kgRypBJRWS0YX4',  // known Place ID from live diagnostics
+  displayName: 'Þorlákshöfn',
+  formattedAddress: 'Þorlákshöfn, Iceland',
+  lat: 63.849,  // in Þorlákshöfn bounds
+  lon: -21.365,
+}
+const FROM_KEFLAVIK: PlaceCandidate = {
+  placeId: 'ChIJkeflavik',
+  displayName: 'Keflavík',
+  formattedAddress: 'Keflavík, Iceland',
+  lat: 63.985,  // south of capital-area minLat=63.95 but more importantly west of minLon=-22.10
+  lon: -22.56,  // excluded from capital area: lon < -22.10
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -31,6 +61,19 @@ function mockFetch(body: unknown, ok = true, status = 200) {
     status,
     json: async () => body,
   } as Response)
+}
+
+/** Mock a sequence of fetch calls in order. */
+function mockFetchSequence(responses: Array<{ body: unknown; ok?: boolean; status?: number }>) {
+  const spy = vi.spyOn(global, 'fetch')
+  for (const r of responses) {
+    spy.mockResolvedValueOnce({
+      ok: r.ok ?? true,
+      status: r.status ?? 200,
+      json: async () => r.body,
+    } as Response)
+  }
+  return spy
 }
 
 // ── staticMapUrl ──────────────────────────────────────────────────────────────
@@ -226,6 +269,35 @@ describe('googleProvider.getRouteGeometry', () => {
     expect(url).not.toContain('test-server-key')
     expect(headers['X-Goog-Api-Key']).toBe('test-server-key')
   })
+
+  it('uses placeId waypoint when candidate has a real place ID', async () => {
+    const spy = mockFetch(makeRouteResponse(5))
+    await googleProvider.getRouteGeometry(FROM, TO)
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string)
+    expect(body.origin).toEqual({ placeId: 'ChIJreykjavik' })
+    expect(body.destination).toEqual({ placeId: 'ChIJakureyri' })
+  })
+
+  it('falls back to latLng when candidate placeId is "confirmed"', async () => {
+    const spy = mockFetch(makeRouteResponse(5))
+    await googleProvider.getRouteGeometry(FROM_NO_PLACEID, TO)
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string)
+    expect(body.origin).toEqual({ location: { latLng: { latitude: FROM_NO_PLACEID.lat, longitude: FROM_NO_PLACEID.lon } } })
+  })
+
+  it('includes routingPreference TRAFFIC_AWARE in body', async () => {
+    const spy = mockFetch(makeRouteResponse(5))
+    await googleProvider.getRouteGeometry(FROM, TO)
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string)
+    expect(body.routingPreference).toBe('TRAFFIC_AWARE')
+  })
+
+  it('includes routes.description in field mask', async () => {
+    const spy = mockFetch(makeRouteResponse(5))
+    await googleProvider.getRouteGeometry(FROM, TO)
+    const headers = spy.mock.calls[0][1]?.headers as Record<string, string>
+    expect(headers['X-Goog-FieldMask']).toContain('routes.description')
+  })
 })
 
 // ── getRouteOptions ───────────────────────────────────────────────────────────
@@ -239,9 +311,15 @@ describe('googleProvider.getRouteOptions', () => {
     vi.restoreAllMocks()
   })
 
-  function makeMultiRouteResponse(routes: Array<{ numPoints: number; labels: string[]; durationMultiplier?: number }>) {
+  function makeMultiRouteResponse(routes: Array<{
+    numPoints: number
+    labels: string[]
+    durationMultiplier?: number
+    staticDurationMultiplier?: number
+    description?: string
+  }>) {
     return {
-      routes: routes.map(({ numPoints, labels, durationMultiplier = 1 }) => ({
+      routes: routes.map(({ numPoints, labels, durationMultiplier = 1, staticDurationMultiplier, description }) => ({
         polyline: {
           geoJsonLinestring: {
             coordinates: Array.from({ length: numPoints }, (_, i) => [-21 + i * 0.1, 64 + i * 0.05] as [number, number]),
@@ -249,7 +327,9 @@ describe('googleProvider.getRouteOptions', () => {
         },
         distanceMeters: numPoints * 5000,
         duration: `${numPoints * 300 * durationMultiplier}s`,
+        staticDuration: staticDurationMultiplier != null ? `${numPoints * 300 * staticDurationMultiplier}s` : undefined,
         routeLabels: labels,
+        description,
       })),
     }
   }
@@ -261,8 +341,8 @@ describe('googleProvider.getRouteOptions', () => {
     ]))
     const results = await googleProvider.getRouteOptions(FROM, TO)
     expect(results).toHaveLength(2)
-    expect(results[0].labels).toContain('DEFAULT_ROUTE')
-    expect(results[1].labels).toContain('DEFAULT_ROUTE_ALTERNATE')
+    expect(results.some(r => r.labels.includes('DEFAULT_ROUTE'))).toBe(true)
+    expect(results.some(r => r.labels.includes('DEFAULT_ROUTE_ALTERNATE'))).toBe(true)
   })
 
   it('sets isDefault=true only for DEFAULT_ROUTE label', async () => {
@@ -271,8 +351,20 @@ describe('googleProvider.getRouteOptions', () => {
       { numPoints: 8, labels: ['DEFAULT_ROUTE_ALTERNATE'] },
     ]))
     const results = await googleProvider.getRouteOptions(FROM, TO)
-    expect(results[0].isDefault).toBe(true)
-    expect(results[1].isDefault).toBe(false)
+    const def = results.find(r => r.labels.includes('DEFAULT_ROUTE'))
+    const alt = results.find(r => r.labels.includes('DEFAULT_ROUTE_ALTERNATE'))
+    expect(def?.isDefault).toBe(true)
+    expect(alt?.isDefault).toBe(false)
+  })
+
+  it('routes are sorted by durationS ascending — fastest first', async () => {
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'] },          // 3000s
+      { numPoints: 6, labels: ['DEFAULT_ROUTE_ALTERNATE'] }, // 1800s — faster
+    ]))
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results[0].durationS).toBe(1800)
+    expect(results[1].durationS).toBe(3000)
   })
 
   it('assigns stable fingerprint ids based on route properties, not array index', async () => {
@@ -347,6 +439,196 @@ describe('googleProvider.getRouteOptions', () => {
   it('throws if server key is not set', async () => {
     delete process.env.GOOGLE_MAPS_SERVER_KEY
     await expect(googleProvider.getRouteOptions(FROM, TO)).rejects.toThrow('GOOGLE_MAPS_SERVER_KEY')
+  })
+
+  it('uses staticDuration for durationS when both duration and staticDuration are present', async () => {
+    // numPoints=10 → traffic duration = 10*300*1 = 3000s, static = 10*300*0.75 = 2250s
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'], durationMultiplier: 1, staticDurationMultiplier: 0.75 },
+    ]))
+    const [result] = await googleProvider.getRouteOptions(FROM, TO)
+    expect(result.durationS).toBe(2250)
+  })
+
+  it('falls back to traffic duration when staticDuration is absent', async () => {
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'] },  // no staticDurationMultiplier → no staticDuration
+    ]))
+    const [result] = await googleProvider.getRouteOptions(FROM, TO)
+    expect(result.durationS).toBe(3000)
+  })
+
+  it('curated route uses staticDuration when present', async () => {
+    // numPoints: main=10 (traffic=3000s, static=2250s), curated=8 (traffic=2400s, static=1800s)
+    const mainRoute = makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'], durationMultiplier: 1, staticDurationMultiplier: 0.75 },
+    ])
+    const curatedRoute = makeMultiRouteResponse([
+      { numPoints: 8, labels: [], durationMultiplier: 1, staticDurationMultiplier: 0.75 },
+    ])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    const curated = results.find(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))
+    expect(curated?.durationS).toBe(1800)  // static (8*300*0.75), not traffic (8*300)
+  })
+
+  it('routes sorted by staticDuration when static values are present', async () => {
+    // main: traffic=3000s, static=2250s. curated: traffic=2400s, static=1800s.
+    // After sort by staticDuration: curated (1800) first, main (2250) second.
+    const mainRoute = makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'], staticDurationMultiplier: 0.75 },
+    ])
+    const curatedRoute = makeMultiRouteResponse([
+      { numPoints: 8, labels: [], staticDurationMultiplier: 0.75 },
+    ])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    expect(results[0].durationS).toBe(1800)
+    expect(results[1].durationS).toBe(2250)
+  })
+
+  it('includes routes.staticDuration in field mask', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM, TO)
+    const headers = spy.mock.calls[0][1]?.headers as Record<string, string>
+    expect(headers['X-Goog-FieldMask']).toContain('routes.staticDuration')
+  })
+
+  it('produces same route id when geometry matches but duration changes (TRAFFIC_AWARE drift)', async () => {
+    const routeSpec = { numPoints: 10, labels: ['DEFAULT_ROUTE'] as string[], durationMultiplier: 1 }
+    mockFetch(makeMultiRouteResponse([routeSpec]))
+    const [first] = await googleProvider.getRouteOptions(FROM, TO)
+    vi.restoreAllMocks()
+    // Same numPoints (same geometry) but duration multiplier changed by 10%
+    mockFetch(makeMultiRouteResponse([{ ...routeSpec, durationMultiplier: 1.1 }]))
+    const [second] = await googleProvider.getRouteOptions(FROM, TO)
+    expect(first.id).toBe(second.id)
+    expect(first.durationS).not.toBe(second.durationS)  // durations differ but ids match
+  })
+
+  it('uses placeId waypoint when candidate has a real place ID', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM, TO)
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string)
+    expect(body.origin).toEqual({ placeId: 'ChIJreykjavik' })
+    expect(body.destination).toEqual({ placeId: 'ChIJakureyri' })
+  })
+
+  it('falls back to latLng for "confirmed" placeId', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM_NO_PLACEID, TO)
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string)
+    expect(body.origin).toEqual({ location: { latLng: { latitude: FROM_NO_PLACEID.lat, longitude: FROM_NO_PLACEID.lon } } })
+  })
+
+  it('includes routingPreference TRAFFIC_AWARE in body', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM, TO)
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string)
+    expect(body.routingPreference).toBe('TRAFFIC_AWARE')
+  })
+
+  it('does not include requestedReferenceRoutes in body', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM, TO)
+    const body = JSON.parse(spy.mock.calls[0][1]?.body as string)
+    expect(body.requestedReferenceRoutes).toBeUndefined()
+  })
+
+  it('does not include routes.routeToken in field mask', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM, TO)
+    const headers = spy.mock.calls[0][1]?.headers as Record<string, string>
+    expect(headers['X-Goog-FieldMask']).not.toContain('routes.routeToken')
+  })
+
+  // ── Curated Þrengslavegur route ───────────────────────────────────────────
+
+  it('uses curated route registry entry for capital-area → Þorlákshöfn (makes extra request)', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    // Curated response: different geometry (different numPoints)
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
+  it('curated route has CURATED_VIA_THRENGSLAVEGUR label when geometry differs from main routes', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))).toBe(true)
+  })
+
+  it('curated route uses via: true intermediate waypoint on Þrengslavegur', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    expect(curatedBody.intermediates).toHaveLength(1)
+    expect(curatedBody.intermediates[0].via).toBe(true)
+    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(63.955, 2)
+  })
+
+  it('curated route is skipped when geometry matches a main route', async () => {
+    // Same numPoints = same coordinate fingerprint as main route
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 10, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    expect(results).toHaveLength(1)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))).toBe(false)
+  })
+
+  it('curated route is silently omitted when Google returns no route', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    mockFetchSequence([{ body: mainRoute }, { body: { routes: [] } }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    expect(results).toHaveLength(1)
+    expect(results[0].labels).toContain('DEFAULT_ROUTE')
+  })
+
+  it('does not make a curated request for non-Þorlákshöfn destination', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM, TO)  // FROM → Akureyri
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not make a curated request for Reykjanes/southwest origin', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM_KEFLAVIK, TO_THORLAKSHOFN)
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('curated route and main route both appear when distinct, sorted by durationS', async () => {
+    // Main route: 10 pts = 3000s. Curated: 8 pts = 2400s (faster → goes first after sort)
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 8, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    expect(results).toHaveLength(2)
+    expect(results[0].durationS).toBeLessThan(results[1].durationS)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))).toBe(true)
+  })
+
+  it('passes description through when Google provides it', async () => {
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'], description: 'via Þrengslavegur/Route 39' },
+      { numPoints: 12, labels: ['DEFAULT_ROUTE_ALTERNATE'], description: 'via Suðurstrandarvegur/Route 427' },
+    ]))
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results[0].description).toBe('via Þrengslavegur/Route 39')
+    expect(results[1].description).toBe('via Suðurstrandarvegur/Route 427')
+  })
+
+  it('description is undefined when Google does not provide it', async () => {
+    mockFetch(makeMultiRouteResponse([
+      { numPoints: 10, labels: ['DEFAULT_ROUTE'] },
+    ]))
+    const results = await googleProvider.getRouteOptions(FROM, TO)
+    expect(results[0].description).toBeUndefined()
   })
 })
 

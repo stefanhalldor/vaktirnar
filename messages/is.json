@@ -796,6 +796,7 @@
         "routeOptionsUnavailable": "Ekki tókst að sækja leiðir. Reyndu aftur.",
         "routeOptionsRetry": "Reyna aftur",
         "routeOptionShortest": "Fljótlegasta leið",
+        "routeOptionViaThrengslavegur": "Um Þrengslaveg",
         "routeOptionDefault": "Sjálfgefin Google-leið",
         "routeOptionOther": "Önnur leið",
         "routeOptionDuration": "{hours} klst. {minutes} mín.",
