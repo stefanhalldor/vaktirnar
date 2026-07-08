@@ -51,14 +51,14 @@ describe('checkTravelWeather', () => {
       expect(result.reasonCode).toBe('caution_wind_driving')
     })
 
-    it('returns rautt at red wind (20 m/s)', () => {
-      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 20, 22, 0)] })
+    it('returns rautt at red wind (25 m/s)', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 25, 27, 0)] })
       expect(result.stada).toBe('rautt')
       expect(result.reasonCode).toBe('too_windy_driving')
     })
 
-    it('returns rautt at red gust (28 m/s)', () => {
-      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 14, 28, 0)] })
+    it('returns rautt at red gust (35 m/s)', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 14, 35, 0)] })
       expect(result.stada).toBe('rautt')
       expect(result.reasonCode).toBe('too_windy_driving')
     })
@@ -511,34 +511,34 @@ describe('checkTravelWeather', () => {
   })
 
   describe('trailer-aware gust threshold decisiveness', () => {
-    it('no trailer: wind=21 gust=26 → metric=wind, threshold=20 (not gust)', () => {
-      // gust=26 < driving redGustMs=28, so gust is NOT decisive; wind=21 > redWindMs=20 is decisive
-      const forecast = makeForecast('2026-07-10T08:00:00Z', 10, 21, 26, 0)
+    it('no trailer: wind=26 gust=30 → metric=wind, threshold=25 (not gust)', () => {
+      // gust=30 < driving redGustMs=35, so gust is NOT decisive; wind=26 > redWindMs=25 is decisive
+      const forecast = makeForecast('2026-07-10T08:00:00Z', 10, 26, 30, 0)
       const result = checkTravelWeather({ ...BASE_INPUT, trailerKind: 'none', pointForecasts: [forecast] })
       expect(result.stada).toBe('rautt')
       const issue = result.travelPlan?.highlightedIssue
       expect(issue?.metric).toBe('wind')
-      expect(issue?.thresholdValue).toBe(20)
+      expect(issue?.thresholdValue).toBe(25)
     })
 
-    it('no trailer: gust=28 → metric=gust, threshold=28', () => {
-      // gust=28 >= driving redGustMs=28 → gust is decisive
-      const forecast = makeForecast('2026-07-10T08:00:00Z', 10, 14, 28, 0)
+    it('no trailer: gust=35 → metric=gust, threshold=35', () => {
+      // gust=35 >= driving redGustMs=35 → gust is decisive
+      const forecast = makeForecast('2026-07-10T08:00:00Z', 10, 14, 35, 0)
       const result = checkTravelWeather({ ...BASE_INPUT, trailerKind: 'none', pointForecasts: [forecast] })
       expect(result.stada).toBe('rautt')
       const issue = result.travelPlan?.highlightedIssue
       expect(issue?.metric).toBe('gust')
-      expect(issue?.thresholdValue).toBe(28)
+      expect(issue?.thresholdValue).toBe(35)
     })
 
-    it('caravan: gust=25 → metric=gust, threshold=25', () => {
-      // gust=25 >= caravan redGustMs=25 → gust is decisive for caravan trip
-      const forecast = makeForecast('2026-07-10T08:00:00Z', 10, 12, 25, 0)
+    it('caravan: gust=18 → metric=gust, threshold=18', () => {
+      // gust=18 >= heavyTrailer redGustMs=18 → gust is decisive for caravan trip
+      const forecast = makeForecast('2026-07-10T08:00:00Z', 10, 12, 18, 0)
       const result = checkTravelWeather({ ...BASE_INPUT, trailerKind: 'caravan', pointForecasts: [forecast] })
       expect(result.stada).toBe('rautt')
       const issue = result.travelPlan?.highlightedIssue
       expect(issue?.metric).toBe('gust')
-      expect(issue?.thresholdValue).toBe(25)
+      expect(issue?.thresholdValue).toBe(18)
     })
 
     it('no trailer: gust=26 is NOT above the 28 m/s threshold — no contradiction in display', () => {
@@ -787,23 +787,23 @@ describe('checkTravelWeather', () => {
     it('resolveThresholds returns driving defaults when no overrides', () => {
       const r = resolveThresholds('none')
       expect(r.cautionWindMs).toBe(15)
-      expect(r.redWindMs).toBe(20)
-      expect(r.redGustMs).toBe(28)
+      expect(r.redWindMs).toBe(25)
+      expect(r.redGustMs).toBe(35)
       expect(r.cautionPrecipMmPerHour).toBe(5.0)
     })
 
     it('resolveThresholds returns caravan defaults for non-none trailer', () => {
       const r = resolveThresholds('caravan')
-      expect(r.cautionWindMs).toBe(13)
-      expect(r.redWindMs).toBe(18)
-      expect(r.redGustMs).toBe(25)
+      expect(r.cautionWindMs).toBe(10)
+      expect(r.redWindMs).toBe(15)
+      expect(r.redGustMs).toBe(18)
     })
 
     it('resolveThresholds merges partial overrides correctly', () => {
       const r = resolveThresholds('none', { cautionWindMs: 10 })
       expect(r.cautionWindMs).toBe(10)
-      expect(r.redWindMs).toBe(20) // default unchanged
-      expect(r.redGustMs).toBe(28) // default unchanged
+      expect(r.redWindMs).toBe(25) // default unchanged
+      expect(r.redGustMs).toBe(35) // default unchanged
     })
 
     it('override cautionWindMs: 10 triggers gult at wind=12 (default 15 would be green)', () => {
@@ -833,7 +833,7 @@ describe('checkTravelWeather', () => {
       })
       expect(result.travelPlan?.thresholdsUsed?.cautionWindMs).toBe(10)
       expect(result.travelPlan?.thresholdsUsed?.redGustMs).toBe(30)
-      expect(result.travelPlan?.thresholdsUsed?.redWindMs).toBe(20) // default
+      expect(result.travelPlan?.thresholdsUsed?.redWindMs).toBe(25) // default
     })
 
     it('TravelIssue thresholdValue matches the override value', () => {

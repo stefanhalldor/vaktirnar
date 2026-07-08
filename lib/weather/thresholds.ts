@@ -3,8 +3,13 @@ import type { TravelThresholdOverrides, ResolvedTravelThresholds } from './types
 export const WEATHER_THRESHOLDS = {
   driving: {
     cautionWindMs: 15,
-    redWindMs: 20,
-    redGustMs: 28,
+    redWindMs: 25,
+    redGustMs: 35,
+  },
+  heavyTrailer: {
+    cautionWindMs: 10,
+    redWindMs: 15,
+    redGustMs: 18,
   },
   caravan: {
     cautionWindMs: 13,
@@ -56,7 +61,12 @@ export function resolveThresholds(
   trailerKind: string,
   overrides?: TravelThresholdOverrides,
 ): ResolvedTravelThresholds {
-  const base = trailerKind === 'none' ? WEATHER_THRESHOLDS.driving : WEATHER_THRESHOLDS.caravan
+  const base =
+    trailerKind === 'none'
+      ? WEATHER_THRESHOLDS.driving
+      : trailerKind === 'caravan' || trailerKind === 'horse_trailer'
+        ? WEATHER_THRESHOLDS.heavyTrailer
+        : WEATHER_THRESHOLDS.caravan
   return {
     cautionWindMs: overrides?.cautionWindMs ?? base.cautionWindMs,
     redWindMs: overrides?.redWindMs ?? base.redWindMs,

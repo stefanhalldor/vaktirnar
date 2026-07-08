@@ -3,20 +3,21 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useTranslations, useLocale } from 'next-intl'
-import { ChevronLeft, CloudSun, ChevronDown, ChevronUp, MapPin, Route, Truck, SlidersHorizontal, CheckCircle2 } from 'lucide-react'
+import { ChevronLeft, CloudSun, ChevronDown, ChevronUp, MapPin, Route, Caravan, SlidersHorizontal, CheckCircle2, Wind, Droplets } from 'lucide-react'
 import type { DeterministicResult, WeatherStatus, RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelThresholdOverrides, TravelCandidate } from '@/lib/weather/types'
 import type { RouteOption } from '@/lib/weather/provider.types'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import { TravelAuditMap } from '@/components/weather/TravelAuditMap'
 import { DepartureHeatmap, type SlotStatus } from '@/components/weather/DepartureHeatmap'
 import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteSelectionStep'
+import { WeatherResultLoader } from '@/components/weather/WeatherResultLoader'
 import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { formatKlTime, candidateToIssue, normalizeLocale, formatNum } from '@/components/weather/travelAuditMap.helpers'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 
-type WizardStep = 'route' | 'trailer' | 'thresholds' | 'result' | 'assumptions'
+type WizardStep = 'route' | 'trailer' | 'thresholds' | 'result'
 
 type TrailerKindValue = 'none' | 'generic_trailer' | 'tent_trailer' | 'folding_camper' | 'caravan' | 'horse_trailer'
 
@@ -35,7 +36,7 @@ export function FerdalagidClient() {
   const locale = useLocale()
 
   const [step, setStep] = useState<WizardStep>('route')
-  const [returnToStep, setReturnToStep] = useState<WizardStep | null>(null)
+
   const [origin, setOrigin] = useState<RoutePlace | null>(null)
   const [destination, setDestination] = useState<RoutePlace | null>(null)
   const [trailerKind, setTrailerKind] = useState<TrailerKindValue>('none')
@@ -190,12 +191,6 @@ export function FerdalagidClient() {
   }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, routeRetryCount, ferrySelection?.ferryPortId])
 
   function goNext(from: WizardStep) {
-    if (returnToStep) {
-      const dest = returnToStep
-      setReturnToStep(null)
-      setStep(dest)
-      return
-    }
     const idx = STEP_ORDER.indexOf(from)
     if (idx >= 0 && idx < STEP_ORDER.length - 1) {
       setStep(STEP_ORDER[idx + 1])
@@ -203,12 +198,6 @@ export function FerdalagidClient() {
   }
 
   function goBack(from: WizardStep) {
-    if (returnToStep) {
-      const dest = returnToStep
-      setReturnToStep(null)
-      setStep(dest)
-      return
-    }
     const idx = STEP_ORDER.indexOf(from)
     if (idx > 0) setStep(STEP_ORDER[idx - 1])
   }
@@ -296,7 +285,6 @@ export function FerdalagidClient() {
     setShowExplainer(false)
     setSelectedHeatmapIdx(null)
     setSelectedReturnHeatmapIdx(null)
-    setReturnToStep(null)
     setStep('result')
 
     const overridesToSend = overridesParam !== undefined ? overridesParam : thresholdOverrides
@@ -380,28 +368,6 @@ export function FerdalagidClient() {
     handleSubmit(overrides)
   }
 
-  function startOver() {
-    setStep('route')
-    setReturnToStep(null)
-    setOrigin(null)
-    setDestination(null)
-    setTrailerKind('none')
-    // Keep thresholdOverrides — user chose them deliberately
-    setResult(null)
-    setError(null)
-    setShowDetails(false)
-    setShowExplainer(false)
-    setSelectedHeatmapIdx(null)
-    setSelectedReturnHeatmapIdx(null)
-    setSubmittedThresholds(null)
-    setRouteOptions(null)
-    setRouteOptionsLoading(false)
-    setRouteOptionsError(null)
-    setSelectedRouteId(null)
-    setRouteRetryCount(0)
-    setRouteFallback(false)
-    setFerrySelection(null)
-  }
 
   // Auto-select when outbound filter hides the currently selected slot, or when no slot is selected
   useEffect(() => {
@@ -533,18 +499,30 @@ export function FerdalagidClient() {
   // Threshold display for assumptions row
   const hasOverrides = Object.keys(thresholdOverrides).length > 0
   const effectiveThresholds = resolveThresholds(trailerKind, thresholdOverrides)
-  const thresholdRowValue = hasOverrides
-    ? tf('thresholdsCustom', {
-        caution: effectiveThresholds.cautionWindMs,
-        red: effectiveThresholds.redWindMs,
-        gust: effectiveThresholds.redGustMs,
-        precip: effectiveThresholds.cautionPrecipMmPerHour,
-      })
-    : tf('thresholdsDefault')
+
+  // Whether visible draft values on the threshold step differ from current trailer defaults
+  const thresholdDraftDiffersFromDefaults = (() => {
+    const defaults = resolveThresholds(trailerKind)
+    const c = parseFloat(draftCautionWind), r = parseFloat(draftRedWind), g = parseFloat(draftRedGust), p = parseFloat(draftCautionPrecip)
+    if ([c, r, g, p].some(Number.isNaN)) return Object.keys(thresholdOverrides).length > 0
+    return c !== defaults.cautionWindMs || r !== defaults.redWindMs || g !== defaults.redGustMs || p !== defaults.cautionPrecipMmPerHour
+  })()
+
+  // Compact threshold values for the step nav — reflect live drafts while on the step.
+  // Computed as a single object so visual content and sr-only text always use the same values.
+  const navThreshValues = (() => {
+    if (step === 'thresholds') {
+      const c = parseFloat(draftCautionWind), r = parseFloat(draftRedWind), g = parseFloat(draftRedGust), p = parseFloat(draftCautionPrecip)
+      if (!isNaN(c) && !isNaN(r) && !isNaN(g) && !isNaN(p)) return { caution: c, red: r, gust: g, precip: p }
+    }
+    return { caution: effectiveThresholds.cautionWindMs, red: effectiveThresholds.redWindMs, gust: effectiveThresholds.redGustMs, precip: effectiveThresholds.cautionPrecipMmPerHour }
+  })()
+  const navThreshWind = `${navThreshValues.caution}/${navThreshValues.red}/${navThreshValues.gust}`
+  const navThreshPrecip = String(navThreshValues.precip)
 
   const mvpNavSteps = [
     { step: 'route' as WizardStep, label: tf('stepNavRoute'), Icon: Route },
-    { step: 'trailer' as WizardStep, label: tf('stepNavTrailer'), Icon: Truck },
+    { step: 'trailer' as WizardStep, label: tf('stepNavTrailer'), Icon: Caravan },
     { step: 'thresholds' as WizardStep, label: tf('stepNavThresholds'), Icon: SlidersHorizontal },
     { step: 'result' as WizardStep, label: tf('stepNavResult'), Icon: CheckCircle2 },
   ]
@@ -588,7 +566,7 @@ export function FerdalagidClient() {
                   type="button"
                   disabled={!canNavigate}
                   onClick={() => {
-                    if (isCompleted) { setReturnToStep(null); setStep(s.step) }
+                    if (isCompleted) { setStep(s.step) }
                     else if (canReturn) { setStep('result') }
                   }}
                   aria-current={isCurrent ? 'step' : undefined}
@@ -601,8 +579,36 @@ export function FerdalagidClient() {
                         : 'text-muted-foreground/30'
                   }`}
                 >
-                  <s.Icon size={16} aria-hidden />
-                  <span className="text-[10px] leading-none truncate max-w-full">{s.label}</span>
+                  {s.step === 'route' && (isCompleted || isCurrent) && origin && destination ? (
+                    <>
+                      <span className="text-[10px] leading-none truncate max-w-full font-medium">{origin.name}</span>
+                      <span className="text-[10px] leading-none truncate max-w-full">{effectiveDestinationName || destination.name}</span>
+                    </>
+                  ) : s.step === 'trailer' && (isCompleted || isCurrent) ? (
+                    <>
+                      <s.Icon size={14} aria-hidden />
+                      <span className="text-[10px] leading-none truncate max-w-full">{trailerLabel}</span>
+                    </>
+                  ) : s.step === 'thresholds' && (isCompleted || isCurrent) ? (
+                    <>
+                      <span className="sr-only">{tf('stepNavThresholdSummaryAria', navThreshValues)}</span>
+                      <span aria-hidden className="flex flex-col items-center gap-0.5">
+                        <span className="flex items-center gap-0.5">
+                          <Wind size={10} />
+                          <span className="text-[10px] leading-none">{navThreshWind}</span>
+                        </span>
+                        <span className="flex items-center gap-0.5">
+                          <Droplets size={10} />
+                          <span className="text-[10px] leading-none">{navThreshPrecip}</span>
+                        </span>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <s.Icon size={16} aria-hidden />
+                      <span className="text-[10px] leading-none truncate max-w-full">{s.label}</span>
+                    </>
+                  )}
                   {isCurrent && <span className="w-1 h-1 rounded-full bg-primary" aria-hidden />}
                 </button>
               )
@@ -692,20 +698,22 @@ export function FerdalagidClient() {
                 {thresholdError}
               </p>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                const defaults = resolveThresholds(trailerKind)
-                setDraftCautionWind(String(defaults.cautionWindMs))
-                setDraftRedWind(String(defaults.redWindMs))
-                setDraftRedGust(String(defaults.redGustMs))
-                setDraftCautionPrecip(String(defaults.cautionPrecipMmPerHour))
-                setThresholdError(null)
-              }}
-              className="w-full text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring py-1"
-            >
-              {tf('thresholdReset')}
-            </button>
+            {thresholdDraftDiffersFromDefaults && (
+              <button
+                type="button"
+                onClick={() => {
+                  const defaults = resolveThresholds(trailerKind)
+                  setDraftCautionWind(String(defaults.cautionWindMs))
+                  setDraftRedWind(String(defaults.redWindMs))
+                  setDraftRedGust(String(defaults.redGustMs))
+                  setDraftCautionPrecip(String(defaults.cautionPrecipMmPerHour))
+                  setThresholdError(null)
+                }}
+                className="w-full text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring py-1"
+              >
+                {tf('thresholdReset')}
+              </button>
+            )}
             <div className="flex gap-2">
               <BackButton onClick={() => goBack('thresholds')} label={tf('back')} />
               <button
@@ -720,56 +728,6 @@ export function FerdalagidClient() {
           </div>
         )}
 
-        {/* Step: Assumptions */}
-        {step === 'assumptions' && (
-          <div className="flex flex-col gap-4">
-            <p className="text-sm font-medium text-foreground">{tf('assumptionsTitle')}</p>
-            <div className="flex flex-col gap-2">
-              <AssumptionRow
-                label={tf('assumptionFrom')}
-                value={origin?.name ?? tf('assumptionNotSet')}
-                onClick={() => { setReturnToStep('assumptions'); setStep('route') }}
-                editLabel={tf('edit')}
-              />
-              <AssumptionRow
-                label={tf('assumptionTo')}
-                value={destination?.name ?? tf('assumptionNotSet')}
-                onClick={() => { setReturnToStep('assumptions'); setStep('route') }}
-                editLabel={tf('edit')}
-              />
-              <AssumptionRow
-                label={tf('assumptionTrailer')}
-                value={trailerLabel}
-                onClick={() => { setReturnToStep('assumptions'); setStep('trailer') }}
-                editLabel={tf('edit')}
-              />
-              <AssumptionRow
-                label={tf('assumptionThresholds')}
-                value={thresholdRowValue}
-                onClick={() => { setReturnToStep('assumptions'); setStep('thresholds') }}
-                editLabel={tf('edit')}
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={startOver}
-                className="flex-1 h-11 rounded-xl border border-border text-sm text-muted-foreground hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {tf('startOver')}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSubmit()}
-                disabled={loading || !origin || !destination}
-                className="flex-1 h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
-              >
-                {loading ? tf('submitting') : tf('recompute')}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Step: Result */}
         {step === 'result' && (
           <div className="flex flex-col gap-4">
@@ -777,35 +735,26 @@ export function FerdalagidClient() {
               <RouteSummary originName={origin.name} destinationName={effectiveDestinationName} />
             )}
 
-            {/* Actions at the top — before result card */}
-            {!loading && (
-              <div className="flex gap-2">
-                {error && (
-                  <BackButton onClick={() => goBack('result')} label={tf('back')} />
-                )}
-                {result && (
-                  <button
-                    type="button"
-                    onClick={() => setStep('assumptions')}
-                    className="flex-1 h-11 rounded-xl border border-primary/30 text-sm text-primary hover:bg-primary/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {tf('editAssumptions')}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={startOver}
-                  className="flex-1 h-11 rounded-xl border border-border text-sm text-muted-foreground hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {tf('startOver')}
-                </button>
-              </div>
+            {/* Back button on error */}
+            {!loading && error && (
+              <BackButton onClick={() => goBack('result')} label={tf('back')} />
             )}
 
             {loading && (
-              <div className="bg-card border border-border rounded-xl px-4 py-6 text-center">
-                <p className="text-sm text-muted-foreground">{tf('submitting')}</p>
-              </div>
+              <WeatherResultLoader
+                title={tf('resultLoadingTitle')}
+                subtitle={tf('resultLoadingSubtitle')}
+                steps={[
+                  tf('resultLoadingStepRoute'),
+                  tf('resultLoadingStepWeather'),
+                  tf('resultLoadingStepWindow'),
+                ]}
+                routeLabel={
+                  origin && destination
+                    ? `${origin.name} \u2192 ${destination.name}`
+                    : undefined
+                }
+              />
             )}
 
             {error && !loading && (
@@ -1096,32 +1045,6 @@ function BackButton({
   )
 }
 
-function AssumptionRow({
-  label,
-  value,
-  onClick,
-  editLabel,
-}: {
-  label: string
-  value: string
-  onClick: () => void
-  editLabel: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`${editLabel}: ${label}`}
-      className="w-full flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3 gap-3 text-left min-h-[44px] hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-sm text-foreground font-medium truncate">{value}</p>
-      </div>
-      <span className="text-xs text-muted-foreground shrink-0">{editLabel}</span>
-    </button>
-  )
-}
 
 function ThresholdInput({
   id,
