@@ -843,123 +843,124 @@ export function FerdalagidClient() {
                     />
                   )}
 
-                  {/* ── Brottför ── */}
+                  {/* ── Journey summary grid ── */}
                   {activeOutboundCandidate && (
-                    <div className="flex flex-col gap-0.5">
-                      <p className="text-[11px] font-semibold text-foreground/70">{tf('sectionDeparture')}</p>
-                      <p className="text-sm text-foreground">
-                        {formatCompactDateTime(activeOutboundCandidate.departureIso, locale)}
-                      </p>
-                    </div>
-                  )}
+                    <div className="border-y border-border/70 divide-y divide-border/60">
 
-                  {/* Ferry context note */}
-                  {ferrySelection && (
-                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 leading-relaxed">
-                      {tf('ferryResultNote', { portName: ferrySelection.ferryPort.name })}
-                    </p>
-                  )}
-
-                  {/* Best departure window badge */}
-                  {result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
-                    <p className="text-xs text-muted-foreground">
-                      {tf('bestWindowLabel')}: {formatWindowRange(result.travelPlan.outbound.bestWindow.fromIso, result.travelPlan.outbound.bestWindow.toIso, locale)}
-                    </p>
-                  )}
-
-                  {/* Return best window */}
-                  {result.travelPlan?.return?.bestWindow && (
-                    <p className="text-xs text-muted-foreground">
-                      {tf('returnWindowLabel')}: {formatWindowRange(result.travelPlan.return.bestWindow.fromIso, result.travelPlan.return.bestWindow.toIso, locale)}
-                    </p>
-                  )}
-
-                  {/* ── Á leiðinni ── */}
-                  {activeOutboundCandidate && derivedStyle && (() => {
-                    const dp = activeOutboundCandidate.displayPoint
-                    const issue = heatmapHighlightedIssue
-                    if (!dp && !issue) return null
-                    const distKm = dp
-                      ? Math.round(dp.distanceFromOriginM / 1000)
-                      : issue?.distanceFromLegStartM !== undefined
-                        ? Math.round(issue.distanceFromLegStartM / 1000)
-                        : null
-                    // ETA at the worst point: use departure/arrival times + routeFraction (outbound only)
-                    const etaTimeLabel = dp ? (() => {
-                      const depMs = new Date(activeOutboundCandidate.departureIso).getTime()
-                      const durMs = new Date(activeOutboundCandidate.arrivalIso).getTime() - depMs
-                      return formatKlTime(new Date(depMs + dp.routeFraction * durMs).toISOString())
-                    })() : (issue?.timeIso ? formatKlTime(issue.timeIso) : null)
-                    const originDisplay = getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback'))
-                    const metricLabel = issue?.metric === 'precipitation' ? tf('metricPrecip')
-                      : issue?.metric === 'gust' ? tf('metricGust')
-                      : tf('metricWind')
-                    return (
-                      <div className="flex flex-col gap-0.5">
-                        <p className="text-[11px] font-semibold text-foreground/70">{tf('sectionOnWay')}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {tf(statusKey as 'departureStatusGreen' | 'departureStatusYellow' | 'departureStatusRed')}
-                        </p>
-                        {distKm !== null && etaTimeLabel && (
-                          <p className="text-xs text-muted-foreground">
-                            {distKm === 0
-                              ? tf('slotDetailWorstAtStart', { time: etaTimeLabel })
-                              : tf('slotDetailWorstDistanceAt', { distance: distKm, origin: originDisplay, time: etaTimeLabel })}
+                      {/* Brottför */}
+                      <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
+                        <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionDeparture')}</p>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-foreground">
+                            {formatCompactDateTime(activeOutboundCandidate.departureIso, locale)}
                           </p>
-                        )}
-                        {dp ? (
-                          <p className="text-xs text-muted-foreground">
-                            {tf('slotDetailWeatherSummary', {
-                              wind: `${formatNum(dp.windMs, locale)} m/s`,
-                              precipitation: `${formatNum(dp.precipMmPerHour, locale)} mm/klst`,
-                              temperature: `${formatNum(dp.airTemperatureC, locale)}°C`,
-                            })}
-                          </p>
-                        ) : issue?.value !== undefined && (
-                          <p className="text-xs text-muted-foreground">
-                            {tf('slotDetailMetricLine', { metric: metricLabel, value: `${formatNum(issue.value, locale)} ${issue.unit ?? ''}` })}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })()}
+                          {ferrySelection && (
+                            <p className="text-xs text-muted-foreground">
+                              {tf('ferryResultNote', { portName: ferrySelection.ferryPort.name })}
+                            </p>
+                          )}
+                          {result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
+                            <p className="text-xs text-muted-foreground">
+                              {tf('bestWindowLabel')}: {formatWindowRange(result.travelPlan.outbound.bestWindow.fromIso, result.travelPlan.outbound.bestWindow.toIso, locale)}
+                            </p>
+                          )}
+                          {result.travelPlan?.return?.bestWindow && (
+                            <p className="text-xs text-muted-foreground">
+                              {tf('returnWindowLabel')}: {formatWindowRange(result.travelPlan.return.bestWindow.fromIso, result.travelPlan.return.bestWindow.toIso, locale)}
+                            </p>
+                          )}
+                        </div>
+                      </section>
 
-                  {/* ── Áfangastaður ── */}
-                  {activeOutboundCandidate?.arrivalWeather && (
-                    <div className="flex flex-col gap-0.5">
-                      <p className="text-[11px] font-semibold text-foreground/70">{tf('sectionDestination')}</p>
-                      <p className="text-xs font-medium text-foreground">
-                        {tf('arrivalSummaryLine', {
-                          arrivalDateTime: formatCompactDateTime(activeOutboundCandidate.arrivalIso, locale),
-                          forecastTime: formatKlTime(activeOutboundCandidate.arrivalWeather.forecastTimeIso),
-                        })}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {tf('metricWind')}: {formatNum(activeOutboundCandidate.arrivalWeather.windMs, locale)} m/s
-                        {activeOutboundCandidate.arrivalWeather.gustMs > activeOutboundCandidate.arrivalWeather.windMs && (
-                          <> · {tf('metricGust')}: {formatNum(activeOutboundCandidate.arrivalWeather.gustMs, locale)} m/s</>
-                        )}
-                        {' · '}{tf('metricPrecip')}: {formatNum(activeOutboundCandidate.arrivalWeather.precipMmPerHour, locale)} mm/klst
-                        {activeOutboundCandidate.arrivalWeather.airTemperatureC !== undefined && (
-                          <> · {tf('metricTemp')}: {formatNum(activeOutboundCandidate.arrivalWeather.airTemperatureC, locale)}°C</>
-                        )}
-                      </p>
-                      {result.travelPlan?.destinationForecastRows && result.travelPlan.destinationForecastRows.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setForecastDrawerData({
-                            rows: result.travelPlan!.destinationForecastRows!,
-                            title: tf('arrivalForecastTitle', { destination: effectiveDestinationName }),
-                            highlightedTimeIso: activeOutboundCandidate?.arrivalWeather?.forecastTimeIso,
-                            highlightedLabel: activeOutboundCandidate
-                              ? tf('forecastUsedByTeskeidAt', { time: formatKlTime(activeOutboundCandidate.departureIso) })
-                              : undefined,
-                          })}
-                          className="self-start text-primary underline hover:text-primary/80 transition-colors text-[11px]"
-                        >
-                          {tf('viewFullForecast')}
-                        </button>
+                      {/* Á leiðinni */}
+                      {derivedStyle && (() => {
+                        const dp = activeOutboundCandidate.displayPoint
+                        const issue = heatmapHighlightedIssue
+                        if (!dp && !issue) return null
+                        const distKm = dp
+                          ? Math.round(dp.distanceFromOriginM / 1000)
+                          : issue?.distanceFromLegStartM !== undefined
+                            ? Math.round(issue.distanceFromLegStartM / 1000)
+                            : null
+                        // ETA at the worst point: use departure/arrival times + routeFraction (outbound only)
+                        const etaTimeLabel = dp ? (() => {
+                          const depMs = new Date(activeOutboundCandidate.departureIso).getTime()
+                          const durMs = new Date(activeOutboundCandidate.arrivalIso).getTime() - depMs
+                          return formatKlTime(new Date(depMs + dp.routeFraction * durMs).toISOString())
+                        })() : (issue?.timeIso ? formatKlTime(issue.timeIso) : null)
+                        const originDisplay = getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback'))
+                        const metricLabel = issue?.metric === 'precipitation' ? tf('metricPrecip')
+                          : issue?.metric === 'gust' ? tf('metricGust')
+                          : tf('metricWind')
+                        return (
+                          <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
+                            <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionOnWay')}</p>
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium text-foreground">
+                                {tf(statusKey as 'departureStatusGreen' | 'departureStatusYellow' | 'departureStatusRed')}
+                              </p>
+                              {distKm !== null && etaTimeLabel && (
+                                <p className="text-xs text-muted-foreground">
+                                  {distKm === 0
+                                    ? tf('slotDetailWorstAtStart', { time: etaTimeLabel })
+                                    : tf('slotDetailWorstDistanceAt', { distance: distKm, origin: originDisplay, time: etaTimeLabel })}
+                                </p>
+                              )}
+                              {dp ? (
+                                <p className="text-xs text-muted-foreground">
+                                  {tf('metricWind').toLowerCase()} {formatNum(dp.windMs, locale)} m/s{' · '}
+                                  {tf('metricPrecip').toLowerCase()} {formatNum(dp.precipMmPerHour, locale)} mm/klst{' · '}
+                                  {tf('metricTemp').toLowerCase()} {formatNum(dp.airTemperatureC, locale)}°C
+                                </p>
+                              ) : issue?.value !== undefined && (
+                                <p className="text-xs text-muted-foreground">
+                                  {tf('slotDetailMetricLine', { metric: metricLabel.toLowerCase(), value: `${formatNum(issue.value, locale)} ${issue.unit ?? ''}` })}
+                                </p>
+                              )}
+                            </div>
+                          </section>
+                        )
+                      })()}
+
+                      {/* Áfangastaður */}
+                      {activeOutboundCandidate.arrivalWeather && (
+                        <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
+                          <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionDestination')}</p>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-foreground">
+                              {formatCompactDateTime(activeOutboundCandidate.arrivalIso, locale)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {tf('arrivalForecastAtLabel', { forecastTime: formatKlTime(activeOutboundCandidate.arrivalWeather.forecastTimeIso) })}{' '}
+                              {tf('metricWind').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.windMs, locale)} m/s
+                              {activeOutboundCandidate.arrivalWeather.gustMs > activeOutboundCandidate.arrivalWeather.windMs && (
+                                <> · {tf('metricGust').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.gustMs, locale)} m/s</>
+                              )}
+                              {' · '}{tf('metricPrecip').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.precipMmPerHour, locale)} mm/klst
+                              {activeOutboundCandidate.arrivalWeather.airTemperatureC !== undefined && (
+                                <> · {tf('metricTemp').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.airTemperatureC, locale)}°C</>
+                              )}
+                            </p>
+                            {result.travelPlan?.destinationForecastRows && result.travelPlan.destinationForecastRows.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setForecastDrawerData({
+                                  rows: result.travelPlan!.destinationForecastRows!,
+                                  title: tf('arrivalForecastTitle', { destination: effectiveDestinationName }),
+                                  highlightedTimeIso: activeOutboundCandidate?.arrivalWeather?.forecastTimeIso,
+                                  highlightedLabel: activeOutboundCandidate
+                                    ? tf('forecastUsedByTeskeidAt', { time: formatKlTime(activeOutboundCandidate.departureIso) })
+                                    : undefined,
+                                })}
+                                className="self-start text-primary underline hover:text-primary/80 transition-colors text-[11px]"
+                              >
+                                {tf('viewFullForecast')}
+                              </button>
+                            )}
+                          </div>
+                        </section>
                       )}
+
                     </div>
                   )}
 

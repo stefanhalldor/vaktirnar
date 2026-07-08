@@ -725,7 +725,7 @@
         "departureStatusYellow": "May be uncomfortable for your limits.",
         "departureStatusRed": "Not recommended for your limits.",
         "weatherDisclaimer": "This is a weather forecast and we live in Iceland. Keep an eye on road conditions for safety, e.g. on the <link>Road Administration website</link>.",
-        "arrivalSummaryLine": "Arrival {arrivalDateTime}, forecast there at {forecastTime}:",
+        "arrivalForecastAtLabel": "forecast at {forecastTime}:",
         "arrivalForecastTitle": "Forecast for {destination}",
         "viewFullForecast": "View the destination forecast",
         "drawerClose": "Close",

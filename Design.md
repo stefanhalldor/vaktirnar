@@ -203,6 +203,32 @@ ekki ástæða til að auka radius frekar eða setja kort inni í kort.
 - Shadows eiga að vera mjög daufar og aðeins þegar þær bæta hierarchy.
 - Ekki nota þunga shadow til að láta alla sections fljóta.
 
+### Structured summary panels
+
+Use structured summary panels when one card needs to summarize a selected
+state made of 2-4 related facts or steps, for example trip times, route status,
+payment state, booking-like confirmations, or weather-at-arrival summaries.
+
+These panels are not nested cards. Inside an existing card, prefer:
+
+- `border-y` or `divide-y` separators instead of another rounded card
+- a two-column row layout on mobile when labels are short:
+  label column around 72-88 px, content column flexible
+- short semantic labels such as `Brottför`, `Á leiðinni`, `Koma`
+- one primary line per row in `text-sm font-medium`
+- supporting details in `text-xs text-muted-foreground`
+- a compact status badge or colored text only where it adds meaning
+- no duplicate status dot if the nearby control already carries that state
+- stable row spacing: 10-12 px vertical padding, 8 px internal gap
+
+Avoid:
+
+- loose stacks of paragraphs with weak section labels
+- uppercase metadata labels as the only hierarchy
+- repeating the same selected state immediately below the control that selected it
+- nested rounded cards unless the inner element is an actual independent tool
+- more than one strong visual accent in the same compact summary
+
 ## Component-skrá
 
 Staðan segir hvort component sé canonical fyrir nýja Teskeið-vinnu.

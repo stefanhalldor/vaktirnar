@@ -729,7 +729,7 @@
         "departureStatusYellow": "Gæti orðið óþægilegt m.v. valin veðurmörk.",
         "departureStatusRed": "Ekki mælt með ferð m.v. valin veðurmörk.",
         "weatherDisclaimer": "Þetta er veðurspá og við búum á Íslandi. Fylgist vel með færðinni til öryggis, t.d. á <link>vef Vegagerðarinnar</link>.",
-        "arrivalSummaryLine": "Komutími {arrivalDateTime}, spáin þar kl. {forecastTime}:",
+        "arrivalForecastAtLabel": "spáin kl. {forecastTime}:",
         "arrivalForecastTitle": "Spá fyrir {destination}",
         "viewFullForecast": "Skoða spána á áfangastað betur",
         "drawerClose": "Loka",
