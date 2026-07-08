@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
 const { mockGetRouteOptions } = vi.hoisted(() => ({ mockGetRouteOptions: vi.fn() }))
+const { mockRecordTeskeidUsageEvent } = vi.hoisted(() => ({ mockRecordTeskeidUsageEvent: vi.fn() }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -27,6 +28,11 @@ vi.mock('@/lib/weather/provider.server', () => ({
   getWeatherMapProvider: vi.fn(() => ({
     getRouteOptions: mockGetRouteOptions,
   })),
+}))
+
+vi.mock('@/lib/teskeid/usage.server', () => ({
+  recordTeskeidUsageEvent: mockRecordTeskeidUsageEvent,
+  routePairFingerprint: vi.fn(() => 'testhash'),
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/routes/route'
@@ -198,5 +204,65 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     }))
     const call = mockGetRouteOptions.mock.calls[0]
     expect(call[0].placeId).toBe('confirmed')
+  })
+})
+
+describe('POST /api/teskeid/weather/travel/routes — usage events', () => {
+  it('records weather_route_options_calculated on success', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_calculated',
+      metadata: expect.objectContaining({ routeCount: 1, routePairHash: 'testhash' }),
+    }))
+  })
+
+  it('records weather_route_options_failed when provider returns no routes', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([])
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_failed',
+    }))
+  })
+
+  it('records weather_route_options_failed when provider throws', async () => {
+    authedUser()
+    mockGetRouteOptions.mockRejectedValue(new Error('network error'))
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_failed',
+    }))
+  })
+
+  it('does not record usage event before auth check', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(mockRecordTeskeidUsageEvent).not.toHaveBeenCalled()
+  })
+
+  it('metadata contains curatedRouteLabels and no place names or coords', async () => {
+    authedUser()
+    const curatedRoute = { ...makeRouteOption('google-0', 0, 3600, 80000, false), labels: ['CURATED_VIA_THRENGSLAVEGUR'] }
+    mockGetRouteOptions.mockResolvedValue([curatedRoute])
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    const call = mockRecordTeskeidUsageEvent.mock.calls[0][0]
+    expect(call.metadata.curatedRouteLabels).toContain('CURATED_VIA_THRENGSLAVEGUR')
+    expect(JSON.stringify(call.metadata)).not.toContain('Reykjavík')
+    expect(JSON.stringify(call.metadata)).not.toContain('lat')
+  })
+
+  it('omits routePairHash from metadata when routePairFingerprint returns null', async () => {
+    authedUser()
+    const { routePairFingerprint: mockFp } = await import('@/lib/teskeid/usage.server')
+    vi.mocked(mockFp).mockReturnValueOnce(null)
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    const call = mockRecordTeskeidUsageEvent.mock.calls[0][0]
+    expect(call.metadata.routePairHash).toBeUndefined()
   })
 })

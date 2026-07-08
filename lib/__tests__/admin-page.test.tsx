@@ -22,11 +22,39 @@ const EMPTY_ANALYTICS = {
   paths: {},
 }
 
+const EMPTY_USAGE = {
+  fingerprinting_enabled: true,
+  summary: {
+    total_events: 0,
+    unique_users: 0,
+    active_features: 0,
+    weather_route_calculations: 0,
+    weather_distinct_route_pairs: 0,
+    weather_final_forecasts: 0,
+    weather_route_to_result_conversion: 0,
+  },
+  features: [],
+  weather: {
+    route_options_calculated: 0,
+    route_options_failed: 0,
+    distinct_route_pairs: 0,
+    final_forecast_completed: 0,
+    final_forecast_failed: 0,
+    route_to_result_conversion: 0,
+    route_count_buckets: {},
+    curated_route_labels: {},
+  },
+  events_over_time: [],
+}
+
 function makeFetch(analyticsCalls: string[]) {
   return vi.fn((url: string) => {
     if (url.includes('/api/admin/analytics')) {
       analyticsCalls.push(url)
       return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+    }
+    if (url.includes('/api/admin/teskeid-usage')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_USAGE) })
     }
     // feature-access and other admin endpoints return empty arrays
     return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })

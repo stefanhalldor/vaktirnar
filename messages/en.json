@@ -728,6 +728,8 @@
         "heatmapDeparturePickerSubtitle": "Try tapping a departure time below and watch the map update",
         "heatmapTitle": "When is best to leave?",
         "heatmapNoData": "No data",
+        "heatmapNotAssessed": "Not assessed",
+        "heatmapNotAssessedDetail": "Not enough data to assess this departure time.",
         "heatmapBestSlot": "Best",
         "heatmapSlotDeparture": "Departure",
         "heatmapSlotArrival": "Arrival",

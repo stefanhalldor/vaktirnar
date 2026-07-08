@@ -13,7 +13,7 @@ import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteS
 import { WeatherResultLoader } from '@/components/weather/WeatherResultLoader'
 import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
-import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, haversineMeters } from '@/components/weather/travelAuditMap.helpers'
+import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, haversineMeters, estimatePointEtaIso } from '@/components/weather/travelAuditMap.helpers'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 
@@ -54,6 +54,9 @@ export function FerdalagidClient() {
   const [showExplainer, setShowExplainer] = useState(false)
   const [selectedHeatmapIdx, setSelectedHeatmapIdx] = useState<number | null>(null)
   const [selectedReturnHeatmapIdx, setSelectedReturnHeatmapIdx] = useState<number | null>(null)
+  // True only when the user has explicitly clicked a heatmap slot (not auto-selected on result load).
+  // Controls whether RoutePointRow uses active-candidate mode or shows summaryForWindow metrics.
+  const [userExplicitSlot, setUserExplicitSlot] = useState(false)
   // Filter state for scrubber (DepartureHeatmap) per leg — empty = show all; non-empty = show only those
   const [outboundVisibleStatuses, setOutboundVisibleStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>())
   const [returnVisibleStatuses, setReturnVisibleStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>())
@@ -133,6 +136,7 @@ export function FerdalagidClient() {
     setError(null)
     setSelectedHeatmapIdx(null)
     setSelectedReturnHeatmapIdx(null)
+    setUserExplicitSlot(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon])
 
@@ -277,6 +281,7 @@ export function FerdalagidClient() {
     setShowExplainer(false)
     setSelectedHeatmapIdx(null)
     setSelectedReturnHeatmapIdx(null)
+    setUserExplicitSlot(false)
     setSubmittedThresholds(null)
     setFerrySelection(newFerry)
   }
@@ -290,6 +295,7 @@ export function FerdalagidClient() {
     setShowExplainer(false)
     setSelectedHeatmapIdx(null)
     setSelectedReturnHeatmapIdx(null)
+    setUserExplicitSlot(false)
     setOutboundVisibleStatuses(new Set())
     setReturnVisibleStatuses(new Set())
     setMapOutboundVisibleStatuses(new Set())
@@ -457,15 +463,18 @@ export function FerdalagidClient() {
     ? outboundCandidates
     : (result?.travelPlan?.outbound.timelineCandidates ?? [])
 
-  // Selecting one leg clears the other so at most one is active at a time
+  // Selecting one leg clears the other so at most one is active at a time.
+  // Both handlers set userExplicitSlot so RoutePointRow enters active-candidate mode.
   function handleOutboundSelect(idx: number | null) {
     setSelectedHeatmapIdx(idx)
     if (idx !== null) setSelectedReturnHeatmapIdx(null)
+    setUserExplicitSlot(idx !== null)
     setMapSelectionSignal(s => s + 1)
   }
   function handleReturnSelect(idx: number | null) {
     setSelectedReturnHeatmapIdx(idx)
     if (idx !== null) setSelectedHeatmapIdx(null)
+    setUserExplicitSlot(idx !== null)
   }
 
   // Route distance in meters — needed to flip distances for return leg
@@ -940,7 +949,13 @@ export function FerdalagidClient() {
                   <div className="flex flex-col gap-3">
                     <p className="text-xs text-muted-foreground">{tf('betaTransparencyCopy')}</p>
                     {result.travelPlan!.routeWeatherPoints!.map((pt) => (
-                      <RoutePointRow key={pt.id} pt={pt} />
+                      <RoutePointRow
+                        key={pt.id}
+                        pt={pt}
+                        activeCandidate={userExplicitSlot && selectedCandidatePointStatuses !== undefined ? activeCandidate : undefined}
+                        activeLeg={activeLeg}
+                        selectedCandidatePointStatuses={selectedCandidatePointStatuses}
+                      />
                     ))}
                   </div>
                 )}
@@ -1136,7 +1151,17 @@ function IssueAuditCard({ issue }: { issue: TravelIssue }) {
   )
 }
 
-function RoutePointRow({ pt }: { pt: RouteWeatherPoint }) {
+function RoutePointRow({
+  pt,
+  activeCandidate,
+  activeLeg = 'outbound',
+  selectedCandidatePointStatuses,
+}: {
+  pt: RouteWeatherPoint
+  activeCandidate?: TravelCandidate
+  activeLeg?: 'outbound' | 'return'
+  selectedCandidatePointStatuses?: CandidatePointStatus[]
+}) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const badges: string[] = []
@@ -1145,37 +1170,80 @@ function RoutePointRow({ pt }: { pt: RouteWeatherPoint }) {
 
   const forecastDistanceM = Math.round(haversineMeters({ lat: pt.lat, lng: pt.lon }, { lat: pt.forecastLat, lng: pt.forecastLon }))
 
+  // When a heatmap slot is explicitly selected, use active-candidate-aware rendering.
+  // selectedCandidatePointStatuses being defined (even empty) means a slot is selected.
+  const isActiveMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
+
+  // Delta encoding: absent entry means green; stored entry carries the non-green status.
+  const candidatePointEntry = selectedCandidatePointStatuses?.find(s => s.routeIndex === pt.routeIndex)
+  const activeStatus: 'graent' | 'gult' | 'rautt' | 'no_data' = isActiveMode
+    ? (candidatePointEntry?.status ?? 'graent')
+    : (pt.summaryForWindow?.status ?? 'no_data')
+
+  const status = isActiveMode ? activeStatus : pt.summaryForWindow?.status
+
+  const cardClass = status === 'rautt' ? 'bg-destructive/5 border-destructive/30'
+    : status === 'gult' ? 'bg-amber-50 border-amber-300'
+    : status === 'graent' ? 'bg-[#2d5a27]/5 border-[#2d5a27]/35'
+    : 'bg-muted/40 border-muted-foreground/20'
+
+  const badgeClass = status === 'rautt' ? 'bg-destructive/10 text-destructive'
+    : status === 'gult' ? 'bg-amber-100 text-amber-700'
+    : status === 'graent' ? 'bg-[#2d5a27]/10 text-[#2d5a27]'
+    : 'bg-muted text-muted-foreground'
+
+  const statusLabel = status === 'rautt' ? tf('heatmapLegendRed')
+    : status === 'gult' ? tf('heatmapLegendYellow')
+    : status === 'graent' ? tf('heatmapLegendGreen')
+    : tf('heatmapNoData')
+
+  // ETA: use active-candidate estimate when a slot is selected, otherwise summaryForWindow
+  const etaIso = isActiveMode
+    ? estimatePointEtaIso(activeCandidate, pt, activeLeg)
+    : pt.summaryForWindow?.etaIso
+
   return (
-    <div className="border border-border rounded-lg px-3 py-2 flex flex-col gap-1 text-xs text-muted-foreground">
+    <div className={`border ${cardClass} rounded-lg px-3 py-2 flex flex-col gap-1 text-xs text-muted-foreground`}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-medium text-foreground">{tf('pointLabel')} {pt.routeIndex + 1}/{pt.totalRouteWeatherPoints}</span>
+        <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${badgeClass}`}>{statusLabel}</span>
         {badges.map(b => (
           <span key={b} className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-xs">{b}</span>
         ))}
       </div>
       <span>{Math.round(pt.distanceFromOriginM / 1000)} {tf('kmFromOrigin')}</span>
-      {pt.summaryForWindow?.etaIso && (
-        <span>{tf('pointEtaLabel')}: {tf('pointTimeLine', { time: formatKlTime(pt.summaryForWindow.etaIso) })}</span>
+      {etaIso && (
+        <span>{tf('pointEtaLabel')}: {tf('pointTimeLine', { time: formatKlTime(etaIso) })}</span>
       )}
       <span>
         {forecastDistanceM < 1000
           ? tf('forecastPointDistanceMeters', { meters: forecastDistanceM })
           : tf('forecastPointDistanceKilometers', { kilometers: formatNum(forecastDistanceM / 1000, locale) })}
       </span>
-      {pt.summaryForWindow?.forecastTimeIso && (
-        <span>{tf('pointForecastHereAt', { time: formatKlTime(pt.summaryForWindow.forecastTimeIso) })}</span>
-      )}
-      {pt.summaryForWindow && (
-        <p>
-          {tf('metricWind')}: {formatNum(pt.summaryForWindow.worstWindMs, locale)} m/s
-          {pt.summaryForWindow.worstGustMs > pt.summaryForWindow.worstWindMs && (
-            <> · {tf('metricGust')}: {formatNum(pt.summaryForWindow.worstGustMs, locale)} m/s</>
+      {isActiveMode ? (
+        // Active-candidate mode: no summaryForWindow metrics — they belong to a different time window.
+        // Show no-data copy when the selected slot has no forecast for this point.
+        activeStatus === 'no_data' && <p>{tf('heatmapNotAssessedDetail')}</p>
+      ) : (
+        <>
+          {pt.summaryForWindow?.forecastTimeIso && (
+            <span>{tf('pointForecastHereAt', { time: formatKlTime(pt.summaryForWindow.forecastTimeIso) })}</span>
           )}
-          {' · '}{tf('metricPrecip')}: {formatNum(pt.summaryForWindow.worstPrecipMmPerHour, locale)} mm/klst
-          {pt.summaryForWindow.decisiveTempC !== undefined && (
-            <> · {tf('metricTemp')}: {formatNum(pt.summaryForWindow.decisiveTempC, locale)}°C</>
+          {pt.summaryForWindow ? (
+            <p>
+              {tf('metricWind')}: {formatNum(pt.summaryForWindow.worstWindMs, locale)} m/s
+              {pt.summaryForWindow.worstGustMs > pt.summaryForWindow.worstWindMs && (
+                <> · {tf('metricGust')}: {formatNum(pt.summaryForWindow.worstGustMs, locale)} m/s</>
+              )}
+              {' · '}{tf('metricPrecip')}: {formatNum(pt.summaryForWindow.worstPrecipMmPerHour, locale)} mm/klst
+              {pt.summaryForWindow.decisiveTempC !== undefined && (
+                <> · {tf('metricTemp')}: {formatNum(pt.summaryForWindow.decisiveTempC, locale)}°C</>
+              )}
+            </p>
+          ) : (
+            <p>{tf('heatmapNoData')}</p>
           )}
-        </p>
+        </>
       )}
       <div className="flex gap-3 flex-wrap">
         <a href={pt.yrnoUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">{tf('viewForecast')}</a>

@@ -732,6 +732,8 @@
         "heatmapDeparturePickerSubtitle": "Prófaðu að smella á brottfarartíma hér að neðan og sjáðu kortið breytast",
         "heatmapTitle": "Hvenær er best að leggja af stað?",
         "heatmapNoData": "Engin gögn",
+        "heatmapNotAssessed": "Ófullnægjandi gögn",
+        "heatmapNotAssessedDetail": "Ekki nóg gögn til að meta þennan brottfarartíma.",
         "heatmapBestSlot": "Besti",
         "heatmapSlotDeparture": "Brottför",
         "heatmapSlotArrival": "Komutími",

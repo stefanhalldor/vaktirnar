@@ -492,7 +492,7 @@ export function TravelAuditMap({
             const label = st === 'graent' ? tf('heatmapLegendGreen')
               : st === 'gult' ? tf('heatmapLegendYellow')
               : st === 'rautt' ? tf('heatmapLegendRed')
-              : tf('heatmapNoData')
+              : tf('heatmapNotAssessed')
             const dotClass = st === 'graent' ? 'bg-[#2d5a27]'
               : st === 'gult' ? 'bg-amber-500'
               : st === 'rautt' ? 'bg-destructive'

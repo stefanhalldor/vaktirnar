@@ -65,6 +65,44 @@ type AnalyticsData = {
   paths: Record<string, number>
 }
 
+type TeskeidUsageSummary = {
+  total_events: number
+  unique_users: number
+  active_features: number
+  weather_route_calculations: number
+  weather_distinct_route_pairs: number
+  weather_final_forecasts: number
+  weather_route_to_result_conversion: number
+}
+
+type TeskeidUsageFeature = {
+  feature_key: string
+  label: string
+  total_events: number
+  unique_users: number
+  top_events: Record<string, number>
+}
+
+type TeskeidUsageWeather = {
+  route_options_calculated: number
+  route_options_failed: number
+  distinct_route_pairs: number
+  final_forecast_completed: number
+  final_forecast_failed: number
+  route_to_result_conversion: number
+  route_count_buckets: Record<string, number>
+  curated_route_labels: Record<string, number>
+}
+
+type TeskeidUsageData = {
+  migration_missing?: boolean
+  fingerprinting_enabled?: boolean
+  summary: TeskeidUsageSummary
+  features: TeskeidUsageFeature[]
+  weather: TeskeidUsageWeather
+  events_over_time: { date: string; count: number }[]
+}
+
 type DrillFilter = { key: string; value: string }
 
 const PERIODS = [
@@ -237,10 +275,97 @@ function FeatureAccessSection({ featureKey, heading, flagName }: FeatureAccessSe
   )
 }
 
+function TeskeidUsageSection({ usage }: { usage: TeskeidUsageData | null }) {
+  if (!usage) return null
+
+  const s = usage.summary
+  const w = usage.weather
+
+  const summaryCards = [
+    { label: 'Virkir notendur', value: s.unique_users },
+    { label: 'Atburðir', value: s.total_events },
+    { label: 'Leiðarútreikningar', value: s.weather_route_calculations },
+    { label: 'Ólík leiðapör', value: s.weather_distinct_route_pairs, note: usage.fingerprinting_enabled === false ? 'USAGE_EVENT_SECRET vantar' : undefined },
+    { label: 'Niðurstöður', value: s.weather_final_forecasts },
+  ]
+
+  const conversionPct = s.weather_route_calculations > 0
+    ? Math.round(s.weather_route_to_result_conversion * 100)
+    : null
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="text-sm font-semibold text-gray-700">Virkni per Teskeið</h2>
+
+      {usage.migration_missing ? (
+        <p className="text-xs text-gray-400">Migration 71 hefur ekki verið keyrð. Keyra þarf <code className="font-mono">sql/71_teskeid_usage_events.sql</code> í Supabase.</p>
+      ) : s.total_events === 0 ? (
+        <p className="text-xs text-gray-400">Engin virknigögn á þessu tímabili.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {summaryCards.map(({ label, value, note }) => (
+              <div key={label} className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-4">
+                <p className="text-2xl font-semibold text-gray-900">{value}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{label}</p>
+                {note && <p className="text-[10px] text-amber-600 mt-0.5">{note}</p>}
+              </div>
+            ))}
+          </div>
+
+          {conversionPct !== null && (
+            <p className="text-xs text-gray-500">
+              Route → niðurstaða: <span className="font-medium text-gray-700">{conversionPct}%</span>
+            </p>
+          )}
+
+          {/* Feature breakdown */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {usage.features.map(f => (
+              <div key={f.feature_key} className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-4">
+                <p className="text-sm font-semibold text-gray-900">{f.total_events}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{f.label}</p>
+                <p className="text-[10px] text-gray-400">{f.unique_users} notendur</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Veðrið detail */}
+          {(w.route_options_calculated > 0 || w.route_options_failed > 0) && (
+            <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
+              <h3 className="text-xs font-semibold text-gray-600 mb-3">Veðrið — leiðarútreikningar</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div><p className="text-lg font-semibold text-gray-900">{w.route_options_calculated}</p><p className="text-gray-400">Leiðir reiknaðar</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.route_options_failed}</p><p className="text-gray-400">Mistókst</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.distinct_route_pairs}</p><p className="text-gray-400">Ólík leiðapör</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.final_forecast_completed}</p><p className="text-gray-400">Lokaniðurstöður</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.final_forecast_failed}</p><p className="text-gray-400">Lokaútreikningur mistókst</p></div>
+              </div>
+              {Object.keys(w.curated_route_labels).length > 0 && (
+                <div className="mt-3 border-t border-gray-100 pt-3">
+                  <p className="text-xs text-gray-500 mb-2">Sértækar leiðir valdar:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(w.curated_route_labels).map(([label, count]) => (
+                      <span key={label} className="text-xs bg-[#dae5de] text-[#154212] rounded px-2 py-0.5">
+                        {label}: {count}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
+  const [usage, setUsage] = useState<TeskeidUsageData | null>(null)
   const [tab, setTab] = useState<'ideas' | 'submissions' | 'stats'>('stats')
   const [period, setPeriod] = useState('5min')
   const [periodReady, setPeriodReady] = useState(false)
@@ -320,6 +445,12 @@ export default function AdminPage() {
         setStatsLoading(false)
       })
       .catch(() => setStatsLoading(false))
+    fetch(`/api/admin/teskeid-usage?period=${encodeURIComponent(period)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data && typeof data === 'object' && 'summary' in data) setUsage(data as TeskeidUsageData)
+      })
+      .catch(() => {})
   }, [tab, period, drillFilter, periodReady])
 
   useEffect(() => {
@@ -1369,6 +1500,9 @@ export default function AdminPage() {
                     <BreakdownList data={analytics.paths} onSelect={(v) => setDrillFilter({ key: 'path', value: v })} />
                   </div>
                 </div>
+
+                {/* Teskeid usage section */}
+                <TeskeidUsageSection usage={usage} />
               </div>
             )}
           </div>

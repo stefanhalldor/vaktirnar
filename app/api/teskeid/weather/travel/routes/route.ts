@@ -4,6 +4,7 @@ import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 import type { PlaceCandidate } from '@/lib/weather/provider.types'
+import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
 
 function validateConfirmedPlace(raw: unknown): raw is { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string } {
   if (!raw || typeof raw !== 'object') return false
@@ -81,19 +82,51 @@ export async function POST(request: Request) {
     lon: destination.lon,
   }
 
+  const routePairHash = routePairFingerprint(origin, destination)
+  const hashMeta = routePairHash !== null ? { routePairHash } : {}
+
   let routes
   try {
     routes = await provider.getRouteOptions(originCandidate, destCandidate)
   } catch {
+    await recordTeskeidUsageEvent({
+      userId: user.id,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_failed',
+      path: '/api/teskeid/weather/travel/routes',
+      metadata: { ...hashMeta },
+    })
     return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
   }
 
   if (routes.length === 0) {
+    await recordTeskeidUsageEvent({
+      userId: user.id,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_failed',
+      path: '/api/teskeid/weather/travel/routes',
+      metadata: { ...hashMeta },
+    })
     return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
   }
 
   // Sort by durationS ascending — shortest driving time first
   const sorted = [...routes].sort((a, b) => a.durationS - b.durationS)
+
+  await recordTeskeidUsageEvent({
+    userId: user.id,
+    featureKey: 'vedrid',
+    eventName: 'weather_route_options_calculated',
+    path: '/api/teskeid/weather/travel/routes',
+    metadata: {
+      ...hashMeta,
+      provider: 'google',
+      routeCount: sorted.length,
+      originIdPresent: originCandidate.placeId !== 'confirmed',
+      destinationIdPresent: destCandidate.placeId !== 'confirmed',
+      curatedRouteLabels: [...new Set(sorted.flatMap(r => r.labels).filter(l => l.startsWith('CURATED_')))],
+    },
+  })
 
   return NextResponse.json({ routes: sorted })
 }

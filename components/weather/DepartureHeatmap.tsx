@@ -122,7 +122,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
             const label = st === 'graent' ? tf('heatmapLegendGreen')
               : st === 'gult' ? tf('heatmapLegendYellow')
               : st === 'rautt' ? tf('heatmapLegendRed')
-              : tf('heatmapNoData')
+              : tf('heatmapNotAssessed')
             return (
               <button
                 key={st}
@@ -291,7 +291,7 @@ function SlotDetail({
     return (
       <div className="rounded-xl border border-border bg-card px-3 py-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
         {header}
-        <p>{tf('heatmapNoData')}</p>
+        <p>{tf('heatmapNotAssessedDetail')}</p>
       </div>
     )
   }

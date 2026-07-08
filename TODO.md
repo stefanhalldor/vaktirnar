@@ -48,11 +48,17 @@ tilvísanir og verkefnasaga rofni ekki.
 | 16  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | **Admin/access ákvörðun.** Ákveða hlutverk listans áður en meira admin UI byggist á honum. |
 | 17  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | **Admin quick win eftir #13.** Einföld talning, en skilgreining og service-role mörk þurfa að vera skýr. |
 | 18  | **#10 Gáfuleg opnun tölfræðisíðu**                           | **Admin stats sérpakki.** Server-side heimsóknarrökfræði, race conditions og fallback; ekki opnunarblocker. |
-| 19  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
-| 20  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
-| 21  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
-| 22  | **#51 Staðfest Facebook-tenging**                           | **Phase 1 kóðinn er tilbúinn og shipped (commit 547f367) en disabled - kveikja með `FACEBOOK_OAUTH_ENABLED=true` + Supabase/Facebook stillingar (sjá v015 handoff). Phase 2 badge í lánaboðssamhengi er ólokið.** |
-| 23  | **#67 Veður: óæskilegur keyrslutími dags**                  | **Ferðalagið follow-up.** Notandi geti sagt hvaða tíma dags hann vill alls ekki vera að keyra, t.d. að nóttu til, og ferðaveðurmatið taki tillit til þess. |
+| 19  | **#69 Virkni per Teskeið í admin sýn**                      | **Admin/usage pakki.** Mæla notkun virkra Teskeiða í admin, sérstaklega hversu oft Veðrið reiknar nýjar leiðir, án þess að leka staðsetningum eða notendagögnum. |
+| 20  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
+| 21  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
+| 22  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
+| 23  | **#51 Staðfest Facebook-tenging**                           | **Phase 1 kóðinn er tilbúinn og shipped (commit 547f367) en disabled - kveikja með `FACEBOOK_OAUTH_ENABLED=true` + Supabase/Facebook stillingar (sjá v015 handoff). Phase 2 badge í lánaboðssamhengi er ólokið.** |
+| 24  | **#67 Veður: óæskilegur keyrslutími dags**                  | **Ferðalagið follow-up.** Notandi geti sagt hvaða tíma dags hann vill alls ekki vera að keyra, t.d. að nóttu til, og ferðaveðurmatið taki tillit til þess. |
+| 25  | **#70 Veður: leiðartími og route-provider samanburður**     | **Ferðalagið follow-up, ekki release blocker.** Þrengslavegur-leiðin finnst nú, en Google Routes tíminn er enn of nálægt Route 427 miðað við Google Maps; skoða Mapbox og provider-samanburð síðar. |
+| 26  | **#71 Veður: allir spápunktar og fjarlægð frá vegi**        | **Ferðalagið UI/copy polish.** Setja vegalengd spápunktar frá veginum aftur inn og nota sömu fullu punktaupplýsingar í öllum detail-spjöldum undir spápunktalistanum. |
+| 27  | **#72 Veður: mest krefjandi við upphaf ferðar**             | **Ferðalagið edge-case polish.** Ef mest krefjandi punkturinn er fyrsti punkturinn á top-spjaldið að segja að hann sé við upphaf ferðarinnar, ekki sleppa línunni. |
+| 28  | **#73 Veður: veður við komu á áfangastað**                  | **Ferðalagið result polish.** Sýna veður við áætlaða komu á áfangastað í top-spjaldinu, með skýru `Mættur`/arrival-lúkki svo þetta verði gagnlegt en ekki dauður texti. |
+| 29  | **#74 Veður: hvað veldur ófullnægjandi gögnum og nálgun**   | **Ferðalagið data quality.** Skoða hvað veldur því að spápunktar fá `Ófullnægjandi gögn` (no_data) og hvort hægt sé að gera nálgun m.v. tiltæk gögn þegar nákvæm spá vantar. |
 
 ## Vinnupakkar
 
@@ -71,9 +77,9 @@ hvað hann upplifir inni í fyrsta virka `Minnið`-flæðinu.
 innskráningu, sessions, reset/rate-limit og öryggi; best sem sérpakki með
 sérstakri rýni.
 
-**Pakki D — routes og admin:** #22, #13, #33 og #10. Taka þegar core notendaflæði
-eru stöðug, svo canonical slóðir og admin-tölfræði byggist ekki á fljótandi
-grunnhegðun.
+**Pakki D — routes og admin:** #22, #13, #33, #10 og #69. Taka þegar core
+notendaflæði eru stöðug, svo canonical slóðir, admin-tölfræði og
+Teskeiða-notkunarmælingar byggist ekki á fljótandi grunnhegðun.
 
 **Pakki E — stærri framtíðareiginleikar:** #50, #54 og #51. Þetta eru ekki
 fyrstu quick wins: þau snerta viðkvæmari gögn, nýja gagnastrúktúra eða ytri
@@ -81,7 +87,7 @@ OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
 hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
 fullkomnara.
 
-**Pakki F — Veðrið / Ferðalagið:** #67 og áframhaldandi `todo-067` handoff.
+**Pakki F — Veðrið / Ferðalagið:** #67, #70, #71, #72, #73, #74 og áframhaldandi `todo-067` handoff.
 Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
 traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
 brottfarar- eða heimferðartíma kerfið mælir með.
@@ -886,6 +892,191 @@ stöðumat eftir public beta opnun.
 - Talningin virkar þegar engir notendur, einn notandi eða margir notendur eru til.
 - Engin netföng eða notendaupplýsingar leka í client payload, logs eða test output.
 
+#69
+## Virkni per Teskeið í admin sýn
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-08
+
+**Samhengi frá Stebba:** Stebbi vill geta séð virkni per Teskeið í admin
+sýninni. Fyrsta útgáfa á að vera eins ítarleg og raunhæft er, án þess að fórna
+öryggi eða persónuvernd. Í Veðrinu vill Stebbi sérstaklega mæla hversu oft nýjar
+leiðir eru reiknaðar.
+
+**Vandamál:** Núverandi admin tölfræði byggir aðallega á public
+hugmyndabanka-analytics (`analytics_events`) og segir lítið um raunverulega
+notkun innskráðra Teskeiða. Hún svarar ekki spurningum eins og:
+
+- hvaða Teskeiðar eru notaðar mest,
+- hversu margir notendur prófa hverja Teskeið,
+- hvaða aðgerðir eru mest notaðar innan hverrar Teskeiðar,
+- hvort Veðrið er að reikna margar leiðir,
+- hvort notendur hætta eftir route-val eða fara alla leið í niðurstöðu.
+
+**Ósk:** Bæta við admin-sýn sem sýnir notkun per Teskeið og helstu
+aðgerðamælikvarða. Fyrsta útgáfa má byrja með server-side event-mælingum og
+samantekt í admin stats, en hönnunin þarf að geta vaxið þegar fleiri Teskeiðar
+verða virkar.
+
+**Skilgreining v1:** Þetta er ekki notendamiðað tracking til markaðssetningar.
+Þetta er internal product-health mæling fyrir Stebba/admin:
+
+- aggregation fyrst,
+- raw row-aðgangur helst ekki í UI,
+- engin netföng, nöfn, staðsetningar eða nákvæmar leiðir í admin payload,
+- engin veiking á RLS eða auth,
+- engin client-side mæling sem venjulegur notandi getur misnotað til að spamma
+  admin-tölfræði.
+
+**V1 mæligrunnur sem þarf að hanna:**
+
+- Ný server-side usage events tafla, t.d. `teskeid_usage_events` eða
+  `app_usage_events`, frekar en að troða innskráðum app-events inn í núverandi
+  public `analytics_events`.
+- Dálkar þurfa líklega að styðja:
+  - `feature_key` / Teskeið, t.d. `vedrid`, `minnid`, `tengsl`, `umonnun`
+  - `event_name`, t.d. `weather_route_options_calculated`
+  - `user_id` eða öruggt afleitt auðkenni fyrir unique-user talningu
+  - `created_at`
+  - `path` eða route group, án query params með viðkvæmum upplýsingum
+  - `metadata jsonb` fyrir ósensitív counters og buckets
+- Taflan á að vera RLS-enabled með engum public policies og aðeins service-role
+  aðgangi, líkt og `analytics_events` / `feature_access`.
+- Innskráðar API/server actions skrá usage event server-side með helper sem
+  failar hljóðlega og má aldrei stoppa notendaflæði.
+- Admin API skilar aggregated tölum, ekki raw persónugögnum.
+
+**Veðrið / Ferðalagið mælingar í v1:**
+
+Mikilvægasta fyrsta spurning Stebba er: hversu oft eru nýjar leiðir reiknaðar?
+Þarf að skilgreina og mæla að minnsta kosti:
+
+- `weather_route_options_requested`: route picker reynir að sækja leiðarmöguleika
+  fyrir uppruna + áfangastað.
+- `weather_route_options_calculated`: Google/provider skilar leiðarmöguleikum.
+- `weather_route_options_failed`: leiðarmöguleikar nást ekki.
+- `weather_final_forecast_requested`: notandi smellir `Nota þessa leið` /
+  biður um veðurmat.
+- `weather_final_forecast_completed`: veðurmat klárast.
+- `weather_final_forecast_failed`: veðurmat nær ekki að klárast.
+- `weather_saved_place_created_or_reused`: ef saved-place virkni er komin í
+  production og migration hefur verið keyrð.
+
+Til að mæla „nýjar leiðir“ án þess að birta staðsetningar:
+
+- Ekki geyma staðanöfn, formatted address, placeId, lat/lon eða polyline í
+  usage table.
+- Búa til server-side HMAC/fingerprint af route pair ef þarf að telja distinct
+  leiðapör, t.d. úr normaliseruðum uppruna/áfangastað og secret.
+- Admin UI má sýna:
+  - fjölda route-option útreikninga,
+  - fjölda distinct route-pair fingerprints,
+  - fjölda unique users sem reiknuðu leið,
+  - hlutfall route picker -> final forecast,
+  - provider failure rate,
+  - fjölda valinna route options per final forecast,
+  - curated route label counts, t.d. hversu oft Þrengslavegur-regla birtist eða
+    var valin, án þess að geyma nákvæma leið.
+- Metadata má geyma örugga hluti eins og `route_count`, `route_distance_bucket`,
+  `duration_bucket`, `provider`, `used_place_id: true/false`, `selected_route_label`
+  eða `curated_route_label`, ef það lekur ekki viðkvæmum staðsetningum.
+
+**Aðrar Teskeiðar sem v1 ætti að styðja eða undirbúa:**
+
+- `minnid` / Lánað og skilað:
+  - hlutur stofnaður,
+  - hlutur merktur skilaður,
+  - skilun afturkölluð,
+  - boð sent,
+  - boð samþykkt/hafnað,
+  - aðila bætt við,
+  - hlutverki breytt,
+  - spjallskilaboð skráð ef það er virkt.
+- `tengsl`:
+  - tengsl búin til,
+  - tengsl uppfærð,
+  - tengsl fjarlægð,
+  - notkun tengsla í öðrum Teskeiðum síðar.
+- `umonnun`:
+  - aðeins undirbúa feature-key og tóma/disabled stöðu ef Umönnun er ekki komin
+    sem virk vef-Teskeið ennþá.
+
+**Admin UI v1:**
+
+- Bæta við kafla í admin stats fyrir `Virkni per Teskeið` eða sambærilegt.
+- Nota tímabilsfilterinn sem er nú þegar til í stats (`5min`, `1h`, `7d`,
+  `30d`, `all`) ef hægt er.
+- Sýna summary cards:
+  - virkir notendur,
+  - events samtals,
+  - route calculations / leiðarútreikningar fyrir Veðrið,
+  - final forecast completions,
+  - conversion route -> result.
+- Sýna breakdown per Teskeið:
+  - `Veðrið`,
+  - `Minnið`,
+  - `Tengsl`,
+  - `Umönnun` þegar við á.
+- Sýna drilldown fyrir Veðrið:
+  - route calculations over time,
+  - success/failure,
+  - route-count buckets,
+  - distinct route-pair fingerprints count,
+  - curated-route counts.
+- UI má vera þétt og admin-legt, en þarf samt að fylgja `Design.md`: mobile
+  first, enginn horizontal overflow, stuttir textar, skýr loading/error states.
+
+**Öryggi, privacy og gögn:**
+
+- Ekki geyma eða birta hrá netföng, nöfn, símanúmer, staðsetningar, placeId,
+  formatted address, lat/lon, polyline, forecast payload eða route points í
+  usage events.
+- Ekki logga usage event metadata ef hún getur innihaldið persónugögn.
+- Ekki gefa `anon` eða venjulegum `authenticated` notendum SELECT á usage töflu.
+- Admin API þarf `requireAdmin` og service-role lestur, líkt og núverandi
+  admin analytics.
+- Ef `user_id` er geymt þarf að rökstyðja það og aðeins nota til aggregated
+  unique-user talningar. Ekki birta user_id í client payload.
+- Ef distinct route pair er mælt skal nota HMAC/fingerprint, ekki raw
+  staðsetningar eða address.
+- Migration þarf rollback/recovery plan og statísk SQL-próf.
+- Ekki keyra migration nema Stebbi biðji sérstaklega um það.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Opna admin stats og skrá hvað er til í dag.
+2. Prófa Veðrið localhost: velja leið og smella `Nota þessa leið`.
+3. Staðfesta að engin núverandi admin tala sýni route calculations eða
+   Ferðalagið conversion.
+4. Ákveða hvort fyrsta útgáfa á að mæla aðeins Veðrið eða líka byrja að skrá
+   `Minnið` events strax. Ef óvissa er til staðar, byrja með Veðrið og
+   extensible event schema.
+
+**Localhost checks for Stebbi eftir breytingu:**
+
+1. Opna `/admin` sem admin.
+2. Opna stats flipann.
+3. Vænt: nýr kafli fyrir `Virkni per Teskeið` birtist með tómri eða núllstöðu
+   ef engin events eru til.
+4. Opna `/auth-mvp/vedrid` sem notandi með veður-aðgang.
+5. Velja uppruna og áfangastað þannig að route options séu reiknaðar.
+6. Fara aftur í `/admin` og velja stutt tímabil, t.d. `5 mín`.
+7. Vænt: `Veðrið` sýnir að route options voru reiknaðar.
+8. Smella `Nota þessa leið` í Veðrinu og láta niðurstöðu klárast.
+9. Vænt: admin sýnir final forecast request/completion og route -> result
+   conversion hækkar.
+10. Endurtaka sömu leið og síðan aðra leið.
+11. Vænt: total route calculations hækkar í hvert skipti, distinct route-pair
+    talning hækkar aðeins þegar leiðaparið er nýtt.
+12. Prófa venjulegan notanda eða óinnskráðan notanda á admin API.
+13. Vænt: enginn aðgangur að admin usage tölum.
+14. Staðfesta í network/admin payload að engin netföng, nöfn, staðsetningar,
+    placeId, lat/lon eða route polyline skili sér í client.
+
+**Handoff:** Sjá
+`ai-handoff/2026-07-08-1356-todo-069-v001-codex-admin-teskeid-usage-handoff.md`.
+
 #22
 ## Hreinsa sýnilegar `/auth-mvp/` slóðir
 
@@ -1396,3 +1587,388 @@ stækkað í nákvæmara tímabil síðar, t.d. `forðast keyrslu frá 23:00 til
   tímastillingu.
 - Mobile 360-460 px sýnir valkostinn án overlap, óæskilegs zooms eða
   horizontal scrolls.
+
+#70
+## Veður: leiðartími og route-provider samanburður
+
+**Staða:** Bíður, ekki útgáfublokker fyrir núverandi Ferðaveður-prerelease
+
+**Stofnað:** 2026-07-08
+
+**Samhengi frá Stebba:** Við fengum loksins sérstaka Þrengslavegur-leið í
+Ferðalagið fyrir Garðabær -> Þorlákshöfn, en tíminn er enn furðulega nálægt
+sjálfgefnu Route 427 leiðinni. Stebbi vill geyma málið og taka annan snúning
+síðar, meðal annars með Mapbox-samanburði, í stað þess að festa útgáfuna á
+þessu núna.
+
+**Staðfest localhost-staða 2026-07-08 eftir v210:**
+
+- Google Maps skjámynd Stebba sýndi Þrengslavegur um 45 mín / 55 km og Route
+  427 um 59 mín / 67,2 km.
+- Teskeið sýndi eftir v210:
+  - `Um Þrengslaveg` um 55 mín / 56 km.
+  - `Sjálfgefin Google-leið` um 56 mín / 67 km.
+- Terminal diagnostics:
+  - `curatedAdded: true`
+  - `CURATED_VIA_THRENGSLAVEGUR`
+  - Þrengslavegur: `distanceMeters: 56394`, `durationS: 3352`
+  - Route 427: `distanceMeters: 67435`, `durationS: 3363`
+  - `durationNote`: `durationS uses staticDuration when available, falls back to traffic-aware duration`
+
+**Vandamál:** Leiðarvalið er orðið betra en ETA-munurinn er ekki trúverðugur
+miðað við Google Maps. Þetta getur gert notanda erfiðara að skilja af hverju
+kerfið mælir með styttri leiðinni, og getur haft áhrif á áætlaðan komu- og
+spápunktatíma í Ferðaveðrinu.
+
+**Ósk:** Taka sér annað, afmarkað rannsóknar- og útfærsluspor síðar þar sem
+við berum saman Google Routes og Mapbox fyrir íslenskar leiðir, sérstaklega
+leiðir þar sem Google Routes skilar fáum eða undarlegum valkostum.
+
+**Scope næsta snúnings:**
+
+- Skoða Mapbox Directions/route alternatives sem samanburð fyrir
+  Garðabær -> Þorlákshöfn.
+- Bera saman að minnsta kosti:
+  - Google Routes `TRAFFIC_AWARE` með `duration` og `staticDuration`.
+  - Google Routes `TRAFFIC_UNAWARE`.
+  - Mapbox duration, distance, geometry og route alternatives.
+- Prófa fleiri íslenskar leiðir en Þorlákshöfn svo við sérsníðum ekki lausnina
+  of þröngt:
+  - Garðabær -> Þorlákshöfn.
+  - Reykjavík/Garðabær -> Selfoss.
+  - Reykjavík/Garðabær -> Akureyri.
+  - Keflavík -> Þorlákshöfn.
+  - Ein eða tvær leiðir á Austur-/Norðurlandi þar sem val milli vega skiptir máli.
+- Skilgreina hvort Mapbox á að vera:
+  - diagnostic-only samanburður,
+  - fallback þegar Google vantar góða valkosti,
+  - eða nýr aðal route provider síðar.
+- Meta API kostnað, ToS, attribution, caching reglur, privacy og hvort Mapbox
+  má geyma eða birta sömu gögn og Google í okkar flæði.
+- Halda áfram að forðast geymslu nákvæmra staðsetninga í analytics/admin nema
+  það sé sérstaklega hannað með privacy-preserving hash/bucket nálgun.
+
+**Ekki gera í þessu atriði án sér samþykkis:**
+
+- Ekki skipta route provider í production án sér handoff/rýni.
+- Ekki bæta Mapbox lykli í repo eða logs.
+- Ekki geyma nákvæmar route geometries eða uppruna/áfangastaði í gagnagrunni
+  nema með sér privacy- og RLS-plani.
+- Ekki gera þetta að blocker fyrir fyrstu Ferðaveður-útgáfu ef núverandi
+  hegðun er annars nothæf.
+
+**Manual pre-check áður en næsti snúningur hefst:**
+
+1. Opna Google Maps og prófa Garðabær -> Þorlákshöfn með sömu staðavali og
+   Teskeið notar.
+2. Skrá route labels, km og mínútur fyrir Þrengslavegur og Route 427.
+3. Opna `/auth-mvp/vedrid` á localhost.
+4. Velja sömu uppruna/áfangastaði í Ferðalagið.
+5. Vista terminal diagnostics fyrir `getRouteOptions`.
+6. Staðfesta hvort valið kom úr saved place eða Google autocomplete, því saved
+   places geta enn vantað `placeId`.
+
+**Localhost checks for Stebbi eftir framtíðarbreytingu:**
+
+1. Prófa Garðabær -> Þorlákshöfn.
+2. Vænt: Þrengslavegur birtist sem sér leið, með fjarlægð nálægt 55-56 km og
+   tíma sem er trúverðugur miðað við samanburðarprovider.
+3. Vænt: Route 427 birtist áfram sem sér leið nálægt 67 km.
+4. Smella `Nota þessa leið` á Þrengslavegur.
+5. Vænt: Ferðaveður-niðurstaða notar valda leið, route map helst rétt og
+   áætlaðir spápunktatímar passa nýja leiðartímann.
+6. Prófa Garðabær -> Selfoss og Keflavík -> Þorlákshöfn.
+7. Vænt: engin fölsk Þrengslavegur-leið birtist þar sem hún á ekki við.
+8. Prófa minnst eina langleið, t.d. Garðabær -> Akureyri.
+9. Vænt: leiðir, veðurspápunktar og final submit virka áfram án þess að
+   provider-samanburður brjóti núverandi flæði.
+
+**Tengd handoff:**
+
+- `ai-handoff/2026-07-08-1416-todo-067-v209-codex-v208-duration-gap-addendum.md`
+- `ai-handoff/2026-07-08-1425-todo-067-v210-claude-v209-static-duration.md`
+
+#71
+## Veður: allir spápunktar og fjarlægð frá vegi
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-08
+
+**Samhengi frá Stebba:** Í `Mest krefjandi á leiðinni` spjaldinu vantar aftur
+vegalengd met.no spápunkts frá veginum. Stebbi vill líka að sömu ítarlegu
+upplýsingar séu notaðar á öllum detail-spjöldunum undir `Hvernig er þetta
+metið?`, sem nú vantar helling af upplýsingum. Kaflinn á að verða meira
+áberandi og heita `Allir spápunktarnir á leiðinni`.
+
+**Núverandi dæmi sem þarf að bæta:**
+
+```text
+Mest krefjandi á leiðinni
+Punktur 26/58
+Brottfarartími: kl. 14:27
+Áætlaður tími 17 km frá Garðabæ: kl. 14:43
+Veðurspá á þessum stað kl. 15:00
+Vindur: 4 m/s · Úrkoma: 0,2 mm/klst · Hiti: 11°C
+```
+
+**Ósk:** Setja línuna um fjarlægð spápunkts frá veginum inn á milli áætlaðs
+tíma og veðurspártíma:
+
+```text
+Mest krefjandi á leiðinni
+Punktur 26/58
+Brottfarartími: kl. 14:27
+Áætlaður tími 17 km frá Garðabæ: kl. 14:43
+Spápunktur um X m frá veginum.
+Veðurspá á þessum stað kl. 15:00
+Vindur: 4 m/s · Úrkoma: 0,2 mm/klst · Hiti: 11°C
+```
+
+Hlekkirnir í spjaldinu eiga að vera óbreyttir.
+
+**Nánari óskir:**
+
+- Nota sömu framsetningu á `Mest krefjandi á leiðinni` spjaldinu og á öllum
+  detail-spjöldunum undir spápunktalistanum.
+- Spjaldaheitin í listanum mega halda sér óbreytt sem `Punktur x/y`.
+- Endurnefna `Hvernig er þetta metið?` í `Allir spápunktarnir á leiðinni`.
+- Gera þann kafla meira áberandi en núverandi litla link/skúffu-framsetningu.
+- Taka textann úr skúffunni:
+  `Veðurmatið er reiknað úr leiðinni, tímasetningu og veðurspá á punktum meðfram leiðinni. Gervigreind tekur ekki ákvörðunina sjálf. Hún má hjálpa okkur að orða niðurstöðuna, en vindur, hviður, úrkoma, tími og staðsetning ráða matinu.`
+- Setja þann texta í stað stutta textans sem stendur nú fyrir ofan skúffuna:
+  `Reiknað úr veðurspá og leið, ekki giskað af gervigreind.`
+- Halda hlekkjum óbreyttum: `Skoða veðurspá`, `Opna á korti`, `Hrá met.no gögn`.
+
+**Við útfærslu:**
+
+- Lesa `Design.md` áður en UI er breytt.
+- Setja allan notendatexta í `messages/is.json` og `messages/en.json`.
+- Finna sameiginlega leið til að rendera punktaupplýsingar, svo
+  `Mest krefjandi` spjaldið og `Punktur x/y` spjöldin verði ekki ósamræmd.
+- Skoða sérstaklega `components/weather/TravelAuditMap.tsx`,
+  `components/weather/DepartureHeatmap.tsx`,
+  `app/auth-mvp/vedrid/FerdalagidClient.tsx` og viðeigandi
+  `messages/*`.
+- Passa að fjarlægð spápunkts frá veginum birtist þar sem gögn eru til, líka
+  þegar spápunkturinn er nálægt veginum og ekki sérstakur marker á kortinu.
+- Passa að röðin sé:
+  1. Spjaldtitill eða `Punktur x/y`,
+  2. brottfarartími,
+  3. áætlaður tími og km frá upphafsstað,
+  4. spápunktur X m frá veginum,
+  5. veðurspá á þessum stað kl. HH:MM,
+  6. vindur / hviður ef við á / úrkoma / hiti,
+  7. hlekkir óbreyttir.
+- Gæta að mobile 360-460 px: texti má ekki valda horizontal overflowi,
+  óþarfa card-in-card tilfinningu eða of löngum óskannanlegum blokkum.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Opna `/auth-mvp/vedrid` á localhost.
+2. Reikna leið sem sýnir `Mest krefjandi á leiðinni`.
+3. Staðfesta hvort línan um fjarlægð spápunkts frá veginum vantar þar.
+4. Opna `Hvernig er þetta metið?`.
+5. Staðfesta hvaða upplýsingar vantar í `Punktur x/y` spjöldunum miðað við
+   `Mest krefjandi` spjaldið.
+
+**Localhost checks for Stebbi eftir breytingu:**
+
+1. Opna `/auth-mvp/vedrid`.
+2. Reikna leið sem sýnir `Mest krefjandi á leiðinni`.
+3. Vænt: spjaldið sýnir `Spápunktur um X m frá veginum.` á milli áætlaðs tíma
+   og `Veðurspá á þessum stað kl. HH:MM`.
+4. Vænt: hlekkirnir `Skoða veðurspá`, `Opna á korti` og `Hrá met.no gögn` eru
+   óbreyttir og virka áfram.
+5. Opna nýja `Allir spápunktarnir á leiðinni` kaflann.
+6. Vænt: kaflinn er meira áberandi en gamla skúffan og textinn fyrir ofan hann
+   er lengri deterministic skýringin, ekki stutta AI-línan.
+7. Vænt: hvert `Punktur x/y` detail-spjald notar sömu upplýsingaskipan og
+   `Mest krefjandi` spjaldið, þar á meðal fjarlægð spápunkts frá vegi,
+   veðurspártíma, vind, úrkomu og hita þegar gögn eru til.
+8. Prófa á mobile breidd 360-460 px.
+9. Vænt: enginn horizontal overflow, texti fer eðlilega í línuskipti og
+   hlekkirnir halda góðu bili.
+
+#72
+## Veður: mest krefjandi við upphaf ferðar
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-08
+
+**Samhengi frá Stebba:** Ef mest krefjandi punkturinn er fyrsti punkturinn á
+leiðinni erum við ranglega að sleppa því að segja `Mest krefjandi er...` í nýja
+spjaldið fyrir ofan kortið.
+
+**Vandamál:** Þegar fjarlægðin frá upphafi er 0 km eða punkturinn er
+upphafspunktur virðist núverandi framsetning líklega fela línuna sem annars
+segir hvar mest krefjandi punkturinn er. Það skilur notandann eftir með minna
+samhengi einmitt þegar niðurstaðan er að vandinn sé strax í byrjun ferðar.
+
+**Ósk:** Ef mest krefjandi punkturinn er fyrsti punkturinn skal top-spjaldið
+sýna sérstaka línu:
+
+```text
+Mest krefjandi er við upphaf ferðarinnar, kl. HH:MM
+```
+
+Tíminn á að vera sami áætlaði tími/spápunktatími og er notaður í viðkomandi
+spjaldi, eftir því hvaða tími er réttur í núverandi `Mest krefjandi er...`
+línu þegar punkturinn er ekki í upphafi.
+
+**Við útfærslu:**
+
+- Lesa `Design.md` áður en UI/texti er breytt.
+- Setja notendatexta í `messages/is.json` og `messages/en.json`.
+- Skoða sérstaklega logic þar sem `Mest krefjandi er {distance} km frá...` eða
+  `Mest krefjandi er {distance} km frá..., kl. {time}` er aðeins birt ef
+  distance er stærra en 0.
+- Ekki láta `0 km frá Garðabæ` birtast ef það er stirðara en sértextinn.
+- Halda eldri hegðun fyrir punkta sem eru ekki við upphaf ferðar:
+  `Mest krefjandi er N km frá {origin}, kl. HH:MM`.
+- Passa return-leg ef sama component eða helper er notaður þar: ef
+  heimferðarmetið er við upphaf heimferðar, á textinn að vísa til upphafs
+  þeirrar ferðar, ekki ranglega til upprunalegs brottfararstaðar.
+- Ekki breyta route provider, veðurmati, threshold logic, SQL, RLS eða auth.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Finna eða búa til localhost-dæmi þar sem mest krefjandi punkturinn er
+   `Punktur 1/x` eða fjarlægð 0 km frá upphafi.
+2. Staðfesta að top-spjaldið sleppir nú `Mest krefjandi er...` línunni.
+3. Athuga hvort sama vandamál sé til í útleið og heimferð.
+
+**Localhost checks for Stebbi eftir breytingu:**
+
+1. Opna `/auth-mvp/vedrid`.
+2. Reikna leið þar sem mest krefjandi punkturinn lendir í upphafi ferðar.
+3. Vænt: top-spjaldið sýnir `Mest krefjandi er við upphaf ferðarinnar, kl. HH:MM`.
+4. Reikna eða velja leið þar sem mest krefjandi punkturinn er ekki í upphafi.
+5. Vænt: top-spjaldið sýnir áfram venjulega fjarlægðarlínu, t.d.
+   `Mest krefjandi er 17 km frá Garðabæ, kl. HH:MM`.
+6. Prófa mobile 360-460 px.
+7. Vænt: nýja línan veldur ekki overflowi eða texta-overlapi.
+
+#73
+## Veður: veður við komu á áfangastað
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-08
+
+**Samhengi frá Stebba:** Í Ferðaveður-niðurstöðunni væri gagnlegt að sjá ekki
+bara veðrið á mest krefjandi punkti leiðarinnar, heldur líka hvernig veðrið
+verður við komu á áfangastað.
+
+**Vandamál:** Top-spjaldið fyrir ofan kortið segir nú frá brottför, komutíma,
+mest krefjandi stað og almenna öryggisathugasemd, en notandinn fær ekki skýra
+komuveður-lendingu á áfangastaðnum sjálfum. Það er sérstaklega gagnlegt þegar
+leiðin lítur vel út en notandinn vill vita hvort það bíði vindur, úrkoma eða
+kuldi við komu.
+
+**Ósk:** Bæta við veðri við komu á áfangastað í spjaldið fyrir ofan kortið,
+helst nálægt eða fyrir neðan textann:
+
+```text
+Þetta er veðurspá og við búum á Íslandi. Fylgist vel með færðinni til öryggis,
+t.d. á vef Vegagerðarinnar.
+```
+
+Framsetningin má vera aðeins meira lifandi en venjulegur texti, til dæmis með
+checkmark eða litlu `Mættur`/arrival-lúkki. Hún á samt að vera róleg og
+samræmd Teskeið, ekki stórt skrautkort.
+
+**Við útfærslu:**
+
+- Lesa `Design.md` áður en UI/texti er breytt.
+- Setja allan nýjan notendatexta í `messages/is.json` og `messages/en.json`.
+- Skoða hvaða gögn eru þegar til um áfangastaðaspá eða destination forecast í
+  travel result payloadinu.
+- Nota áætlaðan komutíma ferðarinnar til að velja rétta veðurspá við
+  áfangastað, ekki núverandi klukkutíma nema hann sé raunverulega réttur.
+- Sýna að minnsta kosti:
+  - `Mættur` eða sambærilegt arrival-label,
+  - áfangastað,
+  - tíma við komu,
+  - vind,
+  - úrkomu,
+  - hita,
+  - hviður ef þær eru hluti af sömu veðurframsetningu annars staðar.
+- Ef destination forecast vantar skal ekki búa til falskt öryggi; sýna frekar
+  rólega fallback-línu eða sleppa komuveður-blokkinni.
+- Passa að þetta verði ekki annað `Mest krefjandi` spjald; það á að svara
+  einfaldri spurningu: hvernig er þegar ég kem á staðinn?
+- Ekki breyta route provider, veðurþröskuldum, SQL, RLS, auth eða admin
+  analytics í þessu atriði.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Opna `/auth-mvp/vedrid` á localhost.
+2. Reikna leið með skýrum áfangastað og niðurstöðu.
+3. Staðfesta hvort top-spjaldið sýnir nú ekkert sérstakt veður við komu á
+   áfangastað.
+4. Athuga í response/debug hvort destination forecast eða sambærileg gögn séu
+   þegar til í payloadinu.
+
+**Localhost checks for Stebbi eftir breytingu:**
+
+1. Opna `/auth-mvp/vedrid`.
+2. Reikna leið, t.d. Garðabær -> Akranes eða Garðabær -> Egilsstaðir.
+3. Vænt: top-spjaldið fyrir ofan kortið sýnir sérstaka `Mættur`/arrival-línu
+   eða lítinn arrival-blokk með veðri við komu á áfangastað.
+4. Vænt: blokkin sýnir komutíma og veðurgildi sem passa við spá á
+   áfangastaðnum á þeim tíma.
+5. Vænt: almenna öryggisathugasemdin með hlekk á Vegagerðina helst til staðar.
+6. Prófa leið þar sem destination forecast vantar eða nær ekki að hlaðast.
+7. Vænt: UI bilar ekki og sýnir ekki tilbúin veðurgildi.
+8. Prófa mobile 360-460 px.
+9. Vænt: nýja arrival-framsetningin veldur ekki overflowi, overlap-i eða of
+   mikilli þyngd í top-spjaldinu.
+
+#74
+## Veður: hvað veldur ófullnægjandi gögnum og nálgun
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-08
+
+**Samhengi:** Eftir #71 sýna spápunktar sem fá `Ófullnægjandi gögn` (no_data / reasonCode 'no_data') grátt spjald með textanum "Ekki nóg gögn til að meta þennan brottfarartíma." þegar notandinn velur slíkt slot í heatmap-inu. Þetta er rétt hegðun miðað við gildandi gagnalíkan, en ástæðan fyrir no_data er ekki skýr notandanum og við vitum ekki hvort við getum gert einhverja nálgun.
+
+**Vandamál / spurningar:**
+
+1. Hvað veldur því nákvæmlega að spápunktur eða brottfararslot fær `no_data`? Er það vegna þess að:
+   - engin veðurspá er til fyrir þann tíma/stað,
+   - veðurgögn eru of gömul eða utan spátímasviðs,
+   - einhver útreikningsvilla á sér stað,
+   - eða eitthvað annað?
+2. Þegar gögn eru ófullnægjandi — eru einhver nálægð gögn (t.d. nærliggjandi tími, nærliggjandi spástöð) sem við gætum notað til að gera grófari nálgun?
+3. Ef nálgun er möguleg — á að sýna hana með skýrri merkingu (t.d. "Nálæg spá frá X") frekar en að fela hana alveg?
+
+**Við rannsókn:**
+
+- Fara í `lib/weather/travel.ts` og skoða hvernig `no_data` verður til í `evaluateCandidate` og punktametingunni.
+- Skoða `getHoursNearEta` eða sambærilegt — hvað gerist þegar engar klukkustundir finnast?
+- Skoða hvort veðurgögn frá Met.no séu til staðar en utan tímasviðs, eða hvort API-kall skilar einfaldlega tómum gögnum.
+- Gera greiningu á hve oft `no_data` kemur upp í raun (ef mögulegt með logum/tölfræði).
+
+**Við útfærslu nálgunar (ef hún reynist möguleg og æskileg):**
+
+- Lesa `Design.md` áður en UI er breytt.
+- Skýrt merkja nálgun sem nálgun — ekki nota sömu `graent`/`gult`/`rautt` status án fyrirvara.
+- Setja allan nýjan notendatexta í `messages/is.json` og `messages/en.json`.
+- Ekki breyta SQL, RLS, auth eða admin analytics í þessu atriði.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Opna `/auth-mvp/vedrid` á localhost.
+2. Reikna Garðabær -> Akranes eða aðra leið sem framleiddi `Ófullnægjandi gögn`.
+3. Skoða í DevTools/network hvaða tímar/spápunktar fá no_data og hvers vegna.
+4. Staðfesta hvort veðurgögn eru hlutlægt til staðar en utan tímasviðs, eða hvort þau vantar alveg.
+
+**Localhost checks for Stebbi eftir breytingu:**
+
+1. Reikna leið sem framleiddi `Ófullnægjandi gögn` slot.
+2. Velja slíkt slot.
+3. Vænt: ef nálgun er útfærð sést hún með skýrum fyrirvara; ef ekki er hegðun óbreytt.
+4. Staðfesta að nálgun, ef hún er sýnd, sé ekki villandi.
