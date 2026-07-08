@@ -1,10 +1,9 @@
 'use client'
 
-import { Fragment } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
 import type { TravelCandidate, TravelWindow, WeatherStatus, ResolvedTravelThresholds } from '@/lib/weather/types'
 import { WEATHER_THRESHOLDS, deriveThreshold } from '@/lib/weather/thresholds'
-import { formatKlTime, formatNum, normalizeLocale } from './travelAuditMap.helpers'
+import { formatKlTime, formatNum, normalizeLocale, formatCompactDateTime } from './travelAuditMap.helpers'
 
 function utcDateKey(isoString: string): string {
   return new Date(isoString).toISOString().slice(0, 10)
@@ -46,6 +45,8 @@ type DepartureHeatmapProps = {
   thresholdsUsed?: ResolvedTravelThresholds
   /** Optional subtitle shown below the title. */
   subtitle?: string
+  /** If false, hides the selected slot detail card below the scrubber. Default: true. */
+  showSelectedDetail?: boolean
 }
 
 const STATUS_BG: Record<SlotStatus, string> = {
@@ -74,7 +75,7 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
 
 const ALL_SLOT_STATUSES: SlotStatus[] = ['graent', 'gult', 'rautt', 'no_data']
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -114,6 +115,18 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       {title !== null && <p className="text-xs font-medium text-foreground">{title ?? tf('heatmapTitle')}</p>}
       {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
 
+      {/* Threshold summary — always shown when thresholds are available */}
+      {thresholdsUsed && (
+        <p className="text-[10px] text-muted-foreground/70">
+          {tf('thresholdSummaryLine', {
+            caution: formatNum(thresholdsUsed.cautionWindMs, locale),
+            red: formatNum(thresholdsUsed.redWindMs, locale),
+            gust: formatNum(thresholdsUsed.redGustMs, locale),
+            precip: formatNum(thresholdsUsed.cautionPrecipMmPerHour, locale),
+          })}
+        </p>
+      )}
+
       {/* Status filter chips — always shown so user can see counts and filter */}
       <div className="flex flex-wrap gap-1.5">
           {ALL_SLOT_STATUSES.filter(st => st === 'graent' || statusCounts[st] > 0).map(st => {
@@ -143,53 +156,62 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
           })}
       </div>
 
-      {/* Scrollable slot row with day separators */}
-      {filteredWithIdx.length > 0 ? (
-        <div className="overflow-x-auto -mx-1 px-1">
-          <div className="flex gap-1.5 min-w-max pb-1 items-end">
-            {filteredWithIdx.map(({ c, realIdx }, filteredIdx) => {
-              const st = slotStatus(c)
-              const best = isBestSlot(c, bestWindow)
-              const isSelected = selectedIdx === realIdx
-              const dateKey = utcDateKey(c.departureIso)
-              const prevDateKey = filteredIdx > 0 ? utcDateKey(filteredWithIdx[filteredIdx - 1].c.departureIso) : null
-              const isNewDay = dateKey !== prevDateKey
-              return (
-                <Fragment key={c.departureIso}>
-                  {isNewDay && (
-                    <div className="flex flex-col items-center gap-0.5 shrink-0 pb-0.5" aria-hidden>
-                      <span className="text-[9px] font-medium text-muted-foreground/60 whitespace-nowrap leading-none">
-                        {formatDayLabel(c.departureIso, locale)}
-                      </span>
-                      <div className="w-px h-6 bg-border/50 mt-0.5" />
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onSelectIdx(realIdx === selectedIdx ? null : realIdx)}
-                    aria-label={`${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`}
-                    className={`flex flex-col items-center gap-0.5 min-w-[42px] px-1.5 py-1.5 rounded-lg border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                      isSelected
-                        ? `${STATUS_BORDER[st]} border-2 bg-card`
-                        : `border-transparent ${best ? 'ring-1 ring-offset-1 ring-primary/50' : ''}`
-                    }`}
-                  >
-                    <span className={`w-4 h-4 rounded-full ${STATUS_BG[st]}`} aria-hidden />
-                    <span className="text-[10px] text-muted-foreground leading-none">
-                      {formatKlTime(c.departureIso)}
+      {/* Scrollable slot row — grouped by day with sticky day labels */}
+      {filteredWithIdx.length > 0 ? (() => {
+        type DayGroup = { dateKey: string; items: Array<{ c: TravelCandidate; realIdx: number }> }
+        const dayGroups = filteredWithIdx.reduce<DayGroup[]>((acc, item) => {
+          const dateKey = utcDateKey(item.c.departureIso)
+          const last = acc[acc.length - 1]
+          if (last && last.dateKey === dateKey) { last.items.push(item) }
+          else { acc.push({ dateKey, items: [item] }) }
+          return acc
+        }, [])
+        return (
+          <div className="overflow-x-auto -mx-1 px-1">
+            <div className="flex min-w-max pb-1 items-end">
+              {dayGroups.map(({ dateKey, items }) => (
+                <div key={dateKey} className="flex items-end">
+                  <div className="sticky left-1 z-10 shrink-0 self-end pb-1 pr-1.5" aria-hidden>
+                    <span className="text-[9px] font-medium text-muted-foreground/60 whitespace-nowrap bg-background rounded px-0.5 leading-none">
+                      {formatDayLabel(items[0].c.departureIso, locale)}
                     </span>
-                    {best && !isSelected && (
-                      <span className="text-[8px] text-primary font-medium leading-none">
-                        {tf('heatmapBestSlot')}
-                      </span>
-                    )}
-                  </button>
-                </Fragment>
-              )
-            })}
+                  </div>
+                  <div className="flex gap-1.5 items-end">
+                    {items.map(({ c, realIdx }) => {
+                      const st = slotStatus(c)
+                      const best = isBestSlot(c, bestWindow)
+                      const isSelected = selectedIdx === realIdx
+                      return (
+                        <button
+                          key={c.departureIso}
+                          type="button"
+                          onClick={() => onSelectIdx(realIdx === selectedIdx ? null : realIdx)}
+                          aria-label={`${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`}
+                          className={`flex flex-col items-center gap-0.5 min-w-[42px] px-1.5 py-1.5 rounded-lg border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                            isSelected
+                              ? `${STATUS_BORDER[st]} border-2 bg-card`
+                              : `border-transparent ${best ? 'ring-1 ring-offset-1 ring-primary/50' : ''}`
+                          }`}
+                        >
+                          <span className={`w-4 h-4 rounded-full ${STATUS_BG[st]}`} aria-hidden />
+                          <span className="text-[10px] text-muted-foreground leading-none">
+                            {formatKlTime(c.departureIso)}
+                          </span>
+                          {best && !isSelected && (
+                            <span className="text-[8px] text-primary font-medium leading-none">
+                              {tf('heatmapBestSlot')}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      ) : (
+        )
+      })() : (
         <div className="flex flex-col items-start gap-1.5 py-2">
           <p className="text-xs text-muted-foreground">
             {visibleStatuses.size > 0 && !visibleStatuses.has('graent') && statusCounts.graent === candidates.length
@@ -207,7 +229,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       )}
 
       {/* Selected slot detail */}
-      {selected && (
+      {showSelectedDetail && selected && (
         <SlotDetail candidate={selected} originName={originName} routeDistanceM={routeDistanceM} leg={leg} thresholdsUsed={thresholdsUsed} />
       )}
     </div>
@@ -281,9 +303,9 @@ function SlotDetail({
 
   const header = (
     <p className="text-foreground">
-      {tf('heatmapSlotDeparture')}: {tf('heatmapSlotTime', { time: formatKlTime(candidate.departureIso) })}
+      {tf('heatmapSlotDeparture')}: {formatCompactDateTime(candidate.departureIso, locale)}
       {' · '}
-      {tf('heatmapSlotArrival')}: {tf('heatmapSlotTime', { time: formatKlTime(candidate.arrivalIso) })}
+      {tf('heatmapSlotArrival')}: {formatCompactDateTime(candidate.arrivalIso, locale)}
     </p>
   )
 

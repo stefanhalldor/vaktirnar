@@ -14,7 +14,7 @@ import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteS
 import { WeatherResultLoader } from '@/components/weather/WeatherResultLoader'
 import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
-import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, haversineMeters, estimatePointEtaIso } from '@/components/weather/travelAuditMap.helpers'
+import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, haversineMeters, estimatePointEtaIso, formatCompactDateTime, getOriginDisplay } from '@/components/weather/travelAuditMap.helpers'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 
@@ -540,8 +540,6 @@ export function FerdalagidClient() {
     return false
   })()
 
-  // Threshold display for assumptions row
-  const hasOverrides = Object.keys(thresholdOverrides).length > 0
   const effectiveThresholds = resolveThresholds(trailerKind, thresholdOverrides)
 
   // Whether visible draft values on the threshold step differ from current trailer defaults
@@ -841,15 +839,16 @@ export function FerdalagidClient() {
                       onVisibleStatusesChange={setOutboundVisibleStatuses}
                       thresholdsUsed={thresholdsUsed}
                       title={null}
+                      showSelectedDetail={false}
                     />
                   )}
 
-                  {/* Dynamic status sentence */}
-                  {activeOutboundCandidate && derivedStyle && (
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${derivedStyle.dot}`} aria-hidden />
-                      <p className={`text-sm font-medium ${derivedStyle.label}`}>
-                        {tf(statusKey as 'departureStatusGreen' | 'departureStatusYellow' | 'departureStatusRed', { time: formatKlTime(activeOutboundCandidate.departureIso) })}
+                  {/* ── Brottför ── */}
+                  {activeOutboundCandidate && (
+                    <div className="flex flex-col gap-0.5">
+                      <p className="text-[11px] font-semibold text-foreground/70">{tf('sectionDeparture')}</p>
+                      <p className="text-sm text-foreground">
+                        {formatCompactDateTime(activeOutboundCandidate.departureIso, locale)}
                       </p>
                     </div>
                   )}
@@ -875,28 +874,67 @@ export function FerdalagidClient() {
                     </p>
                   )}
 
-                  {/* Active thresholds display — only when user has set custom thresholds */}
-                  {result.travelPlan?.thresholdsUsed && hasOverrides && (
-                    <p className="text-xs text-muted-foreground">
-                      {tf('thresholdsUsedLabel')}: {tf('thresholdsCustom', {
-                        caution: result.travelPlan.thresholdsUsed.cautionWindMs,
-                        red: result.travelPlan.thresholdsUsed.redWindMs,
-                        gust: result.travelPlan.thresholdsUsed.redGustMs,
-                        precip: result.travelPlan.thresholdsUsed.cautionPrecipMmPerHour,
-                      })}
-                    </p>
-                  )}
+                  {/* ── Á leiðinni ── */}
+                  {activeOutboundCandidate && derivedStyle && (() => {
+                    const dp = activeOutboundCandidate.displayPoint
+                    const issue = heatmapHighlightedIssue
+                    if (!dp && !issue) return null
+                    const distKm = dp
+                      ? Math.round(dp.distanceFromOriginM / 1000)
+                      : issue?.distanceFromLegStartM !== undefined
+                        ? Math.round(issue.distanceFromLegStartM / 1000)
+                        : null
+                    // ETA at the worst point: use departure/arrival times + routeFraction (outbound only)
+                    const etaTimeLabel = dp ? (() => {
+                      const depMs = new Date(activeOutboundCandidate.departureIso).getTime()
+                      const durMs = new Date(activeOutboundCandidate.arrivalIso).getTime() - depMs
+                      return formatKlTime(new Date(depMs + dp.routeFraction * durMs).toISOString())
+                    })() : (issue?.timeIso ? formatKlTime(issue.timeIso) : null)
+                    const originDisplay = getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback'))
+                    const metricLabel = issue?.metric === 'precipitation' ? tf('metricPrecip')
+                      : issue?.metric === 'gust' ? tf('metricGust')
+                      : tf('metricWind')
+                    return (
+                      <div className="flex flex-col gap-0.5">
+                        <p className="text-[11px] font-semibold text-foreground/70">{tf('sectionOnWay')}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {tf(statusKey as 'departureStatusGreen' | 'departureStatusYellow' | 'departureStatusRed')}
+                        </p>
+                        {distKm !== null && etaTimeLabel && (
+                          <p className="text-xs text-muted-foreground">
+                            {distKm === 0
+                              ? tf('slotDetailWorstAtStart', { time: etaTimeLabel })
+                              : tf('slotDetailWorstDistanceAt', { distance: distKm, origin: originDisplay, time: etaTimeLabel })}
+                          </p>
+                        )}
+                        {dp ? (
+                          <p className="text-xs text-muted-foreground">
+                            {tf('slotDetailWeatherSummary', {
+                              wind: `${formatNum(dp.windMs, locale)} m/s`,
+                              precipitation: `${formatNum(dp.precipMmPerHour, locale)} mm/klst`,
+                              temperature: `${formatNum(dp.airTemperatureC, locale)}°C`,
+                            })}
+                          </p>
+                        ) : issue?.value !== undefined && (
+                          <p className="text-xs text-muted-foreground">
+                            {tf('slotDetailMetricLine', { metric: metricLabel, value: `${formatNum(issue.value, locale)} ${issue.unit ?? ''}` })}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })()}
 
-                  {/* Arrival weather block */}
+                  {/* ── Áfangastaður ── */}
                   {activeOutboundCandidate?.arrivalWeather && (
-                    <div className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 text-xs flex flex-col gap-1">
-                      <span className="font-medium text-foreground">
+                    <div className="flex flex-col gap-0.5">
+                      <p className="text-[11px] font-semibold text-foreground/70">{tf('sectionDestination')}</p>
+                      <p className="text-xs font-medium text-foreground">
                         {tf('arrivalSummaryLine', {
-                          arrivalTime: formatKlTime(activeOutboundCandidate.arrivalIso),
+                          arrivalDateTime: formatCompactDateTime(activeOutboundCandidate.arrivalIso, locale),
                           forecastTime: formatKlTime(activeOutboundCandidate.arrivalWeather.forecastTimeIso),
                         })}
-                      </span>
-                      <span className="text-muted-foreground">
+                      </p>
+                      <p className="text-xs text-muted-foreground">
                         {tf('metricWind')}: {formatNum(activeOutboundCandidate.arrivalWeather.windMs, locale)} m/s
                         {activeOutboundCandidate.arrivalWeather.gustMs > activeOutboundCandidate.arrivalWeather.windMs && (
                           <> · {tf('metricGust')}: {formatNum(activeOutboundCandidate.arrivalWeather.gustMs, locale)} m/s</>
@@ -905,7 +943,7 @@ export function FerdalagidClient() {
                         {activeOutboundCandidate.arrivalWeather.airTemperatureC !== undefined && (
                           <> · {tf('metricTemp')}: {formatNum(activeOutboundCandidate.arrivalWeather.airTemperatureC, locale)}°C</>
                         )}
-                      </span>
+                      </p>
                       {result.travelPlan?.destinationForecastRows && result.travelPlan.destinationForecastRows.length > 0 && (
                         <button
                           type="button"

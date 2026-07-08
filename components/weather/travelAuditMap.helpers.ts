@@ -184,6 +184,30 @@ export function formatKlTime(isoString: string): string {
   return `${hh}:${mm}`
 }
 
+const CDT_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
+const CDT_IS_MONTH = ['jan', 'feb', 'mar', 'apr', 'maí', 'jún', 'júl', 'ágú', 'sep', 'okt', 'nóv', 'des']
+
+/**
+ * Compact date+time label. Atlantic/Reykjavik = UTC+0 year-round, so UTC values are used directly.
+ * IS: "fim. 9. júl kl. 05:28"
+ * EN: "Thu 9 Jul 05:28"
+ */
+export function formatCompactDateTime(isoString: string, locale: string): string {
+  const d = new Date(isoString)
+  const norm = normalizeLocale(locale)
+  const hh = d.getUTCHours().toString().padStart(2, '0')
+  const mm = d.getUTCMinutes().toString().padStart(2, '0')
+  if (norm.startsWith('is')) {
+    return `${CDT_IS_WEEKDAY[d.getUTCDay()]}. ${d.getUTCDate()}. ${CDT_IS_MONTH[d.getUTCMonth()]} kl. ${hh}:${mm}`
+  }
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short',
+    timeZone: 'Atlantic/Reykjavik',
+  }).formatToParts(d)
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? ''
+  return `${get('weekday')} ${get('day')} ${get('month')} ${hh}:${mm}`
+}
+
 export type PointSummary = {
   routeIndex: number
   totalPoints: number
