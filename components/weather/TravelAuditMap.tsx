@@ -682,12 +682,19 @@ function PointDetailsPanel({
         </span>
       )}
 
-      {/* 5. Forecast time at this point */}
+      {/* 5. Forecast point distance from road */}
+      <span>
+        {summary.forecastDistanceFromRouteM < 1000
+          ? tf('forecastPointDistanceMeters', { meters: summary.forecastDistanceFromRouteM })
+          : tf('forecastPointDistanceKilometers', { kilometers: formatNum(summary.forecastDistanceFromRouteM / 1000, locale) })}
+      </span>
+
+      {/* 6. Forecast time at this point */}
       {decisiveTime && (
         <span>{tf('pointForecastHereAt', { time: decisiveTime })}</span>
       )}
 
-      {/* 6. Weather values — use issue values when a heatmap slot is highlighted */}
+      {/* 7. Weather values — use issue values when a heatmap slot is highlighted */}
       {hasIssueValues ? (
         <p>
           {issueMetricLabel}: {formatNum(highlightedIssue!.value!, locale)} {highlightedIssue!.unit ?? ''}
@@ -713,24 +720,15 @@ function PointDetailsPanel({
         <span>{tf('pointForecastTimeLabel')}: {formatKlTime(summary.forecastTimeIso)}</span>
       )}
 
-      {/* 7. Forecast point distance from road */}
+      {/* 9. Forecast point coordinate and place context */}
       <div className="flex flex-col gap-0.5">
         {placeLabel && !summary.isOrigin && !summary.isDestination && (
           <span>{tf('forecastPointNear', { place: placeLabel })}</span>
         )}
         {summary.hasSeparateForecastPoint && (
-          <>
-            <span className="text-muted-foreground/60">
-              {tf('forecastPointCoord', { lat: summary.forecastLat.toFixed(4), lon: summary.forecastLon.toFixed(4) })}
-            </span>
-            <span className="text-muted-foreground/50 leading-relaxed">
-              {summary.forecastDistanceFromRouteM < 50
-                ? tf('forecastPointOnRoute')
-                : summary.forecastDistanceFromRouteM < 1000
-                ? tf('forecastPointDistanceMeters', { meters: summary.forecastDistanceFromRouteM })
-                : tf('forecastPointDistanceKilometers', { kilometers: formatNum(summary.forecastDistanceFromRouteM / 1000, locale) })}
-            </span>
-          </>
+          <span className="text-muted-foreground/60">
+            {tf('forecastPointCoord', { lat: summary.forecastLat.toFixed(4), lon: summary.forecastLon.toFixed(4) })}
+          </span>
         )}
         {placeLabel && !summary.isOrigin && !summary.isDestination && (
           <span className="text-muted-foreground/40 text-[10px]">© OpenStreetMap contributors</span>

@@ -20,7 +20,7 @@ export function getForecastPointLatLng(pt: RouteWeatherPoint): LatLngLiteral {
 }
 
 /** Approximate distance in meters between two LatLngLiteral points (Haversine). */
-function haversineMeters(a: LatLngLiteral, b: LatLngLiteral): number {
+export function haversineMeters(a: LatLngLiteral, b: LatLngLiteral): number {
   const R = 6_371_000
   const toRad = (x: number) => (x * Math.PI) / 180
   const dLat = toRad(b.lat - a.lat)

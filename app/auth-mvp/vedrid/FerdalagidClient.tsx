@@ -13,7 +13,7 @@ import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteS
 import { WeatherResultLoader } from '@/components/weather/WeatherResultLoader'
 import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
-import { formatKlTime, candidateToIssue, normalizeLocale, formatNum } from '@/components/weather/travelAuditMap.helpers'
+import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, haversineMeters } from '@/components/weather/travelAuditMap.helpers'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 
@@ -925,29 +925,24 @@ export function FerdalagidClient() {
 
             {/* Deterministic explainer */}
             {result && !loading && (
-              <div className="flex flex-col gap-1">
-                <p className="text-xs text-muted-foreground">{tf('howAssessedShort')}</p>
+              <div className="flex flex-col gap-2 border-t border-border pt-3 mt-1">
+                <p className="text-xs text-muted-foreground leading-relaxed">{tf('howAssessedShort')}</p>
                 <button
                   type="button"
                   onClick={() => setShowExplainer((v) => !v)}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded self-start"
+                  className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded self-start"
                   aria-expanded={showExplainer}
                 >
-                  {showExplainer ? <ChevronUp size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
+                  {showExplainer ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
                   {tf('howAssessedTitle')}
                 </button>
-                {showExplainer && (
-                  <>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{tf('howAssessedBody')}</p>
-                    {(result.travelPlan?.routeWeatherPoints?.length ?? 0) > 0 && (
-                      <div className="flex flex-col gap-3 border-t border-border pt-3 mt-1">
-                        <p className="text-xs text-muted-foreground">{tf('betaTransparencyCopy')}</p>
-                        {result.travelPlan!.routeWeatherPoints!.map((pt) => (
-                          <RoutePointRow key={pt.id} pt={pt} />
-                        ))}
-                      </div>
-                    )}
-                  </>
+                {showExplainer && (result.travelPlan?.routeWeatherPoints?.length ?? 0) > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-xs text-muted-foreground">{tf('betaTransparencyCopy')}</p>
+                    {result.travelPlan!.routeWeatherPoints!.map((pt) => (
+                      <RoutePointRow key={pt.id} pt={pt} />
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -1143,9 +1138,12 @@ function IssueAuditCard({ issue }: { issue: TravelIssue }) {
 
 function RoutePointRow({ pt }: { pt: RouteWeatherPoint }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
+  const locale = useLocale()
   const badges: string[] = []
   if (pt.isHighlightedIssue) badges.push(tf('decisivePointLabel'))
   if (pt.isDestinationClosest && !pt.isOrigin) badges.push(tf('nearestDestLabel'))
+
+  const forecastDistanceM = Math.round(haversineMeters({ lat: pt.lat, lng: pt.lon }, { lat: pt.forecastLat, lng: pt.forecastLon }))
 
   return (
     <div className="border border-border rounded-lg px-3 py-2 flex flex-col gap-1 text-xs text-muted-foreground">
@@ -1155,17 +1153,30 @@ function RoutePointRow({ pt }: { pt: RouteWeatherPoint }) {
           <span key={b} className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-xs">{b}</span>
         ))}
       </div>
-      <p>{Math.round(pt.distanceFromOriginM / 1000)} {tf('kmFromOrigin')}</p>
+      <span>{Math.round(pt.distanceFromOriginM / 1000)} {tf('kmFromOrigin')}</span>
+      {pt.summaryForWindow?.etaIso && (
+        <span>{tf('pointEtaLabel')}: {tf('pointTimeLine', { time: formatKlTime(pt.summaryForWindow.etaIso) })}</span>
+      )}
+      <span>
+        {forecastDistanceM < 1000
+          ? tf('forecastPointDistanceMeters', { meters: forecastDistanceM })
+          : tf('forecastPointDistanceKilometers', { kilometers: formatNum(forecastDistanceM / 1000, locale) })}
+      </span>
+      {pt.summaryForWindow?.forecastTimeIso && (
+        <span>{tf('pointForecastHereAt', { time: formatKlTime(pt.summaryForWindow.forecastTimeIso) })}</span>
+      )}
       {pt.summaryForWindow && (
         <p>
-          {tf('metricWind')}: {pt.summaryForWindow.worstWindMs.toFixed(1)} m/s
+          {tf('metricWind')}: {formatNum(pt.summaryForWindow.worstWindMs, locale)} m/s
           {pt.summaryForWindow.worstGustMs > pt.summaryForWindow.worstWindMs && (
-            <> · {tf('metricGust')}: {pt.summaryForWindow.worstGustMs.toFixed(1)} m/s</>
+            <> · {tf('metricGust')}: {formatNum(pt.summaryForWindow.worstGustMs, locale)} m/s</>
           )}
-          {' · '}{tf('metricPrecip')}: {pt.summaryForWindow.worstPrecipMmPerHour.toFixed(1)} mm/klst
+          {' · '}{tf('metricPrecip')}: {formatNum(pt.summaryForWindow.worstPrecipMmPerHour, locale)} mm/klst
+          {pt.summaryForWindow.decisiveTempC !== undefined && (
+            <> · {tf('metricTemp')}: {formatNum(pt.summaryForWindow.decisiveTempC, locale)}°C</>
+          )}
         </p>
       )}
-      <p className="text-foreground/60">{tf('metnoCoordLabel')}: {pt.forecastLat}, {pt.forecastLon}</p>
       <div className="flex gap-3 flex-wrap">
         <a href={pt.yrnoUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">{tf('viewForecast')}</a>
         <a href={pt.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">{tf('openOnMap')}</a>
