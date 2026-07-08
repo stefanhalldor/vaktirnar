@@ -1,7 +1,7 @@
 import type {
   HourPoint, DeterministicResult, WeatherStatus,
   TravelPointForecast, WorstMetric, TravelCandidate, TravelWindow, TravelIssue, TravelPlan, RouteWeatherPoint, NextCaution,
-  CandidatePointStatus, RouteWeatherSamplingDiagnostics,
+  CandidatePointStatus, CandidateDisplayPoint, RouteWeatherSamplingDiagnostics,
   TravelThresholdOverrides, ResolvedTravelThresholds,
 } from './types'
 import type { TrailerKind } from './question'
@@ -142,6 +142,33 @@ function evaluateCandidate(
     thresholds,
   )
 
+  // Build displayPoint: active-candidate-safe metrics for the most challenging route point.
+  // Uses the same decisive-metric logic as candidateToIssue / buildHighlightedIssue so the
+  // map panel can show consistent wind/gust/precip/temp/forecastTime for any selected slot,
+  // including green departures where highlightedIssue is undefined.
+  const dpGustVal = worstGust?.value ?? 0
+  const dpUseGust = dpGustVal >= thresholds.redGustMs
+  const dpMetric: CandidateDisplayPoint['metric'] =
+    legResult.reasonCode === 'precipitation' ? 'precipitation' :
+    dpUseGust ? 'gust' : 'wind'
+  const dpWorst = dpMetric === 'precipitation' ? worstPrecip : (dpUseGust ? worstGust : worstWind)
+  let displayPoint: CandidateDisplayPoint | undefined
+  if (dpWorst && dpWorst.routeIndex !== undefined && dpWorst.timeIso) {
+    const pf = pointForecasts.find(p => p.routeIndex === dpWorst.routeIndex)
+    const hour = pf?.hours.find(h => h.time === dpWorst.timeIso)
+    if (hour) {
+      displayPoint = {
+        routeIndex: dpWorst.routeIndex,
+        forecastTimeIso: dpWorst.timeIso,
+        windMs: hour.windSpeedMs,
+        gustMs: hour.windGustMs,
+        precipMmPerHour: hour.precipitationMmPerHour,
+        airTemperatureC: hour.airTemperatureC,
+        metric: dpMetric,
+      }
+    }
+  }
+
   return {
     departureIso,
     arrivalIso,
@@ -151,6 +178,7 @@ function evaluateCandidate(
     worstGust,
     worstPrecip,
     pointStatuses: pointStatuses.length > 0 ? pointStatuses : undefined,
+    displayPoint,
   }
 }
 

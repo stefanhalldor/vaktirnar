@@ -681,6 +681,7 @@
         "pointTimeLine": "at {time}",
         "pointEtaLabel": "Estimated time",
         "pointForecastHere": "at this point",
+        "pointForecastHereAt": "Forecast at this point at {time}",
         "pointForecastTimeLabel": "Forecast time used",
         "pointForecastLabel": "Weather forecast",
         "pointNextForecastLabel": "Next forecast",

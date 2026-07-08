@@ -95,6 +95,21 @@ export type CandidatePointStatus = {
   status: 'gult' | 'rautt' | 'no_data'
 }
 
+/**
+ * Active-candidate-safe display values for the most challenging route point.
+ * Sourced from the same forecast hour used to determine the candidate's decisive metric,
+ * so values are always consistent with the selected departure time.
+ */
+export type CandidateDisplayPoint = {
+  routeIndex: number
+  forecastTimeIso: string
+  windMs: number
+  gustMs: number
+  precipMmPerHour: number
+  airTemperatureC: number
+  metric: 'wind' | 'gust' | 'precipitation'
+}
+
 export type TravelCandidate = {
   departureIso: string
   arrivalIso: string
@@ -105,6 +120,8 @@ export type TravelCandidate = {
   worstPrecip?: WorstMetric
   /** Per-point statuses for timeline-driven map coloring. Only non-green entries present. */
   pointStatuses?: CandidatePointStatus[]
+  /** Display values for the most challenging point under this candidate. Used by the map detail panel. */
+  displayPoint?: CandidateDisplayPoint
 }
 
 export type TravelWindow = {

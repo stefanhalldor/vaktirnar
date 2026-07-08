@@ -684,7 +684,7 @@ function PointDetailsPanel({
 
       {/* 5. Forecast time at this point */}
       {decisiveTime && (
-        <span>{tf('pointForecastLabel')} {tf('pointTimeLine', { time: decisiveTime })} {tf('pointForecastHere')}</span>
+        <span>{tf('pointForecastHereAt', { time: decisiveTime })}</span>
       )}
 
       {/* 6. Weather values — use issue values when a heatmap slot is highlighted */}

@@ -685,6 +685,7 @@
         "pointTimeLine": "kl. {time}",
         "pointEtaLabel": "Áætlaður tími",
         "pointForecastHere": "á þessum stað",
+        "pointForecastHereAt": "Veðurspá á þessum stað kl. {time}",
         "pointForecastTimeLabel": "Spágildi notað",
         "pointForecastLabel": "Veðurspá",
         "pointNextForecastLabel": "Næsta spá",

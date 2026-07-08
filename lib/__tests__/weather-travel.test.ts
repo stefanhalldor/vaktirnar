@@ -1008,4 +1008,42 @@ describe('checkTravelWeather', () => {
       expect(rwp?.summaryForWindow?.forecastTimeIso).toBeDefined()
     })
   })
+
+  describe('candidate displayPoint', () => {
+    it('includes displayPoint on non-no_data candidate', () => {
+      const pf = makeForecast('2026-07-10T08:00:00Z', 10, 16, 20, 0, { routeIndex: 0, distanceFromOriginM: 0 })
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pf] })
+      const first = result.travelPlan?.outbound.candidates[0]
+      expect(first?.displayPoint).toBeDefined()
+      expect(first?.displayPoint?.routeIndex).toBe(0)
+      expect(first?.displayPoint?.windMs).toBeGreaterThan(0)
+      expect(first?.displayPoint?.forecastTimeIso).toBeDefined()
+      expect(first?.displayPoint?.airTemperatureC).toBeDefined()
+    })
+
+    it('displayPoint.routeIndex matches the worst metric point', () => {
+      const pfWind = makeForecast('2026-07-10T08:00:00Z', 10, 16, 18, 0, { routeIndex: 1, distanceFromOriginM: 200_000 })
+      const pfCalm = makeForecast('2026-07-10T08:00:00Z', 10, 4, 6, 0, { routeIndex: 0, distanceFromOriginM: 0 })
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pfCalm, pfWind] })
+      const first = result.travelPlan?.outbound.candidates[0]
+      // Worst wind is at routeIndex 1
+      expect(first?.displayPoint?.routeIndex).toBe(1)
+    })
+
+    it('displayPoint uses values from the decisive forecast hour', () => {
+      const pf = makeForecast('2026-07-10T08:00:00Z', 10, 16, 20, 0, { routeIndex: 0, distanceFromOriginM: 0 })
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pf] })
+      const first = result.travelPlan?.outbound.candidates[0]
+      expect(first?.displayPoint?.windMs).toBe(16)
+      expect(first?.displayPoint?.gustMs).toBe(20)
+      expect(first?.displayPoint?.precipMmPerHour).toBe(0)
+    })
+
+    it('omits displayPoint when candidate has no data', () => {
+      // Empty pointForecasts → no_data candidate
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [] })
+      const first = result.travelPlan?.outbound.candidates[0]
+      expect(first?.displayPoint).toBeUndefined()
+    })
+  })
 })

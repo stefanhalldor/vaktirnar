@@ -287,6 +287,119 @@ describe('shouldShowForecastPointMarker', () => {
   })
 })
 
+describe('initialSelectedIndex with activeCandidate.displayPoint', () => {
+  const pts = [
+    makeWeatherPoint({ routeIndex: 0, isOrigin: true }),
+    makeWeatherPoint({ routeIndex: 1, lat: 64.5, lon: -21.0 }),
+    makeWeatherPoint({ routeIndex: 2, isDestinationClosest: true }),
+  ]
+
+  it('prefers displayPoint.routeIndex over worstWind when activeCandidate has displayPoint', () => {
+    const candidate: TravelCandidate = {
+      departureIso: '2026-07-10T09:00:00Z',
+      arrivalIso: '2026-07-10T14:00:00Z',
+      status: 'graent',
+      displayPoint: {
+        routeIndex: 1,
+        forecastTimeIso: '2026-07-10T11:00:00Z',
+        windMs: 6,
+        gustMs: 8,
+        precipMmPerHour: 0,
+        airTemperatureC: 7,
+        metric: 'wind',
+      },
+      worstWind: { value: 6, timeIso: '2026-07-10T11:00:00Z', routeIndex: 2 },
+    }
+    expect(initialSelectedIndex(pts, undefined, candidate)).toBe(1)
+  })
+
+  it('falls back to worstWind when displayPoint is absent', () => {
+    const candidate: TravelCandidate = {
+      departureIso: '2026-07-10T09:00:00Z',
+      arrivalIso: '2026-07-10T14:00:00Z',
+      status: 'graent',
+      worstWind: { value: 6, timeIso: '2026-07-10T11:00:00Z', routeIndex: 2 },
+    }
+    expect(initialSelectedIndex(pts, undefined, candidate)).toBe(2)
+  })
+})
+
+describe('buildPointSummary with activeCandidate displayPoint', () => {
+  const ptDisplay = makeWeatherPoint({
+    routeIndex: 2,
+    totalRouteWeatherPoints: 5,
+    lat: 64.5,
+    lon: -21.0,
+    summaryForWindow: {
+      status: 'gult',
+      worstWindMs: 14.5,
+      worstGustMs: 18.2,
+      worstPrecipMmPerHour: 0.3,
+      decisiveTimeIso: '2026-07-10T08:00:00Z',
+    },
+  })
+
+  const candidate: TravelCandidate = {
+    departureIso: '2026-07-10T09:00:00Z',
+    arrivalIso: '2026-07-10T14:00:00Z',
+    status: 'graent',
+    displayPoint: {
+      routeIndex: 2,
+      forecastTimeIso: '2026-07-10T11:00:00Z',
+      windMs: 6.2,
+      gustMs: 8.1,
+      precipMmPerHour: 0.1,
+      airTemperatureC: 7.5,
+      metric: 'wind',
+    },
+  }
+
+  it('uses displayPoint values when routeIndex matches', () => {
+    const s = buildPointSummary(ptDisplay, undefined, candidate, 'outbound')
+    expect(s.windMs).toBeCloseTo(6.2)
+    expect(s.gustMs).toBeCloseTo(8.1)
+    expect(s.precipMmPerHour).toBeCloseTo(0.1)
+    expect(s.decisiveTempC).toBeCloseTo(7.5)
+    expect(s.decisiveTimeFormatted).toBe('11:00')
+  })
+
+  it('does not use stale summaryForWindow metrics when displayPoint matches', () => {
+    const s = buildPointSummary(ptDisplay, undefined, candidate, 'outbound')
+    expect(s.windMs).not.toBeCloseTo(14.5)
+    expect(s.gustMs).not.toBeCloseTo(18.2)
+    expect(s.decisiveTimeFormatted).not.toBe('08:00')
+  })
+
+  it('hides summaryForWindow metrics for a non-matching point when activeCandidate present', () => {
+    const otherPt = makeWeatherPoint({
+      routeIndex: 3,
+      totalRouteWeatherPoints: 5,
+      summaryForWindow: {
+        status: 'gult',
+        worstWindMs: 14.5,
+        worstGustMs: 18.2,
+        worstPrecipMmPerHour: 0.3,
+        decisiveTimeIso: '2026-07-10T08:00:00Z',
+      },
+    })
+    const s = buildPointSummary(otherPt, undefined, candidate, 'outbound')
+    expect(s.windMs).toBe(0)
+    expect(s.gustMs).toBe(0)
+    expect(s.precipMmPerHour).toBe(0)
+    expect(s.decisiveTempC).toBeUndefined()
+    expect(s.decisiveTimeFormatted).toBeUndefined()
+  })
+
+  it('still shows summaryForWindow for isHighlighted point even with activeCandidate', () => {
+    const issue: TravelIssue = { leg: 'outbound', metric: 'wind', lat: 64.5, lon: -21.0 }
+    // Make the highlighted point the same as the displayPoint to test priority
+    const s = buildPointSummary(ptDisplay, issue, candidate, 'outbound')
+    expect(s.isHighlighted).toBe(true)
+    expect(s.windMs).toBeCloseTo(14.5) // summaryForWindow, not displayPoint
+    expect(s.decisiveTimeFormatted).toBe('08:00')
+  })
+})
+
 describe('candidateToIssue', () => {
   function makeCandidate(overrides: Partial<TravelCandidate>): TravelCandidate {
     return {

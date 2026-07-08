@@ -87,8 +87,10 @@ export function initialSelectedIndex(
     )
     if (idx >= 0) return idx
   }
-  // Use the slot's worst metric point by routeIndex (works for green slots too)
+  // Prefer the displayPoint routeIndex (decisive metric point for this candidate),
+  // then fall back to individual worst-metric indices
   const worstRouteIdx =
+    activeCandidate?.displayPoint?.routeIndex ??
     activeCandidate?.worstWind?.routeIndex ??
     activeCandidate?.worstGust?.routeIndex ??
     activeCandidate?.worstPrecip?.routeIndex
@@ -301,11 +303,13 @@ export function buildPointSummary(
   const etaIso = activeCandidate
     ? estimatePointEtaIso(activeCandidate, pt, activeLeg ?? 'outbound')
     : pt.summaryForWindow?.etaIso
-  // When an activeCandidate is selected, only show summaryForWindow weather metrics for the
-  // highlighted issue (which carries active-candidate metric values via candidateToIssue).
-  // For all other points, summaryForWindow metrics belong to a different departure window and
-  // must not be shown alongside active-candidate departure/ETA times.
+  // When an activeCandidate is selected:
+  // - isHighlighted point: use summaryForWindow (safe — candidateToIssue carries active-candidate values for this point)
+  // - displayPoint match: use displayPoint values (active-candidate-safe metrics from the decisive forecast hour)
+  // - all other points: suppress summaryForWindow metrics (they belong to a different departure window)
+  const isDisplayPoint = !isHighlighted && activeCandidate?.displayPoint?.routeIndex === pt.routeIndex
   const showSummaryMetrics = !activeCandidate || isHighlighted
+  const dp = isDisplayPoint ? activeCandidate!.displayPoint! : undefined
   return {
     routeIndex: pt.routeIndex,
     totalPoints: pt.totalRouteWeatherPoints,
@@ -313,15 +317,15 @@ export function buildPointSummary(
     isOrigin: pt.isOrigin ?? false,
     isDestination: !!(pt.isDestinationClosest && !pt.isOrigin),
     distanceFromOriginKm: Math.round(pt.distanceFromOriginM / 1000),
-    windMs: showSummaryMetrics ? (pt.summaryForWindow?.worstWindMs ?? 0) : 0,
-    gustMs: showSummaryMetrics ? (pt.summaryForWindow?.worstGustMs ?? 0) : 0,
-    precipMmPerHour: showSummaryMetrics ? (pt.summaryForWindow?.worstPrecipMmPerHour ?? 0) : 0,
-    decisiveTempC: showSummaryMetrics ? pt.summaryForWindow?.decisiveTempC : undefined,
-    status: showSummaryMetrics ? pt.summaryForWindow?.status : undefined,
-    decisiveMetric: showSummaryMetrics ? pt.summaryForWindow?.decisiveMetric : undefined,
-    decisiveTimeFormatted: showSummaryMetrics && pt.summaryForWindow?.decisiveTimeIso
-      ? formatKlTime(pt.summaryForWindow.decisiveTimeIso)
-      : undefined,
+    windMs: dp ? dp.windMs : (showSummaryMetrics ? (pt.summaryForWindow?.worstWindMs ?? 0) : 0),
+    gustMs: dp ? dp.gustMs : (showSummaryMetrics ? (pt.summaryForWindow?.worstGustMs ?? 0) : 0),
+    precipMmPerHour: dp ? dp.precipMmPerHour : (showSummaryMetrics ? (pt.summaryForWindow?.worstPrecipMmPerHour ?? 0) : 0),
+    decisiveTempC: dp ? dp.airTemperatureC : (showSummaryMetrics ? pt.summaryForWindow?.decisiveTempC : undefined),
+    status: dp ? undefined : (showSummaryMetrics ? pt.summaryForWindow?.status : undefined),
+    decisiveMetric: dp ? dp.metric : (showSummaryMetrics ? pt.summaryForWindow?.decisiveMetric : undefined),
+    decisiveTimeFormatted: dp
+      ? formatKlTime(dp.forecastTimeIso)
+      : (showSummaryMetrics && pt.summaryForWindow?.decisiveTimeIso ? formatKlTime(pt.summaryForWindow.decisiveTimeIso) : undefined),
     yrnoUrl: pt.yrnoUrl,
     googleMapsUrl: pt.googleMapsUrl,
     metnoUrl: pt.metnoUrl,
