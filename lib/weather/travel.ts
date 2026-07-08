@@ -580,6 +580,7 @@ export type TravelWeatherInput = {
 export function checkTravelWeather(input: TravelWeatherInput): DeterministicResult {
   const {
     trailerKind, originName, destinationName, distanceM, durationS, pointForecasts,
+    destinationForecast,
     earliestDepartureAt, latestArrivalBy, latestHomeBy, auditPolylinePoints, samplingDiagnostics,
     thresholdOverrides,
   } = input
@@ -618,6 +619,31 @@ export function checkTravelWeather(input: TravelWeatherInput): DeterministicResu
     outboundCandidates = generateCandidates(earliestDeparture, latestDepartureIso, durationS, pointForecasts, trailerKind, distanceM, 'outbound', resolved)
   } else {
     outboundCandidates = [evaluateCandidate(earliestDeparture, arrivalAtEarliest, pointForecasts, trailerKind, distanceM, 'outbound', resolved)]
+  }
+
+  // --- Arrival weather (destination forecast near candidate arrivalIso) ---
+  if (destinationForecast?.hours.length) {
+    outboundCandidates = outboundCandidates.map(c => {
+      const arrivalMs = new Date(c.arrivalIso).getTime()
+      const nearHrs = getHoursNearEta(destinationForecast.hours, arrivalMs)
+      if (nearHrs.length === 0) return c
+      const nearest = nearHrs.reduce((a, b) =>
+        Math.abs(new Date(a.time).getTime() - arrivalMs) <= Math.abs(new Date(b.time).getTime() - arrivalMs) ? a : b
+      )
+      const evalResult = evalDrivingLeg(nearest.windSpeedMs, nearest.windGustMs, nearest.precipitationMmPerHour, trailerKind, resolved)
+      return {
+        ...c,
+        arrivalWeather: {
+          forecastTimeIso: nearest.time,
+          windMs: nearest.windSpeedMs,
+          gustMs: nearest.windGustMs,
+          precipMmPerHour: nearest.precipitationMmPerHour,
+          airTemperatureC: nearest.airTemperatureC,
+          status: evalResult.stada,
+          reasonCode: evalResult.reasonCode,
+        },
+      }
+    })
   }
 
   const outboundWindows = groupCandidatesIntoWindows(outboundCandidates)
@@ -785,6 +811,7 @@ export function checkTravelWeather(input: TravelWeatherInput): DeterministicResu
     highlightedIssue,
     routeWeatherPoints,
     thresholdsUsed: resolved,
+    destinationForecastHours: destinationForecast?.hours,
   }
 
   return {

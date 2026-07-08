@@ -2,7 +2,7 @@
 -- Idempotent: UPDATE WHERE slug = ... is a no-op if the row does not exist.
 
 UPDATE ideas
-SET short_description = 'Haltu utan um hluti sem þú lænar eða færð lánaða.'
+SET short_description = 'Haltu utan um hluti sem þú lánar eða færð lánaða.'
 WHERE slug = 'lanad-og-skilad';
 
 UPDATE ideas

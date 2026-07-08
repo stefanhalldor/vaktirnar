@@ -30,35 +30,34 @@ tilvísanir og verkefnasaga rofni ekki.
 
 | Röð | Atriði                                                        | Vinnupakki og samhengi                                                                                                                                 |
 | --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **#68 Public top nav virkar ekki rétt eftir útskráningu**    | **Auth/nav regression.** Innskráður notandi sem skráir sig út kemst ekki í Hugmyndabankann eða `Ný hugmynd` úr public top nav; laga áður en public nav er treyst í beta. |
-| 2   | **#61 Aðila-flæði birtist í sögu hlutar**                    | **Event/history pakki með #38.** Skrá í `Saga hlutarins` þegar aðila er bætt við, boð samþykkt eða boði hafnað. |
-| 3   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki með #61.** Bæta decline-eventi og ack/read-state ofan á staðfestan `Ólesið` grunn; loka sem undiratriði ef #61 leysir það. |
-| 4   | **#39 Gera samþykktan hlut óvirkan við eyðingu**             | **Event/heimildir pakki.** Delete á samþykktum hlut er soft delete: hlutur verður disabled og áfram aðgengilegur sem slíkur. |
-| 5   | **#59 Deilanlegur hlekkur á lánadetail**                     | **Detail/access pakki.** Notandi geti sent hlekk á hlut; hlekkurinn virkar aðeins hjá þeim sem hafa aðgang í Teskeið. |
-| 6   | **#63 Endurnefna „Lánað og skilað“ í „Minnið“**              | **Product/IA quick win.** Gera núverandi lánakerfi að fyrstu tegundinni inni í `Minnið`, án gagnamódelsbreytinga í v1. |
-| 7   | **#64 Fallegra hlutverkaval í edit-viðmóti**                 | **UI polish eftir #62.** Skipta ljótum `Leiðrétta í...` takka út fyrir tvær pillur: `Ég lánaði` og `Ég fékk lánað`. |
-| 8   | **#66 Flytja lánaðan hlut á annan aðila**                    | **Minnið/aðila-edit eftir #64.** Notandi geti skipt út staðfestum mótaðila þegar hlutur endar hjá öðrum, án þess að loka og stofna nýtt lán. |
-| 9   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #38/#39/#59/#61 séu orðin traust og að #63/#64/#66 séu skýr. |
-| 10  | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
-| 11  | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
-| 12  | **#41 Umönnun sem feature-flagged Teskeið**                  | **Feature-card/info quick win.** Sýna sem varlega feature-flagged Teskeið án þess að flytja Umönnun-gögn inn. |
-| 13  | **#46 User+pass fallback þegar kóði berst ekki**             | **Auth reliability pakki.** Mikilvægt ef kóðar berast illa, en snertir auth/rate limit/reset og á að vera sér áfangi. |
-| 14  | **#7 Langlíf innskráning**                                   | **Auth/session pakki.** Taka með #46 eða strax á eftir, en ekki blanda við láns/event quick wins. |
-| 15  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | **Route cleanup.** Gera eftir að `/heim`, `/stillingar/*` og loan flæði eru stöðug; þarf redirect- og query-param próf. |
-| 16  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | **Admin/access ákvörðun.** Ákveða hlutverk listans áður en meira admin UI byggist á honum. |
-| 17  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | **Admin quick win eftir #13.** Einföld talning, en skilgreining og service-role mörk þurfa að vera skýr. |
-| 18  | **#10 Gáfuleg opnun tölfræðisíðu**                           | **Admin stats sérpakki.** Server-side heimsóknarrökfræði, race conditions og fallback; ekki opnunarblocker. |
-| 19  | **#69 Virkni per Teskeið í admin sýn**                      | **Admin/usage pakki.** Mæla notkun virkra Teskeiða í admin, sérstaklega hversu oft Veðrið reiknar nýjar leiðir, án þess að leka staðsetningum eða notendagögnum. |
-| 20  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
-| 21  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
-| 22  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
-| 23  | **#51 Staðfest Facebook-tenging**                           | **Phase 1 kóðinn er tilbúinn og shipped (commit 547f367) en disabled - kveikja með `FACEBOOK_OAUTH_ENABLED=true` + Supabase/Facebook stillingar (sjá v015 handoff). Phase 2 badge í lánaboðssamhengi er ólokið.** |
-| 24  | **#67 Veður: óæskilegur keyrslutími dags**                  | **Ferðalagið follow-up.** Notandi geti sagt hvaða tíma dags hann vill alls ekki vera að keyra, t.d. að nóttu til, og ferðaveðurmatið taki tillit til þess. |
-| 25  | **#70 Veður: leiðartími og route-provider samanburður**     | **Ferðalagið follow-up, ekki release blocker.** Þrengslavegur-leiðin finnst nú, en Google Routes tíminn er enn of nálægt Route 427 miðað við Google Maps; skoða Mapbox og provider-samanburð síðar. |
-| 26  | **#71 Veður: allir spápunktar og fjarlægð frá vegi**        | **Ferðalagið UI/copy polish.** Setja vegalengd spápunktar frá veginum aftur inn og nota sömu fullu punktaupplýsingar í öllum detail-spjöldum undir spápunktalistanum. |
-| 27  | **#72 Veður: mest krefjandi við upphaf ferðar**             | **Ferðalagið edge-case polish.** Ef mest krefjandi punkturinn er fyrsti punkturinn á top-spjaldið að segja að hann sé við upphaf ferðarinnar, ekki sleppa línunni. |
-| 28  | **#73 Veður: veður við komu á áfangastað**                  | **Ferðalagið result polish.** Sýna veður við áætlaða komu á áfangastað í top-spjaldinu, með skýru `Mættur`/arrival-lúkki svo þetta verði gagnlegt en ekki dauður texti. |
-| 29  | **#74 Veður: hvað veldur ófullnægjandi gögnum og nálgun**   | **Ferðalagið data quality.** Skoða hvað veldur því að spápunktar fá `Ófullnægjandi gögn` (no_data) og hvort hægt sé að gera nálgun m.v. tiltæk gögn þegar nákvæm spá vantar. |
+| 1   | **#61 Aðila-flæði birtist í sögu hlutar**                    | **Event/history pakki með #38.** Skrá í `Saga hlutarins` þegar aðila er bætt við, boð samþykkt eða boði hafnað. |
+| 2   | **#38 Event þegar lánaboði er hafnað**                       | **Event/Ólesið pakki með #61.** Bæta decline-eventi og ack/read-state ofan á staðfestan `Ólesið` grunn; loka sem undiratriði ef #61 leysir það. |
+| 3   | **#39 Gera samþykktan hlut óvirkan við eyðingu**             | **Event/heimildir pakki.** Delete á samþykktum hlut er soft delete: hlutur verður disabled og áfram aðgengilegur sem slíkur. |
+| 4   | **#59 Deilanlegur hlekkur á lánadetail**                     | **Detail/access pakki.** Notandi geti sent hlekk á hlut; hlekkurinn virkar aðeins hjá þeim sem hafa aðgang í Teskeið. |
+| 5   | **#63 Endurnefna „Lánað og skilað“ í „Minnið“**              | **Product/IA quick win.** Gera núverandi lánakerfi að fyrstu tegundinni inni í `Minnið`, án gagnamódelsbreytinga í v1. |
+| 6   | **#64 Fallegra hlutverkaval í edit-viðmóti**                 | **UI polish eftir #62.** Skipta ljótum `Leiðrétta í...` takka út fyrir tvær pillur: `Ég lánaði` og `Ég fékk lánað`. |
+| 7   | **#66 Flytja lánaðan hlut á annan aðila**                    | **Minnið/aðila-edit eftir #64.** Notandi geti skipt út staðfestum mótaðila þegar hlutur endar hjá öðrum, án þess að loka og stofna nýtt lán. |
+| 8   | **#27 Mýkra lánaboðsflæði**                                  | **Eftir event-grunn.** Full mýking lánaboða byggir á því að #38/#39/#59/#61 séu orðin traust og að #63/#64/#66 séu skýr. |
+| 9   | **#17 Hugmyndir úr hugmyndabankanum á `/heim`**              | **Heimaskjár pakki.** Skipta væntanlegt-lista í raunverulegar hugmyndir og kosningu; gott að taka með #42. |
+| 10  | **#42 Tilbúnar Teskeiðar efst og síðast opnuð fyrst**        | **Heimaskjár pakki.** Gera virkar Teskeiðar efstar og skýrar áður en hugmyndir taka meira pláss á `/heim`. |
+| 11  | **#41 Umönnun sem feature-flagged Teskeið**                  | **Feature-card/info quick win.** Sýna sem varlega feature-flagged Teskeið án þess að flytja Umönnun-gögn inn. |
+| 12  | **#46 User+pass fallback þegar kóði berst ekki**             | **Auth reliability pakki.** Mikilvægt ef kóðar berast illa, en snertir auth/rate limit/reset og á að vera sér áfangi. |
+| 13  | **#7 Langlíf innskráning**                                   | **Auth/session pakki.** Taka með #46 eða strax á eftir, en ekki blanda við láns/event quick wins. |
+| 14  | **#22 Hreinsa sýnilegar `/auth-mvp/` slóðir**                | **Route cleanup.** Gera eftir að `/heim`, `/stillingar/*` og loan flæði eru stöðug; þarf redirect- og query-param próf. |
+| 15  | **#13 Endurskilgreina hlutverk whitelist/admin-lista**       | **Admin/access ákvörðun.** Ákveða hlutverk listans áður en meira admin UI byggist á honum. |
+| 16  | **#33 Fjöldi innskráðra notenda í admin tölfræði**           | **Admin quick win eftir #13.** Einföld talning, en skilgreining og service-role mörk þurfa að vera skýr. |
+| 17  | **#10 Gáfuleg opnun tölfræðisíðu**                           | **Admin stats sérpakki.** Server-side heimsóknarrökfræði, race conditions og fallback; ekki opnunarblocker. |
+| 18  | **#69 Virkni per Teskeið í admin sýn**                      | **Admin/usage pakki.** Mæla notkun virkra Teskeiða í admin, sérstaklega hversu oft Veðrið reiknar nýjar leiðir, án þess að leka staðsetningum eða notendagögnum. |
+| 19  | **#50 Fjölskyldumeðlimir sem tengsl**                        | **Future Tengsl data.** Bíður þar til Tengsl v1 hefur fengið raunnotkun; snertir viðkvæmari fjölskyldu-/barnagögn. |
+| 20  | **#54 Spjall á hverjum lánaða hlut**                         | **Stærri future feature.** Byggir á detail-page access, event/read-state og skýrri privacy ákvörðun. |
+| 21  | **#57 Timestamp format í ensku locale**                      | **Tech debt/i18n.** `formatEventTimestamp` notar `kl.` og íslenska orðröð utan messages-template. Lágt forgangsstig. |
+| 22  | **#51 Staðfest Facebook-tenging**                           | **Phase 1 kóðinn er tilbúinn og shipped (commit 547f367) en disabled - kveikja með `FACEBOOK_OAUTH_ENABLED=true` + Supabase/Facebook stillingar (sjá v015 handoff). Phase 2 badge í lánaboðssamhengi er ólokið.** |
+| 23  | **#67 Veður: óæskilegur keyrslutími dags**                  | **Ferðalagið follow-up.** Notandi geti sagt hvaða tíma dags hann vill alls ekki vera að keyra, t.d. að nóttu til, og ferðaveðurmatið taki tillit til þess. |
+| 24  | **#70 Veður: leiðartími og route-provider samanburður**     | **Ferðalagið follow-up, ekki release blocker.** Þrengslavegur-leiðin finnst nú, en Google Routes tíminn er enn of nálægt Route 427 miðað við Google Maps; skoða Mapbox og provider-samanburð síðar. |
+| 25  | **#71 Veður: allir spápunktar og fjarlægð frá vegi**        | **Ferðalagið UI/copy polish.** Setja vegalengd spápunktar frá veginum aftur inn og nota sömu fullu punktaupplýsingar í öllum detail-spjöldum undir spápunktalistanum. |
+| 26  | **#72 Veður: mest krefjandi við upphaf ferðar**             | **Ferðalagið edge-case polish.** Ef mest krefjandi punkturinn er fyrsti punkturinn á top-spjaldið að segja að hann sé við upphaf ferðarinnar, ekki sleppa línunni. |
+| 27  | **#73 Veður: veður við komu á áfangastað**                  | **Ferðalagið result polish.** Sýna veður við áætlaða komu á áfangastað í top-spjaldinu, með skýru `Mættur`/arrival-lúkki svo þetta verði gagnlegt en ekki dauður texti. |
+| 28  | **#74 Veður: hvað veldur ófullnægjandi gögnum og nálgun**   | **Ferðalagið data quality.** Skoða hvað veldur því að spápunktar fá `Ófullnægjandi gögn` (no_data) og hvort hægt sé að gera nálgun m.v. tiltæk gögn þegar nákvæm spá vantar. |
 
 ## Vinnupakkar
 
@@ -91,68 +90,6 @@ fullkomnara.
 Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
 traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
 brottfarar- eða heimferðartíma kerfið mælir með.
-
-#68
-## Public top nav virkar ekki rétt eftir útskráningu
-
-**Staða:** Bíður
-
-**Stofnað:** 2026-07-07
-
-**Samhengi:** Public top nav var settur upp fyrir óinnskráða notendur með
-leiðum í Hugmyndabankann, `Ný hugmynd` og `Innskráning`. Stebbi sá að
-innskráður notandi sem skráir sig út getur ekki farið yfir í Hugmyndabankann
-eða `Ný hugmynd` úr top nav bar.
-
-**Vandamál:** Eftir útskráningu virðist auth/nav state, redirect eða cache
-skilja notandann eftir þannig að public top nav linkarnir virka ekki rétt. Þetta
-getur gert public beta-upplifunina brotna fyrir notanda sem kemur úr innskráðu
-flæði.
-
-**Ósk:** Eftir útskráningu á public top nav að virka strax án þess að notandi
-þurfi að refresh-a, hreinsa session eða opna nýjan glugga:
-
-- `Hugmyndir` fer í `/`
-- `Ný hugmynd` fer í `/senda-hugmynd`
-- `Innskráning` fer í `/innskraning`
-
-**Manual pre-check áður en framkvæmd hefst:**
-
-1. Skrá sig inn.
-2. Skrá sig út úr authenticated valmynd.
-3. Prófa að smella á `Hugmyndir` í public top nav.
-4. Prófa að smella á `Ný hugmynd` í public top nav.
-5. Skrá nákvæmlega hvort ekkert gerist, hvort redirect fari rangt, hvort
-   session sé enn talin virk eða hvort villa birtist í console/network.
-
-**Við útfærslu:**
-
-- Kortleggja logout-flæðið, sérstaklega hvaða route notandi lendir á eftir
-  útskráningu og hvort server/client auth state uppfærist strax.
-- Skoða `PublicTopNav`, `NavBar`, logout action, middleware og public route
-  redirects án þess að veikja authenticated route-gates.
-- Laga minnsta mögulega brotpunktinn. Ekki endurhanna public nav í sama skrefi.
-- Tryggja að óinnskráður notandi geti farið á `/` og `/senda-hugmynd` án
-  rangrar auth-kröfu.
-- Tryggja að innskráður notandi sem fer á public síður sjái enn rétta hegðun,
-  án þess að `Lánað og skilað` eða `/auth-mvp/*` veikist.
-- Bæta við prófi ef hægt er, til dæmis fyrir logout redirect/public nav state
-  eða middleware/public path regression.
-
-**Localhost checks for Stebbi eftir breytingu:**
-
-1. Skrá sig inn á localhost.
-2. Opna authenticated síðu, t.d. `/auth-mvp/heim`.
-3. Skrá sig út.
-4. Smella á `Hugmyndir` í public top nav.
-5. Vænt: notandi fer á `/`, sér public hugmyndabanka og lendir ekki aftur í
-   authenticated redirect.
-6. Smella á `Ný hugmynd`.
-7. Vænt: notandi fer á `/senda-hugmynd` og getur séð public formið.
-8. Smella á `Innskráning`.
-9. Vænt: notandi fer á `/innskraning`.
-10. Skrá sig aftur inn og staðfesta að authenticated hamburger/nav og
-    `Lánað og skilað` virki enn.
 
 #46
 ## User+pass fallback þegar kóði berst ekki
@@ -1541,7 +1478,7 @@ Eftir migration: prófa með tveimur aðskildum notendum til að staðfesta að 
 #67
 ## Veður: óæskilegur keyrslutími dags
 
-**Staða:** Bíður
+**Staða:** Í vinnslu
 
 **Stofnað:** 2026-07-06
 
@@ -1591,7 +1528,7 @@ stækkað í nákvæmara tímabil síðar, t.d. `forðast keyrslu frá 23:00 til
 #70
 ## Veður: leiðartími og route-provider samanburður
 
-**Staða:** Bíður, ekki útgáfublokker fyrir núverandi Ferðaveður-prerelease
+**Staða:** Í vinnslu, ekki útgáfublokker fyrir núverandi Ferðaveður-prerelease
 
 **Stofnað:** 2026-07-08
 
@@ -1691,7 +1628,7 @@ leiðir þar sem Google Routes skilar fáum eða undarlegum valkostum.
 #71
 ## Veður: allir spápunktar og fjarlægð frá vegi
 
-**Staða:** Bíður
+**Staða:** Í vinnslu
 
 **Stofnað:** 2026-07-08
 
@@ -1763,6 +1700,25 @@ Hlekkirnir í spjaldinu eiga að vera óbreyttir.
 - Gæta að mobile 360-460 px: texti má ekki valda horizontal overflowi,
   óþarfa card-in-card tilfinningu eða of löngum óskannanlegum blokkum.
 
+**Uppfært 2026-07-08 eftir localhost-prófun:** Eftir v014/v016 er active
+slot-hegðunin betri, en detail veðurgildin detta enn út þegar notandi velur
+slot. Í `Allir spápunktarnir á leiðinni` sjást þá `Punktur x/y`, staða,
+fjarlægð frá uppruna, áætlaður tími og fjarlægð spápunkts frá vegi, en vantar
+`Veðurspá á þessum stað kl. HH:MM` og línuna með `Vindur · Úrkoma · Hiti`,
+þó gögnin séu til.
+
+Sama localhost-prófun sýnir líka að `Mest krefjandi á leiðinni` spjaldið á
+kortinu sýnir aðeins decisive metric, t.d. `Vindur: 10 m/s`, en vantar úrkomu
+og hitastig. Gögnin eru augljóslega til í sama valda brottfarartíma því efsta
+brottfararspjaldið sýnir `Vindur: 10 m/s · Úrkoma: 0 mm/klst · Hiti: 10,3°C`.
+
+**Ný afmörkuð krafa áður en #71 telst tilbúið:** Þegar active slot er valið
+skulu bæði `Mest krefjandi á leiðinni` og samsvarandi `Punktur x/y`
+detail-spjöld nýta active-candidate-safe gögnin úr `displayPoint` eða
+sambærilegum réttum slot-gögnum, ekki bara `highlightedIssue.value`.
+`summaryForWindow` má ekki leka inn fyrir rangan brottfarartíma, en það má ekki
+leysa það með því að fela veðurgildin þegar rétt active-slot gögn eru til.
+
 **Manual pre-check áður en framkvæmd hefst:**
 
 1. Opna `/auth-mvp/vedrid` á localhost.
@@ -1786,14 +1742,21 @@ Hlekkirnir í spjaldinu eiga að vera óbreyttir.
 7. Vænt: hvert `Punktur x/y` detail-spjald notar sömu upplýsingaskipan og
    `Mest krefjandi` spjaldið, þar á meðal fjarlægð spápunkts frá vegi,
    veðurspártíma, vind, úrkomu og hita þegar gögn eru til.
-8. Prófa á mobile breidd 360-460 px.
-9. Vænt: enginn horizontal overflow, texti fer eðlilega í línuskipti og
+8. Velja ákveðinn brottfararslot í heatmap, t.d. óþægilegt slot.
+9. Vænt: `Mest krefjandi á leiðinni` sýnir ekki bara decisive metric heldur
+   fulla línu með vind, úrkomu og hita þegar active-slot gögn eru til.
+10. Vænt: `Punktur x/y` spjaldið fyrir sama punkt í `Allir spápunktarnir á
+   leiðinni` sýnir líka veðurspártíma, vind, úrkomu og hita fyrir valda slotið.
+11. Vænt: no-data punktar sýna áfram rólegan no-data texta og fá ekki gömul
+   `summaryForWindow` veðurgildi frá öðrum brottfarartíma.
+12. Prófa á mobile breidd 360-460 px.
+13. Vænt: enginn horizontal overflow, texti fer eðlilega í línuskipti og
    hlekkirnir halda góðu bili.
 
 #72
 ## Veður: mest krefjandi við upphaf ferðar
 
-**Staða:** Bíður
+**Staða:** Í vinnslu
 
 **Stofnað:** 2026-07-08
 
@@ -1853,7 +1816,7 @@ línu þegar punkturinn er ekki í upphafi.
 #73
 ## Veður: veður við komu á áfangastað
 
-**Staða:** Bíður
+**Staða:** Í vinnslu
 
 **Stofnað:** 2026-07-08
 
@@ -1929,7 +1892,7 @@ samræmd Teskeið, ekki stórt skrautkort.
 #74
 ## Veður: hvað veldur ófullnægjandi gögnum og nálgun
 
-**Staða:** Bíður
+**Staða:** Í vinnslu
 
 **Stofnað:** 2026-07-08
 

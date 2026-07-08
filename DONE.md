@@ -4,6 +4,32 @@ Saga kláraðra og staðfestra atriða.
 
 ---
 
+## #68 - Public top nav virkar ekki rétt eftir útskráningu
+
+**Lokið:** 2026-07-08  
+**Staðfesting:** Stebbi náði ekki að endurframkalla villuna á raun-síma og bað
+um að loka atriðinu og fara í næsta.
+
+Atriðið var lokað án kóðabreytingar. Grunurinn var möguleg auth/nav state
+villa eftir útskráningu þar sem public top nav linkar í `Hugmyndir` og
+`Ný hugmynd` áttu að hafa stoppað eða vísað rangt. Þar sem raunprófun
+endurframkallaði þetta ekki var það ekki talið öruggt eða nytsamlegt að breyta
+auth/middleware/logout kóða út frá óstaðfestri tilgátu.
+
+Samhengi varðveitt:
+- `ai-handoff/2026-07-08-1749-todo-068-v001-codex-public-nav-after-signout-handoff.md`
+  geymir greiningu og mögulega investigation-leið ef vandinn birtist aftur.
+
+Enduropna ef:
+- Stebbi eða notandi nær að endurframkalla vandann eftir útskráningu.
+- `/`, `/senda-hugmynd` eða `/innskraning` redirect-a rangt strax eftir logout.
+- Public top nav virkar ekki án refresh/new tab eftir staðfesta útskráningu.
+
+Engin SQL, RLS, auth policy, Supabase, Vercel, commit, push eða deploy breyting
+var gerð fyrir þessa lokun.
+
+---
+
 ## #62 - Breyta hvort ég lánaði eða fékk lánað
 
 **Lokið:** 2026-06-28  

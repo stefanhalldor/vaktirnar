@@ -52,6 +52,7 @@ export function FerdalagidClient() {
   const [error, setError] = useState<string | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [showExplainer, setShowExplainer] = useState(false)
+  const [showArrivalForecast, setShowArrivalForecast] = useState(false)
   const [selectedHeatmapIdx, setSelectedHeatmapIdx] = useState<number | null>(null)
   const [selectedReturnHeatmapIdx, setSelectedReturnHeatmapIdx] = useState<number | null>(null)
   // True only when the user has explicitly clicked a heatmap slot (not auto-selected on result load).
@@ -880,6 +881,36 @@ export function FerdalagidClient() {
                     </p>
                   )}
 
+                  {/* Arrival weather block */}
+                  {activeOutboundCandidate?.arrivalWeather && (
+                    <div className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 text-xs flex flex-col gap-1">
+                      <span className="font-medium text-foreground flex items-center gap-1">
+                        <CheckCircle2 size={12} aria-hidden />
+                        {tf('arrivalAtDestination', { destination: effectiveDestinationName, time: formatKlTime(activeOutboundCandidate.arrivalIso) })}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {tf('arrivalWeatherAt', { time: formatKlTime(activeOutboundCandidate.arrivalWeather.forecastTimeIso) })}{': '}
+                        {tf('metricWind')}: {formatNum(activeOutboundCandidate.arrivalWeather.windMs, locale)} m/s
+                        {activeOutboundCandidate.arrivalWeather.gustMs > activeOutboundCandidate.arrivalWeather.windMs && (
+                          <> · {tf('metricGust')}: {formatNum(activeOutboundCandidate.arrivalWeather.gustMs, locale)} m/s</>
+                        )}
+                        {' · '}{tf('metricPrecip')}: {formatNum(activeOutboundCandidate.arrivalWeather.precipMmPerHour, locale)} mm/klst
+                        {activeOutboundCandidate.arrivalWeather.airTemperatureC !== undefined && (
+                          <> · {tf('metricTemp')}: {formatNum(activeOutboundCandidate.arrivalWeather.airTemperatureC, locale)}°C</>
+                        )}
+                      </span>
+                      {result.travelPlan?.destinationForecastHours && result.travelPlan.destinationForecastHours.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowArrivalForecast(true)}
+                          className="self-start text-primary underline hover:text-primary/80 transition-colors text-[11px]"
+                        >
+                          {tf('viewFullForecast')}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   {/* Disclaimer */}
                   <p className="text-xs text-muted-foreground">
                     {tf.rich('weatherDisclaimer', {
@@ -968,6 +999,59 @@ export function FerdalagidClient() {
         <p className="text-xs text-muted-foreground text-center">{t('attribution')}</p>
 
       </main>
+
+      {/* Arrival forecast drawer */}
+      {showArrivalForecast && result?.travelPlan?.destinationForecastHours && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/40"
+          onClick={() => setShowArrivalForecast(false)}
+        >
+          <div
+            className="bg-background border-t w-full max-h-[75vh] overflow-y-auto rounded-t-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 pt-4 pb-2">
+              <h2 className="text-sm font-semibold">{tf('arrivalForecastTitle', { destination: effectiveDestinationName })}</h2>
+              <button
+                type="button"
+                onClick={() => setShowArrivalForecast(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+                aria-label="Loka"
+              >
+                ×
+              </button>
+            </div>
+            <div className="px-4 pb-6">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b text-muted-foreground text-left">
+                    <th className="py-2 pr-3 font-medium">{tf('forecastColDateTime')}</th>
+                    <th className="py-2 pr-3 font-medium text-right">{tf('forecastColTemp')}</th>
+                    <th className="py-2 pr-3 font-medium text-right">{tf('forecastColWind')}</th>
+                    <th className="py-2 font-medium text-right">{tf('forecastColPrecip')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.travelPlan.destinationForecastHours.map(h => {
+                    const d = new Date(h.time)
+                    const dateLabel = d.toLocaleDateString(locale === 'is' ? 'is-IS' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+                    const timeLabel = d.toLocaleTimeString(locale === 'is' ? 'is-IS' : 'en-GB', { hour: '2-digit', minute: '2-digit' })
+                    const isArrivalHour = activeOutboundCandidate?.arrivalWeather?.forecastTimeIso === h.time
+                    return (
+                      <tr key={h.time} className={`border-b border-muted/40 ${isArrivalHour ? 'bg-primary/5 font-medium' : ''}`}>
+                        <td className="py-1.5 pr-3 text-foreground">{dateLabel} {timeLabel}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums">{formatNum(h.airTemperatureC, locale)}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums">{formatNum(h.windSpeedMs, locale)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{formatNum(h.precipitationMmPerHour, locale)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

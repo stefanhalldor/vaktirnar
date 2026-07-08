@@ -112,6 +112,21 @@ export type CandidateDisplayPoint = {
   routeFraction: number
 }
 
+/**
+ * Active-candidate-safe arrival weather for the destination.
+ * Sourced from the destination forecast hour nearest to candidate.arrivalIso,
+ * so values update correctly when the user selects a different departure slot.
+ */
+export type CandidateArrivalWeather = {
+  forecastTimeIso: string
+  windMs: number
+  gustMs: number
+  precipMmPerHour: number
+  airTemperatureC?: number
+  status: WeatherStatus
+  reasonCode?: string
+}
+
 export type TravelCandidate = {
   departureIso: string
   arrivalIso: string
@@ -124,6 +139,8 @@ export type TravelCandidate = {
   pointStatuses?: CandidatePointStatus[]
   /** Display values for the most challenging point under this candidate. Used by the map detail panel. */
   displayPoint?: CandidateDisplayPoint
+  /** Weather at the destination near the estimated arrival time. Updates with selected departure slot. */
+  arrivalWeather?: CandidateArrivalWeather
 }
 
 export type TravelWindow = {
@@ -220,6 +237,8 @@ export type TravelPlan = {
   routeWeatherPoints?: RouteWeatherPoint[]
   /** Resolved thresholds actually used for this calculation. */
   thresholdsUsed?: ResolvedTravelThresholds
+  /** Full destination forecast hours for the arrival-weather drawer. One copy per plan, not per candidate. */
+  destinationForecastHours?: HourPoint[]
 }
 
 export type DeterministicResult = {
