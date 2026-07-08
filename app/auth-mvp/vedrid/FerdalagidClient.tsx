@@ -454,8 +454,8 @@ export function FerdalagidClient() {
     { value: 'caravan', label: tf('trailerCaravan') },
     { value: 'tent_trailer', label: tf('trailerTent') },
     { value: 'folding_camper', label: tf('trailerFolding') },
-    { value: 'generic_trailer', label: tf('trailerGeneric') },
     { value: 'horse_trailer', label: tf('trailerHorse') },
+    { value: 'generic_trailer', label: tf('trailerGeneric') },
   ]
 
   const trailerLabel = trailerOptions.find(o => o.value === trailerKind)?.label ?? ''
