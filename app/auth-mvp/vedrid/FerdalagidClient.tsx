@@ -54,9 +54,13 @@ export function FerdalagidClient() {
   const [showExplainer, setShowExplainer] = useState(false)
   const [selectedHeatmapIdx, setSelectedHeatmapIdx] = useState<number | null>(null)
   const [selectedReturnHeatmapIdx, setSelectedReturnHeatmapIdx] = useState<number | null>(null)
-  // Filter state for each leg (lifted from DepartureHeatmap)
-  const [outboundHiddenStatuses, setOutboundHiddenStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>(['graent']))
-  const [returnHiddenStatuses, setReturnHiddenStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>(['graent']))
+  // Filter state for scrubber (DepartureHeatmap) per leg — empty = show all; non-empty = show only those
+  const [outboundVisibleStatuses, setOutboundVisibleStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>())
+  const [returnVisibleStatuses, setReturnVisibleStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>())
+  // Map visibility state — independent from scrubber filters
+  const [mapOutboundVisibleStatuses, setMapOutboundVisibleStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>())
+  // Signal to TravelAuditMap to clear manual point selection when departure changes
+  const [mapSelectionSignal, setMapSelectionSignal] = useState(0)
   // Track which thresholds were last submitted to detect dirty drafts
   const [submittedThresholds, setSubmittedThresholds] = useState<TravelThresholdOverrides | null>(null)
 
@@ -114,11 +118,12 @@ export function FerdalagidClient() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
-  // Reset departure filters when a new result arrives
+  // Reset departure filters and map visibility when a new result arrives
   useEffect(() => {
     if (!result) return
-    setOutboundHiddenStatuses(new Set<SlotStatus>(['graent']))
-    setReturnHiddenStatuses(new Set<SlotStatus>(['graent']))
+    setOutboundVisibleStatuses(new Set<SlotStatus>())
+    setReturnVisibleStatuses(new Set<SlotStatus>())
+    setMapOutboundVisibleStatuses(new Set<SlotStatus>())
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.id])
 
@@ -285,6 +290,9 @@ export function FerdalagidClient() {
     setShowExplainer(false)
     setSelectedHeatmapIdx(null)
     setSelectedReturnHeatmapIdx(null)
+    setOutboundVisibleStatuses(new Set())
+    setReturnVisibleStatuses(new Set())
+    setMapOutboundVisibleStatuses(new Set())
     setStep('result')
 
     const overridesToSend = overridesParam !== undefined ? overridesParam : thresholdOverrides
@@ -369,20 +377,31 @@ export function FerdalagidClient() {
   }
 
 
-  // Auto-select when outbound filter hides the currently selected slot, or when no slot is selected
+  // Select first outbound slot by default when a new result arrives
+  useEffect(() => {
+    if (!result) return
+    const candidates = result.travelPlan?.outbound.windowMode
+      ? (result.travelPlan.outbound.candidates ?? [])
+      : (result.travelPlan?.outbound.timelineCandidates ?? [])
+    setSelectedHeatmapIdx(candidates.length > 0 ? 0 : null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result?.id])
+
+  // Auto-select when outbound filter changes and selected slot is no longer visible
   useEffect(() => {
     if (outboundDisplayCandidates.length === 0) return
-    if (outboundHiddenStatuses.size === 0) return
+    if (outboundVisibleStatuses.size === 0) return  // no filter active, show all
     // Skip if selected slot is still visible
     if (selectedHeatmapIdx !== null) {
       const sel = outboundDisplayCandidates[selectedHeatmapIdx]
-      if (!sel) return
-      const st: SlotStatus = sel.reasonCode === 'no_data' ? 'no_data' : sel.status
-      if (!outboundHiddenStatuses.has(st)) return
+      if (sel) {
+        const st: SlotStatus = sel.reasonCode === 'no_data' ? 'no_data' : sel.status
+        if (outboundVisibleStatuses.has(st)) return
+      }
     }
     const visible = (c: TravelCandidate) => {
       const s: SlotStatus = c.reasonCode === 'no_data' ? 'no_data' : c.status
-      return !outboundHiddenStatuses.has(s)
+      return outboundVisibleStatuses.has(s)
     }
     const firstRed = outboundDisplayCandidates.findIndex(c => visible(c) && c.status === 'rautt')
     const firstYellow = outboundDisplayCandidates.findIndex(c => visible(c) && c.status === 'gult')
@@ -390,22 +409,23 @@ export function FerdalagidClient() {
     const next = firstRed >= 0 ? firstRed : firstYellow >= 0 ? firstYellow : firstAny
     setSelectedHeatmapIdx(next >= 0 ? next : null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outboundHiddenStatuses])
+  }, [outboundVisibleStatuses])
 
-  // Auto-select when return filter hides the currently selected slot, or when no slot is selected
+  // Auto-select when return filter changes and selected slot is no longer visible
   useEffect(() => {
     if (returnCandidates.length === 0) return
-    if (returnHiddenStatuses.size === 0) return
+    if (returnVisibleStatuses.size === 0) return  // no filter active, show all
     // Skip if selected slot is still visible
     if (selectedReturnHeatmapIdx !== null) {
       const sel = returnCandidates[selectedReturnHeatmapIdx]
-      if (!sel) return
-      const st: SlotStatus = sel.reasonCode === 'no_data' ? 'no_data' : sel.status
-      if (!returnHiddenStatuses.has(st)) return
+      if (sel) {
+        const st: SlotStatus = sel.reasonCode === 'no_data' ? 'no_data' : sel.status
+        if (returnVisibleStatuses.has(st)) return
+      }
     }
     const visible = (c: TravelCandidate) => {
       const s: SlotStatus = c.reasonCode === 'no_data' ? 'no_data' : c.status
-      return !returnHiddenStatuses.has(s)
+      return returnVisibleStatuses.has(s)
     }
     const firstRed = returnCandidates.findIndex(c => visible(c) && c.status === 'rautt')
     const firstYellow = returnCandidates.findIndex(c => visible(c) && c.status === 'gult')
@@ -413,7 +433,7 @@ export function FerdalagidClient() {
     const next = firstRed >= 0 ? firstRed : firstYellow >= 0 ? firstYellow : firstAny
     setSelectedReturnHeatmapIdx(next >= 0 ? next : null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [returnHiddenStatuses])
+  }, [returnVisibleStatuses])
 
   const trailerOptions: Array<{ value: TrailerKindValue; label: string }> = [
     { value: 'none', label: tf('trailerNone') },
@@ -441,6 +461,7 @@ export function FerdalagidClient() {
   function handleOutboundSelect(idx: number | null) {
     setSelectedHeatmapIdx(idx)
     if (idx !== null) setSelectedReturnHeatmapIdx(null)
+    setMapSelectionSignal(s => s + 1)
   }
   function handleReturnSelect(idx: number | null) {
     setSelectedReturnHeatmapIdx(idx)
@@ -449,6 +470,11 @@ export function FerdalagidClient() {
 
   // Route distance in meters — needed to flip distances for return leg
   const routeDistanceM = result ? Math.round(result.travelPlan!.route.distanceKm * 1000) : undefined
+
+  // Coverage end date — last candidate in the outbound scrubber
+  const coverageEndDate = outboundDisplayCandidates.length > 0
+    ? outboundDisplayCandidates[outboundDisplayCandidates.length - 1].departureIso
+    : undefined
 
   const thresholdsUsed = result?.travelPlan?.thresholdsUsed
   const heatmapHighlightedIssue =
@@ -475,8 +501,8 @@ export function FerdalagidClient() {
   const activeCandidate = activeReturnCandidate ?? activeOutboundCandidate
   const activeLeg: 'outbound' | 'return' = activeReturnCandidate ? 'return' : 'outbound'
 
-  // Map filter: use the filter for whichever leg is active
-  const mapHiddenStatuses = activeLeg === 'return' ? returnHiddenStatuses : outboundHiddenStatuses
+  // Map visibility: independent from scrubber filters (return leg out of scope for now)
+  const mapVisibleStatuses = mapOutboundVisibleStatuses
 
   // Threshold dirty: user has changed thresholds since last submitted result
   const thresholdsDirty = result !== null && submittedThresholds !== null && (() => {
@@ -732,7 +758,12 @@ export function FerdalagidClient() {
         {step === 'result' && (
           <div className="flex flex-col gap-4">
             {origin && destination && (
-              <RouteSummary originName={origin.name} destinationName={effectiveDestinationName} />
+              <RouteSummary
+                originName={origin.name}
+                destinationName={effectiveDestinationName}
+                distanceKm={result?.travelPlan?.route.distanceKm}
+                durationMinutes={result?.travelPlan?.route.durationMinutes}
+              />
             )}
 
             {/* Back button on error */}
@@ -763,136 +794,94 @@ export function FerdalagidClient() {
               </p>
             )}
 
-            {result && statusStyle && !loading && (
-              <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <span className={`inline-block w-2.5 h-2.5 rounded-full ${statusStyle.dot} shrink-0`} aria-hidden />
-                  <span className={`text-xs font-medium ${statusStyle.label}`}>
-                    {t(`status${status!.charAt(0).toUpperCase()}${status!.slice(1)}` as 'statusGraent' | 'statusGult' | 'statusRautt')}
-                  </span>
-                </div>
+            {/* Combined card — title, scrubber, status sentence, coverage, disclaimer */}
+            {result && !loading && (() => {
+              const derivedStatus = activeOutboundCandidate?.status ?? result.stada
+              const derivedStyle = derivedStatus ? STATUS_STYLES[derivedStatus] : null
+              const statusKey = derivedStatus === 'graent' ? 'departureStatusGreen'
+                : derivedStatus === 'gult' ? 'departureStatusYellow'
+                : 'departureStatusRed'
+              return (
+                <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
 
-                <p className="text-sm text-foreground leading-relaxed">{result.svar}</p>
+                  {/* Coverage text — at top so user knows the forecast scope before reading scrubber */}
+                  {coverageEndDate && (
+                    <p className="text-xs text-muted-foreground">
+                      {tf('coverageTextUntilDate', { date: formatCoverageDate(coverageEndDate, locale) })}
+                    </p>
+                  )}
 
-                {/* Ferry context note */}
-                {ferrySelection && (
-                  <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 leading-relaxed">
-                    {tf('ferryResultNote', { portName: ferrySelection.ferryPort.name })}
-                  </p>
-                )}
+                  {/* Departure scrubber — no redundant title */}
+                  {outboundDisplayCandidates.length > 1 && (
+                    <DepartureHeatmap
+                      candidates={outboundDisplayCandidates}
+                      bestWindow={result.travelPlan!.outbound.windowMode ? result.travelPlan!.outbound.bestWindow : undefined}
+                      originName={origin!.name}
+                      selectedIdx={selectedHeatmapIdx}
+                      onSelectIdx={handleOutboundSelect}
+                      visibleStatuses={outboundVisibleStatuses}
+                      onVisibleStatusesChange={setOutboundVisibleStatuses}
+                      thresholdsUsed={thresholdsUsed}
+                      title={null}
+                    />
+                  )}
 
-                {/* Best departure window badge */}
-                {result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
+                  {/* Dynamic status sentence */}
+                  {activeOutboundCandidate && derivedStyle && (
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${derivedStyle.dot}`} aria-hidden />
+                      <p className={`text-sm font-medium ${derivedStyle.label}`}>
+                        {tf(statusKey as 'departureStatusGreen' | 'departureStatusYellow' | 'departureStatusRed', { time: formatKlTime(activeOutboundCandidate.departureIso) })}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Ferry context note */}
+                  {ferrySelection && (
+                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 leading-relaxed">
+                      {tf('ferryResultNote', { portName: ferrySelection.ferryPort.name })}
+                    </p>
+                  )}
+
+                  {/* Best departure window badge */}
+                  {result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
+                    <p className="text-xs text-muted-foreground">
+                      {tf('bestWindowLabel')}: {formatWindowRange(result.travelPlan.outbound.bestWindow.fromIso, result.travelPlan.outbound.bestWindow.toIso, locale)}
+                    </p>
+                  )}
+
+                  {/* Return best window */}
+                  {result.travelPlan?.return?.bestWindow && (
+                    <p className="text-xs text-muted-foreground">
+                      {tf('returnWindowLabel')}: {formatWindowRange(result.travelPlan.return.bestWindow.fromIso, result.travelPlan.return.bestWindow.toIso, locale)}
+                    </p>
+                  )}
+
+                  {/* Active thresholds display — only when user has set custom thresholds */}
+                  {result.travelPlan?.thresholdsUsed && hasOverrides && (
+                    <p className="text-xs text-muted-foreground">
+                      {tf('thresholdsUsedLabel')}: {tf('thresholdsCustom', {
+                        caution: result.travelPlan.thresholdsUsed.cautionWindMs,
+                        red: result.travelPlan.thresholdsUsed.redWindMs,
+                        gust: result.travelPlan.thresholdsUsed.redGustMs,
+                        precip: result.travelPlan.thresholdsUsed.cautionPrecipMmPerHour,
+                      })}
+                    </p>
+                  )}
+
+                  {/* Disclaimer */}
                   <p className="text-xs text-muted-foreground">
-                    {tf('bestWindowLabel')}: {formatWindowRange(result.travelPlan.outbound.bestWindow.fromIso, result.travelPlan.outbound.bestWindow.toIso, locale)}
-                  </p>
-                )}
-
-                {/* Return best window */}
-                {result.travelPlan?.return?.bestWindow && (
-                  <p className="text-xs text-muted-foreground">
-                    {tf('returnWindowLabel')}: {formatWindowRange(result.travelPlan.return.bestWindow.fromIso, result.travelPlan.return.bestWindow.toIso, locale)}
-                  </p>
-                )}
-
-                {/* Active thresholds display */}
-                {result.travelPlan?.thresholdsUsed && (
-                  <p className="text-xs text-muted-foreground">
-                    {hasOverrides ? tf('thresholdsUsedLabel') : tf('thresholdsDefault')}
-                    {hasOverrides && ': ' + tf('thresholdsCustom', {
-                      caution: result.travelPlan.thresholdsUsed.cautionWindMs,
-                      red: result.travelPlan.thresholdsUsed.redWindMs,
-                      gust: result.travelPlan.thresholdsUsed.redGustMs,
-                      precip: result.travelPlan.thresholdsUsed.cautionPrecipMmPerHour,
+                    {tf.rich('weatherDisclaimer', {
+                      link: (chunks) => (
+                        <a href="https://umferdin.is" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">
+                          {chunks}
+                        </a>
+                      ),
                     })}
                   </p>
-                )}
-
-                {/* Next caution with metric + threshold + location */}
-                {result.travelPlan?.outbound.nextCaution !== undefined && (() => {
-                  const nc = result.travelPlan!.outbound.nextCaution!
-                  if (!nc.departureIso) {
-                    return (
-                      <p className="text-xs text-muted-foreground">
-                        {nc.scannedHours >= 3
-                          ? tf('nextCautionNone', { hours: nc.scannedHours })
-                          : tf('nextCautionInsufficient')}
-                      </p>
-                    )
-                  }
-                  const metricLabel =
-                    nc.issue?.metric === 'precipitation' ? tf('metricPrecip')
-                    : nc.issue?.metric === 'gust' ? tf('metricGust')
-                    : nc.issue?.metric === 'wind' ? tf('metricWind')
-                    : null
-                  const distKm = nc.issue?.distanceFromLegStartM !== undefined
-                    ? Math.round(nc.issue.distanceFromLegStartM / 1000)
-                    : null
-                  const earliestDepDate = result.travelPlan!.outbound.earliestDepartureIso.slice(0, 10)
-                  const ncDate = nc.departureIso.slice(0, 10)
-                  const ncTimeStr = ncDate !== earliestDepDate
-                    ? tf('heatmapSlotDateTime', {
-                        date: new Date(nc.departureIso).toLocaleDateString(normalizeLocale(locale), {
-                          weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
-                        }),
-                        time: formatKlTime(nc.departureIso),
-                      })
-                    : tf('heatmapSlotTime', { time: formatKlTime(nc.departureIso) })
-                  return (
-                    <p className="text-xs text-muted-foreground">
-                      {tf('nextCautionLine', { time: ncTimeStr })}
-                      {metricLabel && nc.issue?.value !== undefined ? (
-                        <>
-                          {' · '}{metricLabel}: {formatNum(nc.issue.value, locale)} {nc.issue.unit ?? ''}
-                          {nc.issue.thresholdValue !== undefined && (
-                            <> {tf('aboveThresholdWithExcess', { excess: formatNum(nc.issue.value - nc.issue.thresholdValue, locale), threshold: formatNum(nc.issue.thresholdValue, locale), unit: nc.issue.thresholdUnit ?? '' })}</>
-                          )}
-                          {distKm !== null && nc.issue.legStartName && (
-                            <> · {distKm} {tf('kmFrom')} {nc.issue.legStartName}</>
-                          )}
-                        </>
-                      ) : '.'}
-                    </p>
-                  )
-                })()}
-
-                {/* Details toggle */}
-                {result.facts && result.facts.length > 0 && (
-                  <div className="border-t border-border pt-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowDetails((v) => !v)}
-                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-                      aria-expanded={showDetails}
-                    >
-                      {showDetails ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
-                      {t('whyLabel')}
-                    </button>
-                    {showDetails && (
-                      <div className="mt-2 flex flex-col gap-2">
-                        <ul className="flex flex-col gap-1">
-                          {result.facts.map((f, i) => (
-                            <li key={i} className="text-xs text-muted-foreground">{f}</li>
-                          ))}
-                        </ul>
-                        {result.travelPlan?.highlightedIssue && (
-                          <IssueAuditCard issue={result.travelPlan.highlightedIssue} />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Dev diagnostic */}
-            {process.env.NODE_ENV === 'development' && result && !loading &&
-              result.travelPlan?.outbound.nextCaution?.departureIso &&
-              outboundDisplayCandidates.length <= 1 && (
-              <p className="text-xs text-destructive bg-destructive/10 rounded px-2 py-1">
-                [dev] Timeline data missing despite next caution — check server response shape
-              </p>
-            )}
+                </div>
+              )
+            })()}
 
             {/* Interactive audit map */}
             {result && !loading && origin && destination && (result.travelPlan?.routeWeatherPoints?.length ?? 0) > 0 && (
@@ -907,23 +896,9 @@ export function FerdalagidClient() {
                 selectedCandidatePointStatuses={selectedCandidatePointStatuses}
                 activeCandidate={activeCandidate}
                 activeLeg={activeLeg}
-                hiddenStatuses={mapHiddenStatuses}
-                belowMap={outboundDisplayCandidates.length > 1 ? (
-                  <div className="bg-card border border-border rounded-xl p-4">
-                    <DepartureHeatmap
-                      candidates={outboundDisplayCandidates}
-                      bestWindow={result.travelPlan!.outbound.windowMode ? result.travelPlan!.outbound.bestWindow : undefined}
-                      originName={origin.name}
-                      selectedIdx={selectedHeatmapIdx}
-                      onSelectIdx={handleOutboundSelect}
-                      title={tf('heatmapDeparturePickerTitle')}
-                      subtitle={tf('heatmapDeparturePickerSubtitle')}
-                      hiddenStatuses={outboundHiddenStatuses}
-                      onHiddenStatusesChange={setOutboundHiddenStatuses}
-                      thresholdsUsed={thresholdsUsed}
-                    />
-                  </div>
-                ) : undefined}
+                visibleStatuses={mapVisibleStatuses}
+                onVisibleStatusesChange={setMapOutboundVisibleStatuses}
+                selectionResetSignal={mapSelectionSignal}
               />
             )}
 
@@ -939,8 +914,8 @@ export function FerdalagidClient() {
                   title={tf('heatmapReturnTitle')}
                   leg="return"
                   routeDistanceM={routeDistanceM}
-                  hiddenStatuses={returnHiddenStatuses}
-                  onHiddenStatusesChange={setReturnHiddenStatuses}
+                  visibleStatuses={returnVisibleStatuses}
+                  onVisibleStatusesChange={setReturnVisibleStatuses}
                   thresholdsUsed={thresholdsUsed}
                 />
               </div>
@@ -987,6 +962,28 @@ export function FerdalagidClient() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const IS_WEEKDAY_GENITIVE = [
+  'sunnudagsins', 'mánudagsins', 'þriðjudagsins',
+  'miðvikudagsins', 'fimmtudagsins', 'föstudagsins', 'laugardagsins',
+]
+
+const IS_MONTH_GENITIVE = [
+  'janúar', 'febrúar', 'mars', 'apríl', 'maí', 'júní',
+  'júlí', 'ágúst', 'september', 'október', 'nóvember', 'desember',
+]
+
+/** Format a coverage end date for the combined card. Returns e.g. "föstudagsins 17. júlí" (IS) or "Friday, July 17" (EN). */
+function formatCoverageDate(isoDate: string, locale: string): string {
+  const d = new Date(isoDate)
+  if (locale === 'is' || locale.startsWith('is')) {
+    const weekday = IS_WEEKDAY_GENITIVE[d.getUTCDay()]
+    const day = d.getUTCDate()
+    const month = IS_MONTH_GENITIVE[d.getUTCMonth()]
+    return `${weekday} ${day}. ${month}`
+  }
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })
+}
+
 function utcHHMM(iso: string): string {
   const d = new Date(iso)
   return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`
@@ -1015,11 +1012,20 @@ function formatWindowRange(fromIso: string, toIso: string, locale: string): stri
 
 // ── Shared sub-components ─────────────────────────────────────────────────────
 
-function RouteSummary({ originName, destinationName }: { originName: string; destinationName: string }) {
+function RouteSummary({ originName, destinationName, distanceKm, durationMinutes }: {
+  originName: string
+  destinationName: string
+  distanceKm?: number
+  durationMinutes?: number
+}) {
+  const tf = useTranslations('teskeid.vedrid.ferdalagid')
+  const suffix = distanceKm !== undefined && durationMinutes !== undefined
+    ? ` (${Math.round(distanceKm)} km, ${Math.round(durationMinutes)} ${tf('routeDurationMinsUnit')})`
+    : ''
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <MapPin size={12} aria-hidden />
-      <span>{originName} → {destinationName}</span>
+      <span>{originName} → {destinationName}{suffix}</span>
     </div>
   )
 }
@@ -1095,7 +1101,7 @@ function IssueAuditCard({ issue }: { issue: TravelIssue }) {
       <p className="font-medium text-foreground">
         {legLabel} — {metricLabel}
         {issue.value !== undefined ? `: ${formatNum(issue.value, locale)} ${issue.unit ?? ''}` : ''}
-        {issue.thresholdValue !== undefined && issue.value !== undefined && (
+        {issue.thresholdValue !== undefined && issue.value !== undefined && issue.value > issue.thresholdValue && (
           <span className="font-normal text-muted-foreground ml-1">
             {tf('aboveThresholdWithExcess', { excess: formatNum(issue.value - issue.thresholdValue, locale), threshold: formatNum(issue.thresholdValue, locale), unit: issue.thresholdUnit ?? '' })}
           </span>

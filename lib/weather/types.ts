@@ -70,6 +70,7 @@ export type RouteWeatherPoint = {
     worstWindMs: number
     worstGustMs: number
     worstPrecipMmPerHour: number
+    decisiveTempC?: number
     decisiveMetric?: 'wind' | 'gust' | 'precipitation' | 'data'
     decisiveTimeIso?: string
     /** Estimated time of arrival at this route point for the summary candidate. */
@@ -184,7 +185,7 @@ export type TravelPlan = {
     leavingAt?: TravelCandidate
     windowMode: boolean
     nextCaution?: NextCaution
-    /** Hourly timeline for single-departure mode (from departure to coverage/48h cap). */
+    /** Hourly timeline for single-departure mode (from departure to the full forecast coverage limit). */
     timelineCandidates?: TravelCandidate[]
   }
   return?: {

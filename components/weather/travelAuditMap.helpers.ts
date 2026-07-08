@@ -78,6 +78,7 @@ export function markerStyleForStatus(
 export function initialSelectedIndex(
   weatherPoints: RouteWeatherPoint[],
   highlightedIssue?: TravelIssue,
+  activeCandidate?: TravelCandidate,
 ): number {
   if (weatherPoints.length === 0) return 0
   if (highlightedIssue?.lat !== undefined && highlightedIssue?.lon !== undefined) {
@@ -86,6 +87,23 @@ export function initialSelectedIndex(
     )
     if (idx >= 0) return idx
   }
+  // Use the slot's worst metric point by routeIndex (works for green slots too)
+  const worstRouteIdx =
+    activeCandidate?.worstWind?.routeIndex ??
+    activeCandidate?.worstGust?.routeIndex ??
+    activeCandidate?.worstPrecip?.routeIndex
+  if (worstRouteIdx !== undefined) {
+    const idx = weatherPoints.findIndex(p => p.routeIndex === worstRouteIdx)
+    if (idx >= 0) return idx
+  }
+  // Use server-flagged worst point when no slot-specific data is available
+  const serverWorstIdx = weatherPoints.findIndex(p => p.isHighlightedIssue)
+  if (serverWorstIdx >= 0) return serverWorstIdx
+  // Fallback: summaryForWindow worst status
+  const redIdx = weatherPoints.findIndex(p => p.summaryForWindow?.status === 'rautt')
+  if (redIdx >= 0) return redIdx
+  const yellowIdx = weatherPoints.findIndex(p => p.summaryForWindow?.status === 'gult')
+  if (yellowIdx >= 0) return yellowIdx
   const destIdx = weatherPoints.findIndex(p => p.isDestinationClosest && !p.isOrigin)
   if (destIdx >= 0) return destIdx
   return 0
@@ -96,6 +114,54 @@ export function normalizeLocale(locale: string): string {
   if (locale === 'is') return 'is-IS'
   if (locale === 'en') return 'en-US'
   return locale
+}
+
+/** Known Icelandic city/place names → dative form. Only include safe, verified entries. */
+export const IS_PLACE_DATIVE: Record<string, string> = {
+  'Reykjavík': 'Reykjavík',
+  'Garðabær': 'Garðabæ',
+  'Kópavogur': 'Kópavogi',
+  'Hafnarfjörður': 'Hafnarfirði',
+  'Akureyri': 'Akureyri',
+  'Selfoss': 'Selfossi',
+  'Egilsstaðir': 'Egilsstöðum',
+  'Akranes': 'Akranesi',
+  'Ísafjörður': 'Ísafirði',
+  'Vestmannaeyjar': 'Vestmannaeyjum',
+  'Hvolsvöllur': 'Hvolsvelli',
+  'Vík': 'Vík',
+  'Borgarnes': 'Borgarnesi',
+  'Hveragerði': 'Hveragerði',
+  'Þorlákshöfn': 'Þorlákshöfn',
+  'Grindavík': 'Grindavík',
+  'Keflavík': 'Keflavík',
+  'Njarðvík': 'Njarðvík',
+  'Höfn': 'Höfn',
+  'Neskaupstaður': 'Neskaupstað',
+  'Eskifjörður': 'Eskifirði',
+  'Reyðarfjörður': 'Reyðarfirði',
+  'Seyðisfjörður': 'Seyðisfirði',
+  'Ólafsvík': 'Ólafsvík',
+  'Stykkishólmur': 'Stykkishólmi',
+  'Blönduós': 'Blönduósi',
+  'Siglufjörður': 'Sigluförði',
+  'Dalvík': 'Dalvík',
+  'Húsavík': 'Húsavík',
+  'Þórshöfn': 'Þórshöfn',
+  'Vopnafjörður': 'Vopnafirði',
+  'Hvammstangi': 'Hvammstanga',
+  'Hella': 'Hellu',
+  'Kirkjubæjarklaustur': 'Kirkjubæjarklaustri',
+  'Patreksfjörður': 'Patreksfirði',
+  'Ísafjarðarbær': 'Ísafjarðarbæ',
+}
+
+/** Returns the Icelandic dative form of a place name, or fallback if unknown. */
+export function getOriginDisplay(originName: string, locale: string, fallback: string): string {
+  const norm = normalizeLocale(locale)
+  if (!norm.startsWith('is')) return originName || fallback
+  const dative = IS_PLACE_DATIVE[originName.trim()]
+  return dative ?? fallback
 }
 
 /** Format a number to 1 decimal place with locale-aware decimal separator, trimming whole-number `.0`. */
@@ -126,6 +192,7 @@ export type PointSummary = {
   windMs: number
   gustMs: number
   precipMmPerHour: number
+  decisiveTempC?: number
   status: WeatherStatus | undefined
   decisiveMetric?: 'wind' | 'gust' | 'precipitation' | 'data'
   decisiveTimeFormatted: string | undefined
@@ -142,6 +209,8 @@ export type PointSummary = {
   hasSeparateForecastPoint: boolean
   /** Approximate distance in meters between the route coordinate and the met.no forecast grid point. */
   forecastDistanceFromRouteM: number
+  /** Departure time from the active candidate (shown in panel header). */
+  departureIso?: string
   /** Estimated arrival time at this route point (dynamic if activeCandidate supplied). */
   etaIso?: string
   /** The forecast hour used for status assessment. */
@@ -242,6 +311,7 @@ export function buildPointSummary(
     windMs: pt.summaryForWindow?.worstWindMs ?? 0,
     gustMs: pt.summaryForWindow?.worstGustMs ?? 0,
     precipMmPerHour: pt.summaryForWindow?.worstPrecipMmPerHour ?? 0,
+    decisiveTempC: pt.summaryForWindow?.decisiveTempC,
     status: pt.summaryForWindow?.status,
     decisiveMetric: pt.summaryForWindow?.decisiveMetric,
     decisiveTimeFormatted: pt.summaryForWindow?.decisiveTimeIso
@@ -256,6 +326,7 @@ export function buildPointSummary(
     forecastLon: pt.forecastLon,
     hasSeparateForecastPoint: shouldShowForecastPointMarker(pt),
     forecastDistanceFromRouteM: Math.round(haversineMeters(getRoutePointLatLng(pt), getForecastPointLatLng(pt))),
+    departureIso: activeCandidate?.departureIso,
     etaIso,
     forecastTimeIso: activeCandidate ? undefined : pt.summaryForWindow?.forecastTimeIso,
     nextForecast: activeCandidate ? undefined : pt.summaryForWindow?.nextForecast,

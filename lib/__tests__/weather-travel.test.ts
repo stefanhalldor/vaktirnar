@@ -760,6 +760,44 @@ describe('checkTravelWeather', () => {
       expect(result.travelPlan?.outbound.timelineCandidates).toBeUndefined()
     })
 
+    it('timeline extends beyond 48h when forecast data covers more than 48h', () => {
+      // 10-hour trip, 80 hours of calm forecast → timeline should reach well past 48h
+      const forecast = makeForecast('2026-07-10T08:00:00Z', 80, 5, 7, 0)
+      const result = checkTravelWeather({
+        ...BASE_INPUT,
+        durationS: 36_000, // 10 hours
+        pointForecasts: [forecast],
+      })
+      const timeline = result.travelPlan?.outbound.timelineCandidates
+      expect(timeline).toBeDefined()
+      // Last candidate departure should be beyond 48h after start
+      const startMs = new Date('2026-07-10T08:00:00Z').getTime()
+      const lastDepMs = new Date(timeline![timeline!.length - 1].departureIso).getTime()
+      expect(lastDepMs - startMs).toBeGreaterThan(48 * 3600 * 1000)
+    })
+
+    it('nextCaution finds a caution beyond 48h when that is where the first caution occurs', () => {
+      // 5-hour trip. 50 calm hours, then windy. nextCaution should be after 50h, beyond 48h.
+      const calmHours = Array.from({ length: 51 }, (_, i) =>
+        makeHour(new Date(new Date('2026-07-10T08:00:00Z').getTime() + i * 3600_000).toISOString(), 5, 7, 0)
+      )
+      const windyHours = Array.from({ length: 20 }, (_, i) =>
+        makeHour(new Date(new Date('2026-07-10T08:00:00Z').getTime() + (51 + i) * 3600_000).toISOString(), 16, 20, 0)
+      )
+      const forecast: TravelPointForecast = {
+        hours: [...calmHours, ...windyHours],
+        lat: 64.0, lon: -22.0, forecastLat: 64.0, forecastLon: -22.0,
+        routeIndex: 0, distanceFromOriginM: 0,
+      }
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [forecast] })
+      expect(result.stada).toBe('graent')
+      const nc = result.travelPlan?.outbound.nextCaution
+      expect(nc?.departureIso).toBeDefined()
+      const startMs = new Date('2026-07-10T08:00:00Z').getTime()
+      const ncMs = new Date(nc!.departureIso!).getTime()
+      expect(ncMs - startMs).toBeGreaterThan(48 * 3600 * 1000)
+    })
+
     it('timeline candidates include pointStatuses for map coloring', () => {
       // Calm current departure, windy future hours → future timeline slot should have pointStatuses
       const calmHours = Array.from({ length: 9 }, (_, i) =>

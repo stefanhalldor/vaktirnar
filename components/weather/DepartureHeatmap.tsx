@@ -10,8 +10,16 @@ function utcDateKey(isoString: string): string {
   return new Date(isoString).toISOString().slice(0, 10)
 }
 
+const IS_WEEKDAY_SHORT = ['Sun', 'Mán', 'Þri', 'Mið', 'Fim', 'Fös', 'Lau']
+const IS_MONTH_SHORT = ['jan', 'feb', 'mar', 'apr', 'maí', 'jún', 'júl', 'ágú', 'sep', 'okt', 'nóv', 'des']
+
 function formatDayLabel(isoString: string, locale: string): string {
-  return new Date(isoString).toLocaleDateString(normalizeLocale(locale), {
+  const d = new Date(isoString)
+  const norm = normalizeLocale(locale)
+  if (norm.startsWith('is')) {
+    return `${IS_WEEKDAY_SHORT[d.getUTCDay()]} (${d.getUTCDate()}. ${IS_MONTH_SHORT[d.getUTCMonth()]})`
+  }
+  return d.toLocaleDateString(norm, {
     weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
   })
 }
@@ -24,15 +32,16 @@ type DepartureHeatmapProps = {
   originName: string
   selectedIdx: number | null
   onSelectIdx: (idx: number | null) => void
-  title?: string
+  /** Title shown above the filter chips. Pass `null` to suppress the title entirely. */
+  title?: string | null
   /** For return-leg heatmaps: total route distance in meters used to flip distance direction. */
   routeDistanceM?: number
   /** 'return' flips distanceFromOriginM to distance from return start (destination). */
   leg?: 'outbound' | 'return'
-  /** Controlled filter state — which statuses are currently hidden. */
-  hiddenStatuses: Set<SlotStatus>
+  /** Controlled filter state — which statuses are selected to show (empty = show all). */
+  visibleStatuses: Set<SlotStatus>
   /** Called when user changes the filter. */
-  onHiddenStatusesChange: (next: Set<SlotStatus>) => void
+  onVisibleStatusesChange: (next: Set<SlotStatus>) => void
   /** Resolved thresholds used in the current result — for correct SlotDetail threshold display. */
   thresholdsUsed?: ResolvedTravelThresholds
   /** Optional subtitle shown below the title. */
@@ -65,7 +74,7 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
 
 const ALL_SLOT_STATUSES: SlotStatus[] = ['graent', 'gult', 'rautt', 'no_data']
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, hiddenStatuses, onHiddenStatusesChange, thresholdsUsed, subtitle }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -79,46 +88,37 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
   // Filtered candidates with their real indices in the candidates array
   const filteredWithIdx: Array<{ c: TravelCandidate; realIdx: number }> =
     candidates.reduce<Array<{ c: TravelCandidate; realIdx: number }>>((acc, c, i) => {
-      if (hiddenStatuses.size === 0 || !hiddenStatuses.has(slotStatus(c))) {
+      if (visibleStatuses.size === 0 || visibleStatuses.has(slotStatus(c))) {
         acc.push({ c, realIdx: i })
       }
       return acc
     }, [])
 
   function toggleStatus(st: SlotStatus) {
-    const next = new Set(hiddenStatuses)
+    const next = new Set(visibleStatuses)
     if (next.has(st)) {
       next.delete(st)
     } else {
       next.add(st)
-      // Deselect if the selected slot is being hidden
-      if (selectedIdx !== null && slotStatus(candidates[selectedIdx]) === st) {
-        onSelectIdx(null)
-      }
     }
-    onHiddenStatusesChange(next)
+    // Deselect if the selected slot's status is no longer visible
+    if (selectedIdx !== null && next.size > 0) {
+      const selSt = slotStatus(candidates[selectedIdx])
+      if (!next.has(selSt)) onSelectIdx(null)
+    }
+    onVisibleStatusesChange(next)
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs font-medium text-foreground">{title ?? tf('heatmapTitle')}</p>
+      {title !== null && <p className="text-xs font-medium text-foreground">{title ?? tf('heatmapTitle')}</p>}
       {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
 
       {/* Status filter chips — always shown so user can see counts and filter */}
       <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => onHiddenStatusesChange(new Set())}
-            className={`text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-              hiddenStatuses.size === 0
-                ? 'border-foreground/30 bg-foreground/5 text-foreground font-medium'
-                : 'border-border bg-transparent text-muted-foreground'
-            }`}
-          >
-            {tf('timelineFilterAll')}
-          </button>
           {ALL_SLOT_STATUSES.filter(st => st === 'graent' || statusCounts[st] > 0).map(st => {
-            const isHidden = hiddenStatuses.has(st)
+            const isActive = visibleStatuses.has(st)
+            const noFilter = visibleStatuses.size === 0
             const label = st === 'graent' ? tf('heatmapLegendGreen')
               : st === 'gult' ? tf('heatmapLegendYellow')
               : st === 'rautt' ? tf('heatmapLegendRed')
@@ -129,12 +129,14 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                 type="button"
                 onClick={() => toggleStatus(st)}
                 className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                  isHidden
-                    ? 'border-border bg-transparent text-muted-foreground/40'
-                    : 'border-border bg-transparent text-muted-foreground'
+                  isActive
+                    ? `${STATUS_BORDER[st]} bg-muted/50 text-foreground`
+                    : noFilter
+                      ? 'border-border bg-transparent text-muted-foreground'
+                      : 'border-border bg-transparent text-muted-foreground/30'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${isHidden ? 'opacity-30' : ''} ${STATUS_BG[st]}`} aria-hidden />
+                <span className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${STATUS_BG[st]}`} aria-hidden />
                 {label} ({statusCounts[st]})
               </button>
             )
@@ -190,13 +192,13 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       ) : (
         <div className="flex flex-col items-start gap-1.5 py-2">
           <p className="text-xs text-muted-foreground">
-            {hiddenStatuses.has('graent') && statusCounts.graent === candidates.length
+            {visibleStatuses.size > 0 && !visibleStatuses.has('graent') && statusCounts.graent === candidates.length
               ? tf('timelineEmptyGreenHidden')
               : tf('timelineEmptyFilter')}
           </p>
           <button
             type="button"
-            onClick={() => onHiddenStatusesChange(new Set())}
+            onClick={() => onVisibleStatusesChange(new Set())}
             className="text-xs text-primary underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
           >
             {tf('timelineShowAll')}
@@ -210,6 +212,54 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       )}
     </div>
   )
+}
+
+/** Known Icelandic city/place names → dative form. Only include safe, verified entries. */
+const IS_PLACE_DATIVE: Record<string, string> = {
+  'Reykjavík': 'Reykjavík',
+  'Garðabær': 'Garðabæ',
+  'Kópavogur': 'Kópavogi',
+  'Hafnarfjörður': 'Hafnarfirði',
+  'Akureyri': 'Akureyri',
+  'Selfoss': 'Selfossi',
+  'Egilsstaðir': 'Egilsstöðum',
+  'Akranes': 'Akranesi',
+  'Ísafjörður': 'Ísafirði',
+  'Vestmannaeyjar': 'Vestmannaeyjum',
+  'Hvolsvöllur': 'Hvolsvelli',
+  'Vík': 'Vík',
+  'Borgarnes': 'Borgarnesi',
+  'Hveragerði': 'Hveragerði',
+  'Þorlákshöfn': 'Þorlákshöfn',
+  'Grindavík': 'Grindavík',
+  'Keflavík': 'Keflavík',
+  'Njarðvík': 'Njarðvík',
+  'Höfn': 'Höfn',
+  'Neskaupstaður': 'Neskaupstað',
+  'Eskifjörður': 'Eskifirði',
+  'Reyðarfjörður': 'Reyðarfirði',
+  'Seyðisfjörður': 'Seyðisfirði',
+  'Ólafsvík': 'Ólafsvík',
+  'Stykkishólmur': 'Stykkishólmi',
+  'Blönduós': 'Blönduósi',
+  'Siglufjörður': 'Sigluförði',
+  'Dalvík': 'Dalvík',
+  'Húsavík': 'Húsavík',
+  'Þórshöfn': 'Þórshöfn',
+  'Vopnafjörður': 'Vopnafirði',
+  'Hvammstangi': 'Hvammstanga',
+  'Hella': 'Hellu',
+  'Kirkjubæjarklaustur': 'Kirkjubæjarklaustri',
+  'Patreksfjörður': 'Patreksfirði',
+  'Ísafjarðarbær': 'Ísafjarðarbæ',
+}
+
+/** Returns the Icelandic dative form of a place name, or fallback if unknown. */
+function getOriginDisplay(originName: string, locale: string, fallback: string): string {
+  const norm = normalizeLocale(locale)
+  if (!norm.startsWith('is')) return originName || fallback
+  const dative = IS_PLACE_DATIVE[originName.trim()]
+  return dative ?? fallback
 }
 
 function SlotDetail({
@@ -230,9 +280,9 @@ function SlotDetail({
   const st = slotStatus(candidate)
 
   const header = (
-    <p className="font-medium text-foreground">
-      {tf('heatmapSlotDeparture')}: {tf('heatmapSlotDateTime', { date: formatDayLabel(candidate.departureIso, locale), time: formatKlTime(candidate.departureIso) })}
-      {' — '}
+    <p className="text-foreground">
+      {tf('heatmapSlotDeparture')}: {tf('heatmapSlotTime', { time: formatKlTime(candidate.departureIso) })}
+      {' · '}
       {tf('heatmapSlotArrival')}: {tf('heatmapSlotTime', { time: formatKlTime(candidate.arrivalIso) })}
     </p>
   )
@@ -272,19 +322,22 @@ function SlotDetail({
     : metric === 'gust' ? tf('metricGust')
     : tf('metricWind')
 
+  const unit = metric === 'precipitation' ? 'mm/klst' : 'm/s'
+  const originDisplay = getOriginDisplay(originName, locale, tf('slotDetailOriginFallback'))
+
   return (
     <div className="rounded-xl border border-border bg-card px-3 py-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
       {header}
+      {m?.value !== undefined && distKm !== null && distKm > 0 && (
+        <p>{tf('slotDetailWorstDistance', { distance: distKm, origin: originDisplay })}</p>
+      )}
       {m?.value !== undefined && (
         <p>
-          {metricLabel}: {formatNum(m.value, locale)} {metric === 'precipitation' ? 'mm/klst' : 'm/s'}
-          {thresh.thresholdValue !== undefined && (
+          {tf('slotDetailMetricLine', { metric: metricLabel, value: `${formatNum(m.value, locale)} ${unit}` })}
+          {thresh.thresholdValue !== undefined && m.value > thresh.thresholdValue && (
             <> {tf('aboveThresholdWithExcess', { excess: formatNum(m.value - thresh.thresholdValue, locale), threshold: formatNum(thresh.thresholdValue, locale), unit: thresh.thresholdUnit ?? '' })}</>
           )}
         </p>
-      )}
-      {distKm !== null && distKm > 0 && (
-        <p>{distKm} {tf('kmFrom')} {originName}</p>
       )}
     </div>
   )

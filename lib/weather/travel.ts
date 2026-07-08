@@ -9,7 +9,6 @@ import { deriveThreshold, resolveThresholds } from './thresholds'
 
 const CANDIDATE_INTERVAL_S = 30 * 60 // 30-minute intervals between candidate departures
 const NEXT_CAUTION_STEP_S = 3600 // 1-hour steps for next-caution scan
-const NEXT_CAUTION_MAX_H = 48 // scan up to 48 hours ahead
 const NEXT_CAUTION_MIN_USEFUL_H = 3 // below this, report insufficient coverage
 const METNO_FORECAST_BASE = 'https://api.met.no/weatherapi/locationforecast/2.0/compact'
 const GMAPS_SEARCH_BASE = 'https://www.google.com/maps/search/?api=1&query='
@@ -322,6 +321,8 @@ function buildRouteWeatherPoints(
           : hrs.reduce((a, b) => Math.max(b.windSpeedMs, b.windGustMs) > Math.max(a.windSpeedMs, a.windGustMs) ? b : a).time
         const etaIso = new Date(etaMs).toISOString()
         const forecastTimeIso = decisiveTimeIso
+        const decisiveHour = decisiveTimeIso ? hrs.find(h => h.time === decisiveTimeIso) : hrs[0]
+        const decisiveTempC = decisiveHour?.airTemperatureC
 
         // Find the next forecast hour after decisiveTimeIso
         let nextForecast: NonNullable<RouteWeatherPoint['summaryForWindow']>['nextForecast']
@@ -354,7 +355,7 @@ function buildRouteWeatherPoints(
           }
         }
 
-        summaryForWindow = { status: legResult.stada, worstWindMs, worstGustMs, worstPrecipMmPerHour, decisiveMetric, decisiveTimeIso, etaIso, forecastTimeIso, nextForecast }
+        summaryForWindow = { status: legResult.stada, worstWindMs, worstGustMs, worstPrecipMmPerHour, decisiveTempC, decisiveMetric, decisiveTimeIso, etaIso, forecastTimeIso, nextForecast }
       }
     }
 
@@ -461,7 +462,7 @@ function reasonToText(reasonCode: string | undefined): string {
 }
 
 /**
- * Builds the single-departure hourly timeline from departure to the forecast coverage/48h cap.
+ * Builds the single-departure hourly timeline from departure to the full forecast coverage limit.
  * Returns all candidates (first = current departure) and derives nextCaution from the first
  * non-green non-no_data candidate after the current departure.
  * Skips no_data as a caution trigger — data absence alone is not a meaningful forward caution.
@@ -486,8 +487,7 @@ function buildSingleDepartureTimeline(
   const coverageCapMs = isFinite(lastForecastMs) ? lastForecastMs - durationS * 1000 : 0
 
   const startMs = new Date(departureIso).getTime()
-  const hardCapMs = startMs + NEXT_CAUTION_MAX_H * 3600 * 1000
-  const endMs = Math.min(coverageCapMs, hardCapMs)
+  const endMs = coverageCapMs
   const scannedHours = Math.max(0, Math.round((endMs - startMs) / 3_600_000))
 
   const timelineCandidates: TravelCandidate[] = []
@@ -642,7 +642,7 @@ export function checkTravelWeather(input: TravelWeatherInput): DeterministicResu
   }
 
   // --- Single-departure timeline (always in single-departure mode) ---
-  // timelineCandidates: hourly from departure to coverage/48h cap, used for the timeline scrubber.
+  // timelineCandidates: hourly from departure to the full forecast coverage limit, used for the timeline scrubber.
   // nextCaution: only set when current outbound is green (derived from timelineCandidates).
   let nextCaution: NextCaution | undefined
   let timelineCandidates: TravelCandidate[] | undefined
