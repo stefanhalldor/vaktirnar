@@ -108,6 +108,8 @@ export type CandidateDisplayPoint = {
   precipMmPerHour: number
   airTemperatureC: number
   metric: 'wind' | 'gust' | 'precipitation'
+  distanceFromOriginM: number
+  routeFraction: number
 }
 
 export type TravelCandidate = {

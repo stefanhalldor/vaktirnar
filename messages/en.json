@@ -716,6 +716,8 @@
         "weatherDisclaimer": "This is a weather forecast and we live in Iceland. Keep an eye on road conditions for safety, e.g. on the <link>Road Administration website</link>.",
         "slotDetailWorstLead": "Most demanding at this departure time",
         "slotDetailWorstDistance": "Most demanding point is {distance} km from {origin}.",
+        "slotDetailWorstDistanceAt": "Most demanding point is {distance} km from {origin}, at {time}.",
+        "slotDetailWeatherSummary": "Wind: {wind} · Precipitation: {precipitation} · Temperature: {temperature}",
         "slotDetailOriginFallback": "the starting point",
         "slotDetailMetricLine": "{metric}: {value}",
         "routeDurationMinsUnit": "min.",

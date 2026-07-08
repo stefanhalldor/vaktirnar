@@ -307,6 +307,8 @@ describe('initialSelectedIndex with activeCandidate.displayPoint', () => {
         precipMmPerHour: 0,
         airTemperatureC: 7,
         metric: 'wind',
+        distanceFromOriginM: 100_000,
+        routeFraction: 0.5,
       },
       worstWind: { value: 6, timeIso: '2026-07-10T11:00:00Z', routeIndex: 2 },
     }
@@ -351,6 +353,8 @@ describe('buildPointSummary with activeCandidate displayPoint', () => {
       precipMmPerHour: 0.1,
       airTemperatureC: 7.5,
       metric: 'wind',
+      distanceFromOriginM: 300_000,
+      routeFraction: 0.75,
     },
   }
 

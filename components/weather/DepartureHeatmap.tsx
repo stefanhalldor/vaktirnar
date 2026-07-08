@@ -296,7 +296,39 @@ function SlotDetail({
     )
   }
 
-  // Trailer-aware gust decisiveness
+  const originDisplay = getOriginDisplay(originName, locale, tf('slotDetailOriginFallback'))
+  const dp = candidate.displayPoint
+
+  if (dp) {
+    // Active-candidate-safe summary: distance + ETA at the decisive point, plus wind/precip/temp
+    const depMs = new Date(candidate.departureIso).getTime()
+    const durMs = new Date(candidate.arrivalIso).getTime() - depMs
+    const etaFraction = leg === 'return' ? 1 - dp.routeFraction : dp.routeFraction
+    const etaIso = new Date(depMs + etaFraction * durMs).toISOString()
+    const rawDist = dp.distanceFromOriginM
+    const legDist = leg === 'return' && routeDistanceM !== undefined
+      ? routeDistanceM - rawDist
+      : rawDist
+    const distKm = Math.round(legDist / 1000)
+
+    return (
+      <div className="rounded-xl border border-border bg-card px-3 py-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
+        {header}
+        {distKm > 0 && (
+          <p>{tf('slotDetailWorstDistanceAt', { distance: distKm, origin: originDisplay, time: formatKlTime(etaIso) })}</p>
+        )}
+        <p>
+          {tf('slotDetailWeatherSummary', {
+            wind: `${formatNum(dp.windMs, locale)} m/s`,
+            precipitation: `${formatNum(dp.precipMmPerHour, locale)} mm/klst`,
+            temperature: `${formatNum(dp.airTemperatureC, locale)}°C`,
+          })}
+        </p>
+      </div>
+    )
+  }
+
+  // Fallback for no_data-adjacent candidates without displayPoint: show decisive metric only
   const gustVal = candidate.worstGust?.value ?? 0
   const isTrailer = candidate.reasonCode?.includes('trailer') ?? false
   const redGustThreshold = thresholdsUsed?.redGustMs
@@ -312,24 +344,22 @@ function SlotDetail({
     : metric === 'gust' ? candidate.worstGust
     : candidate.worstWind
   const thresh = deriveThreshold(metric, candidate.reasonCode, thresholdsUsed)
-  const rawDist = m?.distanceFromOriginM
-  const legDist = rawDist !== undefined && leg === 'return' && routeDistanceM !== undefined
-    ? routeDistanceM - rawDist
-    : rawDist
-  const distKm = legDist !== undefined ? Math.round(legDist / 1000) : null
+  const rawDistFallback = m?.distanceFromOriginM
+  const legDistFallback = rawDistFallback !== undefined && leg === 'return' && routeDistanceM !== undefined
+    ? routeDistanceM - rawDistFallback
+    : rawDistFallback
+  const distKmFallback = legDistFallback !== undefined ? Math.round(legDistFallback / 1000) : null
   const metricLabel =
     metric === 'precipitation' ? tf('metricPrecip')
     : metric === 'gust' ? tf('metricGust')
     : tf('metricWind')
-
   const unit = metric === 'precipitation' ? 'mm/klst' : 'm/s'
-  const originDisplay = getOriginDisplay(originName, locale, tf('slotDetailOriginFallback'))
 
   return (
     <div className="rounded-xl border border-border bg-card px-3 py-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
       {header}
-      {m?.value !== undefined && distKm !== null && distKm > 0 && (
-        <p>{tf('slotDetailWorstDistance', { distance: distKm, origin: originDisplay })}</p>
+      {m?.value !== undefined && distKmFallback !== null && distKmFallback > 0 && (
+        <p>{tf('slotDetailWorstDistance', { distance: distKmFallback, origin: originDisplay })}</p>
       )}
       {m?.value !== undefined && (
         <p>

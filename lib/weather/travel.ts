@@ -156,7 +156,7 @@ function evaluateCandidate(
   if (dpWorst && dpWorst.routeIndex !== undefined && dpWorst.timeIso) {
     const pf = pointForecasts.find(p => p.routeIndex === dpWorst.routeIndex)
     const hour = pf?.hours.find(h => h.time === dpWorst.timeIso)
-    if (hour) {
+    if (pf && hour) {
       displayPoint = {
         routeIndex: dpWorst.routeIndex,
         forecastTimeIso: dpWorst.timeIso,
@@ -165,6 +165,8 @@ function evaluateCandidate(
         precipMmPerHour: hour.precipitationMmPerHour,
         airTemperatureC: hour.airTemperatureC,
         metric: dpMetric,
+        distanceFromOriginM: dpWorst.distanceFromOriginM ?? pf.distanceFromOriginM,
+        routeFraction: dpWorst.routeFraction ?? (totalDistanceM > 0 ? pf.distanceFromOriginM / totalDistanceM : 0),
       }
     }
   }

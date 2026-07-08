@@ -720,6 +720,8 @@
         "weatherDisclaimer": "Þetta er veðurspá og við búum á Íslandi. Fylgist vel með færðinni til öryggis, t.d. á <link>vef Vegagerðarinnar</link>.",
         "slotDetailWorstLead": "Mest krefjandi á þessum brottfarartíma",
         "slotDetailWorstDistance": "Mest krefjandi er {distance} km frá {origin}.",
+        "slotDetailWorstDistanceAt": "Mest krefjandi er {distance} km frá {origin}, kl. {time}.",
+        "slotDetailWeatherSummary": "Vindur: {wind} · Úrkoma: {precipitation} · Hiti: {temperature}",
         "slotDetailOriginFallback": "upphafsstað",
         "slotDetailMetricLine": "{metric}: {value}",
         "routeDurationMinsUnit": "mín.",
