@@ -1220,11 +1220,28 @@ function RoutePointRow({
           ? tf('forecastPointDistanceMeters', { meters: forecastDistanceM })
           : tf('forecastPointDistanceKilometers', { kilometers: formatNum(forecastDistanceM / 1000, locale) })}
       </span>
-      {isActiveMode ? (
-        // Active-candidate mode: no summaryForWindow metrics — they belong to a different time window.
-        // Show no-data copy when the selected slot has no forecast for this point.
-        activeStatus === 'no_data' && <p>{tf('heatmapNotAssessedDetail')}</p>
-      ) : (
+      {isActiveMode ? (() => {
+        // Active-candidate mode: suppress summaryForWindow metrics (different time window).
+        // Show active-safe metrics only from displayPoint when the route index matches.
+        if (activeStatus === 'no_data') return <p>{tf('heatmapNotAssessedDetail')}</p>
+        const dp = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex ? activeCandidate!.displayPoint! : undefined
+        if (!dp) return null
+        return (
+          <>
+            <span>{tf('pointForecastHereAt', { time: formatKlTime(dp.forecastTimeIso) })}</span>
+            <p>
+              {tf('metricWind')}: {formatNum(dp.windMs, locale)} m/s
+              {dp.gustMs > dp.windMs && (
+                <> · {tf('metricGust')}: {formatNum(dp.gustMs, locale)} m/s</>
+              )}
+              {' · '}{tf('metricPrecip')}: {formatNum(dp.precipMmPerHour, locale)} mm/klst
+              {dp.airTemperatureC !== undefined && (
+                <> · {tf('metricTemp')}: {formatNum(dp.airTemperatureC, locale)}°C</>
+              )}
+            </p>
+          </>
+        )
+      })() : (
         <>
           {pt.summaryForWindow?.forecastTimeIso && (
             <span>{tf('pointForecastHereAt', { time: formatKlTime(pt.summaryForWindow.forecastTimeIso) })}</span>

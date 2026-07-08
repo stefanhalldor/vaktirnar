@@ -307,8 +307,8 @@ export function buildPointSummary(
   // - isHighlighted point: use summaryForWindow (safe — candidateToIssue carries active-candidate values for this point)
   // - displayPoint match: use displayPoint values (active-candidate-safe metrics from the decisive forecast hour)
   // - all other points: suppress summaryForWindow metrics (they belong to a different departure window)
-  const isDisplayPoint = !isHighlighted && activeCandidate?.displayPoint?.routeIndex === pt.routeIndex
-  const showSummaryMetrics = !activeCandidate || isHighlighted
+  const isDisplayPoint = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex
+  const showSummaryMetrics = !activeCandidate || (isHighlighted && !isDisplayPoint)
   const dp = isDisplayPoint ? activeCandidate!.displayPoint! : undefined
   return {
     routeIndex: pt.routeIndex,
@@ -337,7 +337,7 @@ export function buildPointSummary(
     forecastDistanceFromRouteM: Math.round(haversineMeters(getRoutePointLatLng(pt), getForecastPointLatLng(pt))),
     departureIso: activeCandidate?.departureIso,
     etaIso,
-    forecastTimeIso: activeCandidate ? undefined : pt.summaryForWindow?.forecastTimeIso,
+    forecastTimeIso: dp ? dp.forecastTimeIso : (activeCandidate ? undefined : pt.summaryForWindow?.forecastTimeIso),
     nextForecast: activeCandidate ? undefined : pt.summaryForWindow?.nextForecast,
   }
 }

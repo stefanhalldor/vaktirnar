@@ -394,13 +394,14 @@ describe('buildPointSummary with activeCandidate displayPoint', () => {
     expect(s.decisiveTimeFormatted).toBeUndefined()
   })
 
-  it('still shows summaryForWindow for isHighlighted point even with activeCandidate', () => {
+  it('uses displayPoint values even when point is also highlighted (worst point)', () => {
     const issue: TravelIssue = { leg: 'outbound', metric: 'wind', lat: 64.5, lon: -21.0 }
-    // Make the highlighted point the same as the displayPoint to test priority
+    // Highlighted point is also the displayPoint — displayPoint should win so the map panel
+    // shows the full active-slot weather line, not just a single summaryForWindow metric.
     const s = buildPointSummary(ptDisplay, issue, candidate, 'outbound')
     expect(s.isHighlighted).toBe(true)
-    expect(s.windMs).toBeCloseTo(14.5) // summaryForWindow, not displayPoint
-    expect(s.decisiveTimeFormatted).toBe('08:00')
+    expect(s.windMs).toBeCloseTo(6.2) // displayPoint, not summaryForWindow
+    expect(s.decisiveTimeFormatted).toBe('11:00') // displayPoint forecast time
   })
 })
 
