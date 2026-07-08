@@ -477,11 +477,13 @@ export function FerdalagidClient() {
     : undefined
 
   const thresholdsUsed = result?.travelPlan?.thresholdsUsed
+  // When a scrubber slot is selected, use only that candidate's issue (undefined for green slots).
+  // Fall back to result-level highlightedIssue only when no slot is selected.
   const heatmapHighlightedIssue =
     selectedReturnHeatmapIdx !== null && returnCandidates[selectedReturnHeatmapIdx]
-      ? (candidateToIssue(returnCandidates[selectedReturnHeatmapIdx], 'return', { routeDistanceM, legStartName: effectiveDestinationName, thresholdsUsed }) ?? result?.travelPlan?.highlightedIssue)
+      ? candidateToIssue(returnCandidates[selectedReturnHeatmapIdx], 'return', { routeDistanceM, legStartName: effectiveDestinationName, thresholdsUsed })
     : selectedHeatmapIdx !== null && outboundDisplayCandidates[selectedHeatmapIdx]
-      ? (candidateToIssue(outboundDisplayCandidates[selectedHeatmapIdx], 'outbound', { legStartName: origin?.name, thresholdsUsed }) ?? result?.travelPlan?.highlightedIssue)
+      ? candidateToIssue(outboundDisplayCandidates[selectedHeatmapIdx], 'outbound', { legStartName: origin?.name, thresholdsUsed })
     : result?.travelPlan?.highlightedIssue
 
   const selectedCandidatePointStatuses: CandidatePointStatus[] | undefined =

@@ -301,6 +301,11 @@ export function buildPointSummary(
   const etaIso = activeCandidate
     ? estimatePointEtaIso(activeCandidate, pt, activeLeg ?? 'outbound')
     : pt.summaryForWindow?.etaIso
+  // When an activeCandidate is selected, only show summaryForWindow weather metrics for the
+  // highlighted issue (which carries active-candidate metric values via candidateToIssue).
+  // For all other points, summaryForWindow metrics belong to a different departure window and
+  // must not be shown alongside active-candidate departure/ETA times.
+  const showSummaryMetrics = !activeCandidate || isHighlighted
   return {
     routeIndex: pt.routeIndex,
     totalPoints: pt.totalRouteWeatherPoints,
@@ -308,13 +313,13 @@ export function buildPointSummary(
     isOrigin: pt.isOrigin ?? false,
     isDestination: !!(pt.isDestinationClosest && !pt.isOrigin),
     distanceFromOriginKm: Math.round(pt.distanceFromOriginM / 1000),
-    windMs: pt.summaryForWindow?.worstWindMs ?? 0,
-    gustMs: pt.summaryForWindow?.worstGustMs ?? 0,
-    precipMmPerHour: pt.summaryForWindow?.worstPrecipMmPerHour ?? 0,
-    decisiveTempC: pt.summaryForWindow?.decisiveTempC,
-    status: pt.summaryForWindow?.status,
-    decisiveMetric: pt.summaryForWindow?.decisiveMetric,
-    decisiveTimeFormatted: pt.summaryForWindow?.decisiveTimeIso
+    windMs: showSummaryMetrics ? (pt.summaryForWindow?.worstWindMs ?? 0) : 0,
+    gustMs: showSummaryMetrics ? (pt.summaryForWindow?.worstGustMs ?? 0) : 0,
+    precipMmPerHour: showSummaryMetrics ? (pt.summaryForWindow?.worstPrecipMmPerHour ?? 0) : 0,
+    decisiveTempC: showSummaryMetrics ? pt.summaryForWindow?.decisiveTempC : undefined,
+    status: showSummaryMetrics ? pt.summaryForWindow?.status : undefined,
+    decisiveMetric: showSummaryMetrics ? pt.summaryForWindow?.decisiveMetric : undefined,
+    decisiveTimeFormatted: showSummaryMetrics && pt.summaryForWindow?.decisiveTimeIso
       ? formatKlTime(pt.summaryForWindow.decisiveTimeIso)
       : undefined,
     yrnoUrl: pt.yrnoUrl,

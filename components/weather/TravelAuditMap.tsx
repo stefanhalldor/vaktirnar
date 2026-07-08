@@ -349,13 +349,10 @@ export function TravelAuditMap({
       const isWarning = markerStatus === 'gult' || markerStatus === 'rautt'
       if (!isSelected && (!isWarning || !markerVisible)) return
 
-      // Compute ETA time for chip label
-      let timeIso: string | undefined
-      if (isSelected && activeCandidate) {
-        timeIso = estimatePointEtaIso(activeCandidate, pt, activeLeg ?? 'outbound')
-      } else {
-        timeIso = pt.summaryForWindow?.etaIso
-      }
+      // Compute ETA time for chip label — always use activeCandidate ETA when a slot is selected
+      const timeIso = activeCandidate
+        ? estimatePointEtaIso(activeCandidate, pt, activeLeg ?? 'outbound')
+        : pt.summaryForWindow?.etaIso
       if (!timeIso) return
 
       const chip = new markerLibRef.current.Marker({
