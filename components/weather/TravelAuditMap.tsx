@@ -48,6 +48,8 @@ export type TravelAuditMapProps = {
   onVisibleStatusesChange?: (next: Set<WeatherStatus | 'no_data'>) => void
   /** Incrementing signal from parent — when this changes, clear manual point selection. */
   selectionResetSignal?: number
+  /** Called when user taps Spá 🥄 on the selected point panel. */
+  onOpenForecastDrawer?: (routeIndex: number) => void
 }
 
 /** Creates a Google Maps Symbol icon for a route weather point marker. */
@@ -96,6 +98,7 @@ export function TravelAuditMap({
   visibleStatuses,
   onVisibleStatusesChange,
   selectionResetSignal,
+  onOpenForecastDrawer,
 }: TravelAuditMapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -557,6 +560,11 @@ export function TravelAuditMap({
           originName={originName}
           destinationName={destinationName}
           isManualSelection={isManualSelection}
+          onOpenForecast={
+            onOpenForecastDrawer && selectedPoint?.forecastRows?.length
+              ? () => onOpenForecastDrawer(selectedPoint!.routeIndex)
+              : undefined
+          }
         />
       )}
     </section>
@@ -569,12 +577,14 @@ function PointDetailsPanel({
   originName,
   destinationName,
   isManualSelection,
+  onOpenForecast,
 }: {
   summary: PointSummary
   highlightedIssue?: TravelIssue
   originName: string
   destinationName: string
   isManualSelection: boolean
+  onOpenForecast?: () => void
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
@@ -737,6 +747,15 @@ function PointDetailsPanel({
 
       {/* 8. Links */}
       <div className="flex flex-wrap gap-3">
+        {onOpenForecast && (
+          <button
+            type="button"
+            onClick={onOpenForecast}
+            className="underline hover:text-foreground transition-colors text-left"
+          >
+            {tf('spaSpoon')}
+          </button>
+        )}
         <a
           href={summary.yrnoUrl}
           target="_blank"

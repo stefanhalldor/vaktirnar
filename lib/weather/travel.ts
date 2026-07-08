@@ -3,6 +3,7 @@ import type {
   TravelPointForecast, WorstMetric, TravelCandidate, TravelWindow, TravelIssue, TravelPlan, RouteWeatherPoint, NextCaution,
   CandidatePointStatus, CandidateDisplayPoint, RouteWeatherSamplingDiagnostics,
   TravelThresholdOverrides, ResolvedTravelThresholds,
+  ForecastDrawerRow, GustSeverity,
 } from './types'
 import type { TrailerKind } from './question'
 import { deriveThreshold, resolveThresholds } from './thresholds'
@@ -410,6 +411,7 @@ function buildRouteWeatherPoints(
       googleMapsUrl: `${GMAPS_SEARCH_BASE}${pt.lat},${pt.lon}`,
       metnoUrl: `${METNO_FORECAST_BASE}?lat=${pt.forecastLat}&lon=${pt.forecastLon}`,
       yrnoUrl: `${YRNO_FORECAST_BASE}${pt.forecastLat},${pt.forecastLon}`,
+      forecastRows: pt.hours.length > 0 ? buildForecastRows(pt.hours, trailerKind, thresholds) : undefined,
       summaryForWindow,
     }
   })
@@ -577,6 +579,99 @@ export type TravelWeatherInput = {
   thresholdOverrides?: TravelThresholdOverrides
 }
 
+/** Returns threshold-relative severity for a gust reading. */
+export function deriveGustSeverity(
+  windMs: number,
+  gustMs: number,
+  thresholds: ResolvedTravelThresholds,
+): GustSeverity {
+  const red = thresholds.redGustMs
+  if (gustMs >= red) return 'danger'
+  if (gustMs >= red * 0.8) return 'caution'
+  if (gustMs >= red * 0.65 && gustMs - windMs >= 3) return 'notice'
+  return 'none'
+}
+
+/** Builds pre-processed forecast drawer rows from raw met.no hours. */
+export function buildForecastRows(
+  hours: HourPoint[],
+  trailerKind: 'none' | TrailerKind,
+  thresholds: ResolvedTravelThresholds,
+): ForecastDrawerRow[] {
+  return hours.map((h, i) => {
+    const prev = i > 0 ? hours[i - 1] : undefined
+
+    const windDelta = prev !== undefined ? +(h.windSpeedMs - prev.windSpeedMs).toFixed(1) : undefined
+    const windDir = windDelta === undefined ? 'none' : Math.abs(windDelta) < 0.5 ? 'steady' : windDelta > 0 ? 'up' : 'down'
+
+    const gustDelta = prev !== undefined ? +(h.windGustMs - prev.windGustMs).toFixed(1) : undefined
+    const gustDir = gustDelta === undefined ? 'none' : Math.abs(gustDelta) < 0.5 ? 'steady' : gustDelta > 0 ? 'up' : 'down'
+
+    const precipDelta = prev !== undefined ? +(h.precipitationMmPerHour - prev.precipitationMmPerHour).toFixed(2) : undefined
+    const precipDir = precipDelta === undefined ? 'none' : Math.abs(precipDelta) < 0.1 ? 'steady' : precipDelta > 0 ? 'up' : 'down'
+
+    const tempDelta = prev !== undefined ? +(h.airTemperatureC - prev.airTemperatureC).toFixed(1) : undefined
+    const tempDir = tempDelta === undefined ? 'none' : Math.abs(tempDelta) < 0.5 ? 'steady' : tempDelta > 0 ? 'up' : 'down'
+
+    const legResult = evalDrivingLeg(h.windSpeedMs, h.windGustMs, h.precipitationMmPerHour, trailerKind, thresholds)
+
+    return {
+      timeIso: h.time,
+      status: legResult.stada,
+      temperature: { value: h.airTemperatureC, delta: tempDelta, direction: tempDir, tone: 'neutral' },
+      wind: {
+        value: h.windSpeedMs,
+        delta: windDelta,
+        direction: windDir,
+        tone: windDir === 'down' ? 'positive' : windDir === 'up' ? 'negative' : 'neutral',
+      },
+      gust: {
+        value: h.windGustMs,
+        delta: gustDelta,
+        direction: gustDir,
+        tone: gustDir === 'down' ? 'positive' : gustDir === 'up' ? 'negative' : 'neutral',
+        severity: deriveGustSeverity(h.windSpeedMs, h.windGustMs, thresholds),
+      },
+      precipitation: {
+        value: h.precipitationMmPerHour,
+        delta: precipDelta,
+        direction: precipDir,
+        tone: precipDir === 'down' ? 'positive' : precipDir === 'up' ? 'negative' : 'neutral',
+      },
+    }
+  })
+}
+
+/** Enriches each candidate with arrival weather from the destination forecast. */
+function enrichWithArrivalWeather(
+  candidates: TravelCandidate[],
+  destHours: HourPoint[],
+  trailerKind: 'none' | TrailerKind,
+  resolved: ResolvedTravelThresholds,
+): TravelCandidate[] {
+  return candidates.map(c => {
+    const arrivalMs = new Date(c.arrivalIso).getTime()
+    const nearHrs = getHoursNearEta(destHours, arrivalMs)
+    if (nearHrs.length === 0) return c
+    const nearest = nearHrs.reduce((a, b) =>
+      Math.abs(new Date(a.time).getTime() - arrivalMs) <= Math.abs(new Date(b.time).getTime() - arrivalMs) ? a : b
+    )
+    const evalResult = evalDrivingLeg(nearest.windSpeedMs, nearest.windGustMs, nearest.precipitationMmPerHour, trailerKind, resolved)
+    return {
+      ...c,
+      arrivalWeather: {
+        forecastTimeIso: nearest.time,
+        windMs: nearest.windSpeedMs,
+        gustMs: nearest.windGustMs,
+        precipMmPerHour: nearest.precipitationMmPerHour,
+        airTemperatureC: nearest.airTemperatureC,
+        status: evalResult.stada,
+        reasonCode: evalResult.reasonCode,
+      },
+    }
+  })
+}
+
 export function checkTravelWeather(input: TravelWeatherInput): DeterministicResult {
   const {
     trailerKind, originName, destinationName, distanceM, durationS, pointForecasts,
@@ -623,27 +718,7 @@ export function checkTravelWeather(input: TravelWeatherInput): DeterministicResu
 
   // --- Arrival weather (destination forecast near candidate arrivalIso) ---
   if (destinationForecast?.hours.length) {
-    outboundCandidates = outboundCandidates.map(c => {
-      const arrivalMs = new Date(c.arrivalIso).getTime()
-      const nearHrs = getHoursNearEta(destinationForecast.hours, arrivalMs)
-      if (nearHrs.length === 0) return c
-      const nearest = nearHrs.reduce((a, b) =>
-        Math.abs(new Date(a.time).getTime() - arrivalMs) <= Math.abs(new Date(b.time).getTime() - arrivalMs) ? a : b
-      )
-      const evalResult = evalDrivingLeg(nearest.windSpeedMs, nearest.windGustMs, nearest.precipitationMmPerHour, trailerKind, resolved)
-      return {
-        ...c,
-        arrivalWeather: {
-          forecastTimeIso: nearest.time,
-          windMs: nearest.windSpeedMs,
-          gustMs: nearest.windGustMs,
-          precipMmPerHour: nearest.precipitationMmPerHour,
-          airTemperatureC: nearest.airTemperatureC,
-          status: evalResult.stada,
-          reasonCode: evalResult.reasonCode,
-        },
-      }
-    })
+    outboundCandidates = enrichWithArrivalWeather(outboundCandidates, destinationForecast.hours, trailerKind, resolved)
   }
 
   const outboundWindows = groupCandidatesIntoWindows(outboundCandidates)
@@ -705,7 +780,11 @@ export function checkTravelWeather(input: TravelWeatherInput): DeterministicResu
 
   if (!windowMode) {
     const scanResult = buildSingleDepartureTimeline(earliestDeparture, durationS, pointForecasts, trailerKind, distanceM, originName, resolved)
-    timelineCandidates = scanResult.timelineCandidates.length > 0 ? scanResult.timelineCandidates : undefined
+    let tl = scanResult.timelineCandidates.length > 0 ? scanResult.timelineCandidates : undefined
+    if (tl && destinationForecast?.hours.length) {
+      tl = enrichWithArrivalWeather(tl, destinationForecast.hours, trailerKind, resolved)
+    }
+    timelineCandidates = tl
     if (outboundOverallStada === 'graent') {
       nextCaution = scanResult.nextCaution
     }
@@ -811,7 +890,9 @@ export function checkTravelWeather(input: TravelWeatherInput): DeterministicResu
     highlightedIssue,
     routeWeatherPoints,
     thresholdsUsed: resolved,
-    destinationForecastHours: destinationForecast?.hours,
+    destinationForecastRows: destinationForecast?.hours.length
+      ? buildForecastRows(destinationForecast.hours, trailerKind, resolved)
+      : undefined,
   }
 
   return {

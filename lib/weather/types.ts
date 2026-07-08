@@ -65,6 +65,8 @@ export type RouteWeatherPoint = {
   metnoUrl: string
   /** Human-readable yr.no forecast page for this point. */
   yrnoUrl: string
+  /** Full hourly forecast rows for the Spá drawer, pre-processed with threshold-aware gust severity. */
+  forecastRows?: ForecastDrawerRow[]
   summaryForWindow?: {
     status: WeatherStatus
     worstWindMs: number
@@ -117,6 +119,28 @@ export type CandidateDisplayPoint = {
  * Sourced from the destination forecast hour nearest to candidate.arrivalIso,
  * so values update correctly when the user selects a different departure slot.
  */
+export type GustSeverity = 'none' | 'notice' | 'caution' | 'danger'
+
+export type ForecastDrawerMetricCell = {
+  value: number
+  delta?: number
+  direction: 'up' | 'down' | 'steady' | 'none'
+  tone: 'positive' | 'negative' | 'neutral'
+}
+
+export type ForecastDrawerGustCell = ForecastDrawerMetricCell & {
+  severity: GustSeverity
+}
+
+export type ForecastDrawerRow = {
+  timeIso: string
+  status: WeatherStatus | 'no_data'
+  temperature: ForecastDrawerMetricCell
+  wind: ForecastDrawerMetricCell
+  gust: ForecastDrawerGustCell
+  precipitation: ForecastDrawerMetricCell
+}
+
 export type CandidateArrivalWeather = {
   forecastTimeIso: string
   windMs: number
@@ -237,8 +261,8 @@ export type TravelPlan = {
   routeWeatherPoints?: RouteWeatherPoint[]
   /** Resolved thresholds actually used for this calculation. */
   thresholdsUsed?: ResolvedTravelThresholds
-  /** Full destination forecast hours for the arrival-weather drawer. One copy per plan, not per candidate. */
-  destinationForecastHours?: HourPoint[]
+  /** Full destination forecast rows for the Spá drawer (pre-processed, threshold-aware). */
+  destinationForecastRows?: ForecastDrawerRow[]
 }
 
 export type DeterministicResult = {

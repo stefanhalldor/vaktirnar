@@ -1046,4 +1046,69 @@ describe('checkTravelWeather', () => {
       expect(first?.displayPoint).toBeUndefined()
     })
   })
+
+  describe('arrivalWeather — destination forecast enrichment', () => {
+    // Departure 08:00, duration 5h → arrival 13:00
+    const DEP = '2026-07-10T08:00:00Z'
+    const ARR = '2026-07-10T13:00:00Z'
+    const pf = makeForecast(DEP, 12, 5, 7, 0)
+
+    function makeDestHours(fromIso: string, count: number, windMs: number, gustMs: number, precipMm: number) {
+      return Array.from({ length: count }, (_, i) => {
+        const t = new Date(new Date(fromIso).getTime() + i * 3_600_000).toISOString()
+        return { time: t, airTemperatureC: 8, windSpeedMs: windMs, windGustMs: gustMs, windFromDegrees: 270, precipitationMmPerHour: precipMm, symbolCode: 'clearsky_day' }
+      })
+    }
+
+    it('leavingAt candidate gets arrivalWeather when destination forecast covers arrivalIso', () => {
+      // dest hours 10:00–17:00 → 13:00 is within ±1h
+      const destHours = makeDestHours('2026-07-10T10:00:00Z', 8, 6, 8, 0.2)
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pf], destinationForecast: { hours: destHours } })
+      const leavingAt = result.travelPlan?.outbound.leavingAt
+      expect(leavingAt?.arrivalWeather).toBeDefined()
+      expect(leavingAt?.arrivalWeather?.windMs).toBe(6)
+      expect(leavingAt?.arrivalWeather?.gustMs).toBe(8)
+      expect(leavingAt?.arrivalWeather?.precipMmPerHour).toBe(0.2)
+      expect(leavingAt?.arrivalWeather?.forecastTimeIso).toBe('2026-07-10T13:00:00.000Z')
+    })
+
+    it('timelineCandidates[0] also gets arrivalWeather in single-departure mode', () => {
+      const destHours = makeDestHours('2026-07-10T10:00:00Z', 8, 6, 8, 0.2)
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pf], destinationForecast: { hours: destHours } })
+      const tl0 = result.travelPlan?.outbound.timelineCandidates?.[0]
+      expect(tl0?.arrivalWeather).toBeDefined()
+      expect(tl0?.arrivalWeather?.windMs).toBe(6)
+    })
+
+    it('later timelineCandidates pick their own nearest forecast hour', () => {
+      // dest hours span 10:00–20:00. timeline slot +2h → arrival 15:00.
+      const destHours = makeDestHours('2026-07-10T10:00:00Z', 12, 6, 8, 0.2)
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pf], destinationForecast: { hours: destHours } })
+      const tl = result.travelPlan?.outbound.timelineCandidates ?? []
+      expect(tl.length).toBeGreaterThan(1)
+      // Each candidate should have arrivalWeather
+      for (const c of tl) {
+        expect(c.arrivalWeather).toBeDefined()
+      }
+      // Different departure slots → different arrivalIso → different forecastTimeIso
+      const forecastTimes = new Set(tl.map(c => c.arrivalWeather?.forecastTimeIso))
+      expect(forecastTimes.size).toBeGreaterThan(1)
+    })
+
+    it('arrivalWeather is omitted when destination forecast is absent', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pf] })
+      const leavingAt = result.travelPlan?.outbound.leavingAt
+      expect(leavingAt?.arrivalWeather).toBeUndefined()
+      const tl0 = result.travelPlan?.outbound.timelineCandidates?.[0]
+      expect(tl0?.arrivalWeather).toBeUndefined()
+    })
+
+    it('arrivalWeather is omitted when no forecast hour is within ±1h of arrivalIso', () => {
+      // dest hours only at 07:00 → far from arrival 13:00
+      const destHours = makeDestHours('2026-07-10T07:00:00Z', 1, 6, 8, 0.2)
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pf], destinationForecast: { hours: destHours } })
+      const leavingAt = result.travelPlan?.outbound.leavingAt
+      expect(leavingAt?.arrivalWeather).toBeUndefined()
+    })
+  })
 })

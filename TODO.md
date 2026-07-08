@@ -58,6 +58,7 @@ tilvísanir og verkefnasaga rofni ekki.
 | 26  | **#72 Veður: mest krefjandi við upphaf ferðar**             | **Ferðalagið edge-case polish.** Ef mest krefjandi punkturinn er fyrsti punkturinn á top-spjaldið að segja að hann sé við upphaf ferðarinnar, ekki sleppa línunni. |
 | 27  | **#73 Veður: veður við komu á áfangastað**                  | **Ferðalagið result polish.** Sýna veður við áætlaða komu á áfangastað í top-spjaldinu, með skýru `Mættur`/arrival-lúkki svo þetta verði gagnlegt en ekki dauður texti. |
 | 28  | **#74 Veður: hvað veldur ófullnægjandi gögnum og nálgun**   | **Ferðalagið data quality.** Skoða hvað veldur því að spápunktar fá `Ófullnægjandi gögn` (no_data) og hvort hægt sé að gera nálgun m.v. tiltæk gögn þegar nákvæm spá vantar. |
+| 29  | **#75 Veður: Spá 🥄 — veðurspátafla fyrir alla spápunkta**  | **Ferðalagið UI.** Endurnýta `ForecastDrawer` þannig að hægt sé að opna Teskeiðarútlit á veðurspá frá öllum þremur stöðum: komu við áfangastað, mesta krefjandi punkti og öllum spápunktum í lista. |
 
 ## Vinnupakkar
 
@@ -86,7 +87,7 @@ OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
 hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
 fullkomnara.
 
-**Pakki F — Veðrið / Ferðalagið:** #67, #70, #71, #72, #73, #74 og áframhaldandi `todo-067` handoff.
+**Pakki F — Veðrið / Ferðalagið:** #67, #70, #71, #72, #73, #74, #75 og áframhaldandi `todo-067` handoff.
 Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
 traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
 brottfarar- eða heimferðartíma kerfið mælir með.
@@ -1934,4 +1935,30 @@ samræmd Teskeið, ekki stórt skrautkort.
 1. Reikna leið sem framleiddi `Ófullnægjandi gögn` slot.
 2. Velja slíkt slot.
 3. Vænt: ef nálgun er útfærð sést hún með skýrum fyrirvara; ef ekki er hegðun óbreytt.
+
+---
+
+#75
+## Veður: Spá 🥄 — veðurspátafla fyrir alla spápunkta
+
+**Staða:** Lokið (Phase 1)
+
+**Stofnað:** 2026-07-08
+
+**Samhengi:** Endurnýta `ForecastDrawer` component þannig að hægt sé að opna Teskeiðarútlit á veðurspá frá öllum þremur stöðum í ferðaveðurniðurstöðunni.
+
+**Útfært í Phase 1:**
+
+- Nýr `ForecastDrawer` component — bottom-sheet, max-w-md, max-h-75vh, með töflu (dagsetning/tími, hiti, vindur+hvið, úrkoma).
+- `buildForecastRows(hours, trailerKind, thresholds)` í `lib/weather/travel.ts` — reiknar delta/direction/tone/severity per röð, með `deriveGustSeverity` (threshold-relative).
+- `forecastRows` bætt við `RouteWeatherPoint`; `destinationForecastRows` í stað `destinationForecastHours` í `TravelPlan`.
+- Þrír triggers: komu við áfangastað ("Skoða spána á áfangastað betur"), `PointDetailsPanel` í korti (Spá 🥄) og `RoutePointRow` í útskýringarlista.
+- Highlighted röð sýnir rétt spátíma: `displayPoint.forecastTimeIso` ef þetta er mesta krefjandi punkturinn undir virkum slot, annars næsta spáröð við ETA; fallback á `summaryForWindow.forecastTimeIso`.
+- Label: "🥄 notar m.v. brottför kl. {time}" á öllum þremur stöðum.
+
+**Phase 2 (framtíð):**
+
+- Náttúrusíun (23:00-06:00 faldar, viðvörun ef þær fela gult/rautt veður).
+- Hviðuþróunarörvar í vindreiti eftir mobile-próf.
+- Hitastigslitir þegar frost-aware merking er til staðar.
 4. Staðfesta að nálgun, ef hún er sýnd, sé ekki villandi.
