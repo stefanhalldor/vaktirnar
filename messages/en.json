@@ -726,7 +726,7 @@
         "departureStatusGreen": "Good travel weather for your limits.",
         "departureStatusYellow": "May be uncomfortable for your limits.",
         "departureStatusRed": "Not recommended for your limits.",
-        "weatherDisclaimer": "This is a weather forecast and we live in Iceland. Keep an eye on road conditions for safety, e.g. on the <link>Road Administration website</link>.",
+        "weatherDisclaimer": "This assessment is based on data from the same weather service that Yr uses. For driving, also check gusts and road conditions, e.g. at the <link>Road Administration</link>, especially if you're towing a trailer, folding camper, or motorhome.",
         "arrivalForecastAtLabel": "forecast at {forecastTime}:",
         "arrivalForecastTitle": "Forecast for {destination}",
         "viewFullForecast": "View the destination forecast",

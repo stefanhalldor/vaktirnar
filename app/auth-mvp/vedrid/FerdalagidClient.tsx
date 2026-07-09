@@ -928,15 +928,15 @@ export function FerdalagidClient() {
                                   {tf('slotDetailMetricLine', { metric: metricLabel.toLowerCase(), value: `${formatNum(issue.value, locale)} ${issue.unit ?? ''}` })}
                                 </p>
                               )}
-                              <p className="text-xs text-muted-foreground">
+                              <div className="mt-1 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
                                 {tf.rich('weatherDisclaimer', {
                                   link: (chunks) => (
-                                    <a href="https://umferdin.is" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">
+                                    <a href="https://umferdin.is/" target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-2">
                                       {chunks}
                                     </a>
                                   ),
                                 })}
-                              </p>
+                              </div>
                             </div>
                           </section>
                         )
@@ -1072,18 +1072,6 @@ export function FerdalagidClient() {
                     </div>
                   )}
 
-                  {/* Disclaimer fallback — shown only when Á leiðinni section does not render */}
-                  {!(derivedStyle && (activeOutboundCandidate?.displayPoint || heatmapHighlightedIssue)) && (
-                    <p className="text-xs text-muted-foreground">
-                      {tf.rich('weatherDisclaimer', {
-                        link: (chunks) => (
-                          <a href="https://umferdin.is" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">
-                            {chunks}
-                          </a>
-                        ),
-                      })}
-                    </p>
-                  )}
                 </div>
               )
             })()}

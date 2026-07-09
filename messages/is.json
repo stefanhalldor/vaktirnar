@@ -730,7 +730,7 @@
         "departureStatusGreen": "Gott ferðaveður m.v. valin veðurmörk.",
         "departureStatusYellow": "Gæti orðið óþægilegt m.v. valin veðurmörk.",
         "departureStatusRed": "Ekki mælt með ferð m.v. valin veðurmörk.",
-        "weatherDisclaimer": "Þetta er veðurspá og við búum á Íslandi. Fylgist vel með færðinni til öryggis, t.d. á <link>vef Vegagerðarinnar</link>.",
+        "weatherDisclaimer": "Þetta er mat sem byggir á gögnum frá sömu veðurþjónustu og Yr notar. Fyrir akstur skaltu líka athuga hviður og vegaaðstæður, t.d. hjá <link>Vegagerðinni</link>, sérstaklega ef þú ert með kerru, fellihýsi eða hjólhýsi.",
         "arrivalForecastAtLabel": "spáin kl. {forecastTime}:",
         "arrivalForecastTitle": "Spá fyrir {destination}",
         "viewFullForecast": "Skoða spána á áfangastað betur",
