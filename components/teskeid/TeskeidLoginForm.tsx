@@ -126,9 +126,14 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
   return (
     <div className="min-h-screen bg-[#fbf9f4] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
+        <div className="mb-6 text-center">
           <p className="text-xs text-[#72796e] mb-3">{t('betaLabel')}</p>
           <h1 className="text-2xl font-semibold text-[#154212]">Teskeið.is</h1>
+        </div>
+        <div className="mb-5 flex justify-center">
+          <span className="inline-flex items-center rounded-full bg-[#e9f4e6] px-4 py-1.5 text-sm font-semibold text-[#154212]">
+            {t('freeAccessLabel')}
+          </span>
         </div>
         <div className="bg-white border border-black/5 rounded-2xl shadow-sm p-6">
           {step === 'email' ? (

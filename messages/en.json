@@ -291,6 +291,7 @@
     },
     "auth": {
       "betaLabel": "Teskeið.is is in open beta testing and currently works best on a phone.",
+      "freeAccessLabel": "Free access to Teskeið.is.",
       "loginTitle": "Everything is 10/10 with Teskeið.is",
       "emailHint": "Enter your email and we'll send you a code to continue.",
       "emailLabel": "Email",
