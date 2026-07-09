@@ -1,7 +1,7 @@
 {
   "name": "Teskeið",
   "short_name": "Teskeið",
-  "description": "Litlar hversdagslausnir á einum stað, einni í einu.",
+  "description": "Margar litlar hversdagslausnir á einum stað. Einn aðgangur.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fbf9f4",

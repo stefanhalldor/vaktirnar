@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Allt í Teskeið",
-    "description": "Litlar hversdagslausnir á einum stað, einni í einu."
+    "description": "Margar litlar hversdagslausnir á einum stað. Einn aðgangur."
   },
   "nav": {
     "language": "EN",
@@ -225,7 +225,7 @@
   "teskeid": {
     "meta": {
       "title": "Allt í Teskeið",
-      "description": "Litlar hversdagslausnir á einum stað, einni í einu."
+      "description": "Margar litlar hversdagslausnir á einum stað. Einn aðgangur."
     },
     "nav": {
       "back": "Til baka",
