@@ -618,7 +618,7 @@ export function buildForecastRows(
     return {
       timeIso: h.time,
       status: legResult.stada,
-      temperature: { value: h.airTemperatureC, delta: tempDelta, direction: tempDir, tone: 'neutral' },
+      temperature: { value: h.airTemperatureC, delta: tempDelta, direction: tempDir, tone: tempDir === 'up' ? 'positive' : tempDir === 'down' ? 'negative' : 'neutral' },
       wind: {
         value: h.windSpeedMs,
         delta: windDelta,

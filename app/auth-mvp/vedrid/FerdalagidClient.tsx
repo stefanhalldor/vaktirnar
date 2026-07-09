@@ -57,7 +57,9 @@ export function FerdalagidClient() {
     rows: ForecastDrawerRow[]
     title: string
     highlightedTimeIso?: string
-    highlightedLabel?: string
+    yrnoUrl?: string
+    googleMapsUrl?: string
+    departureContext?: { originDisplay: string; departureIso: string }
   } | null>(null)
   const [selectedHeatmapIdx, setSelectedHeatmapIdx] = useState<number | null>(null)
   const [selectedReturnHeatmapIdx, setSelectedReturnHeatmapIdx] = useState<number | null>(null)
@@ -948,9 +950,12 @@ export function FerdalagidClient() {
                                   rows: result.travelPlan!.destinationForecastRows!,
                                   title: tf('arrivalForecastTitle', { destination: effectiveDestinationName }),
                                   highlightedTimeIso: activeOutboundCandidate?.arrivalWeather?.forecastTimeIso,
-                                  highlightedLabel: activeOutboundCandidate
-                                    ? tf('forecastUsedByTeskeidAt', { time: formatKlTime(activeOutboundCandidate.departureIso) })
-                                    : undefined,
+                                  yrnoUrl: destination ? `https://www.yr.no/en/forecast/daily-table/${destination.lat},${destination.lon}` : undefined,
+                                  googleMapsUrl: destination ? `https://www.google.com/maps/search/?api=1&query=${destination.lat},${destination.lon}` : undefined,
+                                  departureContext: activeOutboundCandidate ? {
+                                    originDisplay: getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback')),
+                                    departureIso: activeOutboundCandidate.departureIso,
+                                  } : undefined,
                                 })}
                                 className="self-start text-primary underline hover:text-primary/80 transition-colors text-[11px]"
                               >
@@ -1007,9 +1012,12 @@ export function FerdalagidClient() {
                     rows: pt.forecastRows,
                     title: tf('forecastPointTitle', { index: pt.routeIndex + 1, total: pt.totalRouteWeatherPoints }),
                     highlightedTimeIso,
-                    highlightedLabel: activeCandidate
-                      ? tf('forecastUsedByTeskeidAt', { time: formatKlTime(activeCandidate.departureIso) })
-                      : undefined,
+                    yrnoUrl: pt.yrnoUrl,
+                    googleMapsUrl: pt.googleMapsUrl,
+                    departureContext: activeCandidate ? {
+                      originDisplay: getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback')),
+                      departureIso: activeCandidate.departureIso,
+                    } : undefined,
                   })
                 }}
               />
@@ -1068,9 +1076,12 @@ export function FerdalagidClient() {
                             rows: pt.forecastRows!,
                             title: tf('forecastPointTitle', { index: pt.routeIndex + 1, total: pt.totalRouteWeatherPoints }),
                             highlightedTimeIso,
-                            highlightedLabel: activeCandidate
-                              ? tf('forecastUsedByTeskeidAt', { time: formatKlTime(activeCandidate.departureIso) })
-                              : undefined,
+                            yrnoUrl: pt.yrnoUrl,
+                            googleMapsUrl: pt.googleMapsUrl,
+                            departureContext: activeCandidate ? {
+                              originDisplay: getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback')),
+                              departureIso: activeCandidate.departureIso,
+                            } : undefined,
                           })
                         } : undefined}
                       />
@@ -1093,7 +1104,9 @@ export function FerdalagidClient() {
           rows={forecastDrawerData.rows}
           title={forecastDrawerData.title}
           highlightedTimeIso={forecastDrawerData.highlightedTimeIso}
-          highlightedLabel={forecastDrawerData.highlightedLabel}
+          yrnoUrl={forecastDrawerData.yrnoUrl}
+          googleMapsUrl={forecastDrawerData.googleMapsUrl}
+          departureContext={forecastDrawerData.departureContext}
           onClose={() => setForecastDrawerData(null)}
         />
       )}

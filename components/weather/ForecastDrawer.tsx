@@ -9,8 +9,12 @@ type Props = {
   title: string
   /** ISO time of the forecast hour to highlight (e.g. ETA or arrival weather time). */
   highlightedTimeIso?: string
-  /** Override label shown under the highlighted row. Defaults to forecastUsedByTeskeid. */
-  highlightedLabel?: string
+  /** Yr forecast page URL for the location shown in this drawer. */
+  yrnoUrl?: string
+  /** Google Maps URL for the location shown in this drawer. */
+  googleMapsUrl?: string
+  /** Departure context shown in sticky header: origin (dative) + departure ISO. */
+  departureContext?: { originDisplay: string; departureIso: string }
   onClose: () => void
 }
 
@@ -22,7 +26,10 @@ function formatDrawerDate(isoString: string, isIcelandic: boolean): string {
   }).format(new Date(isoString))
 }
 
-export function ForecastDrawer({ rows, title, highlightedTimeIso, highlightedLabel, onClose }: Props) {
+/** Shared grid template for header and body rows. */
+const ROW_GRID = 'grid grid-cols-[1fr_2.5rem_5rem_3rem]'
+
+export function ForecastDrawer({ rows, title, highlightedTimeIso, yrnoUrl, googleMapsUrl, departureContext, onClose }: Props) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const isIcelandic = normalizeLocale(locale).startsWith('is')
@@ -36,91 +43,140 @@ export function ForecastDrawer({ rows, title, highlightedTimeIso, highlightedLab
         className="bg-background border-t w-full max-w-md mx-auto max-h-[75vh] overflow-y-auto rounded-t-2xl"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <h2 className="text-sm font-semibold">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
-            aria-label={tf('drawerClose')}
-          >
-            ×
-          </button>
+        {/* Sticky header */}
+        <div className="sticky top-0 bg-background z-10 border-b border-muted/40">
+
+          {/* Title + close */}
+          <div className="flex items-center justify-between px-4 pt-4 pb-1">
+            <h2 className="text-sm font-semibold">{title}</h2>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+              aria-label={tf('drawerClose')}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* External links */}
+          {(yrnoUrl || googleMapsUrl) && (
+            <div className="flex gap-3 px-4 pb-1.5">
+              {yrnoUrl && (
+                <a
+                  href={yrnoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-primary underline hover:text-primary/80 transition-colors"
+                >
+                  Yr
+                </a>
+              )}
+              {googleMapsUrl && (
+                <a
+                  href={googleMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-primary underline hover:text-primary/80 transition-colors"
+                >
+                  Google Maps
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Departure context */}
+          {departureContext && (
+            <p className="px-4 pb-2 text-[11px] text-muted-foreground">
+              {tf('forecastDepartureFrom', {
+                origin: departureContext.originDisplay,
+                time: formatKlTime(departureContext.departureIso),
+              })}
+            </p>
+          )}
+
+          {/* Column headers */}
+          <div className={`${ROW_GRID} px-4 pb-2 text-[10px] font-medium text-muted-foreground`}>
+            <span>{tf('forecastColDateTime')}</span>
+            <span className="text-right">{tf('forecastColTemp')}</span>
+            <span className="text-right">{tf('forecastColWind')}</span>
+            <span className="text-right">{tf('forecastColPrecip')}</span>
+          </div>
+
         </div>
 
-        {/* Table */}
-        <div className="px-4 pb-6">
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="border-b text-muted-foreground text-left">
-                <th className="py-2 pr-2 font-medium">{tf('forecastColDateTime')}</th>
-                <th className="py-2 pr-2 font-medium text-right">{tf('forecastColTemp')}</th>
-                <th className="py-2 pr-2 font-medium text-right">{tf('forecastColWind')}</th>
-                <th className="py-2 font-medium text-right">{tf('forecastColPrecip')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => {
-                const isHighlighted = highlightedTimeIso === row.timeIso
-                const dateLabel = formatDrawerDate(row.timeIso, isIcelandic)
-                const timeLabel = formatKlTime(row.timeIso)
+        {/* Forecast rows */}
+        <div className="px-4 pb-6 pt-0.5">
+          {rows.map(row => {
+            const isHighlighted = highlightedTimeIso === row.timeIso
+            const dateLabel = formatDrawerDate(row.timeIso, isIcelandic)
+            const timeLabel = formatKlTime(row.timeIso)
 
-                const gustSeverity = row.gust.severity
-                const showGust = row.gust.value > row.wind.value || gustSeverity !== 'none'
-                const gustSeverityClass =
-                  gustSeverity === 'danger' ? 'text-red-600 dark:text-red-400' :
-                  gustSeverity === 'caution' ? 'text-amber-600 dark:text-amber-400' :
-                  gustSeverity === 'notice' ? 'text-yellow-600 dark:text-yellow-500' :
-                  'text-muted-foreground'
+            const gustSeverity = row.gust.severity
+            const showGust = row.gust.value > row.wind.value || gustSeverity !== 'none'
+            const gustSeverityClass =
+              gustSeverity === 'danger'  ? 'text-red-600 dark:text-red-400' :
+              gustSeverity === 'caution' ? 'text-amber-600 dark:text-amber-400' :
+              gustSeverity === 'notice'  ? 'text-yellow-600 dark:text-yellow-500' :
+              'text-muted-foreground'
 
-                const windToneClass =
-                  row.wind.tone === 'positive' ? 'text-green-600 dark:text-green-400' :
-                  row.wind.tone === 'negative' ? 'text-amber-600 dark:text-amber-400' :
-                  ''
+            const windToneClass =
+              row.wind.tone === 'positive' ? 'text-green-600 dark:text-green-400' :
+              row.wind.tone === 'negative' ? 'text-amber-600 dark:text-amber-400' :
+              ''
 
-                const precipToneClass =
-                  row.precipitation.tone === 'positive' ? 'text-green-600 dark:text-green-400' :
-                  row.precipitation.tone === 'negative' ? 'text-amber-600 dark:text-amber-400' :
-                  ''
+            const precipToneClass =
+              row.precipitation.tone === 'positive' ? 'text-green-600 dark:text-green-400' :
+              row.precipitation.tone === 'negative' ? 'text-amber-600 dark:text-amber-400' :
+              ''
 
-                return (
-                  <tr
-                    key={row.timeIso}
-                    className={`border-b border-muted/40 ${isHighlighted ? 'bg-primary/5 font-medium' : ''}`}
-                  >
-                    <td className="py-1.5 pr-2 text-foreground">
-                      {dateLabel} {timeLabel}
-                      {isHighlighted && (
-                        <span className="block text-[10px] text-primary font-normal">
-                          {highlightedLabel ?? tf('forecastUsedByTeskeid')}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">
-                      {formatNum(row.temperature.value, locale)}
-                    </td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">
-                      <span className={windToneClass}>
-                        {formatNum(row.wind.value, locale)}
-                      </span>
-                      {showGust && (
-                        <span className={`block text-[10px] ${gustSeverityClass}`}>
-                          {tf('forecastGustAbbr')} {formatNum(row.gust.value, locale)}
-                          {gustSeverity === 'danger' || gustSeverity === 'caution' ? ' ⚠' : ''}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-1.5 text-right tabular-nums">
-                      <span className={precipToneClass}>
-                        {formatNum(row.precipitation.value, locale)}
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+            const tempToneClass =
+              row.temperature.tone === 'positive' ? 'text-green-600 dark:text-green-400' :
+              row.temperature.tone === 'negative' ? 'text-amber-600 dark:text-amber-400' :
+              ''
+
+            return (
+              <div
+                key={row.timeIso}
+                className={`${ROW_GRID} items-start py-1.5 border-b border-muted/40 text-xs${isHighlighted ? ' bg-primary/5 font-medium -mx-4 px-4' : ''}`}
+              >
+                {/* DateTime */}
+                <div className="text-foreground pr-2">
+                  <span>{dateLabel} {timeLabel}</span>
+                  {isHighlighted && (
+                    <span className="block text-[10px] text-primary font-normal">
+                      {tf('forecastHighlightedRowLabel')}
+                    </span>
+                  )}
+                </div>
+
+                {/* Temperature */}
+                <div className="text-right tabular-nums">
+                  <span className={tempToneClass}>{formatNum(row.temperature.value, locale)}</span>
+                </div>
+
+                {/* Wind + gust */}
+                <div className="text-right tabular-nums">
+                  <span className={windToneClass}>
+                    {formatNum(row.wind.value, locale)}
+                  </span>
+                  {showGust && (
+                    <span className={`block text-[10px] ${gustSeverityClass}`}>
+                      {tf('forecastGustAbbr')} {formatNum(row.gust.value, locale)}
+                      {gustSeverity === 'danger' || gustSeverity === 'caution' ? ' ⚠' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {/* Precipitation */}
+                <div className="text-right tabular-nums">
+                  <span className={precipToneClass}>
+                    {formatNum(row.precipitation.value, locale)}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>
