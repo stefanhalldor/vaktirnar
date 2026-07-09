@@ -47,6 +47,8 @@ type DepartureHeatmapProps = {
   subtitle?: string
   /** If false, hides the selected slot detail card below the scrubber. Default: true. */
   showSelectedDetail?: boolean
+  /** Label for the first slot (e.g. "Núna"). When set, slot 0 shows this label above the actual time. */
+  firstSlotLabel?: string
 }
 
 const STATUS_BG: Record<SlotStatus, string> = {
@@ -67,6 +69,12 @@ function slotStatus(c: TravelCandidate): SlotStatus {
   return c.reasonCode === 'no_data' ? 'no_data' : c.status
 }
 
+/** Returns compact hour label for whole-hour slots: "00" for midnight, "1"–"23" otherwise. */
+function formatCompactHour(isoString: string): string {
+  const h = new Date(isoString).getUTCHours()
+  return h === 0 ? '00' : String(h)
+}
+
 function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
   if (!bestWindow) return false
   const dep = new Date(c.departureIso).getTime()
@@ -75,7 +83,7 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
 
 const ALL_SLOT_STATUSES: SlotStatus[] = ['graent', 'gult', 'rautt', 'no_data']
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -176,7 +184,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                       {formatDayLabel(items[0].c.departureIso, locale)}
                     </span>
                   </div>
-                  <div className="flex gap-1.5 items-end">
+                  <div className="flex gap-1 items-end">
                     {items.map(({ c, realIdx }) => {
                       const st = slotStatus(c)
                       const best = isBestSlot(c, bestWindow)
@@ -186,17 +194,26 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                           key={c.departureIso}
                           type="button"
                           onClick={() => onSelectIdx(realIdx === selectedIdx ? null : realIdx)}
-                          aria-label={`${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`}
-                          className={`flex flex-col items-center gap-0.5 min-w-[42px] px-1.5 py-1.5 rounded-lg border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          aria-label={realIdx === 0 && firstSlotLabel
+                            ? `${firstSlotLabel} · ${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`
+                            : `${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`}
+                          className={`flex flex-col items-center gap-0.5 ${realIdx === 0 && firstSlotLabel ? 'min-w-[42px] px-1.5' : 'min-w-9 px-1'} py-1.5 rounded-lg border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                             isSelected
                               ? `${STATUS_BORDER[st]} border-2 bg-card`
                               : `border-transparent ${best ? 'ring-1 ring-offset-1 ring-primary/50' : ''}`
                           }`}
                         >
                           <span className={`w-4 h-4 rounded-full ${STATUS_BG[st]}`} aria-hidden />
-                          <span className="text-[10px] text-muted-foreground leading-none">
-                            {formatKlTime(c.departureIso)}
-                          </span>
+                          {realIdx === 0 && firstSlotLabel ? (
+                            <>
+                              <span className="text-[10px] text-muted-foreground font-medium leading-none">{firstSlotLabel}</span>
+                              <span className="text-[9px] text-muted-foreground/60 leading-none">{formatKlTime(c.departureIso)}</span>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground leading-none">
+                              {formatCompactHour(c.departureIso)}
+                            </span>
+                          )}
                           {best && !isSelected && (
                             <span className="text-[8px] text-primary font-medium leading-none">
                               {tf('heatmapBestSlot')}

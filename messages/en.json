@@ -784,6 +784,7 @@
         "heatmapSlotDateTime": "{date} at {time}",
         "heatmapSlotTime": "at {time}",
         "timelineFilterAll": "All",
+        "timelineNowLabel": "Now",
         "timelineEmptyFilter": "Nothing unpleasant in this period.",
         "timelineEmptyGreenHidden": "Nothing unpleasant in this period. Click Good weather or Show all to see all slots.",
         "timelineShowAll": "Show all",

@@ -788,6 +788,7 @@
         "heatmapSlotDateTime": "{date} kl. {time}",
         "heatmapSlotTime": "kl. {time}",
         "timelineFilterAll": "Allt",
+        "timelineNowLabel": "Núna",
         "timelineEmptyFilter": "Ekkert óþægilegt á þessum tíma.",
         "timelineEmptyGreenHidden": "Ekkert óþægilegt á þessum tíma. Smelltu á Gott veður eða Sýna allt til að sjá alla tímana.",
         "timelineShowAll": "Sýna allt",

@@ -760,6 +760,67 @@ describe('checkTravelWeather', () => {
       expect(result.travelPlan?.outbound.timelineCandidates).toBeUndefined()
     })
 
+    it('whole-hour alignment: non-whole-hour start 23:37 gives first=23:37 then 00:00, 01:00', () => {
+      const forecast = makeForecast('2026-07-10T23:00:00Z', 10, 5, 7, 0)
+      const result = checkTravelWeather({
+        ...BASE_INPUT,
+        earliestDepartureAt: '2026-07-10T23:37:00Z',
+        pointForecasts: [forecast],
+      })
+      const tl = result.travelPlan?.outbound.timelineCandidates
+      expect(tl).toBeDefined()
+      expect(new Date(tl![0].departureIso).getUTCHours()).toBe(23)
+      expect(new Date(tl![0].departureIso).getUTCMinutes()).toBe(37)
+      // Second slot must be 00:00 (next whole UTC hour)
+      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(0)
+      expect(new Date(tl![1].departureIso).getUTCMinutes()).toBe(0)
+      // Third slot must be 01:00
+      expect(new Date(tl![2].departureIso).getUTCHours()).toBe(1)
+      expect(new Date(tl![2].departureIso).getUTCMinutes()).toBe(0)
+      // No 00:37 slot
+      const has0037 = tl!.some(c => {
+        const d = new Date(c.departureIso)
+        return d.getUTCHours() === 0 && d.getUTCMinutes() === 37
+      })
+      expect(has0037).toBe(false)
+    })
+
+    it('whole-hour alignment: exact whole-hour start 23:00 gives first=23:00 then 00:00, no duplicate', () => {
+      const forecast = makeForecast('2026-07-10T23:00:00Z', 10, 5, 7, 0)
+      const result = checkTravelWeather({
+        ...BASE_INPUT,
+        earliestDepartureAt: '2026-07-10T23:00:00Z',
+        pointForecasts: [forecast],
+      })
+      const tl = result.travelPlan?.outbound.timelineCandidates
+      expect(tl).toBeDefined()
+      expect(new Date(tl![0].departureIso).getUTCHours()).toBe(23)
+      expect(new Date(tl![0].departureIso).getUTCMinutes()).toBe(0)
+      // Second slot must be 00:00 (not a duplicate 23:00)
+      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(0)
+      expect(new Date(tl![1].departureIso).getUTCMinutes()).toBe(0)
+      // No duplicate first hour
+      const count2300 = tl!.filter(c => {
+        const d = new Date(c.departureIso)
+        return d.getUTCHours() === 23 && d.getUTCMinutes() === 0
+      }).length
+      expect(count2300).toBe(1)
+    })
+
+    it('whole-hour alignment: 23:56 start gives first=23:56 then 00:00', () => {
+      const forecast = makeForecast('2026-07-10T23:00:00Z', 10, 5, 7, 0)
+      const result = checkTravelWeather({
+        ...BASE_INPUT,
+        earliestDepartureAt: '2026-07-10T23:56:00Z',
+        pointForecasts: [forecast],
+      })
+      const tl = result.travelPlan?.outbound.timelineCandidates
+      expect(tl).toBeDefined()
+      expect(new Date(tl![0].departureIso).getUTCMinutes()).toBe(56)
+      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(0)
+      expect(new Date(tl![1].departureIso).getUTCMinutes()).toBe(0)
+    })
+
     it('timeline extends beyond 48h when forecast data covers more than 48h', () => {
       // 10-hour trip, 80 hours of calm forecast → timeline should reach well past 48h
       const forecast = makeForecast('2026-07-10T08:00:00Z', 80, 5, 7, 0)

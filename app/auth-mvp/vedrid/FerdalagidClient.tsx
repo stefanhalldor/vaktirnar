@@ -851,6 +851,7 @@ export function FerdalagidClient() {
                       thresholdsUsed={thresholdsUsed}
                       title={null}
                       showSelectedDetail={false}
+                      firstSlotLabel={!result.travelPlan!.outbound.windowMode ? tf('timelineNowLabel') : undefined}
                     />
                   )}
 

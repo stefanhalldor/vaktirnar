@@ -493,6 +493,14 @@ function reasonToText(reasonCode: string | undefined): string {
   }
 }
 
+/** Returns the next whole UTC hour strictly after ms (or the same hour + 1h if ms is already on a whole hour). */
+function nextWholeUtcHourAfter(ms: number): number {
+  const d = new Date(ms)
+  d.setUTCMinutes(0, 0, 0)
+  const rounded = d.getTime()
+  return rounded <= ms ? rounded + 3_600_000 : rounded
+}
+
 /**
  * Builds the single-departure hourly timeline from departure to the full forecast coverage limit.
  * Returns all candidates (first = current departure) and derives nextCaution from the first
@@ -523,7 +531,11 @@ function buildSingleDepartureTimeline(
   const scannedHours = Math.max(0, Math.round((endMs - startMs) / 3_600_000))
 
   const timelineCandidates: TravelCandidate[] = []
-  let t = startMs
+  // First slot: exact departure ("leave now")
+  const firstDepIso = new Date(startMs).toISOString()
+  timelineCandidates.push(evaluateCandidate(firstDepIso, addSeconds(firstDepIso, durationS), pointForecasts, trailerKind, totalDistanceM, 'outbound', thresholds))
+  // Remaining slots: aligned to whole UTC hours
+  let t = nextWholeUtcHourAfter(startMs)
   while (t <= endMs) {
     const depIso = new Date(t).toISOString()
     timelineCandidates.push(evaluateCandidate(depIso, addSeconds(depIso, durationS), pointForecasts, trailerKind, totalDistanceM, 'outbound', thresholds))
