@@ -21,9 +21,9 @@ export default async function InnskraningPage() {
     if (hasSession) redirect('/auth-mvp/heim')
   }
   return (
-    <>
+    <div className="min-h-screen flex flex-col">
       <PublicTopNav />
       <TeskeidLoginForm logoHref="/" />
-    </>
+    </div>
   )
 }

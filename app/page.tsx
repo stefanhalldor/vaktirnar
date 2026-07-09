@@ -29,7 +29,7 @@ export default async function Home() {
     <main className="min-h-screen bg-[#fbf9f4]">
       <PageViewTracker />
       {!user && <PublicTopNav />}
-      <NavBar variant={user ? 'authenticated' : 'public'} />
+      {user && <NavBar variant="authenticated" />}
       <HeroSection
         supportingLine={t('hero.supportingLine')}
         expandLabel={t('hero.expandLabel')}

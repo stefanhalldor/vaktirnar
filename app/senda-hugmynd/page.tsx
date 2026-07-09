@@ -13,9 +13,9 @@ export default async function SendaHugmyndPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   return (
-    <main className="min-h-screen bg-[#FAFAFA]">
+    <main className="min-h-screen bg-[#fbf9f4]">
       {!user && <PublicTopNav />}
-      <NavBar variant={user ? 'authenticated' : 'public'} />
+      {user && <NavBar variant="authenticated" />}
 
       <div className="max-w-2xl mx-auto px-6 pt-10 pb-20">
         <h1 className="text-2xl font-semibold text-gray-900 mb-2">{t('submit.title')}</h1>

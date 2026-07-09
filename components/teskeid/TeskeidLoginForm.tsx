@@ -124,7 +124,7 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#fbf9f4] flex items-center justify-center px-4">
+    <div className="grow bg-[#fbf9f4] flex justify-center px-4 pt-8 pb-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <p className="text-xs text-[#72796e] mb-3">{t('betaLabel')}</p>

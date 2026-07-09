@@ -2,10 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Lightbulb, Send, User } from 'lucide-react'
+import { Send, User } from 'lucide-react'
+import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 
-const ITEMS = [
-  { href: '/', label: 'Hugmyndir', icon: Lightbulb },
+const NAV_ITEMS = [
   { href: '/senda-hugmynd', label: 'Ný hugmynd', icon: Send },
   { href: '/innskraning', label: 'Innskráning', icon: User },
 ] as const
@@ -20,7 +20,15 @@ export function PublicTopNav() {
       aria-label="Aðalleiðsögn"
     >
       <div className="flex justify-around items-center max-w-[768px] mx-auto px-2 py-1">
-        {ITEMS.map(({ href, label, icon: Icon }) => {
+        <Link
+          href="/"
+          aria-label="Teskeið"
+          aria-current={pathname === '/' ? 'page' : undefined}
+          className="flex items-center justify-center rounded-xl px-5 py-2 min-h-[44px] min-w-[72px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-1 hover:bg-black/5 active:bg-black/10"
+        >
+          <TeskeidLogo size={64} decorative />
+        </Link>
+        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href
           return (
             <Link
