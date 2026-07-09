@@ -256,6 +256,7 @@
       "votePrompt": "Think this matters?",
       "voteLabel": "Yes, I want this",
       "votedLabel": "Voted",
+      "freeAccountCta": "Get free access",
       "followPrompt": "Get notified when something changes",
       "otherIdeas": "Other ideas"
     },

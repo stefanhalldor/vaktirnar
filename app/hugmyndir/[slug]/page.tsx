@@ -54,7 +54,7 @@ export default async function IdeaPage({
 
   const supabase = await createClient()
 
-  const [{ data: idea }, { data: allIdeas }] = await Promise.all([
+  const [{ data: idea }, { data: allIdeas }, { data: { user } }] = await Promise.all([
     supabase
       .from('ideas')
       .select('*')
@@ -68,9 +68,12 @@ export default async function IdeaPage({
       .neq('slug', slug)
       .order('votes_count', { ascending: false })
       .order('created_at', { ascending: false }),
+    supabase.auth.getUser(),
   ])
 
   if (!idea) notFound()
+
+  const showFreeAccessCta = idea.status === 'launched' && !user
 
   return (
     <main className="min-h-screen bg-[#FAFAFA]">
@@ -90,6 +93,17 @@ export default async function IdeaPage({
         <p className="text-xs text-gray-400 uppercase tracking-wide mb-6">{idea.category}</p>
 
         <p className="text-sm text-gray-600 leading-relaxed mb-6">{idea.short_description}</p>
+
+        {showFreeAccessCta && (
+          <div className="mb-8">
+            <Link
+              href="/innskraning"
+              className="inline-flex w-full sm:w-auto min-h-[44px] items-center justify-center rounded-xl bg-[#154212] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2d5a27] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-2"
+            >
+              {t('ideas.freeAccountCta')}
+            </Link>
+          </div>
+        )}
 
         {idea.problem_description && (
           <section className="mb-6">

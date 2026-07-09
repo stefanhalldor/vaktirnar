@@ -261,7 +261,8 @@
       "voteLabel": "Já, ég vil þetta",
       "votedLabel": "Kosið",
       "followPrompt": "Láta vita þegar eitthvað breytist",
-      "otherIdeas": "Aðrar hugmyndir"
+      "otherIdeas": "Aðrar hugmyndir",
+      "freeAccountCta": "Fáðu þér ókeypis aðgang"
     },
     "submit": {
       "title": "Sendu hugmynd",
