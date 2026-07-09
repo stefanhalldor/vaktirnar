@@ -989,7 +989,7 @@ export function FerdalagidClient() {
 
                   {/* ── Brottför og áfangastaður ── */}
                   {comparisonCols.length > 0 && (
-                    <div className="flex flex-col gap-3 border-t border-border/70 pt-3">
+                    <div className="flex flex-col gap-3 pt-3">
                       <p className="text-[11px] font-semibold text-foreground/70">{tf('weatherCompareSection')}</p>
                       <div className="overflow-x-auto">
                         <div

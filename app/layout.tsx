@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
       type: 'website',
       images: [
         {
-          url: '/opengraph-image',
+          url: '/opengraph-image.png',
           width: 1200,
           height: 630,
           alt: 'Allt í Teskeið',
@@ -34,7 +34,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: 'summary_large_image',
       title: t('title'),
       description: t('description'),
-      images: ['/opengraph-image'],
+      images: ['/opengraph-image.png'],
     },
   }
 }
