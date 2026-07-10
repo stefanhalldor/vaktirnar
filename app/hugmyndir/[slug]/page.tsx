@@ -74,6 +74,9 @@ export default async function IdeaPage({
   if (!idea) notFound()
 
   const showFreeAccessCta = idea.status === 'launched' && !user
+  const launchedCtaHref = idea.slug === 'vedrid' ? '/vedrid'
+    : idea.slug === 'umonnun' ? '/umonnun'
+    : '/innskraning'
 
   return (
     <main className="min-h-screen bg-[#FAFAFA]">
@@ -97,7 +100,7 @@ export default async function IdeaPage({
         {showFreeAccessCta && (
           <div className="mb-8">
             <Link
-              href="/innskraning"
+              href={launchedCtaHref}
               className="inline-flex w-full sm:w-auto min-h-[44px] items-center justify-center rounded-xl bg-[#154212] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2d5a27] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-2"
             >
               {t('ideas.freeAccountCta')}

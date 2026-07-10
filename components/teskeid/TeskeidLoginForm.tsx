@@ -7,7 +7,12 @@ import Link from 'next/link'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 
 type Step = 'email' | 'code'
-const RESEND_COOLDOWN = 60
+// Must align with DEDUPE_WINDOW_SECONDS in lib/auth/user-codes.ts (120s).
+// If a user resends within this window, the server suppresses a new code
+// to avoid invalidating the one already in transit.
+const RESEND_COOLDOWN = 120
+// Milliseconds before showing a "code may take a moment" hint on the email step.
+const SLOW_EMAIL_HINT_MS = 8_000
 
 export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
   const t = useTranslations('teskeid.auth')
@@ -18,8 +23,12 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showSlowHint, setShowSlowHint] = useState(false)
   const [resendCountdown, setResendCountdown] = useState(0)
   const codeInputRef = useRef<HTMLInputElement>(null)
+  // Prevents double-submit within a single tab before React disables the button.
+  const requestInFlight = useRef(false)
+  const slowHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (resendCountdown <= 0) return
@@ -63,9 +72,18 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
 
   async function handleEmailSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (requestInFlight.current) return
+    requestInFlight.current = true
     setLoading(true)
     setError('')
+    setShowSlowHint(false)
+    slowHintTimer.current = setTimeout(() => setShowSlowHint(true), SLOW_EMAIL_HINT_MS)
     const result = await requestCode(email)
+    if (slowHintTimer.current) {
+      clearTimeout(slowHintTimer.current)
+      slowHintTimer.current = null
+    }
+    setShowSlowHint(false)
     if (!result.ok) {
       if ('rateLimited' in result && result.rateLimited) {
         setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
@@ -73,11 +91,13 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
         setError(t('genericError'))
       }
       setLoading(false)
+      requestInFlight.current = false
       return
     }
     setStep('code')
     setResendCountdown(RESEND_COOLDOWN)
     setLoading(false)
+    requestInFlight.current = false
   }
 
   async function handleCodeSubmit(e: React.FormEvent) {
@@ -111,10 +131,12 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
   }
 
   async function handleResend() {
-    if (resendCountdown > 0) return
+    if (resendCountdown > 0 || requestInFlight.current) return
+    requestInFlight.current = true
     setError('')
     setCode('')
     const result = await requestCode(email)
+    requestInFlight.current = false
     if (!result.ok && 'rateLimited' in result && result.rateLimited) {
       setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
       return
@@ -154,6 +176,9 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
                   />
                 </label>
                 {error && <p className="text-sm text-red-600">{error}</p>}
+                {loading && showSlowHint && (
+                  <p className="text-xs text-[#72796e]">{t('slowEmailHint')}</p>
+                )}
                 <button
                   type="submit"
                   disabled={loading}

@@ -93,6 +93,7 @@ function makeHour(time: string) {
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
+  process.env.WEATHER_ENABLED = 'true'
 
   mockSampleRouteWeatherPoints.mockReturnValue({
     weatherPoints: [{

@@ -24,6 +24,11 @@ const PUBLIC_PATHS = [
   '/admin/login',
   '/api/auth',
   '/api/sessions/',
+  // Public Veðrið and Umönnun — handlers enforce their own flag and auth checks
+  '/vedrid',
+  '/umonnun',
+  '/api/teskeid/weather/travel',
+  '/api/teskeid/weather/saved-places',
 ]
 
 export async function middleware(request: NextRequest) {

@@ -7,6 +7,12 @@ import { PersonalizedIdeaGrid } from '@/components/teskeid/PersonalizedIdeaGrid'
 import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
 
+function publicReadyCardHref(slug: string): string {
+  if (slug === 'vedrid') return '/vedrid'
+  if (slug === 'umonnun') return '/umonnun'
+  return '/innskraning'
+}
+
 export default async function Home() {
   const t = await getTranslations('teskeid')
 
@@ -45,7 +51,7 @@ export default async function Home() {
               <ReadyTeskeidCard
                 key={idea.slug}
                 idea={idea}
-                href="/innskraning"
+                href={publicReadyCardHref(idea.slug)}
                 openLabel={t('home.readyTeskeidOpen')}
               />
             ))}

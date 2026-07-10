@@ -5,56 +5,70 @@ import { getAdmin } from '@/lib/supabase/admin'
 
 const MAX_CODES_PER_HOUR = 20
 const CODE_TTL_MINUTES = 10
+// Dedupe window: suppress new code creation if an unused, unexpired code was
+// created within this many seconds. Must align with client resend countdown.
+const DEDUPE_WINDOW_SECONDS = 120
 
 export type CreateCodeResult =
   | string                                          // plaintext code — send to user
   | { rateLimited: true; retryAfter: string }       // ISO timestamp when window clears
+  | { recentActive: true }                          // recent active code exists; do not send new email
 
 /**
- * Generate and store a new OTP code for the given email.
- * Returns the plaintext code, a rateLimited object with retryAfter time, or
- * null on DB error.
+ * Generate and store a new OTP code for the given email, unless a recent
+ * active code already exists within the dedupe window.
+ *
+ * Delegates atomicity, dedupe, and rate-limiting to the
+ * create_user_otp_code_if_allowed Postgres RPC, which holds a per-email
+ * advisory transaction lock to serialise concurrent requests.
+ *
+ * Returns:
+ *   string              — plaintext code; caller must send it to the user via email
+ *   { recentActive: true }           — recent code exists; do not create or send a new one
+ *   { rateLimited: true; retryAfter } — hourly limit exceeded
+ *   null                — DB/hashing error; caller should surface as generic error
+ *
  * The code is stored only as an HMAC-SHA256 hash — never plaintext.
  */
 export async function createUserCode(email: string): Promise<CreateCodeResult | null> {
-  // Clean up codes older than 24h
-  await getAdmin()
-    .from('auth_email_codes')
-    .delete()
-    .lt('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-
-  // Rate limit: fetch codes in the current 1-hour window, oldest first so we
-  // can calculate exactly when the window clears for the user-facing message.
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-  const { data: recentCodes, error: rateError } = await getAdmin()
-    .from('auth_email_codes')
-    .select('created_at')
-    .eq('email', email)
-    .gte('created_at', oneHourAgo)
-    .order('created_at', { ascending: true })
-
-  if (!rateError && (recentCodes?.length ?? 0) >= MAX_CODES_PER_HOUR) {
-    const oldestCreatedAt = recentCodes?.[0]?.created_at
-    const retryAfter = new Date(
-      (oldestCreatedAt ? new Date(oldestCreatedAt).getTime() : Date.now()) + 60 * 60 * 1000
-    ).toISOString()
-    return { rateLimited: true, retryAfter }
-  }
-
   const code = generateCode()
-  const code_hash = hashCode(email, code)
+  let code_hash: string
+  try {
+    code_hash = hashCode(email, code)
+  } catch {
+    // AUTH_CODE_SECRET not set or invalid — already logged in hashCode
+    return null
+  }
   const expires_at = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000).toISOString()
 
-  const { error } = await getAdmin()
-    .from('auth_email_codes')
-    .insert({ email, code_hash, expires_at })
+  const { data, error } = await getAdmin().rpc('create_user_otp_code_if_allowed', {
+    p_email:        email,
+    p_code_hash:    code_hash,
+    p_expires_at:   expires_at,
+    p_dedupe_secs:  DEDUPE_WINDOW_SECONDS,
+    p_max_per_hour: MAX_CODES_PER_HOUR,
+  })
 
   if (error) {
-    console.error('[user-codes] insert error (no code or user data logged)')
+    console.error('[user-codes] rpc create_user_otp_code_if_allowed failed')
     return null
   }
 
-  return code
+  const status = (data as { status?: string } | null)?.status
+  if (status === 'inserted') {
+    return code
+  }
+  if (status === 'recent_active') {
+    return { recentActive: true }
+  }
+  if (status === 'rate_limited') {
+    const retryAfter = (data as { status: string; retry_after?: string }).retry_after
+      ?? new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    return { rateLimited: true, retryAfter }
+  }
+
+  console.error('[user-codes] unexpected rpc status (no code or user data logged)')
+  return null
 }
 
 /**

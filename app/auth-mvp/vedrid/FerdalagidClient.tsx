@@ -31,7 +31,7 @@ const STATUS_STYLES: Record<WeatherStatus, { dot: string; label: string }> = {
 }
 
 
-export function FerdalagidClient() {
+export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}) {
   const t = useTranslations('teskeid.vedrid')
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
@@ -85,6 +85,9 @@ export function FerdalagidClient() {
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [routeRetryCount, setRouteRetryCount] = useState(0)
   const [routeFallback, setRouteFallback] = useState(false)
+
+  // Guest rate limit state — set when server returns 429 for guest requests
+  const [guestRateLimited, setGuestRateLimited] = useState(false)
 
   // Saved places (recent route places)
   const [savedPlaces, setSavedPlaces] = useState<SavedWeatherPlace[]>([])
@@ -187,6 +190,10 @@ export function FerdalagidClient() {
           setRouteOptionsError(tf('errorAuthExpired'))
           return
         }
+        if (res.status === 429) {
+          setGuestRateLimited(true)
+          return
+        }
 
         const data = await res.json()
         if (cancelled) return
@@ -223,6 +230,7 @@ export function FerdalagidClient() {
   }
 
   async function savePlaceBestEffort(place: RoutePlace) {
+    if (isGuest) return
     try {
       const saveRes = await fetch('/api/teskeid/weather/saved-places', {
         method: 'POST',
@@ -247,6 +255,7 @@ export function FerdalagidClient() {
   }
 
   async function handleDeleteSavedPlace(id: string) {
+    if (isGuest) return
     const previous = savedPlaces
     setSavedPlaces(prev => prev.filter(p => p.id !== id))
     try {
@@ -332,6 +341,10 @@ export function FerdalagidClient() {
       const contentType = res.headers.get('content-type') ?? ''
       if (res.status === 401 || !contentType.includes('application/json')) {
         setError(tf('errorAuthExpired'))
+        return
+      }
+      if (res.status === 429) {
+        setGuestRateLimited(true)
         return
       }
 
@@ -587,7 +600,7 @@ export function FerdalagidClient() {
         {/* Header */}
         <div className="flex items-center gap-2">
           <Link
-            href="/auth-mvp/heim"
+            href={isGuest ? '/' : '/auth-mvp/heim'}
             aria-label={t('backLink')}
             className="inline-flex items-center justify-center w-8 h-8 rounded-full text-muted-foreground hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -597,7 +610,7 @@ export function FerdalagidClient() {
             <CloudSun size={20} className="text-primary" aria-hidden />
             <h1 className="text-lg font-semibold text-primary">{t('title')}</h1>
           </div>
-          <TeskeidMenu variant="authenticated" />
+          <TeskeidMenu variant={isGuest ? 'public' : 'authenticated'} />
         </div>
 
         {/* Beta banner — visible on all wizard steps */}
@@ -672,31 +685,56 @@ export function FerdalagidClient() {
         {/* Step: Route */}
         {step === 'route' && (
           <div className="flex flex-col gap-4">
-<RouteSelectionStep
-              origin={origin}
-              destination={destination}
-              onOriginSelected={handleOriginSelected}
-              onDestinationSelected={handleDestinationSelected}
-              onClearOrigin={() => setOrigin(null)}
-              onClearDestination={() => { setDestination(null); setFerrySelection(null) }}
-              routeOptions={routeOptions}
-              routeOptionsLoading={routeOptionsLoading}
-              routeOptionsError={routeOptionsError}
-              onRetryRoutes={() => setRouteRetryCount(c => c + 1)}
-              routeFallback={routeFallback}
-              onUseFallback={() => setRouteFallback(true)}
-              selectedRouteId={selectedRouteId}
-              onRouteSelected={setSelectedRouteId}
-              onConfirm={() => goNext('route')}
-              confirmLabel={routeFallback ? tf('routeConfirmFallback') : tf('routeConfirmSelected')}
-              confirmDisabled={!origin || !destination || (!selectedRouteId && !routeFallback)}
-              isVestmannaeyjar={isVestmannaeyjar}
-              ferryPortId={ferrySelection?.ferryPortId ?? null}
-              onFerryPortSelected={handleFerryPortSelected}
-              ferryFinalDestinationName={ferrySelection?.finalDestination.name ?? destination?.name ?? null}
-              savedPlaces={savedPlaces}
-              onDeleteSavedPlace={handleDeleteSavedPlace}
-            />
+            {/* Guest added-value hint — subtle, secondary affordance, not a blocking banner */}
+            {isGuest && !guestRateLimited && (
+              <div className="rounded-xl border border-border px-4 py-3 flex flex-col gap-1.5">
+                <p className="text-sm text-muted-foreground leading-snug">{tf('guestHint')}</p>
+                <Link
+                  href="/innskraning"
+                  className="self-start text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                >
+                  {tf('guestSignIn')}
+                </Link>
+              </div>
+            )}
+            {/* Guest rate limit reached */}
+            {guestRateLimited ? (
+              <div className="rounded-xl border border-border px-4 py-4 flex flex-col gap-3">
+                <p className="text-sm text-foreground leading-snug">{tf('errorGuestRateLimited')}</p>
+                <Link
+                  href="/innskraning"
+                  className="self-start text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                >
+                  {tf('guestSignIn')}
+                </Link>
+              </div>
+            ) : (
+              <RouteSelectionStep
+                origin={origin}
+                destination={destination}
+                onOriginSelected={handleOriginSelected}
+                onDestinationSelected={handleDestinationSelected}
+                onClearOrigin={() => setOrigin(null)}
+                onClearDestination={() => { setDestination(null); setFerrySelection(null) }}
+                routeOptions={routeOptions}
+                routeOptionsLoading={routeOptionsLoading}
+                routeOptionsError={routeOptionsError}
+                onRetryRoutes={() => setRouteRetryCount(c => c + 1)}
+                routeFallback={routeFallback}
+                onUseFallback={() => setRouteFallback(true)}
+                selectedRouteId={selectedRouteId}
+                onRouteSelected={setSelectedRouteId}
+                onConfirm={() => goNext('route')}
+                confirmLabel={routeFallback ? tf('routeConfirmFallback') : tf('routeConfirmSelected')}
+                confirmDisabled={!origin || !destination || (!selectedRouteId && !routeFallback)}
+                isVestmannaeyjar={isVestmannaeyjar}
+                ferryPortId={ferrySelection?.ferryPortId ?? null}
+                onFerryPortSelected={handleFerryPortSelected}
+                ferryFinalDestinationName={ferrySelection?.finalDestination.name ?? destination?.name ?? null}
+                savedPlaces={savedPlaces}
+                onDeleteSavedPlace={handleDeleteSavedPlace}
+              />
+            )}
           </div>
         )}
 
@@ -815,7 +853,18 @@ export function FerdalagidClient() {
               />
             )}
 
-            {error && !loading && (
+            {guestRateLimited && !loading && !result && (
+              <div className="rounded-xl border border-border px-4 py-4 flex flex-col gap-3">
+                <p className="text-sm text-foreground leading-snug">{tf('errorGuestRateLimited')}</p>
+                <Link
+                  href="/innskraning"
+                  className="self-start text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                >
+                  {tf('guestSignIn')}
+                </Link>
+              </div>
+            )}
+            {error && !loading && !guestRateLimited && (
               <p role="alert" className="text-sm text-destructive bg-destructive/10 rounded-xl px-4 py-3">
                 {error}
               </p>

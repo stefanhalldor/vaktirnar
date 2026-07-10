@@ -41,7 +41,14 @@ async function authGuard() {
 
 export async function GET() {
   const ctx = await authGuard()
-  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!ctx) {
+    // Guests in public weather mode get an empty list rather than a 401.
+    // Reads no private data; RLS would block any accidental DB query.
+    if (process.env.WEATHER_PUBLIC_ENABLED === 'true') {
+      return NextResponse.json({ places: [] })
+    }
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   const { supabase } = ctx
 
   const { data, error } = await supabase

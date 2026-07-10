@@ -73,6 +73,7 @@ function makeRouteOption(id: string, routeIndex: number, durationS: number, dist
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
+  process.env.WEATHER_ENABLED = 'true'
 })
 
 describe('POST /api/teskeid/weather/travel/routes', () => {

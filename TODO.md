@@ -1962,3 +1962,24 @@ samræmd Teskeið, ekki stórt skrautkort.
 - Hviðuþróunarörvar í vindreiti eftir mobile-próf.
 - Hitastigslitir þegar frost-aware merking er til staðar.
 4. Staðfesta að nálgun, ef hún er sýnd, sé ekki villandi.
+
+---
+
+#78
+## Auth: sanitized RPC error diagnosis í user-codes logs
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-10
+
+**Samhengi:** `lib/auth/user-codes.ts` logar aðeins `'[user-codes] rpc create_user_otp_code_if_allowed failed'` þegar RPC bilar — án `error.code` eða `error.message`. Það er góð privacy-vörn en erfitt að greina hvort vandinn sé function vantar, signature mismatch, execute grant vantar, table grant vantar eða runtime villa.
+
+**Vandamál:** `lib/__tests__/log-safety.test.ts` bannar dynamic values (property accesses, identifiers) í `console.error` og `console.warn` calls í server-kóða. Þess vegna er ekki hægt að bæta `error.code`/`error.message` við console.error eins og v010 Codex review lagði til.
+
+**Mögulegar leiðir:**
+
+1. Nota `console.log` í stað `console.error` fyrir RPC diagnosis-info (log-safety test nær ekki yfir `console.log`). Krefst stefnuákvörðunar um hvort `console.log` megi vera í production server-kóða.
+2. Víkka log-safety test til að leyfa sérstakt `error.code` pattern með sérstakri undantekningu og skjölun.
+3. Bæta við sérstakri, sanitized diagnosis-hjálparfalli sem logar aðeins leyfilegar static strengjagreinar m.v. þekkt PostgREST/Postgres error codes.
+
+**Engin breyting á notendaupplifun.** Einungis diagnosis fyrir þróunarfasa og framtíðarbilanir.

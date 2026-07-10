@@ -155,7 +155,7 @@ describe('middleware — unauthenticated private route', () => {
   })
 
   it('unauthenticated API request → 401 JSON, not redirect', async () => {
-    const res = await middleware(makeReq('/api/teskeid/weather/travel'))
+    const res = await middleware(makeReq('/api/teskeid/lanad-og-skilad'))
     expect(res.status).toBe(401)
     const body = await res.json()
     expect(body.error).toBe('Unauthorized')

@@ -308,7 +308,8 @@
       "resend": "Resend",
       "resendIn": "Resend in {seconds}s",
       "backToEmail": "Back",
-      "genericError": "Something went wrong. Please try again."
+      "genericError": "Something went wrong. Please try again.",
+      "slowEmailHint": "The code may take a moment to arrive. Do not request a new code yet."
     },
     "profile": {
       "title": "My profile",
@@ -842,7 +843,10 @@
         "ferryPortLandeyjahofn": "Landeyjahöfn",
         "ferryPortThorlakshofn": "Þorlákshöfn",
         "ferrySelectedNote": "Final destination after ferry: {finalDestination}. Weather assessment here is for the drive to {portName}. Check Herjólfur status before you leave.",
-        "ferryResultNote": "Weather assessment is for the drive to {portName}. Herjólfur sailing conditions are not assessed."
+        "ferryResultNote": "Weather assessment is for the drive to {portName}. Herjólfur sailing conditions are not assessed.",
+        "guestHint": "Signed-in users can save known places and calculate unlimited trips.",
+        "guestSignIn": "Sign in",
+        "errorGuestRateLimited": "You have calculated 5 trips today as a guest. Sign in to calculate more trips."
       }
     }
   }

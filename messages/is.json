@@ -312,7 +312,8 @@
       "resend": "Senda aftur",
       "resendIn": "Senda aftur eftir {seconds}s",
       "backToEmail": "Til baka",
-      "genericError": "Eitthvað fór úrskeiðis. Reyndu aftur."
+      "genericError": "Eitthvað fór úrskeiðis. Reyndu aftur.",
+      "slowEmailHint": "Kóðinn getur tekið smá stund að berast. Ekki biðja um nýjan kóða strax."
     },
     "profile": {
       "title": "Minn prófíll",
@@ -846,7 +847,10 @@
         "ferryPortLandeyjahofn": "Landeyjahöfn",
         "ferryPortThorlakshofn": "Þorlákshöfn",
         "ferrySelectedNote": "Áfangastaður eftir ferju: {finalDestination}. Veðurmatið hér er fyrir aksturinn að {portName}. Athugaðu stöðu Herjólfs áður en þú leggur af stað.",
-        "ferryResultNote": "Ferðaveðrið er reiknað fyrir akstur að {portName}. Það metur ekki siglingu Herjólfs."
+        "ferryResultNote": "Ferðaveðrið er reiknað fyrir akstur að {portName}. Það metur ekki siglingu Herjólfs.",
+        "guestHint": "Þekktir staðir vistast fyrir innskráða notendur og þeir geta reiknað ótakmarkaðan fjölda af ferðum",
+        "guestSignIn": "Innskrá",
+        "errorGuestRateLimited": "Þú hefur reiknað 5 ferðir í dag sem gestur. Skráðu þig inn til að reikna fleiri ferðir."
       }
     }
   }

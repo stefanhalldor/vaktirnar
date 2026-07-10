@@ -73,15 +73,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (process.env.WEATHER_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
-  if (!allowed) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (user?.email) {
+    // Authenticated path: check feature access (existing behaviour)
+    const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
+    if (!allowed) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+  } else {
+    // Guest path: require WEATHER_PUBLIC_ENABLED (no rate limit increment here)
+    if (process.env.WEATHER_PUBLIC_ENABLED !== 'true') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
   }
 
   const body = await request.json().catch(() => null)
@@ -181,13 +190,15 @@ export async function POST(request: Request) {
       const routeOptions = await provider.getRouteOptions(originCandidate, destCandidate)
       const matched = routeOptions.find(r => r.id === selectedRouteId)
       if (!matched) {
-        await recordTeskeidUsageEvent({
-          userId: user.id,
-          featureKey: 'vedrid',
-          eventName: 'weather_final_forecast_failed',
-          path: '/api/teskeid/weather/travel',
-          metadata: { ...hashMeta, failureReason: 'selected_route_unavailable', selectedRouteProvided: true },
-        })
+        if (user) {
+          await recordTeskeidUsageEvent({
+            userId: user.id,
+            featureKey: 'vedrid',
+            eventName: 'weather_final_forecast_failed',
+            path: '/api/teskeid/weather/travel',
+            metadata: { ...hashMeta, failureReason: 'selected_route_unavailable', selectedRouteProvided: true },
+          })
+        }
         return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
       }
       routeGeometry = matched
@@ -195,23 +206,27 @@ export async function POST(request: Request) {
       routeGeometry = await provider.getRouteGeometry(originCandidate, destCandidate)
     }
   } catch {
-    await recordTeskeidUsageEvent({
-      userId: user.id,
-      featureKey: 'vedrid',
-      eventName: 'weather_final_forecast_failed',
-      path: '/api/teskeid/weather/travel',
-      metadata: { ...hashMeta, failureReason: 'route_unavailable', selectedRouteProvided: !!selectedRouteId },
-    })
+    if (user) {
+      await recordTeskeidUsageEvent({
+        userId: user.id,
+        featureKey: 'vedrid',
+        eventName: 'weather_final_forecast_failed',
+        path: '/api/teskeid/weather/travel',
+        metadata: { ...hashMeta, failureReason: 'route_unavailable', selectedRouteProvided: !!selectedRouteId },
+      })
+    }
     return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
   }
   if (!routeGeometry) {
-    await recordTeskeidUsageEvent({
-      userId: user.id,
-      featureKey: 'vedrid',
-      eventName: 'weather_final_forecast_failed',
-      path: '/api/teskeid/weather/travel',
-      metadata: { ...hashMeta, failureReason: 'route_unavailable', selectedRouteProvided: !!selectedRouteId },
-    })
+    if (user) {
+      await recordTeskeidUsageEvent({
+        userId: user.id,
+        featureKey: 'vedrid',
+        eventName: 'weather_final_forecast_failed',
+        path: '/api/teskeid/weather/travel',
+        metadata: { ...hashMeta, failureReason: 'route_unavailable', selectedRouteProvided: !!selectedRouteId },
+      })
+    }
     return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
   }
 
@@ -236,13 +251,15 @@ export async function POST(request: Request) {
   const destinationForecast = destForecastRaw ? { hours: destForecastRaw } : undefined
 
   if (pointForecasts.length === 0 && !destinationForecast) {
-    await recordTeskeidUsageEvent({
-      userId: user.id,
-      featureKey: 'vedrid',
-      eventName: 'weather_final_forecast_failed',
-      path: '/api/teskeid/weather/travel',
-      metadata: { ...hashMeta, failureReason: 'forecast_unavailable', selectedRouteProvided: !!selectedRouteId },
-    })
+    if (user) {
+      await recordTeskeidUsageEvent({
+        userId: user.id,
+        featureKey: 'vedrid',
+        eventName: 'weather_final_forecast_failed',
+        path: '/api/teskeid/weather/travel',
+        metadata: { ...hashMeta, failureReason: 'forecast_unavailable', selectedRouteProvided: !!selectedRouteId },
+      })
+    }
     return NextResponse.json({ error: 'forecast_unavailable' }, { status: 503 })
   }
 
@@ -262,20 +279,22 @@ export async function POST(request: Request) {
     thresholdOverrides,
   })
 
-  await recordTeskeidUsageEvent({
-    userId: user.id,
-    featureKey: 'vedrid',
-    eventName: 'weather_final_forecast_completed',
-    path: '/api/teskeid/weather/travel',
-    metadata: {
-      ...hashMeta,
-      selectedRouteProvided: !!selectedRouteId,
-      selectedRouteMatched: !!selectedRouteId,
-      routeDistanceBucketKm: Math.floor(routeGeometry.distanceM / 1000 / 50) * 50,
-      routeDurationBucketMinutes: Math.floor(routeGeometry.durationS / 60 / 30) * 30,
-      resultStatus: result.stada,
-    },
-  })
+  if (user) {
+    await recordTeskeidUsageEvent({
+      userId: user.id,
+      featureKey: 'vedrid',
+      eventName: 'weather_final_forecast_completed',
+      path: '/api/teskeid/weather/travel',
+      metadata: {
+        ...hashMeta,
+        selectedRouteProvided: !!selectedRouteId,
+        selectedRouteMatched: !!selectedRouteId,
+        routeDistanceBucketKm: Math.floor(routeGeometry.distanceM / 1000 / 50) * 50,
+        routeDurationBucketMinutes: Math.floor(routeGeometry.durationS / 60 / 30) * 30,
+        resultStatus: result.stada,
+      },
+    })
+  }
 
   return NextResponse.json(result)
 }

@@ -5,6 +5,7 @@ import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 import type { PlaceCandidate } from '@/lib/weather/provider.types'
 import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
+import { checkWeatherGuestRateLimit } from '@/lib/weather/ip-rate-limit.server'
 
 function validateConfirmedPlace(raw: unknown): raw is { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string } {
   if (!raw || typeof raw !== 'object') return false
@@ -28,15 +29,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (process.env.WEATHER_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
-  if (!allowed) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (user?.email) {
+    // Authenticated path: check feature access (existing behaviour)
+    const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
+    if (!allowed) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+  } else {
+    // Guest path: require WEATHER_PUBLIC_ENABLED and enforce per-IP rate limit
+    if (process.env.WEATHER_PUBLIC_ENABLED !== 'true') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+            ?? request.headers.get('x-real-ip')?.trim()
+            ?? ''
+    const withinLimit = await checkWeatherGuestRateLimit(ip)
+    if (!withinLimit) {
+      return NextResponse.json({ error: 'rate_limited_guest' }, { status: 429 })
+    }
   }
 
   const body = await request.json().catch(() => null)
@@ -89,44 +106,50 @@ export async function POST(request: Request) {
   try {
     routes = await provider.getRouteOptions(originCandidate, destCandidate)
   } catch {
-    await recordTeskeidUsageEvent({
-      userId: user.id,
-      featureKey: 'vedrid',
-      eventName: 'weather_route_options_failed',
-      path: '/api/teskeid/weather/travel/routes',
-      metadata: { ...hashMeta },
-    })
+    if (user) {
+      await recordTeskeidUsageEvent({
+        userId: user.id,
+        featureKey: 'vedrid',
+        eventName: 'weather_route_options_failed',
+        path: '/api/teskeid/weather/travel/routes',
+        metadata: { ...hashMeta },
+      })
+    }
     return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
   }
 
   if (routes.length === 0) {
-    await recordTeskeidUsageEvent({
-      userId: user.id,
-      featureKey: 'vedrid',
-      eventName: 'weather_route_options_failed',
-      path: '/api/teskeid/weather/travel/routes',
-      metadata: { ...hashMeta },
-    })
+    if (user) {
+      await recordTeskeidUsageEvent({
+        userId: user.id,
+        featureKey: 'vedrid',
+        eventName: 'weather_route_options_failed',
+        path: '/api/teskeid/weather/travel/routes',
+        metadata: { ...hashMeta },
+      })
+    }
     return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
   }
 
   // Sort by durationS ascending — shortest driving time first
   const sorted = [...routes].sort((a, b) => a.durationS - b.durationS)
 
-  await recordTeskeidUsageEvent({
-    userId: user.id,
-    featureKey: 'vedrid',
-    eventName: 'weather_route_options_calculated',
-    path: '/api/teskeid/weather/travel/routes',
-    metadata: {
-      ...hashMeta,
-      provider: 'google',
-      routeCount: sorted.length,
-      originIdPresent: originCandidate.placeId !== 'confirmed',
-      destinationIdPresent: destCandidate.placeId !== 'confirmed',
-      curatedRouteLabels: [...new Set(sorted.flatMap(r => r.labels).filter(l => l.startsWith('CURATED_')))],
-    },
-  })
+  if (user) {
+    await recordTeskeidUsageEvent({
+      userId: user.id,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_calculated',
+      path: '/api/teskeid/weather/travel/routes',
+      metadata: {
+        ...hashMeta,
+        provider: 'google',
+        routeCount: sorted.length,
+        originIdPresent: originCandidate.placeId !== 'confirmed',
+        destinationIdPresent: destCandidate.placeId !== 'confirmed',
+        curatedRouteLabels: [...new Set(sorted.flatMap(r => r.labels).filter(l => l.startsWith('CURATED_')))],
+      },
+    })
+  }
 
   return NextResponse.json({ routes: sorted })
 }
