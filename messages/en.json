@@ -825,6 +825,7 @@
         "routeOptionsUnavailable": "Could not fetch routes. Please try again.",
         "routeOptionsRetry": "Try again",
         "routeOptionShortest": "Fastest route",
+        "routeOptionRingRoad": "Ring Road",
         "routeOptionViaThrengslavegur": "Via Þrengslavegur",
         "routeOptionViaHellisheidi": "Via Hellisheiði",
         "routeOptionDefault": "Google default route",

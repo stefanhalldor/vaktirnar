@@ -8,6 +8,7 @@ import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weath
 import { toLngLat } from './travelAuditMap.helpers'
 import type { RouteOption } from '@/lib/weather/provider.types'
 import { FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
+import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
 
 export type RoutePlace = {
   name: string
@@ -418,7 +419,17 @@ export function RouteSelectionStep({
           <p className="text-xs font-medium text-muted-foreground">{tf('routeOptionsTitle')}</p>
 
           {routeOptionsLoading && (
-            <p className="text-xs text-muted-foreground py-2">{tf('routeOptionsLoading')}</p>
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-background/90"
+              role="status"
+              aria-live="polite"
+            >
+              <TeskeidLoader
+                ideaTitles={[tf('routeOptionsLoading')]}
+                loadingLabel={tf('routeOptionsLoading')}
+                fallbackIdeaTitle={tf('routeOptionsLoading')}
+              />
+            </div>
           )}
 
           {routeOptionsError && !routeOptionsLoading && !routeFallback && (
@@ -448,7 +459,9 @@ export function RouteSelectionStep({
 
           {routeOptions && routeOptions.map((ro, idx) => {
             const isSelected = ro.id === selectedRouteId
-            const label = ro.labels.includes('CURATED_VIA_HELLISHEIDI')
+            const label = ro.labels.includes('CURATED_RING_ROAD')
+              ? tf('routeOptionRingRoad')
+              : ro.labels.includes('CURATED_VIA_HELLISHEIDI')
               ? tf('routeOptionViaHellisheidi')
               : ro.labels.includes('CURATED_VIA_THRENGSLAVEGUR')
               ? tf('routeOptionViaThrengslavegur')

@@ -107,45 +107,85 @@ type CuratedRouteRule = {
   logName: string
   origin: PlaceMatcher
   destination: PlaceMatcher
-  /** Via-point on the desired road. Verify visually on localhost before each new rule. */
-  via: { lat: number; lon: number }
+  /** One or more via-points on the desired road, in order. Verify visually on localhost before each new rule. */
+  vias: readonly { lat: number; lon: number }[]
   labels: readonly string[]
+  /** Skip this rule unless the fastest already-fetched route is at least this many metres. */
+  minFastestRouteDistanceM?: number
 }
 
 // Capital-area bounding box: Reykjavík, Garðabær, Kópavogur, Hafnarfjörður, Seltjarnarnes, Mosfellsbær.
 // Intentionally excludes Reykjanes/southwest (Keflavík lon ≈ -22.56, Grindavík ≈ -22.44, Vogar ≈ -22.37).
 const CAPITAL_AREA_BOUNDS: Bounds = { minLat: 63.95, maxLat: 64.25, minLon: -22.10, maxLon: -21.40 }
 
-// Tight bounding box around Þorlákshöfn — catches coord-based selections (saved places, geocode fallback).
-const THORLAKSHOFN_BOUNDS: Bounds = { minLat: 63.82, maxLat: 63.88, minLon: -21.44, maxLon: -21.30 }
-
 // South/southeast corridor where Hellisheiði (Route 1) is the normal outbound road from Reykjavík.
-// minLon: -21.25 keeps Þorlákshöfn (~-21.37) out (handled by Þrengslavegur rule).
+// minLon: -21.25 keeps Þorlákshöfn (~-21.37) out.
 // maxLat: 64.15 keeps Þingvellir (~64.25) and Laugarvatn (~64.21) out.
 // maxLon: -13.0 covers the full south/east coast including Vík, Höfn, and southeast.
 const SOUTH_EAST_VIA_HELLISHEIDI_BOUNDS: Bounds = { minLat: 63.35, maxLat: 64.15, minLon: -21.25, maxLon: -13.0 }
 
+// East Iceland corridor (Austurland): Egilsstaðir, Seyðisfjörður, Djúpivogur, Neskaupstaður etc.
+// minLat: 64.35 keeps south coast out (handled by SOUTH_EAST rule). maxLat: 65.50 keeps Mývatn/Húsavík/Akureyri out.
+// minLon: -15.90 is west enough to include Egilsstaðir (-14.40). maxLon: -13.0 covers east fjords.
+const EAST_ICELAND_VIA_HELLISHEIDI_BOUNDS: Bounds = { minLat: 64.35, maxLat: 65.50, minLon: -15.90, maxLon: -13.0 }
+
+// North Iceland destinations for Hringurinn Route A (south-east-north).
+// Covers Akureyri (65.68), Mývatn (65.60), Húsavík (66.04) and other north/northeast destinations.
+// minLat 65.40 keeps Egilsstaðir (65.27) out — ambiguous direction, not covered by Route A or B.
+const NORTH_ICELAND_RING_ROAD_BOUNDS: Bounds = { minLat: 65.40, maxLat: 66.7, minLon: -22.0, maxLon: -14.0 }
+
+// Southeast coast destinations for Hringurinn Route B (north-east-south).
+// Covers Höfn (64.25/-15.21), Djúpivogur (64.65/-14.28), Breiðdalsvík and east fjords south coast.
+// maxLat 65.0 keeps Egilsstaðir (65.27) out. minLon -15.9 keeps destinations west of Höfn out.
+const SOUTHEAST_COAST_RING_ROAD_BOUNDS: Bounds = { minLat: 63.5, maxLat: 65.0, minLon: -15.9, maxLon: -13.0 }
+
+// Shared via-point constants. All pending localhost visual verification on Route 1.
+const HELLISHEIDI_VIA         = { lat: 64.036, lon: -21.392 } // Route 1 over Hellisheiði — pending verification
+const RING_ROAD_SOUTH_VIA     = { lat: 63.415, lon: -18.977 } // Route 1, Mýrdalssandur (east of Vík) — pending verification
+const RING_ROAD_EAST_VIA      = { lat: 64.295, lon: -15.148 } // Route 1, between Djúpivogur and Höfn — pending verification
+const RING_ROAD_NORTHEAST_VIA = { lat: 65.130, lon: -14.514 } // Route 1, south of Egilsstaðir — pending verification
+const RING_ROAD_NORTH_VIA     = { lat: 65.540, lon: -19.520 } // Route 1, Varmahlíð area (north Iceland) — pending verification
+
 const CURATED_ROUTE_RULES: readonly CuratedRouteRule[] = [
   {
-    id: 'capital-area-to-thorlakshofn-via-threngslavegur',
-    logName: 'Þrengslavegur',
-    origin: { bounds: [CAPITAL_AREA_BOUNDS] },
-    destination: {
-      placeIds: ['ChIJU1N290hC1kgRypBJRWS0YX4'],  // confirmed from live diagnostics 2026-07-08
-      bounds: [THORLAKSHOFN_BOUNDS],
-    },
-    // Via-point verified on localhost 2026-07-08: curatedAdded=true, description=Þrengslavegur/Leið 39.
-    via: { lat: 63.9550, lon: -21.4900 },
-    labels: ['CURATED_VIA_THRENGSLAVEGUR'],
-  },
-  {
     id: 'capital-corridor-to-south-east-via-hellisheidi',
-    logName: 'Hellisheiði',
+    logName: 'Hellisheiði / Suðurland',
     origin: { bounds: [CAPITAL_AREA_BOUNDS] },
     destination: { bounds: [SOUTH_EAST_VIA_HELLISHEIDI_BOUNDS] },
-    // Via-point on Route 1 through Hellisheiði plateau. To be verified on localhost.
-    via: { lat: 64.0360, lon: -21.3920 },
+    vias: [HELLISHEIDI_VIA],
     labels: ['CURATED_VIA_HELLISHEIDI'],
+  },
+  {
+    id: 'capital-corridor-to-east-iceland-via-hellisheidi',
+    logName: 'Hellisheiði / Austurland',
+    origin: { bounds: [CAPITAL_AREA_BOUNDS] },
+    destination: { bounds: [EAST_ICELAND_VIA_HELLISHEIDI_BOUNDS] },
+    vias: [HELLISHEIDI_VIA],
+    labels: ['CURATED_VIA_HELLISHEIDI', 'CURATED_EAST_ICELAND_VIA_HELLISHEIDI'],
+  },
+  {
+    // Hringurinn Route A: counter-clockwise (south → east → north) for north/northeast destinations.
+    // The natural fastest route to Akureyri/Mývatn goes north. This alternate goes the other way.
+    // Via-points must be verified on localhost before release — do not ship without visual check.
+    id: 'long-trip-ring-road-south-east-north',
+    logName: 'Hringurinn / suður-austur-norður',
+    origin: { bounds: [CAPITAL_AREA_BOUNDS] },
+    destination: { bounds: [NORTH_ICELAND_RING_ROAD_BOUNDS] },
+    minFastestRouteDistanceM: 350_000,
+    vias: [HELLISHEIDI_VIA, RING_ROAD_SOUTH_VIA, RING_ROAD_EAST_VIA, RING_ROAD_NORTHEAST_VIA],
+    labels: ['CURATED_RING_ROAD'],
+  },
+  {
+    // Hringurinn Route B: clockwise (north → east → south) for southeast coast destinations.
+    // The natural fastest route to Höfn goes south/east. This alternate goes the other way via north.
+    // Via-points must be verified on localhost before release — do not ship without visual check.
+    id: 'long-trip-ring-road-north-east-south',
+    logName: 'Hringurinn / norður-austur-suður',
+    origin: { bounds: [CAPITAL_AREA_BOUNDS] },
+    destination: { bounds: [SOUTHEAST_COAST_RING_ROAD_BOUNDS] },
+    minFastestRouteDistanceM: 350_000,
+    vias: [RING_ROAD_NORTH_VIA, RING_ROAD_NORTHEAST_VIA],
+    labels: ['CURATED_RING_ROAD'],
   },
 ]
 
@@ -189,10 +229,10 @@ async function fetchCuratedRoute(
     travelMode: 'DRIVE',
     routingPreference: 'TRAFFIC_AWARE',
     polylineEncoding: 'GEO_JSON_LINESTRING',
-    intermediates: [{
+    intermediates: rule.vias.map(v => ({
       via: true,
-      location: { latLng: { latitude: rule.via.lat, longitude: rule.via.lon } },
-    }],
+      location: { latLng: { latitude: v.lat, longitude: v.lon } },
+    })),
   }
 
   try {
@@ -259,22 +299,100 @@ async function fetchCuratedRoute(
   }
 }
 
+// ── Hellisheiði duplicate filter ──────────────────────────────────────────────
+
+/**
+ * How much faster a curated CURATED_VIA_HELLISHEIDI route must be (in seconds)
+ * compared to the fastest base route before we keep it even when the base route
+ * already passes through the Hellisheiði corridor.
+ */
+const HELLISHEIDI_DUPLICATE_TOLERANCE_S = 60
+/**
+ * Generous proximity threshold for sampled-point detection: how close (in metres)
+ * a route point must be to HELLISHEIDI_VIA to count as "passing through Hellisheiði".
+ * 5 km is intentionally loose to compensate for sparse sampling.
+ */
+const HELLISHEIDI_DUPLICATE_PROXIMITY_M = 5_000
+
+/** Haversine distance in metres between two lat/lon points. */
+function haversineM(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number }
+): number {
+  const R = 6_371_000
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(b.lat - a.lat)
+  const dLon = toRad(b.lon - a.lon)
+  const sinHalfDLat = Math.sin(dLat / 2)
+  const sinHalfDLon = Math.sin(dLon / 2)
+  const a2 =
+    sinHalfDLat * sinHalfDLat +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinHalfDLon * sinHalfDLon
+  return R * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2))
+}
+
+/** True if any sampled point on the route is within maxDistanceM of the target. */
+function routePassesNearPoint(
+  route: RouteOption,
+  point: { lat: number; lon: number },
+  maxDistanceM: number
+): boolean {
+  return route.points.some(p => haversineM(p, point) <= maxDistanceM)
+}
+
+/**
+ * Returns true when a CURATED_VIA_HELLISHEIDI route should be suppressed because:
+ * 1. The base Google routes already include a route through the Hellisheiði corridor, AND
+ * 2. The curated route is not meaningfully faster than the fastest base route.
+ *
+ * Purpose: avoid showing a slower "Um Hellisheiði" duplicate when Google already
+ * returns the same Hellisheiði corridor as the fastest/default option.
+ * CURATED_RING_ROAD is intentionally exempt — Hringurinn is allowed to be longer.
+ */
+function shouldSkipCuratedHellisheidi(
+  curated: RouteOption,
+  baseRoutes: readonly RouteOption[]
+): boolean {
+  if (!curated.labels.includes('CURATED_VIA_HELLISHEIDI')) return false
+
+  const fastestBase = baseRoutes[0]
+  if (!fastestBase) return false
+
+  const baseAlreadyPassesHellisheidi = baseRoutes.some(route =>
+    routePassesNearPoint(route, HELLISHEIDI_VIA, HELLISHEIDI_DUPLICATE_PROXIMITY_M)
+  )
+  if (!baseAlreadyPassesHellisheidi) return false
+
+  return curated.durationS >= fastestBase.durationS - HELLISHEIDI_DUPLICATE_TOLERANCE_S
+}
+
 /**
  * Run all matching curated route rules sequentially.
  * Each matching rule makes one extra Google Routes request.
  * existingIds is updated after each successful add to prevent inter-rule geometry duplicates.
+ * fastestDistanceM is the distanceM of the fastest already-fetched route (used for distance gates).
+ * baseRoutes are the already-fetched Google routes, used for the Hellisheiði duplicate filter.
  */
 async function getCuratedRouteOptions(
   from: PlaceCandidate,
   to: PlaceCandidate,
   key: string,
-  existingIds: Set<string>
+  existingIds: Set<string>,
+  fastestDistanceM: number,
+  baseRoutes: readonly RouteOption[]
 ): Promise<RouteOption[]> {
   const results: RouteOption[] = []
   for (const rule of CURATED_ROUTE_RULES) {
     if (!matchesPlaceMatcher(from, rule.origin) || !matchesPlaceMatcher(to, rule.destination)) continue
+    if (rule.minFastestRouteDistanceM != null && fastestDistanceM < rule.minFastestRouteDistanceM) continue
     const curated = await fetchCuratedRoute(rule, from, to, key, existingIds)
     if (curated) {
+      if (shouldSkipCuratedHellisheidi(curated, baseRoutes)) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[weather/google] curated ${rule.logName}: skipped — base route already uses Hellisheiði corridor`)
+        }
+        continue
+      }
       results.push(curated)
       existingIds.add(curated.id)
     }
@@ -425,7 +543,8 @@ async function getRouteOptions(
 
   // Run matching curated route rules (one extra Google request per matching rule).
   const existingIds = new Set(routeOptions.map(r => r.id))
-  const curatedRoutes = await getCuratedRouteOptions(from, to, key, existingIds)
+  const fastestDistanceM = routeOptions.length > 0 ? routeOptions[0].distanceM : 0
+  const curatedRoutes = await getCuratedRouteOptions(from, to, key, existingIds, fastestDistanceM, routeOptions)
   if (curatedRoutes.length > 0) {
     routeOptions.push(...curatedRoutes)
     routeOptions.sort((a, b) => a.durationS - b.durationS)

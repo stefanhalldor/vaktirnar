@@ -334,6 +334,36 @@ describe('googleProvider.getRouteOptions', () => {
     }
   }
 
+  /** Build a mock route response from explicit [lon, lat] coordinates and a specific durationS. */
+  function makeRouteResponseFromCoords(
+    coords: [number, number][],
+    labels: string[],
+    durationS: number
+  ) {
+    return {
+      routes: [{
+        polyline: { geoJsonLinestring: { coordinates: coords } },
+        distanceMeters: coords.length * 5000,
+        duration: `${durationS}s`,
+        staticDuration: undefined,
+        routeLabels: labels,
+      }],
+    }
+  }
+
+  // Coordinates that pass near HELLISHEIDI_VIA (lat 64.036, lon -21.392) — within 5 km
+  const COORDS_VIA_HELLISHEIDI: [number, number][] = [
+    [-21.90, 64.14],  // Garðabær area [lon, lat]
+    [-21.39, 64.04],  // near Hellisheiði (~0.5 km from HELLISHEIDI_VIA)
+    [-20.99, 63.93],  // Selfoss area
+  ]
+  // Coordinates that do NOT pass near HELLISHEIDI_VIA — goes northwest instead
+  const COORDS_NOT_VIA_HELLISHEIDI: [number, number][] = [
+    [-21.90, 64.14],  // Garðabær
+    [-22.00, 64.60],  // northwest
+    [-23.00, 65.00],  // further northwest
+  ]
+
   it('returns multiple routes with parsed labels', async () => {
     mockFetch(makeMultiRouteResponse([
       { numPoints: 10, labels: ['DEFAULT_ROUTE'] },
@@ -467,8 +497,8 @@ describe('googleProvider.getRouteOptions', () => {
       { numPoints: 8, labels: [], durationMultiplier: 1, staticDurationMultiplier: 0.75 },
     ])
     mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
-    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
-    const curated = results.find(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HVERAGERDI)
+    const curated = results.find(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))
     expect(curated?.durationS).toBe(1800)  // static (8*300*0.75), not traffic (8*300)
   })
 
@@ -482,7 +512,7 @@ describe('googleProvider.getRouteOptions', () => {
       { numPoints: 8, labels: [], staticDurationMultiplier: 0.75 },
     ])
     mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
-    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HVERAGERDI)
     expect(results[0].durationS).toBe(1800)
     expect(results[1].durationS).toBe(2250)
   })
@@ -542,34 +572,15 @@ describe('googleProvider.getRouteOptions', () => {
     expect(headers['X-Goog-FieldMask']).not.toContain('routes.routeToken')
   })
 
-  // ── Curated Þrengslavegur route ───────────────────────────────────────────
+  // ── Curated route shared behaviour ───────────────────────────────────────
 
-  it('uses curated route registry entry for capital-area → Þorlákshöfn (makes extra request)', async () => {
-    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
-    // Curated response: different geometry (different numPoints)
-    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
-    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
-    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
-    expect(spy).toHaveBeenCalledTimes(2)
-  })
-
-  it('curated route has CURATED_VIA_THRENGSLAVEGUR label when geometry differs from main routes', async () => {
-    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
-    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
-    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
-    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
-    expect(results.some(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))).toBe(true)
-  })
-
-  it('curated route uses via: true intermediate waypoint on Þrengslavegur', async () => {
+  it('vias refactor: single-via rule produces exactly one intermediates entry', async () => {
     const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
     const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
     const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
-    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HVERAGERDI)
     const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
     expect(curatedBody.intermediates).toHaveLength(1)
-    expect(curatedBody.intermediates[0].via).toBe(true)
-    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(63.955, 2)
   })
 
   it('curated route is skipped when geometry matches a main route', async () => {
@@ -577,22 +588,23 @@ describe('googleProvider.getRouteOptions', () => {
     const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
     const curatedRoute = makeMultiRouteResponse([{ numPoints: 10, labels: [] }])
     mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
-    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HVERAGERDI)
     expect(results).toHaveLength(1)
-    expect(results.some(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))).toBe(false)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(false)
   })
 
   it('curated route is silently omitted when Google returns no route', async () => {
     const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
     mockFetchSequence([{ body: mainRoute }, { body: { routes: [] } }])
-    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HVERAGERDI)
     expect(results).toHaveLength(1)
     expect(results[0].labels).toContain('DEFAULT_ROUTE')
   })
 
-  it('does not make a curated request for non-Þorlákshöfn destination', async () => {
+  it('short trip (< 350 km) from capital area does not make a curated request', async () => {
+    // numPoints: 5 → distance 25 km, well under 350 km threshold for Hringurinn
     const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 5, labels: ['DEFAULT_ROUTE'] }]))
-    await googleProvider.getRouteOptions(FROM, TO)  // FROM → Akureyri
+    await googleProvider.getRouteOptions(FROM, TO)  // FROM → Akureyri but mocked as short route
     expect(spy).toHaveBeenCalledTimes(1)
   })
 
@@ -607,10 +619,23 @@ describe('googleProvider.getRouteOptions', () => {
     const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
     const curatedRoute = makeMultiRouteResponse([{ numPoints: 8, labels: [] }])
     mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
-    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HVERAGERDI)
     expect(results).toHaveLength(2)
     expect(results[0].durationS).toBeLessThan(results[1].durationS)
-    expect(results.some(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))).toBe(true)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(true)
+  })
+
+  // ── Regression: Þrengslavegur curated rule removed ───────────────────────
+
+  it('capital area → Þorlákshöfn does NOT produce CURATED_VIA_THRENGSLAVEGUR (rule removed)', async () => {
+    // The old curated rule was adding a slower duplicate. Rule has been removed.
+    // Þorlákshöfn (lon -21.365) is outside SOUTH_EAST_VIA_HELLISHEIDI_BOUNDS (minLon -21.25),
+    // so it also does not trigger CURATED_VIA_HELLISHEIDI.
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }]))
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
+    expect(spy).toHaveBeenCalledTimes(1)  // no extra curated request
+    expect(results.some(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))).toBe(false)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(false)
   })
 
   // ── Curated Hellisheiði route ─────────────────────────────────────────────
@@ -684,13 +709,10 @@ describe('googleProvider.getRouteOptions', () => {
     expect(curatedBody.intermediates[0].location.latLng.longitude).toBeCloseTo(-21.3920, 3)
   })
 
-  it('capital area → Þorlákshöfn triggers Þrengslavegur, not Hellisheiði', async () => {
-    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
-    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
-    // Only one curated rule should match (Þrengslavegur) → 2 fetches total
-    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+  it('capital area → Þorlákshöfn does not trigger CURATED_VIA_HELLISHEIDI (lon outside south-east bounds)', async () => {
+    // Þorlákshöfn lon -21.365 < minLon -21.25 in SOUTH_EAST_VIA_HELLISHEIDI_BOUNDS
+    mockFetch(makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }]))
     const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_THORLAKSHOFN)
-    expect(results.some(r => r.labels.includes('CURATED_VIA_THRENGSLAVEGUR'))).toBe(true)
     expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(false)
   })
 
@@ -713,6 +735,252 @@ describe('googleProvider.getRouteOptions', () => {
     mockFetch(makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }]))
     const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_LAUGARVATN)
     expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(false)
+  })
+
+  // ── Curated East Iceland / Austurland via Hellisheiði ────────────────────
+
+  // Egilsstaðir: lat 65.268, lon -14.401 — in EAST_ICELAND_VIA_HELLISHEIDI_BOUNDS
+  const TO_EGILSSTADIR: PlaceCandidate = {
+    placeId: 'ChIJegilsstadir',
+    displayName: 'Egilsstaðir',
+    formattedAddress: 'Egilsstaðir, Iceland',
+    lat: 65.268,
+    lon: -14.401,
+  }
+  // Mývatn: lat 65.600, lon -16.990 — must NOT trigger CURATED_VIA_HELLISHEIDI (north, not east fjords)
+  // But IS in NORTH_ICELAND_RING_ROAD_BOUNDS → gets Hringurinn A for long trips
+  const TO_MYVATN: PlaceCandidate = {
+    placeId: 'ChIJmyvatn',
+    displayName: 'Mývatn',
+    formattedAddress: 'Mývatn, Iceland',
+    lat: 65.600,
+    lon: -16.990,
+  }
+  // Höfn: lat 64.252, lon -15.212 — in SOUTHEAST_COAST_RING_ROAD_BOUNDS → gets Hringurinn B for long trips
+  const TO_HOFN: PlaceCandidate = {
+    placeId: 'ChIJhofn',
+    displayName: 'Höfn',
+    formattedAddress: 'Höfn, Iceland',
+    lat: 64.252,
+    lon: -15.212,
+  }
+
+  it('capital area → Egilsstaðir triggers CURATED_VIA_HELLISHEIDI', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_EGILSSTADIR)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(true)
+  })
+
+  it('capital area → Egilsstaðir curated route also has CURATED_EAST_ICELAND_VIA_HELLISHEIDI label', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_EGILSSTADIR)
+    expect(results.some(r => r.labels.includes('CURATED_EAST_ICELAND_VIA_HELLISHEIDI'))).toBe(true)
+  })
+
+  it('capital area → Egilsstaðir curated request uses Hellisheiði via coordinate', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_EGILSSTADIR)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    expect(curatedBody.intermediates).toHaveLength(1)
+    expect(curatedBody.intermediates[0].via).toBe(true)
+    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(64.0360, 3)
+    expect(curatedBody.intermediates[0].location.latLng.longitude).toBeCloseTo(-21.3920, 3)
+  })
+
+  it('capital area → Mývatn does not trigger CURATED_VIA_HELLISHEIDI', async () => {
+    // Mývatn lon -16.99 is west of EAST_ICELAND_VIA_HELLISHEIDI_BOUNDS minLon -15.90
+    mockFetch(makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }]))
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_MYVATN)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(false)
+  })
+
+  it('capital area → Egilsstaðir: Hveragerði/Selfoss rules still work independently', async () => {
+    // This test confirms the south-east rule still triggers for Selfoss
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 10, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 7, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_SELFOSS)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(true)
+    expect(results.some(r => r.labels.includes('CURATED_EAST_ICELAND_VIA_HELLISHEIDI'))).toBe(false)
+  })
+
+  // ── Hellisheiði duplicate filter ──────────────────────────────────────────
+
+  it('CURATED_VIA_HELLISHEIDI is suppressed when base route already passes Hellisheiði and curated is slower', async () => {
+    // Base: passes near Hellisheiði, durationS=1500s
+    // Curated: different geometry (different coords), durationS=1700s (slower) → should be filtered
+    const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_HELLISHEIDI, ['DEFAULT_ROUTE'], 1500)
+    const curatedRoute = makeRouteResponseFromCoords([[-21.39, 64.04], [-20.50, 63.80], [-20.00, 63.60], [-19.50, 63.40]], [], 1700)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_SELFOSS)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(false)
+    expect(results).toHaveLength(1)
+  })
+
+  it('CURATED_VIA_HELLISHEIDI is kept when base route does NOT pass near Hellisheiði', async () => {
+    // Base: goes northwest, NOT near Hellisheiði → curated adds the missing corridor
+    const mainRoute = makeRouteResponseFromCoords(COORDS_NOT_VIA_HELLISHEIDI, ['DEFAULT_ROUTE'], 1500)
+    const curatedRoute = makeRouteResponseFromCoords([[-21.39, 64.04], [-20.99, 63.93], [-20.00, 63.60]], [], 1700)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_SELFOSS)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(true)
+  })
+
+  it('CURATED_VIA_HELLISHEIDI is kept when it is meaningfully faster than base (> 60 s)', async () => {
+    // Base: near Hellisheiði, 1500s. Curated: 1200s (300s faster — well above 60s tolerance)
+    const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_HELLISHEIDI, ['DEFAULT_ROUTE'], 1500)
+    const curatedRoute = makeRouteResponseFromCoords([[-21.39, 64.04], [-20.50, 63.80], [-20.00, 63.60]], [], 1200)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_SELFOSS)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(true)
+  })
+
+  it('Hellisheiði duplicate filter does not affect CURATED_RING_ROAD (Hringurinn)', async () => {
+    // Long trip: CURATED_RING_ROAD has CURATED_VIA_HELLISHEIDI? No — different labels.
+    // This confirms Hringurinn is unaffected regardless.
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 90, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    expect(results.some(r => r.labels.includes('CURATED_RING_ROAD'))).toBe(true)
+  })
+
+  // ── Hringurinn (ring road, long trips >= 350 km) ─────────────────────────
+
+  // FROM_GARDABAER is in CAPITAL_AREA_BOUNDS. TO (Akureyri) is in ICELAND_BOUNDS.
+  // numPoints * 5000 = distanceM. 71 pts → 355 000 m (> 350 km). 69 pts → 345 000 m (< 350 km).
+
+  it('capital area → Akureyri with distance >= 350 km triggers CURATED_RING_ROAD', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 60, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    expect(results.some(r => r.labels.includes('CURATED_RING_ROAD'))).toBe(true)
+  })
+
+  it('capital area → Akureyri Hringurinn request has 4 via intermediates', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 60, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    expect(curatedBody.intermediates).toHaveLength(4)
+    expect(curatedBody.intermediates.every((m: { via: boolean }) => m.via === true)).toBe(true)
+  })
+
+  it('Hringurinn first via-point is Hellisheiði coordinate', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 60, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(64.036, 2)
+    expect(curatedBody.intermediates[0].location.latLng.longitude).toBeCloseTo(-21.392, 2)
+  })
+
+  it('capital area → Akureyri with distance < 350 km does NOT trigger CURATED_RING_ROAD', async () => {
+    // 69 pts → 345 000 m < 350 000 threshold
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 69, labels: ['DEFAULT_ROUTE'] }]))
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    expect(spy).toHaveBeenCalledTimes(1)  // no curated request
+    expect(results.some(r => r.labels.includes('CURATED_RING_ROAD'))).toBe(false)
+  })
+
+  it('Hringurinn is skipped when its geometry matches an existing route', async () => {
+    // Same numPoints for main and curated → same fingerprint → duplicate, skipped
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 71, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    expect(results).toHaveLength(1)
+    expect(results.some(r => r.labels.includes('CURATED_RING_ROAD'))).toBe(false)
+  })
+
+  it('Hringurinn appears alongside fastest route when distinct, sorted by durationS', async () => {
+    // main: 71 pts = 3000*71/10s. curated (Hringurinn): 90 pts (longer) → goes last after sort.
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 90, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    expect(results).toHaveLength(2)
+    expect(results.some(r => r.labels.includes('CURATED_RING_ROAD'))).toBe(true)
+    expect(results[0].durationS).toBeLessThan(results[1].durationS)
+    // Hringurinn sorts last (longer duration)
+    expect(results[results.length - 1].labels).toContain('CURATED_RING_ROAD')
+  })
+
+  it('Reykjanes/southwest origin does not trigger Hringurinn even for long distance', async () => {
+    // FROM_KEFLAVIK is outside CAPITAL_AREA_BOUNDS
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }]))
+    const results = await googleProvider.getRouteOptions(FROM_KEFLAVIK, TO)
+    expect(spy).toHaveBeenCalledTimes(1)  // no curated request
+    expect(results.some(r => r.labels.includes('CURATED_RING_ROAD'))).toBe(false)
+  })
+
+  // ── Hringurinn direction-aware routing ────────────────────────────────────
+
+  it('capital area → Akureyri uses south-east-north via sequence (first via = Hellisheiði)', async () => {
+    // TO = Akureyri is in NORTH_ICELAND_RING_ROAD_BOUNDS → Rule A (south-east-north)
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 60, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    // First via must be Hellisheiði (counter-clockwise starts south)
+    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(64.036, 2)
+    expect(curatedBody.intermediates[0].location.latLng.longitude).toBeCloseTo(-21.392, 2)
+    expect(curatedBody.intermediates).toHaveLength(4)
+  })
+
+  it('capital area → Höfn (> 350 km) triggers CURATED_RING_ROAD using north-east-south vias', async () => {
+    // TO_HOFN is in SOUTHEAST_COAST_RING_ROAD_BOUNDS → Rule B (north-east-south)
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 60, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HOFN)
+    expect(results.some(r => r.labels.includes('CURATED_RING_ROAD'))).toBe(true)
+  })
+
+  it('capital area → Höfn Hringurinn first via is north (NOT Hellisheiði — avoids past-destination return)', async () => {
+    // Rule B must start with a north Iceland via, not Hellisheiði (which is on the fast south route)
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 60, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HOFN)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    // First via must NOT be Hellisheiði
+    expect(curatedBody.intermediates[0].location.latLng.latitude).not.toBeCloseTo(64.036, 2)
+    // First via should be the north Route 1 via (Varmahlíð area, lat ~65.54)
+    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(65.540, 2)
+  })
+
+  it('capital area → Höfn Hringurinn has only 2 vias (no via-points beyond Höfn that force return)', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 60, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_HOFN)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    // Rule B uses only [RING_ROAD_NORTH_VIA, RING_ROAD_NORTHEAST_VIA] — 2 vias
+    expect(curatedBody.intermediates).toHaveLength(2)
+  })
+
+  it('capital area → Egilsstaðir does NOT get Hringurinn (destination in gap between Rule A and Rule B bounds)', async () => {
+    // Egilsstaðir lat 65.268: below NORTH_ICELAND_RING_ROAD_BOUNDS minLat 65.40
+    //                          above SOUTHEAST_COAST_RING_ROAD_BOUNDS maxLat 65.0
+    // numPoints: 71 → 355 km > 350 km threshold
+    // 2 fetches: main routes + Hellisheiði curated (from EAST_ICELAND rule)
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 71, labels: ['DEFAULT_ROUTE'] }])
+    const hellisheidiCurated = makeMultiRouteResponse([{ numPoints: 60, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: hellisheidiCurated }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_EGILSSTADIR)
+    expect(results.some(r => r.labels.includes('CURATED_RING_ROAD'))).toBe(false)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HELLISHEIDI'))).toBe(true)
   })
 
   it('passes description through when Google provides it', async () => {
