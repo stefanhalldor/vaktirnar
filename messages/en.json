@@ -826,6 +826,7 @@
         "routeOptionsRetry": "Try again",
         "routeOptionShortest": "Fastest route",
         "routeOptionViaThrengslavegur": "Via Þrengslavegur",
+        "routeOptionViaHellisheidi": "Via Hellisheiði",
         "routeOptionDefault": "Google default route",
         "routeOptionOther": "Alternative route",
         "routeOptionDuration": "{hours} hr {minutes} min",

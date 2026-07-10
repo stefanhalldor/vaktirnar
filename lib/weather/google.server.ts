@@ -119,6 +119,12 @@ const CAPITAL_AREA_BOUNDS: Bounds = { minLat: 63.95, maxLat: 64.25, minLon: -22.
 // Tight bounding box around Þorlákshöfn — catches coord-based selections (saved places, geocode fallback).
 const THORLAKSHOFN_BOUNDS: Bounds = { minLat: 63.82, maxLat: 63.88, minLon: -21.44, maxLon: -21.30 }
 
+// South/southeast corridor where Hellisheiði (Route 1) is the normal outbound road from Reykjavík.
+// minLon: -21.25 keeps Þorlákshöfn (~-21.37) out (handled by Þrengslavegur rule).
+// maxLat: 64.15 keeps Þingvellir (~64.25) and Laugarvatn (~64.21) out.
+// maxLon: -13.0 covers the full south/east coast including Vík, Höfn, and southeast.
+const SOUTH_EAST_VIA_HELLISHEIDI_BOUNDS: Bounds = { minLat: 63.35, maxLat: 64.15, minLon: -21.25, maxLon: -13.0 }
+
 const CURATED_ROUTE_RULES: readonly CuratedRouteRule[] = [
   {
     id: 'capital-area-to-thorlakshofn-via-threngslavegur',
@@ -131,6 +137,15 @@ const CURATED_ROUTE_RULES: readonly CuratedRouteRule[] = [
     // Via-point verified on localhost 2026-07-08: curatedAdded=true, description=Þrengslavegur/Leið 39.
     via: { lat: 63.9550, lon: -21.4900 },
     labels: ['CURATED_VIA_THRENGSLAVEGUR'],
+  },
+  {
+    id: 'capital-corridor-to-south-east-via-hellisheidi',
+    logName: 'Hellisheiði',
+    origin: { bounds: [CAPITAL_AREA_BOUNDS] },
+    destination: { bounds: [SOUTH_EAST_VIA_HELLISHEIDI_BOUNDS] },
+    // Via-point on Route 1 through Hellisheiði plateau. To be verified on localhost.
+    via: { lat: 64.0360, lon: -21.3920 },
+    labels: ['CURATED_VIA_HELLISHEIDI'],
   },
 ]
 

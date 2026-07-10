@@ -830,6 +830,7 @@
         "routeOptionsRetry": "Reyna aftur",
         "routeOptionShortest": "Fljótlegasta leið",
         "routeOptionViaThrengslavegur": "Um Þrengslaveg",
+        "routeOptionViaHellisheidi": "Um Hellisheiði",
         "routeOptionDefault": "Sjálfgefin Google-leið",
         "routeOptionOther": "Önnur leið",
         "routeOptionDuration": "{hours} klst. {minutes} mín.",

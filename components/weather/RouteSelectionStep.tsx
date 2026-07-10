@@ -448,7 +448,9 @@ export function RouteSelectionStep({
 
           {routeOptions && routeOptions.map((ro, idx) => {
             const isSelected = ro.id === selectedRouteId
-            const label = ro.labels.includes('CURATED_VIA_THRENGSLAVEGUR')
+            const label = ro.labels.includes('CURATED_VIA_HELLISHEIDI')
+              ? tf('routeOptionViaHellisheidi')
+              : ro.labels.includes('CURATED_VIA_THRENGSLAVEGUR')
               ? tf('routeOptionViaThrengslavegur')
               : idx === 0
                 ? tf('routeOptionShortest')
