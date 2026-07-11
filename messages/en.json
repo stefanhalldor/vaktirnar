@@ -818,7 +818,7 @@
         "thresholdsDefault": "Default thresholds",
         "thresholdsCustom": "wind {caution}/{red} m/s, gusts {gust} m/s, precip {precip} mm/h",
         "thresholdsUsedLabel": "Thresholds used",
-        "thresholdSummaryLine": "Weather limits: wind {caution}/{red} m/s",
+        "thresholdSummaryLine": "Sustained wind uncomfortable at {caution} m/s and hazardous at {red} m/s",
         "thresholdValidationError": "Invalid value in weather thresholds.",
         "thresholdRequiredError": "Both wind limits are required to continue.",
         "navThreshChooseLimits": "Choose limits",

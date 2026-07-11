@@ -822,7 +822,7 @@
         "thresholdsDefault": "Sjálfgefin viðmið",
         "thresholdsCustom": "vindur {caution}/{red} m/s, hviður {gust} m/s, úrkoma {precip} mm/klst",
         "thresholdsUsedLabel": "Notuð viðmið",
-        "thresholdSummaryLine": "Veðurmörk: vindur {caution}/{red} m/s",
+        "thresholdSummaryLine": "Jafnvindur óþægilegur í {caution} m/s og hættulegur í {red} m/s",
         "thresholdValidationError": "Ógilt gildi í veðurmörkum.",
         "thresholdRequiredError": "Til þess að halda áfram þarf að setja inn bæði vindmörkin.",
         "navThreshChooseLimits": "Veldu mörk",
