@@ -12,10 +12,10 @@ import {
   type WindDisplayStatus,
   WIND_DISPLAY_STATUS_PRIORITY_ORDER,
   WIND_DISPLAY_STATUS_ORDER,
-  WIND_STATUS_META as WIND_STATUS_META_SHARED,
   classifyCandidateWindDisplayStatus,
   classifyPointWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
+import { WIND_STATUS_UI_META as WIND_STATUS_META_SHARED } from '@/components/weather/windStatusUi'
 import { TravelAuditMap } from '@/components/weather/TravelAuditMap'
 import { ForecastDrawer } from '@/components/weather/ForecastDrawer'
 import { DepartureHeatmap } from '@/components/weather/DepartureHeatmap'

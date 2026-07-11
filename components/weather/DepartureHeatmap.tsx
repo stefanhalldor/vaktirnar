@@ -4,12 +4,13 @@ import { useTranslations, useLocale } from 'next-intl'
 import type { TravelCandidate, TravelWindow, ResolvedTravelThresholds } from '@/lib/weather/types'
 import { deriveThreshold, resolveThresholds } from '@/lib/weather/thresholds'
 import { formatKlTime, formatNum, normalizeLocale, formatCompactDateTime } from './travelAuditMap.helpers'
+import { Check, TriangleAlert } from 'lucide-react'
 import {
   type WindDisplayStatus,
   ALL_WIND_DISPLAY_STATUSES,
-  WIND_STATUS_META,
   classifyCandidateWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
+import { WIND_STATUS_UI_META as WIND_STATUS_META } from './windStatusUi'
 
 function utcDateKey(isoString: string): string {
   return new Date(isoString).toISOString().slice(0, 10)
@@ -198,7 +199,10 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                               : `border-transparent ${best ? 'ring-1 ring-offset-1 ring-primary/50' : ''}`
                           }`}
                         >
-                          <span className={`w-4 h-4 rounded-full ${meta.dotClass}`} aria-hidden />
+                          <span className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${meta.dotClass}`} aria-hidden>
+                            {wst === 'innan-marka' && <Check className="w-2.5 h-2.5 text-white stroke-[3]" />}
+                            {wst === 'haettulegt' && <TriangleAlert className="w-2.5 h-2.5 text-white stroke-[3]" />}
+                          </span>
                           {realIdx === 0 && firstSlotLabel ? (
                             <>
                               <span className="text-[10px] text-muted-foreground font-medium leading-none">{firstSlotLabel}</span>

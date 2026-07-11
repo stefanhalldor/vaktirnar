@@ -39,28 +39,25 @@ export const ALL_WIND_DISPLAY_STATUSES: WindDisplayStatus[] = WIND_DISPLAY_STATU
 /** @deprecated Use WIND_DISPLAY_STATUS_PRIORITY_ORDER for auto-select or WIND_DISPLAY_STATUS_PILL_ORDER for pills. */
 export const WIND_DISPLAY_STATUS_ORDER: WindDisplayStatus[] = WIND_DISPLAY_STATUS_PRIORITY_ORDER
 
-/** Display metadata for rendering each wind display status. */
-export const WIND_STATUS_META: Record<WindDisplayStatus, {
-  labelKey: string
-  icon: string
-  dotClass: string
-  borderClass: string
-  labelClass: string
-  chipActiveClass: string
-}> = {
-  'innan-marka':        { labelKey: 'statusWithinLimits',   icon: '✓',  dotClass: 'bg-[#2d5a27]',          borderClass: 'border-[#2d5a27]',          labelClass: 'text-[#2d5a27]',   chipActiveClass: 'border-[#2d5a27] bg-[#2d5a27]/10 text-[#2d5a27]'          },
-  'nalgast-othaegindi': { labelKey: 'statusNearDiscomfort', icon: '😬', dotClass: 'bg-amber-400',           borderClass: 'border-amber-400',           labelClass: 'text-amber-700',   chipActiveClass: 'border-amber-400 bg-amber-50 text-amber-700'               },
-  'othaegilegt':        { labelKey: 'statusUncomfortable',  icon: '😟', dotClass: 'bg-orange-500',          borderClass: 'border-orange-500',          labelClass: 'text-orange-600',  chipActiveClass: 'border-orange-500 bg-orange-50 text-orange-700'            },
-  'nalgast-haettumork': { labelKey: 'statusNearDanger',     icon: '😰', dotClass: 'bg-destructive',         borderClass: 'border-destructive',         labelClass: 'text-destructive', chipActiveClass: 'border-destructive bg-destructive/10 text-destructive'     },
-  'haettulegt':         { labelKey: 'statusDangerous',      icon: '⚠️',  dotClass: 'bg-destructive',         borderClass: 'border-destructive',         labelClass: 'text-destructive', chipActiveClass: 'border-destructive bg-destructive/10 text-destructive'     },
-  'no_data':            { labelKey: 'heatmapNotAssessed',   icon: '–',  dotClass: 'bg-muted-foreground/30', borderClass: 'border-muted-foreground/30', labelClass: 'text-muted-foreground', chipActiveClass: 'border-muted-foreground/30 bg-muted text-muted-foreground' },
+/**
+ * Minimal label/icon metadata — no Tailwind class strings.
+ * For Tailwind class metadata (dotClass, borderClass, chipActiveClass etc.)
+ * import WIND_STATUS_UI_META from components/weather/windStatusUi.ts.
+ */
+export const WIND_STATUS_META: Record<WindDisplayStatus, { labelKey: string; icon: string }> = {
+  'innan-marka':        { labelKey: 'statusWithinLimits',   icon: '✓'  },
+  'nalgast-othaegindi': { labelKey: 'statusNearDiscomfort', icon: '😬' },
+  'othaegilegt':        { labelKey: 'statusUncomfortable',  icon: '😟' },
+  'nalgast-haettumork': { labelKey: 'statusNearDanger',     icon: '😰' },
+  'haettulegt':         { labelKey: 'statusDangerous',      icon: '⚠️'  },
+  'no_data':            { labelKey: 'heatmapNotAssessed',   icon: '–'  },
 }
 
 /** Hex marker color for Google Maps point markers. */
 export const WIND_STATUS_MARKER_COLOR: Record<WindDisplayStatus, string> = {
   'haettulegt':         '#dc2626',
   'nalgast-haettumork': '#dc2626',
-  'othaegilegt':        '#f59e0b',
+  'othaegilegt':        '#f97316',
   'nalgast-othaegindi': '#f59e0b',
   'innan-marka':        '#2d5a27',
   'no_data':            '#9ca3af',

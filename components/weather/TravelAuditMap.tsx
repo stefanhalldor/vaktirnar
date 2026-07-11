@@ -7,10 +7,10 @@ import { resolveThresholds } from '@/lib/weather/thresholds'
 import {
   type WindDisplayStatus,
   ALL_WIND_DISPLAY_STATUSES,
-  WIND_STATUS_META,
   WIND_STATUS_MARKER_COLOR,
   classifyPointWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
+import { WIND_STATUS_UI_META as WIND_STATUS_META } from './windStatusUi'
 import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weather/googleMaps.client'
 import { resolvePlaceLabel } from '@/lib/weather/reverseGeocode.client'
 import {
@@ -372,6 +372,16 @@ export function TravelAuditMap({
       const markerColor = WIND_STATUS_MARKER_COLOR[windDisplayStatus]
       marker.setIcon(makeRouteSymbolIcon(isHighlighted ? style.color : markerColor, style.scale, isSelected))
       marker.setZIndex(isSelected ? 20 : style.zIndex)
+      // Add non-color icon label for best/worst statuses on non-endpoint markers
+      if (!isEndpoint) {
+        if (windDisplayStatus === 'innan-marka') {
+          marker.setLabel({ text: '✓', color: '#ffffff', fontSize: '9px', fontWeight: 'bold' })
+        } else if (windDisplayStatus === 'haettulegt') {
+          marker.setLabel({ text: '!', color: '#ffffff', fontSize: '11px', fontWeight: 'bold' })
+        } else {
+          marker.setLabel('' as unknown as google.maps.MarkerLabel)
+        }
+      }
 
       const forecastMarker = forecastMarkersRef.current[idx]
       if (forecastMarker) {
