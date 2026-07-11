@@ -85,9 +85,14 @@ type TeskeidUsageFeature = {
 
 type TeskeidUsageWeather = {
   route_options_calculated: number
+  route_options_calculated_authenticated: number
+  route_options_calculated_public: number
   route_options_failed: number
+  route_options_rate_limited_public: number
   distinct_route_pairs: number
   final_forecast_completed: number
+  final_forecast_completed_authenticated: number
+  final_forecast_completed_public: number
   final_forecast_failed: number
   route_to_result_conversion: number
   route_count_buckets: Record<string, number>
@@ -282,7 +287,7 @@ function TeskeidUsageSection({ usage }: { usage: TeskeidUsageData | null }) {
   const w = usage.weather
 
   const summaryCards = [
-    { label: 'Virkir notendur', value: s.unique_users },
+    { label: 'Innskráðir notendur', value: s.unique_users },
     { label: 'Atburðir', value: s.total_events },
     { label: 'Leiðarútreikningar', value: s.weather_route_calculations },
     { label: 'Ólík leiðapör', value: s.weather_distinct_route_pairs, note: usage.fingerprinting_enabled === false ? 'USAGE_EVENT_SECRET vantar' : undefined },
@@ -336,9 +341,14 @@ function TeskeidUsageSection({ usage }: { usage: TeskeidUsageData | null }) {
               <h3 className="text-xs font-semibold text-gray-600 mb-3">Veðrið — leiðarútreikningar</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                 <div><p className="text-lg font-semibold text-gray-900">{w.route_options_calculated}</p><p className="text-gray-400">Leiðir reiknaðar</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.route_options_calculated_authenticated}</p><p className="text-gray-400">Innskráðir</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.route_options_calculated_public}</p><p className="text-gray-400">Óinnskráðir</p></div>
                 <div><p className="text-lg font-semibold text-gray-900">{w.route_options_failed}</p><p className="text-gray-400">Mistókst</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.route_options_rate_limited_public}</p><p className="text-gray-400">Stoppað af takmörkun</p></div>
                 <div><p className="text-lg font-semibold text-gray-900">{w.distinct_route_pairs}</p><p className="text-gray-400">Ólík leiðapör</p></div>
                 <div><p className="text-lg font-semibold text-gray-900">{w.final_forecast_completed}</p><p className="text-gray-400">Lokaniðurstöður</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.final_forecast_completed_authenticated}</p><p className="text-gray-400">Lokaniðurstöður — innskráðir</p></div>
+                <div><p className="text-lg font-semibold text-gray-900">{w.final_forecast_completed_public}</p><p className="text-gray-400">Lokaniðurstöður — óinnskráðir</p></div>
                 <div><p className="text-lg font-semibold text-gray-900">{w.final_forecast_failed}</p><p className="text-gray-400">Lokaútreikningur mistókst</p></div>
               </div>
               {Object.keys(w.curated_route_labels).length > 0 && (

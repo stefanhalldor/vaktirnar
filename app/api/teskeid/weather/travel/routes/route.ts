@@ -52,9 +52,19 @@ export async function POST(request: Request) {
             ?? ''
     const withinLimit = await checkWeatherGuestRateLimit(ip)
     if (!withinLimit) {
+      await recordTeskeidUsageEvent({
+        userId: null,
+        featureKey: 'vedrid',
+        eventName: 'weather_route_options_rate_limited',
+        path: '/api/teskeid/weather/travel/routes',
+        metadata: { actor: 'guest' },
+      })
       return NextResponse.json({ error: 'rate_limited_guest' }, { status: 429 })
     }
   }
+
+  const actor = user ? 'authenticated' : 'guest'
+  const userId = user?.id ?? null
 
   const body = await request.json().catch(() => null)
   if (!body) {
@@ -106,50 +116,45 @@ export async function POST(request: Request) {
   try {
     routes = await provider.getRouteOptions(originCandidate, destCandidate)
   } catch {
-    if (user) {
-      await recordTeskeidUsageEvent({
-        userId: user.id,
-        featureKey: 'vedrid',
-        eventName: 'weather_route_options_failed',
-        path: '/api/teskeid/weather/travel/routes',
-        metadata: { ...hashMeta },
-      })
-    }
+    await recordTeskeidUsageEvent({
+      userId,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_failed',
+      path: '/api/teskeid/weather/travel/routes',
+      metadata: { actor, ...hashMeta },
+    })
     return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
   }
 
   if (routes.length === 0) {
-    if (user) {
-      await recordTeskeidUsageEvent({
-        userId: user.id,
-        featureKey: 'vedrid',
-        eventName: 'weather_route_options_failed',
-        path: '/api/teskeid/weather/travel/routes',
-        metadata: { ...hashMeta },
-      })
-    }
+    await recordTeskeidUsageEvent({
+      userId,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_failed',
+      path: '/api/teskeid/weather/travel/routes',
+      metadata: { actor, ...hashMeta },
+    })
     return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
   }
 
   // Sort by durationS ascending — shortest driving time first
   const sorted = [...routes].sort((a, b) => a.durationS - b.durationS)
 
-  if (user) {
-    await recordTeskeidUsageEvent({
-      userId: user.id,
-      featureKey: 'vedrid',
-      eventName: 'weather_route_options_calculated',
-      path: '/api/teskeid/weather/travel/routes',
-      metadata: {
-        ...hashMeta,
-        provider: 'google',
-        routeCount: sorted.length,
-        originIdPresent: originCandidate.placeId !== 'confirmed',
-        destinationIdPresent: destCandidate.placeId !== 'confirmed',
-        curatedRouteLabels: [...new Set(sorted.flatMap(r => r.labels).filter(l => l.startsWith('CURATED_')))],
-      },
-    })
-  }
+  await recordTeskeidUsageEvent({
+    userId,
+    featureKey: 'vedrid',
+    eventName: 'weather_route_options_calculated',
+    path: '/api/teskeid/weather/travel/routes',
+    metadata: {
+      actor,
+      ...hashMeta,
+      provider: 'google',
+      routeCount: sorted.length,
+      originIdPresent: originCandidate.placeId !== 'confirmed',
+      destinationIdPresent: destCandidate.placeId !== 'confirmed',
+      curatedRouteLabels: [...new Set(sorted.flatMap(r => r.labels).filter(l => l.startsWith('CURATED_')))],
+    },
+  })
 
   return NextResponse.json({ routes: sorted })
 }

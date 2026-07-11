@@ -35,6 +35,13 @@ type UsageRow = {
   created_at: string
 }
 
+/** Backward-compatible actor detection: prefers explicit metadata.actor, falls back to user_id presence. */
+function getActor(event: UsageRow): 'authenticated' | 'guest' {
+  if (event.metadata?.actor === 'authenticated') return 'authenticated'
+  if (event.metadata?.actor === 'guest') return 'guest'
+  return event.user_id ? 'authenticated' : 'guest'
+}
+
 function countBy<T>(items: T[], key: (item: T) => string): Record<string, number> {
   const result: Record<string, number> = {}
   for (const item of items) {
@@ -94,8 +101,11 @@ export async function GET(request: NextRequest) {
         },
         features: [],
         weather: {
-          route_options_calculated: 0, route_options_failed: 0,
-          distinct_route_pairs: 0, final_forecast_completed: 0,
+          route_options_calculated: 0, route_options_calculated_authenticated: 0, route_options_calculated_public: 0,
+          route_options_failed: 0,
+          route_options_rate_limited_public: 0,
+          distinct_route_pairs: 0,
+          final_forecast_completed: 0, final_forecast_completed_authenticated: 0, final_forecast_completed_public: 0,
           final_forecast_failed: 0, route_to_result_conversion: 0,
           route_count_buckets: {}, curated_route_labels: {},
         },
@@ -122,8 +132,17 @@ export async function GET(request: NextRequest) {
       .filter((h): h is string => typeof h === 'string'),
   )
 
+  const routeCalcAuth = routeCalcEvents.filter(e => getActor(e) === 'authenticated').length
+  const routeCalcPublic = routeCalcEvents.filter(e => getActor(e) === 'guest').length
+
+  const finalForecastEvents = weatherEvents.filter(e => e.event_name === 'weather_final_forecast_completed')
+  const finalForecastAuth = finalForecastEvents.filter(e => getActor(e) === 'authenticated').length
+  const finalForecastPublic = finalForecastEvents.filter(e => getActor(e) === 'guest').length
+
+  const rateLimitedPublic = weatherEvents.filter(e => e.event_name === 'weather_route_options_rate_limited').length
+
   const weatherRouteCalcs = routeCalcEvents.length
-  const weatherFinalForecasts = weatherByName['weather_final_forecast_completed'] ?? 0
+  const weatherFinalForecasts = finalForecastEvents.length
   const weatherDistinctPairs = distinctPairHashes.size
   const weatherConversion = weatherRouteCalcs > 0
     ? Math.round((weatherFinalForecasts / weatherRouteCalcs) * 1000) / 1000
@@ -175,10 +194,15 @@ export async function GET(request: NextRequest) {
     },
     features,
     weather: {
-      route_options_calculated: weatherByName['weather_route_options_calculated'] ?? 0,
+      route_options_calculated: weatherRouteCalcs,
+      route_options_calculated_authenticated: routeCalcAuth,
+      route_options_calculated_public: routeCalcPublic,
       route_options_failed: weatherByName['weather_route_options_failed'] ?? 0,
+      route_options_rate_limited_public: rateLimitedPublic,
       distinct_route_pairs: weatherDistinctPairs,
       final_forecast_completed: weatherFinalForecasts,
+      final_forecast_completed_authenticated: finalForecastAuth,
+      final_forecast_completed_public: finalForecastPublic,
       final_forecast_failed: weatherByName['weather_final_forecast_failed'] ?? 0,
       route_to_result_conversion: weatherConversion,
       route_count_buckets: routeCountBuckets,

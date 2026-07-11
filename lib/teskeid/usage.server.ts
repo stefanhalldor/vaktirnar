@@ -5,7 +5,7 @@ import { getAdmin } from '@/lib/supabase/admin'
 export type UsageFeatureKey = 'vedrid' | 'minnid' | 'tengsl' | 'umonnun'
 
 type UsageEventInput = {
-  userId: string
+  userId: string | null
   featureKey: UsageFeatureKey
   eventName: string
   path?: string

@@ -146,6 +146,30 @@ describe('recordTeskeidUsageEvent', () => {
     }))
   })
 
+  it('accepts userId: null for guest events', async () => {
+    mockInsert.mockResolvedValue({ error: null })
+    await recordTeskeidUsageEvent({
+      userId: null,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_calculated',
+      metadata: { actor: 'guest', routeCount: 1 },
+    })
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ user_id: null }))
+  })
+
+  it('allows actor field through sanitizer', async () => {
+    mockInsert.mockResolvedValue({ error: null })
+    await recordTeskeidUsageEvent({
+      userId: null,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_calculated',
+      metadata: { actor: 'guest', routeCount: 2 },
+    })
+    const inserted = mockInsert.mock.calls[0][0] as { metadata: Record<string, unknown> }
+    expect(inserted.metadata).toHaveProperty('actor', 'guest')
+    expect(inserted.metadata).toHaveProperty('routeCount', 2)
+  })
+
   it('swallows insert errors and does not throw', async () => {
     mockInsert.mockResolvedValue({ error: { message: 'DB error' } })
     await expect(recordTeskeidUsageEvent({ userId: 'u1', featureKey: 'vedrid', eventName: 'test' }))

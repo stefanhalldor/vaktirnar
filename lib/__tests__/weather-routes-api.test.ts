@@ -13,6 +13,7 @@ const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
 const { mockGetRouteOptions } = vi.hoisted(() => ({ mockGetRouteOptions: vi.fn() }))
 const { mockRecordTeskeidUsageEvent } = vi.hoisted(() => ({ mockRecordTeskeidUsageEvent: vi.fn() }))
+const { mockCheckWeatherGuestRateLimit } = vi.hoisted(() => ({ mockCheckWeatherGuestRateLimit: vi.fn() }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -33,6 +34,10 @@ vi.mock('@/lib/weather/provider.server', () => ({
 vi.mock('@/lib/teskeid/usage.server', () => ({
   recordTeskeidUsageEvent: mockRecordTeskeidUsageEvent,
   routePairFingerprint: vi.fn(() => 'testhash'),
+}))
+
+vi.mock('@/lib/weather/ip-rate-limit.server', () => ({
+  checkWeatherGuestRateLimit: mockCheckWeatherGuestRateLimit,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/routes/route'
@@ -70,10 +75,17 @@ function makeRouteOption(id: string, routeIndex: number, durationS: number, dist
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
+function guestUser() {
+  mockGetUser.mockResolvedValue({ data: { user: null } })
+  mockCheckWeatherGuestRateLimit.mockResolvedValue(true)
+  process.env.WEATHER_PUBLIC_ENABLED = 'true'
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
   process.env.WEATHER_ENABLED = 'true'
+  delete process.env.WEATHER_PUBLIC_ENABLED
 })
 
 describe('POST /api/teskeid/weather/travel/routes', () => {
@@ -83,8 +95,9 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(res.status).toBe(404)
   })
 
-  it('returns 401 when user is not authenticated', async () => {
+  it('returns 401 when user is not authenticated and WEATHER_PUBLIC_ENABLED is off', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } })
+    // WEATHER_PUBLIC_ENABLED not set (deleted in beforeEach)
     const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
     expect(res.status).toBe(401)
     const body = await res.json()
@@ -240,10 +253,76 @@ describe('POST /api/teskeid/weather/travel/routes — usage events', () => {
     }))
   })
 
-  it('does not record usage event before auth check', async () => {
+  it('does not record usage event when blocked before auth/public check', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } })
+    // WEATHER_PUBLIC_ENABLED not set → 401 before any event recording
     await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
     expect(mockRecordTeskeidUsageEvent).not.toHaveBeenCalled()
+  })
+
+  it('records guest weather_route_options_calculated with userId null and actor guest', async () => {
+    guestUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      userId: null,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_calculated',
+      metadata: expect.objectContaining({ actor: 'guest' }),
+    }))
+  })
+
+  it('records guest weather_route_options_failed when provider returns no routes', async () => {
+    guestUser()
+    mockGetRouteOptions.mockResolvedValue([])
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      userId: null,
+      eventName: 'weather_route_options_failed',
+      metadata: expect.objectContaining({ actor: 'guest' }),
+    }))
+  })
+
+  it('records weather_route_options_rate_limited and returns 429 when guest is rate limited', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockCheckWeatherGuestRateLimit.mockResolvedValue(false)
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(res.status).toBe(429)
+    expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      userId: null,
+      eventName: 'weather_route_options_rate_limited',
+      metadata: expect.objectContaining({ actor: 'guest' }),
+    }))
+  })
+
+  it('rate-limited event does not also record route_options_calculated', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockCheckWeatherGuestRateLimit.mockResolvedValue(false)
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    const calls = mockRecordTeskeidUsageEvent.mock.calls.map((c: unknown[]) => (c[0] as { eventName: string }).eventName)
+    expect(calls).not.toContain('weather_route_options_calculated')
+  })
+
+  it('authenticated events include actor: authenticated', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ actor: 'authenticated' }),
+    }))
+  })
+
+  it('guest event metadata does not contain place names, lat, lon or address', async () => {
+    guestUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    const call = mockRecordTeskeidUsageEvent.mock.calls[0][0]
+    const meta = JSON.stringify(call.metadata)
+    expect(meta).not.toContain('Reykjavík')
+    expect(meta).not.toContain('"lat"')
+    expect(meta).not.toContain('"lon"')
   })
 
   it('metadata contains curatedRouteLabels and no place names or coords', async () => {

@@ -59,6 +59,7 @@ tilvísanir og verkefnasaga rofni ekki.
 | 27  | **#73 Veður: veður við komu á áfangastað**                  | **Ferðalagið result polish.** Sýna veður við áætlaða komu á áfangastað í top-spjaldinu, með skýru `Mættur`/arrival-lúkki svo þetta verði gagnlegt en ekki dauður texti. |
 | 28  | **#74 Veður: hvað veldur ófullnægjandi gögnum og nálgun**   | **Ferðalagið data quality.** Skoða hvað veldur því að spápunktar fá `Ófullnægjandi gögn` (no_data) og hvort hægt sé að gera nálgun m.v. tiltæk gögn þegar nákvæm spá vantar. |
 | 29  | **#75 Veður: Spá 🥄 — veðurspátafla fyrir alla spápunkta**  | **Ferðalagið UI.** Endurnýta `ForecastDrawer` þannig að hægt sé að opna Teskeiðarútlit á veðurspá frá öllum þremur stöðum: komu við áfangastað, mesta krefjandi punkti og öllum spápunktum í lista. |
+| 30  | **#79 Veður: víxla upphafs- og áfangastað**                 | **Ferðalagið route-selection polish.** Bæta við reverse-takka milli `Frá` og `Til` sem víxlar stöðunum líkt og í Google Maps, án þess að tapa placeId/hnitum eða rugla public rate-limit/route options. |
 
 ## Vinnupakkar
 
@@ -87,7 +88,7 @@ OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
 hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
 fullkomnara.
 
-**Pakki F — Veðrið / Ferðalagið:** #67, #70, #71, #72, #73, #74, #75 og áframhaldandi `todo-067` handoff.
+**Pakki F — Veðrið / Ferðalagið:** #67, #70, #71, #72, #73, #74, #75, #79 og áframhaldandi `todo-067` handoff.
 Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
 traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
 brottfarar- eða heimferðartíma kerfið mælir með.
@@ -1983,3 +1984,89 @@ samræmd Teskeið, ekki stórt skrautkort.
 3. Bæta við sérstakri, sanitized diagnosis-hjálparfalli sem logar aðeins leyfilegar static strengjagreinar m.v. þekkt PostgREST/Postgres error codes.
 
 **Engin breyting á notendaupplifun.** Einungis diagnosis fyrir þróunarfasa og framtíðarbilanir.
+
+---
+
+#79
+## Veður: víxla upphafs- og áfangastað
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-11
+
+**Samhengi frá Stebba:** Í Google Maps er lítill reverse-takki milli reitanna
+fyrir upphafsstað og áfangastað. Stebbi vill svipaðan "reverse gaur" í fyrsta
+skrefi Veðursins, þannig að notandi geti víxlað `Frá` og `Til` án þess að þurfa
+að eyða báðum reitum og leita aftur.
+
+**Skjámynd:** Stebbi sendi skjámynd í samtali 2026-07-11 sem sýnir Google Maps
+reverse icon milli origin og destination reita. Myndin var ekki aðgengileg sem
+staðbundin skrá í workspace þegar atriðið var skráð, þannig hún er ekki vistuð í
+`feedback/images/`.
+
+**Vandamál:** Nú þarf notandi líklega að hreinsa og velja staði aftur ef hann
+vill skoða sömu leið í öfuga átt. Það er óþægilegt sérstaklega í ferðaveðri þar
+sem heimferð og öfug átt getur skipt máli.
+
+**Ósk:** Bæta við aðgengilegum icon-takka milli `Frá` og `Til` í leiðarvalinu
+sem víxlar upphafsstað og áfangastað.
+
+**Við útfærslu:**
+
+- Lesa `Design.md` áður en UI er breytt.
+- Nota icon-only button með skýru accessible labeli, t.d.
+  `Víxla upphafs- og áfangastað`.
+- Button á að vera mobile-first, auðvelt að hitta á 360-460 px og ekki valda
+  horizontal overflowi eða layout hoppi.
+- Víxla skal heilum place-state, ekki bara textanum:
+  - `name`,
+  - `formattedAddress`,
+  - `lat`,
+  - `lon`,
+  - `placeId` ef til staðar.
+- Ef báðir staðir eru valdir skal hreinsa núverandi route options/result sem
+  tilheyra gömlu áttinni og sækja eða biðja notanda að sækja leiðarmöguleika
+  fyrir nýju áttina í samræmi við núverandi flæði.
+- Ef aðeins annar staður er valinn skal swap-a hann yfir í hinn reitinn án þess
+  að bila validation.
+- Ekki vista nýja staði eða breyta saved places behavior bara vegna swap.
+- Fyrir public notendur má swap sjálft ekki telja sem route request; aðeins
+  raunveruleg endursókn á leiðarmöguleikum má hafa áhrif á public quota.
+- Passa að route analytics, ef til staðar, skrái aðeins raunverulegt route-call,
+  ekki UI-swap.
+- Allur nýr notendatexti á að fara í `messages/is.json` og `messages/en.json`
+  ef núverandi component notar þýðingakerfið.
+- Ekki breyta route provider, veðurmati, SQL, RLS, auth eða admin analytics í
+  þessu atriði nema það komi óvænt í ljós að núverandi route-selection state
+  krefjist þess.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Opna `/vedrid` óinnskráður og/eða `/auth-mvp/vedrid` innskráður á localhost.
+2. Velja tvo staði, t.d. Garðabær -> Akranes.
+3. Staðfesta að enginn reverse-takki sé til staðar núna.
+4. Prófa hvernig route options/result hegða sér ef staðir eru hreinsaðir og
+   valdir aftur í öfugri röð.
+5. Athuga hvort state heldur utan um `placeId` eða aðeins hnit/texta, svo
+   útfærslan tapi ekki routing fidelity.
+
+**Localhost checks for Stebbi eftir breytingu:**
+
+1. Opna `/vedrid` sem public/óinnskráður notandi.
+2. Velja `Frá` og `Til`.
+3. Smella reverse-takkanum.
+4. Vænt: staðirnir víxlast strax, með nafni og address óbreyttu.
+5. Vænt: route options/result frá gömlu áttinni eru ekki sýnd sem þau eigi við
+   nýju áttina.
+6. Ef appið sækir leiðir sjálfkrafa eftir swap: vænt að loader birtist og nýjar
+   leiðir eigi við öfuga átt. Ef appið sækir ekki sjálfkrafa: vænt að notandi
+   fái skýra leið til að sækja leiðarmöguleika.
+7. Prófa með aðeins `Frá` valið og `Til` tómt.
+8. Vænt: selected place færist yfir í hinn reitinn án villu.
+9. Prófa með saved/recent place og Google-selected place.
+10. Vænt: `placeId` tapast ekki ef það var til staðar.
+11. Prófa mobile 360-460 px.
+12. Vænt: reverse-takkinn er auðvelt að hitta, enginn texti/controls overlap-a
+    og ekkert horizontal overflow.
+13. Fyrir public notanda: staðfesta að swap eitt og sér eyði ekki route quota;
+    aðeins raunveruleg route-sókn gerir það.
