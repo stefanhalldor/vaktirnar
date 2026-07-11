@@ -1,13 +1,33 @@
 /**
- * Shared route-leg weather assessment.
+ * Shared route-leg weather assessment — shared domain seam for Ferðaveðrið and Ferðalagið.
  *
- * This is the shared domain seam used by:
- * - checkTravelWeather() (Ferðaveðrið) via internal composers in travel.ts
- * - Future Ferðalagið multi-stop trip assessment
+ * ## Architecture contract
  *
- * Main domain API:  assessRouteLeg()
- * Supporting utils: assessDrivingConditions(), getForecastHoursNearEta()
- * Private:          findWorstRouteMetric()
+ * This module is the single implementation of route-leg weather assessment.
+ * Both single-drive (Einn akstur) and multi-stop trip (Ferðalag) products
+ * must call `assessRouteLeg()` for driving-leg assessment. Logic must never
+ * be duplicated in product-specific modules.
+ *
+ * ## Public API
+ *
+ * - `assessRouteLeg(input: RouteLegInput): RouteLegAssessment`
+ *     Main domain seam. Use this for any route-leg weather assessment.
+ *
+ * - `RouteLegInput`, `RouteLegAssessment`
+ *     Input/output types for the domain seam.
+ *
+ * ## Supporting utilities (not the domain seam)
+ *
+ * - `assessDrivingConditions()` — threshold application (pure, stateless)
+ * - `getForecastHoursNearEta()` — forecast hour filtering (pure, stateless)
+ *
+ * These are exported because `travel.ts` product composers need them directly
+ * (e.g. buildRouteWeatherPoints, buildForecastRows). Future products should
+ * use `assessRouteLeg()` rather than composing from these utilities.
+ *
+ * ## Private
+ *
+ * - `findWorstRouteMetric()` — ETA-weighted worst-value scan across route points
  */
 
 import type {
@@ -103,6 +123,51 @@ function findWorstRouteMetric(
     }
   }
   return worst
+}
+
+// ── Wind distance classifier ───────────────────────────────────────────────
+
+/**
+ * Fine-grained wind display label computed from raw wind speed relative to
+ * the user's configured uncomfortable/dangerous wind thresholds.
+ *
+ * This is a display-only classification layer. Internal WeatherStatus
+ * (graent/gult/rautt) is unchanged.
+ *
+ * Mapping to WeatherStatus:
+ *   haettulegt              -> rautt
+ *   nalgast-haettumork      -> gult (with stronger visual warning treatment)
+ *   othaegilegt             -> gult
+ *   nalgast-othaegindi      -> gult
+ *   innan-marka             -> graent
+ */
+export type WindDistanceLabel =
+  | 'innan-marka'
+  | 'nalgast-othaegindi'
+  | 'othaegilegt'
+  | 'nalgast-haettumork'
+  | 'haettulegt'
+
+/**
+ * Returns a fine-grained wind distance label for display purposes.
+ *
+ * Boundary rules:
+ *   wind >= dangerousWindMs                       -> haettulegt
+ *   dangerousWindMs - wind < 2  (i.e. within 2)  -> nalgast-haettumork
+ *   wind >= uncomfortableWindMs                   -> othaegilegt
+ *   uncomfortableWindMs - wind < 2                -> nalgast-othaegindi
+ *   otherwise                                     -> innan-marka
+ */
+export function classifyWindDistance(
+  wind: number,
+  uncomfortableWindMs: number,
+  dangerousWindMs: number,
+): WindDistanceLabel {
+  if (wind >= dangerousWindMs) return 'haettulegt'
+  if (dangerousWindMs - wind < 2) return 'nalgast-haettumork'
+  if (wind >= uncomfortableWindMs) return 'othaegilegt'
+  if (uncomfortableWindMs - wind < 2) return 'nalgast-othaegindi'
+  return 'innan-marka'
 }
 
 // ── Domain seam ────────────────────────────────────────────────────────────

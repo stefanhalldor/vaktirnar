@@ -4,12 +4,21 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useTranslations, useLocale } from 'next-intl'
 import { ChevronLeft, CloudSun, ChevronDown, ChevronUp, MapPin, Route, Caravan, SlidersHorizontal, CheckCircle2, Wind, Droplets } from 'lucide-react'
-import type { DeterministicResult, WeatherStatus, RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelThresholdOverrides, TravelCandidate, ForecastDrawerRow } from '@/lib/weather/types'
+import type { DeterministicResult, WeatherStatus, RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelThresholdOverrides, TravelCandidate, ForecastDrawerRow, ResolvedTravelThresholds } from '@/lib/weather/types'
 import type { RouteOption } from '@/lib/weather/provider.types'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
+import { classifyWindDistance, type WindDistanceLabel } from '@/lib/weather/assessment'
+import {
+  type WindDisplayStatus,
+  WIND_DISPLAY_STATUS_PRIORITY_ORDER,
+  WIND_DISPLAY_STATUS_ORDER,
+  WIND_STATUS_META as WIND_STATUS_META_SHARED,
+  classifyCandidateWindDisplayStatus,
+  classifyPointWindDisplayStatus,
+} from '@/lib/weather/windDisplayStatus'
 import { TravelAuditMap } from '@/components/weather/TravelAuditMap'
 import { ForecastDrawer } from '@/components/weather/ForecastDrawer'
-import { DepartureHeatmap, type SlotStatus } from '@/components/weather/DepartureHeatmap'
+import { DepartureHeatmap } from '@/components/weather/DepartureHeatmap'
 import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteSelectionStep'
 import { WeatherResultLoader } from '@/components/weather/WeatherResultLoader'
 import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
@@ -18,11 +27,11 @@ import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, haversineMe
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 
-type WizardStep = 'route' | 'trailer' | 'thresholds' | 'result'
+type WizardStep = 'route' | 'thresholds' | 'result'
 
 type TrailerKindValue = 'none' | 'generic_trailer' | 'tent_trailer' | 'folding_camper' | 'caravan' | 'horse_trailer'
 
-const STEP_ORDER: WizardStep[] = ['route', 'trailer', 'thresholds', 'result']
+const STEP_ORDER: WizardStep[] = ['route', 'thresholds', 'result']
 
 const STATUS_STYLES: Record<WeatherStatus, { dot: string; label: string }> = {
   graent: { dot: 'bg-[#2d5a27]', label: 'text-[#2d5a27]' },
@@ -30,8 +39,16 @@ const STATUS_STYLES: Record<WeatherStatus, { dot: string; label: string }> = {
   rautt:  { dot: 'bg-destructive', label: 'text-destructive' },
 }
 
+// WIND_STATUS_META is imported as WIND_STATUS_META_SHARED from lib/weather/windDisplayStatus
 
-export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}) {
+
+export function FerdalagidClient({
+  isGuest = false,
+  tripEnabled = false,
+}: {
+  isGuest?: boolean
+  tripEnabled?: boolean
+} = {}) {
   const t = useTranslations('teskeid.vedrid')
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
@@ -69,14 +86,17 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
   // Controls whether RoutePointRow uses active-candidate mode or shows summaryForWindow metrics.
   const [userExplicitSlot, setUserExplicitSlot] = useState(false)
   // Filter state for scrubber (DepartureHeatmap) per leg — empty = show all; non-empty = show only those
-  const [outboundVisibleStatuses, setOutboundVisibleStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>())
-  const [returnVisibleStatuses, setReturnVisibleStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>())
+  const [outboundVisibleStatuses, setOutboundVisibleStatuses] = useState<Set<WindDisplayStatus>>(() => new Set<WindDisplayStatus>())
+  const [returnVisibleStatuses, setReturnVisibleStatuses] = useState<Set<WindDisplayStatus>>(() => new Set<WindDisplayStatus>())
   // Map visibility state — independent from scrubber filters
-  const [mapOutboundVisibleStatuses, setMapOutboundVisibleStatuses] = useState<Set<SlotStatus>>(() => new Set<SlotStatus>())
+  const [mapOutboundVisibleStatuses, setMapOutboundVisibleStatuses] = useState<Set<WindDisplayStatus>>(() => new Set<WindDisplayStatus>())
   // Signal to TravelAuditMap to clear manual point selection when departure changes
   const [mapSelectionSignal, setMapSelectionSignal] = useState(0)
   // Track which thresholds were last submitted to detect dirty drafts
   const [submittedThresholds, setSubmittedThresholds] = useState<TravelThresholdOverrides | null>(null)
+
+  // Ferðalag conversion affordance — shown when tripEnabled and result is ready
+  const [tripHintVisible, setTripHintVisible] = useState(false)
 
   // Route selection state
   const [routeOptions, setRouteOptions] = useState<RouteOption[] | null>(null)
@@ -122,14 +142,11 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
     return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Populate threshold draft inputs when entering the thresholds step
+  // Clear the threshold error when entering the thresholds step.
+  // Draft inputs are intentionally NOT pre-filled on first entry — user must set them explicitly.
+  // When returning after a previous submission, drafts retain the values the user typed.
   useEffect(() => {
     if (step === 'thresholds') {
-      const effective = resolveThresholds(trailerKind, thresholdOverrides)
-      setDraftCautionWind(String(effective.cautionWindMs))
-      setDraftRedWind(String(effective.redWindMs))
-      setDraftRedGust(String(effective.redGustMs))
-      setDraftCautionPrecip(String(effective.cautionPrecipMmPerHour))
       setThresholdError(null)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,9 +155,9 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
   // Reset departure filters and map visibility when a new result arrives
   useEffect(() => {
     if (!result) return
-    setOutboundVisibleStatuses(new Set<SlotStatus>())
-    setReturnVisibleStatuses(new Set<SlotStatus>())
-    setMapOutboundVisibleStatuses(new Set<SlotStatus>())
+    setOutboundVisibleStatuses(new Set<WindDisplayStatus>())
+    setReturnVisibleStatuses(new Set<WindDisplayStatus>())
+    setMapOutboundVisibleStatuses(new Set<WindDisplayStatus>())
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.id])
 
@@ -357,10 +374,15 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
           selected_route_unavailable: tf('selectedRouteUnavailable'),
           forecast_unavailable: tf('errorForecastUnavailable'),
           times_invalid: tf('errorTimesInvalid'),
-          thresholds_invalid: tf('thresholdValidationError'),
           time_constraint_conflict: tf('errorTimeConstraintConflict'),
         }
-        setError(errMap[data?.error] ?? tf('errorGeneral'))
+        if (data?.error === 'thresholds_invalid') {
+          // Return to threshold step with field-level error rather than showing an empty result
+          setStep('thresholds')
+          setThresholdError(tf('thresholdValidationError'))
+        } else {
+          setError(errMap[data?.error] ?? tf('errorGeneral'))
+        }
       } else {
         setResult(data as DeterministicResult)
         setSubmittedThresholds(overridesToSend)
@@ -373,17 +395,23 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
   }
 
   function handleThresholdSubmit() {
-    const defaults = resolveThresholds(trailerKind)
+    const defaults = resolveThresholds('none')
     const cautionWind = parseFloat(draftCautionWind)
     const redWind = parseFloat(draftRedWind)
-    const redGust = parseFloat(draftRedGust)
-    const cautionPrecip = parseFloat(draftCautionPrecip)
+    // Gust and precipitation thresholds are neutralised in this phase —
+    // set to high values so they never influence the visible assessment.
+    const redGust = 100
+    const cautionPrecip = 100
+
+    // Require both fields to be explicitly filled
+    if (draftCautionWind.trim() === '' || draftRedWind.trim() === '') {
+      setThresholdError(tf('thresholdRequiredError'))
+      return
+    }
 
     if (
       isNaN(cautionWind) || cautionWind < 0 || cautionWind > 40 ||
-      isNaN(redWind) || redWind < 0 || redWind > 40 ||
-      isNaN(redGust) || redGust < 0 || redGust > 50 ||
-      isNaN(cautionPrecip) || cautionPrecip < 0 || cautionPrecip > 20
+      isNaN(redWind) || redWind < 0 || redWind > 40
     ) {
       setThresholdError(tf('thresholdValidationError'))
       return
@@ -399,8 +427,8 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
     const overrides: TravelThresholdOverrides = {}
     if (cautionWind !== defaults.cautionWindMs) overrides.cautionWindMs = cautionWind
     if (redWind !== defaults.redWindMs) overrides.redWindMs = redWind
-    if (redGust !== defaults.redGustMs) overrides.redGustMs = redGust
-    if (cautionPrecip !== defaults.cautionPrecipMmPerHour) overrides.cautionPrecipMmPerHour = cautionPrecip
+    overrides.redGustMs = redGust
+    overrides.cautionPrecipMmPerHour = cautionPrecip
 
     setThresholdOverrides(overrides)
     handleSubmit(overrides)
@@ -425,18 +453,17 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
     if (selectedHeatmapIdx !== null) {
       const sel = outboundDisplayCandidates[selectedHeatmapIdx]
       if (sel) {
-        const st: SlotStatus = sel.reasonCode === 'no_data' ? 'no_data' : sel.status
+        const st = classifyCandidateWindDisplayStatus(sel, effectiveThresholds)
         if (outboundVisibleStatuses.has(st)) return
       }
     }
-    const visible = (c: TravelCandidate) => {
-      const s: SlotStatus = c.reasonCode === 'no_data' ? 'no_data' : c.status
-      return outboundVisibleStatuses.has(s)
+    const visible = (c: TravelCandidate) => outboundVisibleStatuses.has(classifyCandidateWindDisplayStatus(c, effectiveThresholds))
+    let next = -1
+    for (const priority of WIND_DISPLAY_STATUS_PRIORITY_ORDER) {
+      const idx = outboundDisplayCandidates.findIndex(c => visible(c) && classifyCandidateWindDisplayStatus(c, effectiveThresholds) === priority)
+      if (idx >= 0) { next = idx; break }
     }
-    const firstRed = outboundDisplayCandidates.findIndex(c => visible(c) && c.status === 'rautt')
-    const firstYellow = outboundDisplayCandidates.findIndex(c => visible(c) && c.status === 'gult')
-    const firstAny = outboundDisplayCandidates.findIndex(visible)
-    const next = firstRed >= 0 ? firstRed : firstYellow >= 0 ? firstYellow : firstAny
+    if (next < 0) next = outboundDisplayCandidates.findIndex(visible)
     setSelectedHeatmapIdx(next >= 0 ? next : null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outboundVisibleStatuses])
@@ -449,18 +476,17 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
     if (selectedReturnHeatmapIdx !== null) {
       const sel = returnCandidates[selectedReturnHeatmapIdx]
       if (sel) {
-        const st: SlotStatus = sel.reasonCode === 'no_data' ? 'no_data' : sel.status
+        const st = classifyCandidateWindDisplayStatus(sel, effectiveThresholds)
         if (returnVisibleStatuses.has(st)) return
       }
     }
-    const visible = (c: TravelCandidate) => {
-      const s: SlotStatus = c.reasonCode === 'no_data' ? 'no_data' : c.status
-      return returnVisibleStatuses.has(s)
+    const visible = (c: TravelCandidate) => returnVisibleStatuses.has(classifyCandidateWindDisplayStatus(c, effectiveThresholds))
+    let next = -1
+    for (const priority of WIND_DISPLAY_STATUS_PRIORITY_ORDER) {
+      const idx = returnCandidates.findIndex(c => visible(c) && classifyCandidateWindDisplayStatus(c, effectiveThresholds) === priority)
+      if (idx >= 0) { next = idx; break }
     }
-    const firstRed = returnCandidates.findIndex(c => visible(c) && c.status === 'rautt')
-    const firstYellow = returnCandidates.findIndex(c => visible(c) && c.status === 'gult')
-    const firstAny = returnCandidates.findIndex(visible)
-    const next = firstRed >= 0 ? firstRed : firstYellow >= 0 ? firstYellow : firstAny
+    if (next < 0) next = returnCandidates.findIndex(visible)
     setSelectedReturnHeatmapIdx(next >= 0 ? next : null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returnVisibleStatuses])
@@ -542,46 +568,50 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
   // Threshold dirty: user has changed thresholds since last submitted result
   const thresholdsDirty = result !== null && submittedThresholds !== null && (() => {
     if (JSON.stringify(thresholdOverrides) !== JSON.stringify(submittedThresholds)) return true
-    // On the thresholds step, also check if draft inputs differ from submitted resolved values
+    // On the thresholds step, also check if draft wind inputs differ from submitted resolved values
     if (step === 'thresholds') {
-      const submittedResolved = resolveThresholds(trailerKind, submittedThresholds)
+      const submittedResolved = resolveThresholds('none', submittedThresholds)
       const dCaution = parseFloat(draftCautionWind)
       const dRed = parseFloat(draftRedWind)
-      const dGust = parseFloat(draftRedGust)
-      const dPrecip = parseFloat(draftCautionPrecip)
       if (!isNaN(dCaution) && dCaution !== submittedResolved.cautionWindMs) return true
       if (!isNaN(dRed) && dRed !== submittedResolved.redWindMs) return true
-      if (!isNaN(dGust) && dGust !== submittedResolved.redGustMs) return true
-      if (!isNaN(dPrecip) && dPrecip !== submittedResolved.cautionPrecipMmPerHour) return true
     }
     return false
   })()
 
-  const effectiveThresholds = resolveThresholds(trailerKind, thresholdOverrides)
+  const effectiveThresholds = resolveThresholds('none', thresholdOverrides)
 
-  // Whether visible draft values on the threshold step differ from current trailer defaults
+  // Whether visible draft wind values differ from defaults (controls reset button visibility)
   const thresholdDraftDiffersFromDefaults = (() => {
-    const defaults = resolveThresholds(trailerKind)
-    const c = parseFloat(draftCautionWind), r = parseFloat(draftRedWind), g = parseFloat(draftRedGust), p = parseFloat(draftCautionPrecip)
-    if ([c, r, g, p].some(Number.isNaN)) return Object.keys(thresholdOverrides).length > 0
-    return c !== defaults.cautionWindMs || r !== defaults.redWindMs || g !== defaults.redGustMs || p !== defaults.cautionPrecipMmPerHour
+    const defaults = resolveThresholds('none')
+    const c = parseFloat(draftCautionWind), r = parseFloat(draftRedWind)
+    if ([c, r].some(Number.isNaN)) return Object.keys(thresholdOverrides).length > 0
+    return c !== defaults.cautionWindMs || r !== defaults.redWindMs
   })()
 
   // Compact threshold values for the step nav — reflect live drafts while on the step.
   // Computed as a single object so visual content and sr-only text always use the same values.
   const navThreshValues = (() => {
     if (step === 'thresholds') {
-      const c = parseFloat(draftCautionWind), r = parseFloat(draftRedWind), g = parseFloat(draftRedGust), p = parseFloat(draftCautionPrecip)
-      if (!isNaN(c) && !isNaN(r) && !isNaN(g) && !isNaN(p)) return { caution: c, red: r, gust: g, precip: p }
+      const c = parseFloat(draftCautionWind), r = parseFloat(draftRedWind)
+      if (!isNaN(c) && !isNaN(r)) return { caution: c, red: r }
     }
-    return { caution: effectiveThresholds.cautionWindMs, red: effectiveThresholds.redWindMs, gust: effectiveThresholds.redGustMs, precip: effectiveThresholds.cautionPrecipMmPerHour }
+    return { caution: effectiveThresholds.cautionWindMs, red: effectiveThresholds.redWindMs }
   })()
-  const navThreshWind = `${navThreshValues.caution}/${navThreshValues.red}/${navThreshValues.gust}`
-  const navThreshPrecip = String(navThreshValues.precip)
+  // Show numeric values only once the user has explicitly submitted thresholds.
+  // While on the step, show live draft values. Before any submission, show placeholder.
+  const navThreshWind = (() => {
+    if (step === 'thresholds') {
+      const c = parseFloat(draftCautionWind), r = parseFloat(draftRedWind)
+      if (!isNaN(c) && !isNaN(r)) return `${c}/${r}`
+      return null
+    }
+    if (submittedThresholds === null) return null
+    return `${navThreshValues.caution}/${navThreshValues.red}`
+  })()
 
   const mvpNavSteps = [
     { step: 'route' as WizardStep, label: tf('stepNavRoute'), Icon: Route },
-    { step: 'trailer' as WizardStep, label: tf('stepNavTrailer'), Icon: Caravan },
     { step: 'thresholds' as WizardStep, label: tf('stepNavThresholds'), Icon: SlidersHorizontal },
     { step: 'result' as WizardStep, label: tf('stepNavResult'), Icon: CheckCircle2 },
   ]
@@ -650,23 +680,14 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                       <span className="text-[10px] leading-none truncate max-w-full font-medium">{origin.name}</span>
                       <span className="text-[10px] leading-none truncate max-w-full">{effectiveDestinationName || destination.name}</span>
                     </>
-                  ) : s.step === 'trailer' && (isCompleted || isCurrent) ? (
-                    <>
-                      <s.Icon size={14} aria-hidden />
-                      <span className="text-[10px] leading-none truncate max-w-full">{trailerLabel}</span>
-                    </>
                   ) : s.step === 'thresholds' && (isCompleted || isCurrent) ? (
                     <>
-                      <span className="sr-only">{tf('stepNavThresholdSummaryAria', navThreshValues)}</span>
-                      <span aria-hidden className="flex flex-col items-center gap-0.5">
-                        <span className="flex items-center gap-0.5">
-                          <Wind size={10} />
-                          <span className="text-[10px] leading-none">{navThreshWind}</span>
-                        </span>
-                        <span className="flex items-center gap-0.5">
-                          <Droplets size={10} />
-                          <span className="text-[10px] leading-none">{navThreshPrecip}</span>
-                        </span>
+                      <span className="sr-only">
+                        {navThreshWind !== null ? tf('stepNavThresholdSummaryAria', navThreshValues) : tf('navThreshChooseLimits')}
+                      </span>
+                      <span aria-hidden className="flex items-center gap-0.5">
+                        <Wind size={10} />
+                        <span className="text-[10px] leading-none">{navThreshWind ?? tf('navThreshChooseLimits')}</span>
                       </span>
                     </>
                   ) : (
@@ -739,38 +760,6 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
         )}
 
         {/* Step: Trailer */}
-        {step === 'trailer' && (
-          <div className="flex flex-col gap-4">
-            <p className="text-sm font-medium text-foreground">{tf('stepTrailerTitle')}</p>
-            <div className="flex flex-col gap-2">
-              {trailerOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setTrailerKind(opt.value)}
-                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    trailerKind === opt.value
-                      ? 'border-primary bg-primary/10 text-foreground font-medium'
-                      : 'border-border bg-card text-foreground hover:bg-muted'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <BackButton onClick={() => goBack('trailer')} label={tf('back')} />
-              <button
-                type="button"
-                onClick={() => goNext('trailer')}
-                className="flex-1 h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                {tf('next')}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Step: Thresholds */}
         {step === 'thresholds' && (
           <div className="flex flex-col gap-4">
@@ -781,29 +770,12 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
             <div className="flex flex-col gap-3">
               <ThresholdInput id="caution-wind" label={tf('thresholdCautionWind')} unit="m/s" value={draftCautionWind} onChange={setDraftCautionWind} />
               <ThresholdInput id="red-wind" label={tf('thresholdRedWind')} unit="m/s" value={draftRedWind} onChange={setDraftRedWind} />
-              <ThresholdInput id="red-gust" label={tf('thresholdRedGust')} unit="m/s" value={draftRedGust} onChange={setDraftRedGust} />
-              <ThresholdInput id="caution-precip" label={tf('thresholdCautionPrecip')} unit="mm/klst" value={draftCautionPrecip} onChange={setDraftCautionPrecip} />
             </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">{tf('thresholdGustCautionNote')}</p>
             {thresholdError && (
               <p role="alert" className="text-sm text-destructive bg-destructive/10 rounded-xl px-4 py-3">
                 {thresholdError}
               </p>
-            )}
-            {thresholdDraftDiffersFromDefaults && (
-              <button
-                type="button"
-                onClick={() => {
-                  const defaults = resolveThresholds(trailerKind)
-                  setDraftCautionWind(String(defaults.cautionWindMs))
-                  setDraftRedWind(String(defaults.redWindMs))
-                  setDraftRedGust(String(defaults.redGustMs))
-                  setDraftCautionPrecip(String(defaults.cautionPrecipMmPerHour))
-                  setThresholdError(null)
-                }}
-                className="w-full text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring py-1"
-              >
-                {tf('thresholdReset')}
-              </button>
             )}
             <div className="flex gap-2">
               <BackButton onClick={() => goBack('thresholds')} label={tf('back')} />
@@ -874,9 +846,14 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
             {result && !loading && (() => {
               const derivedStatus = activeOutboundCandidate?.status ?? result.stada
               const derivedStyle = derivedStatus ? STATUS_STYLES[derivedStatus] : null
-              const statusKey = derivedStatus === 'graent' ? 'departureStatusGreen'
-                : derivedStatus === 'gult' ? 'departureStatusYellow'
-                : 'departureStatusRed'
+              // Compute fine-grained wind distance label for display
+              const worstWind = activeOutboundCandidate?.worstWind?.value ?? 0
+              const windLabel: WindDistanceLabel = classifyWindDistance(
+                worstWind,
+                effectiveThresholds.cautionWindMs,
+                effectiveThresholds.redWindMs,
+              )
+              const windMeta = WIND_STATUS_META_SHARED[windLabel]
               return (
                 <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
 
@@ -957,8 +934,9 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                           <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
                             <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionOnWay')}</p>
                             <div className="space-y-1">
-                              <p className="text-sm font-medium text-foreground">
-                                {tf(statusKey as 'departureStatusGreen' | 'departureStatusYellow' | 'departureStatusRed')}
+                              <p className={`text-sm font-medium flex items-center gap-1.5 ${windMeta.labelClass}`}>
+                                <span aria-hidden>{windMeta.icon}</span>
+                                {tf(windMeta.labelKey as 'statusWithinLimits')}
                               </p>
                               {distKm !== null && etaTimeLabel && (
                                 <p className="text-xs text-muted-foreground">
@@ -1003,9 +981,6 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                             <p className="text-xs text-muted-foreground">
                               {tf('arrivalForecastAtLabel', { forecastTime: formatKlTime(activeOutboundCandidate.arrivalWeather.forecastTimeIso) })}{' '}
                               {tf('metricWind').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.windMs, locale)} m/s
-                              {activeOutboundCandidate.arrivalWeather.gustMs > activeOutboundCandidate.arrivalWeather.windMs && (
-                                <> · {tf('metricGust').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.gustMs, locale)} m/s</>
-                              )}
                               {' · '}{tf('metricPrecip').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.precipMmPerHour, locale)} mm/klst
                               {activeOutboundCandidate.arrivalWeather.airTemperatureC !== undefined && (
                                 <> · {tf('metricTemp').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.airTemperatureC, locale)}°C</>
@@ -1068,11 +1043,6 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                                   <div className={`text-[11px] font-medium ${windMetricClass(col.origin.wind.value, col.dest?.wind.value, compareThresholds)}`}>
                                     {formatNum(col.origin.wind.value, locale)} m/s
                                   </div>
-                                  {col.origin.gust.value > col.origin.wind.value && (
-                                    <div className={`text-[10px] ${gustMetricClass(col.origin.gust.severity, col.origin.gust.value, col.dest?.gust.value, compareThresholds) || 'text-muted-foreground'}`}>
-                                      {locale.startsWith('is') ? 'hvið.' : 'gust'} {formatNum(col.origin.gust.value, locale)}
-                                    </div>
-                                  )}
                                   <div className={`text-[10px] ${precipMetricClass(col.origin.precipitation.value, col.dest?.precipitation.value, compareThresholds) || 'text-muted-foreground'}`}>
                                     {formatNum(col.origin.precipitation.value, locale)} mm/klst
                                   </div>
@@ -1096,11 +1066,6 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                                   <div className={`text-[11px] font-medium ${windMetricClass(col.dest.wind.value, col.origin?.wind.value, compareThresholds)}`}>
                                     {formatNum(col.dest.wind.value, locale)} m/s
                                   </div>
-                                  {col.dest.gust.value > col.dest.wind.value && (
-                                    <div className={`text-[10px] ${gustMetricClass(col.dest.gust.severity, col.dest.gust.value, col.origin?.gust.value, compareThresholds) || 'text-muted-foreground'}`}>
-                                      {locale.startsWith('is') ? 'hvið.' : 'gust'} {formatNum(col.dest.gust.value, locale)}
-                                    </div>
-                                  )}
                                   <div className={`text-[10px] ${precipMetricClass(col.dest.precipitation.value, col.origin?.precipitation.value, compareThresholds) || 'text-muted-foreground'}`}>
                                     {formatNum(col.dest.precipitation.value, locale)} mm/klst
                                   </div>
@@ -1126,6 +1091,26 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
               )
             })()}
 
+            {/* Ferðalag conversion affordance — only when tripEnabled, result ready, not loading */}
+            {tripEnabled && !isGuest && result && !loading && (
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setTripHintVisible(v => !v)}
+                  aria-expanded={tripHintVisible}
+                  className="self-start flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors py-2 min-h-[40px] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Route className="size-4 shrink-0" />
+                  {tf('convertToTrip')}
+                </button>
+                {tripHintVisible && (
+                  <p className="text-xs text-muted-foreground pl-[22px]">
+                    {tf('tripComingSoon')}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Interactive audit map */}
             {result && !loading && origin && destination && (result.travelPlan?.routeWeatherPoints?.length ?? 0) > 0 && (
               <TravelAuditMap
@@ -1141,6 +1126,7 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                 activeLeg={activeLeg}
                 visibleStatuses={mapVisibleStatuses}
                 onVisibleStatusesChange={setMapOutboundVisibleStatuses}
+                thresholdsUsed={thresholdsUsed}
                 selectionResetSignal={mapSelectionSignal}
                 onOpenForecastDrawer={(routeIndex) => {
                   const pt = result.travelPlan?.routeWeatherPoints?.find(p => p.routeIndex === routeIndex)
@@ -1208,6 +1194,7 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                         activeCandidate={userExplicitSlot && selectedCandidatePointStatuses !== undefined ? activeCandidate : undefined}
                         activeLeg={activeLeg}
                         selectedCandidatePointStatuses={selectedCandidatePointStatuses}
+                        thresholdsUsed={thresholdsUsed}
                         onOpenForecast={pt.forecastRows?.length ? () => {
                           const isDisplayPoint = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex
                           const highlightedTimeIso = isDisplayPoint
@@ -1317,11 +1304,6 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                             <p className={`text-xs font-medium ${windMetricClass(col.origin.wind.value, col.dest?.wind.value, compareThresholds)}`}>
                               {formatNum(col.origin.wind.value, locale)} m/s
                             </p>
-                            {col.origin.gust.value > col.origin.wind.value && (
-                              <p className={`text-[11px] ${gustMetricClass(col.origin.gust.severity, col.origin.gust.value, col.dest?.gust.value, compareThresholds) || 'text-muted-foreground'}`}>
-                                {locale.startsWith('is') ? 'hvið.' : 'gust'} {formatNum(col.origin.gust.value, locale)} m/s
-                              </p>
-                            )}
                             <p className={`text-[11px] ${precipMetricClass(col.origin.precipitation.value, col.dest?.precipitation.value, compareThresholds) || 'text-muted-foreground'}`}>
                               {formatNum(col.origin.precipitation.value, locale)} mm/klst
                             </p>
@@ -1340,11 +1322,6 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
                             <p className={`text-xs font-medium ${windMetricClass(col.dest.wind.value, col.origin?.wind.value, compareThresholds)}`}>
                               {formatNum(col.dest.wind.value, locale)} m/s
                             </p>
-                            {col.dest.gust.value > col.dest.wind.value && (
-                              <p className={`text-[11px] ${gustMetricClass(col.dest.gust.severity, col.dest.gust.value, col.origin?.gust.value, compareThresholds) || 'text-muted-foreground'}`}>
-                                {locale.startsWith('is') ? 'hvið.' : 'gust'} {formatNum(col.dest.gust.value, locale)} m/s
-                              </p>
-                            )}
                             <p className={`text-[11px] ${precipMetricClass(col.dest.precipitation.value, col.origin?.precipitation.value, compareThresholds) || 'text-muted-foreground'}`}>
                               {formatNum(col.dest.precipitation.value, locale)} mm/klst
                             </p>
@@ -1366,6 +1343,19 @@ export function FerdalagidClient({ isGuest = false }: { isGuest?: boolean } = {}
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Returns the wind speed (m/s) from the forecast row closest in time to etaIso. */
+function nearestForecastWindMs(rows: ForecastDrawerRow[] | undefined, etaIso: string | undefined): number | undefined {
+  if (!rows?.length || !etaIso) return undefined
+  const etaMs = new Date(etaIso).getTime()
+  let best = rows[0]
+  let bestDelta = Math.abs(new Date(best.timeIso).getTime() - etaMs)
+  for (const row of rows) {
+    const d = Math.abs(new Date(row.timeIso).getTime() - etaMs)
+    if (d < bestDelta) { bestDelta = d; best = row }
+  }
+  return best.wind.value
+}
 
 /** Returns the timeIso of the forecast row closest in time to etaIso. */
 function nearestForecastIso(rows: ForecastDrawerRow[], etaIso: string): string | undefined {
@@ -1661,17 +1651,28 @@ function IssueAuditCard({ issue }: { issue: TravelIssue }) {
   )
 }
 
+const ROUTE_POINT_CARD_CLASS: Record<WindDisplayStatus, string> = {
+  'innan-marka':        'bg-[#2d5a27]/5 border-[#2d5a27]/35',
+  'nalgast-othaegindi': 'bg-amber-50/50 border-amber-200',
+  'othaegilegt':        'bg-orange-50/50 border-orange-200',
+  'nalgast-haettumork': 'bg-destructive/5 border-destructive/30',
+  'haettulegt':         'bg-destructive/5 border-destructive/30',
+  'no_data':            'bg-muted/40 border-muted-foreground/20',
+}
+
 function RoutePointRow({
   pt,
   activeCandidate,
   activeLeg = 'outbound',
   selectedCandidatePointStatuses,
+  thresholdsUsed,
   onOpenForecast,
 }: {
   pt: RouteWeatherPoint
   activeCandidate?: TravelCandidate
   activeLeg?: 'outbound' | 'return'
   selectedCandidatePointStatuses?: CandidatePointStatus[]
+  thresholdsUsed?: ResolvedTravelThresholds
   onOpenForecast?: () => void
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
@@ -1686,28 +1687,22 @@ function RoutePointRow({
   // selectedCandidatePointStatuses being defined (even empty) means a slot is selected.
   const isActiveMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
 
-  // Delta encoding: absent entry means green; stored entry carries the non-green status.
-  const candidatePointEntry = selectedCandidatePointStatuses?.find(s => s.routeIndex === pt.routeIndex)
-  const activeStatus: 'graent' | 'gult' | 'rautt' | 'no_data' = isActiveMode
-    ? (candidatePointEntry?.status ?? 'graent')
-    : (pt.summaryForWindow?.status ?? 'no_data')
-
-  const status = isActiveMode ? activeStatus : pt.summaryForWindow?.status
-
-  const cardClass = status === 'rautt' ? 'bg-destructive/5 border-destructive/30'
-    : status === 'gult' ? 'bg-amber-50 border-amber-300'
-    : status === 'graent' ? 'bg-[#2d5a27]/5 border-[#2d5a27]/35'
-    : 'bg-muted/40 border-muted-foreground/20'
-
-  const badgeClass = status === 'rautt' ? 'bg-destructive/10 text-destructive'
-    : status === 'gult' ? 'bg-amber-100 text-amber-700'
-    : status === 'graent' ? 'bg-[#2d5a27]/10 text-[#2d5a27]'
-    : 'bg-muted text-muted-foreground'
-
-  const statusLabel = status === 'rautt' ? tf('heatmapLegendRed')
-    : status === 'gult' ? tf('heatmapLegendYellow')
-    : status === 'graent' ? tf('heatmapLegendGreen')
-    : tf('heatmapNoData')
+  // Fine-grained wind status for badge and card styling.
+  const th = thresholdsUsed ?? resolveThresholds('none')
+  let windStatus: WindDisplayStatus
+  if (isActiveMode && activeCandidate) {
+    let windMs: number | undefined
+    if (pt.routeIndex === activeCandidate.displayPoint?.routeIndex) {
+      windMs = activeCandidate.displayPoint!.windMs
+    } else {
+      windMs = nearestForecastWindMs(pt.forecastRows, estimatePointEtaIso(activeCandidate, pt, activeLeg))
+    }
+    windStatus = classifyPointWindDisplayStatus(windMs, (pt.forecastRows?.length ?? 0) > 0, th)
+  } else {
+    windStatus = classifyPointWindDisplayStatus(pt.summaryForWindow?.worstWindMs, pt.summaryForWindow !== undefined, th)
+  }
+  const windMeta = WIND_STATUS_META_SHARED[windStatus]
+  const cardClass = ROUTE_POINT_CARD_CLASS[windStatus]
 
   // ETA: use active-candidate estimate when a slot is selected, otherwise summaryForWindow
   const etaIso = isActiveMode
@@ -1718,7 +1713,7 @@ function RoutePointRow({
     <div className={`border ${cardClass} rounded-lg px-3 py-2 flex flex-col gap-1 text-xs text-muted-foreground`}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-medium text-foreground">{tf('pointLabel')} {pt.routeIndex + 1}/{pt.totalRouteWeatherPoints}</span>
-        <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${badgeClass}`}>{statusLabel}</span>
+        <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${windMeta.chipActiveClass}`}>{windMeta.icon} {tf(windMeta.labelKey as 'statusWithinLimits')}</span>
         {badges.map(b => (
           <span key={b} className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-xs">{b}</span>
         ))}
@@ -1735,7 +1730,7 @@ function RoutePointRow({
       {isActiveMode ? (() => {
         // Active-candidate mode: suppress summaryForWindow metrics (different time window).
         // Show active-safe metrics only from displayPoint when the route index matches.
-        if (activeStatus === 'no_data') return <p>{tf('heatmapNotAssessedDetail')}</p>
+        if (windStatus === 'no_data') return <p>{tf('heatmapNotAssessedDetail')}</p>
         const dp = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex ? activeCandidate!.displayPoint! : undefined
         if (!dp) return null
         return (
@@ -1743,9 +1738,6 @@ function RoutePointRow({
             <span>{tf('pointForecastHereAt', { time: formatKlTime(dp.forecastTimeIso) })}</span>
             <p>
               {tf('metricWind')}: {formatNum(dp.windMs, locale)} m/s
-              {dp.gustMs > dp.windMs && (
-                <> · {tf('metricGust')}: {formatNum(dp.gustMs, locale)} m/s</>
-              )}
               {' · '}{tf('metricPrecip')}: {formatNum(dp.precipMmPerHour, locale)} mm/klst
               {dp.airTemperatureC !== undefined && (
                 <> · {tf('metricTemp')}: {formatNum(dp.airTemperatureC, locale)}°C</>
@@ -1761,9 +1753,6 @@ function RoutePointRow({
           {pt.summaryForWindow ? (
             <p>
               {tf('metricWind')}: {formatNum(pt.summaryForWindow.worstWindMs, locale)} m/s
-              {pt.summaryForWindow.worstGustMs > pt.summaryForWindow.worstWindMs && (
-                <> · {tf('metricGust')}: {formatNum(pt.summaryForWindow.worstGustMs, locale)} m/s</>
-              )}
               {' · '}{tf('metricPrecip')}: {formatNum(pt.summaryForWindow.worstPrecipMmPerHour, locale)} mm/klst
               {pt.summaryForWindow.decisiveTempC !== undefined && (
                 <> · {tf('metricTemp')}: {formatNum(pt.summaryForWindow.decisiveTempC, locale)}°C</>

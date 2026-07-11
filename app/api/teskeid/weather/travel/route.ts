@@ -40,8 +40,9 @@ function validateThresholdOverrides(raw: unknown): TravelThresholdOverrides | un
 
   checkMs('cautionWindMs', 0, 40)
   checkMs('redWindMs', 0, 40)
-  checkMs('redGustMs', 0, 50)
-  checkMs('cautionPrecipMmPerHour', 0, 20)
+  // Gust and precip are neutralised in this phase — high neutral values (100) must be accepted
+  checkMs('redGustMs', 0, 100)
+  checkMs('cautionPrecipMmPerHour', 0, 100)
 
   return Object.keys(result).length > 0 ? result : undefined
 }

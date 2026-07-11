@@ -7,6 +7,9 @@ import type {
 } from './types'
 import type { TrailerKind } from './question'
 import { deriveThreshold, resolveThresholds } from './thresholds'
+// Shared route-leg assessment seam. Ferðaveðrið and Ferðalagið both call
+// assessRouteLeg() — never duplicate route-leg assessment logic here or in
+// product-specific modules. See lib/weather/assessment.ts for the contract.
 import { assessRouteLeg, assessDrivingConditions, getForecastHoursNearEta } from './assessment'
 
 const CANDIDATE_INTERVAL_S = 30 * 60 // 30-minute intervals between candidate departures
@@ -187,12 +190,14 @@ function buildRouteWeatherPoints(
           legResult.reasonCode === 'precipitation' ? 'precipitation' :
           legResult.reasonCode === 'no_data' ? 'data' :
           (legResult.reasonCode?.includes('wind') || legResult.reasonCode?.includes('trailer'))
-            ? (worstGustMs >= ptRedGustThreshold ? 'gust' : 'wind')
+            ? 'wind'
             : undefined
-        // Pick the hour with the highest value for the decisive metric
+        // Pick the hour with the highest value for the decisive metric.
+        // Gust is neutralised in this phase — use wind speed only so the displayed
+        // forecast time is consistent with what the UI shows.
         const decisiveTimeIso = decisiveMetric === 'precipitation'
           ? hrs.reduce((a, b) => b.precipitationMmPerHour > a.precipitationMmPerHour ? b : a).time
-          : hrs.reduce((a, b) => Math.max(b.windSpeedMs, b.windGustMs) > Math.max(a.windSpeedMs, a.windGustMs) ? b : a).time
+          : hrs.reduce((a, b) => b.windSpeedMs > a.windSpeedMs ? b : a).time
         const etaIso = new Date(etaMs).toISOString()
         const forecastTimeIso = decisiveTimeIso
         const decisiveHour = decisiveTimeIso ? hrs.find(h => h.time === decisiveTimeIso) : hrs[0]
@@ -214,9 +219,8 @@ function buildRouteWeatherPoints(
             if (nextSev > curSev) trend = 'worse'
             else if (nextSev < curSev) trend = 'better'
             else {
-              const curWind = Math.max(worstWindMs, worstGustMs)
-              const nextWind = Math.max(nextHour.windSpeedMs, nextHour.windGustMs)
-              trend = nextWind > curWind * 1.1 ? 'worse' : nextWind < curWind * 0.9 ? 'better' : 'same'
+              // Use wind speed only — gust is neutralised in this phase
+              trend = nextHour.windSpeedMs > worstWindMs * 1.1 ? 'worse' : nextHour.windSpeedMs < worstWindMs * 0.9 ? 'better' : 'same'
             }
             nextForecast = {
               timeIso: nextHour.time,

@@ -1,9 +1,15 @@
 'use client'
 
 import { useTranslations, useLocale } from 'next-intl'
-import type { TravelCandidate, TravelWindow, WeatherStatus, ResolvedTravelThresholds } from '@/lib/weather/types'
-import { WEATHER_THRESHOLDS, deriveThreshold } from '@/lib/weather/thresholds'
+import type { TravelCandidate, TravelWindow, ResolvedTravelThresholds } from '@/lib/weather/types'
+import { deriveThreshold, resolveThresholds } from '@/lib/weather/thresholds'
 import { formatKlTime, formatNum, normalizeLocale, formatCompactDateTime } from './travelAuditMap.helpers'
+import {
+  type WindDisplayStatus,
+  ALL_WIND_DISPLAY_STATUSES,
+  WIND_STATUS_META,
+  classifyCandidateWindDisplayStatus,
+} from '@/lib/weather/windDisplayStatus'
 
 function utcDateKey(isoString: string): string {
   return new Date(isoString).toISOString().slice(0, 10)
@@ -23,7 +29,8 @@ function formatDayLabel(isoString: string, locale: string): string {
   })
 }
 
-export type SlotStatus = WeatherStatus | 'no_data'
+/** Re-exported for backward compatibility with parent components. */
+export type SlotStatus = WindDisplayStatus
 
 type DepartureHeatmapProps = {
   candidates: TravelCandidate[]
@@ -38,10 +45,10 @@ type DepartureHeatmapProps = {
   /** 'return' flips distanceFromOriginM to distance from return start (destination). */
   leg?: 'outbound' | 'return'
   /** Controlled filter state — which statuses are selected to show (empty = show all). */
-  visibleStatuses: Set<SlotStatus>
+  visibleStatuses: Set<WindDisplayStatus>
   /** Called when user changes the filter. */
-  onVisibleStatusesChange: (next: Set<SlotStatus>) => void
-  /** Resolved thresholds used in the current result — for correct SlotDetail threshold display. */
+  onVisibleStatusesChange: (next: Set<WindDisplayStatus>) => void
+  /** Resolved thresholds used in the current result — required for fine-grained wind classification. */
   thresholdsUsed?: ResolvedTravelThresholds
   /** Optional subtitle shown below the title. */
   subtitle?: string
@@ -49,24 +56,6 @@ type DepartureHeatmapProps = {
   showSelectedDetail?: boolean
   /** Label for the first slot (e.g. "Núna"). When set, slot 0 shows this label above the actual time. */
   firstSlotLabel?: string
-}
-
-const STATUS_BG: Record<SlotStatus, string> = {
-  graent: 'bg-[#2d5a27]',
-  gult:   'bg-amber-500',
-  rautt:  'bg-destructive',
-  no_data: 'bg-muted-foreground/30',
-}
-
-const STATUS_BORDER: Record<SlotStatus, string> = {
-  graent: 'border-[#2d5a27]',
-  gult:   'border-amber-500',
-  rautt:  'border-destructive',
-  no_data: 'border-muted-foreground/30',
-}
-
-function slotStatus(c: TravelCandidate): SlotStatus {
-  return c.reasonCode === 'no_data' ? 'no_data' : c.status
 }
 
 /** Returns compact hour label for whole-hour slots: "00" for midnight, "1"–"23" otherwise. */
@@ -81,8 +70,6 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
   return dep >= new Date(bestWindow.fromIso).getTime() && dep <= new Date(bestWindow.toIso).getTime()
 }
 
-const ALL_SLOT_STATUSES: SlotStatus[] = ['graent', 'gult', 'rautt', 'no_data']
-
 export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
@@ -90,20 +77,29 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
 
   if (candidates.length === 0) return null
 
+  // Thresholds used for fine-grained classification — fall back to defaults if not passed
+  const thresholdsForClassify = thresholdsUsed ?? resolveThresholds('none')
+  function getWindStatus(c: TravelCandidate): WindDisplayStatus {
+    return classifyCandidateWindDisplayStatus(c, thresholdsForClassify)
+  }
+
   // Status counts across all candidates (before filtering)
-  const statusCounts: Record<SlotStatus, number> = { graent: 0, gult: 0, rautt: 0, no_data: 0 }
-  for (const c of candidates) statusCounts[slotStatus(c)]++
+  const statusCounts: Partial<Record<WindDisplayStatus, number>> = {}
+  for (const c of candidates) {
+    const st = getWindStatus(c)
+    statusCounts[st] = (statusCounts[st] ?? 0) + 1
+  }
 
   // Filtered candidates with their real indices in the candidates array
   const filteredWithIdx: Array<{ c: TravelCandidate; realIdx: number }> =
     candidates.reduce<Array<{ c: TravelCandidate; realIdx: number }>>((acc, c, i) => {
-      if (visibleStatuses.size === 0 || visibleStatuses.has(slotStatus(c))) {
+      if (visibleStatuses.size === 0 || visibleStatuses.has(getWindStatus(c))) {
         acc.push({ c, realIdx: i })
       }
       return acc
     }, [])
 
-  function toggleStatus(st: SlotStatus) {
+  function toggleStatus(st: WindDisplayStatus) {
     const next = new Set(visibleStatuses)
     if (next.has(st)) {
       next.delete(st)
@@ -112,7 +108,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
     }
     // Deselect if the selected slot's status is no longer visible
     if (selectedIdx !== null && next.size > 0) {
-      const selSt = slotStatus(candidates[selectedIdx])
+      const selSt = getWindStatus(candidates[selectedIdx])
       if (!next.has(selSt)) onSelectIdx(null)
     }
     onVisibleStatusesChange(next)
@@ -137,13 +133,10 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
 
       {/* Status filter chips — always shown so user can see counts and filter */}
       <div className="flex flex-wrap gap-1.5">
-          {ALL_SLOT_STATUSES.filter(st => st === 'graent' || statusCounts[st] > 0).map(st => {
+          {ALL_WIND_DISPLAY_STATUSES.filter(st => st === 'innan-marka' || (statusCounts[st] ?? 0) > 0).map(st => {
             const isActive = visibleStatuses.has(st)
             const noFilter = visibleStatuses.size === 0
-            const label = st === 'graent' ? tf('heatmapLegendGreen')
-              : st === 'gult' ? tf('heatmapLegendYellow')
-              : st === 'rautt' ? tf('heatmapLegendRed')
-              : tf('heatmapNotAssessed')
+            const meta = WIND_STATUS_META[st]
             return (
               <button
                 key={st}
@@ -151,14 +144,15 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                 onClick={() => toggleStatus(st)}
                 className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                   isActive
-                    ? `${STATUS_BORDER[st]} bg-muted/50 text-foreground`
+                    ? meta.chipActiveClass
                     : noFilter
                       ? 'border-border bg-transparent text-muted-foreground'
                       : 'border-border bg-transparent text-muted-foreground/30'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${STATUS_BG[st]}`} aria-hidden />
-                {label} ({statusCounts[st]})
+                <span className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${meta.dotClass}`} aria-hidden />
+                <span aria-hidden>{meta.icon}</span>
+                {tf(meta.labelKey as 'statusWithinLimits')} ({statusCounts[st] ?? 0})
               </button>
             )
           })}
@@ -186,7 +180,8 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                   </div>
                   <div className="flex gap-1 items-end">
                     {items.map(({ c, realIdx }) => {
-                      const st = slotStatus(c)
+                      const wst = getWindStatus(c)
+                      const meta = WIND_STATUS_META[wst]
                       const best = isBestSlot(c, bestWindow)
                       const isSelected = selectedIdx === realIdx
                       return (
@@ -199,11 +194,11 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                             : `${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`}
                           className={`flex flex-col items-center gap-0.5 ${realIdx === 0 && firstSlotLabel ? 'min-w-[42px] px-1.5' : 'min-w-9 px-1'} py-1.5 rounded-lg border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                             isSelected
-                              ? `${STATUS_BORDER[st]} border-2 bg-card`
+                              ? `${meta.borderClass} border-2 bg-card`
                               : `border-transparent ${best ? 'ring-1 ring-offset-1 ring-primary/50' : ''}`
                           }`}
                         >
-                          <span className={`w-4 h-4 rounded-full ${STATUS_BG[st]}`} aria-hidden />
+                          <span className={`w-4 h-4 rounded-full ${meta.dotClass}`} aria-hidden />
                           {realIdx === 0 && firstSlotLabel ? (
                             <>
                               <span className="text-[10px] text-muted-foreground font-medium leading-none">{firstSlotLabel}</span>
@@ -231,7 +226,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       })() : (
         <div className="flex flex-col items-start gap-1.5 py-2">
           <p className="text-xs text-muted-foreground">
-            {visibleStatuses.size > 0 && !visibleStatuses.has('graent') && statusCounts.graent === candidates.length
+            {visibleStatuses.size > 0 && !visibleStatuses.has('innan-marka') && (statusCounts['innan-marka'] ?? 0) === candidates.length
               ? tf('timelineEmptyGreenHidden')
               : tf('timelineEmptyFilter')}
           </p>
@@ -316,7 +311,7 @@ function SlotDetail({
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
-  const st = slotStatus(candidate)
+  const st = classifyCandidateWindDisplayStatus(candidate, thresholdsUsed ?? resolveThresholds('none'))
 
   const header = (
     <p className="text-foreground">
@@ -367,20 +362,13 @@ function SlotDetail({
     )
   }
 
-  // Fallback for no_data-adjacent candidates without displayPoint: show decisive metric only
-  const gustVal = candidate.worstGust?.value ?? 0
-  const isTrailer = candidate.reasonCode?.includes('trailer') ?? false
-  const redGustThreshold = thresholdsUsed?.redGustMs
-    ?? (isTrailer ? WEATHER_THRESHOLDS.caravan.redGustMs : WEATHER_THRESHOLDS.driving.redGustMs)
-  const isGustDecisive = gustVal >= redGustThreshold
-
+  // Fallback for no_data-adjacent candidates without displayPoint: show decisive metric only.
+  // Gust is suppressed in this phase (threshold neutralised to 100) — always use wind.
   const metric =
     candidate.reasonCode === 'precipitation' ? 'precipitation' as const
-    : isGustDecisive ? 'gust' as const
     : 'wind' as const
   const m =
     metric === 'precipitation' ? candidate.worstPrecip
-    : metric === 'gust' ? candidate.worstGust
     : candidate.worstWind
   const thresh = deriveThreshold(metric, candidate.reasonCode, thresholdsUsed)
   const rawDistFallback = m?.distanceFromOriginM
@@ -390,7 +378,6 @@ function SlotDetail({
   const distKmFallback = legDistFallback !== undefined ? Math.round(legDistFallback / 1000) : null
   const metricLabel =
     metric === 'precipitation' ? tf('metricPrecip')
-    : metric === 'gust' ? tf('metricGust')
     : tf('metricWind')
   const unit = metric === 'precipitation' ? 'mm/klst' : 'm/s'
 

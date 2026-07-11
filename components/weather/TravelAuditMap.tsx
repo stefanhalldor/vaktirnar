@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
-import type { RouteWeatherPoint, TravelIssue, CandidatePointStatus, WeatherStatus, TravelCandidate } from '@/lib/weather/types'
+import type { RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelCandidate, ResolvedTravelThresholds, WeatherStatus } from '@/lib/weather/types'
+import { resolveThresholds } from '@/lib/weather/thresholds'
+import {
+  type WindDisplayStatus,
+  ALL_WIND_DISPLAY_STATUSES,
+  WIND_STATUS_META,
+  WIND_STATUS_MARKER_COLOR,
+  classifyPointWindDisplayStatus,
+} from '@/lib/weather/windDisplayStatus'
 import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weather/googleMaps.client'
 import { resolvePlaceLabel } from '@/lib/weather/reverseGeocode.client'
 import {
@@ -20,6 +28,24 @@ import {
   getOriginDisplay,
   type PointSummary,
 } from './travelAuditMap.helpers'
+
+/** Returns the wind speed (m/s) from the forecast row nearest to etaIso, or undefined if unavailable. */
+function getPointWindMsForCandidate(
+  pt: RouteWeatherPoint,
+  activeCandidate: TravelCandidate,
+  activeLeg: 'outbound' | 'return',
+): number | undefined {
+  const etaIso = estimatePointEtaIso(activeCandidate, pt, activeLeg)
+  if (!etaIso || !pt.forecastRows?.length) return undefined
+  const etaMs = new Date(etaIso).getTime()
+  let best = pt.forecastRows[0]
+  let bestDelta = Math.abs(new Date(best.timeIso).getTime() - etaMs)
+  for (const row of pt.forecastRows) {
+    const d = Math.abs(new Date(row.timeIso).getTime() - etaMs)
+    if (d < bestDelta) { bestDelta = d; best = row }
+  }
+  return best.wind.value
+}
 
 export type TravelAuditMapProps = {
   originName: string
@@ -42,10 +68,12 @@ export type TravelAuditMapProps = {
   activeCandidate?: TravelCandidate
   /** Which leg the active candidate belongs to. */
   activeLeg?: 'outbound' | 'return'
+  /** Resolved thresholds — required for fine-grained wind display status on pills and markers. */
+  thresholdsUsed?: ResolvedTravelThresholds
   /** Map-specific visible statuses — empty means show all, non-empty means show only those. */
-  visibleStatuses?: Set<WeatherStatus | 'no_data'>
+  visibleStatuses?: Set<WindDisplayStatus>
   /** Called when user toggles a map visibility pill. */
-  onVisibleStatusesChange?: (next: Set<WeatherStatus | 'no_data'>) => void
+  onVisibleStatusesChange?: (next: Set<WindDisplayStatus>) => void
   /** Incrementing signal from parent — when this changes, clear manual point selection. */
   selectionResetSignal?: number
   /** Called when user taps Spá 🥄 on the selected point panel. */
@@ -95,6 +123,7 @@ export function TravelAuditMap({
   belowMap,
   activeCandidate,
   activeLeg,
+  thresholdsUsed,
   visibleStatuses,
   onVisibleStatusesChange,
   selectionResetSignal,
@@ -325,19 +354,23 @@ export function TravelAuditMap({
         isHighlighted = pt.isHighlightedIssue ?? false
       }
 
-      // Visibility: endpoints always visible; others shown only if no filter or their status is selected
+      // Visibility: endpoints always visible; others shown only if no filter or their status matches
       const isEndpoint = pt.isOrigin || pt.isDestinationClosest
-      const effectiveStatus: WeatherStatus | 'no_data' = markerStatus ?? (
-        selectedCandidatePointStatuses !== undefined &&
-        selectedCandidatePointStatuses.find(s => s.routeIndex === pt.routeIndex)?.status === 'no_data'
-          ? 'no_data' : 'graent'
-      )
-      const markerVisible = isEndpoint || (visibleStatuses?.size ?? 0) === 0 || visibleStatuses!.has(effectiveStatus)
+      const thresholdsForClassify = thresholdsUsed ?? resolveThresholds('none')
+      const isSlotMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
+      const ptWindMs = isSlotMode
+        ? getPointWindMsForCandidate(pt, activeCandidate!, activeLeg ?? 'outbound')
+        : pt.summaryForWindow?.worstWindMs
+      const ptHasData = isSlotMode ? (pt.forecastRows?.length ?? 0) > 0 : pt.summaryForWindow !== undefined
+      const windDisplayStatus: WindDisplayStatus = classifyPointWindDisplayStatus(ptWindMs, ptHasData, thresholdsForClassify)
+      const markerVisible = isEndpoint || (visibleStatuses?.size ?? 0) === 0 || visibleStatuses!.has(windDisplayStatus)
       marker.setVisible(markerVisible)
 
       const style = markerStyleForStatus(markerStatus, isHighlighted)
       const isSelected = idx === selectedIndex
-      marker.setIcon(makeRouteSymbolIcon(style.color, style.scale, isSelected))
+      // Use fine-grained wind color for the route point dot
+      const markerColor = WIND_STATUS_MARKER_COLOR[windDisplayStatus]
+      marker.setIcon(makeRouteSymbolIcon(isHighlighted ? style.color : markerColor, style.scale, isSelected))
       marker.setZIndex(isSelected ? 20 : style.zIndex)
 
       const forecastMarker = forecastMarkersRef.current[idx]
@@ -391,25 +424,26 @@ export function TravelAuditMap({
     ? weatherPoints.findIndex(p => p.lat === highlightedIssue.lat && p.lon === highlightedIssue.lon)
     : -1
 
-  // Status counts for map visibility pills
+  // Status counts for map visibility pills — uses active-candidate ETA when a slot is selected
   const mapStatusCounts = useMemo(() => {
-    const counts: Record<WeatherStatus | 'no_data', number> = { graent: 0, gult: 0, rautt: 0, no_data: 0 }
+    const counts: Partial<Record<WindDisplayStatus, number>> = {}
+    const th = thresholdsUsed ?? resolveThresholds('none')
+    const isSlotMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
     weatherPoints.forEach(pt => {
-      let status: WeatherStatus | 'no_data'
-      if (selectedCandidatePointStatuses !== undefined) {
-        const entry = selectedCandidatePointStatuses.find(s => s.routeIndex === pt.routeIndex)
-        if (entry?.status === 'no_data') {
-          status = 'no_data'
-        } else {
-          status = (entry?.status as WeatherStatus) ?? 'graent'
-        }
+      let windMs: number | undefined
+      let hasData: boolean
+      if (isSlotMode) {
+        windMs = getPointWindMsForCandidate(pt, activeCandidate!, activeLeg ?? 'outbound')
+        hasData = (pt.forecastRows?.length ?? 0) > 0
       } else {
-        status = pt.summaryForWindow?.status ?? 'graent'
+        windMs = pt.summaryForWindow?.worstWindMs
+        hasData = pt.summaryForWindow !== undefined
       }
-      counts[status]++
+      const st = classifyPointWindDisplayStatus(windMs, hasData, th)
+      counts[st] = (counts[st] ?? 0) + 1
     })
     return counts
-  }, [weatherPoints, selectedCandidatePointStatuses])
+  }, [weatherPoints, thresholdsUsed, activeCandidate, selectedCandidatePointStatuses, activeLeg])
 
   // Fallback: static map or text
   if (mapError) {
@@ -435,7 +469,7 @@ export function TravelAuditMap({
   if (weatherPoints.length === 0) return null
 
   // Map visibility pill toggle — selected pills = "show this status"
-  function toggleMapStatus(st: WeatherStatus | 'no_data') {
+  function toggleMapStatus(st: WindDisplayStatus) {
     if (!onVisibleStatusesChange) return
     const next = new Set(visibleStatuses ?? [])
     if (next.has(st)) {
@@ -445,24 +479,22 @@ export function TravelAuditMap({
     }
     // If the selected point's status is no longer visible, clear selection
     if (selectedPoint && next.size > 0) {
-      let selStatus: WeatherStatus | 'no_data'
-      if (selectedCandidatePointStatuses !== undefined) {
-        const entry = selectedCandidatePointStatuses.find(s => s.routeIndex === selectedPoint.routeIndex)
-        selStatus = (entry?.status as WeatherStatus | 'no_data') ?? 'graent'
-      } else {
-        selStatus = selectedPoint.summaryForWindow?.status ?? 'graent'
-      }
+      const th = thresholdsUsed ?? resolveThresholds('none')
+      const isSlotMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
+      const selWindMs = isSlotMode
+        ? getPointWindMsForCandidate(selectedPoint, activeCandidate!, activeLeg ?? 'outbound')
+        : selectedPoint.summaryForWindow?.worstWindMs
+      const selHasData = isSlotMode ? (selectedPoint.forecastRows?.length ?? 0) > 0 : selectedPoint.summaryForWindow !== undefined
+      const selStatus = classifyPointWindDisplayStatus(selWindMs, selHasData, th)
       if (!next.has(selStatus)) {
         userSelectedRef.current = false
         setIsManualSelection(false)
         const firstVisible = weatherPoints.findIndex((pt) => {
-          let s: WeatherStatus | 'no_data'
-          if (selectedCandidatePointStatuses !== undefined) {
-            const e = selectedCandidatePointStatuses.find(x => x.routeIndex === pt.routeIndex)
-            s = (e?.status as WeatherStatus | 'no_data') ?? 'graent'
-          } else {
-            s = pt.summaryForWindow?.status ?? 'graent'
-          }
+          const windMs = isSlotMode
+            ? getPointWindMsForCandidate(pt, activeCandidate!, activeLeg ?? 'outbound')
+            : pt.summaryForWindow?.worstWindMs
+          const hasData = isSlotMode ? (pt.forecastRows?.length ?? 0) > 0 : pt.summaryForWindow !== undefined
+          const s = classifyPointWindDisplayStatus(windMs, hasData, th)
           return next.size === 0 || next.has(s)
         })
         setSelectedIndex(firstVisible >= 0 ? firstVisible : null)
@@ -470,8 +502,6 @@ export function TravelAuditMap({
     }
     onVisibleStatusesChange(next)
   }
-
-  const MAP_PILL_STATUSES: Array<WeatherStatus | 'no_data'> = ['graent', 'gult', 'rautt', 'no_data']
   const mapHasActiveFilter = !!(onVisibleStatusesChange && (visibleStatuses?.size ?? 0) > 0)
 
   return (
@@ -489,21 +519,10 @@ export function TravelAuditMap({
       {/* Map point visibility pills */}
       {onVisibleStatusesChange && mapLoaded && (
         <div className="flex flex-wrap gap-1.5">
-          {MAP_PILL_STATUSES.filter(st => mapStatusCounts[st] > 0).map(st => {
+          {ALL_WIND_DISPLAY_STATUSES.filter(st => (mapStatusCounts[st] ?? 0) > 0).map(st => {
             const isActive = visibleStatuses?.has(st) ?? false
             const noFilter = (visibleStatuses?.size ?? 0) === 0
-            const label = st === 'graent' ? tf('heatmapLegendGreen')
-              : st === 'gult' ? tf('heatmapLegendYellow')
-              : st === 'rautt' ? tf('heatmapLegendRed')
-              : tf('heatmapNotAssessed')
-            const dotClass = st === 'graent' ? 'bg-[#2d5a27]'
-              : st === 'gult' ? 'bg-amber-500'
-              : st === 'rautt' ? 'bg-destructive'
-              : 'bg-muted-foreground/30'
-            const borderClass = st === 'graent' ? 'border-[#2d5a27]'
-              : st === 'gult' ? 'border-amber-500'
-              : st === 'rautt' ? 'border-destructive'
-              : 'border-muted-foreground/30'
+            const meta = WIND_STATUS_META[st]
             return (
               <button
                 key={st}
@@ -511,14 +530,15 @@ export function TravelAuditMap({
                 onClick={() => toggleMapStatus(st)}
                 className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                   isActive
-                    ? `${borderClass} bg-muted/50 text-foreground`
+                    ? meta.chipActiveClass
                     : noFilter
                       ? 'border-border bg-transparent text-muted-foreground'
                       : 'border-border bg-transparent text-muted-foreground/30'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${dotClass}`} aria-hidden />
-                {label} ({mapStatusCounts[st]})
+                <span className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${meta.dotClass}`} aria-hidden />
+                <span aria-hidden>{meta.icon}</span>
+                {tf(meta.labelKey as 'statusWithinLimits')} ({mapStatusCounts[st] ?? 0})
               </button>
             )
           })}
@@ -716,9 +736,6 @@ function PointDetailsPanel({
         (summary.windMs > 0 || summary.precipMmPerHour > 0 || summary.decisiveTempC !== undefined) && (
           <p>
             {tf('metricWind')}: {formatNum(summary.windMs, locale)} m/s
-            {summary.gustMs > summary.windMs && (
-              <>{' · '}{tf('metricGust')}: {formatNum(summary.gustMs, locale)} m/s</>
-            )}
             {' · '}{tf('metricPrecip')}: {formatNum(summary.precipMmPerHour, locale)} mm/klst
             {summary.decisiveTempC !== undefined && (
               <>{' · '}{tf('metricTemp')}: {formatNum(summary.decisiveTempC, locale)}°C</>
