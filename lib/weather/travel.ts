@@ -1,12 +1,13 @@
 import type {
   HourPoint, DeterministicResult, WeatherStatus,
   TravelPointForecast, WorstMetric, TravelCandidate, TravelWindow, TravelIssue, TravelPlan, RouteWeatherPoint, NextCaution,
-  CandidatePointStatus, CandidateDisplayPoint, RouteWeatherSamplingDiagnostics,
+  RouteWeatherSamplingDiagnostics,
   TravelThresholdOverrides, ResolvedTravelThresholds,
   ForecastDrawerRow, GustSeverity,
 } from './types'
 import type { TrailerKind } from './question'
 import { deriveThreshold, resolveThresholds } from './thresholds'
+import { assessRouteLeg, assessDrivingConditions, getForecastHoursNearEta } from './assessment'
 
 const CANDIDATE_INTERVAL_S = 30 * 60 // 30-minute intervals between candidate departures
 const NEXT_CAUTION_STEP_S = 3600 // 1-hour steps for next-caution scan
@@ -14,13 +15,6 @@ const NEXT_CAUTION_MIN_USEFUL_H = 3 // below this, report insufficient coverage
 const METNO_FORECAST_BASE = 'https://api.met.no/weatherapi/locationforecast/2.0/compact'
 const GMAPS_SEARCH_BASE = 'https://www.google.com/maps/search/?api=1&query='
 const YRNO_FORECAST_BASE = 'https://www.yr.no/en/forecast/daily-table/'
-const ETA_WINDOW_MS = 3_600_000 // ±1 hour around each route point's estimated arrival time
-
-/** Returns forecast hours within ±windowMs of the given ETA. */
-function getHoursNearEta(hours: HourPoint[], etaMs: number, windowMs = ETA_WINDOW_MS): HourPoint[] {
-  return hours.filter(h => Math.abs(new Date(h.time).getTime() - etaMs) <= windowMs)
-}
-
 function makeId(): string {
   return `dr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
@@ -32,157 +26,6 @@ function addSeconds(isoString: string, seconds: number): string {
 function formatUtcTime(isoString: string): string {
   const d = new Date(isoString)
   return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`
-}
-
-/**
- * Finds the worst metric value across all route points, evaluating each point at its
- * estimated arrival time (ETA) rather than the full route window. This ensures that
- * weather at a point 90% into the route is assessed at ~90% into the drive, not at
- * departure time.
- *
- * For return legs the ETA fraction is inverted: a point near the origin (fraction≈0)
- * is reached near the *end* of the return journey, not the start.
- */
-function findWorstMetric(
-  pointForecasts: TravelPointForecast[],
-  departureIso: string,
-  arrivalIso: string,
-  totalDistanceM: number,
-  getter: (h: HourPoint) => number,
-  leg: 'outbound' | 'return' = 'outbound',
-): WorstMetric | undefined {
-  const depMs = new Date(departureIso).getTime()
-  const durMs = new Date(arrivalIso).getTime() - depMs
-  let worst: WorstMetric | undefined
-  for (const pt of pointForecasts) {
-    const routeFraction = totalDistanceM > 0 ? pt.distanceFromOriginM / totalDistanceM : 0
-    const etaFraction = leg === 'return' ? 1 - routeFraction : routeFraction
-    const etaMs = depMs + etaFraction * durMs
-    for (const h of getHoursNearEta(pt.hours, etaMs)) {
-      const val = getter(h)
-      if (worst === undefined || val > worst.value) {
-        worst = {
-          value: val,
-          timeIso: h.time,
-          lat: pt.lat,
-          lon: pt.lon,
-          forecastLat: pt.forecastLat,
-          forecastLon: pt.forecastLon,
-          metnoUrl: `${METNO_FORECAST_BASE}?lat=${pt.forecastLat}&lon=${pt.forecastLon}`,
-          yrnoUrl: `${YRNO_FORECAST_BASE}${pt.forecastLat},${pt.forecastLon}`,
-          routeIndex: pt.routeIndex,
-          distanceFromOriginM: pt.distanceFromOriginM,
-          routeFraction,
-        }
-      }
-    }
-  }
-  return worst
-}
-
-function evalDrivingLeg(
-  wind: number,
-  gust: number,
-  precip: number,
-  trailerKind: 'none' | TrailerKind,
-  thresholds: ResolvedTravelThresholds,
-): { stada: WeatherStatus; reasonCode?: string } {
-  const isTrailer = trailerKind !== 'none'
-  const { cautionWindMs, redWindMs, redGustMs, cautionPrecipMmPerHour } = thresholds
-  if (wind >= redWindMs || gust >= redGustMs) return { stada: 'rautt', reasonCode: isTrailer ? 'too_windy_trailer' : 'too_windy_driving' }
-  if (wind >= cautionWindMs || precip > cautionPrecipMmPerHour) {
-    return { stada: 'gult', reasonCode: wind >= cautionWindMs ? (isTrailer ? 'caution_wind_trailer' : 'caution_wind_driving') : 'precipitation' }
-  }
-  return { stada: 'graent' }
-}
-
-function evaluateCandidate(
-  departureIso: string,
-  arrivalIso: string,
-  pointForecasts: TravelPointForecast[],
-  trailerKind: 'none' | TrailerKind,
-  totalDistanceM: number,
-  leg: 'outbound' | 'return' = 'outbound',
-  thresholds: ResolvedTravelThresholds,
-): TravelCandidate {
-  const worstWind = findWorstMetric(pointForecasts, departureIso, arrivalIso, totalDistanceM, h => h.windSpeedMs, leg)
-  const worstGust = findWorstMetric(pointForecasts, departureIso, arrivalIso, totalDistanceM, h => h.windGustMs, leg)
-  const worstPrecip = findWorstMetric(pointForecasts, departureIso, arrivalIso, totalDistanceM, h => h.precipitationMmPerHour, leg)
-
-  // Per-point statuses for timeline-driven map coloring (delta: only non-green entries stored)
-  const depMs = new Date(departureIso).getTime()
-  const durMs = new Date(arrivalIso).getTime() - depMs
-  const pointStatuses: CandidatePointStatus[] = []
-  for (const pt of pointForecasts) {
-    const routeFraction = totalDistanceM > 0 ? pt.distanceFromOriginM / totalDistanceM : 0
-    const etaFraction = leg === 'return' ? 1 - routeFraction : routeFraction
-    const etaMs = depMs + etaFraction * durMs
-    const hrs = getHoursNearEta(pt.hours, etaMs)
-    if (hrs.length === 0) {
-      pointStatuses.push({ routeIndex: pt.routeIndex, status: 'no_data' })
-      continue
-    }
-    const ptWind = Math.max(...hrs.map(h => h.windSpeedMs))
-    const ptGust = Math.max(...hrs.map(h => h.windGustMs))
-    const ptPrecip = Math.max(...hrs.map(h => h.precipitationMmPerHour))
-    const ptResult = evalDrivingLeg(ptWind, ptGust, ptPrecip, trailerKind, thresholds)
-    if (ptResult.stada !== 'graent') {
-      pointStatuses.push({ routeIndex: pt.routeIndex, status: ptResult.stada })
-    }
-  }
-
-  if (!worstWind && !worstGust && !worstPrecip) {
-    return { departureIso, arrivalIso, status: 'gult', reasonCode: 'no_data', pointStatuses: pointStatuses.length > 0 ? pointStatuses : undefined }
-  }
-
-  const legResult = evalDrivingLeg(
-    worstWind?.value ?? 0,
-    worstGust?.value ?? 0,
-    worstPrecip?.value ?? 0,
-    trailerKind,
-    thresholds,
-  )
-
-  // Build displayPoint: active-candidate-safe metrics for the most challenging route point.
-  // Uses the same decisive-metric logic as candidateToIssue / buildHighlightedIssue so the
-  // map panel can show consistent wind/gust/precip/temp/forecastTime for any selected slot,
-  // including green departures where highlightedIssue is undefined.
-  const dpGustVal = worstGust?.value ?? 0
-  const dpUseGust = dpGustVal >= thresholds.redGustMs
-  const dpMetric: CandidateDisplayPoint['metric'] =
-    legResult.reasonCode === 'precipitation' ? 'precipitation' :
-    dpUseGust ? 'gust' : 'wind'
-  const dpWorst = dpMetric === 'precipitation' ? worstPrecip : (dpUseGust ? worstGust : worstWind)
-  let displayPoint: CandidateDisplayPoint | undefined
-  if (dpWorst && dpWorst.routeIndex !== undefined && dpWorst.timeIso) {
-    const pf = pointForecasts.find(p => p.routeIndex === dpWorst.routeIndex)
-    const hour = pf?.hours.find(h => h.time === dpWorst.timeIso)
-    if (pf && hour) {
-      displayPoint = {
-        routeIndex: dpWorst.routeIndex,
-        forecastTimeIso: dpWorst.timeIso,
-        windMs: hour.windSpeedMs,
-        gustMs: hour.windGustMs,
-        precipMmPerHour: hour.precipitationMmPerHour,
-        airTemperatureC: hour.airTemperatureC,
-        metric: dpMetric,
-        distanceFromOriginM: dpWorst.distanceFromOriginM ?? pf.distanceFromOriginM,
-        routeFraction: dpWorst.routeFraction ?? (totalDistanceM > 0 ? pf.distanceFromOriginM / totalDistanceM : 0),
-      }
-    }
-  }
-
-  return {
-    departureIso,
-    arrivalIso,
-    status: legResult.stada,
-    reasonCode: legResult.reasonCode,
-    worstWind,
-    worstGust,
-    worstPrecip,
-    pointStatuses: pointStatuses.length > 0 ? pointStatuses : undefined,
-    displayPoint,
-  }
 }
 
 function generateCandidates(
@@ -201,7 +44,7 @@ function generateCandidates(
   const end = new Date(latestDep).getTime()
   while (t <= end) {
     const depIso = new Date(t).toISOString()
-    candidates.push(evaluateCandidate(depIso, addSeconds(depIso, durationS), pointForecasts, trailerKind, totalDistanceM, leg, thresholds))
+    candidates.push(assessRouteLeg({ departureIso: depIso, arrivalIso: addSeconds(depIso, durationS), pointForecasts, thresholds, totalDistanceM, trailerKind, leg }))
     t += intervalMs
   }
   return candidates
@@ -333,12 +176,12 @@ function buildRouteWeatherPoints(
       // For return leg, point near origin (fraction≈0) is reached late in journey, not early
       const etaFraction = leg === 'return' ? 1 - routeFraction : routeFraction
       const etaMs = depMs + etaFraction * durMs
-      const hrs = getHoursNearEta(pt.hours, etaMs)
+      const hrs = getForecastHoursNearEta(pt.hours, etaMs)
       if (hrs.length > 0) {
         const worstWindMs = Math.max(...hrs.map(h => h.windSpeedMs))
         const worstGustMs = Math.max(...hrs.map(h => h.windGustMs))
         const worstPrecipMmPerHour = Math.max(...hrs.map(h => h.precipitationMmPerHour))
-        const legResult = evalDrivingLeg(worstWindMs, worstGustMs, worstPrecipMmPerHour, trailerKind, thresholds)
+        const legResult = assessDrivingConditions(worstWindMs, worstGustMs, worstPrecipMmPerHour, trailerKind, thresholds)
         const ptRedGustThreshold = thresholds.redGustMs
         const decisiveMetric: NonNullable<RouteWeatherPoint['summaryForWindow']>['decisiveMetric'] =
           legResult.reasonCode === 'precipitation' ? 'precipitation' :
@@ -363,7 +206,7 @@ function buildRouteWeatherPoints(
             ? pt.hours[decisiveIdx + 1]
             : undefined
           if (nextHour) {
-            const nextResult = evalDrivingLeg(nextHour.windSpeedMs, nextHour.windGustMs, nextHour.precipitationMmPerHour, trailerKind, thresholds)
+            const nextResult = assessDrivingConditions(nextHour.windSpeedMs, nextHour.windGustMs, nextHour.precipitationMmPerHour, trailerKind, thresholds)
             const severityOf = (s: WeatherStatus) => s === 'rautt' ? 2 : s === 'gult' ? 1 : 0
             const curSev = severityOf(legResult.stada)
             const nextSev = severityOf(nextResult.stada)
@@ -533,12 +376,12 @@ function buildSingleDepartureTimeline(
   const timelineCandidates: TravelCandidate[] = []
   // First slot: exact departure ("leave now")
   const firstDepIso = new Date(startMs).toISOString()
-  timelineCandidates.push(evaluateCandidate(firstDepIso, addSeconds(firstDepIso, durationS), pointForecasts, trailerKind, totalDistanceM, 'outbound', thresholds))
+  timelineCandidates.push(assessRouteLeg({ departureIso: firstDepIso, arrivalIso: addSeconds(firstDepIso, durationS), pointForecasts, thresholds, totalDistanceM, trailerKind, leg: 'outbound' }))
   // Remaining slots: aligned to whole UTC hours
   let t = nextWholeUtcHourAfter(startMs)
   while (t <= endMs) {
     const depIso = new Date(t).toISOString()
-    timelineCandidates.push(evaluateCandidate(depIso, addSeconds(depIso, durationS), pointForecasts, trailerKind, totalDistanceM, 'outbound', thresholds))
+    timelineCandidates.push(assessRouteLeg({ departureIso: depIso, arrivalIso: addSeconds(depIso, durationS), pointForecasts, thresholds, totalDistanceM, trailerKind, leg: 'outbound' }))
     t += NEXT_CAUTION_STEP_S * 1000
   }
 
@@ -625,7 +468,7 @@ export function buildForecastRows(
     const tempDelta = prev !== undefined ? +(h.airTemperatureC - prev.airTemperatureC).toFixed(1) : undefined
     const tempDir = tempDelta === undefined ? 'none' : Math.abs(tempDelta) < 0.5 ? 'steady' : tempDelta > 0 ? 'up' : 'down'
 
-    const legResult = evalDrivingLeg(h.windSpeedMs, h.windGustMs, h.precipitationMmPerHour, trailerKind, thresholds)
+    const legResult = assessDrivingConditions(h.windSpeedMs, h.windGustMs, h.precipitationMmPerHour, trailerKind, thresholds)
 
     return {
       timeIso: h.time,
@@ -663,12 +506,12 @@ function enrichWithArrivalWeather(
 ): TravelCandidate[] {
   return candidates.map(c => {
     const arrivalMs = new Date(c.arrivalIso).getTime()
-    const nearHrs = getHoursNearEta(destHours, arrivalMs)
+    const nearHrs = getForecastHoursNearEta(destHours, arrivalMs)
     if (nearHrs.length === 0) return c
     const nearest = nearHrs.reduce((a, b) =>
       Math.abs(new Date(a.time).getTime() - arrivalMs) <= Math.abs(new Date(b.time).getTime() - arrivalMs) ? a : b
     )
-    const evalResult = evalDrivingLeg(nearest.windSpeedMs, nearest.windGustMs, nearest.precipitationMmPerHour, trailerKind, resolved)
+    const evalResult = assessDrivingConditions(nearest.windSpeedMs, nearest.windGustMs, nearest.precipitationMmPerHour, trailerKind, resolved)
     return {
       ...c,
       arrivalWeather: {
@@ -725,7 +568,7 @@ export function checkTravelWeather(input: TravelWeatherInput): DeterministicResu
     latestDepartureIso = addSeconds(latestArrivalBy, -durationS)
     outboundCandidates = generateCandidates(earliestDeparture, latestDepartureIso, durationS, pointForecasts, trailerKind, distanceM, 'outbound', resolved)
   } else {
-    outboundCandidates = [evaluateCandidate(earliestDeparture, arrivalAtEarliest, pointForecasts, trailerKind, distanceM, 'outbound', resolved)]
+    outboundCandidates = [assessRouteLeg({ departureIso: earliestDeparture, arrivalIso: arrivalAtEarliest, pointForecasts, thresholds: resolved, totalDistanceM: distanceM, trailerKind, leg: 'outbound' })]
   }
 
   // --- Arrival weather (destination forecast near candidate arrivalIso) ---
