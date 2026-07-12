@@ -2,13 +2,12 @@
 
 import type { ReactNode } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
-import type { TravelIssue, ResolvedTravelThresholds, RouteWeatherPoint } from '@/lib/weather/types'
+import type { TravelIssue, ResolvedTravelThresholds } from '@/lib/weather/types'
 import {
   formatKlTime,
   formatNum,
   getOriginDisplay,
   buildThresholdContext,
-  selectNearestVedurstofanRow,
   type PointSummary,
 } from './travelAuditMap.helpers'
 
@@ -35,7 +34,6 @@ export function RouteWeatherPointDetailCard({
   placeLabel,
   headerExtra,
   onOpenForecast,
-  vedurstofanStation,
 }: {
   summary: PointSummary
   thresholdsUsed?: ResolvedTravelThresholds
@@ -45,7 +43,6 @@ export function RouteWeatherPointDetailCard({
   /** Optional content rendered on the same line as Punktur x/y (e.g. status badge). */
   headerExtra?: ReactNode
   onOpenForecast?: () => void
-  vedurstofanStation?: RouteWeatherPoint['vedurstofanStation']
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
@@ -191,44 +188,6 @@ export function RouteWeatherPointDetailCard({
         </a>
       </div>
 
-      {/* Veðurstofan Íslands station comparison — below links, for reference only */}
-      {vedurstofanStation?.forecastRows && vedurstofanStation.forecastRows.length > 0 && (() => {
-        const selectedRow = selectNearestVedurstofanRow(vedurstofanStation.forecastRows!, summary.etaIso)
-        if (!selectedRow) return null
-        const distanceStr = vedurstofanStation.distanceM < 1000
-          ? `${vedurstofanStation.distanceM} m`
-          : `${formatNum(vedurstofanStation.distanceM / 1000, locale)} km`
-        return (
-          <div className="border-t border-border/30 pt-2 mt-0.5 flex flex-col gap-0.5">
-            <span className="text-muted-foreground/60 text-[10px] font-medium">
-              {tf('vedurStofanLabel')} ({tf('vedurStofanSubtitle')})
-            </span>
-            <span className="text-muted-foreground/50 text-[10px]">
-              {tf('vedurStofanNearestPoint', { distance: distanceStr })}
-            </span>
-            <span className="text-muted-foreground/50 text-[10px]">
-              {vedurstofanStation.stationName}
-              {' · '}{tf('pointTimeLine', { time: formatKlTime(selectedRow.ftimeIso) })}
-              {vedurstofanStation.status === 'stale' && ` · ${tf('vedurStofanStale')}`}
-            </span>
-            <span className="text-muted-foreground/50 text-[10px]">
-              {tf('metricWind')}: {selectedRow.windSpeedMs !== null
-                ? `${formatNum(selectedRow.windSpeedMs, locale)} m/s`
-                : '—'}
-              {selectedRow.windDirectionText && ` ${selectedRow.windDirectionText}`}
-              {selectedRow.precipitationMmPerHour !== null && (
-                <>{' · '}{tf('metricPrecip')}: {formatNum(selectedRow.precipitationMmPerHour, locale)} mm/klst</>
-              )}
-              {selectedRow.temperatureC !== null && (
-                <>{' · '}{tf('metricTemp')}: {formatNum(selectedRow.temperatureC, locale)}°C</>
-              )}
-            </span>
-            {selectedRow.weatherText && (
-              <span className="text-muted-foreground/60 text-[11px]">{selectedRow.weatherText}</span>
-            )}
-          </div>
-        )
-      })()}
     </>
   )
 }

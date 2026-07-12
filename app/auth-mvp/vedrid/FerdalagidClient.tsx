@@ -1691,7 +1691,6 @@ function RoutePointRow({
         thresholdsUsed={thresholdsUsed}
         originName={originName}
         onOpenForecast={onOpenForecast}
-        vedurstofanStation={pt.vedurstofanStation}
         headerExtra={
           <>
             <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${windMeta.chipActiveClass}`}>
