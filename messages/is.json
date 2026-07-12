@@ -818,6 +818,7 @@
         "thresholdCautionPrecip": "Óþægilegt ef úrkoma fer yfir",
         "thresholdReset": "Nota sjálfgefin viðmið",
         "thresholdSubmit": "Reikna ferðina",
+        "thresholdNotReadyLabel": "Veldu þín veðurmörk",
         "assumptionThresholds": "Veðurmörk",
         "thresholdsDefault": "Sjálfgefin viðmið",
         "thresholdsCustom": "vindur {caution}/{red} m/s, hviður {gust} m/s, úrkoma {precip} mm/klst",

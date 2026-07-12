@@ -9,8 +9,10 @@ import {
   isSameCoordinatePair,
   shouldShowForecastPointMarker,
   candidateToIssue,
+  derivePointWeatherForCandidate,
+  buildThresholdContext,
 } from '@/components/weather/travelAuditMap.helpers'
-import type { RouteWeatherPoint, TravelIssue, TravelCandidate } from '@/lib/weather/types'
+import type { RouteWeatherPoint, TravelIssue, TravelCandidate, ForecastDrawerRow } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
 
 function makeWeatherPoint(
@@ -374,7 +376,54 @@ describe('buildPointSummary with activeCandidate displayPoint', () => {
     expect(s.decisiveTimeFormatted).not.toBe('08:00')
   })
 
-  it('hides summaryForWindow metrics for a non-matching point when activeCandidate present', () => {
+  it('uses nearest forecastRows ETA values for a non-displayPoint active-candidate point', () => {
+    const forecastRows: ForecastDrawerRow[] = [
+      {
+        timeIso: '2026-07-10T10:00:00Z', // ETA = 09:00 + 0.2*5h = 10:00 → this row wins
+        status: 'graent',
+        wind: { value: 9.5, direction: 'steady', tone: 'neutral' },
+        gust: { value: 12.0, severity: 'none', direction: 'steady', tone: 'neutral' },
+        precipitation: { value: 0.2, direction: 'steady', tone: 'neutral' },
+        temperature: { value: 6.0, direction: 'steady', tone: 'neutral' },
+      },
+      {
+        timeIso: '2026-07-10T11:00:00Z',
+        status: 'graent',
+        wind: { value: 11.0, direction: 'steady', tone: 'neutral' },
+        gust: { value: 14.0, severity: 'none', direction: 'steady', tone: 'neutral' },
+        precipitation: { value: 0.5, direction: 'steady', tone: 'neutral' },
+        temperature: { value: 5.5, direction: 'steady', tone: 'neutral' },
+      },
+    ]
+    // routeIndex 3, not the displayPoint (routeIndex 2)
+    // candidate: dep 09:00, arr 14:00, 5h outbound, routeFraction 0.2 → ETA = 09:00 + 0.2*5h = 10:00
+    const otherPt = makeWeatherPoint({
+      routeIndex: 3,
+      totalRouteWeatherPoints: 5,
+      routeFraction: 0.2,
+      summaryForWindow: {
+        status: 'gult',
+        worstWindMs: 14.5,
+        worstGustMs: 18.2,
+        worstPrecipMmPerHour: 0.3,
+        decisiveTimeIso: '2026-07-10T08:00:00Z',
+      },
+      forecastRows,
+    })
+    const s = buildPointSummary(otherPt, undefined, candidate, 'outbound')
+    // Should use the 10:00 forecast row (nearest to ETA 10:00), not stale summaryForWindow
+    expect(s.windMs).toBeCloseTo(9.5)
+    expect(s.gustMs).toBeCloseTo(12.0)
+    expect(s.precipMmPerHour).toBeCloseTo(0.2)
+    expect(s.decisiveTempC).toBeCloseTo(6.0)
+    expect(s.forecastTimeIso).toBe('2026-07-10T10:00:00Z')
+    expect(s.decisiveTimeFormatted).toBe('10:00')
+    // Must not use stale summaryForWindow values
+    expect(s.windMs).not.toBeCloseTo(14.5)
+    expect(s.decisiveTimeFormatted).not.toBe('08:00')
+  })
+
+  it('returns zero metrics for a non-displayPoint active-candidate point with no forecastRows', () => {
     const otherPt = makeWeatherPoint({
       routeIndex: 3,
       totalRouteWeatherPoints: 5,
@@ -385,13 +434,13 @@ describe('buildPointSummary with activeCandidate displayPoint', () => {
         worstPrecipMmPerHour: 0.3,
         decisiveTimeIso: '2026-07-10T08:00:00Z',
       },
+      // no forecastRows
     })
     const s = buildPointSummary(otherPt, undefined, candidate, 'outbound')
+    // No forecastRows → derived is null → falls back to summaryForWindow=absent → 0
     expect(s.windMs).toBe(0)
     expect(s.gustMs).toBe(0)
-    expect(s.precipMmPerHour).toBe(0)
-    expect(s.decisiveTempC).toBeUndefined()
-    expect(s.decisiveTimeFormatted).toBeUndefined()
+    expect(s.forecastTimeIso).toBeUndefined()
   })
 
   it('uses displayPoint values even when point is also highlighted (worst point)', () => {
@@ -487,6 +536,74 @@ describe('candidateToIssue', () => {
   })
 })
 
+describe('derivePointWeatherForCandidate', () => {
+  const baseCandidate: TravelCandidate = {
+    departureIso: '2026-07-10T09:00:00Z',
+    arrivalIso: '2026-07-10T14:00:00Z',
+    status: 'graent',
+  }
+
+  function makeRow(timeIso: string, windMs: number, gustMs: number, precipMm: number, tempC: number): ForecastDrawerRow {
+    return {
+      timeIso,
+      status: 'graent',
+      wind: { value: windMs, direction: 'steady', tone: 'neutral' },
+      gust: { value: gustMs, severity: 'none', direction: 'steady', tone: 'neutral' },
+      precipitation: { value: precipMm, direction: 'steady', tone: 'neutral' },
+      temperature: { value: tempC, direction: 'steady', tone: 'neutral' },
+    }
+  }
+
+  it('returns null when no forecastRows', () => {
+    const pt = makeWeatherPoint({ routeFraction: 0.5 })
+    expect(derivePointWeatherForCandidate(pt, baseCandidate)).toBeNull()
+  })
+
+  it('returns null when forecastRows is empty', () => {
+    const pt = makeWeatherPoint({ routeFraction: 0.5, forecastRows: [] })
+    expect(derivePointWeatherForCandidate(pt, baseCandidate)).toBeNull()
+  })
+
+  it('returns values from the nearest forecast row to the ETA', () => {
+    // routeFraction=0.5, dep=09:00, arr=14:00 → ETA = 09:00 + 0.5*5h = 11:30
+    const pt = makeWeatherPoint({
+      routeFraction: 0.5,
+      forecastRows: [
+        makeRow('2026-07-10T10:00:00Z', 8.0, 10.0, 0.1, 7.0),
+        makeRow('2026-07-10T11:00:00Z', 9.5, 12.0, 0.2, 6.5), // nearest to 11:30
+        makeRow('2026-07-10T12:00:00Z', 11.0, 14.0, 0.3, 6.0),
+      ],
+    })
+    const result = derivePointWeatherForCandidate(pt, baseCandidate)
+    expect(result).not.toBeNull()
+    expect(result!.windMs).toBeCloseTo(9.5)
+    expect(result!.gustMs).toBeCloseTo(12.0)
+    expect(result!.precipMmPerHour).toBeCloseTo(0.2)
+    expect(result!.airTemperatureC).toBeCloseTo(6.5)
+    expect(result!.forecastTimeIso).toBe('2026-07-10T11:00:00Z')
+  })
+
+  it('returns etaIso computed from candidate and routeFraction', () => {
+    const pt = makeWeatherPoint({
+      routeFraction: 0.5,
+      forecastRows: [makeRow('2026-07-10T11:00:00Z', 8, 10, 0, 5)],
+    })
+    const result = derivePointWeatherForCandidate(pt, baseCandidate)
+    // ETA = 09:00 + 0.5 * 5h = 11:30 → etaIso should be around 11:30
+    expect(result!.etaIso).toBe('2026-07-10T11:30:00.000Z')
+  })
+
+  it('uses return leg fraction correctly', () => {
+    const pt = makeWeatherPoint({
+      routeFraction: 0.3,
+      forecastRows: [makeRow('2026-07-10T12:00:00Z', 8, 10, 0, 5)],
+    })
+    // return leg: etaFraction = 1 - 0.3 = 0.7, ETA = 09:00 + 0.7*5h = 12:30
+    const result = derivePointWeatherForCandidate(pt, baseCandidate, 'return')
+    expect(result!.etaIso).toBe('2026-07-10T12:30:00.000Z')
+  })
+})
+
 describe('formatNum', () => {
   it('returns integer as string with no decimal when value is whole', () => {
     expect(formatNum(5, 'en')).toBe('5')
@@ -518,5 +635,63 @@ describe('formatNum', () => {
   it('rounds to one decimal place', () => {
     expect(formatNum(14.55, 'en')).toBe('14.6')
     expect(formatNum(14.54, 'en')).toBe('14.5')
+  })
+})
+
+describe('buildThresholdContext', () => {
+  const th10_15 = resolveThresholds('none', { cautionWindMs: 10, redWindMs: 15 })
+
+  // 1. Worst/highlighted point uses server-computed issue values
+  it('highlighted point with issue: uses issue value/threshold and computes excess', () => {
+    const summary = { isHighlighted: true, windMs: 13.3 }
+    const issue: TravelIssue = {
+      leg: 'outbound',
+      metric: 'wind',
+      value: 13.3,
+      unit: 'm/s',
+      thresholdValue: 10,
+      thresholdUnit: 'm/s',
+      lat: 64.0,
+      lon: -22.0,
+    }
+    const ctx = buildThresholdContext(summary, th10_15, issue)
+    expect(ctx).not.toBeNull()
+    expect(ctx!.metricLabelKey).toBe('metricWind')
+    expect(ctx!.thresholdValue).toBe(10)
+    expect(ctx!.excess).toBeCloseTo(3.3)
+  })
+
+  // 2. Non-highlighted point above red threshold: compares against redWindMs
+  it('non-highlighted point with windMs above red threshold: uses red threshold', () => {
+    const summary = { isHighlighted: false, windMs: 16.0 }
+    const ctx = buildThresholdContext(summary, th10_15)
+    expect(ctx).not.toBeNull()
+    expect(ctx!.thresholdValue).toBe(15)
+    expect(ctx!.excess).toBeCloseTo(1.0)
+  })
+
+  // 3. Non-highlighted point above caution but below red: compares against cautionWindMs
+  it('non-highlighted point with windMs above caution but below red: uses caution threshold', () => {
+    const summary = { isHighlighted: false, windMs: 13.3 }
+    const ctx = buildThresholdContext(summary, th10_15)
+    expect(ctx).not.toBeNull()
+    expect(ctx!.thresholdValue).toBe(10)
+    expect(ctx!.excess).toBeCloseTo(3.3)
+  })
+
+  // 4. Point below all thresholds: returns null
+  it('point below all thresholds returns null', () => {
+    const summary = { isHighlighted: false, windMs: 8.0 }
+    const ctx = buildThresholdContext(summary, th10_15)
+    expect(ctx).toBeNull()
+  })
+
+  // 5. Selected and list point built from same data produce identical threshold context
+  it('selected and list point with same windMs and thresholds produce identical context', () => {
+    const summarySelected = { isHighlighted: false, windMs: 13.3 }
+    const summaryList = { isHighlighted: false, windMs: 13.3 }
+    const ctxSelected = buildThresholdContext(summarySelected, th10_15)
+    const ctxList = buildThresholdContext(summaryList, th10_15)
+    expect(ctxSelected).toEqual(ctxList)
   })
 })

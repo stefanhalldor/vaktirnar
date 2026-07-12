@@ -23,7 +23,8 @@ import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteS
 import { WeatherResultLoader } from '@/components/weather/WeatherResultLoader'
 import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
-import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, haversineMeters, estimatePointEtaIso, formatCompactDateTime, getOriginDisplay } from '@/components/weather/travelAuditMap.helpers'
+import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, estimatePointEtaIso, formatCompactDateTime, getOriginDisplay, buildPointSummary } from '@/components/weather/travelAuditMap.helpers'
+import { RouteWeatherPointDetailCard } from '@/components/weather/RouteWeatherPointDetailCard'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 
@@ -782,10 +783,10 @@ export function FerdalagidClient({
               <button
                 type="button"
                 onClick={handleThresholdSubmit}
-                disabled={loading}
-                className="flex-1 h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+                disabled={loading || draftCautionWind.trim() === '' || draftRedWind.trim() === ''}
+                className="flex-1 h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm cursor-pointer hover:shadow-md hover:opacity-95 active:opacity-90 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed"
               >
-                {loading ? tf('submitting') : tf('thresholdSubmit')}
+                {loading ? tf('submitting') : (draftCautionWind.trim() === '' || draftRedWind.trim() === '') ? tf('thresholdNotReadyLabel') : tf('thresholdSubmit')}
               </button>
             </div>
           </div>
@@ -1195,6 +1196,7 @@ export function FerdalagidClient({
                         activeLeg={activeLeg}
                         selectedCandidatePointStatuses={selectedCandidatePointStatuses}
                         thresholdsUsed={thresholdsUsed}
+                        originName={origin?.name ?? ''}
                         onOpenForecast={pt.forecastRows?.length ? () => {
                           const isDisplayPoint = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex
                           const highlightedTimeIso = isDisplayPoint
@@ -1343,19 +1345,6 @@ export function FerdalagidClient({
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Returns the wind speed (m/s) from the forecast row closest in time to etaIso. */
-function nearestForecastWindMs(rows: ForecastDrawerRow[] | undefined, etaIso: string | undefined): number | undefined {
-  if (!rows?.length || !etaIso) return undefined
-  const etaMs = new Date(etaIso).getTime()
-  let best = rows[0]
-  let bestDelta = Math.abs(new Date(best.timeIso).getTime() - etaMs)
-  for (const row of rows) {
-    const d = Math.abs(new Date(row.timeIso).getTime() - etaMs)
-    if (d < bestDelta) { bestDelta = d; best = row }
-  }
-  return best.wind.value
-}
 
 /** Returns the timeIso of the forecast row closest in time to etaIso. */
 function nearestForecastIso(rows: ForecastDrawerRow[], etaIso: string): string | undefined {
@@ -1666,6 +1655,7 @@ function RoutePointRow({
   activeLeg = 'outbound',
   selectedCandidatePointStatuses,
   thresholdsUsed,
+  originName,
   onOpenForecast,
 }: {
   pt: RouteWeatherPoint
@@ -1673,106 +1663,45 @@ function RoutePointRow({
   activeLeg?: 'outbound' | 'return'
   selectedCandidatePointStatuses?: CandidatePointStatus[]
   thresholdsUsed?: ResolvedTravelThresholds
+  originName: string
   onOpenForecast?: () => void
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
-  const locale = useLocale()
+
+  const isActiveMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
+  const summary = buildPointSummary(pt, undefined, isActiveMode ? activeCandidate : undefined, activeLeg)
+
+  // Fine-grained wind status for badge and card styling
+  const th = thresholdsUsed ?? resolveThresholds('none')
+  const ptHasData = isActiveMode
+    ? activeCandidate!.displayPoint?.routeIndex === pt.routeIndex || (pt.forecastRows?.length ?? 0) > 0
+    : pt.summaryForWindow !== undefined
+  const windStatus = classifyPointWindDisplayStatus(summary.windMs, ptHasData, th)
+  const windMeta = WIND_STATUS_META_SHARED[windStatus]
+  const cardClass = ROUTE_POINT_CARD_CLASS[windStatus]
+
   const badges: string[] = []
   if (pt.isHighlightedIssue) badges.push(tf('decisivePointLabel'))
   if (pt.isDestinationClosest && !pt.isOrigin) badges.push(tf('nearestDestLabel'))
 
-  const forecastDistanceM = Math.round(haversineMeters({ lat: pt.lat, lng: pt.lon }, { lat: pt.forecastLat, lng: pt.forecastLon }))
-
-  // When a heatmap slot is explicitly selected, use active-candidate-aware rendering.
-  // selectedCandidatePointStatuses being defined (even empty) means a slot is selected.
-  const isActiveMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
-
-  // Fine-grained wind status for badge and card styling.
-  const th = thresholdsUsed ?? resolveThresholds('none')
-  let windStatus: WindDisplayStatus
-  if (isActiveMode && activeCandidate) {
-    let windMs: number | undefined
-    if (pt.routeIndex === activeCandidate.displayPoint?.routeIndex) {
-      windMs = activeCandidate.displayPoint!.windMs
-    } else {
-      windMs = nearestForecastWindMs(pt.forecastRows, estimatePointEtaIso(activeCandidate, pt, activeLeg))
-    }
-    windStatus = classifyPointWindDisplayStatus(windMs, (pt.forecastRows?.length ?? 0) > 0, th)
-  } else {
-    windStatus = classifyPointWindDisplayStatus(pt.summaryForWindow?.worstWindMs, pt.summaryForWindow !== undefined, th)
-  }
-  const windMeta = WIND_STATUS_META_SHARED[windStatus]
-  const cardClass = ROUTE_POINT_CARD_CLASS[windStatus]
-
-  // ETA: use active-candidate estimate when a slot is selected, otherwise summaryForWindow
-  const etaIso = isActiveMode
-    ? estimatePointEtaIso(activeCandidate, pt, activeLeg)
-    : pt.summaryForWindow?.etaIso
-
   return (
     <div className={`border ${cardClass} rounded-lg px-3 py-2 flex flex-col gap-1 text-xs text-muted-foreground`}>
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="font-medium text-foreground">{tf('pointLabel')} {pt.routeIndex + 1}/{pt.totalRouteWeatherPoints}</span>
-        <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${windMeta.chipActiveClass}`}>{windMeta.icon} {tf(windMeta.labelKey as 'statusWithinLimits')}</span>
-        {badges.map(b => (
-          <span key={b} className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-xs">{b}</span>
-        ))}
-      </div>
-      <span>{Math.round(pt.distanceFromOriginM / 1000)} {tf('kmFromOrigin')}</span>
-      {etaIso && (
-        <span>{tf('pointEtaLabel')}: {tf('pointTimeLine', { time: formatKlTime(etaIso) })}</span>
-      )}
-      <span>
-        {forecastDistanceM < 1000
-          ? tf('forecastPointDistanceMeters', { meters: forecastDistanceM })
-          : tf('forecastPointDistanceKilometers', { kilometers: formatNum(forecastDistanceM / 1000, locale) })}
-      </span>
-      {isActiveMode ? (() => {
-        // Active-candidate mode: suppress summaryForWindow metrics (different time window).
-        // Show active-safe metrics only from displayPoint when the route index matches.
-        if (windStatus === 'no_data') return <p>{tf('heatmapNotAssessedDetail')}</p>
-        const dp = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex ? activeCandidate!.displayPoint! : undefined
-        if (!dp) return null
-        return (
+      <RouteWeatherPointDetailCard
+        summary={summary}
+        thresholdsUsed={thresholdsUsed}
+        originName={originName}
+        onOpenForecast={onOpenForecast}
+        headerExtra={
           <>
-            <span>{tf('pointForecastHereAt', { time: formatKlTime(dp.forecastTimeIso) })}</span>
-            <p>
-              {tf('metricWind')}: {formatNum(dp.windMs, locale)} m/s
-              {' · '}{tf('metricPrecip')}: {formatNum(dp.precipMmPerHour, locale)} mm/klst
-              {dp.airTemperatureC !== undefined && (
-                <> · {tf('metricTemp')}: {formatNum(dp.airTemperatureC, locale)}°C</>
-              )}
-            </p>
+            <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${windMeta.chipActiveClass}`}>
+              {windMeta.icon} {tf(windMeta.labelKey as 'statusWithinLimits')}
+            </span>
+            {badges.map(b => (
+              <span key={b} className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-xs">{b}</span>
+            ))}
           </>
-        )
-      })() : (
-        <>
-          {pt.summaryForWindow?.forecastTimeIso && (
-            <span>{tf('pointForecastHereAt', { time: formatKlTime(pt.summaryForWindow.forecastTimeIso) })}</span>
-          )}
-          {pt.summaryForWindow ? (
-            <p>
-              {tf('metricWind')}: {formatNum(pt.summaryForWindow.worstWindMs, locale)} m/s
-              {' · '}{tf('metricPrecip')}: {formatNum(pt.summaryForWindow.worstPrecipMmPerHour, locale)} mm/klst
-              {pt.summaryForWindow.decisiveTempC !== undefined && (
-                <> · {tf('metricTemp')}: {formatNum(pt.summaryForWindow.decisiveTempC, locale)}°C</>
-              )}
-            </p>
-          ) : (
-            <p>{tf('heatmapNoData')}</p>
-          )}
-        </>
-      )}
-      <div className="flex gap-3 flex-wrap">
-        {onOpenForecast && (
-          <button type="button" onClick={onOpenForecast} className="underline hover:text-foreground transition-colors text-left">
-            {tf('spaSpoon')}
-          </button>
-        )}
-        <a href={pt.yrnoUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">{tf('viewForecast')}</a>
-        <a href={pt.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">{tf('openOnMap')}</a>
-        <a href={pt.metnoUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors text-muted-foreground/60">{tf('viewMetnoRaw')}</a>
-      </div>
+        }
+      />
     </div>
   )
 }

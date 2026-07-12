@@ -507,7 +507,7 @@ export function RouteSelectionStep({
           type="button"
           onClick={onConfirm}
           disabled={confirmDisabled}
-          className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+          className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm cursor-pointer hover:shadow-md hover:opacity-95 active:opacity-90 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed"
         >
           {confirmLabel}
         </button>

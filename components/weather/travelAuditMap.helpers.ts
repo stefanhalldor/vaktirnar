@@ -1,4 +1,4 @@
-import type { RouteWeatherPoint, TravelIssue, TravelCandidate, WeatherStatus, ResolvedTravelThresholds } from '@/lib/weather/types'
+import type { RouteWeatherPoint, TravelIssue, TravelCandidate, WeatherStatus, ResolvedTravelThresholds, ForecastDrawerRow } from '@/lib/weather/types'
 import { WEATHER_THRESHOLDS, deriveThreshold } from '@/lib/weather/thresholds'
 
 /** Google Maps LatLngLiteral shape (lng instead of lon). */
@@ -257,6 +257,43 @@ export function estimatePointEtaIso(
   return new Date(depMs + etaFraction * durMs).toISOString()
 }
 
+export type DerivedPointWeather = {
+  windMs: number
+  gustMs: number
+  precipMmPerHour: number
+  airTemperatureC?: number
+  forecastTimeIso: string
+  etaIso: string
+}
+
+/**
+ * Returns weather values from the forecast row nearest to the active candidate's ETA at this point.
+ * Returns null if no forecastRows are available.
+ */
+export function derivePointWeatherForCandidate(
+  pt: RouteWeatherPoint,
+  candidate: TravelCandidate,
+  leg: 'outbound' | 'return' = 'outbound',
+): DerivedPointWeather | null {
+  if (!pt.forecastRows?.length) return null
+  const etaIso = estimatePointEtaIso(candidate, pt, leg)
+  const etaMs = new Date(etaIso).getTime()
+  let best: ForecastDrawerRow = pt.forecastRows[0]
+  let bestDelta = Math.abs(new Date(best.timeIso).getTime() - etaMs)
+  for (const row of pt.forecastRows) {
+    const d = Math.abs(new Date(row.timeIso).getTime() - etaMs)
+    if (d < bestDelta) { bestDelta = d; best = row }
+  }
+  return {
+    windMs: best.wind.value,
+    gustMs: best.gust.value,
+    precipMmPerHour: best.precipitation.value,
+    airTemperatureC: best.temperature.value,
+    forecastTimeIso: best.timeIso,
+    etaIso,
+  }
+}
+
 /**
  * Derives a TravelIssue from a TravelCandidate's worst metric.
  * Used by DepartureHeatmap and FerdalagidClient to sync heatmap selection to the audit map.
@@ -327,13 +364,15 @@ export function buildPointSummary(
   const etaIso = activeCandidate
     ? estimatePointEtaIso(activeCandidate, pt, activeLeg ?? 'outbound')
     : pt.summaryForWindow?.etaIso
-  // When an activeCandidate is selected:
-  // - isHighlighted point: use summaryForWindow (safe — candidateToIssue carries active-candidate values for this point)
-  // - displayPoint match: use displayPoint values (active-candidate-safe metrics from the decisive forecast hour)
-  // - all other points: suppress summaryForWindow metrics (they belong to a different departure window)
+  // Priority for weather values:
+  // 1. displayPoint: active-candidate-safe decisive values from the server
+  // 2. derived (non-displayPoint, activeCandidate present): nearest forecast row to ETA
+  // 3. summaryForWindow: static window fallback when no active candidate
   const isDisplayPoint = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex
-  const showSummaryMetrics = !activeCandidate || (isHighlighted && !isDisplayPoint)
   const dp = isDisplayPoint ? activeCandidate!.displayPoint! : undefined
+  const derived = !isDisplayPoint && activeCandidate
+    ? derivePointWeatherForCandidate(pt, activeCandidate, activeLeg ?? 'outbound')
+    : null
   return {
     routeIndex: pt.routeIndex,
     totalPoints: pt.totalRouteWeatherPoints,
@@ -341,15 +380,17 @@ export function buildPointSummary(
     isOrigin: pt.isOrigin ?? false,
     isDestination: !!(pt.isDestinationClosest && !pt.isOrigin),
     distanceFromOriginKm: Math.round(pt.distanceFromOriginM / 1000),
-    windMs: dp ? dp.windMs : (showSummaryMetrics ? (pt.summaryForWindow?.worstWindMs ?? 0) : 0),
-    gustMs: dp ? dp.gustMs : (showSummaryMetrics ? (pt.summaryForWindow?.worstGustMs ?? 0) : 0),
-    precipMmPerHour: dp ? dp.precipMmPerHour : (showSummaryMetrics ? (pt.summaryForWindow?.worstPrecipMmPerHour ?? 0) : 0),
-    decisiveTempC: dp ? dp.airTemperatureC : (showSummaryMetrics ? pt.summaryForWindow?.decisiveTempC : undefined),
-    status: dp ? undefined : (showSummaryMetrics ? pt.summaryForWindow?.status : undefined),
-    decisiveMetric: dp ? dp.metric : (showSummaryMetrics ? pt.summaryForWindow?.decisiveMetric : undefined),
+    windMs: dp ? dp.windMs : derived ? derived.windMs : activeCandidate ? 0 : (pt.summaryForWindow?.worstWindMs ?? 0),
+    gustMs: dp ? dp.gustMs : derived ? derived.gustMs : activeCandidate ? 0 : (pt.summaryForWindow?.worstGustMs ?? 0),
+    precipMmPerHour: dp ? dp.precipMmPerHour : derived ? derived.precipMmPerHour : activeCandidate ? 0 : (pt.summaryForWindow?.worstPrecipMmPerHour ?? 0),
+    decisiveTempC: dp ? dp.airTemperatureC : derived ? derived.airTemperatureC : activeCandidate ? undefined : pt.summaryForWindow?.decisiveTempC,
+    status: dp ? undefined : derived ? undefined : activeCandidate ? undefined : pt.summaryForWindow?.status,
+    decisiveMetric: dp ? dp.metric : derived ? undefined : activeCandidate ? undefined : pt.summaryForWindow?.decisiveMetric,
     decisiveTimeFormatted: dp
       ? formatKlTime(dp.forecastTimeIso)
-      : (showSummaryMetrics && pt.summaryForWindow?.decisiveTimeIso ? formatKlTime(pt.summaryForWindow.decisiveTimeIso) : undefined),
+      : derived ? formatKlTime(derived.forecastTimeIso)
+      : activeCandidate ? undefined
+      : (pt.summaryForWindow?.decisiveTimeIso ? formatKlTime(pt.summaryForWindow.decisiveTimeIso) : undefined),
     yrnoUrl: pt.yrnoUrl,
     googleMapsUrl: pt.googleMapsUrl,
     metnoUrl: pt.metnoUrl,
@@ -361,7 +402,70 @@ export function buildPointSummary(
     forecastDistanceFromRouteM: Math.round(haversineMeters(getRoutePointLatLng(pt), getForecastPointLatLng(pt))),
     departureIso: activeCandidate?.departureIso,
     etaIso,
-    forecastTimeIso: dp ? dp.forecastTimeIso : (activeCandidate ? undefined : pt.summaryForWindow?.forecastTimeIso),
+    forecastTimeIso: dp ? dp.forecastTimeIso : derived ? derived.forecastTimeIso : activeCandidate ? undefined : pt.summaryForWindow?.forecastTimeIso,
     nextForecast: activeCandidate ? undefined : pt.summaryForWindow?.nextForecast,
   }
+}
+
+export type ThresholdContext = {
+  metricLabelKey: 'metricWind' | 'metricPrecip'
+  value: number
+  unit: string
+  thresholdValue: number
+  thresholdUnit: string
+  excess: number
+}
+
+/**
+ * Derives threshold context for the detail panel.
+ * For highlighted/worst points, prefers server-computed issue values.
+ * For all other points, computes from displayed windMs vs thresholdsUsed.
+ * Returns null when the displayed value is within all thresholds.
+ */
+export function buildThresholdContext(
+  summary: Pick<PointSummary, 'isHighlighted' | 'windMs'>,
+  thresholdsUsed: ResolvedTravelThresholds | undefined,
+  highlightedIssue?: TravelIssue,
+): ThresholdContext | null {
+  // Worst/highlighted point: prefer server-computed issue values when available
+  if (
+    summary.isHighlighted &&
+    highlightedIssue?.value !== undefined &&
+    highlightedIssue.metric !== 'data' &&
+    highlightedIssue.thresholdValue !== undefined &&
+    highlightedIssue.value > highlightedIssue.thresholdValue
+  ) {
+    return {
+      metricLabelKey: highlightedIssue.metric === 'precipitation' ? 'metricPrecip' : 'metricWind',
+      value: highlightedIssue.value,
+      unit: highlightedIssue.unit ?? 'm/s',
+      thresholdValue: highlightedIssue.thresholdValue,
+      thresholdUnit: highlightedIssue.thresholdUnit ?? 'm/s',
+      excess: highlightedIssue.value - highlightedIssue.thresholdValue,
+    }
+  }
+  // All points: compute from displayed wind vs thresholdsUsed
+  if (thresholdsUsed && summary.windMs > 0) {
+    if (summary.windMs >= thresholdsUsed.redWindMs) {
+      return {
+        metricLabelKey: 'metricWind',
+        value: summary.windMs,
+        unit: 'm/s',
+        thresholdValue: thresholdsUsed.redWindMs,
+        thresholdUnit: 'm/s',
+        excess: summary.windMs - thresholdsUsed.redWindMs,
+      }
+    }
+    if (summary.windMs >= thresholdsUsed.cautionWindMs) {
+      return {
+        metricLabelKey: 'metricWind',
+        value: summary.windMs,
+        unit: 'm/s',
+        thresholdValue: thresholdsUsed.cautionWindMs,
+        thresholdUnit: 'm/s',
+        excess: summary.windMs - thresholdsUsed.cautionWindMs,
+      }
+    }
+  }
+  return null
 }

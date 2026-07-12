@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useTranslations, useLocale } from 'next-intl'
+import { useTranslations } from 'next-intl'
 import type { RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelCandidate, ResolvedTravelThresholds, WeatherStatus } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
 import {
@@ -23,11 +23,10 @@ import {
   buildPointSummary,
   markerStyleForStatus,
   formatKlTime,
-  formatNum,
   estimatePointEtaIso,
-  getOriginDisplay,
   type PointSummary,
 } from './travelAuditMap.helpers'
+import { RouteWeatherPointDetailCard } from './RouteWeatherPointDetailCard'
 
 /** Returns the wind speed (m/s) from the forecast row nearest to etaIso, or undefined if unavailable. */
 function getPointWindMsForCandidate(
@@ -92,14 +91,6 @@ function makeRouteSymbolIcon(color: string, scale: number, selected: boolean): g
   }
 }
 
-/** Creates a compact time label chip as an SVG data-URI for use as a classic Marker icon. */
-function makeTimeLabelSvg(time: string): string {
-  const w = 48
-  const h = 18
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect rx="3" width="${w}" height="${h}" fill="#1e293b" fill-opacity="0.88"/><text x="${w / 2}" y="13" text-anchor="middle" fill="white" font-family="system-ui,sans-serif" font-size="9" font-weight="bold">${time}</text></svg>`
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
-}
-
 /** Creates a smaller outlined circle for the met.no forecast grid point. */
 function makeForecastSymbolIcon(selected: boolean): google.maps.Symbol {
   return {
@@ -139,8 +130,6 @@ export function TravelAuditMap({
   // Connector polylines between route and forecast points when they are far apart
   const connectorsRef = useRef<google.maps.Polyline[]>([])
   const polylineRef = useRef<google.maps.Polyline | null>(null)
-  // Time chip markers for selected and warning points
-  const chipMarkersRef = useRef<google.maps.Marker[]>([])
   // Library and map refs for use in subsequent effects
   const mapRef = useRef<google.maps.Map | null>(null)
   const markerLibRef = useRef<google.maps.MarkerLibrary | null>(null)
@@ -292,8 +281,6 @@ export function TravelAuditMap({
       forecastMarkersRef.current = []
       connectorsRef.current.forEach((c) => c?.setMap(null))
       connectorsRef.current = []
-      chipMarkersRef.current.forEach((m) => m.setMap(null))
-      chipMarkersRef.current = []
       if (polylineRef.current) {
         polylineRef.current.setMap(null)
         polylineRef.current = null
@@ -323,15 +310,9 @@ export function TravelAuditMap({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionResetSignal])
 
-  // Update marker icons, opacity (filter de-emphasis), and time chips when state changes
+  // Update marker icons, opacity (filter de-emphasis) when state changes
   useEffect(() => {
     if (!mapLoaded || markersRef.current.length === 0) return
-
-    // Clear existing chip markers
-    chipMarkersRef.current.forEach(m => m.setMap(null))
-    chipMarkersRef.current = []
-
-    const newChips: google.maps.Marker[] = []
 
     markersRef.current.forEach((marker, idx) => {
       const pt = weatherPoints[idx]
@@ -390,39 +371,7 @@ export function TravelAuditMap({
         forecastMarker.setVisible(markerVisible)
       }
 
-      // Time chip: show for selected point or visible warning points
-      if (!mapRef.current || !markerLibRef.current || !coreLibRef.current) return
-      const isWarning = markerStatus === 'gult' || markerStatus === 'rautt'
-      if (!isSelected && (!isWarning || !markerVisible)) return
-
-      // Compute ETA time for chip label — always use activeCandidate ETA when a slot is selected
-      const timeIso = activeCandidate
-        ? estimatePointEtaIso(activeCandidate, pt, activeLeg ?? 'outbound')
-        : pt.summaryForWindow?.etaIso
-      if (!timeIso) return
-
-      const chip = new markerLibRef.current.Marker({
-        position: getRoutePointLatLng(pt),
-        map: mapRef.current,
-        icon: {
-          url: makeTimeLabelSvg(formatKlTime(timeIso)),
-          scaledSize: new coreLibRef.current.Size(48, 18),
-          // Anchor below the chip so it floats above the dot marker
-          anchor: new coreLibRef.current.Point(24, 28),
-        },
-        zIndex: 25,
-        clickable: true,
-        title: formatKlTime(timeIso),
-      })
-      chip.addListener('click', () => {
-        userSelectedRef.current = true
-        setIsManualSelection(true)
-        setSelectedIndex(prev => prev === idx ? null : idx)
-      })
-      newChips.push(chip)
     })
-
-    chipMarkersRef.current = newChips
   }, [selectedIndex, mapLoaded, weatherPoints, selectedCandidatePointStatuses, activeCandidate, activeLeg, visibleStatuses])
 
   const selectedPoint = selectedIndex !== null ? weatherPoints[selectedIndex] : undefined
@@ -587,6 +536,7 @@ export function TravelAuditMap({
         <PointDetailsPanel
           summary={selectedSummary}
           highlightedIssue={highlightedIssue}
+          thresholdsUsed={thresholdsUsed}
           originName={originName}
           destinationName={destinationName}
           isManualSelection={isManualSelection}
@@ -604,6 +554,7 @@ export function TravelAuditMap({
 function PointDetailsPanel({
   summary,
   highlightedIssue,
+  thresholdsUsed,
   originName,
   destinationName,
   isManualSelection,
@@ -611,40 +562,24 @@ function PointDetailsPanel({
 }: {
   summary: PointSummary
   highlightedIssue?: TravelIssue
+  thresholdsUsed?: ResolvedTravelThresholds
   originName: string
   destinationName: string
   isManualSelection: boolean
   onOpenForecast?: () => void
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
-  const locale = useLocale()
 
-  // Lazy place label for forecast point.
-  // Origin/destination use known names directly; other points use Nominatim.
+  // Lazy place label — origin/destination use known names; other points use Nominatim.
   const [placeLabel, setPlaceLabel] = useState<string | null>(null)
-  const [placeLoading, setPlaceLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-
-    if (summary.isOrigin) {
-      setPlaceLabel(originName)
-      setPlaceLoading(false)
-      return
-    }
-    if (summary.isDestination) {
-      setPlaceLabel(destinationName)
-      setPlaceLoading(false)
-      return
-    }
-
-    // Lazy geocode for all non-origin/destination points via BFF
+    if (summary.isOrigin) { setPlaceLabel(originName); return }
+    if (summary.isDestination) { setPlaceLabel(destinationName); return }
     setPlaceLabel(null)
-    setPlaceLoading(true)
     resolvePlaceLabel(summary.forecastLat, summary.forecastLon)
       .then(name => { if (!cancelled) setPlaceLabel(name) })
-      .finally(() => { if (!cancelled) setPlaceLoading(false) })
-
     return () => { cancelled = true }
   }, [
     summary.routeIndex,
@@ -656,42 +591,12 @@ function PointDetailsPanel({
     destinationName,
   ])
 
-  const distanceKm =
-    summary.isHighlighted && highlightedIssue?.distanceFromLegStartM !== undefined
-      ? Math.round(highlightedIssue.distanceFromLegStartM / 1000)
-      : summary.distanceFromOriginKm
-
-  const legStartName =
-    summary.isHighlighted && highlightedIssue?.legStartName
-      ? highlightedIssue.legStartName
-      : originName
-  const originDisplay = getOriginDisplay(legStartName, locale, tf('slotDetailOriginFallback'))
-
-  // When a heatmap slot is selected (isHighlighted), use the issue's time and metric values
-  // so the panel matches the slot detail exactly. summaryForWindow reflects the default
-  // departure window, which may differ from the selected slot's window.
-  const hasIssueValues =
-    summary.isHighlighted &&
-    highlightedIssue?.value !== undefined &&
-    highlightedIssue.metric !== 'data'
-  const issueTime =
-    summary.isHighlighted && highlightedIssue?.timeIso
-      ? formatKlTime(highlightedIssue.timeIso)
-      : null
-  const decisiveTime = issueTime ?? summary.decisiveTimeFormatted
-  const issueMetricLabel =
-    highlightedIssue?.metric === 'precipitation' ? tf('metricPrecip')
-    : highlightedIssue?.metric === 'gust' ? tf('metricGust')
-    : tf('metricWind')
-
-  // Semantic title for the panel
   const panelTitle = isManualSelection
     ? tf('manualSelectedPointTitle')
     : tf('worstPointTitle')
 
   return (
     <div className="rounded-xl border border-border bg-card px-3 py-3 flex flex-col gap-2 text-xs text-muted-foreground">
-      {/* 1. Semantic title */}
       <div className="flex items-center gap-2 flex-wrap">
         {!isManualSelection ? (
           <span className="bg-destructive/10 text-destructive px-1.5 py-0.5 rounded font-medium">
@@ -701,113 +606,14 @@ function PointDetailsPanel({
           <span className="font-medium text-foreground">{panelTitle}</span>
         )}
       </div>
-
-      {/* 2. Punktur x/y */}
-      <span className="font-medium text-foreground">
-        {tf('pointLabel')} {summary.routeIndex + 1}/{summary.totalPoints}
-      </span>
-
-      {/* 3. Brottfarartími (departure from active candidate) */}
-      {summary.departureIso && (
-        <span>{tf('pointDepartureLabel')}: {tf('pointTimeLine', { time: formatKlTime(summary.departureIso) })}</span>
-      )}
-
-      {/* 4. ETA with distance context */}
-      {summary.etaIso && (
-        <span>
-          {tf('pointEtaLabel')}
-          {distanceKm > 0 && ` ${distanceKm} ${tf('kmFrom')} ${originDisplay}`}
-          {': '}
-          {tf('pointTimeLine', { time: formatKlTime(summary.etaIso) })}
-        </span>
-      )}
-
-      {/* 5. Forecast point distance from road */}
-      <span>
-        {summary.forecastDistanceFromRouteM < 1000
-          ? tf('forecastPointDistanceMeters', { meters: summary.forecastDistanceFromRouteM })
-          : tf('forecastPointDistanceKilometers', { kilometers: formatNum(summary.forecastDistanceFromRouteM / 1000, locale) })}
-      </span>
-
-      {/* 6. Forecast time at this point */}
-      {decisiveTime && (
-        <span>{tf('pointForecastHereAt', { time: decisiveTime })}</span>
-      )}
-
-      {/* 7. Weather values — use issue values when a heatmap slot is highlighted */}
-      {hasIssueValues ? (
-        <p>
-          {issueMetricLabel}: {formatNum(highlightedIssue!.value!, locale)} {highlightedIssue!.unit ?? ''}
-          {highlightedIssue!.thresholdValue !== undefined && highlightedIssue!.value! > highlightedIssue!.thresholdValue && (
-            <> {tf('aboveThresholdWithExcess', { excess: formatNum(highlightedIssue!.value! - highlightedIssue!.thresholdValue, locale), threshold: formatNum(highlightedIssue!.thresholdValue, locale), unit: highlightedIssue!.thresholdUnit ?? '' })}</>
-          )}
-        </p>
-      ) : (
-        (summary.windMs > 0 || summary.precipMmPerHour > 0 || summary.decisiveTempC !== undefined) && (
-          <p>
-            {tf('metricWind')}: {formatNum(summary.windMs, locale)} m/s
-            {' · '}{tf('metricPrecip')}: {formatNum(summary.precipMmPerHour, locale)} mm/klst
-            {summary.decisiveTempC !== undefined && (
-              <>{' · '}{tf('metricTemp')}: {formatNum(summary.decisiveTempC, locale)}°C</>
-            )}
-          </p>
-        )
-      )}
-      {summary.forecastTimeIso && summary.forecastTimeIso !== summary.etaIso && (
-        <span>{tf('pointForecastTimeLabel')}: {formatKlTime(summary.forecastTimeIso)}</span>
-      )}
-
-      {/* 9. Forecast point coordinate and place context */}
-      <div className="flex flex-col gap-0.5">
-        {placeLabel && !summary.isOrigin && !summary.isDestination && (
-          <span>{tf('forecastPointNear', { place: placeLabel })}</span>
-        )}
-        {summary.hasSeparateForecastPoint && (
-          <span className="text-muted-foreground/60">
-            {tf('forecastPointCoord', { lat: summary.forecastLat.toFixed(4), lon: summary.forecastLon.toFixed(4) })}
-          </span>
-        )}
-        {placeLabel && !summary.isOrigin && !summary.isDestination && (
-          <span className="text-muted-foreground/40 text-[10px]">© OpenStreetMap contributors</span>
-        )}
-      </div>
-
-      {/* 8. Links */}
-      <div className="flex flex-wrap gap-3">
-        {onOpenForecast && (
-          <button
-            type="button"
-            onClick={onOpenForecast}
-            className="underline hover:text-foreground transition-colors text-left"
-          >
-            {tf('spaSpoon')}
-          </button>
-        )}
-        <a
-          href={summary.yrnoUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline hover:text-foreground transition-colors"
-        >
-          {tf('viewForecast')}
-        </a>
-        <a
-          href={summary.googleMapsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline hover:text-foreground transition-colors"
-        >
-          {tf('openOnMap')}
-        </a>
-        <a
-          href={summary.metnoUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline hover:text-foreground transition-colors text-muted-foreground/60"
-        >
-          {tf('viewMetnoRaw')}
-        </a>
-      </div>
+      <RouteWeatherPointDetailCard
+        summary={summary}
+        thresholdsUsed={thresholdsUsed}
+        highlightedIssue={highlightedIssue}
+        originName={originName}
+        placeLabel={placeLabel}
+        onOpenForecast={onOpenForecast}
+      />
     </div>
   )
 }

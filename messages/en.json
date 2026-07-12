@@ -814,6 +814,7 @@
         "thresholdCautionPrecip": "Unpleasant if precipitation exceeds",
         "thresholdReset": "Use default thresholds",
         "thresholdSubmit": "Calculate trip",
+        "thresholdNotReadyLabel": "Choose your thresholds",
         "assumptionThresholds": "Weather thresholds",
         "thresholdsDefault": "Default thresholds",
         "thresholdsCustom": "wind {caution}/{red} m/s, gusts {gust} m/s, precip {precip} mm/h",
