@@ -857,7 +857,9 @@
         "ferryResultNote": "Weather assessment is for the drive to {portName}. Herjólfur sailing conditions are not assessed.",
         "guestHint": "Signed-in users can save known places and calculate unlimited trips.",
         "guestSignIn": "Sign in",
-        "errorGuestRateLimited": "You have calculated 5 trips today as a guest. Sign in to calculate more trips."
+        "errorGuestRateLimited": "You have calculated 5 trips today as a guest. Sign in to calculate more trips.",
+        "vedurStofanLabel": "Veðurstofa Íslands",
+        "vedurStofanStale": "cached data"
       }
     }
   }

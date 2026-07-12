@@ -861,7 +861,9 @@
         "ferryResultNote": "Ferðaveðrið er reiknað fyrir akstur að {portName}. Það metur ekki siglingu Herjólfs.",
         "guestHint": "Þekktir staðir vistast fyrir innskráða notendur og þeir geta reiknað ótakmarkaðan fjölda af ferðum",
         "guestSignIn": "Innskrá",
-        "errorGuestRateLimited": "Þú hefur reiknað 5 ferðir í dag sem gestur. Skráðu þig inn til að reikna fleiri ferðir."
+        "errorGuestRateLimited": "Þú hefur reiknað 5 ferðir í dag sem gestur. Skráðu þig inn til að reikna fleiri ferðir.",
+        "vedurStofanLabel": "Veðurstofa Íslands",
+        "vedurStofanStale": "gömul gögn"
       }
     }
   }

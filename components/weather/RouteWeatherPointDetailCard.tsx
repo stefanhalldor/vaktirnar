@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
-import type { TravelIssue, ResolvedTravelThresholds } from '@/lib/weather/types'
+import type { TravelIssue, ResolvedTravelThresholds, RouteWeatherPoint } from '@/lib/weather/types'
 import {
   formatKlTime,
   formatNum,
@@ -34,6 +34,7 @@ export function RouteWeatherPointDetailCard({
   placeLabel,
   headerExtra,
   onOpenForecast,
+  vedurstofanStation,
 }: {
   summary: PointSummary
   thresholdsUsed?: ResolvedTravelThresholds
@@ -43,6 +44,7 @@ export function RouteWeatherPointDetailCard({
   /** Optional content rendered on the same line as Punktur x/y (e.g. status badge). */
   headerExtra?: ReactNode
   onOpenForecast?: () => void
+  vedurstofanStation?: RouteWeatherPoint['vedurstofanStation']
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
@@ -148,6 +150,28 @@ export function RouteWeatherPointDetailCard({
           {!summary.isOrigin && !summary.isDestination && (
             <span className="text-muted-foreground/40 text-[10px]">© OpenStreetMap contributors</span>
           )}
+        </div>
+      )}
+
+      {/* Veðurstofan Íslands station comparison */}
+      {vedurstofanStation?.nearestForecast && (
+        <div className="border-t border-border/30 pt-1 mt-0.5 flex flex-col gap-0.5">
+          <span className="text-muted-foreground/50 text-[10px]">
+            {tf('vedurStofanLabel')} · {vedurstofanStation.stationName}
+            {vedurstofanStation.distanceM < 1000
+              ? ` (${vedurstofanStation.distanceM} m)`
+              : ` (${formatNum(vedurstofanStation.distanceM / 1000, locale)} km)`}
+            {vedurstofanStation.status === 'stale' && ` · ${tf('vedurStofanStale')}`}
+          </span>
+          <span>
+            {tf('metricWind')}: {vedurstofanStation.nearestForecast.windSpeedMs !== null
+              ? `${formatNum(vedurstofanStation.nearestForecast.windSpeedMs, locale)} m/s`
+              : '—'}
+            {vedurstofanStation.nearestForecast.windDirectionText && ` ${vedurstofanStation.nearestForecast.windDirectionText}`}
+            {vedurstofanStation.nearestForecast.temperatureC !== null && (
+              <>{' · '}{tf('metricTemp')}: {formatNum(vedurstofanStation.nearestForecast.temperatureC, locale)}°C</>
+            )}
+          </span>
         </div>
       )}
 

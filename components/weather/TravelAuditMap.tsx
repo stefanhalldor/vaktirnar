@@ -540,6 +540,7 @@ export function TravelAuditMap({
           originName={originName}
           destinationName={destinationName}
           isManualSelection={isManualSelection}
+          vedurstofanStation={selectedPoint?.vedurstofanStation}
           onOpenForecast={
             onOpenForecastDrawer && selectedPoint?.forecastRows?.length
               ? () => onOpenForecastDrawer(selectedPoint!.routeIndex)
@@ -558,6 +559,7 @@ function PointDetailsPanel({
   originName,
   destinationName,
   isManualSelection,
+  vedurstofanStation,
   onOpenForecast,
 }: {
   summary: PointSummary
@@ -566,6 +568,7 @@ function PointDetailsPanel({
   originName: string
   destinationName: string
   isManualSelection: boolean
+  vedurstofanStation?: RouteWeatherPoint['vedurstofanStation']
   onOpenForecast?: () => void
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
@@ -612,6 +615,7 @@ function PointDetailsPanel({
         highlightedIssue={highlightedIssue}
         originName={originName}
         placeLabel={placeLabel}
+        vedurstofanStation={vedurstofanStation}
         onOpenForecast={onOpenForecast}
       />
     </div>

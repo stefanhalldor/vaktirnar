@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { fetchForecast } from '@/lib/weather/metno.server'
+import { fetchVedurstofanForecastsForStations } from '@/lib/weather/providers/vedurstofan.server'
+import { mapRoutePointToVedurstofanStation, getUniqueStationIdsForRoute } from '@/lib/weather/providers/vedurstofanStations'
 import { checkTravelWeather } from '@/lib/weather/travel'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
@@ -238,11 +240,19 @@ export async function POST(request: Request) {
   }
   const { weatherPoints, diagnostics: samplingDiagnostics } = sampleRouteWeatherPoints(allPts, cumDist)
 
+  // Start Veðurstofan station fetch in parallel with MET/Yr — fail-open; null on any error
+  const vedurstofanStationIds = getUniqueStationIdsForRoute(weatherPoints)
+  const vedurstofanFetchPromise = vedurstofanStationIds.length > 0
+    ? fetchVedurstofanForecastsForStations(vedurstofanStationIds).catch(() => null)
+    : null
+
   // Fetch route point forecasts and destination forecast in parallel — ignore individual failures
   const [routeForecastResults, destForecastRaw] = await Promise.all([
     Promise.allSettled(weatherPoints.map((pt) => fetchForecast(pt.lat, pt.lon))),
     fetchForecast(destCandidate.lat, destCandidate.lon).catch(() => null),
   ])
+  // Await Veðurstofan result (started earlier, runs in parallel with MET/Yr above)
+  const vedurstofanResults = vedurstofanFetchPromise ? await vedurstofanFetchPromise : null
   const pointForecasts: TravelPointForecast[] = routeForecastResults
     .map((r, i) => r.status === 'fulfilled' ? { hours: r.value as HourPoint[], ...weatherPoints[i] } : null)
     .filter((x): x is TravelPointForecast => x !== null)
@@ -274,6 +284,36 @@ export async function POST(request: Request) {
     samplingDiagnostics,
     thresholdOverrides,
   })
+
+  // Enrich route weather points with Veðurstofan station data (fail-open)
+  if (vedurstofanResults && result.travelPlan?.routeWeatherPoints?.length) {
+    for (const point of result.travelPlan.routeWeatherPoints) {
+      const mapping = mapRoutePointToVedurstofanStation({ lat: point.lat, lon: point.lon })
+      if (!mapping || mapping.confidence === 'unavailable') continue
+      const stationResult = vedurstofanResults.get(mapping.station.stationId)
+      if (!stationResult || stationResult.status === 'unavailable') continue
+      const { payload } = stationResult
+      const etaIso = point.summaryForWindow?.etaIso
+      let nearestForecast: NonNullable<typeof point.vedurstofanStation>['nearestForecast']
+      if (etaIso && payload.forecasts.length > 0) {
+        const etaMs = new Date(etaIso).getTime()
+        const nearest = payload.forecasts.reduce((best, row) =>
+          Math.abs(new Date(row.ftimeIso).getTime() - etaMs) <
+          Math.abs(new Date(best.ftimeIso).getTime() - etaMs) ? row : best,
+        )
+        nearestForecast = nearest
+      }
+      point.vedurstofanStation = {
+        stationId: mapping.station.stationId,
+        stationName: mapping.station.stationName,
+        distanceM: mapping.distanceFromRoutePointM,
+        confidence: mapping.confidence,
+        status: stationResult.status,
+        atimeIso: payload.atimeIso,
+        nearestForecast,
+      }
+    }
+  }
 
   await recordTeskeidUsageEvent({
     userId,

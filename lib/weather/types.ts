@@ -67,6 +67,27 @@ export type RouteWeatherPoint = {
   yrnoUrl: string
   /** Full hourly forecast rows for the Spá drawer, pre-processed with threshold-aware gust severity. */
   forecastRows?: ForecastDrawerRow[]
+  /** Nearest Veðurstofan Íslands station data for this route point. Undefined when not enriched or unavailable. */
+  vedurstofanStation?: {
+    stationId: string
+    stationName: string
+    /** Haversine distance in metres from the route point to the station. */
+    distanceM: number
+    confidence: 'good' | 'ok' | 'weak' | 'unavailable'
+    /** ok = fresh fetch; stale = expired cache returned because fetch failed. */
+    status: 'ok' | 'stale'
+    /** When the forecast was generated (atime from XML), ISO UTC. Null if absent. */
+    atimeIso: string | null
+    /** The 3h forecast row nearest to the ETA at this route point. */
+    nearestForecast?: {
+      ftimeIso: string
+      windSpeedMs: number | null
+      windDirectionText: string | null
+      temperatureC: number | null
+      precipitationMmPerHour: number | null
+      weatherText: string | null
+    }
+  }
   summaryForWindow?: {
     status: WeatherStatus
     worstWindMs: number
