@@ -12,8 +12,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
 const { mockGetRouteOptions } = vi.hoisted(() => ({ mockGetRouteOptions: vi.fn() }))
+const { mockGetRouteGeometry } = vi.hoisted(() => ({ mockGetRouteGeometry: vi.fn() }))
 const { mockFetchForecast } = vi.hoisted(() => ({ mockFetchForecast: vi.fn() }))
 const { mockSampleRouteWeatherPoints } = vi.hoisted(() => ({ mockSampleRouteWeatherPoints: vi.fn() }))
+const { mockFetchVedurstofan } = vi.hoisted(() => ({ mockFetchVedurstofan: vi.fn() }))
+const { mockGetUniqueStationIds, mockMapRoutePoint } = vi.hoisted(() => ({
+  mockGetUniqueStationIds: vi.fn(),
+  mockMapRoutePoint: vi.fn(),
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -28,6 +34,7 @@ vi.mock('@/lib/loans/guard', () => ({
 vi.mock('@/lib/weather/provider.server', () => ({
   getWeatherMapProvider: vi.fn(() => ({
     getRouteOptions: mockGetRouteOptions,
+    getRouteGeometry: mockGetRouteGeometry,
   })),
 }))
 
@@ -37,6 +44,16 @@ vi.mock('@/lib/weather/metno.server', () => ({
 
 vi.mock('@/lib/weather/routeSampling', () => ({
   sampleRouteWeatherPoints: mockSampleRouteWeatherPoints,
+}))
+
+vi.mock('@/lib/weather/providers/vedurstofan.server', () => ({
+  fetchVedurstofanForecastsForStations: mockFetchVedurstofan,
+}))
+
+vi.mock('@/lib/weather/providers/vedurstofanStations', () => ({
+  getUniqueStationIdsForRoute: mockGetUniqueStationIds,
+  mapRoutePointToVedurstofanStation: mockMapRoutePoint,
+  VEDURSTOFAN_STATIONS: [],
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route'
@@ -109,6 +126,18 @@ beforeEach(() => {
     makeHour('2026-07-10T09:00:00Z'),
     makeHour('2026-07-10T10:00:00Z'),
   ])
+
+  // Default route geometry for non-selectedRouteId tests
+  mockGetRouteGeometry.mockResolvedValue({
+    points: [{ lat: 64.09, lon: -21.93 }, { lat: 63.849, lon: -21.365 }],
+    distanceM: 56000,
+    durationS: 3420,
+  })
+
+  // Default: no Veðurstofan stations — enrichment is skipped
+  mockGetUniqueStationIds.mockReturnValue([])
+  mockFetchVedurstofan.mockResolvedValue(new Map())
+  mockMapRoutePoint.mockReturnValue(null)
 })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -184,5 +213,134 @@ describe('POST /api/teskeid/weather/travel/route — curated route final-submit'
     // sampleRouteWeatherPoints should have been called with the curated route's points
     const samplingCall = mockSampleRouteWeatherPoints.mock.calls[0]
     expect(samplingCall[0]).toEqual(curatedPoints)
+  })
+})
+
+// ── Veðurstofan enrichment ─────────────────────────────────────────────────────
+
+const HELLISH_ID = '31392'
+
+function makeVedurstofanPayload() {
+  return {
+    source: 'vedurstofan' as const,
+    endpoint: 'xml' as const,
+    type: 'forec' as const,
+    lang: 'is' as const,
+    timeStep: '3h' as const,
+    params: ['F', 'D', 'T', 'R', 'W'] as ['F', 'D', 'T', 'R', 'W'],
+    stationId: HELLISH_ID,
+    stationName: 'Hellisheiði',
+    atimeIso: '2026-07-10T06:00:00Z',
+    fetchedAtIso: new Date().toISOString(),
+    expiresAtIso: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+    attribution: { provider: 'Veðurstofa Íslands' as const, downloadedAtIso: '', serviceUrl: '' },
+    forecasts: [
+      { ftimeIso: '2026-07-10T09:00:00Z', windSpeedMs: 12, windDirectionText: 'N', temperatureC: 5, precipitationMmPerHour: 0.5, weatherText: 'Skýjað' },
+      { ftimeIso: '2026-07-10T12:00:00Z', windSpeedMs: 8, windDirectionText: 'NV', temperatureC: 6, precipitationMmPerHour: 0, weatherText: 'Hlýtt' },
+    ],
+    parseErrors: [],
+  }
+}
+
+function setupEnrichment() {
+  mockGetUniqueStationIds.mockReturnValue([HELLISH_ID])
+  mockMapRoutePoint.mockReturnValue({
+    station: { stationId: HELLISH_ID, stationName: 'Hellisheiði' },
+    distanceFromRoutePointM: 2000,
+    confidence: 'good',
+  })
+}
+
+describe('POST /api/teskeid/weather/travel/route — Veðurstofan enrichment', () => {
+  it('populates forecastRows on route points when station data is available', async () => {
+    authedUser()
+    setupEnrichment()
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
+    )
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const points = body.travelPlan?.routeWeatherPoints
+    expect(points).toBeDefined()
+    const station = points[0]?.vedurstofanStation
+    expect(station).toBeDefined()
+    expect(station.stationId).toBe(HELLISH_ID)
+    expect(station.forecastRows).toHaveLength(2)
+    expect(station.forecastRows[0].windSpeedMs).toBe(12)
+    expect(station.forecastRows[1].windSpeedMs).toBe(8)
+  })
+
+  it('populates stale forecastRows when station result has status stale', async () => {
+    authedUser()
+    setupEnrichment()
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'stale', payload: makeVedurstofanPayload() }]]),
+    )
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    const body = await res.json()
+    const station = body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation
+    expect(station?.status).toBe('stale')
+    expect(station?.forecastRows).toHaveLength(2)
+  })
+
+  it('returns MET/Yr result without vedurstofanStation when Veðurstofan rejects', async () => {
+    authedUser()
+    setupEnrichment()
+    mockFetchVedurstofan.mockRejectedValue(new Error('network failure'))
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.travelPlan).toBeDefined()
+    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
+  })
+
+  it('omits vedurstofanStation when station result is unavailable', async () => {
+    authedUser()
+    setupEnrichment()
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'unavailable' }]]),
+    )
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    const body = await res.json()
+    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
+  })
+
+  it('omits vedurstofanStation entirely when payload has no forecast rows', async () => {
+    authedUser()
+    setupEnrichment()
+    const emptyPayload = { ...makeVedurstofanPayload(), forecasts: [] }
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'ok', payload: emptyPayload }]]),
+    )
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    const body = await res.json()
+    // Station must be omitted entirely — not a partial object with no rows
+    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
+  })
+
+  it('returns MET/Yr result when global budget elapses before provider resolves', async () => {
+    authedUser()
+    setupEnrichment()
+    // Provider never settles — simulates all batches timing out beyond global budget
+    mockFetchVedurstofan.mockReturnValue(new Promise(() => {}))
+
+    vi.useFakeTimers()
+    const requestPromise = POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    // Advance past the 2000ms global budget
+    await vi.advanceTimersByTimeAsync(2500)
+    const res = await requestPromise
+    vi.useRealTimers()
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.travelPlan).toBeDefined()
+    // Veðurstofan enrichment dropped — budget elapsed
+    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
   })
 })

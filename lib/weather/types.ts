@@ -78,15 +78,15 @@ export type RouteWeatherPoint = {
     status: 'ok' | 'stale'
     /** When the forecast was generated (atime from XML), ISO UTC. Null if absent. */
     atimeIso: string | null
-    /** The 3h forecast row nearest to the ETA at this route point. */
-    nearestForecast?: {
+    /** All available 3h forecast rows from this station. UI selects nearest to active ETA. */
+    forecastRows?: Array<{
       ftimeIso: string
       windSpeedMs: number | null
       windDirectionText: string | null
       temperatureC: number | null
       precipitationMmPerHour: number | null
       weatherText: string | null
-    }
+    }>
   }
   summaryForWindow?: {
     status: WeatherStatus

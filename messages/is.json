@@ -863,6 +863,8 @@
         "guestSignIn": "Innskrá",
         "errorGuestRateLimited": "Þú hefur reiknað 5 ferðir í dag sem gestur. Skráðu þig inn til að reikna fleiri ferðir.",
         "vedurStofanLabel": "Veðurstofa Íslands",
+        "vedurStofanSubtitle": "eingöngu til viðmiðunar að svo stöddu",
+        "vedurStofanNearestPoint": "Nálægasti punktur er {distance} frá veginum",
         "vedurStofanStale": "gömul gögn"
       }
     }

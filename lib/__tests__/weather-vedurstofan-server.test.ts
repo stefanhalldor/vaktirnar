@@ -403,4 +403,46 @@ describe('fetchVedurstofanForecastsForStations', () => {
     expect(url).toContain('xmlweather.vedur.is')
     expect(url).toContain('type=forec')
   })
+
+  it('passes an AbortSignal to fetch when timeoutMs is provided', async () => {
+    mockMaybeSingle.mockResolvedValue({ data: null })
+    mockFetch.mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(SINGLE_STATION_XML),
+    })
+
+    await fetchVedurstofanForecastsForStations([HELLISH_ID], { timeoutMs: 5000 })
+
+    expect(mockFetch).toHaveBeenCalledOnce()
+    const fetchOpts = mockFetch.mock.calls[0][1] as RequestInit & { signal?: AbortSignal }
+    expect(fetchOpts.signal).toBeDefined()
+    expect(fetchOpts.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('returns stale cache when fetch is aborted (simulating timeout)', async () => {
+    const stalePayload = makeCachedPayload(HELLISH_ID)
+    // Expired cache row exists
+    mockMaybeSingle.mockResolvedValue({
+      data: { response_body: stalePayload, expires_at: new Date(Date.now() - 1000).toISOString() },
+    })
+    // Fetch rejects with AbortError (what happens when AbortController fires)
+    const abortError = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    mockFetch.mockRejectedValue(abortError)
+
+    const result = await fetchVedurstofanForecastsForStations([HELLISH_ID], { timeoutMs: 100 })
+
+    // On abort/timeout, stale cache is used as fallback
+    expect(result.get(HELLISH_ID)).toMatchObject({ status: 'stale', payload: stalePayload })
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+
+  it('returns unavailable when aborted and no stale cache exists', async () => {
+    mockMaybeSingle.mockResolvedValue({ data: null })
+    const abortError = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    mockFetch.mockRejectedValue(abortError)
+
+    const result = await fetchVedurstofanForecastsForStations([HELLISH_ID], { timeoutMs: 100 })
+
+    expect(result.get(HELLISH_ID)).toEqual({ status: 'unavailable' })
+  })
 })

@@ -859,6 +859,8 @@
         "guestSignIn": "Sign in",
         "errorGuestRateLimited": "You have calculated 5 trips today as a guest. Sign in to calculate more trips.",
         "vedurStofanLabel": "Veðurstofa Íslands",
+        "vedurStofanSubtitle": "for reference only at this stage",
+        "vedurStofanNearestPoint": "Nearest point is {distance} from the road",
         "vedurStofanStale": "cached data"
       }
     }

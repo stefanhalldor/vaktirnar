@@ -137,10 +137,10 @@ async function saveToCache(
 
 // ── HTTP fetch ────────────────────────────────────────────────────────────────
 
-async function fetchBatch(stationIds: string[]): Promise<string | null> {
+async function fetchBatch(stationIds: string[], signal?: AbortSignal): Promise<string | null> {
   const url = `${SERVICE_URL}&ids=${stationIds.join(';')}`
   try {
-    const res = await fetch(url, { cache: 'no-store' })
+    const res = await fetch(url, { cache: 'no-store', signal })
     if (!res.ok) {
       console.error(`[weather/vedurstofan] HTTP ${res.status}`)
       return null
@@ -202,9 +202,13 @@ function buildPayload(
  *   { status: 'unavailable' }     — unverified ID, or no cache + fetch failed
  *
  * Never throws. Veðurstofan failures are fail-open.
+ *
+ * @param options.timeoutMs - If set, each HTTP batch fetch is aborted after this many ms.
+ *   On timeout, stale cache is returned for affected stations (unavailable if no cache exists).
  */
 export async function fetchVedurstofanForecastsForStations(
   stationIds: string[],
+  options?: { timeoutMs?: number },
 ): Promise<Map<string, VedurstofanStationResult>> {
   const result = new Map<string, VedurstofanStationResult>()
 
@@ -265,7 +269,18 @@ export async function fetchVedurstofanForecastsForStations(
 
   for (let i = 0; i < needsFetch.length; i += BATCH_MAX) {
     const batch = needsFetch.slice(i, i + BATCH_MAX)
-    const xml = await fetchBatch(batch)
+    let controller: AbortController | undefined
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    if (options?.timeoutMs && options.timeoutMs > 0) {
+      controller = new AbortController()
+      timeoutId = setTimeout(() => controller!.abort(), options.timeoutMs)
+    }
+    let xml: string | null
+    try {
+      xml = await fetchBatch(batch, controller?.signal)
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
+    }
 
     if (xml !== null) {
       const fetchedAtIso = new Date().toISOString()

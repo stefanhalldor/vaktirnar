@@ -49,6 +49,25 @@ function validateThresholdOverrides(raw: unknown): TravelThresholdOverrides | un
   return Object.keys(result).length > 0 ? result : undefined
 }
 
+/**
+ * Races a promise against a timeout, resolving with `fallback` if the timeout wins.
+ * Clears the timer in `finally` so no dangling timer remains when the promise wins.
+ * This bounds the caller's response wait; it does not cancel ongoing provider work.
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>(resolve => {
+        timeoutId = setTimeout(() => resolve(fallback), ms)
+      }),
+    ])
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
+}
+
 function isValidDateString(value: unknown): value is string {
   if (typeof value !== 'string' || !value) return false
   return isFinite(new Date(value).getTime())
@@ -243,7 +262,7 @@ export async function POST(request: Request) {
   // Start Veðurstofan station fetch in parallel with MET/Yr — fail-open; null on any error
   const vedurstofanStationIds = getUniqueStationIdsForRoute(weatherPoints)
   const vedurstofanFetchPromise = vedurstofanStationIds.length > 0
-    ? fetchVedurstofanForecastsForStations(vedurstofanStationIds).catch(() => null)
+    ? fetchVedurstofanForecastsForStations(vedurstofanStationIds, { timeoutMs: 1500 }).catch(() => null)
     : null
 
   // Fetch route point forecasts and destination forecast in parallel — ignore individual failures
@@ -251,8 +270,13 @@ export async function POST(request: Request) {
     Promise.allSettled(weatherPoints.map((pt) => fetchForecast(pt.lat, pt.lon))),
     fetchForecast(destCandidate.lat, destCandidate.lon).catch(() => null),
   ])
-  // Await Veðurstofan result (started earlier, runs in parallel with MET/Yr above)
-  const vedurstofanResults = vedurstofanFetchPromise ? await vedurstofanFetchPromise : null
+  // Await Veðurstofan result with a global user-response budget.
+  // Per-batch AbortController (1.5s, from v033) handles individual HTTP timeouts.
+  // This outer budget caps total enrichment wait regardless of batch count.
+  const VEDURSTOFAN_BUDGET_MS = 2000
+  const vedurstofanResults = vedurstofanFetchPromise
+    ? await withTimeout(vedurstofanFetchPromise, VEDURSTOFAN_BUDGET_MS, null)
+    : null
   const pointForecasts: TravelPointForecast[] = routeForecastResults
     .map((r, i) => r.status === 'fulfilled' ? { hours: r.value as HourPoint[], ...weatherPoints[i] } : null)
     .filter((x): x is TravelPointForecast => x !== null)
@@ -293,16 +317,7 @@ export async function POST(request: Request) {
       const stationResult = vedurstofanResults.get(mapping.station.stationId)
       if (!stationResult || stationResult.status === 'unavailable') continue
       const { payload } = stationResult
-      const etaIso = point.summaryForWindow?.etaIso
-      let nearestForecast: NonNullable<typeof point.vedurstofanStation>['nearestForecast']
-      if (etaIso && payload.forecasts.length > 0) {
-        const etaMs = new Date(etaIso).getTime()
-        const nearest = payload.forecasts.reduce((best, row) =>
-          Math.abs(new Date(row.ftimeIso).getTime() - etaMs) <
-          Math.abs(new Date(best.ftimeIso).getTime() - etaMs) ? row : best,
-        )
-        nearestForecast = nearest
-      }
+      if (payload.forecasts.length === 0) continue
       point.vedurstofanStation = {
         stationId: mapping.station.stationId,
         stationName: mapping.station.stationName,
@@ -310,7 +325,7 @@ export async function POST(request: Request) {
         confidence: mapping.confidence,
         status: stationResult.status,
         atimeIso: payload.atimeIso,
-        nearestForecast,
+        forecastRows: payload.forecasts,
       }
     }
   }

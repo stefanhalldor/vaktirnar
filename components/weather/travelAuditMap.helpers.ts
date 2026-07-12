@@ -1,4 +1,7 @@
 import type { RouteWeatherPoint, TravelIssue, TravelCandidate, WeatherStatus, ResolvedTravelThresholds, ForecastDrawerRow } from '@/lib/weather/types'
+
+/** Single row shape from vedurstofanStation.forecastRows. */
+export type VedurstofanForecastRow = NonNullable<NonNullable<RouteWeatherPoint['vedurstofanStation']>['forecastRows']>[number]
 import { WEATHER_THRESHOLDS, deriveThreshold } from '@/lib/weather/thresholds'
 
 /** Google Maps LatLngLiteral shape (lng instead of lon). */
@@ -405,6 +408,24 @@ export function buildPointSummary(
     forecastTimeIso: dp ? dp.forecastTimeIso : derived ? derived.forecastTimeIso : activeCandidate ? undefined : pt.summaryForWindow?.forecastTimeIso,
     nextForecast: activeCandidate ? undefined : pt.summaryForWindow?.nextForecast,
   }
+}
+
+/**
+ * Returns the Veðurstofan forecast row nearest to etaIso.
+ * Falls back to the first row when etaIso is undefined.
+ * Returns undefined for empty arrays.
+ */
+export function selectNearestVedurstofanRow(
+  rows: VedurstofanForecastRow[],
+  etaIso: string | undefined,
+): VedurstofanForecastRow | undefined {
+  if (rows.length === 0) return undefined
+  if (!etaIso) return rows[0]
+  const etaMs = new Date(etaIso).getTime()
+  return rows.reduce((best, row) =>
+    Math.abs(new Date(row.ftimeIso).getTime() - etaMs) <
+    Math.abs(new Date(best.ftimeIso).getTime() - etaMs) ? row : best,
+  )
 }
 
 export type ThresholdContext = {

@@ -11,6 +11,7 @@ import {
   candidateToIssue,
   derivePointWeatherForCandidate,
   buildThresholdContext,
+  selectNearestVedurstofanRow,
 } from '@/components/weather/travelAuditMap.helpers'
 import type { RouteWeatherPoint, TravelIssue, TravelCandidate, ForecastDrawerRow } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
@@ -693,5 +694,56 @@ describe('buildThresholdContext', () => {
     const ctxSelected = buildThresholdContext(summarySelected, th10_15)
     const ctxList = buildThresholdContext(summaryList, th10_15)
     expect(ctxSelected).toEqual(ctxList)
+  })
+})
+
+// ── selectNearestVedurstofanRow ───────────────────────────────────────────────
+
+const ROW_09 = { ftimeIso: '2026-07-10T09:00:00Z', windSpeedMs: 10, windDirectionText: 'N', temperatureC: 5, precipitationMmPerHour: 0, weatherText: 'Skýjað' }
+const ROW_12 = { ftimeIso: '2026-07-10T12:00:00Z', windSpeedMs: 7, windDirectionText: 'NV', temperatureC: 7, precipitationMmPerHour: 0.2, weatherText: 'Hlýtt' }
+const ROW_15 = { ftimeIso: '2026-07-10T15:00:00Z', windSpeedMs: 4, windDirectionText: 'V', temperatureC: 9, precipitationMmPerHour: 0, weatherText: 'Sólskin' }
+
+describe('selectNearestVedurstofanRow', () => {
+  it('returns undefined for an empty array', () => {
+    expect(selectNearestVedurstofanRow([], '2026-07-10T10:00:00Z')).toBeUndefined()
+  })
+
+  it('returns undefined when etaIso is undefined and array is empty', () => {
+    expect(selectNearestVedurstofanRow([], undefined)).toBeUndefined()
+  })
+
+  it('returns first row when etaIso is undefined', () => {
+    const result = selectNearestVedurstofanRow([ROW_09, ROW_12, ROW_15], undefined)
+    expect(result?.ftimeIso).toBe(ROW_09.ftimeIso)
+  })
+
+  it('selects the row nearest to etaIso — exact match', () => {
+    const result = selectNearestVedurstofanRow([ROW_09, ROW_12, ROW_15], '2026-07-10T12:00:00Z')
+    expect(result?.ftimeIso).toBe(ROW_12.ftimeIso)
+    expect(result?.windSpeedMs).toBe(7)
+  })
+
+  it('selects the row nearest to etaIso — between rows', () => {
+    // 10:30 is closer to 09:00 (90 min away) than 12:00 (90 min away) — ties go to first
+    // 10:31 is closer to 12:00
+    const result = selectNearestVedurstofanRow([ROW_09, ROW_12], '2026-07-10T11:00:00Z')
+    // 11:00 is 2h from 09:00 and 1h from 12:00 — should pick 12:00
+    expect(result?.ftimeIso).toBe(ROW_12.ftimeIso)
+  })
+
+  it('selects different rows for different ETAs — Leið A regression', () => {
+    const rows = [ROW_09, ROW_12, ROW_15]
+    // ETA near 09:00 → ROW_09
+    const earlyResult = selectNearestVedurstofanRow(rows, '2026-07-10T09:30:00Z')
+    // ETA near 15:00 → ROW_15
+    const lateResult = selectNearestVedurstofanRow(rows, '2026-07-10T14:30:00Z')
+    expect(earlyResult?.ftimeIso).toBe(ROW_09.ftimeIso)
+    expect(lateResult?.ftimeIso).toBe(ROW_15.ftimeIso)
+    expect(earlyResult?.windSpeedMs).not.toBe(lateResult?.windSpeedMs)
+  })
+
+  it('returns the only row when array has one element', () => {
+    const result = selectNearestVedurstofanRow([ROW_12], '2026-07-10T06:00:00Z')
+    expect(result?.ftimeIso).toBe(ROW_12.ftimeIso)
   })
 })

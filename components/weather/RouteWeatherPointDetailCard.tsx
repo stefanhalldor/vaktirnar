@@ -8,6 +8,7 @@ import {
   formatNum,
   getOriginDisplay,
   buildThresholdContext,
+  selectNearestVedurstofanRow,
   type PointSummary,
 } from './travelAuditMap.helpers'
 
@@ -153,28 +154,6 @@ export function RouteWeatherPointDetailCard({
         </div>
       )}
 
-      {/* Veðurstofan Íslands station comparison */}
-      {vedurstofanStation?.nearestForecast && (
-        <div className="border-t border-border/30 pt-1 mt-0.5 flex flex-col gap-0.5">
-          <span className="text-muted-foreground/50 text-[10px]">
-            {tf('vedurStofanLabel')} · {vedurstofanStation.stationName}
-            {vedurstofanStation.distanceM < 1000
-              ? ` (${vedurstofanStation.distanceM} m)`
-              : ` (${formatNum(vedurstofanStation.distanceM / 1000, locale)} km)`}
-            {vedurstofanStation.status === 'stale' && ` · ${tf('vedurStofanStale')}`}
-          </span>
-          <span>
-            {tf('metricWind')}: {vedurstofanStation.nearestForecast.windSpeedMs !== null
-              ? `${formatNum(vedurstofanStation.nearestForecast.windSpeedMs, locale)} m/s`
-              : '—'}
-            {vedurstofanStation.nearestForecast.windDirectionText && ` ${vedurstofanStation.nearestForecast.windDirectionText}`}
-            {vedurstofanStation.nearestForecast.temperatureC !== null && (
-              <>{' · '}{tf('metricTemp')}: {formatNum(vedurstofanStation.nearestForecast.temperatureC, locale)}°C</>
-            )}
-          </span>
-        </div>
-      )}
-
       {/* Links */}
       <div className="flex flex-wrap gap-3">
         {onOpenForecast && (
@@ -211,6 +190,45 @@ export function RouteWeatherPointDetailCard({
           {tf('viewMetnoRaw')}
         </a>
       </div>
+
+      {/* Veðurstofan Íslands station comparison — below links, for reference only */}
+      {vedurstofanStation?.forecastRows && vedurstofanStation.forecastRows.length > 0 && (() => {
+        const selectedRow = selectNearestVedurstofanRow(vedurstofanStation.forecastRows!, summary.etaIso)
+        if (!selectedRow) return null
+        const distanceStr = vedurstofanStation.distanceM < 1000
+          ? `${vedurstofanStation.distanceM} m`
+          : `${formatNum(vedurstofanStation.distanceM / 1000, locale)} km`
+        return (
+          <div className="border-t border-border/30 pt-2 mt-0.5 flex flex-col gap-0.5">
+            <span className="text-muted-foreground/60 text-[10px] font-medium">
+              {tf('vedurStofanLabel')} ({tf('vedurStofanSubtitle')})
+            </span>
+            <span className="text-muted-foreground/50 text-[10px]">
+              {tf('vedurStofanNearestPoint', { distance: distanceStr })}
+            </span>
+            <span className="text-muted-foreground/50 text-[10px]">
+              {vedurstofanStation.stationName}
+              {' · '}{tf('pointTimeLine', { time: formatKlTime(selectedRow.ftimeIso) })}
+              {vedurstofanStation.status === 'stale' && ` · ${tf('vedurStofanStale')}`}
+            </span>
+            <span className="text-muted-foreground/50 text-[10px]">
+              {tf('metricWind')}: {selectedRow.windSpeedMs !== null
+                ? `${formatNum(selectedRow.windSpeedMs, locale)} m/s`
+                : '—'}
+              {selectedRow.windDirectionText && ` ${selectedRow.windDirectionText}`}
+              {selectedRow.precipitationMmPerHour !== null && (
+                <>{' · '}{tf('metricPrecip')}: {formatNum(selectedRow.precipitationMmPerHour, locale)} mm/klst</>
+              )}
+              {selectedRow.temperatureC !== null && (
+                <>{' · '}{tf('metricTemp')}: {formatNum(selectedRow.temperatureC, locale)}°C</>
+              )}
+            </span>
+            {selectedRow.weatherText && (
+              <span className="text-muted-foreground/60 text-[11px]">{selectedRow.weatherText}</span>
+            )}
+          </div>
+        )
+      })()}
     </>
   )
 }
