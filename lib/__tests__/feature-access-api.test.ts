@@ -12,6 +12,7 @@ import { NextRequest } from 'next/server'
 
 const { mockRequireAdmin } = vi.hoisted(() => ({ mockRequireAdmin: vi.fn() }))
 const { mockAdminQuery } = vi.hoisted(() => ({ mockAdminQuery: vi.fn() }))
+const { mockInsert } = vi.hoisted(() => ({ mockInsert: vi.fn() }))
 
 vi.mock('@/lib/teskeid/admin-auth', () => ({
   requireAdmin: mockRequireAdmin,
@@ -31,7 +32,7 @@ vi.mock('@/lib/supabase/admin', () => ({
         })),
         order: vi.fn(() => Promise.resolve({ data: [], error: null })),
       })),
-      insert: vi.fn(() => mockAdminQuery()),
+      insert: vi.fn((data: unknown) => { mockInsert(data); return mockAdminQuery() }),
       delete: vi.fn(() => ({
         eq: vi.fn(() => ({
           eq: vi.fn(() => mockAdminQuery()),
@@ -209,5 +210,48 @@ describe('DELETE /api/admin/feature-access — auth and validation', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
+  })
+})
+
+// ── elta-vedrid feature key ───────────────────────────────────────────────────
+
+describe('feature-access API — elta-vedrid key', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('GET ?feature=elta-vedrid returns 200 for admin', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('elta-vedrid'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST ?feature=elta-vedrid grants access and inserts correct feature_key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'elta-vedrid'))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'elta-vedrid', email: 'user@example.com' }),
+    )
+  })
+
+  it('DELETE ?feature=elta-vedrid revokes access', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await DELETE(makeRequest({ email: 'user@example.com' }, 'DELETE', 'elta-vedrid'))
+    expect(res.status).toBe(200)
+  })
+
+  it('elta-vedrid insert uses feature_key elta-vedrid, not vedrid', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'elta-vedrid'))
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'elta-vedrid' }),
+    )
+    expect(mockInsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'vedrid' }),
+    )
   })
 })

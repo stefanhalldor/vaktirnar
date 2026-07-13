@@ -866,6 +866,38 @@
         "vedurStofanSubtitle": "eingöngu til viðmiðunar að svo stöddu",
         "vedurStofanNearestPoint": "Nálægasti punktur er {distance} frá veginum",
         "vedurStofanStale": "gömul gögn"
+      },
+      "eltaVedrid": {
+        "title": "Elta veðrið",
+        "subtitle": "Valdar Veðurstofu-/Vegagerðar-spástöðvar til sannprófunar. Þetta eru spágögn, ekki rauntímamælingar eða hviður, og hafa ekki áhrif á ferðamat enn.",
+        "back": "Til baka í ferðaveðrið",
+        "loading": "Sæki Veðurstofugögn...",
+        "loadError": "Náði ekki að sækja Veðurstofugögn. Reyndu aftur.",
+        "mapUnavailable": "Kortið náði ekki að hlaðast. Stöðvalistinn virkar samt.",
+        "stationsTotal": "{count} valdar stöðvar",
+        "statusOk": "Ný gögn",
+        "statusStale": "Gömul gögn",
+        "statusUnavailable": "Vantar gögn",
+        "filterAll": "Allar",
+        "filterOk": "Í lagi",
+        "filterStale": "Gömul",
+        "filterUnavailable": "Vantar",
+        "stationId": "Stöð",
+        "owner": "Eigandi",
+        "coordinates": "Hnit",
+        "forecastGenerated": "Spá búin til",
+        "fetchedAt": "Sótt",
+        "expiresAt": "Gildir til",
+        "forecastRows": "Spágildi",
+        "noForecastRows": "Engin spágildi fundust fyrir þessa stöð.",
+        "colTime": "Tími",
+        "colWind": "Vindur",
+        "colDirection": "Átt",
+        "colPrecipitation": "Úrkoma",
+        "colTemp": "Hiti",
+        "colWeather": "Veðurlag",
+        "parseErrors": "Parse villur ({count})",
+        "attribution": "Gögn frá Veðurstofu Íslands"
       }
     }
   }

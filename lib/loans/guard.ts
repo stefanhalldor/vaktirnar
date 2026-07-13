@@ -72,6 +72,16 @@ export async function checkFeatureAccess(
     if (process.env.WEATHER_FLAG !== 'true') return true
     return checkPerUserAccess(email, 'vedrid')
   }
+  if (featureKey === 'ferdalagid') {
+    if (process.env.WEATHER_ENABLED !== 'true') return false
+    if (process.env.WEATHER_TRIP_FLAG !== 'true') return false
+    return checkPerUserAccess(email, 'ferdalagid')
+  }
+  if (featureKey === 'elta-vedrid') {
+    if (process.env.WEATHER_ENABLED !== 'true') return false
+    if (process.env.WEATHER_ELTA_VEDRID_FLAG !== 'true') return false
+    return checkPerUserAccess(email, 'elta-vedrid')
+  }
   return false
 }
 

@@ -862,6 +862,38 @@
         "vedurStofanSubtitle": "for reference only at this stage",
         "vedurStofanNearestPoint": "Nearest point is {distance} from the road",
         "vedurStofanStale": "cached data"
+      },
+      "eltaVedrid": {
+        "title": "Chase the weather",
+        "subtitle": "Selected Veðurstofan/Vegagerðin forecast stations for validation. These are forecast rows, not live observations or gusts, and do not affect route results yet.",
+        "back": "Back to route weather",
+        "loading": "Loading Veðurstofan data...",
+        "loadError": "Could not load Veðurstofan data. Please try again.",
+        "mapUnavailable": "Map failed to load. The station list still works.",
+        "stationsTotal": "{count} selected stations",
+        "statusOk": "Fresh data",
+        "statusStale": "Stale data",
+        "statusUnavailable": "No data",
+        "filterAll": "All",
+        "filterOk": "OK",
+        "filterStale": "Stale",
+        "filterUnavailable": "Missing",
+        "stationId": "Station",
+        "owner": "Owner",
+        "coordinates": "Coordinates",
+        "forecastGenerated": "Forecast generated",
+        "fetchedAt": "Fetched",
+        "expiresAt": "Expires",
+        "forecastRows": "Forecast rows",
+        "noForecastRows": "No forecast rows found for this station.",
+        "colTime": "Time",
+        "colWind": "Wind",
+        "colDirection": "Direction",
+        "colPrecipitation": "Precipitation",
+        "colTemp": "Temperature",
+        "colWeather": "Weather",
+        "parseErrors": "Parse errors ({count})",
+        "attribution": "Data from Veðurstofa Íslands"
       }
     }
   }

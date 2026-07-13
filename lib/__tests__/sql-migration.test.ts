@@ -1010,3 +1010,49 @@ describe('sql/67_weather_cache.sql — static checks', () => {
     expect(sql67).not.toMatch(/GRANT.*TO authenticated/)
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/73 feature_access_elta_vedrid
+// ============================================================
+
+const sql73 = readFileSync(
+  join(process.cwd(), 'sql/73_feature_access_elta_vedrid.sql'),
+  'utf8'
+)
+
+describe('sql/73_feature_access_elta_vedrid.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql73).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql73).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops the old constraint before adding the new one', () => {
+    const dropPos = sql73.indexOf('DROP CONSTRAINT IF EXISTS feature_access_feature_key_check')
+    const addPos  = sql73.indexOf('ADD CONSTRAINT feature_access_feature_key_check', dropPos)
+    expect(dropPos).toBeGreaterThan(-1)
+    expect(addPos).toBeGreaterThan(dropPos)
+  })
+
+  it('new constraint allows exactly the expected feature keys', () => {
+    expect(sql73).toMatch(
+      /CHECK\s*\(feature_key IN \('umonnun',\s*'tengsl',\s*'facebook-oauth',\s*'vedrid',\s*'ferdalagid',\s*'elta-vedrid'\)\)/
+    )
+  })
+
+  it('includes ferdalagid to close the gap from migration 68', () => {
+    expect(sql73).toContain("'ferdalagid'")
+  })
+
+  it('includes elta-vedrid as the new key', () => {
+    expect(sql73).toContain("'elta-vedrid'")
+  })
+
+  it('does not touch grants, RLS, auth, or data', () => {
+    expect(sql73).not.toMatch(/GRANT/)
+    expect(sql73).not.toMatch(/REVOKE/)
+    expect(sql73).not.toMatch(/ENABLE ROW LEVEL SECURITY/)
+    expect(sql73).not.toMatch(/\bINSERT\b/)
+    expect(sql73).not.toMatch(/\bUPDATE\b/)
+    expect(sql73).not.toMatch(/\bDELETE\b/)
+  })
+})

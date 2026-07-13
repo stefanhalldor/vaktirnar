@@ -696,3 +696,128 @@ describe('guardLoanAccess — feature flags', () => {
     expect(result).toEqual({ user: { id: 'u1', email: 'user@example.com' } })
   })
 })
+
+// ── checkFeatureAccess — elta-vedrid ──────────────────────────────────────────
+
+describe('checkFeatureAccess — elta-vedrid (kill-switch and strict flag)', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedFlag = process.env.WEATHER_ELTA_VEDRID_FLAG
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_ELTA_VEDRID_FLAG', savedFlag)
+  })
+
+  it('returns false when WEATHER_ENABLED is not set', async () => {
+    delete process.env.WEATHER_ENABLED
+    delete process.env.WEATHER_ELTA_VEDRID_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(false)
+  })
+
+  it('returns false when WEATHER_ENABLED=false', async () => {
+    process.env.WEATHER_ENABLED = 'false'
+    process.env.WEATHER_ELTA_VEDRID_FLAG = 'true'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(false)
+  })
+
+  it('returns false when WEATHER_ELTA_VEDRID_FLAG is not set (no graduation path)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    delete process.env.WEATHER_ELTA_VEDRID_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(false)
+  })
+
+  it('returns false when WEATHER_ELTA_VEDRID_FLAG=false', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_ELTA_VEDRID_FLAG = 'false'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(false)
+  })
+})
+
+describe('checkFeatureAccess — elta-vedrid (per-user FLAG=true)', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedFlag = process.env.WEATHER_ELTA_VEDRID_FLAG
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_ELTA_VEDRID_FLAG = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_ELTA_VEDRID_FLAG', savedFlag)
+  })
+
+  it('returns true when row exists in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(true)
+  })
+
+  it('returns false when no row in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(false)
+  })
+
+  it('returns false when DB query returns an error (fail-closed)', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'connection refused' } })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(false)
+  })
+
+  it('returns false for invalid email', async () => {
+    expect(await checkFeatureAccess('uid', 'not-an-email', 'elta-vedrid')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+})
+
+// ── guardFeatureAccess — elta-vedrid ──────────────────────────────────────────
+
+describe('guardFeatureAccess — elta-vedrid', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedFlag = process.env.WEATHER_ELTA_VEDRID_FLAG
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_ELTA_VEDRID_FLAG', savedFlag)
+  })
+
+  it('redirects to / when WEATHER_ENABLED is not set', async () => {
+    delete process.env.WEATHER_ENABLED
+    delete process.env.WEATHER_ELTA_VEDRID_FLAG
+    await expect(guardFeatureAccess('user@example.com', 'elta-vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('redirects to / when WEATHER_ELTA_VEDRID_FLAG is not set', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    delete process.env.WEATHER_ELTA_VEDRID_FLAG
+    await expect(guardFeatureAccess('user@example.com', 'elta-vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('redirects when FLAG=true and user not in feature_access', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_ELTA_VEDRID_FLAG = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    await expect(guardFeatureAccess('user@example.com', 'elta-vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('does not redirect when FLAG=true and user is in feature_access', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_ELTA_VEDRID_FLAG = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    await expect(guardFeatureAccess('user@example.com', 'elta-vedrid')).resolves.toBeUndefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+})
