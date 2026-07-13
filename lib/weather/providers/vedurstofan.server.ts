@@ -535,6 +535,54 @@ export async function projectVedurstofanCacheToProductTables(): Promise<Vedursto
   return { projected, skipped, errors, runId }
 }
 
+// ── Background warmer ─────────────────────────────────────────────────────────
+
+export type VedurstofanWarmResult = {
+  ok: number
+  unavailable: number
+  projected: number
+  projectionRunId: number | null
+}
+
+/**
+ * Fetches forecast data for all 280 registry stations from Veðurstofan,
+ * updates weather_cache, then projects the full cache into vedurstofan_forecasts_latest.
+ *
+ * Uses cache-first logic: stations with a fresh cache entry are not re-fetched.
+ * Per-batch timeout of 8 seconds to avoid indefinite hangs on a single batch.
+ *
+ * Intended for background/admin use only — never call from a user request path.
+ * Never throws.
+ */
+export async function warmVedurstofanForecastCache(): Promise<VedurstofanWarmResult> {
+  const allIds = VEDURSTOFAN_STATIONS_REGISTRY
+    .filter(s => s.stationId !== null)
+    .map(s => s.stationId!)
+
+  let results: Map<string, VedurstofanStationResult>
+  try {
+    results = await fetchVedurstofanForecastsForStations(allIds, { timeoutMs: 8000 })
+  } catch {
+    results = new Map()
+  }
+
+  let ok = 0
+  let unavailable = 0
+  for (const r of results.values()) {
+    if (r.status !== 'unavailable') ok++
+    else unavailable++
+  }
+
+  let projection: VedurstofanProjectionResult
+  try {
+    projection = await projectVedurstofanCacheToProductTables()
+  } catch {
+    projection = { projected: 0, skipped: 0, errors: 0, runId: null }
+  }
+
+  return { ok, unavailable, projected: projection.projected, projectionRunId: projection.runId }
+}
+
 async function writeRunRecord(
   admin: ReturnType<typeof getAdmin>,
   startedAt: string,
