@@ -229,20 +229,40 @@ export async function readVedurstofanProductForStations(
     fetched_at: string
   }
 
-  try {
-    const { data, error } = await admin
-      .from('vedurstofan_forecasts_latest')
-      .select(
-        'station_id, forecast_time, wind_speed_ms, wind_direction_text, temperature_c, precipitation_mm_per_hour, weather_text, atime, expires_at, fetched_at',
-      )
-      .in('station_id', stationIds)
-      .order('forecast_time')
+  // Page size kept at Supabase/PostgREST default to avoid silent row truncation.
+  // 280 stations × ~8 forecast rows = ~2240 rows minimum; must paginate.
+  const PAGE_SIZE = 1000
 
-    if (error || !data) return result
+  try {
+    const allRows: ForecastRow[] = []
+    let from = 0
+    let done = false
+
+    while (!done) {
+      const { data, error } = await admin
+        .from('vedurstofan_forecasts_latest')
+        .select(
+          'station_id, forecast_time, wind_speed_ms, wind_direction_text, temperature_c, precipitation_mm_per_hour, weather_text, atime, expires_at, fetched_at',
+        )
+        .in('station_id', stationIds)
+        .order('station_id')
+        .order('forecast_time')
+        .range(from, from + PAGE_SIZE - 1)
+
+      if (error || !data) break // fail-open: use rows fetched so far
+
+      allRows.push(...(data as ForecastRow[]))
+
+      if (data.length < PAGE_SIZE) {
+        done = true
+      } else {
+        from += PAGE_SIZE
+      }
+    }
 
     // Group rows by station_id
     const byStation = new Map<string, ForecastRow[]>()
-    for (const row of (data as ForecastRow[])) {
+    for (const row of allRows) {
       const existing = byStation.get(row.station_id)
       if (existing) existing.push(row)
       else byStation.set(row.station_id, [row])
