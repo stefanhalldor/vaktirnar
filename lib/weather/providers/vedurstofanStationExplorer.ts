@@ -15,9 +15,20 @@ const SERVICE_URL =
 export type StationExplorerStation = {
   stationId: string
   stationName: string
+  stationType: string | null
+  wmoNumber: string | null
+  abbreviation: string
+  forecastAreaName: string | null
+  forecastAreaCode: string | null
   owner: string | null
-  lat: number
-  lon: number
+  /** WGS84 latitude — null if no coordinates on the official page */
+  lat: number | null
+  /** WGS84 longitude (negative for Iceland) — null if no coordinates */
+  lon: number | null
+  coordinatesRaw: string | null
+  elevationM: number | null
+  startYear: number | null
+  sourceUrl: string
   mappingStatus: string
   status: 'ok' | 'stale' | 'unavailable'
   atimeIso: string | null
@@ -54,23 +65,31 @@ export function buildStationExplorerResponse(
   stations: readonly VedurstofanStationRegistryEntry[],
   results: Map<string, VedurstofanStationResult>,
 ): StationExplorerResponse {
-  // Only include stations with coordinates and a stationId in the response
-  const mappable = stations.filter(
-    (s): s is VedurstofanStationRegistryEntry & { lat: number; lon: number; stationId: string } =>
-      s.lat !== null && s.lon !== null && s.stationId !== null,
-  )
-
-  const stationList: StationExplorerStation[] = mappable.map(s => {
-    const result = results.get(s.stationId)
-    if (!result || result.status === 'unavailable') {
+  // Include all registry stations. Stations without stationId cannot have cache data
+  // but still appear in the list. The map layer filters on lat/lon.
+  const stationList: StationExplorerStation[] = stations.map(s => {
+    const cacheResult = s.stationId ? results.get(s.stationId) : undefined
+    const base = {
+      stationId: s.stationId ?? '',
+      stationName: s.name,
+      stationType: s.stationType,
+      wmoNumber: s.wmoNumber,
+      abbreviation: s.abbreviation,
+      forecastAreaName: s.forecastAreaName,
+      forecastAreaCode: s.forecastAreaCode,
+      owner: s.owner,
+      lat: s.lat,
+      lon: s.lon,
+      coordinatesRaw: s.coordinatesRaw,
+      elevationM: s.elevationM,
+      startYear: s.startYear,
+      sourceUrl: s.sourceUrl,
+      mappingStatus: s.mappingStatus,
+    }
+    if (!cacheResult || cacheResult.status === 'unavailable') {
       return {
-        stationId: s.stationId,
-        stationName: s.name,
-        owner: s.owner,
-        lat: s.lat,
-        lon: s.lon,
-        mappingStatus: s.mappingStatus,
-        status: 'unavailable',
+        ...base,
+        status: 'unavailable' as const,
         atimeIso: null,
         fetchedAtIso: null,
         expiresAtIso: null,
@@ -79,15 +98,10 @@ export function buildStationExplorerResponse(
         parseErrors: [],
       }
     }
-    const { payload } = result
+    const { payload } = cacheResult
     return {
-      stationId: s.stationId,
-      stationName: s.name,
-      owner: s.owner,
-      lat: s.lat,
-      lon: s.lon,
-      mappingStatus: s.mappingStatus,
-      status: result.status,
+      ...base,
+      status: cacheResult.status,
       atimeIso: payload.atimeIso,
       fetchedAtIso: payload.fetchedAtIso,
       expiresAtIso: payload.expiresAtIso,

@@ -97,13 +97,18 @@ export function VedurstofanStationExplorerClient() {
         })
         mapRef.current = map
 
-        // Fit bounds to all stations
+        // Fit bounds to stations with coordinates
         const bounds = new coreLib.LatLngBounds()
-        stations.forEach(s => bounds.extend({ lat: s.lat, lng: s.lon }))
+        stations.forEach(s => {
+          if (s.lat !== null && s.lon !== null) bounds.extend({ lat: s.lat, lng: s.lon })
+        })
         map.fitBounds(bounds, { top: 32, bottom: 32, left: 32, right: 32 })
 
-        // Create markers
+        // Create markers only for stations with coordinates
         const newMarkers: google.maps.Marker[] = stations.map((station, idx) => {
+          if (station.lat === null || station.lon === null) {
+            return new markerLib.Marker({ map: null })
+          }
           const marker = new markerLib.Marker({
             position: { lat: station.lat, lng: station.lon },
             map,
@@ -290,16 +295,57 @@ function StationDetail({ station }: { station: StationExplorerStation }) {
         <span className="font-semibold text-sm">{station.stationName}</span>
       </div>
 
-      {/* Metadata */}
+      {/* Registry metadata */}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
         <dt className="text-muted-foreground">{t('stationId')}</dt>
-        <dd className="font-mono">{station.stationId}</dd>
+        <dd className="font-mono">{station.stationId || '–'}</dd>
+        {station.wmoNumber && (
+          <>
+            <dt className="text-muted-foreground">{t('wmoNumber')}</dt>
+            <dd className="font-mono">{station.wmoNumber}</dd>
+          </>
+        )}
+        {station.abbreviation && (
+          <>
+            <dt className="text-muted-foreground">{t('abbreviation')}</dt>
+            <dd className="font-mono">{station.abbreviation}</dd>
+          </>
+        )}
+        {station.stationType && (
+          <>
+            <dt className="text-muted-foreground">{t('stationType')}</dt>
+            <dd>{station.stationType}</dd>
+          </>
+        )}
         <dt className="text-muted-foreground">{t('owner')}</dt>
-        <dd>{station.owner}</dd>
+        <dd>{station.owner ?? '–'}</dd>
+        {station.forecastAreaName && (
+          <>
+            <dt className="text-muted-foreground">{t('forecastArea')}</dt>
+            <dd>{station.forecastAreaName}</dd>
+          </>
+        )}
         <dt className="text-muted-foreground">{t('coordinates')}</dt>
         <dd className="font-mono">
-          {station.lat.toFixed(4)}, {station.lon.toFixed(4)}
+          {station.lat !== null && station.lon !== null
+            ? `${station.lat.toFixed(4)}, ${station.lon.toFixed(4)}`
+            : '–'}
         </dd>
+        {station.elevationM !== null && (
+          <>
+            <dt className="text-muted-foreground">{t('elevation')}</dt>
+            <dd>{station.elevationM} m</dd>
+          </>
+        )}
+        {station.startYear !== null && (
+          <>
+            <dt className="text-muted-foreground">{t('startYear')}</dt>
+            <dd>{station.startYear}</dd>
+          </>
+        )}
+        <dt className="text-muted-foreground">{t('mappingStatusLabel')}</dt>
+        <dd className="text-muted-foreground">{station.mappingStatus}</dd>
+        {/* Cache data fields */}
         {station.atimeIso && (
           <>
             <dt className="text-muted-foreground">{t('forecastGenerated')}</dt>
@@ -319,6 +365,15 @@ function StationDetail({ station }: { station: StationExplorerStation }) {
           </>
         )}
       </dl>
+      {/* Official source link */}
+      <a
+        href={station.sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs text-muted-foreground underline underline-offset-2 self-start"
+      >
+        {t('officialPage')}
+      </a>
 
       {/* Forecast rows */}
       <div>

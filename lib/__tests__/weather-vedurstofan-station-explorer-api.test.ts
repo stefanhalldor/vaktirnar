@@ -17,7 +17,7 @@ vi.mock('@/lib/loans/guard', () => ({
 }))
 
 vi.mock('@/lib/weather/providers/vedurstofan.server', () => ({
-  fetchVedurstofanForecastsForStations: mockFetchVedurstofan,
+  readVedurstofanCacheForStations: mockFetchVedurstofan,
 }))
 
 vi.mock('@/lib/weather/providers/vedurstofanStationsRegistry', () => ({
@@ -26,7 +26,7 @@ vi.mock('@/lib/weather/providers/vedurstofanStationsRegistry', () => ({
       slug: 'hellh', name: 'Hellisheiði', stationType: 'Sjálfvirk veðurathugunarstöð',
       stationId: '31392', wmoNumber: '4836', abbreviation: 'hellh',
       forecastAreaName: 'Suðurland', forecastAreaCode: 'su',
-      lat: 64.04, lon: -21.37, coordinatesRaw: null,
+      lat: 64.04, lon: -21.37, coordinatesRaw: "64°01.127', 21°20.543' (64,0188, 21,3424)",
       elevationM: 360, startYear: 1992, owner: 'Vegagerðin',
       sourceUrl: 'https://www.vedur.is/vedur/stodvar/?s=hellh',
       mappingStatus: 'source-provided',
@@ -271,7 +271,7 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - payload', () => {
 // ── Fail-open tests ────────────────────────────────────────────────────────────
 
 describe('GET /api/teskeid/weather/vedurstofan/stations - fail-open', () => {
-  it('returns all stations as unavailable when fetch throws', async () => {
+  it('returns all stations as unavailable when cache read throws', async () => {
     authedUser()
     mockFetchVedurstofan.mockRejectedValue(new Error('network error'))
 
@@ -285,9 +285,70 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - fail-open', () => {
     expect(body.summary.stale).toBe(0)
   })
 
-  it('still returns station metadata when fetch throws', async () => {
+  it('still returns station metadata when cache read throws', async () => {
     authedUser()
     mockFetchVedurstofan.mockRejectedValue(new Error('timeout'))
+
+    const res = await GET()
+    const body = await res.json()
+
+    expect(body.stations[0].stationName).toBe('Hellisheiði')
+    expect(body.stations[1].stationName).toBe('Selfoss')
+  })
+})
+
+// ── Cache-only behavior ────────────────────────────────────────────────────────
+
+describe('GET /api/teskeid/weather/vedurstofan/stations - cache-only (no live fetch)', () => {
+  it('uses readVedurstofanCacheForStations, not the live fetch function', async () => {
+    authedUser()
+    mockFetchVedurstofan.mockResolvedValue(new Map())
+
+    await GET()
+
+    // The mock is wired to readVedurstofanCacheForStations — if the route
+    // called the live fetch function it would not be intercepted here
+    expect(mockFetchVedurstofan).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns all station records even when cache is fully empty', async () => {
+    authedUser()
+    mockFetchVedurstofan.mockResolvedValue(new Map())
+
+    const res = await GET()
+    const body = await res.json()
+
+    expect(body.summary.total).toBe(2)
+    expect(body.summary.unavailable).toBe(2)
+    expect(body.stations).toHaveLength(2)
+  })
+})
+
+// ── Full registry metadata in response ────────────────────────────────────────
+
+describe('GET /api/teskeid/weather/vedurstofan/stations - registry metadata', () => {
+  it('Hellisheiði response includes wmoNumber, abbreviation, elevation, startYear, sourceUrl', async () => {
+    authedUser()
+    mockFetchVedurstofan.mockResolvedValue(new Map())
+
+    const res = await GET()
+    const body = await res.json()
+
+    const h = body.stations.find((s: { stationId: string }) => s.stationId === '31392')
+    expect(h).toBeDefined()
+    expect(h.wmoNumber).toBe('4836')
+    expect(h.abbreviation).toBe('hellh')
+    expect(h.elevationM).toBe(360)
+    expect(h.startYear).toBe(1992)
+    expect(h.owner).toBe('Vegagerðin')
+    expect(h.forecastAreaName).toBe('Suðurland')
+    expect(h.sourceUrl).toBe('https://www.vedur.is/vedur/stodvar/?s=hellh')
+    expect(h.mappingStatus).toBe('source-provided')
+  })
+
+  it('stationName is mapped from registry name field', async () => {
+    authedUser()
+    mockFetchVedurstofan.mockResolvedValue(new Map())
 
     const res = await GET()
     const body = await res.json()

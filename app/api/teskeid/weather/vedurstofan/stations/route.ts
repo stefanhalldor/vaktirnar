@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
-import { fetchVedurstofanForecastsForStations } from '@/lib/weather/providers/vedurstofan.server'
+import { readVedurstofanCacheForStations } from '@/lib/weather/providers/vedurstofan.server'
 import type { VedurstofanStationResult } from '@/lib/weather/providers/vedurstofan.server'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { buildStationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
@@ -32,9 +32,11 @@ export async function GET() {
   const stationIds = VEDURSTOFAN_STATIONS_REGISTRY
     .filter(s => s.stationId !== null)
     .map(s => s.stationId!)
+  // Cache-only: never live-fetches Veðurstofan on a user page load.
+  // Returns ok/stale/unavailable based on what is already in weather_cache.
   let results: Map<string, VedurstofanStationResult>
   try {
-    results = await fetchVedurstofanForecastsForStations(stationIds, { timeoutMs: 8000 })
+    results = await readVedurstofanCacheForStations(stationIds)
   } catch {
     results = new Map()
   }

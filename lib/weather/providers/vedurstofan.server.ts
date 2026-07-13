@@ -194,6 +194,69 @@ function buildPayload(
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
+ * Reads Veðurstofan forecast data from the weather_cache layer only.
+ * Never makes live HTTP requests to the XML service.
+ *
+ * Use this in user-facing routes where a cold-cache live fetch for hundreds
+ * of stations would be unacceptably slow. The station explorer uses this so
+ * that page load is fast regardless of cache warmth.
+ *
+ * Returns a Map keyed by station ID:
+ *   { status: 'ok', payload }    — fresh cache entry
+ *   { status: 'stale', payload } — expired but available cache entry
+ *   { status: 'unavailable' }    — not in registry, or no cache entry
+ *
+ * Never throws.
+ */
+export async function readVedurstofanCacheForStations(
+  stationIds: string[],
+): Promise<Map<string, VedurstofanStationResult>> {
+  const result = new Map<string, VedurstofanStationResult>()
+
+  if (stationIds.length === 0) return result
+
+  const uniqueIds = [...new Set(stationIds)]
+
+  const registryIds: string[] = []
+  for (const id of uniqueIds) {
+    if (REGISTRY_STATION_IDS.has(id)) {
+      registryIds.push(id)
+    } else {
+      result.set(id, { status: 'unavailable' })
+    }
+  }
+
+  if (registryIds.length === 0) return result
+
+  const now = new Date()
+
+  try {
+    const cacheEntries = await Promise.all(
+      registryIds.map(id =>
+        getFromCache(cacheKeyForStation(id)).then(row => ({ id, row })),
+      ),
+    )
+
+    for (const { id, row } of cacheEntries) {
+      if (!row) {
+        result.set(id, { status: 'unavailable' })
+      } else if (new Date(row.expires_at) > now) {
+        result.set(id, { status: 'ok', payload: row.response_body as VedurstofanStationForecastCache })
+      } else {
+        result.set(id, { status: 'stale', payload: row.response_body as VedurstofanStationForecastCache })
+      }
+    }
+  } catch {
+    // Cache read failure: mark all as unavailable
+    for (const id of registryIds) {
+      result.set(id, { status: 'unavailable' })
+    }
+  }
+
+  return result
+}
+
+/**
  * Fetches Veðurstofan type=forec forecasts for the given station IDs,
  * using weather_cache as a cache-first store.
  *
