@@ -371,6 +371,61 @@ function TeskeidUsageSection({ usage }: { usage: TeskeidUsageData | null }) {
   )
 }
 
+function VedurstofanProjectorSection() {
+  const [isPending, startTransition] = useTransition()
+  const [result, setResult] = useState<{
+    projected: number; skipped: number; errors: number; runId: number | null
+  } | null>(null)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  function handleRun() {
+    setResult(null)
+    setErrorMsg('')
+    startTransition(async () => {
+      const res = await fetch('/api/admin/weather/project-vedurstofan', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setErrorMsg(data.error ?? 'Villa'); return }
+      setResult(data)
+    })
+  }
+
+  return (
+    <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
+      <h2 className="text-sm font-semibold text-gray-700 mb-1">Veðurstofan — spágagnabreytari</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        Les Veðurstofan spágögn úr <code className="font-mono">weather_cache</code> og skrifar í{' '}
+        <code className="font-mono">vedurstofan_forecasts_latest</code>. Engar live HTTP-beiðnir.
+      </p>
+      <button
+        type="button"
+        onClick={handleRun}
+        disabled={isPending}
+        className="h-8 px-3 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
+      >
+        {isPending ? 'Keyrir...' : 'Keyra breytara'}
+      </button>
+      {errorMsg && <p className="mt-2 text-xs text-red-600">{errorMsg}</p>}
+      {result && (
+        <dl className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          {([
+            ['Bætt við', result.projected],
+            ['Sleppt', result.skipped],
+            ['Villur', result.errors],
+            ['Run ID', result.runId ?? '—'],
+          ] as const).map(([label, value]) => (
+            <div key={label} className="flex flex-col gap-0.5">
+              <dt className="text-gray-500">{label}</dt>
+              <dd className={`font-mono font-semibold ${label === 'Villur' && Number(value) > 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [submissions, setSubmissions] = useState<Submission[]>([])
@@ -1546,6 +1601,9 @@ export default function AdminPage() {
             flagName="WEATHER_ELTA_VEDRID_FLAG"
           />
         </div>
+
+        <hr className="border-[#c2c9bb] my-8" />
+        <VedurstofanProjectorSection />
       </div>
     </div>
   )
