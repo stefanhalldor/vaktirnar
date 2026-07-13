@@ -88,8 +88,10 @@ function stationNameFromList(stationId: string): string {
  * time step, param set, and station. Avoids key collisions when observation
  * types, 6h steps, English responses or different params are added later.
  */
+const FOREC_CACHE_KEY_PREFIX = 'vedurstofan:xml:forec:is:3h:F-D-T-R-W:'
+
 export function cacheKeyForStation(stationId: string): string {
-  return `vedurstofan:xml:forec:is:3h:F-D-T-R-W:${stationId}`
+  return `${FOREC_CACHE_KEY_PREFIX}${stationId}`
 }
 
 // ── Supabase cache helpers ────────────────────────────────────────────────────
@@ -383,4 +385,162 @@ export async function fetchVedurstofanForecastsForStations(
   }
 
   return result
+}
+
+// ── Product table projector ───────────────────────────────────────────────────
+
+export type VedurstofanProjectionResult = {
+  projected: number
+  skipped: number
+  errors: number
+  runId: number | null
+}
+
+/**
+ * Projects cached Veðurstofan forecast payloads into the vedurstofan_forecasts_latest
+ * product table and records the run in weather_fetch_runs.
+ *
+ * Reads all vedurstofan:xml:forec:is:3h:F-D-T-R-W:* rows from weather_cache
+ * (structured JSON payloads, not raw XML), validates each, then for every valid
+ * station: deletes existing forecast rows and inserts the new set.
+ *
+ * Per-station replace semantics: existing rows are only deleted after the
+ * payload passes validation. If validation or insert fails, the existing rows
+ * are preserved for that station and the station counts as an error.
+ *
+ * Never makes live HTTP requests to Veðurstofan.
+ * Never throws — errors are counted and returned.
+ */
+export async function projectVedurstofanCacheToProductTables(): Promise<VedurstofanProjectionResult> {
+  const admin = getAdmin()
+  const startedAt = new Date().toISOString()
+
+  // ── 1. Scan weather_cache for all forec entries ──────────────────────────────
+
+  type WeatherCacheRow = { cache_key: string; response_body: unknown; expires_at: string }
+  let cacheRows: WeatherCacheRow[] = []
+
+  try {
+    const { data, error } = await admin
+      .from('weather_cache')
+      .select('cache_key, response_body, expires_at')
+      .like('cache_key', `${FOREC_CACHE_KEY_PREFIX}%`)
+
+    if (error || !data) {
+      await writeRunRecord(admin, startedAt, 0, 0, 0, 'Failed to read weather_cache')
+      return { projected: 0, skipped: 0, errors: 0, runId: null }
+    }
+
+    cacheRows = data as WeatherCacheRow[]
+  } catch {
+    await writeRunRecord(admin, startedAt, 0, 0, 0, 'Exception reading weather_cache')
+    return { projected: 0, skipped: 0, errors: 0, runId: null }
+  }
+
+  // ── 2. Project each cache row ────────────────────────────────────────────────
+
+  let projected = 0
+  let skipped = 0
+  let errors = 0
+
+  for (const row of cacheRows) {
+    const payload = row.response_body as VedurstofanStationForecastCache | null
+
+    // Validate before touching product tables
+    if (
+      !payload ||
+      payload.source !== 'vedurstofan' ||
+      payload.type !== 'forec' ||
+      typeof payload.stationId !== 'string' ||
+      !Array.isArray(payload.forecasts) ||
+      payload.forecasts.length === 0
+    ) {
+      skipped++
+      continue
+    }
+
+    const stationId = payload.stationId
+    const forecastRows = payload.forecasts.map(f => ({
+      station_id: stationId,
+      forecast_time: f.ftimeIso,
+      wind_speed_ms: f.windSpeedMs ?? null,
+      wind_direction_text: f.windDirectionText ?? null,
+      temperature_c: f.temperatureC ?? null,
+      precipitation_mm_per_hour: f.precipitationMmPerHour ?? null,
+      weather_text: f.weatherText ?? null,
+      atime: payload.atimeIso ?? null,
+      expires_at: payload.expiresAtIso ?? null,
+      fetched_at: payload.fetchedAtIso,
+    }))
+
+    try {
+      // Delete existing rows only after validation succeeds
+      const { error: deleteError } = await admin
+        .from('vedurstofan_forecasts_latest')
+        .delete()
+        .eq('station_id', stationId)
+
+      if (deleteError) {
+        errors++
+        continue
+      }
+
+      const { error: insertError } = await admin
+        .from('vedurstofan_forecasts_latest')
+        .insert(forecastRows)
+
+      if (insertError) {
+        errors++
+        continue
+      }
+
+      projected++
+    } catch {
+      errors++
+    }
+  }
+
+  // ── 3. Write fetch run record ────────────────────────────────────────────────
+
+  const errorSummary = errors > 0 ? `${errors} station(s) failed projection` : null
+  const runId = await writeRunRecord(
+    admin,
+    startedAt,
+    cacheRows.length,
+    projected,
+    errors,
+    errorSummary,
+  )
+
+  return { projected, skipped, errors, runId }
+}
+
+async function writeRunRecord(
+  admin: ReturnType<typeof getAdmin>,
+  startedAt: string,
+  attempted: number,
+  succeeded: number,
+  failed: number,
+  errorSummary: string | null,
+): Promise<number | null> {
+  try {
+    const { data } = await admin
+      .from('weather_fetch_runs')
+      .insert({
+        source: 'vedurstofan',
+        fetch_type: 'forec',
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        stations_attempted: attempted,
+        stations_succeeded: succeeded,
+        stations_failed: failed,
+        error_summary: errorSummary,
+      })
+      .select('id')
+      .maybeSingle()
+
+    return (data as { id: number } | null)?.id ?? null
+  } catch {
+    return null
+  }
 }
