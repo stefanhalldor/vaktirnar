@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { fetchVedurstofanForecastsForStations } from '@/lib/weather/providers/vedurstofan.server'
 import type { VedurstofanStationResult } from '@/lib/weather/providers/vedurstofan.server'
-import { VEDURSTOFAN_STATIONS } from '@/lib/weather/providers/vedurstofanStations'
+import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { buildStationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
 
 export async function GET() {
@@ -29,14 +29,16 @@ export async function GET() {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const stationIds = VEDURSTOFAN_STATIONS.map(s => s.stationId)
+  const stationIds = VEDURSTOFAN_STATIONS_REGISTRY
+    .filter(s => s.stationId !== null)
+    .map(s => s.stationId!)
   let results: Map<string, VedurstofanStationResult>
   try {
-    results = await fetchVedurstofanForecastsForStations(stationIds, { timeoutMs: 1500 })
+    results = await fetchVedurstofanForecastsForStations(stationIds, { timeoutMs: 8000 })
   } catch {
     results = new Map()
   }
 
-  const payload = buildStationExplorerResponse(VEDURSTOFAN_STATIONS, results)
+  const payload = buildStationExplorerResponse(VEDURSTOFAN_STATIONS_REGISTRY, results)
   return NextResponse.json(payload)
 }

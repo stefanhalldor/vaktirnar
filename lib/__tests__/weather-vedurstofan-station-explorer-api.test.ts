@@ -20,10 +20,26 @@ vi.mock('@/lib/weather/providers/vedurstofan.server', () => ({
   fetchVedurstofanForecastsForStations: mockFetchVedurstofan,
 }))
 
-vi.mock('@/lib/weather/providers/vedurstofanStations', () => ({
-  VEDURSTOFAN_STATIONS: [
-    { stationId: '31392', stationName: 'Hellisheiði', owner: 'Veðurstofa', lat: 64.04, lon: -21.37, coordinatesVerified: true },
-    { stationId: '6300', stationName: 'Selfoss', owner: 'Veðurstofa', lat: 63.93, lon: -20.99, coordinatesVerified: true },
+vi.mock('@/lib/weather/providers/vedurstofanStationsRegistry', () => ({
+  VEDURSTOFAN_STATIONS_REGISTRY: [
+    {
+      slug: 'hellh', name: 'Hellisheiði', stationType: 'Sjálfvirk veðurathugunarstöð',
+      stationId: '31392', wmoNumber: '4836', abbreviation: 'hellh',
+      forecastAreaName: 'Suðurland', forecastAreaCode: 'su',
+      lat: 64.04, lon: -21.37, coordinatesRaw: null,
+      elevationM: 360, startYear: 1992, owner: 'Vegagerðin',
+      sourceUrl: 'https://www.vedur.is/vedur/stodvar/?s=hellh',
+      mappingStatus: 'source-provided',
+    },
+    {
+      slug: 'sfoss', name: 'Selfoss', stationType: 'Sjálfvirk veðurathugunarstöð',
+      stationId: '6300', wmoNumber: null, abbreviation: 'sfoss',
+      forecastAreaName: 'Suðurland', forecastAreaCode: 'su',
+      lat: 63.93, lon: -20.99, coordinatesRaw: null,
+      elevationM: null, startYear: null, owner: 'Veðurstofa Íslands',
+      sourceUrl: 'https://www.vedur.is/vedur/stodvar/?s=sfoss',
+      mappingStatus: 'source-provided',
+    },
   ],
 }))
 

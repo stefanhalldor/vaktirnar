@@ -21,7 +21,7 @@ import 'server-only'
 import { getAdmin } from '@/lib/supabase/admin'
 import { parseVedurstofanXml } from './vedurstofanXml'
 import type { VedurstofanStationForecast } from './vedurstofanXml'
-import { VEDURSTOFAN_STATIONS } from './vedurstofanStations'
+import { VEDURSTOFAN_STATIONS_REGISTRY } from './vedurstofanStationsRegistry'
 
 // ── Service constants ─────────────────────────────────────────────────────────
 
@@ -70,14 +70,15 @@ export type VedurstofanStationResult =
   | { status: 'stale'; payload: VedurstofanStationForecastCache }
   | { status: 'unavailable' }
 
-// ── Verified station index ────────────────────────────────────────────────────
+// ── Registry station index ────────────────────────────────────────────────────
 
-const VERIFIED_STATION_IDS = new Set(
-  VEDURSTOFAN_STATIONS.filter(s => s.coordinatesVerified).map(s => s.stationId),
+// Allows all 280 official registry stations; rejects arbitrary user-supplied IDs.
+const REGISTRY_STATION_IDS = new Set(
+  VEDURSTOFAN_STATIONS_REGISTRY.filter(s => s.stationId !== null).map(s => s.stationId!),
 )
 
 function stationNameFromList(stationId: string): string {
-  return VEDURSTOFAN_STATIONS.find(s => s.stationId === stationId)?.stationName ?? stationId
+  return VEDURSTOFAN_STATIONS_REGISTRY.find(s => s.stationId === stationId)?.name ?? stationId
 }
 
 // ── Cache key ─────────────────────────────────────────────────────────────────
@@ -220,7 +221,7 @@ export async function fetchVedurstofanForecastsForStations(
   // Partition: verified stations can be fetched; unverified return unavailable
   const verified: string[] = []
   for (const id of uniqueIds) {
-    if (VERIFIED_STATION_IDS.has(id)) {
+    if (REGISTRY_STATION_IDS.has(id)) {
       verified.push(id)
     } else {
       result.set(id, { status: 'unavailable' })

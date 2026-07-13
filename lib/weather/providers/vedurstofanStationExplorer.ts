@@ -1,12 +1,12 @@
 /**
- * Pure data helper for the Veðurstofan station explorer (Phase 2B0).
+ * Pure data helper for the Veðurstofan station explorer (Phase 2B1).
  *
- * Merges curated station metadata with live/cached fetch results into a
+ * Merges authoritative registry metadata with live/cached fetch results into a
  * client-safe response payload. No network calls, no Supabase access.
  *
  * Safe to import types from client components (no server-only deps).
  */
-import type { VedurstofanStation } from './vedurstofanStations'
+import type { VedurstofanStationRegistryEntry } from './vedurstofanStationsRegistry'
 import type { VedurstofanStationResult } from './vedurstofan.server'
 
 const SERVICE_URL =
@@ -15,10 +15,10 @@ const SERVICE_URL =
 export type StationExplorerStation = {
   stationId: string
   stationName: string
-  owner: string
+  owner: string | null
   lat: number
   lon: number
-  coordinatesVerified: boolean
+  mappingStatus: string
   status: 'ok' | 'stale' | 'unavailable'
   atimeIso: string | null
   fetchedAtIso: string | null
@@ -51,19 +51,25 @@ export type StationExplorerResponse = {
 }
 
 export function buildStationExplorerResponse(
-  stations: readonly VedurstofanStation[],
+  stations: readonly VedurstofanStationRegistryEntry[],
   results: Map<string, VedurstofanStationResult>,
 ): StationExplorerResponse {
-  const stationList: StationExplorerStation[] = stations.map(s => {
+  // Only include stations with coordinates and a stationId in the response
+  const mappable = stations.filter(
+    (s): s is VedurstofanStationRegistryEntry & { lat: number; lon: number; stationId: string } =>
+      s.lat !== null && s.lon !== null && s.stationId !== null,
+  )
+
+  const stationList: StationExplorerStation[] = mappable.map(s => {
     const result = results.get(s.stationId)
     if (!result || result.status === 'unavailable') {
       return {
         stationId: s.stationId,
-        stationName: s.stationName,
+        stationName: s.name,
         owner: s.owner,
         lat: s.lat,
         lon: s.lon,
-        coordinatesVerified: s.coordinatesVerified,
+        mappingStatus: s.mappingStatus,
         status: 'unavailable',
         atimeIso: null,
         fetchedAtIso: null,
@@ -76,11 +82,11 @@ export function buildStationExplorerResponse(
     const { payload } = result
     return {
       stationId: s.stationId,
-      stationName: s.stationName,
+      stationName: s.name,
       owner: s.owner,
       lat: s.lat,
       lon: s.lon,
-      coordinatesVerified: s.coordinatesVerified,
+      mappingStatus: s.mappingStatus,
       status: result.status,
       atimeIso: payload.atimeIso,
       fetchedAtIso: payload.fetchedAtIso,
