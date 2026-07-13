@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/cleanup-chats",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/warm-vedurstofan",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

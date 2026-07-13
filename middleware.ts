@@ -31,6 +31,13 @@ const PUBLIC_PATHS = [
   '/api/teskeid/weather/saved-places',
 ]
 
+// Exact-match public paths — no prefix semantics.
+// Use for routes where startsWith would unintentionally open sub-paths or variants.
+const EXACT_PUBLIC_PATHS = new Set([
+  // Cron — no browser session; route handler enforces CRON_SECRET bearer auth
+  '/api/cron/warm-vedurstofan',
+])
+
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
@@ -135,7 +142,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const isRoot = pathname === '/'
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p)) || EXACT_PUBLIC_PATHS.has(pathname)
   const isAuthCallback = pathname.startsWith('/auth/callback')
 
   // Landing page (/): public for guests, but authenticated users go to Teskeiðar.

@@ -328,6 +328,36 @@ describe('middleware — canonical /innskraning passes through', () => {
   })
 })
 
+// ── /api/cron/warm-vedurstofan — no browser session required ───────────────
+
+describe('middleware — /api/cron/warm-vedurstofan is public (no browser session)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  it('unauthenticated request passes through middleware (200)', async () => {
+    // Route handler enforces CRON_SECRET; middleware must not block first
+    const res = await middleware(makeReq('/api/cron/warm-vedurstofan'))
+    expect(res.status).toBe(200)
+  })
+
+  it('does not open /api/cron/* broadly — unknown cron paths still get 401', async () => {
+    const res = await middleware(makeReq('/api/cron/some-unknown-cron'))
+    expect(res.status).toBe(401)
+  })
+
+  it('prefix variant /api/cron/warm-vedurstofan/foo is not public — gets 401', async () => {
+    const res = await middleware(makeReq('/api/cron/warm-vedurstofan/foo'))
+    expect(res.status).toBe(401)
+  })
+
+  it('prefix variant /api/cron/warm-vedurstofan-extra is not public — gets 401', async () => {
+    const res = await middleware(makeReq('/api/cron/warm-vedurstofan-extra'))
+    expect(res.status).toBe(401)
+  })
+})
+
 // ── /dashboard is not public — requires authentication ─────────────────────
 
 describe('middleware — /dashboard requires authentication', () => {
