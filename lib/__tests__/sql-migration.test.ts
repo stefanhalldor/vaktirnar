@@ -1107,7 +1107,7 @@ describe('sql/74_vedurstofan_product_tables.sql — static checks', () => {
   })
 
   it('vedurstofan_stations has mapping_status CHECK with all five valid values', () => {
-    expect(sql74).toMatch(/mapping_status.*CHECK \(mapping_status IN \(/s)
+    expect(sql74).toMatch(/mapping_status[\s\S]*CHECK \(mapping_status IN \(/)
     expect(sql74).toContain("'source-provided'")
     expect(sql74).toContain("'missing-coordinates'")
     expect(sql74).toContain("'verified'")
