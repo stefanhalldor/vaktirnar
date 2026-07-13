@@ -427,14 +427,14 @@ export async function projectVedurstofanCacheToProductTables(): Promise<Vedursto
       .like('cache_key', `${FOREC_CACHE_KEY_PREFIX}%`)
 
     if (error || !data) {
-      await writeRunRecord(admin, startedAt, 0, 0, 0, 'Failed to read weather_cache')
-      return { projected: 0, skipped: 0, errors: 0, runId: null }
+      const runId = await writeRunRecord(admin, startedAt, 0, 0, 1, 'Failed to read weather_cache')
+      return { projected: 0, skipped: 0, errors: 1, runId }
     }
 
     cacheRows = data as WeatherCacheRow[]
   } catch {
-    await writeRunRecord(admin, startedAt, 0, 0, 0, 'Exception reading weather_cache')
-    return { projected: 0, skipped: 0, errors: 0, runId: null }
+    const runId = await writeRunRecord(admin, startedAt, 0, 0, 1, 'Exception reading weather_cache')
+    return { projected: 0, skipped: 0, errors: 1, runId }
   }
 
   // ── 2. Project each cache row ────────────────────────────────────────────────
@@ -459,8 +459,25 @@ export async function projectVedurstofanCacheToProductTables(): Promise<Vedursto
       continue
     }
 
+    // Cache key suffix must match payload stationId to prevent mismatched projection
+    const keyStationId = row.cache_key.slice(FOREC_CACHE_KEY_PREFIX.length)
+    if (keyStationId !== payload.stationId) {
+      skipped++
+      continue
+    }
+
     const stationId = payload.stationId
-    const forecastRows = payload.forecasts.map(f => ({
+
+    // Only project forecasts with a valid ftimeIso — skip individual bad rows
+    const validForecasts = payload.forecasts.filter(
+      f => typeof f.ftimeIso === 'string' && f.ftimeIso.length > 0,
+    )
+    if (validForecasts.length === 0) {
+      skipped++
+      continue
+    }
+
+    const forecastRows = validForecasts.map(f => ({
       station_id: stationId,
       forecast_time: f.ftimeIso,
       wind_speed_ms: f.windSpeedMs ?? null,
@@ -474,24 +491,27 @@ export async function projectVedurstofanCacheToProductTables(): Promise<Vedursto
     }))
 
     try {
-      // Delete existing rows only after validation succeeds
-      const { error: deleteError } = await admin
+      // Upsert new rows first — if this fails, existing product rows are preserved
+      const { error: upsertError } = await admin
         .from('vedurstofan_forecasts_latest')
-        .delete()
-        .eq('station_id', stationId)
+        .upsert(forecastRows, { onConflict: 'station_id,forecast_time' })
 
-      if (deleteError) {
+      if (upsertError) {
         errors++
         continue
       }
 
-      const { error: insertError } = await admin
+      // Delete stale rows only after upsert succeeds.
+      // Stale = rows for this station with an older fetched_at than the new payload.
+      // A lingering stale row is preferable to an empty station.
+      const { error: deleteError } = await admin
         .from('vedurstofan_forecasts_latest')
-        .insert(forecastRows)
+        .delete()
+        .eq('station_id', stationId)
+        .lt('fetched_at', payload.fetchedAtIso)
 
-      if (insertError) {
-        errors++
-        continue
+      if (deleteError) {
+        console.warn(`[weather/vedurstofan] stale row cleanup failed for ${stationId}`)
       }
 
       projected++

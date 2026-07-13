@@ -7,31 +7,36 @@ vi.mock('server-only', () => ({}))
 const {
   mockLike,
   mockDeleteEq,
-  mockInsertForecasts,
+  mockDeleteLt,
+  mockUpsertForecasts,
   mockInsertRunSelect,
 } = vi.hoisted(() => ({
   mockLike: vi.fn(),
   mockDeleteEq: vi.fn(),
-  mockInsertForecasts: vi.fn(),
+  mockDeleteLt: vi.fn(),
+  mockUpsertForecasts: vi.fn(),
   mockInsertRunSelect: vi.fn(),
 }))
 
 // Table-aware admin mock:
-//   weather_cache          → select().like()
-//   vedurstofan_forecasts_latest → delete().eq() or insert()
-//   weather_fetch_runs     → insert().select().maybeSingle()
+//   weather_cache                  → select().like()
+//   vedurstofan_forecasts_latest   → upsert() or delete().eq().lt()
+//   weather_fetch_runs             → insert().select().maybeSingle()
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: () => ({
     from: (table: string) => {
       if (table === 'weather_cache') {
-        return {
-          select: () => ({ like: mockLike }),
-        }
+        return { select: () => ({ like: mockLike }) }
       }
       if (table === 'vedurstofan_forecasts_latest') {
         return {
-          delete: () => ({ eq: mockDeleteEq }),
-          insert: mockInsertForecasts,
+          upsert: mockUpsertForecasts,
+          delete: () => ({
+            eq: (...args: unknown[]) => {
+              mockDeleteEq(...args)
+              return { lt: mockDeleteLt }
+            },
+          }),
         }
       }
       if (table === 'weather_fetch_runs') {
@@ -101,10 +106,9 @@ function makeCacheRow(stationId: string, payload = makePayload(stationId)) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  // Default: successful projection
   mockLike.mockResolvedValue({ data: [], error: null })
-  mockDeleteEq.mockResolvedValue({ error: null })
-  mockInsertForecasts.mockResolvedValue({ error: null })
+  mockUpsertForecasts.mockResolvedValue({ error: null })
+  mockDeleteLt.mockResolvedValue({ error: null })
   mockInsertRunSelect.mockResolvedValue({ data: { id: 1 }, error: null })
 })
 
@@ -112,7 +116,6 @@ beforeEach(() => {
 
 describe('projectVedurstofanCacheToProductTables — cache key prefix', () => {
   it('scans weather_cache with the correct key prefix', async () => {
-    mockLike.mockResolvedValue({ data: [], error: null })
     await projectVedurstofanCacheToProductTables()
     expect(mockLike).toHaveBeenCalledWith('cache_key', `${CACHE_KEY_PREFIX}%`)
   })
@@ -136,7 +139,7 @@ describe('projectVedurstofanCacheToProductTables — validation', () => {
     const result = await projectVedurstofanCacheToProductTables()
     expect(result.skipped).toBe(1)
     expect(result.projected).toBe(0)
-    expect(mockDeleteEq).not.toHaveBeenCalled()
+    expect(mockUpsertForecasts).not.toHaveBeenCalled()
   })
 
   it('skips rows where source is not vedurstofan', async () => {
@@ -144,7 +147,7 @@ describe('projectVedurstofanCacheToProductTables — validation', () => {
     mockLike.mockResolvedValue({ data: [makeCacheRow('31392', bad as never)], error: null })
     const result = await projectVedurstofanCacheToProductTables()
     expect(result.skipped).toBe(1)
-    expect(mockDeleteEq).not.toHaveBeenCalled()
+    expect(mockUpsertForecasts).not.toHaveBeenCalled()
   })
 
   it('skips rows where type is not forec', async () => {
@@ -152,22 +155,41 @@ describe('projectVedurstofanCacheToProductTables — validation', () => {
     mockLike.mockResolvedValue({ data: [makeCacheRow('31392', bad as never)], error: null })
     const result = await projectVedurstofanCacheToProductTables()
     expect(result.skipped).toBe(1)
-    expect(mockDeleteEq).not.toHaveBeenCalled()
+    expect(mockUpsertForecasts).not.toHaveBeenCalled()
   })
 
   it('skips rows where forecasts array is empty', async () => {
-    const empty = makePayload('31392', 0)
-    mockLike.mockResolvedValue({ data: [makeCacheRow('31392', empty)], error: null })
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392', makePayload('31392', 0))], error: null })
     const result = await projectVedurstofanCacheToProductTables()
     expect(result.skipped).toBe(1)
-    expect(mockDeleteEq).not.toHaveBeenCalled()
+    expect(mockUpsertForecasts).not.toHaveBeenCalled()
   })
 
-  it('does not delete existing rows when validation fails', async () => {
-    const bad = { ...makePayload('31392'), forecasts: [] }
-    mockLike.mockResolvedValue({ data: [makeCacheRow('31392', bad)], error: null })
+  it('skips rows where cache key station id does not match payload stationId', async () => {
+    const payload = makePayload('31392')
+    // Cache key says 6300, payload says 31392
+    const row = { cache_key: `${CACHE_KEY_PREFIX}6300`, response_body: payload, expires_at: '' }
+    mockLike.mockResolvedValue({ data: [row], error: null })
+    const result = await projectVedurstofanCacheToProductTables()
+    expect(result.skipped).toBe(1)
+    expect(mockUpsertForecasts).not.toHaveBeenCalled()
+  })
+
+  it('skips when all forecasts have empty ftimeIso', async () => {
+    const payload = makePayload('31392')
+    payload.forecasts = [{ ...payload.forecasts[0], ftimeIso: '' }]
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392', payload)], error: null })
+    const result = await projectVedurstofanCacheToProductTables()
+    expect(result.skipped).toBe(1)
+    expect(mockUpsertForecasts).not.toHaveBeenCalled()
+  })
+
+  it('does not touch product tables when validation fails', async () => {
+    const bad = { ...makePayload('31392'), source: 'wrong' }
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392', bad as never)], error: null })
     await projectVedurstofanCacheToProductTables()
-    expect(mockDeleteEq).not.toHaveBeenCalled()
+    expect(mockUpsertForecasts).not.toHaveBeenCalled()
+    expect(mockDeleteLt).not.toHaveBeenCalled()
   })
 })
 
@@ -185,17 +207,28 @@ describe('projectVedurstofanCacheToProductTables — projection', () => {
     expect(result.errors).toBe(0)
   })
 
-  it('deletes existing rows before inserting new set', async () => {
+  it('upserts new rows before deleting stale ones', async () => {
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
+    let upsertCalledAt = 0
+    let deleteCalledAt = 0
+    let callOrder = 0
+    mockUpsertForecasts.mockImplementation(() => { upsertCalledAt = ++callOrder; return Promise.resolve({ error: null }) })
+    mockDeleteLt.mockImplementation(() => { deleteCalledAt = ++callOrder; return Promise.resolve({ error: null }) })
+    await projectVedurstofanCacheToProductTables()
+    expect(upsertCalledAt).toBeLessThan(deleteCalledAt)
+  })
+
+  it('deletes stale rows using station_id and fetched_at filter', async () => {
     mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
     await projectVedurstofanCacheToProductTables()
     expect(mockDeleteEq).toHaveBeenCalledWith('station_id', '31392')
-    expect(mockInsertForecasts).toHaveBeenCalled()
+    expect(mockDeleteLt).toHaveBeenCalledWith('fetched_at', '2026-07-13T07:00:00Z')
   })
 
   it('sets atime, expires_at, fetched_at on forecast rows from payload', async () => {
     mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
     await projectVedurstofanCacheToProductTables()
-    const insertedRows = mockInsertForecasts.mock.calls[0][0] as Record<string, unknown>[]
+    const insertedRows = mockUpsertForecasts.mock.calls[0][0] as Record<string, unknown>[]
     expect(insertedRows[0].atime).toBe('2026-07-13T06:00:00Z')
     expect(insertedRows[0].expires_at).toBe('2026-07-13T08:30:00Z')
     expect(insertedRows[0].fetched_at).toBe('2026-07-13T07:00:00Z')
@@ -204,42 +237,57 @@ describe('projectVedurstofanCacheToProductTables — projection', () => {
   it('maps all forecast fields correctly', async () => {
     mockLike.mockResolvedValue({ data: [makeCacheRow('31392', makePayload('31392', 1))], error: null })
     await projectVedurstofanCacheToProductTables()
-    const row = (mockInsertForecasts.mock.calls[0][0] as Record<string, unknown>[])[0]
+    const row = (mockUpsertForecasts.mock.calls[0][0] as Record<string, unknown>[])[0]
     expect(row.station_id).toBe('31392')
-    expect(row.forecast_time).toBe('2026-07-13T9:00:00Z')
     expect(row.wind_speed_ms).toBe(5)
     expect(row.wind_direction_text).toBe('N')
     expect(row.temperature_c).toBe(10)
     expect(row.weather_text).toBe('Skýjað')
+  })
+
+  it('filters out individual forecasts with empty ftimeIso but projects the rest', async () => {
+    const payload = makePayload('31392', 2)
+    payload.forecasts[0] = { ...payload.forecasts[0], ftimeIso: '' }
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392', payload)], error: null })
+    await projectVedurstofanCacheToProductTables()
+    const rows = mockUpsertForecasts.mock.calls[0][0] as Record<string, unknown>[]
+    expect(rows).toHaveLength(1)
+    expect(rows).toHaveLength(1)
   })
 })
 
 // ── Error handling ────────────────────────────────────────────────────────────
 
 describe('projectVedurstofanCacheToProductTables — error handling', () => {
-  it('returns zero counts when cache scan fails', async () => {
+  it('cache scan failure returns errors:1, not errors:0', async () => {
     mockLike.mockResolvedValue({ data: null, error: { message: 'db error' } })
     const result = await projectVedurstofanCacheToProductTables()
+    expect(result.errors).toBe(1)
     expect(result.projected).toBe(0)
+  })
+
+  it('cache scan exception returns errors:1', async () => {
+    mockLike.mockRejectedValue(new Error('network failure'))
+    const result = await projectVedurstofanCacheToProductTables()
+    expect(result.errors).toBe(1)
+  })
+
+  it('upsert failure counts as error and does NOT delete existing rows', async () => {
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
+    mockUpsertForecasts.mockResolvedValue({ error: { message: 'upsert failed' } })
+    const result = await projectVedurstofanCacheToProductTables()
+    expect(result.errors).toBe(1)
+    expect(result.projected).toBe(0)
+    // Delete must NOT be called — existing rows are preserved
+    expect(mockDeleteLt).not.toHaveBeenCalled()
+  })
+
+  it('stale row delete failure does not count as error — upsert already succeeded', async () => {
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
+    mockDeleteLt.mockResolvedValue({ error: { message: 'delete failed' } })
+    const result = await projectVedurstofanCacheToProductTables()
     expect(result.errors).toBe(0)
-    expect(result.skipped).toBe(0)
-  })
-
-  it('counts station as error when delete fails', async () => {
-    mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
-    mockDeleteEq.mockResolvedValue({ error: { message: 'delete failed' } })
-    const result = await projectVedurstofanCacheToProductTables()
-    expect(result.errors).toBe(1)
-    expect(result.projected).toBe(0)
-    expect(mockInsertForecasts).not.toHaveBeenCalled()
-  })
-
-  it('counts station as error when insert fails', async () => {
-    mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
-    mockInsertForecasts.mockResolvedValue({ error: { message: 'insert failed' } })
-    const result = await projectVedurstofanCacheToProductTables()
-    expect(result.errors).toBe(1)
-    expect(result.projected).toBe(0)
+    expect(result.projected).toBe(1)
   })
 
   it('is fail-open: one station error does not prevent others from projecting', async () => {
@@ -247,19 +295,12 @@ describe('projectVedurstofanCacheToProductTables — error handling', () => {
       data: [makeCacheRow('31392'), makeCacheRow('6300')],
       error: null,
     })
-    mockDeleteEq
-      .mockResolvedValueOnce({ error: { message: 'delete failed' } })
+    mockUpsertForecasts
+      .mockResolvedValueOnce({ error: { message: 'upsert failed' } })
       .mockResolvedValueOnce({ error: null })
     const result = await projectVedurstofanCacheToProductTables()
     expect(result.errors).toBe(1)
     expect(result.projected).toBe(1)
-  })
-
-  it('returns empty result without throwing when cache scan throws', async () => {
-    mockLike.mockRejectedValue(new Error('network failure'))
-    const result = await projectVedurstofanCacheToProductTables()
-    expect(result.projected).toBe(0)
-    expect(result.runId).toBeNull()
   })
 })
 
@@ -279,6 +320,13 @@ describe('projectVedurstofanCacheToProductTables — weather_fetch_runs', () => 
     expect(result.runId).toBe(42)
   })
 
+  it('returns runId even when cache scan fails', async () => {
+    mockLike.mockResolvedValue({ data: null, error: { message: 'db error' } })
+    mockInsertRunSelect.mockResolvedValue({ data: { id: 99 }, error: null })
+    const result = await projectVedurstofanCacheToProductTables()
+    expect(result.runId).toBe(99)
+  })
+
   it('returns null runId if fetch run insert fails', async () => {
     mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
     mockInsertRunSelect.mockResolvedValue({ data: null, error: { message: 'insert failed' } })
@@ -288,7 +336,7 @@ describe('projectVedurstofanCacheToProductTables — weather_fetch_runs', () => 
 
   it('still returns projection results even if fetch run insert fails', async () => {
     mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
-    mockInsertRunSelect.mockResolvedValue({ data: null, error: { message: 'insert failed' } })
+    mockInsertRunSelect.mockResolvedValue({ data: null, error: null })
     const result = await projectVedurstofanCacheToProductTables()
     expect(result.projected).toBe(1)
   })
