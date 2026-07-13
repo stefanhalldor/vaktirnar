@@ -17,7 +17,7 @@ vi.mock('@/lib/loans/guard', () => ({
 }))
 
 vi.mock('@/lib/weather/providers/vedurstofan.server', () => ({
-  readVedurstofanCacheForStations: mockFetchVedurstofan,
+  readVedurstofanProductForStations: mockFetchVedurstofan,
 }))
 
 vi.mock('@/lib/weather/providers/vedurstofanStationsRegistry', () => ({
@@ -299,14 +299,14 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - fail-open', () => {
 
 // ── Cache-only behavior ────────────────────────────────────────────────────────
 
-describe('GET /api/teskeid/weather/vedurstofan/stations - cache-only (no live fetch)', () => {
-  it('uses readVedurstofanCacheForStations, not the live fetch function', async () => {
+describe('GET /api/teskeid/weather/vedurstofan/stations - product-table read (no live fetch)', () => {
+  it('uses readVedurstofanProductForStations, not the live fetch function', async () => {
     authedUser()
     mockFetchVedurstofan.mockResolvedValue(new Map())
 
     await GET()
 
-    // The mock is wired to readVedurstofanCacheForStations — if the route
+    // The mock is wired to readVedurstofanProductForStations — if the route
     // called the live fetch function it would not be intercepted here
     expect(mockFetchVedurstofan).toHaveBeenCalledTimes(1)
   })

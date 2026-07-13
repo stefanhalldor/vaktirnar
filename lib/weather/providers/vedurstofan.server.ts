@@ -196,6 +196,107 @@ function buildPayload(
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
+ * Reads Veðurstofan forecast data from the vedurstofan_forecasts_latest
+ * product table. This is the preferred read path once the background warmer
+ * has populated the table.
+ *
+ * Returns a Map keyed by station ID:
+ *   { status: 'ok', payload }    — has rows and expires_at is in the future
+ *   { status: 'stale', payload } — has rows but expires_at is in the past
+ *   { status: 'unavailable' }    — no rows for this station
+ *
+ * Never throws. Errors return an empty/partial map (fail-open).
+ */
+export async function readVedurstofanProductForStations(
+  stationIds: string[],
+): Promise<Map<string, VedurstofanStationResult>> {
+  const result = new Map<string, VedurstofanStationResult>()
+  if (stationIds.length === 0) return result
+
+  const admin = getAdmin()
+  const now = new Date()
+
+  type ForecastRow = {
+    station_id: string
+    forecast_time: string
+    wind_speed_ms: number | null
+    wind_direction_text: string | null
+    temperature_c: number | null
+    precipitation_mm_per_hour: number | null
+    weather_text: string | null
+    atime: string | null
+    expires_at: string | null
+    fetched_at: string
+  }
+
+  try {
+    const { data, error } = await admin
+      .from('vedurstofan_forecasts_latest')
+      .select(
+        'station_id, forecast_time, wind_speed_ms, wind_direction_text, temperature_c, precipitation_mm_per_hour, weather_text, atime, expires_at, fetched_at',
+      )
+      .in('station_id', stationIds)
+      .order('forecast_time')
+
+    if (error || !data) return result
+
+    // Group rows by station_id
+    const byStation = new Map<string, ForecastRow[]>()
+    for (const row of (data as ForecastRow[])) {
+      const existing = byStation.get(row.station_id)
+      if (existing) existing.push(row)
+      else byStation.set(row.station_id, [row])
+    }
+
+    for (const stationId of stationIds) {
+      const rows = byStation.get(stationId)
+      if (!rows || rows.length === 0) {
+        result.set(stationId, { status: 'unavailable' })
+        continue
+      }
+
+      const firstRow = rows[0]
+      const expiresAtIso = firstRow.expires_at
+      const isFresh = expiresAtIso ? new Date(expiresAtIso) > now : false
+
+      const payload: VedurstofanStationForecastCache = {
+        source: 'vedurstofan',
+        endpoint: 'xml',
+        type: 'forec',
+        lang: 'is',
+        timeStep: '3h',
+        params: ['F', 'D', 'T', 'R', 'W'],
+        stationId,
+        stationName: stationId,
+        atimeIso: firstRow.atime,
+        fetchedAtIso: firstRow.fetched_at,
+        expiresAtIso: expiresAtIso ?? firstRow.fetched_at,
+        attribution: {
+          provider: 'Veðurstofa Íslands',
+          downloadedAtIso: firstRow.fetched_at,
+          serviceUrl: 'https://xmlweather.vedur.is',
+        },
+        forecasts: rows.map(r => ({
+          ftimeIso: r.forecast_time,
+          windSpeedMs: r.wind_speed_ms,
+          windDirectionText: r.wind_direction_text,
+          temperatureC: r.temperature_c,
+          precipitationMmPerHour: r.precipitation_mm_per_hour,
+          weatherText: r.weather_text,
+        })),
+        parseErrors: [],
+      }
+
+      result.set(stationId, { status: isFresh ? 'ok' : 'stale', payload })
+    }
+  } catch {
+    // Fail-open: return partial map
+  }
+
+  return result
+}
+
+/**
  * Reads Veðurstofan forecast data from the weather_cache layer only.
  * Never makes live HTTP requests to the XML service.
  *
