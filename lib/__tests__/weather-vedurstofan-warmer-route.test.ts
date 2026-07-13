@@ -20,7 +20,7 @@ import { NextResponse } from 'next/server'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockWarmer.mockResolvedValue({ ok: 246, unavailable: 34, projected: 246, projectionRunId: 2 })
+  mockWarmer.mockResolvedValue({ fresh: 246, stale: 0, unavailable: 34, projected: 246, skipped: 0, errors: 0, projectionRunId: 2 })
 })
 
 describe('POST /api/admin/weather/warm-vedurstofan — auth', () => {
@@ -51,11 +51,12 @@ describe('POST /api/admin/weather/warm-vedurstofan — response', () => {
     mockRequireAdmin.mockResolvedValue({ user: { id: 'u1', email: 'admin@example.com' } })
   })
 
-  it('returns ok, unavailable, projected, projectionRunId', async () => {
-    mockWarmer.mockResolvedValue({ ok: 260, unavailable: 20, projected: 258, projectionRunId: 5 })
+  it('returns fresh, stale, unavailable, projected, projectionRunId', async () => {
+    mockWarmer.mockResolvedValue({ fresh: 240, stale: 20, unavailable: 20, projected: 258, skipped: 2, errors: 0, projectionRunId: 5 })
     const res = await POST()
     const body = await res.json()
-    expect(body.ok).toBe(260)
+    expect(body.fresh).toBe(240)
+    expect(body.stale).toBe(20)
     expect(body.unavailable).toBe(20)
     expect(body.projected).toBe(258)
     expect(body.projectionRunId).toBe(5)

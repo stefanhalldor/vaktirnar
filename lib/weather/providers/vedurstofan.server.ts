@@ -538,9 +538,15 @@ export async function projectVedurstofanCacheToProductTables(): Promise<Vedursto
 // ── Background warmer ─────────────────────────────────────────────────────────
 
 export type VedurstofanWarmResult = {
-  ok: number
+  /** Stations returned fresh live data (status='ok'). */
+  fresh: number
+  /** Stations served from expired cache because live fetch failed (status='stale'). */
+  stale: number
+  /** Stations with no data: unverified ID, or no cache and fetch failed (status='unavailable'). */
   unavailable: number
   projected: number
+  skipped: number
+  errors: number
   projectionRunId: number | null
 }
 
@@ -566,10 +572,12 @@ export async function warmVedurstofanForecastCache(): Promise<VedurstofanWarmRes
     results = new Map()
   }
 
-  let ok = 0
+  let fresh = 0
+  let stale = 0
   let unavailable = 0
   for (const r of results.values()) {
-    if (r.status !== 'unavailable') ok++
+    if (r.status === 'ok') fresh++
+    else if (r.status === 'stale') stale++
     else unavailable++
   }
 
@@ -580,7 +588,15 @@ export async function warmVedurstofanForecastCache(): Promise<VedurstofanWarmRes
     projection = { projected: 0, skipped: 0, errors: 0, runId: null }
   }
 
-  return { ok, unavailable, projected: projection.projected, projectionRunId: projection.runId }
+  return {
+    fresh,
+    stale,
+    unavailable,
+    projected: projection.projected,
+    skipped: projection.skipped,
+    errors: projection.errors,
+    projectionRunId: projection.runId,
+  }
 }
 
 async function writeRunRecord(

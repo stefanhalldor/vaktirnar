@@ -11,8 +11,8 @@ export async function POST() {
   try {
     const result = await projectVedurstofanCacheToProductTables()
     return NextResponse.json(result)
-  } catch (err) {
-    console.error('[admin/weather/project-vedurstofan] unexpected error', err)
+  } catch {
+    console.error('[admin/weather/project-vedurstofan] unexpected error')
     return NextResponse.json({ error: 'Projection failed' }, { status: 500 })
   }
 }

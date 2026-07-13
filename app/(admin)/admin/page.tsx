@@ -372,21 +372,26 @@ function TeskeidUsageSection({ usage }: { usage: TeskeidUsageData | null }) {
 }
 
 function VedurstofanWarmerSection() {
-  const [isPending, startTransition] = useTransition()
+  const [running, setRunning] = useState(false)
   const [result, setResult] = useState<{
-    ok: number; unavailable: number; projected: number; projectionRunId: number | null
+    fresh: number; stale: number; unavailable: number; projected: number; skipped: number; errors: number; projectionRunId: number | null
   } | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
 
-  function handleRun() {
+  async function handleRun() {
+    if (running) return
+    if (!confirm('Þetta sækir live gögn frá Veðurstofunni fyrir allar 280 stöðvar og skrifar í Supabase. Halda áfram?')) return
+    setRunning(true)
     setResult(null)
     setErrorMsg('')
-    startTransition(async () => {
+    try {
       const res = await fetch('/api/admin/weather/warm-vedurstofan', { method: 'POST' })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setErrorMsg(data.error ?? 'Villa'); return }
       setResult(data)
-    })
+    } finally {
+      setRunning(false)
+    }
   }
 
   return (
@@ -399,23 +404,26 @@ function VedurstofanWarmerSection() {
       <button
         type="button"
         onClick={handleRun}
-        disabled={isPending}
+        disabled={running}
         className="h-8 px-3 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
       >
-        {isPending ? 'Keyrir (bíddu)...' : 'Sækja allar 280 stöðvar'}
+        {running ? 'Keyrir (bíddu)...' : 'Sækja allar 280 stöðvar'}
       </button>
       {errorMsg && <p className="mt-2 text-xs text-red-600">{errorMsg}</p>}
       {result && (
-        <dl className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <dl className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
           {([
-            ['Tókst', result.ok],
-            ['Ekki til', result.unavailable],
-            ['Breytt', result.projected],
-            ['Run ID', result.projectionRunId ?? '—'],
-          ] as const).map(([label, value]) => (
+            ['Ferskt', result.fresh, false],
+            ['Gömul', result.stale, result.stale > 0],
+            ['Vantar', result.unavailable, result.unavailable > 0],
+            ['Breytt', result.projected, false],
+            ['Sleppt', result.skipped, result.skipped > 0],
+            ['Villur', result.errors, result.errors > 0],
+            ['Run ID', result.projectionRunId ?? '—', false],
+          ] as const).map(([label, value, warn]) => (
             <div key={label} className="flex flex-col gap-0.5">
               <dt className="text-gray-500">{label}</dt>
-              <dd className={`font-mono font-semibold ${label === 'Ekki til' && Number(value) > 0 ? 'text-amber-600' : 'text-gray-800'}`}>
+              <dd className={`font-mono font-semibold ${warn ? (label === 'Villur' ? 'text-red-600' : 'text-amber-600') : 'text-gray-800'}`}>
                 {value}
               </dd>
             </div>
@@ -427,21 +435,25 @@ function VedurstofanWarmerSection() {
 }
 
 function VedurstofanProjectorSection() {
-  const [isPending, startTransition] = useTransition()
+  const [running, setRunning] = useState(false)
   const [result, setResult] = useState<{
     projected: number; skipped: number; errors: number; runId: number | null
   } | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
 
-  function handleRun() {
+  async function handleRun() {
+    if (running) return
+    setRunning(true)
     setResult(null)
     setErrorMsg('')
-    startTransition(async () => {
+    try {
       const res = await fetch('/api/admin/weather/project-vedurstofan', { method: 'POST' })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setErrorMsg(data.error ?? 'Villa'); return }
       setResult(data)
-    })
+    } finally {
+      setRunning(false)
+    }
   }
 
   return (
@@ -454,10 +466,10 @@ function VedurstofanProjectorSection() {
       <button
         type="button"
         onClick={handleRun}
-        disabled={isPending}
+        disabled={running}
         className="h-8 px-3 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
       >
-        {isPending ? 'Keyrir...' : 'Keyra breytara'}
+        {running ? 'Keyrir...' : 'Keyra breytara'}
       </button>
       {errorMsg && <p className="mt-2 text-xs text-red-600">{errorMsg}</p>}
       {result && (
