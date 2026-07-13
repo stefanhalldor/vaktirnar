@@ -1056,3 +1056,105 @@ describe('sql/73_feature_access_elta_vedrid.sql — static checks', () => {
     expect(sql73).not.toMatch(/\bDELETE\b/)
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/74 vedurstofan_product_tables
+// ============================================================
+
+const sql74 = readFileSync(
+  join(process.cwd(), 'sql/74_vedurstofan_product_tables.sql'),
+  'utf8'
+)
+
+describe('sql/74_vedurstofan_product_tables.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql74).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql74).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('creates all four tables', () => {
+    expect(sql74).toMatch(/CREATE TABLE IF NOT EXISTS public\.vedurstofan_stations/)
+    expect(sql74).toMatch(/CREATE TABLE IF NOT EXISTS public\.vedurstofan_forecasts_latest/)
+    expect(sql74).toMatch(/CREATE TABLE IF NOT EXISTS public\.vedurstofan_observations_latest/)
+    expect(sql74).toMatch(/CREATE TABLE IF NOT EXISTS public\.weather_fetch_runs/)
+  })
+
+  it('enables RLS on all four tables', () => {
+    expect(sql74).toMatch(/ALTER TABLE public\.vedurstofan_stations ENABLE ROW LEVEL SECURITY/)
+    expect(sql74).toMatch(/ALTER TABLE public\.vedurstofan_forecasts_latest ENABLE ROW LEVEL SECURITY/)
+    expect(sql74).toMatch(/ALTER TABLE public\.vedurstofan_observations_latest ENABLE ROW LEVEL SECURITY/)
+    expect(sql74).toMatch(/ALTER TABLE public\.weather_fetch_runs ENABLE ROW LEVEL SECURITY/)
+  })
+
+  it('does not define any RLS policies', () => {
+    expect(sql74).not.toMatch(/CREATE POLICY/)
+  })
+
+  it('revokes access from PUBLIC, anon, authenticated on all four tables', () => {
+    expect(sql74).toMatch(/REVOKE ALL ON public\.vedurstofan_stations FROM PUBLIC, anon, authenticated/)
+    expect(sql74).toMatch(/REVOKE ALL ON public\.vedurstofan_forecasts_latest FROM PUBLIC, anon, authenticated/)
+    expect(sql74).toMatch(/REVOKE ALL ON public\.vedurstofan_observations_latest FROM PUBLIC, anon, authenticated/)
+    expect(sql74).toMatch(/REVOKE ALL ON public\.weather_fetch_runs FROM PUBLIC, anon, authenticated/)
+  })
+
+  it('grants only to service_role on all four tables', () => {
+    expect(sql74).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON public\.vedurstofan_stations TO service_role/)
+    expect(sql74).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON public\.vedurstofan_forecasts_latest TO service_role/)
+    expect(sql74).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON public\.vedurstofan_observations_latest TO service_role/)
+    expect(sql74).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON public\.weather_fetch_runs TO service_role/)
+    expect(sql74).not.toMatch(/GRANT.*TO anon/)
+    expect(sql74).not.toMatch(/GRANT.*TO authenticated/)
+  })
+
+  it('vedurstofan_stations has mapping_status CHECK with all five valid values', () => {
+    expect(sql74).toMatch(/mapping_status.*CHECK \(mapping_status IN \(/s)
+    expect(sql74).toContain("'source-provided'")
+    expect(sql74).toContain("'missing-coordinates'")
+    expect(sql74).toContain("'verified'")
+    expect(sql74).toContain("'needs-verification'")
+    expect(sql74).toContain("'ambiguous'")
+  })
+
+  it('FK relationships point to vedurstofan_stations(station_id)', () => {
+    const fkPattern = /REFERENCES public\.vedurstofan_stations \(station_id\)/g
+    const matches = sql74.match(fkPattern)
+    // vedurstofan_forecasts_latest and vedurstofan_observations_latest both FK to stations
+    expect(matches).not.toBeNull()
+    expect(matches!.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('forecast and observation tables have expires_at column', () => {
+    const forecastSection = sql74.slice(
+      sql74.indexOf('CREATE TABLE IF NOT EXISTS public.vedurstofan_forecasts_latest'),
+      sql74.indexOf('CREATE TABLE IF NOT EXISTS public.vedurstofan_observations_latest')
+    )
+    expect(forecastSection).toMatch(/expires_at\s+timestamptz/)
+
+    const obsSection = sql74.slice(
+      sql74.indexOf('CREATE TABLE IF NOT EXISTS public.vedurstofan_observations_latest'),
+      sql74.indexOf('CREATE TABLE IF NOT EXISTS public.weather_fetch_runs')
+    )
+    expect(obsSection).toMatch(/expires_at\s+timestamptz/)
+  })
+
+  it('weather_fetch_runs source CHECK is Vedurstofan-only', () => {
+    expect(sql74).toMatch(/CHECK \(source IN \('vedurstofan'\)\)/)
+    expect(sql74).not.toMatch(/source IN \(.*'metno'/)
+  })
+
+  it('weather_fetch_runs fetch_type CHECK allows obs and forec', () => {
+    expect(sql74).toMatch(/CHECK \(fetch_type IN \('obs', 'forec'\)\)/)
+  })
+
+  it('rollback comment lists all four tables in FK-safe order', () => {
+    const rollback = sql74.slice(sql74.indexOf('Rollback:'))
+    const runsPos   = rollback.indexOf('weather_fetch_runs')
+    const obsPos    = rollback.indexOf('vedurstofan_observations_latest')
+    const forecPos  = rollback.indexOf('vedurstofan_forecasts_latest')
+    const stationsPos = rollback.indexOf('vedurstofan_stations')
+    // child tables must be dropped before parent
+    expect(runsPos).toBeLessThan(stationsPos)
+    expect(obsPos).toBeLessThan(stationsPos)
+    expect(forecPos).toBeLessThan(stationsPos)
+  })
+})
