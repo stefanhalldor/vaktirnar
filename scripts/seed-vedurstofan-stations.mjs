@@ -95,7 +95,7 @@ const rows = stations
     lat: s.lat ?? null,
     lon: s.lon ?? null,
     coordinates_raw: s.coordinatesRaw ?? null,
-    elevation_m: s.elevationM ?? null,
+    elevation_m: s.elevationM != null ? Math.round(s.elevationM) : null,
     start_year: s.startYear ?? null,
     owner: s.owner ?? null,
     source_url: s.sourceUrl,
