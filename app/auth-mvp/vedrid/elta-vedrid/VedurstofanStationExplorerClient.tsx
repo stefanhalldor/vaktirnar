@@ -236,7 +236,7 @@ export function VedurstofanStationExplorerClient() {
           </div>
 
           {/* Selected station detail */}
-          {selectedStation && <StationDetail station={selectedStation} />}
+          {selectedStation && <StationDetail key={selectedStation.stationId} station={selectedStation} />}
 
           {/* Station list */}
           <div className="flex flex-col divide-y divide-border border border-border rounded-lg overflow-hidden">
