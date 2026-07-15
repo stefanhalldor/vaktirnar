@@ -947,7 +947,16 @@
         "stationType": "Tegund stöðvar",
         "officialPage": "Vefsíða",
         "mappingStatusLabel": "Hnit",
-        "dataAge": "Gögn"
+        "dataAge": "Gögn",
+        "pulseOpen": "Veðurpúls",
+        "pulseLoading": "Sæki...",
+        "pulseEmpty": "Engin skilaboð enn. Vertu fyrst til að deila því sem þú sérð.",
+        "pulseInputPlaceholder": "Deildu því sem þú ert að sjá við þessa stöð...",
+        "pulseSend": "Senda",
+        "pulseSendError": "Tókst ekki að senda. Reyndu aftur.",
+        "pulseDeleted": "[eytt]",
+        "pulseKindField": "Vettvangsskýrsla",
+        "pulseKindMeasurement": "Mæling"
       }
     }
   }

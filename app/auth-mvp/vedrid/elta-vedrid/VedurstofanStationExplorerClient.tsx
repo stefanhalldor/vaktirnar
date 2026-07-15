@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronUp, MessageSquare } from 'lucide-react'
 import type {
   StationExplorerResponse,
   StationExplorerStation,
@@ -13,6 +13,7 @@ import {
   loadMarkerLibrary,
   loadCoreLibrary,
 } from '@/lib/weather/googleMaps.client'
+import type { MessageDto, ThreadDto } from '@/lib/chat/types'
 
 const STATUS_COLOR: Record<StationExplorerStation['status'], string> = {
   ok: '#16a34a',
@@ -277,6 +278,223 @@ export function VedurstofanStationExplorerClient() {
   )
 }
 
+// ── Veðurpúls ─────────────────────────────────────────────────────────────────
+
+type PulseMessage = MessageDto & { optimistic?: boolean; failed?: boolean }
+
+function PulseMessageRow({ msg }: { msg: PulseMessage }) {
+  const t = useTranslations('teskeid.vedrid.eltaVedrid')
+  const isRedacted = msg.isDeleted || msg.isHidden
+  return (
+    <div className={`flex flex-col gap-0.5 ${msg.optimistic ? 'opacity-60' : msg.failed ? 'opacity-40' : ''}`}>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-muted-foreground tabular-nums">
+          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+        {msg.messageKind === 'field_report' && (
+          <span className="text-[9px] px-1 rounded bg-muted text-muted-foreground">{t('pulseKindField')}</span>
+        )}
+        {msg.messageKind === 'measurement_report' && (
+          <span className="text-[9px] px-1 rounded bg-muted text-muted-foreground">{t('pulseKindMeasurement')}</span>
+        )}
+      </div>
+      {isRedacted ? (
+        <span className="text-xs text-muted-foreground italic">{t('pulseDeleted')}</span>
+      ) : (
+        <span className="text-xs break-words">{msg.body}</span>
+      )}
+    </div>
+  )
+}
+
+function WeatherPulsePanel({ stationId }: { stationId: string }) {
+  const t = useTranslations('teskeid.vedrid.eltaVedrid')
+  const [open, setOpen] = useState(false)
+  const [accessDenied, setAccessDenied] = useState(false)
+  const [threadId, setThreadId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<PulseMessage[]>([])
+  const [loadingThread, setLoadingThread] = useState(false)
+  const [body, setBody] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+
+  async function initThread() {
+    setLoadingThread(true)
+    try {
+      const res = await fetch('/api/auth-mvp/vedurpuls/thread', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId: stationId }),
+      })
+      if (res.status === 401 || res.status === 403 || res.status === 503) {
+        // Feature gate or auth failure — hide panel for this session
+        setAccessDenied(true)
+        setOpen(false)
+        return
+      }
+      if (!res.ok) {
+        // Transient error (5xx, network) — leave panel visible, just close
+        setOpen(false)
+        return
+      }
+      const thread: ThreadDto = await res.json()
+      setThreadId(thread.id)
+    } catch {
+      // Network error — leave panel visible for retry
+      setOpen(false)
+    } finally {
+      setLoadingThread(false)
+    }
+  }
+
+  async function loadMessages(id: string) {
+    try {
+      const res = await fetch(`/api/auth-mvp/vedurpuls/messages?threadId=${id}&limit=50`)
+      if (!res.ok) return
+      const data: MessageDto[] = await res.json()
+      // Preserve any in-flight optimistic messages not yet confirmed
+      setMessages(prev => {
+        const optimistic = prev.filter(m => m.optimistic)
+        return [...data, ...optimistic]
+      })
+    } catch { /* silent during poll */ }
+  }
+
+  async function markRead(id: string) {
+    try {
+      await fetch('/api/auth-mvp/vedurpuls/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: id }),
+      })
+    } catch { /* silent */ }
+  }
+
+  function toggle() {
+    if (accessDenied) return
+    if (!open) {
+      setOpen(true)
+      if (!threadId) initThread()
+    } else {
+      setOpen(false)
+    }
+  }
+
+  // Start/stop polling when panel is open and thread is ready
+  useEffect(() => {
+    if (!open || !threadId) return
+    loadMessages(threadId)
+    markRead(threadId)
+    const id = setInterval(() => loadMessages(threadId), 15_000)
+    pollRef.current = id
+    return () => { clearInterval(id); pollRef.current = null }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, threadId])
+
+  // Scroll to bottom when messages arrive
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages.length])
+
+  async function handleSend() {
+    if (!threadId || !body.trim() || sending) return
+    setSendError(false)
+    const trimmed = body.trim()
+    const optimisticId = `opt-${Date.now()}`
+    const optimistic: PulseMessage = {
+      id: optimisticId,
+      threadId,
+      body: trimmed,
+      messageKind: 'chat',
+      createdAt: new Date().toISOString(),
+      isDeleted: false,
+      isHidden: false,
+      optimistic: true,
+    }
+    setMessages(prev => [...prev, optimistic])
+    setBody('')
+    setSending(true)
+    try {
+      const res = await fetch('/api/auth-mvp/vedurpuls/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId, body: trimmed }),
+      })
+      if (!res.ok) throw new Error('send failed')
+      const confirmed: MessageDto = await res.json()
+      setMessages(prev => prev.map(m => m.id === optimisticId ? confirmed : m))
+    } catch {
+      setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, optimistic: false, failed: true } : m))
+      setSendError(true)
+      setBody(trimmed)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  if (accessDenied) return null
+
+  return (
+    <div className="border-t border-border pt-3 flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors self-start"
+      >
+        <MessageSquare className="w-3.5 h-3.5" />
+        {t('pulseOpen')}
+        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+      </button>
+
+      {open && (
+        <>
+          {loadingThread && (
+            <p className="text-xs text-muted-foreground">{t('pulseLoading')}</p>
+          )}
+          {threadId && (
+            <>
+              <div className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-0.5">
+                {messages.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t('pulseEmpty')}</p>
+                ) : (
+                  messages.map(msg => <PulseMessageRow key={msg.id} msg={msg} />)
+                )}
+                <div ref={endRef} />
+              </div>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={body}
+                  onChange={e => setBody(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                  maxLength={1000}
+                  placeholder={t('pulseInputPlaceholder')}
+                  className="flex-1 text-base min-h-10 px-2.5 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60"
+                />
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={sending || !body.trim()}
+                  className="text-sm min-h-10 px-3 rounded-lg bg-foreground text-background disabled:opacity-40 transition-opacity shrink-0"
+                >
+                  {t('pulseSend')}
+                </button>
+              </div>
+              {sendError && (
+                <p className="text-xs text-destructive">{t('pulseSendError')}</p>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Station detail card ────────────────────────────────────────────────────────
+
 function StationDetail({ station }: { station: StationExplorerStation }) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
 
@@ -428,6 +646,8 @@ function StationDetail({ station }: { station: StationExplorerStation }) {
           </ul>
         </details>
       )}
+
+      <WeatherPulsePanel stationId={station.stationId} />
     </div>
   )
 }

@@ -943,7 +943,16 @@
         "stationType": "Station type",
         "officialPage": "Official page",
         "mappingStatusLabel": "Coordinates",
-        "dataAge": "Data"
+        "dataAge": "Data",
+        "pulseOpen": "Veðurpúls",
+        "pulseLoading": "Loading...",
+        "pulseEmpty": "No messages yet. Be the first to share what you see.",
+        "pulseInputPlaceholder": "Share what you observe at this station...",
+        "pulseSend": "Send",
+        "pulseSendError": "Failed to send. Try again.",
+        "pulseDeleted": "[deleted]",
+        "pulseKindField": "Field report",
+        "pulseKindMeasurement": "Measurement"
       }
     }
   }
