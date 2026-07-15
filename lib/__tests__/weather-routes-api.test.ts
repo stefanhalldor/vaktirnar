@@ -81,6 +81,14 @@ function guestUser() {
   process.env.WEATHER_PUBLIC_ENABLED = 'true'
 }
 
+function publicAuthedUser() {
+  // Signed-in user without vedrid — treated as public/base weather path
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+  mockCheckFeatureAccess.mockResolvedValue(false)
+  mockCheckWeatherGuestRateLimit.mockResolvedValue(true)
+  process.env.WEATHER_PUBLIC_ENABLED = 'true'
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
@@ -104,7 +112,8 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(body.error).toBe('Unauthorized')
   })
 
-  it('returns 404 when user lacks vedrid feature access', async () => {
+  it('returns 404 when WEATHER_ENABLED is off (signed-in user without vedrid)', async () => {
+    delete process.env.WEATHER_ENABLED
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
     mockCheckFeatureAccess.mockResolvedValue(false)
     const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
@@ -219,6 +228,30 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     const call = mockGetRouteOptions.mock.calls[0]
     expect(call[0].placeId).toBe('confirmed')
   })
+
+  it('signed-in user without vedrid uses public path and returns 200 when WEATHER_PUBLIC_ENABLED=true', async () => {
+    publicAuthedUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(res.status).toBe(200)
+  })
+
+  it('signed-in user without vedrid gets 404 when WEATHER_ENABLED is off', async () => {
+    delete process.env.WEATHER_ENABLED
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(res.status).toBe(404)
+  })
+
+  it('signed-in user without vedrid is rate-limited on public path', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    mockCheckWeatherGuestRateLimit.mockResolvedValue(false)
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    expect(res.status).toBe(429)
+  })
 })
 
 describe('POST /api/teskeid/weather/travel/routes — usage events', () => {
@@ -260,7 +293,7 @@ describe('POST /api/teskeid/weather/travel/routes — usage events', () => {
     expect(mockRecordTeskeidUsageEvent).not.toHaveBeenCalled()
   })
 
-  it('records guest weather_route_options_calculated with userId null and actor guest', async () => {
+  it('records public weather_route_options_calculated with userId null and actor public', async () => {
     guestUser()
     mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
     await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
@@ -268,18 +301,18 @@ describe('POST /api/teskeid/weather/travel/routes — usage events', () => {
       userId: null,
       featureKey: 'vedrid',
       eventName: 'weather_route_options_calculated',
-      metadata: expect.objectContaining({ actor: 'guest' }),
+      metadata: expect.objectContaining({ actor: 'public' }),
     }))
   })
 
-  it('records guest weather_route_options_failed when provider returns no routes', async () => {
+  it('records public weather_route_options_failed when provider returns no routes', async () => {
     guestUser()
     mockGetRouteOptions.mockResolvedValue([])
     await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
     expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
       userId: null,
       eventName: 'weather_route_options_failed',
-      metadata: expect.objectContaining({ actor: 'guest' }),
+      metadata: expect.objectContaining({ actor: 'public' }),
     }))
   })
 
@@ -292,7 +325,7 @@ describe('POST /api/teskeid/weather/travel/routes — usage events', () => {
     expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
       userId: null,
       eventName: 'weather_route_options_rate_limited',
-      metadata: expect.objectContaining({ actor: 'guest' }),
+      metadata: expect.objectContaining({ actor: 'public' }),
     }))
   })
 

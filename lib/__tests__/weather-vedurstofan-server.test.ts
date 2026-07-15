@@ -57,16 +57,31 @@ const TWO_STATION_XML = forecastsXml([
   stationXml(SELFOSS_ID, 'Selfoss'),
 ])
 
-function makeCachedPayload(stationId: string): object {
+/** Returns the start of the current 3-hour Veðurstofan cycle (UTC). */
+function currentExpectedCycleIso(): string {
+  const now = new Date()
+  const h = Math.floor(now.getUTCHours() / 3) * 3
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, 0, 0)).toISOString()
+}
+
+/** atimeIso defaults to the current expected cycle — pass an old ISO for stale cache tests. */
+function makeCachedPayload(stationId: string, atimeIso?: string): object {
+  const resolvedAtimeIso = atimeIso ?? currentExpectedCycleIso()
   return {
     source: 'vedurstofan',
     stationId,
+    atimeIso: resolvedAtimeIso,
     forecasts: [],
     parseErrors: [],
     expiresAtIso: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     fetchedAtIso: new Date().toISOString(),
     attribution: { provider: 'Veðurstofa Íslands', downloadedAtIso: '', serviceUrl: '' },
   }
+}
+
+/** A cached payload with an old atimeIso that isVedurstofanCycleFresh will reject as stale. */
+function makeStalePayload(stationId: string): object {
+  return makeCachedPayload(stationId, '2020-01-01T00:00:00Z')
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
@@ -145,10 +160,10 @@ describe('fetchVedurstofanForecastsForStations', () => {
   })
 
   it('fetches fresh data when cache is expired', async () => {
-    // Expired cache row
+    // Stale cache row: atimeIso from old cycle so isVedurstofanCycleFresh returns false
     mockMaybeSingle.mockResolvedValue({
       data: {
-        response_body: makeCachedPayload(HELLISH_ID),
+        response_body: makeStalePayload(HELLISH_ID),
         expires_at: new Date(Date.now() - 1000).toISOString(),
       },
     })
@@ -165,7 +180,7 @@ describe('fetchVedurstofanForecastsForStations', () => {
   })
 
   it('returns stale cache when fetch fails on an expired row', async () => {
-    const stalePayload = makeCachedPayload(HELLISH_ID)
+    const stalePayload = makeStalePayload(HELLISH_ID)
     mockMaybeSingle.mockResolvedValue({
       data: {
         response_body: stalePayload,
@@ -275,28 +290,23 @@ describe('fetchVedurstofanForecastsForStations', () => {
     expect(result.get('BOGUS')).toEqual({ status: 'unavailable' })
   })
 
-  it('expiresAtIso is approximately 90 minutes after fetchedAtIso', async () => {
+  it('expiresAtIso is set to atimeIso + 3h + 10min (cycle-based expiry)', async () => {
     mockMaybeSingle.mockResolvedValue({ data: null })
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(SINGLE_STATION_XML),
     })
 
-    const before = Date.now()
     const result = await fetchVedurstofanForecastsForStations([HELLISH_ID])
-    const after = Date.now()
 
     const entry = result.get(HELLISH_ID)
     if (entry?.status === 'ok') {
-      const fetched = new Date(entry.payload.fetchedAtIso).getTime()
+      const atimeMs = Date.parse(entry.payload.atimeIso!)
       const expires = new Date(entry.payload.expiresAtIso).getTime()
-      const ttlMs = expires - fetched
-      // TTL should be 90 minutes (5400000 ms), with small clock tolerance
-      expect(ttlMs).toBeGreaterThanOrEqual(5_400_000 - 100)
-      expect(ttlMs).toBeLessThanOrEqual(5_400_000 + 100)
-      // fetchedAtIso should be within the test execution window
-      expect(fetched).toBeGreaterThanOrEqual(before)
-      expect(fetched).toBeLessThanOrEqual(after)
+      // expiresAtIso = atimeIso + CADENCE_MS (3h) + GRACE_MS (10min)
+      const CADENCE_MS = 3 * 60 * 60 * 1000
+      const GRACE_MS = 10 * 60 * 1000
+      expect(expires).toBe(atimeMs + CADENCE_MS + GRACE_MS)
     }
   })
 
@@ -340,7 +350,7 @@ describe('fetchVedurstofanForecastsForStations', () => {
   })
 
   it('returns stale cache for invalid station response when stale row exists', async () => {
-    const stalePayload = makeCachedPayload(HELLISH_ID)
+    const stalePayload = makeStalePayload(HELLISH_ID)
     mockMaybeSingle.mockResolvedValue({
       data: { response_body: stalePayload, expires_at: new Date(Date.now() - 1000).toISOString() },
     })
@@ -420,8 +430,8 @@ describe('fetchVedurstofanForecastsForStations', () => {
   })
 
   it('returns stale cache when fetch is aborted (simulating timeout)', async () => {
-    const stalePayload = makeCachedPayload(HELLISH_ID)
-    // Expired cache row exists
+    const stalePayload = makeStalePayload(HELLISH_ID)
+    // Stale cache row exists (atimeIso from old cycle)
     mockMaybeSingle.mockResolvedValue({
       data: { response_body: stalePayload, expires_at: new Date(Date.now() - 1000).toISOString() },
     })

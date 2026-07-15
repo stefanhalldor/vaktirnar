@@ -86,7 +86,7 @@ export function VedurstofanStationExplorerClient() {
 
         const map = new mapsLib.Map(mapDivRef.current, {
           center: { lat: 64.9, lng: -18.8 },
-          zoom: 6,
+          zoom: 5,
           mapTypeId: 'roadmap',
           gestureHandling: 'cooperative',
           zoomControl: true,
@@ -271,10 +271,6 @@ export function VedurstofanStationExplorerClient() {
             )}
           </div>
 
-          {/* Attribution */}
-          <p className="text-[10px] text-muted-foreground break-all">
-            {t('attribution')} · {data.attribution.serviceUrl}
-          </p>
         </>
       )}
     </div>

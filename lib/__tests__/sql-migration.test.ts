@@ -1158,3 +1158,183 @@ describe('sql/74_vedurstofan_product_tables.sql — static checks', () => {
     expect(forecPos).toBeLessThan(stationsPos)
   })
 })
+
+const sql75 = readFileSync(
+  join(process.cwd(), 'sql/75_weather_fetch_runs_metadata.sql'),
+  'utf8'
+)
+
+describe('sql/75_weather_fetch_runs_metadata.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql75).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql75).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('uses ADD COLUMN IF NOT EXISTS (idempotent)', () => {
+    const addColumns = sql75.match(/ADD COLUMN IF NOT EXISTS/g) ?? []
+    // status, triggered_by, triggered_by_user_id, trigger_reason, expected_atime, result_atime
+    expect(addColumns.length).toBeGreaterThanOrEqual(6)
+  })
+
+  it('adds result_atime column for actual provider cycle tracking', () => {
+    expect(sql75).toMatch(/ADD COLUMN IF NOT EXISTS result_atime\s+timestamptz/)
+  })
+
+  it('adds expected_atime column for expected cycle tracking', () => {
+    expect(sql75).toMatch(/ADD COLUMN IF NOT EXISTS expected_atime\s+timestamptz/)
+  })
+
+  it('status CHECK includes running, succeeded, failed, skipped', () => {
+    expect(sql75).toContain("'running'")
+    expect(sql75).toContain("'succeeded'")
+    expect(sql75).toContain("'failed'")
+    expect(sql75).toContain("'skipped'")
+  })
+
+  it('status defaults to succeeded (backward-compatible with existing rows)', () => {
+    expect(sql75).toMatch(/status\s+text\s+NOT NULL\s+DEFAULT\s+'succeeded'/)
+  })
+
+  it('triggered_by CHECK includes cron, manual, admin', () => {
+    expect(sql75).toContain("'cron'")
+    expect(sql75).toContain("'manual'")
+    expect(sql75).toContain("'admin'")
+  })
+
+  it('triggered_by defaults to cron (backward-compatible with existing rows)', () => {
+    expect(sql75).toMatch(/triggered_by\s+text\s+NOT NULL\s+DEFAULT\s+'cron'/)
+  })
+
+  it('creates partial unique index for concurrent running row prevention', () => {
+    expect(sql75).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS weather_fetch_runs_one_running_vedurstofan_forec_idx/)
+    expect(sql75).toMatch(/ON public\.weather_fetch_runs \(source, fetch_type, expected_atime\)/)
+    expect(sql75).toMatch(/WHERE status = 'running' AND finished_at IS NULL/)
+  })
+
+  it('rollback drops the index before columns', () => {
+    const rollback = sql75.slice(sql75.indexOf('Rollback:'))
+    const indexPos  = rollback.indexOf('weather_fetch_runs_one_running_vedurstofan_forec_idx')
+    const columnPos = rollback.indexOf('DROP COLUMN IF EXISTS')
+    expect(indexPos).toBeGreaterThan(-1)
+    expect(columnPos).toBeGreaterThan(-1)
+    expect(indexPos).toBeLessThan(columnPos)
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/76 feature_access_weather_provider_vedurstofan
+// ============================================================
+
+const sql76 = readFileSync(
+  join(process.cwd(), 'sql/76_feature_access_weather_provider_vedurstofan.sql'),
+  'utf8'
+)
+
+describe('sql/76_feature_access_weather_provider_vedurstofan.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql76).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql76).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops the old constraint before adding the new one', () => {
+    const dropPos = sql76.indexOf('DROP CONSTRAINT IF EXISTS feature_access_feature_key_check')
+    const addPos  = sql76.indexOf('ADD CONSTRAINT feature_access_feature_key_check', dropPos)
+    expect(dropPos).toBeGreaterThan(-1)
+    expect(addPos).toBeGreaterThan(dropPos)
+  })
+
+  it('new constraint allows exactly the expected feature keys', () => {
+    expect(sql76).toMatch(
+      /CHECK\s*\(feature_key IN \('umonnun',\s*'tengsl',\s*'facebook-oauth',\s*'vedrid',\s*'ferdalagid',\s*'elta-vedrid',\s*'weather-provider-vedurstofan'\)\)/
+    )
+  })
+
+  it('includes weather-provider-vedurstofan as the new key', () => {
+    expect(sql76).toContain("'weather-provider-vedurstofan'")
+  })
+
+  it('retains elta-vedrid for the station validator/explorer route', () => {
+    expect(sql76).toContain("'elta-vedrid'")
+  })
+
+  it('does not touch grants, RLS, auth, or data', () => {
+    expect(sql76).not.toMatch(/GRANT/)
+    expect(sql76).not.toMatch(/REVOKE/)
+    expect(sql76).not.toMatch(/ENABLE ROW LEVEL SECURITY/)
+    expect(sql76).not.toMatch(/\bINSERT\b/)
+    expect(sql76).not.toMatch(/\bUPDATE\b/)
+    expect(sql76).not.toMatch(/\bDELETE\b/)
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/77 vedurstofan_forecasts_history
+// ============================================================
+
+const sql77 = readFileSync(
+  join(process.cwd(), 'sql/77_vedurstofan_forecasts_history.sql'),
+  'utf8'
+)
+
+describe('sql/77_vedurstofan_forecasts_history.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql77).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql77).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('creates vedurstofan_forecasts_history table', () => {
+    expect(sql77).toMatch(/CREATE TABLE IF NOT EXISTS public\.vedurstofan_forecasts_history/)
+  })
+
+  it('primary key is (station_id, atime, forecast_time)', () => {
+    expect(sql77).toMatch(/PRIMARY KEY \(station_id, atime, forecast_time\)/)
+  })
+
+  it('includes required weather columns', () => {
+    expect(sql77).toContain('wind_speed_ms')
+    expect(sql77).toContain('wind_direction_text')
+    expect(sql77).toContain('temperature_c')
+    expect(sql77).toContain('precipitation_mm_per_hour')
+    expect(sql77).toContain('weather_text')
+    expect(sql77).toContain('expires_at')
+  })
+
+  it('tracks first_fetched_at and last_fetched_at separately', () => {
+    expect(sql77).toContain('first_fetched_at')
+    expect(sql77).toContain('last_fetched_at')
+    // first_fetched_at has a DEFAULT so it is never overwritten by upsert
+    expect(sql77).toMatch(/first_fetched_at\s+timestamptz\s+NOT NULL\s+DEFAULT now\(\)/)
+  })
+
+  it('enables RLS and revokes public/anon/authenticated access', () => {
+    expect(sql77).toMatch(/ALTER TABLE public\.vedurstofan_forecasts_history ENABLE ROW LEVEL SECURITY/)
+    expect(sql77).toMatch(/REVOKE ALL ON public\.vedurstofan_forecasts_history FROM PUBLIC, anon, authenticated/)
+  })
+
+  it('grants access only to service_role', () => {
+    expect(sql77).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON public\.vedurstofan_forecasts_history TO service_role/)
+  })
+
+  it('creates station+atime lookup index', () => {
+    expect(sql77).toContain('vedurstofan_forecasts_history_station_atime_idx')
+    expect(sql77).toMatch(/ON public\.vedurstofan_forecasts_history \(station_id, atime, forecast_time\)/)
+  })
+
+  it('creates atime-only index for retention cleanup', () => {
+    expect(sql77).toContain('vedurstofan_forecasts_history_atime_idx')
+    expect(sql77).toMatch(/ON public\.vedurstofan_forecasts_history \(atime\)/)
+  })
+
+  it('creates updated_at trigger', () => {
+    expect(sql77).toContain('vedurstofan_forecasts_history_set_updated_at')
+  })
+
+  it('does not grant anon or authenticated access', () => {
+    expect(sql77).not.toMatch(/GRANT.*TO\s+anon/)
+    expect(sql77).not.toMatch(/GRANT.*TO\s+authenticated/)
+  })
+
+  it('rollback comment documents DROP TABLE', () => {
+    expect(sql77).toContain('DROP TABLE IF EXISTS public.vedurstofan_forecasts_history')
+  })
+})

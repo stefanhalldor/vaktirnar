@@ -57,6 +57,12 @@ type DepartureHeatmapProps = {
   showSelectedDetail?: boolean
   /** Label for the first slot (e.g. "Núna"). When set, slot 0 shows this label above the actual time. */
   firstSlotLabel?: string
+  /**
+   * Provider-derived status overrides — one entry per candidate index.
+   * When provided, replaces MET/Yr candidate classification for all status paths
+   * (counts, filter, selection, slot dots). Used in Veðurstofan-only mode.
+   */
+  slotStatusOverrides?: WindDisplayStatus[]
 }
 
 /** Returns compact hour label for whole-hour slots: "00" for midnight, "1"–"23" otherwise. */
@@ -71,7 +77,7 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
   return dep >= new Date(bestWindow.fromIso).getTime() && dep <= new Date(bestWindow.toIso).getTime()
 }
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -80,21 +86,27 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
 
   // Thresholds used for fine-grained classification — fall back to defaults if not passed
   const thresholdsForClassify = thresholdsUsed ?? resolveThresholds('none')
-  function getWindStatus(c: TravelCandidate): WindDisplayStatus {
+
+  // Single status resolver — uses provider overrides when available, else MET/Yr classification.
+  // All status paths (counts, filter, selection, dots, SlotDetail) must go through this.
+  function getSlotStatus(c: TravelCandidate, idx: number): WindDisplayStatus {
+    if (slotStatusOverrides && idx < slotStatusOverrides.length) {
+      return slotStatusOverrides[idx]
+    }
     return classifyCandidateWindDisplayStatus(c, thresholdsForClassify)
   }
 
   // Status counts across all candidates (before filtering)
   const statusCounts: Partial<Record<WindDisplayStatus, number>> = {}
-  for (const c of candidates) {
-    const st = getWindStatus(c)
+  for (let i = 0; i < candidates.length; i++) {
+    const st = getSlotStatus(candidates[i], i)
     statusCounts[st] = (statusCounts[st] ?? 0) + 1
   }
 
   // Filtered candidates with their real indices in the candidates array
   const filteredWithIdx: Array<{ c: TravelCandidate; realIdx: number }> =
     candidates.reduce<Array<{ c: TravelCandidate; realIdx: number }>>((acc, c, i) => {
-      if (visibleStatuses.size === 0 || visibleStatuses.has(getWindStatus(c))) {
+      if (visibleStatuses.size === 0 || visibleStatuses.has(getSlotStatus(c, i))) {
         acc.push({ c, realIdx: i })
       }
       return acc
@@ -109,7 +121,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
     }
     // Deselect if the selected slot's status is no longer visible
     if (selectedIdx !== null && next.size > 0) {
-      const selSt = getWindStatus(candidates[selectedIdx])
+      const selSt = getSlotStatus(candidates[selectedIdx], selectedIdx)
       if (!next.has(selSt)) onSelectIdx(null)
     }
     onVisibleStatusesChange(next)
@@ -181,7 +193,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                   </div>
                   <div className="flex gap-1 items-end">
                     {items.map(({ c, realIdx }) => {
-                      const wst = getWindStatus(c)
+                      const wst = getSlotStatus(c, realIdx)
                       const meta = WIND_STATUS_META[wst]
                       const best = isBestSlot(c, bestWindow)
                       const isSelected = selectedIdx === realIdx
@@ -246,7 +258,14 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
 
       {/* Selected slot detail */}
       {showSelectedDetail && selected && (
-        <SlotDetail candidate={selected} originName={originName} routeDistanceM={routeDistanceM} leg={leg} thresholdsUsed={thresholdsUsed} />
+        <SlotDetail
+          candidate={selected}
+          originName={originName}
+          routeDistanceM={routeDistanceM}
+          leg={leg}
+          thresholdsUsed={thresholdsUsed}
+          statusOverride={selectedIdx !== null && slotStatusOverrides ? slotStatusOverrides[selectedIdx] : undefined}
+        />
       )}
     </div>
   )
@@ -306,16 +325,18 @@ function SlotDetail({
   routeDistanceM,
   leg,
   thresholdsUsed,
+  statusOverride,
 }: {
   candidate: TravelCandidate
   originName: string
   routeDistanceM?: number
   leg?: 'outbound' | 'return'
   thresholdsUsed?: ResolvedTravelThresholds
+  statusOverride?: WindDisplayStatus
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
-  const st = classifyCandidateWindDisplayStatus(candidate, thresholdsUsed ?? resolveThresholds('none'))
+  const st = statusOverride ?? classifyCandidateWindDisplayStatus(candidate, thresholdsUsed ?? resolveThresholds('none'))
 
   const header = (
     <p className="text-foreground">

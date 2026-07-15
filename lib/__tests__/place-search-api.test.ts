@@ -51,6 +51,8 @@ function authedUser() {
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
+  process.env.WEATHER_ENABLED = 'true'
+  delete process.env.WEATHER_PUBLIC_ENABLED
 })
 
 describe('GET /api/place/search', () => {
@@ -60,17 +62,63 @@ describe('GET /api/place/search', () => {
     expect(res.status).toBe(404)
   })
 
-  it('returns 401 when user is not authenticated', async () => {
+  it('returns 404 when WEATHER_ENABLED is not true, even with WEATHER_PUBLIC_ENABLED=true and guest', async () => {
+    delete process.env.WEATHER_ENABLED
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
     mockGetUser.mockResolvedValue({ data: { user: null } })
-    const res = await GET(makeRequest('reykjavik'))
-    expect(res.status).toBe(401)
+    const res = await GET(makeRequest('reykjavik-weather-disabled'))
+    expect(res.status).toBe(404)
+    expect(mockGeocodePlace).not.toHaveBeenCalled()
   })
 
-  it('returns 404 when user lacks vedrid feature access', async () => {
+  it('returns 404 when WEATHER_ENABLED is not true, even with WEATHER_PUBLIC_ENABLED=true and signed-in user without vedrid', async () => {
+    delete process.env.WEATHER_ENABLED
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    const res = await GET(makeRequest('akureyri-weather-disabled'))
+    expect(res.status).toBe(404)
+    expect(mockGeocodePlace).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when WEATHER_ENABLED is off (signed-in user without vedrid)', async () => {
+    delete process.env.WEATHER_ENABLED
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
     mockCheckFeatureAccess.mockResolvedValue(false)
     const res = await GET(makeRequest('reykjavik'))
     expect(res.status).toBe(404)
+  })
+
+  it('guest user returns 401 when WEATHER_PUBLIC_ENABLED is off', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    // WEATHER_PUBLIC_ENABLED not set (deleted in beforeEach)
+    const res = await GET(makeRequest('reykjavik'))
+    expect(res.status).toBe(401)
+  })
+
+  it('guest user gets results when WEATHER_PUBLIC_ENABLED=true', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    mockGeocodePlace.mockResolvedValue([
+      { placeId: 'p1', displayName: 'Reykjavík', formattedAddress: 'Reykjavík, Ísland', lat: 64.135, lon: -21.895 },
+    ])
+    const res = await GET(makeRequest('reykjavik-public'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.results).toHaveLength(1)
+  })
+
+  it('signed-in user without vedrid gets results when WEATHER_PUBLIC_ENABLED=true', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    mockGeocodePlace.mockResolvedValue([
+      { placeId: 'p1', displayName: 'Akureyri', formattedAddress: 'Akureyri, Ísland', lat: 65.683, lon: -18.1 },
+    ])
+    const res = await GET(makeRequest('akureyri-novedrid'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.results).toHaveLength(1)
   })
 
   it('returns 400 when query is too short', async () => {

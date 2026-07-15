@@ -2,29 +2,53 @@
  * Tests for public landing page routing logic (app/page.tsx)
  * and idea detail page CTA routing (app/hugmyndir/[slug]/page.tsx).
  *
- * The publicReadyCardHref and launchedCtaHref logic is inline in the
- * server components, but the contract is verified here:
- *   - vedrid  → /vedrid   (public feature, no login required)
- *   - umonnun → /umonnun  (public feature, no login required)
- *   - lanad-og-skilad → /innskraning  (auth-only feature for now)
- *   - unknown slug → /innskraning  (safe fallback)
+ * The publicReadyCardHref and launchedCtaHref logic in the server components
+ * is mode-aware: vedrid links to /vedrid only when WEATHER_ENABLED=All;
+ * in Authenticated mode guests are sent to /innskraning instead.
+ *
+ *   - vedrid  + All          → /vedrid
+ *   - vedrid  + Authenticated → /innskraning (login required)
+ *   - umonnun                → /umonnun  (public feature)
+ *   - any other slug         → /innskraning  (safe fallback)
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 // Mirror the logic from app/page.tsx and app/hugmyndir/[slug]/page.tsx.
-// These helpers are inline in the server components; keeping them here
-// as contract tests means any divergence in the actual components will be
-// caught during manual or E2E testing.
+// getWeatherEnabledMode() returns 'all' for WEATHER_ENABLED=All, otherwise not-all.
 function publicReadyCardHref(slug: string): string {
-  if (slug === 'vedrid') return '/vedrid'
+  if (slug === 'vedrid') {
+    return process.env.WEATHER_ENABLED === 'All' ? '/vedrid' : '/innskraning'
+  }
   if (slug === 'umonnun') return '/umonnun'
   return '/innskraning'
 }
 
 describe('publicReadyCardHref — public landing page routing', () => {
-  it('routes vedrid to /vedrid', () => {
+  let savedWeather: string | undefined
+
+  beforeEach(() => {
+    savedWeather = process.env.WEATHER_ENABLED
+  })
+
+  afterEach(() => {
+    if (savedWeather === undefined) delete process.env.WEATHER_ENABLED
+    else process.env.WEATHER_ENABLED = savedWeather
+  })
+
+  it('routes vedrid to /vedrid when WEATHER_ENABLED=All', () => {
+    process.env.WEATHER_ENABLED = 'All'
     expect(publicReadyCardHref('vedrid')).toBe('/vedrid')
+  })
+
+  it('routes vedrid to /innskraning when WEATHER_ENABLED=Authenticated', () => {
+    process.env.WEATHER_ENABLED = 'Authenticated'
+    expect(publicReadyCardHref('vedrid')).toBe('/innskraning')
+  })
+
+  it('routes vedrid to /innskraning when WEATHER_ENABLED is off', () => {
+    delete process.env.WEATHER_ENABLED
+    expect(publicReadyCardHref('vedrid')).toBe('/innskraning')
   })
 
   it('routes umonnun to /umonnun', () => {
@@ -45,15 +69,33 @@ describe('publicReadyCardHref — public landing page routing', () => {
 })
 
 describe('launchedCtaHref — idea detail CTA routing', () => {
-  // Mirror the inline ternary from app/hugmyndir/[slug]/page.tsx
+  // Mirror the inline logic from app/hugmyndir/[slug]/page.tsx
   function launchedCtaHref(slug: string): string {
-    return slug === 'vedrid' ? '/vedrid'
+    return slug === 'vedrid'
+      ? (process.env.WEATHER_ENABLED === 'All' ? '/vedrid' : '/innskraning')
       : slug === 'umonnun' ? '/umonnun'
       : '/innskraning'
   }
 
-  it('vedrid detail CTA links to /vedrid', () => {
+  let savedWeather: string | undefined
+
+  beforeEach(() => {
+    savedWeather = process.env.WEATHER_ENABLED
+  })
+
+  afterEach(() => {
+    if (savedWeather === undefined) delete process.env.WEATHER_ENABLED
+    else process.env.WEATHER_ENABLED = savedWeather
+  })
+
+  it('vedrid detail CTA links to /vedrid when WEATHER_ENABLED=All', () => {
+    process.env.WEATHER_ENABLED = 'All'
     expect(launchedCtaHref('vedrid')).toBe('/vedrid')
+  })
+
+  it('vedrid detail CTA links to /innskraning when WEATHER_ENABLED=Authenticated', () => {
+    process.env.WEATHER_ENABLED = 'Authenticated'
+    expect(launchedCtaHref('vedrid')).toBe('/innskraning')
   })
 
   it('umonnun detail CTA links to /umonnun', () => {

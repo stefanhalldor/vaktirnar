@@ -10,6 +10,7 @@ import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 import { OtherIdeasSection } from '@/components/teskeid/OtherIdeasSection'
 import Link from 'next/link'
 import { ExternalLink } from 'lucide-react'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherEnabledMode.server'
 
 export async function generateMetadata({
   params,
@@ -74,7 +75,8 @@ export default async function IdeaPage({
   if (!idea) notFound()
 
   const showFreeAccessCta = idea.status === 'launched' && !user
-  const launchedCtaHref = idea.slug === 'vedrid' ? '/vedrid'
+  const launchedCtaHref = idea.slug === 'vedrid'
+    ? (getWeatherEnabledMode() === 'all' ? '/vedrid' : '/innskraning')
     : idea.slug === 'umonnun' ? '/umonnun'
     : '/innskraning'
 

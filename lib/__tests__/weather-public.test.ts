@@ -3,8 +3,11 @@
  *
  * Coverage:
  *   A. checkWeatherGuestRateLimit — RPC-level rate limiting for guests
- *   B. Public weather env-flag guard — WEATHER_PUBLIC_ENABLED behaviour
+ *   B. hashWeatherIp — distinct from auth hashes
  *   C. Guest saved-places contract — GET returns empty, POST/DELETE remain 401
+ *   D. getWeatherEnabledMode — env parsing (WEATHER_ENABLED=All/Authenticated and legacy fallback)
+ *   E. resolveWeatherBaseAccess — access mode logic
+ *   F. Weather rate limit contract (static documentation)
  *
  * These tests use mocked dependencies and do NOT require a live Supabase
  * instance, Google Maps provider, or running Next.js server.
@@ -12,18 +15,27 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// ── Shared RPC mock ───────────────────────────────────────────────────────────
+// ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
 const { mockRpc } = vi.hoisted(() => ({
   mockRpc: vi.fn(),
+}))
+
+const { mockCheckFeatureAccess } = vi.hoisted(() => ({
+  mockCheckFeatureAccess: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: vi.fn(() => ({ rpc: mockRpc })),
 }))
+vi.mock('@/lib/loans/guard', () => ({
+  checkFeatureAccess: mockCheckFeatureAccess,
+}))
 
 import { checkWeatherGuestRateLimit, hashWeatherIp } from '@/lib/weather/ip-rate-limit.server'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherEnabledMode.server'
+import { resolveWeatherBaseAccess } from '@/lib/weather/weatherBaseAccess.server'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -177,11 +189,12 @@ describe('hashWeatherIp', () => {
 // ── C. Guest saved-places contract ───────────────────────────────────────────
 
 describe('guest saved-places contract', () => {
-  it('WEATHER_PUBLIC_ENABLED must be "true" for guest GET to return places:[]', () => {
-    // This is a static contract test: the route handler checks this flag before
-    // returning an empty list. Confirm the env-var name is correct.
-    const flag = 'WEATHER_PUBLIC_ENABLED'
-    expect(flag).toBe('WEATHER_PUBLIC_ENABLED')
+  it('WEATHER_ENABLED=All causes guest GET to return places:[] (primary contract)', () => {
+    // Primary contract: WEATHER_ENABLED=All enables guest access to the saved-places GET
+    // which returns an empty list (guests never have stored places).
+    // Legacy fallback: WEATHER_ENABLED=true + WEATHER_PUBLIC_ENABLED=true also maps to All mode.
+    const primaryFlag = 'WEATHER_ENABLED'
+    expect(primaryFlag).toBe('WEATHER_ENABLED')
   })
 
   it('guest POST to saved-places returns 401 (stays unauthorized)', () => {
@@ -198,31 +211,132 @@ describe('guest saved-places contract', () => {
   })
 })
 
-// ── D. Public weather flag contract ───────────────────────────────────────────
+// ── D. getWeatherEnabledMode — env parsing ─────────────────────────────────────
 
-describe('public weather flag contract', () => {
-  it('requires WEATHER_PUBLIC_ENABLED=true in addition to WEATHER_ENABLED=true for guest access', () => {
-    // Static contract: both flags must be true for guest route.
-    // The routes endpoint checks WEATHER_ENABLED first, then WEATHER_PUBLIC_ENABLED for guests.
-    const requiredFlags = ['WEATHER_ENABLED', 'WEATHER_PUBLIC_ENABLED']
-    expect(requiredFlags).toContain('WEATHER_ENABLED')
-    expect(requiredFlags).toContain('WEATHER_PUBLIC_ENABLED')
+describe('getWeatherEnabledMode', () => {
+  let restoreWeather: () => void
+  let restorePublic: () => void
+
+  beforeEach(() => {
+    restoreWeather = saveEnv('WEATHER_ENABLED', undefined)
+    restorePublic = saveEnv('WEATHER_PUBLIC_ENABLED', undefined)
   })
 
+  afterEach(() => {
+    restoreWeather()
+    restorePublic()
+  })
+
+  it('returns "all" for WEATHER_ENABLED=All', () => {
+    process.env.WEATHER_ENABLED = 'All'
+    expect(getWeatherEnabledMode()).toBe('all')
+  })
+
+  it('returns "authenticated" for WEATHER_ENABLED=Authenticated', () => {
+    process.env.WEATHER_ENABLED = 'Authenticated'
+    expect(getWeatherEnabledMode()).toBe('authenticated')
+  })
+
+  it('returns "off" when WEATHER_ENABLED is missing', () => {
+    expect(getWeatherEnabledMode()).toBe('off')
+  })
+
+  it('returns "off" for unknown WEATHER_ENABLED value', () => {
+    process.env.WEATHER_ENABLED = 'maybe'
+    expect(getWeatherEnabledMode()).toBe('off')
+  })
+
+  it('legacy: returns "all" for WEATHER_ENABLED=true + WEATHER_PUBLIC_ENABLED=true', () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    expect(getWeatherEnabledMode()).toBe('all')
+  })
+
+  it('legacy: returns "authenticated" for WEATHER_ENABLED=true without WEATHER_PUBLIC_ENABLED', () => {
+    process.env.WEATHER_ENABLED = 'true'
+    expect(getWeatherEnabledMode()).toBe('authenticated')
+  })
+})
+
+// ── E. resolveWeatherBaseAccess — access mode logic ───────────────────────────
+
+describe('resolveWeatherBaseAccess', () => {
+  let restoreWeather: () => void
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    restoreWeather = saveEnv('WEATHER_ENABLED', undefined)
+    mockCheckFeatureAccess.mockResolvedValue(false)
+  })
+
+  afterEach(() => {
+    restoreWeather()
+  })
+
+  it('signed-out + All → public (userId: null)', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    const result = await resolveWeatherBaseAccess(null)
+    expect(result.mode).toBe('public')
+    if (result.mode === 'public') expect(result.userId).toBeNull()
+  })
+
+  it('signed-out + Authenticated → blocked', async () => {
+    process.env.WEATHER_ENABLED = 'Authenticated'
+    const result = await resolveWeatherBaseAccess(null)
+    expect(result.mode).toBe('blocked')
+  })
+
+  it('signed-in without vedrid + Authenticated → authenticated', async () => {
+    process.env.WEATHER_ENABLED = 'Authenticated'
+    const result = await resolveWeatherBaseAccess({ id: 'u1', email: 'user@example.com' })
+    expect(result.mode).toBe('authenticated')
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith('u1', 'user@example.com', 'vedrid')
+  })
+
+  it('signed-in without vedrid + All → public (userId: null)', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    const result = await resolveWeatherBaseAccess({ id: 'u1', email: 'user@example.com' })
+    expect(result.mode).toBe('public')
+    if (result.mode === 'public') expect(result.userId).toBeNull()
+  })
+
+  it('signed-in with vedrid + All → authenticated', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockCheckFeatureAccess.mockResolvedValue(true)
+    const result = await resolveWeatherBaseAccess({ id: 'u1', email: 'user@example.com' })
+    expect(result.mode).toBe('authenticated')
+  })
+
+  it('any user + off → blocked', async () => {
+    // WEATHER_ENABLED deleted in beforeEach → 'off'
+    const result = await resolveWeatherBaseAccess({ id: 'u1', email: 'user@example.com' })
+    expect(result.mode).toBe('blocked')
+  })
+})
+
+// ── F. Weather rate limit contract (static documentation) ─────────────────────
+
+describe('weather rate limit contract', () => {
   it('rate limit is only incremented on the routes endpoint, not on the travel endpoint', () => {
     // Per product decision: only Google-costing route-options call counts as a trip.
     // The travel/route.ts endpoint does NOT call checkWeatherGuestRateLimit.
-    // This is a static contract test documenting the intended behaviour.
     const routesEndpointIncrementsRateLimit = true
     const travelEndpointIncrementsRateLimit = false
     expect(routesEndpointIncrementsRateLimit).toBe(true)
     expect(travelEndpointIncrementsRateLimit).toBe(false)
   })
 
-  it('authenticated users are exempt from guest rate limit', () => {
-    // checkWeatherGuestRateLimit is only called in the routes handler
-    // when user?.email is falsy (guest path). Authenticated users skip this check.
-    const authenticatedUsersAreExempt = true
-    expect(authenticatedUsersAreExempt).toBe(true)
+  it('rate limit applies to public-mode users (WEATHER_ENABLED=All, signed-out or without vedrid)', () => {
+    // In All mode: signed-in users without vedrid get { mode: 'public' } → rate-limited on /routes.
+    // Tested directly in resolveWeatherBaseAccess suite above.
+    const publicModeUsersAreRateLimited = true
+    expect(publicModeUsersAreRateLimited).toBe(true)
+  })
+
+  it('rate limit does not apply in Authenticated mode (signed-in users get authenticated mode)', () => {
+    // In Authenticated mode: signed-in users without vedrid get { mode: 'authenticated' }
+    // and bypass per-IP rate limiting. Tested directly in resolveWeatherBaseAccess suite above.
+    const authenticatedModeBypassesRateLimit = true
+    expect(authenticatedModeBypassesRateLimit).toBe(true)
   })
 })

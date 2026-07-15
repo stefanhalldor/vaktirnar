@@ -455,6 +455,94 @@ describe('buildPointSummary with activeCandidate displayPoint', () => {
   })
 })
 
+// ── hasData ───────────────────────────────────────────────────────────────────
+
+describe('buildPointSummary — hasData', () => {
+  it('is false when summaryForWindow is absent and no activeCandidate', () => {
+    const pt = makeWeatherPoint({ routeIndex: 1, totalRouteWeatherPoints: 3 })
+    const s = buildPointSummary(pt)
+    expect(s.hasData).toBe(false)
+  })
+
+  it('is true when summaryForWindow is present and no activeCandidate', () => {
+    const pt = makeWeatherPoint({
+      routeIndex: 1,
+      totalRouteWeatherPoints: 3,
+      summaryForWindow: { status: 'gult', worstWindMs: 14, worstGustMs: 18, worstPrecipMmPerHour: 0 },
+    })
+    const s = buildPointSummary(pt)
+    expect(s.hasData).toBe(true)
+  })
+
+  it('is true for the displayPoint in active-candidate mode even though status is undefined', () => {
+    const pt = makeWeatherPoint({
+      routeIndex: 2,
+      totalRouteWeatherPoints: 5,
+      summaryForWindow: { status: 'gult', worstWindMs: 14, worstGustMs: 18, worstPrecipMmPerHour: 0 },
+    })
+    const candidate: TravelCandidate = {
+      departureIso: '2026-07-10T09:00:00Z',
+      arrivalIso: '2026-07-10T14:00:00Z',
+      status: 'graent',
+      displayPoint: {
+        routeIndex: 2,
+        forecastTimeIso: '2026-07-10T11:00:00Z',
+        windMs: 12.0,
+        gustMs: 15.0,
+        precipMmPerHour: 0,
+        airTemperatureC: 5,
+        metric: 'wind',
+        distanceFromOriginM: 200_000,
+        routeFraction: 0.5,
+      },
+    }
+    const s = buildPointSummary(pt, undefined, candidate, 'outbound')
+    expect(s.status).toBeUndefined() // intentionally undefined in active-candidate mode
+    expect(s.windMs).toBeCloseTo(12.0)
+    expect(s.hasData).toBe(true) // must be true so chip shows correct status, not no_data
+  })
+
+  it('is true for a non-displayPoint with forecastRows in active-candidate mode', () => {
+    const forecastRows: ForecastDrawerRow[] = [{
+      timeIso: '2026-07-10T10:00:00Z',
+      status: 'graent',
+      wind: { value: 9.5, direction: 'steady', tone: 'neutral' },
+      gust: { value: 12.0, severity: 'none', direction: 'steady', tone: 'neutral' },
+      precipitation: { value: 0, direction: 'steady', tone: 'neutral' },
+      temperature: { value: 6.0, direction: 'steady', tone: 'neutral' },
+    }]
+    const pt = makeWeatherPoint({
+      routeIndex: 3, totalRouteWeatherPoints: 5, routeFraction: 0.2, forecastRows,
+    })
+    const candidate: TravelCandidate = {
+      departureIso: '2026-07-10T09:00:00Z',
+      arrivalIso: '2026-07-10T14:00:00Z',
+      status: 'graent',
+      displayPoint: { routeIndex: 2, forecastTimeIso: '2026-07-10T11:00:00Z', windMs: 6, gustMs: 8, precipMmPerHour: 0, airTemperatureC: 5, metric: 'wind', distanceFromOriginM: 100_000, routeFraction: 0.25 },
+    }
+    const s = buildPointSummary(pt, undefined, candidate, 'outbound')
+    expect(s.status).toBeUndefined()
+    expect(s.hasData).toBe(true)
+  })
+
+  it('is false for a non-displayPoint with no forecastRows in active-candidate mode', () => {
+    const pt = makeWeatherPoint({
+      routeIndex: 3, totalRouteWeatherPoints: 5,
+      summaryForWindow: { status: 'gult', worstWindMs: 14, worstGustMs: 18, worstPrecipMmPerHour: 0 },
+      // no forecastRows
+    })
+    const candidate: TravelCandidate = {
+      departureIso: '2026-07-10T09:00:00Z',
+      arrivalIso: '2026-07-10T14:00:00Z',
+      status: 'graent',
+      displayPoint: { routeIndex: 2, forecastTimeIso: '2026-07-10T11:00:00Z', windMs: 6, gustMs: 8, precipMmPerHour: 0, airTemperatureC: 5, metric: 'wind', distanceFromOriginM: 100_000, routeFraction: 0.25 },
+    }
+    const s = buildPointSummary(pt, undefined, candidate, 'outbound')
+    expect(s.windMs).toBe(0)
+    expect(s.hasData).toBe(false)
+  })
+})
+
 describe('candidateToIssue', () => {
   function makeCandidate(overrides: Partial<TravelCandidate>): TravelCandidate {
     return {

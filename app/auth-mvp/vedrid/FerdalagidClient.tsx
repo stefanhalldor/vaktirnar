@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useTranslations, useLocale } from 'next-intl'
 import { ChevronLeft, CloudSun, ChevronDown, ChevronUp, MapPin, Route, Caravan, SlidersHorizontal, CheckCircle2, Wind, Droplets } from 'lucide-react'
 import type { DeterministicResult, WeatherStatus, RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelThresholdOverrides, TravelCandidate, ForecastDrawerRow, ResolvedTravelThresholds } from '@/lib/weather/types'
+import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
+import { type WeatherProviderKey, selectDecisiveProvider } from '@/lib/weather/providerComparator'
 import type { RouteOption } from '@/lib/weather/provider.types'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import { classifyWindDistance, type WindDistanceLabel } from '@/lib/weather/assessment'
@@ -14,9 +16,10 @@ import {
   WIND_DISPLAY_STATUS_ORDER,
   classifyCandidateWindDisplayStatus,
   classifyPointWindDisplayStatus,
+  worstWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import { WIND_STATUS_UI_META as WIND_STATUS_META_SHARED } from '@/components/weather/windStatusUi'
-import { TravelAuditMap } from '@/components/weather/TravelAuditMap'
+import { TravelAuditMap, type ProviderMapPoint } from '@/components/weather/TravelAuditMap'
 import { ForecastDrawer } from '@/components/weather/ForecastDrawer'
 import { DepartureHeatmap } from '@/components/weather/DepartureHeatmap'
 import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteSelectionStep'
@@ -25,8 +28,56 @@ import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, estimatePointEtaIso, formatCompactDateTime, getOriginDisplay, buildPointSummary } from '@/components/weather/travelAuditMap.helpers'
 import { RouteWeatherPointDetailCard } from '@/components/weather/RouteWeatherPointDetailCard'
+import { WindStatusBadge } from '@/components/weather/WindStatusBadge'
+import { VedurstofanPointCard, VedurstofanJourneySummary } from '@/components/weather/VedurstofanPointCard'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
+import { isVedurstofanCycleFresh, getNextCycleAfterAtimeIso } from '@/lib/weather/vedurstofanFreshness'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
+
+type VedurstofanAssessment = {
+  station: VedurstofanTravelLayer['points'][number]
+  row: VedurstofanTravelLayer['points'][number]['forecastRows'][number] | null
+  windMs: number | null
+  etaIso: string | null
+  ftimeIso: string | null
+  status: WindDisplayStatus
+}
+
+function computeVedurstofanAssessments(
+  depIso: string,
+  arrIso: string,
+  points: VedurstofanTravelLayer['points'],
+  thresholds: ResolvedTravelThresholds,
+): VedurstofanAssessment[] {
+  const depMs = new Date(depIso).getTime()
+  const durMs = new Date(arrIso).getTime() - depMs
+  return points
+    .filter((p): p is typeof p & { lat: number; lon: number } => p.lat !== null && p.lon !== null)
+    .map(p => {
+      let row: typeof p.forecastRows[0] | null = null
+      let windMs: number | null = null
+      let etaIso: string | null = null
+      if (p.routeFraction !== null && durMs > 0) {
+        const etaMs = depMs + p.routeFraction * durMs
+        etaIso = new Date(etaMs).toISOString()
+        row = p.forecastRows.reduce<typeof p.forecastRows[0] | null>((b, r) => {
+          if (!b) return r
+          return Math.abs(new Date(r.ftimeIso).getTime() - etaMs) <
+            Math.abs(new Date(b.ftimeIso).getTime() - etaMs)
+            ? r : b
+        }, null)
+        windMs = row?.windSpeedMs ?? null
+      } else {
+        row = p.forecastRows.reduce<typeof p.forecastRows[0] | null>((b, r) =>
+          (r.windSpeedMs ?? 0) > (b?.windSpeedMs ?? 0) ? r : b, null)
+        windMs = row?.windSpeedMs ?? null
+      }
+      const status = classifyPointWindDisplayStatus(
+        windMs ?? undefined, windMs !== null, thresholds,
+      )
+      return { station: p, row, windMs, etaIso, ftimeIso: row?.ftimeIso ?? null, status }
+    })
+}
 
 type WizardStep = 'route' | 'thresholds' | 'result'
 
@@ -68,6 +119,14 @@ export function FerdalagidClient({
   const [thresholdError, setThresholdError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<DeterministicResult | null>(null)
+  const [vedurstofanLayer, setVedurstofanLayer] = useState<VedurstofanTravelLayer | null>(null)
+  const [showVedurstofan, setShowVedurstofan] = useState(false)
+  const [showMetno, setShowMetno] = useState(true)
+  const [vedurstofanRefreshState, setVedurstofanRefreshState] = useState<'idle' | 'refreshing' | 'fresh' | 'stillStale' | 'running' | 'recentlyAttempted' | 'failed'>('idle')
+  const [newerVedurstofanAvailable, setNewerVedurstofanAvailable] = useState(false)
+  const [nextManualRefreshIso, setNextManualRefreshIso] = useState<string | null>(null)
+  const knownVedurstofanAtimeRef = useRef<string | null>(null)
+  const serverInitDoneRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [showExplainer, setShowExplainer] = useState(false)
@@ -95,6 +154,8 @@ export function FerdalagidClient({
   const [mapSelectionSignal, setMapSelectionSignal] = useState(0)
   // Track which thresholds were last submitted to detect dirty drafts
   const [submittedThresholds, setSubmittedThresholds] = useState<TravelThresholdOverrides | null>(null)
+  // Latest-value ref for combined slot statuses — read in auto-select effect without dep array churn
+  const combinedSlotStatusesRef = useRef<WindDisplayStatus[] | null>(null)
 
   // Ferðalag conversion affordance — shown when tripEnabled and result is ready
   const [tripHintVisible, setTripHintVisible] = useState(false)
@@ -385,13 +446,187 @@ export function FerdalagidClient({
           setError(errMap[data?.error] ?? tf('errorGeneral'))
         }
       } else {
-        setResult(data as DeterministicResult)
+        const travelData = data as DeterministicResult & { vedurstofanLayer?: VedurstofanTravelLayer }
+        setVedurstofanLayer(travelData.vedurstofanLayer ?? null)
+        setShowVedurstofan(false)
+        setShowMetno(true)
+        setVedurstofanRefreshState('idle')
+        setNextManualRefreshIso(null)
+        serverInitDoneRef.current = false
+        setResult(travelData)
         setSubmittedThresholds(overridesToSend)
       }
     } catch {
       setError(tf('errorGeneral'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  function toggleVedurstofan() {
+    setForecastDrawerData(null)
+    setCompareDrawerOpen(false)
+    setShowVedurstofan(v => !v)
+  }
+
+  async function handleRefreshVedurstofan() {
+    if (vedurstofanRefreshState === 'refreshing') return
+    setVedurstofanRefreshState('refreshing')
+    try {
+      const res = await fetch('/api/teskeid/weather/vedurstofan/refresh', { method: 'POST' })
+      if (!res.ok) { setVedurstofanRefreshState('failed'); return }
+      const json = await res.json() as { status: string; lastAttemptIso?: string }
+
+      if (json.status === 'fresh' || json.status === 'alreadyFresh' || json.status === 'stillStale') {
+        // Reload the displayed layer after any completed warm — the route stations may have updated
+        // even if the global endpoint returned stillStale (other stations may still be stale).
+        // Stay in 'refreshing' state until the reload completes.
+        // A completed warm always starts a cooldown — the button must not reappear immediately.
+        const warmCooldownIso = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+        try {
+          const travelRes = await fetch('/api/teskeid/weather/travel', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              origin,
+              destination: ferrySelection?.ferryPort ?? destination,
+              trailerKind,
+              selectedRouteId: selectedRouteId ?? undefined,
+              thresholdOverrides: Object.keys(thresholdOverrides).length > 0 ? thresholdOverrides : undefined,
+            }),
+          })
+          if (travelRes.ok) {
+            const travelData = await travelRes.json() as { vedurstofanLayer?: VedurstofanTravelLayer }
+            const newLayer = travelData.vedurstofanLayer ?? null
+            // Always update the displayed layer with the freshest route data we have,
+            // even when the global endpoint is still stale (other unrelated stations may lag).
+            if (newLayer) setVedurstofanLayer(newLayer)
+            const newAtimeIso = newLayer?.layerAtimeIso ?? null
+            if (isVedurstofanCycleFresh(newAtimeIso, new Date())) {
+              setVedurstofanRefreshState('fresh')
+            } else {
+              setVedurstofanRefreshState('stillStale')
+              setNextManualRefreshIso(warmCooldownIso)
+            }
+          } else {
+            // Travel refetch failed — warm attempt still happened, so apply cooldown.
+            setVedurstofanRefreshState('stillStale')
+            setNextManualRefreshIso(warmCooldownIso)
+          }
+        } catch {
+          setVedurstofanRefreshState('stillStale')
+          setNextManualRefreshIso(warmCooldownIso)
+        }
+      } else {
+        if (json.status === 'recentlyAttempted') {
+          setVedurstofanRefreshState('recentlyAttempted')
+          if (json.lastAttemptIso) {
+            setNextManualRefreshIso(new Date(Date.parse(json.lastAttemptIso) + 10 * 60 * 1000).toISOString())
+          }
+        } else if (json.status === 'running') {
+          setVedurstofanRefreshState('running')
+        } else {
+          setVedurstofanRefreshState(json.status === 'stillStale' ? 'stillStale' : 'failed')
+        }
+      }
+    } catch {
+      setVedurstofanRefreshState('failed')
+    }
+  }
+
+  // Sync known atime ref when layer changes; clear notification so stale prompt doesn't linger.
+  useEffect(() => {
+    knownVedurstofanAtimeRef.current = vedurstofanLayer?.layerAtimeIso ?? null
+    setNewerVedurstofanAvailable(false)
+  }, [vedurstofanLayer?.layerAtimeIso]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On first render of the result step with Veðurstofan enabled, sync refresh state from server
+  // so the refresh button hides correctly even before the user interacts.
+  useEffect(() => {
+    if (step !== 'result' || !showVedurstofan || serverInitDoneRef.current) return
+    serverInitDoneRef.current = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/teskeid/weather/vedurstofan/freshness')
+        if (!res.ok) return
+        const data = await res.json() as { runState?: string; nextManualRefreshIso?: string | null }
+        if (data.runState === 'recentlyAttempted') {
+          setVedurstofanRefreshState('recentlyAttempted')
+          if (data.nextManualRefreshIso) setNextManualRefreshIso(data.nextManualRefreshIso)
+        } else if (data.runState === 'running') {
+          setVedurstofanRefreshState('running')
+        }
+      } catch {
+        // best-effort
+      }
+    })()
+  }, [step, showVedurstofan]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll for newer Veðurstofan data every 90 s while result is open and tab is visible.
+  // Stops polling once a newer atime is detected (notification shown) or provider is off.
+  useEffect(() => {
+    if (step !== 'result' || !showVedurstofan || newerVedurstofanAvailable) return
+    const poll = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      const knownAtime = knownVedurstofanAtimeRef.current
+      if (!knownAtime) return
+      try {
+        const res = await fetch('/api/teskeid/weather/vedurstofan/freshness')
+        if (!res.ok) return
+        const data = await res.json() as { atimeIso: string | null; runState?: string; nextManualRefreshIso?: string | null }
+        if (data.atimeIso && data.atimeIso > knownAtime) {
+          setNewerVedurstofanAvailable(true)
+        }
+        // Also update run state so cooldown expires without full reload.
+        if (data.runState === 'recentlyAttempted') {
+          setVedurstofanRefreshState('recentlyAttempted')
+          if (data.nextManualRefreshIso) setNextManualRefreshIso(data.nextManualRefreshIso)
+        } else if (data.runState === 'running') {
+          setVedurstofanRefreshState('running')
+        } else if (data.runState === 'available' || data.runState === 'alreadyFresh') {
+          setVedurstofanRefreshState(prev =>
+            prev === 'recentlyAttempted' || prev === 'running' ? 'idle' : prev
+          )
+        }
+      } catch {
+        // best-effort
+      }
+    }
+    const id = setInterval(poll, 90_000)
+    return () => clearInterval(id)
+  }, [step, showVedurstofan, newerVedurstofanAvailable]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetches the Veðurstofan layer after the user taps "Uppfæra mat".
+  // Data is already fresh in the DB (that's how polling detected it), so no warm needed.
+  async function handleUpdateVedurstofan() {
+    setNewerVedurstofanAvailable(false)
+    setVedurstofanRefreshState('refreshing')
+    try {
+      const res = await fetch('/api/teskeid/weather/travel', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin,
+          destination: ferrySelection?.ferryPort ?? destination,
+          trailerKind,
+          selectedRouteId: selectedRouteId ?? undefined,
+          thresholdOverrides: Object.keys(thresholdOverrides).length > 0 ? thresholdOverrides : undefined,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json() as { vedurstofanLayer?: VedurstofanTravelLayer }
+        const newLayer = data.vedurstofanLayer ?? null
+        if (newLayer) setVedurstofanLayer(newLayer)
+        setVedurstofanRefreshState(
+          isVedurstofanCycleFresh(newLayer?.layerAtimeIso ?? null, new Date()) ? 'fresh' : 'stillStale'
+        )
+      } else {
+        setVedurstofanRefreshState('failed')
+      }
+    } catch {
+      setVedurstofanRefreshState('failed')
     }
   }
 
@@ -450,21 +685,24 @@ export function FerdalagidClient({
   useEffect(() => {
     if (outboundDisplayCandidates.length === 0) return
     if (outboundVisibleStatuses.size === 0) return  // no filter active, show all
+    // Resolve the display status for a slot using combined provider statuses when available
+    const getSlotStatus = (c: TravelCandidate, idx: number): WindDisplayStatus => {
+      const combined = combinedSlotStatusesRef.current
+      if (combined && idx >= 0 && idx < combined.length) return combined[idx]
+      return classifyCandidateWindDisplayStatus(c, effectiveThresholds)
+    }
     // Skip if selected slot is still visible
     if (selectedHeatmapIdx !== null) {
       const sel = outboundDisplayCandidates[selectedHeatmapIdx]
-      if (sel) {
-        const st = classifyCandidateWindDisplayStatus(sel, effectiveThresholds)
-        if (outboundVisibleStatuses.has(st)) return
-      }
+      if (sel && outboundVisibleStatuses.has(getSlotStatus(sel, selectedHeatmapIdx))) return
     }
-    const visible = (c: TravelCandidate) => outboundVisibleStatuses.has(classifyCandidateWindDisplayStatus(c, effectiveThresholds))
+    const visible = (c: TravelCandidate, i: number) => outboundVisibleStatuses.has(getSlotStatus(c, i))
     let next = -1
     for (const priority of WIND_DISPLAY_STATUS_PRIORITY_ORDER) {
-      const idx = outboundDisplayCandidates.findIndex(c => visible(c) && classifyCandidateWindDisplayStatus(c, effectiveThresholds) === priority)
+      const idx = outboundDisplayCandidates.findIndex((c, i) => visible(c, i) && getSlotStatus(c, i) === priority)
       if (idx >= 0) { next = idx; break }
     }
-    if (next < 0) next = outboundDisplayCandidates.findIndex(visible)
+    if (next < 0) next = outboundDisplayCandidates.findIndex((c, i) => visible(c, i))
     setSelectedHeatmapIdx(next >= 0 ? next : null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outboundVisibleStatuses])
@@ -624,6 +862,139 @@ export function FerdalagidClient({
     ? buildCompareColumns(compareOriginRows, compareDestRows, [12], locale, 5)
     : []
 
+  // Generic provider model — ready for Vegagerðin without another prop-level rewrite
+  const selectedWeatherProviders: Record<WeatherProviderKey, boolean> = {
+    metno: showMetno,
+    vedurstofan: showVedurstofan,
+    vegagerdin: false,
+  }
+  const activeProviderKeys = (Object.keys(selectedWeatherProviders) as WeatherProviderKey[])
+    .filter(k => selectedWeatherProviders[k])
+  const hasNoActiveProvider = activeProviderKeys.length === 0
+  const isMetnoOnly = showMetno && !showVedurstofan
+  const isVedurstofanOnly = !showMetno && showVedurstofan
+
+  // Provider-aware active MET/Yr points
+  const routeWeatherPoints = result?.travelPlan?.routeWeatherPoints ?? []
+  const activeMetnoPoints = showMetno ? routeWeatherPoints : []
+
+  // Provider-neutral reference departure — does not use MET/Yr best-window leavingAt in Veðurstofan-only mode
+  const referenceDepartureIso: string | null =
+    (selectedHeatmapIdx !== null
+      ? outboundDisplayCandidates[selectedHeatmapIdx]?.departureIso
+      : null)
+    ?? outboundDisplayCandidates[0]?.departureIso
+    ?? result?.travelPlan?.outbound.leavingAt?.departureIso
+    ?? null
+  const referenceArrivalIso: string | null =
+    (selectedHeatmapIdx !== null
+      ? (outboundDisplayCandidates[selectedHeatmapIdx]?.arrivalIso ?? null)
+      : null)
+    ?? outboundDisplayCandidates[0]?.arrivalIso
+    ?? result?.travelPlan?.outbound.leavingAt?.arrivalIso
+    ?? null
+
+  // ETA-aware Veðurstofan assessments for the reference departure
+  const vedurstofanAssessments: VedurstofanAssessment[] =
+    (showVedurstofan && vedurstofanLayer && referenceDepartureIso && referenceArrivalIso)
+      ? computeVedurstofanAssessments(
+          referenceDepartureIso,
+          referenceArrivalIso,
+          vedurstofanLayer.points,
+          effectiveThresholds,
+        )
+      : []
+
+  // Worst Veðurstofan station at reference departure
+  const worstVedurstofanData: VedurstofanAssessment | null = vedurstofanAssessments.reduce<VedurstofanAssessment | null>(
+    (b, a) => (!b || (a.windMs ?? 0) > (b.windMs ?? 0)) ? a : b,
+    null,
+  )
+
+  // Per-slot Veðurstofan status for the departure scrubber
+  const vedurstofanSlotStatuses: WindDisplayStatus[] | null =
+    (showVedurstofan && vedurstofanLayer && outboundDisplayCandidates.length > 0)
+      ? outboundDisplayCandidates.map(slot => {
+          if (!slot.arrivalIso) return 'no_data' as WindDisplayStatus
+          const assessments = computeVedurstofanAssessments(
+            slot.departureIso, slot.arrivalIso,
+            vedurstofanLayer!.points, effectiveThresholds,
+          )
+          return assessments.reduce<WindDisplayStatus>(
+            (worst, a) => worstWindDisplayStatus(worst, a.status),
+            'no_data',
+          )
+        })
+      : null
+
+  // Combined slot statuses: worst across all selected providers — drives scrubber and auto-select.
+  // null when MET/Yr is the only selected provider (DepartureHeatmap handles it natively).
+  const combinedSlotStatuses: WindDisplayStatus[] | null = (() => {
+    if (hasNoActiveProvider || isMetnoOnly) return null
+    if (outboundDisplayCandidates.length === 0) return null
+    return outboundDisplayCandidates.map((slot, idx) => {
+      const vedurStatus: WindDisplayStatus = (showVedurstofan && vedurstofanSlotStatuses)
+        ? (vedurstofanSlotStatuses[idx] ?? 'no_data')
+        : 'no_data'
+      if (isVedurstofanOnly) return vedurStatus
+      // Both providers: worst of MET/Yr and Veðurstofan
+      const metnoStatus = classifyCandidateWindDisplayStatus(slot, effectiveThresholds)
+      return worstWindDisplayStatus(metnoStatus, vedurStatus)
+    })
+  })()
+  // Keep ref in sync so auto-select effect can read it without adding it to dep array
+  combinedSlotStatusesRef.current = combinedSlotStatuses
+
+  // In both-provider mode: which provider is decisive for the reference slot summary?
+  // Uses selectDecisiveProvider (lib/weather/providerComparator) for the v141 tie-break rule.
+  const combinedDecisiveProvider: WeatherProviderKey | null = (() => {
+    if (!showMetno || !showVedurstofan) return null
+    if (!worstVedurstofanData || !activeOutboundCandidate) return null
+    const vedurstofanDs = worstVedurstofanData.status
+    if (vedurstofanDs === 'no_data') return null
+    const metnoDs = classifyCandidateWindDisplayStatus(activeOutboundCandidate, effectiveThresholds)
+    const decisive = selectDecisiveProvider(
+      { provider: 'vedurstofan', status: vedurstofanDs, windMs: worstVedurstofanData.windMs },
+      { provider: 'metno', status: metnoDs, windMs: activeOutboundCandidate.worstWind?.value ?? null },
+    )
+    return decisive.provider
+  })()
+
+  // Provider overlay map points (status-colored, generic shape for all non-MET/Yr providers)
+  const providerOverlayPoints: ProviderMapPoint[] = vedurstofanAssessments.map(a => ({
+    provider: 'vedurstofan' as WeatherProviderKey,
+    lat: a.station.lat!,
+    lon: a.station.lon!,
+    id: a.station.stationId,
+    label: a.station.stationName,
+    status: a.status,
+    windMs: a.windMs,
+    forecastTimeIso: a.ftimeIso,
+    etaIso: a.etaIso,
+  }))
+
+  // Veðurstofan-only status for the summary (WindDisplayStatus, not WeatherStatus literals)
+  const vedurstofanOnlyDisplayStatus: WindDisplayStatus | null =
+    isVedurstofanOnly ? (worstVedurstofanData?.status ?? null) : null
+
+  // Veðurstofan banner values
+  const layerAtimeIso = vedurstofanLayer?.layerAtimeIso ?? null
+  const lastWarmAttemptIso = vedurstofanLayer?.lastWarmAttemptIso ?? null
+  const isVedurstofanDataFresh = isVedurstofanCycleFresh(layerAtimeIso, new Date())
+  const nextExpectedAfterDataIso = layerAtimeIso ? getNextCycleAfterAtimeIso(layerAtimeIso) : null
+  // Only say "was expected" when data is stale — during grace window it still sounds fresh.
+  const nextExpectedIsPast = !isVedurstofanDataFresh && nextExpectedAfterDataIso
+    ? Date.parse(nextExpectedAfterDataIso) < Date.now()
+    : false
+  // Show refresh button when data is stale, except while refreshing/running/fresh/cooldown.
+  // stillStale also hides the button — the warm attempt just happened and needs a cooldown.
+  const showVedurstofanRefreshButton = !isVedurstofanDataFresh
+    && vedurstofanRefreshState !== 'refreshing'
+    && vedurstofanRefreshState !== 'fresh'
+    && vedurstofanRefreshState !== 'running'
+    && vedurstofanRefreshState !== 'recentlyAttempted'
+    && vedurstofanRefreshState !== 'stillStale'
+
   return (
     <div className="min-h-screen bg-background">
       <main className="max-w-lg mx-auto px-4 pt-8 pb-10 flex flex-col gap-6">
@@ -646,6 +1017,87 @@ export function FerdalagidClient({
 
         {/* Beta banner — visible on all wizard steps */}
         <WeatherBetaBanner />
+
+        {/* New Veðurstofan data notification — shown when polling detects a newer forecast cycle */}
+        {step === 'result' && showVedurstofan && newerVedurstofanAvailable && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 flex items-center justify-between gap-3">
+            <p className="text-xs text-foreground">{tf('vedurstofanNewDataAvailable')}</p>
+            <button
+              type="button"
+              onClick={handleUpdateVedurstofan}
+              className="text-xs font-medium text-primary underline underline-offset-2 shrink-0"
+            >
+              {tf('vedurstofanUpdateAssessment')}
+            </button>
+          </div>
+        )}
+
+        {/* Veðurstofan freshness banner — shown when Veðurstofan is active and we have layer data */}
+        {step === 'result' && showVedurstofan && vedurstofanLayer && layerAtimeIso && (
+          <div className={[
+            'rounded-lg border px-3 py-2 flex flex-col gap-1',
+            !isVedurstofanDataFresh
+              ? 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40'
+              : 'border-border/60 bg-muted/30',
+          ].join(' ')}>
+            {/* Stale headline */}
+            {!isVedurstofanDataFresh && (
+              <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                {tf('vedurstofanDataStale')}
+              </p>
+            )}
+            {/* Data provenance line */}
+            <p className={`text-xs ${isVedurstofanDataFresh ? 'text-muted-foreground' : 'text-amber-900/80 dark:text-amber-300/80'}`}>
+              {tf('vedurstofanBannerDataFrom', { time: formatKlTime(layerAtimeIso) })}
+              {nextExpectedAfterDataIso && (
+                <span>
+                  {' · '}{tf(
+                    nextExpectedIsPast ? 'vedurstofanBannerNextExpectedPast' : 'vedurstofanBannerNextExpectedFuture',
+                    { time: formatKlTime(nextExpectedAfterDataIso) }
+                  )}
+                </span>
+              )}
+              {!isVedurstofanDataFresh && lastWarmAttemptIso && (
+                <span className="opacity-70">
+                  {' · '}{tf('vedurstofanBannerLastAttempted', { time: formatKlTime(lastWarmAttemptIso) })}
+                </span>
+              )}
+            </p>
+            {/* Refresh action / status */}
+            {vedurstofanRefreshState === 'refreshing' && (
+              <p className="text-xs text-amber-800 dark:text-amber-300">{tf('vedurstofanRefreshing')}</p>
+            )}
+            {vedurstofanRefreshState === 'running' && (
+              <p className="text-xs text-amber-800 dark:text-amber-300">{tf('vedurstofanRefreshRunning')}</p>
+            )}
+            {vedurstofanRefreshState === 'fresh' && (
+              <p className="text-xs text-green-700 dark:text-green-400 font-medium">{tf('vedurstofanRefreshFresh')}</p>
+            )}
+            {vedurstofanRefreshState === 'stillStale' && (
+              <>
+                <p className="text-xs text-amber-800 dark:text-amber-300">{tf('vedurstofanRefreshStillStale')}</p>
+                {nextManualRefreshIso && (
+                  <p className="text-xs text-muted-foreground">{tf('vedurstofanRecentlyAttemptedUntil', { time: formatKlTime(nextManualRefreshIso) })}</p>
+                )}
+              </>
+            )}
+            {vedurstofanRefreshState === 'failed' && (
+              <p className="text-xs text-destructive">{tf('vedurstofanRefreshFailed')}</p>
+            )}
+            {vedurstofanRefreshState === 'recentlyAttempted' && nextManualRefreshIso && (
+              <p className="text-xs text-muted-foreground">{tf('vedurstofanRecentlyAttemptedUntil', { time: formatKlTime(nextManualRefreshIso) })}</p>
+            )}
+            {showVedurstofanRefreshButton && (
+              <button
+                type="button"
+                onClick={handleRefreshVedurstofan}
+                className="self-start text-xs font-medium text-amber-800 dark:text-amber-300 underline underline-offset-2"
+              >
+                {tf('vedurstofanRefreshButton')}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Step navigation — only show on main wizard steps, not the assumptions side-step */}
         {STEP_ORDER.includes(step) && (
@@ -845,9 +1297,25 @@ export function FerdalagidClient({
 
             {/* Combined card — title, scrubber, status sentence, coverage, disclaimer */}
             {result && !loading && (() => {
-              const derivedStatus = activeOutboundCandidate?.status ?? result.stada
+              // Map WindDisplayStatus to the coarser WeatherStatus for the summary badge style
+              const toWeatherStatus = (st: WindDisplayStatus): WeatherStatus | null => {
+                if (st === 'haettulegt' || st === 'nalgast-haettumork') return 'rautt'
+                if (st === 'othaegilegt' || st === 'nalgast-othaegindi') return 'gult'
+                if (st === 'no_data') return null
+                return 'graent'
+              }
+              // Reflect the worst selected-provider status in the card badge (v141: selected providers aggregate)
+              const selectedSlotIdx = selectedHeatmapIdx ?? 0
+              const selectedCombinedStatus = combinedSlotStatuses && selectedSlotIdx >= 0 && selectedSlotIdx < combinedSlotStatuses.length
+                ? combinedSlotStatuses[selectedSlotIdx]
+                : null
+              const derivedStatus: WeatherStatus | null = hasNoActiveProvider
+                ? null
+                : selectedCombinedStatus
+                  ? toWeatherStatus(selectedCombinedStatus)
+                  : (activeOutboundCandidate?.status ?? result.stada)
               const derivedStyle = derivedStatus ? STATUS_STYLES[derivedStatus] : null
-              // Compute fine-grained wind distance label for display
+              // Compute fine-grained wind distance label for display (MET/Yr mode)
               const worstWind = activeOutboundCandidate?.worstWind?.value ?? 0
               const windLabel: WindDistanceLabel = classifyWindDistance(
                 worstWind,
@@ -858,32 +1326,116 @@ export function FerdalagidClient({
               return (
                 <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
 
+                  {/* Provider filter — only visible when Veðurstofan layer is available */}
+                  {vedurstofanLayer && (
+                    <div className="flex flex-col gap-2 pb-1 border-b border-border/60">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{tf('providerFilterTitle')}</p>
+                      <div className="grid grid-cols-3 gap-2">
+
+                        {/* met.no tile */}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={showMetno}
+                          aria-label={tf('providerMetnoLabel')}
+                          onClick={() => setShowMetno(v => !v)}
+                          className={[
+                            'flex flex-col gap-1 rounded-lg border p-2 min-h-[72px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors',
+                            showMetno ? 'border-primary/40 bg-primary/5' : 'border-border',
+                          ].join(' ')}
+                        >
+                          <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">{tf('providerGroupVerified')}</span>
+                          <span className="text-[11px] font-medium text-foreground leading-tight">{tf('providerMetnoLabel')}</span>
+                          <span className="text-[10px] text-muted-foreground leading-tight">{tf('providerMetnoHelperText')}</span>
+                          <span className={['relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors mt-auto', showMetno ? 'bg-primary' : 'bg-input'].join(' ')}>
+                            <span className={['pointer-events-none inline-block h-3 w-3 rounded-full bg-background shadow-lg ring-0 transition-transform', showMetno ? 'translate-x-3' : 'translate-x-0'].join(' ')} />
+                          </span>
+                        </button>
+
+                        {/* Veðurstofan tile */}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={showVedurstofan}
+                          aria-label={tf('providerVedurstofanLabel')}
+                          onClick={toggleVedurstofan}
+                          className={[
+                            'flex flex-col gap-1 rounded-lg border p-2 min-h-[72px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors',
+                            showVedurstofan ? 'border-primary/40 bg-primary/5' : 'border-border',
+                          ].join(' ')}
+                        >
+                          <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">{tf('providerGroupTesting')}</span>
+                          <span className="text-[11px] font-medium text-foreground leading-tight">{tf('providerVedurstofanLabel')}</span>
+                          <span className={['relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors mt-auto', showVedurstofan ? 'bg-primary' : 'bg-input'].join(' ')}>
+                            <span className={['pointer-events-none inline-block h-3 w-3 rounded-full bg-background shadow-lg ring-0 transition-transform', showVedurstofan ? 'translate-x-3' : 'translate-x-0'].join(' ')} />
+                          </span>
+                        </button>
+
+                        {/* Vegagerðin tile — disabled, links to umferdin.is */}
+                        <div className="flex flex-col gap-1 rounded-lg border border-border p-2 min-h-[72px] opacity-40" aria-disabled="true">
+                          <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">{tf('providerGroupUpcoming')}</span>
+                          <a
+                            href="https://umferdin.is/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            tabIndex={-1}
+                            className="text-[11px] font-medium text-foreground leading-tight underline underline-offset-2 w-fit"
+                          >
+                            {tf('providerVegagerdinLabel')}
+                          </a>
+                          <span className="relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent bg-input mt-auto" aria-hidden>
+                            <span className="pointer-events-none inline-block h-3 w-3 rounded-full bg-background shadow-lg ring-0 translate-x-0" />
+                          </span>
+                        </div>
+
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No-provider state — toggles above remain visible so user can re-enable */}
+                  {hasNoActiveProvider && (
+                    <p className="text-sm text-muted-foreground py-2 text-center">
+                      {tf('chooseWeatherProvider')}
+                    </p>
+                  )}
+
+                  {/* Þín veðurmörk — threshold attention box */}
+                  {!hasNoActiveProvider && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 dark:border-blue-800 dark:bg-blue-950/30">
+                      <p className="text-[10px] font-semibold text-blue-900 dark:text-blue-200">{tf('thresholdBoxTitle')}</p>
+                      <p className="text-xs text-blue-800 dark:text-blue-300 mt-0.5">
+                        {tf('thresholdSummaryLine', { caution: effectiveThresholds.cautionWindMs, red: effectiveThresholds.redWindMs })}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Coverage text — at top so user knows the forecast scope before reading scrubber */}
-                  {coverageEndDate && (
+                  {!hasNoActiveProvider && !isVedurstofanOnly && coverageEndDate && (
                     <p className="text-xs text-muted-foreground">
                       {tf('coverageTextUntilDate', { date: formatCoverageDate(coverageEndDate, locale) })}
                     </p>
                   )}
 
-                  {/* Departure scrubber — no redundant title */}
-                  {outboundDisplayCandidates.length > 1 && (
+                  {/* Departure scrubber — MET/Yr or Veðurstofan-derived slot statuses */}
+                  {!hasNoActiveProvider && outboundDisplayCandidates.length > 1 && (showMetno || showVedurstofan) && (
                     <DepartureHeatmap
                       candidates={outboundDisplayCandidates}
-                      bestWindow={result.travelPlan!.outbound.windowMode ? result.travelPlan!.outbound.bestWindow : undefined}
+                      bestWindow={!isVedurstofanOnly && result.travelPlan!.outbound.windowMode ? result.travelPlan!.outbound.bestWindow : undefined}
                       originName={origin!.name}
                       selectedIdx={selectedHeatmapIdx}
                       onSelectIdx={handleOutboundSelect}
                       visibleStatuses={outboundVisibleStatuses}
                       onVisibleStatusesChange={setOutboundVisibleStatuses}
-                      thresholdsUsed={thresholdsUsed}
+                      thresholdsUsed={!isVedurstofanOnly ? thresholdsUsed : undefined}
                       title={null}
                       showSelectedDetail={false}
                       firstSlotLabel={!result.travelPlan!.outbound.windowMode ? tf('timelineNowLabel') : undefined}
+                      slotStatusOverrides={combinedSlotStatuses ?? undefined}
                     />
                   )}
 
                   {/* ── Journey summary grid ── */}
-                  {activeOutboundCandidate && (
+                  {!hasNoActiveProvider && (isVedurstofanOnly ? referenceDepartureIso : activeOutboundCandidate) && (
                     <div className="border-y border-border/70 divide-y divide-border/60">
 
                       {/* Brottför */}
@@ -891,19 +1443,25 @@ export function FerdalagidClient({
                         <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionDeparture')}</p>
                         <div className="space-y-1">
                           <p className="text-sm font-medium text-foreground">
-                            {formatCompactDateTime(activeOutboundCandidate.departureIso, locale)}
+                            {formatCompactDateTime(
+                              isVedurstofanOnly ? referenceDepartureIso! : activeOutboundCandidate!.departureIso,
+                              locale,
+                            )}
                           </p>
-                          {ferrySelection && (
+                          {isVedurstofanOnly && (
+                            <p className="text-xs text-muted-foreground">{tf('vedurstofanReferenceTime')}</p>
+                          )}
+                          {!isVedurstofanOnly && ferrySelection && (
                             <p className="text-xs text-muted-foreground">
                               {tf('ferryResultNote', { portName: ferrySelection.ferryPort.name })}
                             </p>
                           )}
-                          {result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
+                          {!isVedurstofanOnly && result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
                             <p className="text-xs text-muted-foreground">
                               {tf('bestWindowLabel')}: {formatWindowRange(result.travelPlan.outbound.bestWindow.fromIso, result.travelPlan.outbound.bestWindow.toIso, locale)}
                             </p>
                           )}
-                          {result.travelPlan?.return?.bestWindow && (
+                          {!isVedurstofanOnly && result.travelPlan?.return?.bestWindow && (
                             <p className="text-xs text-muted-foreground">
                               {tf('returnWindowLabel')}: {formatWindowRange(result.travelPlan.return.bestWindow.fromIso, result.travelPlan.return.bestWindow.toIso, locale)}
                             </p>
@@ -913,6 +1471,23 @@ export function FerdalagidClient({
 
                       {/* Á leiðinni */}
                       {derivedStyle && (() => {
+                        // Veðurstofan decisive: both-provider mode when Veðurstofan is decisive, or Veðurstofan-only mode
+                        if (
+                          worstVedurstofanData &&
+                          (isVedurstofanOnly || (showMetno && showVedurstofan && combinedDecisiveProvider === 'vedurstofan'))
+                        ) {
+                          return (
+                            <VedurstofanJourneySummary
+                              station={worstVedurstofanData.station}
+                              status={worstVedurstofanData.status}
+                              etaIso={worstVedurstofanData.etaIso}
+                              ftimeIso={worstVedurstofanData.ftimeIso}
+                              windMs={worstVedurstofanData.windMs}
+                              originName={origin?.name ?? ''}
+                            />
+                          )
+                        }
+                        if (!activeOutboundCandidate) return null
                         const dp = activeOutboundCandidate.displayPoint
                         const issue = heatmapHighlightedIssue
                         if (!dp && !issue) return null
@@ -935,10 +1510,7 @@ export function FerdalagidClient({
                           <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
                             <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionOnWay')}</p>
                             <div className="space-y-1">
-                              <p className={`text-sm font-medium flex items-center gap-1.5 ${windMeta.labelClass}`}>
-                                <span aria-hidden>{windMeta.icon}</span>
-                                {tf(windMeta.labelKey as 'statusWithinLimits')}
-                              </p>
+                              <WindStatusBadge status={windLabel} variant="line" />
                               {distKm !== null && etaTimeLabel && (
                                 <p className="text-xs text-muted-foreground">
                                   {distKm === 0
@@ -957,6 +1529,7 @@ export function FerdalagidClient({
                                   {tf('slotDetailMetricLine', { metric: metricLabel.toLowerCase(), value: `${formatNum(issue.value, locale)} ${issue.unit ?? ''}` })}
                                 </p>
                               )}
+                              <p className="text-[10px] text-muted-foreground/60">{tf('providerMetnoLabel')}</p>
                               <div className="mt-1 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
                                 {tf.rich('weatherDisclaimer', {
                                   link: (chunks) => (
@@ -971,20 +1544,20 @@ export function FerdalagidClient({
                         )
                       })()}
 
-                      {/* Áfangastaður */}
-                      {activeOutboundCandidate.arrivalWeather && (
+                      {/* Áfangastaður — MET/Yr destination context; shown when any provider is active and arrival data exists */}
+                      {!hasNoActiveProvider && activeOutboundCandidate?.arrivalWeather && (
                         <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
                           <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionDestination')}</p>
                           <div className="space-y-1">
                             <p className="text-sm font-medium text-foreground">
-                              {formatCompactDateTime(activeOutboundCandidate.arrivalIso, locale)}
+                              {formatCompactDateTime(activeOutboundCandidate!.arrivalIso, locale)}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {tf('arrivalForecastAtLabel', { forecastTime: formatKlTime(activeOutboundCandidate.arrivalWeather.forecastTimeIso) })}{' '}
-                              {tf('metricWind').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.windMs, locale)} m/s
-                              {' · '}{tf('metricPrecip').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.precipMmPerHour, locale)} mm/klst
-                              {activeOutboundCandidate.arrivalWeather.airTemperatureC !== undefined && (
-                                <> · {tf('metricTemp').toLowerCase()} {formatNum(activeOutboundCandidate.arrivalWeather.airTemperatureC, locale)}°C</>
+                              {tf('arrivalForecastAtLabel', { forecastTime: formatKlTime(activeOutboundCandidate!.arrivalWeather!.forecastTimeIso) })}{' '}
+                              {tf('metricWind').toLowerCase()} {formatNum(activeOutboundCandidate!.arrivalWeather!.windMs, locale)} m/s
+                              {' · '}{tf('metricPrecip').toLowerCase()} {formatNum(activeOutboundCandidate!.arrivalWeather!.precipMmPerHour, locale)} mm/klst
+                              {activeOutboundCandidate!.arrivalWeather!.airTemperatureC !== undefined && (
+                                <> · {tf('metricTemp').toLowerCase()} {formatNum(activeOutboundCandidate!.arrivalWeather!.airTemperatureC, locale)}°C</>
                               )}
                             </p>
                             {result.travelPlan?.destinationForecastRows && result.travelPlan.destinationForecastRows.length > 0 && (
@@ -1113,13 +1686,22 @@ export function FerdalagidClient({
             )}
 
             {/* Interactive audit map */}
-            {result && !loading && origin && destination && (result.travelPlan?.routeWeatherPoints?.length ?? 0) > 0 && (
+            {result && !loading && origin && destination && !hasNoActiveProvider && (activeMetnoPoints.length > 0 || providerOverlayPoints.length > 0) && (
               <TravelAuditMap
-                key={result.id}
+                key={`${result.id}-${showMetno ? 'm' : ''}-${showVedurstofan ? 'v' : ''}`}
                 originName={origin.name}
                 destinationName={effectiveDestinationName}
                 routePoints={result.travelPlan?.route.auditPolylinePoints ?? []}
-                weatherPoints={result.travelPlan!.routeWeatherPoints!}
+                weatherPoints={activeMetnoPoints}
+                providerOverlayPoints={providerOverlayPoints.length > 0 ? providerOverlayPoints : undefined}
+                highlightedOverlayPointId={
+                  (isVedurstofanOnly || combinedDecisiveProvider === 'vedurstofan') && worstVedurstofanData
+                    ? worstVedurstofanData.station.stationId
+                    : undefined
+                }
+                vedurstofanLayerPoints={vedurstofanLayer?.points}
+                referenceDepartureIso={referenceDepartureIso}
+                referenceArrivalIso={referenceArrivalIso}
                 highlightedIssue={heatmapHighlightedIssue}
                 staticMapUrl={result.travelPlan?.route.auditMapUrl}
                 selectedCandidatePointStatuses={selectedCandidatePointStatuses}
@@ -1153,8 +1735,9 @@ export function FerdalagidClient({
               />
             )}
 
-            {/* Return departure heatmap */}
-            {result && !loading && (result.travelPlan?.return?.candidates.length ?? 0) > 0 && (
+
+            {/* Return departure heatmap — only shown when met.no is active (return leg has no Veðurstofan model yet) */}
+            {result && !loading && showMetno && (result.travelPlan?.return?.candidates.length ?? 0) > 0 && (
               <div className="bg-card border border-border rounded-xl p-4">
                 <DepartureHeatmap
                   candidates={result.travelPlan!.return!.candidates}
@@ -1185,48 +1768,99 @@ export function FerdalagidClient({
                   {showExplainer ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
                   {tf('howAssessedTitle')}
                 </button>
-                {showExplainer && (result.travelPlan?.routeWeatherPoints?.length ?? 0) > 0 && (
-                  <div className="flex flex-col gap-3">
-                    <p className="text-xs text-muted-foreground">{tf('betaTransparencyCopy')}</p>
-                    {result.travelPlan!.routeWeatherPoints!.map((pt) => (
-                      <RoutePointRow
-                        key={pt.id}
-                        pt={pt}
-                        activeCandidate={userExplicitSlot && selectedCandidatePointStatuses !== undefined ? activeCandidate : undefined}
-                        activeLeg={activeLeg}
-                        selectedCandidatePointStatuses={selectedCandidatePointStatuses}
-                        thresholdsUsed={thresholdsUsed}
-                        originName={origin?.name ?? ''}
-                        onOpenForecast={pt.forecastRows?.length ? () => {
-                          const isDisplayPoint = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex
-                          const highlightedTimeIso = isDisplayPoint
-                            ? activeCandidate!.displayPoint!.forecastTimeIso
-                            : activeCandidate
-                              ? nearestForecastIso(pt.forecastRows!, estimatePointEtaIso(activeCandidate, pt, activeLeg))
-                              : pt.summaryForWindow?.forecastTimeIso
-                          setForecastDrawerData({
-                            rows: pt.forecastRows!,
-                            title: tf('forecastPointTitle', { index: pt.routeIndex + 1, total: pt.totalRouteWeatherPoints }),
-                            highlightedTimeIso,
-                            yrnoUrl: pt.yrnoUrl,
-                            googleMapsUrl: pt.googleMapsUrl,
-                            departureContext: activeCandidate ? {
-                              originDisplay: getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback')),
-                              departureIso: activeCandidate.departureIso,
-                            } : undefined,
-                          })
-                        } : undefined}
-                      />
-                    ))}
-                  </div>
-                )}
+                {showExplainer && (result.travelPlan?.routeWeatherPoints?.length ?? 0) > 0 && (() => {
+                  // Build a combined list of all provider points sorted by travel distance.
+                  // When both providers are active this interleaves met.no and Veðurstofan
+                  // points in road order instead of showing them in two separate blocks.
+                  type CombinedPoint =
+                    | { kind: 'metno'; pt: RouteWeatherPoint; distanceFromOriginM: number }
+                    | { kind: 'vedurstofan'; vpt: VedurstofanTravelLayer['points'][number]; distanceFromOriginM: number }
+                  const combinedPoints: CombinedPoint[] = [
+                    ...(showMetno ? result.travelPlan!.routeWeatherPoints!.map(pt => ({
+                      kind: 'metno' as const,
+                      pt,
+                      distanceFromOriginM: pt.distanceFromOriginM ?? 0,
+                    })) : []),
+                    ...(showVedurstofan && vedurstofanLayer ? vedurstofanLayer.points.map(vpt => ({
+                      kind: 'vedurstofan' as const,
+                      vpt,
+                      distanceFromOriginM: vpt.distanceFromOriginM ?? 0,
+                    })) : []),
+                  ].sort((a, b) => a.distanceFromOriginM - b.distanceFromOriginM)
+
+                  const metnoCount = showMetno ? (result.travelPlan?.routeWeatherPoints?.length ?? 0) : 0
+                  const vedurstofanCount = showVedurstofan && vedurstofanLayer ? vedurstofanLayer.points.length : 0
+                  const totalCount = metnoCount + vedurstofanCount
+                  const bothActive = metnoCount > 0 && vedurstofanCount > 0
+
+                  return (
+                    <div className="flex flex-col gap-3">
+                      <p className="text-xs text-muted-foreground">{tf('betaTransparencyCopy')}</p>
+                      {totalCount > 0 && (
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground pt-1">
+                          {bothActive
+                            ? tf('allProviderPointsSectionLabel', { count: totalCount })
+                            : metnoCount > 0
+                              ? tf('metnoSectionLabel', { count: metnoCount })
+                              : tf('vedurstofanPointsSectionLabel', { count: vedurstofanCount })}
+                        </p>
+                      )}
+                      {combinedPoints.map(item => {
+                        if (item.kind === 'metno') {
+                          const pt = item.pt
+                          return (
+                            <RoutePointRow
+                              key={pt.id}
+                              pt={pt}
+                              activeCandidate={userExplicitSlot && selectedCandidatePointStatuses !== undefined ? activeCandidate : undefined}
+                              activeLeg={activeLeg}
+                              selectedCandidatePointStatuses={selectedCandidatePointStatuses}
+                              thresholdsUsed={thresholdsUsed}
+                              originName={origin?.name ?? ''}
+                              providerLabel={tf('providerMetnoLabel')}
+                              onOpenForecast={pt.forecastRows?.length ? () => {
+                                const isDisplayPoint = activeCandidate?.displayPoint?.routeIndex === pt.routeIndex
+                                const highlightedTimeIso = isDisplayPoint
+                                  ? activeCandidate!.displayPoint!.forecastTimeIso
+                                  : activeCandidate
+                                    ? nearestForecastIso(pt.forecastRows!, estimatePointEtaIso(activeCandidate, pt, activeLeg))
+                                    : pt.summaryForWindow?.forecastTimeIso
+                                setForecastDrawerData({
+                                  rows: pt.forecastRows!,
+                                  title: tf('forecastPointTitle', { index: pt.routeIndex + 1, total: pt.totalRouteWeatherPoints }),
+                                  highlightedTimeIso,
+                                  yrnoUrl: pt.yrnoUrl,
+                                  googleMapsUrl: pt.googleMapsUrl,
+                                  departureContext: activeCandidate ? {
+                                    originDisplay: getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback')),
+                                    departureIso: activeCandidate.departureIso,
+                                  } : undefined,
+                                })
+                              } : undefined}
+                            />
+                          )
+                        }
+                        const vpt = item.vpt
+                        const assessment = vedurstofanAssessments.find(a => a.station.stationId === vpt.stationId)
+                        return (
+                          <VedurstofanPointCard
+                            key={vpt.routePointId}
+                            station={vpt}
+                            status={assessment?.status ?? 'no_data'}
+                            etaIso={assessment?.etaIso ?? null}
+                            departureIso={referenceDepartureIso}
+                            originName={origin?.name ?? ''}
+                          />
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
               </div>
             )}
           </div>
         )}
 
-        {/* Attribution */}
-        <p className="text-xs text-muted-foreground text-center">{t('attribution')}</p>
 
       </main>
 
@@ -1656,6 +2290,7 @@ function RoutePointRow({
   selectedCandidatePointStatuses,
   thresholdsUsed,
   originName,
+  providerLabel,
   onOpenForecast,
 }: {
   pt: RouteWeatherPoint
@@ -1664,6 +2299,7 @@ function RoutePointRow({
   selectedCandidatePointStatuses?: CandidatePointStatus[]
   thresholdsUsed?: ResolvedTravelThresholds
   originName: string
+  providerLabel?: string
   onOpenForecast?: () => void
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
@@ -1673,10 +2309,7 @@ function RoutePointRow({
 
   // Fine-grained wind status for badge and card styling
   const th = thresholdsUsed ?? resolveThresholds('none')
-  const ptHasData = isActiveMode
-    ? activeCandidate!.displayPoint?.routeIndex === pt.routeIndex || (pt.forecastRows?.length ?? 0) > 0
-    : pt.summaryForWindow !== undefined
-  const windStatus = classifyPointWindDisplayStatus(summary.windMs, ptHasData, th)
+  const windStatus = classifyPointWindDisplayStatus(summary.windMs, summary.hasData, th)
   const windMeta = WIND_STATUS_META_SHARED[windStatus]
   const cardClass = ROUTE_POINT_CARD_CLASS[windStatus]
 
@@ -1693,9 +2326,10 @@ function RoutePointRow({
         onOpenForecast={onOpenForecast}
         headerExtra={
           <>
-            <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${windMeta.chipActiveClass}`}>
-              {windMeta.icon} {tf(windMeta.labelKey as 'statusWithinLimits')}
-            </span>
+            {providerLabel && (
+              <span className="bg-muted/70 text-muted-foreground px-1.5 py-0.5 rounded font-medium text-[10px]">{providerLabel}</span>
+            )}
+            <WindStatusBadge status={windStatus} variant="chip" />
             {badges.map(b => (
               <span key={b} className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-xs">{b}</span>
             ))}
@@ -1705,3 +2339,4 @@ function RoutePointRow({
     </div>
   )
 }
+

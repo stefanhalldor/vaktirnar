@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { checkFeatureAccess } from '@/lib/loans/guard'
+import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 
@@ -30,15 +30,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ results: [] }, { status: 404 })
   }
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) {
-    return NextResponse.json({ results: [] }, { status: 401 })
+  if (getWeatherEnabledMode() === 'off') {
+    return NextResponse.json({ results: [] }, { status: 404 })
   }
 
-  const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
-  if (!allowed) {
-    return NextResponse.json({ results: [] }, { status: 404 })
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const access = await resolveWeatherBaseAccess(user)
+  if (access.mode === 'blocked') {
+    return NextResponse.json({ results: [] }, { status: 401 })
   }
 
   const ip =

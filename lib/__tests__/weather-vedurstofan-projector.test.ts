@@ -9,19 +9,27 @@ const {
   mockDeleteEq,
   mockDeleteLt,
   mockUpsertForecasts,
+  mockInsertRun,
   mockInsertRunSelect,
+  mockUpdateRun,
+  mockUpdateRunEq,
 } = vi.hoisted(() => ({
   mockLike: vi.fn(),
   mockDeleteEq: vi.fn(),
   mockDeleteLt: vi.fn(),
   mockUpsertForecasts: vi.fn(),
+  mockInsertRun: vi.fn(),
   mockInsertRunSelect: vi.fn(),
+  mockUpdateRun: vi.fn(),
+  mockUpdateRunEq: vi.fn(),
 }))
 
 // Table-aware admin mock:
 //   weather_cache                  → select().like()
 //   vedurstofan_forecasts_latest   → upsert() or delete().eq().lt()
-//   weather_fetch_runs             → insert().select().maybeSingle()
+//   vedurstofan_forecasts_history  → upsert() (no-op success) or delete().lt() (no-op success)
+//   weather_fetch_runs             → insert(data).select().maybeSingle()
+//                                     or update(data).eq()
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: () => ({
     from: (table: string) => {
@@ -39,11 +47,24 @@ vi.mock('@/lib/supabase/admin', () => ({
           }),
         }
       }
+      if (table === 'vedurstofan_forecasts_history') {
+        // History writes are best-effort — stub as always-succeed so projection tests
+        // are not affected by the history upsert/retention-delete added in the implementation.
+        return {
+          upsert: () => Promise.resolve({ error: null }),
+          delete: () => ({ lt: () => Promise.resolve({}) }),
+        }
+      }
       if (table === 'weather_fetch_runs') {
         return {
-          insert: () => ({
-            select: () => ({ maybeSingle: mockInsertRunSelect }),
-          }),
+          insert: (data: unknown) => {
+            mockInsertRun(data)
+            return { select: () => ({ maybeSingle: mockInsertRunSelect }) }
+          },
+          update: (data: unknown) => {
+            mockUpdateRun(data)
+            return { eq: mockUpdateRunEq }
+          },
         }
       }
       return {}
@@ -70,7 +91,7 @@ import { projectVedurstofanCacheToProductTables } from '@/lib/weather/providers/
 
 const CACHE_KEY_PREFIX = 'vedurstofan:xml:forec:is:3h:F-D-T-R-W:'
 
-function makePayload(stationId: string, forecastCount = 2) {
+function makePayload(stationId: string, forecastCount = 2, atimeIso = '2026-07-13T06:00:00Z') {
   return {
     source: 'vedurstofan',
     endpoint: 'xml',
@@ -80,7 +101,7 @@ function makePayload(stationId: string, forecastCount = 2) {
     params: ['F', 'D', 'T', 'R', 'W'],
     stationId,
     stationName: stationId === '31392' ? 'Hellisheiði' : 'Selfoss',
-    atimeIso: '2026-07-13T06:00:00Z',
+    atimeIso,
     fetchedAtIso: '2026-07-13T07:00:00Z',
     expiresAtIso: '2026-07-13T08:30:00Z',
     attribution: { provider: 'Veðurstofa Íslands', downloadedAtIso: '2026-07-13T07:00:00Z', serviceUrl: '' },
@@ -110,6 +131,7 @@ beforeEach(() => {
   mockUpsertForecasts.mockResolvedValue({ error: null })
   mockDeleteLt.mockResolvedValue({ error: null })
   mockInsertRunSelect.mockResolvedValue({ data: { id: 1 }, error: null })
+  mockUpdateRunEq.mockResolvedValue({})
 })
 
 // ── Cache key prefix ──────────────────────────────────────────────────────────
@@ -339,5 +361,50 @@ describe('projectVedurstofanCacheToProductTables — weather_fetch_runs', () => 
     mockInsertRunSelect.mockResolvedValue({ data: null, error: null })
     const result = await projectVedurstofanCacheToProductTables()
     expect(result.projected).toBe(1)
+  })
+
+  it('populates result_atime in the run record from the projected station atimeIso', async () => {
+    const payload = makePayload('31392')
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392', payload)], error: null })
+    await projectVedurstofanCacheToProductTables()
+    expect(mockInsertRun).toHaveBeenCalledTimes(1)
+    const insertArg = mockInsertRun.mock.calls[0][0] as Record<string, unknown>
+    expect(insertArg.result_atime).toBe(payload.atimeIso)
+  })
+
+  it('uses the MINIMUM atimeIso across stations for result_atime (conservative)', async () => {
+    // Station A has newer cycle, station B has older cycle — result_atime should be B's (min)
+    const payloadA = makePayload('31392', 2, '2026-07-13T09:00:00Z') // newer
+    const payloadB = makePayload('6300',  2, '2026-07-13T06:00:00Z') // older
+    mockLike.mockResolvedValue({
+      data: [makeCacheRow('31392', payloadA), makeCacheRow('6300', payloadB)],
+      error: null,
+    })
+    await projectVedurstofanCacheToProductTables()
+    const insertArg = mockInsertRun.mock.calls[0][0] as Record<string, unknown>
+    expect(insertArg.result_atime).toBe('2026-07-13T06:00:00Z')
+  })
+
+  it('finalizes an existing running row via UPDATE when context has existingRunId', async () => {
+    mockLike.mockResolvedValue({ data: [makeCacheRow('31392')], error: null })
+    const context = { existingRunId: 55, triggeredBy: 'manual' as const, triggeredByUserId: 'u1', expectedAtimeIso: '2026-07-13T06:00:00Z' }
+    await projectVedurstofanCacheToProductTables(context)
+    // Should UPDATE the existing row, not INSERT a new one
+    expect(mockUpdateRun).toHaveBeenCalledTimes(1)
+    expect(mockInsertRun).not.toHaveBeenCalled()
+    const updateArg = mockUpdateRun.mock.calls[0][0] as Record<string, unknown>
+    expect(updateArg.status).toBe('succeeded')
+    expect(updateArg.result_atime).toBe(makePayload('31392').atimeIso)
+  })
+
+  it('finalizes running row with failed status when cache read fails', async () => {
+    mockLike.mockResolvedValue({ data: null, error: { message: 'db error' } })
+    const context = { existingRunId: 77, triggeredBy: 'manual' as const, triggeredByUserId: 'u1', expectedAtimeIso: '2026-07-13T06:00:00Z' }
+    await projectVedurstofanCacheToProductTables(context)
+    // Early failure path must UPDATE the pre-inserted running row to failed, not INSERT
+    expect(mockUpdateRun).toHaveBeenCalledTimes(1)
+    expect(mockInsertRun).not.toHaveBeenCalled()
+    const updateArg = mockUpdateRun.mock.calls[0][0] as Record<string, unknown>
+    expect(updateArg.status).toBe('failed')
   })
 })

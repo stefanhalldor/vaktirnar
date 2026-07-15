@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherEnabledMode.server'
 
 export interface LoanAccess {
   user: User
@@ -68,19 +69,36 @@ export async function checkFeatureAccess(
     return checkPerUserAccess(email, 'facebook-oauth')
   }
   if (featureKey === 'vedrid') {
-    if (process.env.WEATHER_ENABLED !== 'true') return false
-    if (process.env.WEATHER_FLAG !== 'true') return true
+    if (getWeatherEnabledMode() === 'off') return false
+    // New var wins when present. Legacy WEATHER_FLAG is fallback when new var is absent.
+    // WEATHER_AUTH_ACCESS_REQUIRED=true (or legacy WEATHER_FLAG=true) enables per-user gate.
+    // If neither is set, all authenticated users have access (graduation path).
+    const weatherAuthAccessRequired =
+      process.env.WEATHER_AUTH_ACCESS_REQUIRED !== undefined
+        ? process.env.WEATHER_AUTH_ACCESS_REQUIRED === 'true'
+        : process.env.WEATHER_FLAG === 'true'
+    if (!weatherAuthAccessRequired) return true
     return checkPerUserAccess(email, 'vedrid')
   }
   if (featureKey === 'ferdalagid') {
-    if (process.env.WEATHER_ENABLED !== 'true') return false
+    if (getWeatherEnabledMode() === 'off') return false
     if (process.env.WEATHER_TRIP_FLAG !== 'true') return false
     return checkPerUserAccess(email, 'ferdalagid')
   }
   if (featureKey === 'elta-vedrid') {
-    if (process.env.WEATHER_ENABLED !== 'true') return false
+    if (getWeatherEnabledMode() === 'off') return false
     if (process.env.WEATHER_ELTA_VEDRID_FLAG !== 'true') return false
     return checkPerUserAccess(email, 'elta-vedrid')
+  }
+  if (featureKey === 'weather-provider-vedurstofan') {
+    if (getWeatherEnabledMode() === 'off') return false
+    // Default: access required (per-user gate) unless explicitly set to 'false'.
+    // WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED=false graduates provider to all weather users.
+    // Legacy WEATHER_PROVIDER_VEDURSTOFAN_ENABLED is no longer read — remove from Vercel after deploy verification.
+    const vedurstofanAccessRequired =
+      process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED !== 'false'
+    if (!vedurstofanAccessRequired) return true
+    return checkPerUserAccess(email, 'weather-provider-vedurstofan')
   }
   return false
 }

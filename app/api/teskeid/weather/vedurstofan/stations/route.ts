@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { readVedurstofanProductForStations } from '@/lib/weather/providers/vedurstofan.server'
 import type { VedurstofanStationResult } from '@/lib/weather/providers/vedurstofan.server'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
@@ -10,7 +11,7 @@ export async function GET() {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
-  if (process.env.WEATHER_ENABLED !== 'true') {
+  if (getWeatherEnabledMode() === 'off') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
   if (process.env.WEATHER_ELTA_VEDRID_FLAG !== 'true') {

@@ -255,3 +255,49 @@ describe('feature-access API — elta-vedrid key', () => {
     )
   })
 })
+
+// ── weather-provider-vedurstofan feature key ───────────────────────────────────────
+
+describe('feature-access API — weather-provider-vedurstofan key', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('GET ?feature=weather-provider-vedurstofan returns 200 for admin', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('weather-provider-vedurstofan'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST ?feature=weather-provider-vedurstofan grants access and inserts correct feature_key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'weather-provider-vedurstofan'))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'weather-provider-vedurstofan', email: 'user@example.com' }),
+    )
+  })
+
+  it('DELETE ?feature=weather-provider-vedurstofan revokes access', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await DELETE(makeRequest({ email: 'user@example.com' }, 'DELETE', 'weather-provider-vedurstofan'))
+    expect(res.status).toBe(200)
+  })
+
+  it('weather-provider-vedurstofan insert uses its own feature_key, not elta-vedrid or vedrid', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'weather-provider-vedurstofan'))
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'weather-provider-vedurstofan' }),
+    )
+    expect(mockInsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'elta-vedrid' }),
+    )
+    expect(mockInsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'vedrid' }),
+    )
+  })
+})

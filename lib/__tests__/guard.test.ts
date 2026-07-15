@@ -508,58 +508,105 @@ describe('guardFeatureAccess — facebook-oauth', () => {
 describe('checkFeatureAccess — vedrid (global kill-switch)', () => {
   let savedEnabled: string | undefined
   let savedFlag: string | undefined
+  let savedAccessRequired: string | undefined
 
   beforeEach(() => {
     vi.clearAllMocks()
     savedEnabled = process.env.WEATHER_ENABLED
     savedFlag = process.env.WEATHER_FLAG
+    savedAccessRequired = process.env.WEATHER_AUTH_ACCESS_REQUIRED
   })
 
   afterEach(() => {
     setEnv('WEATHER_ENABLED', savedEnabled)
     setEnv('WEATHER_FLAG', savedFlag)
+    setEnv('WEATHER_AUTH_ACCESS_REQUIRED', savedAccessRequired)
   })
 
   it('returns false when WEATHER_ENABLED is not set', async () => {
     delete process.env.WEATHER_ENABLED
     delete process.env.WEATHER_FLAG
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
     expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
   })
 
   it('returns false when WEATHER_ENABLED=false', async () => {
     process.env.WEATHER_ENABLED = 'false'
     delete process.env.WEATHER_FLAG
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
     expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
   })
 
-  it('returns true when WEATHER_ENABLED=true and FLAG unset (open to all)', async () => {
+  it('returns true when WEATHER_ENABLED=true and neither access flag set (open to all)', async () => {
     process.env.WEATHER_ENABLED = 'true'
+    delete process.env.WEATHER_FLAG
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+
+  it('passes kill-switch when WEATHER_ENABLED=All and no access flag set (open to all)', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    delete process.env.WEATHER_FLAG
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+
+  it('passes kill-switch when WEATHER_ENABLED=Authenticated and no access flag set (open to all)', async () => {
+    process.env.WEATHER_ENABLED = 'Authenticated'
+    delete process.env.WEATHER_FLAG
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+
+  it('returns true when WEATHER_ENABLED=true and legacy WEATHER_FLAG=false (open to all)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_FLAG = 'false'
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+
+  it('returns true when WEATHER_ENABLED=true and WEATHER_AUTH_ACCESS_REQUIRED=false (open to all)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_AUTH_ACCESS_REQUIRED = 'false'
     delete process.env.WEATHER_FLAG
     expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
   })
 
-  it('returns true when WEATHER_ENABLED=true and FLAG=false (open to all)', async () => {
+  it('new WEATHER_AUTH_ACCESS_REQUIRED=false wins over stale legacy WEATHER_FLAG=true', async () => {
     process.env.WEATHER_ENABLED = 'true'
-    process.env.WEATHER_FLAG = 'false'
+    process.env.WEATHER_AUTH_ACCESS_REQUIRED = 'false'
+    process.env.WEATHER_FLAG = 'true'
     expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+
+  it('WEATHER_AUTH_ACCESS_REQUIRED=true requires per-user access even when WEATHER_FLAG=false', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_AUTH_ACCESS_REQUIRED = 'true'
+    process.env.WEATHER_FLAG = 'false'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
   })
 })
 
-describe('checkFeatureAccess — vedrid (per-user FLAG=true)', () => {
+describe('checkFeatureAccess — vedrid (per-user gate via legacy WEATHER_FLAG=true)', () => {
   let savedEnabled: string | undefined
   let savedFlag: string | undefined
+  let savedAccessRequired: string | undefined
 
   beforeEach(() => {
     vi.clearAllMocks()
     savedEnabled = process.env.WEATHER_ENABLED
     savedFlag = process.env.WEATHER_FLAG
+    savedAccessRequired = process.env.WEATHER_AUTH_ACCESS_REQUIRED
     process.env.WEATHER_ENABLED = 'true'
     process.env.WEATHER_FLAG = 'true'
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
   })
 
   afterEach(() => {
     setEnv('WEATHER_ENABLED', savedEnabled)
     setEnv('WEATHER_FLAG', savedFlag)
+    setEnv('WEATHER_AUTH_ACCESS_REQUIRED', savedAccessRequired)
   })
 
   it('returns true when row exists in feature_access', async () => {
@@ -588,52 +635,107 @@ describe('checkFeatureAccess — vedrid (per-user FLAG=true)', () => {
   })
 })
 
-// ── guardFeatureAccess — vedrid ───────────────────────────────────────────────
-
-describe('guardFeatureAccess — vedrid', () => {
+describe('checkFeatureAccess — vedrid (per-user gate via WEATHER_AUTH_ACCESS_REQUIRED=true)', () => {
   let savedEnabled: string | undefined
   let savedFlag: string | undefined
+  let savedAccessRequired: string | undefined
 
   beforeEach(() => {
     vi.clearAllMocks()
     savedEnabled = process.env.WEATHER_ENABLED
     savedFlag = process.env.WEATHER_FLAG
+    savedAccessRequired = process.env.WEATHER_AUTH_ACCESS_REQUIRED
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_AUTH_ACCESS_REQUIRED = 'true'
+    delete process.env.WEATHER_FLAG
   })
 
   afterEach(() => {
     setEnv('WEATHER_ENABLED', savedEnabled)
     setEnv('WEATHER_FLAG', savedFlag)
+    setEnv('WEATHER_AUTH_ACCESS_REQUIRED', savedAccessRequired)
+  })
+
+  it('returns true when row exists in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(true)
+  })
+
+  it('returns false when no row in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'vedrid')).toBe(false)
+  })
+})
+
+// ── guardFeatureAccess — vedrid ───────────────────────────────────────────────
+
+describe('guardFeatureAccess — vedrid', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+  let savedAccessRequired: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedFlag = process.env.WEATHER_FLAG
+    savedAccessRequired = process.env.WEATHER_AUTH_ACCESS_REQUIRED
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_FLAG', savedFlag)
+    setEnv('WEATHER_AUTH_ACCESS_REQUIRED', savedAccessRequired)
   })
 
   it('redirects to / when WEATHER_ENABLED is not set', async () => {
     delete process.env.WEATHER_ENABLED
     delete process.env.WEATHER_FLAG
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
     await expect(guardFeatureAccess('user@example.com', 'vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
   })
 
   it('redirects to / when WEATHER_ENABLED=false', async () => {
     process.env.WEATHER_ENABLED = 'false'
     delete process.env.WEATHER_FLAG
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
     await expect(guardFeatureAccess('user@example.com', 'vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
   })
 
-  it('does not redirect when WEATHER_ENABLED=true and FLAG unset', async () => {
+  it('does not redirect when WEATHER_ENABLED=true and no access flag set (open to all)', async () => {
     process.env.WEATHER_ENABLED = 'true'
     delete process.env.WEATHER_FLAG
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
     await expect(guardFeatureAccess('user@example.com', 'vedrid')).resolves.toBeUndefined()
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 
-  it('redirects when FLAG=true and user not in feature_access', async () => {
+  it('redirects when WEATHER_AUTH_ACCESS_REQUIRED=true and user not in feature_access', async () => {
     process.env.WEATHER_ENABLED = 'true'
-    process.env.WEATHER_FLAG = 'true'
+    process.env.WEATHER_AUTH_ACCESS_REQUIRED = 'true'
     mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
     await expect(guardFeatureAccess('user@example.com', 'vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
   })
 
-  it('does not redirect when FLAG=true and user is in feature_access', async () => {
+  it('does not redirect when WEATHER_AUTH_ACCESS_REQUIRED=true and user is in feature_access', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_AUTH_ACCESS_REQUIRED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    await expect(guardFeatureAccess('user@example.com', 'vedrid')).resolves.toBeUndefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  it('redirects when legacy WEATHER_FLAG=true and user not in feature_access', async () => {
     process.env.WEATHER_ENABLED = 'true'
     process.env.WEATHER_FLAG = 'true'
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    await expect(guardFeatureAccess('user@example.com', 'vedrid')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('does not redirect when legacy WEATHER_FLAG=true and user is in feature_access', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_FLAG = 'true'
+    delete process.env.WEATHER_AUTH_ACCESS_REQUIRED
     mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
     await expect(guardFeatureAccess('user@example.com', 'vedrid')).resolves.toBeUndefined()
     expect(mockRedirect).not.toHaveBeenCalled()
@@ -732,6 +834,12 @@ describe('checkFeatureAccess — elta-vedrid (kill-switch and strict flag)', () 
     expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(false)
   })
 
+  it('passes kill-switch when WEATHER_ENABLED=All (still requires WEATHER_ELTA_VEDRID_FLAG)', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    delete process.env.WEATHER_ELTA_VEDRID_FLAG
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'elta-vedrid')).toBe(false)
+  })
+
   it('returns false when WEATHER_ELTA_VEDRID_FLAG=false', async () => {
     process.env.WEATHER_ENABLED = 'true'
     process.env.WEATHER_ELTA_VEDRID_FLAG = 'false'
@@ -819,5 +927,120 @@ describe('guardFeatureAccess — elta-vedrid', () => {
     mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
     await expect(guardFeatureAccess('user@example.com', 'elta-vedrid')).resolves.toBeUndefined()
     expect(mockRedirect).not.toHaveBeenCalled()
+  })
+})
+
+// ── checkFeatureAccess — weather-provider-vedurstofan ───────────────────────────────
+
+describe('checkFeatureAccess — weather-provider-vedurstofan (kill-switch and access flag)', () => {
+  let savedEnabled: string | undefined
+  let savedLegacyFlag: string | undefined
+  let savedAccessRequired: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedLegacyFlag = process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
+    savedAccessRequired = process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_PROVIDER_VEDURSTOFAN_ENABLED', savedLegacyFlag)
+    setEnv('WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED', savedAccessRequired)
+  })
+
+  it('returns false when WEATHER_ENABLED is not set', async () => {
+    delete process.env.WEATHER_ENABLED
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(false)
+  })
+
+  it('returns false when WEATHER_ENABLED=false', async () => {
+    process.env.WEATHER_ENABLED = 'false'
+    process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED = 'true'
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(false)
+  })
+
+  it('requires per-user access when WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED is not set (default restricted)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(false)
+  })
+
+  it('requires per-user access when only legacy WEATHER_PROVIDER_VEDURSTOFAN_ENABLED=true is set (new var absent = default restricted)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED = 'true'
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(false)
+  })
+
+  it('returns true (open to all weather users) when WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED=false', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED = 'false'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(true)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('passes kill-switch when WEATHER_ENABLED=All, then applies per-user default', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    // default is restricted — no row means false
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(false)
+  })
+
+  it('passes kill-switch when WEATHER_ENABLED=All, user with row gets access', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(true)
+  })
+})
+
+describe('checkFeatureAccess — weather-provider-vedurstofan (per-user gate, WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED=true)', () => {
+  let savedEnabled: string | undefined
+  let savedLegacyFlag: string | undefined
+  let savedAccessRequired: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedLegacyFlag = process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
+    savedAccessRequired = process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED = 'true'
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_PROVIDER_VEDURSTOFAN_ENABLED', savedLegacyFlag)
+    setEnv('WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED', savedAccessRequired)
+  })
+
+  it('returns true when row exists in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(true)
+  })
+
+  it('returns false when no row in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(false)
+  })
+
+  it('returns false when DB query returns an error (fail-closed)', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'connection refused' } })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vedurstofan')).toBe(false)
+  })
+
+  it('returns false for invalid email', async () => {
+    expect(await checkFeatureAccess('uid', 'not-an-email', 'weather-provider-vedurstofan')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 })

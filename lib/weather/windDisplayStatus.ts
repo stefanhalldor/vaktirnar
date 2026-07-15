@@ -89,3 +89,13 @@ export function classifyPointWindDisplayStatus(
   if (windMs === undefined) return 'innan-marka'
   return classifyWindDistance(windMs, thresholds.cautionWindMs, thresholds.redWindMs)
 }
+
+/**
+ * Returns the more severe of two WindDisplayStatus values.
+ * Uses WIND_DISPLAY_STATUS_PRIORITY_ORDER (worst-first) for comparison.
+ */
+export function worstWindDisplayStatus(a: WindDisplayStatus, b: WindDisplayStatus): WindDisplayStatus {
+  const aIdx = WIND_DISPLAY_STATUS_PRIORITY_ORDER.indexOf(a)
+  const bIdx = WIND_DISPLAY_STATUS_PRIORITY_ORDER.indexOf(b)
+  return aIdx <= bIdx ? a : b
+}

@@ -30,6 +30,16 @@ import { readVedurstofanProductForStations } from '@/lib/weather/providers/vedur
 const FUTURE = new Date(Date.now() + 3_600_000).toISOString()
 const FETCHED = '2026-07-13T10:00:00Z'
 
+/** Current 3-hour Veðurstofan cycle start (UTC) — used to make test fixtures appear fresh. */
+function currentExpectedCycleIso(): string {
+  const now = new Date()
+  const h = Math.floor(now.getUTCHours() / 3) * 3
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, 0, 0)).toISOString()
+}
+
+const FRESH_ATIME = currentExpectedCycleIso()
+const STALE_ATIME = '2020-01-01T00:00:00Z'
+
 type Row = {
   station_id: string
   forecast_time: string
@@ -52,7 +62,7 @@ function makeRow(stationId: string, ftimeHour: number, opts?: { stale?: boolean 
     temperature_c: 10,
     precipitation_mm_per_hour: 0,
     weather_text: 'Clear',
-    atime: '2026-07-13T06:00:00Z',
+    atime: opts?.stale ? STALE_ATIME : FRESH_ATIME,
     expires_at: opts?.stale ? '2026-07-12T00:00:00Z' : FUTURE,
     fetched_at: FETCHED,
   }

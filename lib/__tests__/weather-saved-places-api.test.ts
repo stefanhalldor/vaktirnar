@@ -68,9 +68,17 @@ const VALID_PLACE = { name: 'Selfoss', formattedAddress: 'Selfoss, Iceland', lat
 
 // ── Setup ──────────────────────────────────────────────────────────────────────
 
+function publicAuthedUser() {
+  // Signed-in user without vedrid — gets saved places when WEATHER_PUBLIC_ENABLED=true
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+  mockCheckFeatureAccess.mockResolvedValue(false)
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
+  process.env.WEATHER_ENABLED = 'true'
+  delete process.env.WEATHER_PUBLIC_ENABLED
 })
 
 // ── GET tests ──────────────────────────────────────────────────────────────────
@@ -88,7 +96,8 @@ describe('GET /api/teskeid/weather/saved-places', () => {
     expect(res.status).toBe(401)
   })
 
-  it('returns 401 when feature access is denied', async () => {
+  it('returns 401 when WEATHER_ENABLED is off (signed-in user without vedrid)', async () => {
+    delete process.env.WEATHER_ENABLED
     accessDenied()
     const res = await GET()
     expect(res.status).toBe(401)
@@ -332,19 +341,20 @@ describe('DELETE /api/teskeid/weather/saved-places/[id]', () => {
 
   it('returns 404 when AUTH_MVP_ENABLED is not true', async () => {
     process.env.AUTH_MVP_ENABLED = 'false'
-    const res = await DELETE(makeDeleteRequest(), { params: Promise.resolve({ id: 'some-id' }) })
+    const res = await DELETE(new Request('http://localhost/api/teskeid/weather/saved-places/some-id', { method: 'DELETE' }), { params: Promise.resolve({ id: 'some-id' }) })
     expect(res.status).toBe(404)
   })
 
   it('returns 401 when user is not authenticated', async () => {
     unauthenticated()
-    const res = await DELETE(makeDeleteRequest(), { params: Promise.resolve({ id: 'some-id' }) })
+    const res = await DELETE(new Request('http://localhost/api/teskeid/weather/saved-places/some-id', { method: 'DELETE' }), { params: Promise.resolve({ id: 'some-id' }) })
     expect(res.status).toBe(401)
   })
 
-  it('returns 404 when feature access is denied', async () => {
+  it('returns 404 when WEATHER_ENABLED is off (signed-in user without vedrid)', async () => {
+    delete process.env.WEATHER_ENABLED
     accessDenied()
-    const res = await DELETE(makeDeleteRequest(), { params: Promise.resolve({ id: 'some-id' }) })
+    const res = await DELETE(new Request('http://localhost/api/teskeid/weather/saved-places/some-id', { method: 'DELETE' }), { params: Promise.resolve({ id: 'some-id' }) })
     expect(res.status).toBe(404)
   })
 
@@ -355,7 +365,7 @@ describe('DELETE /api/teskeid/weather/saved-places/[id]', () => {
         eq: vi.fn().mockResolvedValue({ error: null }),
       }),
     })
-    const res = await DELETE(makeDeleteRequest(), { params: Promise.resolve({ id: 'some-id' }) })
+    const res = await DELETE(new Request('http://localhost/api/teskeid/weather/saved-places/some-id', { method: 'DELETE' }), { params: Promise.resolve({ id: 'some-id' }) })
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
@@ -368,7 +378,72 @@ describe('DELETE /api/teskeid/weather/saved-places/[id]', () => {
         eq: vi.fn().mockResolvedValue({ error: { message: 'db error' } }),
       }),
     })
-    const res = await DELETE(makeDeleteRequest(), { params: Promise.resolve({ id: 'some-id' }) })
+    const res = await DELETE(new Request('http://localhost/api/teskeid/weather/saved-places/some-id', { method: 'DELETE' }), { params: Promise.resolve({ id: 'some-id' }) })
     expect(res.status).toBe(500)
+  })
+})
+
+// ── Public-tier access tests ────────────────────────────────────────────────
+
+describe('saved-places — signed-in user without vedrid (public-tier)', () => {
+  it('GET returns empty list for unauthenticated guest when WEATHER_PUBLIC_ENABLED=true', async () => {
+    unauthenticated()
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.places).toEqual([])
+  })
+
+  it('GET returns 401 for unauthenticated guest when WEATHER_PUBLIC_ENABLED is off', async () => {
+    unauthenticated()
+    // WEATHER_PUBLIC_ENABLED not set
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('GET returns saved places for signed-in user without vedrid when WEATHER_PUBLIC_ENABLED=true', async () => {
+    publicAuthedUser()
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    const row = { id: 'r1', name: 'Akureyri', formatted_address: 'Akureyri, Iceland', lat: 65.683, lon: -18.1, usage_count: 1, last_used_at: '2026-07-15T00:00:00Z' }
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({ order: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue({ data: [row], error: null }) }) }),
+    })
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.places).toHaveLength(1)
+    expect(body.places[0].name).toBe('Akureyri')
+  })
+
+  it('GET blocked for signed-in user without vedrid when WEATHER_ENABLED is off', async () => {
+    delete process.env.WEATHER_ENABLED
+    publicAuthedUser()
+    const res = await GET()
+    expect(res.status).toBe(401)
+  })
+
+  it('POST blocked for unauthenticated guest even when WEATHER_PUBLIC_ENABLED=true', async () => {
+    unauthenticated()
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    const res = await POST(makeRequest('POST', VALID_PLACE))
+    expect(res.status).toBe(401)
+  })
+
+  it('DELETE allowed for signed-in user without vedrid when WEATHER_PUBLIC_ENABLED=true', async () => {
+    publicAuthedUser()
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    mockFrom.mockReturnValue({
+      delete: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+    })
+    const res = await DELETE(new Request('http://localhost/api/teskeid/weather/saved-places/some-id', { method: 'DELETE' }), { params: Promise.resolve({ id: 'some-id' }) })
+    expect(res.status).toBe(200)
+  })
+
+  it('DELETE blocked for signed-in user without vedrid when WEATHER_ENABLED is off', async () => {
+    delete process.env.WEATHER_ENABLED
+    publicAuthedUser()
+    const res = await DELETE(new Request('http://localhost/api/teskeid/weather/saved-places/some-id', { method: 'DELETE' }), { params: Promise.resolve({ id: 'some-id' }) })
+    expect(res.status).toBe(404)
   })
 })

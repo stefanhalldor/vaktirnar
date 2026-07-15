@@ -236,6 +236,12 @@ export type PointSummary = {
   forecastLon: number
   /** Whether the forecast point is visually distinct from the route point. */
   hasSeparateForecastPoint: boolean
+  /**
+   * True when this point has real weather data for the current display mode.
+   * Use this as the hasData arg to classifyPointWindDisplayStatus instead of
+   * summary.status !== undefined, which is always undefined in active-candidate mode.
+   */
+  hasData: boolean
   /** Approximate distance in meters between the route coordinate and the met.no forecast grid point. */
   forecastDistanceFromRouteM: number
   /** Departure time from the active candidate (shown in panel header). */
@@ -402,6 +408,7 @@ export function buildPointSummary(
     forecastLat: pt.forecastLat,
     forecastLon: pt.forecastLon,
     hasSeparateForecastPoint: shouldShowForecastPointMarker(pt),
+    hasData: dp !== undefined ? true : derived !== null ? true : activeCandidate ? false : pt.summaryForWindow !== undefined,
     forecastDistanceFromRouteM: Math.round(haversineMeters(getRoutePointLatLng(pt), getForecastPointLatLng(pt))),
     departureIso: activeCandidate?.departureIso,
     etaIso,

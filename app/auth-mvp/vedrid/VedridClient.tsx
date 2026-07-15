@@ -242,8 +242,6 @@ export function VedridClient() {
           </div>
         )}
 
-        {/* Attribution */}
-        <p className="text-xs text-muted-foreground text-center">{t('attribution')}</p>
 
       </main>
     </div>

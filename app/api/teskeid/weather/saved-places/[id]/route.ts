@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 
 export async function DELETE(
   _request: Request,
@@ -10,14 +11,19 @@ export async function DELETE(
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
+  const weatherMode = getWeatherEnabledMode()
+  if (weatherMode === 'off') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
-  if (!allowed) {
+  const hasVedrid = await checkFeatureAccess(user.id, user.email, 'vedrid')
+  if (!hasVedrid && weatherMode !== 'all' && weatherMode !== 'authenticated') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 

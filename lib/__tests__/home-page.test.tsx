@@ -294,15 +294,17 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
 
 const LAUNCHED_LOAN_IDEA    = makeIdea({ id: 'idea-loans',   slug: 'lanad-og-skilad', title: 'Lánað og skilað', status: 'launched' })
 const LAUNCHED_UMONNUN_IDEA = makeIdea({ id: 'idea-umonnun', slug: 'umonnun',          title: 'Umönnun',         status: 'launched' })
+const LAUNCHED_VEDRID_IDEA  = makeIdea({ id: 'idea-vedrid',  slug: 'vedrid',            title: 'Veðrið',          status: 'launched' })
 
 // ── Setup helpers ────────────────────────────────────────────────────────────
 
-function setupGuard(loansAccess = true, umonnunAccess = false) {
+function setupGuard(loansAccess = true, umonnunAccess = false, vedridAccess = false) {
   mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
   mockCheckFeatureAccess.mockImplementation(
     async (_uid: string, _email: string, featureKey: string) => {
       if (featureKey === 'lanad-og-skilad') return loansAccess
       if (featureKey === 'umonnun') return umonnunAccess
+      if (featureKey === 'vedrid') return vedridAccess
       return false
     },
   )
@@ -327,12 +329,18 @@ function setupRecentEvents(events: RecentEventRow[]) {
 
 let savedLoans: string | undefined
 let savedAuth: string | undefined
+let savedWeather: string | undefined
+let savedWeatherPublic: string | undefined
 
 beforeEach(() => {
   savedLoans = process.env.LOANS_ENABLED
   savedAuth = process.env.AUTH_MVP_ENABLED
+  savedWeather = process.env.WEATHER_ENABLED
+  savedWeatherPublic = process.env.WEATHER_PUBLIC_ENABLED
   process.env.LOANS_ENABLED = 'true'
   process.env.AUTH_MVP_ENABLED = 'true'
+  delete process.env.WEATHER_ENABLED
+  delete process.env.WEATHER_PUBLIC_ENABLED
   vi.clearAllMocks()
   setupRecentEvents([])
   mockAckRecentEvents.mockResolvedValue({ ok: true })
@@ -345,6 +353,10 @@ afterEach(() => {
   else delete process.env.LOANS_ENABLED
   if (savedAuth !== undefined) process.env.AUTH_MVP_ENABLED = savedAuth
   else delete process.env.AUTH_MVP_ENABLED
+  if (savedWeather !== undefined) process.env.WEATHER_ENABLED = savedWeather
+  else delete process.env.WEATHER_ENABLED
+  if (savedWeatherPublic !== undefined) process.env.WEATHER_PUBLIC_ENABLED = savedWeatherPublic
+  else delete process.env.WEATHER_PUBLIC_ENABLED
 })
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -1202,5 +1214,68 @@ describe('HeimPage — active vs upcoming separation (#42)', () => {
     setupProfile(null)
     render(await HeimPage())
     expect(screen.getByText('Hugmyndir sem verða líklega að Teskeiðum')).toBeDefined()
+  })
+})
+
+describe('HeimPage — Veðrið card access', () => {
+  beforeEach(() => {
+    setupProfile(null)
+    setupRpcs([])
+    // Include the vedrid idea in the launched ideas list for all weather tests
+    mockIdeasResult.mockResolvedValue({
+      data: [LAUNCHED_LOAN_IDEA, LAUNCHED_UMONNUN_IDEA, LAUNCHED_VEDRID_IDEA],
+      error: null,
+    })
+  })
+
+  it('signed-in user without vedrid sees weather card when WEATHER_ENABLED=All', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    setupGuard(true, false, false) // vedridAccess=false
+    render(await HeimPage())
+    expect(screen.getByText('Veðrið')).toBeDefined()
+    const link = screen.getByText('Veðrið').closest('a') ?? screen.getAllByRole('link').find(l => l.getAttribute('href') === '/auth-mvp/vedrid')
+    expect(link?.getAttribute('href')).toBe('/auth-mvp/vedrid')
+  })
+
+  it('signed-in user without vedrid sees weather card when WEATHER_ENABLED=Authenticated', async () => {
+    process.env.WEATHER_ENABLED = 'Authenticated'
+    setupGuard(true, false, false) // vedridAccess=false
+    render(await HeimPage())
+    expect(screen.getByText('Veðrið')).toBeDefined()
+  })
+
+  it('legacy fallback for All mode: signed-in user without vedrid sees card when WEATHER_ENABLED=true + WEATHER_PUBLIC_ENABLED=true', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    setupGuard(true, false, false) // vedridAccess=false
+    render(await HeimPage())
+    expect(screen.getByText('Veðrið')).toBeDefined()
+    const link = screen.getByText('Veðrið').closest('a') ?? screen.getAllByRole('link').find(l => l.getAttribute('href') === '/auth-mvp/vedrid')
+    expect(link?.getAttribute('href')).toBe('/auth-mvp/vedrid')
+  })
+
+  it('signed-in user with vedrid gets private /auth-mvp/vedrid link', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    setupGuard(true, false, true) // vedridAccess=true
+    render(await HeimPage())
+    expect(screen.getByText('Veðrið')).toBeDefined()
+    const link = screen.getByText('Veðrið').closest('a') ?? screen.getAllByRole('link').find(l => l.getAttribute('href') === '/auth-mvp/vedrid')
+    expect(link?.getAttribute('href')).toBe('/auth-mvp/vedrid')
+  })
+
+  it('signed-in user without vedrid sees weather card in Authenticated mode (WEATHER_ENABLED=true without PUBLIC)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    // WEATHER_PUBLIC_ENABLED deleted in beforeEach → authenticated mode → all signed-in users allowed
+    setupGuard(true, false, false)
+    render(await HeimPage())
+    expect(screen.getByText('Veðrið')).toBeDefined()
+  })
+
+  it('weather card hidden when WEATHER_ENABLED is off even if WEATHER_PUBLIC_ENABLED=true', async () => {
+    // WEATHER_ENABLED deleted in beforeEach
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    setupGuard(true, false, false)
+    render(await HeimPage())
+    expect(screen.queryByText('Veðrið')).toBeNull()
   })
 })

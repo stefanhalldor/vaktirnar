@@ -81,6 +81,13 @@ vi.mock('@/lib/supabase/admin', () => ({
           delete: () => ({ eq: () => ({ lt: mockDeleteLt }) }),
         }
       }
+      if (table === 'vedurstofan_forecasts_history') {
+        // History writes are best-effort — stub as always-succeed.
+        return {
+          upsert: () => Promise.resolve({ error: null }),
+          delete: () => ({ lt: () => Promise.resolve({}) }),
+        }
+      }
       if (table === 'weather_fetch_runs') {
         return {
           insert: () => ({ select: () => ({ maybeSingle: mockRunInsert }) }),

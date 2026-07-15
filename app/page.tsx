@@ -6,9 +6,14 @@ import { HeroSection } from '@/components/teskeid/HeroSection'
 import { PersonalizedIdeaGrid } from '@/components/teskeid/PersonalizedIdeaGrid'
 import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherEnabledMode.server'
 
 function publicReadyCardHref(slug: string): string {
-  if (slug === 'vedrid') return '/vedrid'
+  if (slug === 'vedrid') {
+    // Public weather (/vedrid) is only accessible in All mode.
+    // In Authenticated mode, weather requires login — send guests to sign-in.
+    return getWeatherEnabledMode() === 'all' ? '/vedrid' : '/innskraning'
+  }
   if (slug === 'umonnun') return '/umonnun'
   return '/innskraning'
 }

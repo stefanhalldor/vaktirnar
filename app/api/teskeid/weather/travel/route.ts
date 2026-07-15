@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { fetchForecast } from '@/lib/weather/metno.server'
-import { fetchVedurstofanForecastsForStations } from '@/lib/weather/providers/vedurstofan.server'
-import { mapRoutePointToVedurstofanStation, getUniqueStationIdsForRoute } from '@/lib/weather/providers/vedurstofanStations'
+import { readVedurstofanProductForStations, getLastVedurstofanWarmAttemptIso } from '@/lib/weather/providers/vedurstofan.server'
+import { mapRoutePointToVedurstofanStation, getUniqueStationIdsForRoute, VEDURSTOFAN_STATIONS } from '@/lib/weather/providers/vedurstofanStations'
 import { checkTravelWeather } from '@/lib/weather/travel'
+import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
+import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
@@ -17,6 +20,102 @@ import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usa
 const VALID_TRAILER_KINDS = new Set([
   'none', 'generic_trailer', 'tent_trailer', 'folding_camper', 'caravan', 'horse_trailer',
 ])
+
+/** Max time to wait for the Veðurstofan product-table read before falling back to baseline only. */
+const VEDURSTOFAN_LAYER_BUDGET_MS = 1500
+
+function withLayerTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+  const timeout = new Promise<T>(resolve => {
+    timer = setTimeout(() => resolve(fallback), VEDURSTOFAN_LAYER_BUDGET_MS)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>
+}
+
+/** Minimum distance from point P to line segment AB using a local planar approximation (metres). */
+function pointToSegmentM(
+  pLat: number, pLon: number,
+  aLat: number, aLon: number,
+  bLat: number, bLon: number,
+): number {
+  const cosLat = Math.cos(((aLat + bLat) / 2) * Math.PI / 180)
+  const mPerDegLat = 111_320
+  const mPerDegLon = mPerDegLat * cosLat
+  const bx = (bLon - aLon) * mPerDegLon
+  const by = (bLat - aLat) * mPerDegLat
+  const px = (pLon - aLon) * mPerDegLon
+  const py = (pLat - aLat) * mPerDegLat
+  const len2 = bx * bx + by * by
+  if (len2 === 0) return haversineM(pLat, pLon, aLat, aLon)
+  const t = Math.max(0, Math.min(1, (px * bx + py * by) / len2))
+  return haversineM(pLat, pLon, aLat + t * (bLat - aLat), aLon + t * (bLon - aLon))
+}
+
+/**
+ * Minimum distance from a point to the nearest segment of a polyline (metres).
+ * More accurate than nearest-vertex for stations located between route sample points.
+ */
+function distanceToPolylineM(lat: number, lon: number, polyline: ReadonlyArray<{ lat: number; lon: number }>): number {
+  if (polyline.length === 0) return Infinity
+  let min = haversineM(lat, lon, polyline[0].lat, polyline[0].lon)
+  for (let i = 0; i + 1 < polyline.length; i++) {
+    const d = pointToSegmentM(lat, lon, polyline[i].lat, polyline[i].lon, polyline[i + 1].lat, polyline[i + 1].lon)
+    if (d < min) min = d
+  }
+  return min
+}
+
+/**
+ * Projects a point onto the nearest polyline segment and returns distance metrics.
+ * - `distanceM`: perpendicular distance to the nearest segment (metres, rounded)
+ * - `distanceFromOriginM`: cumulative arc distance from polyline start to the projected point (metres, rounded)
+ * - `routeFraction`: `distanceFromOriginM / totalLength` in [0, 1]
+ */
+function projectToPolyline(
+  pLat: number, pLon: number,
+  polyline: ReadonlyArray<{ lat: number; lon: number }>,
+): { distanceM: number; distanceFromOriginM: number; routeFraction: number } {
+  if (polyline.length === 0) return { distanceM: 0, distanceFromOriginM: 0, routeFraction: 0 }
+  if (polyline.length === 1) {
+    return { distanceM: Math.round(haversineM(pLat, pLon, polyline[0].lat, polyline[0].lon)), distanceFromOriginM: 0, routeFraction: 0 }
+  }
+  // Precompute segment lengths and total route length
+  let totalLengthM = 0
+  const segLengths: number[] = []
+  for (let i = 0; i + 1 < polyline.length; i++) {
+    const len = haversineM(polyline[i].lat, polyline[i].lon, polyline[i + 1].lat, polyline[i + 1].lon)
+    segLengths.push(len)
+    totalLengthM += len
+  }
+  // Find nearest segment and clamped projection parameter t
+  let minDistM = Infinity
+  let bestSegIdx = 0
+  let bestT = 0
+  for (let i = 0; i + 1 < polyline.length; i++) {
+    const aLat = polyline[i].lat, aLon = polyline[i].lon
+    const bLat = polyline[i + 1].lat, bLon = polyline[i + 1].lon
+    const cosLat = Math.cos(((aLat + bLat) / 2) * Math.PI / 180)
+    const mPerDegLat = 111_320
+    const mPerDegLon = mPerDegLat * cosLat
+    const bx = (bLon - aLon) * mPerDegLon
+    const by = (bLat - aLat) * mPerDegLat
+    const px = (pLon - aLon) * mPerDegLon
+    const py = (pLat - aLat) * mPerDegLat
+    const len2 = bx * bx + by * by
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / len2))
+    const d = haversineM(pLat, pLon, aLat + t * (bLat - aLat), aLon + t * (bLon - aLon))
+    if (d < minDistM) { minDistM = d; bestSegIdx = i; bestT = t }
+  }
+  // Accumulate distance from origin to projected point
+  let distFromOriginM = 0
+  for (let i = 0; i < bestSegIdx; i++) distFromOriginM += segLengths[i]
+  distFromOriginM += bestT * segLengths[bestSegIdx]
+  return {
+    distanceM: Math.round(minDistM),
+    distanceFromOriginM: Math.round(distFromOriginM),
+    routeFraction: totalLengthM > 0 ? distFromOriginM / totalLengthM : 0,
+  }
+}
 
 function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6_371_000
@@ -49,24 +148,6 @@ function validateThresholdOverrides(raw: unknown): TravelThresholdOverrides | un
   return Object.keys(result).length > 0 ? result : undefined
 }
 
-/**
- * Races a promise against a timeout, resolving with `fallback` if the timeout wins.
- * Clears the timer in `finally` so no dangling timer remains when the promise wins.
- * This bounds the caller's response wait; it does not cancel ongoing provider work.
- */
-async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>(resolve => {
-        timeoutId = setTimeout(() => resolve(fallback), ms)
-      }),
-    ])
-  } finally {
-    if (timeoutId !== undefined) clearTimeout(timeoutId)
-  }
-}
 
 function isValidDateString(value: unknown): value is string {
   if (typeof value !== 'string' || !value) return false
@@ -95,25 +176,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  if (process.env.WEATHER_ENABLED !== 'true') {
+  if (getWeatherEnabledMode() === 'off') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (user?.email) {
-    // Authenticated path: check feature access (existing behaviour)
-    const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
-    if (!allowed) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-  } else {
-    // Guest path: require WEATHER_PUBLIC_ENABLED (no rate limit increment here)
-    if (process.env.WEATHER_PUBLIC_ENABLED !== 'true') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  const access = await resolveWeatherBaseAccess(user)
+  if (access.mode === 'blocked') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  // No rate limit for public/base weather final submit (intentional: rate limit is on /routes only)
 
   const body = await request.json().catch(() => null)
   if (!body) {
@@ -202,8 +276,7 @@ export async function POST(request: Request) {
   }
 
   // Get route geometry — use selected route if provided, otherwise first available
-  const actor = user ? 'authenticated' : 'guest'
-  const userId = user?.id ?? null
+  const { actor, userId } = access
 
   const selectedRouteId = typeof body.selectedRouteId === 'string' ? body.selectedRouteId : null
   const routePairHash = routePairFingerprint(origin, destination)
@@ -259,24 +332,39 @@ export async function POST(request: Request) {
   }
   const { weatherPoints, diagnostics: samplingDiagnostics } = sampleRouteWeatherPoints(allPts, cumDist)
 
-  // Start Veðurstofan station fetch in parallel with MET/Yr — fail-open; null on any error
-  const vedurstofanStationIds = getUniqueStationIdsForRoute(weatherPoints)
-  const vedurstofanFetchPromise = vedurstofanStationIds.length > 0
-    ? fetchVedurstofanForecastsForStations(vedurstofanStationIds, { timeoutMs: 1500 }).catch(() => null)
-    : null
-
-  // Fetch route point forecasts and destination forecast in parallel — ignore individual failures
-  const [routeForecastResults, destForecastRaw] = await Promise.all([
+  // Fetch route point forecasts and check Veðurstofan layer access in parallel
+  const [routeForecastResults, destForecastRaw, layerEnabled] = await Promise.all([
     Promise.allSettled(weatherPoints.map((pt) => fetchForecast(pt.lat, pt.lon))),
     fetchForecast(destCandidate.lat, destCandidate.lon).catch(() => null),
+    user?.id && user?.email
+      ? checkFeatureAccess(user.id, user.email, 'weather-provider-vedurstofan').catch(() => false)
+      : Promise.resolve(false),
   ])
-  // Await Veðurstofan result with a global user-response budget.
-  // Per-batch AbortController (1.5s, from v033) handles individual HTTP timeouts.
-  // This outer budget caps total enrichment wait regardless of batch count.
-  const VEDURSTOFAN_BUDGET_MS = 2000
-  const vedurstofanResults = vedurstofanFetchPromise
-    ? await withTimeout(vedurstofanFetchPromise, VEDURSTOFAN_BUDGET_MS, null)
-    : null
+
+  // Read Veðurstofan product table and last warm attempt time in parallel (fail-open)
+  const vedurstofanStationIds = layerEnabled ? getUniqueStationIdsForRoute(weatherPoints) : []
+
+  // Compute ETA window for history augmentation: span from 6h before departure
+  // to 3h after expected arrival, so prev/used/next forecast rows are available
+  // for any ETA along the route.
+  let etaWindowFromIso: string | undefined
+  let etaWindowToIso: string | undefined
+  if (layerEnabled && vedurstofanStationIds.length > 0) {
+    const depMs = earliestDepartureAt ? Date.parse(earliestDepartureAt) : Date.now()
+    const arrMs = latestArrivalBy
+      ? Date.parse(latestArrivalBy)
+      : depMs + routeGeometry.durationS * 1000
+    etaWindowFromIso = new Date(depMs - 6 * 60 * 60 * 1000).toISOString()
+    etaWindowToIso   = new Date(arrMs + 3 * 60 * 60 * 1000).toISOString()
+  }
+
+  const [vedurstofanResults, lastWarmAttemptIso] = await Promise.all([
+    layerEnabled && vedurstofanStationIds.length > 0
+      ? withLayerTimeout(readVedurstofanProductForStations(vedurstofanStationIds, { etaWindowFromIso, etaWindowToIso }), null).catch(() => null)
+      : Promise.resolve(null),
+    layerEnabled ? getLastVedurstofanWarmAttemptIso() : Promise.resolve(null),
+  ])
+
   const pointForecasts: TravelPointForecast[] = routeForecastResults
     .map((r, i) => r.status === 'fulfilled' ? { hours: r.value as HourPoint[], ...weatherPoints[i] } : null)
     .filter((x): x is TravelPointForecast => x !== null)
@@ -309,24 +397,86 @@ export async function POST(request: Request) {
     thresholdOverrides,
   })
 
-  // Enrich route weather points with Veðurstofan station data (fail-open)
-  if (vedurstofanResults && result.travelPlan?.routeWeatherPoints?.length) {
-    for (const point of result.travelPlan.routeWeatherPoints) {
-      const mapping = mapRoutePointToVedurstofanStation({ lat: point.lat, lon: point.lon })
-      if (!mapping || mapping.confidence === 'unavailable') continue
-      const stationResult = vedurstofanResults.get(mapping.station.stationId)
-      if (!stationResult || stationResult.status === 'unavailable') continue
-      const { payload } = stationResult
-      if (payload.forecasts.length === 0) continue
-      point.vedurstofanStation = {
-        stationId: mapping.station.stationId,
-        stationName: mapping.station.stationName,
-        distanceM: mapping.distanceFromRoutePointM,
-        confidence: mapping.confidence,
-        status: stationResult.status,
-        atimeIso: payload.atimeIso,
-        forecastRows: payload.forecasts,
+  // Build Veðurstofan experimental layer (fail-open — never breaks baseline result)
+  let vedurstofanLayer: VedurstofanTravelLayer | undefined
+  if (layerEnabled && vedurstofanResults) {
+
+    // Build station lookup maps for metadata
+    const curatedByStationId = new Map(VEDURSTOFAN_STATIONS.map(s => [s.stationId, s]))
+    const registryByStationId = new Map(
+      VEDURSTOFAN_STATIONS_REGISTRY
+        .filter(s => s.stationId !== null)
+        .map(s => [s.stationId!, s]),
+    )
+
+    // Build one point per unique Veðurstofan station — station-based, not per met.no sample.
+    const layerPoints: VedurstofanTravelLayer['points'] = []
+    let mappedPointCount = 0
+    let availablePointCount = 0
+    let stalePointCount = 0
+    let unavailablePointCount = 0
+
+    for (const [stationId, stationResult] of vedurstofanResults) {
+      mappedPointCount++
+      if (stationResult.status === 'unavailable') {
+        unavailablePointCount++
+        continue
       }
+      const curatedStation = curatedByStationId.get(stationId)
+      const registryEntry = registryByStationId.get(stationId)
+      const stationName = curatedStation?.stationName ?? registryEntry?.name ?? stationId
+      const lat = curatedStation?.lat ?? registryEntry?.lat ?? null
+      const lon = curatedStation?.lon ?? registryEntry?.lon ?? null
+      const projection = lat !== null && lon !== null
+        ? projectToPolyline(lat, lon, routeGeometry.points)
+        : null
+      const distanceM = projection?.distanceM ?? 0
+      const distanceFromOriginM = projection?.distanceFromOriginM ?? null
+      const routeFraction = projection?.routeFraction ?? null
+      const { payload } = stationResult
+      if (stationResult.status === 'ok') availablePointCount++
+      else stalePointCount++
+      layerPoints.push({
+        routePointId: `vedurstofan_${stationId}`,
+        stationId,
+        stationName,
+        distanceM,
+        distanceFromOriginM,
+        routeFraction,
+        status: stationResult.status as 'ok' | 'stale',
+        atimeIso: payload.atimeIso,
+        fetchedAtIso: payload.fetchedAtIso,
+        expiresAtIso: payload.expiresAtIso,
+        lat,
+        lon,
+        sourceUrl: registryEntry?.sourceUrl ?? null,
+        forecastRows: payload.forecasts,
+      })
+    }
+
+    const layerStatus: VedurstofanTravelLayer['status'] =
+      layerPoints.length === 0 ? 'unavailable' :
+      unavailablePointCount > 0 ? 'partial' :
+      'available'
+
+    // Oldest atimeIso across all usable points (conservative freshness indicator for the UI banner)
+    const layerAtimeIso = layerPoints.length > 0
+      ? layerPoints
+          .map(p => p.atimeIso)
+          .filter((a): a is string => a !== null)
+          .sort()[0] ?? null
+      : null
+
+    vedurstofanLayer = {
+      experimental: true,
+      status: layerStatus,
+      mappedPointCount,
+      availablePointCount,
+      stalePointCount,
+      unavailablePointCount,
+      layerAtimeIso,
+      lastWarmAttemptIso,
+      points: layerPoints,
     }
   }
 
@@ -346,5 +496,5 @@ export async function POST(request: Request) {
     },
   })
 
-  return NextResponse.json(result)
+  return NextResponse.json(vedurstofanLayer ? { ...result, vedurstofanLayer } : result)
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 import { makeWeatherPlaceKey, normalizeSavedPlaceInput } from '@/lib/weather/savedPlaces'
 
@@ -29,12 +30,14 @@ function toClientPlace(r: {
 
 async function authGuard() {
   if (process.env.AUTH_MVP_ENABLED !== 'true') return null
+  const weatherMode = getWeatherEnabledMode()
+  if (weatherMode === 'off') return null
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user?.email) return null
-  const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
-  if (!allowed) return null
-  return { supabase, user }
+  const hasVedrid = await checkFeatureAccess(user.id, user.email, 'vedrid')
+  if (hasVedrid || weatherMode === 'all' || weatherMode === 'authenticated') return { supabase, user }
+  return null
 }
 
 // ── GET ───────────────────────────────────────────────────────────────────────
@@ -42,9 +45,10 @@ async function authGuard() {
 export async function GET() {
   const ctx = await authGuard()
   if (!ctx) {
-    // Guests in public weather mode get an empty list rather than a 401.
+    // Unauthenticated guests in public weather mode get an empty list rather than 401.
+    // Signed-in users (with or without vedrid) get a real ctx above when public is enabled.
     // Reads no private data; RLS would block any accidental DB query.
-    if (process.env.WEATHER_PUBLIC_ENABLED === 'true') {
+    if (getWeatherEnabledMode() === 'all') {
       return NextResponse.json({ places: [] })
     }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

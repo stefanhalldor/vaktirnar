@@ -47,7 +47,8 @@ vi.mock('@/lib/weather/routeSampling', () => ({
 }))
 
 vi.mock('@/lib/weather/providers/vedurstofan.server', () => ({
-  fetchVedurstofanForecastsForStations: mockFetchVedurstofan,
+  readVedurstofanProductForStations: mockFetchVedurstofan,
+  getLastVedurstofanWarmAttemptIso: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/lib/weather/providers/vedurstofanStations', () => ({
@@ -111,6 +112,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
   process.env.WEATHER_ENABLED = 'true'
+  delete process.env.WEATHER_PUBLIC_ENABLED
+  delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
+  delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
 
   mockSampleRouteWeatherPoints.mockReturnValue({
     weatherPoints: [{
@@ -141,6 +145,62 @@ beforeEach(() => {
 })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe('POST /api/teskeid/weather/travel/route — auth / public access', () => {
+  it('signed-in user without vedrid is allowed in Authenticated mode (legacy: WEATHER_ENABLED=true)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    // WEATHER_ENABLED=true + no WEATHER_PUBLIC_ENABLED = authenticated mode → all signed-in users allowed
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+  })
+
+  it('signed-out guest returns 401 in Authenticated mode', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    process.env.WEATHER_ENABLED = 'Authenticated'
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(401)
+  })
+
+  it('legacy fallback for All mode: signed-in user without vedrid gets MET/Yr when WEATHER_ENABLED=true + WEATHER_PUBLIC_ENABLED=true', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', ['DEFAULT_ROUTE'])])
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+  })
+
+  it('legacy fallback for All mode: signed-in user without vedrid and without provider access does not get Veðurstofan layer', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
+    // Both vedrid and weather-provider-vedurstofan calls return false
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', ['DEFAULT_ROUTE'])])
+    mockGetUniqueStationIds.mockReturnValue(['31392'])
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    expect(mockFetchVedurstofan).not.toHaveBeenCalled()
+    const body = await res.json()
+    expect(body.vedurstofanLayer).toBeUndefined()
+  })
+
+  it('includes vedurstofanLayer for signed-in public-tier user with weather-provider-vedurstofan access (WEATHER_ENABLED=All)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u-public', email: 'provider@example.com' } } })
+    // First call: vedrid → false (public-tier in All mode), second call: weather-provider-vedurstofan → true
+    mockCheckFeatureAccess.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    process.env.WEATHER_ENABLED = 'All'
+    setupStationMapping()
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
+    )
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.vedurstofanLayer).toBeDefined()
+    expect(body.vedurstofanLayer.status).toBe('available')
+  })
+})
 
 describe('POST /api/teskeid/weather/travel/route — curated route final-submit', () => {
   it('succeeds when selectedRouteId matches a curated CURATED_VIA_THRENGSLAVEGUR route', async () => {
@@ -216,7 +276,7 @@ describe('POST /api/teskeid/weather/travel/route — curated route final-submit'
   })
 })
 
-// ── Veðurstofan enrichment ─────────────────────────────────────────────────────
+// ── Veðurstofan travel layer ───────────────────────────────────────────────────
 
 const HELLISH_ID = '31392'
 
@@ -242,7 +302,12 @@ function makeVedurstofanPayload() {
   }
 }
 
-function setupEnrichment() {
+function setupLayerEnabled() {
+  // authedUser() makes checkFeatureAccess return true for all calls, including weather-provider-vedurstofan.
+  // No separate env var needed — the gate is now purely per-user feature access.
+}
+
+function setupStationMapping() {
   mockGetUniqueStationIds.mockReturnValue([HELLISH_ID])
   mockMapRoutePoint.mockReturnValue({
     station: { stationId: HELLISH_ID, stationName: 'Hellisheiði' },
@@ -251,10 +316,23 @@ function setupEnrichment() {
   })
 }
 
-describe('POST /api/teskeid/weather/travel/route — Veðurstofan enrichment', () => {
-  it('populates forecastRows on route points when station data is available', async () => {
+describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => {
+  it('does not call product table and returns no vedurstofanLayer when user lacks weather-provider-vedurstofan access', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
+    // First call: vedrid access (allow), second call: weather-provider-vedurstofan access (deny)
+    mockCheckFeatureAccess.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(mockFetchVedurstofan).not.toHaveBeenCalled()
+    expect(body.vedurstofanLayer).toBeUndefined()
+  })
+
+  it('includes vedurstofanLayer with points when layer is enabled', async () => {
     authedUser()
-    setupEnrichment()
+    setupLayerEnabled()
+    setupStationMapping()
     mockFetchVedurstofan.mockResolvedValue(
       new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
     )
@@ -262,85 +340,157 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan enrichment', (
     const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
     expect(res.status).toBe(200)
     const body = await res.json()
-    const points = body.travelPlan?.routeWeatherPoints
-    expect(points).toBeDefined()
-    const station = points[0]?.vedurstofanStation
-    expect(station).toBeDefined()
-    expect(station.stationId).toBe(HELLISH_ID)
-    expect(station.forecastRows).toHaveLength(2)
-    expect(station.forecastRows[0].windSpeedMs).toBe(12)
-    expect(station.forecastRows[1].windSpeedMs).toBe(8)
+    expect(body.vedurstofanLayer).toBeDefined()
+    expect(body.vedurstofanLayer.experimental).toBe(true)
+    expect(body.vedurstofanLayer.status).toBe('available')
+    expect(body.vedurstofanLayer.augmentedResult).toBeUndefined()
+    expect(body.vedurstofanLayer.points).toHaveLength(1)
+    expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
+    expect(body.vedurstofanLayer.points[0].forecastRows).toHaveLength(2)
   })
 
-  it('populates stale forecastRows when station result has status stale', async () => {
+  it('baseline result is unchanged and has no vedurstofanStation when layer is enabled', async () => {
     authedUser()
-    setupEnrichment()
+    setupLayerEnabled()
+    setupStationMapping()
     mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'stale', payload: makeVedurstofanPayload() }]]),
+      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
     )
 
     const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
     const body = await res.json()
-    const station = body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation
-    expect(station?.status).toBe('stale')
-    expect(station?.forecastRows).toHaveLength(2)
+    expect(body.stada).toBeDefined()
+    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
   })
 
-  it('returns MET/Yr result without vedurstofanStation when Veðurstofan rejects', async () => {
+  it('returns vedurstofanLayer.status unavailable and empty points when product table is empty', async () => {
     authedUser()
-    setupEnrichment()
-    mockFetchVedurstofan.mockRejectedValue(new Error('network failure'))
+    setupLayerEnabled()
+    setupStationMapping()
+    mockFetchVedurstofan.mockResolvedValue(new Map())
 
     const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.travelPlan).toBeDefined()
-    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
+    expect(body.stada).toBeDefined()
+    expect(body.vedurstofanLayer.status).toBe('unavailable')
+    expect(body.vedurstofanLayer.points).toHaveLength(0)
   })
 
-  it('omits vedurstofanStation when station result is unavailable', async () => {
+  it('excludes unavailable station from layer points (fail-open)', async () => {
     authedUser()
-    setupEnrichment()
+    setupLayerEnabled()
+    setupStationMapping()
     mockFetchVedurstofan.mockResolvedValue(
       new Map([[HELLISH_ID, { status: 'unavailable' }]]),
     )
 
     const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
     const body = await res.json()
-    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
+    expect(body.stada).toBeDefined()
+    expect(body.vedurstofanLayer.status).toBe('unavailable')
+    expect(body.vedurstofanLayer.points).toHaveLength(0)
   })
 
-  it('omits vedurstofanStation entirely when payload has no forecast rows', async () => {
+  it('includes stale station data in layer points with status stale', async () => {
     authedUser()
-    setupEnrichment()
-    const emptyPayload = { ...makeVedurstofanPayload(), forecasts: [] }
+    setupLayerEnabled()
+    setupStationMapping()
     mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: emptyPayload }]]),
+      new Map([[HELLISH_ID, { status: 'stale', payload: makeVedurstofanPayload() }]]),
     )
 
     const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
     const body = await res.json()
-    // Station must be omitted entirely — not a partial object with no rows
-    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
+    expect(body.vedurstofanLayer.status).toBe('available')
+    expect(body.vedurstofanLayer.points[0].status).toBe('stale')
+    expect(body.vedurstofanLayer.points[0].forecastRows).toHaveLength(2)
   })
 
-  it('returns MET/Yr result when global budget elapses before provider resolves', async () => {
+  it('does not call product table when no stations are mapped for the route', async () => {
     authedUser()
-    setupEnrichment()
-    // Provider never settles — simulates all batches timing out beyond global budget
-    mockFetchVedurstofan.mockReturnValue(new Promise(() => {}))
+    setupLayerEnabled()
+    mockGetUniqueStationIds.mockReturnValue([])
 
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    expect(mockFetchVedurstofan).not.toHaveBeenCalled()
+    const body = await res.json()
+    expect(body.vedurstofanLayer).toBeUndefined()
+  })
+
+  it('does not read product table or return vedurstofanLayer when user lacks weather-provider-vedurstofan access', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
+    // First call: vedrid access (allow), second call: weather-provider-vedurstofan access (deny)
+    mockCheckFeatureAccess.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    setupStationMapping()
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    expect(mockFetchVedurstofan).not.toHaveBeenCalled()
+    const body = await res.json()
+    expect(body.vedurstofanLayer).toBeUndefined()
+  })
+
+  it('returns baseline result when product-table read times out', async () => {
     vi.useFakeTimers()
-    const requestPromise = POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    // Advance past the 2000ms global budget
-    await vi.advanceTimersByTimeAsync(2500)
-    const res = await requestPromise
+    authedUser()
+    setupLayerEnabled()
+    setupStationMapping()
+    mockFetchVedurstofan.mockReturnValue(new Promise(() => {})) // never resolves
+
+    const resPromise = POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    await vi.advanceTimersByTimeAsync(2000)
+    const res = await resPromise
     vi.useRealTimers()
 
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.travelPlan).toBeDefined()
-    // Veðurstofan enrichment dropped — budget elapsed
-    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
+    expect(body.stada).toBeDefined()
+    expect(body.vedurstofanLayer).toBeUndefined()
+  })
+
+  it('builds one layer point per unique station even when multiple route samples map to the same station', async () => {
+    authedUser()
+    setupLayerEnabled()
+    // Two route weather points, both mapping to the same single station
+    mockSampleRouteWeatherPoints.mockReturnValue({
+      weatherPoints: [
+        { lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 },
+        { lat: 64.00, lon: -21.80, forecastLat: 64.00, forecastLon: -21.80, routeIndex: 1, distanceFromOriginM: 10_000 },
+      ],
+      diagnostics: { strategy: 'exhaustive', totalCells: 2, sampledCells: 2 },
+    })
+    mockGetUniqueStationIds.mockReturnValue([HELLISH_ID])
+    mockMapRoutePoint.mockReturnValue({
+      station: { stationId: HELLISH_ID, stationName: 'Hellisheiði' },
+      distanceFromRoutePointM: 2000,
+      confidence: 'good',
+    })
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
+    )
+    mockFetchForecast.mockResolvedValue([makeHour('2026-07-10T08:00:00Z')])
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    const body = await res.json()
+    // Station-based model: one point per unique stationId, not one per route sample
+    expect(body.vedurstofanLayer.points).toHaveLength(1)
+    expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
+    expect(body.vedurstofanLayer.points[0].routePointId).toBe(`vedurstofan_${HELLISH_ID}`)
+  })
+
+  it('builds one layer point per unique station with station-based routePointId', async () => {
+    authedUser()
+    setupLayerEnabled()
+    setupStationMapping()
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
+    )
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    const body = await res.json()
+    expect(body.vedurstofanLayer.points[0].routePointId).toBe(`vedurstofan_${HELLISH_ID}`)
+    expect(body.vedurstofanLayer.points[0].routeIndex).toBeUndefined()
   })
 })

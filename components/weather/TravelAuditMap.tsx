@@ -11,7 +11,9 @@ import {
   classifyPointWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import { WIND_STATUS_UI_META as WIND_STATUS_META } from './windStatusUi'
+import { WindStatusBadge } from './WindStatusBadge'
 import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weather/googleMaps.client'
+import { type WeatherProviderKey } from '@/lib/weather/providerComparator'
 import { resolvePlaceLabel } from '@/lib/weather/reverseGeocode.client'
 import {
   toLngLat,
@@ -27,6 +29,7 @@ import {
   type PointSummary,
 } from './travelAuditMap.helpers'
 import { RouteWeatherPointDetailCard } from './RouteWeatherPointDetailCard'
+import { VedurstofanPointCard } from './VedurstofanPointCard'
 
 /** Returns the wind speed (m/s) from the forecast row nearest to etaIso, or undefined if unavailable. */
 function getPointWindMsForCandidate(
@@ -44,6 +47,22 @@ function getPointWindMsForCandidate(
     if (d < bestDelta) { bestDelta = d; best = row }
   }
   return best.wind.value
+}
+
+/** A generic weather provider map point for overlay markers (non-MET/Yr providers). */
+export type ProviderMapPoint = {
+  provider: WeatherProviderKey
+  lat: number
+  lon: number
+  /** Stable point id (e.g. stationId for Veðurstofan). */
+  id: string
+  /** Display label shown in marker title (e.g. station name). */
+  label: string
+  status: WindDisplayStatus
+  windMs: number | null
+  /** ISO timestamp of the decisive forecast row (provider-independent name). */
+  forecastTimeIso: string | null
+  etaIso: string | null
 }
 
 export type TravelAuditMapProps = {
@@ -77,6 +96,16 @@ export type TravelAuditMapProps = {
   selectionResetSignal?: number
   /** Called when user taps Spá 🥄 on the selected point panel. */
   onOpenForecastDrawer?: (routeIndex: number) => void
+  /** Non-MET/Yr provider overlay points (e.g. Veðurstofan stations), shown as status-colored markers. */
+  providerOverlayPoints?: ProviderMapPoint[]
+  /** Id of the overlay point to auto-select as "worst" (e.g. worstVedurstofanData.station.stationId). */
+  highlightedOverlayPointId?: string
+  /** Full Veðurstofan layer points for rich station detail in OverlayPointDetailsPanel. */
+  vedurstofanLayerPoints?: import('@/lib/weather/providers/vedurstofanBlend').VedurstofanTravelLayer['points']
+  /** Reference departure ISO for ETA computation in overlay detail panel. */
+  referenceDepartureIso?: string | null
+  /** Reference arrival ISO for ETA computation in overlay detail panel. */
+  referenceArrivalIso?: string | null
 }
 
 /** Creates a Google Maps Symbol icon for a route weather point marker. */
@@ -103,6 +132,11 @@ function makeForecastSymbolIcon(selected: boolean): google.maps.Symbol {
   }
 }
 
+/** Returns true when a provider overlay point should be shown given the active visibility filter. */
+function overlayIsVisible(p: ProviderMapPoint, filter: Set<WindDisplayStatus> | undefined): boolean {
+  return (filter?.size ?? 0) === 0 || filter!.has(p.status)
+}
+
 export function TravelAuditMap({
   originName,
   destinationName,
@@ -119,6 +153,11 @@ export function TravelAuditMap({
   onVisibleStatusesChange,
   selectionResetSignal,
   onOpenForecastDrawer,
+  providerOverlayPoints,
+  highlightedOverlayPointId,
+  vedurstofanLayerPoints,
+  referenceDepartureIso,
+  referenceArrivalIso,
 }: TravelAuditMapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -129,6 +168,8 @@ export function TravelAuditMap({
   const forecastMarkersRef = useRef<google.maps.Marker[]>([])
   // Connector polylines between route and forecast points when they are far apart
   const connectorsRef = useRef<google.maps.Polyline[]>([])
+  // Veðurstofan station overlay markers (shown when vedurstofanStationPoints is non-empty)
+  const vedurstofanMarkersRef = useRef<google.maps.Marker[]>([])
   const polylineRef = useRef<google.maps.Polyline | null>(null)
   // Library and map refs for use in subsequent effects
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -143,11 +184,13 @@ export function TravelAuditMap({
   )
   const userSelectedRef = useRef(false)
   const [isManualSelection, setIsManualSelection] = useState(false)
+  const [selectedOverlayPoint, setSelectedOverlayPoint] = useState<ProviderMapPoint | null>(null)
 
   // Initialize map once on mount. Component remounts when result changes via key={result.id}.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!mapDivRef.current || weatherPoints.length === 0) return
+    const hasAnyPoints = weatherPoints.length > 0 || (providerOverlayPoints?.length ?? 0) > 0
+    if (!mapDivRef.current || !hasAnyPoints) return
 
     let cancelled = false
 
@@ -161,7 +204,7 @@ export function TravelAuditMap({
         if (cancelled || !mapDivRef.current) return
 
         const map = new mapsLib.Map(mapDivRef.current, {
-          zoom: 7,
+          zoom: 4,
           mapTypeId: 'roadmap',
           gestureHandling: 'cooperative',
           zoomControl: true,
@@ -188,10 +231,11 @@ export function TravelAuditMap({
           polylineRef.current = polyline
         }
 
-        // Fit map to full route bounds
+        // Fit map to full route bounds (include both route points and Veðurstofan stations)
         const bounds = new coreLib.LatLngBounds()
         const boundsSource = routePoints.length > 0 ? routePoints : weatherPoints
         boundsSource.forEach(p => bounds.extend(toLngLat(p)))
+        providerOverlayPoints?.forEach(sp => bounds.extend({ lat: sp.lat, lng: sp.lon }))
         map.fitBounds(bounds, { top: 32, bottom: 32, left: 32, right: 32 })
 
         // Create weather point markers and forecast point markers
@@ -226,6 +270,7 @@ export function TravelAuditMap({
           routeMarker.addListener('click', () => {
             userSelectedRef.current = true
             setIsManualSelection(true)
+            setSelectedOverlayPoint(null)
             setSelectedIndex(prev => prev === idx ? null : idx)
           })
           newRouteMarkers.push(routeMarker)
@@ -243,6 +288,7 @@ export function TravelAuditMap({
             forecastMarker.addListener('click', () => {
               userSelectedRef.current = true
               setIsManualSelection(true)
+              setSelectedOverlayPoint(null)
               setSelectedIndex(prev => prev === idx ? null : idx)
             })
             newForecastMarkers[idx] = forecastMarker
@@ -265,6 +311,7 @@ export function TravelAuditMap({
         markersRef.current = newRouteMarkers
         forecastMarkersRef.current = newForecastMarkers
         connectorsRef.current = newConnectors
+
         setMapLoaded(true)
       } catch {
         if (!cancelled) setMapError(true)
@@ -281,6 +328,8 @@ export function TravelAuditMap({
       forecastMarkersRef.current = []
       connectorsRef.current.forEach((c) => c?.setMap(null))
       connectorsRef.current = []
+      vedurstofanMarkersRef.current.forEach((m) => m.setMap(null))
+      vedurstofanMarkersRef.current = []
       if (polylineRef.current) {
         polylineRef.current.setMap(null)
         polylineRef.current = null
@@ -290,6 +339,75 @@ export function TravelAuditMap({
       coreLibRef.current = null
     }
   }, [])
+
+  // Update provider overlay markers when providerOverlayPoints changes (e.g. scrubber slot change).
+  // Runs after mapLoaded becomes true and whenever overlay points or visibility filter are updated.
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current || !markerLibRef.current) return
+    const markerLib = markerLibRef.current
+    const map = mapRef.current
+
+    vedurstofanMarkersRef.current.forEach(m => m.setMap(null))
+    vedurstofanMarkersRef.current = []
+
+    const newMarkers: google.maps.Marker[] = []
+    for (const sp of (providerOverlayPoints ?? [])) {
+      const isVisible = overlayIsVisible(sp, visibleStatuses)
+      const markerColor = WIND_STATUS_MARKER_COLOR[sp.status]
+      const titleParts = [sp.label]
+      if (sp.windMs !== null) titleParts.push(`${sp.windMs} m/s`)
+      if (sp.forecastTimeIso) titleParts.push(`spá kl. ${formatKlTime(sp.forecastTimeIso)}`)
+      let markerLabel: google.maps.MarkerLabel | string = ''
+      if (sp.status === 'innan-marka') {
+        markerLabel = { text: '✓', color: '#ffffff', fontSize: '9px', fontWeight: 'bold' }
+      } else if (sp.status === 'haettulegt' || sp.status === 'nalgast-haettumork') {
+        markerLabel = { text: '!', color: '#ffffff', fontSize: '11px', fontWeight: 'bold' }
+      }
+      const m = new markerLib.Marker({
+        position: { lat: sp.lat, lng: sp.lon },
+        map,
+        icon: {
+          path: 0 as google.maps.SymbolPath,
+          scale: 9,
+          fillColor: markerColor,
+          fillOpacity: 0.9,
+          strokeColor: '#ffffff',
+          strokeWeight: 2,
+        },
+        label: markerLabel,
+        title: titleParts.join(' · '),
+        zIndex: 15,
+        visible: isVisible,
+      })
+      m.addListener('click', () => {
+        userSelectedRef.current = true
+        setIsManualSelection(true)
+        setSelectedOverlayPoint(sp)
+        setSelectedIndex(null)
+      })
+      newMarkers.push(m)
+    }
+    vedurstofanMarkersRef.current = newMarkers
+  }, [providerOverlayPoints, mapLoaded, visibleStatuses])
+
+  // Auto-select the highlighted overlay point when not user-selected.
+  // When a highlighted overlay point exists and is visible, it takes precedence as the "worst" selection.
+  // If the highlighted point is hidden by the filter, falls back to the first visible overlay point.
+  useEffect(() => {
+    if (userSelectedRef.current) return
+    if (!highlightedOverlayPointId || !providerOverlayPoints?.length) {
+      setSelectedOverlayPoint(null)
+      return
+    }
+    const highlighted = providerOverlayPoints.find(p => p.id === highlightedOverlayPointId) ?? null
+    // visibleStatuses read from closure (fresh on dep change); not in deps — toggleMapStatus owns filter changes.
+    const toSelect = highlighted && overlayIsVisible(highlighted, visibleStatuses)
+      ? highlighted
+      : (providerOverlayPoints.find(p => overlayIsVisible(p, visibleStatuses)) ?? null)
+    setSelectedOverlayPoint(toSelect)
+    if (toSelect) setSelectedIndex(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightedOverlayPointId, providerOverlayPoints])
 
   // Sync selectedIndex when highlightedIssue changes, unless user has manually selected a point
   useEffect(() => {
@@ -306,7 +424,19 @@ export function TravelAuditMap({
     if (selectionResetSignal === undefined) return
     userSelectedRef.current = false
     setIsManualSelection(false)
-    setSelectedIndex(initialSelectedIndex(weatherPoints, highlightedIssue, activeCandidate))
+    // Respect the active visibility filter: prefer highlighted overlay if visible, then first visible overlay.
+    const toSelectOverlay = (() => {
+      if (!highlightedOverlayPointId || !providerOverlayPoints?.length) return null
+      const highlighted = providerOverlayPoints.find(p => p.id === highlightedOverlayPointId) ?? null
+      if (highlighted && overlayIsVisible(highlighted, visibleStatuses)) return highlighted
+      return providerOverlayPoints.find(p => overlayIsVisible(p, visibleStatuses)) ?? null
+    })()
+    setSelectedOverlayPoint(toSelectOverlay)
+    if (toSelectOverlay) {
+      setSelectedIndex(null)
+    } else {
+      setSelectedIndex(initialSelectedIndex(weatherPoints, highlightedIssue, activeCandidate))
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionResetSignal])
 
@@ -383,7 +513,8 @@ export function TravelAuditMap({
     ? weatherPoints.findIndex(p => p.lat === highlightedIssue.lat && p.lon === highlightedIssue.lon)
     : -1
 
-  // Status counts for map visibility pills — uses active-candidate ETA when a slot is selected
+  // Status counts for map visibility pills — uses active-candidate ETA when a slot is selected.
+  // Includes both MET/Yr route points and overlay provider points.
   const mapStatusCounts = useMemo(() => {
     const counts: Partial<Record<WindDisplayStatus, number>> = {}
     const th = thresholdsUsed ?? resolveThresholds('none')
@@ -401,8 +532,11 @@ export function TravelAuditMap({
       const st = classifyPointWindDisplayStatus(windMs, hasData, th)
       counts[st] = (counts[st] ?? 0) + 1
     })
+    providerOverlayPoints?.forEach(pt => {
+      counts[pt.status] = (counts[pt.status] ?? 0) + 1
+    })
     return counts
-  }, [weatherPoints, thresholdsUsed, activeCandidate, selectedCandidatePointStatuses, activeLeg])
+  }, [weatherPoints, thresholdsUsed, activeCandidate, selectedCandidatePointStatuses, activeLeg, providerOverlayPoints])
 
   // Fallback: static map or text
   if (mapError) {
@@ -425,7 +559,7 @@ export function TravelAuditMap({
     )
   }
 
-  if (weatherPoints.length === 0) return null
+  if (weatherPoints.length === 0 && (providerOverlayPoints?.length ?? 0) === 0) return null
 
   // Map visibility pill toggle — selected pills = "show this status"
   function toggleMapStatus(st: WindDisplayStatus) {
@@ -436,7 +570,20 @@ export function TravelAuditMap({
     } else {
       next.add(st)
     }
-    // If the selected point's status is no longer visible, clear selection
+    // If the selected overlay point is no longer visible, clear/replace it
+    if (selectedOverlayPoint && !overlayIsVisible(selectedOverlayPoint, next)) {
+      userSelectedRef.current = false
+      setIsManualSelection(false)
+      const highlighted = highlightedOverlayPointId
+        ? (providerOverlayPoints?.find(p => p.id === highlightedOverlayPointId) ?? null)
+        : null
+      const replacement = (highlighted && overlayIsVisible(highlighted, next))
+        ? highlighted
+        : (providerOverlayPoints?.find(p => overlayIsVisible(p, next)) ?? null)
+      setSelectedOverlayPoint(replacement)
+      if (replacement) setSelectedIndex(null)
+    }
+    // If the selected MET/Yr point's status is no longer visible, clear/replace it
     if (selectedPoint && next.size > 0) {
       const th = thresholdsUsed ?? resolveThresholds('none')
       const isSlotMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
@@ -475,8 +622,8 @@ export function TravelAuditMap({
         )}
       </div>
 
-      {/* Map point visibility pills */}
-      {onVisibleStatusesChange && mapLoaded && (
+      {/* Map point visibility pills — shown when any provider has points */}
+      {onVisibleStatusesChange && mapLoaded && (weatherPoints.length > 0 || (providerOverlayPoints?.length ?? 0) > 0) && (
         <div className="flex flex-wrap gap-1.5">
           {ALL_WIND_DISPLAY_STATUSES.filter(st => (mapStatusCounts[st] ?? 0) > 0).map(st => {
             const isActive = visibleStatuses?.has(st) ?? false
@@ -516,8 +663,8 @@ export function TravelAuditMap({
       {/* Timeline scrubber (inserted by parent between map canvas and point details) */}
       {belowMap}
 
-      {/* Jump to worst point button — shown when user has manually selected a different point */}
-      {autoHighlightIdx >= 0 && selectedIndex !== autoHighlightIdx && mapLoaded && (
+      {/* Jump to worst point button — shown when user has manually selected a different MET/Yr point */}
+      {!selectedOverlayPoint && autoHighlightIdx >= 0 && selectedIndex !== autoHighlightIdx && mapLoaded && (
         <button
           type="button"
           onClick={() => {
@@ -531,8 +678,20 @@ export function TravelAuditMap({
         </button>
       )}
 
-      {/* Selected point details */}
-      {selectedSummary && mapLoaded && (
+      {/* Selected overlay provider point details */}
+      {selectedOverlayPoint && mapLoaded && (
+        <OverlayPointDetailsPanel
+          point={selectedOverlayPoint}
+          isManualSelection={isManualSelection}
+          vedurstofanLayerPoints={vedurstofanLayerPoints}
+          referenceDepartureIso={referenceDepartureIso}
+          referenceArrivalIso={referenceArrivalIso}
+          originName={originName}
+        />
+      )}
+
+      {/* Selected MET/Yr point details */}
+      {!selectedOverlayPoint && selectedSummary && mapLoaded && (
         <PointDetailsPanel
           summary={selectedSummary}
           highlightedIssue={highlightedIssue}
@@ -548,6 +707,84 @@ export function TravelAuditMap({
         />
       )}
     </section>
+  )
+}
+
+function OverlayPointDetailsPanel({
+  point,
+  isManualSelection,
+  vedurstofanLayerPoints,
+  referenceDepartureIso,
+  referenceArrivalIso,
+  originName,
+}: {
+  point: ProviderMapPoint
+  isManualSelection: boolean
+  vedurstofanLayerPoints?: import('@/lib/weather/providers/vedurstofanBlend').VedurstofanTravelLayer['points']
+  referenceDepartureIso?: string | null
+  referenceArrivalIso?: string | null
+  originName: string
+}) {
+  const tf = useTranslations('teskeid.vedrid.ferdalagid')
+
+  const panelTitle = isManualSelection
+    ? tf('manualSelectedPointTitle')
+    : tf('worstPointTitle')
+
+  // Try to find the full station data for a rich card
+  const station = vedurstofanLayerPoints?.find(p => p.stationId === point.id)
+  if (station) {
+    // Compute ETA for this station from reference dep/arr ISOs and routeFraction
+    let etaIso: string | null = point.etaIso
+    if (!etaIso && station.routeFraction !== null && referenceDepartureIso && referenceArrivalIso) {
+      const depMs = Date.parse(referenceDepartureIso)
+      const arrMs = Date.parse(referenceArrivalIso)
+      if (!isNaN(depMs) && !isNaN(arrMs)) {
+        etaIso = new Date(depMs + station.routeFraction * (arrMs - depMs)).toISOString()
+      }
+    }
+    return (
+      <VedurstofanPointCard
+        station={station}
+        status={point.status}
+        etaIso={etaIso}
+        departureIso={referenceDepartureIso ?? null}
+        originName={originName}
+        isManualSelection={isManualSelection}
+        panelTitle={panelTitle}
+      />
+    )
+  }
+
+  // Fallback for non-Veðurstofan overlay points (sparse card)
+  const meta = WIND_STATUS_META[point.status]
+  return (
+    <div className="rounded-xl border border-border bg-card px-3 py-3 flex flex-col gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 flex-wrap">
+        {!isManualSelection ? (
+          <span className="bg-destructive/10 text-destructive px-1.5 py-0.5 rounded font-medium">
+            {panelTitle}
+          </span>
+        ) : (
+          <span className="font-medium text-foreground">{panelTitle}</span>
+        )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span className="font-medium text-foreground text-sm">{point.label}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <WindStatusBadge status={point.status} variant="chip" />
+          {point.windMs !== null && (
+            <span>{point.windMs} m/s</span>
+          )}
+        </div>
+        {point.etaIso && (
+          <div className="flex items-center gap-1">
+            <span>{tf('pointEtaLabel')}:</span>
+            <span className="text-foreground">{formatKlTime(point.etaIso)}</span>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -595,6 +832,8 @@ function PointDetailsPanel({
     ? tf('manualSelectedPointTitle')
     : tf('worstPointTitle')
 
+  const windDisplayStatus = classifyPointWindDisplayStatus(summary.windMs, summary.hasData, thresholdsUsed ?? resolveThresholds('none'))
+
   return (
     <div className="rounded-xl border border-border bg-card px-3 py-3 flex flex-col gap-2 text-xs text-muted-foreground">
       <div className="flex items-center gap-2 flex-wrap">
@@ -605,6 +844,7 @@ function PointDetailsPanel({
         ) : (
           <span className="font-medium text-foreground">{panelTitle}</span>
         )}
+        <WindStatusBadge status={windDisplayStatus} variant="chip" />
       </div>
       <RouteWeatherPointDetailCard
         summary={summary}

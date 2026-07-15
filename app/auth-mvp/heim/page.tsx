@@ -4,6 +4,7 @@ import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { resolveAuthenticatedWeatherShellAccess } from '@/lib/weather/weatherBaseAccess.server'
 import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import type { LoanItem } from '@/lib/loans/types'
@@ -58,18 +59,22 @@ export default async function HeimPage() {
     // createClient() failed — fall through to defaults
   }
 
-  const [loansEnabled, umonnunEnabled, weatherEnabled] = await Promise.all([
+  const [loansEnabled, umonnunEnabled] = await Promise.all([
     checkFeatureAccess(user.id, user.email!, 'lanad-og-skilad'),
     checkFeatureAccess(user.id, user.email!, 'umonnun'),
-    checkFeatureAccess(user.id, user.email!, 'vedrid'),
   ])
+
+  // Weather card: visible to all signed-in users with base weather access.
+  // Both private-vedrid and public-tier users go to /auth-mvp/vedrid to retain saved places.
+  const weatherShellAccess = await resolveAuthenticatedWeatherShellAccess(user)
+  const weatherCardEnabled = weatherShellAccess.mode !== 'blocked'
 
   const displayLocale = getDisplayLocale(locale)
 
   const READY_TESKEID_ROUTES: Record<string, { href: string; enabled: boolean }> = {
     'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', enabled: loansEnabled },
     'umonnun':         { href: '/auth-mvp/umonnun',         enabled: umonnunEnabled },
-    'vedrid':          { href: '/auth-mvp/vedrid',          enabled: weatherEnabled },
+    'vedrid':          { href: '/auth-mvp/vedrid',           enabled: weatherCardEnabled },
   }
 
   const launchedIdeas = allIdeas.filter((i) => i.status === 'launched')
