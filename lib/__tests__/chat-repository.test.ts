@@ -16,7 +16,10 @@ import {
   listMessages,
   postMessage,
   markRead,
+  markThreadRead,
   reportMessage,
+  assertThreadScope,
+  assertMessageScope,
 } from '@/lib/chat/repository.server'
 import type { CreateMessageInput, ReportMessageInput } from '@/lib/chat/types'
 
@@ -226,6 +229,122 @@ describe('markRead', () => {
     const chain = makeChain({ upsert: vi.fn().mockResolvedValue({ error: { message: 'fail' } }) })
     mockFrom.mockReturnValue(chain)
     await expect(markRead('thread-1', 'user-1', 'msg-1')).rejects.toThrow('chat: markRead failed')
+  })
+})
+
+// ── markThreadRead ────────────────────────────────────────────────────────────
+
+describe('markThreadRead', () => {
+  it('upserts with null last_read_message_id and a last_read_at timestamp', async () => {
+    const upsertFn = vi.fn().mockResolvedValue({ error: null })
+    const chain = makeChain({ upsert: upsertFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(markThreadRead('thread-1', 'user-1')).resolves.toBeUndefined()
+
+    expect(upsertFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thread_id: 'thread-1',
+        user_id: 'user-1',
+        last_read_message_id: null,
+        last_read_at: expect.any(String),
+      })
+    )
+  })
+
+  it('throws on upsert error', async () => {
+    const chain = makeChain({ upsert: vi.fn().mockResolvedValue({ error: { message: 'fail' } }) })
+    mockFrom.mockReturnValue(chain)
+    await expect(markThreadRead('thread-1', 'user-1')).rejects.toThrow('chat: markRead failed')
+  })
+})
+
+// ── assertThreadScope ─────────────────────────────────────────────────────────
+
+const SCOPE = { domain: 'weather', targetType: 'vedurstofan_station' }
+
+describe('assertThreadScope', () => {
+  it('resolves when thread exists and matches scope', async () => {
+    const maybeSingleFn = vi.fn().mockResolvedValue({ data: { id: 'thread-1' }, error: null })
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertThreadScope('thread-1', SCOPE)).resolves.toBeUndefined()
+  })
+
+  it('throws "chat: not found" when thread does not exist', async () => {
+    const maybeSingleFn = vi.fn().mockResolvedValue({ data: null, error: null })
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertThreadScope('thread-1', SCOPE)).rejects.toThrow('chat: not found')
+  })
+
+  it('throws "chat: not found" when thread is in a different domain/targetType', async () => {
+    const maybeSingleFn = vi.fn().mockResolvedValue({ data: null, error: null })
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertThreadScope('thread-1', { domain: 'other', targetType: 'other_type' }))
+      .rejects.toThrow('chat: not found')
+  })
+
+  it('throws "chat: scope check failed" on Supabase error', async () => {
+    const maybeSingleFn = vi.fn().mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied' } })
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertThreadScope('thread-1', SCOPE)).rejects.toThrow('chat: scope check failed')
+  })
+})
+
+// ── assertMessageScope ────────────────────────────────────────────────────────
+
+describe('assertMessageScope', () => {
+  it('resolves when message exists and its thread matches scope', async () => {
+    const maybeSingleFn = vi.fn()
+      .mockResolvedValueOnce({ data: { thread_id: 'thread-1' }, error: null }) // message lookup
+      .mockResolvedValueOnce({ data: { id: 'thread-1' }, error: null })         // thread scope check
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertMessageScope('msg-1', SCOPE)).resolves.toBeUndefined()
+  })
+
+  it('throws "chat: not found" when message does not exist', async () => {
+    const maybeSingleFn = vi.fn().mockResolvedValue({ data: null, error: null })
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertMessageScope('msg-1', SCOPE)).rejects.toThrow('chat: not found')
+  })
+
+  it('throws "chat: not found" when message thread is out of scope', async () => {
+    const maybeSingleFn = vi.fn()
+      .mockResolvedValueOnce({ data: { thread_id: 'thread-1' }, error: null }) // message found
+      .mockResolvedValueOnce({ data: null, error: null })                       // thread scope mismatch
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertMessageScope('msg-1', SCOPE)).rejects.toThrow('chat: not found')
+  })
+
+  it('throws "chat: scope check failed" on Supabase error during message lookup', async () => {
+    const maybeSingleFn = vi.fn().mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied' } })
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertMessageScope('msg-1', SCOPE)).rejects.toThrow('chat: scope check failed')
+  })
+
+  it('throws "chat: scope check failed" on Supabase error during thread lookup', async () => {
+    const maybeSingleFn = vi.fn()
+      .mockResolvedValueOnce({ data: { thread_id: 'thread-1' }, error: null })                     // message found
+      .mockResolvedValueOnce({ data: null, error: { code: '42501', message: 'permission denied' } }) // thread lookup error
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertMessageScope('msg-1', SCOPE)).rejects.toThrow('chat: scope check failed')
   })
 })
 

@@ -172,6 +172,73 @@ export async function markRead(
 }
 
 /**
+ * Asserts that a thread exists and belongs to the expected domain/targetType scope.
+ * Throws 'chat: not found' if the thread is absent or out of scope.
+ * Callers should map this to 404 — same error for missing and out-of-scope
+ * so we do not reveal whether a foreign thread exists.
+ */
+export async function assertThreadScope(
+  threadId: string,
+  scope: { domain: string; targetType: string }
+): Promise<void> {
+  const admin = getAdmin()
+  const { data, error } = await admin
+    .from('teskeid_chat_threads')
+    .select('id')
+    .eq('id', threadId)
+    .eq('domain', scope.domain)
+    .eq('target_type', scope.targetType)
+    .maybeSingle()
+  if (error) throw new Error('chat: scope check failed')
+  if (!data) throw new Error('chat: not found')
+}
+
+/**
+ * Asserts that a message exists and its thread belongs to the expected scope.
+ * Throws 'chat: not found' if the message is absent or out of scope.
+ */
+export async function assertMessageScope(
+  messageId: string,
+  scope: { domain: string; targetType: string }
+): Promise<void> {
+  const admin = getAdmin()
+  const { data: msg, error: msgError } = await admin
+    .from('teskeid_chat_messages')
+    .select('thread_id')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (msgError) throw new Error('chat: scope check failed')
+  if (!msg) throw new Error('chat: not found')
+  const { data: thread, error: threadError } = await admin
+    .from('teskeid_chat_threads')
+    .select('id')
+    .eq('id', msg.thread_id)
+    .eq('domain', scope.domain)
+    .eq('target_type', scope.targetType)
+    .maybeSingle()
+  if (threadError) throw new Error('chat: scope check failed')
+  if (!thread) throw new Error('chat: not found')
+}
+
+/**
+ * Marks an entire thread as read for a user at the current time.
+ * Simpler than markRead — no message ID required from client.
+ * The cursor timestamp is used for unread count calculation.
+ */
+export async function markThreadRead(threadId: string, userId: string): Promise<void> {
+  const admin = getAdmin()
+  const { error } = await admin
+    .from('teskeid_chat_read_cursors')
+    .upsert({
+      thread_id: threadId,
+      user_id: userId,
+      last_read_message_id: null,
+      last_read_at: new Date().toISOString(),
+    })
+  if (error) throw new Error('chat: markRead failed')
+}
+
+/**
  * Reports a message for moderation.
  * Throws 'chat: already reported' if the user has already reported this message.
  */
