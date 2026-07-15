@@ -100,6 +100,18 @@ export async function checkFeatureAccess(
     if (!vedurstofanAccessRequired) return true
     return checkPerUserAccess(email, 'weather-provider-vedurstofan')
   }
+  if (featureKey === 'weather-pulse') {
+    if (getWeatherEnabledMode() === 'off') return false
+    if (process.env.TESKEID_CHAT_ENABLED !== 'true') return false
+    // NOTE: This function only checks the weather-pulse per-user feature key.
+    // It does NOT check the full Veðurpúls access chain (session, weather shell,
+    // Veðurstofan provider). All page/API access MUST go through checkChatAccess()
+    // in lib/chat/access.server.ts, which enforces all five layers.
+    // WEATHER_PULSE_ACCESS_REQUIRED=false: skip per-user gate (still requires checkChatAccess).
+    // Default (unset or 'true'): per-user gate via feature_access row.
+    if (process.env.WEATHER_PULSE_ACCESS_REQUIRED === 'false') return true
+    return checkPerUserAccess(email, 'weather-pulse')
+  }
   return false
 }
 

@@ -301,3 +301,37 @@ describe('feature-access API — weather-provider-vedurstofan key', () => {
     )
   })
 })
+
+// ── weather-pulse feature key ─────────────────────────────────────────────────
+
+describe('feature-access API — weather-pulse key', () => {
+  it('GET ?feature=weather-pulse returns 200 for admin', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ data: [], error: null })
+    const res = await GET(makeGetRequest('weather-pulse'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST ?feature=weather-pulse grants access with correct feature_key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'weather-pulse'))
+    expect(res.status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'weather-pulse', email: 'user@example.com' }),
+    )
+  })
+
+  it('DELETE ?feature=weather-pulse revokes access', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await DELETE(makeRequest({ email: 'user@example.com' }, 'DELETE', 'weather-pulse'))
+    expect(res.status).toBe(200)
+  })
+
+  it('weather-pulse does not accept unknown feature key variations', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('weather_pulse'))
+    expect(res.status).toBe(400)
+  })
+})

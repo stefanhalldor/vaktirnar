@@ -1338,3 +1338,141 @@ describe('sql/77_vedurstofan_forecasts_history.sql — static checks', () => {
     expect(sql77).toContain('DROP TABLE IF EXISTS public.vedurstofan_forecasts_history')
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/78 teskeid_chat_core
+// ============================================================
+
+const sql78 = readFileSync(
+  join(process.cwd(), 'sql/78_teskeid_chat_core.sql'),
+  'utf8'
+)
+
+describe('sql/78_teskeid_chat_core.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql78).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql78).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('creates teskeid_chat_threads', () => {
+    expect(sql78).toContain('CREATE TABLE IF NOT EXISTS public.teskeid_chat_threads')
+  })
+
+  it('creates teskeid_chat_messages', () => {
+    expect(sql78).toContain('CREATE TABLE IF NOT EXISTS public.teskeid_chat_messages')
+  })
+
+  it('creates teskeid_chat_read_cursors', () => {
+    expect(sql78).toContain('CREATE TABLE IF NOT EXISTS public.teskeid_chat_read_cursors')
+  })
+
+  it('creates teskeid_chat_message_reports', () => {
+    expect(sql78).toContain('CREATE TABLE IF NOT EXISTS public.teskeid_chat_message_reports')
+  })
+
+  it('has unique constraint on (domain, target_type, target_id)', () => {
+    expect(sql78).toContain('UNIQUE (domain, target_type, target_id)')
+  })
+
+  it('has body length constraints', () => {
+    expect(sql78).toContain('length(trim(body)) >= 1')
+    expect(sql78).toContain('length(body) <= 1000')
+  })
+
+  it('has message_kind CHECK with all allowed values', () => {
+    expect(sql78).toContain("'chat'")
+    expect(sql78).toContain("'field_report'")
+    expect(sql78).toContain("'measurement_report'")
+    expect(sql78).toContain("'system'")
+  })
+
+  it('enables RLS on all four tables', () => {
+    const rlsMatches = sql78.match(/ENABLE ROW LEVEL SECURITY/g) ?? []
+    expect(rlsMatches.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('revokes grants from anon and authenticated', () => {
+    expect(sql78).toContain('REVOKE ALL ON public.teskeid_chat_threads FROM anon')
+    expect(sql78).toContain('REVOKE ALL ON public.teskeid_chat_threads FROM authenticated')
+    expect(sql78).toContain('REVOKE ALL ON public.teskeid_chat_messages FROM anon')
+    expect(sql78).toContain('REVOKE ALL ON public.teskeid_chat_messages FROM authenticated')
+  })
+
+  it('grants narrow SELECT/INSERT/UPDATE/DELETE to service_role for all four tables', () => {
+    expect(sql78).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON public.teskeid_chat_threads TO service_role')
+    expect(sql78).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON public.teskeid_chat_messages TO service_role')
+    expect(sql78).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON public.teskeid_chat_read_cursors TO service_role')
+    expect(sql78).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON public.teskeid_chat_message_reports TO service_role')
+    expect(sql78).not.toMatch(/GRANT ALL ON public\.teskeid_chat_/)
+  })
+
+  it('has report reason non-empty and max-length constraints', () => {
+    expect(sql78).toContain('length(trim(reason)) >= 1')
+    expect(sql78).toContain('length(reason) <= 100')
+  })
+
+  it('has report body max-length constraint (nullable)', () => {
+    expect(sql78).toContain('body IS NULL OR length(body) <= 1000')
+  })
+
+  it('creates counter trigger for message_count consistency', () => {
+    expect(sql78).toContain('CREATE OR REPLACE FUNCTION public.teskeid_chat_thread_on_message_insert()')
+    expect(sql78).toContain('CREATE TRIGGER teskeid_chat_messages_after_insert')
+    expect(sql78).toContain('message_count + 1')
+  })
+
+  it('has read_cursors primary key on (thread_id, user_id)', () => {
+    const cursorsSection = sql78.slice(sql78.indexOf('teskeid_chat_read_cursors'))
+    const pkSection = cursorsSection.slice(0, cursorsSection.indexOf('teskeid_chat_message_reports'))
+    expect(pkSection).toContain('PRIMARY KEY (thread_id, user_id)')
+  })
+
+  it('rollback documents DROP TABLE order (child tables before parent)', () => {
+    const rollback = sql78.slice(sql78.lastIndexOf('Rollback'))
+    const reportsPos = rollback.indexOf('teskeid_chat_message_reports')
+    const threadsPos = rollback.indexOf('teskeid_chat_threads')
+    expect(reportsPos).toBeGreaterThan(-1)
+    expect(threadsPos).toBeGreaterThan(-1)
+    expect(reportsPos).toBeLessThan(threadsPos)
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/79 feature_access_weather_pulse
+// ============================================================
+
+const sql79 = readFileSync(
+  join(process.cwd(), 'sql/79_feature_access_weather_pulse.sql'),
+  'utf8'
+)
+
+describe('sql/79_feature_access_weather_pulse.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql79).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql79).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops existing constraint before recreating (idempotent)', () => {
+    expect(sql79).toContain('DROP CONSTRAINT IF EXISTS feature_access_feature_key_check')
+  })
+
+  it('adds new constraint with weather-pulse', () => {
+    expect(sql79).toContain("'weather-pulse'")
+  })
+
+  it('retains all existing feature keys', () => {
+    expect(sql79).toContain("'umonnun'")
+    expect(sql79).toContain("'tengsl'")
+    expect(sql79).toContain("'vedrid'")
+    expect(sql79).toContain("'ferdalagid'")
+    expect(sql79).toContain("'elta-vedrid'")
+    expect(sql79).toContain("'weather-provider-vedurstofan'")
+  })
+
+  it('rollback comment restores constraint without weather-pulse', () => {
+    const rollback = sql79.slice(sql79.lastIndexOf('Rollback'))
+    expect(rollback).toContain("'umonnun'")
+    const addConstraintInRollback = rollback.slice(rollback.indexOf('ADD CONSTRAINT'))
+    expect(addConstraintInRollback).not.toContain("'weather-pulse'")
+  })
+})
