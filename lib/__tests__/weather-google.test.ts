@@ -52,6 +52,14 @@ const FROM_KEFLAVIK: PlaceCandidate = {
   lat: 63.985,  // south of capital-area minLat=63.95 but more importantly west of minLon=-22.10
   lon: -22.56,  // excluded from capital area: lon < -22.10
 }
+// Höfn — non-capital origin for testing generalized Hólmavík alternate
+const FROM_HOFN: PlaceCandidate = {
+  placeId: 'ChIJhofn',
+  displayName: 'Höfn',
+  formattedAddress: 'Höfn, Iceland',
+  lat: 64.255,
+  lon: -15.207,
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -999,6 +1007,285 @@ describe('googleProvider.getRouteOptions', () => {
     ]))
     const results = await googleProvider.getRouteOptions(FROM, TO)
     expect(results[0].description).toBeUndefined()
+  })
+
+  // ── Curated Vestfirðir / Hólmavík route ──────────────────────────────────
+
+  // Ísafjörður (66.07, -23.13) — inside WESTFJORDS_NORTH_BOUNDS (65.80–66.50 N, 25–22 W)
+  const TO_ISAFJORDUR: PlaceCandidate = {
+    placeId: 'ChIJisafjordur',
+    displayName: 'Ísafjörður',
+    formattedAddress: 'Ísafjörður, Iceland',
+    lat: 66.07,
+    lon: -23.13,
+  }
+  // Bolungarvík (66.15, -23.26) — also inside WESTFJORDS_NORTH_BOUNDS, representative of north-western Westfjords
+  const TO_BOLUNGARVIK: PlaceCandidate = {
+    placeId: 'ChIJbolungarvik',
+    displayName: 'Bolungarvík',
+    formattedAddress: 'Bolungarvík, Iceland',
+    lat: 66.15,
+    lon: -23.26,
+  }
+
+  // 37-point route passing near HOLMAVIK_VIA (lat 65.703, lon -21.685) — within 8 km.
+  // 37 coords × 5000 m = 185 000 m > minFastestRouteDistanceM 180 000 m, so the rule fires.
+  // Point at index 18 is placed exactly at HOLMAVIK_VIA to guarantee proximity detection.
+  const COORDS_VIA_HOLMAVIK: [number, number][] = Array.from({ length: 37 }, (_, i) =>
+    i === 18
+      ? [-21.685, 65.703] as [number, number]   // HOLMAVIK_VIA
+      : [-21.93 + i * 0.03, 64.09 + i * 0.05] as [number, number]
+  )
+
+  it('capital area → Ísafjörður triggers CURATED_VIA_HOLMAVIK', async () => {
+    // 37 pts × 5000 m = 185 000 m > minFastestRouteDistanceM 180 000 m
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 30, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(true)
+  })
+
+  it('capital area → Bolungarvík also triggers CURATED_VIA_HOLMAVIK (representative of north-western Westfjords bounds)', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 30, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_BOLUNGARVIK)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(true)
+  })
+
+  it('capital area → Ísafjörður curated request uses HOLMAVIK_VIA coordinate', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 30, labels: [] }])
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    expect(curatedBody.intermediates).toHaveLength(1)
+    expect(curatedBody.intermediates[0].via).toBe(true)
+    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(65.703, 3)
+    expect(curatedBody.intermediates[0].location.latLng.longitude).toBeCloseTo(-21.685, 3)
+  })
+
+  it('capital area → Akureyri does NOT trigger CURATED_VIA_HOLMAVIK', async () => {
+    // Akureyri (lat 65.683) is below WESTFJORDS_NORTH_BOUNDS minLat 65.80
+    mockFetch(makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }]))
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO)  // TO = Akureyri
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(false)
+  })
+
+  it('short trip to Ísafjörður (< 180 km) does not trigger CURATED_VIA_HOLMAVIK', async () => {
+    // 35 pts × 5000 m = 175 000 m < 180 000 m threshold
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 35, labels: ['DEFAULT_ROUTE'] }]))
+    await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
+    expect(spy).toHaveBeenCalledTimes(1)  // no extra curated fetch
+  })
+
+  it('CURATED_VIA_HOLMAVIK is suppressed when base route already passes Hólmavík and curated is not faster', async () => {
+    // Base (37 pts = 185 km, includes HOLMAVIK_VIA at index 18), curated is slower → suppressed.
+    // Different fingerprint from curated (3 pts) so geometry-dedup doesn't fire first.
+    const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_HOLMAVIK, ['DEFAULT_ROUTE'], 14_000)
+    const curatedRoute = makeRouteResponseFromCoords([[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(false)
+    expect(results).toHaveLength(1)
+  })
+
+  it('CURATED_VIA_HOLMAVIK is kept when base route does NOT pass near Hólmavík', async () => {
+    // 37-pt auto-generated base goes northeast (not via Hólmavík) → suppression does not fire.
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeRouteResponseFromCoords([[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(true)
+  })
+
+  // ── Route caution: Westfjords trailer warning ───────────────────────────────
+
+  it('base route to Ísafjörður that avoids Hólmavík gets trailer caution', async () => {
+    // 37-pt auto-generated base goes northeast — not via Hólmavík (lat 65.703, lon -21.685).
+    // Curated route passes exactly through HOLMAVIK_VIA so it should NOT get the caution.
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeRouteResponseFromCoords([[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
+    const baseRoute = results.find(r => !r.labels.includes('CURATED_VIA_HOLMAVIK'))
+    expect(baseRoute?.cautions?.some(c => c.id === 'westfjords-south-route60')).toBe(true)
+  })
+
+  it('CURATED_VIA_HOLMAVIK route to Ísafjörður does NOT get trailer caution', async () => {
+    // Curated route passes through HOLMAVIK_VIA → caution should not fire.
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeRouteResponseFromCoords([[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
+    const curated = results.find(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))
+    expect(curated).toBeDefined()
+    expect(curated?.cautions?.some(c => c.id === 'westfjords-south-route60')).toBeFalsy()
+  })
+
+  it('route to Akureyri gets no Westfjords trailer caution', async () => {
+    mockFetch(makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }]))
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO)
+    expect(results.every(r => !r.cautions?.some(c => c.id === 'westfjords-south-route60'))).toBe(true)
+  })
+
+  // ── Generalized Hólmavík alternate (any Iceland origin) ─────────────────────
+
+  it('Höfn → Ísafjörður triggers CURATED_VIA_HOLMAVIK (non-capital origin)', async () => {
+    // 37 pts × 5000 m = 185 000 m > minFastestRouteDistanceM 180 000 m
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 30, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_ISAFJORDUR)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(true)
+  })
+
+  it('Höfn → Ísafjörður: base route (avoids Hólmavík) gets Westfjords caution', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeRouteResponseFromCoords([[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_ISAFJORDUR)
+    const baseRoute = results.find(r => !r.labels.includes('CURATED_VIA_HOLMAVIK'))
+    expect(baseRoute?.cautions?.some(c => c.id === 'westfjords-south-route60')).toBe(true)
+  })
+
+  it('Höfn → Ísafjörður: CURATED_VIA_HOLMAVIK does not get Westfjords caution', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeRouteResponseFromCoords([[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_ISAFJORDUR)
+    const curated = results.find(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))
+    expect(curated).toBeDefined()
+    expect(curated?.cautions?.some(c => c.id === 'westfjords-south-route60')).toBeFalsy()
+  })
+
+  it('Westfjords origin does NOT trigger CURATED_VIA_HOLMAVIK (excludedOrigin guard)', async () => {
+    // Origin Ísafjörður is inside WESTFJORDS_NORTH_BOUNDS → excludedOrigin suppresses the alternate.
+    // Only one fetch call should happen (no curated request).
+    const FROM_ISAFJORDUR: PlaceCandidate = {
+      placeId: 'ChIJisafjordur_origin',
+      displayName: 'Ísafjörður',
+      formattedAddress: 'Ísafjörður, Iceland',
+      lat: 66.07,
+      lon: -23.13,
+    }
+    const TO_GARDABAER_DEST: PlaceCandidate = {
+      placeId: 'ChIJgardabaer_dest',
+      displayName: 'Garðabær',
+      formattedAddress: 'Garðabær, Iceland',
+      lat: 64.09,
+      lon: -21.93,
+    }
+    mockFetch(makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }]))
+    const results = await googleProvider.getRouteOptions(FROM_ISAFJORDUR, TO_GARDABAER_DEST)
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(false)
+  })
+
+  it('caution result includes summaryKey', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeMultiRouteResponse([{ numPoints: 30, labels: [] }])
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
+    const baseRoute = results.find(r => !r.labels.includes('CURATED_VIA_HOLMAVIK'))
+    const caution = baseRoute?.cautions?.find(c => c.id === 'westfjords-south-route60')
+    expect(caution?.summaryKey).toBe('routeCautionWestfjordsSummary')
+  })
+
+  // ── Curated Öxi-avoid route (CURATED_AVOID_OXI) ─────────────────────────────
+
+  // Coordinates passing within 6 km of the Öxi corridor point (lat 64.860, lon -14.365).
+  // Format: [lon, lat] as used in Google GeoJSON linestring responses.
+  const COORDS_VIA_OXI: [number, number][] = [
+    [-14.40, 65.27],  // Egilsstaðir area
+    [-14.37, 64.86],  // ~0.3 km from Öxi corridor point — within 6 km
+    [-15.21, 64.25],  // Höfn area
+  ]
+
+  // Coordinates going around the eastern fjords — not near the Öxi corridor.
+  const COORDS_COASTAL_NOT_VIA_OXI: [number, number][] = [
+    [-14.40, 65.27],  // Egilsstaðir area
+    [-13.80, 64.93],  // Seyðisfjörður/Neskaupstaður coastal area
+    [-14.28, 64.69],  // Djúpivogur coastal area
+    [-15.21, 64.25],  // Höfn
+  ]
+
+  it('base route via Öxi triggers CURATED_AVOID_OXI curated route request', async () => {
+    const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_OXI, ['DEFAULT_ROUTE'], 9_000)
+    const curatedRoute = makeRouteResponseFromCoords(COORDS_COASTAL_NOT_VIA_OXI, [], 11_000)
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_EGILSSTADIR)
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(results.some(r => r.labels.includes('CURATED_AVOID_OXI'))).toBe(true)
+  })
+
+  it('CURATED_AVOID_OXI request uses Reyðarfjörður as the single via with via: true', async () => {
+    const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_OXI, ['DEFAULT_ROUTE'], 9_000)
+    const curatedRoute = makeRouteResponseFromCoords(COORDS_COASTAL_NOT_VIA_OXI, [], 11_000)
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_HOFN, TO_EGILSSTADIR)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    expect(curatedBody.intermediates).toHaveLength(1)
+    expect(curatedBody.intermediates[0].via).toBe(true)
+    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(65.0317, 4)
+    expect(curatedBody.intermediates[0].location.latLng.longitude).toBeCloseTo(-14.2183, 4)
+  })
+
+  it('CURATED_AVOID_OXI route has no oxi-axarvegur-939 caution', async () => {
+    const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_OXI, ['DEFAULT_ROUTE'], 9_000)
+    const curatedRoute = makeRouteResponseFromCoords(COORDS_COASTAL_NOT_VIA_OXI, [], 11_000)
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_EGILSSTADIR)
+    const curated = results.find(r => r.labels.includes('CURATED_AVOID_OXI'))
+    expect(curated).toBeDefined()
+    expect(curated?.cautions?.some(c => c.id === 'oxi-axarvegur-939')).toBeFalsy()
+  })
+
+  it('CURATED_AVOID_OXI is suppressed when curated route still carries the Öxi caution', async () => {
+    const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_OXI, ['DEFAULT_ROUTE'], 9_000)
+    const curatedRoute = makeRouteResponseFromCoords(COORDS_VIA_OXI, [], 10_000)  // still via Öxi
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_EGILSSTADIR)
+    expect(results.some(r => r.labels.includes('CURATED_AVOID_OXI'))).toBe(false)
+    expect(results).toHaveLength(1)
+  })
+
+  it('no CURATED_AVOID_OXI when no base route has oxi-axarvegur-939', async () => {
+    const spy = mockFetch(makeRouteResponseFromCoords(COORDS_COASTAL_NOT_VIA_OXI, ['DEFAULT_ROUTE'], 11_000))
+    const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_EGILSSTADIR)
+    expect(spy).toHaveBeenCalledTimes(1)  // no extra curated fetch
+    expect(results.some(r => r.labels.includes('CURATED_AVOID_OXI'))).toBe(false)
+  })
+
+  it('when a base route already avoids Öxi, no extra curated fetch but the avoiding route gets CURATED_AVOID_OXI label', async () => {
+    // Two base routes: one via Öxi, one coastal (no Öxi caution).
+    // No extra Google request needed, but the coastal route should be relabelled.
+    const twoRouteResponse = {
+      routes: [
+        {
+          polyline: { geoJsonLinestring: { coordinates: COORDS_VIA_OXI } },
+          distanceMeters: 150_000,
+          duration: '9000s',
+          staticDuration: undefined,
+          routeLabels: ['DEFAULT_ROUTE'],
+        },
+        {
+          polyline: { geoJsonLinestring: { coordinates: COORDS_COASTAL_NOT_VIA_OXI } },
+          distanceMeters: 180_000,
+          duration: '11000s',
+          staticDuration: undefined,
+          routeLabels: ['DEFAULT_ROUTE_ALTERNATE'],
+        },
+      ],
+    }
+    const spy = mockFetch(twoRouteResponse)
+    const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_EGILSSTADIR)
+    expect(spy).toHaveBeenCalledTimes(1)  // no extra curated fetch
+    const oxiRoute = results.find(r => r.cautions?.some(c => c.id === 'oxi-axarvegur-939'))
+    const avoidRoute = results.find(r => r.labels.includes('CURATED_AVOID_OXI'))
+    expect(oxiRoute).toBeDefined()
+    expect(avoidRoute).toBeDefined()
+    expect(avoidRoute?.id).not.toBe(oxiRoute?.id)  // distinct routes
   })
 })
 

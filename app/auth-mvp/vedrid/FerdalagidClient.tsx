@@ -30,6 +30,7 @@ import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, estimatePoi
 import { RouteWeatherPointDetailCard } from '@/components/weather/RouteWeatherPointDetailCard'
 import { WindStatusBadge } from '@/components/weather/WindStatusBadge'
 import { VedurstofanPointCard } from '@/components/weather/VedurstofanPointCard'
+import { VedurstofanRoutePulseSummary } from '@/components/weather/VedurstofanRoutePulseSummary'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import { isVedurstofanCycleFresh, getNextCycleAfterAtimeIso } from '@/lib/weather/vedurstofanFreshness'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
@@ -1684,6 +1685,19 @@ export function FerdalagidClient({
                         )
                       })()}
 
+                      {/* Route-scoped Safnpúls — collapsed disclosure at the bottom of Á leiðinni, before destination context */}
+                      {showVedurstofan && vedurstofanLayer && vedurstofanLayer.points.length > 0 && (
+                        <VedurstofanRoutePulseSummary
+                          stations={vedurstofanLayer.points.map(p => ({
+                            stationId: p.stationId,
+                            stationName: p.stationName,
+                            routeFraction: p.routeFraction,
+                            distanceFromOriginM: p.distanceFromOriginM,
+                          }))}
+                          returnTo={vedurstofanReturnTo}
+                        />
+                      )}
+
                       {/* Áfangastaður — MET/Yr destination context; shown when any provider is active and arrival data exists */}
                       {!hasNoActiveProvider && activeOutboundCandidate?.arrivalWeather && (
                         <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
@@ -1722,6 +1736,7 @@ export function FerdalagidClient({
                           </div>
                         </section>
                       )}
+
 
                     </div>
                     </>

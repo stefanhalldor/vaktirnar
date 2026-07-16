@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ChatPreviewList } from '@/components/chat/ChatPreviewList'
 import { ScopedChatComposer } from '@/components/chat/ScopedChatComposer'
-import type { AugmentedChatMessage } from '@/components/chat/ChatMessageRow'
+import { useChatPreview } from '@/components/chat/useChatPreview'
 
 interface VedurstofanPulseInlineProps {
   stationId: string
@@ -32,30 +32,15 @@ type PostingAccess = 'unknown' | 'allowed' | 'needs-login' | 'denied'
  */
 export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulseInlineProps) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
-  const [messages, setMessages] = useState<AugmentedChatMessage[]>([])
-  const [previewLoaded, setPreviewLoaded] = useState(false)
+  const { messages, loaded: previewLoaded } = useChatPreview({
+    url: `/api/teskeid/weather/vedurpuls/stations/${stationId}/preview`,
+  })
   const [postingAccess, setPostingAccess] = useState<PostingAccess>('unknown')
+  const [pendingFull, setPendingFull] = useState(false)
   const [composeBody, setComposeBody] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState(false)
   const threadIdRef = useRef<string | null>(null)
-
-  // Preview — loads immediately and polls every 30 s (same cadence as WeatherPulseFeed)
-  useEffect(() => {
-    let cancelled = false
-    async function loadPreview() {
-      try {
-        const res = await fetch(`/api/teskeid/weather/vedurpuls/stations/${stationId}/preview`)
-        if (res.ok && !cancelled) setMessages(await res.json())
-      } catch { /* silent */ } finally {
-        if (!cancelled) setPreviewLoaded(true)
-      }
-    }
-    loadPreview()
-    const id = setInterval(loadPreview, 30_000)
-    return () => { cancelled = true; clearInterval(id) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stationId])
 
   // Access check — one-time on mount; 401 = not logged in, 403/503 = no posting access
   useEffect(() => {
@@ -96,8 +81,8 @@ export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulse
       })
       if (!sendRes.ok) { setSendError(true); return }
       setComposeBody('')
-      const previewRes = await fetch(`/api/teskeid/weather/vedurpuls/stations/${stationId}/preview`)
-      if (previewRes.ok) setMessages(await previewRes.json())
+      // Trigger immediate refresh in useChatPreview (same tab) and VedurstofanRoutePulseSummary
+      window.dispatchEvent(new Event('teskeid:pulse:refresh'))
     } catch { setSendError(true) } finally {
       setSending(false)
     }
@@ -116,18 +101,14 @@ export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulse
   const loginNextHref = `/auth-mvp/vedrid/puls/stod/${stationId}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`
   const loginHref = `/innskraning?next=${encodeURIComponent(loginNextHref)}`
 
-  // Hide the whole component when there is nothing useful to show:
-  // no messages to preview and no composer available (public/denied user).
-  // This prevents rendering an empty "Nýjast af staðnum" header on public cards.
   const canPost = postingAccess === 'allowed'
-  if (messages.length === 0 && !canPost) return null
 
   return (
     <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
       <p className="text-xs font-medium text-foreground">{t('pulseInlineHeader')}</p>
       <ChatPreviewList
         messages={messages}
-        emptyLabel={t('pulseEmpty')}
+        emptyLabel={postingAccess === 'needs-login' ? t('pulseEmptyPublic') : t('pulseEmpty')}
         deletedLabel={t('pulseDeleted')}
         kindLabels={kindLabels}
         loaded={previewLoaded}
@@ -157,9 +138,11 @@ export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulse
       {fullHref && postingAccess === 'allowed' && (
         <Link
           href={fullHref}
-          className="text-xs text-muted-foreground underline underline-offset-2 self-start hover:text-foreground transition-colors"
+          onClick={() => setPendingFull(true)}
+          aria-busy={pendingFull || undefined}
+          className={`text-xs underline underline-offset-2 self-start transition-colors ${pendingFull ? 'text-muted-foreground/50 pointer-events-none' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          {t('pulseViewMore')}
+          {pendingFull ? t('pulseViewMorePending') : t('pulseViewMore')}
         </Link>
       )}
     </div>

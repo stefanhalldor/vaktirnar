@@ -6,6 +6,7 @@ import type { WindDisplayStatus } from '@/lib/weather/windDisplayStatus'
 import { WindStatusBadge } from '@/components/weather/WindStatusBadge'
 import { formatKlTime, formatNum, getOriginDisplay } from './travelAuditMap.helpers'
 import { VedurstofanPulseInline } from './VedurstofanPulseInline'
+import { ForecastRowLine } from './VedurstofanForecastRows'
 
 type ForecastRow = VedurstofanTravelLayer['points'][number]['forecastRows'][number]
 type StationPoint = VedurstofanTravelLayer['points'][number]
@@ -71,41 +72,6 @@ export function buildVedurstofanPointDisplayModel(
     ftimeLabel: ftimeIso ? formatKlTime(ftimeIso) : null,
     ...selectPrevUsedNext(station.forecastRows, etaIso),
   }
-}
-
-function ForecastRowLine({
-  row,
-  isUsed,
-  locale,
-  usedMarker,
-}: {
-  row: ForecastRow
-  isUsed: boolean
-  locale: string
-  usedMarker: string
-}) {
-  return (
-    <div className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1 ${isUsed ? 'text-foreground' : 'text-muted-foreground'}`}>
-      <span className="text-[11px] font-medium shrink-0 w-11">{formatKlTime(row.ftimeIso)}</span>
-      <span className="text-[11px] flex flex-wrap gap-x-1.5">
-        {row.windSpeedMs !== null && (
-          <span>{formatNum(row.windSpeedMs, locale)} m/s{row.windDirectionText ? ` ${row.windDirectionText}` : ''}</span>
-        )}
-        {row.precipitationMmPerHour !== null && (
-          <span>{formatNum(row.precipitationMmPerHour, locale)} mm/klst</span>
-        )}
-        {row.temperatureC !== null && (
-          <span>{formatNum(row.temperatureC, locale)}°C</span>
-        )}
-        {row.weatherText && (
-          <span>{row.weatherText}</span>
-        )}
-      </span>
-      {isUsed && (
-        <span className="text-[10px] text-primary/70 font-medium shrink-0">{usedMarker}</span>
-      )}
-    </div>
-  )
 }
 
 

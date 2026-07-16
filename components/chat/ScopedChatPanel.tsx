@@ -14,10 +14,18 @@ export type ScopedChatTransport = {
   loadMessages(threadId: string, opts?: ScopedChatLoadOptions): Promise<MessageDto[]>
   markRead(threadId: string): Promise<void>
   sendMessage(threadId: string, body: string): Promise<MessageDto>
+  /**
+   * Optional Realtime subscription. When provided, the panel subscribes to live
+   * message inserts and calls `loadMessages` on each event. The polling fallback
+   * remains active regardless. Returns an unsubscribe function.
+   */
+  subscribe?(threadId: string, onNewMessage: () => void): () => void
 }
 
 interface ScopedChatPanelLabels {
   empty: string
+  /** Shown while the initial message load is in progress. Omit to show nothing during load. */
+  loading?: string
   inputPlaceholder: string
   send: string
   sendError: string
@@ -106,7 +114,8 @@ export function ScopedChatPanel({
     loadMessages()
     transport.markRead(threadId).catch(() => { /* silent */ })
     const id = setInterval(loadMessages, pollingIntervalMs)
-    return () => clearInterval(id)
+    const unsub = transport.subscribe?.(threadId, loadMessages)
+    return () => { clearInterval(id); unsub?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, pollingIntervalMs])
 
@@ -184,7 +193,9 @@ export function ScopedChatPanel({
             {loadingMore ? '...' : labels.loadOlder}
           </button>
         )}
-        {!initialLoadDone ? null : messages.length === 0 ? (
+        {!initialLoadDone ? (
+          labels.loading ? <p className="text-xs text-muted-foreground">{labels.loading}</p> : null
+        ) : messages.length === 0 ? (
           <p className="text-xs text-muted-foreground">{labels.empty}</p>
         ) : (
           messages.map(msg => (

@@ -414,6 +414,63 @@ export async function getThreadSummary(
 }
 
 /**
+ * Returns the latest N visible messages per station for a batch of station IDs,
+ * keyed by stationId. Stations with no thread or no messages return [].
+ * Intended for the route-scoped Safnpúls — public read-only, no thread creation.
+ */
+export async function getPreviewMessagesForStations(
+  stationIds: string[],
+  limitPerStation: number,
+): Promise<Map<string, MessageDto[]>> {
+  const admin = getAdmin()
+  const result = new Map<string, MessageDto[]>(stationIds.map(id => [id, []]))
+
+  if (stationIds.length === 0) return result
+
+  // Fetch all threads for these stations in one query
+  const { data: threads, error: threadsError } = await admin
+    .from('teskeid_chat_threads')
+    .select('id, target_id')
+    .eq('domain', 'weather')
+    .eq('target_type', 'vedurstofan_station')
+    .in('target_id', stationIds)
+
+  if (threadsError || !threads || threads.length === 0) return result
+
+  // Fetch messages for each thread in parallel
+  const perThread = await Promise.all(
+    (threads as any[]).map(async (t: any) => {
+      const messages = await getThreadPreviewMessages(t.id as string, limitPerStation)
+      return { stationId: t.target_id as string, messages }
+    })
+  )
+
+  for (const { stationId, messages } of perThread) {
+    result.set(stationId, messages)
+  }
+
+  return result
+}
+
+/** Private helper: returns the latest N visible messages for a known thread ID. */
+async function getThreadPreviewMessages(threadId: string, limit: number): Promise<MessageDto[]> {
+  const admin = getAdmin()
+  const { data, error } = await admin
+    .from('teskeid_chat_messages')
+    .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
+    .eq('thread_id', threadId)
+    .is('deleted_at', null)
+    .is('hidden_at', null)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) return []
+  const rows = (data ?? []).reverse()
+  const userIds = [...new Set<string>(rows.map((r: any) => r.user_id).filter(Boolean))]
+  const profileMap = await fetchProfileMap(userIds)
+  return rows.map((r: any) => toMessageDto(r, profileMap))
+}
+
+/**
  * Returns the latest N visible (non-deleted, non-hidden) messages for a thread
  * identified by domain/targetType/targetId, without creating the thread.
  * Returns [] if no thread exists yet.

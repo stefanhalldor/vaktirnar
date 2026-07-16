@@ -1,5 +1,14 @@
 import 'server-only'
 import type { PlaceCandidate, RouteGeometry, RouteOption, StaticMapParams, WeatherMapProvider } from './provider.types'
+import { matchRouteCautions } from './routeCautions'
+import {
+  ICELAND_BOUNDS,
+  WESTFJORDS_NORTH_BOUNDS,
+  HOLMAVIK_VIA,
+  HOLMAVIK_PROXIMITY_M,
+  REYDARFJORDUR_VIA,
+} from './routeCautionConstants'
+import type { Bounds } from './routeCautionConstants'
 
 // Maximum sampled route points sent to met.no. Keeps API calls bounded.
 const MAX_ROUTE_POINTS = 80
@@ -93,8 +102,6 @@ function parseGoogleSeconds(value: string | undefined): number | null {
 
 // ── Curated route registry ────────────────────────────────────────────────────
 
-type Bounds = { minLat: number; maxLat: number; minLon: number; maxLon: number }
-
 type PlaceMatcher = {
   placeIds?: readonly string[]
   bounds?: readonly Bounds[]
@@ -105,8 +112,19 @@ type CuratedRouteRule = {
   id: string
   /** Short human-readable name for dev logs. */
   logName: string
-  origin: PlaceMatcher
-  destination: PlaceMatcher
+  /**
+   * If set, this rule is triggered when at least one base route has this caution ID,
+   * and no base route already avoids it. Origin/destination matching is skipped.
+   * After fetch, the curated route is validated: if it still carries the same caution
+   * it is suppressed.
+   */
+  triggerCautionId?: string
+  /** Required when triggerCautionId is not set. */
+  origin?: PlaceMatcher
+  /** If set, skip this rule when the origin matches (e.g. exclude origins already inside the destination area). */
+  excludedOrigin?: PlaceMatcher
+  /** Required when triggerCautionId is not set. */
+  destination?: PlaceMatcher
   /** One or more via-points on the desired road, in order. Verify visually on localhost before each new rule. */
   vias: readonly { lat: number; lon: number }[]
   labels: readonly string[]
@@ -145,6 +163,8 @@ const RING_ROAD_SOUTH_VIA     = { lat: 63.415, lon: -18.977 } // Route 1, Mýrda
 const RING_ROAD_EAST_VIA      = { lat: 64.295, lon: -15.148 } // Route 1, between Djúpivogur and Höfn — pending verification
 const RING_ROAD_NORTHEAST_VIA = { lat: 65.130, lon: -14.514 } // Route 1, south of Egilsstaðir — pending verification
 const RING_ROAD_NORTH_VIA     = { lat: 65.540, lon: -19.520 } // Route 1, Varmahlíð area (north Iceland) — pending verification
+
+// WESTFJORDS_NORTH_BOUNDS and HOLMAVIK_VIA imported from routeCautionConstants.
 
 const CURATED_ROUTE_RULES: readonly CuratedRouteRule[] = [
   {
@@ -186,6 +206,41 @@ const CURATED_ROUTE_RULES: readonly CuratedRouteRule[] = [
     minFastestRouteDistanceM: 350_000,
     vias: [RING_ROAD_NORTH_VIA, RING_ROAD_NORTHEAST_VIA],
     labels: ['CURATED_RING_ROAD'],
+  },
+  {
+    // Til að sleppa við Öxi: curated route via Reyðarfjörður when Google routes over Öxi / Road 939.
+    // Triggered by the 'oxi-axarvegur-939' caution on any base route (not by origin/destination bounds),
+    // and only when no base route already avoids Öxi. After fetch, the curated route is validated:
+    // if it still carries the Öxi caution it is suppressed and not shown.
+    //
+    // Reyðarfjörður via-point shapes Google to go around the eastern fjords. Verify on localhost
+    // that the returned polyline does not use Road 939 before each release.
+    id: 'avoid-oxi-via-reydarfjordur',
+    logName: 'Öxi / Reyðarfjörður',
+    triggerCautionId: 'oxi-axarvegur-939',
+    vias: [REYDARFJORDUR_VIA],
+    labels: ['CURATED_AVOID_OXI'],
+  },
+  {
+    // Gegnum Hólmavík: curated route via Hólmavík (Route 61) for northern Westfjords destinations.
+    // The Google default to Ísafjörður/Bolungarvík may use mountain passes on Route 60 that are
+    // dangerous for vehicles with trailers. Route 61 via Hólmavík avoids the worst passes.
+    //
+    // Origin is any Icelandic location EXCEPT origins already inside the Westfjords area
+    // (those origins are already past Hólmavík; an alternate via Hólmavík would be absurd).
+    // The 180 km distance gate prevents short local trips from triggering this rule.
+    // The shouldSkipCuratedHolmavik duplicate filter prevents a second Hólmavík route when
+    // Google already returns one.
+    //
+    // Via-point must be verified visually on localhost before each release.
+    id: 'any-iceland-to-westfjords-north-via-holmavik',
+    logName: 'Vestfirðir / Hólmavík',
+    origin: { bounds: [ICELAND_BOUNDS] },
+    excludedOrigin: { bounds: [WESTFJORDS_NORTH_BOUNDS] },
+    destination: { bounds: [WESTFJORDS_NORTH_BOUNDS] },
+    minFastestRouteDistanceM: 180_000,
+    vias: [HOLMAVIK_VIA],
+    labels: ['CURATED_VIA_HOLMAVIK'],
   },
 ]
 
@@ -280,16 +335,22 @@ async function fetchCuratedRoute(
       })
     }
 
+    const allPoints = coords.map(([lon, lat]) => ({ lat, lon }))
+    // Evaluate cautions on full pre-sampling geometry so sparse sampled points
+    // do not produce false negatives on shorter caution corridors.
+    const cautions = matchRouteCautions(allPoints, from, to)
+
     return {
       id,
       routeIndex: -1,
       provider: 'google',
       labels: [...rule.labels],
       isDefault: false,
-      points: samplePoints(coords.map(([lon, lat]) => ({ lat, lon })), MAX_ROUTE_POINTS),
+      points: samplePoints(allPoints, MAX_ROUTE_POINTS),
       distanceM: route.distanceMeters,
       durationS: parseGoogleSeconds(route.staticDuration) ?? parseGoogleSeconds(route.duration) ?? 0,
       description: route.description,
+      ...(cautions.length > 0 ? { cautions } : {}),
     }
   } catch {
     if (process.env.NODE_ENV !== 'production') {
@@ -366,6 +427,33 @@ function shouldSkipCuratedHellisheidi(
   return curated.durationS >= fastestBase.durationS - HELLISHEIDI_DUPLICATE_TOLERANCE_S
 }
 
+// ── Hólmavík duplicate filter ─────────────────────────────────────────────────
+
+// HOLMAVIK_PROXIMITY_M imported from routeCautionConstants — kept in sync with caution detection.
+const HOLMAVIK_DUPLICATE_TOLERANCE_S = 60
+
+/**
+ * Returns true when a CURATED_VIA_HOLMAVIK route should be suppressed because:
+ * 1. The base Google routes already include a route through the Hólmavík corridor, AND
+ * 2. The curated route is not meaningfully faster than the fastest base route.
+ */
+function shouldSkipCuratedHolmavik(
+  curated: RouteOption,
+  baseRoutes: readonly RouteOption[]
+): boolean {
+  if (!curated.labels.includes('CURATED_VIA_HOLMAVIK')) return false
+
+  const fastestBase = baseRoutes[0]
+  if (!fastestBase) return false
+
+  const baseAlreadyPassesHolmavik = baseRoutes.some(route =>
+    routePassesNearPoint(route, HOLMAVIK_VIA, HOLMAVIK_PROXIMITY_M)
+  )
+  if (!baseAlreadyPassesHolmavik) return false
+
+  return curated.durationS >= fastestBase.durationS - HOLMAVIK_DUPLICATE_TOLERANCE_S
+}
+
 /**
  * Run all matching curated route rules sequentially.
  * Each matching rule makes one extra Google Routes request.
@@ -383,13 +471,41 @@ async function getCuratedRouteOptions(
 ): Promise<RouteOption[]> {
   const results: RouteOption[] = []
   for (const rule of CURATED_ROUTE_RULES) {
-    if (!matchesPlaceMatcher(from, rule.origin) || !matchesPlaceMatcher(to, rule.destination)) continue
+    if (rule.triggerCautionId) {
+      // Caution-triggered rule: trigger when at least one base route has the caution.
+      const anyBaseHasCaution = baseRoutes.some(r =>
+        r.cautions?.some(c => c.id === rule.triggerCautionId)
+      )
+      if (!anyBaseHasCaution) continue
+      // Skip if any base route already avoids the caution — user already has a safe option.
+      const anyBaseAvoidsCaution = baseRoutes.some(r =>
+        !r.cautions?.some(c => c.id === rule.triggerCautionId)
+      )
+      if (anyBaseAvoidsCaution) continue
+    } else {
+      if (!rule.origin || !rule.destination) continue
+      if (!matchesPlaceMatcher(from, rule.origin) || !matchesPlaceMatcher(to, rule.destination)) continue
+      if (rule.excludedOrigin && matchesPlaceMatcher(from, rule.excludedOrigin)) continue
+    }
     if (rule.minFastestRouteDistanceM != null && fastestDistanceM < rule.minFastestRouteDistanceM) continue
     const curated = await fetchCuratedRoute(rule, from, to, key, existingIds)
     if (curated) {
+      // For caution-triggered rules: validate the curated route actually avoids the caution.
+      if (rule.triggerCautionId && curated.cautions?.some(c => c.id === rule.triggerCautionId)) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[weather/google] curated ${rule.logName}: suppressed — still has caution ${rule.triggerCautionId}`)
+        }
+        continue
+      }
       if (shouldSkipCuratedHellisheidi(curated, baseRoutes)) {
         if (process.env.NODE_ENV !== 'production') {
           console.log(`[weather/google] curated ${rule.logName}: skipped — base route already uses Hellisheiði corridor`)
+        }
+        continue
+      }
+      if (shouldSkipCuratedHolmavik(curated, baseRoutes)) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[weather/google] curated ${rule.logName}: skipped — base route already uses Hólmavík corridor`)
         }
         continue
       }
@@ -509,8 +625,10 @@ async function getRouteOptions(
     const trafficDurationS = parseGoogleSeconds(route.duration)
     const staticDurationS = parseGoogleSeconds(route.staticDuration)
     const durationS = staticDurationS ?? trafficDurationS ?? 0
-
     const id = `google-${buildRouteFingerprint(route.distanceMeters, coords, idx)}`
+
+    // Evaluate cautions on full pre-sampling geometry.
+    const cautions = matchRouteCautions(allPoints, from, to)
 
     return {
       id,
@@ -522,6 +640,7 @@ async function getRouteOptions(
       distanceM: route.distanceMeters,
       durationS,
       description: route.description,
+      ...(cautions.length > 0 ? { cautions } : {}),
     }
   })
 
@@ -540,6 +659,19 @@ async function getRouteOptions(
 
   // Sort by durationS ascending so the fastest route is always first.
   const routeOptions: RouteOption[] = [...seen.values()].sort((a, b) => a.durationS - b.durationS)
+
+  // If some base routes carry oxi-axarvegur-939 and others avoid it, label the
+  // avoiding routes as CURATED_AVOID_OXI so the UI can present them clearly
+  // without an extra Google request.
+  const OXI_CAUTION_ID = 'oxi-axarvegur-939'
+  const hasOxiRoutes = routeOptions.some(r => r.cautions?.some(c => c.id === OXI_CAUTION_ID))
+  if (hasOxiRoutes) {
+    for (const route of routeOptions) {
+      if (!route.cautions?.some(c => c.id === OXI_CAUTION_ID) && !route.labels.includes('CURATED_AVOID_OXI')) {
+        route.labels = [...route.labels, 'CURATED_AVOID_OXI']
+      }
+    }
+  }
 
   // Run matching curated route rules (one extra Google request per matching rule).
   const existingIds = new Set(routeOptions.map(r => r.id))
@@ -562,6 +694,7 @@ async function getRouteOptions(
         durationS: r.durationS,
         labels: r.labels,
         description: r.description,
+        cautions: r.cautions?.map(c => c.id),
       })),
       durationNote: 'durationS uses staticDuration when available, falls back to traffic-aware duration',
     }, null, 2))

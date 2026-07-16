@@ -15,6 +15,20 @@ export type RouteGeometry = {
   durationS: number
 }
 
+export type RouteCautionSeverity = 'info' | 'caution' | 'warning'
+
+export type RouteCautionVehicle = 'trailer' | 'caravan' | 'camper' | 'all'
+
+export type RouteCautionResult = {
+  id: string
+  severity: RouteCautionSeverity
+  labelKey: string
+  /** Short descriptive text shown below the chip in route selection. */
+  summaryKey?: string
+  detailKey?: string
+  appliesTo: RouteCautionVehicle[]
+}
+
 export type RouteOption = RouteGeometry & {
   id: string
   routeIndex: number
@@ -22,6 +36,7 @@ export type RouteOption = RouteGeometry & {
   labels: string[]
   isDefault: boolean
   description?: string
+  cautions?: RouteCautionResult[]
 }
 
 export type StaticMapParams = {

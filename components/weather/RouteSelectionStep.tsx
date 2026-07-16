@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { MapPin, X } from 'lucide-react'
+import { AlertTriangle, MapPin, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { PlaceSearch, type PlaceResult, type SavedPlace } from './PlaceSearch'
 import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weather/googleMaps.client'
@@ -463,6 +463,10 @@ export function RouteSelectionStep({
               ? tf('routeOptionRingRoad')
               : ro.labels.includes('CURATED_VIA_HELLISHEIDI')
               ? tf('routeOptionViaHellisheidi')
+              : ro.labels.includes('CURATED_VIA_HOLMAVIK')
+              ? tf('routeOptionViaHolmavik')
+              : ro.labels.includes('CURATED_AVOID_OXI')
+              ? tf('routeOptionAvoidOxi')
               : ro.labels.includes('CURATED_VIA_THRENGSLAVEGUR')
               ? tf('routeOptionViaThrengslavegur')
               : idx === 0
@@ -487,6 +491,19 @@ export function RouteSelectionStep({
                   <span className={`text-sm font-medium truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}>
                     {label}
                   </span>
+                  {ro.cautions?.map(caution => (
+                    <div key={caution.id} className="flex flex-col gap-1">
+                      <span className="inline-flex w-fit items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                        <AlertTriangle size={11} aria-hidden />
+                        {tf(caution.labelKey as Parameters<typeof tf>[0])}
+                      </span>
+                      {caution.summaryKey && (
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                          {tf(caution.summaryKey as Parameters<typeof tf>[0])}
+                        </p>
+                      )}
+                    </div>
+                  ))}
                   {ro.description && (
                     <span className="text-xs text-muted-foreground">{ro.description}</span>
                   )}

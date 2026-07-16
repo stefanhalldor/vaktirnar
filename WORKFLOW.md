@@ -25,6 +25,29 @@ Framkvæmdarleyfi þarf að vera orðað skýrt, til dæmis:
 rýni á viðkomandi handoff - ekki framkvæmd. Claude Code og Codex eiga að lesa
 skrána og skila rýni.
 
+**Sérregla: `Workflow` merki til Claude Code.** Ef Stebbi sendir Claude Code
+handoff-skrá eða handoff-skrárheiti og skrifar skýrt `Workflow` með, þá má
+Claude Code nota eftirfarandi workflow án frekari samþykkis:
+
+1. Lesa handoffið og rýna það fyrst með gagnrýnum augum, eins og
+   devil's advocate.
+2. Ef rýnin vekur spurningar, óvissu, scope-vanda, öryggisáhættu eða þörf á
+   ákvörðun frá Stebba, þá á Claude Code að stoppa, ekki framkvæma, og skila
+   handoff/review með spurningunum.
+3. Ef engar blocking spurningar eru og umfangið er skýrt, má Claude Code
+   framkvæma afmarkaða breytingu sem handoffið lýsir.
+4. Fyrir framkvæmd skal Claude Code samt skrifa stutt
+   `Skilningur á samþykki` yfirlit eins og lýst er neðar í þessu skjali.
+5. Eftir framkvæmd skal Claude Code strax búa til handoff/stöðuskil.
+
+`Workflow` leyfir aðeins afmarkaða framkvæmd í repo samkvæmt handoffinu. Það
+leyfir ekki commit, push, deploy, Vercel-breytingar, production-breytingar,
+Supabase-breytingar, migration-keyrslu, env/secrets-breytingar, billing eða
+utanaðkomandi þjónustubreytingar nema Stebbi biðji sérstaklega um það með
+skýrum orðum. Ef handoffið krefst SQL/migration má skrifa migration-skrá aðeins
+ef það kemur skýrt fram í handoffinu, en aldrei keyra migration nema Stebbi
+gefi sérstakt leyfi.
+
 Ef Stebbi notar óljóst orðalag á Codex eða Claude Code að stoppa og spyrja:
 
 > "Á Stebbi við ráðgjöf/plan/review eða má [Codex/Claude Code] framkvæma? Ef framkvæmd: á það að fela í sér kóðabreytingu, commit, push, deploy eða migration?"

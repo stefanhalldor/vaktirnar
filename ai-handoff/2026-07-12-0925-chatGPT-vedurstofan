@@ -1,0 +1,2423 @@
+# TESKEIÐ – FERÐAVEÐUR MEÐ YR/MET NORWAY + VEÐURSTOFU ÍSLANDS
+## Handoff / product- og tæknispec fyrir áframhaldandi vinnu í VS Code
+
+---
+
+# 0. Tilgangur þessa skjals
+
+Þetta skjal sameinar pælingar um hvernig ferðaveðrið í Teskeið á að þróast þegar Veðurstofu Íslands er bætt við núverandi spágögn frá Yr/MET Norway.
+
+Markmiðið er ekki að skipta út núverandi virkni, heldur að:
+
+1. halda öllum núverandi spágildum og útreikningum frá Yr/MET Norway,
+2. bæta Veðurstofu Íslands við sem sjálfstæðum gagnagjafa,
+3. leyfa notandanum að skoða:
+   - samsett mat Teskeiðar,
+   - samanburð milli heimilda,
+   - eingöngu Yr/MET Norway,
+   - eingöngu Veðurstofu Íslands,
+4. nýta ágreining eða samhljóm milli spáa sem gagnlegar upplýsingar,
+5. halda áfram að byggja matið á mörkum sem notandinn velur sjálfur,
+6. forðast að Teskeið taki afstöðu til þess hvort akstur sé öruggur eða hættulegur.
+
+Þetta er ákvarðanastuðningur fyrir notandann, ekki opinber öryggisráðgjöf eða sjálfstæð veðurspá.
+
+---
+
+# 1. Kjarnahugsunin
+
+Teskeið á ekki að reyna að finna „réttu spána“ milli Veðurstofunnar og Yr.
+
+Teskeið á að:
+
+- sækja gögn frá báðum heimildum,
+- halda þeim aðskildum,
+- bera þau saman,
+- búa til varfærnislegt mat miðað við mörk notandans,
+- sýna gagnsætt hvaða gildi voru notuð,
+- leyfa notandanum að sjá hvora heimild fyrir sig.
+
+Sjálfgefið mat Teskeiðar á að nota óhagstæðara samanburðarhæfa gildið þegar báðar heimildir eru tiltækar.
+
+Þetta er ekki ný „Teskeiðarveðurspá“ heldur:
+
+> Varfærnislegt ferðamat sem byggir á fleiri en einni veðurheimild og persónulegum mörkum notandans.
+
+---
+
+# 2. Núverandi staða
+
+Núverandi kerfi byggir á spágögnum frá Yr/MET Norway.
+
+Viðmótið sýnir meðal annars:
+
+- brottfarartíma á klukkutíma fresti,
+- litaða flokkun fyrir hvern brottfarartíma,
+- samantekt fyrir valinn tíma,
+- verst metna vegarkaflann,
+- fjarlægð og áætlaðan tíma að þeim kafla,
+- vind,
+- úrkomu,
+- hita,
+- texta um að matið byggi á sömu veðurþjónustu og Yr notar,
+- ábendingu um að athuga einnig hviður og vegaaðstæður hjá Vegagerðinni.
+
+Núverandi flokkar eru:
+
+- Innan marka
+- Nálgast óþægindi
+- Óþægilegt
+- Nálgast hættumörk
+- Ófullnægjandi gögn
+
+Notandinn velur sjálfur þau mörk sem flokkarnir byggja á.
+
+Þetta er mikilvæg grunnregla sem á að varðveita.
+
+---
+
+# 3. Ekki breyta hlutverki Teskeiðar í öryggisráðgjafa
+
+Teskeið á ekki að segja:
+
+- „Það er öruggt að keyra.“
+- „Það er hættulegt að keyra.“
+- „Þú ættir að leggja af stað.“
+- „Þú mátt ekki keyra.“
+- „Þessi leið er örugg.“
+
+Teskeið á frekar að segja:
+
+- „Miðað við mörkin sem þú valdir...“
+- „Aðstæður fara yfir óþægindamörkin þín.“
+- „Spáin nálgast mörkin sem þú hefur skilgreint.“
+- „Versta gildi á leiðinni er...“
+- „Spár eru ósammála um þennan vegarkafla.“
+- „Athugaðu uppfærðar upplýsingar áður en lagt er af stað.“
+
+Kerfið á að vera gagnsætt um að:
+
+- flokkunin byggi á notandastillingum,
+- notandinn taki lokaákvörðun,
+- veðurspár geti breyst,
+- vegaaðstæður og raunmælingar þurfi að athuga sérstaklega.
+
+---
+
+# 4. Orðalag: forðast að kalla þetta almennt „áhættu“
+
+Þótt við getum notað orðið `risk` eða `riskScore` innanhúss í kóða er betra að notendaviðmótið tali aðallega um:
+
+- mörk,
+- viðmið,
+- aðstæður,
+- flokkun,
+- mat,
+- óþægindi,
+- spávissu,
+- samhljóm heimilda.
+
+Ástæðan er að „áhætta“ getur gefið til kynna að Teskeið hafi reiknað raunverulega umferðaröryggisáhættu.
+
+Mögulegt orðalag í viðmóti:
+
+> Matið byggir á þeim mörkum sem þú hefur valið.
+
+Eða:
+
+> Flokkunin miðast við þín eigin veðurmörk.
+
+Eða:
+
+> Teskeið ber spána saman við mörkin sem þú hefur skilgreint.
+
+Þetta á að vera sýnilegt annaðhvort:
+
+- nálægt flokkunarlyklinum,
+- undir aðalniðurstöðunni,
+- eða í upplýsingaglugga sem er mjög auðvelt að opna.
+
+---
+
+# 5. Gagnagjafar
+
+## 5.1 Yr / MET Norway
+
+Yr/MET Norway er áfram grunnurinn sem núverandi virkni byggir á.
+
+Við eigum að:
+
+- halda núverandi gögnum,
+- halda núverandi tímaupplausn,
+- halda núverandi punktaspám á leið,
+- halda öllum núverandi útreikningum nema sérstök ákvörðun sé tekin um annað.
+
+Yr/MET Norway má ekki verða aukaatriði eða fallback eingöngu.
+
+Það er einn af tveimur jafngildum megingagnagjöfum.
+
+## 5.2 Veðurstofa Íslands
+
+Veðurstofu Íslands skal bæta við sem sjálfstæðum gagnagjafa.
+
+Möguleg gögn eru meðal annars:
+
+- sjálfvirkar staðaspár,
+- vindhraði,
+- vindátt,
+- hitastig,
+- veðurlýsing,
+- mögulega úrkoma,
+- mögulega vindhviður eða mesti vindhraði þar sem það er tiltækt,
+- veðurviðvaranir,
+- síðar mögulega rauntímamælingar.
+
+Veðurstofugögn kunna að vera bundin við:
+
+- veðurstöðvar,
+- spástöðvar,
+- stöðvanúmer,
+- strjálli tímaskref en Yr.
+
+Þess vegna þarf sérstakt mapping-lag milli leiðarpunkta og viðeigandi stöðva.
+
+## 5.3 Framtíðargagnagjafar
+
+Arkitektúrinn á að gera mögulegt að bæta síðar við fleiri lögum, til dæmis:
+
+- Vegagerðinni,
+- veðurviðvörunum Veðurstofunnar,
+- rauntímamælingum,
+- ECMWF,
+- DMI,
+- öðrum líkanaspám,
+- staðbundnum reglum fyrir ákveðna vegarkafla.
+
+Ekki harðkóða samanburðinn þannig að hann virki aðeins með nákvæmlega tveimur heimildum.
+
+---
+
+# 6. Grunnarkitektúr
+
+Hugsa skal kerfið sem:
+
+```text
+Yr/MET Norway ───────────────┐
+                             │
+Veðurstofa Íslands ──────────┼──► Normalized forecast layer
+                             │
+Aðrir gagnagjafar síðar ─────┘
+                                      │
+                                      ▼
+                          Source-specific evaluations
+                                      │
+                                      ▼
+                            Teskeið combined evaluation
+                                      │
+                       ┌──────────────┼──────────────┐
+                       ▼              ▼              ▼
+                  Teskeiðarmat   Samanburður     Ein heimild
+```
+
+Mikilvægt er að geyma:
+
+1. hrá gögn frá hverri heimild,
+2. normalíseruð gögn,
+3. útreiknað mat fyrir hverja heimild,
+4. samsett mat Teskeiðar,
+5. upplýsingar um hvaða gildi réðu niðurstöðunni.
+
+Ekki skrifa yfir upprunaleg gildi með samsettu gildi.
+
+---
+
+# 7. Sameiginlegt gagnalíkan
+
+Allir gagnagjafar þurfa að mappast yfir í sameiginlegt innra gagnalíkan.
+
+Dæmi:
+
+```ts
+type ForecastSourceId =
+  | "met_norway"
+  | "vedurstofan"
+  | "vegagerdin"
+  | string;
+
+type NormalizedForecastPoint = {
+  sourceId: ForecastSourceId;
+
+  routePointId: string;
+  latitude: number;
+  longitude: number;
+
+  sourceLocationId?: string;
+  sourceLocationName?: string;
+
+  forecastTime: string;
+  fetchedAt: string;
+
+  airTemperatureC?: number;
+
+  meanWindMs?: number;
+  windGustMs?: number;
+  maxWindMs?: number;
+  windDirectionDeg?: number;
+
+  precipitationMmPerHour?: number;
+  visibilityM?: number;
+
+  weatherCode?: string;
+  weatherText?: string;
+
+  dataQuality: "complete" | "partial" | "missing";
+  isFresh: boolean;
+
+  rawSourcePayloadRef?: string;
+};
+```
+
+Til viðbótar þarf mat fyrir hvert gildi:
+
+```ts
+type EvaluatedForecastPoint = {
+  sourceId: ForecastSourceId;
+  routePointId: string;
+
+  estimatedArrival: string;
+  arrivalWindowStart: string;
+  arrivalWindowEnd: string;
+
+  selectedValues: {
+    meanWindMs?: number;
+    windGustMs?: number;
+    crosswindMs?: number;
+    precipitationMmPerHour?: number;
+    visibilityM?: number;
+    temperatureC?: number;
+  };
+
+  sourceTimesUsed: string[];
+
+  classification:
+    | "within_limits"
+    | "approaching_discomfort"
+    | "uncomfortable"
+    | "approaching_danger_limit"
+    | "insufficient_data";
+
+  limitingFactor?:
+    | "mean_wind"
+    | "gust"
+    | "crosswind"
+    | "precipitation"
+    | "visibility"
+    | "temperature"
+    | "multiple"
+    | "unknown";
+
+  confidence: "high" | "medium" | "low";
+};
+```
+
+Samsett Teskeiðarmat:
+
+```ts
+type CombinedForecastPointEvaluation = {
+  routePointId: string;
+
+  sourceEvaluations: EvaluatedForecastPoint[];
+
+  selectedCombinedValues: {
+    meanWindMs?: number;
+    windGustMs?: number;
+    crosswindMs?: number;
+    precipitationMmPerHour?: number;
+    visibilityM?: number;
+    temperatureC?: number;
+  };
+
+  selectedFromSources: {
+    meanWindMs?: ForecastSourceId;
+    windGustMs?: ForecastSourceId;
+    crosswindMs?: ForecastSourceId;
+    precipitationMmPerHour?: ForecastSourceId;
+    visibilityM?: ForecastSourceId;
+    temperatureC?: ForecastSourceId;
+  };
+
+  classification:
+    | "within_limits"
+    | "approaching_discomfort"
+    | "uncomfortable"
+    | "approaching_danger_limit"
+    | "insufficient_data";
+
+  agreement: {
+    level: "high" | "medium" | "low" | "unknown";
+    label: string;
+    explanation?: string;
+  };
+
+  dataCoverage: {
+    availableSources: ForecastSourceId[];
+    missingSources: ForecastSourceId[];
+  };
+};
+```
+
+---
+
+# 8. Ekki bera saman ólíkar veðurstærðir
+
+Aðeins má bera saman sambærileg gildi.
+
+Rétt:
+
+- meðalvind við meðalvind,
+- vindhviðu við vindhviðu,
+- úrkomu við úrkomu,
+- hita við hita,
+- skyggni við skyggni.
+
+Rangt:
+
+- meðalvind Veðurstofunnar við vindhviðu Yr,
+- hæsta vindhraða við meðalvind án þess að merkja muninn,
+- vindátt eina og sér sem „hærri“ eða „lægri“.
+
+Ef ein heimild veitir meðalvind en hin aðeins hviðu skal halda þeim í sitthvorum reitnum.
+
+Samsett mat má síðan nota hvort tveggja sem sjálfstæða þætti miðað við mörk notandans.
+
+---
+
+# 9. Val á óhagstæðara gildi
+
+Sjálfgefið Teskeiðarmat notar óhagstæðara samanburðarhæfa gildið.
+
+Dæmi:
+
+```ts
+combinedMeanWind = max(
+  metNorway.meanWind,
+  vedurstofan.meanWind
+);
+
+combinedGust = max(
+  metNorway.gust,
+  vedurstofan.gust
+);
+
+combinedPrecipitation = max(
+  metNorway.precipitation,
+  vedurstofan.precipitation
+);
+
+combinedVisibility = min(
+  metNorway.visibility,
+  vedurstofan.visibility
+);
+```
+
+En það má ekki nota eina almenna `max()`-reglu fyrir allt.
+
+`worst()` þarf að vera skilgreint eftir breytu.
+
+Dæmi:
+
+```ts
+function chooseWorstValue(metric, values) {
+  switch (metric) {
+    case "meanWind":
+    case "gust":
+    case "crosswind":
+    case "precipitation":
+      return maxAvailable(values);
+
+    case "visibility":
+      return minAvailable(values);
+
+    case "temperature":
+      return chooseTemperatureWithHighestConfiguredImpact(values);
+
+    default:
+      return undefined;
+  }
+}
+```
+
+---
+
+# 10. Vindátt og hliðarvindur
+
+Vindátt má ekki velja ein og sér með einfaldri „verra gildi“-reglu.
+
+Fyrir hvert spágildi þarf að reikna áhrif miðað við stefnu vegarins.
+
+Grunnformúla:
+
+```text
+crosswind =
+windSpeed × abs(sin(windDirection - roadBearing))
+```
+
+Hugsanlega þarf einnig að reikna:
+
+- mótvind,
+- meðvind,
+- hliðarvind,
+- vindáhrif fyrir hjólhýsi,
+- vindáhrif fyrir kerru,
+- vindáhrif fyrir fellihýsi,
+- vindáhrif fyrir há ökutæki.
+
+Fyrir hverja heimild skal reikna hliðarvind sérstaklega.
+
+Dæmi:
+
+```ts
+metCrosswind = calculateCrosswind(
+  metWindSpeed,
+  metWindDirection,
+  roadBearing
+);
+
+imoCrosswind = calculateCrosswind(
+  imoWindSpeed,
+  imoWindDirection,
+  roadBearing
+);
+
+combinedCrosswind = Math.max(
+  metCrosswind,
+  imoCrosswind
+);
+```
+
+Mikilvæg regla:
+
+> Velja skal óhagstæðara útreiknaða vindáhrifin, ekki endilega hæsta heildarvindhraðann.
+
+Dæmi:
+
+- Veðurstofan: 16 m/s nær beint á móti.
+- Yr: 13 m/s nær beint á hlið.
+- Yr getur verið óhagstæðara fyrir hjólhýsi þótt heildarvindurinn sé lægri.
+
+---
+
+# 11. Tímahliðin – ekki bara næsta spágildi
+
+Fyrir hvern leiðarpunkt reiknar Teskeið áætlaðan komutíma.
+
+Ekki skal nota aðeins spágildið sem er næst þeim tíma.
+
+Fyrir hverja heimild skal að lágmarki skoða:
+
+- síðasta tiltæka gildi fyrir komutíma,
+- fyrsta tiltæka gildi eftir komutíma.
+
+Síðan skal nota óhagstæðara gildið af þeim tveimur.
+
+Dæmi:
+
+Áætlaður komutími er kl. 13:15.
+
+Veðurstofan:
+
+- kl. 13:00: 8 m/s
+- kl. 14:00: 10 m/s
+- gildi heimildar: 10 m/s
+
+Yr:
+
+- fyrra gildi: 7 m/s
+- seinna gildi: 9 m/s
+- gildi heimildar: 9 m/s
+
+Teskeið notar því:
+
+- 10 m/s
+
+Grunnformúla:
+
+```ts
+sourceValue = worst(
+  valueBeforeArrival,
+  valueAfterArrival
+);
+
+combinedValue = worst(
+  metSourceValue,
+  vedurstofanSourceValue
+);
+```
+
+Þetta er varfærnislegra en að brúa línulega milli tímagilda.
+
+Teskeið er ekki að reyna að reikna líklegasta nákvæma gildið kl. 13:15. Hún er að finna óhagstæðasta raunhæfa gildið í kringum þann tíma til samanburðar við mörk notandans.
+
+---
+
+# 12. Komutímagluggi í stað eins komutíma
+
+Á langri leið er einn áætlaður komutími of nákvæm framsetning.
+
+Fólk:
+
+- stoppar á leiðinni,
+- tefst,
+- tekur matarhlé,
+- hleður rafbíl,
+- tekur eldsneyti,
+- ferðast með börn,
+- ferðast með hjólhýsi,
+- keyrir hægar en kortaþjónusta áætlar.
+
+Þess vegna skal reikna mögulegan komutímaglugga fyrir hvern leiðarpunkt.
+
+Dæmi:
+
+```text
+Áætlaður komutími: 13:15
+Raunhæfur komutímagluggi: 13:15–14:15
+```
+
+Fyrir hverja heimild skal taka öll viðeigandi spágildi sem:
+
+- falla innan gluggans,
+- liggja rétt fyrir upphaf gluggans,
+- liggja rétt eftir lok gluggans þegar þarf til að ramma hann inn.
+
+Síðan skal nota óhagstæðasta matið innan gluggans.
+
+Dæmi:
+
+- 13:00: 8 m/s
+- 14:00: 10 m/s
+- 15:00: 13 m/s
+- komutímagluggi: 13:15–14:15
+
+Þá getur verið rétt að taka 15:00 með sem fyrsta gildi eftir lok gluggans.
+
+Notað gildi yrði þá 13 m/s.
+
+Ekki taka kl. 15 sjálfkrafa með alls staðar.
+
+Taka það með ef:
+
+- glugginn nær nálægt því,
+- spágögn eru strjál,
+- næsta gildi þarf til að ramma inn raunhæfan komutíma,
+- seinkun er raunhæf.
+
+---
+
+# 13. Sjálfgefið stoppálag
+
+Ef notandinn skráir ekki stopp má ekki sjálfkrafa gera ráð fyrir að hann keyri sleitulaust alla leið.
+
+Teskeið skal nota hóflegt sjálfgefið stoppálag á lengri ferðum.
+
+Bufferinn ætti að:
+
+- vera lítill á stuttum leiðum,
+- aukast eftir lengd ferðar,
+- aukast eftir því sem lengra er komið á leiðinni,
+- geta tekið mið af hjólhýsi eða kerru,
+- geta tekið mið af áætluðum ferðahraða,
+- geta tekið mið af fjölda ferðalanga síðar.
+
+Ekki festa töluleg mörk án sérstakrar ákvörðunar.
+
+Búa skal til stillanlega reglu, til dæmis:
+
+```ts
+type TravelDelayPolicy = {
+  baseDelayMinutes: number;
+  delayPerDrivingHourMinutes: number;
+  extraTrailerDelayMinutes?: number;
+  maxAutomaticDelayMinutes: number;
+};
+```
+
+Þessar tölur skulu vera stillanlegar og ekki dreifast sem magic numbers um kóðann.
+
+Bufferinn má vaxa eftir því sem lengra er komið á leiðinni vegna uppsafnaðrar óvissu.
+
+Dæmi:
+
+- fyrstu 30 mínútur ferðar: mjög lítill gluggi,
+- eftir 2 klukkustundir: stærri gluggi,
+- eftir 5 klukkustundir: enn stærri gluggi.
+
+Ekki ákveða tölurnar í þessari vinnu nema sérstaklega sé óskað eftir því.
+
+---
+
+# 14. Stopp sem notandinn skilgreinir
+
+Notandinn á að geta skráð stopp á leiðinni.
+
+Fyrsta útgáfa getur verið einföld:
+
+- Keyri beint
+- Stutt stopp
+- Lengra stopp
+- Sérsniðin stopp
+
+Hugsanlegt UI:
+
+> Áætlarðu stopp á leiðinni?
+
+Val:
+
+- Nei, keyri beint
+- Um 15–30 mínútur samtals
+- Um 45–60 mínútur samtals
+- Velja stopp
+
+Í sérsniðnu stoppi mætti síðar skrá:
+
+- staðsetningu,
+- áætlaðan komutíma,
+- áætlaða lengd,
+- gerð stopps,
+- hvort stoppið sé ákveðið eða aðeins mögulegt.
+
+Skráð stopp:
+
+- færir alla síðari komutíma fram,
+- færir komutímaglugga fram,
+- getur aukið óvissu eftir stoppið,
+- má ekki hafa áhrif á fyrri leiðarpunkta.
+
+Mögulegt gagnalíkan:
+
+```ts
+type PlannedStop = {
+  id: string;
+
+  routePositionKm?: number;
+  routePointId?: string;
+
+  latitude?: number;
+  longitude?: number;
+
+  durationMinutes: number;
+
+  type?:
+    | "coffee"
+    | "food"
+    | "fuel"
+    | "charging"
+    | "rest"
+    | "custom";
+
+  certainty: "planned" | "possible";
+};
+```
+
+---
+
+# 15. Samanburðarhamur og heimildaval
+
+Notandinn á að geta skoðað gögnin á fjóra vegu.
+
+## 15.1 Teskeið – sjálfgefið
+
+- notar báðar heimildir,
+- notar óhagstæðara samanburðarhæfa gildið,
+- metur miðað við mörk notandans,
+- sýnir samhljóm eða ósamhljóm heimilda,
+- sýnir hvaða þáttur réð flokkun.
+
+## 15.2 Samanburður
+
+Sýnir báðar heimildir hlið við hlið.
+
+Dæmi:
+
+| Atriði | Yr/MET Norway | Veðurstofa Íslands | Notað í Teskeið |
+|---|---:|---:|---:|
+| Meðalvindur | 9 m/s | 11 m/s | 11 m/s |
+| Vindhviður | 18 m/s | 16 m/s | 18 m/s |
+| Hliðarvindur | 7 m/s | 10 m/s | 10 m/s |
+| Úrkoma | 2 mm/klst | 1 mm/klst | 2 mm/klst |
+| Hiti | 9°C | 10°C | samkvæmt hitareglu |
+
+Sýna þarf einnig eftir því sem við á:
+
+- hvaða tímagildi voru notuð,
+- hvaða stöð Veðurstofunnar var valin,
+- fjarlægð frá leiðarpunkti að stöð,
+- hvort gögn vanti,
+- hvort heimildirnar séu mjög ósammála.
+
+## 15.3 Eingöngu Yr/MET Norway
+
+Þessi hamur notar eingöngu gögn frá Yr/MET Norway.
+
+Flokkunin byggir áfram á mörkum notandans.
+
+Notandinn sér þá:
+
+- Yr-gildin,
+- Yr-byggt mat,
+- enga blöndun við Veðurstofuna.
+
+## 15.4 Eingöngu Veðurstofa Íslands
+
+Þessi hamur notar eingöngu gögn frá Veðurstofunni.
+
+Flokkunin byggir áfram á mörkum notandans.
+
+Ef Veðurstofugögn vantar fyrir suma þætti skal það koma skýrt fram.
+
+---
+
+# 16. Tillaga að UI-stýringu
+
+Ekki gera þetta of áberandi í grunnviðmótinu.
+
+Mögulegt val:
+
+```text
+Sýn:
+[ Teskeið ] [ Samanburður ] [ Yr ] [ Veðurstofan ]
+```
+
+Eða dropdown:
+
+```text
+Spágögn:
+- Teskeið – báðar heimildir
+- Samanburður
+- Yr/MET Norway
+- Veðurstofa Íslands
+```
+
+Sjálfgefið:
+
+```text
+Teskeið – báðar heimildir
+```
+
+Mögulegt er að muna val notanda milli heimsókna.
+
+Einfaldasta flipanafnið er líklega:
+
+```text
+Teskeið | Samanburður | Yr | Veðurstofan
+```
+
+Með hjálpartexta:
+
+> Teskeið notar varfærnara gildið úr báðum spám.
+
+---
+
+# 17. Samhljómur, samstaða og spávissa
+
+Mjög mikilvæg ný virkni er að sýna hvort heimildirnar séu sammála.
+
+Ekki nota bara samsett gildi og fela muninn.
+
+Ágreiningur er sjálfur gagnleg upplýsing.
+
+Dæmi:
+
+- Yr: 9 m/s
+- Veðurstofan: 10 m/s
+- mikill samhljómur
+
+Annað dæmi:
+
+- Yr: 8 m/s
+- Veðurstofan: 17 m/s
+- lítill samhljómur
+
+Möguleg heiti í viðmóti:
+
+- Spávissa
+- Samhljómur spáa
+- Samstaða heimilda
+- Samræmi spáa
+- Hversu sammála eru spárnar?
+
+„Spávissa“ er stutt og notendavænt, en gæti gefið í skyn meiri tölfræðilega vissu en raunverulega er reiknuð.
+
+Öruggara orðalag í fyrstu útgáfu er líklega:
+
+> Samhljómur spáa
+
+Með gildunum:
+
+- Mikill
+- Miðlungs
+- Lítill
+- Óþekktur
+
+Hugsanlega má nota:
+
+> Spávissa byggð á samhljómi heimilda
+
+En ekki sýna tölfræðilega prósentu nema raunverulegt líkan styðji hana.
+
+---
+
+# 18. Aðskilja flokkun og samhljóm
+
+Þetta eru tvær ólíkar víddir.
+
+## 18.1 Flokkun miðað við mörk notandans
+
+- Innan marka
+- Nálgast óþægindi
+- Óþægilegt
+- Nálgast hættumörk
+- Ófullnægjandi gögn
+
+## 18.2 Samhljómur spáa
+
+- Mikill
+- Miðlungs
+- Lítill
+- Óþekktur
+
+Þá geta komið upp dæmi eins og:
+
+```text
+Óþægilegt
+Mikill samhljómur spáa
+```
+
+Merking:
+
+> Báðar heimildir sýna svipaðar aðstæður og þær fara yfir óþægindamörk notandans.
+
+Eða:
+
+```text
+Innan marka
+Lítill samhljómur spáa
+```
+
+Merking:
+
+> Samsetta matið er innan marka en heimildirnar eru ósammála og rétt að fylgjast með.
+
+Eða:
+
+```text
+Nálgast hættumörk
+Lítill samhljómur spáa
+```
+
+Merking:
+
+> Ein heimild sýnir mun verri aðstæður en hin og Teskeið notar varfærnara gildið.
+
+Samhljómur á ekki sjálfkrafa að breyta flokkun notandans nema sérstök regla verði síðar samþykkt.
+
+Hann er í fyrstu sjálfstæð upplýsingavídd.
+
+---
+
+# 19. Reikningur á samhljómi
+
+Ekki festa eina formúlu strax nema núverandi kerfi krefjist þess.
+
+Byggja skal samanburðinn þannig að hver breyta geti haft:
+
+- algildan mun,
+- hlutfallslegan mun,
+- áhrif á flokk,
+- vægi eftir mikilvægi.
+
+Dæmi:
+
+```ts
+type MetricAgreement = {
+  metric:
+    | "mean_wind"
+    | "gust"
+    | "crosswind"
+    | "precipitation"
+    | "temperature";
+
+  absoluteDifference?: number;
+  relativeDifference?: number;
+
+  level: "high" | "medium" | "low" | "unknown";
+};
+```
+
+Heildarsamhljómur gæti tekið mið af:
+
+- meðalvindi,
+- hviðum,
+- hliðarvindi,
+- úrkomu,
+- hvort heimildir lendi í sama flokki,
+- hvort ein heimild fari yfir mikilvæg mörk en hin ekki.
+
+Mikilvægustu þættirnir fyrir ferðaveðrið eiga meira vægi en minni atriði.
+
+Til dæmis:
+
+- munur á hita frá 10°C í 12°C skiptir litlu,
+- munur á hviðum frá 12 m/s í 22 m/s skiptir miklu,
+- munur sem færir niðurstöðu milli „innan marka“ og „nálgast hættumörk“ skiptir mjög miklu.
+
+Möguleg regla:
+
+```ts
+agreementLevel = deriveAgreement({
+  metricDifferences,
+  classificationDifference,
+  thresholdCrossings,
+  availableMetrics
+});
+```
+
+Ekki setja þröskulda eða vægi án sérstakrar samþykktar.
+
+---
+
+# 20. Samhljómur er ekki það sama og rétt spá
+
+Textinn þarf að vera varkár.
+
+Ekki segja:
+
+> Spáin er 95% örugg.
+
+Nema til sé raunverulegt tölfræðilegt líkan sem styður þá tölu.
+
+Betra:
+
+- Heimildir eru mjög sammála.
+- Lítill munur er á spám.
+- Spár eru nokkuð ósammála.
+- Mikill munur er á vindspám.
+- Teskeið notar varfærnara gildið.
+
+Ef prósenta er síðar sýnd þarf að kalla hana:
+
+- samhljómsstuðul,
+- samræmisstuðul,
+
+en ekki líkindi þess að spáin rætist.
+
+Fyrsta útgáfa ætti að nota orð en ekki prósentur.
+
+---
+
+# 21. Hvernig samhljómur birtist
+
+Möguleg framsetning í samantekt:
+
+```text
+Óþægilegt
+Mest krefjandi er 68 km frá upphafsstað.
+
+Samhljómur spáa: Mikill
+Yr og Veðurstofan spá svipuðum vindi á þessum kafla.
+```
+
+Eða:
+
+```text
+Nálgast hættumörk
+Mest krefjandi er á Hellisheiði.
+
+Samhljómur spáa: Lítill
+Veðurstofan spáir 16 m/s en Yr 9 m/s.
+Teskeið notar varfærnara gildið.
+```
+
+Í tímastikunni mætti hugsanlega síðar sýna lítið tákn fyrir samhljóm, en ekki gera hana of þunga í fyrstu útgáfu.
+
+Byrja frekar á samhljómi fyrir:
+
+- valinn brottfarartíma,
+- mest krefjandi vegarkaflann,
+- heildarleiðina.
+
+---
+
+# 22. Uppruni niðurstöðu þarf að vera rekjanlegur
+
+Fyrir hvert samsett gildi þarf að vera hægt að svara:
+
+- hvaðan kom gildið?
+- hvaða tímagildi voru skoðuð?
+- hvaða stöð var notuð?
+- hvaða heimild réð niðurstöðunni?
+- hvers vegna var þessi flokkur valinn?
+
+Dæmi:
+
+```text
+Meðalvindur notaður í mati: 11 m/s
+Heimild: Veðurstofa Íslands
+Gildi skoðuð: 10 m/s kl. 13:00 og 11 m/s kl. 14:00
+Áætlaður komutími: 13:15
+```
+
+Dæmi fyrir hviður:
+
+```text
+Vindhviður notaðar í mati: 18 m/s
+Heimild: Yr/MET Norway
+Veðurstofan: 16 m/s
+Yr: 18 m/s
+```
+
+Þetta þarf ekki allt að vera sýnilegt sjálfgefið.
+
+Það má vera undir:
+
+- „Sjá nánar“
+- „Af hverju þessi niðurstaða?“
+- „Sjá samanburð“
+- upplýsingatákninu.
+
+---
+
+# 23. Veðurstöðvar og route-point mapping
+
+Yr býður punktaspá á GPS-hnitum.
+
+Veðurstofan kann að bjóða spá út frá stöðvum.
+
+Því þarf að skilgreina hvernig leiðarpunktur tengist Veðurstofustöð.
+
+Ekki velja einfaldlega alltaf næstu stöð án frekari mats.
+
+Val á stöð getur þurft að taka mið af:
+
+- fjarlægð,
+- hæð yfir sjávarmáli,
+- hvoru megin við fjall stöðin er,
+- landslagi,
+- strand- eða innsveitaáhrifum,
+- hvort stöðin sé raunverulega viðkomandi spástöð,
+- staðbundnum vegarkafla.
+
+Fyrsta útgáfa má nota næstu viðeigandi stöð, en þarf að geyma:
+
+```ts
+type SourceLocationMatch = {
+  sourceLocationId: string;
+  sourceLocationName: string;
+
+  distanceKm: number;
+  elevationDifferenceM?: number;
+
+  matchMethod:
+    | "nearest"
+    | "manual_override"
+    | "road_segment_mapping"
+    | "regional_mapping";
+
+  matchQuality:
+    | "high"
+    | "medium"
+    | "low";
+};
+```
+
+Síðar á að vera hægt að handstilla ákveðna vegarkafla á tiltekna stöð eða stöðvar.
+
+---
+
+# 24. Staðbundin íslensk þekking
+
+Kerfið á síðar að geta bætt staðbundinni þekkingu ofan á veðurgögn.
+
+Dæmi:
+
+- norðanátt er sérstaklega erfið á ákveðnum vegarkafla,
+- ákveðin átt skapar niðurstreymi,
+- ákveðinn kafli er viðkvæmur fyrir hliðarvindi,
+- brú eða opið svæði magnar áhrif,
+- hjólhýsi er viðkvæmara á ákveðnum kafla,
+- ein veðurstöð lýsir kaflanum betur en næsta stöð.
+
+Mögulegt gagnalíkan:
+
+```ts
+type RoadWeatherRule = {
+  roadSegmentId: string;
+
+  appliesToVehicleTypes?: string[];
+
+  windDirectionRange?: {
+    fromDeg: number;
+    toDeg: number;
+  };
+
+  multiplier?: number;
+  classificationAdjustment?: number;
+
+  preferredWeatherStations?: string[];
+
+  explanation: string;
+};
+```
+
+Ekki innleiða magic multipliers án sérstakrar samþykktar.
+
+Arkitektúrinn skal aðeins gera þetta mögulegt.
+
+---
+
+# 25. Hvað ef gögn vantar?
+
+## 25.1 Báðar heimildir hafa gildi
+
+- bera saman,
+- velja óhagstæðara gildið,
+- reikna samhljóm.
+
+## 25.2 Aðeins ein heimild hefur gildi
+
+- nota þá heimild,
+- sýna að aðeins ein heimild sé tiltæk,
+- ekki kalla það samanburð,
+- lækka gagnavissu.
+
+Dæmi:
+
+> Aðeins Yr-gögn eru tiltæk fyrir þennan vegarkafla.
+
+## 25.3 Báðar heimildir hafa grunngildi en aukagildi vantar
+
+Dæmi:
+
+- báðar hafa meðalvind,
+- aðeins Yr hefur hviður.
+
+Þá:
+
+- nota báðar fyrir meðalvind,
+- nota Yr fyrir hviður,
+- merkja hviður sem byggðar á einni heimild.
+
+## 25.4 Lykilgögn vantar
+
+Ef lykilgögn vantar frá báðum heimildum:
+
+- flokkur getur orðið „Ófullnægjandi gögn“,
+- ekki sýna græna niðurstöðu sem lítur út fyrir að vera fullgild.
+
+---
+
+# 26. Gömul eða ósambærileg gögn
+
+Hver gagnapunktur þarf að hafa:
+
+- `fetchedAt`,
+- `forecastTime`,
+- freshness-reglu,
+- source update time ef tiltækt.
+
+Ekki bera saman:
+
+- nýja Yr-spá,
+- gamla Veðurstofuspá,
+
+eins og þær séu jafngildar.
+
+Ef önnur heimild er úrelt:
+
+- sleppa henni úr samsettu mati eða merkja hana sem óhæfa til samanburðar,
+- sýna að hún hafi ekki verið uppfærð,
+- ekki reikna eðlilegan samhljóm.
+
+Dæmi:
+
+> Veðurstofuspáin er eldri en Yr-spáin og er því ekki notuð í samanburðinum.
+
+Ekki gefa eldri heimild sjálfkrafa minna vægi nema slík vægisregla hafi verið sérstaklega hönnuð og samþykkt.
+
+Í fyrstu útgáfu er skýrara að heimild sé annaðhvort:
+
+- gild,
+- úrelt,
+- eða ótiltæk.
+
+---
+
+# 27. Einstaka toppgildi og ofurvarfærni
+
+Að velja alltaf versta gildið úr báðum heimildum og mörgum tímagildum getur búið til samsetta niðurstöðu sem hvorug heimild spáir í heild.
+
+Dæmi:
+
+- Veðurstofan er verri á kafla A,
+- Yr er verri á kafla B,
+- Veðurstofan er verri á kafla C.
+
+Samsetta leiðin verður þá varfærnari en hvor spáin um sig.
+
+Þetta er ásættanlegt fyrir Teskeið ef það er meðvituð regla.
+
+En það þarf að vera skýrt orðað:
+
+> Teskeið notar óhagstæðara gildið úr tiltækum heimildum fyrir hvern vegarkafla og tíma.
+
+Ekki kalla þetta:
+
+> Sameinuð veðurspá.
+
+Betra:
+
+> Varfærnislegt ferðamat.
+
+---
+
+# 28. Flokkun notandans
+
+Núverandi flokkar skulu varðveittir:
+
+```ts
+type UserThresholdClassification =
+  | "within_limits"
+  | "approaching_discomfort"
+  | "uncomfortable"
+  | "approaching_danger_limit"
+  | "insufficient_data";
+```
+
+Íslensk heiti:
+
+- Innan marka
+- Nálgast óþægindi
+- Óþægilegt
+- Nálgast hættumörk
+- Ófullnægjandi gögn
+
+Notandinn skilgreinir sjálfur mörkin.
+
+Möguleg innri mörk:
+
+```ts
+type UserWeatherLimits = {
+  meanWind?: {
+    discomfort: number;
+    danger: number;
+  };
+
+  gust?: {
+    discomfort: number;
+    danger: number;
+  };
+
+  crosswind?: {
+    discomfort: number;
+    danger: number;
+  };
+
+  precipitation?: {
+    discomfort: number;
+    danger?: number;
+  };
+};
+```
+
+Kerfið skal ekki færa mörk notandans sjálfkrafa án þess að notandinn sjái það.
+
+Mögulega má síðar bjóða upp á tillögur út frá ökutæki, en þær þurfa þá að vera greinilega merktar sem tillögur.
+
+---
+
+# 29. Möguleg breyting á sýnilegu orðalagi flokka
+
+Núverandi flokkar eru nothæfir.
+
+Hugsanlegt er síðar að gera þá enn skýrari gagnvart ábyrgð:
+
+- Innan marka
+- Nálægt óþægindamörkum
+- Yfir óþægindamörkum
+- Nálægt efri mörkum
+- Ófullnægjandi gögn
+
+En ekki breyta núverandi orðalagi sjálfkrafa í þessari vinnu.
+
+Fyrst þarf að rýna sérstaklega:
+
+- hvort „hættumörk“ sé of sterk fullyrðing,
+- hvort notandinn skilgreini þau sjálfur nógu skýrt,
+- hvort „mörkin þín“ eigi að sjást í UI.
+
+---
+
+# 30. Texti við núverandi niðurstöðu
+
+Núverandi texti:
+
+> Þetta er mat sem byggir á gögnum frá sömu veðurþjónustu og Yr notar. Fyrir akstur skaltu líka athuga hviður og vegaaðstæður, t.d. hjá Vegagerðinni, sérstaklega ef þú ert með kerru, fellihýsi eða hjólhýsi.
+
+Þessi texti þarf að breytast þegar Veðurstofunni er bætt við.
+
+Tillaga:
+
+> Matið byggir á veðurgögnum frá Yr/MET Norway og Veðurstofu Íslands og miðast við mörkin sem þú hefur valið. Fyrir akstur skaltu einnig athuga nýjustu hviður, veðurviðvaranir og vegaaðstæður, t.d. hjá Vegagerðinni, sérstaklega ef þú ert með kerru, fellihýsi eða hjólhýsi.
+
+Styttri tillaga:
+
+> Matið byggir á spám frá Yr/MET Norway og Veðurstofu Íslands og þeim mörkum sem þú hefur valið. Athugaðu einnig nýjustu hviður, viðvaranir og vegaaðstæður áður en lagt er af stað.
+
+Textinn á aðeins að nefna báðar heimildir þegar báðar voru raunverulega notaðar.
+
+Ef aðeins Yr var notað:
+
+> Matið byggir á spá frá Yr/MET Norway og þeim mörkum sem þú hefur valið.
+
+Ef aðeins Veðurstofan var notuð:
+
+> Matið byggir á spá frá Veðurstofu Íslands og þeim mörkum sem þú hefur valið.
+
+---
+
+# 31. „Sjá af hverju“ og gagnsæi
+
+Bæta skal við möguleika á að skoða hvernig matið varð til.
+
+Dæmi:
+
+```text
+Af hverju er þetta flokkað sem óþægilegt?
+```
+
+Opnast:
+
+```text
+Mest krefjandi vegarkafli
+68 km frá upphafsstað, áætlað kl. 09:17
+
+Meðalvindur
+Yr: 8 m/s
+Veðurstofan: 10 m/s
+Notað í mati: 10 m/s
+
+Vindhviður
+Yr: 16 m/s
+Veðurstofan: ekki tiltækt
+Notað í mati: 16 m/s
+
+Mörkin þín
+Óþægindi frá 9 m/s
+Efri mörk frá 14 m/s
+
+Samhljómur spáa
+Miðlungs
+```
+
+Þetta er stór hluti af trausti á vörunni.
+
+---
+
+# 32. Valin heimild hefur áhrif á allt matið
+
+Ef notandinn velur „Yr eingöngu“:
+
+- allir leiðarpunktar skulu metnir aðeins út frá Yr,
+- „mest krefjandi kafli“ skal reiknast aðeins út frá Yr,
+- tímastika skal byggja aðeins á Yr,
+- samanburðartexti skal hverfa,
+- samhljómur skal ekki birtast.
+
+Ef notandinn velur „Veðurstofan eingöngu“:
+
+- sama regla, aðeins Veðurstofan.
+
+Ef notandinn velur „Samanburður“:
+
+- sýna báðar heimildir,
+- sýna source-specific mat,
+- sýna Teskeiðarmat sem viðmið eftir því sem hentar,
+- leggja áherslu á muninn.
+
+Ef notandinn velur „Teskeið“:
+
+- nota samsetta varfærna matið.
+
+Heimildaval má ekki aðeins skipta um sýnilegar tölur á meðan heildarflokkun er enn reiknuð úr báðum heimildum.
+
+Valið þarf að hafa áhrif á alla reiknikeðjuna.
+
+---
+
+# 33. Heimildaval og URL/state
+
+Val notandans ætti helst að vera hluti af state sem hægt er að:
+
+- muna í session,
+- mögulega setja í URL,
+- deila með öðrum,
+- endurheimta við refresh.
+
+Dæmi:
+
+```text
+?forecastSource=combined
+?forecastSource=compare
+?forecastSource=met
+?forecastSource=vedurstofan
+```
+
+Nöfnin mega breytast, en state þarf að vera skýrt.
+
+---
+
+# 34. Cache og gagnasókn
+
+Ekki sækja Veðurstofugögn fyrir hvern route-point án cache.
+
+Þarf að huga að:
+
+- stöðvagögnum,
+- spám sem sama stöð deilir milli margra route-punkta,
+- tímabilum,
+- refresh-tíma,
+- rate limits,
+- fallback.
+
+Möguleg stefna:
+
+1. finna allar Veðurstofustöðvar sem leiðin þarfnast,
+2. fjarlægja tvítekningar,
+3. sækja hverja stöð einu sinni,
+4. cache-a svarið,
+5. mappa sömu gögn á viðeigandi route-punkta,
+6. endurnýta milli brottfarartíma þegar mögulegt er.
+
+Ekki gera eitt API-kall fyrir:
+
+- hvern punkt,
+- hvern brottfarartíma,
+- hverja breytu.
+
+---
+
+# 35. Villumeðhöndlun
+
+Ef Veðurstofan bregst:
+
+- Yr-matið á að halda áfram að virka,
+- UI á ekki að hrynja,
+- notandinn á að sjá að Veðurstofugögn séu tímabundið ótiltæk,
+- Teskeið má falla aftur í eina heimild,
+- flokkun á að merkjast með minni gagnadekkingu.
+
+Ef Yr bregst:
+
+- sama regla fyrir Veðurstofuna.
+
+Ef báðar bregðast:
+
+- sýna „Ófullnægjandi gögn“,
+- ekki sýna síðustu gömlu niðurstöðu án skýrrar merkingar.
+
+---
+
+# 36. Logging og debugging
+
+Til að geta greint niðurstöður þarf að logga:
+
+- leiðarpunkt,
+- komutíma,
+- komutímaglugga,
+- upprunaleg gildi frá hvorri heimild,
+- tímagildi sem voru valin,
+- stöð sem var valin,
+- samsett gildi,
+- flokkun,
+- samhljóm,
+- hvaða þáttur réð flokkuninni.
+
+Mögulegt debug-object:
+
+```ts
+type ForecastDecisionTrace = {
+  routePointId: string;
+
+  estimatedArrival: string;
+  arrivalWindowStart: string;
+  arrivalWindowEnd: string;
+
+  sourceInputs: Record<
+    ForecastSourceId,
+    {
+      locationId?: string;
+      forecastTimes: string[];
+      values: Record<string, number | null>;
+    }
+  >;
+
+  selectedCombinedValues: Record<string, number | null>;
+
+  selectedSources: Record<string, ForecastSourceId | null>;
+
+  classification: string;
+  limitingFactor?: string;
+
+  agreementLevel: string;
+  notes: string[];
+};
+```
+
+Þetta þarf að vera tiltækt í dev/debug en ekki endilega geymt varanlega fyrir alla notendur.
+
+---
+
+# 37. Prófanir sem þarf
+
+## 37.1 Unit tests
+
+Prófa:
+
+- velja hærra meðalvindsgildi,
+- velja hærri hviðu,
+- velja lægra skyggni,
+- velja rétt gildi fyrir hitareglu,
+- velja gildi sitthvoru megin við komutíma,
+- taka með gildi eftir komutímaglugga,
+- sleppa gildi sem er of langt frá glugga,
+- reikna hliðarvind rétt,
+- velja meiri hliðarvind þótt heildarvindur sé lægri,
+- vinna með eina heimild,
+- vinna með báðar heimildir,
+- vinna með enga heimild,
+- reikna samhljóm,
+- greina þegar flokkar heimilda eru mjög ólíkir.
+
+## 37.2 Integration tests
+
+Prófa:
+
+- raunverulegt Yr-svar,
+- raunverulegt Veðurstofusvar,
+- stöðvamapping,
+- cache,
+- XML parsing ef Veðurstofan skilar XML,
+- gölluð eða ófullkomin gögn,
+- timeout hjá annarri heimild,
+- mismunandi tímabelti,
+- sumar- og vetrartíma ef við á.
+
+## 37.3 UI tests
+
+Prófa:
+
+- skiptingu milli Teskeið / samanburður / Yr / Veðurstofan,
+- að niðurstaðan uppfærist,
+- að heimildartexti sé réttur,
+- að „Sjá af hverju“ sýni rétt gögn,
+- að samhljómur hverfi þegar aðeins ein heimild er valin,
+- að ófullnægjandi gögn séu sýnd skýrt.
+
+---
+
+# 38. Tímabelti
+
+Allur samanburður þarf að vinna með samræmdan tíma.
+
+Geyma helst ISO-tíma með timezone eða UTC innanhúss.
+
+Birta í íslenskum staðartíma.
+
+Ekki bera saman strengina:
+
+```text
+2026-07-12 13:00
+```
+
+án þess að vita timezone.
+
+Möguleg innri regla:
+
+- parse-a source time,
+- normalísera í UTC,
+- reikna komutíma í UTC,
+- birta í `Atlantic/Reykjavik`.
+
+---
+
+# 39. Veðurstofu-parser og provider abstraction
+
+Ef Veðurstofan skilar XML þarf sérstakt adapter-lag.
+
+Dæmi:
+
+```ts
+interface ForecastProvider {
+  id: ForecastSourceId;
+
+  fetchForecast(
+    request: ForecastProviderRequest
+  ): Promise<NormalizedForecastPoint[]>;
+}
+```
+
+Implementations:
+
+```ts
+class MetNorwayForecastProvider implements ForecastProvider {
+  // existing implementation or wrapper
+}
+
+class VedurstofanForecastProvider implements ForecastProvider {
+  // XML fetch, parse and normalize
+}
+```
+
+Ekki láta restina af kerfinu vinna beint með Veðurstofu-XML tags eins og:
+
+- `F`
+- `D`
+- `T`
+- `W`
+
+Adapterinn á að þýða þau yfir í sameiginleg heiti.
+
+---
+
+# 40. Upprunagögn og audit
+
+Hægt þarf að vera að skoða hrá gögn við debugging.
+
+Ekki endilega geyma alla XML-responsa varanlega.
+
+En halda að minnsta kosti:
+
+- source request URL eða request metadata,
+- fetch timestamp,
+- source location/station,
+- forecast run ef tiltækt,
+- parser version,
+- source response hash eða reference.
+
+Þetta hjálpar þegar notandi spyr:
+
+> Af hverju sýndi Teskeið 14 m/s en Yr sýndi 10 m/s?
+
+Svar gæti verið:
+
+> Veðurstofan spáði 14 m/s á sama kafla og Teskeið notaði varfærnara gildið.
+
+---
+
+# 41. Fyrsta útgáfa – afmarkað MVP
+
+Ekki reyna að leysa allt í fyrstu útgáfu.
+
+## Fasi 1 – gagnatenging
+
+- bæta við Veðurstofu-provider,
+- sækja stöðvalista,
+- sækja framtíðarspá,
+- parse-a og normalísera,
+- logga niðurstöður,
+- engin UI-breyting fyrst.
+
+## Fasi 2 – samanburður í bakenda
+
+- para route-punkta við stöðvar,
+- bera saman meðalvind,
+- bera saman hita,
+- bera saman úrkomu ef tiltæk,
+- bera saman hviður ef tiltækar,
+- halda Yr sem núverandi sýnilegri niðurstöðu,
+- keyra Veðurstofusamanburð í debug.
+
+## Fasi 3 – samsett Teskeiðarmat
+
+- velja óhagstæðara gildi,
+- halda source attribution,
+- nota núverandi flokkunarmörk,
+- prófa á nokkrum leiðum.
+
+## Fasi 4 – heimildaval
+
+Bæta við:
+
+- Teskeið
+- Samanburður
+- Yr
+- Veðurstofan
+
+## Fasi 5 – samhljómur
+
+- einföld orðaflokkun:
+  - mikill,
+  - miðlungs,
+  - lítill,
+  - óþekktur.
+
+## Fasi 6 – komutímagluggi og stopp
+
+- sjálfgefinn buffer,
+- einfalt stoppaval,
+- síðar sérsniðin stopp.
+
+---
+
+# 42. Ekki gera í fyrstu framkvæmd nema sérstaklega samþykkt
+
+Ekki:
+
+- breyta núverandi notendamörkum,
+- ákveða ný lögbundin öryggismörk,
+- kalla Teskeið opinbera öryggisþjónustu,
+- fjarlægja Yr,
+- færa allt yfir á Veðurstofuna,
+- bæta við Vegagerðargögnum strax,
+- bæta sjálfkrafa við ECMWF eða DMI,
+- breyta öllum litum eða flokkum,
+- endurhanna allt viðmótið,
+- hardcode-a stöðvar í UI,
+- sýna fölsk prósentulíkindi,
+- nota LLM til að skálda veðurmat,
+- gera deploy,
+- commit-a,
+- push-a,
+- keyra SQL,
+- breyta ótengdum skrám,
+
+nema það sé sérstaklega samþykkt.
+
+---
+
+# 43. Möguleg notendaframsetning
+
+## Sjálfgefið
+
+```text
+Á leiðinni
+Óþægilegt
+
+Mest krefjandi er 68 km frá upphafsstað, kl. 09:17.
+Vindur 10 m/s · hviður 16 m/s · úrkoma 0 mm/klst · hiti 11,6°C
+
+Samhljómur spáa: Mikill
+Yr og Veðurstofan spá svipuðum aðstæðum.
+```
+
+## Þegar spár eru ósammála
+
+```text
+Á leiðinni
+Nálgast hættumörk
+
+Mest krefjandi er á Hellisheiði, kl. 14:10.
+Teskeið notar 16 m/s frá Veðurstofunni.
+Yr spáir 9 m/s.
+
+Samhljómur spáa: Lítill
+Athugaðu uppfærðar spár áður en lagt er af stað.
+```
+
+## Þegar ein heimild vantar
+
+```text
+Á leiðinni
+Óþægilegt
+
+Matið byggir aðeins á Yr/MET Norway fyrir þennan kafla.
+Veðurstofugögn eru ekki tiltæk.
+```
+
+## Þegar notandi velur eina heimild
+
+```text
+Sýn: Yr/MET Norway
+
+Á leiðinni
+Nálgast óþægindi
+
+Þessi niðurstaða byggir eingöngu á Yr/MET Norway.
+```
+
+---
+
+# 44. Möguleg upplýsingablokk undir niðurstöðu
+
+```text
+Matið byggir á þeim mörkum sem þú hefur valið.
+
+Í Teskeiðarsýn eru sambærileg spágildi frá Yr/MET Norway og
+Veðurstofu Íslands borin saman og varfærnara gildið notað.
+
+Spár geta breyst. Athugaðu einnig nýjustu veðurviðvaranir,
+hviður og vegaaðstæður áður en lagt er af stað.
+```
+
+Þetta má stytta í UI og setja lengri útskýringu í upplýsingaglugga.
+
+---
+
+# 45. Möguleg „Af hverju þessi niðurstaða?“ framsetning
+
+```text
+Af hverju er þetta óþægilegt?
+
+Áætlaður komutími
+13:15–14:15
+
+Meðalvindur
+
+Yr/MET Norway:
+- 13:00: 7 m/s
+- 14:00: 9 m/s
+- gildi heimildar: 9 m/s
+
+Veðurstofa Íslands:
+- 13:00: 8 m/s
+- 14:00: 10 m/s
+- 15:00: 12 m/s
+- gildi heimildar: 12 m/s
+
+Notað í mati:
+12 m/s frá Veðurstofu Íslands
+
+Mörkin þín:
+Óþægindi frá 10 m/s
+
+Samhljómur spáa:
+Miðlungs
+```
+
+---
+
+# 46. Mikilvægt varðandi Veðurstofuna
+
+Veðurstofugögn kunna að hafa:
+
+- önnur spáskref,
+- aðra uppfærslutíðni,
+- önnur staðbundin viðmið,
+- önnur breytuheiti,
+- ekki öll sömu gildi og Yr,
+- stöðvabundna spá fremur en GPS-punktaspá.
+
+Því á ekki að gera ráð fyrir 1:1 samsvörun.
+
+Kerfið þarf að þola að:
+
+- Veðurstofan hafi aðeins 3 eða 6 tíma spáskref,
+- Yr hafi klukkutímagildi,
+- hviður séu aðeins í annarri heimild,
+- úrkoma sé skilgreind á annan hátt,
+- stöðin sé nokkra kílómetra frá leiðinni.
+
+Allt slíkt þarf að vera skráð í metadata.
+
+---
+
+# 47. Takmarkanir á stöðvagildi
+
+Ef Veðurstofustöð er langt frá leiðarpunkti má ekki sýna gildið sem nákvæma punktaspá án merkingar.
+
+Möguleg framsetning:
+
+```text
+Veðurstofustöð: Hellisheiði
+Fjarlægð frá vegarkafla: 3,2 km
+```
+
+Ef fjarlægðin eða mapping-gæði eru léleg:
+
+> Veðurstofugildið byggir á nálægri stöð og gæti ekki lýst nákvæmlega þessum vegarkafla.
+
+Mapping-gæði geta einnig haft áhrif á það hvort gögnin séu talin samanburðarhæf.
+
+Ekki láta lélegt stöðvamatch sjálfkrafa líta út eins og jafngild punktaspá frá Yr.
+
+---
+
+# 48. Heildarleiðarmat
+
+Heildarflokkur leiðarinnar skal áfram ráðast af óhagstæðasta vegarkaflanum miðað við valda sýn.
+
+Í Teskeiðarsýn:
+
+- meta hvern vegarkafla með báðum heimildum,
+- velja varfærnara gildið fyrir hverja breytu,
+- flokka kaflann,
+- velja óhagstæðasta kaflann sem heildarniðurstöðu.
+
+Í Yr-sýn:
+
+- sama reiknirit en aðeins Yr.
+
+Í Veðurstofusýn:
+
+- sama reiknirit en aðeins Veðurstofan.
+
+Í samanburðarsýn:
+
+- sýna bæði source-specific heildarmat,
+- og mögulega Teskeiðarmat sem viðmið.
+
+Dæmi:
+
+```text
+Yr/MET Norway: Nálgast óþægindi
+Veðurstofa Íslands: Óþægilegt
+Teskeið: Óþægilegt
+```
+
+---
+
+# 49. Samhljómur heildarleiðar
+
+Heildarsamhljómur leiðar á ekki aðeins að vera meðaltal allra punkta.
+
+Vegarkaflinn sem ræður niðurstöðunni þarf meira vægi.
+
+Möguleg regla:
+
+- reikna samhljóm fyrir hvern punkt,
+- finna mikilvægustu eða mest krefjandi punktana,
+- láta þá ráða heildarsamhljómi,
+- sýna ef ágreiningur er staðbundinn.
+
+Dæmi:
+
+> Spár eru almennt sammála, en greinir verulega á um Hellisheiði.
+
+Þetta er betra en að sýna einfaldlega „miðlungs samhljóm“.
+
+---
+
+# 50. Flokkun heimildanna sjálfra
+
+Til að sýna samanburð má reikna flokkun fyrir hvora heimild sérstaklega með sömu notendamörkum.
+
+Dæmi:
+
+```text
+Yr/MET Norway:
+Nálgast óþægindi
+
+Veðurstofa Íslands:
+Óþægilegt
+
+Teskeið:
+Óþægilegt
+```
+
+Þetta sýnir notandanum að Teskeið er ekki að finna upp nýjan flokk, heldur notar varfærnara matið.
+
+---
+
+# 51. Mögulegt onboarding þegar Veðurstofan kemur inn
+
+Fyrst þegar notandi sér nýju virkni:
+
+```text
+Nú ber Teskeið saman spár frá Yr/MET Norway og Veðurstofu Íslands.
+
+Sjálfgefið notar Teskeið varfærnara gildið fyrir hvern vegarkafla.
+Þú getur líka skoðað spárnar hlið við hlið eða valið eina heimild.
+```
+
+Ekki gera þetta að modal sem lokar á notkun nema nauðsynlegt sé.
+
+---
+
+# 52. Persónuvernd og ábyrgð
+
+Þetta er ekki lögfræðileg niðurstaða, en vörutextinn þarf að vera skýr.
+
+Mikilvægt:
+
+- notandinn velur mörkin,
+- spár eru mat á framtíð,
+- Teskeið tekur ekki ákvörðun fyrir notandann,
+- vegaaðstæður geta breyst,
+- raunmælingar geta verið aðrar en spár,
+- opinberar lokanir og viðvaranir ganga framar.
+
+Ekki reyna að leysa ábyrgð eingöngu með löngum fyrirvara.
+
+Mikilvægara er að sjálft viðmótið sýni:
+
+- „mörkin þín“,
+- „spár“,
+- „mat“,
+- heimildir,
+- uppfærslutíma,
+- ágreining,
+- ófullnægjandi gögn.
+
+---
+
+# 53. Uppfærslutími
+
+Sýna ætti hvenær gögn voru síðast sótt eða uppfærð.
+
+Dæmi:
+
+```text
+Spár uppfærðar kl. 08:05
+```
+
+Í samanburði:
+
+```text
+Yr/MET Norway uppfært kl. 07:42
+Veðurstofa Íslands uppfærð kl. 08:01
+```
+
+Ef mikill munur er á aldri spáa þarf að sýna það.
+
+---
+
+# 54. Núverandi skjáskot og viðmót
+
+Núverandi uppsetning er góður grunnur og á ekki að henda henni.
+
+Helstu svæði:
+
+1. leið og ferðatími efst,
+2. samantekt á tímabilinu,
+3. flokkunarlykill með fjölda brottfarartíma,
+4. lárétt tímastika,
+5. valinn brottfarartími,
+6. heildarmat á leið,
+7. mest krefjandi vegarkafli,
+8. lykilgildi,
+9. upplýsingakassi eða fyrirvari.
+
+Bæta má inn nýju virkninni án stórs endurhönnunar.
+
+Möguleg staðsetning heimildavals:
+
+- undir leiðarheitinu,
+- fyrir ofan tímastikuna,
+- eða í „Sjá nánar“.
+
+Möguleg staðsetning samhljóms:
+
+- undir „Á leiðinni“,
+- undir mest krefjandi vegarkaflanum,
+- eða sem lítið secondary label við niðurstöðu.
+
+---
+
+# 55. Ráðlögð fyrsta UI-breyting
+
+Lágmarksbreyting:
+
+```text
+Spágögn: [ Teskeið ▾ ]
+```
+
+Dropdown:
+
+- Teskeið – báðar heimildir
+- Samanburður
+- Yr/MET Norway
+- Veðurstofa Íslands
+
+Undir heildarmatinu:
+
+```text
+Samhljómur spáa: Mikill
+```
+
+Í upplýsingakassanum:
+
+```text
+Matið byggir á þeim mörkum sem þú hefur valið.
+Teskeið ber saman spár frá Yr/MET Norway og Veðurstofu Íslands
+og notar varfærnara gildið.
+```
+
+Síðan „Sjá samanburð“ sem opnar ítarleg gögn.
+
+---
+
+# 56. Tæknileg meginregla
+
+Ekki blanda source-fetching, normaliseringu, samanburði og UI-renderingu í sömu föll.
+
+Aðgreina:
+
+```text
+providers/
+  metNorwayProvider
+  vedurstofanProvider
+
+normalization/
+  normalizeMetForecast
+  normalizeVedurstofanForecast
+
+routing/
+  routePointSampling
+  stationMatching
+  arrivalTimeWindows
+
+evaluation/
+  evaluateSourceForecast
+  combineForecastSources
+  classifyAgainstUserLimits
+  calculateForecastAgreement
+
+presentation/
+  forecastViewModel
+  comparisonViewModel
+```
+
+Nákvæm möppuheiti ráðast af núverandi repo-strúktúr.
+
+Ekki búa til nýtt skipulag ef núverandi arkitektúr hefur þegar samsvarandi lög.
+
+---
+
+# 57. Hugsanlegt provider interface
+
+```ts
+type ForecastRequest = {
+  routePoints: {
+    id: string;
+    latitude: number;
+    longitude: number;
+    elevationM?: number;
+  }[];
+
+  timeFrom: string;
+  timeTo: string;
+};
+
+interface ForecastProvider {
+  id: ForecastSourceId;
+  displayName: string;
+
+  getForecast(
+    request: ForecastRequest
+  ): Promise<NormalizedForecastPoint[]>;
+
+  getCapabilities(): {
+    supportsCoordinates: boolean;
+    supportsStations: boolean;
+    supportedMetrics: string[];
+    typicalTimeStepMinutes?: number;
+  };
+}
+```
+
+Þá getur samanburðarvélin vitað hvaða breytur er raunhæft að bera saman.
+
+---
+
+# 58. Capability-aware samanburður
+
+Ekki gera ráð fyrir að allir providers skili öllu.
+
+Dæmi:
+
+```ts
+metCapabilities = {
+  meanWind: true,
+  gust: true,
+  precipitation: true,
+  temperature: true,
+  visibility: false
+};
+
+vedurstofanCapabilities = {
+  meanWind: true,
+  gust: "sometimes",
+  precipitation: "sometimes",
+  temperature: true,
+  visibility: false
+};
+```
+
+Samanburðar-UI á aðeins að sýna breytur sem eru:
+
+- tiltækar frá að minnsta kosti einni heimild,
+- skýrt merktar ef aðeins ein heimild hefur þær.
+
+---
+
+# 59. Næstu skref fyrir Codex
+
+Byrja á að skoða núverandi repo og svara fyrst með:
+
+1. hvar núverandi Yr/MET Norway gögn eru sótt,
+2. hvernig route-punktar og komutímar eru reiknaðir,
+3. hvernig flokkun notandans er reiknuð,
+4. hvar núverandi gagnamódel er skilgreint,
+5. hvernig tímastika og heildarmat eru smíðuð,
+6. hvar best er að setja provider abstraction,
+7. hvaða skrár þyrfti líklega að breyta,
+8. hvaða nýjar skrár þyrfti líklega að búa til,
+9. hvaða áhættur eða ósamræmi eru í þessari spec miðað við núverandi kóða.
+
+Ekki hefja framkvæmd strax.
+
+Fyrst skila:
+
+- repo-rýni,
+- tillögu að arkitektúr,
+- áfangaskiptri framkvæmdaáætlun,
+- skýrum lista yfir hvað verður gert,
+- skýrum lista yfir hvað verður ekki gert,
+- spurningum sem þurfa ákvörðun áður en kóðun hefst.
+
+---
+
+# 60. Spurningar sem Codex þarf að svara úr kóðanum
+
+- Er núverandi Yr integration að nota `api.met.no` beint eða annað lag?
+- Eru hviður þegar tiltækar en ekki sýndar?
+- Hversu margir route-punktar eru notaðir?
+- Eru route-punktarnir fastir eftir vegalengd eða tíma?
+- Er arrival time reiknað fyrir hvern punkt?
+- Er nú þegar buffer eða stoppatími?
+- Hvernig eru mörk notanda geymd?
+- Er flokkun reiknuð fyrir hvert veðurgildi eða með einu heildarskori?
+- Hvernig er „mest krefjandi“ punktur valinn?
+- Er núverandi time slider byggður á brottfarartíma eða spátíma?
+- Er mögulegt að skipta um source án þess að endurreikna alla leið?
+- Er nú þegar cache fyrir veðurgögn?
+- Hvar ætti Veðurstofu XML parsing að vera?
+- Er server-side proxy nauðsynlegt vegna CORS eða skilmála?
+- Er rétt að sækja Veðurstofugögn á server, ekki client?
+- Hvernig má forðast of mörg köll?
+- Hvernig verður source attribution varðveitt?
+- Hvaða test framework er til staðar?
+
+---
+
+# 61. Ákvarðanir sem ekki þarf að taka strax
+
+- nákvæm samhljómsþröskuld,
+- nákvæm sjálfgefin stoppalengd,
+- nákvæm leyfileg fjarlægð að Veðurstofustöð,
+- nákvæm hækkun eða lækkun mats vegna óvissu,
+- hvort sýna eigi prósentu,
+- hvort Vegagerðargögn komi strax inn,
+- hvort user-configured stops séu í MVP,
+- endanlegt heiti á „spávissu“,
+- endanlegt orðalag fyrirvara,
+- hvort „hættumörk“ verði áfram notað.
+
+Arkitektúrinn þarf hins vegar að gera þessar ákvarðanir mögulegar síðar.
+
+---
+
+# 62. Kjarnareglur sem ekki má brjóta
+
+1. Yr/MET Norway heldur áfram að vera fullgild heimild.
+2. Veðurstofan bætist við, hún leysir Yr ekki af hólmi.
+3. Hrá gögn heimildanna skulu varðveitt aðskilin.
+4. Notandi getur valið eina heimild eða samanburð.
+5. Sjálfgefið Teskeiðarmat er varfærnislegt.
+6. Aðeins má bera saman sambærileg gildi.
+7. Vindátt þarf að meta miðað við stefnu vegar.
+8. Notandinn skilgreinir sín eigin mörk.
+9. Teskeið tekur ekki lokaákvörðun um öryggi aksturs.
+10. Ágreiningur milli spáa skal ekki falinn.
+11. Gögn sem vantar skulu merkt skýrt.
+12. Ein heimild má vera fallback ef hin bregst.
+13. Kerfið má ekki hrynja þótt önnur þjónustan sé niðri.
+14. Ekki sýna falska tölfræðilega öryggisprósentu.
+15. Allar niðurstöður eiga að vera rekjanlegar til heimildar og tíma.
+16. Komutímagluggi er betri en einn nákvæmur komutími.
+17. Stopp og uppsöfnuð seinkun þurfa að vera möguleg.
+18. Ekki dreifa magic numbers um kóðann.
+19. Ekki byrja framkvæmd án samþykktrar áætlunar.
+20. Ekki breyta ótengdum hlutum.
+
+---
+
+# 63. Einföld vörulýsing
+
+> Teskeið ber saman ferðaveður frá Yr/MET Norway og Veðurstofu Íslands. Sjálfgefið notar hún varfærnara gildið fyrir hvern vegarkafla og ber niðurstöðuna saman við mörkin sem notandinn hefur sjálfur valið. Notandinn getur einnig skoðað spárnar hlið við hlið eða valið aðeins aðra heimildina. Teskeið sýnir jafnframt hversu sammála spárnar eru, því mikill munur milli heimilda er sjálfur mikilvægur hluti af ákvörðuninni.
+
+---
+
+# 64. Stutt lokamynd af notendaflæðinu
+
+```text
+Notandi velur leið
+        │
+        ▼
+Notandi velur brottfarartíma
+        │
+        ▼
+Teskeið reiknar komutíma og komutímaglugga fyrir leiðarpunkta
+        │
+        ├──► Sækir Yr/MET Norway
+        │
+        └──► Sækir Veðurstofu Íslands
+                    │
+                    ▼
+          Normalíserar gögn
+                    │
+                    ▼
+    Metur hvora heimild sérstaklega
+                    │
+                    ▼
+Ber saman sambærileg gildi
+                    │
+                    ▼
+Velur varfærnara gildi í Teskeiðarsýn
+                    │
+                    ▼
+Ber niðurstöðu saman við mörk notandans
+                    │
+                    ▼
+Reiknar samhljóm heimilda
+                    │
+                    ▼
+Sýnir:
+- flokkun miðað við mörk notandans
+- mest krefjandi vegarkafla
+- lykilgildi
+- samhljóm spáa
+- heimildir
+- samanburð ef notandi óskar
+```
+
+---
+
+# 65. Verkbeiðni til Codex
+
+Rýndu núverandi kóða út frá þessari spec.
+
+Ekki framkvæma breytingar strax.
+
+Skilaðu fyrst einni samfelldri handoff-blokk sem inniheldur:
+
+1. núverandi flæði veðurgagna,
+2. tillögu að lágmarksarkitektúr fyrir tvo providers,
+3. tillögu að sameiginlegu gagnalíkani,
+4. tillögu að stöðvamapping fyrir Veðurstofuna,
+5. tillögu að reikningi á komutímaglugga,
+6. tillögu að samanburðarvél,
+7. tillögu að einföldu samhljómsmati,
+8. tillögu að UI-breytingum sem varðveita núverandi skjá,
+9. lista yfir skrár sem yrðu breyttar eða búnar til,
+10. test-plan,
+11. helstu tæknilegar áhættur,
+12. spurningar sem þarf að svara áður en framkvæmd hefst,
+13. áfangaskipta framkvæmdaáætlun,
+14. skýrt „felst í þessu“ og „felst ekki í þessu“.
+
+Ekki commit-a, push-a, deploy-a, keyra SQL eða breyta kóða fyrr en framkvæmdaráætlunin hefur verið samþykkt.
+
+
+Auka pælingar frá mér: 
+- Ég vil geta gert ráð fyrir að önnur hvor vefþjónustan (met.no og veðurstofan) sé niðri en halda samt áfram með matið og taka þá fram að matið sé bara byggt á öðru hvoru ef það er raunin.

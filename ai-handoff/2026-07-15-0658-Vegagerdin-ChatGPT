@@ -1,0 +1,1806 @@
+Staðfesting frá Vegagerðinni komin um það að ég megi nota gögnin þeirra og punktar um notkun: 
+
+Góðan dag,
+
+Ég heiti Stefán og er að þróa ferðaveður á Teskeið.is sem hjálpar fólki að meta aðstæður á akstursleið miðað við þann tíma sem það verður á hverjum stað.
+
+Áherslan er sérstaklega á umferðaröryggi, meðal annars fyrir fólk sem ferðast með hjólhýsi, fellihýsi, kerru eða önnur ökutæki sem eru viðkvæm fyrir vindi og hviðum.
+
+Hugmyndin er að byggja matið á fleiri en einni heimild og sýna notandanum meðal annars hvað er spáð á leiðinni, hversu sammála ólíkar spár eru og, eftir því sem mögulegt er, núverandi vegastöðu, lokanir og raunmælingar.
+
+Teskeið.is tekur ekki ákvörðun fyrir notandann um hvort óhætt sé að keyra. Notandinn skilgreinir sjálfur sín mörk og kerfið hjálpar honum að sjá hvar og hvenær aðstæður nálgast eða fara yfir þau mörk.
+
+Ég hef lesið notkunarskilmálana og skil þá þannig að mér sé heimilt að nýta gögnin, svo lengi sem heimilda er skýrt getið.
+
+Mig langar þó að ganga úr skugga um að ég nýti gögnin á sem bestan og ábyrgastan hátt. Ég vil sérstaklega forðast óþarfa köll eða umferð sem gæti haft neikvæð áhrif á þjónusturnar eða aðra sem reiða sig á þær.
+
+Mig langaði því að spyrja:
+
+Er ég að skilja skilmálana rétt að mér sé heimilt að nýta gögnin með þessum hætti?
+
+Eru til ráðlögð viðmið um köllunarhraða, cache-tíma eða endurnýtingu gagna?
+
+Eru einhver tæknileg atriði eða takmarkanir sem mikilvægt er að hafa í huga?
+
+Markmiðið er ekki að búa til aðra hefðbundna veðurspá, heldur að nýta opinber gögn á sem gagnlegastan hátt til að hjálpa fólki að taka upplýstari ákvarðanir áður en lagt er af stað.
+
+Takk kærlega fyrir og ég hlakka til að heyra frá ykkur.
+
+Bestu kveðjur,
+Stefán
+teskeid.is/vedrid
+
+Stefán Halldór Jónsson
+
+Ábendingu frá þér með titlinum
+
+Fyrirspurn teskeið.is um ábyrga notkun veður- og vegagagna
+
+hefur verið lokað með eftirfarandi athugasemd:
+
+Sæll Stefán
+
+Hér eru svör okkar við spurningum þínum.
+
+1. Það má nýta gögnin á þennan hátt.
+
+2. Það er ekki mælt með að sækja þessi gögn í vefþjónusturnar oftar en með um 1 mín. millibili, aðallega til að minnka álag. Algengt bil milli þess að gögn eru sótt er 2-3 mín. en nákvæmt gildi fer eftir því hversu mikil seinkun telst ásættanleg.
+
+Veðurstöðvarnar mæla allar með 10 mín. millibili. Mælingar frá þeim flestum berast fljótlega eftir að mælt er. Mest kemur um 1-3, 11-13 o.s.frv. mín. eftir heila tímann.
+
+Upplýsingar um færð uppfærast sjaldan þegar lítið er að gerast eins og yfirleitt á sumrin. Þær geta hinsvegar uppfærst mjög oft þegar mikið er að gerast á veturna og geta þá uppfærst hvenær sem er.
+
+3. Það geta leynst villur í gögnum frá veðurstöðvum. Það gerist þó ekki oft. Augljósar villur eru hreinsaðar burt um leið og gögn berast til okkar en minna augljósar villur geta sloppið í gegn. Það kemur null þar sem villur hafa verið hreinsaðar burt (eða ef veðurstöð mælir ekki viðkomandi atriði).
+
+Gangi þér vel
+
+Athugið að ekki er hægt að svara þessum pósti.
+
+Kveðja,
+
+Starfsfólk Vegagerðarinnar
+
+
+Og hér er ChatGPT c/p block eftir pælingar þar (ath að ChatGPT hefur ekki allt það samhengi sem við höfum hér í projectinu og við þurfum því að horfa mjög gagnrýnið á þetta og aðlaga að okkar verkefni)
+
+# TESKEIÐ – VEGAGERÐIN: VINDUR OG VINDHVIÐUR HRATT INN
+## Framkvæmdahandoff fyrir Codex og Claude í VS Code
+
+---
+
+# 0. Aðalmarkmið
+
+Aðalmarkmið þessarar vinnu er að ná **nýjustu vindmælingum og vindhviðum frá Vegagerðinni hratt inn í ferðaveðrið á Teskeið.is**.
+
+Ekki byrja á:
+
+- færð,
+- lokunum,
+- DATEX II,
+- myndavélum,
+- flóknu route-to-road geometry mapping,
+- samanburði á sögulegri spánákvæmni,
+- breytingum á núverandi flokkun,
+- eða nýju heildaröryggismati.
+
+Fyrsta markmið er einfalt:
+
+> Fyrir valda akstursleið skal finna viðeigandi veðurmælistöðvar Vegagerðarinnar nálægt leiðinni og sýna nýjustu vindmælingu og mestu vindhviðu síðustu 10 mínútna, ásamt mælitíma og staðsetningu stöðvar.
+
+Núverandi ferðaveður með Yr/MET Norway skal halda áfram að virka óbreytt.
+
+Veðurstofuspá og önnur Vegagerðargögn geta bæst við síðar sem aðskilin lög.
+
+---
+
+# 1. Staðfest aðgengileg þjónusta
+
+Notið fyrst einföldu opinberu veðurþjónustu Vegagerðarinnar:
+
+```text
+https://gagnaveita.vegagerdin.is/api/vedur2014_1
+```
+
+Þjónustan skilar veðurmælingum frá stöðvum Vegagerðarinnar.
+
+Samkvæmt opinberu gagnasniði eru meðal annars þessi fields tiltæk:
+
+```text
+Nr
+Nr_Vedurstofa
+Nafn
+Breidd
+Lengd
+Haed
+Dags
+Vindatt
+VindattAsc
+VindattAscEng
+Vindhradi
+Vindhvida
+Hiti
+Veghiti
+Umf10Min
+UmfSum
+Raki
+Daggarmark
+VindattStDev
+Loftthrystingur
+Sjavarhaed
+PntX
+PntY
+IdButur1
+IdButur2
+```
+
+Mikilvægustu fields fyrir fyrsta MVP:
+
+```text
+Nr
+Nafn
+Breidd
+Lengd
+Haed
+Dags
+Vindatt
+VindattAsc
+Vindhradi
+Vindhvida
+IdButur1
+IdButur2
+```
+
+Merking:
+
+```text
+Nr
+Einkvæmt númer veðurstöðvar hjá Vegagerðinni.
+
+Nafn
+Nafn veðurstöðvar.
+
+Breidd / Lengd
+GPS-hnit stöðvar.
+
+Haed
+Hæð stöðvar yfir sjávarmáli í metrum.
+
+Dags
+Dagsetning og tími mælingar.
+
+Vindatt
+Vindátt í gráðum:
+0 = norður
+90 = austur
+180 = suður
+270 = vestur
+
+VindattAsc
+Vindátt í bókstöfum.
+
+Vindhradi
+Vindhraði í m/s.
+
+Vindhvida
+Mesta vindhviða síðustu 10 mínútna í m/s.
+
+IdButur1 / IdButur2
+Númer leiðarbúta sem veðurstöðin tengist.
+```
+
+Mikilvægasta tæknilega niðurstaðan:
+
+> `Vindhvida` er ekki spá. Hún er mesta mælda vindhviða síðustu 10 mínútna.
+
+> `Vindhradi` er mældur vindhraði við stöðina á mælitímanum.
+
+Þessi gögn eru því **númælingar**, ekki framtíðarspá.
+
+---
+
+# 2. Hlutverk gagnanna í Teskeið
+
+Halda skal þremur hugtökum alveg aðskildum:
+
+```ts
+forecastEvaluation;        // framtíðarspá, nú frá Yr/MET Norway
+currentRoadMeasurements;   // nýjustu mælingar frá Vegagerðinni
+roadState;                 // færð/lokanir síðar
+```
+
+Vegagerðin má ekki birtast sem þriðja framtíðarspáin.
+
+Rétt framsetning:
+
+```text
+Spáð þegar þú kemur:
+Yr/MET Norway: 11 m/s
+
+Núverandi mæling við veginn:
+Vindur 13 m/s
+Hviður 20 m/s
+Mælt fyrir 6 mínútum
+```
+
+Röng framsetning:
+
+```text
+Yr: 11 m/s
+Veðurstofan: 12 m/s
+Vegagerðin: 20 m/s
+```
+
+Vegagerðargildið 20 m/s gæti verið hviða síðustu 10 mínútna en hin gildin meðalvindsspár. Þetta eru ekki sambærileg gildi.
+
+---
+
+# 3. Fyrsta MVP-afmörkun
+
+Fyrsta útgáfa skal aðeins:
+
+1. sækja gögn frá `vedur2014_1`,
+2. parse-a svarið,
+3. normalísera mælistöðvar,
+4. finna stöðvar nálægt valinni leið,
+5. raða þeim eftir mikilvægi,
+6. sýna nýjustu mælingu fyrir valda eða mikilvægustu stöð,
+7. sýna:
+   - nafn stöðvar,
+   - vindhraða,
+   - vindhviðu,
+   - vindátt,
+   - mælitíma,
+   - aldur mælingar,
+   - fjarlægð frá leið,
+8. cache-a gögn server-side,
+9. falla mjúklega út ef þjónustan er ótiltæk.
+
+Ekki í fyrstu útgáfu:
+
+- blanda mælingunni inn í framtíðarspá,
+- breyta núverandi litaflokki leiðarinnar,
+- nota mælinguna sem sjálfvirkt mat á því hvort óhætt sé að keyra,
+- DATEX II,
+- WFS vegarkaflar,
+- `IdButur` route matching nema það sé þegar mjög auðvelt í núverandi kóða,
+- færð,
+- lokanir,
+- myndavélar,
+- gagnagrunnsbreytingar nema nauðsynlegt sé,
+- nýtt notendastillingakerfi.
+
+---
+
+# 4. Fyrsta tæknilega nálgunin
+
+## 4.1 Server-side provider
+
+Búa skal til afmarkað provider-lag fyrir Vegagerðarmælingar.
+
+Dæmi:
+
+```ts
+export interface RoadWeatherMeasurementProvider {
+  getLatestMeasurements(): Promise<NormalizedRoadWeatherMeasurement[]>;
+}
+```
+
+Implementation:
+
+```ts
+export class VegagerdinLegacyWeatherProvider
+  implements RoadWeatherMeasurementProvider
+{
+  async getLatestMeasurements():
+    Promise<NormalizedRoadWeatherMeasurement[]> {
+    // Fetch vedur2014_1.
+    // Validate response.
+    // Normalize fields.
+    // Return clean internal objects.
+  }
+}
+```
+
+Ekki sækja Vegagerðargögn beint úr browser/client ef hægt er að komast hjá því.
+
+Server-side fetch gefur:
+
+- sameiginlegt cache fyrir alla notendur,
+- færri köll á Vegagerðina,
+- betri villumeðhöndlun,
+- schema validation,
+- stöðugra innra gagnasnið,
+- möguleika á að skipta endpointi síðar.
+
+---
+
+# 5. Normalíserað gagnalíkan
+
+Nota má eftirfarandi sem hugmynd, en laga að núverandi type- og naming-conventions í repo-inu:
+
+```ts
+export type NormalizedRoadWeatherMeasurement = {
+  source: "vegagerdin";
+
+  stationId: string;
+  stationName: string;
+
+  latitude: number;
+  longitude: number;
+  elevationM: number | null;
+
+  measuredAt: string;
+  fetchedAt: string;
+
+  windDirectionDeg: number | null;
+  windDirectionText: string | null;
+
+  meanWindMs: number | null;
+
+  gust: {
+    valueMs: number | null;
+    periodMinutes: 10;
+    type: "maximum_gust_last_10_minutes";
+  };
+
+  airTemperatureC: number | null;
+  roadTemperatureC: number | null;
+
+  roadSegmentIds: string[];
+
+  dataQuality: "complete" | "partial";
+};
+```
+
+Mikilvægt:
+
+- Ekki kalla `Vindhvida` bara `maxWindMs` ef hægt er að varðveita nákvæmari merkingu.
+- Geyma að þetta sé mesta hviða síðustu 10 mínútna.
+- Geyma mælitíma sér frá fetch-tíma.
+- Geyma `IdButur1` og `IdButur2` þó þau verði ekki notuð strax.
+- Geyma null ef source field vantar eða er ógilt.
+- Ekki breyta ógildu gildi í 0.
+
+---
+
+# 6. Runtime validation
+
+Ekki treysta því að upstream schema verði alltaf fullkomið.
+
+Nota núverandi validation-tól repo-sins, til dæmis Zod ef það er þegar til staðar.
+
+Dæmi:
+
+```ts
+import { z } from "zod";
+
+const VegagerdinWeatherRowSchema = z.object({
+  Nr: z.union([z.number(), z.string()]),
+  Nr_Vedurstofa: z.union([z.number(), z.string()]).nullable().optional(),
+
+  Nafn: z.string(),
+
+  Breidd: z.union([z.number(), z.string()]),
+  Lengd: z.union([z.number(), z.string()]),
+  Haed: z.union([z.number(), z.string()]).nullable().optional(),
+
+  Dags: z.string(),
+
+  Vindatt: z.union([z.number(), z.string()]).nullable().optional(),
+  VindattAsc: z.string().nullable().optional(),
+
+  Vindhradi: z.union([z.number(), z.string()]).nullable().optional(),
+  Vindhvida: z.union([z.number(), z.string()]).nullable().optional(),
+
+  Hiti: z.union([z.number(), z.string()]).nullable().optional(),
+  Veghiti: z.union([z.number(), z.string()]).nullable().optional(),
+
+  IdButur1: z.union([z.number(), z.string()]).nullable().optional(),
+  IdButur2: z.union([z.number(), z.string()]).nullable().optional(),
+}).passthrough();
+```
+
+Athuga skal raunverulegt response áður en schema er fest.
+
+Það getur verið að:
+
+- wrapper-object sé utan um listann,
+- field names séu með öðru casing,
+- tölur komi sem JSON numbers,
+- ákveðin gildi séu null,
+- mælitími sé á íslensku dagsetningarsniði.
+
+Codex/Claude skal fyrst sækja raunverulegt svar og laga parser að því.
+
+---
+
+# 7. Parsing á mælitíma
+
+Opinbera gagnasniðið sýnir mælitíma á formi svipuðu:
+
+```text
+04.03.2019 15:10:00
+```
+
+Ekki nota almennt:
+
+```ts
+new Date(raw.Dags)
+```
+
+á óstaðfestu staðbundnu dagsetningarsniði.
+
+Búa til explicit parser.
+
+Dæmi:
+
+```ts
+function parseVegagerdinMeasurementTime(
+  value: string
+): Date | null {
+  // Parse DD.MM.YYYY HH:mm:ss explicitly.
+  // Treat according to confirmed source timezone.
+  // Normalize internally to ISO UTC.
+}
+```
+
+Staðfesta skal:
+
+- hvort tíminn sé íslenskur staðartími,
+- hvort endpointið sé enn að skila þessu sniði,
+- hvort timezone fylgi,
+- hvort nýrri útgáfur skili ISO 8601.
+
+Innanhúss:
+
+```text
+ISO 8601 / UTC
+```
+
+Í UI:
+
+```text
+Atlantic/Reykjavik
+```
+
+---
+
+# 8. Route matching – hraðasta MVP-leiðin
+
+Til að ná vindtölunum hratt inn skal byrja á einfaldri og gagnsærri landfræðilegri nálgun.
+
+## 8.1 Nota fulla route polyline ef hún er tiltæk
+
+Fyrir hverja Vegagerðarstöð:
+
+1. reikna stystu fjarlægð frá stöð að route polyline,
+2. sleppa stöðvum sem eru utan stillanlegs corridor,
+3. project-a stöðina á leiðina,
+4. reikna hversu langt frá upphafi leiðar projection-punkturinn er,
+5. reikna áætlaðan komutíma að þeim stað.
+
+Dæmi:
+
+```ts
+type RouteMatchedRoadMeasurement = {
+  measurement: NormalizedRoadWeatherMeasurement;
+
+  distanceFromRouteM: number;
+  distanceAlongRouteKm: number;
+
+  estimatedArrivalAtStationArea: string;
+
+  matchMethod: "route_polyline_proximity";
+
+  matchQuality: "high" | "medium" | "low";
+};
+```
+
+Nota má Turf.js ef það er þegar í repo-inu eða hentar arkitektúrnum:
+
+```ts
+nearestPointOnLine(routeLine, stationPoint);
+```
+
+Ekki bæta við PostGIS eða öðrum þungum innviðum aðeins fyrir fyrsta MVP nema repo-ið sé þegar byggt þannig.
+
+## 8.2 Ekki nota bara fjarlægð frá route-punktum
+
+Best er að nota route polyline.
+
+Ef aðeins sampled route-punktar eru tiltækir má byrja á þeim, en þá þarf að skrá takmörkunina.
+
+## 8.3 Stillanlegur corridor
+
+Ekki festa fasta tölu dreift um kóðann.
+
+Dæmi:
+
+```ts
+type RoadMeasurementMatchingConfig = {
+  maxDistanceFromRouteM: number;
+  preferredDistanceFromRouteM: number;
+  maxStationsPerRoute: number;
+};
+```
+
+Ekki ákveða endanleg gildi án prófana.
+
+Byrja má með varfærnu dev-configi, prófa á raunleiðum og laga eftir niðurstöðum.
+
+---
+
+# 9. Val á mikilvægustu stöð
+
+Ekki velja endilega eina stöð eingöngu vegna þess að hún sé næst leiðinni.
+
+Fyrsta röðun getur tekið mið af:
+
+1. fjarlægð frá leið,
+2. hvort mæling sé fersk,
+3. hvort vind- og hviðugildi séu tiltæk,
+4. hvar stöðin er á leiðinni,
+5. hvort hún sé nálægt kaflanum sem núverandi Yr-mat telur mest krefjandi,
+6. síðar `IdButur` tengingu.
+
+Dæmi:
+
+```ts
+type RoadMeasurementRelevance = {
+  stationId: string;
+
+  distanceFromRouteM: number;
+  measurementAgeMinutes: number;
+
+  hasMeanWind: boolean;
+  hasGust: boolean;
+
+  nearCurrentLimitingRoutePoint: boolean;
+
+  relevanceScore: number;
+  reasons: string[];
+};
+```
+
+Ekki sýna scoring-prósentu í UI.
+
+Score er aðeins innra hjálpartæki.
+
+Fyrsta einfalda reglan getur verið:
+
+```text
+Velja ferskustu stöðina innan corridors sem:
+1. hefur bæði Vindhradi og Vindhvida,
+2. er næst mest krefjandi vegarkafla,
+3. annars næst leiðinni.
+```
+
+Ef núverandi kerfi hefur þegar „mest krefjandi punkt“ skal nýta hann.
+
+---
+
+# 10. Freshness
+
+Mælingar verða að hafa aldursmat.
+
+Dæmi:
+
+```ts
+type MeasurementFreshness =
+  | "fresh"
+  | "aging"
+  | "stale"
+  | "invalid";
+```
+
+Dæmi um config:
+
+```ts
+type RoadMeasurementFreshnessConfig = {
+  freshMaxAgeMinutes: number;
+  agingMaxAgeMinutes: number;
+  staleMaxAgeMinutes: number;
+};
+```
+
+Ekki ákveða endanlega þröskulda án samþykkis eða svars Vegagerðarinnar.
+
+Fyrsta útfærsla þarf þó að:
+
+- reikna aldur,
+- birta mælitíma,
+- merkja greinilega ef mæling er gömul,
+- sleppa mjög gömlum mælingum úr aðalframsetningu.
+
+Dæmi í UI:
+
+```text
+Mælt fyrir 7 mínútum
+```
+
+```text
+Mælt kl. 13:20
+```
+
+```text
+Athugaðu að síðasta mæling er 46 mínútna gömul.
+```
+
+Ekki sýna:
+
+```text
+Núna
+```
+
+nema aldurinn sé sannarlega mjög lítill samkvæmt skilgreindri reglu.
+
+---
+
+# 11. Cache og ábyrg notkun
+
+Aðalregla:
+
+```text
+Ekki:
+hver notandi -> nýtt kall á Vegagerðina
+
+Heldur:
+allir notendur -> sameiginlegt Teskeið-cache -> takmörkuð upstream-köll
+```
+
+Búa skal til server-side cache.
+
+Dæmi:
+
+```ts
+type VegagerdinWeatherCacheEntry = {
+  fetchedAt: string;
+  measurements: NormalizedRoadWeatherMeasurement[];
+};
+```
+
+Provider-flow:
+
+```ts
+async function getVegagerdinMeasurements() {
+  const cached = await readCache();
+
+  if (cached && !isExpired(cached)) {
+    return cached.measurements;
+  }
+
+  try {
+    const fresh = await fetchAndNormalizeVegagerdinMeasurements();
+    await writeCache(fresh);
+    return fresh;
+  } catch (error) {
+    if (cached && isAcceptableStaleFallback(cached)) {
+      return cached.measurements;
+    }
+
+    throw error;
+  }
+}
+```
+
+Cache-reglur skulu vera config.
+
+Ekki festa þær sem magic numbers.
+
+Á meðan beðið er eftir formlegu svari Vegagerðarinnar:
+
+- nota hóflegt sameiginlegt cache,
+- ekki refresh-a oftar en gögnin raunverulega breytast,
+- ekki polling frá hverjum browser,
+- ekki sækja gögn aftur við hverja færslu á tímastiku.
+
+Mælingarnar geta verið endurnýttar:
+
+- fyrir alla notendur,
+- fyrir allar leiðir,
+- þar til sameiginlegt cache rennur út.
+
+Endpointið skilar stöðvum landsins og því þarf ekki nýtt upstream-kall fyrir hverja leið.
+
+---
+
+# 12. API Teskeiðar
+
+Ekki senda allt hráa Vegagerðarsvarið óunnið til clients.
+
+Möguleg server-route:
+
+```text
+GET /api/weather/road-measurements
+```
+
+Hún getur annaðhvort:
+
+## A. Skilað öllum normalíseruðum stöðvum
+
+```ts
+type RoadMeasurementsResponse = {
+  generatedAt: string;
+  source: "vegagerdin";
+
+  measurements: NormalizedRoadWeatherMeasurement[];
+
+  sourceStatus: "ok" | "stale_cache" | "unavailable";
+};
+```
+
+Eða:
+
+## B. Tekið við route geometry og skilað aðeins match-uðum stöðvum
+
+```text
+POST /api/weather/road-measurements/by-route
+```
+
+```ts
+type RoadMeasurementsByRouteRequest = {
+  routePolyline: string | GeoJSON.LineString;
+  limitingRoutePoint?: {
+    latitude: number;
+    longitude: number;
+  };
+};
+
+type RoadMeasurementsByRouteResponse = {
+  generatedAt: string;
+
+  matches: RouteMatchedRoadMeasurement[];
+
+  sourceStatus: "ok" | "stale_cache" | "unavailable";
+};
+```
+
+Velja skal leið sem passar núverandi arkitektúr.
+
+Mikilvægt er að upstream fetch sé sameiginlegt og cached, jafnvel þótt route matching sé keyrt fyrir hverja notendafyrirspurn.
+
+---
+
+# 13. Fyrsta UI-framsetning
+
+Markmiðið er að bæta mælingunum inn án stórs endurhönnunar.
+
+Tillaga við núverandi niðurstöðukort:
+
+```text
+Núverandi mæling við leiðina
+
+Mosfellsheiði
+Vindur 13 m/s
+Hviður 20 m/s
+ANA
+
+Mælt fyrir 6 mínútum
+1,4 km frá leiðinni
+```
+
+Eða compact:
+
+```text
+Vegagerðin núna:
+13 m/s · hviður 20 m/s
+Mosfellsheiði · mælt fyrir 6 mín.
+```
+
+Gera greinarmun á:
+
+```text
+Spáð þegar þú kemur
+```
+
+og:
+
+```text
+Mælt núna
+```
+
+Ekki láta Vegagerðarmælinguna birtast inni í sama veðurtöluröð án fyrirsagnar.
+
+---
+
+# 14. Orðalag og ábyrgð
+
+Nota:
+
+- Núverandi mæling
+- Síðasta mæling
+- Mælt kl.
+- Mesta vindhviða síðustu 10 mínútna
+- Mæling frá Vegagerðinni
+- Stöðin er X km frá leiðinni
+
+Ekki nota:
+
+- Öruggt
+- Hættulaust
+- Vegurinn er góður
+- Þessi mæling gildir fyrir alla leiðina
+- Vegagerðin spáir
+- Hviður verða
+- Mælingin sannar að spáin sé röng
+
+Rétt dæmi:
+
+> Síðasta mæling Vegagerðarinnar á Mosfellsheiði sýnir 13 m/s og mestu vindhviðu 20 m/s síðustu 10 mínútur.
+
+> Mælingin sýnir stöðuna við stöðina á tilgreindum tíma en er ekki framtíðarspá fyrir komutíma þinn.
+
+---
+
+# 15. Ekki blanda mælingunni í núverandi flokkun í MVP
+
+Núverandi flokkun byggir á:
+
+- framtíðarspá,
+- komutíma á leiðarpunkt,
+- mörkum sem notandinn skilgreinir.
+
+Vegagerðarmælingin á ekki í fyrstu að breyta:
+
+- „Innan marka“,
+- „Nálgast óþægindi“,
+- „Óþægilegt“,
+- „Nálgast hættumörk“.
+
+Ástæðan:
+
+- mælingin er frá núverandi tíma,
+- notandinn gæti komið að stöðinni síðar,
+- hún er staðbundin,
+- hún gæti verið nokkra kílómetra frá leiðinni,
+- hún er ekki sjálfkrafa sambærileg við spágildið á komutíma.
+
+Fyrsta útgáfa:
+
+```text
+Miðað við spá og mörkin þín:
+Óþægilegt
+
+Núverandi mæling Vegagerðarinnar:
+Vindur 13 m/s · hviður 20 m/s
+```
+
+Síðar má hanna sérstaka núcast-reglu.
+
+Ekki gera það núna.
+
+---
+
+# 16. Hægt að tengja við mest krefjandi kafla
+
+Núverandi Teskeið finnur mest krefjandi punkt eða kafla á leiðinni.
+
+Fyrsta gagnlega tengingin við Vegagerðina er:
+
+1. finna hnit mest krefjandi punkts,
+2. finna Vegagerðarstöðvar nálægt leiðinni,
+3. raða þeim eftir fjarlægð frá þessum punkti,
+4. velja ferska stöð með vind og hviður,
+5. sýna hversu langt stöðin er frá kaflanum.
+
+Dæmi:
+
+```text
+Mest krefjandi kafli:
+68 km frá upphafsstað
+
+Næsta Vegagerðarstöð:
+Kjalarnes, 3,1 km frá kaflanum
+
+Núverandi mæling:
+Vindur 12 m/s
+Hviður 19 m/s
+Mælt kl. 13:40
+```
+
+Þetta gefur strax mikið notendagildi án fullkomins road-segment mapping.
+
+---
+
+# 17. Vindátt
+
+Sýna bæði:
+
+- gráður ef gagnlegt,
+- bókstafi fyrir almenna notendur.
+
+Dæmi:
+
+```text
+Vindátt: ANA, 61°
+```
+
+Ekki reikna hliðarvind frá Vegagerðarmælingunni í MVP nema:
+
+- road bearing á réttum stað sé þegar tiltækt,
+- mælistöðin sé nægilega nálægt viðkomandi kafla,
+- útreikningurinn sé skýrt merktur sem byggður á númælingu.
+
+Núverandi framtíðarspár geta áfram notað eigin vindáttarútreikninga.
+
+---
+
+# 18. Hvað ef gildi vantar?
+
+Reglur:
+
+## Vindhradi til staðar, Vindhvida vantar
+
+Sýna:
+
+```text
+Vindur 13 m/s
+Hviður ekki tiltækar
+```
+
+## Vindhvida til staðar, Vindhradi vantar
+
+Sýna hviðuna en merkja nákvæmlega:
+
+```text
+Mesta vindhviða síðustu 10 mín.: 20 m/s
+Meðalvindur ekki tiltækur
+```
+
+## Mælitími vantar eða er ólesanlegur
+
+Ekki sýna mælinguna sem núverandi aðalgildi.
+
+Logga parser-villu.
+
+## Hnit vantar
+
+Stöðin má mögulega vera í debug-lista en ekki route-match-a hana.
+
+## Mæling er of gömul
+
+Sýna annaðhvort sem gömul mæling með viðvörun eða sleppa henni úr aðalsýn samkvæmt config.
+
+---
+
+# 19. Source status og graceful fallback
+
+Ef Vegagerðin er ótiltæk:
+
+- Yr/MET Norway heldur áfram að virka,
+- heildarveðurkortið hrynur ekki,
+- enginn flokkur breytist,
+- sýna má lítinn texta:
+
+```text
+Mælingar Vegagerðarinnar eru tímabundið ekki tiltækar.
+```
+
+Ef til er cache sem er aðeins eldra en venjulega:
+
+```text
+Síðustu tiltæku mælingar
+Athugaðu að gögnin eru eldri en venjulega.
+```
+
+Ekki fela aldurinn.
+
+---
+
+# 20. Debug-sýn
+
+Búa skal til read-only dev/debug framsetningu áður en mælingarnar verða að fullu sýnilegar notendum.
+
+Dæmi:
+
+```ts
+type RoadMeasurementDebugTrace = {
+  stationId: string;
+  stationName: string;
+
+  rawMeasurementTime: string;
+  parsedMeasurementTime: string | null;
+
+  meanWindMs: number | null;
+  gustMs: number | null;
+
+  latitude: number;
+  longitude: number;
+
+  distanceFromRouteM: number | null;
+  distanceAlongRouteKm: number | null;
+
+  distanceFromLimitingPointM: number | null;
+
+  measurementAgeMinutes: number | null;
+
+  selected: boolean;
+  selectionReasons: string[];
+  rejectionReasons: string[];
+};
+```
+
+Þetta þarf að gera auðvelt að sjá:
+
+- hvers vegna ákveðin stöð var valin,
+- hvaða stöðvar voru hafnaðar,
+- hvort parser túlkaði tíma rétt,
+- hvort mæling er fersk,
+- hvort hviða vantar.
+
+---
+
+# 21. Prófanir
+
+## 21.1 Provider tests
+
+Prófa:
+
+- successful fetch,
+- timeout,
+- HTTP error,
+- malformed JSON,
+- óvænt wrapper-object,
+- partial station row,
+- null wind,
+- null gust,
+- string-number parsing,
+- duplicate station IDs.
+
+## 21.2 Time parsing tests
+
+Prófa:
+
+```text
+04.03.2019 15:10:00
+```
+
+ásamt raunverulegu núverandi sniði sem endpointið skilar.
+
+Prófa:
+
+- ógilda dagsetningu,
+- tóman streng,
+- timezone conversion,
+- birtingu í `Atlantic/Reykjavik`.
+
+## 21.3 Normalization tests
+
+Prófa að:
+
+```text
+Vindhradi -> meanWindMs
+Vindhvida -> gust.valueMs
+Vindatt -> windDirectionDeg
+Dags -> measuredAt
+IdButur1/2 -> roadSegmentIds
+```
+
+Prófa að null verði null en ekki 0.
+
+## 21.4 Route matching tests
+
+Prófa:
+
+- stöð beint á leið,
+- stöð rétt utan corridors,
+- stöð langt frá leið,
+- stöð nálægt öðrum hluta leiðar,
+- tvær stöðvar í svipaðri fjarlægð,
+- fersk stöð á móti gamalli stöð,
+- stöð með hviðu á móti stöð án hviðu.
+
+## 21.5 UI tests
+
+Prófa:
+
+- vindur og hviða birtast rétt,
+- mælitími birtist,
+- gömul mæling er merkt,
+- Vegagerðin er kölluð mæling en ekki spá,
+- Vegagerðarbilun hefur ekki áhrif á Yr-niðurstöðu,
+- engin mæling birtist ekki sem 0 m/s,
+- einingar eru alltaf m/s.
+
+---
+
+# 22. Observability
+
+Logga server-side:
+
+- fetch status,
+- latency,
+- response size,
+- station count,
+- valid station count,
+- invalid station count,
+- cache hit/miss,
+- aldur cache,
+- parser errors,
+- óþekkt schema,
+- valda stöð fyrir route-request,
+- match-fjarlægð,
+- measurement age.
+
+Ekki logga fulla persónulega ferðasögu notanda að óþörfu.
+
+Nota request-scoped eða nafnlaus route-debug gögn samkvæmt núverandi persónuverndarreglum.
+
+---
+
+# 23. Source attribution
+
+Sýna skal heimild með eðlilegum hætti:
+
+```text
+Heimild: Vegagerðin
+```
+
+Eða:
+
+```text
+Núverandi mæling frá Vegagerðinni
+```
+
+Á sérstakri gagnagjafasíðu má útskýra:
+
+```text
+Vind- og hviðugögn Vegagerðarinnar eru nýjustu tiltæku
+mælingar frá sjálfvirkum mælistöðvum við vegakerfið.
+```
+
+Ekki gefa í skyn formlegt samstarf.
+
+Ekki nota:
+
+```text
+Í samstarfi við Vegagerðina
+```
+
+nema slíkt samstarf hafi verið samþykkt.
+
+---
+
+# 24. Legacy API núna, DATEX II síðar
+
+Fyrsta útgáfa notar:
+
+```text
+https://gagnaveita.vegagerdin.is/api/vedur2014_1
+```
+
+Ástæður:
+
+- einfalt gagnasnið,
+- bein fields fyrir vind og hviðu,
+- hraðasta leiðin í virkt MVP,
+- `Vindhvida` hefur skýra merkingu:
+  mesta vindhviða síðustu 10 mínútna,
+- GPS-hnit fylgja hverri stöð,
+- `IdButur1/2` fylgja til framtíðarnota.
+
+DATEX II má rannsaka síðar sem langtímalausn.
+
+Ekki láta DATEX II tefja fyrstu vindinnleiðingu.
+
+Provider abstraction skal þó gera mögulegt að síðar komi:
+
+```ts
+class VegagerdinDatexMeasurementProvider
+  implements RoadWeatherMeasurementProvider
+{
+  // Future implementation.
+}
+```
+
+UI og business logic eiga ekki að vita hvort gögn komu úr legacy API eða DATEX II.
+
+---
+
+# 25. Færð og vegarkaflar – varðveita til framtíðar en ekki innleiða núna
+
+Vegagerðin býður einnig:
+
+```text
+https://gagnaveita.vegagerdin.is/api/faerd2017_1
+```
+
+og punktagögn:
+
+```text
+https://gagnaveita.vegagerdin.is/api/faerdpunktar2017_1
+```
+
+og WFS geometry:
+
+```text
+https://gagnaveita.vegagerdin.is/geoserver/gis/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=gis:faerdferlar2017_1
+```
+
+Þetta verður síðar notað fyrir:
+
+- færð,
+- hálku,
+- ófært,
+- lokaða vegi,
+- staðbundin atvik,
+- tengingu við `IdButur`.
+
+En ekki taka það inn í fyrsta vind-MVP nema það sé mjög lítil og áhættulítil viðbót.
+
+Meginregla þessarar vinnu:
+
+> Vindur og vindhviður fyrst. Færð og lokanir í sér áfanga.
+
+---
+
+# 26. Framkvæmdaráfangar
+
+## Fasi 0 – repo-rýni
+
+Áður en kóða er breytt skal Codex/Claude staðfesta:
+
+1. hvar núverandi Yr-gögn eru sótt,
+2. hvort fetch er server-side,
+3. hvaða cache-lausn er nú þegar til,
+4. hvar route polyline er aðgengileg,
+5. hvar mest krefjandi route-point er reiknaður,
+6. hvaða schema-validation tól er notað,
+7. hvaða test framework er notað,
+8. hvar nýtt provider-lag passar best,
+9. hvort til sé dev/debug UI.
+
+Skila stuttri framkvæmdaáætlun áður en breytingar hefjast.
+
+## Fasi 1 – read-only endpoint-prófun
+
+- sækja raunverulegt svar frá `vedur2014_1`,
+- staðfesta content type,
+- staðfesta top-level response shape,
+- staðfesta field names,
+- staðfesta null-gildi,
+- staðfesta dagsetningarsnið,
+- staðfesta að `Vindhvida` sé í gögnunum,
+- vista lítið test fixture.
+
+Engin UI-breyting.
+
+## Fasi 2 – provider og normalisering
+
+- búa til provider,
+- runtime validation,
+- explicit time parser,
+- normalíserað gagnalíkan,
+- unit tests,
+- server-side cache.
+
+Engin breyting á núverandi ferðamati.
+
+## Fasi 3 – route matching
+
+- nota route polyline,
+- finna stöðvar innan corridors,
+- reikna fjarlægð frá leið,
+- reikna position along route,
+- tengja við mest krefjandi kafla,
+- búa til debug trace.
+
+## Fasi 4 – fyrsta UI
+
+Sýna aðeins:
+
+```text
+Núverandi mæling við leiðina
+Stöðvarheiti
+Vindur
+Hviður
+Vindátt
+Mælitími
+Fjarlægð frá leið
+```
+
+## Fasi 5 – betrumbætur
+
+- fleiri relevant stöðvar,
+- stöðvar á korti,
+- `IdButur` matching,
+- samanburður mælingar við spá fyrir sama tíma,
+- færð,
+- lokanir,
+- DATEX II.
+
+Ekki gera fasa 5 hluti að skilyrði fyrir fasa 4.
+
+---
+
+# 27. Tillaga að einföldu notendaflæði
+
+```text
+Notandi velur leið
+        │
+        ▼
+Núverandi Yr-ferðamat reiknast óbreytt
+        │
+        ▼
+Teskeið sækir cached lista Vegagerðarstöðva
+        │
+        ▼
+Stöðvar nálægt leiðinni eru fundnar
+        │
+        ▼
+Fersk stöð með vind og hviður er valin
+        │
+        ▼
+Mæling birtist í aðskildum hluta:
+- vindur
+- hviður
+- vindátt
+- mælitími
+- stöð
+- fjarlægð
+```
+
+---
+
+# 28. Mögulegt fyrsta UI-copy
+
+## Þegar mæling er fersk
+
+```text
+Núverandi mæling við leiðina
+
+Mosfellsheiði
+Vindur 13 m/s · hviður 20 m/s
+ANA
+
+Mælt fyrir 6 mínútum
+1,4 km frá leiðinni
+
+Heimild: Vegagerðin
+```
+
+## Þegar aðeins vindur er til
+
+```text
+Núverandi mæling við leiðina
+
+Mosfellsheiði
+Vindur 13 m/s
+Hviður ekki tiltækar
+
+Mælt fyrir 6 mínútum
+```
+
+## Þegar mæling er gömul
+
+```text
+Síðasta tiltæka mæling
+
+Mosfellsheiði
+Vindur 13 m/s · hviður 20 m/s
+
+Athugaðu að mælingin er 48 mínútna gömul.
+```
+
+## Þegar engin relevant stöð finnst
+
+```text
+Engin viðeigandi vindmæling Vegagerðarinnar fannst nálægt þessari leið.
+```
+
+Ekki segja:
+
+```text
+Enginn vindur mældist.
+```
+
+## Þegar þjónustan bregst
+
+```text
+Mælingar Vegagerðarinnar eru tímabundið ekki tiltækar.
+```
+
+---
+
+# 29. Mögulegt samanburðarlag síðar
+
+Ekki innleiða í fyrsta MVP, en varðveita gögn þannig að síðar verði hægt að bera saman mælingu við spá fyrir sama stað og sama tíma.
+
+Réttur samanburður:
+
+```text
+Mæling Vegagerðarinnar kl. 13:00:
+Vindur 14 m/s
+
+Yr-spá fyrir sama stað og tíma:
+11 m/s
+
+Mismunur:
++3 m/s
+```
+
+Ekki bera saman:
+
+```text
+Mæling núna kl. 13:00
+við
+spá fyrir komutíma kl. 17:00
+```
+
+Samanburður þarf:
+
+- sambærilega staðsetningu,
+- sama eða mjög svipaðan tíma,
+- meðalvind við meðalvind,
+- hviðu við hviðu ef báðar heimildir hafa sambærilega hviðubreytu.
+
+---
+
+# 30. Ekki kalla allar hámarkstölur „hviður“
+
+Legacy API:
+
+```text
+Vindhvida
+Mesta vindhviða síðustu 10 mínútna.
+```
+
+Þetta má birta sem:
+
+```text
+Hviður
+```
+
+með nánari útskýringu í detail-sýn.
+
+Ef DATEX II síðar skilar:
+
+```text
+maximumWindSpeed
+```
+
+skal fyrst staðfesta:
+
+- tímabil,
+- útreikning,
+- hvort um raunverulega gust-breytu sé að ræða,
+- hvort hún sé sambærileg við `Vindhvida`.
+
+Ekki mappa sjálfkrafa allar maximum-wind breytur í sama field án staðfestingar.
+
+---
+
+# 31. Öryggis- og ábyrgðarreglur
+
+1. Mæling er ekki framtíðarspá.
+2. Mæling við eina stöð lýsir ekki allri leiðinni.
+3. Sýna skal stöð og mælitíma.
+4. Sýna skal fjarlægð frá leið þegar hún er tiltæk.
+5. Gömul mæling skal merkt.
+6. Engin mæling þýðir ekki að enginn vindur sé.
+7. Ekki breyta persónulegum mörkum notandans.
+8. Ekki gefa út akstursfyrirmæli.
+9. Ekki kalla mælinguna opinbert samþykki fyrir ferð.
+10. Ekki rugla meðalvindi og hviðu saman.
+11. Ekki rugla númælingu og spá fyrir komutíma saman.
+12. Uppruni skal vera sýnilegur.
+13. Bilun Vegagerðarinnar má ekki fella núverandi þjónustu.
+14. Cache-a server-side til að vernda upstream þjónustuna.
+15. Ekki poll-a Vegagerðina frá hverjum client.
+
+---
+
+# 32. Tæknilegar grunnreglur
+
+1. Engin magic URL dreifð um kóðann.
+2. Endpoint skal vera í config.
+3. Timeout skal vera skilgreint.
+4. Retry skal vera hóflegt og takmarkað.
+5. Ekki retry-a stjórnlaust.
+6. Runtime validation á upstream gögnum.
+7. Null er ekki 0.
+8. Upstream response skal ekki leka beint inn í UI.
+9. Source fields skulu normalíseruð í provider-lagi.
+10. Cache skal vera sameiginlegt fyrir notendur.
+11. Route matching skal vera aðskilið frá provider.
+12. Presentation model skal vera aðskilið frá raw measurement.
+13. Unit tests skulu fylgja parser og normaliseringu.
+14. Provider failure skal skila structured status.
+15. Geyma skal `IdButur1/2` til framtíðarnota.
+
+---
+
+# 33. Tillaga að skráaskiptingu
+
+Laga skal að núverandi repo-strúktúr en hugmyndin er:
+
+```text
+weather/
+  providers/
+    vegagerdin/
+      client.ts
+      provider.ts
+      schema.ts
+      normalize.ts
+      time.ts
+      types.ts
+      config.ts
+
+  road-measurements/
+    match-to-route.ts
+    select-relevant-station.ts
+    freshness.ts
+    types.ts
+
+  presentation/
+    road-measurement-view-model.ts
+```
+
+Tests:
+
+```text
+weather/
+  providers/
+    vegagerdin/
+      __tests__/
+        normalize.test.ts
+        time.test.ts
+        provider.test.ts
+        fixtures/
+          vedur2014_1.sample.json
+
+  road-measurements/
+    __tests__/
+      match-to-route.test.ts
+      select-relevant-station.test.ts
+      freshness.test.ts
+```
+
+Ekki búa til þessa nákvæmu möppuskipan ef repo-ið hefur þegar skýra samsvarandi uppbyggingu.
+
+---
+
+# 34. API-config
+
+Dæmi:
+
+```ts
+export const VEGAGERDIN_WEATHER_CONFIG = {
+  endpoint:
+    "https://gagnaveita.vegagerdin.is/api/vedur2014_1",
+
+  requestTimeoutMs: 8_000,
+
+  cacheTtlMs: 5 * 60 * 1000,
+
+  staleFallbackMaxAgeMs: 30 * 60 * 1000,
+} as const;
+```
+
+Tölurnar hér eru aðeins upphafleg þróunartillaga.
+
+Codex/Claude skal:
+
+- setja þær í config,
+- merkja að formleg viðmið séu í bið eftir svari Vegagerðarinnar,
+- ekki dreifa þeim um kóðann,
+- ekki túlka þær sem opinbera ráðleggingu Vegagerðarinnar.
+
+---
+
+# 35. Fetch-reglur
+
+Dæmi:
+
+```ts
+async function fetchVegagerdinWeather(
+  signal?: AbortSignal
+): Promise<unknown> {
+  const response = await fetch(
+    VEGAGERDIN_WEATHER_CONFIG.endpoint,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+      signal,
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    throw new VegagerdinWeatherHttpError(
+      response.status,
+      response.statusText
+    );
+  }
+
+  return response.json();
+}
+```
+
+Athuga:
+
+- framework-specific cache má vera utan við fetch,
+- forðast tvöfalt cache sem verður erfitt að skilja,
+- nota AbortController/timeout,
+- takmarka retry,
+- ekki setja API-kall í React component.
+
+---
+
+# 36. Selection-regla fyrir fyrsta MVP
+
+Tillaga að deterministic fyrstu reglu:
+
+```text
+INPUT:
+- route polyline
+- limiting route point ef tiltækt
+- listi yfir normalíseraðar Vegagerðarstöðvar
+
+FILTER:
+- mælitími parse-aðist
+- hnit eru gild
+- annaðhvort vindur eða hviða er til
+- mæling ekki eldri en configured max age
+- stöð innan configured max distance frá leið
+
+RANK:
+1. stöð hefur bæði vind og hviðu
+2. stöð er nær limiting route point
+3. stöð er nær route polyline
+4. mæling er nýrri
+
+OUTPUT:
+- besta stöð
+- allt að nokkrar varastöðvar fyrir detail/debug
+```
+
+Reglan skal vera:
+
+- deterministic,
+- prófanleg,
+- skýr í debug trace.
+
+---
+
+# 37. Hugsanleg sýn á fleiri stöðvar síðar
+
+Fyrsta útgáfa má sýna eina stöð.
+
+Gagnalíkanið skal þó styðja fleiri stöðvar á leið:
+
+```text
+Kjalarnes
+12 m/s · hviður 18 m/s
+
+Hellisheiði
+15 m/s · hviður 23 m/s
+
+Þrengsli
+10 m/s · hviður 17 m/s
+```
+
+Þetta verður líklega mjög gagnlegt fyrir langar leiðir, en þarf ekki að tefja fyrsta MVP.
+
+---
+
+# 38. Ákvörðun um „núna“
+
+Nota „núverandi mæling“ frekar en „núna“ þar til freshness-reglur eru fullmótaðar.
+
+Betra:
+
+```text
+Núverandi mæling
+Mælt fyrir 7 mínútum
+```
+
+En:
+
+```text
+Vindur núna
+```
+
+getur verið villandi ef mælingin er 20–30 mínútna gömul.
+
+---
+
+# 39. Felst í þessari fyrstu framkvæmd
+
+- Read-only aðgangur að `vedur2014_1`.
+- Server-side fetch.
+- Sameiginlegt cache.
+- Runtime validation.
+- Normalisering á veðurstöðvum.
+- Vindhraði.
+- Mesta vindhviða síðustu 10 mínútna.
+- Vindátt.
+- Mælitími.
+- GPS-hnit.
+- Route proximity matching.
+- Val á relevant stöð.
+- Einföld UI-framsetning.
+- Heimildatilvísun.
+- Graceful fallback.
+- Tests.
+- Debug trace.
+
+---
+
+# 40. Felst ekki í þessari fyrstu framkvæmd
+
+- Framtíðarspá frá Vegagerðinni.
+- Breyting á Yr-spá.
+- Veðurstofuspá.
+- Samanburður Yr og Veðurstofu.
+- Færð.
+- Lokanir.
+- DATEX II.
+- WFS road geometry.
+- Myndavélar.
+- Núcast.
+- Heildaröryggiseinkunn.
+- Akstursráðlegging.
+- Sjálfvirk breyting á notendamörkum.
+- Söguleg nákvæmniseinkunn spáa.
+- Persisting full user route history.
+- Stór endurhönnun.
+- Deploy.
+- Commit eða push nema sérstaklega sé beðið um það.
+- SQL nema sérstaklega sé beðið um það.
+
+---
+
+# 41. Verkbeiðni til Codex og Claude
+
+Rýnið fyrst núverandi repo og skilið stuttri framkvæmdaáætlun.
+
+Markmiðið er að ná vindtölum Vegagerðarinnar inn eins hratt og örugglega og hægt er, án þess að endurbyggja núverandi ferðaveður.
+
+Svarið fyrst með:
+
+1. hvar núverandi veðurgögn eru sótt,
+2. hvort þau eru sótt client-side eða server-side,
+3. hvaða cache-lausn er til staðar,
+4. hvar route polyline er tiltæk,
+5. hvar mest krefjandi route-point er aðgengilegur,
+6. hvaða provider-mynstur er þegar til,
+7. hvaða validation- og test-tól eru notuð,
+8. hvaða skrár þarf að breyta,
+9. hvaða nýjar skrár þarf að búa til,
+10. einfaldasta leiðin að sýnilegri vind- og hviðutölu,
+11. helstu áhættur,
+12. staðfestingu á því hvað er ekki hluti af MVP.
+
+Eftir samþykki skal framkvæma í þessari röð:
+
+```text
+1. Sækja og skoða raunverulegt vedur2014_1 response.
+2. Vista lítið test fixture.
+3. Búa til schema og parser.
+4. Normalísera vind, hviðu, átt, tíma og staðsetningu.
+5. Bæta við server-side cache.
+6. Tengja stöðvar við route polyline með proximity.
+7. Velja relevant stöð með deterministic reglu.
+8. Búa til debug output.
+9. Bæta við lágmarks UI.
+10. Keyra tests og typecheck.
+```
+
+Ekki byrja á DATEX II.
+
+Ekki byrja á færð.
+
+Ekki byrja á lokunum.
+
+Ekki breyta núverandi flokkun.
+
+Ekki blanda mælingu inn í framtíðarspá.
+
+Aðalmarkmiðið er:
+
+> Að notandi sjái hratt og skýrt nýjustu mældu vindtölu og mestu vindhviðu síðustu 10 mínútna frá viðeigandi Vegagerðarstöð nálægt akstursleiðinni.
+
+Ekki commit-a, push-a eða deploy-a fyrr en það hefur verið sérstaklega samþykkt.
