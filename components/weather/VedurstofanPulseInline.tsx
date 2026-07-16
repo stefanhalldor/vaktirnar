@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ChatPreviewList } from '@/components/chat/ChatPreviewList'
+import { ScopedChatComposer } from '@/components/chat/ScopedChatComposer'
 import type { AugmentedChatMessage } from '@/components/chat/ChatMessageRow'
 
 interface VedurstofanPulseInlineProps {
@@ -111,6 +112,10 @@ export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulse
     ? `/auth-mvp/vedrid/puls/stod/${stationId}?returnTo=${encodeURIComponent(returnTo)}`
     : null
 
+  // Login CTA: always points to the full pulse page; returnTo carried when available.
+  const loginNextHref = `/auth-mvp/vedrid/puls/stod/${stationId}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`
+  const loginHref = `/innskraning?next=${encodeURIComponent(loginNextHref)}`
+
   // Hide the whole component when there is nothing useful to show:
   // no messages to preview and no composer available (public/denied user).
   // This prevents rendering an empty "Nýjast af staðnum" header on public cards.
@@ -129,39 +134,27 @@ export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulse
       />
       {postingAccess === 'allowed' && (
         <div className="flex flex-col gap-1.5">
-          <div className="flex gap-1.5">
-            <input
-              type="text"
-              value={composeBody}
-              onChange={e => setComposeBody(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-              }}
-              maxLength={1000}
-              placeholder={t('pulseInputPlaceholderCompact')}
-              className="flex-1 text-base sm:text-sm min-h-10 sm:min-h-8 px-2 py-1 rounded-md border border-border/60 bg-transparent focus:outline-none focus:ring-1 focus:ring-ring/60 placeholder:text-muted-foreground/50"
-            />
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={sending || !composeBody.trim()}
-              className="text-sm sm:text-xs min-h-10 sm:min-h-8 px-2.5 sm:px-2 rounded-md border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-40 transition-colors shrink-0"
-            >
-              {sending ? '...' : t('pulseSend')}
-            </button>
-          </div>
+          <ScopedChatComposer
+            value={composeBody}
+            onChange={setComposeBody}
+            onSend={handleSend}
+            disabled={sending}
+            placeholder={t('pulseInputPlaceholderCompact')}
+            sendLabel={t('pulseSend')}
+            variant="compact"
+          />
           {sendError && <p className="text-xs text-destructive">{t('pulseSendError')}</p>}
         </div>
       )}
       {postingAccess === 'needs-login' && (
         <Link
-          href="/innskraning"
+          href={loginHref}
           className="text-xs text-muted-foreground underline underline-offset-2 self-start"
         >
-          {t('pulseNeedsLogin')}
+          {t('pulseLoginCta')}
         </Link>
       )}
-      {fullHref && (
+      {fullHref && postingAccess === 'allowed' && (
         <Link
           href={fullHref}
           className="text-xs text-muted-foreground underline underline-offset-2 self-start hover:text-foreground transition-colors"

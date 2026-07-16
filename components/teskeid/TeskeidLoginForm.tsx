@@ -14,7 +14,7 @@ const RESEND_COOLDOWN = 120
 // Milliseconds before showing a "code may take a moment" hint on the email step.
 const SLOW_EMAIL_HINT_MS = 8_000
 
-export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
+export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: string; nextHref?: string }) {
   const t = useTranslations('teskeid.auth')
   const router = useRouter()
 
@@ -122,7 +122,10 @@ export function TeskeidLoginForm({ logoHref = '/' }: { logoHref?: string }) {
       const profileRes = await fetch('/api/teskeid/profile')
       const profileData = profileRes.ok ? await profileRes.json().catch(() => ({})) : {}
       const hasName = !!profileData.display_name?.trim()
-      router.push(hasName ? '/auth-mvp/heim' : '/auth-mvp/minn-profill')
+      router.push(hasName
+        ? (nextHref ?? '/auth-mvp/heim')
+        : `/auth-mvp/minn-profill${nextHref ? `?next=${encodeURIComponent(nextHref)}` : ''}`
+      )
       router.refresh()
     } catch {
       setError(t('genericError'))

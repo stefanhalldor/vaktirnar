@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { ChatMessageKind, MessageDto } from '@/lib/chat/types'
 import { ChatMessageRow, type AugmentedChatMessage } from './ChatMessageRow'
+import { ScopedChatComposer } from './ScopedChatComposer'
 
 export type ScopedChatLoadOptions = {
   before?: string
@@ -196,27 +197,14 @@ export function ScopedChatPanel({
           ))
         )}
       </div>
-      <div className="flex gap-1.5">
-        <input
-          type="text"
-          value={body}
-          onChange={e => setBody(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-          }}
-          maxLength={1000}
-          placeholder={labels.inputPlaceholder}
-          className="flex-1 text-base min-h-10 px-2.5 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60"
-        />
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={sending || !body.trim()}
-          className="text-sm min-h-10 px-3 rounded-lg bg-foreground text-background disabled:opacity-40 transition-opacity shrink-0"
-        >
-          {labels.send}
-        </button>
-      </div>
+      <ScopedChatComposer
+        value={body}
+        onChange={setBody}
+        onSend={handleSend}
+        disabled={sending}
+        placeholder={labels.inputPlaceholder}
+        sendLabel={labels.send}
+      />
       {sendError && (
         <p className="text-xs text-destructive">{labels.sendError}</p>
       )}

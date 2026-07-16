@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useTranslations, useLocale } from 'next-intl'
-import { ChevronLeft, CloudSun, ChevronDown, ChevronUp, MapPin, Route, Caravan, SlidersHorizontal, CheckCircle2, Wind, Droplets } from 'lucide-react'
+import { CloudSun, ChevronDown, ChevronUp, MapPin, Route, Caravan, SlidersHorizontal, CheckCircle2, Wind, Droplets } from 'lucide-react'
 import type { DeterministicResult, WeatherStatus, RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelThresholdOverrides, TravelCandidate, ForecastDrawerRow, ResolvedTravelThresholds } from '@/lib/weather/types'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import { type WeatherProviderKey, selectDecisiveProvider } from '@/lib/weather/providerComparator'
@@ -26,10 +26,10 @@ import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteS
 import { WeatherResultLoader } from '@/components/weather/WeatherResultLoader'
 import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
-import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, estimatePointEtaIso, formatCompactDateTime, getOriginDisplay, buildPointSummary } from '@/components/weather/travelAuditMap.helpers'
+import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, estimatePointEtaIso, formatCompactDateTime, formatLongDepartureDateTime, getOriginDisplay, buildPointSummary } from '@/components/weather/travelAuditMap.helpers'
 import { RouteWeatherPointDetailCard } from '@/components/weather/RouteWeatherPointDetailCard'
 import { WindStatusBadge } from '@/components/weather/WindStatusBadge'
-import { VedurstofanPointCard, VedurstofanJourneySummary } from '@/components/weather/VedurstofanPointCard'
+import { VedurstofanPointCard } from '@/components/weather/VedurstofanPointCard'
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import { isVedurstofanCycleFresh, getNextCycleAfterAtimeIso } from '@/lib/weather/vedurstofanFreshness'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
@@ -84,6 +84,25 @@ type WizardStep = 'route' | 'thresholds' | 'result'
 type TrailerKindValue = 'none' | 'generic_trailer' | 'tent_trailer' | 'folding_camper' | 'caravan' | 'horse_trailer'
 
 const STEP_ORDER: WizardStep[] = ['route', 'thresholds', 'result']
+
+// sessionStorage key + restore contract for route-result persistence across refresh and pulse login.
+const ROUTE_RESTORE_KEY = 'vaktirnar:weather-route-restore'
+const ROUTE_RESTORE_SCHEMA_VERSION = 1
+const ROUTE_RESTORE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+
+function isValidRouteRestorePayload(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+  if (d.schemaVersion !== ROUTE_RESTORE_SCHEMA_VERSION) return false
+  if (d.step !== 'result') return false
+  if (!d.result || typeof d.result !== 'object') return false
+  if (!d.origin || typeof d.origin !== 'object') return false
+  if (!d.destination || typeof d.destination !== 'object') return false
+  if (typeof d.savedAtIso !== 'string') return false
+  const age = Date.now() - Date.parse(d.savedAtIso as string)
+  if (!Number.isFinite(age) || age > ROUTE_RESTORE_TTL_MS) return false
+  return true
+}
 
 const STATUS_STYLES: Record<WeatherStatus, { dot: string; label: string }> = {
   graent: { dot: 'bg-[#2d5a27]', label: 'text-[#2d5a27]' },
@@ -157,6 +176,15 @@ export function FerdalagidClient({
   // Latest-value ref for combined slot statuses — read in auto-select effect without dep array churn
   const combinedSlotStatusesRef = useRef<WindDisplayStatus[] | null>(null)
 
+  // Holds the origin/destination coords that were just restored from sessionStorage.
+  // The route-clear effect uses this to skip the first clear triggered by restore hydration.
+  const restoredCoordsRef = useRef<{
+    originLat: number | undefined
+    originLon: number | undefined
+    destLat: number | undefined
+    destLon: number | undefined
+  } | null>(null)
+
   // Ferðalag conversion affordance — shown when tripEnabled and result is ready
   const [tripHintVisible, setTripHintVisible] = useState(false)
 
@@ -186,6 +214,89 @@ export function FerdalagidClient({
   const effectiveDestinationName = ferrySelection
     ? ferrySelection.ferryPort.name
     : (destination?.name ?? '')
+
+  // Restore route-result context from sessionStorage on mount (normal refresh or pulse-login return).
+  // Does not require ?restore=1 — any valid, non-expired payload is restored automatically.
+  // sessionStorage is tab-scoped: closed tabs start fresh; same-tab refreshes restore last result.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = sessionStorage.getItem(ROUTE_RESTORE_KEY)
+      if (!raw) return
+      const state = JSON.parse(raw)
+      if (!isValidRouteRestorePayload(state)) {
+        sessionStorage.removeItem(ROUTE_RESTORE_KEY)
+        return
+      }
+      if (state.origin) setOrigin(state.origin)
+      if (state.destination) setDestination(state.destination)
+      // Store the restored coords so the route-clear effect can skip the hydration-triggered clear
+      restoredCoordsRef.current = {
+        originLat: state.origin?.lat,
+        originLon: state.origin?.lon,
+        destLat: state.destination?.lat,
+        destLon: state.destination?.lon,
+      }
+      if (state.trailerKind) setTrailerKind(state.trailerKind)
+      if (state.thresholdOverrides) setThresholdOverrides(state.thresholdOverrides)
+      if (state.selectedRouteId !== undefined) setSelectedRouteId(state.selectedRouteId)
+      if (state.result) setResult(state.result)
+      if (state.vedurstofanLayer !== undefined) setVedurstofanLayer(state.vedurstofanLayer)
+      if (state.showVedurstofan !== undefined) setShowVedurstofan(state.showVedurstofan)
+      if (state.showMetno !== undefined) setShowMetno(state.showMetno)
+      if (state.selectedHeatmapIdx !== undefined) setSelectedHeatmapIdx(state.selectedHeatmapIdx)
+      if (state.selectedReturnHeatmapIdx !== undefined) setSelectedReturnHeatmapIdx(state.selectedReturnHeatmapIdx)
+      if (Array.isArray(state.outboundVisibleStatuses)) setOutboundVisibleStatuses(new Set(state.outboundVisibleStatuses))
+      if (Array.isArray(state.returnVisibleStatuses)) setReturnVisibleStatuses(new Set(state.returnVisibleStatuses))
+      if (state.submittedThresholds !== undefined) setSubmittedThresholds(state.submittedThresholds)
+      if (state.ferrySelection !== undefined) setFerrySelection(state.ferrySelection)
+      if (state.userExplicitSlot !== undefined) setUserExplicitSlot(state.userExplicitSlot)
+      if (state.routeFallback !== undefined) setRouteFallback(state.routeFallback)
+      setStep('result')
+      // Clean ?restore=1 from URL if coming back from pulse login flow
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        if (params.get('restore') === '1') {
+          const url = new URL(window.location.href)
+          url.searchParams.delete('restore')
+          window.history.replaceState(null, '', url.toString())
+        }
+      }
+    } catch {
+      // Corrupt state — remove and start fresh
+      try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
+    }
+  }, []) // mount only
+
+  // Persist route-result context to sessionStorage so it survives refresh and pulse login return.
+  // Runs whenever result state changes while result step is active.
+  useEffect(() => {
+    if (step !== 'result' || !result) return
+    try {
+      sessionStorage.setItem(ROUTE_RESTORE_KEY, JSON.stringify({
+        schemaVersion: ROUTE_RESTORE_SCHEMA_VERSION,
+        savedAtIso: new Date().toISOString(),
+        step: 'result',
+        origin,
+        destination,
+        trailerKind,
+        thresholdOverrides,
+        selectedRouteId,
+        result,
+        vedurstofanLayer,
+        showVedurstofan,
+        showMetno,
+        selectedHeatmapIdx,
+        selectedReturnHeatmapIdx,
+        outboundVisibleStatuses: [...outboundVisibleStatuses],
+        returnVisibleStatuses: [...returnVisibleStatuses],
+        submittedThresholds,
+        ferrySelection,
+        userExplicitSlot,
+        routeFallback,
+      }))
+    } catch { /* sessionStorage may be unavailable */ }
+  }, [step, result, origin, destination, trailerKind, thresholdOverrides, selectedRouteId, vedurstofanLayer, showVedurstofan, showMetno, selectedHeatmapIdx, selectedReturnHeatmapIdx, outboundVisibleStatuses, returnVisibleStatuses, submittedThresholds, ferrySelection, userExplicitSlot, routeFallback])
 
   // Fetch saved places once on mount
   useEffect(() => {
@@ -223,13 +334,39 @@ export function FerdalagidClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.id])
 
-  // Clear result/error whenever origin or destination coordinates change
+  // Clear result/error whenever origin or destination coordinates change.
+  // When a restore is in progress (restoredCoordsRef set), waits for coords to hydrate before deciding:
+  //   - coords not yet ready → keep ref and return (will re-run after re-render);
+  //   - coords match restored values → skip clear and mark restore done;
+  //   - coords differ from restored → genuine change, proceed to clear.
+  // On genuine route edits the persisted key is also removed so stale data does not return on refresh.
   useEffect(() => {
+    const restored = restoredCoordsRef.current
+    if (restored !== null) {
+      const coordsReady =
+        origin?.lat !== undefined &&
+        origin?.lon !== undefined &&
+        destination?.lat !== undefined &&
+        destination?.lon !== undefined
+      if (!coordsReady) return // Still hydrating — keep ref, skip clear
+      if (
+        origin.lat === restored.originLat &&
+        origin.lon === restored.originLon &&
+        destination.lat === restored.destLat &&
+        destination.lon === restored.destLon
+      ) {
+        restoredCoordsRef.current = null
+        return // Hydration complete — skip clear, result is valid
+      }
+      restoredCoordsRef.current = null
+    }
     setResult(null)
     setError(null)
     setSelectedHeatmapIdx(null)
     setSelectedReturnHeatmapIdx(null)
     setUserExplicitSlot(false)
+    // Invalidate any persisted result — user changed the route before a new result was calculated
+    try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon])
 
@@ -383,6 +520,8 @@ export function FerdalagidClient({
     setUserExplicitSlot(false)
     setSubmittedThresholds(null)
     setFerrySelection(newFerry)
+    // Invalidate persisted result — ferry port change makes any prior result stale
+    try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
   }
 
   async function handleSubmit(overridesParam?: TravelThresholdOverrides) {
@@ -986,6 +1125,12 @@ export function FerdalagidClient({
   const nextExpectedIsPast = !isVedurstofanDataFresh && nextExpectedAfterDataIso
     ? Date.parse(nextExpectedAfterDataIso) < Date.now()
     : false
+  // returnTo passed to Veðurstofan point cards for the pulse login CTA.
+  // sessionStorage restores automatically on mount — no ?restore=1 needed.
+  const vedurstofanReturnTo = (step === 'result' && result)
+    ? '/auth-mvp/vedrid'
+    : undefined
+
   // Show refresh button when data is stale, except while refreshing/running/fresh/cooldown.
   // stillStale also hides the button — the warm attempt just happened and needs a cooldown.
   // Public/guest users cannot call the refresh endpoint, so hide the button entirely for them.
@@ -1003,13 +1148,6 @@ export function FerdalagidClient({
 
         {/* Header */}
         <div className="flex items-center gap-2">
-          <Link
-            href={isGuest ? '/' : '/auth-mvp/heim'}
-            aria-label={t('backLink')}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-full text-muted-foreground hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <ChevronLeft size={20} aria-hidden />
-          </Link>
           <div className="flex-1 flex items-center gap-2">
             <CloudSun size={20} className="text-primary" aria-hidden />
             <h1 className="text-lg font-semibold text-primary">{t('title')}</h1>
@@ -1199,7 +1337,10 @@ export function FerdalagidClient({
                 routeFallback={routeFallback}
                 onUseFallback={() => setRouteFallback(true)}
                 selectedRouteId={selectedRouteId}
-                onRouteSelected={setSelectedRouteId}
+                onRouteSelected={(id) => {
+                  setSelectedRouteId(id)
+                  try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
+                }}
                 onConfirm={() => goNext('route')}
                 confirmLabel={routeFallback ? tf('routeConfirmFallback') : tf('routeConfirmSelected')}
                 confirmDisabled={!origin || !destination || (!selectedRouteId && !routeFallback)}
@@ -1266,11 +1407,9 @@ export function FerdalagidClient({
             {loading && (
               <WeatherResultLoader
                 title={tf('resultLoadingTitle')}
-                subtitle={tf('resultLoadingSubtitle')}
-                steps={[
-                  tf('resultLoadingStepRoute'),
-                  tf('resultLoadingStepWeather'),
-                  tf('resultLoadingStepWindow'),
+                bullets={[
+                  tf('resultLoadingBullet1'),
+                  tf('resultLoadingBullet2'),
                 ]}
                 routeLabel={
                   origin && destination
@@ -1429,47 +1568,43 @@ export function FerdalagidClient({
                       visibleStatuses={outboundVisibleStatuses}
                       onVisibleStatusesChange={setOutboundVisibleStatuses}
                       thresholdsUsed={!isVedurstofanOnly ? thresholdsUsed : undefined}
-                      title={null}
                       showSelectedDetail={false}
                       firstSlotLabel={!result.travelPlan!.outbound.windowMode ? tf('timelineNowLabel') : undefined}
                       slotStatusOverrides={combinedSlotStatuses ?? undefined}
                     />
                   )}
 
-                  {/* ── Journey summary grid ── */}
+                  {/* ── Journey summary ── */}
                   {!hasNoActiveProvider && (isVedurstofanOnly ? referenceDepartureIso : activeOutboundCandidate) && (
-                    <div className="border-y border-border/70 divide-y divide-border/60">
+                    <>
+                      {/* Departure context line */}
+                      <p className="text-sm text-foreground leading-snug">
+                        {tf.rich('departureCalculationContext', {
+                          departure: formatLongDepartureDateTime(
+                            isVedurstofanOnly ? referenceDepartureIso! : activeOutboundCandidate!.departureIso,
+                            locale,
+                          ),
+                          b: (chunks) => <strong className="font-semibold">{chunks}</strong>,
+                          br: () => <br />,
+                        })}
+                      </p>
+                      {!isVedurstofanOnly && ferrySelection && (
+                        <p className="text-xs text-muted-foreground">
+                          {tf('ferryResultNote', { portName: ferrySelection.ferryPort.name })}
+                        </p>
+                      )}
+                      {!isVedurstofanOnly && result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
+                        <p className="text-xs text-muted-foreground">
+                          {tf('bestWindowLabel')}: {formatWindowRange(result.travelPlan.outbound.bestWindow.fromIso, result.travelPlan.outbound.bestWindow.toIso, locale)}
+                        </p>
+                      )}
+                      {!isVedurstofanOnly && result.travelPlan?.return?.bestWindow && (
+                        <p className="text-xs text-muted-foreground">
+                          {tf('returnWindowLabel')}: {formatWindowRange(result.travelPlan.return.bestWindow.fromIso, result.travelPlan.return.bestWindow.toIso, locale)}
+                        </p>
+                      )}
 
-                      {/* Brottför */}
-                      <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
-                        <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionDeparture')}</p>
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-foreground">
-                            {formatCompactDateTime(
-                              isVedurstofanOnly ? referenceDepartureIso! : activeOutboundCandidate!.departureIso,
-                              locale,
-                            )}
-                          </p>
-                          {isVedurstofanOnly && (
-                            <p className="text-xs text-muted-foreground">{tf('vedurstofanReferenceTime')}</p>
-                          )}
-                          {!isVedurstofanOnly && ferrySelection && (
-                            <p className="text-xs text-muted-foreground">
-                              {tf('ferryResultNote', { portName: ferrySelection.ferryPort.name })}
-                            </p>
-                          )}
-                          {!isVedurstofanOnly && result.travelPlan?.outbound.windowMode && result.travelPlan.outbound.bestWindow && (
-                            <p className="text-xs text-muted-foreground">
-                              {tf('bestWindowLabel')}: {formatWindowRange(result.travelPlan.outbound.bestWindow.fromIso, result.travelPlan.outbound.bestWindow.toIso, locale)}
-                            </p>
-                          )}
-                          {!isVedurstofanOnly && result.travelPlan?.return?.bestWindow && (
-                            <p className="text-xs text-muted-foreground">
-                              {tf('returnWindowLabel')}: {formatWindowRange(result.travelPlan.return.bestWindow.fromIso, result.travelPlan.return.bestWindow.toIso, locale)}
-                            </p>
-                          )}
-                        </div>
-                      </section>
+                      <div className="border-y border-border/70 divide-y divide-border/60">
 
                       {/* Á leiðinni */}
                       {derivedStyle && (() => {
@@ -1479,13 +1614,16 @@ export function FerdalagidClient({
                           (isVedurstofanOnly || (showMetno && showVedurstofan && combinedDecisiveProvider === 'vedurstofan'))
                         ) {
                           return (
-                            <VedurstofanJourneySummary
+                            <VedurstofanPointCard
+                              variant="compact"
                               station={worstVedurstofanData.station}
                               status={worstVedurstofanData.status}
                               etaIso={worstVedurstofanData.etaIso}
+                              departureIso={referenceDepartureIso}
                               ftimeIso={worstVedurstofanData.ftimeIso}
                               windMs={worstVedurstofanData.windMs}
                               originName={origin?.name ?? ''}
+                              returnTo={vedurstofanReturnTo}
                             />
                           )
                         }
@@ -1586,6 +1724,7 @@ export function FerdalagidClient({
                       )}
 
                     </div>
+                    </>
                   )}
 
                   {/* ── Brottför og áfangastaður ── */}
@@ -1704,6 +1843,7 @@ export function FerdalagidClient({
                 vedurstofanLayerPoints={vedurstofanLayer?.points}
                 referenceDepartureIso={referenceDepartureIso}
                 referenceArrivalIso={referenceArrivalIso}
+                vedurstofanReturnTo={vedurstofanReturnTo}
                 highlightedIssue={heatmapHighlightedIssue}
                 staticMapUrl={result.travelPlan?.route.auditMapUrl}
                 selectedCandidatePointStatuses={selectedCandidatePointStatuses}
@@ -1852,6 +1992,7 @@ export function FerdalagidClient({
                             etaIso={assessment?.etaIso ?? null}
                             departureIso={referenceDepartureIso}
                             originName={origin?.name ?? ''}
+                            returnTo={vedurstofanReturnTo}
                           />
                         )
                       })}

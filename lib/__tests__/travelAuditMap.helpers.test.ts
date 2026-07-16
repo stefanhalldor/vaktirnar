@@ -12,6 +12,7 @@ import {
   derivePointWeatherForCandidate,
   buildThresholdContext,
   selectNearestVedurstofanRow,
+  formatLongDepartureDateTime,
 } from '@/components/weather/travelAuditMap.helpers'
 import type { RouteWeatherPoint, TravelIssue, TravelCandidate, ForecastDrawerRow } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
@@ -782,6 +783,30 @@ describe('buildThresholdContext', () => {
     const ctxSelected = buildThresholdContext(summarySelected, th10_15)
     const ctxList = buildThresholdContext(summaryList, th10_15)
     expect(ctxSelected).toEqual(ctxList)
+  })
+})
+
+// ── formatLongDepartureDateTime ───────────────────────────────────────────────
+
+describe('formatLongDepartureDateTime', () => {
+  it('returns full Icelandic Friday in accusative', () => {
+    // 2026-07-17T04:00:00Z is a Friday (UTC)
+    expect(formatLongDepartureDateTime('2026-07-17T04:00:00Z', 'is')).toBe('föstudaginn 17. júl kl. 04:00')
+  })
+
+  it('returns full Icelandic Saturday in accusative', () => {
+    // 2026-07-18T04:00:00Z is a Saturday (UTC)
+    expect(formatLongDepartureDateTime('2026-07-18T04:00:00Z', 'is')).toBe('laugardaginn 18. júl kl. 04:00')
+  })
+
+  it('pads single-digit hours and minutes', () => {
+    expect(formatLongDepartureDateTime('2026-07-17T08:05:00Z', 'is')).toBe('föstudaginn 17. júl kl. 08:05')
+  })
+
+  it('returns English long weekday for en locale', () => {
+    const result = formatLongDepartureDateTime('2026-07-17T04:00:00Z', 'en')
+    expect(result).toContain('Friday')
+    expect(result).toContain('04:00')
   })
 })
 

@@ -45,8 +45,7 @@ function selectPrevUsedNext(
 
 /**
  * Pure display model derived from a Veðurstofan station point.
- * One source of truth for data selection used by both VedurstofanPointCard (full)
- * and VedurstofanJourneySummary (compact).
+ * Used by VedurstofanPointCard for both full and compact variants.
  */
 export type VedurstofanPointDisplayModel = {
   distFromOriginKm: number | null
@@ -109,72 +108,6 @@ function ForecastRowLine({
   )
 }
 
-/** Compact "Á leiðinni" summary — structured rows inside the journey panel grid cell.
- *
- * Shares data selection (distKm, etaTimeLabel, ftimeLabel) with VedurstofanPointCard
- * but renders as inline rows rather than a full card, per Design.md structured-summary guidance.
- */
-export function VedurstofanJourneySummary({
-  station,
-  status,
-  etaIso,
-  ftimeIso,
-  windMs,
-  originName,
-}: {
-  station: VedurstofanTravelLayer['points'][number]
-  status: WindDisplayStatus
-  etaIso: string | null
-  ftimeIso: string | null
-  windMs: number | null
-  originName: string
-}) {
-  const tf = useTranslations('teskeid.vedrid.ferdalagid')
-  const locale = useLocale()
-  const model = buildVedurstofanPointDisplayModel(station, etaIso, ftimeIso)
-  const { distFromOriginKm, etaTimeLabel, ftimeLabel } = model
-  const originDisplay = getOriginDisplay(originName, locale, tf('slotDetailOriginFallback'))
-
-  return (
-    <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
-      <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionOnWay')}</p>
-      <div className="space-y-1">
-        <WindStatusBadge status={status} variant="line" />
-        {distFromOriginKm !== null && etaTimeLabel && (
-          <p className="text-xs text-muted-foreground">
-            {distFromOriginKm === 0
-              ? tf('slotDetailWorstAtStart', { time: etaTimeLabel })
-              : tf('slotDetailWorstDistanceAt', { distance: distFromOriginKm, origin: originDisplay, time: etaTimeLabel })}
-          </p>
-        )}
-        <p className="text-xs text-muted-foreground">
-          {station.stationName}
-          {windMs !== null && (
-            <>{' · '}{tf('metricWind').toLowerCase()} {formatNum(windMs, locale)} m/s</>
-          )}
-          {ftimeLabel && (
-            <>{' · '}{tf('vedurstofanForecastUsedAt', { time: ftimeLabel })}</>
-          )}
-        </p>
-        {station.atimeIso && (
-          <p className="text-[11px] text-muted-foreground/70">
-            {tf('vedurstofanForecastFrom', { time: formatKlTime(station.atimeIso) })}
-          </p>
-        )}
-        <p className="text-[10px] text-muted-foreground/60">{tf('providerVedurstofanLabel')}</p>
-        <div className="mt-1 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-          {tf.rich('weatherDisclaimer', {
-            link: (chunks) => (
-              <a href="https://umferdin.is/" target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-2">
-                {chunks}
-              </a>
-            ),
-          })}
-        </div>
-      </div>
-    </section>
-  )
-}
 
 export function VedurstofanPointCard({
   station,
@@ -184,6 +117,10 @@ export function VedurstofanPointCard({
   originName,
   isManualSelection,
   panelTitle,
+  returnTo,
+  ftimeIso,
+  windMs,
+  variant = 'full',
 }: {
   station: VedurstofanTravelLayer['points'][number]
   status: WindDisplayStatus
@@ -195,13 +132,63 @@ export function VedurstofanPointCard({
   isManualSelection?: boolean
   /** Panel header label (e.g. "Mest krefjandi" or "Valin veðurspá"). */
   panelTitle?: string
+  /** Return URL for the full pulse route. Passed to VedurstofanPulseInline. */
+  returnTo?: string
+  /** Forecast row time (used in compact variant for ftimeLabel). */
+  ftimeIso?: string | null
+  /** Wind speed in m/s (used in compact variant summary line). */
+  windMs?: number | null
+  /** 'compact' renders the inline "Á leiðinni" summary row; 'full' (default) renders the full station card. */
+  variant?: 'compact' | 'full'
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
-  const model = buildVedurstofanPointDisplayModel(station, etaIso, null)
-  const { distFromOriginKm, distFromRoadM, prev, used, next } = model
+  const model = buildVedurstofanPointDisplayModel(station, etaIso, variant === 'compact' ? (ftimeIso ?? null) : null)
+  const { distFromOriginKm, distFromRoadM, etaTimeLabel, ftimeLabel, prev, used, next } = model
 
   const originDisplay = getOriginDisplay(originName, locale, tf('slotDetailOriginFallback'))
+
+  if (variant === 'compact') {
+    return (
+      <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
+        <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionOnWay')}</p>
+        <div className="space-y-1">
+          <WindStatusBadge status={status} variant="line" />
+          {distFromOriginKm !== null && etaTimeLabel && (
+            <p className="text-xs text-muted-foreground">
+              {distFromOriginKm === 0
+                ? tf('slotDetailWorstAtStart', { time: etaTimeLabel })
+                : tf('slotDetailWorstDistanceAt', { distance: distFromOriginKm, origin: originDisplay, time: etaTimeLabel })}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {station.stationName}
+            {windMs != null && (
+              <>{' · '}{tf('metricWind').toLowerCase()} {formatNum(windMs, locale)} m/s</>
+            )}
+            {ftimeLabel && (
+              <>{' · '}{tf('vedurstofanForecastUsedAt', { time: ftimeLabel })}</>
+            )}
+          </p>
+          {station.atimeIso && (
+            <p className="text-[11px] text-muted-foreground/70">
+              {tf('vedurstofanForecastFrom', { time: formatKlTime(station.atimeIso) })}
+            </p>
+          )}
+          <p className="text-[10px] text-muted-foreground/60">{tf('providerVedurstofanLabel')}</p>
+          <div className="mt-1 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+            {tf.rich('weatherDisclaimer', {
+              link: (chunks) => (
+                <a href="https://umferdin.is/" target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-2">
+                  {chunks}
+                </a>
+              ),
+            })}
+          </div>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <div className="rounded-xl border border-border bg-card px-3 py-3 flex flex-col gap-2 text-xs text-muted-foreground">
@@ -285,7 +272,7 @@ export function VedurstofanPointCard({
         </a>
       )}
 
-      <VedurstofanPulseInline stationId={station.stationId} />
+      <VedurstofanPulseInline stationId={station.stationId} returnTo={returnTo} />
     </div>
   )
 }

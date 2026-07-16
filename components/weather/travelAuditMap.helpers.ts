@@ -188,6 +188,7 @@ export function formatKlTime(isoString: string): string {
 }
 
 const CDT_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
+const CDT_IS_WEEKDAY_LONG = ['sunnudaginn', 'mánudaginn', 'þriðjudaginn', 'miðvikudaginn', 'fimmtudaginn', 'föstudaginn', 'laugardaginn']
 const CDT_IS_MONTH = ['jan', 'feb', 'mar', 'apr', 'maí', 'jún', 'júl', 'ágú', 'sep', 'okt', 'nóv', 'des']
 
 /**
@@ -205,6 +206,27 @@ export function formatCompactDateTime(isoString: string, locale: string): string
   }
   const parts = new Intl.DateTimeFormat('en-GB', {
     weekday: 'short', day: 'numeric', month: 'short',
+    timeZone: 'Atlantic/Reykjavik',
+  }).formatToParts(d)
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? ''
+  return `${get('weekday')} ${get('day')} ${get('month')} ${hh}:${mm}`
+}
+
+/**
+ * Long date+time label with full definite weekday name and proper Icelandic case.
+ * IS: "föstudaginn 17. júl kl. 04:00"
+ * EN: "Friday 17 Jul 04:00"
+ */
+export function formatLongDepartureDateTime(isoString: string, locale: string): string {
+  const d = new Date(isoString)
+  const norm = normalizeLocale(locale)
+  const hh = d.getUTCHours().toString().padStart(2, '0')
+  const mm = d.getUTCMinutes().toString().padStart(2, '0')
+  if (norm.startsWith('is')) {
+    return `${CDT_IS_WEEKDAY_LONG[d.getUTCDay()]} ${d.getUTCDate()}. ${CDT_IS_MONTH[d.getUTCMonth()]} kl. ${hh}:${mm}`
+  }
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'long', day: 'numeric', month: 'short',
     timeZone: 'Atlantic/Reykjavik',
   }).formatToParts(d)
   const get = (type: string) => parts.find(p => p.type === type)?.value ?? ''

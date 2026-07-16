@@ -1,11 +1,10 @@
 type WeatherResultLoaderProps = {
   title: string
-  subtitle: string
-  steps: [string, string, string]
+  bullets: [string, string]
   routeLabel?: string
 }
 
-export function WeatherResultLoader({ title, subtitle, steps, routeLabel }: WeatherResultLoaderProps) {
+export function WeatherResultLoader({ title, bullets, routeLabel }: WeatherResultLoaderProps) {
   return (
     <div
       role="status"
@@ -22,15 +21,14 @@ export function WeatherResultLoader({ title, subtitle, steps, routeLabel }: Weat
           {routeLabel && (
             <p className="text-xs text-muted-foreground truncate">{routeLabel}</p>
           )}
-          <p className={routeLabel ? 'sr-only' : 'text-xs text-muted-foreground'}>{subtitle}</p>
         </div>
       </div>
 
-      <ul className="flex flex-col gap-2 pl-1" aria-hidden>
-        {steps.map((step, i) => (
-          <li key={i} className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary/40 shrink-0 animate-pulse" style={{ animationDelay: `${i * 300}ms` }} />
-            <span className="text-xs text-muted-foreground">{step}</span>
+      <ul className="flex flex-col gap-2 pl-1">
+        {bullets.map((bullet, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary/40 shrink-0 mt-1.5" aria-hidden />
+            <span className="text-xs text-muted-foreground">{bullet}</span>
           </li>
         ))}
       </ul>

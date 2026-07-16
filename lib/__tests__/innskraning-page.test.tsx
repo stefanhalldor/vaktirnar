@@ -3,8 +3,10 @@
  *
  * Covers:
  *   - Unauthenticated user: form rendered, no redirect
- *   - Authenticated with session: redirects to /auth-mvp/heim (no allowlist check)
+ *   - Authenticated with session: redirects to /auth-mvp/heim or safe ?next
+ *   - Unsafe ?next is ignored (falls back to /auth-mvp/heim)
  *   - AUTH_MVP_ENABLED=false: no session check, form rendered
+ *   - Safe ?next is passed to TeskeidLoginForm as nextHref
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -69,20 +71,32 @@ describe('InnskraningPage — unauthenticated', () => {
   afterEach(() => setEnv('AUTH_MVP_ENABLED', savedAuth))
 
   it('renders the login form', async () => {
-    const Page = await InnskraningPage()
+    const Page = await InnskraningPage({ searchParams: Promise.resolve({}) })
     render(Page as React.ReactElement)
     expect(screen.getByTestId('login-form')).toBeDefined()
   })
 
   it('does not redirect', async () => {
-    await InnskraningPage()
+    await InnskraningPage({ searchParams: Promise.resolve({}) })
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 
   it('passes logoHref="/" to the login form', async () => {
-    const Page = await InnskraningPage()
+    const Page = await InnskraningPage({ searchParams: Promise.resolve({}) })
     render(Page as React.ReactElement)
     expect(mockLoginFormProps.current.logoHref).toBe('/')
+  })
+
+  it('passes safe ?next as nextHref to the login form', async () => {
+    const Page = await InnskraningPage({ searchParams: Promise.resolve({ next: '/auth-mvp/vedrid?restore=1' }) })
+    render(Page as React.ReactElement)
+    expect(mockLoginFormProps.current.nextHref).toBe('/auth-mvp/vedrid?restore=1')
+  })
+
+  it('does not pass unsafe ?next to the login form', async () => {
+    const Page = await InnskraningPage({ searchParams: Promise.resolve({ next: 'https://evil.example' }) })
+    render(Page as React.ReactElement)
+    expect(mockLoginFormProps.current.nextHref).toBeUndefined()
   })
 })
 
@@ -99,12 +113,24 @@ describe('InnskraningPage — authenticated with session', () => {
   afterEach(() => setEnv('AUTH_MVP_ENABLED', savedAuth))
 
   it('redirects to /auth-mvp/heim', async () => {
-    await expect(InnskraningPage()).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/heim')
+    await expect(InnskraningPage({ searchParams: Promise.resolve({}) })).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/heim')
   })
 
   it('redirects regardless of email domain', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'anyone@gmail.com' } } })
-    await expect(InnskraningPage()).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/heim')
+    await expect(InnskraningPage({ searchParams: Promise.resolve({}) })).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/heim')
+  })
+
+  it('redirects to safe ?next when authenticated', async () => {
+    await expect(
+      InnskraningPage({ searchParams: Promise.resolve({ next: '/auth-mvp/vedrid/puls/stod/12345' }) })
+    ).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/vedrid/puls/stod/12345')
+  })
+
+  it('ignores unsafe ?next and redirects to /auth-mvp/heim', async () => {
+    await expect(
+      InnskraningPage({ searchParams: Promise.resolve({ next: 'https://evil.example' }) })
+    ).rejects.toThrow('NEXT_REDIRECT:/auth-mvp/heim')
   })
 })
 
@@ -120,7 +146,7 @@ describe('InnskraningPage — AUTH_MVP_ENABLED=false', () => {
   afterEach(() => setEnv('AUTH_MVP_ENABLED', savedAuth))
 
   it('skips session check and renders form', async () => {
-    const Page = await InnskraningPage()
+    const Page = await InnskraningPage({ searchParams: Promise.resolve({}) })
     render(Page as React.ReactElement)
     expect(screen.getByTestId('login-form')).toBeDefined()
     expect(mockGetUser).not.toHaveBeenCalled()

@@ -106,6 +106,8 @@ export type TravelAuditMapProps = {
   referenceDepartureIso?: string | null
   /** Reference arrival ISO for ETA computation in overlay detail panel. */
   referenceArrivalIso?: string | null
+  /** returnTo value forwarded to VedurstofanPointCard in the overlay panel so pulse CTAs carry trip context. */
+  vedurstofanReturnTo?: string
 }
 
 /** Creates a Google Maps Symbol icon for a route weather point marker. */
@@ -158,6 +160,7 @@ export function TravelAuditMap({
   vedurstofanLayerPoints,
   referenceDepartureIso,
   referenceArrivalIso,
+  vedurstofanReturnTo,
 }: TravelAuditMapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -687,6 +690,7 @@ export function TravelAuditMap({
           referenceDepartureIso={referenceDepartureIso}
           referenceArrivalIso={referenceArrivalIso}
           originName={originName}
+          vedurstofanReturnTo={vedurstofanReturnTo}
         />
       )}
 
@@ -717,6 +721,7 @@ function OverlayPointDetailsPanel({
   referenceDepartureIso,
   referenceArrivalIso,
   originName,
+  vedurstofanReturnTo,
 }: {
   point: ProviderMapPoint
   isManualSelection: boolean
@@ -724,6 +729,7 @@ function OverlayPointDetailsPanel({
   referenceDepartureIso?: string | null
   referenceArrivalIso?: string | null
   originName: string
+  vedurstofanReturnTo?: string
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -752,6 +758,7 @@ function OverlayPointDetailsPanel({
         originName={originName}
         isManualSelection={isManualSelection}
         panelTitle={panelTitle}
+        returnTo={vedurstofanReturnTo}
       />
     )
   }
