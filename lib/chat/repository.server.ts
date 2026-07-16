@@ -12,7 +12,6 @@ import type {
 
 // ── Row → DTO helpers ─────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toThreadDto(row: any): ThreadDto {
   return {
     id: row.id,
@@ -33,7 +32,6 @@ function toPublicFirstName(displayName: string | null): string | null {
   return first || null
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toMessageDto(row: any, profileMap: Map<string, string | null> = new Map()): MessageDto {
   const isDeleted = !!row.deleted_at
   const isHidden = !!row.hidden_at
@@ -63,7 +61,6 @@ async function fetchProfileMap(userIds: string[]): Promise<Map<string, string | 
       .select('id, display_name')
       .in('id', userIds)
     if (!data) return new Map()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return new Map((data as any[]).map((p: any) => [p.id, p.display_name ?? null]))
   } catch {
     return new Map()
@@ -139,7 +136,6 @@ export async function listMessages(
   opts?: { limit?: number; before?: string }
 ): Promise<MessageDto[]> {
   const admin = getAdmin()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query: any = admin
     .from('teskeid_chat_messages')
     .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
@@ -153,10 +149,8 @@ export async function listMessages(
   if (error) throw new Error('chat: listMessages failed')
   // Reverse so the panel displays oldest-at-top within the fetched window.
   const rows = (data ?? []).reverse()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userIds = [...new Set<string>(rows.map((r: any) => r.user_id).filter(Boolean))]
   const profileMap = await fetchProfileMap(userIds)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rows.map((r: any) => toMessageDto(r, profileMap))
 }
 
@@ -313,7 +307,6 @@ export async function getFeedMessages(
   const limit = opts?.limit ?? 50
 
   // Step 1: Fetch threads matching scope to build a target metadata map.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: threads, error: threadsError } = await admin
     .from('teskeid_chat_threads')
     .select('id, domain, target_type, target_id, target_name, provider')
@@ -323,12 +316,10 @@ export async function getFeedMessages(
   if (threadsError) throw new Error('chat: getFeedMessages failed')
   if (!threads || threads.length === 0) return []
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const threadMap = new Map<string, any>(threads.map((t: any) => [t.id, t]))
   const threadIds = threads.map((t: any) => t.id as string)
 
   // Step 2: Fetch messages from those threads, newest first.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query: any = admin
     .from('teskeid_chat_messages')
     .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
@@ -344,11 +335,9 @@ export async function getFeedMessages(
   if (messagesError) throw new Error('chat: getFeedMessages failed')
 
   const rows = messages ?? []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userIds = [...new Set<string>(rows.map((r: any) => r.user_id).filter(Boolean))]
   const profileMap = await fetchProfileMap(userIds)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rows.map((row: any): FeedMessageDto => {
     const thread = threadMap.get(row.thread_id)
     const isDeleted = !!row.deleted_at
@@ -447,7 +436,6 @@ export async function getPreviewMessages(
   if (threadError) throw new Error('chat: getPreviewMessages failed')
   if (!thread) return []
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await admin
     .from('teskeid_chat_messages')
     .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
@@ -459,9 +447,7 @@ export async function getPreviewMessages(
 
   if (error) throw new Error('chat: getPreviewMessages failed')
   const rows = (data ?? []).reverse()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userIds = [...new Set<string>(rows.map((r: any) => r.user_id).filter(Boolean))]
   const profileMap = await fetchProfileMap(userIds)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return rows.map((r: any) => toMessageDto(r, profileMap))
 }
