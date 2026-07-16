@@ -887,7 +887,7 @@
         "vedurstofanRefreshFresh": "Gögn uppfærð",
         "vedurstofanRefreshStillStale": "Við reyndum að sækja ný gögn en Veðurstofan skilaði enn eldri spá",
         "vedurstofanRefreshFailed": "Ekki tókst að sækja ný gögn",
-        "vedurstofanDataStale": "Veðurstofugögnin eru gömul",
+        "vedurstofanDataStale": "Ný gögn frá Veðurstofunni verða vonandi aðgengileg fljótlega",
         "vedurstofanNewDataAvailable": "Ný Veðurstofugögn eru komin",
         "vedurstofanUpdateAssessment": "Uppfæra mat",
         "vedurstofanRefreshRunning": "Verið er að sækja ný gögn...",

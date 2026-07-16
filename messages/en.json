@@ -883,7 +883,7 @@
         "vedurstofanRefreshFresh": "Data updated",
         "vedurstofanRefreshStillStale": "We tried to fetch new data but the provider still returned older data",
         "vedurstofanRefreshFailed": "Could not fetch new data",
-        "vedurstofanDataStale": "Veðurstofan data is outdated",
+        "vedurstofanDataStale": "New data from Veðurstofan should hopefully be available soon",
         "vedurstofanNewDataAvailable": "New Veðurstofan data is available",
         "vedurstofanUpdateAssessment": "Update assessment",
         "vedurstofanRefreshRunning": "Data is being fetched...",

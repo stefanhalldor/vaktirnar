@@ -24,7 +24,7 @@ export type ChatAccessResult =
  *    which respects WEATHER_ENABLED=All|Authenticated without requiring a
  *    private `vedrid` feature row for base access
  * 4. weather-provider-vedurstofan feature row
- * 5. weather-pulse feature row (unless WEATHER_PULSE_ACCESS_REQUIRED=false)
+ * 5. weather-pulse feature row (unless WEATHER_PULSE_ACCESS_REQUIRED is not 'true')
  */
 export async function checkChatAccess(user: User | null): Promise<ChatAccessResult> {
   if (!user?.email) return 'no-session'
@@ -36,9 +36,9 @@ export async function checkChatAccess(user: User | null): Promise<ChatAccessResu
   const hasVedurstofan = await checkFeatureAccess(user.id, user.email, 'weather-provider-vedurstofan').catch(() => false)
   if (!hasVedurstofan) return 'no-vedurstofan'
 
-  // WEATHER_PULSE_ACCESS_REQUIRED=false graduates Veðurpúls to all Veðurstofan-provider users.
-  // Default (unset or true) keeps it per-user gated.
-  if (process.env.WEATHER_PULSE_ACCESS_REQUIRED === 'false') return 'allowed'
+  // Graduation pattern: per-user gate active only when WEATHER_PULSE_ACCESS_REQUIRED=true.
+  // Unset (delete from Vercel) = open to all Veðurstofan-provider users.
+  if (process.env.WEATHER_PULSE_ACCESS_REQUIRED !== 'true') return 'allowed'
 
   const hasPulse = await checkFeatureAccess(user.id, user.email, 'weather-pulse').catch(() => false)
   if (!hasPulse) return 'no-pulse'

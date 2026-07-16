@@ -988,7 +988,9 @@ export function FerdalagidClient({
     : false
   // Show refresh button when data is stale, except while refreshing/running/fresh/cooldown.
   // stillStale also hides the button — the warm attempt just happened and needs a cooldown.
-  const showVedurstofanRefreshButton = !isVedurstofanDataFresh
+  // Public/guest users cannot call the refresh endpoint, so hide the button entirely for them.
+  const showVedurstofanRefreshButton = !isGuest
+    && !isVedurstofanDataFresh
     && vedurstofanRefreshState !== 'refreshing'
     && vedurstofanRefreshState !== 'fresh'
     && vedurstofanRefreshState !== 'running'

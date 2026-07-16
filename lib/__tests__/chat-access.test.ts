@@ -25,6 +25,7 @@ function makeUser(email = 'test@example.com'): User {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubEnv('TESKEID_CHAT_ENABLED', 'true')
+  // Default: per-user gate active. Tests that verify graduation unset/non-true override this.
   vi.stubEnv('WEATHER_PULSE_ACCESS_REQUIRED', 'true')
   mockShellAccess.mockResolvedValue({ mode: 'authenticated', userId: 'uid-1', hasPrivateVedrid: false })
   mockCheckFeatureAccess.mockResolvedValue(true)
@@ -84,9 +85,18 @@ describe('checkChatAccess — allowed', () => {
     expect(await checkChatAccess(makeUser())).toBe('allowed')
   })
 
-  it('returns allowed when WEATHER_PULSE_ACCESS_REQUIRED=false (graduated)', async () => {
+  it('returns allowed when WEATHER_PULSE_ACCESS_REQUIRED is absent/empty (graduated)', async () => {
+    vi.stubEnv('WEATHER_PULSE_ACCESS_REQUIRED', '')
+    // Even if weather-pulse check returns false, should be allowed — graduation pattern
+    mockCheckFeatureAccess.mockImplementation(async (_uid, _email, key) => {
+      if (key === 'weather-pulse') return false
+      return true
+    })
+    expect(await checkChatAccess(makeUser())).toBe('allowed')
+  })
+
+  it('returns allowed when WEATHER_PULSE_ACCESS_REQUIRED=false (non-true treated as graduated)', async () => {
     vi.stubEnv('WEATHER_PULSE_ACCESS_REQUIRED', 'false')
-    // Even if weather-pulse check returns false, should be allowed
     mockCheckFeatureAccess.mockImplementation(async (_uid, _email, key) => {
       if (key === 'weather-pulse') return false
       return true
@@ -101,13 +111,13 @@ describe('checkChatAccess — allowed', () => {
 })
 
 describe('checkChatAccess — provider required even when pulse graduated', () => {
-  it('returns no-vedurstofan even when WEATHER_PULSE_ACCESS_REQUIRED=false', async () => {
-    vi.stubEnv('WEATHER_PULSE_ACCESS_REQUIRED', 'false')
+  it('returns no-vedurstofan even when WEATHER_PULSE_ACCESS_REQUIRED is not true', async () => {
+    vi.stubEnv('WEATHER_PULSE_ACCESS_REQUIRED', '')
     mockCheckFeatureAccess.mockImplementation(async (_uid, _email, key) => {
       if (key === 'weather-provider-vedurstofan') return false
       return true
     })
-    // WEATHER_PULSE_ACCESS_REQUIRED=false must not bypass the provider requirement
+    // Graduation of pulse must not bypass the Veðurstofan provider requirement
     expect(await checkChatAccess(makeUser())).toBe('no-vedurstofan')
   })
 })

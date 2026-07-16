@@ -125,7 +125,7 @@ export function RouteSelectionStep({
         if (cancelled || !mapDivRef.current) return
         mapRef.current = new mapsLib.Map(mapDivRef.current, {
           center: { lat: 64.9, lng: -18.8 }, // Iceland center
-          zoom: 6,
+          zoom: 5,
           mapTypeId: 'roadmap',
           gestureHandling: 'cooperative',
           zoomControl: true,
@@ -245,7 +245,7 @@ export function RouteSelectionStep({
 
       if (!bounds.isEmpty()) {
         if (origin && effectMapDest) {
-          mapRef.current!.fitBounds(bounds, { top: 48, bottom: 48, left: 48, right: 48 })
+          mapRef.current!.fitBounds(bounds, { top: 32, bottom: 32, left: 32, right: 32 })
         } else if (origin) {
           mapRef.current!.setCenter(toLngLat(origin))
           mapRef.current!.setZoom(10)

@@ -107,9 +107,12 @@ export async function checkFeatureAccess(
     // It does NOT check the full Veðurpúls access chain (session, weather shell,
     // Veðurstofan provider). All page/API access MUST go through checkChatAccess()
     // in lib/chat/access.server.ts, which enforces all five layers.
-    // WEATHER_PULSE_ACCESS_REQUIRED=false: skip per-user gate (still requires checkChatAccess).
-    // Default (unset or 'true'): per-user gate via feature_access row.
-    if (process.env.WEATHER_PULSE_ACCESS_REQUIRED === 'false') return true
+    // Graduation pattern: per-user gate active only when var is explicitly 'true'.
+    // Unset (delete from Vercel) = open to all Veðurstofan-provider users.
+    // WEATHER_PULSE_ACCESS_REQUIRED=true keeps per-user gate active.
+    const pulseAccessRequired =
+      process.env.WEATHER_PULSE_ACCESS_REQUIRED === 'true'
+    if (!pulseAccessRequired) return true
     return checkPerUserAccess(email, 'weather-pulse')
   }
   return false
