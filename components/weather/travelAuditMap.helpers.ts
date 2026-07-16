@@ -1,4 +1,5 @@
 import type { RouteWeatherPoint, TravelIssue, TravelCandidate, WeatherStatus, ResolvedTravelThresholds, ForecastDrawerRow } from '@/lib/weather/types'
+import { type WindDisplayStatus, classifyPointWindDisplayStatus } from '@/lib/weather/windDisplayStatus'
 
 /** Single row shape from vedurstofanStation.forecastRows. */
 export type VedurstofanForecastRow = NonNullable<NonNullable<RouteWeatherPoint['vedurstofanStation']>['forecastRows']>[number]
@@ -189,7 +190,7 @@ export function formatKlTime(isoString: string): string {
 
 const CDT_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
 const CDT_IS_WEEKDAY_LONG = ['sunnudaginn', 'mánudaginn', 'þriðjudaginn', 'miðvikudaginn', 'fimmtudaginn', 'föstudaginn', 'laugardaginn']
-const CDT_IS_MONTH = ['jan', 'feb', 'mar', 'apr', 'maí', 'jún', 'júl', 'ágú', 'sep', 'okt', 'nóv', 'des']
+const CDT_IS_MONTH = ['jan.', 'feb.', 'mars', 'apríl', 'maí', 'júní', 'júlí', 'ágúst', 'sep.', 'okt.', 'nóv.', 'des.']
 
 /**
  * Compact date+time label. Atlantic/Reykjavik = UTC+0 year-round, so UTC values are used directly.
@@ -323,6 +324,50 @@ export function derivePointWeatherForCandidate(
     forecastTimeIso: best.timeIso,
     etaIso,
   }
+}
+
+/**
+ * Resolves the fine-grained WindDisplayStatus for a route point using the same
+ * value priority as buildPointSummary:
+ *   1. activeCandidate.displayPoint when routeIndex matches (server-computed decisive values)
+ *   2. Nearest forecast row to ETA when activeCandidate is present and rows exist
+ *   3. summaryForWindow when no activeCandidate is present
+ * Returns no_data when activeCandidate is present but no weather data is available.
+ */
+export function resolveRoutePointWindDisplayStatus({
+  point,
+  activeCandidate,
+  activeLeg,
+  thresholds,
+}: {
+  point: RouteWeatherPoint
+  activeCandidate?: TravelCandidate
+  activeLeg?: 'outbound' | 'return'
+  thresholds: ResolvedTravelThresholds
+}): { status: WindDisplayStatus; windMs: number | undefined; hasData: boolean } {
+  function classify(windMs: number | undefined, hasData: boolean) {
+    return { status: classifyPointWindDisplayStatus(windMs, hasData, thresholds), windMs, hasData }
+  }
+
+  if (activeCandidate) {
+    // Priority 1: server-computed decisive values for this candidate's worst point
+    if (activeCandidate.displayPoint?.routeIndex === point.routeIndex) {
+      return classify(activeCandidate.displayPoint.windMs, true)
+    }
+    // Priority 2: nearest forecast row to ETA
+    const derived = derivePointWeatherForCandidate(point, activeCandidate, activeLeg ?? 'outbound')
+    if (derived) {
+      return classify(derived.windMs, true)
+    }
+    // No data available under active candidate
+    return classify(undefined, false)
+  }
+
+  // Priority 3: static summaryForWindow
+  if (point.summaryForWindow) {
+    return classify(point.summaryForWindow.worstWindMs, true)
+  }
+  return classify(undefined, false)
 }
 
 /**

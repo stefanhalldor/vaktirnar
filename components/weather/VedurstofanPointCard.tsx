@@ -213,15 +213,12 @@ export function VedurstofanPointCard({
 
       {/* Previous / used / next forecast rows */}
       {(prev || used || next) && (() => {
-        const visibleRows = [prev, used, next].filter(Boolean) as typeof prev[]
-        const firstDay = visibleRows[0] ? new Date(visibleRows[0].ftimeIso).getUTCDate() : null
-        const showDate = firstDay !== null && visibleRows.some(r => r && new Date(r.ftimeIso).getUTCDate() !== firstDay)
         const marker = tf('vedurstofanForecastUsedMarker')
         return (
           <div className="flex flex-col divide-y divide-border/40 border-t border-border/40 pt-1">
-            {prev && <ForecastRowLine row={prev} isUsed={false} locale={locale} usedMarker={marker} showDate={showDate} />}
-            {used && <ForecastRowLine row={used} isUsed={true} locale={locale} usedMarker={marker} showDate={showDate} />}
-            {next && <ForecastRowLine row={next} isUsed={false} locale={locale} usedMarker={marker} showDate={showDate} />}
+            {prev && <ForecastRowLine row={prev} isUsed={false} locale={locale} usedMarker={marker} showDate />}
+            {used && <ForecastRowLine row={used} isUsed={true} locale={locale} usedMarker={marker} showDate />}
+            {next && <ForecastRowLine row={next} isUsed={false} locale={locale} usedMarker={marker} showDate />}
           </div>
         )
       })()}

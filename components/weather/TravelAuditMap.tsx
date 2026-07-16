@@ -25,29 +25,11 @@ import {
   buildPointSummary,
   markerStyleForStatus,
   formatKlTime,
-  estimatePointEtaIso,
+  resolveRoutePointWindDisplayStatus,
   type PointSummary,
 } from './travelAuditMap.helpers'
 import { RouteWeatherPointDetailCard } from './RouteWeatherPointDetailCard'
 import { VedurstofanPointCard } from './VedurstofanPointCard'
-
-/** Returns the wind speed (m/s) from the forecast row nearest to etaIso, or undefined if unavailable. */
-function getPointWindMsForCandidate(
-  pt: RouteWeatherPoint,
-  activeCandidate: TravelCandidate,
-  activeLeg: 'outbound' | 'return',
-): number | undefined {
-  const etaIso = estimatePointEtaIso(activeCandidate, pt, activeLeg)
-  if (!etaIso || !pt.forecastRows?.length) return undefined
-  const etaMs = new Date(etaIso).getTime()
-  let best = pt.forecastRows[0]
-  let bestDelta = Math.abs(new Date(best.timeIso).getTime() - etaMs)
-  for (const row of pt.forecastRows) {
-    const d = Math.abs(new Date(row.timeIso).getTime() - etaMs)
-    if (d < bestDelta) { bestDelta = d; best = row }
-  }
-  return best.wind.value
-}
 
 /** A generic weather provider map point for overlay markers (non-MET/Yr providers). */
 export type ProviderMapPoint = {
@@ -471,12 +453,12 @@ export function TravelAuditMap({
       // Visibility: endpoints always visible; others shown only if no filter or their status matches
       const isEndpoint = pt.isOrigin || pt.isDestinationClosest
       const thresholdsForClassify = thresholdsUsed ?? resolveThresholds('none')
-      const isSlotMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
-      const ptWindMs = isSlotMode
-        ? getPointWindMsForCandidate(pt, activeCandidate!, activeLeg ?? 'outbound')
-        : pt.summaryForWindow?.worstWindMs
-      const ptHasData = isSlotMode ? (pt.forecastRows?.length ?? 0) > 0 : pt.summaryForWindow !== undefined
-      const windDisplayStatus: WindDisplayStatus = classifyPointWindDisplayStatus(ptWindMs, ptHasData, thresholdsForClassify)
+      const { status: windDisplayStatus } = resolveRoutePointWindDisplayStatus({
+        point: pt,
+        activeCandidate,
+        activeLeg,
+        thresholds: thresholdsForClassify,
+      })
       const markerVisible = isEndpoint || (visibleStatuses?.size ?? 0) === 0 || visibleStatuses!.has(windDisplayStatus)
       marker.setVisible(markerVisible)
 
@@ -521,25 +503,20 @@ export function TravelAuditMap({
   const mapStatusCounts = useMemo(() => {
     const counts: Partial<Record<WindDisplayStatus, number>> = {}
     const th = thresholdsUsed ?? resolveThresholds('none')
-    const isSlotMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
     weatherPoints.forEach(pt => {
-      let windMs: number | undefined
-      let hasData: boolean
-      if (isSlotMode) {
-        windMs = getPointWindMsForCandidate(pt, activeCandidate!, activeLeg ?? 'outbound')
-        hasData = (pt.forecastRows?.length ?? 0) > 0
-      } else {
-        windMs = pt.summaryForWindow?.worstWindMs
-        hasData = pt.summaryForWindow !== undefined
-      }
-      const st = classifyPointWindDisplayStatus(windMs, hasData, th)
-      counts[st] = (counts[st] ?? 0) + 1
+      const { status } = resolveRoutePointWindDisplayStatus({
+        point: pt,
+        activeCandidate,
+        activeLeg,
+        thresholds: th,
+      })
+      counts[status] = (counts[status] ?? 0) + 1
     })
     providerOverlayPoints?.forEach(pt => {
       counts[pt.status] = (counts[pt.status] ?? 0) + 1
     })
     return counts
-  }, [weatherPoints, thresholdsUsed, activeCandidate, selectedCandidatePointStatuses, activeLeg, providerOverlayPoints])
+  }, [weatherPoints, thresholdsUsed, activeCandidate, activeLeg, providerOverlayPoints])
 
   // Fallback: static map or text
   if (mapError) {
@@ -589,22 +566,23 @@ export function TravelAuditMap({
     // If the selected MET/Yr point's status is no longer visible, clear/replace it
     if (selectedPoint && next.size > 0) {
       const th = thresholdsUsed ?? resolveThresholds('none')
-      const isSlotMode = activeCandidate !== undefined && selectedCandidatePointStatuses !== undefined
-      const selWindMs = isSlotMode
-        ? getPointWindMsForCandidate(selectedPoint, activeCandidate!, activeLeg ?? 'outbound')
-        : selectedPoint.summaryForWindow?.worstWindMs
-      const selHasData = isSlotMode ? (selectedPoint.forecastRows?.length ?? 0) > 0 : selectedPoint.summaryForWindow !== undefined
-      const selStatus = classifyPointWindDisplayStatus(selWindMs, selHasData, th)
+      const { status: selStatus } = resolveRoutePointWindDisplayStatus({
+        point: selectedPoint,
+        activeCandidate,
+        activeLeg,
+        thresholds: th,
+      })
       if (!next.has(selStatus)) {
         userSelectedRef.current = false
         setIsManualSelection(false)
-        const firstVisible = weatherPoints.findIndex((pt) => {
-          const windMs = isSlotMode
-            ? getPointWindMsForCandidate(pt, activeCandidate!, activeLeg ?? 'outbound')
-            : pt.summaryForWindow?.worstWindMs
-          const hasData = isSlotMode ? (pt.forecastRows?.length ?? 0) > 0 : pt.summaryForWindow !== undefined
-          const s = classifyPointWindDisplayStatus(windMs, hasData, th)
-          return next.size === 0 || next.has(s)
+        const firstVisible = weatherPoints.findIndex(pt => {
+          const { status } = resolveRoutePointWindDisplayStatus({
+            point: pt,
+            activeCandidate,
+            activeLeg,
+            thresholds: th,
+          })
+          return next.size === 0 || next.has(status)
         })
         setSelectedIndex(firstVisible >= 0 ? firstVisible : null)
       }

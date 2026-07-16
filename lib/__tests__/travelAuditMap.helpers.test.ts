@@ -13,6 +13,8 @@ import {
   buildThresholdContext,
   selectNearestVedurstofanRow,
   formatLongDepartureDateTime,
+  formatCompactDateTime,
+  resolveRoutePointWindDisplayStatus,
 } from '@/components/weather/travelAuditMap.helpers'
 import type { RouteWeatherPoint, TravelIssue, TravelCandidate, ForecastDrawerRow } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
@@ -791,22 +793,57 @@ describe('buildThresholdContext', () => {
 describe('formatLongDepartureDateTime', () => {
   it('returns full Icelandic Friday in accusative', () => {
     // 2026-07-17T04:00:00Z is a Friday (UTC)
-    expect(formatLongDepartureDateTime('2026-07-17T04:00:00Z', 'is')).toBe('föstudaginn 17. júl kl. 04:00')
+    expect(formatLongDepartureDateTime('2026-07-17T04:00:00Z', 'is')).toBe('föstudaginn 17. júlí kl. 04:00')
   })
 
   it('returns full Icelandic Saturday in accusative', () => {
     // 2026-07-18T04:00:00Z is a Saturday (UTC)
-    expect(formatLongDepartureDateTime('2026-07-18T04:00:00Z', 'is')).toBe('laugardaginn 18. júl kl. 04:00')
+    expect(formatLongDepartureDateTime('2026-07-18T04:00:00Z', 'is')).toBe('laugardaginn 18. júlí kl. 04:00')
   })
 
   it('pads single-digit hours and minutes', () => {
-    expect(formatLongDepartureDateTime('2026-07-17T08:05:00Z', 'is')).toBe('föstudaginn 17. júl kl. 08:05')
+    expect(formatLongDepartureDateTime('2026-07-17T08:05:00Z', 'is')).toBe('föstudaginn 17. júlí kl. 08:05')
   })
 
   it('returns English long weekday for en locale', () => {
     const result = formatLongDepartureDateTime('2026-07-17T04:00:00Z', 'en')
     expect(result).toContain('Friday')
     expect(result).toContain('04:00')
+  })
+})
+
+// ── formatCompactDateTime ─────────────────────────────────────────────────────
+
+describe('formatCompactDateTime', () => {
+  it('returns correct Icelandic compact label with full month name', () => {
+    // 2026-07-17T05:28:00Z — Friday 17 July 05:28 UTC (= Reykjavik)
+    expect(formatCompactDateTime('2026-07-17T05:28:00Z', 'is')).toBe('fös. 17. júlí kl. 05:28')
+  })
+
+  it('uses correct full month names for each month', () => {
+    const months = ['jan.', 'feb.', 'mars', 'apríl', 'maí', 'júní', 'júlí', 'ágúst', 'sep.', 'okt.', 'nóv.', 'des.']
+    // 2026-01-01 through 2026-12-01, all at 12:00 UTC on a Thursday/Friday etc.
+    const isos = [
+      '2026-01-01T12:00:00Z',
+      '2026-02-01T12:00:00Z',
+      '2026-03-01T12:00:00Z',
+      '2026-04-01T12:00:00Z',
+      '2026-05-01T12:00:00Z',
+      '2026-06-01T12:00:00Z',
+      '2026-07-01T12:00:00Z',
+      '2026-08-01T12:00:00Z',
+      '2026-09-01T12:00:00Z',
+      '2026-10-01T12:00:00Z',
+      '2026-11-01T12:00:00Z',
+      '2026-12-01T12:00:00Z',
+    ]
+    isos.forEach((iso, i) => {
+      expect(formatCompactDateTime(iso, 'is')).toContain(months[i])
+    })
+  })
+
+  it('does not throw for English locale', () => {
+    expect(() => formatCompactDateTime('2026-07-17T05:28:00Z', 'en')).not.toThrow()
   })
 })
 
@@ -858,5 +895,136 @@ describe('selectNearestVedurstofanRow', () => {
   it('returns the only row when array has one element', () => {
     const result = selectNearestVedurstofanRow([ROW_12], '2026-07-10T06:00:00Z')
     expect(result?.ftimeIso).toBe(ROW_12.ftimeIso)
+  })
+})
+
+// ── resolveRoutePointWindDisplayStatus ────────────────────────────────────────
+
+describe('resolveRoutePointWindDisplayStatus', () => {
+  // cautionWindMs=10, redWindMs=15
+  // nalgast-haettumork: redWindMs - wind < 2, i.e. wind in [13, 15)
+  const th = resolveThresholds('none', { cautionWindMs: 10, redWindMs: 15 })
+
+  function makeRow(timeIso: string, windMs: number): ForecastDrawerRow {
+    return {
+      timeIso,
+      status: 'graent',
+      wind: { value: windMs, direction: 'steady', tone: 'neutral' },
+      gust: { value: windMs + 2, severity: 'none', direction: 'steady', tone: 'neutral' },
+      precipitation: { value: 0, direction: 'steady', tone: 'neutral' },
+      temperature: { value: 5, direction: 'steady', tone: 'neutral' },
+    }
+  }
+
+  // 1. displayPoint path → nalgast-haettumork (the screenshot scenario)
+  it('displayPoint windMs within 2 of redWindMs resolves to nalgast-haettumork', () => {
+    // 15 - 13.1 = 1.9 < 2 → nalgast-haettumork
+    const pt = makeWeatherPoint({
+      routeIndex: 1,
+      summaryForWindow: { status: 'graent', worstWindMs: 5, worstGustMs: 7, worstPrecipMmPerHour: 0 },
+    })
+    const candidate: TravelCandidate = {
+      departureIso: '2026-07-10T09:00:00Z',
+      arrivalIso: '2026-07-10T14:00:00Z',
+      status: 'gult',
+      displayPoint: {
+        routeIndex: 1,
+        forecastTimeIso: '2026-07-10T11:00:00Z',
+        windMs: 13.1,
+        gustMs: 15.0,
+        precipMmPerHour: 0,
+        airTemperatureC: 4,
+        metric: 'wind',
+        distanceFromOriginM: 50_000,
+        routeFraction: 0.4,
+      },
+    }
+    const result = resolveRoutePointWindDisplayStatus({ point: pt, activeCandidate: candidate, thresholds: th })
+    expect(result.status).toBe('nalgast-haettumork')
+    expect(result.windMs).toBeCloseTo(13.1)
+    expect(result.hasData).toBe(true)
+  })
+
+  // 2. Same point without activeCandidate falls back to summaryForWindow
+  it('without activeCandidate falls back to summaryForWindow (innan-marka)', () => {
+    const pt = makeWeatherPoint({
+      routeIndex: 1,
+      summaryForWindow: { status: 'graent', worstWindMs: 5, worstGustMs: 7, worstPrecipMmPerHour: 0 },
+    })
+    const result = resolveRoutePointWindDisplayStatus({ point: pt, thresholds: th })
+    expect(result.status).toBe('innan-marka')
+    expect(result.windMs).toBe(5)
+    expect(result.hasData).toBe(true)
+  })
+
+  // 3. Non-displayPoint active candidate uses nearest forecast row to ETA
+  it('non-displayPoint with forecastRows uses nearest row to ETA', () => {
+    // routeFraction=0.4, dep=09:00, arr=14:00 → ETA = 09:00 + 0.4*5h = 11:00
+    const pt = makeWeatherPoint({
+      routeIndex: 2,
+      routeFraction: 0.4,
+      forecastRows: [
+        makeRow('2026-07-10T10:00:00Z', 6.0),
+        makeRow('2026-07-10T11:00:00Z', 13.5), // nearest to ETA 11:00 → nalgast-haettumork
+        makeRow('2026-07-10T12:00:00Z', 4.0),
+      ],
+      summaryForWindow: { status: 'graent', worstWindMs: 3, worstGustMs: 5, worstPrecipMmPerHour: 0 },
+    })
+    const candidate: TravelCandidate = {
+      departureIso: '2026-07-10T09:00:00Z',
+      arrivalIso: '2026-07-10T14:00:00Z',
+      status: 'gult',
+      displayPoint: {
+        routeIndex: 1, // different routeIndex — pt is not the displayPoint
+        forecastTimeIso: '2026-07-10T11:00:00Z',
+        windMs: 13.1,
+        gustMs: 15.0,
+        precipMmPerHour: 0,
+        airTemperatureC: 4,
+        metric: 'wind',
+        distanceFromOriginM: 30_000,
+        routeFraction: 0.2,
+      },
+    }
+    const result = resolveRoutePointWindDisplayStatus({ point: pt, activeCandidate: candidate, thresholds: th })
+    expect(result.status).toBe('nalgast-haettumork') // 15 - 13.5 = 1.5 < 2
+    expect(result.windMs).toBeCloseTo(13.5)
+    expect(result.hasData).toBe(true)
+  })
+
+  // 4. Non-displayPoint with no forecastRows under activeCandidate → no_data
+  it('non-displayPoint with no forecastRows under activeCandidate resolves to no_data', () => {
+    const pt = makeWeatherPoint({
+      routeIndex: 2,
+      summaryForWindow: { status: 'gult', worstWindMs: 14, worstGustMs: 18, worstPrecipMmPerHour: 0 },
+      // no forecastRows
+    })
+    const candidate: TravelCandidate = {
+      departureIso: '2026-07-10T09:00:00Z',
+      arrivalIso: '2026-07-10T14:00:00Z',
+      status: 'gult',
+      displayPoint: {
+        routeIndex: 1,
+        forecastTimeIso: '2026-07-10T11:00:00Z',
+        windMs: 13.1,
+        gustMs: 15.0,
+        precipMmPerHour: 0,
+        airTemperatureC: 4,
+        metric: 'wind',
+        distanceFromOriginM: 30_000,
+        routeFraction: 0.2,
+      },
+    }
+    const result = resolveRoutePointWindDisplayStatus({ point: pt, activeCandidate: candidate, thresholds: th })
+    expect(result.status).toBe('no_data')
+    expect(result.hasData).toBe(false)
+  })
+
+  // 5. No summaryForWindow and no activeCandidate → no_data
+  it('point with no summaryForWindow and no activeCandidate resolves to no_data', () => {
+    const pt = makeWeatherPoint({ routeIndex: 0 }) // no summaryForWindow
+    const result = resolveRoutePointWindDisplayStatus({ point: pt, thresholds: th })
+    expect(result.status).toBe('no_data')
+    expect(result.hasData).toBe(false)
   })
 })

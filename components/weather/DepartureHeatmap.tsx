@@ -17,7 +17,7 @@ function utcDateKey(isoString: string): string {
 }
 
 const IS_WEEKDAY_SHORT = ['Sun', 'Mán', 'Þri', 'Mið', 'Fim', 'Fös', 'Lau']
-const IS_MONTH_SHORT = ['jan', 'feb', 'mar', 'apr', 'maí', 'jún', 'júl', 'ágú', 'sep', 'okt', 'nóv', 'des']
+const IS_MONTH_SHORT = ['jan.', 'feb.', 'mars', 'apríl', 'maí', 'júní', 'júlí', 'ágúst', 'sep.', 'okt.', 'nóv.', 'des.']
 
 function formatDayLabel(isoString: string, locale: string): string {
   const d = new Date(isoString)
