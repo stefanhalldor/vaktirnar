@@ -171,7 +171,6 @@ export function VedurstofanJourneySummary({
             ),
           })}
         </div>
-        <VedurstofanPulseInline stationId={station.stationId} />
       </div>
     </section>
   )
