@@ -4,7 +4,7 @@ import { checkFeatureAccess } from '@/lib/loans/guard'
 import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { fetchForecast } from '@/lib/weather/metno.server'
 import { readVedurstofanProductForStations, getLastVedurstofanWarmAttemptIso } from '@/lib/weather/providers/vedurstofan.server'
-import { mapRoutePointToVedurstofanStation, getUniqueStationIdsForRoute, VEDURSTOFAN_STATIONS } from '@/lib/weather/providers/vedurstofanStations'
+import { VEDURSTOFAN_STATIONS } from '@/lib/weather/providers/vedurstofanStations'
 import { checkTravelWeather } from '@/lib/weather/travel'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
@@ -15,6 +15,7 @@ import type { HourPoint, TravelPointForecast, TravelThresholdOverrides } from '@
 import type { TrailerKind } from '@/lib/weather/question'
 import type { PlaceCandidate } from '@/lib/weather/provider.types'
 import { sampleRouteWeatherPoints } from '@/lib/weather/routeSampling'
+import { haversineM, matchProviderPointsToRoute } from '@/lib/weather/providerRouteMatching'
 import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
 
 const VALID_TRAILER_KINDS = new Set([
@@ -32,98 +33,8 @@ function withLayerTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>
 }
 
-/** Minimum distance from point P to line segment AB using a local planar approximation (metres). */
-function pointToSegmentM(
-  pLat: number, pLon: number,
-  aLat: number, aLon: number,
-  bLat: number, bLon: number,
-): number {
-  const cosLat = Math.cos(((aLat + bLat) / 2) * Math.PI / 180)
-  const mPerDegLat = 111_320
-  const mPerDegLon = mPerDegLat * cosLat
-  const bx = (bLon - aLon) * mPerDegLon
-  const by = (bLat - aLat) * mPerDegLat
-  const px = (pLon - aLon) * mPerDegLon
-  const py = (pLat - aLat) * mPerDegLat
-  const len2 = bx * bx + by * by
-  if (len2 === 0) return haversineM(pLat, pLon, aLat, aLon)
-  const t = Math.max(0, Math.min(1, (px * bx + py * by) / len2))
-  return haversineM(pLat, pLon, aLat + t * (bLat - aLat), aLon + t * (bLon - aLon))
-}
-
-/**
- * Minimum distance from a point to the nearest segment of a polyline (metres).
- * More accurate than nearest-vertex for stations located between route sample points.
- */
-function distanceToPolylineM(lat: number, lon: number, polyline: ReadonlyArray<{ lat: number; lon: number }>): number {
-  if (polyline.length === 0) return Infinity
-  let min = haversineM(lat, lon, polyline[0].lat, polyline[0].lon)
-  for (let i = 0; i + 1 < polyline.length; i++) {
-    const d = pointToSegmentM(lat, lon, polyline[i].lat, polyline[i].lon, polyline[i + 1].lat, polyline[i + 1].lon)
-    if (d < min) min = d
-  }
-  return min
-}
-
-/**
- * Projects a point onto the nearest polyline segment and returns distance metrics.
- * - `distanceM`: perpendicular distance to the nearest segment (metres, rounded)
- * - `distanceFromOriginM`: cumulative arc distance from polyline start to the projected point (metres, rounded)
- * - `routeFraction`: `distanceFromOriginM / totalLength` in [0, 1]
- */
-function projectToPolyline(
-  pLat: number, pLon: number,
-  polyline: ReadonlyArray<{ lat: number; lon: number }>,
-): { distanceM: number; distanceFromOriginM: number; routeFraction: number } {
-  if (polyline.length === 0) return { distanceM: 0, distanceFromOriginM: 0, routeFraction: 0 }
-  if (polyline.length === 1) {
-    return { distanceM: Math.round(haversineM(pLat, pLon, polyline[0].lat, polyline[0].lon)), distanceFromOriginM: 0, routeFraction: 0 }
-  }
-  // Precompute segment lengths and total route length
-  let totalLengthM = 0
-  const segLengths: number[] = []
-  for (let i = 0; i + 1 < polyline.length; i++) {
-    const len = haversineM(polyline[i].lat, polyline[i].lon, polyline[i + 1].lat, polyline[i + 1].lon)
-    segLengths.push(len)
-    totalLengthM += len
-  }
-  // Find nearest segment and clamped projection parameter t
-  let minDistM = Infinity
-  let bestSegIdx = 0
-  let bestT = 0
-  for (let i = 0; i + 1 < polyline.length; i++) {
-    const aLat = polyline[i].lat, aLon = polyline[i].lon
-    const bLat = polyline[i + 1].lat, bLon = polyline[i + 1].lon
-    const cosLat = Math.cos(((aLat + bLat) / 2) * Math.PI / 180)
-    const mPerDegLat = 111_320
-    const mPerDegLon = mPerDegLat * cosLat
-    const bx = (bLon - aLon) * mPerDegLon
-    const by = (bLat - aLat) * mPerDegLat
-    const px = (pLon - aLon) * mPerDegLon
-    const py = (pLat - aLat) * mPerDegLat
-    const len2 = bx * bx + by * by
-    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / len2))
-    const d = haversineM(pLat, pLon, aLat + t * (bLat - aLat), aLon + t * (bLon - aLon))
-    if (d < minDistM) { minDistM = d; bestSegIdx = i; bestT = t }
-  }
-  // Accumulate distance from origin to projected point
-  let distFromOriginM = 0
-  for (let i = 0; i < bestSegIdx; i++) distFromOriginM += segLengths[i]
-  distFromOriginM += bestT * segLengths[bestSegIdx]
-  return {
-    distanceM: Math.round(minDistM),
-    distanceFromOriginM: Math.round(distFromOriginM),
-    routeFraction: totalLengthM > 0 ? distFromOriginM / totalLengthM : 0,
-  }
-}
-
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6_371_000
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
+/** Maximum perpendicular distance from the route polyline for Veðurstofan station inclusion. */
+const VEDURSTOFAN_ROUTE_MAX_DISTANCE_M = 15_000
 
 function validateThresholdOverrides(raw: unknown): TravelThresholdOverrides | undefined {
   if (!raw || typeof raw !== 'object') return undefined
@@ -347,8 +258,19 @@ export async function POST(request: Request) {
         : Promise.resolve(false),
   ])
 
-  // Read Veðurstofan product table and last warm attempt time in parallel (fail-open)
-  const vedurstofanStationIds = layerEnabled ? getUniqueStationIdsForRoute(weatherPoints) : []
+  // Match Veðurstofan stations directly against the selected route geometry.
+  // Station selection is based on actual road proximity, not on sampled MET/Yr forecast points.
+  const vedurstofanMatches = layerEnabled
+    ? matchProviderPointsToRoute({
+        points: VEDURSTOFAN_STATIONS_REGISTRY
+          .filter(s => s.stationId !== null && s.lat !== null && s.lon !== null)
+          .map(s => ({ id: s.stationId!, name: s.name, lat: s.lat!, lon: s.lon! })),
+        routePolyline: routeGeometry.points,
+        maxDistanceM: VEDURSTOFAN_ROUTE_MAX_DISTANCE_M,
+      })
+    : []
+  const vedurstofanStationIds = vedurstofanMatches.map(m => m.point.id)
+  const stationMatchById = new Map(vedurstofanMatches.map(m => [m.point.id, m]))
 
   // Compute ETA window for history augmentation: span from 6h before departure
   // to 3h after expected arrival, so prev/used/next forecast rows are available
@@ -433,12 +355,10 @@ export async function POST(request: Request) {
       const stationName = curatedStation?.stationName ?? registryEntry?.name ?? stationId
       const lat = curatedStation?.lat ?? registryEntry?.lat ?? null
       const lon = curatedStation?.lon ?? registryEntry?.lon ?? null
-      const projection = lat !== null && lon !== null
-        ? projectToPolyline(lat, lon, routeGeometry.points)
-        : null
-      const distanceM = projection?.distanceM ?? 0
-      const distanceFromOriginM = projection?.distanceFromOriginM ?? null
-      const routeFraction = projection?.routeFraction ?? null
+      const match = stationMatchById.get(stationId) ?? null
+      const distanceM = match?.distanceM ?? 0
+      const distanceFromOriginM = match?.distanceFromOriginM ?? null
+      const routeFraction = match?.routeFraction ?? null
       const { payload } = stationResult
       if (stationResult.status === 'ok') availablePointCount++
       else stalePointCount++
@@ -459,6 +379,13 @@ export async function POST(request: Request) {
         forecastRows: payload.forecasts,
       })
     }
+
+    // Sort by route order so all consumers (map, cards, Safnpúls) share the same station sequence.
+    layerPoints.sort((a, b) => {
+      const af = a.distanceFromOriginM ?? Infinity
+      const bf = b.distanceFromOriginM ?? Infinity
+      return af !== bf ? af - bf : a.stationId.localeCompare(b.stationId)
+    })
 
     const layerStatus: VedurstofanTravelLayer['status'] =
       layerPoints.length === 0 ? 'unavailable' :

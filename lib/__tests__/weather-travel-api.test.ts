@@ -16,9 +16,8 @@ const { mockGetRouteGeometry } = vi.hoisted(() => ({ mockGetRouteGeometry: vi.fn
 const { mockFetchForecast } = vi.hoisted(() => ({ mockFetchForecast: vi.fn() }))
 const { mockSampleRouteWeatherPoints } = vi.hoisted(() => ({ mockSampleRouteWeatherPoints: vi.fn() }))
 const { mockFetchVedurstofan } = vi.hoisted(() => ({ mockFetchVedurstofan: vi.fn() }))
-const { mockGetUniqueStationIds, mockMapRoutePoint } = vi.hoisted(() => ({
-  mockGetUniqueStationIds: vi.fn(),
-  mockMapRoutePoint: vi.fn(),
+const { mockMatchProviderPoints } = vi.hoisted(() => ({
+  mockMatchProviderPoints: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -52,9 +51,19 @@ vi.mock('@/lib/weather/providers/vedurstofan.server', () => ({
 }))
 
 vi.mock('@/lib/weather/providers/vedurstofanStations', () => ({
-  getUniqueStationIdsForRoute: mockGetUniqueStationIds,
-  mapRoutePointToVedurstofanStation: mockMapRoutePoint,
   VEDURSTOFAN_STATIONS: [],
+}))
+
+vi.mock('@/lib/weather/providerRouteMatching', () => ({
+  haversineM: vi.fn((lat1: number, lon1: number, lat2: number, lon2: number) => {
+    // Real haversine for cumDist computation in route.ts
+    const R = 6_371_000
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }),
+  matchProviderPointsToRoute: mockMatchProviderPoints,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route'
@@ -138,10 +147,9 @@ beforeEach(() => {
     durationS: 3420,
   })
 
-  // Default: no Veðurstofan stations — enrichment is skipped
-  mockGetUniqueStationIds.mockReturnValue([])
+  // Default: no Veðurstofan stations matched — enrichment is skipped
+  mockMatchProviderPoints.mockReturnValue([])
   mockFetchVedurstofan.mockResolvedValue(new Map())
-  mockMapRoutePoint.mockReturnValue(null)
 })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -177,7 +185,6 @@ describe('POST /api/teskeid/weather/travel/route — auth / public access', () =
     mockCheckFeatureAccess.mockResolvedValue(false)
     process.env.WEATHER_PUBLIC_ENABLED = 'true'
     mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', ['DEFAULT_ROUTE'])])
-    mockGetUniqueStationIds.mockReturnValue(['31392'])
     const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
     expect(res.status).toBe(200)
     expect(mockFetchVedurstofan).not.toHaveBeenCalled()
@@ -307,13 +314,19 @@ function setupLayerEnabled() {
   // No separate env var needed — the gate is now purely per-user feature access.
 }
 
+// Hellisheiði coords (~64.04, -21.37) — clearly distinct from Garðabær (64.09, -21.93)
+function makeStationMatch(stationId: string, distanceFromOriginM = 5_000) {
+  return {
+    point: { id: stationId, name: 'Hellisheiði', lat: 64.04, lon: -21.37 },
+    distanceM: 2_000,
+    distanceFromOriginM,
+    routeFraction: distanceFromOriginM / 56_000,
+    nearestRoutePoint: { lat: 64.04, lon: -21.37 },
+  }
+}
+
 function setupStationMapping() {
-  mockGetUniqueStationIds.mockReturnValue([HELLISH_ID])
-  mockMapRoutePoint.mockReturnValue({
-    station: { stationId: HELLISH_ID, stationName: 'Hellisheiði' },
-    distanceFromRoutePointM: 2000,
-    confidence: 'good',
-  })
+  mockMatchProviderPoints.mockReturnValue([makeStationMatch(HELLISH_ID)])
 }
 
 describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => {
@@ -407,10 +420,10 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     expect(body.vedurstofanLayer.points[0].forecastRows).toHaveLength(2)
   })
 
-  it('does not call product table when no stations are mapped for the route', async () => {
+  it('does not call product table when no stations are matched for the route', async () => {
     authedUser()
     setupLayerEnabled()
-    mockGetUniqueStationIds.mockReturnValue([])
+    mockMatchProviderPoints.mockReturnValue([])
 
     const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
     expect(res.status).toBe(200)
@@ -421,7 +434,8 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
 
   it('does not read product table or return vedurstofanLayer when user lacks weather-provider-vedurstofan access', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
-    // First call: vedrid access (allow), second call: weather-provider-vedurstofan access (deny)
+    // Access required gate is active: vedrid access (allow), weather-provider-vedurstofan access (deny)
+    process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED = 'true'
     mockCheckFeatureAccess.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     setupStationMapping()
 
@@ -450,10 +464,11 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     expect(body.vedurstofanLayer).toBeUndefined()
   })
 
-  it('builds one layer point per unique station even when multiple route samples map to the same station', async () => {
+  it('builds one layer point per unique station, matched directly from route geometry', async () => {
     authedUser()
     setupLayerEnabled()
-    // Two route weather points, both mapping to the same single station
+    // The route has two weather sample points, but station selection now comes from route geometry matching.
+    // Only one station is matched (HELLISH_ID) — exactly one layer point must appear.
     mockSampleRouteWeatherPoints.mockReturnValue({
       weatherPoints: [
         { lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 },
@@ -461,12 +476,7 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
       ],
       diagnostics: { strategy: 'exhaustive', totalCells: 2, sampledCells: 2 },
     })
-    mockGetUniqueStationIds.mockReturnValue([HELLISH_ID])
-    mockMapRoutePoint.mockReturnValue({
-      station: { stationId: HELLISH_ID, stationName: 'Hellisheiði' },
-      distanceFromRoutePointM: 2000,
-      confidence: 'good',
-    })
+    mockMatchProviderPoints.mockReturnValue([makeStationMatch(HELLISH_ID)])
     mockFetchVedurstofan.mockResolvedValue(
       new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
     )
@@ -474,7 +484,6 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
 
     const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
     const body = await res.json()
-    // Station-based model: one point per unique stationId, not one per route sample
     expect(body.vedurstofanLayer.points).toHaveLength(1)
     expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
     expect(body.vedurstofanLayer.points[0].routePointId).toBe(`vedurstofan_${HELLISH_ID}`)
@@ -492,5 +501,85 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     const body = await res.json()
     expect(body.vedurstofanLayer.points[0].routePointId).toBe(`vedurstofan_${HELLISH_ID}`)
     expect(body.vedurstofanLayer.points[0].routeIndex).toBeUndefined()
+  })
+
+  it('selects a station via route geometry even when sampleRouteWeatherPoints does not cover its location', async () => {
+    authedUser()
+    setupLayerEnabled()
+    // Sampled MET/Yr point: Garðabær (64.09, -21.93) — far from Hellisheiði (~64.04, -21.37).
+    // Old code: getUniqueStationIdsForRoute(weatherPoints) would check each sampled point → miss Hellisheiði.
+    // New code: matchProviderPointsToRoute uses routeGeometry.points directly → finds Hellisheiði.
+    // This test proves the API uses the route-geometry matcher; the spatial correctness of
+    // the matcher itself is proven in providerRouteMatching.test.ts test 1.
+    mockSampleRouteWeatherPoints.mockReturnValue({
+      weatherPoints: [{ lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 }],
+      diagnostics: { strategy: 'exhaustive', totalCells: 1, sampledCells: 1 },
+    })
+    mockMatchProviderPoints.mockReturnValue([makeStationMatch(HELLISH_ID, 8_000)])
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
+    )
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    // Station was found via route geometry, not via sampled MET/Yr points
+    expect(mockMatchProviderPoints).toHaveBeenCalled()
+    const args = mockMatchProviderPoints.mock.calls[0][0]
+    expect(args.routePolyline).toBeDefined()
+    expect(args.maxDistanceM).toBe(15_000)
+    const body = await res.json()
+    expect(body.vedurstofanLayer.points).toHaveLength(1)
+    expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
+  })
+
+  it('passes route geometry points (not sampled weather points) to matchProviderPointsToRoute', async () => {
+    authedUser()
+    setupLayerEnabled()
+    const routePoints = [
+      { lat: 64.09, lon: -21.93 },
+      { lat: 63.849, lon: -21.365 },
+    ]
+    mockGetRouteGeometry.mockResolvedValue({ points: routePoints, distanceM: 56000, durationS: 3420 })
+    mockMatchProviderPoints.mockReturnValue([])
+
+    await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+
+    expect(mockMatchProviderPoints).toHaveBeenCalledWith(
+      expect.objectContaining({ routePolyline: routePoints }),
+    )
+  })
+
+  it('preserves distanceM, distanceFromOriginM, and routeFraction from route match in layer points', async () => {
+    authedUser()
+    setupLayerEnabled()
+    mockMatchProviderPoints.mockReturnValue([
+      makeStationMatch(HELLISH_ID, 12_000),
+    ])
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
+    )
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    const body = await res.json()
+    const pt = body.vedurstofanLayer.points[0]
+    expect(pt.distanceM).toBe(2_000)
+    expect(pt.distanceFromOriginM).toBe(12_000)
+    expect(pt.routeFraction).toBeCloseTo(12_000 / 56_000, 5)
+  })
+
+  it('still runs MET/Yr route sampling unchanged when Veðurstofan layer is enabled', async () => {
+    authedUser()
+    setupLayerEnabled()
+    setupStationMapping()
+    mockFetchVedurstofan.mockResolvedValue(
+      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
+    )
+
+    await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+
+    // sampleRouteWeatherPoints must still be called for MET/Yr baseline — unchanged by this refactor
+    expect(mockSampleRouteWeatherPoints).toHaveBeenCalledTimes(1)
+    // MET/Yr sampling call is independent of station matching
+    expect(mockMatchProviderPoints).toHaveBeenCalledTimes(1)
   })
 })
