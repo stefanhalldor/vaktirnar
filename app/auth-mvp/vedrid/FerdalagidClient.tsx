@@ -1641,8 +1641,8 @@ export function FerdalagidClient({
                         const etaTimeLabel = dp ? (() => {
                           const depMs = new Date(activeOutboundCandidate.departureIso).getTime()
                           const durMs = new Date(activeOutboundCandidate.arrivalIso).getTime() - depMs
-                          return formatKlTime(new Date(depMs + dp.routeFraction * durMs).toISOString())
-                        })() : (issue?.timeIso ? formatKlTime(issue.timeIso) : null)
+                          return formatCompactDateTime(new Date(depMs + dp.routeFraction * durMs).toISOString(), locale)
+                        })() : (issue?.timeIso ? formatCompactDateTime(issue.timeIso, locale) : null)
                         const originDisplay = getOriginDisplay(origin?.name ?? '', locale, tf('slotDetailOriginFallback'))
                         const metricLabel = issue?.metric === 'precipitation' ? tf('metricPrecip')
                           : issue?.metric === 'gust' ? tf('metricGust')

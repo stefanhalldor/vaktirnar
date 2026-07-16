@@ -4,7 +4,7 @@ import { useTranslations, useLocale } from 'next-intl'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import type { WindDisplayStatus } from '@/lib/weather/windDisplayStatus'
 import { WindStatusBadge } from '@/components/weather/WindStatusBadge'
-import { formatKlTime, formatNum, getOriginDisplay } from './travelAuditMap.helpers'
+import { formatKlTime, formatCompactDateTime, formatNum, getOriginDisplay } from './travelAuditMap.helpers'
 import { VedurstofanPulseInline } from './VedurstofanPulseInline'
 import { ForecastRowLine } from './VedurstofanForecastRows'
 
@@ -120,11 +120,11 @@ export function VedurstofanPointCard({
         <p className="text-[11px] font-semibold text-muted-foreground pt-0.5">{tf('sectionOnWay')}</p>
         <div className="space-y-1">
           <WindStatusBadge status={status} variant="line" />
-          {distFromOriginKm !== null && etaTimeLabel && (
+          {distFromOriginKm !== null && etaIso && (
             <p className="text-xs text-muted-foreground">
               {distFromOriginKm === 0
-                ? tf('slotDetailWorstAtStart', { time: etaTimeLabel })
-                : tf('slotDetailWorstDistanceAt', { distance: distFromOriginKm, origin: originDisplay, time: etaTimeLabel })}
+                ? tf('slotDetailWorstAtStart', { time: formatCompactDateTime(etaIso, locale) })
+                : tf('slotDetailWorstDistanceAt', { distance: distFromOriginKm, origin: originDisplay, time: formatCompactDateTime(etaIso, locale) })}
             </p>
           )}
           <p className="text-xs text-muted-foreground">
@@ -132,13 +132,13 @@ export function VedurstofanPointCard({
             {windMs != null && (
               <>{' · '}{tf('metricWind').toLowerCase()} {formatNum(windMs, locale)} m/s</>
             )}
-            {ftimeLabel && (
-              <>{' · '}{tf('vedurstofanForecastUsedAt', { time: ftimeLabel })}</>
+            {ftimeIso && (
+              <>{' · '}{tf('vedurstofanForecastUsedAt', { time: formatCompactDateTime(ftimeIso, locale) })}</>
             )}
           </p>
           {station.atimeIso && (
             <p className="text-[11px] text-muted-foreground/70">
-              {tf('vedurstofanForecastFrom', { time: formatKlTime(station.atimeIso) })}
+              {tf('vedurstofanForecastFrom', { time: formatCompactDateTime(station.atimeIso, locale) })}
             </p>
           )}
           <p className="text-[10px] text-muted-foreground/60">{tf('providerVedurstofanLabel')}</p>
@@ -185,14 +185,14 @@ export function VedurstofanPointCard({
       {/* Route timing */}
       <div className="flex flex-col gap-0.5">
         {departureIso && (
-          <span>{tf('pointDepartureLabel')}: {tf('pointTimeLine', { time: formatKlTime(departureIso) })}</span>
+          <span>{tf('pointDepartureLabel')}: {formatCompactDateTime(departureIso, locale)}</span>
         )}
         {etaIso && (
           <span>
             {tf('pointEtaLabel')}
             {distFromOriginKm !== null && distFromOriginKm > 0 && ` ${distFromOriginKm} ${tf('kmFrom')} ${originDisplay}`}
             {': '}
-            {tf('pointTimeLine', { time: formatKlTime(etaIso) })}
+            {formatCompactDateTime(etaIso, locale)}
           </span>
         )}
         {distFromRoadM >= 0 && (
@@ -207,24 +207,24 @@ export function VedurstofanPointCard({
       {/* Forecast issue time */}
       {station.atimeIso && (
         <span className="text-muted-foreground/70">
-          {tf('vedurstofanForecastFrom', { time: formatKlTime(station.atimeIso) })}
+          {tf('vedurstofanForecastFrom', { time: formatCompactDateTime(station.atimeIso, locale) })}
         </span>
       )}
 
       {/* Previous / used / next forecast rows */}
-      {(prev || used || next) && (
-        <div className="flex flex-col divide-y divide-border/40 border-t border-border/40 pt-1">
-          {prev && (
-            <ForecastRowLine row={prev} isUsed={false} locale={locale} usedMarker={tf('vedurstofanForecastUsedMarker')} />
-          )}
-          {used && (
-            <ForecastRowLine row={used} isUsed={true} locale={locale} usedMarker={tf('vedurstofanForecastUsedMarker')} />
-          )}
-          {next && (
-            <ForecastRowLine row={next} isUsed={false} locale={locale} usedMarker={tf('vedurstofanForecastUsedMarker')} />
-          )}
-        </div>
-      )}
+      {(prev || used || next) && (() => {
+        const visibleRows = [prev, used, next].filter(Boolean) as typeof prev[]
+        const firstDay = visibleRows[0] ? new Date(visibleRows[0].ftimeIso).getUTCDate() : null
+        const showDate = firstDay !== null && visibleRows.some(r => r && new Date(r.ftimeIso).getUTCDate() !== firstDay)
+        const marker = tf('vedurstofanForecastUsedMarker')
+        return (
+          <div className="flex flex-col divide-y divide-border/40 border-t border-border/40 pt-1">
+            {prev && <ForecastRowLine row={prev} isUsed={false} locale={locale} usedMarker={marker} showDate={showDate} />}
+            {used && <ForecastRowLine row={used} isUsed={true} locale={locale} usedMarker={marker} showDate={showDate} />}
+            {next && <ForecastRowLine row={next} isUsed={false} locale={locale} usedMarker={marker} showDate={showDate} />}
+          </div>
+        )
+      })()}
 
       {/* Source link */}
       {station.sourceUrl && (

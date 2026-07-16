@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
 import type { TravelIssue, ResolvedTravelThresholds } from '@/lib/weather/types'
 import {
-  formatKlTime,
+  formatCompactDateTime,
   formatNum,
   getOriginDisplay,
   buildThresholdContext,
@@ -59,7 +59,7 @@ export function RouteWeatherPointDetailCard({
 
   const thresholdContext = buildThresholdContext(summary, thresholdsUsed, highlightedIssue)
   const forecastTimeFormatted = summary.forecastTimeIso
-    ? formatKlTime(summary.forecastTimeIso)
+    ? formatCompactDateTime(summary.forecastTimeIso, locale)
     : summary.decisiveTimeFormatted
   const hasWeatherValues =
     summary.windMs > 0 || summary.precipMmPerHour > 0 || summary.decisiveTempC !== undefined
@@ -76,7 +76,7 @@ export function RouteWeatherPointDetailCard({
 
       {/* Brottfarartími */}
       {summary.departureIso && (
-        <span>{tf('pointDepartureLabel')}: {tf('pointTimeLine', { time: formatKlTime(summary.departureIso) })}</span>
+        <span>{tf('pointDepartureLabel')}: {formatCompactDateTime(summary.departureIso, locale)}</span>
       )}
 
       {/* ETA + distance from leg start */}
@@ -85,7 +85,7 @@ export function RouteWeatherPointDetailCard({
           {tf('pointEtaLabel')}
           {distanceKm > 0 && ` ${distanceKm} ${tf('kmFrom')} ${originDisplay}`}
           {': '}
-          {tf('pointTimeLine', { time: formatKlTime(summary.etaIso) })}
+          {formatCompactDateTime(summary.etaIso, locale)}
         </span>
       )}
 

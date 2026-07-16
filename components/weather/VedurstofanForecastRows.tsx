@@ -1,6 +1,6 @@
 'use client'
 
-import { formatKlTime, formatNum } from './travelAuditMap.helpers'
+import { formatKlTime, formatCompactDateTime, formatNum } from './travelAuditMap.helpers'
 
 export type ForecastRowData = {
   ftimeIso: string
@@ -16,15 +16,19 @@ export function ForecastRowLine({
   isUsed,
   locale,
   usedMarker,
+  showDate = false,
 }: {
   row: ForecastRowData
   isUsed: boolean
   locale: string
   usedMarker: string
+  /** When true, shows compact date+time ("fim. 9. júl kl. 05:00") instead of time only. */
+  showDate?: boolean
 }) {
+  const timeLabel = showDate ? formatCompactDateTime(row.ftimeIso, locale) : formatKlTime(row.ftimeIso)
   return (
     <div className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1 ${isUsed ? 'text-foreground' : 'text-muted-foreground'}`}>
-      <span className="text-[11px] font-medium shrink-0 w-11">{formatKlTime(row.ftimeIso)}</span>
+      <span className={`text-[11px] font-medium shrink-0 ${showDate ? '' : 'w-11'}`}>{timeLabel}</span>
       <span className="text-[11px] flex flex-wrap gap-x-1.5">
         {row.windSpeedMs !== null && (
           <span>{formatNum(row.windSpeedMs, locale)} m/s{row.windDirectionText ? ` ${row.windDirectionText}` : ''}</span>
