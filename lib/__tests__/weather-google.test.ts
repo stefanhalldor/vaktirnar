@@ -1038,9 +1038,13 @@ describe('googleProvider.getRouteOptions', () => {
   )
 
   it('capital area → Ísafjörður triggers CURATED_VIA_HOLMAVIK', async () => {
-    // 37 pts × 5000 m = 185 000 m > minFastestRouteDistanceM 180 000 m
+    // 37 pts × 5000 m = 185 000 m > minFastestRouteDistanceM 180 000 m.
+    // Base avoids Hólmavík → gets westfjords-south-route60 caution → trigger fires.
+    // Curated passes through HOLMAVIK_VIA → clears the caution → kept.
     const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
-    const curatedRoute = makeMultiRouteResponse([{ numPoints: 30, labels: [] }])
+    const curatedRoute = makeRouteResponseFromCoords(
+      [[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000
+    )
     mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
     const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_ISAFJORDUR)
     expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(true)
@@ -1048,7 +1052,9 @@ describe('googleProvider.getRouteOptions', () => {
 
   it('capital area → Bolungarvík also triggers CURATED_VIA_HOLMAVIK (representative of north-western Westfjords bounds)', async () => {
     const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
-    const curatedRoute = makeMultiRouteResponse([{ numPoints: 30, labels: [] }])
+    const curatedRoute = makeRouteResponseFromCoords(
+      [[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000
+    )
     mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
     const results = await googleProvider.getRouteOptions(FROM_GARDABAER, TO_BOLUNGARVIK)
     expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(true)
@@ -1081,7 +1087,9 @@ describe('googleProvider.getRouteOptions', () => {
   })
 
   it('CURATED_VIA_HOLMAVIK is suppressed when base route already passes Hólmavík and curated is not faster', async () => {
-    // Base (37 pts = 185 km, includes HOLMAVIK_VIA at index 18), curated is slower → suppressed.
+    // Base (37 pts = 185 km, includes HOLMAVIK_VIA at index 18) passes near Hólmavík →
+    // westfjords-south-route60 caution does NOT fire → trigger gate prevents curated fetch.
+    // (shouldSkipCuratedHolmavik is a further belt-and-suspenders guard for other edge cases.)
     // Different fingerprint from curated (3 pts) so geometry-dedup doesn't fire first.
     const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_HOLMAVIK, ['DEFAULT_ROUTE'], 14_000)
     const curatedRoute = makeRouteResponseFromCoords([[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000)
@@ -1133,9 +1141,13 @@ describe('googleProvider.getRouteOptions', () => {
   // ── Generalized Hólmavík alternate (any Iceland origin) ─────────────────────
 
   it('Höfn → Ísafjörður triggers CURATED_VIA_HOLMAVIK (non-capital origin)', async () => {
-    // 37 pts × 5000 m = 185 000 m > minFastestRouteDistanceM 180 000 m
+    // 37 pts × 5000 m = 185 000 m > minFastestRouteDistanceM 180 000 m.
+    // Base avoids Hólmavík → gets westfjords-south-route60 → trigger fires.
+    // Curated passes through HOLMAVIK_VIA → clears the caution → kept.
     const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
-    const curatedRoute = makeMultiRouteResponse([{ numPoints: 30, labels: [] }])
+    const curatedRoute = makeRouteResponseFromCoords(
+      [[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000
+    )
     mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
     const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_ISAFJORDUR)
     expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(true)
@@ -1160,25 +1172,49 @@ describe('googleProvider.getRouteOptions', () => {
     expect(curated?.cautions?.some(c => c.id === 'westfjords-south-route60')).toBeFalsy()
   })
 
-  it('Westfjords origin does NOT trigger CURATED_VIA_HOLMAVIK (excludedOrigin guard)', async () => {
-    // Origin Ísafjörður is inside WESTFJORDS_NORTH_BOUNDS → excludedOrigin suppresses the alternate.
-    // Only one fetch call should happen (no curated request).
-    const FROM_ISAFJORDUR: PlaceCandidate = {
-      placeId: 'ChIJisafjordur_origin',
-      displayName: 'Ísafjörður',
-      formattedAddress: 'Ísafjörður, Iceland',
-      lat: 66.07,
-      lon: -23.13,
-    }
-    const TO_GARDABAER_DEST: PlaceCandidate = {
-      placeId: 'ChIJgardabaer_dest',
-      displayName: 'Garðabær',
-      formattedAddress: 'Garðabær, Iceland',
-      lat: 64.09,
-      lon: -21.93,
-    }
-    mockFetch(makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }]))
-    const results = await googleProvider.getRouteOptions(FROM_ISAFJORDUR, TO_GARDABAER_DEST)
+  // ── Ísafjörður as origin (reverse-direction) ────────────────────────────────
+
+  // Origin Ísafjörður — inside WESTFJORDS_NORTH_BOUNDS (66.07, -23.13)
+  const FROM_ISAFJORDUR: PlaceCandidate = {
+    placeId: 'ChIJisafjordur_origin',
+    displayName: 'Ísafjörður',
+    formattedAddress: 'Ísafjörður, Iceland',
+    lat: 66.07,
+    lon: -23.13,
+  }
+
+  it('Ísafjörður → Akureyri triggers CURATED_VIA_HOLMAVIK (origin in Westfjords)', async () => {
+    // Origin Ísafjörður is in WESTFJORDS_NORTH_BOUNDS → anyPartyBounds satisfied.
+    // Base avoids Hólmavík → westfjords-south-route60 caution fires → trigger fires.
+    // Curated passes through HOLMAVIK_VIA → clears the caution → kept.
+    // 37 pts × 5000 m = 185 000 m > minFastestRouteDistanceM 180 000 m.
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeRouteResponseFromCoords(
+      [[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000
+    )
+    mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    const results = await googleProvider.getRouteOptions(FROM_ISAFJORDUR, TO)  // TO = Akureyri
+    expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(true)
+  })
+
+  it('Ísafjörður → Akureyri: curated request uses HOLMAVIK_VIA coordinate', async () => {
+    const mainRoute = makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }])
+    const curatedRoute = makeRouteResponseFromCoords(
+      [[-21.685, 65.703], [-22.00, 65.80], [-23.13, 66.07]], [], 15_000
+    )
+    const spy = mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
+    await googleProvider.getRouteOptions(FROM_ISAFJORDUR, TO)
+    const curatedBody = JSON.parse(spy.mock.calls[1][1]?.body as string)
+    expect(curatedBody.intermediates[0].via).toBe(true)
+    expect(curatedBody.intermediates[0].location.latLng.latitude).toBeCloseTo(65.703, 3)
+    expect(curatedBody.intermediates[0].location.latLng.longitude).toBeCloseTo(-21.685, 3)
+  })
+
+  it('Ísafjörður → Akureyri: base route already via Hólmavík does not trigger CURATED_VIA_HOLMAVIK', async () => {
+    // Base passes through Hólmavík → no westfjords-south-route60 caution → trigger gate skips.
+    const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_HOLMAVIK, ['DEFAULT_ROUTE'], 14_000)
+    mockFetch(mainRoute)
+    const results = await googleProvider.getRouteOptions(FROM_ISAFJORDUR, TO)
     expect(results.some(r => r.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(false)
   })
 

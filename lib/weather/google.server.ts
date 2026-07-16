@@ -222,22 +222,20 @@ const CURATED_ROUTE_RULES: readonly CuratedRouteRule[] = [
     labels: ['CURATED_AVOID_OXI'],
   },
   {
-    // Gegnum Hólmavík: curated route via Hólmavík (Route 61) for northern Westfjords destinations.
-    // The Google default to Ísafjörður/Bolungarvík may use mountain passes on Route 60 that are
-    // dangerous for vehicles with trailers. Route 61 via Hólmavík avoids the worst passes.
-    //
-    // Origin is any Icelandic location EXCEPT origins already inside the Westfjords area
-    // (those origins are already past Hólmavík; an alternate via Hólmavík would be absurd).
+    // Gegnum Hólmavík: caution-triggered curated route via Hólmavík (Route 61).
+    // Fires whenever a base route receives the westfjords-south-route60 caution, meaning the
+    // route touches the northern Westfjords (Ísafjörður, Bolungarvík area) and avoids Hólmavík.
+    // Works in both directions: Garðabær → Ísafjörður and Ísafjörður → Akureyri both trigger it.
+    // After fetch, the curated route is validated: if it still carries westfjords-south-route60
+    // (e.g. Google routes it away from Hólmavík despite the via), it is suppressed.
+    // The shouldSkipCuratedHolmavik guard additionally suppresses duplicates when a base route
+    // already passes through the Hólmavík corridor.
     // The 180 km distance gate prevents short local trips from triggering this rule.
-    // The shouldSkipCuratedHolmavik duplicate filter prevents a second Hólmavík route when
-    // Google already returns one.
     //
     // Via-point must be verified visually on localhost before each release.
-    id: 'any-iceland-to-westfjords-north-via-holmavik',
+    id: 'safe-westfjords-via-holmavik',
     logName: 'Vestfirðir / Hólmavík',
-    origin: { bounds: [ICELAND_BOUNDS] },
-    excludedOrigin: { bounds: [WESTFJORDS_NORTH_BOUNDS] },
-    destination: { bounds: [WESTFJORDS_NORTH_BOUNDS] },
+    triggerCautionId: 'westfjords-south-route60',
     minFastestRouteDistanceM: 180_000,
     vias: [HOLMAVIK_VIA],
     labels: ['CURATED_VIA_HOLMAVIK'],
