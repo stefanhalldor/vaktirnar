@@ -2,8 +2,6 @@ import 'server-only'
 import type { PlaceCandidate, RouteGeometry, RouteOption, StaticMapParams, WeatherMapProvider } from './provider.types'
 import { matchRouteCautions } from './routeCautions'
 import {
-  ICELAND_BOUNDS,
-  WESTFJORDS_NORTH_BOUNDS,
   HOLMAVIK_VIA,
   HOLMAVIK_PROXIMITY_M,
   REYDARFJORDUR_VIA,
@@ -164,7 +162,7 @@ const RING_ROAD_EAST_VIA      = { lat: 64.295, lon: -15.148 } // Route 1, betwee
 const RING_ROAD_NORTHEAST_VIA = { lat: 65.130, lon: -14.514 } // Route 1, south of Egilsstaðir — pending verification
 const RING_ROAD_NORTH_VIA     = { lat: 65.540, lon: -19.520 } // Route 1, Varmahlíð area (north Iceland) — pending verification
 
-// WESTFJORDS_NORTH_BOUNDS and HOLMAVIK_VIA imported from routeCautionConstants.
+// HOLMAVIK_VIA and HOLMAVIK_PROXIMITY_M imported from routeCautionConstants.
 
 const CURATED_ROUTE_RULES: readonly CuratedRouteRule[] = [
   {
