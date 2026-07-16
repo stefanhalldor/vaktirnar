@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { ChatPreviewList } from '@/components/chat/ChatPreviewList'
 import type { AugmentedChatMessage } from '@/components/chat/ChatMessageRow'
 
@@ -37,6 +37,7 @@ const MAX_STATION_IDS = 40
  */
 export function VedurstofanRoutePulseSummary({ stations, returnTo }: VedurstofanRoutePulseSummaryProps) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
+  const locale = useLocale()
   const [open, setOpen] = useState(false)
   const [stationMessages, setStationMessages] = useState<StationMessages[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -136,6 +137,7 @@ export function VedurstofanRoutePulseSummary({ stations, returnTo }: Vedurstofan
                     deletedLabel={t('pulseDeleted')}
                     kindLabels={kindLabels}
                     loaded={true}
+                    locale={locale}
                   />
                   <Link
                     href={fullHref}

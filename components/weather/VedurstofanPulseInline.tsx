@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { ChatPreviewList } from '@/components/chat/ChatPreviewList'
 import { ScopedChatComposer } from '@/components/chat/ScopedChatComposer'
 import { useChatPreview } from '@/components/chat/useChatPreview'
@@ -32,6 +32,7 @@ type PostingAccess = 'unknown' | 'allowed' | 'needs-login' | 'denied'
  */
 export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulseInlineProps) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
+  const locale = useLocale()
   const { messages, loaded: previewLoaded } = useChatPreview({
     url: `/api/teskeid/weather/vedurpuls/stations/${stationId}/preview`,
   })
@@ -112,6 +113,7 @@ export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulse
         deletedLabel={t('pulseDeleted')}
         kindLabels={kindLabels}
         loaded={previewLoaded}
+        locale={locale}
       />
       {postingAccess === 'allowed' && (
         <div className="flex flex-col gap-1.5">

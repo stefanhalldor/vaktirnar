@@ -10,6 +10,7 @@ interface ChatPreviewListProps {
   kindLabels?: Partial<Record<ChatMessageKind, string>>
   /** Suppresses empty label until first load completes — prevents empty flash during fetch. */
   loaded: boolean
+  locale: string
 }
 
 /**
@@ -22,6 +23,7 @@ export function ChatPreviewList({
   deletedLabel,
   kindLabels,
   loaded,
+  locale,
 }: ChatPreviewListProps) {
   if (!loaded) return null
   if (messages.length === 0) {
@@ -35,6 +37,7 @@ export function ChatPreviewList({
           msg={msg}
           deletedLabel={deletedLabel}
           kindLabels={kindLabels}
+          locale={locale}
         />
       ))}
     </div>

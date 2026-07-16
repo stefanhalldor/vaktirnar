@@ -1,6 +1,7 @@
 'use client'
 
 import type { ChatMessageKind, MessageDto } from '@/lib/chat/types'
+import { formatChatTimestamp } from '@/lib/chat/format'
 
 export type AugmentedChatMessage = MessageDto & { optimistic?: boolean; failed?: boolean }
 
@@ -10,6 +11,7 @@ interface ChatMessageRowProps {
   kindLabels?: Partial<Record<ChatMessageKind, string>>
   /** Optional label shown before the timestamp — used in feed view to identify source. */
   targetName?: string
+  locale: string
 }
 
 /**
@@ -17,7 +19,7 @@ interface ChatMessageRowProps {
  * Handles deleted/hidden redaction, kind badges, optimistic/failed state.
  * Used in both per-thread panels and the cross-thread aggregated feed.
  */
-export function ChatMessageRow({ msg, deletedLabel, kindLabels, targetName }: ChatMessageRowProps) {
+export function ChatMessageRow({ msg, deletedLabel, kindLabels, targetName, locale }: ChatMessageRowProps) {
   const isRedacted = msg.isDeleted || msg.isHidden
   return (
     <div
@@ -33,7 +35,7 @@ export function ChatMessageRow({ msg, deletedLabel, kindLabels, targetName }: Ch
           <span className="text-[10px] text-muted-foreground">{msg.authorName}</span>
         )}
         <span className="text-[10px] text-muted-foreground tabular-nums">
-          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+          {msg.optimistic ? '...' : formatChatTimestamp(msg.createdAt, locale)}
         </span>
         {msg.messageKind !== 'chat' && kindLabels?.[msg.messageKind] && (
           <span className="text-[9px] px-1 rounded bg-muted text-muted-foreground">

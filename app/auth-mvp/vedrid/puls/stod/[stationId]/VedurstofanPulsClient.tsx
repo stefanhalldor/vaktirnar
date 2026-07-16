@@ -9,6 +9,7 @@ import { VEDURPULS_TRANSPORT } from '@/app/auth-mvp/vedrid/vedurpulsTransport'
 import { resolvePulseBackDestination } from '@/lib/weather/pulseBack'
 import { ForecastRowLine, selectUpcomingRows, type ForecastRowData } from '@/components/weather/VedurstofanForecastRows'
 import { formatKlTime } from '@/components/weather/travelAuditMap.helpers'
+import { formatChatDayLabel, calendarDateKey } from '@/lib/chat/format'
 import type { ThreadDto } from '@/lib/chat/types'
 
 interface VedurstofanPulsClientProps {
@@ -95,15 +96,24 @@ export function VedurstofanPulsClient({ stationId, stationName, returnTo, foreca
           )}
           {displayRows.length > 0 ? (
             <div className="flex flex-col divide-y divide-border/40">
-              {displayRows.map(row => (
-                <ForecastRowLine
-                  key={row.ftimeIso}
-                  row={row}
-                  isUsed={false}
-                  locale={locale}
-                  usedMarker=""
-                />
-              ))}
+              {(() => {
+                let lastDay = ''
+                return displayRows.map(row => {
+                  const day = calendarDateKey(row.ftimeIso)
+                  const showDayLabel = day !== lastDay
+                  lastDay = day
+                  return (
+                    <div key={row.ftimeIso}>
+                      {showDayLabel && (
+                        <p className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wide pt-1.5 pb-0.5 first:pt-0">
+                          {formatChatDayLabel(row.ftimeIso, locale)}
+                        </p>
+                      )}
+                      <ForecastRowLine row={row} isUsed={false} locale={locale} usedMarker="" />
+                    </div>
+                  )
+                })
+              })()}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">{t('pulseNoForecast')}</p>
@@ -135,6 +145,7 @@ export function VedurstofanPulsClient({ stationId, stationName, returnTo, foreca
           transport={VEDURPULS_TRANSPORT}
           labels={panelLabels}
           pageSize={50}
+          locale={locale}
           listClassName="flex flex-col gap-2 max-h-[calc(100vh-16rem)] overflow-y-auto pr-0.5"
         />
       )}

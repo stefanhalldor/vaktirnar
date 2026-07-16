@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { ChevronLeft, ChevronDown, ChevronUp, MessageSquare } from 'lucide-react'
 import type {
   StationExplorerResponse,
@@ -301,6 +301,7 @@ export function VedurstofanStationExplorerClient() {
 
 function WeatherPulseFeed() {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
+  const locale = useLocale()
   const [open, setOpen] = useState(false)
   const [accessDenied, setAccessDenied] = useState(false)
   const [messages, setMessages] = useState<FeedMessageDto[]>([])
@@ -361,6 +362,7 @@ function WeatherPulseFeed() {
                 deletedLabel={t('pulseDeleted')}
                 kindLabels={kindLabels}
                 targetName={msg.target.targetName}
+                locale={locale}
               />
             ))
           )}

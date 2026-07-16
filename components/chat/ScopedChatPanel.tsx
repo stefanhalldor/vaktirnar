@@ -43,6 +43,7 @@ interface ScopedChatPanelProps {
   pollingIntervalMs?: number
   /** Override class for the scrollable message list container. */
   listClassName?: string
+  locale: string
 }
 
 const DEFAULT_PAGE_SIZE = 10
@@ -60,6 +61,7 @@ export function ScopedChatPanel({
   pageSize,
   pollingIntervalMs = 15_000,
   listClassName,
+  locale,
 }: ScopedChatPanelProps) {
   const effectivePageSize = pageSize ?? DEFAULT_PAGE_SIZE
   const [messages, setMessages] = useState<AugmentedChatMessage[]>([])
@@ -204,6 +206,7 @@ export function ScopedChatPanel({
               msg={msg}
               deletedLabel={labels.deleted}
               kindLabels={labels.kindLabels}
+              locale={locale}
             />
           ))
         )}
