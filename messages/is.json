@@ -949,14 +949,23 @@
         "mappingStatusLabel": "Hnit",
         "dataAge": "Gögn",
         "pulseOpen": "Veðurpúls",
+        "pulseOpenFull": "Opna púlsinn",
+        "pulseAccessDenied": "Þú hefur ekki aðgang að Veðurpúls.",
         "pulseLoading": "Sæki...",
-        "pulseEmpty": "Engin skilaboð enn. Vertu fyrst til að deila því sem þú sérð.",
-        "pulseInputPlaceholder": "Deildu því sem þú ert að sjá við þessa stöð...",
+        "pulseEmpty": "Engar umferðarfréttir ennþá. Vertu fyrst/ur til að deila þinni upplifun af aðstæðunum.",
+        "pulseInputPlaceholder": "Hjálpaðu öðrum með því að deila þinni upplifun af aðstæðunum",
+        "pulseInputPlaceholderCompact": "Hvernig eru aðstæður?",
         "pulseSend": "Senda",
         "pulseSendError": "Tókst ekki að senda. Reyndu aftur.",
+        "pulseNeedsLogin": "Skráðu þig inn til að skrifa í Veðurpúls",
+        "pulseInlineHeader": "Nýjast af staðnum frá notendum Teskeið.is",
+        "pulseViewMore": "Sjá fleiri skilaboð",
         "pulseDeleted": "[eytt]",
         "pulseKindField": "Vettvangsskýrsla",
-        "pulseKindMeasurement": "Mæling"
+        "pulseKindMeasurement": "Mæling",
+        "pulseLoadOlder": "Sækja eldri",
+        "feedTitle": "Safnpúls",
+        "feedEmpty": "Engin skilaboð enn frá neinum stöðvum."
       }
     }
   }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronDown, ChevronUp, MessageSquare } from 'lucide-react'
 import type {
@@ -13,7 +14,9 @@ import {
   loadMarkerLibrary,
   loadCoreLibrary,
 } from '@/lib/weather/googleMaps.client'
-import type { MessageDto, ThreadDto } from '@/lib/chat/types'
+import type { FeedMessageDto } from '@/lib/chat/types'
+import { ChatMessageRow } from '@/components/chat/ChatMessageRow'
+import { VedurstofanPulseInline } from '@/components/weather/VedurstofanPulseInline'
 
 const STATUS_COLOR: Record<StationExplorerStation['status'], string> = {
   ok: '#16a34a',
@@ -39,12 +42,26 @@ function makeMarkerIcon(
 
 export function VedurstofanStationExplorerClient() {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [data, setData] = useState<StationExplorerResponse | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<Filter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // Always-fresh ref so Google Maps marker listeners (created in useEffect closure)
+  // can toggle selection and update the URL without stale closure issues.
+  const selectStationRef = useRef<(id: string) => void>(() => {})
+  selectStationRef.current = (stationId: string) => {
+    const newId = selectedId === stationId ? null : stationId
+    setSelectedId(newId)
+    const url = new URL(window.location.href)
+    if (newId) url.searchParams.set('stationId', newId)
+    else url.searchParams.delete('stationId')
+    router.replace(url.pathname + url.search, { scroll: false })
+  }
 
   const mapDivRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -62,6 +79,11 @@ export function VedurstofanStationExplorerClient() {
       .then(payload => {
         setData(payload)
         setLoading(false)
+        // Restore selected station from URL (e.g. returning from full pulse route)
+        const urlStationId = searchParams.get('stationId')
+        if (urlStationId && payload.stations.some((s: StationExplorerStation) => s.stationId === urlStationId)) {
+          setSelectedId(urlStationId)
+        }
       })
       .catch(() => {
         setLoadError(true)
@@ -118,9 +140,7 @@ export function VedurstofanStationExplorerClient() {
             zIndex: station.status === 'ok' ? 10 : station.status === 'stale' ? 9 : 8,
           })
           marker.addListener('click', () => {
-            setSelectedId(prev =>
-              prev === stations[idx].stationId ? null : stations[idx].stationId,
-            )
+            selectStationRef.current(stations[idx].stationId)
           })
           return marker
         })
@@ -182,6 +202,9 @@ export function VedurstofanStationExplorerClient() {
 
       {data && (
         <>
+          {/* Safnpúls — aggregated feed across all station threads */}
+          <WeatherPulseFeed />
+
           {/* Summary strip */}
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground border border-border rounded-lg px-3 py-2">
             <span>{t('stationsTotal', { count: data.summary.total })}</span>
@@ -244,11 +267,7 @@ export function VedurstofanStationExplorerClient() {
               <button
                 key={station.stationId}
                 type="button"
-                onClick={() =>
-                  setSelectedId(prev =>
-                    prev === station.stationId ? null : station.stationId,
-                  )
-                }
+                onClick={() => selectStationRef.current(station.stationId)}
                 className={`flex items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                   selectedId === station.stationId ? 'bg-muted/40' : ''
                 }`}
@@ -278,216 +297,74 @@ export function VedurstofanStationExplorerClient() {
   )
 }
 
-// ── Veðurpúls ─────────────────────────────────────────────────────────────────
+// ── Safnpúls (aggregated feed) ────────────────────────────────────────────────
 
-type PulseMessage = MessageDto & { optimistic?: boolean; failed?: boolean }
-
-function PulseMessageRow({ msg }: { msg: PulseMessage }) {
-  const t = useTranslations('teskeid.vedrid.eltaVedrid')
-  const isRedacted = msg.isDeleted || msg.isHidden
-  return (
-    <div className={`flex flex-col gap-0.5 ${msg.optimistic ? 'opacity-60' : msg.failed ? 'opacity-40' : ''}`}>
-      <div className="flex items-center gap-1.5">
-        <span className="text-[10px] text-muted-foreground tabular-nums">
-          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
-        {msg.messageKind === 'field_report' && (
-          <span className="text-[9px] px-1 rounded bg-muted text-muted-foreground">{t('pulseKindField')}</span>
-        )}
-        {msg.messageKind === 'measurement_report' && (
-          <span className="text-[9px] px-1 rounded bg-muted text-muted-foreground">{t('pulseKindMeasurement')}</span>
-        )}
-      </div>
-      {isRedacted ? (
-        <span className="text-xs text-muted-foreground italic">{t('pulseDeleted')}</span>
-      ) : (
-        <span className="text-xs break-words">{msg.body}</span>
-      )}
-    </div>
-  )
-}
-
-function WeatherPulsePanel({ stationId }: { stationId: string }) {
+function WeatherPulseFeed() {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
   const [open, setOpen] = useState(false)
   const [accessDenied, setAccessDenied] = useState(false)
-  const [threadId, setThreadId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<PulseMessage[]>([])
-  const [loadingThread, setLoadingThread] = useState(false)
-  const [body, setBody] = useState('')
-  const [sending, setSending] = useState(false)
-  const [sendError, setSendError] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const endRef = useRef<HTMLDivElement>(null)
+  const [messages, setMessages] = useState<FeedMessageDto[]>([])
+  const [loading, setLoading] = useState(false)
 
-  async function initThread() {
-    setLoadingThread(true)
+  async function loadFeed() {
     try {
-      const res = await fetch('/api/auth-mvp/vedurpuls/thread', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetId: stationId }),
-      })
+      const res = await fetch('/api/auth-mvp/vedurpuls/feed?limit=50')
       if (res.status === 401 || res.status === 403 || res.status === 503) {
-        // Feature gate or auth failure — hide panel for this session
         setAccessDenied(true)
         setOpen(false)
         return
       }
-      if (!res.ok) {
-        // Transient error (5xx, network) — leave panel visible, just close
-        setOpen(false)
-        return
-      }
-      const thread: ThreadDto = await res.json()
-      setThreadId(thread.id)
-    } catch {
-      // Network error — leave panel visible for retry
-      setOpen(false)
-    } finally {
-      setLoadingThread(false)
-    }
-  }
-
-  async function loadMessages(id: string) {
-    try {
-      const res = await fetch(`/api/auth-mvp/vedurpuls/messages?threadId=${id}&limit=50`)
       if (!res.ok) return
-      const data: MessageDto[] = await res.json()
-      // Preserve any in-flight optimistic messages not yet confirmed
-      setMessages(prev => {
-        const optimistic = prev.filter(m => m.optimistic)
-        return [...data, ...optimistic]
-      })
-    } catch { /* silent during poll */ }
-  }
-
-  async function markRead(id: string) {
-    try {
-      await fetch('/api/auth-mvp/vedurpuls/read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ threadId: id }),
-      })
+      const data: FeedMessageDto[] = await res.json()
+      setMessages(data)
     } catch { /* silent */ }
   }
 
-  function toggle() {
-    if (accessDenied) return
-    if (!open) {
-      setOpen(true)
-      if (!threadId) initThread()
-    } else {
-      setOpen(false)
-    }
-  }
-
-  // Start/stop polling when panel is open and thread is ready
   useEffect(() => {
-    if (!open || !threadId) return
-    loadMessages(threadId)
-    markRead(threadId)
-    const id = setInterval(() => loadMessages(threadId), 15_000)
-    pollRef.current = id
-    return () => { clearInterval(id); pollRef.current = null }
+    if (!open) return
+    setLoading(true)
+    loadFeed().finally(() => setLoading(false))
+    const id = setInterval(loadFeed, 30_000)
+    return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, threadId])
-
-  // Scroll to bottom when messages arrive
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length])
-
-  async function handleSend() {
-    if (!threadId || !body.trim() || sending) return
-    setSendError(false)
-    const trimmed = body.trim()
-    const optimisticId = `opt-${Date.now()}`
-    const optimistic: PulseMessage = {
-      id: optimisticId,
-      threadId,
-      body: trimmed,
-      messageKind: 'chat',
-      createdAt: new Date().toISOString(),
-      isDeleted: false,
-      isHidden: false,
-      optimistic: true,
-    }
-    setMessages(prev => [...prev, optimistic])
-    setBody('')
-    setSending(true)
-    try {
-      const res = await fetch('/api/auth-mvp/vedurpuls/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ threadId, body: trimmed }),
-      })
-      if (!res.ok) throw new Error('send failed')
-      const confirmed: MessageDto = await res.json()
-      setMessages(prev => prev.map(m => m.id === optimisticId ? confirmed : m))
-    } catch {
-      setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, optimistic: false, failed: true } : m))
-      setSendError(true)
-      setBody(trimmed)
-    } finally {
-      setSending(false)
-    }
-  }
+  }, [open])
 
   if (accessDenied) return null
 
+  const kindLabels = {
+    field_report: t('pulseKindField'),
+    measurement_report: t('pulseKindMeasurement'),
+  }
+
   return (
-    <div className="border-t border-border pt-3 flex flex-col gap-2">
+    <div className="border border-border rounded-xl px-3 py-3 flex flex-col gap-2">
       <button
         type="button"
-        onClick={toggle}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors self-start"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-sm font-medium hover:text-muted-foreground transition-colors self-start"
       >
-        <MessageSquare className="w-3.5 h-3.5" />
-        {t('pulseOpen')}
-        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        <MessageSquare className="w-4 h-4" />
+        {t('feedTitle')}
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
       </button>
-
       {open && (
-        <>
-          {loadingThread && (
+        <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-0.5">
+          {loading ? (
             <p className="text-xs text-muted-foreground">{t('pulseLoading')}</p>
+          ) : messages.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('feedEmpty')}</p>
+          ) : (
+            messages.map(msg => (
+              <ChatMessageRow
+                key={msg.id}
+                msg={msg}
+                deletedLabel={t('pulseDeleted')}
+                kindLabels={kindLabels}
+                targetName={msg.target.targetName}
+              />
+            ))
           )}
-          {threadId && (
-            <>
-              <div className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-0.5">
-                {messages.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{t('pulseEmpty')}</p>
-                ) : (
-                  messages.map(msg => <PulseMessageRow key={msg.id} msg={msg} />)
-                )}
-                <div ref={endRef} />
-              </div>
-              <div className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={body}
-                  onChange={e => setBody(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-                  maxLength={1000}
-                  placeholder={t('pulseInputPlaceholder')}
-                  className="flex-1 text-base min-h-10 px-2.5 py-1.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60"
-                />
-                <button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={sending || !body.trim()}
-                  className="text-sm min-h-10 px-3 rounded-lg bg-foreground text-background disabled:opacity-40 transition-opacity shrink-0"
-                >
-                  {t('pulseSend')}
-                </button>
-              </div>
-              {sendError && (
-                <p className="text-xs text-destructive">{t('pulseSendError')}</p>
-              )}
-            </>
-          )}
-        </>
+        </div>
       )}
     </div>
   )
@@ -508,6 +385,11 @@ function StationDetail({ station }: { station: StationExplorerStation }) {
         />
         <span className="font-semibold text-sm">{station.stationName}</span>
       </div>
+
+      <VedurstofanPulseInline
+        stationId={station.stationId}
+        returnTo={`/auth-mvp/vedrid/elta-vedrid?stationId=${station.stationId}`}
+      />
 
       {/* Registry metadata */}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
@@ -647,7 +529,6 @@ function StationDetail({ station }: { station: StationExplorerStation }) {
         </details>
       )}
 
-      <WeatherPulsePanel stationId={station.stationId} />
     </div>
   )
 }

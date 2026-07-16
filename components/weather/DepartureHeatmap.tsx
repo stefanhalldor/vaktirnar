@@ -132,18 +132,6 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       {title !== null && <p className="text-xs font-medium text-foreground">{title ?? tf('heatmapTitle')}</p>}
       {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
 
-      {/* Threshold summary — always shown when thresholds are available */}
-      {thresholdsUsed && (
-        <p className="text-[10px] text-muted-foreground/70">
-          {tf('thresholdSummaryLine', {
-            caution: formatNum(thresholdsUsed.cautionWindMs, locale),
-            red: formatNum(thresholdsUsed.redWindMs, locale),
-            gust: formatNum(thresholdsUsed.redGustMs, locale),
-            precip: formatNum(thresholdsUsed.cautionPrecipMmPerHour, locale),
-          })}
-        </p>
-      )}
-
       {/* Status filter chips — always shown so user can see counts and filter */}
       <div className="flex flex-wrap gap-1.5">
           {ALL_WIND_DISPLAY_STATUSES.filter(st => st === 'innan-marka' || (statusCounts[st] ?? 0) > 0).map(st => {

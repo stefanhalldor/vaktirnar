@@ -4,6 +4,7 @@ import type {
   ChatThreadTarget,
   ThreadDto,
   MessageDto,
+  FeedMessageDto,
   ThreadSummaryDto,
   CreateMessageInput,
   ReportMessageInput,
@@ -26,8 +27,14 @@ function toThreadDto(row: any): ThreadDto {
   }
 }
 
+function toPublicFirstName(displayName: string | null): string | null {
+  if (!displayName) return null
+  const first = displayName.trim().split(/\s+/)[0]
+  return first || null
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toMessageDto(row: any): MessageDto {
+function toMessageDto(row: any, profileMap: Map<string, string | null> = new Map()): MessageDto {
   const isDeleted = !!row.deleted_at
   const isHidden = !!row.hidden_at
   return {
@@ -39,6 +46,27 @@ function toMessageDto(row: any): MessageDto {
     createdAt: row.created_at,
     isDeleted,
     isHidden,
+    authorName: row.user_id ? toPublicFirstName(profileMap.get(row.user_id) ?? null) : null,
+  }
+}
+
+/**
+ * Fetches display_name for a set of user IDs from the profiles table.
+ * Returns an empty map (and never throws) so callers degrade gracefully to authorName: null.
+ */
+async function fetchProfileMap(userIds: string[]): Promise<Map<string, string | null>> {
+  if (userIds.length === 0) return new Map()
+  try {
+    const admin = getAdmin()
+    const { data } = await admin
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', userIds)
+    if (!data) return new Map()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return new Map((data as any[]).map((p: any) => [p.id, p.display_name ?? null]))
+  } catch {
+    return new Map()
   }
 }
 
@@ -101,7 +129,9 @@ export async function getOrCreateThread(target: ChatThreadTarget): Promise<Threa
 }
 
 /**
- * Lists messages for a thread, oldest first.
+ * Lists the latest messages for a thread, returned oldest-first for display.
+ * Fetches newest-first from the DB (so the limit captures current messages,
+ * not historical ones) then reverses before returning.
  * Deleted and hidden messages are included but body is redacted in the DTO.
  */
 export async function listMessages(
@@ -112,16 +142,22 @@ export async function listMessages(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query: any = admin
     .from('teskeid_chat_messages')
-    .select('id, thread_id, body, message_kind, created_at, deleted_at, hidden_at')
+    .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
     .eq('thread_id', threadId)
-    .order('created_at', { ascending: true })
-    .limit(opts?.limit ?? 50)
+    .order('created_at', { ascending: false })
+    .limit(opts?.limit ?? 10)
   if (opts?.before) {
     query = query.lt('created_at', opts.before)
   }
   const { data, error } = await query
   if (error) throw new Error('chat: listMessages failed')
-  return (data ?? []).map(toMessageDto)
+  // Reverse so the panel displays oldest-at-top within the fetched window.
+  const rows = (data ?? []).reverse()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userIds = [...new Set<string>(rows.map((r: any) => r.user_id).filter(Boolean))]
+  const profileMap = await fetchProfileMap(userIds)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return rows.map((r: any) => toMessageDto(r, profileMap))
 }
 
 /**
@@ -144,10 +180,11 @@ export async function postMessage(
       body: input.body.trim(),
       message_kind: input.messageKind,
     })
-    .select('id, thread_id, body, message_kind, created_at, deleted_at, hidden_at')
+    .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
     .single()
   if (error || !data) throw new Error('chat: postMessage failed')
-  return toMessageDto(data)
+  const profileMap = await fetchProfileMap([userId])
+  return toMessageDto(data, profileMap)
 }
 
 /**
@@ -263,6 +300,80 @@ export async function reportMessage(
 }
 
 /**
+ * Returns the latest messages across all threads matching the given domain + targetTypes,
+ * ordered newest-first. Use the `before` cursor (ISO timestamp) to page older messages.
+ * Includes target metadata (name, type, id) from the thread row so the UI
+ * can display source labels without a second request.
+ */
+export async function getFeedMessages(
+  scope: { domain: string; targetTypes: string[] },
+  opts?: { limit?: number; before?: string }
+): Promise<FeedMessageDto[]> {
+  const admin = getAdmin()
+  const limit = opts?.limit ?? 50
+
+  // Step 1: Fetch threads matching scope to build a target metadata map.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: threads, error: threadsError } = await admin
+    .from('teskeid_chat_threads')
+    .select('id, domain, target_type, target_id, target_name, provider')
+    .eq('domain', scope.domain)
+    .in('target_type', scope.targetTypes)
+
+  if (threadsError) throw new Error('chat: getFeedMessages failed')
+  if (!threads || threads.length === 0) return []
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const threadMap = new Map<string, any>(threads.map((t: any) => [t.id, t]))
+  const threadIds = threads.map((t: any) => t.id as string)
+
+  // Step 2: Fetch messages from those threads, newest first.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query: any = admin
+    .from('teskeid_chat_messages')
+    .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
+    .in('thread_id', threadIds)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (opts?.before) {
+    // `before` is an ISO timestamp — returns messages older than the cursor.
+    query = query.lt('created_at', opts.before)
+  }
+
+  const { data: messages, error: messagesError } = await query
+  if (messagesError) throw new Error('chat: getFeedMessages failed')
+
+  const rows = messages ?? []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userIds = [...new Set<string>(rows.map((r: any) => r.user_id).filter(Boolean))]
+  const profileMap = await fetchProfileMap(userIds)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return rows.map((row: any): FeedMessageDto => {
+    const thread = threadMap.get(row.thread_id)
+    const isDeleted = !!row.deleted_at
+    const isHidden = !!row.hidden_at
+    return {
+      id: row.id,
+      threadId: row.thread_id,
+      body: isDeleted || isHidden ? '' : (row.body as string),
+      messageKind: row.message_kind,
+      createdAt: row.created_at,
+      isDeleted,
+      isHidden,
+      authorName: row.user_id ? toPublicFirstName(profileMap.get(row.user_id) ?? null) : null,
+      target: {
+        domain: thread.domain,
+        targetType: thread.target_type,
+        targetId: thread.target_id,
+        targetName: thread.target_name,
+        provider: thread.provider ?? null,
+      },
+    }
+  })
+}
+
+/**
  * Returns a lightweight summary for a thread — for station card counts and route summaries.
  * If userId is provided, includes unread count relative to the user's read cursor.
  * Returns null if the thread does not exist yet.
@@ -311,4 +422,46 @@ export async function getThreadSummary(
     unreadCount,
     hasUnread: unreadCount > 0,
   }
+}
+
+/**
+ * Returns the latest N visible (non-deleted, non-hidden) messages for a thread
+ * identified by domain/targetType/targetId, without creating the thread.
+ * Returns [] if no thread exists yet.
+ * Intended for public read-only previews — no user session required.
+ */
+export async function getPreviewMessages(
+  target: { domain: string; targetType: string; targetId: string },
+  limit: number
+): Promise<MessageDto[]> {
+  const admin = getAdmin()
+
+  const { data: thread, error: threadError } = await admin
+    .from('teskeid_chat_threads')
+    .select('id')
+    .eq('domain', target.domain)
+    .eq('target_type', target.targetType)
+    .eq('target_id', target.targetId)
+    .maybeSingle()
+
+  if (threadError) throw new Error('chat: getPreviewMessages failed')
+  if (!thread) return []
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await admin
+    .from('teskeid_chat_messages')
+    .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
+    .eq('thread_id', thread.id)
+    .is('deleted_at', null)
+    .is('hidden_at', null)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) throw new Error('chat: getPreviewMessages failed')
+  const rows = (data ?? []).reverse()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userIds = [...new Set<string>(rows.map((r: any) => r.user_id).filter(Boolean))]
+  const profileMap = await fetchProfileMap(userIds)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return rows.map((r: any) => toMessageDto(r, profileMap))
 }

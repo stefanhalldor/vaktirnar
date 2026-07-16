@@ -242,11 +242,13 @@ Síðan er úttakið notað bæði í filename og í `Created:` línu inni í sk
   af ráðgjafarhlutverki Codex **og Claude Code** í stærri verkefnum og krefst
   ekki sérstakrar framkvæmdarbeiðni í hvert skipti þegar Stebbi er í rýni-,
   plan- eða handoff-hring.
-- **Claude Code á alltaf að skrifa rýni, stöðumat, plan og svör við handoff
-  skrám í `ai-handoff/` skrá — ekki beint í spjallgluggann.** Þetta á við þegar
-  Stebbi biður Claude Code um að lesa handoff, gera rýni eða meta stöðu. Einzar
-  undantekningar: stutt staðfestingarspurningar (já/nei), eða ef Stebbi biður
-  sérstaklega um stutt samtalssvar.
+- **Codex og Claude Code eiga alltaf að skrifa rýni, stöðumat, plan og svör við
+  handoff skrám í `ai-handoff/` skrá — ekki aðeins beint í spjallgluggann.**
+  Þetta á við þegar Stebbi biður um að lesa handoff, gera rýni, meta stöðu,
+  spyr "áfram gakk?", "halda áfram?" eða sambærilegt eftir handoff/prerelease.
+  Spjallsvarið á þá aðeins að vera stutt samantekt og hlekkur á nýju skrána.
+  Einu undantekningar: stutt staðfestingarspurningar (já/nei), eða ef Stebbi
+  biður sérstaklega um stutt samtalssvar án handoff skráar.
 - Þessi regla heimilar aðeins ný handoff/review/plan skjöl í `ai-handoff/`.
   Hún heimilar ekki kóðabreytingar, SQL, migrations, env-breytingar,
   Supabase-breytingar, `TODO.md`/`DONE.md` breytingar, commit, push, deploy eða

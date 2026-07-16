@@ -5,6 +5,7 @@ import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofan
 import type { WindDisplayStatus } from '@/lib/weather/windDisplayStatus'
 import { WindStatusBadge } from '@/components/weather/WindStatusBadge'
 import { formatKlTime, formatNum, getOriginDisplay } from './travelAuditMap.helpers'
+import { VedurstofanPulseInline } from './VedurstofanPulseInline'
 
 type ForecastRow = VedurstofanTravelLayer['points'][number]['forecastRows'][number]
 type StationPoint = VedurstofanTravelLayer['points'][number]
@@ -170,6 +171,7 @@ export function VedurstofanJourneySummary({
             ),
           })}
         </div>
+        <VedurstofanPulseInline stationId={station.stationId} />
       </div>
     </section>
   )
@@ -283,6 +285,8 @@ export function VedurstofanPointCard({
           {tf('vedurstofanSourceLink')}
         </a>
       )}
+
+      <VedurstofanPulseInline stationId={station.stationId} />
     </div>
   )
 }

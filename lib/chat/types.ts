@@ -74,6 +74,30 @@ export interface MessageDto {
   createdAt: string
   isDeleted: boolean
   isHidden: boolean
+  authorName: string | null
+}
+
+/**
+ * Message DTO for the aggregated cross-thread feed.
+ * Includes target metadata from the thread so the UI can show which station
+ * each message came from without a second request.
+ */
+export interface FeedMessageDto {
+  id: string
+  threadId: string
+  body: string
+  messageKind: ChatMessageKind
+  createdAt: string
+  isDeleted: boolean
+  isHidden: boolean
+  authorName: string | null
+  target: {
+    domain: ChatDomain
+    targetType: ChatTargetType
+    targetId: string
+    targetName: string
+    provider: string | null
+  }
 }
 
 export interface CreateMessageInput {

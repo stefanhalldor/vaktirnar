@@ -20,6 +20,8 @@ import {
   reportMessage,
   assertThreadScope,
   assertMessageScope,
+  getFeedMessages,
+  getPreviewMessages,
 } from '@/lib/chat/repository.server'
 import type { CreateMessageInput, ReportMessageInput } from '@/lib/chat/types'
 
@@ -33,6 +35,7 @@ function makeChain(overrides: Record<string, unknown> = {}) {
     single: vi.fn().mockResolvedValue({ data: null, error: null }),
     maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
     eq: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue({ data: [], error: null }),
     lt: vi.fn().mockReturnThis(),
@@ -40,8 +43,6 @@ function makeChain(overrides: Record<string, unknown> = {}) {
     gt: vi.fn().mockReturnThis(),
     delete: vi.fn().mockReturnThis(),
     update: vi.fn().mockReturnThis(),
-    then: vi.fn().mockReturnThis(),
-    catch: vi.fn().mockResolvedValue({}),
     ...overrides,
   }
   return chain
@@ -157,6 +158,19 @@ describe('getOrCreateThread', () => {
 // ── listMessages ──────────────────────────────────────────────────────────────
 
 describe('listMessages', () => {
+  it('returns message DTOs ordered oldest-first for display', async () => {
+    const older = { ...MESSAGE_ROW, id: 'msg-1', created_at: '2026-07-15T17:00:00Z' }
+    const newer = { ...MESSAGE_ROW, id: 'msg-2', created_at: '2026-07-15T18:00:00Z' }
+    // DB returns newest-first; listMessages should reverse for display
+    const chain = makeChain({ limit: vi.fn().mockResolvedValue({ data: [newer, older], error: null }) })
+    mockFrom.mockReturnValue(chain)
+
+    const msgs = await listMessages('thread-1')
+    expect(msgs).toHaveLength(2)
+    expect(msgs[0].id).toBe('msg-1') // older first
+    expect(msgs[1].id).toBe('msg-2') // newer second
+  })
+
   it('returns message DTOs', async () => {
     const chain = makeChain({ limit: vi.fn().mockResolvedValue({ data: [MESSAGE_ROW], error: null }) })
     mockFrom.mockReturnValue(chain)
@@ -370,5 +384,189 @@ describe('reportMessage', () => {
     mockFrom.mockReturnValue(chain)
     await expect(reportMessage('msg-1', 'user-1', { reason: 'spam' }))
       .rejects.toThrow('chat: reportMessage failed')
+  })
+})
+
+// ── getFeedMessages ───────────────────────────────────────────────────────────
+
+const THREAD_ROW_FEED = {
+  id: 'thread-1',
+  domain: 'weather',
+  target_type: 'vedurstofan_station',
+  target_id: '31392',
+  target_name: 'Hellisheiði',
+  provider: 'vedurstofan',
+}
+
+const MESSAGE_ROW_FEED = {
+  id: 'msg-1',
+  thread_id: 'thread-1',
+  body: 'Hvass vindur',
+  message_kind: 'chat',
+  created_at: '2026-07-15T21:00:00Z',
+  deleted_at: null,
+  hidden_at: null,
+}
+
+describe('getFeedMessages', () => {
+  it('returns FeedMessageDto with target metadata', async () => {
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        // threads query: select().eq().in() resolves directly
+        in: vi.fn().mockResolvedValue({ data: [THREAD_ROW_FEED], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        // messages query: select().in().order().limit() resolves
+        limit: vi.fn().mockResolvedValue({ data: [MESSAGE_ROW_FEED], error: null }),
+      }))
+
+    const results = await getFeedMessages({ domain: 'weather', targetTypes: ['vedurstofan_station'] })
+
+    expect(results).toHaveLength(1)
+    expect(results[0].id).toBe('msg-1')
+    expect(results[0].body).toBe('Hvass vindur')
+    expect(results[0].target.targetName).toBe('Hellisheiði')
+    expect(results[0].target.targetId).toBe('31392')
+    expect(results[0].target.domain).toBe('weather')
+  })
+
+  it('returns empty array when no threads match scope', async () => {
+    mockFrom.mockReturnValueOnce(makeChain({
+      in: vi.fn().mockResolvedValue({ data: [], error: null }),
+    }))
+
+    const results = await getFeedMessages({ domain: 'weather', targetTypes: ['vedurstofan_station'] })
+    expect(results).toEqual([])
+  })
+
+  it('redacts body of deleted message', async () => {
+    const deleted = { ...MESSAGE_ROW_FEED, deleted_at: '2026-07-15T22:00:00Z' }
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        in: vi.fn().mockResolvedValue({ data: [THREAD_ROW_FEED], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [deleted], error: null }),
+      }))
+
+    const results = await getFeedMessages({ domain: 'weather', targetTypes: ['vedurstofan_station'] })
+    expect(results[0].body).toBe('')
+    expect(results[0].isDeleted).toBe(true)
+  })
+
+  it('throws when thread query fails', async () => {
+    mockFrom.mockReturnValueOnce(makeChain({
+      in: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+    }))
+
+    await expect(getFeedMessages({ domain: 'weather', targetTypes: ['vedurstofan_station'] }))
+      .rejects.toThrow('chat: getFeedMessages failed')
+  })
+
+  it('orders messages newest-first (ascending: false)', async () => {
+    const orderFn = vi.fn().mockReturnThis()
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        in: vi.fn().mockResolvedValue({ data: [THREAD_ROW_FEED], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        order: orderFn,
+        limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }))
+
+    await getFeedMessages({ domain: 'weather', targetTypes: ['vedurstofan_station'] })
+
+    expect(orderFn).toHaveBeenCalledWith('created_at', { ascending: false })
+  })
+
+  it('throws when messages query fails', async () => {
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        in: vi.fn().mockResolvedValue({ data: [THREAD_ROW_FEED], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+      }))
+
+    await expect(getFeedMessages({ domain: 'weather', targetTypes: ['vedurstofan_station'] }))
+      .rejects.toThrow('chat: getFeedMessages failed')
+  })
+
+  it('returns first-name-only authorName (regression: full display_name must not leak)', async () => {
+    const msgWithUser = { ...MESSAGE_ROW_FEED, user_id: 'user-1' }
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        in: vi.fn().mockResolvedValue({ data: [THREAD_ROW_FEED], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [msgWithUser], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        in: vi.fn().mockResolvedValue({
+          data: [{ id: 'user-1', display_name: 'Stefan Halldor Jonsson' }],
+          error: null,
+        }),
+      }))
+
+    const results = await getFeedMessages({ domain: 'weather', targetTypes: ['vedurstofan_station'] })
+    expect(results[0].authorName).toBe('Stefan')
+  })
+})
+
+// ── getPreviewMessages ────────────────────────────────────────────────────────
+
+const PREVIEW_TARGET = {
+  domain: 'weather',
+  targetType: 'vedurstofan_station',
+  targetId: '31392',
+}
+
+describe('getPreviewMessages', () => {
+  it('returns [] when no thread exists', async () => {
+    mockFrom.mockReturnValueOnce(makeChain({
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    }))
+    const results = await getPreviewMessages(PREVIEW_TARGET, 3)
+    expect(results).toEqual([])
+  })
+
+  it('returns visible messages when thread exists', async () => {
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'thread-1' }, error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MESSAGE_ROW], error: null }),
+      }))
+    const results = await getPreviewMessages(PREVIEW_TARGET, 3)
+    expect(results).toHaveLength(1)
+    expect(results[0].id).toBe('msg-1')
+    expect(results[0].body).toBe('Vindur er sterkur hér')
+  })
+
+  it('returns first-name-only authorName', async () => {
+    const msgWithUser = { ...MESSAGE_ROW, user_id: 'user-1' }
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'thread-1' }, error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [msgWithUser], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        in: vi.fn().mockResolvedValue({
+          data: [{ id: 'user-1', display_name: 'Jón Sigurðsson' }],
+          error: null,
+        }),
+      }))
+    const results = await getPreviewMessages(PREVIEW_TARGET, 3)
+    expect(results[0].authorName).toBe('Jón')
+  })
+
+  it('throws when thread query fails', async () => {
+    mockFrom.mockReturnValueOnce(makeChain({
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+    }))
+    await expect(getPreviewMessages(PREVIEW_TARGET, 3)).rejects.toThrow('chat: getPreviewMessages failed')
   })
 })

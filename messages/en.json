@@ -945,14 +945,23 @@
         "mappingStatusLabel": "Coordinates",
         "dataAge": "Data",
         "pulseOpen": "Veðurpúls",
+        "pulseOpenFull": "Open the pulse",
+        "pulseAccessDenied": "You do not have access to Veðurpúls.",
         "pulseLoading": "Loading...",
-        "pulseEmpty": "No messages yet. Be the first to share what you see.",
-        "pulseInputPlaceholder": "Share what you observe at this station...",
+        "pulseEmpty": "No traffic reports yet. Be the first to share your experience of the conditions.",
+        "pulseInputPlaceholder": "Help others by sharing your experience of the conditions",
+        "pulseInputPlaceholderCompact": "How are conditions?",
         "pulseSend": "Send",
         "pulseSendError": "Failed to send. Try again.",
+        "pulseNeedsLogin": "Sign in to write in Veðurpúls",
+        "pulseInlineHeader": "Latest from locals on Teskeið.is",
+        "pulseViewMore": "See more messages",
         "pulseDeleted": "[deleted]",
         "pulseKindField": "Field report",
-        "pulseKindMeasurement": "Measurement"
+        "pulseKindMeasurement": "Measurement",
+        "pulseLoadOlder": "Load older",
+        "feedTitle": "Safnpúls",
+        "feedEmpty": "No pulse messages yet across any station."
       }
     }
   }

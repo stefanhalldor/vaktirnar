@@ -29,6 +29,10 @@ const PUBLIC_PATHS = [
   '/umonnun',
   '/api/teskeid/weather/travel',
   '/api/teskeid/weather/saved-places',
+  // Public Veðurpúls station preview — read-only, no thread creation, no auth required.
+  // Only the .../preview endpoint exists under this prefix. Any future endpoint added
+  // under /api/teskeid/weather/vedurpuls/stations/ must enforce its own auth checks.
+  '/api/teskeid/weather/vedurpuls/stations/',
 ]
 
 // Exact-match public paths — no prefix semantics.
@@ -184,7 +188,8 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const url = request.nextUrl.clone()
-    url.pathname = '/login'
+    // Teskeið auth-mvp pages use /innskraning; legacy pages use /login.
+    url.pathname = pathname.startsWith('/auth-mvp/') ? '/innskraning' : '/login'
     return NextResponse.redirect(url)
   }
 
