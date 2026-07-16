@@ -111,6 +111,12 @@ export function VedurstofanPulseInline({ stationId, returnTo }: VedurstofanPulse
     ? `/auth-mvp/vedrid/puls/stod/${stationId}?returnTo=${encodeURIComponent(returnTo)}`
     : null
 
+  // Hide the whole component when there is nothing useful to show:
+  // no messages to preview and no composer available (public/denied user).
+  // This prevents rendering an empty "Nýjast af staðnum" header on public cards.
+  const canPost = postingAccess === 'allowed'
+  if (messages.length === 0 && !canPost) return null
+
   return (
     <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
       <p className="text-xs font-medium text-foreground">{t('pulseInlineHeader')}</p>

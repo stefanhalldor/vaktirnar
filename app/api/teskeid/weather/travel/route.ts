@@ -332,13 +332,19 @@ export async function POST(request: Request) {
   }
   const { weatherPoints, diagnostics: samplingDiagnostics } = sampleRouteWeatherPoints(allPts, cumDist)
 
-  // Fetch route point forecasts and check Veðurstofan layer access in parallel
+  // Fetch route point forecasts and check Veðurstofan layer access in parallel.
+  // When WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED is not 'true' (or unset), the layer
+  // is open to all callers including public users — deletion from Vercel = open.
+  const vedurstofanAccessRequired =
+    process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED === 'true'
   const [routeForecastResults, destForecastRaw, layerEnabled] = await Promise.all([
     Promise.allSettled(weatherPoints.map((pt) => fetchForecast(pt.lat, pt.lon))),
     fetchForecast(destCandidate.lat, destCandidate.lon).catch(() => null),
-    user?.id && user?.email
-      ? checkFeatureAccess(user.id, user.email, 'weather-provider-vedurstofan').catch(() => false)
-      : Promise.resolve(false),
+    !vedurstofanAccessRequired
+      ? Promise.resolve(true)
+      : user?.id && user?.email
+        ? checkFeatureAccess(user.id, user.email, 'weather-provider-vedurstofan').catch(() => false)
+        : Promise.resolve(false),
   ])
 
   // Read Veðurstofan product table and last warm attempt time in parallel (fail-open)

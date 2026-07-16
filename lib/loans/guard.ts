@@ -92,11 +92,11 @@ export async function checkFeatureAccess(
   }
   if (featureKey === 'weather-provider-vedurstofan') {
     if (getWeatherEnabledMode() === 'off') return false
-    // Default: access required (per-user gate) unless explicitly set to 'false'.
-    // WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED=false graduates provider to all weather users.
-    // Legacy WEATHER_PROVIDER_VEDURSTOFAN_ENABLED is no longer read — remove from Vercel after deploy verification.
+    // Graduation pattern: per-user gate is active only when var is explicitly 'true'.
+    // Unset (delete from Vercel) = open to all weather users — the intended graduation path.
+    // WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED=true keeps per-user gate active.
     const vedurstofanAccessRequired =
-      process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED !== 'false'
+      process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED === 'true'
     if (!vedurstofanAccessRequired) return true
     return checkPerUserAccess(email, 'weather-provider-vedurstofan')
   }
