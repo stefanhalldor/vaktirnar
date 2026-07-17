@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { augmentProviderMatchingPoints, ROUTE_CONTROL_SECTIONS } from '@/lib/weather/routeControlPoints'
-import { matchProviderPointsToRoute } from '@/lib/weather/providerRouteMatching'
+import { matchProviderPointsToRoute, DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M } from '@/lib/weather/providerRouteMatching'
 
 // ── Synthetic control section for deterministic testing ───────────────────────
 
@@ -197,6 +197,133 @@ describe('ROUTE_CONTROL_SECTIONS registry', () => {
     for (const section of ROUTE_CONTROL_SECTIONS) {
       expect(section.anchors.length).toBeGreaterThanOrEqual(2)
     }
+  })
+})
+
+// ── Vík/Mýrdalur regression ───────────────────────────────────────────────────
+//
+// Before the two-section fix, a single ring-road-vik-skeidflotur section had
+// anchors that missed Vatnsskarðshólar (west of Vík) and were too far from
+// Reynisfjall. On localhost (dev, verified:false sections active), incorrect
+// anchors replaced good Google polyline geometry and caused route-dependent
+// station mismatches. Production (verified:false → skipped) was unaffected.
+//
+// These tests use sparse horizontal chords at lat 63.40 that chord across south
+// of the actual Route 1 coastal path. Without augmentation the stations at
+// lat 63.42-63.47 fall outside the 1 km threshold. After augmentation with the
+// corrected sections, all target stations are within 1 km.
+
+describe('Vík/Mýrdalur regression — route-dependent station mismatch', () => {
+  // Real Veðurstofan station coordinates (from Codex v397 handoff).
+  // These are the product acceptance criteria for this fix.
+  const VATNSSKARDSHOLAR = { id: 'vatnsskardsholar', lat: 63.424, lon: -19.1837 }
+  const REYNISFJALL = { id: 'reynisfjall', lat: 63.4521, lon: -19.0378 }
+  const MYRDALSSANDUR = { id: 'myrdalssandur', lat: 63.4661, lon: -18.6044 }
+  const ALL_VIK_STATIONS = [VATNSSKARDSHOLAR, REYNISFJALL, MYRDALSSANDUR]
+
+  // Sparse horizontal chords at lat 63.40, south of the actual Route 1 path.
+  // Simulate Google RDP-simplified polylines on long routes.
+  const VIK_WEST_CHORD = [   // triggers ring-road-vik-west only (east end stops before vik-east east gate)
+    { lat: 63.40, lon: -19.6 },
+    { lat: 63.40, lon: -18.6 },
+  ]
+  const VIK_EAST_CHORD = [   // triggers ring-road-vik-east only (west end starts after vik-west west gate)
+    { lat: 63.40, lon: -19.2 },
+    { lat: 63.40, lon: -18.2 },
+  ]
+  const VIK_BOTH_CHORD = [   // triggers both sections (long route, Reykjavík ↔ Egilsstaðir style)
+    { lat: 63.40, lon: -19.6 },
+    { lat: 63.40, lon: -18.2 },
+  ]
+  const SELFOSS_AREA = [     // unrelated route — no Vík gates triggered
+    { lat: 63.93, lon: -21.0 },
+    { lat: 63.97, lon: -21.4 },
+  ]
+  // Three-vertex sparse route from Vík heading west (Vík → Hella).
+  // Only triggers ring-road-vik-west: the vik-east east gate is 31+ km east.
+  const VIK_HELLA_SPARSE = [
+    { lat: 63.419, lon: -18.998 }, // Vík start
+    { lat: 63.440, lon: -19.550 }, // Route 1 near Skógar
+    { lat: 63.853, lon: -20.407 }, // Hella
+  ]
+
+  it('sparse chord misses all three Vík stations without augmentation', () => {
+    const matches = matchProviderPointsToRoute({
+      points: ALL_VIK_STATIONS,
+      routePolyline: VIK_BOTH_CHORD,
+      maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+    })
+    expect(matches).toHaveLength(0)
+  })
+
+  it('vik-west chord finds Vatnsskarðshólar and Reynisfjall within 1 km after augmentation', () => {
+    const augmented = augmentProviderMatchingPoints(VIK_WEST_CHORD, ROUTE_CONTROL_SECTIONS)
+    const matches = matchProviderPointsToRoute({
+      points: [VATNSSKARDSHOLAR, REYNISFJALL],
+      routePolyline: augmented,
+      maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+    })
+    expect(matches).toHaveLength(2)
+    expect(matches.every(m => m.distanceM < DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M)).toBe(true)
+  })
+
+  it('vik-east chord finds Mýrdalssandur within 1 km after augmentation', () => {
+    const augmented = augmentProviderMatchingPoints(VIK_EAST_CHORD, ROUTE_CONTROL_SECTIONS)
+    const matches = matchProviderPointsToRoute({
+      points: [MYRDALSSANDUR],
+      routePolyline: augmented,
+      maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+    })
+    expect(matches).toHaveLength(1)
+    expect(matches[0].distanceM).toBeLessThan(DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M)
+  })
+
+  it('long chord finds all three Vík stations within 1 km after augmentation', () => {
+    const augmented = augmentProviderMatchingPoints(VIK_BOTH_CHORD, ROUTE_CONTROL_SECTIONS)
+    const matches = matchProviderPointsToRoute({
+      points: ALL_VIK_STATIONS,
+      routePolyline: augmented,
+      maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+    })
+    expect(matches).toHaveLength(3)
+    expect(matches.every(m => m.distanceM < DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M)).toBe(true)
+  })
+
+  it('reversed long chord (Egilsstaðir → Reykjavík) finds all three Vík stations', () => {
+    const augmented = augmentProviderMatchingPoints(
+      [...VIK_BOTH_CHORD].reverse(),
+      ROUTE_CONTROL_SECTIONS,
+    )
+    const matches = matchProviderPointsToRoute({
+      points: ALL_VIK_STATIONS,
+      routePolyline: augmented,
+      maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+    })
+    expect(matches).toHaveLength(3)
+  })
+
+  it('Vík → Hella (westbound, short) finds Vatnsskarðshólar and Reynisfjall but NOT Mýrdalssandur', () => {
+    // vik-east does not trigger: its east gate is 31+ km from the Vík start.
+    const augmented = augmentProviderMatchingPoints(VIK_HELLA_SPARSE, ROUTE_CONTROL_SECTIONS)
+    const allMatches = matchProviderPointsToRoute({
+      points: ALL_VIK_STATIONS,
+      routePolyline: augmented,
+      maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+    })
+    const ids = new Set(allMatches.map(m => m.point.id))
+    expect(ids.has('vatnsskardsholar')).toBe(true)
+    expect(ids.has('reynisfjall')).toBe(true)
+    expect(ids.has('myrdalssandur')).toBe(false)
+  })
+
+  it('unrelated route (Selfoss area) finds no Vík stations', () => {
+    const augmented = augmentProviderMatchingPoints(SELFOSS_AREA, ROUTE_CONTROL_SECTIONS)
+    const matches = matchProviderPointsToRoute({
+      points: ALL_VIK_STATIONS,
+      routePolyline: augmented,
+      maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+    })
+    expect(matches).toHaveLength(0)
   })
 })
 
