@@ -451,7 +451,8 @@ export function RouteSelectionStep({
       {/* Station preview card — shown when a station marker is clicked */}
       {selectedStation && (
         <ProviderStationPreviewCard
-          station={selectedStation}
+          stationName={selectedStation.stationName}
+          distanceM={selectedStation.distanceM}
           providerLabel={tf('providerVedurstofanLabel')}
           onClose={() => setSelectedStation(null)}
         >
