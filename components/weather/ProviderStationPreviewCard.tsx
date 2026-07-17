@@ -3,36 +3,34 @@
 import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { ForecastRowLine, selectUpcomingRows } from './VedurstofanForecastRows'
 import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
 
 /**
  * Compact preview card for a provider station on the route-selection map.
  *
- * Provider-neutral shell: callers supply providerLabel and any provider-specific
- * Púls/action content via children. This keeps the card reusable for Vegagerðin
- * and future providers without importing provider-specific components here.
+ * Provider-neutral shell: callers supply providerLabel and all provider-specific
+ * content (forecast rows, road conditions, Púls links, etc.) via children.
+ * This keeps the card reusable for Vegagerðin and future providers without
+ * importing any provider-specific components here.
  *
  * Usage (Veðurstofan):
  *   <ProviderStationPreviewCard station={s} providerLabel={tf('providerVedurstofanLabel')} ...>
+ *     <VedurstofanForecastSection station={s} locale={locale} noDataLabel={...} />
  *     <VedurstofanPulseInline stationId={s.stationId} returnTo={returnTo} />
  *   </ProviderStationPreviewCard>
  */
 export function ProviderStationPreviewCard({
   station,
   providerLabel,
-  locale,
   onClose,
   children,
 }: {
   station: ProviderStationPoint
   providerLabel: string
-  locale: string
   onClose: () => void
   children?: ReactNode
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
-  const rows = selectUpcomingRows(station.forecastRows, 3)
   const distanceKm = (station.distanceM / 1000).toFixed(1)
 
   return (
@@ -60,25 +58,7 @@ export function ProviderStationPreviewCard({
         </button>
       </div>
 
-      {/* Forecast rows — shared ForecastRowLine from VedurstofanForecastRows */}
-      {rows.length > 0 ? (
-        <div className="flex flex-col divide-y divide-border/40">
-          {rows.map(row => (
-            <ForecastRowLine
-              key={row.ftimeIso}
-              row={row}
-              isUsed={false}
-              locale={locale}
-              usedMarker=""
-              showDate={true}
-            />
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">{tf('stationPreviewNoData')}</p>
-      )}
-
-      {/* Provider-specific slot: Púls, road conditions, or other provider actions */}
+      {/* Provider-specific content: forecast rows, road conditions, Púls links, etc. */}
       {children}
     </div>
   )

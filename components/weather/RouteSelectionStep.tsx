@@ -11,6 +11,7 @@ import { FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
 import { ProviderStationPreviewCard } from './ProviderStationPreviewCard'
 import { VedurstofanPulseInline } from './VedurstofanPulseInline'
+import { ForecastRowLine, selectUpcomingRows } from './VedurstofanForecastRows'
 import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
 
 export type RoutePlace = {
@@ -125,6 +126,7 @@ export function RouteSelectionStep({
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapError, setMapError] = useState(false)
   const [selectedStation, setSelectedStation] = useState<ProviderStationPoint | null>(null)
+  const selectedStationRows = selectedStation ? selectUpcomingRows(selectedStation.forecastRows, 3) : []
 
   // When a ferry port is selected, the map shows routes to the port, not Vestmannaeyjar
   const ferryPort = ferryPortId ? FERRY_PORTS[ferryPortId] : null
@@ -451,9 +453,17 @@ export function RouteSelectionStep({
         <ProviderStationPreviewCard
           station={selectedStation}
           providerLabel={tf('providerVedurstofanLabel')}
-          locale={locale}
           onClose={() => setSelectedStation(null)}
         >
+          {selectedStationRows.length > 0 ? (
+            <div className="flex flex-col divide-y divide-border/40">
+              {selectedStationRows.map(row => (
+                <ForecastRowLine key={row.ftimeIso} row={row} isUsed={false} locale={locale} usedMarker="" showDate={true} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">{tf('stationPreviewNoData')}</p>
+          )}
           <VedurstofanPulseInline stationId={selectedStation.stationId} returnTo="/auth-mvp/vedrid" />
         </ProviderStationPreviewCard>
       )}
