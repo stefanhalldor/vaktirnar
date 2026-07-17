@@ -1,6 +1,8 @@
 import 'server-only'
 import type { PlaceCandidate, RouteGeometry, RouteOption, StaticMapParams, WeatherMapProvider } from './provider.types'
 import { matchRouteCautions } from './routeCautions'
+import { rdpSimplify } from './providerRouteMatching'
+import { augmentProviderMatchingPoints, ROUTE_CONTROL_SECTIONS } from './routeControlPoints'
 import {
   HOLMAVIK_VIA,
   HOLMAVIK_PROXIMITY_M,
@@ -67,6 +69,35 @@ function samplePoints(
     }
   }
   return sampled
+}
+
+// ── Provider matching geometry ────────────────────────────────────────────────
+
+/**
+ * RDP epsilon for provider-matching geometry.
+ * 10 m keeps fjords and curves accurate while pruning redundant collinear points.
+ */
+const PROVIDER_MATCHING_RDP_EPSILON_M = 10
+
+/**
+ * Hard cap on provider-matching points sent to the provider-stations endpoint.
+ * Matches PROVIDER_STATIONS_MAX_ROUTE_POINTS in provider-stations/route.ts.
+ */
+const MAX_PROVIDER_MATCHING_POINTS = 1000
+
+/**
+ * Build `providerMatchingPoints` from the full Google polyline.
+ *
+ * 1. RDP simplification preserves curves/fjords while pruning collinear points.
+ * 2. Route control point augmentation injects road-accurate anchors where
+ *    Google chords across known difficult sections (e.g. Vík/Skeiðflötur).
+ * 3. Cap at MAX_PROVIDER_MATCHING_POINTS (endpoint-preserving stride as last resort).
+ */
+function providerMatchingPointsFrom(
+  allPoints: Array<{ lat: number; lon: number }>,
+): Array<{ lat: number; lon: number }> {
+  const rdp = rdpSimplify(allPoints, PROVIDER_MATCHING_RDP_EPSILON_M)
+  return augmentProviderMatchingPoints(rdp, ROUTE_CONTROL_SECTIONS, MAX_PROVIDER_MATCHING_POINTS)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -280,6 +311,7 @@ async function fetchCuratedRoute(
     travelMode: 'DRIVE',
     routingPreference: 'TRAFFIC_AWARE',
     polylineEncoding: 'GEO_JSON_LINESTRING',
+    polylineQuality: 'HIGH_QUALITY',
     intermediates: rule.vias.map(v => ({
       via: true,
       location: { latLng: { latitude: v.lat, longitude: v.lon } },
@@ -332,9 +364,29 @@ async function fetchCuratedRoute(
     }
 
     const allPoints = coords.map(([lon, lat]) => ({ lat, lon }))
-    // Evaluate cautions on full pre-sampling geometry so sparse sampled points
-    // do not produce false negatives on shorter caution corridors.
-    const cautions = matchRouteCautions(allPoints, from, to)
+
+    // Caution detection for both display (route card) and suppression validation.
+    // avoid-oxi-via-reydarfjordur uses evidencePointsOnly for both: the 10 km
+    // corridorPoint fires on the coastal avoidance route (Reyðarfjörður), causing
+    // the curated route to display the same Öxi caution as the base route. The
+    // 1.5 km Öxi station evidencePoint reliably distinguishes Road 939 from the
+    // coastal alternative, so evidencePointsOnly is correct for both display and
+    // suppression validation on this rule.
+    // All other rules use full detection (corridorPoints + evidencePoints).
+    const evidenceOnly = rule.id === 'avoid-oxi-via-reydarfjordur'
+    const displayCautions = matchRouteCautions(
+      allPoints, from, to,
+      evidenceOnly ? { evidencePointsOnly: true } : undefined,
+    )
+
+    if (rule.triggerCautionId) {
+      if (displayCautions.some(c => c.id === rule.triggerCautionId)) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[weather/google] curated ${rule.logName}: suppressed — still has caution ${rule.triggerCautionId}`)
+        }
+        return null
+      }
+    }
 
     return {
       id,
@@ -343,10 +395,11 @@ async function fetchCuratedRoute(
       labels: [...rule.labels],
       isDefault: false,
       points: samplePoints(allPoints, MAX_ROUTE_POINTS),
+      providerMatchingPoints: providerMatchingPointsFrom(allPoints),
       distanceM: route.distanceMeters,
       durationS: parseGoogleSeconds(route.staticDuration) ?? parseGoogleSeconds(route.duration) ?? 0,
       description: route.description,
-      ...(cautions.length > 0 ? { cautions } : {}),
+      ...(displayCautions.length > 0 ? { cautions: displayCautions } : {}),
     }
   } catch {
     if (process.env.NODE_ENV !== 'production') {
@@ -472,12 +525,22 @@ async function getCuratedRouteOptions(
       const anyBaseHasCaution = baseRoutes.some(r =>
         r.cautions?.some(c => c.id === rule.triggerCautionId)
       )
-      if (!anyBaseHasCaution) continue
+      if (!anyBaseHasCaution) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[weather/google] curated ${rule.logName}: skipped — no base route has caution ${rule.triggerCautionId}`)
+        }
+        continue
+      }
       // Skip if any base route already avoids the caution — user already has a safe option.
       const anyBaseAvoidsCaution = baseRoutes.some(r =>
         !r.cautions?.some(c => c.id === rule.triggerCautionId)
       )
-      if (anyBaseAvoidsCaution) continue
+      if (anyBaseAvoidsCaution) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[weather/google] curated ${rule.logName}: skipped — base route already avoids caution ${rule.triggerCautionId} (CURATED_AVOID_OXI label applied to non-caution routes)`)
+        }
+        continue
+      }
     } else {
       if (!rule.origin || !rule.destination) continue
       if (!matchesPlaceMatcher(from, rule.origin) || !matchesPlaceMatcher(to, rule.destination)) continue
@@ -486,13 +549,8 @@ async function getCuratedRouteOptions(
     if (rule.minFastestRouteDistanceM != null && fastestDistanceM < rule.minFastestRouteDistanceM) continue
     const curated = await fetchCuratedRoute(rule, from, to, key, existingIds)
     if (curated) {
-      // For caution-triggered rules: validate the curated route actually avoids the caution.
-      if (rule.triggerCautionId && curated.cautions?.some(c => c.id === rule.triggerCautionId)) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`[weather/google] curated ${rule.logName}: suppressed — still has caution ${rule.triggerCautionId}`)
-        }
-        continue
-      }
+      // Caution suppression is handled inside fetchCuratedRoute (per-rule validation policy).
+      // Routes that reach here have already passed the caution validation check.
       if (shouldSkipCuratedHellisheidi(curated, baseRoutes)) {
         if (process.env.NODE_ENV !== 'production') {
           console.log(`[weather/google] curated ${rule.logName}: skipped — base route already uses Hellisheiði corridor`)
@@ -550,6 +608,7 @@ async function getRouteGeometry(
     travelMode: 'DRIVE',
     routingPreference: 'TRAFFIC_AWARE',
     polylineEncoding: 'GEO_JSON_LINESTRING',
+    polylineQuality: 'HIGH_QUALITY',
   }
 
   const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
@@ -576,6 +635,7 @@ async function getRouteGeometry(
 
   return {
     points,
+    providerMatchingPoints: providerMatchingPointsFrom(allPoints),
     distanceM: route.distanceMeters,
     durationS: parseInt(route.duration.replace('s', ''), 10),
   }
@@ -594,6 +654,7 @@ async function getRouteOptions(
     travelMode: 'DRIVE',
     routingPreference: 'TRAFFIC_AWARE',
     polylineEncoding: 'GEO_JSON_LINESTRING',
+    polylineQuality: 'HIGH_QUALITY',
     computeAlternativeRoutes: true,
   }
 
@@ -633,6 +694,7 @@ async function getRouteOptions(
       labels,
       isDefault: labels.includes('DEFAULT_ROUTE'),
       points,
+      providerMatchingPoints: providerMatchingPointsFrom(allPoints),
       distanceM: route.distanceMeters,
       durationS,
       description: route.description,

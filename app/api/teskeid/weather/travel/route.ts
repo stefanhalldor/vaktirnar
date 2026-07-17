@@ -15,7 +15,7 @@ import type { HourPoint, TravelPointForecast, TravelThresholdOverrides } from '@
 import type { TrailerKind } from '@/lib/weather/question'
 import type { PlaceCandidate } from '@/lib/weather/provider.types'
 import { sampleRouteWeatherPoints } from '@/lib/weather/routeSampling'
-import { haversineM, matchProviderPointsToRoute } from '@/lib/weather/providerRouteMatching'
+import { haversineM, matchProviderPointsToRoute, DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M } from '@/lib/weather/providerRouteMatching'
 import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
 
 const VALID_TRAILER_KINDS = new Set([
@@ -33,8 +33,9 @@ function withLayerTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>
 }
 
-/** Maximum perpendicular distance from the route polyline for Veðurstofan station inclusion. */
-const VEDURSTOFAN_ROUTE_MAX_DISTANCE_M = 15_000
+// Provider route distance policy: imported from providerRouteMatching so both this endpoint
+// and the route-selection provider-stations endpoint always use the same cutoff.
+// Change DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M in providerRouteMatching.ts to update both.
 
 function validateThresholdOverrides(raw: unknown): TravelThresholdOverrides | undefined {
   if (!raw || typeof raw !== 'object') return undefined
@@ -265,8 +266,8 @@ export async function POST(request: Request) {
         points: VEDURSTOFAN_STATIONS_REGISTRY
           .filter(s => s.stationId !== null && s.lat !== null && s.lon !== null)
           .map(s => ({ id: s.stationId!, name: s.name, lat: s.lat!, lon: s.lon! })),
-        routePolyline: routeGeometry.points,
-        maxDistanceM: VEDURSTOFAN_ROUTE_MAX_DISTANCE_M,
+        routePolyline: routeGeometry.providerMatchingPoints ?? routeGeometry.points,
+        maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
       })
     : []
   const vedurstofanStationIds = vedurstofanMatches.map(m => m.point.id)

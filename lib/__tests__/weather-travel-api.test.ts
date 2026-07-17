@@ -55,6 +55,7 @@ vi.mock('@/lib/weather/providers/vedurstofanStations', () => ({
 }))
 
 vi.mock('@/lib/weather/providerRouteMatching', () => ({
+  DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M: 1_000,
   haversineM: vi.fn((lat1: number, lon1: number, lat2: number, lon2: number) => {
     // Real haversine for cumDist computation in route.ts
     const R = 6_371_000
@@ -96,6 +97,11 @@ function makeRouteOption(id: string, labels: string[], routeIndex = 0) {
     isDefault: labels.includes('DEFAULT_ROUTE'),
     points: [
       { lat: 64.09, lon: -21.93 },
+      { lat: 63.849, lon: -21.365 },
+    ],
+    providerMatchingPoints: [
+      { lat: 64.09, lon: -21.93 },
+      { lat: 64.04, lon: -21.60 },
       { lat: 63.849, lon: -21.365 },
     ],
     distanceM: 56000,
@@ -526,13 +532,41 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     expect(mockMatchProviderPoints).toHaveBeenCalled()
     const args = mockMatchProviderPoints.mock.calls[0][0]
     expect(args.routePolyline).toBeDefined()
-    expect(args.maxDistanceM).toBe(15_000)
+    expect(args.maxDistanceM).toBe(1_000) // DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M
     const body = await res.json()
     expect(body.vedurstofanLayer.points).toHaveLength(1)
     expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
   })
 
-  it('passes route geometry points (not sampled weather points) to matchProviderPointsToRoute', async () => {
+  it('uses providerMatchingPoints (not sampled points) as routePolyline when present', async () => {
+    authedUser()
+    setupLayerEnabled()
+    const displayPoints = [
+      { lat: 64.09, lon: -21.93 },
+      { lat: 63.849, lon: -21.365 },
+    ]
+    const densePoints = [
+      { lat: 64.09, lon: -21.93 },
+      { lat: 64.04, lon: -21.60 },
+      { lat: 63.95, lon: -21.48 },
+      { lat: 63.849, lon: -21.365 },
+    ]
+    mockGetRouteGeometry.mockResolvedValue({
+      points: displayPoints,
+      providerMatchingPoints: densePoints,
+      distanceM: 56000,
+      durationS: 3420,
+    })
+    mockMatchProviderPoints.mockReturnValue([])
+
+    await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+
+    expect(mockMatchProviderPoints).toHaveBeenCalledWith(
+      expect.objectContaining({ routePolyline: densePoints }),
+    )
+  })
+
+  it('falls back to points when providerMatchingPoints is absent', async () => {
     authedUser()
     setupLayerEnabled()
     const routePoints = [

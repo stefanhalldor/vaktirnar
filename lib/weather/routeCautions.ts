@@ -6,6 +6,7 @@ import {
   HOLMAVIK_PROXIMITY_M,
 } from './routeCautionConstants'
 import type { Bounds } from './routeCautionConstants'
+import { pointToPolylineDistanceM } from './providerRouteMatching'
 
 // ── Road segment caution model ────────────────────────────────────────────────
 
@@ -51,6 +52,14 @@ type RoadSegmentDetection =
       type: 'present-near-corridor'
       /** Route gets caution when it passes within radiusM of any of these points. */
       corridorPoints: Array<{ lat: number; lon: number; radiusM: number }>
+      /**
+       * Optional provider evidence points — fixed-location markers (e.g. Veðurstofan stations)
+       * with exact known coordinates. These supplement corridorPoints with tighter detection:
+       * if the route passes within radiusM of any evidence point the caution also fires.
+       * Use tight radii (1–2 km) since coordinates are station-grade precise, not estimates.
+       * Independent of provider feature access — these are road-intelligence facts.
+       */
+      evidencePoints?: Array<{ lat: number; lon: number; radiusM: number; note?: string }>
     }
 
 type SensitiveRoadSegment = {
@@ -73,30 +82,20 @@ type SensitiveRoadSegment = {
   }
 }
 
-// ── Haversine helper ──────────────────────────────────────────────────────────
+// ── Route proximity helper ────────────────────────────────────────────────────
 
-function haversineM(
-  a: { lat: number; lon: number },
-  b: { lat: number; lon: number }
-): number {
-  const R = 6_371_000
-  const toRad = (d: number) => (d * Math.PI) / 180
-  const dLat = toRad(b.lat - a.lat)
-  const dLon = toRad(b.lon - a.lon)
-  const sinHalfDLat = Math.sin(dLat / 2)
-  const sinHalfDLon = Math.sin(dLon / 2)
-  const a2 =
-    sinHalfDLat * sinHalfDLat +
-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinHalfDLon * sinHalfDLon
-  return R * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2))
-}
-
+/**
+ * Returns true if the route polyline passes within radiusM of target.
+ * Uses segment projection (not just vertex proximity) so a route segment that
+ * crosses near the target is detected even when no decoded vertex lands inside
+ * the radius.
+ */
 function routePassesNear(
   points: Array<{ lat: number; lon: number }>,
   target: { lat: number; lon: number },
   radiusM: number
 ): boolean {
-  return points.some(p => haversineM(p, target) <= radiusM)
+  return pointToPolylineDistanceM(target.lat, target.lon, points) <= radiusM
 }
 
 function matchesBounds(c: PlaceCandidate, b: Bounds): boolean {
@@ -172,6 +171,19 @@ const SENSITIVE_ROAD_SEGMENTS: readonly SensitiveRoadSegment[] = [
         // the exact Google polyline is confirmed on localhost.
         { lat: 64.860, lon: -14.365, radiusM: 10_000 },
       ],
+      // Exact-coordinate evidence: Veðurstofan station Öxi (stationId 35963).
+      // A route that passes within 1.5 km of this fixed station is strong evidence
+      // of Road 939 / Öxi, regardless of whether corridorPoints triggered.
+      // This fixes Höfn → Egilsstaðir detection where the route passes the station
+      // at ~0 km but was ~14 km from the approximate corridorPoint above.
+      evidencePoints: [
+        {
+          lat: 64.8257,
+          lon: -14.6573,
+          radiusM: 1_500,
+          note: 'Veðurstofan station Öxi (stationId 35963)',
+        },
+      ],
     },
     labelKey: 'routeCautionTrailer',
     summaryKey: 'routeCautionOxiSummary',
@@ -197,11 +209,20 @@ const SENSITIVE_ROAD_SEGMENTS: readonly SensitiveRoadSegment[] = [
  * @param points  Full decoded route geometry (unsimplified).
  * @param from    Origin place candidate.
  * @param to      Destination place candidate.
+ * @param options.evidencePointsOnly  When true, present-near-corridor detection
+ *   uses ONLY evidencePoints (ignored when absent) and skips corridorPoints.
+ *   Use this when validating curated avoidance routes: corridorPoints have large
+ *   approximate radii (e.g. 10 km) that can catch the avoidance route itself and
+ *   cause false suppression. EvidencePoints are station-grade precise (1-2 km)
+ *   and correctly distinguish the hazardous road from nearby alternatives.
+ *   If a segment has no evidencePoints and evidencePointsOnly is true, the
+ *   segment is not flagged — this is the correct safe default for validation.
  */
 export function matchRouteCautions(
   points: Array<{ lat: number; lon: number }>,
   from: PlaceCandidate,
-  to: PlaceCandidate
+  to: PlaceCandidate,
+  options?: { evidencePointsOnly?: boolean }
 ): RouteCautionResult[] {
   const results: RouteCautionResult[] = []
 
@@ -221,11 +242,16 @@ export function matchRouteCautions(
       )
       if (passesNearAny) continue
     } else if (det.type === 'present-near-corridor') {
-      // Caution fires when the route DOES pass near at least one corridor point.
-      const passesNearAny = det.corridorPoints.some(cp =>
+      // Caution fires when the route passes near at least one corridor point OR evidence point.
+      // evidencePointsOnly skips corridorPoints — use when validating curated avoidance routes
+      // so that broad approximate radii don't falsely suppress the avoidance route itself.
+      const passesNearCorridor = !options?.evidencePointsOnly && det.corridorPoints.some(cp =>
         routePassesNear(points, cp, cp.radiusM)
       )
-      if (!passesNearAny) continue
+      const passesNearEvidence = det.evidencePoints?.some(ep =>
+        routePassesNear(points, ep, ep.radiusM)
+      ) ?? false
+      if (!passesNearCorridor && !passesNearEvidence) continue
     }
 
     results.push({

@@ -11,6 +11,13 @@ export type PlaceCandidate = {
 
 export type RouteGeometry = {
   points: Array<{ lat: number; lon: number }>
+  /**
+   * Dense route geometry for fixed-provider (Veðurstofan, Vegagerðin) station matching.
+   * Derived from the full pre-sampling polyline via RDP simplification.
+   * Consumers should prefer this over `points` when matching fixed provider stations.
+   * Falls back to `points` when absent (e.g. tests, legacy data).
+   */
+  providerMatchingPoints?: Array<{ lat: number; lon: number }>
   distanceM: number
   durationS: number
 }

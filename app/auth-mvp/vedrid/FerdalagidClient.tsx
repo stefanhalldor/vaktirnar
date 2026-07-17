@@ -34,6 +34,8 @@ import { VedurstofanRoutePulseSummary } from '@/components/weather/VedurstofanRo
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import { isVedurstofanCycleFresh, getNextCycleAfterAtimeIso } from '@/lib/weather/vedurstofanFreshness'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
+import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
+
 
 type VedurstofanAssessment = {
   station: VedurstofanTravelLayer['points'][number]
@@ -196,6 +198,13 @@ export function FerdalagidClient({
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [routeRetryCount, setRouteRetryCount] = useState(0)
   const [routeFallback, setRouteFallback] = useState(false)
+
+  // Route-selection Veðurstofan station layer
+  // routeStationLayerAllowed: false when server returns 403 — hides toggle entirely
+  const [routeStationLayerAllowed, setRouteStationLayerAllowed] = useState(true)
+  const [showRouteStationLayer, setShowRouteStationLayer] = useState(true)
+  const [routeSelectionStations, setRouteSelectionStations] = useState<ProviderStationPoint[] | null>(null)
+  const [routeSelectionStationsLoading, setRouteSelectionStationsLoading] = useState(false)
 
   // Guest rate limit state — set when server returns 429 for guest requests
   const [guestRateLimited, setGuestRateLimited] = useState(false)
@@ -433,6 +442,60 @@ export function FerdalagidClient({
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, routeRetryCount, ferrySelection?.ferryPortId])
+
+  // Fetch Veðurstofan stations for the selected route at the route-selection step.
+  // Sends providerMatchingPoints (RDP-simplified, already within the 1000-point cap)
+  // or falls back to sampled display points (at most 80). On 403: hides the layer toggle entirely.
+  useEffect(() => {
+    if (step !== 'route') return
+    if (!showRouteStationLayer) {
+      setRouteSelectionStations(null)
+      return
+    }
+    if (!selectedRouteId || !routeOptions) return
+
+    const selectedRoute = routeOptions.find(r => r.id === selectedRouteId)
+    if (!selectedRoute || selectedRoute.points.length < 2) return
+
+    let cancelled = false
+    setRouteSelectionStations(null)
+    setRouteSelectionStationsLoading(true)
+
+    // Use dense RDP-simplified geometry for provider matching when available (set by google.server.ts).
+    // Falls back to sampled display points (at most 80) — always within endpoint's 1000-point cap.
+    const routePoints = selectedRoute.providerMatchingPoints ?? selectedRoute.points
+
+    fetch('/api/teskeid/weather/travel/provider-stations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ routePoints }),
+    })
+      .then(async r => {
+        if (r.status === 403) {
+          // User lacks provider access — hide toggle so they cannot retry and get a 403 loop
+          if (!cancelled) setRouteStationLayerAllowed(false)
+          return null
+        }
+        return r.ok ? r.json() : null
+      })
+      .then((data: { stations: ProviderStationPoint[] } | null) => {
+        if (!cancelled) setRouteSelectionStations(data?.stations ?? null)
+      })
+      .catch(() => { if (!cancelled) setRouteSelectionStations(null) })
+      .finally(() => { if (!cancelled) setRouteSelectionStationsLoading(false) })
+
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedRouteId, routeOptions, showRouteStationLayer])
+
+  // Clear station layer when leaving the route step
+  useEffect(() => {
+    if (step !== 'route') {
+      setRouteSelectionStations(null)
+      setRouteSelectionStationsLoading(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
 
   function goNext(from: WizardStep) {
     const idx = STEP_ORDER.indexOf(from)
@@ -1351,6 +1414,11 @@ export function FerdalagidClient({
                 ferryFinalDestinationName={ferrySelection?.finalDestination.name ?? destination?.name ?? null}
                 savedPlaces={savedPlaces}
                 onDeleteSavedPlace={handleDeleteSavedPlace}
+                locale={locale}
+                showVedurstofanLayer={routeStationLayerAllowed ? showRouteStationLayer : undefined}
+                onToggleVedurstofanLayer={routeStationLayerAllowed ? () => setShowRouteStationLayer(v => !v) : undefined}
+                vedurstofanStations={routeStationLayerAllowed && showRouteStationLayer ? (routeSelectionStations ?? undefined) : undefined}
+                vedurstofanStationsLoading={routeStationLayerAllowed ? routeSelectionStationsLoading : undefined}
               />
             )}
           </div>

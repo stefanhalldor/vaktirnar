@@ -12,6 +12,13 @@
  *   })
  */
 
+/**
+ * Product-policy maximum perpendicular distance from route polyline for fixed provider points.
+ * Used by both the route-selection provider-stations endpoint and the final travel route endpoint
+ * so both surfaces show the same stations. Change here to update both simultaneously.
+ */
+export const DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M = 1_000
+
 export type ProviderRoutePoint = {
   id: string
   name?: string | null
@@ -27,6 +34,27 @@ export type ProviderRouteMatch<T extends ProviderRoutePoint> = {
   nearestRoutePoint: { lat: number; lon: number }
 }
 
+/** A Veðurstofan (or future provider) station matched to a route, with forecast data for the preview card. */
+export type ProviderStationPoint = {
+  stationId: string
+  stationName: string
+  lat: number
+  lon: number
+  distanceM: number
+  distanceFromOriginM: number
+  routeFraction: number
+  atimeIso: string | null
+  sourceUrl: string | null
+  forecastRows: Array<{
+    ftimeIso: string
+    windSpeedMs: number | null
+    precipitationMmPerHour: number | null
+    temperatureC: number | null
+    windDirectionText: string | null
+    weatherText: string | null
+  }>
+}
+
 /** Haversine great-circle distance between two WGS84 points, in metres. */
 export function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6_371_000
@@ -35,6 +63,113 @@ export function haversineM(lat1: number, lon1: number, lat2: number, lon2: numbe
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
+
+// ── Ramer-Douglas-Peucker simplification ─────────────────────────────────────
+
+/**
+ * Perpendicular distance from point P to line segment AB, in metres.
+ * Uses flat-earth approximation (valid for short segments, ≤500 km).
+ * Falls back to haversine distance when A === B.
+ */
+function perpendicularToSegmentM(
+  pLat: number, pLon: number,
+  aLat: number, aLon: number,
+  bLat: number, bLon: number,
+): number {
+  const cosLat = Math.cos(((aLat + bLat) / 2) * Math.PI / 180)
+  const mPerDegLat = 111_320
+  const mPerDegLon = mPerDegLat * cosLat
+  const bx = (bLon - aLon) * mPerDegLon
+  const by = (bLat - aLat) * mPerDegLat
+  const px = (pLon - aLon) * mPerDegLon
+  const py = (pLat - aLat) * mPerDegLat
+  const len2 = bx * bx + by * by
+  if (len2 === 0) return haversineM(pLat, pLon, aLat, aLon)
+  return Math.abs(px * by - py * bx) / Math.sqrt(len2)
+}
+
+/**
+ * Ramer-Douglas-Peucker polyline simplification.
+ *
+ * Keeps points that deviate more than epsilonM metres from the simplified chord.
+ * Always preserves the first and last point.
+ *
+ * Use this instead of stride sampling when route shape must be preserved: straight
+ * highway segments are aggressively pruned while curves and fjords are retained.
+ * Suitable for `providerMatchingPoints` in RouteGeometry.
+ */
+export function rdpSimplify(
+  points: ReadonlyArray<{ lat: number; lon: number }>,
+  epsilonM: number,
+): Array<{ lat: number; lon: number }> {
+  if (points.length <= 2) return [...points]
+
+  const first = points[0]
+  const last = points[points.length - 1]
+
+  let maxDist = 0
+  let maxIdx = 0
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = perpendicularToSegmentM(
+      points[i].lat, points[i].lon,
+      first.lat, first.lon,
+      last.lat, last.lon,
+    )
+    if (d > maxDist) { maxDist = d; maxIdx = i }
+  }
+
+  if (maxDist > epsilonM) {
+    const left = rdpSimplify(points.slice(0, maxIdx + 1), epsilonM)
+    const right = rdpSimplify(points.slice(maxIdx), epsilonM)
+    // left ends with points[maxIdx], right starts with points[maxIdx] — drop duplicate
+    return [...left.slice(0, -1), ...right]
+  }
+
+  return [{ ...first }, { ...last }]
+}
+
+// ── Point-to-polyline distance ────────────────────────────────────────────────
+
+/**
+ * Minimum distance in metres from a fixed point to any segment of a polyline.
+ *
+ * Uses clamped projection onto each segment (flat-earth approximation, valid
+ * for segments ≤500 km). This is strictly better than vertex-only proximity:
+ * if a route segment passes within radiusM of the point but no decoded vertex
+ * lands inside the radius, vertex-only checks would miss it.
+ *
+ * Returns Infinity for an empty polyline.
+ *
+ * Use this wherever a yes/no "does the route pass within X metres of this
+ * point?" decision is needed (caution detection, gate matching, etc.).
+ */
+export function pointToPolylineDistanceM(
+  lat: number,
+  lon: number,
+  polyline: ReadonlyArray<{ lat: number; lon: number }>,
+): number {
+  if (polyline.length === 0) return Infinity
+  if (polyline.length === 1) return haversineM(lat, lon, polyline[0].lat, polyline[0].lon)
+  let minDistM = Infinity
+  for (let i = 0; i + 1 < polyline.length; i++) {
+    const aLat = polyline[i].lat, aLon = polyline[i].lon
+    const bLat = polyline[i + 1].lat, bLon = polyline[i + 1].lon
+    const cosLat = Math.cos(((aLat + bLat) / 2) * Math.PI / 180)
+    const mPerDegLat = 111_320
+    const mPerDegLon = mPerDegLat * cosLat
+    const bx = (bLon - aLon) * mPerDegLon
+    const by = (bLat - aLat) * mPerDegLat
+    const px = (lon - aLon) * mPerDegLon
+    const py = (lat - aLat) * mPerDegLat
+    const len2 = bx * bx + by * by
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / len2))
+    const d = haversineM(lat, lon, aLat + t * (bLat - aLat), aLon + t * (bLon - aLon))
+    if (d < minDistM) minDistM = d
+  }
+  return minDistM
+}
+
+// ── Segment projection ────────────────────────────────────────────────────────
 
 type ProjectionResult = {
   distanceM: number

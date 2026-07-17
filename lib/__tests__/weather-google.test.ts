@@ -1231,10 +1231,20 @@ describe('googleProvider.getRouteOptions', () => {
   // ── Curated Öxi-avoid route (CURATED_AVOID_OXI) ─────────────────────────────
 
   // Coordinates passing within 6 km of the Öxi corridor point (lat 64.860, lon -14.365).
+  // Used for base-route detection tests — corridorPoint (10 km radius) fires here.
   // Format: [lon, lat] as used in Google GeoJSON linestring responses.
   const COORDS_VIA_OXI: [number, number][] = [
     [-14.40, 65.27],  // Egilsstaðir area
-    [-14.37, 64.86],  // ~0.3 km from Öxi corridor point — within 6 km
+    [-14.37, 64.86],  // ~0.3 km from Öxi corridor point — within 10 km radius
+    [-15.21, 64.25],  // Höfn area
+  ]
+
+  // Coordinates passing near the Öxi Veðurstofan station (64.8257, -14.6573).
+  // Used for curated-route suppression tests where evidencePointsOnly is in effect:
+  // if the curated route still goes via Öxi, it WILL pass near the actual station.
+  const COORDS_VIA_OXI_STATION: [number, number][] = [
+    [-14.40, 65.27],  // Egilsstaðir area
+    [-14.657, 64.826], // ~0.1 km from Öxi station (64.8257, -14.6573) — within 1.5 km evidencePoint radius
     [-15.21, 64.25],  // Höfn area
   ]
 
@@ -1278,8 +1288,10 @@ describe('googleProvider.getRouteOptions', () => {
   })
 
   it('CURATED_AVOID_OXI is suppressed when curated route still carries the Öxi caution', async () => {
+    // Curated route uses COORDS_VIA_OXI_STATION: passes near the actual Öxi Veðurstofan
+    // station, confirming it genuinely uses Road 939. evidencePointsOnly validation fires.
     const mainRoute = makeRouteResponseFromCoords(COORDS_VIA_OXI, ['DEFAULT_ROUTE'], 9_000)
-    const curatedRoute = makeRouteResponseFromCoords(COORDS_VIA_OXI, [], 10_000)  // still via Öxi
+    const curatedRoute = makeRouteResponseFromCoords(COORDS_VIA_OXI_STATION, [], 10_000)  // still via Öxi station
     mockFetchSequence([{ body: mainRoute }, { body: curatedRoute }])
     const results = await googleProvider.getRouteOptions(FROM_HOFN, TO_EGILSSTADIR)
     expect(results.some(r => r.labels.includes('CURATED_AVOID_OXI'))).toBe(false)

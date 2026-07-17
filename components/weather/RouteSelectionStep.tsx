@@ -9,6 +9,9 @@ import { toLngLat } from './travelAuditMap.helpers'
 import type { RouteOption } from '@/lib/weather/provider.types'
 import { FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
+import { ProviderStationPreviewCard } from './ProviderStationPreviewCard'
+import { VedurstofanPulseInline } from './VedurstofanPulseInline'
+import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
 
 export type RoutePlace = {
   name: string
@@ -44,6 +47,13 @@ type RouteSelectionStepProps = {
   // Saved places
   savedPlaces?: SavedPlace[]
   onDeleteSavedPlace?: (id: string) => void
+  // Locale for forecast row formatting
+  locale: string
+  // Veðurstofan station layer (optional — absent when server forbids access)
+  showVedurstofanLayer?: boolean
+  onToggleVedurstofanLayer?: () => void
+  vedurstofanStations?: ProviderStationPoint[]
+  vedurstofanStationsLoading?: boolean
 }
 
 type ActiveField = 'origin' | 'destination' | null
@@ -80,6 +90,11 @@ export function RouteSelectionStep({
   ferryFinalDestinationName = null,
   savedPlaces,
   onDeleteSavedPlace,
+  locale,
+  showVedurstofanLayer,
+  onToggleVedurstofanLayer,
+  vedurstofanStations,
+  vedurstofanStationsLoading,
 }: RouteSelectionStepProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -106,8 +121,10 @@ export function RouteSelectionStep({
   const originMarkerRef = useRef<google.maps.Marker | null>(null)
   const destMarkerRef = useRef<google.maps.Marker | null>(null)
   const routeLinesRef = useRef<google.maps.Polyline[]>([])
+  const stationMarkersRef = useRef<google.maps.Marker[]>([])
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapError, setMapError] = useState(false)
+  const [selectedStation, setSelectedStation] = useState<ProviderStationPoint | null>(null)
 
   // When a ferry port is selected, the map shows routes to the port, not Vestmannaeyjar
   const ferryPort = ferryPortId ? FERRY_PORTS[ferryPortId] : null
@@ -276,6 +293,36 @@ export function RouteSelectionStep({
     })
   }, [selectedRouteId, routeOptions, mapLoaded])
 
+  // Effect 5: Draw/clear Veðurstofan station markers.
+  // Clears markers whenever vedurstofanStations changes (including when undefined = layer off).
+  useEffect(() => {
+    stationMarkersRef.current.forEach(m => m.setMap(null))
+    stationMarkersRef.current = []
+    setSelectedStation(null)
+
+    if (!mapRef.current || !mapLoaded || !vedurstofanStations || vedurstofanStations.length === 0) return
+
+    let cancelled = false
+    loadMarkerLibrary().then(markerLib => {
+      if (cancelled || !mapRef.current) return
+      const newMarkers: google.maps.Marker[] = []
+      for (const station of vedurstofanStations) {
+        const marker = new markerLib.Marker({
+          position: { lat: station.lat, lng: station.lon },
+          map: mapRef.current!,
+          icon: makeStationMarkerIcon(),
+          title: station.stationName,
+          zIndex: 3,
+        })
+        marker.addListener('click', () => setSelectedStation(station))
+        newMarkers.push(marker)
+      }
+      stationMarkersRef.current = newMarkers
+    })
+
+    return () => { cancelled = true }
+  }, [vedurstofanStations, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleOriginSelected(p: PlaceResult) {
     onOriginSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress, placeId: p.placeId })
     setActiveField('destination')
@@ -362,6 +409,28 @@ export function RouteSelectionStep({
         )}
       </div>
 
+      {/* Veðurstofan layer toggle — only when server allows access */}
+      {(showVedurstofanLayer !== undefined || onToggleVedurstofanLayer) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={onToggleVedurstofanLayer}
+            aria-pressed={showVedurstofanLayer}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              showVedurstofanLayer
+                ? 'border-primary/30 bg-primary/5 text-primary'
+                : 'border-border bg-card text-muted-foreground hover:border-primary/20'
+            }`}
+          >
+            {vedurstofanStationsLoading
+              ? <span className="w-2 h-2 rounded-full bg-current animate-pulse" aria-hidden />
+              : <span className="w-2 h-2 rounded-full bg-current opacity-60" aria-hidden />
+            }
+            {tf('layerToggleVedurstofan')}
+          </button>
+        </div>
+      )}
+
       {/* Interactive map */}
       <div className="relative overflow-hidden rounded-xl border border-border">
         <div ref={mapDivRef} className="h-[220px] sm:h-[280px] w-full" />
@@ -376,6 +445,18 @@ export function RouteSelectionStep({
           </div>
         )}
       </div>
+
+      {/* Station preview card — shown when a station marker is clicked */}
+      {selectedStation && (
+        <ProviderStationPreviewCard
+          station={selectedStation}
+          providerLabel={tf('providerVedurstofanLabel')}
+          locale={locale}
+          onClose={() => setSelectedStation(null)}
+        >
+          <VedurstofanPulseInline stationId={selectedStation.stationId} returnTo="/auth-mvp/vedrid" />
+        </ProviderStationPreviewCard>
+      )}
 
       {/* Ferry picker — shown when destination is in Vestmannaeyjar */}
       {destination && isVestmannaeyjar && (
@@ -543,3 +624,17 @@ function makeIcon(color: string): google.maps.Symbol {
     strokeWeight: 2,
   }
 }
+
+// Neutral gray marker — no wind classification available at route-selection step.
+// Reuses no_data color from WIND_STATUS_MARKER_COLOR for consistency.
+function makeStationMarkerIcon(): google.maps.Symbol {
+  return {
+    path: 0 as google.maps.SymbolPath, // CIRCLE
+    scale: 7,
+    fillColor: '#9ca3af',
+    fillOpacity: 0.85,
+    strokeColor: '#ffffff',
+    strokeWeight: 1.5,
+  }
+}
+
