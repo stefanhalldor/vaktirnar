@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import type {
   StationExplorerResponse,
@@ -111,6 +112,13 @@ export function WeatherOverviewClient({
     userHasSelectedMode.current = true
     setActiveMode(mode)
   }
+  // User default thresholds — loaded from /api/teskeid/weather/preferences/thresholds on mount.
+  // null = no saved defaults; object = saved caution/red values.
+  const [savedDefaultThresholds, setSavedDefaultThresholds] = useState<{ cautionWindMs: number; redWindMs: number } | null>(null)
+
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
   // Place selections from RouteMemoryPicker — key/label only, no coordinates required.
   const [fromMemoryPlace, setFromMemoryPlace] = useState<RouteMemoryPlace | null>(null)
   const [toMemoryPlace, setToMemoryPlace] = useState<RouteMemoryPlace | null>(null)
@@ -376,6 +384,69 @@ export function WeatherOverviewClient({
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Load user's saved default thresholds on mount (authenticated users only).
+  useEffect(() => {
+    if (menuVariant !== 'authenticated') return
+    fetch('/api/teskeid/weather/preferences/thresholds')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { hasPreferences?: boolean; cautionWindMs?: number; redWindMs?: number } | null) => {
+        if (d?.hasPreferences && typeof d.cautionWindMs === 'number' && typeof d.redWindMs === 'number') {
+          setSavedDefaultThresholds({ cautionWindMs: d.cautionWindMs, redWindMs: d.redWindMs })
+        }
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // After auth flow return: ?saveDefaults=caution,danger — save to API and apply.
+  useEffect(() => {
+    const raw = searchParams.get('saveDefaults')
+    if (!raw) return
+    const parts = raw.split(',')
+    const caution = parseFloat(parts[0] ?? '')
+    const danger = parseFloat(parts[1] ?? '')
+    if (!Number.isFinite(caution) || !Number.isFinite(danger) || caution <= 0 || danger <= 0 || caution >= danger) return
+    // Apply to current session
+    setOverrides({ cautionWindMs: caution, redWindMs: danger })
+    // Save to API (session should be established after auth flow)
+    fetch('/api/teskeid/weather/preferences/thresholds', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cautionWindMs: caution, redWindMs: danger }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { success?: boolean } | null) => {
+        if (d?.success) setSavedDefaultThresholds({ cautionWindMs: caution, redWindMs: danger })
+      })
+      .catch(() => {})
+    // Clean URL
+    router.replace(window.location.pathname)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get('saveDefaults')])
+
+  // Save current thresholds as the user's defaults.
+  // Authenticated: saves directly to API.
+  // Public: sends to auth flow with threshold values encoded in the return URL.
+  const handleSaveAsDefault = useCallback((cautionWindMs: number, redWindMs: number) => {
+    if (menuVariant === 'authenticated') {
+      fetch('/api/teskeid/weather/preferences/thresholds', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cautionWindMs, redWindMs }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then((d: { success?: boolean } | null) => {
+          if (d?.success) setSavedDefaultThresholds({ cautionWindMs, redWindMs })
+        })
+        .catch(() => {})
+    } else {
+      const saveParam = encodeURIComponent(`${cautionWindMs},${redWindMs}`)
+      const returnUrl = `${window.location.pathname}?saveDefaults=${saveParam}`
+      window.location.href = `/innskraning?next=${encodeURIComponent(returnUrl)}`
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuVariant])
 
   // Maps WindDisplayStatus to ProviderMapMarkerTone for z-index ordering.
   // The actual fill color is supplied via markerColor (from WIND_STATUS_MARKER_COLOR),
@@ -779,7 +850,9 @@ export function WeatherOverviewClient({
       providers={[vegagerdinProvider, vedurstofanProvider]}
       requestedSelection={null}
       renderBanner={() => (
-        <p className="text-xs text-muted-foreground">{tOv('overviewWindBanner')}</p>
+        <div className="rounded-xl border border-border px-4 py-3">
+          <p className="text-sm text-muted-foreground leading-snug">{tOv('overviewWindBanner')}</p>
+        </div>
       )}
       renderProviderSelector={() => (
         <WeatherSourceTimeSelector
@@ -809,14 +882,19 @@ export function WeatherOverviewClient({
           alwaysOpen
           thresholds={thresholds}
           hasOverrides={Object.keys(overrides).length > 0}
-          onApply={({ cautionWindMs, redWindMs }) => setOverrides({ cautionWindMs, redWindMs })}
+          onApply={({ cautionWindMs, redWindMs }) => {
+            setOverrides({ cautionWindMs, redWindMs })
+            handleSaveAsDefault(cautionWindMs, redWindMs)
+          }}
           onReset={resetThresholds}
           labels={{
             title: tOv('thresholdBarTitle'),
             cautionLabel: tOv('thresholdBarCautionLabel'),
             dangerLabel: tOv('thresholdBarDangerLabel'),
             unit: tOv('thresholdBarUnit'),
-            applyLabel: tOv('thresholdBarApply'),
+            applyLabel: savedDefaultThresholds
+              ? tOv('thresholdBarApplyUpdate')
+              : tOv('thresholdBarApply'),
             resetLabel: tOv('thresholdBarReset'),
             editLabel: tOv('thresholdBarEdit'),
             closeLabel: tOv('thresholdBarClose'),
