@@ -1,12 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import type { RouteDraftPlace } from '@/lib/iceland-routes'
-import { getCanonicalPlace } from '@/lib/iceland-routes/routePlaces'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface RouteMemoryPlace {
+export interface RouteMemoryPlace {
   key: string
   label: string
 }
@@ -23,7 +21,7 @@ export interface RouteMemoryPickerLabels {
 }
 
 interface RouteMemoryPickerProps {
-  onPlacesChange: (from: RouteDraftPlace | null, to: RouteDraftPlace | null) => void
+  onPlacesChange: (from: RouteMemoryPlace | null, to: RouteMemoryPlace | null) => void
   labels: RouteMemoryPickerLabels
 }
 
@@ -41,7 +39,7 @@ interface RouteMemoryPickerProps {
  *  1. Fetch /route-memory/places — union of all known cities (from + to).
  *  2. User picks first city.
  *  3. Fetch /route-memory/destinations?from= — counterparts in both directions.
- *  4. User picks second city → calls onPlacesChange with RouteDraftPlace objects.
+ *  4. User picks second city → calls onPlacesChange with RouteMemoryPlace objects.
  *     Lookup endpoint handles reverse-direction matching automatically.
  *
  * If route-memory is empty, shows emptyText pointing to Ferðalagið.
@@ -103,13 +101,13 @@ export function RouteMemoryPicker({ onPlacesChange, labels }: RouteMemoryPickerP
   function handleFromSelect(place: RouteMemoryPlace) {
     setSelectedFrom(place)
     setSelectedTo(null)
-    onPlacesChange(toRouteDraftPlace(place), null)
+    onPlacesChange(place, null)
   }
 
   function handleToSelect(place: RouteMemoryPlace) {
     if (!selectedFrom) return
     setSelectedTo(place)
-    onPlacesChange(toRouteDraftPlace(selectedFrom), toRouteDraftPlace(place))
+    onPlacesChange(selectedFrom, place)
   }
 
   function handleClear() {
@@ -150,12 +148,7 @@ export function RouteMemoryPicker({ onPlacesChange, labels }: RouteMemoryPickerP
         {selectedFrom ? (
           <button
             type="button"
-            onClick={() => {
-              setSelectedFrom(null)
-              setSelectedTo(null)
-              setDestinations(null)
-              onPlacesChange(null, null)
-            }}
+            onClick={handleClear}
             className="text-left text-base border border-border rounded-lg px-3 py-2 bg-background hover:border-foreground/50 transition-colors w-full truncate min-h-[44px]"
           >
             {selectedFrom.label}
@@ -185,7 +178,7 @@ export function RouteMemoryPicker({ onPlacesChange, labels }: RouteMemoryPickerP
               type="button"
               onClick={() => {
                 setSelectedTo(null)
-                onPlacesChange(toRouteDraftPlace(selectedFrom), null)
+                onPlacesChange(selectedFrom, null)
               }}
               className="text-left text-base border border-border rounded-lg px-3 py-2 bg-background hover:border-foreground/50 transition-colors w-full truncate min-h-[44px]"
             >
@@ -230,14 +223,3 @@ export function RouteMemoryPicker({ onPlacesChange, labels }: RouteMemoryPickerP
   )
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function toRouteDraftPlace(place: RouteMemoryPlace): RouteDraftPlace {
-  const canonical = getCanonicalPlace(place.key)
-  return {
-    name: place.label,
-    formattedAddress: place.label,
-    lat: canonical?.lat ?? 64.1355,
-    lon: canonical?.lon ?? -21.8954,
-  }
-}

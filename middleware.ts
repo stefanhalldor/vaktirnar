@@ -67,6 +67,8 @@ const EXACT_PUBLIC_PATHS = new Set([
   // Exact-match only: sub-paths must not become public without review.
   '/api/teskeid/weather/route-memory/places',
   '/api/teskeid/weather/route-memory/destinations',
+  // Route-memory place-focus — returns endpoint station IDs for a place key; no coords required.
+  '/api/teskeid/weather/route-memory/place-focus',
 ])
 
 export async function middleware(request: NextRequest) {

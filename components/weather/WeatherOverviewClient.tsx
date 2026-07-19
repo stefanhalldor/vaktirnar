@@ -36,16 +36,15 @@ import {
 } from '@/lib/weather/windDisplayStatus'
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
 import { WeatherSourceTimeSelector } from '@/components/weather/WeatherSourceTimeSelector'
-import { RouteMemoryPicker } from '@/components/weather/RouteMemoryPicker'
+import { RouteMemoryPicker, type RouteMemoryPlace } from '@/components/weather/RouteMemoryPicker'
 import { formatCompactDateTime, formatKlTime } from '@/components/weather/travelAuditMap.helpers'
 import { vegagerdinHasNoUsableLayer } from '@/lib/weather/vegagerdinFallback'
 import {
   writeOverviewRouteDraft,
   clearOverviewRouteDraft,
-  type RouteDraftPlace,
 } from '@/lib/iceland-routes'
+import { getCanonicalPlace } from '@/lib/iceland-routes/routePlaces'
 import { WindStatusFilterPills } from '@/components/weather/WindStatusFilterPills'
-import { findNearestStations } from '@/lib/weather/nearestStations'
 import {
   WeatherOverviewShell,
   type WeatherOverviewProviderConfig,
@@ -111,9 +110,9 @@ export function WeatherOverviewClient({
     userHasSelectedMode.current = true
     setActiveMode(mode)
   }
-  // Full place objects from RouteMemoryPicker — used for the route-draft contract.
-  const [fromPlaceDraft, setFromPlaceDraft] = useState<RouteDraftPlace | null>(null)
-  const [toPlaceDraft, setToPlaceDraft] = useState<RouteDraftPlace | null>(null)
+  // Place selections from RouteMemoryPicker — key/label only, no coordinates required.
+  const [fromMemoryPlace, setFromMemoryPlace] = useState<RouteMemoryPlace | null>(null)
+  const [toMemoryPlace, setToMemoryPlace] = useState<RouteMemoryPlace | null>(null)
 
   // Route-memory lookup result — replaces corridor-based station filtering.
   // When resolved: vedurstofanIds/vegagerdinIds are the exact station sets from DB.
@@ -126,9 +125,10 @@ export function WeatherOverviewClient({
   const [routeMemory, setRouteMemory] = useState<RouteMemoryState>({ status: 'idle' })
 
   // Fetch route-memory when both places are selected.
+  // Uses labels as fromName/toName — the server normalizes generically (no whitelist required).
   // Uses AbortController to cancel in-flight requests when places change.
   useEffect(() => {
-    if (!fromPlaceDraft || !toPlaceDraft) {
+    if (!fromMemoryPlace || !toMemoryPlace) {
       setRouteMemory({ status: 'idle' })
       return
     }
@@ -138,10 +138,8 @@ export function WeatherOverviewClient({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        fromName: fromPlaceDraft.name,
-        fromFormattedAddress: fromPlaceDraft.formattedAddress,
-        toName: toPlaceDraft.name,
-        toFormattedAddress: toPlaceDraft.formattedAddress,
+        fromName: fromMemoryPlace.label,
+        toName: toMemoryPlace.label,
       }),
       signal: controller.signal,
     })
@@ -165,47 +163,75 @@ export function WeatherOverviewClient({
       })
     return () => controller.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromPlaceDraft?.name, fromPlaceDraft?.formattedAddress, toPlaceDraft?.name, toPlaceDraft?.formattedAddress])
+  }, [fromMemoryPlace?.key, toMemoryPlace?.key])
 
   // Write or clear the overview route draft in sessionStorage whenever selected places change.
   // FerdalagidClient reads this on mount to pre-fill origin/destination.
+  // Uses canonical coords when available; draft is skipped (cleared) if either place
+  // is not in the canonical registry, so FerdalagidClient never receives 0,0 coords.
   useEffect(() => {
-    if (fromPlaceDraft && toPlaceDraft) {
-      writeOverviewRouteDraft(fromPlaceDraft, toPlaceDraft)
+    if (fromMemoryPlace && toMemoryPlace) {
+      const fromCanon = getCanonicalPlace(fromMemoryPlace.key)
+      const toCanon = getCanonicalPlace(toMemoryPlace.key)
+      if (fromCanon && toCanon) {
+        writeOverviewRouteDraft(
+          { name: fromMemoryPlace.label, formattedAddress: fromMemoryPlace.label, lat: fromCanon.lat, lon: fromCanon.lon },
+          { name: toMemoryPlace.label, formattedAddress: toMemoryPlace.label, lat: toCanon.lat, lon: toCanon.lon },
+        )
+      } else {
+        clearOverviewRouteDraft()
+      }
     } else {
       clearOverviewRouteDraft()
     }
-  }, [fromPlaceDraft, toPlaceDraft])
+  }, [fromMemoryPlace, toMemoryPlace])
 
   // When a from-place is selected, ensure "Innan marka" (green) stations are visible
-  // so the nearest station marker is not hidden by the default status filter.
+  // so the endpoint focus marker is not hidden by the default status filter.
   useEffect(() => {
-    if (!fromPlaceDraft) return
+    if (!fromMemoryPlace) return
     setVisibleStatuses(prev => {
       if (prev.has('innan-marka')) return prev
       return new Set([...prev, 'innan-marka'])
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromPlaceDraft?.lat, fromPlaceDraft?.lon])
+  }, [fromMemoryPlace?.key])
 
-  // Nearest Veðurstofan station ID to the selected from-place — used for single-place map filtering only.
-  // useMemo rather than state: no extra render cycle, no auto-opening of detail cards.
-  const nearestVedurstofanStationId: string | null = useMemo(() => {
-    if (!fromPlaceDraft || !data) return null
-    const nearest = findNearestStations(
-      { lat: fromPlaceDraft.lat, lon: fromPlaceDraft.lon },
-      data.stations.map(s => ({ stationId: s.stationId, name: s.stationName, lat: s.lat, lon: s.lon })),
-      1,
-    )
-    return nearest.length > 0 ? nearest[0].stationId : null
+  // Single-place endpoint station IDs — fetched from /place-focus when only a from-place
+  // is selected. Replaces the previous haversine nearest-station approach so any place in
+  // route-memory self-registers without canonical coordinate entries.
+  type PlaceFocusIds = { vedurstofan: Set<string>; vegagerdin: Set<string> }
+  const [placeFocusIds, setPlaceFocusIds] = useState<PlaceFocusIds | null>(null)
+
+  useEffect(() => {
+    if (!fromMemoryPlace || toMemoryPlace) {
+      setPlaceFocusIds(null)
+      return
+    }
+    const controller = new AbortController()
+    fetch(`/api/teskeid/weather/route-memory/place-focus?placeKey=${encodeURIComponent(fromMemoryPlace.key)}`, {
+      signal: controller.signal,
+    })
+      .then(r => r.ok ? r.json() : { vedurstofanStationIds: [], vegagerdinStationIds: [] })
+      .then((d: { vedurstofanStationIds?: string[]; vegagerdinStationIds?: string[] }) => {
+        setPlaceFocusIds({
+          vedurstofan: new Set(d.vedurstofanStationIds ?? []),
+          vegagerdin: new Set(d.vegagerdinStationIds ?? []),
+        })
+      })
+      .catch((err) => {
+        if ((err as Error).name === 'AbortError') return
+        setPlaceFocusIds(null)
+      })
+    return () => controller.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromPlaceDraft?.lat, fromPlaceDraft?.lon, data])
+  }, [fromMemoryPlace?.key, !!toMemoryPlace])
 
-  // Single-place focus filter: when only from-place is selected, narrow Veðurstofan map to nearest station.
+  // Single-place focus filter: when only from-place is selected, narrow map to endpoint stations.
   // Overridden by the exact route-memory filter when both places are selected.
   const singlePlaceVedurstofanIds: Set<string> | null =
-    fromPlaceDraft && !toPlaceDraft && nearestVedurstofanStationId
-      ? new Set([nearestVedurstofanStationId])
+    fromMemoryPlace && !toMemoryPlace && placeFocusIds
+      ? (placeFocusIds.vedurstofan.size > 0 ? placeFocusIds.vedurstofan : null)
       : null
 
   const vedurstofanRouteFilterIds: Set<string> | null =
@@ -352,22 +378,13 @@ export function WeatherOverviewClient({
         ? 'error'
         : undefined
 
-  // Nearest Vegagerðin station to from-place — used for single-place focus in Núna mode.
-  const nearestVegagerdinStationId: string | null = useMemo(() => {
-    if (!fromPlaceDraft || toPlaceDraft || !vegagerdinData || vegagerdinData.status !== 'ok') return null
-    const nearest = findNearestStations(
-      { lat: fromPlaceDraft.lat, lon: fromPlaceDraft.lon },
-      vegagerdinData.stations.map(s => ({ stationId: s.stationId, name: s.stationName, lat: s.lat, lon: s.lon })),
-      1,
-    )
-    return nearest.length > 0 ? nearest[0].stationId : null
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromPlaceDraft?.lat, fromPlaceDraft?.lon, toPlaceDraft, vegagerdinData])
-
   // ── Route-memory filter sets (Vegagerðin) ─────────────────────────────────
   // vedurstofanRouteFilterIds is computed above (before forecastSlotStatuses).
+  // Vegagerðin single-place filter reuses the same placeFocusIds from /place-focus.
   const singlePlaceVegagerdinIds: Set<string> | null =
-    nearestVegagerdinStationId ? new Set([nearestVegagerdinStationId]) : null
+    fromMemoryPlace && !toMemoryPlace && placeFocusIds
+      ? (placeFocusIds.vegagerdin.size > 0 ? placeFocusIds.vegagerdin : null)
+      : null
 
   const vegagerdinRouteFilterIds: Set<string> | null =
     routeMemory.status === 'resolved'
@@ -683,13 +700,16 @@ export function WeatherOverviewClient({
     },
   }
 
-  // When both places are selected, add ?routeDraft=1 so /ferdalagid
-  // knows to prefer the sessionStorage draft over a stale session restore.
+  // When both places are selected and canonical coords exist (draft was written),
+  // add ?routeDraft=1 so /ferdalagid knows to prefer the sessionStorage draft.
   // Place names and coordinates are NOT put in the URL (privacy + v530 fix).
   const activeTripHref = (() => {
     if (!tripHref) return undefined
-    if (!fromPlaceDraft || !toPlaceDraft) return tripHref
-    return `${tripHref}?routeDraft=1`
+    if (!fromMemoryPlace || !toMemoryPlace) return tripHref
+    const fromCanon = getCanonicalPlace(fromMemoryPlace.key)
+    const toCanon = getCanonicalPlace(toMemoryPlace.key)
+    if (fromCanon && toCanon) return `${tripHref}?routeDraft=1`
+    return tripHref
   })()
 
   return (
@@ -751,8 +771,8 @@ export function WeatherOverviewClient({
       renderRouteLens={() => (
         <RouteMemoryPicker
           onPlacesChange={(from, to) => {
-            setFromPlaceDraft(from)
-            setToPlaceDraft(to)
+            setFromMemoryPlace(from)
+            setToMemoryPlace(to)
           }}
           labels={{
             titleLabel: tOv('routeMemoryPickerTitle'),

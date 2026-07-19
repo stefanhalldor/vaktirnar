@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   normalizePlaceForMemory,
   buildRouteMemoryKey,
+  slugifyPlaceKey,
 } from '@/lib/iceland-routes/routePlaceNormalization'
 
 describe('normalizePlaceForMemory', () => {
@@ -52,8 +53,10 @@ describe('normalizePlaceForMemory', () => {
     expect(normalizePlaceForMemory('Melás 8')).toBeNull()
   })
 
-  it('returns null for street address with unknown locality', () => {
-    expect(normalizePlaceForMemory('Strandvegur 4', 'Strandvegur 4, Sandgerði')).toBeNull()
+  it('extracts Sandgerði from street address in formattedAddress', () => {
+    expect(normalizePlaceForMemory('Strandvegur 4', 'Strandvegur 4, Sandgerði')).toEqual(
+      { key: 'sandgerdi', label: 'Sandgerði' },
+    )
   })
 
   // ── Garðabær is distinct from Reykjavík ────────────────────────────────────
@@ -85,10 +88,28 @@ describe('normalizePlaceForMemory', () => {
     )
   })
 
-  // ── Unrecognized places ──────────────────────────────────────────────────────
+  // ── Generic parser — self-registers any public locality ─────────────────────
 
-  it('returns null for unknown town', () => {
-    expect(normalizePlaceForMemory('Sandgerði')).toBeNull()
+  it('self-registers Sandgerði by name (not in alias table)', () => {
+    expect(normalizePlaceForMemory('Sandgerði')).toEqual({ key: 'sandgerdi', label: 'Sandgerði' })
+  })
+
+  it('extracts Sandgerði from formatted address with street', () => {
+    expect(
+      normalizePlaceForMemory('Strandvegur 4', 'Strandvegur 4, Sandgerði, Iceland'),
+    ).toEqual({ key: 'sandgerdi', label: 'Sandgerði' })
+  })
+
+  it('extracts locality when postal prefix precedes town in formattedAddress', () => {
+    // "580 Siglufjörður, Iceland" is matched by alias first, but this verifies
+    // the generic parser handles postal prefixes for any unknown town.
+    expect(
+      normalizePlaceForMemory('Þingeyri', '470 Þingeyri, Iceland'),
+    ).toEqual({ key: 'thingeyri', label: 'Þingeyri' })
+  })
+
+  it('returns null for bare street address without locality', () => {
+    expect(normalizePlaceForMemory('Melás 8')).toBeNull()
   })
 
   it('returns null for empty string', () => {
@@ -111,6 +132,20 @@ describe('normalizePlaceForMemory', () => {
     expect(normalizePlaceForMemory('Melás 8', 'Melás 8, Gardabaer, Iceland')).toEqual(
       { key: 'gardabaer', label: 'Garðabær' },
     )
+  })
+})
+
+describe('slugifyPlaceKey', () => {
+  it('converts Icelandic diacritics to ASCII', () => {
+    expect(slugifyPlaceKey('Siglufjörður')).toBe('siglufjordur')
+    expect(slugifyPlaceKey('Garðabær')).toBe('gardabaer')
+    expect(slugifyPlaceKey('Ísafjörður')).toBe('isafjordur')
+    expect(slugifyPlaceKey('Þingeyri')).toBe('thingeyri')
+  })
+
+  it('lowercases and removes punctuation', () => {
+    expect(slugifyPlaceKey('AKUREYRI')).toBe('akureyri')
+    expect(slugifyPlaceKey('Hvolsvöllur')).toBe('hvolsvollur')
   })
 })
 

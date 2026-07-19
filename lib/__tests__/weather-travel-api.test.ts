@@ -613,7 +613,9 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
 
     // sampleRouteWeatherPoints must still be called for MET/Yr baseline — unchanged by this refactor
     expect(mockSampleRouteWeatherPoints).toHaveBeenCalledTimes(1)
-    // MET/Yr sampling call is independent of station matching
-    expect(mockMatchProviderPoints).toHaveBeenCalledTimes(1)
+    // matchProviderPoints is called twice: once for the Veðurstofan layer, once for
+    // the Vegagerðin route-memory write (which now runs because both Garðabær and
+    // Þorlákshöfn self-register via the generic address parser).
+    expect(mockMatchProviderPoints).toHaveBeenCalledTimes(2)
   })
 })
