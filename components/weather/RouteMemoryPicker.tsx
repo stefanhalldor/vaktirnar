@@ -54,7 +54,7 @@ export function RouteMemoryPicker({ onPlacesChange, labels }: RouteMemoryPickerP
   // This ensures a newly computed /ferdalagid route appears without a full page reload.
   useEffect(() => {
     function fetchPlaces() {
-      fetch('/api/teskeid/weather/route-memory/places')
+      fetch('/api/teskeid/weather/route-memory/places', { cache: 'no-store' })
         .then(r => r.ok ? r.json() : { places: [] })
         .then((d: { places?: RouteMemoryPlace[] }) => setAllPlaces(d.places ?? []))
         .catch(() => setAllPlaces([]))
@@ -79,7 +79,7 @@ export function RouteMemoryPicker({ onPlacesChange, labels }: RouteMemoryPickerP
       return
     }
     function fetchDestinations() {
-      fetch(`/api/teskeid/weather/route-memory/destinations?from=${encodeURIComponent(selectedFrom!.key)}`)
+      fetch(`/api/teskeid/weather/route-memory/destinations?from=${encodeURIComponent(selectedFrom!.key)}`, { cache: 'no-store' })
         .then(r => r.ok ? r.json() : { destinations: [] })
         .then((d: { destinations?: RouteMemoryPlace[] }) => setDestinations(d.destinations ?? []))
         .catch(() => setDestinations([]))

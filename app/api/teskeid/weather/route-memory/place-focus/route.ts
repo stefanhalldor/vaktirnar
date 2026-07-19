@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getAdmin } from '@/lib/supabase/admin'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+} as const
+
 /**
  * GET /api/teskeid/weather/route-memory/place-focus?placeKey={key}
  *
@@ -24,7 +31,7 @@ export async function GET(request: Request) {
   const placeKey = searchParams.get('placeKey')?.trim()
 
   if (!placeKey) {
-    return NextResponse.json({ vedurstofanStationIds: [], vegagerdinStationIds: [] })
+    return NextResponse.json({ vedurstofanStationIds: [], vegagerdinStationIds: [] }, { headers: NO_STORE_HEADERS })
   }
 
   try {
@@ -87,8 +94,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       vedurstofanStationIds: Array.from(vedurstofanIds),
       vegagerdinStationIds: Array.from(vegagerdinIds),
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch {
-    return NextResponse.json({ vedurstofanStationIds: [], vegagerdinStationIds: [] })
+    return NextResponse.json({ vedurstofanStationIds: [], vegagerdinStationIds: [] }, { headers: NO_STORE_HEADERS })
   }
 }

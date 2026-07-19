@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getAdmin } from '@/lib/supabase/admin'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+} as const
+
 /**
  * GET /api/teskeid/weather/route-memory/destinations?from={placeKey}
  *
@@ -22,7 +29,7 @@ export async function GET(request: Request) {
   const from = searchParams.get('from')?.trim()
 
   if (!from) {
-    return NextResponse.json({ destinations: [] })
+    return NextResponse.json({ destinations: [] }, { headers: NO_STORE_HEADERS })
   }
 
   try {
@@ -61,8 +68,8 @@ export async function GET(request: Request) {
 
     destinations.sort((a, b) => a.label.localeCompare(b.label, 'is'))
 
-    return NextResponse.json({ destinations })
+    return NextResponse.json({ destinations }, { headers: NO_STORE_HEADERS })
   } catch {
-    return NextResponse.json({ destinations: [] })
+    return NextResponse.json({ destinations: [] }, { headers: NO_STORE_HEADERS })
   }
 }

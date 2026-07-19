@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getAdmin } from '@/lib/supabase/admin'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+} as const
+
 /**
  * GET /api/teskeid/weather/route-memory/places
  *
@@ -50,8 +57,8 @@ export async function GET() {
 
     places.sort((a, b) => a.label.localeCompare(b.label, 'is'))
 
-    return NextResponse.json({ places })
+    return NextResponse.json({ places }, { headers: NO_STORE_HEADERS })
   } catch {
-    return NextResponse.json({ places: [] })
+    return NextResponse.json({ places: [] }, { headers: NO_STORE_HEADERS })
   }
 }

@@ -5,6 +5,13 @@ import { normalizePlaceForMemory } from '@/lib/iceland-routes/routePlaceNormaliz
 import { lookupRouteMemoryBidirectional } from '@/lib/iceland-routes/routeMemory.server'
 import type { RouteMemoryLookupResult } from '@/lib/iceland-routes/routeMemory.server'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+} as const
+
 /**
  * POST /api/teskeid/weather/route-memory/lookup
  *
@@ -32,11 +39,11 @@ export async function POST(request: Request) {
   try {
     body = await request.json()
   } catch {
-    return NextResponse.json({ status: 'miss' })
+    return NextResponse.json({ status: 'miss' }, { headers: NO_STORE_HEADERS })
   }
 
   if (!body || typeof body !== 'object') {
-    return NextResponse.json({ status: 'miss' })
+    return NextResponse.json({ status: 'miss' }, { headers: NO_STORE_HEADERS })
   }
 
   const b = body as Record<string, unknown>
@@ -50,14 +57,14 @@ export async function POST(request: Request) {
     : undefined
 
   if (!fromName || !toName) {
-    return NextResponse.json({ status: 'miss' })
+    return NextResponse.json({ status: 'miss' }, { headers: NO_STORE_HEADERS })
   }
 
   const fromNorm = normalizePlaceForMemory(fromName, fromFormattedAddress)
   const toNorm = normalizePlaceForMemory(toName, toFormattedAddress)
 
   if (!fromNorm || !toNorm) {
-    return NextResponse.json({ status: 'miss' })
+    return NextResponse.json({ status: 'miss' }, { headers: NO_STORE_HEADERS })
   }
 
   // Check provider access and strip station IDs from the response for restricted providers.
@@ -100,8 +107,8 @@ export async function POST(request: Request) {
         vegagerdinStationIds: vegagerdinAccessible ? v.vegagerdinStationIds : [],
       })),
     }
-    return NextResponse.json(gated)
+    return NextResponse.json(gated, { headers: NO_STORE_HEADERS })
   }
 
-  return NextResponse.json(result)
+  return NextResponse.json(result, { headers: NO_STORE_HEADERS })
 }
