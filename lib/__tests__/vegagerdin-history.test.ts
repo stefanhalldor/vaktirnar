@@ -47,9 +47,8 @@ function makeRow(overrides: Partial<VegagerdinHistoryDbRow> = {}): VegagerdinHis
 
 type HistoryChain = {
   fromFn: ReturnType<typeof vi.fn>
-  // First query (find newest last_fetched_at)
+  // First query (find newest last_fetched_at — no age cutoff)
   selectNewestFn: ReturnType<typeof vi.fn>
-  gteCutoffFn: ReturnType<typeof vi.fn>   // .gte('last_fetched_at', cutoff)
   orderFn: ReturnType<typeof vi.fn>        // .order('last_fetched_at', ...)
   limitFn: ReturnType<typeof vi.fn>
   maybeSingleFn: ReturnType<typeof vi.fn>
@@ -62,12 +61,11 @@ function makeHistoryChain(
   newestRow: { last_fetched_at: string } | null,
   batchRows: VegagerdinHistoryDbRow[],
 ): HistoryChain {
-  // First query: find newest last_fetched_at
+  // First query: find newest last_fetched_at — no age cutoff, just order + limit
   const maybeSingleFn = vi.fn().mockResolvedValue({ data: newestRow, error: null })
   const limitFn = vi.fn().mockReturnValue({ maybeSingle: maybeSingleFn })
   const orderFn = vi.fn().mockReturnValue({ limit: limitFn })
-  const gteCutoffFn = vi.fn().mockReturnValue({ order: orderFn })
-  const selectNewestFn = vi.fn().mockReturnValue({ gte: gteCutoffFn })
+  const selectNewestFn = vi.fn().mockReturnValue({ order: orderFn })
 
   // Second query: exact batch fetch
   const batchResult = Promise.resolve({ data: batchRows, error: null })
@@ -81,7 +79,7 @@ function makeHistoryChain(
     return { select: selectBatchFn }
   })
 
-  return { fromFn, selectNewestFn, gteCutoffFn, orderFn, limitFn, maybeSingleFn, selectBatchFn, eqBatchFn }
+  return { fromFn, selectNewestFn, orderFn, limitFn, maybeSingleFn, selectBatchFn, eqBatchFn }
 }
 
 function makeCacheChain(cacheRow: unknown) {
@@ -224,7 +222,7 @@ describe('readVegagerdinCurrentWithHistoryFallback - history fallback path', () 
   it('queries history by last_fetched_at (not measured_at) for newest batch anchor', async () => {
     const cacheFromFn = makeCacheChain(null)
     const historyRow = makeRow({ station_id: 'S1', last_fetched_at: BATCH_FETCH_AT })
-    const { fromFn, gteCutoffFn, orderFn, eqBatchFn } = makeHistoryChain(
+    const { fromFn, orderFn, eqBatchFn } = makeHistoryChain(
       { last_fetched_at: BATCH_FETCH_AT },
       [historyRow],
     )
@@ -238,9 +236,7 @@ describe('readVegagerdinCurrentWithHistoryFallback - history fallback path', () 
 
     await readVegagerdinCurrentWithHistoryFallback()
 
-    // First history query: must filter by last_fetched_at (not measured_at)
-    expect(gteCutoffFn).toHaveBeenCalledWith('last_fetched_at', expect.any(String))
-    // First history query: must order by last_fetched_at descending
+    // First history query: must order by last_fetched_at descending (no age cutoff)
     expect(orderFn).toHaveBeenCalledWith('last_fetched_at', { ascending: false })
     // Second history query: must use exact batch match, not a window
     expect(eqBatchFn).toHaveBeenCalledWith('last_fetched_at', BATCH_FETCH_AT)
@@ -312,6 +308,29 @@ describe('readVegagerdinCurrentWithHistoryFallback - history fallback path', () 
     }
     // History must not have been touched — exactly one DB call (cache read)
     expect(mockGetAdmin).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns history_fallback even for very old history batches (no age cutoff)', async () => {
+    const cacheFromFn = makeCacheChain(null)
+    // Batch from 3 days ago — a previous 24-hour cutoff would have dropped this
+    const ancientFetchAt = '2026-07-01T10:00:00.000Z'
+    const historyRow = makeRow({ station_id: 'S1', last_fetched_at: ancientFetchAt })
+    const { fromFn } = makeHistoryChain({ last_fetched_at: ancientFetchAt }, [historyRow])
+
+    let callCount = 0
+    mockGetAdmin.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return { from: cacheFromFn }
+      return { from: fromFn }
+    })
+
+    const result = await readVegagerdinCurrentWithHistoryFallback()
+
+    // Must return stale/history_fallback regardless of batch age
+    expect(result.status).toBe('stale')
+    if (result.status === 'stale') {
+      expect(result.cacheStatus).toBe('history_fallback')
+    }
   })
 
   // Regression: exact batch match prevents mixing rows from different cron runs.
