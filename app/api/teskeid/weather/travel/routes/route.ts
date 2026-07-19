@@ -3,9 +3,14 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
-import type { PlaceCandidate } from '@/lib/weather/provider.types'
+import type { PlaceCandidate, RouteOption } from '@/lib/weather/provider.types'
 import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
 import { checkWeatherGuestRateLimit } from '@/lib/weather/ip-rate-limit.server'
+import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
+import { matchProviderPointsToRoute, DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M } from '@/lib/weather/providerRouteMatching'
+import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
+import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
+import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
 
 function validateConfirmedPlace(raw: unknown): raw is { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string } {
   if (!raw || typeof raw !== 'object') return false
@@ -151,5 +156,106 @@ export async function POST(request: Request) {
     },
   })
 
+  // Route-memory warming: match provider stations for each route option and persist.
+  // Fire-and-forget — does not block the response to the client.
+  // No additional Google calls: reuses route geometry already returned by getRouteOptions.
+  // Privacy: only normalized place labels/keys, route variant keys, and derived
+  // station-order metadata are stored. No raw Google geometry, no user ID.
+  const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
+  const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
+  if (fromNorm && toNorm) {
+    void warmRouteMemoryFromOptions(sorted, fromNorm, toNorm)
+  }
+
   return NextResponse.json({ routes: sorted })
+}
+
+// ── Route-memory warming helper ───────────────────────────────────────────────
+
+/**
+ * Match Veðurstofan and Vegagerðin stations for each route option and persist
+ * via recordRouteMemory. Called fire-and-forget from the route-options endpoint.
+ *
+ * Uses cached Vegagerðin data only — never makes a live Vegagerðin request.
+ * If Vegagerðin cache is unavailable, it is omitted from providersEvaluated
+ * so existing station rows are preserved.
+ */
+async function warmRouteMemoryFromOptions(
+  routeOptions: RouteOption[],
+  fromNorm: { key: string; label: string },
+  toNorm: { key: string; label: string },
+): Promise<void> {
+  try {
+    const vegagerdinResult = await readVegagerdinCurrentWithHistoryFallback()
+    const vegagerdinAvailable = vegagerdinResult.status === 'fresh' || vegagerdinResult.status === 'stale'
+    const vegagerdinMatchable = (vegagerdinAvailable ? vegagerdinResult.payload.measurements : [])
+      .filter(m => m.stationId && m.lat !== null && m.lon !== null)
+
+    const vedurstofanPoints = VEDURSTOFAN_STATIONS_REGISTRY
+      .filter(s => s.stationId !== null && s.lat !== null && s.lon !== null)
+      .map(s => ({ id: s.stationId!, name: s.name, lat: s.lat!, lon: s.lon! }))
+
+    await Promise.all(routeOptions.map(async routeOption => {
+      const routePolyline = routeOption.providerMatchingPoints ?? routeOption.points
+
+      const vedurstofanMatches = matchProviderPointsToRoute({
+        points: vedurstofanPoints,
+        routePolyline,
+        maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+      })
+
+      const vegagerdinMatches = matchProviderPointsToRoute({
+        points: vegagerdinMatchable.map(m => ({
+          id: m.stationId,
+          name: m.stationName,
+          lat: m.lat!,
+          lon: m.lon!,
+        })),
+        routePolyline,
+        maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+      })
+
+      // Use curated label as variant label — do not store raw Google route text.
+      const curatedLabel = routeOption.labels.find(l => l.startsWith('CURATED_')) ?? null
+
+      const stations: RouteMemoryStation[] = [
+        ...vedurstofanMatches.map((m, i) => ({
+          provider: 'vedurstofan' as const,
+          stationId: m.point.id,
+          stationName: m.point.name ?? null,
+          routeOrder: i,
+          distanceFromOriginM: Math.round(m.distanceFromOriginM),
+          distanceFromRouteM: Math.round(m.distanceM),
+          routeFraction: m.routeFraction,
+        })),
+        ...vegagerdinMatches.map((m, i) => ({
+          provider: 'vegagerdin' as const,
+          stationId: m.point.id,
+          stationName: m.point.name ?? null,
+          routeOrder: i,
+          distanceFromOriginM: Math.round(m.distanceFromOriginM),
+          distanceFromRouteM: Math.round(m.distanceM),
+          routeFraction: m.routeFraction,
+        })),
+      ]
+
+      const providersEvaluated: ReadonlyArray<'vedurstofan' | 'vegagerdin'> = vegagerdinAvailable
+        ? ['vedurstofan', 'vegagerdin']
+        : ['vedurstofan']
+
+      await recordRouteMemory({
+        routeKey: buildRouteMemoryKey(fromNorm.key, toNorm.key, routeOption.id),
+        fromPlaceKey: fromNorm.key,
+        fromPlaceLabel: fromNorm.label,
+        toPlaceKey: toNorm.key,
+        toPlaceLabel: toNorm.label,
+        routeVariantKey: routeOption.id,
+        routeVariantLabel: curatedLabel,
+        stations,
+        providersEvaluated,
+      })
+    }))
+  } catch {
+    // Best-effort: swallow all errors to never affect the route-options response.
+  }
 }

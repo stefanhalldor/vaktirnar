@@ -117,6 +117,17 @@ export function RouteSelectionStep({
     return null
   })
 
+  // Sync activeField when both places become filled after initial mount.
+  // FerdalagidClient reads a route draft and calls setOrigin/setDestination after mount,
+  // but the lazy initializer above runs before the draft is consumed — leaving activeField
+  // stuck on 'origin' even though both fields are now filled.
+  useEffect(() => {
+    if (origin && destination && activeField !== null) {
+      setActiveField(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin, destination])
+
   const mapDivRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
   const originMarkerRef = useRef<google.maps.Marker | null>(null)
@@ -327,7 +338,7 @@ export function RouteSelectionStep({
 
   function handleOriginSelected(p: PlaceResult) {
     onOriginSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress, placeId: p.placeId })
-    setActiveField('destination')
+    setActiveField(destination ? null : 'destination')
   }
 
   function handleDestinationSelected(p: PlaceResult) {
