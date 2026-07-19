@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { dedupeRouteVariants } from '@/lib/iceland-routes/routeMemory.server'
 
 const sql = readFileSync(
   join(process.cwd(), 'sql/86_weather_route_memory.sql'),
@@ -159,5 +160,133 @@ describe('route-memory variant union — overview station aggregation', () => {
     const { vedurstofanIds, vegagerdinIds } = unionVariants(variants)
     expect(vedurstofanIds).toEqual(new Set(['S1', 'S2']))
     expect(vegagerdinIds).toEqual(new Set(['G1']))
+  })
+})
+
+// ── Route-memory variant dedupe ───────────────────────────────────────────────
+
+type TestVariant = Parameters<typeof dedupeRouteVariants>[0][number]
+
+function makeVariant(overrides: Partial<TestVariant> & Pick<TestVariant, 'routeVariantKey'>): TestVariant {
+  return {
+    routeVariantLabel: null,
+    lastSeenAt: '2026-01-01T00:00:00Z',
+    usageCount: 1,
+    vedurstofanStationIds: [],
+    vegagerdinStationIds: [],
+    routeCautionIds: [],
+    ...overrides,
+  }
+}
+
+describe('dedupeRouteVariants', () => {
+  it('returns a single variant unchanged', () => {
+    const v = makeVariant({ routeVariantKey: 'CURATED_AVOID_OXI', routeVariantLabel: 'CURATED_AVOID_OXI', vedurstofanStationIds: ['A', 'B'] })
+    expect(dedupeRouteVariants([v])).toEqual([v])
+  })
+
+  it('collapses two rows with the same CURATED_ label into one', () => {
+    const older = makeVariant({ routeVariantKey: 'google-id-1', routeVariantLabel: 'CURATED_AVOID_OXI', vedurstofanStationIds: ['A'] })
+    const newer = makeVariant({ routeVariantKey: 'google-id-2', routeVariantLabel: 'CURATED_AVOID_OXI', vedurstofanStationIds: ['A', 'B'], lastSeenAt: '2026-06-01T00:00:00Z' })
+    const result = dedupeRouteVariants([older, newer])
+    expect(result).toHaveLength(1)
+    expect(result[0].vedurstofanStationIds).toEqual(['A', 'B'])
+  })
+
+  it('keeps distinct CURATED_ labels as separate pills', () => {
+    const oxi = makeVariant({ routeVariantKey: 'CURATED_AVOID_OXI', routeVariantLabel: 'CURATED_AVOID_OXI', vedurstofanStationIds: ['A'] })
+    const helli = makeVariant({ routeVariantKey: 'CURATED_VIA_HELLISHEIDI', routeVariantLabel: 'CURATED_VIA_HELLISHEIDI', vedurstofanStationIds: ['B'] })
+    const result = dedupeRouteVariants([oxi, helli])
+    expect(result).toHaveLength(2)
+  })
+
+  it('prefers the row with more total station IDs when labels match', () => {
+    const sparse = makeVariant({ routeVariantKey: 'k1', routeVariantLabel: 'CURATED_AVOID_OXI', vedurstofanStationIds: ['A'], vegagerdinStationIds: [] })
+    const rich = makeVariant({ routeVariantKey: 'k2', routeVariantLabel: 'CURATED_AVOID_OXI', vedurstofanStationIds: ['A', 'B'], vegagerdinStationIds: ['G1'] })
+    const result = dedupeRouteVariants([sparse, rich])
+    expect(result).toHaveLength(1)
+    expect(result[0].vedurstofanStationIds).toEqual(['A', 'B'])
+    expect(result[0].vegagerdinStationIds).toEqual(['G1'])
+  })
+
+  it('breaks ties by most recent lastSeenAt', () => {
+    const older = makeVariant({ routeVariantKey: 'k1', routeVariantLabel: 'CURATED_AVOID_OXI', vedurstofanStationIds: ['A'], lastSeenAt: '2026-01-01T00:00:00Z' })
+    const newer = makeVariant({ routeVariantKey: 'k2', routeVariantLabel: 'CURATED_AVOID_OXI', vedurstofanStationIds: ['B'], lastSeenAt: '2026-07-01T00:00:00Z' })
+    const result = dedupeRouteVariants([older, newer])
+    expect(result).toHaveLength(1)
+    expect(result[0].vedurstofanStationIds).toEqual(['B'])
+  })
+
+  it('groups non-curated variants by routeVariantKey, not label', () => {
+    const a = makeVariant({ routeVariantKey: 'google-route-abc', routeVariantLabel: null })
+    const b = makeVariant({ routeVariantKey: 'google-route-xyz', routeVariantLabel: null })
+    const result = dedupeRouteVariants([a, b])
+    expect(result).toHaveLength(2)
+  })
+
+  it('does not merge a curated and a non-curated variant even if keys differ', () => {
+    const curated = makeVariant({ routeVariantKey: 'CURATED_AVOID_OXI', routeVariantLabel: 'CURATED_AVOID_OXI' })
+    const raw = makeVariant({ routeVariantKey: 'google-other', routeVariantLabel: null })
+    const result = dedupeRouteVariants([curated, raw])
+    expect(result).toHaveLength(2)
+  })
+
+  // Phase 2: non-curated subset dominance
+  it('drops a non-curated variant whose stations are an exact subset of a curated variant', () => {
+    const curated = makeVariant({
+      routeVariantKey: 'CURATED_VIA_HELLISHEIDI',
+      routeVariantLabel: 'CURATED_VIA_HELLISHEIDI',
+      vedurstofanStationIds: ['A', 'B', 'C'],
+      vegagerdinStationIds: ['G1'],
+    })
+    const generic = makeVariant({
+      routeVariantKey: 'google-leид-1',
+      routeVariantLabel: null,
+      vedurstofanStationIds: ['A', 'B'],
+      vegagerdinStationIds: [],
+    })
+    const result = dedupeRouteVariants([curated, generic])
+    expect(result).toHaveLength(1)
+    expect(result[0].routeVariantLabel).toBe('CURATED_VIA_HELLISHEIDI')
+  })
+
+  it('keeps a non-curated variant whose stations are NOT a subset of any curated variant', () => {
+    const curated = makeVariant({
+      routeVariantKey: 'CURATED_VIA_HELLISHEIDI',
+      routeVariantLabel: 'CURATED_VIA_HELLISHEIDI',
+      vedurstofanStationIds: ['A', 'B'],
+      vegagerdinStationIds: [],
+    })
+    const generic = makeVariant({
+      routeVariantKey: 'google-leið-extra',
+      routeVariantLabel: null,
+      vedurstofanStationIds: ['A', 'Z'],  // Z not in curated
+      vegagerdinStationIds: [],
+    })
+    const result = dedupeRouteVariants([curated, generic])
+    expect(result).toHaveLength(2)
+  })
+
+  it('keeps a non-curated variant with zero stations even when curated variants exist', () => {
+    const curated = makeVariant({
+      routeVariantKey: 'CURATED_AVOID_OXI',
+      routeVariantLabel: 'CURATED_AVOID_OXI',
+      vedurstofanStationIds: ['A', 'B'],
+    })
+    const empty = makeVariant({ routeVariantKey: 'google-empty', routeVariantLabel: null })
+    const result = dedupeRouteVariants([curated, empty])
+    expect(result).toHaveLength(2)
+  })
+
+  it('preserves routeCautionIds on variants that survive deduplication', () => {
+    const curated = makeVariant({
+      routeVariantKey: 'CURATED_AVOID_OXI',
+      routeVariantLabel: 'CURATED_AVOID_OXI',
+      vedurstofanStationIds: ['A', 'B'],
+      routeCautionIds: ['oxi'],
+    })
+    const result = dedupeRouteVariants([curated])
+    expect(result).toHaveLength(1)
+    expect(result[0].routeCautionIds).toEqual(['oxi'])
   })
 })

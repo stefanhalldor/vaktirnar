@@ -1003,7 +1003,7 @@
         "overviewSubtitle": ""
       },
       "overview": {
-        "overviewWindBanner": "This first version focuses on wind conditions for people travelling around Iceland right now.",
+        "overviewWindBanner": "This version focuses on wind conditions for people travelling around Iceland right now.",
         "back": "Back",
         "tripCta": "Trip Weather",
         "loading": "Loading...",
@@ -1067,7 +1067,8 @@
         "overviewFilterEmpty": "No station matches the active filters.",
         "routeVariantAllLabel": "All routes",
         "routeVariantFallbackLabel": "Route {n}",
-        "routeVariantPillsAriaLabel": "Select individual routes"
+        "routeVariantPillsAriaLabel": "Select individual routes",
+        "routeVariantCautionLabel": "Caution route"
       }
     }
   }

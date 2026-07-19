@@ -40,6 +40,23 @@ interface WeatherThresholdBarProps {
    * (e.g. after Reset), so the inputs always reflect the current applied state.
    */
   alwaysOpen?: boolean
+  /**
+   * When provided in alwaysOpen mode, the save-default button calls this instead of onApply.
+   * Separates "apply to current session" (onApply, called on valid typing) from
+   * "persist as saved default" (onSaveDefault, called only on explicit button click).
+   */
+  onSaveDefault?: (overrides: { cautionWindMs: number; redWindMs: number }) => void
+  /**
+   * Previously saved default thresholds, if any. Used in alwaysOpen mode to decide
+   * whether to show the save-default button:
+   * - null/undefined: button shows whenever draft values are valid (no saved defaults yet)
+   * - object: button shows only when draft differs from the saved defaults
+   *
+   * Comparison is against saved defaults, not the live applied thresholds, because
+   * typing immediately updates applied thresholds (via onApply) which would otherwise
+   * hide the button before the user has a chance to click save.
+   */
+  savedThresholds?: { cautionWindMs: number; redWindMs: number } | null
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -66,6 +83,8 @@ export function WeatherThresholdBar({
   onReset,
   labels,
   alwaysOpen = false,
+  onSaveDefault,
+  savedThresholds,
 }: WeatherThresholdBarProps) {
   const uid = useId()
   const cautionId = `${uid}-caution-wind`
@@ -79,9 +98,15 @@ export function WeatherThresholdBar({
     alwaysOpen ? String(thresholds.redWindMs) : '',
   )
   const [error, setError] = useState<string | null>(null)
+  // Tracks whether the user has touched either input in alwaysOpen mode.
+  // Prevents the save button from appearing before any editing has happened.
+  const [dirty, setDirty] = useState(false)
 
   // In alwaysOpen mode, sync draft inputs when the applied thresholds change
   // externally (e.g. after Reset or a server-loaded preference update).
+  // Does NOT reset dirty here: typing causes onApply → thresholds update → this
+  // effect fires, but dirty must stay true so the save button remains visible.
+  // Dirty is reset only via explicit reset button click (handleReset).
   useEffect(() => {
     if (!alwaysOpen) return
     setDraftCaution(String(thresholds.cautionWindMs))
@@ -120,12 +145,25 @@ export function WeatherThresholdBar({
   function handleReset() {
     onReset()
     if (!alwaysOpen) setOpen(false)
+    setDirty(false)
     setError(null)
   }
 
   // ── Always-open variant ───────────────────────────────────────────────────
 
   if (alwaysOpen) {
+    const draftCautionNum = parseFloat(draftCaution)
+    const draftDangerNum = parseFloat(draftDanger)
+    const draftIsValid = Number.isFinite(draftCautionNum) && Number.isFinite(draftDangerNum) && draftCautionNum > 0 && draftDangerNum > 0 && draftCautionNum < draftDangerNum
+    // Show the save button when draft is valid AND either no saved defaults exist yet,
+    // or the draft differs from the saved defaults. We compare against savedThresholds
+    // (not the live applied thresholds) because onApply runs immediately on valid typing,
+    // which would otherwise update thresholds and hide the button before the user clicks save.
+    const draftDiffersFromSaved = !savedThresholds
+      || draftCautionNum !== savedThresholds.cautionWindMs
+      || draftDangerNum !== savedThresholds.redWindMs
+    const showSaveButton = onSaveDefault != null && draftIsValid && draftDiffersFromSaved && dirty
+
     return (
       <div className="flex flex-col gap-2 text-xs">
         <div className="grid grid-cols-2 gap-3">
@@ -136,6 +174,7 @@ export function WeatherThresholdBar({
             value={draftCaution}
             onChange={(v) => {
               setDraftCaution(v)
+              setDirty(true)
               setError(null)
               const caution = parseFloat(v)
               const danger = parseFloat(draftDanger)
@@ -151,6 +190,7 @@ export function WeatherThresholdBar({
             value={draftDanger}
             onChange={(v) => {
               setDraftDanger(v)
+              setDirty(true)
               setError(null)
               const caution = parseFloat(draftCaution)
               const danger = parseFloat(v)
@@ -173,13 +213,22 @@ export function WeatherThresholdBar({
               {labels.resetLabel}
             </button>
           )}
-          <button
-            type="button"
-            onClick={handleApply}
-            className="ml-auto text-xs font-medium px-3 py-1.5 rounded-full border border-border hover:bg-foreground/5 active:bg-foreground/10 transition-colors"
-          >
-            {labels.applyLabel}
-          </button>
+          {showSaveButton && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null)
+                if (onSaveDefault) {
+                  onSaveDefault({ cautionWindMs: draftCautionNum, redWindMs: draftDangerNum })
+                } else {
+                  onApply({ cautionWindMs: draftCautionNum, redWindMs: draftDangerNum })
+                }
+              }}
+              className="ml-auto text-xs font-medium px-3 py-1.5 rounded-full border border-border hover:bg-foreground/5 active:bg-foreground/10 transition-colors"
+            >
+              {labels.applyLabel}
+            </button>
+          )}
         </div>
       </div>
     )

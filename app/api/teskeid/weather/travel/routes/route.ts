@@ -217,6 +217,9 @@ async function warmRouteMemoryFromOptions(
 
       // Use curated label as variant label — do not store raw Google route text.
       const curatedLabel = routeOption.labels.find(l => l.startsWith('CURATED_')) ?? null
+      // Use curated label as the stable variant key when available, so repeated calculations
+      // of the same curated route upsert the same row instead of creating new duplicates.
+      const stableVariantKey = curatedLabel ?? routeOption.id
 
       const stations: RouteMemoryStation[] = [
         ...vedurstofanMatches.map((m, i) => ({
@@ -244,13 +247,14 @@ async function warmRouteMemoryFromOptions(
         : ['vedurstofan']
 
       await recordRouteMemory({
-        routeKey: buildRouteMemoryKey(fromNorm.key, toNorm.key, routeOption.id),
+        routeKey: buildRouteMemoryKey(fromNorm.key, toNorm.key, stableVariantKey),
         fromPlaceKey: fromNorm.key,
         fromPlaceLabel: fromNorm.label,
         toPlaceKey: toNorm.key,
         toPlaceLabel: toNorm.label,
-        routeVariantKey: routeOption.id,
+        routeVariantKey: stableVariantKey,
         routeVariantLabel: curatedLabel,
+        routeCautionIds: routeOption.cautions?.map(c => c.id) ?? [],
         stations,
         providersEvaluated,
       })

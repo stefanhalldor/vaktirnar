@@ -41,6 +41,8 @@ export type RouteMemoryWriteInput = {
    * (clearing stale data). Providers NOT in this list are left untouched.
    */
   providersEvaluated: ReadonlyArray<'vedurstofan' | 'vegagerdin'>
+  /** Caution IDs for this route variant, e.g. ['trailer', 'oxi']. Requires sql/87. */
+  routeCautionIds?: string[]
 }
 
 /**
@@ -75,6 +77,7 @@ export async function recordRouteMemory(input: RouteMemoryWriteInput): Promise<v
           to_place_label: input.toPlaceLabel,
           route_variant_key: variantKey,
           route_variant_label: input.routeVariantLabel ?? null,
+          route_caution_ids: input.routeCautionIds ?? [],
           source: 'ferdalagid',
           last_seen_at: now,
           updated_at: now,
@@ -143,6 +146,7 @@ export type RouteMemoryVariant = {
   usageCount: number
   vedurstofanStationIds: string[]
   vegagerdinStationIds: string[]
+  routeCautionIds: string[]
 }
 
 export type RouteMemoryLookupResult =
@@ -153,6 +157,72 @@ export type RouteMemoryLookupResult =
       routeLabel: string
       variants: RouteMemoryVariant[]
     }
+
+/**
+ * Deduplicate route variants before returning them to the UI.
+ *
+ * Groups by semantic key:
+ * - Curated variants (`CURATED_*` label): group by label so multiple rows from
+ *   repeated calculations of the same curated route collapse into one pill.
+ * - Non-curated variants: group by `routeVariantKey`.
+ *
+ * Within each group, keeps the "best" variant:
+ * - Most total station IDs (more detail wins).
+ * - Ties broken by most recent `lastSeenAt`.
+ *
+ * Exported for unit testing.
+ */
+export function dedupeRouteVariants(variants: RouteMemoryVariant[]): RouteMemoryVariant[] {
+  // Phase 1: collapse by semantic group key, keeping the best row per group.
+  // Curated variants group by CURATED_* label; non-curated by routeVariantKey.
+  // "Best" = most total station IDs, ties broken by most recent lastSeenAt.
+  const groups = new Map<string, RouteMemoryVariant>()
+  for (const v of variants) {
+    const groupKey = v.routeVariantLabel?.startsWith('CURATED_') ? v.routeVariantLabel : v.routeVariantKey
+    const existing = groups.get(groupKey)
+    if (!existing) {
+      groups.set(groupKey, v)
+      continue
+    }
+    const existingTotal = existing.vedurstofanStationIds.length + existing.vegagerdinStationIds.length
+    const newTotal = v.vedurstofanStationIds.length + v.vegagerdinStationIds.length
+    if (newTotal > existingTotal || (newTotal === existingTotal && v.lastSeenAt > existing.lastSeenAt)) {
+      groups.set(groupKey, v)
+    }
+  }
+
+  const collapsed = Array.from(groups.values())
+
+  // Phase 2: drop non-curated variants whose station set is an exact subset of
+  // any single curated variant. Uses provider-qualified IDs (vedurstofan:X /
+  // vegagerdin:X) so the two namespaces never collide.
+  // A generic "Leið 1" that only has a subset of "Um Hellisheiði" stations adds
+  // no filtering value and clutters the pill row.
+  const curated = collapsed.filter(v => v.routeVariantLabel?.startsWith('CURATED_'))
+  if (curated.length === 0) return collapsed
+
+  const curatedSets = curated.map(v => new Set([
+    ...v.vedurstofanStationIds.map(id => `vedurstofan:${id}`),
+    ...v.vegagerdinStationIds.map(id => `vegagerdin:${id}`),
+  ]))
+
+  return collapsed.filter(v => {
+    if (v.routeVariantLabel?.startsWith('CURATED_')) return true
+    const genericSet = new Set([
+      ...v.vedurstofanStationIds.map(id => `vedurstofan:${id}`),
+      ...v.vegagerdinStationIds.map(id => `vegagerdin:${id}`),
+    ])
+    // Keep empty-station non-curated variants (nothing to compare).
+    if (genericSet.size === 0) return true
+    // Drop if all generic stations appear in any single curated variant.
+    return !curatedSets.some(cs => {
+      for (const id of genericSet) {
+        if (!cs.has(id)) return false
+      }
+      return true
+    })
+  })
+}
 
 /**
  * Look up route-memory bidirectionally: tries A→B first, then B→A.
@@ -190,7 +260,7 @@ export async function lookupRouteMemory(
 
     const { data: routes, error: routeErr } = await supabase
       .from('weather_route_memory_routes')
-      .select('id, route_key, from_place_label, to_place_label, route_variant_key, route_variant_label, last_seen_at, usage_count')
+      .select('id, route_key, from_place_label, to_place_label, route_variant_key, route_variant_label, route_caution_ids, last_seen_at, usage_count')
       .eq('from_place_key', fromPlaceKey)
       .eq('to_place_key', toPlaceKey)
       .order('last_seen_at', { ascending: false })
@@ -231,13 +301,16 @@ export async function lookupRouteMemory(
       usageCount: r.usage_count as number,
       vedurstofanStationIds: stationsByRoute.get(r.id as string)?.vedurstofan ?? [],
       vegagerdinStationIds: stationsByRoute.get(r.id as string)?.vegagerdin ?? [],
+      routeCautionIds: Array.isArray(r.route_caution_ids)
+        ? (r.route_caution_ids as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [],
     }))
 
     return {
       status: 'resolved',
       routeKey: firstRoute.route_key as string,
       routeLabel: `${firstRoute.from_place_label} \u2192 ${firstRoute.to_place_label}`,
-      variants,
+      variants: dedupeRouteVariants(variants),
     }
   } catch {
     return { status: 'miss', fromPlaceKey, toPlaceKey }

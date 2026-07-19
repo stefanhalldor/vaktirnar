@@ -1007,7 +1007,7 @@
         "overviewSubtitle": ""
       },
       "overview": {
-        "overviewWindBanner": "Þessi fyrsta útgáfa leggur áherslu á vind fyrir fólk sem er á ferð um landið núna.",
+        "overviewWindBanner": "Þessi útgáfa leggur áherslu á vind fyrir fólk sem er á ferð um landið núna.",
         "back": "Til baka",
         "tripCta": "Ferðalagið",
         "loading": "Hleð...",
@@ -1071,7 +1071,8 @@
         "overviewFilterEmpty": "Engin stöð fellur undir virku síurnar.",
         "routeVariantAllLabel": "Allar leiðir",
         "routeVariantFallbackLabel": "Leið {n}",
-        "routeVariantPillsAriaLabel": "Velja einstakar leiðir"
+        "routeVariantPillsAriaLabel": "Velja einstakar leiðir",
+        "routeVariantCautionLabel": "Varasöm leið"
       }
     }
   }

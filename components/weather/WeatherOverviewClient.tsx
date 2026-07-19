@@ -131,6 +131,7 @@ export function WeatherOverviewClient({
     routeVariantLabel: string | null
     vedurstofanStationIds: string[]
     vegagerdinStationIds: string[]
+    routeCautionIds: string[]
   }
   type RouteMemoryState =
     | { status: 'idle' }
@@ -141,28 +142,36 @@ export function WeatherOverviewClient({
   // Selected route-variant key — 'all' shows the union of all variants (default).
   const [selectedVariantKey, setSelectedVariantKey] = useState<string | 'all'>('all')
 
-  // Fetch route-memory when both places are selected.
-  // Uses labels as fromName/toName — the server normalizes generically (no whitelist required).
-  // Uses AbortController to cancel in-flight requests when places change.
-  useEffect(() => {
-    if (!fromMemoryPlace || !toMemoryPlace) {
-      setRouteMemory({ status: 'idle' })
-      return
-    }
-    setRouteMemory({ status: 'loading' })
-    setSelectedVariantKey('all')
+  // Refs keep the latest place values accessible in the stable callback below.
+  // This avoids stale-closure issues when the callback is invoked from event listeners.
+  const fromMemoryPlaceRef = useRef<RouteMemoryPlace | null>(null)
+  const toMemoryPlaceRef = useRef<RouteMemoryPlace | null>(null)
+  fromMemoryPlaceRef.current = fromMemoryPlace
+  toMemoryPlaceRef.current = toMemoryPlace
+
+  // Stable callback: fetches route-memory for the current pair.
+  // Aborts any in-flight request via ref. Safe to call from event listeners.
+  const routeMemoryAbortRef = useRef<AbortController | null>(null)
+  const fetchRouteMemoryForPair = useCallback(() => {
+    const from = fromMemoryPlaceRef.current
+    const to = toMemoryPlaceRef.current
+    if (!from || !to) return
+    routeMemoryAbortRef.current?.abort()
     const controller = new AbortController()
+    routeMemoryAbortRef.current = controller
+    // Capture keys at request time — used to discard stale responses if pair changed.
+    const requestFromKey = from.key
+    const requestToKey = to.key
     fetch('/api/teskeid/weather/route-memory/lookup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fromName: fromMemoryPlace.label,
-        toName: toMemoryPlace.label,
-      }),
+      body: JSON.stringify({ fromName: from.label, toName: to.label }),
       signal: controller.signal,
     })
       .then(r => r.json())
       .then((data: { status: string; routeLabel?: string; variants?: Array<RouteMemoryVariantData> }) => {
+        // Discard response if the selected pair has changed since this request started.
+        if (fromMemoryPlaceRef.current?.key !== requestFromKey || toMemoryPlaceRef.current?.key !== requestToKey) return
         if (data.status === 'resolved' && data.variants && data.variants.length > 0) {
           const variants = data.variants
           setRouteMemory({
@@ -180,9 +189,39 @@ export function WeatherOverviewClient({
         if ((err as Error).name === 'AbortError') return
         setRouteMemory({ status: 'miss' })
       })
-    return () => controller.abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Fetch route-memory when both places are selected (or clear when deselected).
+  useEffect(() => {
+    if (!fromMemoryPlace || !toMemoryPlace) {
+      routeMemoryAbortRef.current?.abort()
+      setRouteMemory({ status: 'idle' })
+      return
+    }
+    setRouteMemory({ status: 'loading' })
+    setSelectedVariantKey('all')
+    fetchRouteMemoryForPair()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromMemoryPlace?.key, toMemoryPlace?.key])
+
+  // Re-fetch on window focus / page becoming visible — so returning from /ferdalagid
+  // after recording a new route picks up any newly stored variant data.
+  useEffect(() => {
+    const handleFocus = () => fetchRouteMemoryForPair()
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchRouteMemoryForPair()
+    }
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('pageshow', handleFocus)
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('pageshow', handleFocus)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Write or clear the overview route draft in sessionStorage whenever selected places change.
   // FerdalagidClient reads this on mount to pre-fill origin/destination.
@@ -393,6 +432,7 @@ export function WeatherOverviewClient({
       .then((d: { hasPreferences?: boolean; cautionWindMs?: number; redWindMs?: number } | null) => {
         if (d?.hasPreferences && typeof d.cautionWindMs === 'number' && typeof d.redWindMs === 'number') {
           setSavedDefaultThresholds({ cautionWindMs: d.cautionWindMs, redWindMs: d.redWindMs })
+          setOverrides({ cautionWindMs: d.cautionWindMs, redWindMs: d.redWindMs })
         }
       })
       .catch(() => {})
@@ -850,8 +890,34 @@ export function WeatherOverviewClient({
       providers={[vegagerdinProvider, vedurstofanProvider]}
       requestedSelection={null}
       renderBanner={() => (
-        <div className="rounded-xl border border-border px-4 py-3">
+        <div className="rounded-xl border border-border px-4 py-3 flex flex-col gap-3">
           <p className="text-sm text-muted-foreground leading-snug">{tOv('overviewWindBanner')}</p>
+          <WeatherThresholdBar
+            alwaysOpen
+            thresholds={thresholds}
+            hasOverrides={Object.keys(overrides).length > 0}
+            onApply={({ cautionWindMs, redWindMs }) => {
+              setOverrides({ cautionWindMs, redWindMs })
+            }}
+            onSaveDefault={({ cautionWindMs, redWindMs }) => {
+              handleSaveAsDefault(cautionWindMs, redWindMs)
+            }}
+            savedThresholds={savedDefaultThresholds}
+            onReset={resetThresholds}
+            labels={{
+              title: tOv('thresholdBarTitle'),
+              cautionLabel: tOv('thresholdBarCautionLabel'),
+              dangerLabel: tOv('thresholdBarDangerLabel'),
+              unit: tOv('thresholdBarUnit'),
+              applyLabel: savedDefaultThresholds
+                ? tOv('thresholdBarApplyUpdate')
+                : tOv('thresholdBarApply'),
+              resetLabel: tOv('thresholdBarReset'),
+              editLabel: tOv('thresholdBarEdit'),
+              closeLabel: tOv('thresholdBarClose'),
+              orderingError: tOv('thresholdBarOrderingError'),
+            }}
+          />
         </div>
       )}
       renderProviderSelector={() => (
@@ -875,31 +941,6 @@ export function WeatherOverviewClient({
           forecastLoadingLabel={tOv('sourceLoadingForecast')}
           activeMode={activeMode}
           onModeChange={handleModeChange}
-        />
-      )}
-      renderBelowSelector={() => (
-        <WeatherThresholdBar
-          alwaysOpen
-          thresholds={thresholds}
-          hasOverrides={Object.keys(overrides).length > 0}
-          onApply={({ cautionWindMs, redWindMs }) => {
-            setOverrides({ cautionWindMs, redWindMs })
-            handleSaveAsDefault(cautionWindMs, redWindMs)
-          }}
-          onReset={resetThresholds}
-          labels={{
-            title: tOv('thresholdBarTitle'),
-            cautionLabel: tOv('thresholdBarCautionLabel'),
-            dangerLabel: tOv('thresholdBarDangerLabel'),
-            unit: tOv('thresholdBarUnit'),
-            applyLabel: savedDefaultThresholds
-              ? tOv('thresholdBarApplyUpdate')
-              : tOv('thresholdBarApply'),
-            resetLabel: tOv('thresholdBarReset'),
-            editLabel: tOv('thresholdBarEdit'),
-            closeLabel: tOv('thresholdBarClose'),
-            orderingError: tOv('thresholdBarOrderingError'),
-          }}
         />
       )}
       renderRouteLens={() => (
@@ -950,6 +991,7 @@ export function WeatherOverviewClient({
                 const label = (variant.routeVariantLabel && labelMap[variant.routeVariantLabel])
                   ? labelMap[variant.routeVariantLabel]
                   : tOv('routeVariantFallbackLabel', { n: i + 1 })
+                const hasCaution = variant.routeCautionIds.length > 0
                 return (
                   <button
                     key={variant.routeVariantKey}
@@ -962,7 +1004,7 @@ export function WeatherOverviewClient({
                         : 'border-border text-muted-foreground hover:border-primary/40',
                     )}
                   >
-                    {label}
+                    {hasCaution ? `${label} · ${tOv('routeVariantCautionLabel')}` : label}
                   </button>
                 )
               })}
