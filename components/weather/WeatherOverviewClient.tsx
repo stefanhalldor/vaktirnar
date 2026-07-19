@@ -70,6 +70,17 @@ type VegagerdinCurrentApiData =
       stations: []
     }
 
+function classifyVegagerdinObservationStationWindStatus(
+  station: VegagerdinCurrentStationDto,
+  thresholds: ResolvedTravelThresholds,
+): WindDisplayStatus {
+  const status = classifyObservationWindDisplayStatus({
+    meanWindMs: station.meanWindMs,
+    gustLast10MinMs: station.gustLast10MinMs,
+  }, thresholds)
+  return status === 'no_data' ? 'no_wind_data' : status
+}
+
 // ── Veðurstofan overview adapter ────────────────────────────────────────────
 //
 // Public API is identical to the pre-B3C WeatherOverviewClient: pages pass
@@ -580,9 +591,7 @@ export function WeatherOverviewClient({
     if (filteredVegagerdinStations.length === 0) return 'no_data'
     let worst: WindDisplayStatus = 'no_data'
     for (const s of filteredVegagerdinStations) {
-      const status: WindDisplayStatus = s.meanWindMs === null
-        ? 'no_wind_data'
-        : classifyObservationWindDisplayStatus({ meanWindMs: s.meanWindMs }, thresholds)
+      const status = classifyVegagerdinObservationStationWindStatus(s, thresholds)
       worst = worstWindDisplayStatus(worst, status)
     }
     return worst
@@ -649,9 +658,7 @@ export function WeatherOverviewClient({
         if (vegagerdinData?.status === 'ok') {
           for (const s of vegagerdinData.stations) {
             if (!vegagerdinIds.includes(s.stationId)) continue
-            const status: WindDisplayStatus = s.meanWindMs === null
-              ? 'no_wind_data'
-              : classifyObservationWindDisplayStatus({ meanWindMs: s.meanWindMs }, thresholds)
+            const status = classifyVegagerdinObservationStationWindStatus(s, thresholds)
             worst = worstWindDisplayStatus(worst, status)
           }
         }
@@ -752,10 +759,8 @@ export function WeatherOverviewClient({
           providerLabel: tOv('vegagerdinProviderLabel'),
           markers: vegagerdinData.stations
             .map(s => {
-              // Stations with no wind sensor return no_wind_data (not no_data).
-              const status: WindDisplayStatus = s.meanWindMs === null
-                ? 'no_wind_data'
-                : classifyObservationWindDisplayStatus({ meanWindMs: s.meanWindMs }, thresholds)
+              // Stations with neither gust nor wind sensor return no_wind_data (not no_data).
+              const status = classifyVegagerdinObservationStationWindStatus(s, thresholds)
               const isRouteFiltered = vegagerdinRouteFilterIds !== null && !vegagerdinRouteFilterIds.has(s.stationId)
               const isVisible = !isRouteFiltered && (visibleStatuses.size === 0 || visibleStatuses.has(status))
               return {
@@ -782,9 +787,7 @@ export function WeatherOverviewClient({
       if (vegagerdinData && vegagerdinData.status === 'ok') {
         for (const s of vegagerdinData.stations) {
           if (vegagerdinRouteFilterIds !== null && !vegagerdinRouteFilterIds.has(s.stationId)) continue
-          const status: WindDisplayStatus = s.meanWindMs === null
-            ? 'no_wind_data'
-            : classifyObservationWindDisplayStatus({ meanWindMs: s.meanWindMs }, thresholds)
+          const status = classifyVegagerdinObservationStationWindStatus(s, thresholds)
           tally(status)
         }
       }
@@ -921,9 +924,7 @@ export function WeatherOverviewClient({
       // Hide detail card when the station is excluded by route filter or status filter.
       const isOnRoute = vegagerdinRouteFilterIds === null || vegagerdinRouteFilterIds.has(selectedStation.stationId)
       if (!isOnRoute) return null
-      const selectedStatus: WindDisplayStatus = selectedStation.meanWindMs === null
-        ? 'no_wind_data'
-        : classifyObservationWindDisplayStatus({ meanWindMs: selectedStation.meanWindMs }, thresholds)
+      const selectedStatus = classifyVegagerdinObservationStationWindStatus(selectedStation, thresholds)
       if (visibleStatuses.size > 0 && !visibleStatuses.has(selectedStatus)) return null
       return (
         <VegagerdinStationDetail
@@ -1334,9 +1335,7 @@ function VegagerdinStationDetail({
   const measuredTime = station.measuredAtIso.slice(11, 16)
   const fetchedTime = station.fetchedAtIso.slice(11, 16)
 
-  const windStatus: WindDisplayStatus = station.meanWindMs === null
-    ? 'no_wind_data'
-    : classifyObservationWindDisplayStatus({ meanWindMs: station.meanWindMs }, thresholds)
+  const windStatus = classifyVegagerdinObservationStationWindStatus(station, thresholds)
 
   const freshnessLabel =
     measurementFreshness === 'fresh' ? tOv('vegagerdinFreshnessFresh')

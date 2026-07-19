@@ -107,23 +107,24 @@ export function classifyPointWindDisplayStatus(
 }
 
 /**
- * Classifies a current-observation station's sustained wind reading into WindDisplayStatus,
+ * Classifies a current-observation station's wind reading into WindDisplayStatus,
  * for use with map markers and status labels on the /vedrid overview.
  *
- * Uses meanWindMs only in this version. Gust-adjusted classification is a future TODO:
- * gustMs is present on VegagerdinCurrentStationDto, but redGustMs in ResolvedTravelThresholds
- * is calibrated for route-forecast gusts, not current-observation gusts. Enable gust
- * classification only after a separate calibration step.
+ * Uses current-observation gusts when available because Vegagerðin gusts are the
+ * more actionable live road-weather warning signal. Falls back to sustained/mean
+ * wind when gust data is absent.
  *
- * Returns 'no_data' when meanWindMs is null (absent or unparseable).
- * This is the correct source of truth for observation marker color — NOT measurementFreshness.
+ * Returns 'no_data' when both gustLast10MinMs and meanWindMs are null
+ * (absent or unparseable).
+ * This is the correct source of truth for observation marker color - NOT measurementFreshness.
  */
 export function classifyObservationWindDisplayStatus(
-  { meanWindMs }: { meanWindMs: number | null },
+  { meanWindMs, gustLast10MinMs = null }: { meanWindMs: number | null; gustLast10MinMs?: number | null },
   thresholds: ResolvedTravelThresholds,
 ): WindDisplayStatus {
-  if (meanWindMs === null) return 'no_data'
-  return classifyPointWindDisplayStatus(meanWindMs, true, thresholds)
+  const windMs = gustLast10MinMs ?? meanWindMs
+  if (windMs === null) return 'no_data'
+  return classifyPointWindDisplayStatus(windMs, true, thresholds)
 }
 
 /**

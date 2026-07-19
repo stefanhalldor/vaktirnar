@@ -25,7 +25,7 @@ const tightThresholds: ResolvedTravelThresholds = {
 }
 
 describe('classifyObservationWindDisplayStatus', () => {
-  it('returns no_data when meanWindMs is null', () => {
+  it('returns no_data when both meanWindMs and gustLast10MinMs are null', () => {
     expect(classifyObservationWindDisplayStatus({ meanWindMs: null }, wideThresholds)).toBe('no_data')
   })
 
@@ -57,9 +57,36 @@ describe('classifyObservationWindDisplayStatus', () => {
     expect(classifyObservationWindDisplayStatus({ meanWindMs: 40 }, wideThresholds)).toBe('haettulegt')
   })
 
-  it('stale measurements with wind data still classify correctly — not no_data', () => {
+  it('prefers current-observation gusts over calm mean wind when gust data exists', () => {
+    expect(
+      classifyObservationWindDisplayStatus(
+        { meanWindMs: 5, gustLast10MinMs: 25 },
+        wideThresholds,
+      ),
+    ).toBe('haettulegt')
+  })
+
+  it('uses current-observation gusts even when mean wind is absent', () => {
+    expect(
+      classifyObservationWindDisplayStatus(
+        { meanWindMs: null, gustLast10MinMs: 18 },
+        wideThresholds,
+      ),
+    ).toBe('othaegilegt')
+  })
+
+  it('falls back to mean wind when current-observation gust data is absent', () => {
+    expect(
+      classifyObservationWindDisplayStatus(
+        { meanWindMs: 24, gustLast10MinMs: null },
+        wideThresholds,
+      ),
+    ).toBe('nalgast-haettumork')
+  })
+
+  it('stale measurements with wind data still classify correctly - not no_data', () => {
     // Regression guard: measurementFreshness='stale' must NOT make the marker grey.
-    // classifyObservationWindDisplayStatus only takes meanWindMs — freshness is not an input.
+    // classifyObservationWindDisplayStatus only takes wind measurement values - freshness is not an input.
     expect(classifyObservationWindDisplayStatus({ meanWindMs: 12 }, wideThresholds)).toBe('innan-marka')
     expect(classifyObservationWindDisplayStatus({ meanWindMs: 20 }, wideThresholds)).toBe('othaegilegt')
   })
