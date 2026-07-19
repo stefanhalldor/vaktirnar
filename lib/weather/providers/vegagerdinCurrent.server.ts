@@ -496,16 +496,12 @@ async function upsertVegagerdinHistory(
  */
 async function readVegagerdinCurrentFromHistory(): Promise<VegagerdinCurrentResult> {
   try {
-    const cutoffIso = new Date(Date.now() - HISTORY_MAX_AGE_MS).toISOString()
-
-    // Find the most recent fetch batch by last_fetched_at (not measured_at).
-    // Using last_fetched_at ensures stations with older measured_at (e.g. that
-    // haven't sent a new measurement in 15–40 min) are still included if they
-    // were part of the most recent upstream fetch.
+    // No age cutoff: always return the newest available history batch regardless of age.
+    // Vegagerðin is always gray otherwise when the cache is expired and cron is delayed.
+    // measurementFreshness on the payload indicates to the UI how old the data is.
     const { data: newestRow, error: newestError } = await getAdmin()
       .from('vegagerdin_measurements_history')
       .select('last_fetched_at')
-      .gte('last_fetched_at', cutoffIso)
       .order('last_fetched_at', { ascending: false })
       .limit(1)
       .maybeSingle()

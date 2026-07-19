@@ -198,30 +198,46 @@ export function dedupeRouteVariants(variants: RouteMemoryVariant[]): RouteMemory
   // vegagerdin:X) so the two namespaces never collide.
   // A generic "Leið 1" that only has a subset of "Um Hellisheiði" stations adds
   // no filtering value and clutters the pill row.
+  // Phase 2: drop non-curated variants whose station set is an exact subset of
+  // any single curated variant. Uses provider-qualified IDs (vedurstofan:X /
+  // vegagerdin:X) so the two namespaces never collide.
+  // A generic "Leið 1" that only has a subset of "Um Hellisheiði" stations adds
+  // no filtering value and clutters the pill row.
   const curated = collapsed.filter(v => v.routeVariantLabel?.startsWith('CURATED_'))
-  if (curated.length === 0) return collapsed
 
-  const curatedSets = curated.map(v => new Set([
-    ...v.vedurstofanStationIds.map(id => `vedurstofan:${id}`),
-    ...v.vegagerdinStationIds.map(id => `vegagerdin:${id}`),
-  ]))
-
-  return collapsed.filter(v => {
-    if (v.routeVariantLabel?.startsWith('CURATED_')) return true
-    const genericSet = new Set([
+  const afterPhase2 = curated.length === 0 ? collapsed : (() => {
+    const curatedSets = curated.map(v => new Set([
       ...v.vedurstofanStationIds.map(id => `vedurstofan:${id}`),
       ...v.vegagerdinStationIds.map(id => `vegagerdin:${id}`),
-    ])
-    // Keep empty-station non-curated variants (nothing to compare).
-    if (genericSet.size === 0) return true
-    // Drop if all generic stations appear in any single curated variant.
-    return !curatedSets.some(cs => {
-      for (const id of genericSet) {
-        if (!cs.has(id)) return false
-      }
-      return true
+    ]))
+    return collapsed.filter(v => {
+      if (v.routeVariantLabel?.startsWith('CURATED_')) return true
+      const genericSet = new Set([
+        ...v.vedurstofanStationIds.map(id => `vedurstofan:${id}`),
+        ...v.vegagerdinStationIds.map(id => `vegagerdin:${id}`),
+      ])
+      // Keep empty-station non-curated variants (nothing to compare).
+      if (genericSet.size === 0) return true
+      // Drop if all generic stations appear in any single curated variant.
+      return !curatedSets.some(cs => {
+        for (const id of genericSet) {
+          if (!cs.has(id)) return false
+        }
+        return true
+      })
     })
-  })
+  })()
+
+  // Phase 3: if any surviving variant has at least one station ID, drop variants
+  // with zero total station IDs. Empty variants produce blank map layers and
+  // serve no filtering purpose when sibling variants are available.
+  const anyHasStations = afterPhase2.some(
+    v => v.vedurstofanStationIds.length > 0 || v.vegagerdinStationIds.length > 0
+  )
+  if (!anyHasStations) return afterPhase2
+  return afterPhase2.filter(
+    v => v.vedurstofanStationIds.length > 0 || v.vegagerdinStationIds.length > 0
+  )
 }
 
 /**

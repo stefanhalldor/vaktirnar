@@ -267,7 +267,7 @@ describe('dedupeRouteVariants', () => {
     expect(result).toHaveLength(2)
   })
 
-  it('keeps a non-curated variant with zero stations even when curated variants exist', () => {
+  it('drops a non-curated variant with zero stations when a sibling variant has stations (Phase 3)', () => {
     const curated = makeVariant({
       routeVariantKey: 'CURATED_AVOID_OXI',
       routeVariantLabel: 'CURATED_AVOID_OXI',
@@ -275,7 +275,27 @@ describe('dedupeRouteVariants', () => {
     })
     const empty = makeVariant({ routeVariantKey: 'google-empty', routeVariantLabel: null })
     const result = dedupeRouteVariants([curated, empty])
+    expect(result).toHaveLength(1)
+    expect(result[0].routeVariantLabel).toBe('CURATED_AVOID_OXI')
+  })
+
+  it('keeps all variants when every variant has zero stations (Phase 3 no-op)', () => {
+    const a = makeVariant({ routeVariantKey: 'google-a', routeVariantLabel: null })
+    const b = makeVariant({ routeVariantKey: 'google-b', routeVariantLabel: null })
+    const result = dedupeRouteVariants([a, b])
     expect(result).toHaveLength(2)
+  })
+
+  it('drops only the zero-station variant when mixed with non-empty sibling (Phase 3)', () => {
+    const rich = makeVariant({
+      routeVariantKey: 'google-rich',
+      routeVariantLabel: null,
+      vedurstofanStationIds: ['X', 'Y'],
+    })
+    const empty = makeVariant({ routeVariantKey: 'google-empty', routeVariantLabel: null })
+    const result = dedupeRouteVariants([rich, empty])
+    expect(result).toHaveLength(1)
+    expect(result[0].routeVariantKey).toBe('google-rich')
   })
 
   it('preserves routeCautionIds on variants that survive deduplication', () => {

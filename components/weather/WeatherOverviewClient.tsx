@@ -606,6 +606,37 @@ export function WeatherOverviewClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vegagerdinLoading, vegagerdinRestricted, vegagerdinLoadError, vegagerdinData, forecastSlotStatuses])
 
+  // Route-aware auto-mode: if a route filter is active and the current provider/time
+  // has zero route-visible markers, switch to a usable alternative.
+  // - activeMode 'now' + 0 filteredVegagerdinStations + forecast has slots → first forecast slot.
+  // - activeMode forecast + 0 forecast-visible route stations + Vegagerðin has stations → 'now'.
+  // Intentionally does NOT check userHasSelectedMode: when the route changes, the valid marker
+  // universe changes and a blank map is always wrong regardless of prior user selection.
+  // Only fires when both providers have finished loading (avoids premature switching on slow load).
+  useEffect(() => {
+    const routeActive = routeMemory.status === 'resolved'
+      && (vegagerdinRouteFilterIds !== null || vedurstofanRouteFilterIds !== null)
+    if (!routeActive) return
+    if (vegagerdinLoading || !data) return
+
+    if (activeMode === 'now') {
+      if (filteredVegagerdinStations.length > 0) return
+      if (forecastSlotStatuses.length === 0) return
+      setActiveMode(forecastSlotStatuses[0].timeMs)
+    } else {
+      // Forecast slot active: check if the current slot has any route-visible Vedurstofan stations.
+      const currentSlot = forecastSlotStatuses.find(s => s.timeMs === activeMode)
+      const slotHasStations = currentSlot !== undefined
+        && data.stations.some(s =>
+          vedurstofanRouteFilterIds === null || vedurstofanRouteFilterIds.has(s.stationId)
+        )
+      if (slotHasStations) return
+      if (filteredVegagerdinStations.length === 0) return
+      setActiveMode('now')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeMemory.status, vegagerdinRouteFilterIds, vedurstofanRouteFilterIds, filteredVegagerdinStations, forecastSlotStatuses, activeMode, vegagerdinLoading, data])
+
   // ── Route-variant pills — sorted by worst station status for the active source/time ──
   // Only computed when both places are selected and multiple variants are returned.
   // Uses the same status model as the map markers and wind-status filter pills.
