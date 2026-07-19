@@ -258,13 +258,28 @@ export async function lookupRouteMemory(
   try {
     const supabase = getAdmin()
 
-    const { data: routes, error: routeErr } = await supabase
+    let { data: routes, error: routeErr } = await supabase
       .from('weather_route_memory_routes')
       .select('id, route_key, from_place_label, to_place_label, route_variant_key, route_variant_label, route_caution_ids, last_seen_at, usage_count')
       .eq('from_place_key', fromPlaceKey)
       .eq('to_place_key', toPlaceKey)
       .order('last_seen_at', { ascending: false })
       .limit(20)
+
+    // Postgres 42703: column does not exist — sql/87 not yet applied in this environment.
+    // Fall back to a query without route_caution_ids so station filtering still works.
+    if (routeErr?.code === '42703') {
+      console.error('[route-memory] route_caution_ids column missing, falling back (run sql/87)')
+      const fallback = await supabase
+        .from('weather_route_memory_routes')
+        .select('id, route_key, from_place_label, to_place_label, route_variant_key, route_variant_label, last_seen_at, usage_count')
+        .eq('from_place_key', fromPlaceKey)
+        .eq('to_place_key', toPlaceKey)
+        .order('last_seen_at', { ascending: false })
+        .limit(20)
+      routes = fallback.data as typeof routes
+      routeErr = fallback.error
+    }
 
     if (routeErr || !routes || routes.length === 0) {
       return { status: 'miss', fromPlaceKey, toPlaceKey }

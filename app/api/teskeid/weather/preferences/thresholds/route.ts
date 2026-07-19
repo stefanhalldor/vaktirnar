@@ -80,6 +80,19 @@ export async function PUT(request: Request) {
   }
 
   const admin = getAdmin()
+
+  // Ensure a profiles row exists before upserting weather_user_preferences.
+  // weather_user_preferences.user_id has a FK to public.profiles(id).
+  // Auth-MVP users authenticated via createUserSession() may not have a profiles row
+  // if the auth.users trigger did not fire or if the profile was never explicitly created.
+  const { error: profileErr } = await admin
+    .from('profiles')
+    .upsert({ id: user.id, display_name: '' }, { onConflict: 'id', ignoreDuplicates: true })
+  if (profileErr) {
+    console.error('[preferences/thresholds] profile upsert failed', profileErr.code)
+    return NextResponse.json({ error: 'db_error' }, { status: 500 })
+  }
+
   const { error } = await admin
     .from('weather_user_preferences')
     .upsert(
