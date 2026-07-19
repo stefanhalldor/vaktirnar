@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.mapbox.com)",
+      "WebFetch(domain:www.mapbox.com)",
+      "WebFetch(domain:docs.api.met.no)"
+    ]
+  }
+}

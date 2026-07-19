@@ -115,6 +115,16 @@ export async function checkFeatureAccess(
     if (!pulseAccessRequired) return true
     return checkPerUserAccess(email, 'weather-pulse')
   }
+  if (featureKey === 'weather-provider-vegagerdin') {
+    if (getWeatherEnabledMode() === 'off') return false
+    // Graduation pattern: per-user gate is active only when var is explicitly 'true'.
+    // Unset (delete from Vercel) = open to all weather users — the intended graduation path.
+    // WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED=true keeps per-user gate active.
+    const vegagerdinAccessRequired =
+      process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED === 'true'
+    if (!vegagerdinAccessRequired) return true
+    return checkPerUserAccess(email, 'weather-provider-vegagerdin')
+  }
   return false
 }
 

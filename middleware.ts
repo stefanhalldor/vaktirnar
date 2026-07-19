@@ -29,10 +29,16 @@ const PUBLIC_PATHS = [
   '/umonnun',
   '/api/teskeid/weather/travel',
   '/api/teskeid/weather/saved-places',
-  // Public Veðurpúls station preview — read-only, no thread creation, no auth required.
-  // Only the .../preview endpoint exists under this prefix. Any future endpoint added
-  // under /api/teskeid/weather/vedurpuls/stations/ must enforce its own auth checks.
-  '/api/teskeid/weather/vedurpuls/stations/',
+]
+
+// Dynamic preview routes — only the exact .../stations/{id}/preview suffix is public.
+// Using regex instead of startsWith to prevent accidentally opening sub-paths or sibling routes
+// added under the same prefix in the future.
+const PREVIEW_PATH_PATTERNS = [
+  // Public Veðurstofan station pulse preview — read-only, no thread creation, no auth required.
+  /^\/api\/teskeid\/weather\/vedurpuls\/stations\/[^/]+\/preview$/,
+  // Public Vegagerðin station pulse preview — same semantics.
+  /^\/api\/teskeid\/weather\/vedurpuls\/vegagerdin\/stations\/[^/]+\/preview$/,
 ]
 
 // Exact-match public paths — no prefix semantics.
@@ -40,6 +46,27 @@ const PUBLIC_PATHS = [
 const EXACT_PUBLIC_PATHS = new Set([
   // Cron — no browser session; route handler enforces CRON_SECRET bearer auth
   '/api/cron/warm-vedurstofan',
+  '/api/cron/warm-vegagerdin',
+  // Public Veðurstofan station overview — read-only cache; handler enforces own flag and access checks.
+  // Exact-match only: /stations/foo and /stations-extra must not become public.
+  '/api/teskeid/weather/vedurstofan/stations',
+  // Public Vegagerðin current-measurements overview — read-only cache; handler enforces own flag and access checks.
+  // Exact-match only: /current/foo must not become public.
+  '/api/teskeid/weather/vegagerdin/current',
+  // Public conditions feed preview — latest visible message per target, no auth, no write.
+  // Exact-match only: sub-paths under /feed-preview must not become public without explicit review.
+  '/api/teskeid/weather/vedurpuls/feed-preview',
+  // Public route-scoped conditions preview — batch station messages for a given route.
+  // Exact-match only. Route handler enforces WEATHER_ENABLED access and station validation.
+  '/api/teskeid/weather/vedurpuls/route-preview',
+  // Route-memory lookup — public read; provider station IDs are not individually sensitive.
+  // Route handler strips restricted provider IDs when WEATHER_PROVIDER_*_ACCESS_REQUIRED is set.
+  // Exact-match only: sub-paths under /route-memory must not become public without review.
+  '/api/teskeid/weather/route-memory/lookup',
+  // Route-memory place lists — public read; city labels are not sensitive.
+  // Exact-match only: sub-paths must not become public without review.
+  '/api/teskeid/weather/route-memory/places',
+  '/api/teskeid/weather/route-memory/destinations',
 ])
 
 export async function middleware(request: NextRequest) {
@@ -146,7 +173,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const isRoot = pathname === '/'
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p)) || EXACT_PUBLIC_PATHS.has(pathname)
+  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p)) || EXACT_PUBLIC_PATHS.has(pathname) || PREVIEW_PATH_PATTERNS.some(r => r.test(pathname))
   const isAuthCallback = pathname.startsWith('/auth/callback')
 
   // Landing page (/): public for guests, but authenticated users go to Teskeiðar.
@@ -159,37 +186,45 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse
   }
 
-  // Teskeið auth MVP hidden routes (only reachable when flag is on)
-  if (!user && pathname.startsWith('/stillingar')) {
+  // Helper: redirect to /innskraning preserving the original path+query as ?next=.
+  // resolveSafeLoginNext in the login page validates the value before use.
+  function redirectToInnskraningWithNext(): NextResponse {
     const url = request.nextUrl.clone()
+    const originalPathWithQuery = url.pathname + url.search
     url.pathname = '/innskraning'
+    url.search = ''
+    url.searchParams.set('next', originalPathWithQuery)
     return NextResponse.redirect(url)
   }
 
-  if (!user && pathname.startsWith('/auth-mvp/heim')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/innskraning'
-    return NextResponse.redirect(url)
+  // Teskeið auth MVP hidden routes (only reachable when flag is on)
+  if (!user && pathname.startsWith('/stillingar')) {
+    return redirectToInnskraningWithNext()
   }
-  if (!user && pathname.startsWith('/auth-mvp/minn-profill')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/innskraning'
-    return NextResponse.redirect(url)
+
+  if (!user && (
+    pathname.startsWith('/auth-mvp/heim') ||
+    pathname.startsWith('/auth-mvp/minn-profill') ||
+    pathname.startsWith('/auth-mvp/lanad-og-skilad')
+  )) {
+    return redirectToInnskraningWithNext()
   }
-  if (!user && pathname.startsWith('/auth-mvp/lanad-og-skilad')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/innskraning'
-    return NextResponse.redirect(url)
-  }
+
   if (!user && !isPublic && !isAuthCallback) {
     // API routes must return JSON — never redirect to a login page.
     // The route handlers enforce their own auth and feature access.
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (pathname.startsWith('/auth-mvp/')) {
+      // Preserve the original path+query as ?next= so the login page can redirect
+      // back after authentication.
+      return redirectToInnskraningWithNext()
+    }
+    // Teskeið legacy pages use /login (no next param threading needed).
     const url = request.nextUrl.clone()
-    // Teskeið auth-mvp pages use /innskraning; legacy pages use /login.
-    url.pathname = pathname.startsWith('/auth-mvp/') ? '/innskraning' : '/login'
+    url.pathname = '/login'
+    url.search = ''
     return NextResponse.redirect(url)
   }
 

@@ -570,7 +570,7 @@ describe('candidateToIssue', () => {
     const c = makeCandidate({ worstWind: { value: 12, lat: 64.5, lon: -21.0, forecastLat: 64.5, forecastLon: -21.0, distanceFromOriginM: 100_000, routeIndex: 1, timeIso: '2026-07-10T10:00:00Z' } })
     const issue = candidateToIssue(c)
     expect(issue?.metric).toBe('wind')
-    expect(issue?.thresholdValue).toBe(15) // default cautionWindMs for driving
+    expect(issue?.thresholdValue).toBe(10) // default cautionWindMs for driving
   })
 
   it('uses custom cautionWindMs from thresholdsUsed', () => {

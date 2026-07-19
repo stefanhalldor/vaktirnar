@@ -7,10 +7,10 @@ import { formatKlTime, formatNum, normalizeLocale, formatCompactDateTime } from 
 import { Check, TriangleAlert } from 'lucide-react'
 import {
   type WindDisplayStatus,
-  ALL_WIND_DISPLAY_STATUSES,
   classifyCandidateWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import { WIND_STATUS_UI_META as WIND_STATUS_META } from './windStatusUi'
+import { WindStatusFilterPills } from './WindStatusFilterPills'
 
 function utcDateKey(isoString: string): string {
   return new Date(isoString).toISOString().slice(0, 10)
@@ -112,14 +112,9 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       return acc
     }, [])
 
-  function toggleStatus(st: WindDisplayStatus) {
-    const next = new Set(visibleStatuses)
-    if (next.has(st)) {
-      next.delete(st)
-    } else {
-      next.add(st)
-    }
-    // Deselect if the selected slot's status is no longer visible
+  // Handle status filter change from WindStatusFilterPills.
+  // Receives the already-toggled Set; deselects the current slot if its status is filtered out.
+  function handleStatusesChange(next: Set<WindDisplayStatus>) {
     if (selectedIdx !== null && next.size > 0) {
       const selSt = getSlotStatus(candidates[selectedIdx], selectedIdx)
       if (!next.has(selSt)) onSelectIdx(null)
@@ -132,32 +127,14 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       {title !== null && <p className="text-xs font-medium text-foreground">{title ?? tf('heatmapTitle')}</p>}
       {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
 
-      {/* Status filter chips — always shown so user can see counts and filter */}
-      <div className="flex flex-wrap gap-1.5">
-          {ALL_WIND_DISPLAY_STATUSES.filter(st => st === 'innan-marka' || (statusCounts[st] ?? 0) > 0).map(st => {
-            const isActive = visibleStatuses.has(st)
-            const noFilter = visibleStatuses.size === 0
-            const meta = WIND_STATUS_META[st]
-            return (
-              <button
-                key={st}
-                type="button"
-                onClick={() => toggleStatus(st)}
-                className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                  isActive
-                    ? meta.chipActiveClass
-                    : noFilter
-                      ? 'border-border bg-transparent text-muted-foreground'
-                      : 'border-border bg-transparent text-muted-foreground/30'
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${meta.dotClass}`} aria-hidden />
-                <span aria-hidden>{meta.icon}</span>
-                {tf(meta.labelKey as 'statusWithinLimits')} ({statusCounts[st] ?? 0})
-              </button>
-            )
-          })}
-      </div>
+      {/* Status filter chips — 'innan-marka' always shown even at count 0 */}
+      <WindStatusFilterPills
+        counts={statusCounts}
+        visibleStatuses={visibleStatuses}
+        onVisibleStatusesChange={handleStatusesChange}
+        showAllLabel=""
+        alwaysShowWithinLimits
+      />
 
       {/* Scrollable slot row — grouped by day with sticky day labels */}
       {filteredWithIdx.length > 0 ? (() => {

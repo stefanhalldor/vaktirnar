@@ -45,14 +45,14 @@ describe('checkTravelWeather', () => {
       expect(result.source).toBe('deterministic')
     })
 
-    it('returns gult at caution wind (15 m/s)', () => {
-      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 15, 17, 0)] })
+    it('returns gult at caution wind (12 m/s, above default cautionWindMs=10)', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 12, 14, 0)] })
       expect(result.stada).toBe('gult')
       expect(result.reasonCode).toBe('caution_wind_driving')
     })
 
-    it('returns rautt at red wind (25 m/s)', () => {
-      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 25, 27, 0)] })
+    it('returns rautt at red wind (16 m/s, above default redWindMs=15)', () => {
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 16, 18, 0)] })
       expect(result.stada).toBe('rautt')
       expect(result.reasonCode).toBe('too_windy_driving')
     })
@@ -376,15 +376,15 @@ describe('checkTravelWeather', () => {
 
   describe('metric-aware candidate selection', () => {
     it('picks precipitation candidate and exposes metric when precipitation drives the result', () => {
-      // Two points: one with caution wind, one with heavy precipitation.
-      const windyDry = makeForecast('2026-07-10T08:00:00Z', 8, 15, 17, 0, { lat: 64.1, lon: -22.1, routeIndex: 0, distanceFromOriginM: 0 })
+      // Two points: one with caution wind, one with moderate precipitation.
+      const windyDry = makeForecast('2026-07-10T08:00:00Z', 8, 12, 14, 0, { lat: 64.1, lon: -22.1, routeIndex: 0, distanceFromOriginM: 0 })
       const calmerRainy = makeForecast('2026-07-10T08:00:00Z', 8, 5, 7, 2.5, { lat: 65.0, lon: -19.0, routeIndex: 1, distanceFromOriginM: 200_000 })
 
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [windyDry, calmerRainy] })
       expect(result.stada).toBe('gult')
       const issue = result.travelPlan?.highlightedIssue
       expect(issue).toBeDefined()
-      // candidateSeverity for wind=15 (caution_wind) ≈ 15; for precip=2.5 ≈ 2.5.
+      // candidateSeverity for wind=12 (caution_wind, above default cautionWindMs=10) ≈ 12; for precip=2.5 ≈ 2.5.
       // Wind severity > precip severity → wind candidate is highlighted, not precip.
       // The key assertion is that the issue is defined and has a metric.
       expect(issue?.metric).toMatch(/wind|gust|precipitation/)
@@ -511,14 +511,14 @@ describe('checkTravelWeather', () => {
   })
 
   describe('trailer-aware gust threshold decisiveness', () => {
-    it('no trailer: wind=26 gust=30 → metric=wind, threshold=25 (not gust)', () => {
-      // gust=30 < driving redGustMs=35, so gust is NOT decisive; wind=26 > redWindMs=25 is decisive
+    it('no trailer: wind=26 gust=30 → metric=wind, threshold=15 (not gust)', () => {
+      // gust=30 < driving redGustMs=35, so gust is NOT decisive; wind=26 > redWindMs=15 is decisive
       const forecast = makeForecast('2026-07-10T08:00:00Z', 10, 26, 30, 0)
       const result = checkTravelWeather({ ...BASE_INPUT, trailerKind: 'none', pointForecasts: [forecast] })
       expect(result.stada).toBe('rautt')
       const issue = result.travelPlan?.highlightedIssue
       expect(issue?.metric).toBe('wind')
-      expect(issue?.thresholdValue).toBe(25)
+      expect(issue?.thresholdValue).toBe(15)
     })
 
     it('no trailer: gust=35 → metric=gust, threshold=35', () => {
@@ -578,14 +578,14 @@ describe('checkTravelWeather', () => {
     })
 
     it('finds future wind caution after green current departure', () => {
-      // Hours 0-8: calm (wind 5 m/s), hours 9+: windy (wind 16 m/s, over caution 14)
+      // Hours 0-8: calm (wind 5 m/s), hours 9+: windy (wind 12 m/s, over cautionWindMs=10)
       // durationS = 18000 (5h). Departure 08:00, nextCaution scan starts 09:00.
-      // At scan dep=09:00, arrival=14:00 → hours 9-14 are accessed → wind 16 → gult.
+      // At scan dep=09:00, arrival=14:00 → hours 9-14 are accessed → wind 12 → gult.
       const calmHours = Array.from({ length: 9 }, (_, i) =>
         makeHour(new Date(new Date('2026-07-10T08:00:00Z').getTime() + i * 3600_000).toISOString(), 5, 7, 0)
       )
       const windyHours = Array.from({ length: 30 }, (_, i) =>
-        makeHour(new Date(new Date('2026-07-10T17:00:00Z').getTime() + i * 3600_000).toISOString(), 16, 20, 0)
+        makeHour(new Date(new Date('2026-07-10T17:00:00Z').getTime() + i * 3600_000).toISOString(), 12, 14, 0)
       )
       const forecast: TravelPointForecast = {
         hours: [...calmHours, ...windyHours],
@@ -707,8 +707,8 @@ describe('checkTravelWeather', () => {
     })
 
     it('generates timelineCandidates even when current departure is not green', () => {
-      // Windy throughout → current dep is gult, but timeline should still exist
-      const forecast = makeForecast('2026-07-10T08:00:00Z', 24, 16, 20, 0)
+      // Windy throughout (12 m/s, above cautionWindMs=10) → current dep is gult, timeline still exists
+      const forecast = makeForecast('2026-07-10T08:00:00Z', 24, 12, 14, 0)
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [forecast] })
       expect(result.stada).toBe('gult')
       const timeline = result.travelPlan?.outbound.timelineCandidates
@@ -741,7 +741,7 @@ describe('checkTravelWeather', () => {
     })
 
     it('nextCaution is undefined when outbound is not green (no future scan for warning)', () => {
-      const forecast = makeForecast('2026-07-10T08:00:00Z', 24, 16, 20, 0)
+      const forecast = makeForecast('2026-07-10T08:00:00Z', 24, 12, 14, 0)
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [forecast] })
       expect(result.stada).toBe('gult')
       expect(result.travelPlan?.outbound.nextCaution).toBeUndefined()
@@ -885,8 +885,8 @@ describe('checkTravelWeather', () => {
   describe('threshold overrides', () => {
     it('resolveThresholds returns driving defaults when no overrides', () => {
       const r = resolveThresholds('none')
-      expect(r.cautionWindMs).toBe(15)
-      expect(r.redWindMs).toBe(25)
+      expect(r.cautionWindMs).toBe(10)
+      expect(r.redWindMs).toBe(15)
       expect(r.redGustMs).toBe(35)
       expect(r.cautionPrecipMmPerHour).toBe(5.0)
     })
@@ -899,13 +899,14 @@ describe('checkTravelWeather', () => {
     })
 
     it('resolveThresholds merges partial overrides correctly', () => {
-      const r = resolveThresholds('none', { cautionWindMs: 10 })
-      expect(r.cautionWindMs).toBe(10)
-      expect(r.redWindMs).toBe(25) // default unchanged
+      const r = resolveThresholds('none', { cautionWindMs: 8 })
+      expect(r.cautionWindMs).toBe(8)
+      expect(r.redWindMs).toBe(15) // default unchanged
       expect(r.redGustMs).toBe(35) // default unchanged
     })
 
-    it('override cautionWindMs: 10 triggers gult at wind=12 (default 15 would be green)', () => {
+    it('explicit cautionWindMs override 10 triggers gult at wind=12 (same as default)', () => {
+      // With default cautionWindMs=10, wind=12 > 10 → gult with or without override
       const result = checkTravelWeather({
         ...BASE_INPUT,
         pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 12, 14, 0)],
@@ -915,11 +916,13 @@ describe('checkTravelWeather', () => {
       expect(result.reasonCode).toBe('caution_wind_driving')
     })
 
-    it('raising cautionWindMs keeps wind=16 green (default 15 would be gult)', () => {
+    it('raising cautionWindMs and redWindMs above wind keeps wind=16 green', () => {
+      // Without overrides, wind=16 > default cautionWindMs=10 → gult (and > redWindMs=15 → rautt).
+      // With overrides { cautionWindMs: 18, redWindMs: 25 }, wind=16 < 18 → graent.
       const result = checkTravelWeather({
         ...BASE_INPUT,
         pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 16, 18, 0)],
-        thresholdOverrides: { cautionWindMs: 18 },
+        thresholdOverrides: { cautionWindMs: 18, redWindMs: 25 },
       })
       expect(result.stada).toBe('graent')
     })
@@ -932,7 +935,7 @@ describe('checkTravelWeather', () => {
       })
       expect(result.travelPlan?.thresholdsUsed?.cautionWindMs).toBe(10)
       expect(result.travelPlan?.thresholdsUsed?.redGustMs).toBe(30)
-      expect(result.travelPlan?.thresholdsUsed?.redWindMs).toBe(25) // default
+      expect(result.travelPlan?.thresholdsUsed?.redWindMs).toBe(15) // default
     })
 
     it('TravelIssue thresholdValue matches the override value', () => {
@@ -953,7 +956,7 @@ describe('checkTravelWeather', () => {
         pointForecasts: [makeForecast('2026-07-10T08:00:00Z', 10, 5, 7, 0)],
       })
       expect(result.travelPlan?.thresholdsUsed).toBeDefined()
-      expect(result.travelPlan?.thresholdsUsed?.cautionWindMs).toBe(15)
+      expect(result.travelPlan?.thresholdsUsed?.cautionWindMs).toBe(10)
     })
 
     it('validateResolvedThresholdOrdering returns null when caution < red', () => {

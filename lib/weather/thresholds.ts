@@ -2,8 +2,8 @@ import type { TravelThresholdOverrides, ResolvedTravelThresholds } from './types
 
 export const WEATHER_THRESHOLDS = {
   driving: {
-    cautionWindMs: 15,
-    redWindMs: 25,
+    cautionWindMs: 10,
+    redWindMs: 15,
     redGustMs: 35,
   },
   heavyTrailer: {

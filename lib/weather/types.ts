@@ -344,3 +344,44 @@ export type ResolvedTravelThresholds = {
   redGustMs: number
   cautionPrecipMmPerHour: number
 }
+
+// ── Provider map layer contract ────────────────────────────────────────────────
+// Display-oriented tone: Veðurstofan maps ok/stale/unavailable → ok/warning/unavailable.
+// Future providers map their domain state to the same display tones before passing markers.
+
+export type ProviderMapMarkerTone =
+  | 'ok'
+  | 'warning'
+  | 'danger'
+  | 'muted'
+  | 'unavailable'
+
+export interface ProviderMapMarker {
+  id: string
+  lat: number
+  lon: number
+  label: string
+  tone: ProviderMapMarkerTone
+  /**
+   * Hex fill color override (e.g. '#f97316'). When set, takes precedence over the
+   * tone-derived fill color. The tone field continues to control z-index ordering.
+   * Use this with WIND_STATUS_MARKER_COLOR to apply threshold-driven status colors
+   * that go beyond the coarse 5-value ProviderMapMarkerTone palette.
+   */
+  markerColor?: string
+  /** Human-readable status label for screen readers or tooltips. Optional. */
+  statusLabel?: string
+  /** When false the marker is hidden (e.g. filtered out). Defaults to visible. */
+  visible?: boolean
+}
+
+export interface ProviderMapLayer {
+  layerId: string
+  providerLabel: string
+  markers: ProviderMapMarker[]
+}
+
+export interface SelectedProviderMarker {
+  layerId: string
+  markerId: string
+}

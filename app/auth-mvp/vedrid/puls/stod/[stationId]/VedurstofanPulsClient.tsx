@@ -1,16 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { useTranslations, useLocale } from 'next-intl'
 import { ChevronLeft } from 'lucide-react'
-import { ScopedChatPanel } from '@/components/chat/ScopedChatPanel'
-import { VEDURPULS_TRANSPORT } from '@/app/auth-mvp/vedrid/vedurpulsTransport'
+import { ChatPreviewList } from '@/components/chat/ChatPreviewList'
+import { useChatPreview } from '@/components/chat/useChatPreview'
 import { resolvePulseBackDestination } from '@/lib/weather/pulseBack'
 import { ForecastRowLine, selectUpcomingRows, type ForecastRowData } from '@/components/weather/VedurstofanForecastRows'
 import { formatKlTime } from '@/components/weather/travelAuditMap.helpers'
 import { formatChatDayLabel, calendarDateKey } from '@/lib/chat/format'
-import type { ThreadDto } from '@/lib/chat/types'
 
 interface VedurstofanPulsClientProps {
   stationId: string
@@ -20,50 +19,24 @@ interface VedurstofanPulsClientProps {
   atimeIso: string | null
 }
 
+/**
+ * Read-only Veðurstofan station pulse page.
+ * Road-condition reports have moved to Vegagerðin station pages.
+ * This page shows the Vedurstofan forecast context and any legacy pulse messages
+ * that existed before the migration.
+ */
 export function VedurstofanPulsClient({ stationId, stationName, returnTo, forecastRows, atimeIso }: VedurstofanPulsClientProps) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
   const locale = useLocale()
   const backDest = resolvePulseBackDestination(returnTo)
-  const [threadId, setThreadId] = useState<string | null>(null)
-  const [accessDenied, setAccessDenied] = useState(false)
-  const [threadError, setThreadError] = useState(false)
   const [showAllForecast, setShowAllForecast] = useState(false)
+  const { messages, loaded: previewLoaded } = useChatPreview({
+    url: `/api/teskeid/weather/vedurpuls/stations/${stationId}/preview`,
+  })
 
-  useEffect(() => {
-    async function initThread() {
-      try {
-        const res = await fetch('/api/auth-mvp/vedurpuls/thread', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetId: stationId }),
-        })
-        if (res.status === 401 || res.status === 403 || res.status === 503) {
-          setAccessDenied(true)
-          return
-        }
-        if (!res.ok) { setThreadError(true); return }
-        const thread: ThreadDto = await res.json()
-        setThreadId(thread.id)
-      } catch {
-        setThreadError(true)
-      }
-    }
-    initThread()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const panelLabels = {
-    empty: t('pulseEmpty'),
-    loading: t('pulseLoading'),
-    inputPlaceholder: t('pulseInputPlaceholderCompact'),
-    send: t('pulseSend'),
-    sendError: t('pulseSendError'),
-    deleted: t('pulseDeleted'),
-    loadOlder: t('pulseLoadOlder'),
-    kindLabels: {
-      field_report: t('pulseKindField'),
-      measurement_report: t('pulseKindMeasurement'),
-    },
+  const kindLabels = {
+    field_report: t('pulseKindField'),
+    measurement_report: t('pulseKindMeasurement'),
   }
 
   const displayRows = showAllForecast
@@ -79,11 +52,15 @@ export function VedurstofanPulsClient({ stationId, stationName, returnTo, foreca
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start"
           >
             <ChevronLeft className="w-3 h-3" />
-            {backDest.kind === 'trip' ? t('backToTrip') : t('backToStationExplorer')}
+            {backDest.kind === 'trip'
+              ? t('backToTrip')
+              : backDest.kind === 'overview'
+                ? t('backToOverview')
+                : t('backToStationExplorer')}
           </Link>
         )}
         <h1 className="text-lg font-semibold">{stationName}</h1>
-        <p className="text-xs text-muted-foreground">{t('pulseOpen')}</p>
+        <p className="text-xs text-muted-foreground">{t('pulseLegacyNote')}</p>
       </div>
 
       {/* Forecast context */}
@@ -130,25 +107,15 @@ export function VedurstofanPulsClient({ stationId, stationName, returnTo, foreca
         </div>
       )}
 
-      {accessDenied && (
-        <p className="text-sm text-muted-foreground">{t('pulseAccessDenied')}</p>
-      )}
-      {threadError && (
-        <p className="text-sm text-destructive">{t('loadError')}</p>
-      )}
-      {!threadId && !accessDenied && !threadError && (
-        <p className="text-xs text-muted-foreground">{t('pulseLoading')}</p>
-      )}
-      {threadId && (
-        <ScopedChatPanel
-          threadId={threadId}
-          transport={VEDURPULS_TRANSPORT}
-          labels={panelLabels}
-          pageSize={50}
-          locale={locale}
-          listClassName="flex flex-col gap-2 max-h-[calc(100vh-16rem)] overflow-y-auto pr-0.5"
-        />
-      )}
+      {/* Legacy read-only message preview */}
+      <ChatPreviewList
+        messages={messages}
+        emptyLabel={t('pulseEmptyPublic')}
+        deletedLabel={t('pulseDeleted')}
+        kindLabels={kindLabels}
+        loaded={previewLoaded}
+        locale={locale}
+      />
     </div>
   )
 }

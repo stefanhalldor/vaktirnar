@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import { useTranslations, useLocale } from 'next-intl'
-import { ChatPreviewList } from '@/components/chat/ChatPreviewList'
+import { useTranslations } from 'next-intl'
+import { ConditionsFeedPreview } from '@/components/weather/ConditionsFeedPreview'
+import { useFeedLoader } from '@/lib/weather/useFeedLoader'
+import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
+import type { ConditionFeedPreviewItemDto } from '@/lib/chat/types'
 import type { AugmentedChatMessage } from '@/components/chat/ChatMessageRow'
 
 interface RoutePulseStation {
@@ -29,18 +31,13 @@ interface VedurstofanRoutePulseSummaryProps {
 const MAX_STATION_IDS = 40
 
 /**
- * Route-scoped Safnpúls: collapsed disclosure showing the latest pulse messages for each
- * Veðurstofan station on the active route, in route order. Hidden when no messages exist.
- *
- * Not the same as the global Safnpúls in /elta-vedrid — this is scoped to the
- * stations that actually appear on the selected route.
+ * Route-scoped conditions feed: collapsed disclosure showing the latest conditions report
+ * for each Veðurstofan station on the active route, sorted newest-first. Hidden when no
+ * messages exist.
  */
 export function VedurstofanRoutePulseSummary({ stations, returnTo }: VedurstofanRoutePulseSummaryProps) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
-  const locale = useLocale()
   const [open, setOpen] = useState(false)
-  const [stationMessages, setStationMessages] = useState<StationMessages[]>([])
-  const [loaded, setLoaded] = useState(false)
 
   // Sort stations in route order and deduplicate
   const orderedStations = useMemo(() => {
@@ -59,43 +56,54 @@ export function VedurstofanRoutePulseSummary({ stations, returnTo }: Vedurstofan
 
   const stationIdsKey = orderedStations.map(s => s.stationId).join(',')
 
-  useEffect(() => {
-    if (orderedStations.length === 0) { setLoaded(true); return }
-    let cancelled = false
-    async function load() {
-      try {
-        const stationIds = orderedStations.slice(0, MAX_STATION_IDS).map(s => s.stationId)
-        const res = await fetch('/api/teskeid/weather/vedurpuls/route-preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stationIds, limitPerStation: 3 }),
-        })
-        if (res.ok && !cancelled) {
-          const data = await res.json() as { stations: StationMessages[] }
-          setStationMessages(data.stations)
-        }
-      } catch { /* silent */ } finally {
-        if (!cancelled) setLoaded(true)
-      }
-    }
-    load()
-    const id = setInterval(load, 30_000)
-    function handleRefresh() { void load() }
-    window.addEventListener('teskeid:pulse:refresh', handleRefresh)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-      window.removeEventListener('teskeid:pulse:refresh', handleRefresh)
-    }
+  // Fetcher: POST to route-preview, map response to ConditionFeedPreviewItemDto[].
+  // Keyed by stationIdsKey so useFeedLoader resets and re-fetches when stations change.
+  const fetcher = useCallback(async (): Promise<ConditionFeedPreviewItemDto[]> => {
+    if (orderedStations.length === 0) return []
+    const stationIds = orderedStations.slice(0, MAX_STATION_IDS).map(s => s.stationId)
+    const res = await fetch('/api/teskeid/weather/vedurpuls/route-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stationIds, limitPerStation: 1 }),
+    })
+    if (!res.ok) return []
+    const data = await res.json() as { stations: StationMessages[] }
+    // Map to ConditionFeedPreviewItemDto — each station contributes only its newest message.
+    return orderedStations
+      .flatMap(station => {
+        const stationData = data.stations.find(s => s.stationId === station.stationId)
+        if (!stationData || stationData.messages.length === 0) return []
+        // getPreviewMessagesForStations returns messages oldest-first; last = newest.
+        const latestMsg = stationData.messages[stationData.messages.length - 1]
+        return [{
+          targetId: station.stationId,
+          targetName: station.stationName,
+          targetType: 'vedurstofan_station' as const,
+          provider: null,
+          latestMessage: latestMsg,
+          latestAt: latestMsg.createdAt,
+        }]
+      })
+      .sort((a, b) => b.latestAt.localeCompare(a.latestAt))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stationIdsKey])
 
-  if (!loaded) return null
+  const { items: feedItems, loading: feedLoading, refresh } = useFeedLoader<ConditionFeedPreviewItemDto>({
+    fetcher,
+    cacheKey: stationIdsKey,
+    isOpen: open,
+    disabled: orderedStations.length === 0,
+  })
 
-  const kindLabels = {
-    field_report: t('pulseKindField'),
-    measurement_report: t('pulseKindMeasurement'),
-  }
+  // External refresh trigger — e.g. from the pulse station page after a new report.
+  useEffect(() => {
+    function handleRefresh() { refresh() }
+    window.addEventListener('teskeid:pulse:refresh', handleRefresh)
+    return () => window.removeEventListener('teskeid:pulse:refresh', handleRefresh)
+  }, [refresh])
+
+  if (feedLoading) return null
+  if (feedItems.length === 0) return null
 
   return (
     <div className="py-3">
@@ -120,35 +128,20 @@ export function VedurstofanRoutePulseSummary({ stations, returnTo }: Vedurstofan
       </button>
 
       {open && (
-        <div className="mt-3 flex flex-col divide-y divide-border/60">
-          {orderedStations.map(station => {
-            const data = stationMessages.find(s => s.stationId === station.stationId)
-            if (!data || data.messages.length === 0) return null
-            const fullHref = returnTo
-              ? `/auth-mvp/vedrid/puls/stod/${station.stationId}?returnTo=${encodeURIComponent(returnTo)}`
-              : `/auth-mvp/vedrid/puls/stod/${station.stationId}`
-            return (
-              <div key={station.stationId} className="py-3 first:pt-0">
-                <p className="mb-1.5 text-sm font-medium text-foreground">{station.stationName}</p>
-                <div className="border-l border-border/60 pl-3">
-                  <ChatPreviewList
-                    messages={data.messages}
-                    emptyLabel=""
-                    deletedLabel={t('pulseDeleted')}
-                    kindLabels={kindLabels}
-                    loaded={true}
-                    locale={locale}
-                  />
-                  <Link
-                    href={fullHref}
-                    className="mt-1.5 block text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
-                  >
-                    {t('pulseViewMore')}
-                  </Link>
-                </div>
-              </div>
-            )
-          })}
+        <div className="mt-3">
+          <ConditionsFeedPreview
+            title=""
+            items={feedItems}
+            emptyBehavior="hide"
+            targetHref={target =>
+              target.provider === 'vegagerdin'
+                ? vegagerdinPulseHref(target.targetId, returnTo)
+                : vedurstofanPulseHref(target.targetId, returnTo)
+            }
+            viewMoreLabel={t('pulseViewMore')}
+            deletedLabel={t('pulseDeleted')}
+            kindLabels={{ field_report: t('pulseKindField'), measurement_report: t('pulseKindMeasurement') }}
+          />
         </div>
       )}
     </div>

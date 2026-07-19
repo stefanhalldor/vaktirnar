@@ -78,22 +78,15 @@ function makePayload(stationId: string) {
 
 // ── Environment helpers ────────────────────────────────────────────────────────
 
-function withEnv(vars: Record<string, string>, fn: () => void) {
-  const original: Record<string, string | undefined> = {}
-  for (const k of Object.keys(vars)) original[k] = process.env[k]
-  Object.assign(process.env, vars)
-  fn()
-  for (const [k, v] of Object.entries(original)) {
-    if (v === undefined) delete process.env[k]
-    else process.env[k] = v
-  }
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
   process.env.WEATHER_ENABLED = 'true'
   process.env.WEATHER_ELTA_VEDRID_FLAG = 'true'
+  // Ensure provider access is open by default; individual tests opt in to restricted mode
+  delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+  // Default data mock so tests that reach the data read path don't crash
+  mockFetchVedurstofan.mockResolvedValue(new Map())
 })
 
 // ── Feature flag tests ─────────────────────────────────────────────────────────
@@ -130,9 +123,42 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - feature flags', () => 
   })
 })
 
-// ── Auth tests ─────────────────────────────────────────────────────────────────
+// ── Access contract: open/global mode (no WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED) ──
 
-describe('GET /api/teskeid/weather/vedurstofan/stations - auth', () => {
+describe('GET /api/teskeid/weather/vedurstofan/stations - open/global provider mode', () => {
+  it('returns 200 for unsigned-out user when provider access is not required', async () => {
+    // WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED is absent (deleted in beforeEach)
+    const res = await GET()
+    expect(res.status).toBe(200)
+  })
+
+  it('does not call createClient or checkFeatureAccess in open mode', async () => {
+    const res = await GET()
+    expect(res.status).toBe(200)
+    expect(mockGetUser).not.toHaveBeenCalled()
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
+  })
+
+  it('returns station data from product cache in open mode', async () => {
+    const results = new Map([
+      ['31392', { status: 'ok' as const, payload: makePayload('31392') }],
+    ])
+    mockFetchVedurstofan.mockResolvedValue(results)
+
+    const res = await GET()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.summary.ok).toBe(1)
+  })
+})
+
+// ── Access contract: restricted mode (WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED=true) ──
+
+describe('GET /api/teskeid/weather/vedurstofan/stations - restricted provider mode', () => {
+  beforeEach(() => {
+    process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED = 'true'
+  })
+
   it('returns 401 when no user is authenticated', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } })
     const res = await GET()
@@ -164,13 +190,22 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - auth', () => {
     const res = await GET()
     expect(res.status).toBe(404)
   })
+
+  it('returns 200 for allowed user with both feature rows', async () => {
+    authedUser()
+    const results = new Map([
+      ['31392', { status: 'ok' as const, payload: makePayload('31392') }],
+    ])
+    mockFetchVedurstofan.mockResolvedValue(results)
+    const res = await GET()
+    expect(res.status).toBe(200)
+  })
 })
 
 // ── Payload tests ──────────────────────────────────────────────────────────────
 
 describe('GET /api/teskeid/weather/vedurstofan/stations - payload', () => {
   it('returns all curated stations with ok status when data is fresh', async () => {
-    authedUser()
     const results = new Map([
       ['31392', { status: 'ok' as const, payload: makePayload('31392') }],
       ['6300', { status: 'ok' as const, payload: makePayload('6300') }],
@@ -192,7 +227,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - payload', () => {
   })
 
   it('correctly maps ok, stale, and unavailable stations', async () => {
-    authedUser()
     const results = new Map([
       ['31392', { status: 'ok' as const, payload: makePayload('31392') }],
       ['6300', { status: 'stale' as const, payload: makePayload('6300') }],
@@ -210,7 +244,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - payload', () => {
   })
 
   it('marks stations as unavailable when missing from results map', async () => {
-    authedUser()
     // Only Hellisheiði in results, Selfoss missing
     const results = new Map([
       ['31392', { status: 'ok' as const, payload: makePayload('31392') }],
@@ -227,9 +260,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - payload', () => {
   })
 
   it('includes station metadata even for unavailable stations', async () => {
-    authedUser()
-    mockFetchVedurstofan.mockResolvedValue(new Map())
-
     const res = await GET()
     const body = await res.json()
 
@@ -242,9 +272,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - payload', () => {
   })
 
   it('includes attribution and generatedAtIso in response', async () => {
-    authedUser()
-    mockFetchVedurstofan.mockResolvedValue(new Map())
-
     const res = await GET()
     const body = await res.json()
 
@@ -255,9 +282,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - payload', () => {
   })
 
   it('does not expose user id, email, or Supabase internals', async () => {
-    authedUser()
-    mockFetchVedurstofan.mockResolvedValue(new Map())
-
     const res = await GET()
     const body = await res.json()
     const bodyStr = JSON.stringify(body)
@@ -272,7 +296,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - payload', () => {
 
 describe('GET /api/teskeid/weather/vedurstofan/stations - fail-open', () => {
   it('returns all stations as unavailable when cache read throws', async () => {
-    authedUser()
     mockFetchVedurstofan.mockRejectedValue(new Error('network error'))
 
     const res = await GET()
@@ -286,7 +309,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - fail-open', () => {
   })
 
   it('still returns station metadata when cache read throws', async () => {
-    authedUser()
     mockFetchVedurstofan.mockRejectedValue(new Error('timeout'))
 
     const res = await GET()
@@ -295,15 +317,23 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - fail-open', () => {
     expect(body.stations[0].stationName).toBe('Hellisheiði')
     expect(body.stations[1].stationName).toBe('Selfoss')
   })
+
+  it('returns all stations as unavailable when cache read returns null', async () => {
+    // Defensive: reader returns null instead of throwing
+    mockFetchVedurstofan.mockResolvedValue(null)
+
+    const res = await GET()
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.summary.unavailable).toBe(2)
+  })
 })
 
 // ── Cache-only behavior ────────────────────────────────────────────────────────
 
 describe('GET /api/teskeid/weather/vedurstofan/stations - product-table read (no live fetch)', () => {
   it('uses readVedurstofanProductForStations, not the live fetch function', async () => {
-    authedUser()
-    mockFetchVedurstofan.mockResolvedValue(new Map())
-
     await GET()
 
     // The mock is wired to readVedurstofanProductForStations — if the route
@@ -312,9 +342,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - product-table read (no
   })
 
   it('returns all station records even when cache is fully empty', async () => {
-    authedUser()
-    mockFetchVedurstofan.mockResolvedValue(new Map())
-
     const res = await GET()
     const body = await res.json()
 
@@ -328,9 +355,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - product-table read (no
 
 describe('GET /api/teskeid/weather/vedurstofan/stations - registry metadata', () => {
   it('Hellisheiði response includes wmoNumber, abbreviation, elevation, startYear, sourceUrl', async () => {
-    authedUser()
-    mockFetchVedurstofan.mockResolvedValue(new Map())
-
     const res = await GET()
     const body = await res.json()
 
@@ -347,9 +371,6 @@ describe('GET /api/teskeid/weather/vedurstofan/stations - registry metadata', ()
   })
 
   it('stationName is mapped from registry name field', async () => {
-    authedUser()
-    mockFetchVedurstofan.mockResolvedValue(new Map())
-
     const res = await GET()
     const body = await res.json()
 

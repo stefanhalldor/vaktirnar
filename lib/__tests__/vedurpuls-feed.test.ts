@@ -121,10 +121,10 @@ describe('GET /api/auth-mvp/vedurpuls/feed', () => {
 
   // ── Scope ──────────────────────────────────────────────────────────────────
 
-  it('passes weather + vedurstofan_station scope to repository', async () => {
+  it('passes weather + vegagerdin_station scope to repository', async () => {
     await feedGet(makeGetRequest())
     expect(mockGetFeedMessages).toHaveBeenCalledWith(
-      { domain: 'weather', targetTypes: ['vedurstofan_station'] },
+      { domain: 'weather', targetTypes: ['vegagerdin_station'] },
       expect.any(Object)
     )
   })

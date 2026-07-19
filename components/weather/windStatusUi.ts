@@ -24,4 +24,5 @@ export const WIND_STATUS_UI_META: Record<WindDisplayStatus, WindStatusUiMeta> = 
   'nalgast-haettumork': { labelKey: 'statusNearDanger',     icon: '😰', dotClass: 'bg-destructive',         borderClass: 'border-destructive',         labelClass: 'text-destructive',      chipActiveClass: 'border-destructive bg-destructive/10 text-destructive'     },
   'haettulegt':         { labelKey: 'statusDangerous',      icon: '⚠️',  dotClass: 'bg-destructive',         borderClass: 'border-destructive',         labelClass: 'text-destructive',      chipActiveClass: 'border-destructive bg-destructive/10 text-destructive'     },
   'no_data':            { labelKey: 'heatmapNotAssessed',   icon: '–',  dotClass: 'bg-muted-foreground/30', borderClass: 'border-muted-foreground/30', labelClass: 'text-muted-foreground', chipActiveClass: 'border-muted-foreground/30 bg-muted text-muted-foreground' },
+  'no_wind_data':       { labelKey: 'noWindData',           icon: '–',  dotClass: 'bg-muted-foreground/30', borderClass: 'border-muted-foreground/30', labelClass: 'text-muted-foreground', chipActiveClass: 'border-muted-foreground/30 bg-muted text-muted-foreground' },
 }

@@ -1114,3 +1114,92 @@ describe('checkFeatureAccess — weather-pulse (graduation pattern)', () => {
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 })
+
+// ── checkFeatureAccess — weather-provider-vegagerdin ────────────────────────
+
+describe('checkFeatureAccess — weather-provider-vegagerdin (kill-switch and graduation pattern)', () => {
+  let savedEnabled: string | undefined
+  let savedAccessRequired: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedAccessRequired = process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', savedAccessRequired)
+  })
+
+  it('returns false when WEATHER_ENABLED is not set', async () => {
+    delete process.env.WEATHER_ENABLED
+    delete process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vegagerdin')).toBe(false)
+  })
+
+  it('returns false when WEATHER_ENABLED=false', async () => {
+    process.env.WEATHER_ENABLED = 'false'
+    delete process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vegagerdin')).toBe(false)
+  })
+
+  it('returns true when WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED is absent (graduation — open to all weather users)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    delete process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vegagerdin')).toBe(true)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns true when WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED=false (non-true = graduation open)', async () => {
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED = 'false'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vegagerdin')).toBe(true)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns true when WEATHER_ENABLED=All and access var absent (graduation open)', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    delete process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vegagerdin')).toBe(true)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+})
+
+describe('checkFeatureAccess — weather-provider-vegagerdin (per-user gate, WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED=true)', () => {
+  let savedEnabled: string | undefined
+  let savedAccessRequired: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.WEATHER_ENABLED
+    savedAccessRequired = process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED
+    process.env.WEATHER_ENABLED = 'true'
+    process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED = 'true'
+  })
+
+  afterEach(() => {
+    setEnv('WEATHER_ENABLED', savedEnabled)
+    setEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', savedAccessRequired)
+  })
+
+  it('returns true when row exists in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vegagerdin')).toBe(true)
+  })
+
+  it('returns false when no row in feature_access', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vegagerdin')).toBe(false)
+  })
+
+  it('returns false when DB query returns an error (fail-closed)', async () => {
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'connection refused' } })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'weather-provider-vegagerdin')).toBe(false)
+  })
+
+  it('returns false for invalid email', async () => {
+    expect(await checkFeatureAccess('uid', 'not-an-email', 'weather-provider-vegagerdin')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+})

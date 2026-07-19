@@ -6,12 +6,12 @@ import type { RouteWeatherPoint, TravelIssue, CandidatePointStatus, TravelCandid
 import { resolveThresholds } from '@/lib/weather/thresholds'
 import {
   type WindDisplayStatus,
-  ALL_WIND_DISPLAY_STATUSES,
   WIND_STATUS_MARKER_COLOR,
   classifyPointWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import { WIND_STATUS_UI_META as WIND_STATUS_META } from './windStatusUi'
 import { WindStatusBadge } from './WindStatusBadge'
+import { WindStatusFilterPills } from './WindStatusFilterPills'
 import { loadMapsLibrary, loadMarkerLibrary, loadCoreLibrary } from '@/lib/weather/googleMaps.client'
 import { type WeatherProviderKey } from '@/lib/weather/providerComparator'
 import { resolvePlaceLabel } from '@/lib/weather/reverseGeocode.client'
@@ -541,15 +541,10 @@ export function TravelAuditMap({
 
   if (weatherPoints.length === 0 && (providerOverlayPoints?.length ?? 0) === 0) return null
 
-  // Map visibility pill toggle — selected pills = "show this status"
-  function toggleMapStatus(st: WindDisplayStatus) {
+  // Handle status filter change from WindStatusFilterPills.
+  // Receives the already-toggled Set; applies selection side effects before propagating.
+  function handleVisibleStatusesChange(next: Set<WindDisplayStatus>) {
     if (!onVisibleStatusesChange) return
-    const next = new Set(visibleStatuses ?? [])
-    if (next.has(st)) {
-      next.delete(st)
-    } else {
-      next.add(st)
-    }
     // If the selected overlay point is no longer visible, clear/replace it
     if (selectedOverlayPoint && !overlayIsVisible(selectedOverlayPoint, next)) {
       userSelectedRef.current = false
@@ -589,7 +584,6 @@ export function TravelAuditMap({
     }
     onVisibleStatusesChange(next)
   }
-  const mapHasActiveFilter = !!(onVisibleStatusesChange && (visibleStatuses?.size ?? 0) > 0)
 
   return (
     <section className="flex flex-col gap-2">
@@ -605,40 +599,13 @@ export function TravelAuditMap({
 
       {/* Map point visibility pills — shown when any provider has points */}
       {onVisibleStatusesChange && mapLoaded && (weatherPoints.length > 0 || (providerOverlayPoints?.length ?? 0) > 0) && (
-        <div className="flex flex-wrap gap-1.5">
-          {ALL_WIND_DISPLAY_STATUSES.filter(st => (mapStatusCounts[st] ?? 0) > 0).map(st => {
-            const isActive = visibleStatuses?.has(st) ?? false
-            const noFilter = (visibleStatuses?.size ?? 0) === 0
-            const meta = WIND_STATUS_META[st]
-            return (
-              <button
-                key={st}
-                type="button"
-                onClick={() => toggleMapStatus(st)}
-                className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                  isActive
-                    ? meta.chipActiveClass
-                    : noFilter
-                      ? 'border-border bg-transparent text-muted-foreground'
-                      : 'border-border bg-transparent text-muted-foreground/30'
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${meta.dotClass}`} aria-hidden />
-                <span aria-hidden>{meta.icon}</span>
-                {tf(meta.labelKey as 'statusWithinLimits')} ({mapStatusCounts[st] ?? 0})
-              </button>
-            )
-          })}
-          {mapHasActiveFilter && (
-            <button
-              type="button"
-              onClick={() => onVisibleStatusesChange(new Set())}
-              className="text-[10px] px-2 py-1 rounded-full border border-primary/40 text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              {tf('mapFilterShowAll')}
-            </button>
-          )}
-        </div>
+        <WindStatusFilterPills
+          counts={mapStatusCounts}
+          visibleStatuses={visibleStatuses ?? new Set()}
+          onVisibleStatusesChange={handleVisibleStatusesChange}
+          showAllLabel={tf('mapFilterShowAll')}
+          showAllButton
+        />
       )}
 
       {/* Timeline scrubber (inserted by parent between map canvas and point details) */}

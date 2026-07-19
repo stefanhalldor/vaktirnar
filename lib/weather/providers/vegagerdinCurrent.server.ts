@@ -41,6 +41,7 @@ const UPSTREAM_URL = 'https://gagnaveita.vegagerdin.is/api/vedur2014_1'
 const FRESH_TTL_MS = 2 * 60 * 1000       // 2 minutes
 const STALE_FALLBACK_MS = 30 * 60 * 1000 // 30 minutes
 const UPSTREAM_TIMEOUT_MS = 8_000         // 8 seconds
+const HISTORY_MAX_AGE_MS = 24 * 60 * 60 * 1000  // 24 hours
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
 
@@ -325,7 +326,7 @@ export type VegagerdinUnavailableReason = 'cache_missing' | 'cache_expired' | 'c
 
 export type VegagerdinCurrentResult =
   | { status: 'fresh'; cacheStatus: 'fresh'; measurementFreshness: MeasurementFreshness; payload: VegagerdinCachePayload }
-  | { status: 'stale'; cacheStatus: 'stale'; measurementFreshness: MeasurementFreshness; payload: VegagerdinCachePayload }
+  | { status: 'stale'; cacheStatus: 'stale' | 'history_fallback'; measurementFreshness: MeasurementFreshness; payload: VegagerdinCachePayload }
   | { status: 'unavailable'; reason: VegagerdinUnavailableReason }
 
 /**
@@ -364,6 +365,208 @@ export async function readVegagerdinCurrentFromCache(): Promise<VegagerdinCurren
   return { status: 'stale' as const, cacheStatus: 'stale' as const, measurementFreshness, payload }
 }
 
+/** Shape of a row from vegagerdin_measurements_history (select subset). */
+export type VegagerdinHistoryDbRow = {
+  station_id: string
+  measured_at: string
+  station_name: string
+  lat: number
+  lon: number
+  mean_wind_ms: number | null
+  gust_last_10_min_ms: number | null
+  wind_direction_deg: number | null
+  wind_direction_text: string | null
+  air_temperature_c: number | null
+  road_temperature_c: number | null
+  data_quality: 'complete' | 'partial'
+  fetched_at: string
+  last_fetched_at: string
+}
+
+/**
+ * Build a VegagerdinCachePayload from history rows.
+ *
+ * Deduplicates by station_id (keeps newest measured_at per station).
+ * Returns null if rows is empty.
+ * Exported for unit testing.
+ */
+export function buildPayloadFromHistoryRows(
+  rows: VegagerdinHistoryDbRow[],
+): VegagerdinCachePayload | null {
+  if (rows.length === 0) return null
+
+  // Keep newest measured_at per station
+  const byStation = new Map<string, VegagerdinHistoryDbRow>()
+  for (const row of rows) {
+    const existing = byStation.get(row.station_id)
+    if (!existing || row.measured_at > existing.measured_at) {
+      byStation.set(row.station_id, row)
+    }
+  }
+
+  const deduped = Array.from(byStation.values())
+  let oldestMeasuredAtIso: string | null = null
+  // Use the newest last_fetched_at as fetchedAtIso: represents when this batch was last confirmed.
+  let newestLastFetchedAtIso: string | null = null
+
+  const measurements: VegagerdinCurrentMeasurement[] = deduped.map(row => {
+    if (!oldestMeasuredAtIso || row.measured_at < oldestMeasuredAtIso) {
+      oldestMeasuredAtIso = row.measured_at
+    }
+    if (!newestLastFetchedAtIso || row.last_fetched_at > newestLastFetchedAtIso) {
+      newestLastFetchedAtIso = row.last_fetched_at
+    }
+    return {
+      source: 'vegagerdin' as const,
+      stationId: row.station_id,
+      stationName: row.station_name,
+      lat: row.lat,
+      lon: row.lon,
+      measuredAtIso: row.measured_at,
+      fetchedAtIso: row.fetched_at,
+      meanWindMs: row.mean_wind_ms,
+      gustLast10MinMs: row.gust_last_10_min_ms,
+      windDirectionDeg: row.wind_direction_deg,
+      windDirectionText: row.wind_direction_text,
+      airTemperatureC: row.air_temperature_c,
+      roadTemperatureC: row.road_temperature_c,
+      dataQuality: row.data_quality,
+    }
+  })
+
+  return {
+    source: 'vegagerdin',
+    endpoint: 'vedur2014_1',
+    // fetchedAtIso at payload level = newest last_fetched_at (when this batch was last confirmed)
+    fetchedAtIso: newestLastFetchedAtIso ?? new Date().toISOString(),
+    oldestMeasuredAtIso,
+    measurements,
+  }
+}
+
+/**
+ * Upsert a batch of measurements into vegagerdin_measurements_history.
+ * Non-throwing. Returns { ok: false } on any DB error.
+ * first_fetched_at is NOT included in the row object so the DB DEFAULT
+ * fires on first insert and is preserved (not overwritten) on conflict.
+ */
+async function upsertVegagerdinHistory(
+  measurements: VegagerdinCurrentMeasurement[],
+  fetchedAtIso: string,
+): Promise<{ ok: boolean }> {
+  if (measurements.length === 0) return { ok: true }
+  try {
+    const rows = measurements.map(m => ({
+      station_id: m.stationId,
+      measured_at: m.measuredAtIso,
+      station_name: m.stationName,
+      lat: m.lat,
+      lon: m.lon,
+      mean_wind_ms: m.meanWindMs,
+      gust_last_10_min_ms: m.gustLast10MinMs,
+      wind_direction_deg: m.windDirectionDeg,
+      wind_direction_text: m.windDirectionText,
+      air_temperature_c: m.airTemperatureC,
+      road_temperature_c: m.roadTemperatureC,
+      data_quality: m.dataQuality,
+      fetched_at: fetchedAtIso,
+      last_fetched_at: fetchedAtIso,
+    }))
+    const { error } = await getAdmin()
+      .from('vegagerdin_measurements_history')
+      .upsert(rows, { onConflict: 'station_id,measured_at' })
+    if (error) {
+      console.error('[vegagerdin] history upsert failed', error.message)
+      return { ok: false }
+    }
+    return { ok: true }
+  } catch (err) {
+    console.error('[vegagerdin] history upsert exception', err)
+    return { ok: false }
+  }
+}
+
+/**
+ * Read the most recent batch from vegagerdin_measurements_history.
+ *
+ * Finds the newest last_fetched_at within the 24-hour window, then fetches all
+ * rows from that exact fetch batch.
+ * Returns unavailable if no history exists or history is too old.
+ * Never throws.
+ */
+async function readVegagerdinCurrentFromHistory(): Promise<VegagerdinCurrentResult> {
+  try {
+    const cutoffIso = new Date(Date.now() - HISTORY_MAX_AGE_MS).toISOString()
+
+    // Find the most recent fetch batch by last_fetched_at (not measured_at).
+    // Using last_fetched_at ensures stations with older measured_at (e.g. that
+    // haven't sent a new measurement in 15–40 min) are still included if they
+    // were part of the most recent upstream fetch.
+    const { data: newestRow, error: newestError } = await getAdmin()
+      .from('vegagerdin_measurements_history')
+      .select('last_fetched_at')
+      .gte('last_fetched_at', cutoffIso)
+      .order('last_fetched_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (newestError || !newestRow) {
+      return { status: 'unavailable', reason: 'cache_missing' }
+    }
+
+    // Exact batch match: all rows in a batch share the same last_fetched_at
+    // (upsertVegagerdinHistory sets the same fetchedAtIso on every row in one call).
+    const { data: rows, error: rowsError } = await getAdmin()
+      .from('vegagerdin_measurements_history')
+      .select('station_id, measured_at, station_name, lat, lon, mean_wind_ms, gust_last_10_min_ms, wind_direction_deg, wind_direction_text, air_temperature_c, road_temperature_c, data_quality, fetched_at, last_fetched_at')
+      .eq('last_fetched_at', newestRow.last_fetched_at)
+
+    if (rowsError || !rows || rows.length === 0) {
+      return { status: 'unavailable', reason: 'cache_missing' }
+    }
+
+    const payload = buildPayloadFromHistoryRows(rows as VegagerdinHistoryDbRow[])
+    if (!payload) return { status: 'unavailable', reason: 'cache_missing' }
+
+    const measurementFreshness = getMeasurementFreshness(payload.oldestMeasuredAtIso)
+    return { status: 'stale', cacheStatus: 'history_fallback', measurementFreshness, payload }
+  } catch {
+    return { status: 'unavailable', reason: 'cache_missing' }
+  }
+}
+
+/**
+ * Reads Vegagerðin current measurements: cache first, history fallback.
+ *
+ * Returns a fresh or stale cache result if available.
+ * Falls back to the history table if the cache is missing or expired.
+ * History fallback result has cacheStatus: 'history_fallback' and status: 'stale'.
+ *
+ * Never throws. Safe to call from user-facing routes.
+ */
+export async function readVegagerdinCurrentWithHistoryFallback(): Promise<VegagerdinCurrentResult> {
+  const cacheResult = await readVegagerdinCurrentFromCache()
+  if (cacheResult.status !== 'unavailable') return cacheResult
+  return readVegagerdinCurrentFromHistory()
+}
+
+/**
+ * Look up a single Vegagerðin station measurement by stationId.
+ *
+ * Uses history fallback so station identity is preserved even when the
+ * short-lived weather_cache row is expired or missing.
+ *
+ * Returns null if the cache+history is unavailable or the stationId is not found.
+ * Never throws.
+ */
+export async function findVegagerdinCurrentMeasurementByStationId(
+  stationId: string,
+): Promise<VegagerdinCurrentMeasurement | null> {
+  const result = await readVegagerdinCurrentWithHistoryFallback()
+  if (result.status === 'unavailable') return null
+  return result.payload.measurements.find(m => m.stationId === stationId) ?? null
+}
+
 export type FetchVegagerdinReason =
   | 'http_error'
   | 'fetch_error'
@@ -371,7 +574,7 @@ export type FetchVegagerdinReason =
   | 'write_failed'
 
 export type FetchVegagerdinResult =
-  | { ok: true; payload: VegagerdinCachePayload }
+  | { ok: true; payload: VegagerdinCachePayload; historyStatus: 'ok' | 'failed' }
   | { ok: false; reason: FetchVegagerdinReason; shapeInfo?: SafeShapeInfo }
 
 /**
@@ -447,5 +650,8 @@ export async function fetchVegagerdinCurrent(): Promise<FetchVegagerdinResult> {
     return { ok: false, reason: 'write_failed' }
   }
 
-  return { ok: true, payload }
+  // Non-blocking history upsert; failure is logged but does not fail the fetch.
+  const historyResult = await upsertVegagerdinHistory(measurements, fetchedAtIso)
+
+  return { ok: true, payload, historyStatus: historyResult.ok ? 'ok' : 'failed' }
 }

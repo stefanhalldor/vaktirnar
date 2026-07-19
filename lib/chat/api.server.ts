@@ -27,12 +27,26 @@ export function chatAccessError(result: ChatAccessResult): NextResponse {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 }
 
+/** Domain for all weather-pulse chat threads. */
+export const WEATHER_PULSE_DOMAIN: ChatDomain = 'weather'
+
 /**
- * The domain/targetType scope for all Veðurpúls (weather-pulse) routes.
- * Passed to assertThreadScope / assertMessageScope to enforce that thread and
- * message operations stay within the Veðurstofan station chat surface.
+ * All weather-pulse target types accepted for read, mark-read, and report
+ * operations. Both Veðurstofan and Vegagerðin station threads are readable.
+ * Veðurstofan threads are read-only; Vegagerðin threads also accept new messages.
+ * Used by getThreadProvider / getMessageProvider in messages GET, read, and report routes.
  */
-export const WEATHER_PULSE_SCOPE: { domain: ChatDomain; targetType: ChatTargetType } = {
-  domain: 'weather',
-  targetType: 'vedurstofan_station',
-}
+export const WEATHER_PULSE_ALL_TARGET_TYPES: ChatTargetType[] = [
+  'vedurstofan_station',
+  'vegagerdin_station',
+]
+
+/**
+ * Target types that accept new pulse content (write / POST messages).
+ * Only Vegagerðin station threads accept user messages.
+ * Veðurstofan station threads are read-only — POST is rejected with 404.
+ * Used by getThreadProvider in messages POST route.
+ */
+export const WEATHER_PULSE_PRIMARY_TARGET_TYPES: ChatTargetType[] = [
+  'vegagerdin_station',
+]

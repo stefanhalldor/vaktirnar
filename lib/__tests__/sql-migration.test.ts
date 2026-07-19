@@ -1476,3 +1476,269 @@ describe('sql/79_feature_access_weather_pulse.sql — static checks', () => {
     expect(addConstraintInRollback).not.toContain("'weather-pulse'")
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/80 feature_access_weather_provider_vegagerdin
+// ============================================================
+
+const sql80 = readFileSync(
+  join(process.cwd(), 'sql/80_feature_access_weather_provider_vegagerdin.sql'),
+  'utf8'
+)
+
+describe('sql/80_feature_access_weather_provider_vegagerdin.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql80).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql80).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops existing constraint before recreating (idempotent)', () => {
+    expect(sql80).toContain('DROP CONSTRAINT IF EXISTS feature_access_feature_key_check')
+  })
+
+  it('adds new constraint with weather-provider-vegagerdin', () => {
+    expect(sql80).toContain("'weather-provider-vegagerdin'")
+  })
+
+  it('retains all prior feature keys including weather-pulse', () => {
+    expect(sql80).toContain("'umonnun'")
+    expect(sql80).toContain("'tengsl'")
+    expect(sql80).toContain("'vedrid'")
+    expect(sql80).toContain("'ferdalagid'")
+    expect(sql80).toContain("'elta-vedrid'")
+    expect(sql80).toContain("'weather-provider-vedurstofan'")
+    expect(sql80).toContain("'weather-pulse'")
+  })
+
+  it('rollback comment restores constraint without weather-provider-vegagerdin', () => {
+    const rollback = sql80.slice(sql80.lastIndexOf('Rollback'))
+    expect(rollback).toContain("'umonnun'")
+    const addConstraintInRollback = rollback.slice(rollback.indexOf('ADD CONSTRAINT'))
+    expect(addConstraintInRollback).not.toContain("'weather-provider-vegagerdin'")
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/81 teskeid_chat_target_type_vegagerdin_station
+// ============================================================
+
+const sql81 = readFileSync(
+  join(process.cwd(), 'sql/81_teskeid_chat_target_type_vegagerdin_station.sql'),
+  'utf8'
+)
+
+describe('sql/81_teskeid_chat_target_type_vegagerdin_station.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql81).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql81).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('drops the existing target_type_check constraint (idempotent)', () => {
+    expect(sql81).toContain('DROP CONSTRAINT IF EXISTS teskeid_chat_threads_target_type_check')
+  })
+
+  it('adds replacement constraint including vegagerdin_station', () => {
+    expect(sql81).toContain("'vegagerdin_station'")
+  })
+
+  it('retains vedurstofan_station in the new constraint', () => {
+    expect(sql81).toContain("'vedurstofan_station'")
+  })
+
+  it('targets the correct table (teskeid_chat_threads)', () => {
+    expect(sql81).toMatch(/ALTER TABLE public\.teskeid_chat_threads/)
+  })
+
+  it('does not grant access to anon or authenticated', () => {
+    expect(sql81).not.toMatch(/GRANT.*TO anon/)
+    expect(sql81).not.toMatch(/GRANT.*TO authenticated/)
+    expect(sql81).not.toMatch(/GRANT.*TO PUBLIC/)
+  })
+
+  it('does not modify RLS or policies', () => {
+    expect(sql81).not.toMatch(/ROW LEVEL SECURITY/)
+    expect(sql81).not.toMatch(/CREATE POLICY/)
+    expect(sql81).not.toMatch(/ALTER POLICY/)
+  })
+
+  it('rollback comment restores constraint to vedurstofan_station only', () => {
+    const rollback = sql81.slice(sql81.lastIndexOf('Rollback'))
+    expect(rollback).toContain("'vedurstofan_station'")
+    // The rollback ADD CONSTRAINT must NOT include vegagerdin_station
+    const addPos = rollback.indexOf('ADD CONSTRAINT')
+    const addSection = rollback.slice(addPos)
+    expect(addSection).not.toContain("'vegagerdin_station'")
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/83 vegagerdin_measurements_history
+// ============================================================
+
+const sql83 = readFileSync(
+  join(process.cwd(), 'sql/83_vegagerdin_measurements_history.sql'),
+  'utf8'
+)
+
+describe('sql/83_vegagerdin_measurements_history.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql83).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql83).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('creates the vegagerdin_measurements_history table', () => {
+    expect(sql83).toMatch(/CREATE TABLE IF NOT EXISTS public\.vegagerdin_measurements_history/)
+  })
+
+  it('has composite primary key on (station_id, measured_at)', () => {
+    expect(sql83).toMatch(/PRIMARY KEY\s*\(\s*station_id\s*,\s*measured_at\s*\)/)
+  })
+
+  it('has first_fetched_at with DEFAULT now()', () => {
+    expect(sql83).toMatch(/first_fetched_at\s+timestamptz\s+NOT NULL\s+DEFAULT\s+now\(\)/)
+  })
+
+  it('has last_fetched_at column', () => {
+    expect(sql83).toMatch(/last_fetched_at\s+timestamptz\s+NOT NULL/)
+  })
+
+  it('enables RLS on the table', () => {
+    expect(sql83).toMatch(/ALTER TABLE public\.vegagerdin_measurements_history ENABLE ROW LEVEL SECURITY/)
+  })
+
+  it('revokes access from PUBLIC, anon, and authenticated', () => {
+    expect(sql83).toMatch(/REVOKE ALL ON public\.vegagerdin_measurements_history FROM PUBLIC/)
+    expect(sql83).toMatch(/anon/)
+    expect(sql83).toMatch(/authenticated/)
+  })
+
+  it('grants access to service_role only', () => {
+    expect(sql83).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON public\.vegagerdin_measurements_history TO service_role/)
+    expect(sql83).not.toMatch(/GRANT.*TO anon/)
+    expect(sql83).not.toMatch(/GRANT.*TO authenticated/)
+    expect(sql83).not.toMatch(/GRANT.*TO PUBLIC/)
+  })
+
+  it('has index on last_fetched_at DESC (primary fallback query index)', () => {
+    expect(sql83).toMatch(/vegagerdin_measurements_history_last_fetched_at_desc_idx/)
+    expect(sql83).toMatch(/ON public\.vegagerdin_measurements_history \(last_fetched_at DESC\)/)
+  })
+
+  it('has index on measured_at DESC', () => {
+    expect(sql83).toMatch(/vegagerdin_measurements_history_measured_at_desc_idx/)
+    expect(sql83).toMatch(/ON public\.vegagerdin_measurements_history \(measured_at DESC\)/)
+  })
+
+  it('has composite index on (station_id, measured_at DESC)', () => {
+    expect(sql83).toMatch(/vegagerdin_measurements_history_station_measured_at_idx/)
+    expect(sql83).toMatch(/ON public\.vegagerdin_measurements_history \(station_id, measured_at DESC\)/)
+  })
+
+  it('has updated_at trigger using shared teskeid_set_updated_at function', () => {
+    expect(sql83).toMatch(/CREATE TRIGGER vegagerdin_measurements_history_updated_at/)
+    expect(sql83).toMatch(/EXECUTE FUNCTION public\.teskeid_set_updated_at\(\)/)
+  })
+
+  it('drops trigger before creating it (idempotent)', () => {
+    expect(sql83).toMatch(/DROP TRIGGER IF EXISTS vegagerdin_measurements_history_updated_at/)
+  })
+
+  it('rollback comment drops the table', () => {
+    const rollback = sql83.slice(sql83.lastIndexOf('Rollback'))
+    expect(rollback).toContain('DROP TABLE IF EXISTS public.vegagerdin_measurements_history')
+  })
+
+  it('rollback does not drop shared teskeid_set_updated_at function', () => {
+    const rollback = sql83.slice(sql83.lastIndexOf('Rollback'))
+    expect(rollback).not.toContain('DROP FUNCTION')
+  })
+})
+
+// ============================================================
+// Static SQL regression tests — sql/84 metno_point_forecasts_history
+// ============================================================
+
+const sql84 = readFileSync(
+  join(process.cwd(), 'sql/84_metno_point_forecasts_history.sql'),
+  'utf8'
+)
+
+describe('sql/84_metno_point_forecasts_history.sql — static checks', () => {
+  it('wraps in a transaction', () => {
+    expect(sql84).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql84).toMatch(/^\s*COMMIT\s*;/m)
+  })
+
+  it('creates the metno_point_forecasts_history table', () => {
+    expect(sql84).toMatch(/CREATE TABLE IF NOT EXISTS public\.metno_point_forecasts_history/)
+  })
+
+  it('has composite primary key on (target_type, target_id, metno_updated_at, forecast_time)', () => {
+    expect(sql84).toMatch(/PRIMARY KEY\s*\(\s*target_type\s*,\s*target_id\s*,\s*metno_updated_at\s*,\s*forecast_time\s*\)/)
+  })
+
+  it('has first_fetched_at with DEFAULT now()', () => {
+    expect(sql84).toMatch(/first_fetched_at\s+timestamptz\s+NOT NULL\s+DEFAULT\s+now\(\)/)
+  })
+
+  it('has last_fetched_at column', () => {
+    expect(sql84).toMatch(/last_fetched_at\s+timestamptz\s+NOT NULL/)
+  })
+
+  it('restricts target_type to vedurstofan_station via CHECK', () => {
+    expect(sql84).toMatch(/CHECK\s*\(\s*target_type\s+IN\s*\(\s*'vedurstofan_station'\s*\)\s*\)/)
+  })
+
+  it('enables RLS on the table', () => {
+    expect(sql84).toMatch(/ALTER TABLE public\.metno_point_forecasts_history ENABLE ROW LEVEL SECURITY/)
+  })
+
+  it('revokes access from PUBLIC, anon, and authenticated', () => {
+    expect(sql84).toMatch(/REVOKE ALL ON public\.metno_point_forecasts_history FROM PUBLIC/)
+    expect(sql84).toMatch(/anon/)
+    expect(sql84).toMatch(/authenticated/)
+  })
+
+  it('grants access to service_role only', () => {
+    expect(sql84).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON public\.metno_point_forecasts_history TO service_role/)
+    expect(sql84).not.toMatch(/GRANT.*TO anon/)
+    expect(sql84).not.toMatch(/GRANT.*TO authenticated/)
+    expect(sql84).not.toMatch(/GRANT.*TO PUBLIC/)
+  })
+
+  it('has target/cycle lookup index', () => {
+    expect(sql84).toMatch(/metno_point_forecasts_history_target_cycle_idx/)
+    expect(sql84).toMatch(/target_type/)
+    expect(sql84).toMatch(/target_id/)
+    expect(sql84).toMatch(/forecast_time/)
+  })
+
+  it('has forecast_time index', () => {
+    expect(sql84).toMatch(/metno_point_forecasts_history_forecast_time_idx/)
+    expect(sql84).toMatch(/ON public\.metno_point_forecasts_history \(forecast_time\)/)
+  })
+
+  it('has metno_updated_at DESC index', () => {
+    expect(sql84).toMatch(/metno_point_forecasts_history_updated_at_idx/)
+    expect(sql84).toMatch(/ON public\.metno_point_forecasts_history \(metno_updated_at DESC\)/)
+  })
+
+  it('has updated_at trigger using shared teskeid_set_updated_at function', () => {
+    expect(sql84).toMatch(/CREATE TRIGGER metno_point_forecasts_history_updated_at/)
+    expect(sql84).toMatch(/EXECUTE FUNCTION public\.teskeid_set_updated_at\(\)/)
+  })
+
+  it('drops trigger before creating it (idempotent)', () => {
+    expect(sql84).toMatch(/DROP TRIGGER IF EXISTS metno_point_forecasts_history_updated_at/)
+  })
+
+  it('rollback comment drops the table', () => {
+    const rollback = sql84.slice(sql84.lastIndexOf('Rollback'))
+    expect(rollback).toContain('DROP TABLE IF EXISTS public.metno_point_forecasts_history')
+  })
+
+  it('rollback does not drop shared teskeid_set_updated_at function', () => {
+    const rollback = sql84.slice(sql84.lastIndexOf('Rollback'))
+    expect(rollback).not.toContain('DROP FUNCTION')
+  })
+})

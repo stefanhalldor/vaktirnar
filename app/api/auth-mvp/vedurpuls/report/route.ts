@@ -2,8 +2,8 @@ import 'server-only'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkChatAccess } from '@/lib/chat/access.server'
-import { chatAccessError, isValidUuid, WEATHER_PULSE_SCOPE } from '@/lib/chat/api.server'
-import { assertMessageScope, reportMessage } from '@/lib/chat/repository.server'
+import { chatAccessError, isValidUuid, WEATHER_PULSE_DOMAIN, WEATHER_PULSE_ALL_TARGET_TYPES } from '@/lib/chat/api.server'
+import { reportMessage, getMessageProvider } from '@/lib/chat/repository.server'
 
 /**
  * POST /api/auth-mvp/vedurpuls/report
@@ -16,15 +16,13 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const access = await checkChatAccess(user)
-  if (access !== 'allowed') return chatAccessError(access)
-
   const body = await request.json().catch(() => null)
   const { messageId, reason, body: reportBody } = body ?? {}
 
   if (!isValidUuid(messageId)) {
     return NextResponse.json({ error: 'messageId must be a valid UUID' }, { status: 400 })
   }
+
   const trimmedReason = typeof reason === 'string' ? reason.trim() : ''
   if (trimmedReason.length === 0) {
     return NextResponse.json({ error: 'reason required' }, { status: 400 })
@@ -37,13 +35,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await assertMessageScope(messageId, WEATHER_PULSE_SCOPE)
+    // Scope first: validate message exists in a weather pulse thread before any access response.
+    const provider = await getMessageProvider(messageId, { domain: WEATHER_PULSE_DOMAIN, targetTypes: WEATHER_PULSE_ALL_TARGET_TYPES })
+    if (!provider) {
+      return NextResponse.json({ error: 'not found' }, { status: 404 })
+    }
+
+    const access = await checkChatAccess(user, { provider })
+    if (access !== 'allowed') return chatAccessError(access)
+
     await reportMessage(messageId, user!.id, { reason: trimmedReason, body: reportBody ?? undefined })
     return NextResponse.json({ ok: true }, { status: 201 })
   } catch (err) {
-    if (err instanceof Error && err.message === 'chat: not found') {
-      return NextResponse.json({ error: 'not found' }, { status: 404 })
-    }
     if (err instanceof Error && err.message === 'chat: already reported') {
       return NextResponse.json({ ok: true, alreadyReported: true })
     }

@@ -1,11 +1,13 @@
 import 'server-only'
 import { getAdmin } from '@/lib/supabase/admin'
 import type {
+  ChatTargetType,
   ChatThreadTarget,
   ThreadDto,
   MessageDto,
   FeedMessageDto,
   ThreadSummaryDto,
+  ConditionFeedPreviewItemDto,
   CreateMessageInput,
   ReportMessageInput,
 } from './types'
@@ -207,19 +209,25 @@ export async function markRead(
  * Throws 'chat: not found' if the thread is absent or out of scope.
  * Callers should map this to 404 — same error for missing and out-of-scope
  * so we do not reveal whether a foreign thread exists.
+ *
+ * targetType accepts a single string or an array. Pass an array to allow
+ * multiple target types (e.g. both vedurstofan_station and vegagerdin_station).
  */
 export async function assertThreadScope(
   threadId: string,
-  scope: { domain: string; targetType: string }
+  scope: { domain: string; targetType: string | string[] }
 ): Promise<void> {
   const admin = getAdmin()
-  const { data, error } = await admin
+  const types = Array.isArray(scope.targetType) ? scope.targetType : [scope.targetType]
+  let query = admin
     .from('teskeid_chat_threads')
     .select('id')
     .eq('id', threadId)
     .eq('domain', scope.domain)
-    .eq('target_type', scope.targetType)
-    .maybeSingle()
+  const q = types.length === 1
+    ? query.eq('target_type', types[0])
+    : query.in('target_type', types)
+  const { data, error } = await q.maybeSingle()
   if (error) throw new Error('chat: scope check failed')
   if (!data) throw new Error('chat: not found')
 }
@@ -227,10 +235,12 @@ export async function assertThreadScope(
 /**
  * Asserts that a message exists and its thread belongs to the expected scope.
  * Throws 'chat: not found' if the message is absent or out of scope.
+ *
+ * targetType accepts a single string or an array (same semantics as assertThreadScope).
  */
 export async function assertMessageScope(
   messageId: string,
-  scope: { domain: string; targetType: string }
+  scope: { domain: string; targetType: string | string[] }
 ): Promise<void> {
   const admin = getAdmin()
   const { data: msg, error: msgError } = await admin
@@ -240,13 +250,16 @@ export async function assertMessageScope(
     .maybeSingle()
   if (msgError) throw new Error('chat: scope check failed')
   if (!msg) throw new Error('chat: not found')
-  const { data: thread, error: threadError } = await admin
+  const types = Array.isArray(scope.targetType) ? scope.targetType : [scope.targetType]
+  let query = admin
     .from('teskeid_chat_threads')
     .select('id')
     .eq('id', msg.thread_id)
     .eq('domain', scope.domain)
-    .eq('target_type', scope.targetType)
-    .maybeSingle()
+  const q = types.length === 1
+    ? query.eq('target_type', types[0])
+    : query.in('target_type', types)
+  const { data: thread, error: threadError } = await q.maybeSingle()
   if (threadError) throw new Error('chat: scope check failed')
   if (!thread) throw new Error('chat: not found')
 }
@@ -414,6 +427,46 @@ export async function getThreadSummary(
 }
 
 /**
+ * Resolves the access provider for a thread, scoped to the expected domain and target types.
+ * Returns null if the thread does not exist OR if it falls outside the allowed scope
+ * (wrong domain, wrong target_type). This ensures out-of-scope thread IDs return 404
+ * before any access response — callers must check domain+targetTypes match.
+ */
+export async function getThreadProvider(
+  threadId: string,
+  scope: { domain: string; targetTypes: string[] }
+): Promise<'vedurstofan' | 'vegagerdin' | null> {
+  const admin = getAdmin()
+  const { data } = await admin
+    .from('teskeid_chat_threads')
+    .select('target_type')
+    .eq('id', threadId)
+    .eq('domain', scope.domain)
+    .in('target_type', scope.targetTypes)
+    .maybeSingle()
+  if (!data) return null
+  return data.target_type === 'vegagerdin_station' ? 'vegagerdin' : 'vedurstofan'
+}
+
+/**
+ * Resolves the access provider for a message (via its thread), scoped to domain + target types.
+ * Returns null if the message, its thread, or its scope cannot be validated.
+ */
+export async function getMessageProvider(
+  messageId: string,
+  scope: { domain: string; targetTypes: string[] }
+): Promise<'vedurstofan' | 'vegagerdin' | null> {
+  const admin = getAdmin()
+  const { data: msg } = await admin
+    .from('teskeid_chat_messages')
+    .select('thread_id')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!msg) return null
+  return getThreadProvider(msg.thread_id, scope)
+}
+
+/**
  * Returns the latest N visible messages per station for a batch of station IDs,
  * keyed by stationId. Stations with no thread or no messages return [].
  * Intended for the route-scoped Safnpúls — public read-only, no thread creation.
@@ -450,6 +503,62 @@ export async function getPreviewMessagesForStations(
   }
 
   return result
+}
+
+/**
+ * Returns the latest visible message per target (weather domain),
+ * ordered newest-first. Targets with no visible messages are excluded.
+ * Intended for the public conditions feed — no auth required, no write side.
+ * Fetches up to limitItems*3 (min 20) thread candidates to account for threads where
+ * all messages are deleted/hidden.
+ *
+ * allowedTargetTypes is server-controlled — the caller (API route) decides which
+ * providers are included. Clients must not pass arbitrary target types.
+ *
+ * NOTE: DB migration 78 (sql/78_teskeid_chat_core.sql) currently constrains
+ * target_type IN ('vedurstofan_station'). Before creating vegagerdin_station threads
+ * or messages, a new migration must extend the CHECK constraint.
+ */
+export async function getLatestConditionFeedPreviews(
+  limitItems: number,
+  allowedTargetTypes: ChatTargetType[] = ['vedurstofan_station']
+): Promise<ConditionFeedPreviewItemDto[]> {
+  const admin = getAdmin()
+  // Fetch more candidates than needed: some threads may have all messages deleted/hidden.
+  // 3x with a minimum of 20 gives reasonable coverage without over-querying.
+  const candidateLimit = Math.max(limitItems * 3, 20)
+
+  const { data: threads, error: threadsError } = await admin
+    .from('teskeid_chat_threads')
+    .select('id, target_id, target_name, target_type, provider')
+    .eq('domain', 'weather')
+    .in('target_type', allowedTargetTypes)
+    .not('last_message_at', 'is', null)
+    .order('last_message_at', { ascending: false })
+    .limit(candidateLimit)
+
+  if (threadsError || !threads || threads.length === 0) return []
+
+  const candidates = await Promise.all(
+    (threads as any[]).map(async (t: any) => {
+      const messages = await getThreadPreviewMessages(t.id as string, 1)
+      if (messages.length === 0) return null
+      const msg = messages[0]
+      return {
+        targetId: t.target_id as string,
+        targetName: t.target_name as string,
+        targetType: t.target_type as ChatTargetType,
+        provider: (t.provider as string | null) ?? null,
+        latestMessage: msg,
+        latestAt: msg.createdAt,
+      }
+    })
+  )
+
+  return candidates
+    .filter((c): c is ConditionFeedPreviewItemDto => c !== null)
+    .sort((a, b) => b.latestAt.localeCompare(a.latestAt))
+    .slice(0, limitItems)
 }
 
 /** Private helper: returns the latest N visible messages for a known thread ID. */

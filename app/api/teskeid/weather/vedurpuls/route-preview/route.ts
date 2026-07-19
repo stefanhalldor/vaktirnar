@@ -1,5 +1,7 @@
 import 'server-only'
 import { NextResponse, type NextRequest } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { getPreviewMessagesForStations } from '@/lib/chat/repository.server'
 
@@ -16,7 +18,11 @@ const MAX_LIMIT_PER_STATION = 3
  * Returns the latest pulse messages for a batch of Veðurstofan stations,
  * grouped by stationId. Intended for route-scoped Safnpúls on /vedrid.
  *
- * Public endpoint — no auth required (same access level as single-station preview).
+ * Access follows WEATHER_ENABLED mode (same semantics as feed-preview):
+ * - off → 404
+ * - all → public, no session required
+ * - authenticated → signed-in session required, anonymous gets 401
+ *
  * Does not create threads. Does not expose private user data.
  *
  * Security:
@@ -25,6 +31,20 @@ const MAX_LIMIT_PER_STATION = 3
  * - Max 3 messages per station (fixed; client-supplied limit is clamped).
  */
 export async function POST(request: NextRequest) {
+  if (process.env.AUTH_MVP_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  const mode = getWeatherEnabledMode()
+  if (mode === 'off') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  if (mode === 'authenticated') {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   let body: unknown
   try {
     body = await request.json()

@@ -17,6 +17,9 @@ import type { PlaceCandidate } from '@/lib/weather/provider.types'
 import { sampleRouteWeatherPoints } from '@/lib/weather/routeSampling'
 import { haversineM, matchProviderPointsToRoute, DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M } from '@/lib/weather/providerRouteMatching'
 import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
+import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
+import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
+import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
 
 const VALID_TRAILER_KINDS = new Set([
   'none', 'generic_trailer', 'tent_trailer', 'folding_camper', 'caravan', 'horse_trailer',
@@ -412,6 +415,80 @@ export async function POST(request: Request) {
       lastWarmAttemptIso,
       points: layerPoints,
     }
+  }
+
+  // ── Route-memory write (best-effort) ─────────────────────────────────────────
+  // Record exact provider station IDs for this route so /vedrid can filter its map
+  // without any corridor/radius approximation on subsequent visits.
+  // Privacy: only normalized place keys/labels + station IDs stored. No user ID,
+  // no raw addresses, no raw Google route content.
+  try {
+    const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
+    const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
+
+    if (fromNorm && toNorm) {
+      // Match Vegagerðin stations to this route (uses cached data, no live fetch)
+      const vegagerdinResult = await readVegagerdinCurrentWithHistoryFallback()
+      const vegagerdinAvailable = vegagerdinResult.status === 'fresh' || vegagerdinResult.status === 'stale'
+      const vegagerdinMatchable = (
+        vegagerdinAvailable
+          ? vegagerdinResult.payload.measurements
+          : []
+      ).filter(m => m.stationId && m.lat !== null && m.lon !== null)
+
+      const vegagerdinRouteMatches = matchProviderPointsToRoute({
+        points: vegagerdinMatchable.map(m => ({
+          id: m.stationId,
+          name: m.stationName,
+          lat: m.lat!,
+          lon: m.lon!,
+        })),
+        routePolyline: routeGeometry.providerMatchingPoints ?? routeGeometry.points,
+        maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+      })
+
+      // Use selectedRouteId as variant key so different route options get distinct memory rows.
+      const routeKey = buildRouteMemoryKey(fromNorm.key, toNorm.key, selectedRouteId ?? undefined)
+
+      const stations: RouteMemoryStation[] = [
+        ...vedurstofanMatches.map((m, i) => ({
+          provider: 'vedurstofan' as const,
+          stationId: m.point.id,
+          stationName: m.point.name ?? null,
+          routeOrder: i,
+          distanceFromOriginM: Math.round(m.distanceFromOriginM),
+          distanceFromRouteM: Math.round(m.distanceM),
+          routeFraction: m.routeFraction,
+        })),
+        ...vegagerdinRouteMatches.map((m, i) => ({
+          provider: 'vegagerdin' as const,
+          stationId: m.point.id,
+          stationName: m.point.name ?? null,
+          routeOrder: i,
+          distanceFromOriginM: Math.round(m.distanceFromOriginM),
+          distanceFromRouteM: Math.round(m.distanceM),
+          routeFraction: m.routeFraction,
+        })),
+      ]
+
+      await recordRouteMemory({
+        routeKey,
+        fromPlaceKey: fromNorm.key,
+        fromPlaceLabel: fromNorm.label,
+        toPlaceKey: toNorm.key,
+        toPlaceLabel: toNorm.label,
+        routeVariantKey: selectedRouteId ?? undefined,
+        stations,
+        // vegagerdin included in evaluated when its cache was available (even if 0 matched).
+        // When unavailable, omit it so stale station rows from previous runs are preserved.
+        providersEvaluated: vegagerdinAvailable
+          ? ['vedurstofan', 'vegagerdin']
+          : ['vedurstofan'],
+      })
+    }
+  } catch (err) {
+    // Best-effort: swallow all errors, log static code only (no raw content)
+    console.error('[route-memory] write failed in travel route')
   }
 
   await recordTeskeidUsageEvent({

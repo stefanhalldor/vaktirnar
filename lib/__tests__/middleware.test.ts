@@ -224,6 +224,54 @@ describe('middleware — /auth-mvp/heim route', () => {
     const res = await middleware(makeReq('/auth-mvp/nyr-adgangur'))
     expect(res.status).toBe(200)
   })
+
+  it('unauthenticated /auth-mvp/minn-profill → /innskraning with ?next= preserving full path', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/minn-profill'))
+    expect(res.status).toBe(307)
+    const loc = new URL(res.headers.get('location')!)
+    expect(loc.pathname).toBe('/innskraning')
+    expect(loc.searchParams.get('next')).toBe('/auth-mvp/minn-profill')
+  })
+
+  it('unauthenticated /auth-mvp/minn-profill?tab=lyklar → /innskraning?next= preserving query', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/minn-profill?tab=lyklar'))
+    expect(res.status).toBe(307)
+    const loc = new URL(res.headers.get('location')!)
+    expect(loc.pathname).toBe('/innskraning')
+    expect(loc.searchParams.get('next')).toBe('/auth-mvp/minn-profill?tab=lyklar')
+  })
+
+  it('unauthenticated /auth-mvp/lanad-og-skilad → /innskraning with ?next= preserving full path', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/lanad-og-skilad'))
+    expect(res.status).toBe(307)
+    const loc = new URL(res.headers.get('location')!)
+    expect(loc.pathname).toBe('/innskraning')
+    expect(loc.searchParams.get('next')).toBe('/auth-mvp/lanad-og-skilad')
+  })
+
+  it('unauthenticated /auth-mvp/vedrid/puls/stod/1234 → /innskraning with ?next= preserving full path', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/vedrid/puls/stod/1234'))
+    expect(res.status).toBe(307)
+    const loc = new URL(res.headers.get('location')!)
+    expect(loc.pathname).toBe('/innskraning')
+    expect(loc.searchParams.get('next')).toBe('/auth-mvp/vedrid/puls/stod/1234')
+  })
+
+  it('unauthenticated /auth-mvp/vedrid/puls/stod/1234?returnTo=... → /innskraning?next= preserving query', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const returnTo = encodeURIComponent('/vedrid?stationId=1234')
+    const res = await middleware(makeReq(`/auth-mvp/vedrid/puls/stod/1234?returnTo=${returnTo}`))
+    expect(res.status).toBe(307)
+    const loc = new URL(res.headers.get('location')!)
+    expect(loc.pathname).toBe('/innskraning')
+    const next = loc.searchParams.get('next')
+    // next should contain the full original path+query
+    expect(next).toBe(`/auth-mvp/vedrid/puls/stod/1234?returnTo=${returnTo}`)
+  })
 })
 
 // ── / (root): authenticated users → /auth-mvp/heim ────────────────────────
@@ -299,6 +347,16 @@ describe('middleware — /stillingar/tengsl kill-switch and auth guard', () => {
     expect(redirectedTo(res)).toBe('/innskraning')
   })
 
+  it('TENGSL_ENABLED=true + unauthenticated /stillingar/tengsl/some-id → /innskraning with ?next= preserving full path', async () => {
+    process.env.TENGSL_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/stillingar/tengsl/some-id'))
+    expect(res.status).toBe(307)
+    const loc = new URL(res.headers.get('location')!)
+    expect(loc.pathname).toBe('/innskraning')
+    expect(loc.searchParams.get('next')).toBe('/stillingar/tengsl/some-id')
+  })
+
   it('TENGSL_ENABLED=true + authenticated /stillingar/tengsl → passes through (200)', async () => {
     process.env.TENGSL_ENABLED = 'true'
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
@@ -358,6 +416,78 @@ describe('middleware — /api/cron/warm-vedurstofan is public (no browser sessio
   })
 })
 
+// ── /api/teskeid/weather/vedurstofan/stations — public (exact match only) ──
+
+describe('middleware — /api/teskeid/weather/vedurstofan/stations is public (exact match)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  it('unauthenticated request to exact path passes through (200)', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurstofan/stations'))
+    expect(res.status).toBe(200)
+  })
+
+  it('sub-path /stations/foo is not public — gets 401', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurstofan/stations/foo'))
+    expect(res.status).toBe(401)
+  })
+
+  it('prefix variant /stations-extra is not public — gets 401', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurstofan/stations-extra'))
+    expect(res.status).toBe(401)
+  })
+})
+
+// ── /api/teskeid/weather/vegagerdin/current — public (exact match only) ─────
+
+describe('middleware — /api/teskeid/weather/vegagerdin/current is public (exact match)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  it('unauthenticated request to exact path passes through (200)', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vegagerdin/current'))
+    expect(res.status).toBe(200)
+  })
+
+  it('sub-path /current/foo is not public — gets 401', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vegagerdin/current/foo'))
+    expect(res.status).toBe(401)
+  })
+
+  it('prefix variant /current-extra is not public — gets 401', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vegagerdin/current-extra'))
+    expect(res.status).toBe(401)
+  })
+})
+
+// ── /api/teskeid/weather/vedurpuls/route-preview — public (exact match only) ──
+
+describe('middleware — /api/teskeid/weather/vedurpuls/route-preview is public (exact match)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  it('unauthenticated request to exact path passes through (200)', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurpuls/route-preview'))
+    expect(res.status).toBe(200)
+  })
+
+  it('sub-path /route-preview/foo is not public — gets 401', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurpuls/route-preview/foo'))
+    expect(res.status).toBe(401)
+  })
+
+  it('prefix variant /route-preview-extra is not public — gets 401', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurpuls/route-preview-extra'))
+    expect(res.status).toBe(401)
+  })
+})
+
 // ── /dashboard is not public — requires authentication ─────────────────────
 
 describe('middleware — /dashboard requires authentication', () => {
@@ -393,6 +523,41 @@ describe('middleware — /dashboard requires authentication', () => {
     mockGetUser.mockResolvedValue({ data: { user: null } })
     const res = await middleware(makeReq('/s/abc123'))
     expect(res.status).toBe(200)
+  })
+})
+
+// ── Preview path pattern matching ──────────────────────────────────────────
+
+describe('middleware — Veðurpúls station preview routes are public (regex match)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  it('Veðurstofan station preview is public for unauthenticated users', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurpuls/stations/31392/preview'))
+    expect(res.status).toBe(200)
+  })
+
+  it('Vegagerðin station preview is public for unauthenticated users', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurpuls/vegagerdin/stations/V1234/preview'))
+    expect(res.status).toBe(200)
+  })
+
+  it('non-preview Veðurstofan station sub-path is NOT public (returns 401 for API)', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurpuls/stations/31392/other'))
+    expect(res.status).toBe(401)
+  })
+
+  it('non-preview Vegagerðin station sub-path is NOT public (returns 401 for API)', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurpuls/vegagerdin/stations/V1234/other'))
+    expect(res.status).toBe(401)
+  })
+
+  it('Veðurstofan stations listing without stationId segment is NOT matched (returns 401)', async () => {
+    // /stations/preview without a stationId segment does not match the pattern
+    const res = await middleware(makeReq('/api/teskeid/weather/vedurpuls/stations/preview'))
+    expect(res.status).toBe(401)
   })
 })
 

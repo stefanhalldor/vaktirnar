@@ -1,0 +1,231 @@
+{
+  "main": {
+    "id": "4e8d99af53331f0d",
+    "type": "split",
+    "children": [
+      {
+        "id": "12548de5569eeb41",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ef4014f38dd2c558",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "ai-handoff/2026-07-19-0857-todo-086-v186-codex-route-memory-self-registering-places.md",
+                "mode": "preview",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "2026-07-19-0857-todo-086-v186-codex-route-memory-self-registering-places"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "24a7f9c3d1412fd8",
+    "type": "split",
+    "children": [
+      {
+        "id": "0506e584f312378d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "5afedfb17322ff1f",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "50fbf1d69c6d1ea4",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "6e00c18a779a5091",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 579.5
+  },
+  "right": {
+    "id": "74397fd9e37dc5aa",
+    "type": "split",
+    "children": [
+      {
+        "id": "b2b9bba9f593b6cd",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "667074ceaa49b507",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "DONE.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for DONE"
+            }
+          },
+          {
+            "id": "7e71e9a69076bd08",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "DONE.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from DONE"
+            }
+          },
+          {
+            "id": "e95bf6247d1cff78",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "ef216605327a9667",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "b07476a8c4f9b1fa",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "DONE.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of DONE"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "ef4014f38dd2c558",
+  "lastOpenFiles": [
+    "ai-handoff/2026-07-19-0854-todo-086-v185-codex-pulse-map-label-overlay-fix.md",
+    "ai-handoff/2026-07-19-0857-todo-086-v186-codex-route-memory-self-registering-places.md",
+    "ai-handoff/2026-07-19-0850-todo-086-v185-claude-v184-no-auto-open-siglufjordur-refetch.md",
+    "ai-handoff/2026-07-19-0847-todo-086-v184-codex-v183-prerelease-review.md",
+    "ai-handoff/2026-07-19-0840-todo-086-v183-claude-v182-vegagerdin-filter-consistency.md",
+    "ai-handoff/2026-07-19-0832-todo-086-v182-codex-v181-prerelease-review.md",
+    "ai-handoff/2026-07-19-0820-todo-086-v181-claude-v180-single-place-filter-scrubber-hint.md",
+    "ai-handoff/2026-07-19-0808-todo-086-v180-codex-v179-bidirectional-nearest-station-review.md",
+    "ai-handoff/2026-07-19-0800-todo-086-v179-claude-v178-bidirectional-nearest-station-handoff.md",
+    "ai-handoff/2026-07-19-0742-todo-086-v178-codex-route-memory-picker-bidirectional-addendum.md",
+    "ai-handoff/2026-07-19-0739-todo-086-v177-codex-v176-route-memory-picker-review.md",
+    "ai-handoff/2026-07-19-0730-todo-086-v176-claude-route-memory-picker-handoff.md",
+    "ai-handoff/2026-07-19-0650-todo-086-v544-claude-v543-done-prerelease.md",
+    "components/weather/RouteMemoryPicker.tsx",
+    "app/api/teskeid/weather/route-memory/destinations/route.ts",
+    "app/api/teskeid/weather/route-memory/destinations",
+    "app/api/teskeid/weather/route-memory/places/route.ts",
+    "app/api/teskeid/weather/route-memory/places",
+    "lib/iceland-routes/routePlaces.ts",
+    "ai-handoff/2026-07-19-0645-todo-086-v543-codex-v542-sql86-migration-gate-review.md",
+    "ai-handoff/2026-07-19-0638-todo-086-v542-codex-route-memory-map-picker-handoff.md",
+    "ai-handoff/2026-07-19-0636-todo-086-v542-claude-v541-done-prerelease.md",
+    "ai-handoff/2026-07-19-0623-todo-086-v541-codex-v540-review-and-next-handoff.md",
+    "lib/iceland-routes/IcelandRoadmap.md",
+    "ai-handoff/2026-07-19-0614-todo-086-v540-claude-v539-done-prerelease.md",
+    "ai-handoff/2026-07-19-0547-todo-086-v539-codex-v538-review-and-route-memory-implementation.md",
+    "lib/__tests__/weather-route-memory-migration.test.ts",
+    "lib/__tests__/route-place-normalization.test.ts",
+    "app/api/teskeid/weather/route-memory/lookup/route.ts",
+    "app/api/teskeid/weather/route-memory/lookup",
+    "ai-handoff/2026-07-19-0542-todo-086-v538-claude-v537-done-prerelease.md",
+    "ai-handoff/2026-07-19-0535-todo-086-v537-codex-v536-prerelease-review.md",
+    "ai-handoff/2026-07-19-0100-todo-086-v536-claude-v535-done-prerelease.md",
+    "ai-handoff/2026-07-19-0047-todo-086-v535-codex-v534-review-and-overview-polish-handoff.md",
+    "ai-handoff/2026-07-19-0045-todo-086-v534-claude-v533-done-prerelease.md",
+    "ai-handoff/2026-07-19-0032-todo-086-v533-codex-v532-prerelease-review.md",
+    "public/opengraph-image.png",
+    "public/favicon-options/ten-minimal-preview.svg",
+    "public/favicon-options/cap-mark-10-only-preview.svg",
+    "public/favicon-options/cap-mark-allt-10-preview.svg",
+    "public/teskeid-logo-10-5-preview.svg",
+    "public/favicon-options/cap-mark-10-5-preview.svg"
+  ]
+}

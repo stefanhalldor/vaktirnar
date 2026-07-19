@@ -1,13 +1,18 @@
 import { notFound } from 'next/navigation'
 import { guardTeskeidSession } from '@/lib/auth/guard'
-import { checkFeatureAccess } from '@/lib/loans/guard'
 import { resolveAuthenticatedWeatherShellAccess } from '@/lib/weather/weatherBaseAccess.server'
-import { FerdalagidClient } from './FerdalagidClient'
+import { WeatherOverviewClient } from '@/components/weather/WeatherOverviewClient'
 
 export default async function VedridPage() {
   const { user } = await guardTeskeidSession()
   const weatherShellAccess = await resolveAuthenticatedWeatherShellAccess(user)
   if (weatherShellAccess.mode === 'blocked') notFound()
-  const tripEnabled = await checkFeatureAccess('', user.email!, 'ferdalagid')
-  return <FerdalagidClient tripEnabled={tripEnabled} />
+  return (
+    <WeatherOverviewClient
+      isOverview
+      tripHref="/auth-mvp/vedrid/ferdalagid"
+      stationPulseReturnBase="/auth-mvp/vedrid"
+      menuVariant="authenticated"
+    />
+  )
 }

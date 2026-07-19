@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
-import { FerdalagidClient } from '@/app/auth-mvp/vedrid/FerdalagidClient'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
+import { WeatherOverviewClient } from '@/components/weather/WeatherOverviewClient'
 
 export default function VedridPublicPage() {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
@@ -12,9 +12,15 @@ export default function VedridPublicPage() {
     redirect('/')
   }
   if (mode === 'authenticated') {
-    // Weather requires login — redirect to sign-in rather than back to home.
     redirect('/innskraning')
   }
 
-  return <FerdalagidClient isGuest />
+  return (
+    <WeatherOverviewClient
+      isOverview
+      tripHref="/vedrid/ferdalagid"
+      stationPulseReturnBase="/vedrid"
+      menuVariant="public"
+    />
+  )
 }

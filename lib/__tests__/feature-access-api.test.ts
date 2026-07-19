@@ -335,3 +335,56 @@ describe('feature-access API — weather-pulse key', () => {
     expect(res.status).toBe(400)
   })
 })
+
+// ── weather-provider-vegagerdin feature key ───────────────────────────────────
+
+describe('feature-access API — weather-provider-vegagerdin key', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('GET ?feature=weather-provider-vegagerdin returns 200 for admin', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ data: [], error: null })
+    const res = await GET(makeGetRequest('weather-provider-vegagerdin'))
+    expect(res.status).toBe(200)
+  })
+
+  it('POST ?feature=weather-provider-vegagerdin grants access and inserts correct feature_key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'weather-provider-vegagerdin'))
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'weather-provider-vegagerdin', email: 'user@example.com' }),
+    )
+  })
+
+  it('DELETE ?feature=weather-provider-vegagerdin revokes access', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await DELETE(makeRequest({ email: 'user@example.com' }, 'DELETE', 'weather-provider-vegagerdin'))
+    expect(res.status).toBe(200)
+  })
+
+  it('weather-provider-vegagerdin insert uses its own feature_key, not elta-vedrid or vedrid', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'weather-provider-vegagerdin'))
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'weather-provider-vegagerdin' }),
+    )
+    expect(mockInsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'weather-provider-vedurstofan' }),
+    )
+    expect(mockInsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ feature_key: 'vedrid' }),
+    )
+  })
+
+  it('GET with unknown variation (weather_provider_vegagerdin) returns 400', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('weather_provider_vegagerdin'))
+    expect(res.status).toBe(400)
+  })
+})

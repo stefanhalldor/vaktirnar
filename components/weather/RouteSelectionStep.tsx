@@ -452,8 +452,9 @@ export function RouteSelectionStep({
       {selectedStation && (
         <ProviderStationPreviewCard
           stationName={selectedStation.stationName}
-          distanceM={selectedStation.distanceM}
+          contextLine={tf('stationDistanceFromRoute', { km: (selectedStation.distanceM / 1000).toFixed(1) })}
           providerLabel={tf('providerVedurstofanLabel')}
+          closeLabel={tf('stationPreviewClose')}
           onClose={() => setSelectedStation(null)}
         >
           {selectedStationRows.length > 0 ? (
@@ -465,7 +466,7 @@ export function RouteSelectionStep({
           ) : (
             <p className="text-xs text-muted-foreground">{tf('stationPreviewNoData')}</p>
           )}
-          <VedurstofanPulseInline stationId={selectedStation.stationId} returnTo="/auth-mvp/vedrid" />
+          <VedurstofanPulseInline stationId={selectedStation.stationId} returnTo="/auth-mvp/vedrid/ferdalagid" />
         </ProviderStationPreviewCard>
       )}
 

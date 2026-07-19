@@ -35,6 +35,8 @@ import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/li
 import { isVedurstofanCycleFresh, getNextCycleAfterAtimeIso } from '@/lib/weather/vedurstofanFreshness'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
+import { readOverviewRouteDraft, clearOverviewRouteDraft } from '@/lib/iceland-routes/routeDraft'
+import { buildRouteObservation, recordRouteObservation } from '@/lib/iceland-routes/routeObservation'
 
 
 type VedurstofanAssessment = {
@@ -225,56 +227,115 @@ export function FerdalagidClient({
     ? ferrySelection.ferryPort.name
     : (destination?.name ?? '')
 
-  // Restore route-result context from sessionStorage on mount (normal refresh or pulse-login return).
-  // Does not require ?restore=1 — any valid, non-expired payload is restored automatically.
+  // On mount: restore prior route result or consume a route draft from /vedrid overview.
+  //
+  // Priority when ?routeDraft=1 is present (user tapped Ferðalagið on /vedrid):
+  //   draft wins — clear any stale session restore so the new intent takes over.
+  // Priority without marker (refresh, back-navigation):
+  //   existing full route result (ROUTE_RESTORE_KEY) > overview route draft.
+  //
   // sessionStorage is tab-scoped: closed tabs start fresh; same-tab refreshes restore last result.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    try {
-      const raw = sessionStorage.getItem(ROUTE_RESTORE_KEY)
-      if (!raw) return
-      const state = JSON.parse(raw)
-      if (!isValidRouteRestorePayload(state)) {
-        sessionStorage.removeItem(ROUTE_RESTORE_KEY)
+
+    const urlParams = new URLSearchParams(window.location.search)
+    const hasDraftMarker = urlParams.get('routeDraft') === '1'
+
+    // When the user explicitly came from /vedrid draft flow, consume draft first.
+    if (hasDraftMarker) {
+      const draft = readOverviewRouteDraft()
+      if (draft) {
+        clearOverviewRouteDraft()
+        // Clear stale session restore so old result cannot override this new intent.
+        try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
+        setOrigin({
+          name: draft.from.name, lat: draft.from.lat, lon: draft.from.lon,
+          formattedAddress: draft.from.formattedAddress, placeId: draft.from.placeId,
+        })
+        setDestination({
+          name: draft.to.name, lat: draft.to.lat, lon: draft.to.lon,
+          formattedAddress: draft.to.formattedAddress, placeId: draft.to.placeId,
+        })
+        // step stays 'route' — user selects route options normally
+        // Clean ?routeDraft=1 from the URL bar
+        const url = new URL(window.location.href)
+        url.searchParams.delete('routeDraft')
+        window.history.replaceState(null, '', url.toString())
         return
       }
-      if (state.origin) setOrigin(state.origin)
-      if (state.destination) setDestination(state.destination)
-      // Store the restored coords so the route-clear effect can skip the hydration-triggered clear
-      restoredCoordsRef.current = {
-        originLat: state.origin?.lat,
-        originLon: state.origin?.lon,
-        destLat: state.destination?.lat,
-        destLon: state.destination?.lon,
-      }
-      if (state.trailerKind) setTrailerKind(state.trailerKind)
-      if (state.thresholdOverrides) setThresholdOverrides(state.thresholdOverrides)
-      if (state.selectedRouteId !== undefined) setSelectedRouteId(state.selectedRouteId)
-      if (state.result) setResult(state.result)
-      if (state.vedurstofanLayer !== undefined) setVedurstofanLayer(state.vedurstofanLayer)
-      if (state.showVedurstofan !== undefined) setShowVedurstofan(state.showVedurstofan)
-      if (state.showMetno !== undefined) setShowMetno(state.showMetno)
-      if (state.selectedHeatmapIdx !== undefined) setSelectedHeatmapIdx(state.selectedHeatmapIdx)
-      if (state.selectedReturnHeatmapIdx !== undefined) setSelectedReturnHeatmapIdx(state.selectedReturnHeatmapIdx)
-      if (Array.isArray(state.outboundVisibleStatuses)) setOutboundVisibleStatuses(new Set(state.outboundVisibleStatuses))
-      if (Array.isArray(state.returnVisibleStatuses)) setReturnVisibleStatuses(new Set(state.returnVisibleStatuses))
-      if (state.submittedThresholds !== undefined) setSubmittedThresholds(state.submittedThresholds)
-      if (state.ferrySelection !== undefined) setFerrySelection(state.ferrySelection)
-      if (state.userExplicitSlot !== undefined) setUserExplicitSlot(state.userExplicitSlot)
-      if (state.routeFallback !== undefined) setRouteFallback(state.routeFallback)
-      setStep('result')
-      // Clean ?restore=1 from URL if coming back from pulse login flow
-      if (typeof window !== 'undefined') {
+      // Draft marker present but draft expired or missing.
+      // The user explicitly came from /vedrid — do NOT restore an unrelated stale trip.
+      // Clean the marker and show an empty route step.
+      const url = new URL(window.location.href)
+      url.searchParams.delete('routeDraft')
+      window.history.replaceState(null, '', url.toString())
+      return
+    }
+
+    // 1. Try to restore a full route result from the previous session.
+    const sessionRestored = (() => {
+      try {
+        const raw = sessionStorage.getItem(ROUTE_RESTORE_KEY)
+        if (!raw) return false
+        const state = JSON.parse(raw)
+        if (!isValidRouteRestorePayload(state)) {
+          sessionStorage.removeItem(ROUTE_RESTORE_KEY)
+          return false
+        }
+        if (state.origin) setOrigin(state.origin)
+        if (state.destination) setDestination(state.destination)
+        // Store the restored coords so the route-clear effect can skip the hydration-triggered clear
+        restoredCoordsRef.current = {
+          originLat: state.origin?.lat,
+          originLon: state.origin?.lon,
+          destLat: state.destination?.lat,
+          destLon: state.destination?.lon,
+        }
+        if (state.trailerKind) setTrailerKind(state.trailerKind)
+        if (state.thresholdOverrides) setThresholdOverrides(state.thresholdOverrides)
+        if (state.selectedRouteId !== undefined) setSelectedRouteId(state.selectedRouteId)
+        if (state.result) setResult(state.result)
+        if (state.vedurstofanLayer !== undefined) setVedurstofanLayer(state.vedurstofanLayer)
+        if (state.showVedurstofan !== undefined) setShowVedurstofan(state.showVedurstofan)
+        if (state.showMetno !== undefined) setShowMetno(state.showMetno)
+        if (state.selectedHeatmapIdx !== undefined) setSelectedHeatmapIdx(state.selectedHeatmapIdx)
+        if (state.selectedReturnHeatmapIdx !== undefined) setSelectedReturnHeatmapIdx(state.selectedReturnHeatmapIdx)
+        if (Array.isArray(state.outboundVisibleStatuses)) setOutboundVisibleStatuses(new Set(state.outboundVisibleStatuses))
+        if (Array.isArray(state.returnVisibleStatuses)) setReturnVisibleStatuses(new Set(state.returnVisibleStatuses))
+        if (state.submittedThresholds !== undefined) setSubmittedThresholds(state.submittedThresholds)
+        if (state.ferrySelection !== undefined) setFerrySelection(state.ferrySelection)
+        if (state.userExplicitSlot !== undefined) setUserExplicitSlot(state.userExplicitSlot)
+        if (state.routeFallback !== undefined) setRouteFallback(state.routeFallback)
+        setStep('result')
+        // Clean ?restore=1 from URL if coming back from pulse login flow
         const params = new URLSearchParams(window.location.search)
         if (params.get('restore') === '1') {
           const url = new URL(window.location.href)
           url.searchParams.delete('restore')
           window.history.replaceState(null, '', url.toString())
         }
+        return true
+      } catch {
+        try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
+        return false
       }
-    } catch {
-      // Corrupt state — remove and start fresh
-      try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
+    })()
+
+    if (sessionRestored) return
+
+    // 2. Check for an overview route draft written by /vedrid (no marker — e.g. same-tab nav).
+    const draft = readOverviewRouteDraft()
+    if (draft) {
+      clearOverviewRouteDraft()
+      setOrigin({
+        name: draft.from.name, lat: draft.from.lat, lon: draft.from.lon,
+        formattedAddress: draft.from.formattedAddress, placeId: draft.from.placeId,
+      })
+      setDestination({
+        name: draft.to.name, lat: draft.to.lat, lon: draft.to.lon,
+        formattedAddress: draft.to.formattedAddress, placeId: draft.to.placeId,
+      })
+      // step stays 'route' — user sees route options and selects as normal
     }
   }, []) // mount only
 
@@ -658,6 +719,18 @@ export function FerdalagidClient({
         serverInitDoneRef.current = false
         setResult(travelData)
         setSubmittedThresholds(overridesToSend)
+        // Non-blocking route observation — best-effort, does not affect trip UX (v531 R2)
+        try {
+          const obs = buildRouteObservation(
+            origin?.name ?? '',
+            (ferrySelection?.ferryPort ?? destination)?.name ?? '',
+            travelData,
+            travelData.vedurstofanLayer,
+          )
+          if (obs) recordRouteObservation(obs)
+        } catch {
+          // observation write failure must never surface to the user
+        }
       }
     } catch {
       setError(tf('errorGeneral'))
@@ -1192,7 +1265,7 @@ export function FerdalagidClient({
   // returnTo passed to Veðurstofan point cards for the pulse login CTA.
   // sessionStorage restores automatically on mount — no ?restore=1 needed.
   const vedurstofanReturnTo = (step === 'result' && result)
-    ? '/auth-mvp/vedrid'
+    ? '/auth-mvp/vedrid/ferdalagid'
     : undefined
 
   // Show refresh button when data is stale, except while refreshing/running/fresh/cooldown.
@@ -2507,6 +2580,7 @@ const ROUTE_POINT_CARD_CLASS: Record<WindDisplayStatus, string> = {
   'nalgast-haettumork': 'bg-destructive/5 border-destructive/30',
   'haettulegt':         'bg-destructive/5 border-destructive/30',
   'no_data':            'bg-muted/40 border-muted-foreground/20',
+  'no_wind_data':       'bg-muted/40 border-muted-foreground/20',
 }
 
 function RoutePointRow({

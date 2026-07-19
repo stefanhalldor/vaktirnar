@@ -60,3 +60,21 @@ export function selectUpcomingRows(rows: ForecastRowData[], limit = 3): Forecast
   const upcoming = sorted.filter(r => Date.parse(r.ftimeIso) >= now)
   return (upcoming.length > 0 ? upcoming : sorted).slice(0, limit)
 }
+
+/**
+ * Selects up to nBefore rows at/before anchor and nAfter rows strictly after anchor,
+ * returning them sorted ascending. This gives a window around the current time,
+ * e.g. "2 past + 2 future" so the user sees both context and what is coming.
+ * Falls back gracefully: if no past rows exist, fills with future; vice versa.
+ */
+export function selectForecastWindow(
+  rows: ForecastRowData[],
+  nBefore: number,
+  nAfter: number,
+  anchor: number = Date.now()
+): ForecastRowData[] {
+  const sorted = [...rows].sort((a, b) => Date.parse(a.ftimeIso) - Date.parse(b.ftimeIso))
+  const atOrBefore = sorted.filter(r => Date.parse(r.ftimeIso) <= anchor)
+  const after = sorted.filter(r => Date.parse(r.ftimeIso) > anchor)
+  return [...atOrBefore.slice(-nBefore), ...after.slice(0, nAfter)]
+}

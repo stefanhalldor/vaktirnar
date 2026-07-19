@@ -121,3 +121,51 @@ describe('checkChatAccess — provider required even when pulse graduated', () =
     expect(await checkChatAccess(makeUser())).toBe('no-vedurstofan')
   })
 })
+
+describe('checkChatAccess — vegagerdin provider', () => {
+  it('returns allowed for vegagerdin when WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED is not set', async () => {
+    vi.stubEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', '')
+    // Feature access should never be checked for vegagerdin when gate is off
+    expect(await checkChatAccess(makeUser(), { provider: 'vegagerdin' })).toBe('allowed')
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), 'weather-provider-vegagerdin')
+  })
+
+  it('returns allowed for vegagerdin when WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED=false', async () => {
+    vi.stubEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', 'false')
+    expect(await checkChatAccess(makeUser(), { provider: 'vegagerdin' })).toBe('allowed')
+  })
+
+  it('returns allowed for vegagerdin when gate is true and feature row exists', async () => {
+    vi.stubEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', 'true')
+    mockCheckFeatureAccess.mockImplementation(async (_uid, _email, key) => {
+      if (key === 'weather-provider-vegagerdin') return true
+      return false // vedurstofan row absent — must not block vegagerdin path
+    })
+    expect(await checkChatAccess(makeUser(), { provider: 'vegagerdin' })).toBe('allowed')
+  })
+
+  it('returns no-vegagerdin when gate is true and feature row is missing', async () => {
+    vi.stubEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', 'true')
+    mockCheckFeatureAccess.mockImplementation(async (_uid, _email, key) => {
+      if (key === 'weather-provider-vegagerdin') return false
+      return true
+    })
+    expect(await checkChatAccess(makeUser(), { provider: 'vegagerdin' })).toBe('no-vegagerdin')
+  })
+
+  it('returns no-session for vegagerdin when user is null', async () => {
+    expect(await checkChatAccess(null, { provider: 'vegagerdin' })).toBe('no-session')
+  })
+
+  it('returns no-weather for vegagerdin when weather shell is blocked', async () => {
+    mockShellAccess.mockResolvedValue({ mode: 'blocked' })
+    expect(await checkChatAccess(makeUser(), { provider: 'vegagerdin' })).toBe('no-weather')
+  })
+
+  it('vegagerdin does not require vedurstofan feature row', async () => {
+    vi.stubEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', '')
+    mockCheckFeatureAccess.mockResolvedValue(false) // all feature rows missing
+    // Should still be allowed because vegagerdin gate is off
+    expect(await checkChatAccess(makeUser(), { provider: 'vegagerdin' })).toBe('allowed')
+  })
+})

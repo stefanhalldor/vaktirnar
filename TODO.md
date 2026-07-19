@@ -69,6 +69,7 @@ tilvísanir og verkefnasaga rofni ekki.
 | 37  | **#87 Veður: auglýsingahamur í kringum keyrðar leiðir**     | **Business/product discovery.** Skoða hvernig route-tengd auglýsing gæti virkað án staðsetningarleka, mögulega með auglýsendum sem nota Teskeið-aðgang til að setja auglýsingar niður á hnit. |
 | 38  | **#88 Veður: fuzzy staðarleit og staðfesting á korti**      | **Ferðalagið route-selection polish.** Þegar notandi velur eða skrifar stað sem er ekki nákvæmlega úr fellilistanum þarf fuzzy leit, pinni á korti og staðfesting svo réttur staður sé valinn. |
 | 39  | **#89 Veður: spjall per live punkt og síðar vegakafla**     | **Community/weather layer.** Eftir að Vegagerðin er komin inn: byrja á spjalli per live Vegagerðarpunkt; Veðurstofustöðvar geta verið fallback/viðbót og síðar tengt við vegakafla. |
+| 40  | **#90 Veður: eigið Íslandsleiðarkerfi og vegkaflagrunnur** | **Stór architecture/discovery vinna.** Meta hvort Teskeið eigi að byggja eigin einfalt leiðarkerfi fyrir Ísland, byggt á vegkafla-grunni/cache, í stað þess að rembast endalaust við Google Routes fyrir langar landsleiðir. |
 
 ## Vinnupakkar
 
@@ -98,7 +99,7 @@ OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
 hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
 fullkomnara.
 
-**Pakki F — Veðrið / Ferðalagið:** #85, #81, #82, #83, #67, #70, #71, #72, #73, #74, #75, #79, #80, #88, #89 og áframhaldandi `todo-067` handoff.
+**Pakki F — Veðrið / Ferðalagið:** #85, #81, #82, #83, #67, #70, #71, #72, #73, #74, #75, #79, #80, #88, #89, #90 og áframhaldandi `todo-067` handoff.
 Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
 traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
 brottfarar- eða heimferðartíma kerfið mælir með.
@@ -3081,3 +3082,186 @@ bíða eftir fullu vegakafla-módeli.
 14. Prófa gamla færslu.
 15. Vænt: aldur og úrelding eru augljós, svo notandi ruglar henni ekki saman við
     nýjustu veður- eða vegaupplýsingar.
+
+---
+
+#90
+## Veður: eigið Íslandsleiðarkerfi og vegkaflagrunnur
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-18
+
+**Samhengi frá Stebba:** Alvarlega íhuga að búa til eigið leiðarkerfi í stað
+þess að halda áfram að rembast við Google Routes API. Teskeið er að fókusa á
+Ísland, langar landsleiðir, veður, vegkafla og ferðaleiðir milli byggðakjarna,
+ekki nákvæma götu-til-götu navigation í öllum heiminum.
+
+**Vandamál:** Google Routes er sterkt sem almenn navigation-þjónusta, en fyrir
+Teskeiðar-veðrið höfum við ítrekað lent í því að þurfa að smíða ofan á
+niðurstöðurnar:
+
+- curated leiðir um Hólmavík, Öxi, Hellisheiði og fleiri vegkafla;
+- control points til að ná beygjum, fjörðum og fjallvegum rétt;
+- route-safety flags fyrir vegkafla sem eru varasamir með eftirvagna;
+- provider-station matching við route geometry;
+- cache/hitamap-pælingar um hvaða vegkafla fólk er að skoða;
+- þörf á að sýna landshluta-, vegkafla- og aðstæðuyfirlit áður en notandi velur
+  nákvæma leið.
+
+Ef við höldum áfram að nota Google Routes sem eina source of truth fyrir alla
+leiðarfræði gæti Teskeið endað í endalausum sérreglum utan um provider sem er
+ekki hannaður fyrir okkar þrönga Íslands- og veðurkontekst.
+
+**Ósk:** Rannsaka og hanna eigin einfalt Íslandsleiðarkerfi / vegkaflagrunn fyrir
+Teskeið, þar sem við eigum canonical vegkafla, tengingar, control points,
+provider-station matching, hættumerkingar og leiða-cache. Kerfið þarf ekki að
+vera nákvæmt niður í götu; það þarf að vera nógu gott fyrir langar leiðir,
+ferðaveður, vegakafla, stöðvar, púlsgögn og yfirlit yfir Ísland.
+
+**Vörustefna:**
+
+- Byrja sem discovery/architecture áður en kóði er skrifaður.
+- Google Routes má áfram vera fallback eða validation provider í fyrstu.
+- Markmiðið er ekki að keppa við Google Maps í nákvæmri navigation, heldur að
+  Teskeið eigi sitt eigið weather/road-intelligence lag fyrir Ísland.
+- Leiðarkerfið á að hjálpa notanda að taka betri ferðaveðurákvörðun, ekki gefa
+  fullkomin turn-by-turn fyrirmæli.
+- Leiðir þurfa að vera skýrar, mannamálslegar og Teskeiðarlegar:
+  `Gegnum Hólmavík`, `Til að sleppa við Öxi`, `Um firðina`,
+  `Suðurleið`, `Norðurleið`, o.s.frv.
+- Þetta tengist sterklega framtíðar yfirlitskorti, route-cache, interest heatmap,
+  Vegagerðarpunktum, Veðurstofustöðvum, Yr samanburði og Veðurpúlsi.
+
+**Við útfærslu / discovery:**
+
+- Kortleggja hvaða gögn við höfum nú þegar:
+  - Google route polyline,
+  - curated route vias/control points,
+  - `routeControlPoints`,
+  - `routeCautions`,
+  - Veðurstofustöðvar,
+  - Vegagerðarpunkta,
+  - route-cache/interest heatmap pælingar,
+  - vinsælar leiðir og algengar route families.
+- Skilgreina einfalt canonical road-segment model:
+  - segment id,
+  - display name,
+  - geometry/control points,
+  - connected segments,
+  - direction/order,
+  - provider stations nearby,
+  - known safety flags,
+  - route family labels.
+- Meta hvort hægt sé að byrja með hand-curated backbone fyrir Ísland:
+  - Hringvegurinn,
+  - helstu fjallvegir,
+  - Vestfirðir,
+  - Austfirðir,
+  - Suðurland,
+  - Norðurland,
+  - helstu ferðamannaleiðir.
+- Skilgreina hvernig route matching myndi virka:
+  - user origin/destination er map-að á næstu canonical node/segment,
+  - leið er reiknuð yfir graph,
+  - veðurstöðvar og Vegagerðarpunktar eru tengdir við segment,
+  - Google Routes má nota til að sannreyna/teikna eða fallback-a þar sem graph
+    vantar.
+- Skilgreina hvernig route cache og interest heatmap nýtir segment-level gögn:
+  - telja áhuga á vegkafla, ekki bara nákvæmu Reykjavík -> Akureyri query;
+  - geta séð hvaða landshluta og vegkafla fólk er að spá í;
+  - forðast að geyma nákvæm heimilisföng eða persónulegar route queries.
+- Meta hvort open data sé til og leyfilegt:
+  - Vegagerðin/open road data,
+  - OpenStreetMap/OSM,
+  - eigin curated JSON/TS registry til að byrja,
+  - leyfi, attribution og cache-reglur.
+- Huga að því hvort leiðarkerfið eigi að búa í kóða fyrst eða Supabase síðar.
+  Fyrsti fasi má líklega vera typed registry í `lib/weather/` ef það heldur
+  scope einföldu, en langtímaútgáfa gæti þurft DB.
+- Ekki henda núverandi Google integration út fyrr en nýr grunnur er sannreyndur.
+  Fasa þetta þannig að Google og eigið leiðarkerfi geti keyrt hlið við hlið.
+
+**Tengist:**
+
+- #70 Veður: leiðartími og route-provider samanburður
+- #80 Veður: merkja hættulega eða óhentuga vegkafla
+- #82 Veður: `Af stað!` fyrir custom/curated leiðir
+- #83 Veður: veður-risk á route option spjöldum
+- #89 Veður: spjall per live punkt og síðar vegakafla
+- route-cache og interest heatmap handoff:
+  `ai-handoff/2026-07-17-0627-todo-086-v382-codex-route-cache-and-interest-heatmap.md`
+- deferred Vík/Reynisfjall/route-section vandamál:
+  `ai-handoff/2026-07-17-0930-todo-086-v398-claude-vik-sections-deferred-verified-handoff.md`
+- deferred Öxi/suðurleið/Höfn vandamál:
+  `ai-handoff/2026-07-17-1039-todo-086-v409-deferred-oxi-south-coast-reynisfjall.md`
+
+**Öryggi, kostnaður og gögn:**
+
+- Ekki geyma nákvæm heimilisföng eða persónuleg leiðarhnit nema sérstök
+  privacy-rýni og samþykki liggi fyrir.
+- Route-interest heatmap á að vera aggregate og helst segment-level, ekki
+  user-level.
+- Ekki búa til navigation-kerfi sem gefur til kynna opinbera færð eða öryggi
+  nema gögnin styðji það. Texti þarf að vera skýr: Teskeið hjálpar til við
+  ákvörðun, en notandi ber ábyrgð og á að athuga Vegagerðina.
+- Ef OSM/open data er notað þarf að staðfesta leyfi, attribution og cache-reglur.
+- Ef Google er áfram notað sem fallback þarf að virða API-skilmála, caching
+  reglur og kostnað.
+- Ekki veikja núverandi public/auth gating, Supabase RLS eða feature flags.
+- Ef SQL/DB registry kemur síðar þarf sér migration-plan með RLS, grants og
+  rollback áður en nokkuð er keyrt.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Kortleggja núverandi leiðarlógík:
+   - Google route fetch,
+   - curated vias,
+   - control points,
+   - route caution detection,
+   - provider station matching,
+   - route options UI.
+2. Skrá 10-20 leiðir sem hafa valdið vandræðum eða eru mikilvægar:
+   - Reykjavík -> Ísafjörður,
+   - Ísafjörður -> Akureyri,
+   - Höfn -> Egilsstaðir,
+   - Reykjavík -> Egilsstaðir,
+   - Vík -> Hella,
+   - Höfn -> Þorlákshöfn,
+   - fleiri helstu landsleiðir.
+3. Fyrir hverja leið: bera saman hvað Google skilar núna, hvaða curated leiðir
+   við viljum bjóða, hvaða vegkaflar skipta máli og hvaða stöðvar ættu að
+   tengjast.
+4. Staðfesta hvort einfalt graph yfir helstu vegi myndi leysa 80% vandans án
+   þess að við þurfum fulla götunákvæmni.
+5. Meta kostnað og maintenance:
+   - hand-curated registry,
+   - OSM import,
+   - Google fallback,
+   - Supabase cache,
+   - prófunarbyrði.
+6. Ákveða fyrsta minnsta áfanga:
+   - aðeins architecture note,
+   - typed registry fyrir 5-10 critical segments,
+   - route matching við existing Google polyline,
+   - eða eigin graph prototype á bakvið flag.
+
+**Localhost checks for Stebbi eftir framtíðarbreytingu:**
+
+1. Opna `/vedrid`.
+2. Prófa nokkrar langar landsleiðir sem áður þurftu curated sérreglur.
+3. Vænt: notandi sér mannamálslegar leiðir sem passa Íslandskontekst, t.d.
+   `Gegnum Hólmavík` eða `Til að sleppa við Öxi`.
+4. Vænt: Veðurstofu- og Vegagerðarpunktar tengjast réttum vegkafla, ekki aðeins
+   hráum Google polyline-punktum.
+5. Vænt: route-safety flags birtast á réttum route options.
+6. Prófa leið þar sem Google fallback er enn notað.
+7. Vænt: fallback virkar án þess að notandi upplifi brotið eða tvöfalt flæði.
+8. Prófa public og innskráðan notanda.
+9. Vænt: public sér opin ferðaveðursgögn sem eiga að vera public, innskráður
+   heldur sínum stillingum og vistunum.
+10. Prófa mobile 360-460 px og desktop.
+11. Vænt: route-val, kort, warnings og provider-stöðvar valda ekki overflow,
+    overlap eða dauðum loading states.
+12. Ef route-interest/heatmap er hluti af fasa: staðfesta að aðeins aggregate
+    segment-level gögn séu skráð og að engin nákvæm heimilisföng leki.

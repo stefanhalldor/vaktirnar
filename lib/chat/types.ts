@@ -1,5 +1,5 @@
 export type ChatDomain = 'weather'
-export type ChatTargetType = 'vedurstofan_station'
+export type ChatTargetType = 'vedurstofan_station' | 'vegagerdin_station'
 export type ChatMessageKind = 'chat' | 'field_report' | 'measurement_report' | 'system'
 
 /** The stable target a chat thread is scoped to. */
@@ -99,6 +99,28 @@ export interface FeedMessageDto {
     provider: string | null
   }
 }
+
+/**
+ * The stable target identity carried by a conditions feed item.
+ * Used as callback argument so callers don't have to reconstruct target info.
+ */
+export interface ConditionFeedTarget {
+  targetType: ChatTargetType
+  targetId: string
+  targetName: string
+  provider: string | null
+}
+
+/**
+ * Preview DTO for the public conditions feed.
+ * One entry per target (station or future context) — only the latest visible message.
+ * Safe for public consumption: no user IDs, no emails.
+ */
+export interface ConditionFeedPreviewItemDto extends ConditionFeedTarget {
+  latestMessage: MessageDto
+  latestAt: string
+}
+
 
 export interface CreateMessageInput {
   body: string

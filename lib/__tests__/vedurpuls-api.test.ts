@@ -20,6 +20,8 @@ const { mockMarkThreadRead } = vi.hoisted(() => ({ mockMarkThreadRead: vi.fn() }
 const { mockReportMessage } = vi.hoisted(() => ({ mockReportMessage: vi.fn() }))
 const { mockAssertThreadScope } = vi.hoisted(() => ({ mockAssertThreadScope: vi.fn() }))
 const { mockAssertMessageScope } = vi.hoisted(() => ({ mockAssertMessageScope: vi.fn() }))
+const { mockGetThreadProvider } = vi.hoisted(() => ({ mockGetThreadProvider: vi.fn() }))
+const { mockGetMessageProvider } = vi.hoisted(() => ({ mockGetMessageProvider: vi.fn() }))
 const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -33,7 +35,7 @@ vi.mock('@/lib/chat/access.server', () => ({
 }))
 
 vi.mock('@/lib/chat/adapters/weather.server', () => ({
-  buildWeatherStationTarget: mockBuildTarget,
+  buildWeatherPulseTarget: mockBuildTarget,
 }))
 
 vi.mock('@/lib/chat/repository.server', () => ({
@@ -42,8 +44,12 @@ vi.mock('@/lib/chat/repository.server', () => ({
   postMessage: mockPostMessage,
   markThreadRead: mockMarkThreadRead,
   reportMessage: mockReportMessage,
+  // assertThreadScope and assertMessageScope are no longer called in messages/read/report routes;
+  // kept in mock so tests that reference them don't import-error.
   assertThreadScope: mockAssertThreadScope,
   assertMessageScope: mockAssertMessageScope,
+  getThreadProvider: mockGetThreadProvider,
+  getMessageProvider: mockGetMessageProvider,
 }))
 
 import { POST as threadPost } from '@/app/api/auth-mvp/vedurpuls/thread/route'
@@ -108,6 +114,9 @@ beforeEach(() => {
   mockCheckChatAccess.mockResolvedValue('allowed')
   mockAssertThreadScope.mockResolvedValue(undefined)
   mockAssertMessageScope.mockResolvedValue(undefined)
+  // Default: treat threads as vedurstofan_station (preserves existing test behavior).
+  mockGetThreadProvider.mockResolvedValue('vedurstofan')
+  mockGetMessageProvider.mockResolvedValue('vedurstofan')
 })
 
 // ── thread POST ───────────────────────────────────────────────────────────────
@@ -115,49 +124,78 @@ beforeEach(() => {
 describe('POST /api/auth-mvp/vedurpuls/thread', () => {
   it('returns 401 when no session', async () => {
     mockCheckChatAccess.mockResolvedValue('no-session')
-    const res = await threadPost(makeRequest({ targetId: '31392' }))
+    const res = await threadPost(makeRequest({ targetId: '31392', provider: 'vedurstofan' }))
     expect(res.status).toBe(401)
   })
 
   it('returns 503 when chat disabled', async () => {
     mockCheckChatAccess.mockResolvedValue('chat-disabled')
-    const res = await threadPost(makeRequest({ targetId: '31392' }))
+    const res = await threadPost(makeRequest({ targetId: '31392', provider: 'vedurstofan' }))
     expect(res.status).toBe(503)
   })
 
   it('returns 403 when no vedurstofan access', async () => {
     mockCheckChatAccess.mockResolvedValue('no-vedurstofan')
-    const res = await threadPost(makeRequest({ targetId: '31392' }))
+    const res = await threadPost(makeRequest({ targetId: '31392', provider: 'vedurstofan' }))
     expect(res.status).toBe(403)
   })
 
   it('returns 400 when targetId missing', async () => {
-    const res = await threadPost(makeRequest({}))
+    const res = await threadPost(makeRequest({ provider: 'vedurstofan' }))
     expect(res.status).toBe(400)
   })
 
+  it('returns 400 when provider is omitted', async () => {
+    const res = await threadPost(makeRequest({ targetId: '31392' }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('provider')
+  })
+
+  it('returns 400 when provider is an unknown value', async () => {
+    const res = await threadPost(makeRequest({ targetId: '31392', provider: 'unknown' }))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('provider')
+  })
+
   it('returns 400 for unknown station', async () => {
-    mockBuildTarget.mockReturnValue(null)
-    const res = await threadPost(makeRequest({ targetId: 'notastation' }))
+    mockBuildTarget.mockResolvedValue(null)
+    const res = await threadPost(makeRequest({ targetId: 'notastation', provider: 'vedurstofan' }))
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toBe('unknown station')
   })
 
-  it('returns 200 with ThreadDto for known station', async () => {
-    mockBuildTarget.mockReturnValue(STATION_TARGET)
+  it('returns 200 with ThreadDto for known vedurstofan station', async () => {
+    mockBuildTarget.mockResolvedValue(STATION_TARGET)
     mockGetOrCreate.mockResolvedValue(THREAD_DTO)
-    const res = await threadPost(makeRequest({ targetId: '31392' }))
+    const res = await threadPost(makeRequest({ targetId: '31392', provider: 'vedurstofan' }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.id).toBe(VALID_UUID)
     expect(body.targetId).toBe('31392')
   })
 
+  it('passes vedurstofan provider when specified', async () => {
+    mockBuildTarget.mockResolvedValue(STATION_TARGET)
+    mockGetOrCreate.mockResolvedValue(THREAD_DTO)
+    await threadPost(makeRequest({ targetId: '31392', provider: 'vedurstofan' }))
+    expect(mockBuildTarget).toHaveBeenCalledWith('vedurstofan', '31392')
+  })
+
+  it('passes vegagerdin provider when specified', async () => {
+    const vegTarget = { ...STATION_TARGET, targetType: 'vegagerdin_station' as const, provider: 'vegagerdin' }
+    mockBuildTarget.mockResolvedValue(vegTarget)
+    mockGetOrCreate.mockResolvedValue({ ...THREAD_DTO, targetType: 'vegagerdin_station' })
+    await threadPost(makeRequest({ targetId: 'V1234', provider: 'vegagerdin' }))
+    expect(mockBuildTarget).toHaveBeenCalledWith('vegagerdin', 'V1234')
+  })
+
   it('returns 500 when repository throws', async () => {
-    mockBuildTarget.mockReturnValue(STATION_TARGET)
+    mockBuildTarget.mockResolvedValue(STATION_TARGET)
     mockGetOrCreate.mockRejectedValue(new Error('chat: getOrCreateThread failed'))
-    const res = await threadPost(makeRequest({ targetId: '31392' }))
+    const res = await threadPost(makeRequest({ targetId: '31392', provider: 'vedurstofan' }))
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.error).toBe('thread unavailable')
@@ -213,16 +251,25 @@ describe('GET /api/auth-mvp/vedurpuls/messages', () => {
     expect(mockListMessages).toHaveBeenCalledWith(VALID_UUID, expect.objectContaining({ limit: 100 }))
   })
 
-  it('returns 404 when threadId is out of scope', async () => {
-    mockAssertThreadScope.mockRejectedValue(new Error('chat: not found'))
+  it('returns 404 when thread is not in weather pulse scope', async () => {
+    mockGetThreadProvider.mockResolvedValue(null)
     const res = await messagesGet(makeGetRequest({ threadId: VALID_UUID }))
     expect(res.status).toBe(404)
     const body = await res.json()
     expect(body.error).toBe('not found')
   })
 
-  it('returns 500 when scope check fails with a DB error', async () => {
-    mockAssertThreadScope.mockRejectedValue(new Error('chat: scope check failed'))
+  it('returns 404 before access check for out-of-scope thread (scope-first ordering)', async () => {
+    // Even if checkChatAccess would allow, out-of-scope returns 404 first
+    mockGetThreadProvider.mockResolvedValue(null)
+    mockCheckChatAccess.mockResolvedValue('allowed')
+    const res = await messagesGet(makeGetRequest({ threadId: VALID_UUID }))
+    expect(res.status).toBe(404)
+    expect(mockCheckChatAccess).not.toHaveBeenCalled()
+  })
+
+  it('returns 500 when provider lookup fails with a DB error', async () => {
+    mockGetThreadProvider.mockRejectedValue(new Error('DB error'))
     const res = await messagesGet(makeGetRequest({ threadId: VALID_UUID }))
     expect(res.status).toBe(500)
     const body = await res.json()
@@ -299,8 +346,17 @@ describe('POST /api/auth-mvp/vedurpuls/messages', () => {
     expect(res.status).toBe(400)
   })
 
-  it('returns 404 when threadId is out of scope', async () => {
-    mockAssertThreadScope.mockRejectedValue(new Error('chat: not found'))
+  it('returns 404 when thread is not in weather pulse scope', async () => {
+    mockGetThreadProvider.mockResolvedValue(null)
+    const res = await messagesPost(makeRequest({ threadId: VALID_UUID, body: 'test' }, 'POST', url))
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error).toBe('not found')
+  })
+
+  it('returns 404 when posting to a vedurstofan_station thread (write-scope is primary-only)', async () => {
+    // POST scope uses PRIMARY_TARGET_TYPES (vegagerdin only); vedurstofan threads return null
+    mockGetThreadProvider.mockResolvedValue(null)
     const res = await messagesPost(makeRequest({ threadId: VALID_UUID, body: 'test' }, 'POST', url))
     expect(res.status).toBe(404)
     const body = await res.json()
@@ -348,12 +404,20 @@ describe('POST /api/auth-mvp/vedurpuls/read', () => {
     expect(mockMarkThreadRead).toHaveBeenCalledWith(VALID_UUID, 'uid-1')
   })
 
-  it('returns 404 when threadId is out of scope', async () => {
-    mockAssertThreadScope.mockRejectedValue(new Error('chat: not found'))
+  it('returns 404 when thread is not in weather pulse scope', async () => {
+    mockGetThreadProvider.mockResolvedValue(null)
     const res = await readPost(makeRequest({ threadId: VALID_UUID }, 'POST', url))
     expect(res.status).toBe(404)
     const body = await res.json()
     expect(body.error).toBe('not found')
+  })
+
+  it('returns 404 before access check for out-of-scope thread', async () => {
+    mockGetThreadProvider.mockResolvedValue(null)
+    mockCheckChatAccess.mockResolvedValue('allowed')
+    const res = await readPost(makeRequest({ threadId: VALID_UUID }, 'POST', url))
+    expect(res.status).toBe(404)
+    expect(mockCheckChatAccess).not.toHaveBeenCalled()
   })
 
   it('returns 500 when repository throws', async () => {
@@ -403,12 +467,20 @@ describe('POST /api/auth-mvp/vedurpuls/report', () => {
     expect(res.status).toBe(400)
   })
 
-  it('returns 404 when messageId is out of scope', async () => {
-    mockAssertMessageScope.mockRejectedValue(new Error('chat: not found'))
+  it('returns 404 when message is not in weather pulse scope', async () => {
+    mockGetMessageProvider.mockResolvedValue(null)
     const res = await reportPost(makeRequest({ messageId: VALID_UUID, reason: 'spam' }, 'POST', url))
     expect(res.status).toBe(404)
     const body = await res.json()
     expect(body.error).toBe('not found')
+  })
+
+  it('returns 404 before access check for out-of-scope message', async () => {
+    mockGetMessageProvider.mockResolvedValue(null)
+    mockCheckChatAccess.mockResolvedValue('allowed')
+    const res = await reportPost(makeRequest({ messageId: VALID_UUID, reason: 'spam' }, 'POST', url))
+    expect(res.status).toBe(404)
+    expect(mockCheckChatAccess).not.toHaveBeenCalled()
   })
 
   it('returns 201 on successful report', async () => {
@@ -440,5 +512,97 @@ describe('POST /api/auth-mvp/vedurpuls/report', () => {
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.error).toBe('report failed')
+  })
+})
+
+// ── provider-aware access: messages GET ───────────────────────────────────────
+
+describe('GET /api/auth-mvp/vedurpuls/messages — provider-aware access', () => {
+  it('calls checkChatAccess with vegagerdin provider for vegagerdin_station thread', async () => {
+    mockGetThreadProvider.mockResolvedValue('vegagerdin')
+    mockListMessages.mockResolvedValue([])
+    await messagesGet(makeGetRequest({ threadId: VALID_UUID }))
+    expect(mockCheckChatAccess).toHaveBeenCalledWith(expect.anything(), { provider: 'vegagerdin' })
+  })
+
+  it('succeeds for vegagerdin thread when vedurstofan access is denied', async () => {
+    mockGetThreadProvider.mockResolvedValue('vegagerdin')
+    mockCheckChatAccess.mockImplementation(async (_user, opts) =>
+      opts?.provider === 'vegagerdin' ? 'allowed' : 'no-vedurstofan'
+    )
+    mockListMessages.mockResolvedValue([MESSAGE_DTO])
+    const res = await messagesGet(makeGetRequest({ threadId: VALID_UUID }))
+    expect(res.status).toBe(200)
+  })
+
+  it('returns 403 for vedurstofan thread when vedurstofan access is denied', async () => {
+    mockGetThreadProvider.mockResolvedValue('vedurstofan')
+    mockCheckChatAccess.mockResolvedValue('no-vedurstofan')
+    const res = await messagesGet(makeGetRequest({ threadId: VALID_UUID }))
+    expect(res.status).toBe(403)
+  })
+
+  it('returns 404 when thread does not exist (provider not resolvable)', async () => {
+    mockGetThreadProvider.mockResolvedValue(null)
+    const res = await messagesGet(makeGetRequest({ threadId: VALID_UUID }))
+    expect(res.status).toBe(404)
+  })
+})
+
+// ── provider-aware access: read POST ──────────────────────────────────────────
+
+describe('POST /api/auth-mvp/vedurpuls/read — provider-aware access', () => {
+  const url = 'http://localhost/api/auth-mvp/vedurpuls/read'
+
+  it('calls checkChatAccess with vegagerdin provider for vegagerdin_station thread', async () => {
+    mockGetThreadProvider.mockResolvedValue('vegagerdin')
+    mockMarkThreadRead.mockResolvedValue(undefined)
+    await readPost(makeRequest({ threadId: VALID_UUID }, 'POST', url))
+    expect(mockCheckChatAccess).toHaveBeenCalledWith(expect.anything(), { provider: 'vegagerdin' })
+  })
+
+  it('succeeds for vegagerdin thread when vedurstofan access is denied', async () => {
+    mockGetThreadProvider.mockResolvedValue('vegagerdin')
+    mockCheckChatAccess.mockImplementation(async (_user, opts) =>
+      opts?.provider === 'vegagerdin' ? 'allowed' : 'no-vedurstofan'
+    )
+    mockMarkThreadRead.mockResolvedValue(undefined)
+    const res = await readPost(makeRequest({ threadId: VALID_UUID }, 'POST', url))
+    expect(res.status).toBe(200)
+  })
+
+  it('returns 404 when thread does not exist (provider not resolvable)', async () => {
+    mockGetThreadProvider.mockResolvedValue(null)
+    const res = await readPost(makeRequest({ threadId: VALID_UUID }, 'POST', url))
+    expect(res.status).toBe(404)
+  })
+})
+
+// ── provider-aware access: report POST ────────────────────────────────────────
+
+describe('POST /api/auth-mvp/vedurpuls/report — provider-aware access', () => {
+  const url = 'http://localhost/api/auth-mvp/vedurpuls/report'
+
+  it('calls checkChatAccess with vegagerdin provider for message in vegagerdin_station thread', async () => {
+    mockGetMessageProvider.mockResolvedValue('vegagerdin')
+    mockReportMessage.mockResolvedValue(undefined)
+    await reportPost(makeRequest({ messageId: VALID_UUID, reason: 'spam' }, 'POST', url))
+    expect(mockCheckChatAccess).toHaveBeenCalledWith(expect.anything(), { provider: 'vegagerdin' })
+  })
+
+  it('succeeds for vegagerdin message when vedurstofan access is denied', async () => {
+    mockGetMessageProvider.mockResolvedValue('vegagerdin')
+    mockCheckChatAccess.mockImplementation(async (_user, opts) =>
+      opts?.provider === 'vegagerdin' ? 'allowed' : 'no-vedurstofan'
+    )
+    mockReportMessage.mockResolvedValue(undefined)
+    const res = await reportPost(makeRequest({ messageId: VALID_UUID, reason: 'spam' }, 'POST', url))
+    expect(res.status).toBe(201)
+  })
+
+  it('returns 404 when message does not exist (provider not resolvable)', async () => {
+    mockGetMessageProvider.mockResolvedValue(null)
+    const res = await reportPost(makeRequest({ messageId: VALID_UUID, reason: 'spam' }, 'POST', url))
+    expect(res.status).toBe(404)
   })
 })

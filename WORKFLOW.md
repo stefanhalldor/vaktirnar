@@ -167,6 +167,73 @@ Markmiðið er ekki að vera leiðinlegir, heldur að vernda verkefnið og hjál
 
 ---
 
+## Vöru- og architecture-principles
+
+Teskeið á að byggjast upp úr endurnýtanlegum, skýrum kjarnahlutum frekar en
+einnota lausnum sem líta út fyrir að vera fljótlegar í augnablikinu.
+
+Þegar nýtt feature, skjár, kortalag, chat/púls, provider eða UI-mynstur er
+planað eða útfært skulu Codex og Claude Code meta sérstaklega:
+
+- hvaða núverandi components, hooks, helpers, types, API contracts og
+  domain-lógík er hægt að endurnýta
+- hvort rétt sé að extract-a nýjan reusable kjarna áður en sama hegðun er
+  endurtekin á öðrum stað
+- hvort lausnin hjálpi næsta provider, næsta skjá eða næsta product-samhengi,
+  eða hvort hún festi okkur í feature-specific sérlausn
+- hvort tæknileg flýtileið myndi gera notendaupplifun verri, óljósari,
+  ósamræmdari eða erfiðari að þróa áfram
+- hvort ókeypis/einfaldari leið sé til sem heldur notendaupplifun góðri
+
+Við gefum ekki tæknilegan afslátt ef hann gerir upplifun notenda verri eða
+eykur rugling í vörunni. Við skoðum samt alltaf kostnaðarvinkilinn: forðumst
+óþarfa Google-, AI-, Supabase-, Vercel- eða aðra beinan kostnað, cache-um og
+endurnýtum þar sem það er leyfilegt og skynsamlegt, og veljum einföldustu
+lausnina sem heldur vörunni framúrskarandi fyrir notandann.
+
+Ef endurnýting og einföld flýtileið rekast á, á handoff/review að kalla það
+skýrt út og leggja til hvaða tradeoff Stebbi eigi að samþykkja.
+
+---
+
+## IcelandRoadmap / leiðartengd vinna
+
+Allt sem snertir leiðir, vegkafla, route options, curated leiðir, provider
+station matching, route-cache, interest heatmap, ferðaveðurkort eða
+vegkaflaviðvaranir í Veðrinu á Teskeið á að fara í gegnum
+`IcelandRoadmap.md`.
+
+Markmiðið er að Teskeið byggi smám saman upp eigin endurnýtanlegan
+Íslandsleiðagrunn, jafnvel þótt Google Routes sé áfram notað sem provider,
+fallback eða samanburður á meðan. Við eigum ekki að safna Google-specific
+sérlausnum út um allan kóða ef þekkingin á frekar heima í sameiginlegum
+leiða-, vegkafla- eða control-point grunni.
+
+Þegar handoff, review eða framkvæmd snertir leiðartengda vinnu skal alltaf
+gera stutt `Route intelligence check`:
+
+- hvaða leið, vegkafla, landshluta eða route-family snertir breytingin?
+- er verið að bæta við þekkingu sem á heima í `IcelandRoadmap.md` eða
+  `lib/iceland-routes/`?
+- er lausnin provider-neutral þar sem það er eðlilegt, eða er hún óþarflega
+  bundin Google Routes, Veðurstofunni, Vegagerðinni eða einu UI-samhengi?
+- þarf að bæta við/uppfæra canonical segment, control point, route caution,
+  station matching reglu, cache lykil eða test fixture?
+- er verið að geyma eða telja route-gögn þannig að privacy sé örugg:
+  segment-level aggregate frekar en nákvæm heimilisföng eða persónulegar
+  ferðir?
+- ef `IcelandRoadmap.md` er ekki uppfært, skal handoff/review segja af hverju.
+
+`lib/iceland-routes/` er landing zone fyrir reusable route-domain kjarna.
+Veðrið má vera fyrsti consumer, en grunnurinn á að vera hannaður þannig að hann
+geti síðar nýst víðar í Teskeið eða sem sjálfstætt Teskeiðarverkefni.
+
+Ekki skipta Google Routes út í production, breyta routing provider, keyra
+migration eða geyma ný route-gögn í Supabase nema það sé sérstaklega planið og
+Stebbi hafi samþykkt það skýrt.
+
+---
+
 ## Óvissa, forsendur og confidence level
 
 - Þegar Codex eða Claude Code skrifa handoff/review/plan, eiga þeir alltaf að láta Stebba vita ef þeir eru að gefa sér eitthvað sem þeir eru ekki alveg vissir með.

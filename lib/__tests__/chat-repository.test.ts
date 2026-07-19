@@ -22,6 +22,7 @@ import {
   assertMessageScope,
   getFeedMessages,
   getPreviewMessages,
+  getLatestConditionFeedPreviews,
 } from '@/lib/chat/repository.server'
 import type { CreateMessageInput, ReportMessageInput } from '@/lib/chat/types'
 
@@ -36,6 +37,7 @@ function makeChain(overrides: Record<string, unknown> = {}) {
     maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
     eq: vi.fn().mockReturnThis(),
     in: vi.fn().mockReturnThis(),
+    not: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue({ data: [], error: null }),
     lt: vi.fn().mockReturnThis(),
@@ -568,5 +570,164 @@ describe('getPreviewMessages', () => {
       maybeSingle: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
     }))
     await expect(getPreviewMessages(PREVIEW_TARGET, 3)).rejects.toThrow('chat: getPreviewMessages failed')
+  })
+})
+
+// ── getLatestConditionFeedPreviews ─────────────────────────────────────────
+
+const THREAD_A = { id: 'thread-a', target_id: '1111', target_name: 'Hellisheiði', target_type: 'vedurstofan_station', provider: 'vedurstofan' }
+const THREAD_B = { id: 'thread-b', target_id: '2222', target_name: 'Akureyri', target_type: 'vedurstofan_station', provider: null }
+const MSG_A = { ...MESSAGE_ROW, id: 'msg-a', thread_id: 'thread-a', created_at: '2026-07-17T10:00:00Z' }
+const MSG_B = { ...MESSAGE_ROW, id: 'msg-b', thread_id: 'thread-b', created_at: '2026-07-17T09:00:00Z' }
+
+describe('getLatestConditionFeedPreviews', () => {
+  it('returns [] when no threads exist', async () => {
+    mockFrom.mockReturnValueOnce(makeChain({
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+    }))
+    const result = await getLatestConditionFeedPreviews(10)
+    expect(result).toEqual([])
+  })
+
+  it('returns [] when threads query errors', async () => {
+    mockFrom.mockReturnValueOnce(makeChain({
+      limit: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+    }))
+    const result = await getLatestConditionFeedPreviews(10)
+    expect(result).toEqual([])
+  })
+
+  it('returns one preview per station with newest station first', async () => {
+    // threads query returns two threads ordered newest-first.
+    // MSG_A and MSG_B have no user_id, so fetchProfileMap([]) exits early — no 'profiles' mock needed.
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [THREAD_A, THREAD_B], error: null }),
+      }))
+      // getThreadPreviewMessages for thread-a (MSG_A is newer)
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MSG_A], error: null }),
+      }))
+      // getThreadPreviewMessages for thread-b
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MSG_B], error: null }),
+      }))
+
+    const result = await getLatestConditionFeedPreviews(10)
+    expect(result).toHaveLength(2)
+    // newest station (A) first
+    expect(result[0].targetId).toBe('1111')
+    expect(result[0].targetName).toBe('Hellisheiði')
+    expect(result[0].targetType).toBe('vedurstofan_station')
+    expect(result[0].provider).toBe('vedurstofan')
+    expect(result[0].latestMessage.id).toBe('msg-a')
+    expect(result[0].latestAt).toBe('2026-07-17T10:00:00Z')
+    expect(result[1].targetId).toBe('2222')
+    expect(result[1].provider).toBeNull()
+  })
+
+  it('skips stations where all messages are deleted/hidden (no visible message)', async () => {
+    // thread-a has no visible messages; thread-b has one.
+    // MSG_B has no user_id, so no profiles mock needed.
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [THREAD_A, THREAD_B], error: null }),
+      }))
+      // thread-a: no visible messages
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }))
+      // thread-b: one visible message
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MSG_B], error: null }),
+      }))
+
+    const result = await getLatestConditionFeedPreviews(10)
+    expect(result).toHaveLength(1)
+    expect(result[0].targetId).toBe('2222')
+  })
+
+  it('respects limitItems cap', async () => {
+    // Three threads, but limit is 2.
+    // None of the messages have user_id, so no profiles mocks needed.
+    const THREAD_C = { id: 'thread-c', target_id: '3333', target_name: 'Ísafjörður' }
+    const MSG_C = { ...MESSAGE_ROW, id: 'msg-c', thread_id: 'thread-c', created_at: '2026-07-17T08:00:00Z' }
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [THREAD_A, THREAD_B, THREAD_C], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MSG_A], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MSG_B], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MSG_C], error: null }),
+      }))
+
+    const result = await getLatestConditionFeedPreviews(2)
+    expect(result).toHaveLength(2)
+    // Should be the two newest
+    expect(result[0].targetId).toBe('1111')
+    expect(result[1].targetId).toBe('2222')
+  })
+
+  it('does not expose user_id — latestMessage has no userId field', async () => {
+    const msgWithUser = { ...MSG_A, user_id: 'u-secret' }
+    mockFrom
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [THREAD_A], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [msgWithUser], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        in: vi.fn().mockResolvedValue({
+          data: [{ id: 'u-secret', display_name: 'Jón Gunnar' }],
+          error: null,
+        }),
+      }))
+
+    const result = await getLatestConditionFeedPreviews(10)
+    expect(result).toHaveLength(1)
+    expect(result[0].latestMessage).not.toHaveProperty('userId')
+    // authorName is first-name only
+    expect(result[0].latestMessage.authorName).toBe('Jón')
+  })
+
+  it('passes allowedTargetTypes to the query and returns empty when no matching threads', async () => {
+    // Query returns no threads (simulating no vegagerdin_station rows yet).
+    // Capture chain to assert .in() was called with the correct target types.
+    const chain = makeChain({ limit: vi.fn().mockResolvedValue({ data: [], error: null }) })
+    mockFrom.mockReturnValueOnce(chain)
+    const result = await getLatestConditionFeedPreviews(10, ['vegagerdin_station'])
+    expect(result).toEqual([])
+    expect(chain.in).toHaveBeenCalledWith('target_type', ['vegagerdin_station'])
+  })
+
+  it('returns results for multiple allowed target types and passes them to the query', async () => {
+    const THREAD_VG = { id: 'thread-vg', target_id: 'vg-001', target_name: 'Vegagerðin A', target_type: 'vegagerdin_station', provider: 'vegagerdin' }
+    const MSG_VG = { ...MESSAGE_ROW, id: 'msg-vg', thread_id: 'thread-vg', created_at: '2026-07-17T11:00:00Z' }
+    const chain = makeChain({ limit: vi.fn().mockResolvedValue({ data: [THREAD_VG, THREAD_A], error: null }) })
+    mockFrom
+      .mockReturnValueOnce(chain)
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MSG_VG], error: null }),
+      }))
+      .mockReturnValueOnce(makeChain({
+        limit: vi.fn().mockResolvedValue({ data: [MSG_A], error: null }),
+      }))
+
+    const result = await getLatestConditionFeedPreviews(10, ['vedurstofan_station', 'vegagerdin_station'])
+    // Assert the query used the correct target types
+    expect(chain.in).toHaveBeenCalledWith('target_type', ['vedurstofan_station', 'vegagerdin_station'])
+    expect(result).toHaveLength(2)
+    // vegagerdin station is newer
+    expect(result[0].targetId).toBe('vg-001')
+    expect(result[0].targetType).toBe('vegagerdin_station')
+    expect(result[0].provider).toBe('vegagerdin')
+    expect(result[1].targetId).toBe('1111')
+    expect(result[1].targetType).toBe('vedurstofan_station')
   })
 })
