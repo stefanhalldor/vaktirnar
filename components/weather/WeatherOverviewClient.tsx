@@ -146,11 +146,11 @@ export function WeatherOverviewClient({
       .then(r => r.json())
       .then((data: { status: string; routeLabel?: string; variants?: Array<{ vedurstofanStationIds: string[]; vegagerdinStationIds: string[] }> }) => {
         if (data.status === 'resolved' && data.variants && data.variants.length > 0) {
-          const v = data.variants[0]
+          const variants = data.variants
           setRouteMemory({
             status: 'resolved',
-            vedurstofanIds: new Set(v.vedurstofanStationIds),
-            vegagerdinIds: new Set(v.vegagerdinStationIds),
+            vedurstofanIds: new Set(variants.flatMap((v: { vedurstofanStationIds: string[]; vegagerdinStationIds: string[] }) => v.vedurstofanStationIds)),
+            vegagerdinIds: new Set(variants.flatMap((v: { vedurstofanStationIds: string[]; vegagerdinStationIds: string[] }) => v.vegagerdinStationIds)),
             routeLabel: data.routeLabel ?? '',
           })
         } else {

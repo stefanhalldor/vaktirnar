@@ -100,3 +100,64 @@ describe('sql/86_weather_route_memory.sql — static checks', () => {
     expect(sql).not.toMatch(/\buser_id\b/)
   })
 })
+
+// ── Route-memory variant union ────────────────────────────────────────────────
+
+describe('route-memory variant union — overview station aggregation', () => {
+  type Variant = { vedurstofanStationIds: string[]; vegagerdinStationIds: string[] }
+
+  function unionVariants(variants: Variant[]) {
+    return {
+      vedurstofanIds: new Set(variants.flatMap(v => v.vedurstofanStationIds)),
+      vegagerdinIds: new Set(variants.flatMap(v => v.vegagerdinStationIds)),
+    }
+  }
+
+  it('unions vedurstofan station IDs across two disjoint variants', () => {
+    const variants: Variant[] = [
+      { vedurstofanStationIds: ['A', 'B'], vegagerdinStationIds: [] },
+      { vedurstofanStationIds: ['C'], vegagerdinStationIds: [] },
+    ]
+    const { vedurstofanIds } = unionVariants(variants)
+    expect(vedurstofanIds).toEqual(new Set(['A', 'B', 'C']))
+  })
+
+  it('unions vegagerdin station IDs across two disjoint variants', () => {
+    const variants: Variant[] = [
+      { vedurstofanStationIds: [], vegagerdinStationIds: ['X'] },
+      { vedurstofanStationIds: [], vegagerdinStationIds: ['Y', 'Z'] },
+    ]
+    const { vegagerdinIds } = unionVariants(variants)
+    expect(vegagerdinIds).toEqual(new Set(['X', 'Y', 'Z']))
+  })
+
+  it('keeps providers independent — vedurstofan and vegagerdin do not cross-contaminate', () => {
+    const variants: Variant[] = [
+      { vedurstofanStationIds: ['V1'], vegagerdinStationIds: ['G1'] },
+      { vedurstofanStationIds: ['V2'], vegagerdinStationIds: ['G2'] },
+    ]
+    const { vedurstofanIds, vegagerdinIds } = unionVariants(variants)
+    expect(vedurstofanIds).toEqual(new Set(['V1', 'V2']))
+    expect(vegagerdinIds).toEqual(new Set(['G1', 'G2']))
+    expect([...vedurstofanIds].some(id => vegagerdinIds.has(id))).toBe(false)
+  })
+
+  it('deduplicates station IDs that appear in multiple variants', () => {
+    const variants: Variant[] = [
+      { vedurstofanStationIds: ['A', 'B'], vegagerdinStationIds: [] },
+      { vedurstofanStationIds: ['B', 'C'], vegagerdinStationIds: [] },
+    ]
+    const { vedurstofanIds } = unionVariants(variants)
+    expect(vedurstofanIds.size).toBe(3)
+    expect(vedurstofanIds).toEqual(new Set(['A', 'B', 'C']))
+  })
+
+  it('handles a single variant the same as before', () => {
+    const variants: Variant[] = [
+      { vedurstofanStationIds: ['S1', 'S2'], vegagerdinStationIds: ['G1'] },
+    ]
+    const { vedurstofanIds, vegagerdinIds } = unionVariants(variants)
+    expect(vedurstofanIds).toEqual(new Set(['S1', 'S2']))
+    expect(vegagerdinIds).toEqual(new Set(['G1']))
+  })
+})

@@ -157,8 +157,8 @@ export async function POST(request: Request) {
   })
 
   // Route-memory warming: match provider stations for each route option and persist.
-  // Fire-and-forget — does not block the response to the client.
-  // No additional Google calls: reuses route geometry already returned by getRouteOptions.
+  // Awaited best-effort — uses only already-returned route geometry, no additional Google calls.
+  // The helper swallows all errors internally so this does not affect the response.
   // Privacy: only normalized place labels/keys, route variant keys, and derived
   // station-order metadata are stored. No raw Google geometry, no user ID.
   const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)

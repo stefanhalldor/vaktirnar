@@ -177,7 +177,7 @@ export async function lookupRouteMemoryBidirectional(
  * Look up route-memory for a given from/to place key pair.
  *
  * Returns all stored variants (e.g. different route options) ordered by last_seen_at.
- * Callers should use variants[0] as the most recent variant.
+ * Callers should union station IDs across all returned variants.
  *
  * Never throws. Returns miss on any database error.
  */
@@ -194,7 +194,7 @@ export async function lookupRouteMemory(
       .eq('from_place_key', fromPlaceKey)
       .eq('to_place_key', toPlaceKey)
       .order('last_seen_at', { ascending: false })
-      .limit(5)
+      .limit(20)
 
     if (routeErr || !routes || routes.length === 0) {
       return { status: 'miss', fromPlaceKey, toPlaceKey }
