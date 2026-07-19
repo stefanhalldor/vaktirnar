@@ -561,3 +561,55 @@ describe('middleware — Veðurpúls station preview routes are public (regex ma
   })
 })
 
+// ── Authenticated /vedrid canonicalization → /auth-mvp/vedrid ──────────────
+
+describe('middleware — authenticated /vedrid canonicalization', () => {
+  let savedAuthMvp: string | undefined
+
+  beforeEach(() => {
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    if (savedAuthMvp !== undefined) process.env.AUTH_MVP_ENABLED = savedAuthMvp
+    else delete process.env.AUTH_MVP_ENABLED
+  })
+
+  it('authenticated /vedrid → /auth-mvp/vedrid', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/vedrid'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/auth-mvp/vedrid')
+  })
+
+  it('authenticated /vedrid?saveDefaults=10%2C13 → /auth-mvp/vedrid preserving query string', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/vedrid?saveDefaults=10%2C13'))
+    expect(res.status).toBe(307)
+    const loc = new URL(res.headers.get('location')!)
+    expect(loc.pathname).toBe('/auth-mvp/vedrid')
+    expect(loc.search).toBe('?saveDefaults=10%2C13')
+  })
+
+  it('unauthenticated /vedrid passes through (200)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/vedrid'))
+    expect(res.status).toBe(200)
+  })
+
+  it('authenticated /vedrid/ferdalagid → /auth-mvp/vedrid/ferdalagid', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/vedrid/ferdalagid'))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/auth-mvp/vedrid/ferdalagid')
+  })
+
+  it('authenticated /auth-mvp/vedrid does not redirect (no loop)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+    const res = await middleware(makeReq('/auth-mvp/vedrid'))
+    expect(res.status).toBe(200)
+  })
+})
+

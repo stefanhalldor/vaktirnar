@@ -230,6 +230,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Canonicalize authenticated users from public weather routes to the authenticated shell.
+  // An authenticated user on /vedrid sees menuVariant="public" (public page always passes that),
+  // which shows the wrong hamburger menu. Redirect them to /auth-mvp/vedrid so they get
+  // menuVariant="authenticated" and the correct session-aware UI.
+  // Query string is preserved so ?saveDefaults= and future route-selection params survive.
+  // Only exact paths are canonicalized — /vedrid/* pulse sub-paths are not guaranteed to
+  // have identical auth-mvp counterparts and are intentionally excluded.
+  if (user && (pathname === '/vedrid' || pathname === '/vedrid/ferdalagid')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth-mvp' + pathname
+    return NextResponse.redirect(url)
+  }
+
   if (user && isPublic && !isRoot) {
     // Redirect authenticated users away from auth pages to /home
     // Do NOT redirect away from /admin/login — user may need to sign out and re-login
