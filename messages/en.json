@@ -1063,7 +1063,10 @@
         "routeMemoryPickerLoading": "Loading routes...",
         "routeMemoryPickerEmpty": "No route in memory yet. Calculate a route in Ferðalagið to see it here.",
         "routeMemoryPickerHint": "Destination not shown? Pick a nearby place or open Ferðalagið for a more detailed calculation.",
-        "overviewFilterEmpty": "No station matches the active filters."
+        "overviewFilterEmpty": "No station matches the active filters.",
+        "routeVariantAllLabel": "All routes",
+        "routeVariantFallbackLabel": "Route {n}",
+        "routeVariantPillsAriaLabel": "Select individual routes"
       }
     }
   }

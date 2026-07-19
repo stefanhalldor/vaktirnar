@@ -45,6 +45,7 @@ import {
 } from '@/lib/iceland-routes'
 import { getCanonicalPlace } from '@/lib/iceland-routes/routePlaces'
 import { WindStatusFilterPills } from '@/components/weather/WindStatusFilterPills'
+import { cn } from '@/lib/utils'
 import {
   WeatherOverviewShell,
   type WeatherOverviewProviderConfig,
@@ -115,14 +116,22 @@ export function WeatherOverviewClient({
   const [toMemoryPlace, setToMemoryPlace] = useState<RouteMemoryPlace | null>(null)
 
   // Route-memory lookup result — replaces corridor-based station filtering.
-  // When resolved: vedurstofanIds/vegagerdinIds are the exact station sets from DB.
+  // When resolved: vedurstofanIds/vegagerdinIds are the union across all variants from DB.
   // When miss: no filter applied (full map shown).
+  type RouteMemoryVariantData = {
+    routeVariantKey: string
+    routeVariantLabel: string | null
+    vedurstofanStationIds: string[]
+    vegagerdinStationIds: string[]
+  }
   type RouteMemoryState =
     | { status: 'idle' }
     | { status: 'loading' }
     | { status: 'miss' }
-    | { status: 'resolved'; vedurstofanIds: Set<string>; vegagerdinIds: Set<string>; routeLabel: string }
+    | { status: 'resolved'; variants: RouteMemoryVariantData[]; vedurstofanIds: Set<string>; vegagerdinIds: Set<string>; routeLabel: string }
   const [routeMemory, setRouteMemory] = useState<RouteMemoryState>({ status: 'idle' })
+  // Selected route-variant key — 'all' shows the union of all variants (default).
+  const [selectedVariantKey, setSelectedVariantKey] = useState<string | 'all'>('all')
 
   // Fetch route-memory when both places are selected.
   // Uses labels as fromName/toName — the server normalizes generically (no whitelist required).
@@ -133,6 +142,7 @@ export function WeatherOverviewClient({
       return
     }
     setRouteMemory({ status: 'loading' })
+    setSelectedVariantKey('all')
     const controller = new AbortController()
     fetch('/api/teskeid/weather/route-memory/lookup', {
       method: 'POST',
@@ -144,13 +154,14 @@ export function WeatherOverviewClient({
       signal: controller.signal,
     })
       .then(r => r.json())
-      .then((data: { status: string; routeLabel?: string; variants?: Array<{ vedurstofanStationIds: string[]; vegagerdinStationIds: string[] }> }) => {
+      .then((data: { status: string; routeLabel?: string; variants?: Array<RouteMemoryVariantData> }) => {
         if (data.status === 'resolved' && data.variants && data.variants.length > 0) {
           const variants = data.variants
           setRouteMemory({
             status: 'resolved',
-            vedurstofanIds: new Set(variants.flatMap((v: { vedurstofanStationIds: string[]; vegagerdinStationIds: string[] }) => v.vedurstofanStationIds)),
-            vegagerdinIds: new Set(variants.flatMap((v: { vedurstofanStationIds: string[]; vegagerdinStationIds: string[] }) => v.vegagerdinStationIds)),
+            variants,
+            vedurstofanIds: new Set(variants.flatMap(v => v.vedurstofanStationIds)),
+            vegagerdinIds: new Set(variants.flatMap(v => v.vegagerdinStationIds)),
             routeLabel: data.routeLabel ?? '',
           })
         } else {
@@ -234,9 +245,15 @@ export function WeatherOverviewClient({
       ? (placeFocusIds.vedurstofan.size > 0 ? placeFocusIds.vedurstofan : null)
       : null
 
+  // When a specific variant is selected, narrow to that variant's stations; otherwise union all.
+  const activeVariant: RouteMemoryVariantData | null =
+    routeMemory.status === 'resolved' && selectedVariantKey !== 'all'
+      ? (routeMemory.variants.find(v => v.routeVariantKey === selectedVariantKey) ?? null)
+      : null
+
   const vedurstofanRouteFilterIds: Set<string> | null =
     routeMemory.status === 'resolved'
-      ? routeMemory.vedurstofanIds
+      ? (activeVariant ? new Set(activeVariant.vedurstofanStationIds) : routeMemory.vedurstofanIds)
       : singlePlaceVedurstofanIds
 
   // Fetch station data on mount.
@@ -388,7 +405,7 @@ export function WeatherOverviewClient({
 
   const vegagerdinRouteFilterIds: Set<string> | null =
     routeMemory.status === 'resolved'
-      ? routeMemory.vegagerdinIds
+      ? (activeVariant ? new Set(activeVariant.vegagerdinStationIds) : routeMemory.vegagerdinIds)
       : singlePlaceVegagerdinIds
 
   // Active Vegagerðin stations after route/place filter — shared source for selector metrics.
@@ -441,6 +458,45 @@ export function WeatherOverviewClient({
     setActiveMode(forecastSlotStatuses[0].timeMs)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vegagerdinLoading, vegagerdinRestricted, vegagerdinLoadError, vegagerdinData, forecastSlotStatuses])
+
+  // ── Route-variant pills — sorted by worst station status for the active source/time ──
+  // Only computed when both places are selected and multiple variants are returned.
+  // Uses the same status model as the map markers and wind-status filter pills.
+  const sortedVariants = useMemo<RouteMemoryVariantData[]>(() => {
+    if (routeMemory.status !== 'resolved') return []
+    if (routeMemory.variants.length <= 1) return routeMemory.variants
+    const getWorstStatus = (vedurstofanIds: string[], vegagerdinIds: string[]): WindDisplayStatus => {
+      let worst: WindDisplayStatus = 'no_data'
+      if (activeMode === 'now') {
+        if (vegagerdinData?.status === 'ok') {
+          for (const s of vegagerdinData.stations) {
+            if (!vegagerdinIds.includes(s.stationId)) continue
+            const status: WindDisplayStatus = s.meanWindMs === null
+              ? 'no_wind_data'
+              : classifyObservationWindDisplayStatus({ meanWindMs: s.meanWindMs }, thresholds)
+            worst = worstWindDisplayStatus(worst, status)
+          }
+        }
+      } else {
+        if (data) {
+          for (const s of data.stations) {
+            if (s.lat === null || s.lon === null) continue
+            if (!vedurstofanIds.includes(s.stationId)) continue
+            const status = classifyForecastWindDisplayStatusAt(s.forecasts, thresholds, forecastAnchorMs)
+            worst = worstWindDisplayStatus(worst, status)
+          }
+        }
+      }
+      return worst
+    }
+    return [...routeMemory.variants].sort((a, b) => {
+      const aStatus = getWorstStatus(a.vedurstofanStationIds, a.vegagerdinStationIds)
+      const bStatus = getWorstStatus(b.vedurstofanStationIds, b.vegagerdinStationIds)
+      if (aStatus === bStatus) return 0
+      // Best weather first: if aStatus is worse, sort a after b
+      return worstWindDisplayStatus(aStatus, bStatus) === aStatus ? 1 : -1
+    })
+  }, [routeMemory, data, vegagerdinData, activeMode, forecastAnchorMs, thresholds])
 
   // ── Veðurstofan map layer ──────────────────────────────────────────────────
   // Declared after filter sets so both are available without TDZ.
@@ -769,22 +825,72 @@ export function WeatherOverviewClient({
         />
       )}
       renderRouteLens={() => (
-        <RouteMemoryPicker
-          onPlacesChange={(from, to) => {
-            setFromMemoryPlace(from)
-            setToMemoryPlace(to)
-          }}
-          labels={{
-            titleLabel: tOv('routeMemoryPickerTitle'),
-            fromLabel: tOv('routeLensFrom'),
-            toLabel: tOv('routeLensTo'),
-            clearLabel: tOv('routeLensClear'),
-            loadingText: tOv('routeMemoryPickerLoading'),
-            emptyText: tOv('routeMemoryPickerEmpty'),
-            hintText: tOv('routeMemoryPickerHint'),
-            ariaLabel: tOv('routeLensAriaLabel'),
-          }}
-        />
+        <div className="flex flex-col gap-2">
+          <RouteMemoryPicker
+            onPlacesChange={(from, to) => {
+              setFromMemoryPlace(from)
+              setToMemoryPlace(to)
+            }}
+            labels={{
+              titleLabel: tOv('routeMemoryPickerTitle'),
+              fromLabel: tOv('routeLensFrom'),
+              toLabel: tOv('routeLensTo'),
+              clearLabel: tOv('routeLensClear'),
+              loadingText: tOv('routeMemoryPickerLoading'),
+              emptyText: tOv('routeMemoryPickerEmpty'),
+              hintText: tOv('routeMemoryPickerHint'),
+              ariaLabel: tOv('routeLensAriaLabel'),
+            }}
+          />
+          {routeMemory.status === 'resolved' && sortedVariants.length > 1 && (
+            <div
+              className="flex flex-wrap gap-1.5"
+              role="group"
+              aria-label={tOv('routeVariantPillsAriaLabel')}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedVariantKey('all')}
+                className={cn(
+                  'text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  selectedVariantKey === 'all'
+                    ? 'border-primary bg-primary/10 text-primary font-medium'
+                    : 'border-border text-muted-foreground hover:border-primary/40',
+                )}
+              >
+                {tOv('routeVariantAllLabel')}
+              </button>
+              {sortedVariants.map((variant, i) => {
+                const isSelected = selectedVariantKey === variant.routeVariantKey
+                const labelMap: Record<string, string> = {
+                  CURATED_RING_ROAD: tf('routeOptionRingRoad'),
+                  CURATED_VIA_HELLISHEIDI: tf('routeOptionViaHellisheidi'),
+                  CURATED_VIA_HOLMAVIK: tf('routeOptionViaHolmavik'),
+                  CURATED_AVOID_OXI: tf('routeOptionAvoidOxi'),
+                  CURATED_VIA_THRENGSLAVEGUR: tf('routeOptionViaThrengslavegur'),
+                }
+                const label = (variant.routeVariantLabel && labelMap[variant.routeVariantLabel])
+                  ? labelMap[variant.routeVariantLabel]
+                  : tOv('routeVariantFallbackLabel', { n: i + 1 })
+                return (
+                  <button
+                    key={variant.routeVariantKey}
+                    type="button"
+                    onClick={() => setSelectedVariantKey(variant.routeVariantKey)}
+                    className={cn(
+                      'text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      isSelected
+                        ? 'border-primary bg-primary/10 text-primary font-medium'
+                        : 'border-border text-muted-foreground hover:border-primary/40',
+                    )}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
       )}
     />
   )

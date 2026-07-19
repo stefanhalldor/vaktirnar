@@ -1067,7 +1067,10 @@
         "routeMemoryPickerLoading": "Sæki leiðir...",
         "routeMemoryPickerEmpty": "Engin leið í minni ennþá. Reiknaðu leið á Ferðalaginu til að sjá hana hér.",
         "routeMemoryPickerHint": "Er áfangastaðurinn ekki hér? Veldu nálægan stað eða opnaðu Ferðalagið fyrir ítarlegri útreikning.",
-        "overviewFilterEmpty": "Engin stöð fellur undir virku síurnar."
+        "overviewFilterEmpty": "Engin stöð fellur undir virku síurnar.",
+        "routeVariantAllLabel": "Allar leiðir",
+        "routeVariantFallbackLabel": "Leið {n}",
+        "routeVariantPillsAriaLabel": "Velja einstakar leiðir"
       }
     }
   }
