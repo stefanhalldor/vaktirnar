@@ -61,31 +61,47 @@ export async function recordRouteMemory(input: RouteMemoryWriteInput): Promise<v
     const supabase = getAdmin()
     const now = new Date().toISOString()
     const variantKey = input.routeVariantKey ?? 'default'
+    const routePayloadBase = {
+      route_key: input.routeKey,
+      from_place_key: input.fromPlaceKey,
+      from_place_label: input.fromPlaceLabel,
+      to_place_key: input.toPlaceKey,
+      to_place_label: input.toPlaceLabel,
+      route_variant_key: variantKey,
+      route_variant_label: input.routeVariantLabel ?? null,
+      source: 'ferdalagid',
+      last_seen_at: now,
+      updated_at: now,
+    }
 
     // Atomic upsert: insert on first call; on conflict update last_seen_at/updated_at only.
     // Fields omitted from payload (usage_count, first_seen_at, created_at) use their DB
     // defaults on INSERT and are NOT overwritten on conflict.
     // usage_count is intentionally not incremented here — approximate counts acceptable.
-    const { data: upserted, error: upsertErr } = await supabase
+    let { data: upserted, error: upsertErr } = await supabase
       .from('weather_route_memory_routes')
       .upsert(
         {
-          route_key: input.routeKey,
-          from_place_key: input.fromPlaceKey,
-          from_place_label: input.fromPlaceLabel,
-          to_place_key: input.toPlaceKey,
-          to_place_label: input.toPlaceLabel,
-          route_variant_key: variantKey,
-          route_variant_label: input.routeVariantLabel ?? null,
+          ...routePayloadBase,
           route_caution_ids: input.routeCautionIds ?? [],
-          source: 'ferdalagid',
-          last_seen_at: now,
-          updated_at: now,
         },
         { onConflict: 'route_key' },
       )
       .select('id')
       .single()
+
+    // Postgres 42703: column does not exist — sql/87 not yet applied in this environment.
+    // Keep route-memory self-registration working and only omit caution metadata.
+    if (upsertErr?.code === '42703') {
+      console.error('[route-memory] route_caution_ids column missing on write, falling back (run sql/87)')
+      const fallback = await supabase
+        .from('weather_route_memory_routes')
+        .upsert(routePayloadBase, { onConflict: 'route_key' })
+        .select('id')
+        .single()
+      upserted = fallback.data
+      upsertErr = fallback.error
+    }
 
     if (upsertErr || !upserted) {
       console.error('[route-memory] upsert failed:', upsertErr?.code)

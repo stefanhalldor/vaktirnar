@@ -94,6 +94,10 @@ describe('normalizePlaceForMemory', () => {
     expect(normalizePlaceForMemory('Sandgerði')).toEqual({ key: 'sandgerdi', label: 'Sandgerði' })
   })
 
+  it('self-registers hyphenated localities such as Stóra-Borg by name', () => {
+    expect(normalizePlaceForMemory('Stóra-Borg')).toEqual({ key: 'storaborg', label: 'Stóra-Borg' })
+  })
+
   it('extracts Sandgerði from formatted address with street', () => {
     expect(
       normalizePlaceForMemory('Strandvegur 4', 'Strandvegur 4, Sandgerði, Iceland'),
