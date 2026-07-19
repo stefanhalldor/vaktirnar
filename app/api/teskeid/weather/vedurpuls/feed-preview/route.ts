@@ -36,8 +36,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     // Server decides which target types appear in the public conditions feed.
     // Clients cannot pass arbitrary target types.
-    // Vegagerðin is the primary surface for user road-condition reports.
-    const items = await getLatestConditionFeedPreviews(limitItems, ['vegagerdin_station'])
+    // Both providers included: Vegagerðin is the primary write surface, but historical
+    // Veðurstofan pulse content should remain visible while the product transitions.
+    const items = await getLatestConditionFeedPreviews(limitItems, ['vegagerdin_station', 'vedurstofan_station'])
     return NextResponse.json({ items })
   } catch {
     return NextResponse.json({ items: [] })

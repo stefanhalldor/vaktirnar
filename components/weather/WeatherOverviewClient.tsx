@@ -735,14 +735,15 @@ export function WeatherOverviewClient({
 
   // Conditions feed filtered to the active route/place station set.
   // Mirrors the map: if a station is filtered out of the map, its feed items are also hidden.
-  // Items with an unknown provider pass through unfiltered.
+  // Provider is inferred from targetType when item.provider is null (legacy Veðurstofan rows).
   const filteredConditionsItems = useMemo(() => {
     if (vedurstofanRouteFilterIds === null && vegagerdinRouteFilterIds === null) return conditionsItems
     return conditionsItems.filter(item => {
-      if (item.provider === 'vedurstofan') {
+      const effectiveProvider = item.provider ?? (item.targetType === 'vegagerdin_station' ? 'vegagerdin' : 'vedurstofan')
+      if (effectiveProvider === 'vedurstofan') {
         return vedurstofanRouteFilterIds === null || vedurstofanRouteFilterIds.has(item.targetId)
       }
-      if (item.provider === 'vegagerdin') {
+      if (effectiveProvider === 'vegagerdin') {
         return vegagerdinRouteFilterIds === null || vegagerdinRouteFilterIds.has(item.targetId)
       }
       return true
@@ -798,7 +799,8 @@ export function WeatherOverviewClient({
         title={tOv('conditionsFeedTitle')}
         items={filteredConditionsItems}
         loading={conditionsLoading}
-        emptyBehavior="hide"
+        emptyBehavior="message"
+        emptyLabel={tOv('conditionsFeedEmpty')}
         collapsible
         defaultOpen={false}
         newSinceOpenCount={newSinceOpenCount}
@@ -806,11 +808,12 @@ export function WeatherOverviewClient({
         onOpen={acknowledgeCurrentItems}
         onToggle={setConditionsDrawerOpen}
         onSelectTarget={target => ctx.onSelectMarker(target.targetId)}
-        targetHref={target =>
-          target.provider === 'vegagerdin'
+        targetHref={target => {
+          const effectiveProvider = target.provider ?? (target.targetType === 'vegagerdin_station' ? 'vegagerdin' : 'vedurstofan')
+          return effectiveProvider === 'vegagerdin'
             ? vegagerdinPulseHref(target.targetId, stationPulseReturnBase)
             : vedurstofanPulseHref(target.targetId, `${stationPulseReturnBase}?stationId=${target.targetId}`)
-        }
+        }}
         viewMoreLabel={tOv('conditionsFeedViewMore')}
         deletedLabel={t('pulseDeleted')}
         kindLabels={{ field_report: t('pulseKindField'), measurement_report: t('pulseKindMeasurement') }}
