@@ -439,6 +439,36 @@ export function WeatherOverviewClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // After auth flow return (authenticated page): consume pending sessionStorage thresholds.
+  // Fires when a user clicks "Vista sem sjálfgefin vindmörk" while logged out, completes
+  // login, and the ?saveDefaults URL param is lost mid-flow (e.g. new users going through
+  // /auth-mvp/minn-profill before landing on /auth-mvp/heim without the param).
+  // Clears sessionStorage immediately to prevent double-save on re-mounts.
+  useEffect(() => {
+    if (menuVariant !== 'authenticated') return
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('teskeid_pending_wind_thresholds') } catch {}
+    if (!raw) return
+    try { sessionStorage.removeItem('teskeid_pending_wind_thresholds') } catch {}
+    let parsed: { cautionWindMs?: unknown; redWindMs?: unknown }
+    try { parsed = JSON.parse(raw) } catch { return }
+    const caution = Number(parsed.cautionWindMs)
+    const red = Number(parsed.redWindMs)
+    if (!Number.isFinite(caution) || !Number.isFinite(red) || caution <= 0 || red <= 0 || caution >= red) return
+    setOverrides({ cautionWindMs: caution, redWindMs: red })
+    fetch('/api/teskeid/weather/preferences/thresholds', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cautionWindMs: caution, redWindMs: red }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { success?: boolean } | null) => {
+        if (d?.success) setSavedDefaultThresholds({ cautionWindMs: caution, redWindMs: red })
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // After auth flow return: ?saveDefaults=caution,danger — save to API and apply.
   useEffect(() => {
     const raw = searchParams.get('saveDefaults')
@@ -467,7 +497,10 @@ export function WeatherOverviewClient({
 
   // Save current thresholds as the user's defaults.
   // Authenticated: saves directly to API.
-  // Public: sends to auth flow with threshold values encoded in the return URL.
+  // Public: persists values in sessionStorage (backup) then sends to auth flow with
+  // values also encoded in the return URL (primary). sessionStorage backup handles
+  // new-user flows where the profile setup step (/auth-mvp/minn-profill) consumes
+  // the ?next= chain and the user ends up on /auth-mvp/heim without the saveDefaults param.
   const handleSaveAsDefault = useCallback((cautionWindMs: number, redWindMs: number) => {
     if (menuVariant === 'authenticated') {
       fetch('/api/teskeid/weather/preferences/thresholds', {
@@ -481,6 +514,9 @@ export function WeatherOverviewClient({
         })
         .catch(() => {})
     } else {
+      try {
+        sessionStorage.setItem('teskeid_pending_wind_thresholds', JSON.stringify({ cautionWindMs, redWindMs }))
+      } catch {}
       const saveParam = encodeURIComponent(`${cautionWindMs},${redWindMs}`)
       const returnUrl = `${window.location.pathname}?saveDefaults=${saveParam}`
       window.location.href = `/innskraning?next=${encodeURIComponent(returnUrl)}`
