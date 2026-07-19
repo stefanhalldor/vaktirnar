@@ -98,6 +98,20 @@ describe('normalizePlaceForMemory', () => {
     expect(normalizePlaceForMemory('Stóra-Borg')).toEqual({ key: 'storaborg', label: 'Stóra-Borg' })
   })
 
+  it('prefers a clean selected place name over a road-only formatted address', () => {
+    expect(
+      normalizePlaceForMemory('Stóra-borg', 'Biskupstungnabraut, 805'),
+    ).toEqual({ key: 'storaborg', label: 'Stóra-Borg' })
+  })
+
+  it('does not self-register road names as route-memory places', () => {
+    expect(normalizePlaceForMemory('Biskupstungnabraut', 'Biskupstungnabraut, 805')).toBeNull()
+  })
+
+  it('self-registers Akranes by name even without an alias entry', () => {
+    expect(normalizePlaceForMemory('Akranes')).toEqual({ key: 'akranes', label: 'Akranes' })
+  })
+
   it('extracts Sandgerði from formatted address with street', () => {
     expect(
       normalizePlaceForMemory('Strandvegur 4', 'Strandvegur 4, Sandgerði, Iceland'),

@@ -14,7 +14,7 @@
  * Self-registering: any valid Icelandic public locality is accepted via generic
  * address parsing — no manual whitelist entry is required. The alias table below
  * is checked first (wins for known/variant spellings), then a generic parser
- * extracts the locality from formattedAddress or name.
+ * extracts the locality from name or formattedAddress.
  *
  * Examples:
  *   normalizePlaceForMemory('Melás 8', 'Melás 8, Garðabær, Iceland')
@@ -82,6 +82,8 @@ const PLACE_NORM_ENTRIES: PlaceNormEntry[] = [
 const COUNTRY_SUFFIX = /^(iceland|[íi]sland)$/i
 // Has a digit anywhere — used to detect street-like parts after postal stripping.
 const HAS_DIGIT = /\d/
+// Road labels are not public localities; avoid storing "Biskupstungnabraut" as a place.
+const ROAD_LIKE_SUFFIX = /(vegur|vegi|gata|götu|gotu|braut|stígur|stigur|leið|leid)$/i
 
 /**
  * Convert an Icelandic place label to a stable ASCII key.
@@ -103,6 +105,31 @@ export function slugifyPlaceKey(label: string): string {
     .replace(/[^a-z0-9]+/g, '')
 }
 
+function formatGenericPlaceLabel(label: string): string {
+  return label
+    .trim()
+    .split(/(\s+|-)/)
+    .map(part => {
+      if (/^\s+$/.test(part) || part === '-') return part
+      const lower = part.toLocaleLowerCase('is')
+      return lower.charAt(0).toLocaleUpperCase('is') + lower.slice(1)
+    })
+    .join('')
+}
+
+function normalizeGenericCandidate(label: string): { key: string; label: string } | null {
+  const stripped = label.trim().replace(/^\d+\s+/, '')
+  if (stripped.length < 2) return null
+  if (HAS_DIGIT.test(stripped)) return null
+  if (COUNTRY_SUFFIX.test(stripped)) return null
+  if (ROAD_LIKE_SUFFIX.test(stripped)) return null
+
+  const displayLabel = formatGenericPlaceLabel(stripped)
+  const key = slugifyPlaceKey(displayLabel)
+  if (!key) return null
+  return { label: displayLabel, key }
+}
+
 /**
  * Extract the public locality from a formatted address string.
  *
@@ -110,18 +137,14 @@ export function slugifyPlaceKey(label: string): string {
  * 1. Split by comma.
  * 2. Drop country suffix (Iceland / Ísland).
  * 3. Strip postal-code prefix from each part (e.g. "580 Siglufjörður" → "Siglufjörður").
- * 4. Skip parts that still contain a digit (street-like, e.g. "Melás 8").
+ * 4. Skip parts that still contain a digit or look road-like (e.g. "Melás 8", "Biskupstungnabraut").
  * 5. Return the first remaining part as the locality label + slugified key.
  */
 function extractLocality(addr: string): { key: string; label: string } | null {
   const parts = addr.split(',').map(p => p.trim()).filter(Boolean)
   for (const part of parts) {
-    if (COUNTRY_SUFFIX.test(part)) continue
-    // Strip leading postal code (one or more digits followed by a space)
-    const stripped = part.replace(/^\d+\s+/, '')
-    if (stripped.length < 2) continue
-    if (HAS_DIGIT.test(stripped)) continue
-    return { label: stripped, key: slugifyPlaceKey(stripped) }
+    const locality = normalizeGenericCandidate(part)
+    if (locality) return locality
   }
   return null
 }
@@ -132,8 +155,8 @@ function extractLocality(addr: string): { key: string; label: string } | null {
  *
  * Resolution order:
  * 1. Alias table (PLACE_NORM_ENTRIES) — handles known variant spellings.
- * 2. Generic address parser on formattedAddress — self-registers any public locality.
- * 3. Name itself if it is not street-like and not a country label.
+ * 2. Name itself if it is a clean public locality label.
+ * 3. Generic address parser on formattedAddress — self-registers any public locality.
  *
  * Returns null only when no public locality can be extracted (e.g. bare street
  * address "Melás 8" with no locality context).
@@ -152,20 +175,16 @@ export function normalizePlaceForMemory(
     }
   }
 
-  // 2. Generic address parser — extract locality from formattedAddress.
+  // 2. Prefer the selected place name when it is a clean locality label.
+  // Prevents road-only formattedAddress values from overriding a valid Google place name,
+  // e.g. "Stóra-borg" with formattedAddress "Biskupstungnabraut, 805".
+  const nameCandidate = normalizeGenericCandidate(name)
+  if (nameCandidate) return nameCandidate
+
+  // 3. Generic address parser — extract locality from formattedAddress.
   if (formattedAddress) {
     const locality = extractLocality(formattedAddress)
     if (locality) return locality
-  }
-
-  // 3. Use name directly if it is not street-like and not a country label.
-  const strippedName = name.replace(/^\d+\s+/, '')
-  if (
-    strippedName.length >= 2 &&
-    !HAS_DIGIT.test(strippedName) &&
-    !COUNTRY_SUFFIX.test(strippedName)
-  ) {
-    return { label: strippedName, key: slugifyPlaceKey(strippedName) }
   }
 
   return null
