@@ -164,7 +164,7 @@ export async function POST(request: Request) {
   const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
   const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
   if (fromNorm && toNorm) {
-    void warmRouteMemoryFromOptions(sorted, fromNorm, toNorm)
+    await warmRouteMemoryFromOptions(sorted, fromNorm, toNorm)
   }
 
   return NextResponse.json({ routes: sorted })
@@ -256,6 +256,7 @@ async function warmRouteMemoryFromOptions(
       })
     }))
   } catch {
-    // Best-effort: swallow all errors to never affect the route-options response.
+    // Best-effort: swallow all errors. recordRouteMemory() logs DB failures internally.
+    console.error('[route-memory] options warm failed')
   }
 }
