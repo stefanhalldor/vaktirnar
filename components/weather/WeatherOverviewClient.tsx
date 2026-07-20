@@ -45,7 +45,7 @@ import {
   clearOverviewRouteDraft,
 } from '@/lib/iceland-routes'
 import { getCanonicalPlace } from '@/lib/iceland-routes/routePlaces'
-import { WindStatusFilterPills } from '@/components/weather/WindStatusFilterPills'
+import { WindStatusFilterPills, type WindStatusFilterMode } from '@/components/weather/WindStatusFilterPills'
 import { cn } from '@/lib/utils'
 import {
   WeatherOverviewShell,
@@ -69,6 +69,8 @@ type VegagerdinCurrentApiData =
       status: 'unavailable'
       stations: []
     }
+
+const STATUS_FILTER_MODE_STORAGE_KEY = 'teskeid:vedrid:status-filter-mode'
 
 function classifyVegagerdinObservationStationWindStatus(
   station: VegagerdinCurrentStationDto,
@@ -115,6 +117,7 @@ export function WeatherOverviewClient({
   const [visibleStatuses, setVisibleStatuses] = useState<Set<WindDisplayStatus>>(
     new Set(DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES),
   )
+  const [statusFilterMode, setStatusFilterMode] = useState<WindStatusFilterMode>('simple')
   // Unified source/time mode: 'now' = Vegagerðin current layer; number = Veðurstofan forecast at that timeMs.
   const [activeMode, setActiveMode] = useState<'now' | number>('now')
   // Tracks whether the user has explicitly chosen a mode — auto-fallback must not override explicit choices.
@@ -129,6 +132,26 @@ export function WeatherOverviewClient({
 
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(STATUS_FILTER_MODE_STORAGE_KEY)
+      if (stored === 'simple' || stored === 'detailed') {
+        setStatusFilterMode(stored)
+      }
+    } catch {
+      // localStorage may be blocked; the in-memory default is enough.
+    }
+  }, [])
+
+  const handleStatusFilterModeChange = useCallback((nextMode: WindStatusFilterMode) => {
+    setStatusFilterMode(nextMode)
+    try {
+      window.localStorage.setItem(STATUS_FILTER_MODE_STORAGE_KEY, nextMode)
+    } catch {
+      // Ignore storage failures; this is a display preference only.
+    }
+  }, [])
 
   // Place selections from RouteMemoryPicker — key/label only, no coordinates required.
   const [fromMemoryPlace, setFromMemoryPlace] = useState<RouteMemoryPlace | null>(null)
@@ -894,7 +917,32 @@ export function WeatherOverviewClient({
     // Attached to vegagerdinProvider so it is rendered once (first in the providers array).
     renderBelowMap: () => (
       <div className="flex flex-col gap-2">
+        <div
+          className="inline-flex w-fit rounded-full border border-border bg-background p-0.5"
+          role="group"
+          aria-label={tOv('statusFilterModeAriaLabel')}
+        >
+          {(['simple', 'detailed'] as const).map(mode => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => handleStatusFilterModeChange(mode)}
+              aria-pressed={statusFilterMode === mode}
+              className={cn(
+                'rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                statusFilterMode === mode
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {mode === 'simple'
+                ? tOv('statusFilterModeSimple')
+                : tOv('statusFilterModeDetailed')}
+            </button>
+          ))}
+        </div>
         <WindStatusFilterPills
+          mode={statusFilterMode}
           counts={overviewStatusCounts}
           visibleStatuses={visibleStatuses}
           onVisibleStatusesChange={setVisibleStatuses}
@@ -1311,6 +1359,7 @@ function StationDetail({
     </ProviderStationPreviewCard>
   )
 }
+
 
 // ── Vegagerðin station detail card ────────────────────────────────────────────
 //

@@ -1068,7 +1068,10 @@
         "routeVariantAllLabel": "All routes",
         "routeVariantFallbackLabel": "Route {n}",
         "routeVariantPillsAriaLabel": "Select individual routes",
-        "routeVariantCautionLabel": "Caution route"
+        "routeVariantCautionLabel": "Caution route",
+        "statusFilterModeAriaLabel": "Choose weather filter view",
+        "statusFilterModeSimple": "Simple",
+        "statusFilterModeDetailed": "Detailed"
       }
     }
   }

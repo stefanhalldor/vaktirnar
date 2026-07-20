@@ -93,7 +93,7 @@ describe('GET /api/teskeid/weather/vedurpuls/feed-preview - feature flags', () =
     const res = await GET(makeRequest())
     expect(res.status).toBe(200)
     // Server controls allowed target types; client cannot pass arbitrary types
-    expect(mockGetLatest).toHaveBeenCalledWith(10, ['vegagerdin_station'])
+    expect(mockGetLatest).toHaveBeenCalledWith(10, ['vegagerdin_station', 'vedurstofan_station'])
   })
 
   it('returns 401 when mode=authenticated and no session', async () => {
@@ -109,7 +109,7 @@ describe('GET /api/teskeid/weather/vedurpuls/feed-preview - feature flags', () =
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
     const res = await GET(makeRequest())
     expect(res.status).toBe(200)
-    expect(mockGetLatest).toHaveBeenCalledWith(10, ['vegagerdin_station'])
+    expect(mockGetLatest).toHaveBeenCalledWith(10, ['vegagerdin_station', 'vedurstofan_station'])
   })
 })
 
@@ -141,22 +141,22 @@ describe('GET /api/teskeid/weather/vedurpuls/feed-preview - public access', () =
 
   it('uses default limit of 10 when no limitItems param', async () => {
     await GET(makeRequest())
-    expect(mockGetLatest).toHaveBeenCalledWith(10, ['vegagerdin_station'])
+    expect(mockGetLatest).toHaveBeenCalledWith(10, ['vegagerdin_station', 'vedurstofan_station'])
   })
 
   it('passes limitItems param to repository', async () => {
     await GET(makeRequest({ limitItems: '5' }))
-    expect(mockGetLatest).toHaveBeenCalledWith(5, ['vegagerdin_station'])
+    expect(mockGetLatest).toHaveBeenCalledWith(5, ['vegagerdin_station', 'vedurstofan_station'])
   })
 
   it('clamps limitItems to MAX_LIMIT (25)', async () => {
     await GET(makeRequest({ limitItems: '100' }))
-    expect(mockGetLatest).toHaveBeenCalledWith(25, ['vegagerdin_station'])
+    expect(mockGetLatest).toHaveBeenCalledWith(25, ['vegagerdin_station', 'vedurstofan_station'])
   })
 
   it('falls back to default limit when limitItems is invalid', async () => {
     await GET(makeRequest({ limitItems: 'abc' }))
-    expect(mockGetLatest).toHaveBeenCalledWith(10, ['vegagerdin_station'])
+    expect(mockGetLatest).toHaveBeenCalledWith(10, ['vegagerdin_station', 'vedurstofan_station'])
   })
 })
 

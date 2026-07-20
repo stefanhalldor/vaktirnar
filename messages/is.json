@@ -1072,7 +1072,10 @@
         "routeVariantAllLabel": "Allar leiðir",
         "routeVariantFallbackLabel": "Leið {n}",
         "routeVariantPillsAriaLabel": "Velja einstakar leiðir",
-        "routeVariantCautionLabel": "Varasöm leið"
+        "routeVariantCautionLabel": "Varasöm leið",
+        "statusFilterModeAriaLabel": "Veldu sýn fyrir veðursíur",
+        "statusFilterModeSimple": "Einfalt",
+        "statusFilterModeDetailed": "Nákvæmt"
       }
     }
   }

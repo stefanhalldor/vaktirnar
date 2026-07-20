@@ -36,7 +36,7 @@ export async function GET() {
     .maybeSingle()
 
   if (error) {
-    console.error('[preferences/thresholds] GET failed', error.code)
+    console.error('[preferences/thresholds] GET failed')
     return NextResponse.json({ error: 'db_error' }, { status: 500 })
   }
 
@@ -89,7 +89,7 @@ export async function PUT(request: Request) {
     .from('profiles')
     .upsert({ id: user.id, display_name: '' }, { onConflict: 'id', ignoreDuplicates: true })
   if (profileErr) {
-    console.error('[preferences/thresholds] profile upsert failed', profileErr.code)
+    console.error('[preferences/thresholds] profile upsert failed')
     return NextResponse.json({ error: 'db_error' }, { status: 500 })
   }
 
@@ -105,7 +105,7 @@ export async function PUT(request: Request) {
     )
 
   if (error) {
-    console.error('[preferences/thresholds] PUT failed', error.code)
+    console.error('[preferences/thresholds] PUT failed')
     return NextResponse.json({ error: 'db_error' }, { status: 500 })
   }
 
