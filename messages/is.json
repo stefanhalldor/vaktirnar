@@ -800,6 +800,8 @@
         "timelineEmptyFilter": "Ekkert óþægilegt á þessum tíma.",
         "timelineEmptyGreenHidden": "Ekkert óþægilegt á þessum tíma. Smelltu á Innan marka eða Sýna allt til að sjá alla tímana.",
         "timelineShowAll": "Sýna allt",
+        "timelinePrevious": "Fyrri brottför",
+        "timelineNext": "Næsta brottför",
         "timelineSingleDepartureTitle": "Veðurþróun á næstu klukkustundum",
         "stepTimesConstraintTitle": "Hvenær skiptir tíminn máli?",
         "timeKindDeparture": "Brottför",
@@ -976,6 +978,12 @@
         "pulseViewMore": "Sjá fleiri skilaboð",
         "pulseViewMorePending": "Sæki púls...",
         "pulseForecastFrom": "Spá gefin út kl. {time}",
+        "pulseVedurstofanForecastFrom": "Spá Veðurstofu Íslands, gefin út kl. {time}",
+        "pulseNearbyVegagerdinTitle": "Nálæg raungildi frá Vegagerðinni",
+        "pulseNearbyVegagerdinDistance": "{distanceKm} km frá",
+        "pulseNearbyVegagerdinMeasuredAt": "Mælt kl. {time}",
+        "pulseNearbyVegagerdinGust": "hviður",
+        "pulseNearbyVegagerdinNanar": "Nánar",
         "pulseNoForecast": "Engin virk spágildi.",
         "pulseForecastShowAll": "Sjá öll spágildi",
         "safnpulsRouteTitle": "Nýjast frá notendum Teskeið.is",
@@ -1075,7 +1083,12 @@
         "routeVariantCautionLabel": "Varasöm leið",
         "statusFilterModeAriaLabel": "Veldu sýn fyrir veðursíur",
         "statusFilterModeSimple": "Einfalt",
-        "statusFilterModeDetailed": "Nákvæmt"
+        "statusFilterModeDetailed": "Nánar",
+        "overlayClose": "Loka",
+        "overlayGust": "hviða",
+        "overlayNanar": "Nánar",
+        "sourceTimePrevious": "Fyrri tími",
+        "sourceTimeNext": "Næsti tími"
       }
     }
   }

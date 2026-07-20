@@ -3,7 +3,11 @@ import { guardTeskeidSession } from '@/lib/auth/guard'
 import { checkChatAccess } from '@/lib/chat/access.server'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { readVedurstofanCacheForStations } from '@/lib/weather/providers/vedurstofan.server'
-import { VedurstofanPulsClient } from './VedurstofanPulsClient'
+import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
+import { findNearestStations } from '@/lib/weather/nearestStations'
+import { getPreviewMessages } from '@/lib/chat/repository.server'
+import { vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
+import { VedurstofanPulsClient, type NearbyVegagerdinStation } from './VedurstofanPulsClient'
 import type { ForecastRowData } from '@/components/weather/VedurstofanForecastRows'
 
 export default async function VedurstofanPulsPage({
@@ -35,6 +39,51 @@ export default async function VedurstofanPulsPage({
     }
   } catch { /* fail open */ }
 
+  // Nearby Vegagerðin stations — provider-gated, fail open
+  let nearbyVegagerdinStations: NearbyVegagerdinStation[] = []
+  const vegagerdinAccess = await checkChatAccess(user, { provider: 'vegagerdin' })
+  if (vegagerdinAccess === 'allowed' && entry.lat != null && entry.lon != null) {
+    try {
+      const vegResult = await readVegagerdinCurrentWithHistoryFallback()
+      if (vegResult.status !== 'unavailable') {
+        const stations = vegResult.payload.measurements
+        const nearest = findNearestStations(
+          { lat: entry.lat, lon: entry.lon },
+          stations.map(s => ({ stationId: s.stationId, name: s.stationName, lat: s.lat, lon: s.lon })),
+          3,
+        )
+        const returnHref = `/auth-mvp/vedrid/puls/stod/${stationId}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`
+        nearbyVegagerdinStations = await Promise.all(
+          nearest.map(async near => {
+            const full = stations.find(s => s.stationId === near.stationId)
+            let latestNote: NearbyVegagerdinStation['latestNote'] = null
+            try {
+              const msgs = await getPreviewMessages(
+                { domain: 'weather', targetType: 'vegagerdin_station', targetId: near.stationId },
+                1,
+              )
+              if (msgs[0] && !msgs[0].isDeleted && !msgs[0].isHidden) {
+                latestNote = { body: msgs[0].body, createdAt: msgs[0].createdAt, authorName: msgs[0].authorName ?? null }
+              }
+            } catch { /* fail open */ }
+            return {
+              stationId: near.stationId,
+              stationName: near.name,
+              distanceM: near.distanceM,
+              measuredAtIso: full?.measuredAtIso ?? null,
+              meanWindMs: full?.meanWindMs ?? null,
+              gustLast10MinMs: full?.gustLast10MinMs ?? null,
+              airTemperatureC: full?.airTemperatureC ?? null,
+              roadTemperatureC: full?.roadTemperatureC ?? null,
+              latestNote,
+              pulseHref: vegagerdinPulseHref(near.stationId, returnHref),
+            }
+          })
+        )
+      }
+    } catch { /* fail open */ }
+  }
+
   return (
     <VedurstofanPulsClient
       stationId={stationId}
@@ -42,6 +91,7 @@ export default async function VedurstofanPulsPage({
       returnTo={returnTo ?? null}
       forecastRows={forecastRows}
       atimeIso={atimeIso}
+      nearbyVegagerdinStations={nearbyVegagerdinStations}
     />
   )
 }

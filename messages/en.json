@@ -796,6 +796,8 @@
         "timelineEmptyFilter": "Nothing unpleasant in this period.",
         "timelineEmptyGreenHidden": "Nothing unpleasant in this period. Click Within limits or Show all to see all slots.",
         "timelineShowAll": "Show all",
+        "timelinePrevious": "Previous departure",
+        "timelineNext": "Next departure",
         "timelineSingleDepartureTitle": "Weather outlook for the coming hours",
         "stepTimesConstraintTitle": "When does timing matter?",
         "timeKindDeparture": "Departure",
@@ -972,6 +974,12 @@
         "pulseViewMore": "See more messages",
         "pulseViewMorePending": "Opening pulse...",
         "pulseForecastFrom": "Forecast issued at {time}",
+        "pulseVedurstofanForecastFrom": "Icelandic Met Office forecast, issued at {time}",
+        "pulseNearbyVegagerdinTitle": "Nearby Vegagerðin readings",
+        "pulseNearbyVegagerdinDistance": "{distanceKm} km away",
+        "pulseNearbyVegagerdinMeasuredAt": "Measured at {time}",
+        "pulseNearbyVegagerdinGust": "gust",
+        "pulseNearbyVegagerdinNanar": "Details",
         "pulseNoForecast": "No active forecast data.",
         "pulseForecastShowAll": "See all forecast values",
         "safnpulsRouteTitle": "Latest from Teskeið.is users",
@@ -1071,7 +1079,12 @@
         "routeVariantCautionLabel": "Caution route",
         "statusFilterModeAriaLabel": "Choose weather filter view",
         "statusFilterModeSimple": "Simple",
-        "statusFilterModeDetailed": "Detailed"
+        "statusFilterModeDetailed": "Detailed",
+        "overlayClose": "Close",
+        "overlayGust": "gust",
+        "overlayNanar": "Details",
+        "sourceTimePrevious": "Previous time",
+        "sourceTimeNext": "Next time"
       }
     }
   }

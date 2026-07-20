@@ -1,10 +1,11 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
 import type { TravelCandidate, TravelWindow, ResolvedTravelThresholds } from '@/lib/weather/types'
 import { deriveThreshold, resolveThresholds } from '@/lib/weather/thresholds'
 import { formatKlTime, formatNum, normalizeLocale, formatCompactDateTime } from './travelAuditMap.helpers'
-import { Check, TriangleAlert } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
 import {
   type WindDisplayStatus,
   classifyCandidateWindDisplayStatus,
@@ -81,6 +82,15 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const btnRefsRef = useRef<Map<number, HTMLButtonElement>>(new Map())
+
+  // Scroll selected slot into view when selectedIdx changes.
+  useEffect(() => {
+    if (selectedIdx === null) return
+    const el = btnRefsRef.current.get(selectedIdx)
+    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  }, [selectedIdx])
 
   if (candidates.length === 0) return null
 
@@ -111,6 +121,22 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       }
       return acc
     }, [])
+
+  // Arrow navigation through filtered candidates.
+  const selectedFilteredIdx = selectedIdx === null
+    ? -1
+    : filteredWithIdx.findIndex(item => item.realIdx === selectedIdx)
+
+  function selectRelative(delta: -1 | 1) {
+    if (filteredWithIdx.length === 0) return
+    const baseIdx = selectedFilteredIdx >= 0 ? selectedFilteredIdx : -1
+    const next = filteredWithIdx[baseIdx + delta]
+    if (next) onSelectIdx(next.realIdx)
+  }
+
+  const prevArrowDisabled = selectedFilteredIdx <= 0
+  const nextArrowDisabled = filteredWithIdx.length === 0 ||
+    (selectedFilteredIdx >= 0 && selectedFilteredIdx >= filteredWithIdx.length - 1)
 
   // Handle status filter change from WindStatusFilterPills.
   // Receives the already-toggled Set; deselects the current slot if its status is filtered out.
@@ -147,7 +173,21 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
           return acc
         }, [])
         return (
-          <div className="overflow-x-auto -mx-1 px-1">
+          <div className="flex items-center gap-1">
+            {/* Prev arrow */}
+            <button
+              type="button"
+              disabled={prevArrowDisabled}
+              onClick={() => selectRelative(-1)}
+              aria-label={tf('timelinePrevious')}
+              className={`flex-shrink-0 flex items-center justify-center w-8 h-8 rounded border border-border transition-colors ${
+                prevArrowDisabled ? 'text-muted-foreground/30 cursor-default' : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+              }`}
+            >
+              <ChevronLeft className="w-4 h-4" aria-hidden />
+            </button>
+
+            <div className="overflow-x-auto flex-1 -mx-1 px-1" ref={scrollRef}>
             <div className="flex min-w-max pb-1 items-end">
               {dayGroups.map(({ dateKey, items }) => (
                 <div key={dateKey} className="flex items-end">
@@ -166,6 +206,10 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                         <button
                           key={c.departureIso}
                           type="button"
+                          ref={el => {
+                            if (el) btnRefsRef.current.set(realIdx, el)
+                            else btnRefsRef.current.delete(realIdx)
+                          }}
                           onClick={() => onSelectIdx(realIdx === selectedIdx ? null : realIdx)}
                           aria-label={realIdx === 0 && firstSlotLabel
                             ? `${firstSlotLabel} · ${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`
@@ -202,6 +246,20 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                 </div>
               ))}
             </div>
+            </div>
+
+            {/* Next arrow */}
+            <button
+              type="button"
+              disabled={nextArrowDisabled}
+              onClick={() => selectRelative(1)}
+              aria-label={tf('timelineNext')}
+              className={`flex-shrink-0 flex items-center justify-center w-8 h-8 rounded border border-border transition-colors ${
+                nextArrowDisabled ? 'text-muted-foreground/30 cursor-default' : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+              }`}
+            >
+              <ChevronRight className="w-4 h-4" aria-hidden />
+            </button>
           </div>
         )
       })() : (

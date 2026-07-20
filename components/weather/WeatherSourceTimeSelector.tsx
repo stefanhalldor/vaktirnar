@@ -1,6 +1,8 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { useLocale } from 'next-intl'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { WIND_STATUS_MARKER_COLOR } from '@/lib/weather/windDisplayStatus'
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
 import { formatLongDepartureDateTime } from '@/components/weather/travelAuditMap.helpers'
@@ -29,6 +31,10 @@ interface WeatherSourceTimeSelectorProps {
   // Unified selection
   activeMode: 'now' | number
   onModeChange: (mode: 'now' | number) => void
+  /** Aria label for the previous-slot arrow button. */
+  prevLabel: string
+  /** Aria label for the next-slot arrow button. */
+  nextLabel: string
 }
 
 /**
@@ -56,12 +62,52 @@ export function WeatherSourceTimeSelector({
   forecastLoadingLabel,
   activeMode,
   onModeChange,
+  prevLabel,
+  nextLabel,
 }: WeatherSourceTimeSelectorProps) {
   const locale = useLocale()
   const nowActive = activeMode === 'now'
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Ordered list of all selectable modes: 'now' (when enabled) then each forecast slot timeMs.
+  const selectableModes: Array<'now' | number> = [
+    ...(nowDisabled ? [] : ['now' as const]),
+    ...forecastSlots.map(s => s.timeMs),
+  ]
+  const activeIdx = selectableModes.findIndex(m => m === activeMode)
+
+  function selectRelative(delta: -1 | 1) {
+    if (selectableModes.length === 0) return
+    const baseIdx = activeIdx >= 0 ? activeIdx : delta > 0 ? -1 : selectableModes.length
+    const next = selectableModes[baseIdx + delta]
+    if (next !== undefined) onModeChange(next)
+  }
+
+  // Scroll the active forecast button into view when activeMode changes.
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const el = scrollRef.current.querySelector<HTMLElement>('[data-active="true"]')
+    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  }, [activeMode])
+
+  const prevDisabled = activeIdx <= 0
+  const nextDisabled = activeIdx < 0 || activeIdx >= selectableModes.length - 1
 
   return (
     <div className="flex border border-border rounded-lg overflow-hidden text-xs">
+
+      {/* Prev arrow */}
+      <button
+        type="button"
+        disabled={prevDisabled}
+        onClick={() => selectRelative(-1)}
+        aria-label={prevLabel}
+        className={`flex-shrink-0 flex items-center justify-center w-8 border-r border-border transition-colors ${
+          prevDisabled ? 'text-muted-foreground/30 cursor-default' : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+        }`}
+      >
+        <ChevronLeft className="w-4 h-4" aria-hidden />
+      </button>
 
       {/* Left: Vegagerðin / Núna — fixed width, does not scroll */}
       <div className="flex-shrink-0 border-r border-border">
@@ -112,7 +158,7 @@ export function WeatherSourceTimeSelector({
           {forecastLoading && forecastSlots.length === 0 ? (
             <span className="block px-1.5 py-1 text-muted-foreground">{forecastLoadingLabel}</span>
           ) : forecastSlots.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" ref={scrollRef}>
               <div className="flex gap-2 pb-0.5" style={{ minWidth: 'max-content' }}>
                 {groupSlotsByDay(forecastSlots, locale).map(({ dayKey, dayLabel, slots: daySlots }) => (
                   <div key={dayKey} className="flex flex-col gap-0.5">
@@ -126,6 +172,7 @@ export function WeatherSourceTimeSelector({
                           <button
                             key={slot.timeMs}
                             type="button"
+                            data-active={isActive ? 'true' : undefined}
                             onClick={() => onModeChange(slot.timeMs)}
                             aria-pressed={isActive}
                             aria-label={ariaLabel}
@@ -154,6 +201,19 @@ export function WeatherSourceTimeSelector({
           ) : null}
         </div>
       </div>
+
+      {/* Next arrow */}
+      <button
+        type="button"
+        disabled={nextDisabled}
+        onClick={() => selectRelative(1)}
+        aria-label={nextLabel}
+        className={`flex-shrink-0 flex items-center justify-center w-8 border-l border-border transition-colors ${
+          nextDisabled ? 'text-muted-foreground/30 cursor-default' : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5'
+        }`}
+      >
+        <ChevronRight className="w-4 h-4" aria-hidden />
+      </button>
 
     </div>
   )

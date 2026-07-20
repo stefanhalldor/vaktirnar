@@ -11,12 +11,26 @@ import { ForecastRowLine, selectUpcomingRows, type ForecastRowData } from '@/com
 import { formatKlTime } from '@/components/weather/travelAuditMap.helpers'
 import { formatChatDayLabel, calendarDateKey } from '@/lib/chat/format'
 
+export type NearbyVegagerdinStation = {
+  stationId: string
+  stationName: string
+  distanceM: number
+  measuredAtIso: string | null
+  meanWindMs: number | null
+  gustLast10MinMs: number | null
+  airTemperatureC: number | null
+  roadTemperatureC: number | null
+  latestNote: { body: string; createdAt: string; authorName: string | null } | null
+  pulseHref: string
+}
+
 interface VedurstofanPulsClientProps {
   stationId: string
   stationName: string
   returnTo: string | null
   forecastRows: ForecastRowData[]
   atimeIso: string | null
+  nearbyVegagerdinStations: NearbyVegagerdinStation[]
 }
 
 /**
@@ -25,7 +39,7 @@ interface VedurstofanPulsClientProps {
  * This page shows the Vedurstofan forecast context and any legacy pulse messages
  * that existed before the migration.
  */
-export function VedurstofanPulsClient({ stationId, stationName, returnTo, forecastRows, atimeIso }: VedurstofanPulsClientProps) {
+export function VedurstofanPulsClient({ stationId, stationName, returnTo, forecastRows, atimeIso, nearbyVegagerdinStations }: VedurstofanPulsClientProps) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
   const locale = useLocale()
   const backDest = resolvePulseBackDestination(returnTo)
@@ -60,7 +74,6 @@ export function VedurstofanPulsClient({ stationId, stationName, returnTo, foreca
           </Link>
         )}
         <h1 className="text-lg font-semibold">{stationName}</h1>
-        <p className="text-xs text-muted-foreground">{t('pulseLegacyNote')}</p>
       </div>
 
       {/* Forecast context */}
@@ -68,7 +81,7 @@ export function VedurstofanPulsClient({ stationId, stationName, returnTo, foreca
         <div className="flex flex-col gap-1 rounded-lg border border-border/60 bg-card px-3 py-2.5">
           {atimeIso && (
             <p className="text-[11px] text-muted-foreground/70">
-              {t('pulseForecastFrom', { time: formatKlTime(atimeIso) })}
+              {t('pulseVedurstofanForecastFrom', { time: formatKlTime(atimeIso) })}
             </p>
           )}
           {displayRows.length > 0 ? (
@@ -107,15 +120,64 @@ export function VedurstofanPulsClient({ stationId, stationName, returnTo, foreca
         </div>
       )}
 
-      {/* Legacy read-only message preview */}
-      <ChatPreviewList
-        messages={messages}
-        emptyLabel={t('pulseEmptyPublic')}
-        deletedLabel={t('pulseDeleted')}
-        kindLabels={kindLabels}
-        loaded={previewLoaded}
-        locale={locale}
-      />
+      {/* Legacy read-only message preview — only shown when messages exist */}
+      {previewLoaded && messages.length > 0 && (
+        <ChatPreviewList
+          messages={messages}
+          emptyLabel={t('pulseEmptyPublic')}
+          deletedLabel={t('pulseDeleted')}
+          kindLabels={kindLabels}
+          loaded={previewLoaded}
+          locale={locale}
+        />
+      )}
+
+      {/* Nearby Vegagerðin stations */}
+      {nearbyVegagerdinStations.length > 0 && (
+        <div className="flex flex-col gap-1 rounded-lg border border-border/60 bg-card px-3 py-2.5">
+          <p className="text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wide">
+            {t('pulseNearbyVegagerdinTitle')}
+          </p>
+          <div className="divide-y divide-border/40">
+            {nearbyVegagerdinStations.map(s => {
+              const distanceKm = (s.distanceM / 1000).toLocaleString(locale, { maximumFractionDigits: 1 })
+              const measuredTime = s.measuredAtIso ? s.measuredAtIso.slice(11, 16) : null
+              return (
+                <div key={s.stationId} className="flex flex-col gap-0.5 py-2 first:pt-0.5 last:pb-0.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <p className="text-xs font-medium leading-snug truncate">{s.stationName}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('pulseNearbyVegagerdinDistance', { distanceKm })}
+                        {measuredTime && (
+                          <> · {t('pulseNearbyVegagerdinMeasuredAt', { time: measuredTime })}</>
+                        )}
+                      </p>
+                      {(s.meanWindMs !== null || s.gustLast10MinMs !== null) && (
+                        <p className="text-[11px] text-muted-foreground">
+                          {s.meanWindMs !== null && `${s.meanWindMs} m/s`}
+                          {s.gustLast10MinMs !== null && (
+                            <>{s.meanWindMs !== null ? ' · ' : ''}{t('pulseNearbyVegagerdinGust')} {s.gustLast10MinMs} m/s</>
+                          )}
+                        </p>
+                      )}
+                      {s.latestNote && (
+                        <p className="text-[11px] text-muted-foreground/80 italic line-clamp-2">{s.latestNote.body}</p>
+                      )}
+                    </div>
+                    <Link
+                      href={s.pulseHref}
+                      className="shrink-0 text-[11px] text-primary underline underline-offset-2 hover:no-underline min-h-[40px] flex items-center"
+                    >
+                      {t('pulseNearbyVegagerdinNanar')}
+                    </Link>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

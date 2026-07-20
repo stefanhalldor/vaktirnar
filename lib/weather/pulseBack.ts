@@ -16,6 +16,7 @@ export type PulseBackDestination =
   | { kind: 'overview'; href: string }
   | { kind: 'trip'; href: string }
   | { kind: 'stationExplorer'; href: string }
+  | { kind: 'pulseStation'; href: string }
 
 export function resolvePulseBackDestination(returnTo: string | null): PulseBackDestination | null {
   if (!returnTo) return null
@@ -53,6 +54,18 @@ export function resolvePulseBackDestination(returnTo: string | null): PulseBackD
       decoded.startsWith('/auth-mvp/vedrid/elta-vedrid/')
     ) {
       return { kind: 'stationExplorer', href: decoded }
+    }
+
+    // Veðurstofan pulse station: /auth-mvp/vedrid/puls/stod/{stationId} (single segment, no sub-path)
+    // Only the path portion (before ? or #) must have no further slashes.
+    const stodPrefix = '/auth-mvp/vedrid/puls/stod/'
+    if (decoded.startsWith(stodPrefix)) {
+      const rest = decoded.slice(stodPrefix.length)
+      const pathEnd = rest.search(/[?#]/)
+      const pathPart = pathEnd === -1 ? rest : rest.slice(0, pathEnd)
+      if (pathPart.length > 0 && !pathPart.includes('/')) {
+        return { kind: 'pulseStation', href: decoded }
+      }
     }
 
     return null

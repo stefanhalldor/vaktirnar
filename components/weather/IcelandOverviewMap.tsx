@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { ProviderMapLayer, ProviderMapMarkerTone, SelectedProviderMarker } from '@/lib/weather/types'
+import type { ProviderMapLayer, ProviderMapMarkerTone, ProviderMapMarkerCallout, SelectedProviderMarker } from '@/lib/weather/types'
 import {
   loadMapsLibrary,
   loadMarkerLibrary,
@@ -47,6 +47,12 @@ interface IcelandOverviewMapProps {
   errorLabel?: string
   /** Tailwind classes for the map container div. */
   className?: string
+  /**
+   * When provided, an InfoWindow is shown anchored to the currently selected marker.
+   * The callout is identified by layerId + markerId so the map can anchor it correctly.
+   * When null or undefined, any open InfoWindow is closed.
+   */
+  selectedCallout?: ProviderMapMarkerCallout | null
 }
 
 /**
@@ -74,6 +80,7 @@ export function IcelandOverviewMap({
   loadingLabel = 'Hleður kort...',
   errorLabel = 'Kort ekki tiltækt',
   className = 'h-[280px] sm:h-[360px] w-full',
+  selectedCallout,
 }: IcelandOverviewMapProps) {
   const mapDivRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -81,8 +88,10 @@ export function IcelandOverviewMap({
   const coreLibRef = useRef<google.maps.CoreLibrary | null>(null)
   // Registry keyed by `${layerId}:${markerId}`
   const markerRegistryRef = useRef<Map<string, google.maps.Marker>>(new Map())
+  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null)
   const [mapReady, setMapReady] = useState(false)
   const [mapError, setMapError] = useState(false)
+  const [latestNote, setLatestNote] = useState<string | null>(null)
 
   // Always-fresh ref so click listeners never have stale closures
   const onSelectRef = useRef(onSelect)
@@ -217,6 +226,88 @@ export function IcelandOverviewMap({
       }
     }
   }, [layers, selected, mapReady])
+
+  // Fetch the latest note from notePreviewUrl when the callout changes.
+  // Clears on deselect. Uses msgs.at(-1) since preview returns oldest-first.
+  useEffect(() => {
+    setLatestNote(null)
+    if (!selectedCallout?.notePreviewUrl) return
+    let cancelled = false
+    const ctrl = new AbortController()
+    fetch(selectedCallout.notePreviewUrl, { signal: ctrl.signal })
+      .then(r => r.ok ? r.json() : [])
+      .then((msgs: Array<{ body: string }>) => {
+        if (!cancelled) setLatestNote(msgs.at(-1)?.body ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setLatestNote(null)
+      })
+    return () => { cancelled = true; ctrl.abort() }
+  }, [selectedCallout?.notePreviewUrl])
+
+  // Manage InfoWindow for the selected marker callout.
+  // Opens/updates when selectedCallout matches the selected marker; closes otherwise.
+  // Rebuilds content when latestNote arrives.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!mapReady || !map) return
+
+    if (!selectedCallout || !selected ||
+        selectedCallout.layerId !== selected.layerId ||
+        selectedCallout.markerId !== selected.markerId) {
+      infoWindowRef.current?.close()
+      return
+    }
+
+    const key = `${selectedCallout.layerId}:${selectedCallout.markerId}`
+    const anchor = markerRegistryRef.current.get(key)
+    if (!anchor || !anchor.getVisible()) {
+      infoWindowRef.current?.close()
+      return
+    }
+
+    // Build InfoWindow content using DOM nodes (no innerHTML with user content).
+    const container = document.createElement('div')
+    container.style.cssText = 'font-size:13px;max-width:200px;padding:2px 0'
+
+    const nameEl = document.createElement('p')
+    nameEl.style.cssText = 'font-weight:600;margin:0 0 4px'
+    nameEl.textContent = selectedCallout.stationName
+    container.appendChild(nameEl)
+
+    if (selectedCallout.windMs !== null || selectedCallout.gustMs !== null) {
+      const windEl = document.createElement('p')
+      windEl.style.cssText = 'margin:0 0 4px;color:#555'
+      const parts: string[] = []
+      if (selectedCallout.windMs !== null) parts.push(`${selectedCallout.windMs} m/s`)
+      if (selectedCallout.gustMs !== null) parts.push(`${selectedCallout.gustLabel} ${selectedCallout.gustMs} m/s`)
+      windEl.textContent = parts.join(' · ')
+      container.appendChild(windEl)
+    }
+
+    if (latestNote) {
+      const noteEl = document.createElement('p')
+      noteEl.style.cssText = 'margin:0 0 4px;color:#666;font-style:italic;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical'
+      noteEl.textContent = latestNote
+      container.appendChild(noteEl)
+    }
+
+    const linkEl = document.createElement('a')
+    linkEl.href = selectedCallout.detailsHref
+    linkEl.style.cssText = 'color:#2563eb;text-decoration:underline'
+    linkEl.textContent = selectedCallout.detailsLabel
+    container.appendChild(linkEl)
+
+    if (!infoWindowRef.current) {
+      infoWindowRef.current = new google.maps.InfoWindow()
+      infoWindowRef.current.addListener('closeclick', () => {
+        onSelectRef.current(null)
+      })
+    }
+    infoWindowRef.current.setContent(container)
+    infoWindowRef.current.open({ map, anchor })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCallout, selected, mapReady, latestNote])
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-border">

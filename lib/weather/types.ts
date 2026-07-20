@@ -385,3 +385,22 @@ export interface SelectedProviderMarker {
   layerId: string
   markerId: string
 }
+
+/** Data for the compact InfoWindow shown when a map marker is selected. */
+export interface ProviderMapMarkerCallout {
+  layerId: string
+  markerId: string
+  stationName: string
+  windMs: number | null
+  gustMs: number | null
+  /** Translated "gust" label (e.g. "hviða"). */
+  gustLabel: string
+  /**
+   * URL from which to fetch the latest note for this station.
+   * IcelandOverviewMap fetches this async and updates the InfoWindow when the note arrives.
+   */
+  notePreviewUrl: string
+  detailsHref: string
+  /** Translated "Nánar" label. */
+  detailsLabel: string
+}

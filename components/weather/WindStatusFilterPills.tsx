@@ -94,9 +94,8 @@ export function WindStatusFilterPills({
       }))
 
   const visibleList = groups.filter(group =>
-    mode === 'simple' ||
     (alwaysShowWithinLimits && group.metaStatus === 'innan-marka') ||
-    group.statuses.some(st => (counts[st] ?? 0) > 0),
+    group.statuses.some(st => (counts[st] ?? 0) > 0)
   )
 
   if (visibleList.length === 0) return null

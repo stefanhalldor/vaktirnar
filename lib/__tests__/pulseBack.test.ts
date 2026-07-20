@@ -15,12 +15,23 @@ describe('resolvePulseBackDestination — external URLs rejected', () => {
 describe('resolvePulseBackDestination — lookalikes rejected', () => {
   it('rejects /auth-mvp/vedrid-anything', () =>
     expect(resolvePulseBackDestination('/auth-mvp/vedrid-anything')).toBeNull())
-  it('rejects /auth-mvp/vedrid/puls/stod/123', () =>
-    expect(resolvePulseBackDestination('/auth-mvp/vedrid/puls/stod/123')).toBeNull())
+  it('rejects /auth-mvp/vedrid/puls/stod/ (empty stationId)', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/puls/stod/')).toBeNull())
+  it('rejects /auth-mvp/vedrid/puls/stod/123/sub (sub-path)', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/puls/stod/123/sub')).toBeNull())
   it('rejects /auth-mvp/vedrid/elta-vedrid-fake', () =>
     expect(resolvePulseBackDestination('/auth-mvp/vedrid/elta-vedrid-fake')).toBeNull())
   it('rejects /auth-mvp/vedrid/ferdalagid-fake', () =>
     expect(resolvePulseBackDestination('/auth-mvp/vedrid/ferdalagid-fake')).toBeNull())
+})
+
+describe('resolvePulseBackDestination — pulseStation', () => {
+  it('allows /auth-mvp/vedrid/puls/stod/123', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/puls/stod/123')).toEqual({ kind: 'pulseStation', href: '/auth-mvp/vedrid/puls/stod/123' }))
+  it('allows with query string', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/puls/stod/32097?returnTo=%2Fauth-mvp%2Fvedrid')).toEqual({ kind: 'pulseStation', href: '/auth-mvp/vedrid/puls/stod/32097?returnTo=/auth-mvp/vedrid' }))
+  it('decodes encoded pulseStation returnTo', () =>
+    expect(resolvePulseBackDestination('%2Fauth-mvp%2Fvedrid%2Fpuls%2Fstod%2F32097')).toEqual({ kind: 'pulseStation', href: '/auth-mvp/vedrid/puls/stod/32097' }))
 })
 
 describe('resolvePulseBackDestination — overview (auth)', () => {

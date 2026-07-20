@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, Car } from 'lucide-react'
-import type { ProviderMapLayer, SelectedProviderMarker } from '@/lib/weather/types'
+import type { ProviderMapLayer, ProviderMapMarkerCallout, SelectedProviderMarker } from '@/lib/weather/types'
 import {
   parseOverviewSelection,
   overviewSelectionUrl,
@@ -22,6 +22,8 @@ export interface ProviderContentCtx {
   selectedMarkerId: string | null
   /** Select or deselect a marker within this provider. Null = deselect. */
   onSelectMarker: (markerId: string | null) => void
+  /** Select a marker in any provider layer by explicit provider ID. Use for cross-provider feeds. */
+  onSelectProviderMarker: (providerId: string, markerId: string | null) => void
 }
 
 /**
@@ -129,6 +131,13 @@ interface WeatherOverviewShellProps {
    * Setting to null makes no change (does not deselect the current marker).
    */
   requestedSelection?: SelectedProviderMarker | null
+  /**
+   * When provided, called with the currently selected marker (or null) to build
+   * the InfoWindow callout. Return null to show no callout.
+   * The shell calls this on every render with the latest selectedProvider state,
+   * so the callback always has fresh access to station data without lifting selection state.
+   */
+  buildSelectedCallout?: (selected: SelectedProviderMarker | null, onDeselect: () => void) => ProviderMapMarkerCallout | null
 }
 
 export function WeatherOverviewShell({
@@ -144,6 +153,7 @@ export function WeatherOverviewShell({
   renderBanner,
   renderRouteLens,
   requestedSelection,
+  buildSelectedCallout,
 }: WeatherOverviewShellProps) {
   const t = useTranslations('teskeid.vedrid.overview')
   const router = useRouter()
@@ -167,6 +177,8 @@ export function WeatherOverviewShell({
     router.replace(next, { scroll: false })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedKey])
+
+  const selectedCallout = buildSelectedCallout?.(selectedProvider, () => handleMapSelect(null)) ?? null
 
   // Only visible providers contribute layers to the map.
   const mapLayers = providers
@@ -258,6 +270,7 @@ export function WeatherOverviewShell({
       selectedMarkerId:
         selectedProvider?.layerId === providerId ? selectedProvider.markerId : null,
       onSelectMarker: (markerId) => handleProviderSelect(providerId, markerId),
+      onSelectProviderMarker: (pid, markerId) => handleProviderSelect(pid, markerId),
     }
   }
 
@@ -319,6 +332,7 @@ export function WeatherOverviewShell({
           onSelect={handleMapSelect}
           loadingLabel={t('loading')}
           errorLabel={t('mapUnavailable')}
+          selectedCallout={selectedCallout}
         />
       )}
 

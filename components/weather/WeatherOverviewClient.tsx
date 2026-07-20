@@ -2,11 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useLocale, useTranslations } from 'next-intl'
-import type {
-  StationExplorerResponse,
-  StationExplorerStation,
-} from '@/lib/weather/providers/vedurstofanStationExplorer'
+import { useTranslations } from 'next-intl'
+import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
 import type {
   VegagerdinCurrentStationDto,
   MeasurementFreshness,
@@ -19,11 +16,7 @@ import type {
 import { ConditionsFeedPreview } from '@/components/weather/ConditionsFeedPreview'
 import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview'
 import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
-import { VedurstofanPulseInline } from '@/components/weather/VedurstofanPulseInline'
-import { WeatherPulseInline } from '@/components/weather/WeatherPulseInline'
-import { ProviderStationPreviewCard } from '@/components/weather/ProviderStationPreviewCard'
 import { WeatherThresholdBar } from '@/components/weather/WeatherThresholdBar'
-import { WindStatusBadge } from '@/components/weather/WindStatusBadge'
 import { useWeatherThresholds } from '@/lib/weather/useWeatherThresholds'
 import {
   type WindDisplayStatus,
@@ -31,6 +24,7 @@ import {
   classifyForecastWindDisplayStatusAt,
   worstWindDisplayStatus,
   selectForecastRowAt,
+  toSimpleWindDisplayStatus,
   WIND_STATUS_MARKER_COLOR,
   WIND_STATUS_META,
   DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES,
@@ -38,7 +32,7 @@ import {
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
 import { WeatherSourceTimeSelector } from '@/components/weather/WeatherSourceTimeSelector'
 import { RouteMemoryPicker, type RouteMemoryPlace } from '@/components/weather/RouteMemoryPicker'
-import { formatCompactDateTime, formatKlTime } from '@/components/weather/travelAuditMap.helpers'
+import { formatKlTime } from '@/components/weather/travelAuditMap.helpers'
 import { vegagerdinHasNoUsableLayer } from '@/lib/weather/vegagerdinFallback'
 import {
   writeOverviewRouteDraft,
@@ -151,7 +145,16 @@ export function WeatherOverviewClient({
     } catch {
       // Ignore storage failures; this is a display preference only.
     }
-  }, [])
+    if (menuVariant === 'authenticated') {
+      const t = thresholdsRef.current
+      fetch('/api/teskeid/weather/preferences/thresholds', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cautionWindMs: t.cautionWindMs, redWindMs: t.redWindMs, statusFilterMode: nextMode }),
+      }).catch(() => {})
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuVariant])
 
   // Place selections from RouteMemoryPicker — key/label only, no coordinates required.
   const [fromMemoryPlace, setFromMemoryPlace] = useState<RouteMemoryPlace | null>(null)
@@ -367,6 +370,9 @@ export function WeatherOverviewClient({
   }, [])
 
   const { thresholds, overrides, setOverrides, reset: resetThresholds } = useWeatherThresholds()
+  // Always-fresh ref so handleStatusFilterModeChange can read current thresholds without stale closures.
+  const thresholdsRef = useRef(thresholds)
+  thresholdsRef.current = thresholds
 
   // Derive sorted unique forecast slot times from all Veðurstofan stations.
   const availableForecastSlots = useMemo<number[]>(() => {
@@ -401,6 +407,11 @@ export function WeatherOverviewClient({
       }
     })
   }, [data, availableForecastSlots, thresholds, tf, vedurstofanRouteFilterIds])
+
+  // In simple mode, collapse near-threshold statuses to their parent color for scrubber dots.
+  const displayForecastSlotStatuses: ForecastTimeScrubberSlot[] = statusFilterMode === 'simple'
+    ? forecastSlotStatuses.map(slot => ({ ...slot, worstStatus: toSimpleWindDisplayStatus(slot.worstStatus) }))
+    : forecastSlotStatuses
 
   const title = isOverview ? t('overviewTitle') : t('title')
   const subtitle = isOverview ? t('overviewSubtitle') : t('subtitle')
@@ -458,15 +469,19 @@ export function WeatherOverviewClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Load user's saved default thresholds on mount (authenticated users only).
+  // Load user's saved default thresholds and status-filter mode on mount (authenticated users only).
   useEffect(() => {
     if (menuVariant !== 'authenticated') return
     fetch('/api/teskeid/weather/preferences/thresholds')
       .then(r => r.ok ? r.json() : null)
-      .then((d: { hasPreferences?: boolean; cautionWindMs?: number; redWindMs?: number } | null) => {
+      .then((d: { hasPreferences?: boolean; cautionWindMs?: number; redWindMs?: number; statusFilterMode?: 'simple' | 'detailed' | null } | null) => {
         if (d?.hasPreferences && typeof d.cautionWindMs === 'number' && typeof d.redWindMs === 'number') {
           setSavedDefaultThresholds({ cautionWindMs: d.cautionWindMs, redWindMs: d.redWindMs })
           setOverrides({ cautionWindMs: d.cautionWindMs, redWindMs: d.redWindMs })
+        }
+        if (d?.statusFilterMode === 'simple' || d?.statusFilterMode === 'detailed') {
+          setStatusFilterMode(d.statusFilterMode)
+          try { window.localStorage.setItem(STATUS_FILTER_MODE_STORAGE_KEY, d.statusFilterMode) } catch {}
         }
       })
       .catch(() => {})
@@ -706,6 +721,20 @@ export function WeatherOverviewClient({
     })
   }, [routeMemory, data, vegagerdinData, activeMode, forecastAnchorMs, thresholds])
 
+  // ── Status filter visibility helper ───────────────────────────────────────
+  // In simple mode, a station is visible if any member of its simple group is in
+  // visibleStatuses — so 'innan-marka' markers show when 'nalgast-othaegindi' is
+  // active (both belong to the green simple group). Keeps pill counts and marker
+  // counts aligned.
+  function isVisibleInCurrentFilter(status: WindDisplayStatus): boolean {
+    if (visibleStatuses.size === 0) return true
+    if (statusFilterMode === 'simple') {
+      const simpleStatus = toSimpleWindDisplayStatus(status)
+      return [...visibleStatuses].some(st => toSimpleWindDisplayStatus(st) === simpleStatus)
+    }
+    return visibleStatuses.has(status)
+  }
+
   // ── Veðurstofan map layer ──────────────────────────────────────────────────
   // Declared after filter sets so both are available without TDZ.
   const vedurstofanLayer: ProviderMapLayer | null = data
@@ -716,15 +745,16 @@ export function WeatherOverviewClient({
           .filter(s => s.lat !== null && s.lon !== null)
           .map(s => {
             const status = classifyForecastWindDisplayStatusAt(s.forecasts, thresholds, forecastAnchorMs)
+            const displayStatus = statusFilterMode === 'simple' ? toSimpleWindDisplayStatus(status) : status
             const isRouteFiltered = vedurstofanRouteFilterIds !== null && !vedurstofanRouteFilterIds.has(s.stationId)
-            const isVisible = !isRouteFiltered && (visibleStatuses.size === 0 || visibleStatuses.has(status))
+            const isVisible = !isRouteFiltered && isVisibleInCurrentFilter(status)
             return {
               id: s.stationId,
               lat: s.lat as number,
               lon: s.lon as number,
               label: s.stationName,
-              tone: windStatusToTone(status),
-              markerColor: WIND_STATUS_MARKER_COLOR[status],
+              tone: windStatusToTone(displayStatus),
+              markerColor: WIND_STATUS_MARKER_COLOR[displayStatus],
               statusLabel: tf(WIND_STATUS_META[status].labelKey as 'statusWithinLimits'),
               visible: isVisible,
             }
@@ -743,35 +773,6 @@ export function WeatherOverviewClient({
     isVisible: typeof activeMode === 'number',
     mapLayer: vedurstofanLayer,
 
-    renderPostMap: (ctx: ProviderContentCtx) => {
-      if (!data) return null
-      const selectedStation =
-        data.stations.find(s => s.stationId === ctx.selectedMarkerId) ?? null
-
-      // Hide detail card when the station is excluded by route filter or status filter.
-      let showStationDetail = false
-      if (selectedStation) {
-        const isOnRoute = vedurstofanRouteFilterIds === null || vedurstofanRouteFilterIds.has(selectedStation.stationId)
-        const selectedStatus = classifyForecastWindDisplayStatusAt(
-          selectedStation.forecasts,
-          thresholds,
-          forecastAnchorMs,
-        )
-        showStationDetail = isOnRoute && (visibleStatuses.size === 0 || visibleStatuses.has(selectedStatus))
-      }
-
-      if (!showStationDetail) return null
-
-      return (
-        <StationDetail
-          key={selectedStation!.stationId}
-          station={selectedStation!}
-          selectedTimeMs={forecastAnchorMs}
-          onClose={() => ctx.onSelectMarker(null)}
-          pulseReturnBase={stationPulseReturnBase}
-        />
-      )
-    },
   }
 
   // ── Vegagerðin map layer ───────────────────────────────────────────────────
@@ -784,15 +785,16 @@ export function WeatherOverviewClient({
             .map(s => {
               // Stations with neither gust nor wind sensor return no_wind_data (not no_data).
               const status = classifyVegagerdinObservationStationWindStatus(s, thresholds)
+              const displayStatus = statusFilterMode === 'simple' ? toSimpleWindDisplayStatus(status) : status
               const isRouteFiltered = vegagerdinRouteFilterIds !== null && !vegagerdinRouteFilterIds.has(s.stationId)
-              const isVisible = !isRouteFiltered && (visibleStatuses.size === 0 || visibleStatuses.has(status))
+              const isVisible = !isRouteFiltered && isVisibleInCurrentFilter(status)
               return {
                 id: s.stationId,
                 lat: s.lat,
                 lon: s.lon,
                 label: s.stationName,
-                tone: windStatusToTone(status),
-                markerColor: WIND_STATUS_MARKER_COLOR[status],
+                tone: windStatusToTone(displayStatus),
+                markerColor: WIND_STATUS_MARKER_COLOR[displayStatus],
                 statusLabel: tf(WIND_STATUS_META[status].labelKey as 'statusWithinLimits'),
                 visible: isVisible,
               }
@@ -853,7 +855,7 @@ export function WeatherOverviewClient({
       .reduce<number>((sum, n) => sum + (n ?? 0), 0)
     if (totalRouteVisible === 0) return false
     return !(Object.keys(overviewStatusCounts) as WindDisplayStatus[]).some(
-      status => (overviewStatusCounts[status] ?? 0) > 0 && visibleStatuses.has(status),
+      status => (overviewStatusCounts[status] ?? 0) > 0 && isVisibleInCurrentFilter(status),
     )
   })()
 
@@ -900,7 +902,10 @@ export function WeatherOverviewClient({
         newSinceOpenLabel={newSinceOpenCount > 0 ? tOv('conditionsFeedNewSinceOpen', { count: newSinceOpenCount }) : undefined}
         onOpen={acknowledgeCurrentItems}
         onToggle={setConditionsDrawerOpen}
-        onSelectTarget={target => ctx.onSelectMarker(target.targetId)}
+        onSelectTarget={target => {
+          const effectiveProvider = target.provider ?? (target.targetType === 'vegagerdin_station' ? 'vegagerdin' : 'vedurstofan')
+          ctx.onSelectProviderMarker(effectiveProvider, target.targetId)
+        }}
         targetHref={target => {
           const effectiveProvider = target.provider ?? (target.targetType === 'vegagerdin_station' ? 'vegagerdin' : 'vedurstofan')
           return effectiveProvider === 'vegagerdin'
@@ -964,26 +969,6 @@ export function WeatherOverviewClient({
       </div>
     ),
 
-    renderPostMap: (ctx: ProviderContentCtx) => {
-      if (!vegagerdinData || vegagerdinData.status !== 'ok' || vegagerdinData.stations.length === 0) return null
-      const selectedStation =
-        vegagerdinData.stations.find(s => s.stationId === ctx.selectedMarkerId) ?? null
-      if (!selectedStation) return null
-      // Hide detail card when the station is excluded by route filter or status filter.
-      const isOnRoute = vegagerdinRouteFilterIds === null || vegagerdinRouteFilterIds.has(selectedStation.stationId)
-      if (!isOnRoute) return null
-      const selectedStatus = classifyVegagerdinObservationStationWindStatus(selectedStation, thresholds)
-      if (visibleStatuses.size > 0 && !visibleStatuses.has(selectedStatus)) return null
-      return (
-        <VegagerdinStationDetail
-          station={selectedStation}
-          measurementFreshness={vegagerdinData.measurementFreshness}
-          thresholds={thresholds}
-          onClose={() => ctx.onSelectMarker(null)}
-          returnTo={`${stationPulseReturnBase}?provider=vegagerdin&stationId=${selectedStation.stationId}`}
-        />
-      )
-    },
   }
 
   // When both places are selected and canonical coords exist (draft was written),
@@ -1008,6 +993,53 @@ export function WeatherOverviewClient({
       tripHref={activeTripHref}
       providers={[vegagerdinProvider, vedurstofanProvider]}
       requestedSelection={null}
+      buildSelectedCallout={(selected, onDeselect) => {
+        if (!selected) return null
+
+        if (selected.layerId === 'vedurstofan' && data) {
+          const station = data.stations.find(s => s.stationId === selected.markerId)
+          if (!station) return null
+          const isOnRoute = vedurstofanRouteFilterIds === null || vedurstofanRouteFilterIds.has(station.stationId)
+          if (!isOnRoute) return null
+          const vedurstofanStatus = classifyForecastWindDisplayStatusAt(station.forecasts, thresholds, forecastAnchorMs)
+          if (!isVisibleInCurrentFilter(vedurstofanStatus)) return null
+          const forecastRowIdx = selectForecastRowAt(station.forecasts, forecastAnchorMs)
+          const windMs = forecastRowIdx !== null ? (station.forecasts[forecastRowIdx]?.windSpeedMs ?? null) : null
+          return {
+            layerId: 'vedurstofan',
+            markerId: station.stationId,
+            stationName: station.stationName,
+            windMs,
+            gustMs: null,
+            gustLabel: tOv('overlayGust'),
+            notePreviewUrl: `/api/teskeid/weather/vedurpuls/stations/${station.stationId}/preview`,
+            detailsHref: vedurstofanPulseHref(station.stationId, `${stationPulseReturnBase}?stationId=${station.stationId}`),
+            detailsLabel: tOv('overlayNanar'),
+          }
+        }
+
+        if (selected.layerId === 'vegagerdin' && vegagerdinData?.status === 'ok') {
+          const station = vegagerdinData.stations.find(s => s.stationId === selected.markerId)
+          if (!station) return null
+          const isOnRoute = vegagerdinRouteFilterIds === null || vegagerdinRouteFilterIds.has(station.stationId)
+          if (!isOnRoute) return null
+          const vegagerdinStatus = classifyVegagerdinObservationStationWindStatus(station, thresholds)
+          if (!isVisibleInCurrentFilter(vegagerdinStatus)) return null
+          return {
+            layerId: 'vegagerdin',
+            markerId: station.stationId,
+            stationName: station.stationName,
+            windMs: station.meanWindMs,
+            gustMs: station.gustLast10MinMs,
+            gustLabel: tOv('overlayGust'),
+            notePreviewUrl: `/api/teskeid/weather/vedurpuls/vegagerdin/stations/${station.stationId}/preview`,
+            detailsHref: vegagerdinPulseHref(station.stationId, stationPulseReturnBase),
+            detailsLabel: tOv('overlayNanar'),
+          }
+        }
+
+        return null
+      }}
       renderBanner={() => (
         <div className="rounded-xl border border-border px-4 py-3 flex flex-col gap-3">
           <p className="text-sm text-muted-foreground leading-snug">{tOv('overviewWindBanner')}</p>
@@ -1048,14 +1080,16 @@ export function WeatherOverviewClient({
               ? tOv('sourceMeasuredAt', { time: formatKlTime(vegagerdinNewestMeasuredAtIso) })
               : undefined
           }
-          nowStatusColor={WIND_STATUS_MARKER_COLOR[vegagerdinWorstStatus]}
+          nowStatusColor={WIND_STATUS_MARKER_COLOR[statusFilterMode === 'simple' ? toSimpleWindDisplayStatus(vegagerdinWorstStatus) : vegagerdinWorstStatus]}
           nowStatusLabel={tf(WIND_STATUS_META[vegagerdinWorstStatus].labelKey as 'statusWithinLimits')}
           nowLoading={vegagerdinLoading}
           nowLoadingLabel={tOv('sourceLoadingNow')}
           nowDisabled={vegagerdinRestricted}
           forecastGroupLabel={tOv('sourceForecastGroupLabel')}
           forecastLabel={tOv('sourceForecastLabel')}
-          forecastSlots={forecastSlotStatuses}
+          forecastSlots={displayForecastSlotStatuses}
+          prevLabel={tOv('sourceTimePrevious')}
+          nextLabel={tOv('sourceTimeNext')}
           forecastLoading={loading}
           forecastLoadingLabel={tOv('sourceLoadingForecast')}
           activeMode={activeMode}
@@ -1132,328 +1166,5 @@ export function WeatherOverviewClient({
         </div>
       )}
     />
-  )
-}
-
-function StationDetail({
-  station,
-  selectedTimeMs,
-  onClose,
-  pulseReturnBase,
-}: {
-  station: StationExplorerStation
-  selectedTimeMs: number
-  onClose: () => void
-  pulseReturnBase: string
-}) {
-  const t = useTranslations('teskeid.vedrid.eltaVedrid')
-  const locale = useLocale()
-
-  const statusLabel =
-    station.status === 'ok'
-      ? t('statusOk')
-      : station.status === 'stale'
-        ? t('statusStale')
-        : t('statusUnavailable')
-
-  return (
-    <ProviderStationPreviewCard
-      stationName={station.stationName}
-      providerLabel="Veðurstofan"
-      contextLine={
-        <span className="flex items-center gap-1.5">
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ background: station.status === 'ok' ? '#16a34a' : station.status === 'stale' ? '#d97706' : '#9ca3af' }}
-            aria-hidden
-          />
-          {statusLabel}
-        </span>
-      }
-      closeLabel={t('closeDetail')}
-      onClose={onClose}
-    >
-      <VedurstofanPulseInline
-        stationId={station.stationId}
-        returnTo={`${pulseReturnBase}?stationId=${station.stationId}`}
-      />
-
-      {/* Registry metadata */}
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">{t('stationId')}</dt>
-        <dd className="font-mono">{station.stationId || '–'}</dd>
-        {station.wmoNumber && (
-          <>
-            <dt className="text-muted-foreground">{t('wmoNumber')}</dt>
-            <dd className="font-mono">{station.wmoNumber}</dd>
-          </>
-        )}
-        {station.abbreviation && (
-          <>
-            <dt className="text-muted-foreground">{t('abbreviation')}</dt>
-            <dd className="font-mono">{station.abbreviation}</dd>
-          </>
-        )}
-        {station.stationType && (
-          <>
-            <dt className="text-muted-foreground">{t('stationType')}</dt>
-            <dd>{station.stationType}</dd>
-          </>
-        )}
-        <dt className="text-muted-foreground">{t('owner')}</dt>
-        <dd>{station.owner ?? '–'}</dd>
-        {station.forecastAreaName && (
-          <>
-            <dt className="text-muted-foreground">{t('forecastArea')}</dt>
-            <dd>{station.forecastAreaName}</dd>
-          </>
-        )}
-        <dt className="text-muted-foreground">{t('coordinates')}</dt>
-        <dd className="font-mono">
-          {station.lat !== null && station.lon !== null
-            ? `${station.lat.toFixed(4)}, ${station.lon.toFixed(4)}`
-            : '–'}
-        </dd>
-        {station.elevationM !== null && (
-          <>
-            <dt className="text-muted-foreground">{t('elevation')}</dt>
-            <dd>{station.elevationM} m</dd>
-          </>
-        )}
-        {station.startYear !== null && (
-          <>
-            <dt className="text-muted-foreground">{t('startYear')}</dt>
-            <dd>{station.startYear}</dd>
-          </>
-        )}
-        <dt className="text-muted-foreground">{t('mappingStatusLabel')}</dt>
-        <dd className="text-muted-foreground">{station.mappingStatus}</dd>
-        {station.atimeIso && (
-          <>
-            <dt className="text-muted-foreground">{t('forecastGenerated')}</dt>
-            <dd>{formatCompactDateTime(station.atimeIso, locale)}</dd>
-          </>
-        )}
-        {station.fetchedAtIso && (
-          <>
-            <dt className="text-muted-foreground">{t('fetchedAt')}</dt>
-            <dd>{formatCompactDateTime(station.fetchedAtIso, locale)}</dd>
-          </>
-        )}
-        {station.expiresAtIso && (
-          <>
-            <dt className="text-muted-foreground">{t('expiresAt')}</dt>
-            <dd>{formatCompactDateTime(station.expiresAtIso, locale)}</dd>
-          </>
-        )}
-      </dl>
-
-      {/* Official source link */}
-      <a
-        href={station.sourceUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-xs text-muted-foreground underline underline-offset-2 self-start"
-      >
-        {t('officialPage')}
-      </a>
-
-      {/* Forecast rows — windowed around selected time */}
-      <div>
-        {station.atimeIso && (
-          <p className="text-xs text-muted-foreground mb-1.5">
-            {t('pulseForecastFrom', { time: formatKlTime(station.atimeIso) })}
-          </p>
-        )}
-        <p className="text-xs font-medium mb-1.5">{t('forecastRows')}</p>
-        {station.forecasts.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t('noForecastRows')}</p>
-        ) : (() => {
-          const usedIdx = selectForecastRowAt(station.forecasts, selectedTimeMs) ?? 0
-          const windowStart = Math.max(0, usedIdx - 2)
-          const windowEnd = Math.min(station.forecasts.length - 1, usedIdx + 2)
-          const windowedRows = station.forecasts.slice(windowStart, windowEnd + 1)
-          const showSeeAll = station.forecasts.length > windowedRows.length
-
-          const forecastTable = (rows: typeof station.forecasts) => (
-            <div className="overflow-x-auto">
-              <table className="text-[11px] w-full min-w-[460px]">
-                <thead>
-                  <tr className="text-muted-foreground border-b border-border">
-                    <th className="pb-1 pr-2 text-left font-normal">{t('colTime')}</th>
-                    <th className="pb-1 pr-2 text-left font-normal">{t('colWind')}</th>
-                    <th className="pb-1 pr-2 text-left font-normal">{t('colDirection')}</th>
-                    <th className="pb-1 pr-2 text-left font-normal">{t('colPrecipitation')}</th>
-                    <th className="pb-1 pr-2 text-left font-normal">{t('colTemp')}</th>
-                    <th className="pb-1 pr-2 text-left font-normal">{t('colWeather')}</th>
-                    <th className="pb-1 text-left font-normal" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, localIdx) => {
-                    const absoluteIdx = (rows === windowedRows ? windowStart : 0) + localIdx
-                    const isUsed = absoluteIdx === usedIdx
-                    return (
-                      <tr
-                        key={row.ftimeIso}
-                        className={`border-b border-border/40 last:border-0 ${isUsed ? 'bg-foreground/5 font-medium' : ''}`}
-                      >
-                        <td className="py-0.5 pr-2 font-mono whitespace-nowrap">
-                          {formatCompactDateTime(row.ftimeIso, locale)}
-                        </td>
-                        <td className="py-0.5 pr-2 whitespace-nowrap">
-                          {row.windSpeedMs != null ? `${row.windSpeedMs} m/s` : '–'}
-                        </td>
-                        <td className="py-0.5 pr-2">{row.windDirectionText ?? '–'}</td>
-                        <td className="py-0.5 pr-2 whitespace-nowrap">
-                          {row.precipitationMmPerHour != null
-                            ? `${row.precipitationMmPerHour} mm/klst`
-                            : '–'}
-                        </td>
-                        <td className="py-0.5 pr-2 whitespace-nowrap">
-                          {row.temperatureC != null ? `${row.temperatureC}°C` : '–'}
-                        </td>
-                        <td className="py-0.5 pr-2">{row.weatherText ?? '–'}</td>
-                        <td className="py-0.5 whitespace-nowrap text-[10px] text-muted-foreground">
-                          {isUsed ? t('usedOnMap') : ''}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
-
-          return (
-            <>
-              {forecastTable(windowedRows)}
-              {showSeeAll && (
-                <details className="mt-1.5 text-xs">
-                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                    {t('pulseForecastShowAll')}
-                  </summary>
-                  <div className="mt-1">
-                    {forecastTable(station.forecasts)}
-                  </div>
-                </details>
-              )}
-            </>
-          )
-        })()}
-      </div>
-
-      {station.parseErrors.length > 0 && (
-        <details className="text-[10px] text-muted-foreground">
-          <summary className="cursor-pointer">
-            {t('parseErrors', { count: station.parseErrors.length })}
-          </summary>
-          <ul className="mt-1 space-y-0.5 list-disc list-inside">
-            {station.parseErrors.map((e, i) => (
-              <li key={i}>{e}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-
-    </ProviderStationPreviewCard>
-  )
-}
-
-
-// ── Vegagerðin station detail card ────────────────────────────────────────────
-//
-// Shows current-measurement data from a single Vegagerðin station.
-// Must never be presented as forecast data — labels say "Núverandi mæling".
-// measurementFreshness describes how old the station observations are (not cache age).
-
-function VegagerdinStationDetail({
-  station,
-  measurementFreshness,
-  thresholds,
-  onClose,
-  returnTo,
-}: {
-  station: VegagerdinCurrentStationDto
-  measurementFreshness: MeasurementFreshness
-  thresholds: ResolvedTravelThresholds
-  onClose: () => void
-  returnTo?: string
-}) {
-  const tOv = useTranslations('teskeid.vedrid.overview')
-  const measuredTime = station.measuredAtIso.slice(11, 16)
-  const fetchedTime = station.fetchedAtIso.slice(11, 16)
-
-  const windStatus = classifyVegagerdinObservationStationWindStatus(station, thresholds)
-
-  const freshnessLabel =
-    measurementFreshness === 'fresh' ? tOv('vegagerdinFreshnessFresh')
-    : measurementFreshness === 'aging' ? tOv('vegagerdinFreshnessAging')
-    : measurementFreshness === 'stale' ? tOv('vegagerdinFreshnessStale')
-    : null
-
-  return (
-    <ProviderStationPreviewCard
-      stationName={station.stationName}
-      providerLabel={tOv('vegagerdinProviderLabel')}
-      contextLine={<WindStatusBadge status={windStatus} variant="badge" />}
-      closeLabel={tOv('vegagerdinCloseDetail')}
-      onClose={onClose}
-    >
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">{tOv('vegagerdinMeasuredAt', { time: measuredTime })}</dt>
-        <dd className="font-mono">{measuredTime}</dd>
-
-        {station.meanWindMs !== null && (
-          <>
-            <dt className="text-muted-foreground">{tOv('vegagerdinMeanWind', { value: station.meanWindMs })}</dt>
-            <dd className="font-mono">{station.meanWindMs} m/s</dd>
-          </>
-        )}
-
-        {station.gustLast10MinMs !== null && (
-          <>
-            <dt className="text-muted-foreground">{tOv('vegagerdinGust', { value: station.gustLast10MinMs })}</dt>
-            <dd className="font-mono">{station.gustLast10MinMs} m/s</dd>
-          </>
-        )}
-
-        {station.windDirectionText !== null && (
-          <>
-            <dt className="text-muted-foreground">{tOv('vegagerdinWindDirection')}</dt>
-            <dd>{station.windDirectionText}{station.windDirectionDeg !== null ? ` (${station.windDirectionDeg}°)` : ''}</dd>
-          </>
-        )}
-
-        {station.airTemperatureC !== null && (
-          <>
-            <dt className="text-muted-foreground">{tOv('vegagerdinAirTemp')}</dt>
-            <dd>{station.airTemperatureC}°C</dd>
-          </>
-        )}
-
-        {station.roadTemperatureC !== null && (
-          <>
-            <dt className="text-muted-foreground">{tOv('vegagerdinRoadTemp')}</dt>
-            <dd>{station.roadTemperatureC}°C</dd>
-          </>
-        )}
-
-        <dt className="text-muted-foreground">{tOv('vegagerdinFetchedAt', { time: fetchedTime })}</dt>
-        <dd className="font-mono">{fetchedTime}</dd>
-
-        {freshnessLabel !== null && (
-          <>
-            <dt className="text-muted-foreground">{freshnessLabel}</dt>
-            <dd />
-          </>
-        )}
-      </dl>
-      <WeatherPulseInline
-        provider="vegagerdin"
-        stationId={station.stationId}
-        returnTo={returnTo}
-      />
-    </ProviderStationPreviewCard>
   )
 }

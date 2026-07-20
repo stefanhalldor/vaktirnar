@@ -206,3 +206,19 @@ export function worstWindDisplayStatus(a: WindDisplayStatus, b: WindDisplayStatu
   const bIdx = WIND_DISPLAY_STATUS_PRIORITY_ORDER.indexOf(b)
   return aIdx <= bIdx ? a : b
 }
+
+/**
+ * Collapses transitional "near-threshold" statuses into their simplified parent category
+ * for simple-mode display (marker colors, scrubber dots, selector dots).
+ *
+ * nalgast-othaegindi → innan-marka  (still within limits for simple users)
+ * nalgast-haettumork → othaegilegt  (uncomfortable, not yet dangerous)
+ * All other statuses are unchanged.
+ *
+ * Does NOT affect classification logic or filter state — display only.
+ */
+export function toSimpleWindDisplayStatus(status: WindDisplayStatus): WindDisplayStatus {
+  if (status === 'nalgast-othaegindi') return 'innan-marka'
+  if (status === 'nalgast-haettumork') return 'othaegilegt'
+  return status
+}
