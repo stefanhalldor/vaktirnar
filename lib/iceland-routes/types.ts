@@ -2,6 +2,8 @@ export type IcelandRouteNodeId = string
 export type IcelandRouteSegmentId = string
 export type IcelandRouteFamilyId = string
 export type IcelandRouteSafetyFlagId = string
+export type IcelandRouteAlternativeId = string
+export type IcelandRouteCautionId = string
 
 export type IcelandRouteProvider =
   | 'google_routes'
@@ -61,6 +63,56 @@ export interface IcelandRouteFamily {
   aliases?: readonly string[]
 }
 
+export type IcelandRouteAlternativeLabel =
+  | 'gegnum-holmavik'
+  | 'um-hellisheidi'
+  | 'um-threngsli'
+  | 'um-firdi'
+  | 'sleppa-oxi'
+  | 'hringvegurinn'
+
+export interface IcelandRouteAlternative {
+  id: IcelandRouteAlternativeId
+  routeFamilyId: IcelandRouteFamilyId
+  label: string
+  labelEn: string
+  labelKey: IcelandRouteAlternativeLabel
+  segmentIds: readonly IcelandRouteSegmentId[]
+  avoids?: readonly IcelandRouteSegmentId[]
+  notes?: string
+  verified: boolean
+}
+
+export type IcelandRouteCautionTag =
+  | 'vindnaemt'
+  | 'fjallvegur'
+  | 'varasamt-eftirvagn'
+  | 'vetrarodvissa'
+  | 'lokad-kann-ad-vera'
+
+export interface IcelandRouteCaution {
+  id: IcelandRouteCautionId
+  segmentId: IcelandRouteSegmentId
+  tag: IcelandRouteCautionTag
+  label: string
+  labelEn: string
+  severity: IcelandRouteSafetySeverity
+  notes?: string
+}
+
+export type IcelandRoadIntelligenceConfidence = 'draft' | 'reviewed' | 'verified'
+export type IcelandRoadIntelligenceStatus = 'resolved' | 'unknown'
+
+export interface IcelandRoadIntelligenceResult {
+  status: IcelandRoadIntelligenceStatus
+  source: 'teskeid_registry'
+  confidence: IcelandRoadIntelligenceConfidence
+  routeFamilyId?: IcelandRouteFamilyId
+  routeFamilyLabel?: string
+  alternatives: readonly IcelandRouteAlternative[]
+  cautions: readonly IcelandRouteCaution[]
+}
+
 export interface RouteIntelligenceCheck {
   touchesRouteWork: boolean
   routeOrSegment?: string
@@ -69,4 +121,3 @@ export interface RouteIntelligenceCheck {
   privacyNotes?: string
   costNotes?: string
 }
-

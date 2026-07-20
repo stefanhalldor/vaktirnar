@@ -1203,3 +1203,48 @@ describe('checkFeatureAccess — weather-provider-vegagerdin (per-user gate, WEA
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 })
+
+// ── checkFeatureAccess — road-intelligence-v1 ─────────────────────────────────
+
+describe('checkFeatureAccess — road-intelligence-v1', () => {
+  let savedEnabled: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.ROAD_INTELLIGENCE_V1_ENABLED
+  })
+
+  afterEach(() => {
+    setEnv('ROAD_INTELLIGENCE_V1_ENABLED', savedEnabled)
+  })
+
+  it('returns false when ROAD_INTELLIGENCE_V1_ENABLED is not set', async () => {
+    delete process.env.ROAD_INTELLIGENCE_V1_ENABLED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns false when ROAD_INTELLIGENCE_V1_ENABLED=false', async () => {
+    process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'false'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns false when env=true but no feature_access row', async () => {
+    process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(false)
+  })
+
+  it('returns true when env=true and feature_access row exists', async () => {
+    process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(true)
+  })
+
+  it('returns false for invalid email even when env=true', async () => {
+    process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    expect(await checkFeatureAccess('uid', 'not-an-email', 'road-intelligence-v1')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+})

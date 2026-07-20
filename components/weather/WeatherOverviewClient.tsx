@@ -35,6 +35,7 @@ import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTime
 import { WeatherSourceTimeSelector } from '@/components/weather/WeatherSourceTimeSelector'
 import { RouteMemoryPicker, type RouteMemoryPlace } from '@/components/weather/RouteMemoryPicker'
 import { WeatherWatchersComparison } from '@/components/weather/WeatherWatchersComparison'
+import { RoadIntelligencePreview } from '@/components/weather/RoadIntelligencePreview'
 import { formatKlTime } from '@/components/weather/travelAuditMap.helpers'
 import { vegagerdinHasNoUsableLayer } from '@/lib/weather/vegagerdinFallback'
 import {
@@ -195,6 +196,7 @@ export function WeatherOverviewClient({
   stationPulseReturnBase = '/auth-mvp/vedrid/elta-vedrid',
   isOverview = false,
   menuVariant,
+  hasRoadIntelligence = false,
 }: {
   backHref?: string
   backLabel?: string
@@ -202,6 +204,7 @@ export function WeatherOverviewClient({
   stationPulseReturnBase?: string
   isOverview?: boolean
   menuVariant?: 'public' | 'authenticated'
+  hasRoadIntelligence?: boolean
 } = {}) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
@@ -1401,6 +1404,14 @@ export function WeatherOverviewClient({
               originRows={routeWeatherWatchersComparison.originRows}
               destinationRows={routeWeatherWatchersComparison.destinationRows}
               thresholds={thresholds}
+            />
+          )}
+          {hasRoadIntelligence && fromMemoryPlace && toMemoryPlace && (
+            <RoadIntelligencePreview
+              fromPlaceKey={fromMemoryPlace.key}
+              toPlaceKey={toMemoryPlace.key}
+              fromLabel={fromMemoryPlace.label}
+              toLabel={toMemoryPlace.label}
             />
           )}
         </div>

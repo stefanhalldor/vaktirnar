@@ -38,6 +38,8 @@ að bæta eigin þekkingu ofan á það:
   leyfilegt.
 - Safna route-interest sem aggregate segment-level innsýn, ekki persónulegum
   leiðum.
+- Stefna að eigin Road Intelligence kortalagi þar sem road graph og segment
+  state eru kjarninn, ekki Google Maps sem truth layer.
 
 ## Ekki markmið í fyrstu
 
@@ -48,6 +50,36 @@ að bæta eigin þekkingu ofan á það:
 - Ekki byggja canonical Teskeiðarvegakerfi með því að vista hráar Google Routes
   niðurstöður sem okkar eigin gögn. Google má vera provider/fallback, en
   Teskeiðarþekkingin á að vera okkar eigin provider-neutral afleiða.
+- Ekki skipta Google kortinu eða Google Routes út í production fyrr en eigið
+  kortalag, open-data leyfi, performance og UX hafa verið rýnd sérstaklega.
+
+## Eigið Road Intelligence Kortalag Og Live Road OS
+
+Sérstakt stefnuskjal er í `RoadIntelligenceMap.md`.
+
+Kjarninn úr þeirri stefnu:
+
+- Teskeið á ekki að byggja "annað Google Maps", heldur eigið íslenskt
+  Road Intelligence lag.
+- Google Maps og Google Routes mega vera provider/fallback á meðan, en
+  Teskeiðar-road-graph á að verða langtíma truth layer.
+- Opið grunnkort, Vegagerðin, Landmælingar Íslands og OSM þarf að rannsaka með
+  leyfi, attribution, cache og performance í huga.
+- Hver vegkafli á að verða `road_segment` með stöðu: spá, raungildi, hviður,
+  færð, lokanir, vindnæmi, púlsgögn, sérfræðireglur og confidence.
+- Fyrsta eigin-korts vinna á að fara bak við `road-intelligence-v1` feature flagg
+  og vera prototype, ekki replacement á `/vedrid`.
+- Langtímasýnin er Live Road OS: Teskeið hjálpar notanda að ákveða hvort hann
+  eigi að fara núna, bíða, velja aðra leið eða stoppa áður en aðstæður versna.
+
+Næstu practical skref eru því:
+
+1. Open-data discovery og leyfisrýni fyrir Vegagerðina, Landmælingar og OSM.
+2. Feature-flaggað map prototype með MapLibre/Leaflet/OpenLayers samanburði.
+3. Segment-state prototype fyrir 10-20 þekkta vegkafla.
+4. Route projection sem segir hvaða kafli verður erfiðastur þegar notandi kemur
+   þangað.
+5. Eigið routing experiment þegar road graph er orðinn nógu góður.
 
 ## Google Routes Sem Provider, Ekki Canonical Grunnur
 
@@ -132,6 +164,20 @@ Skilgreina fyrstu hand-curated vegkaflana og route families:
 
 Útkoma: typed registry með nöfnum, aliases, route numbers, control geometry,
 safety flags og test fixtures.
+
+**Byrjað (v248 — static Road Intelligence registry):**
+
+Fyrsti provider-neutral kjarni fyrir curated alternatives og cautions er kominn
+án production UI, routing-engine eða persistence:
+
+- `lib/iceland-routes/alternatives.ts` — draft alternatives eins og
+  `Gegnum Hólmavík`, `Um Hellisheiði`, `Til að sleppa við Öxi`, `Um firðina`
+  og `Hringvegurinn`
+- `lib/iceland-routes/cautions.ts` — segment-tengdar cautions fyrir
+  Hellisheiði, Öxi, Hólmavík-suðurleið og Þrengsli
+- `lib/iceland-routes/roadIntelligenceResolver.ts` — pure resolver sem mátar
+  route-memory keys eða staðanöfn við `ROUTE_FAMILIES`
+- Engin Google köll, engin Supabase skrif og engin production-hegðunarbreyting
 
 ### R2 - Google Polyline Adapter
 
@@ -230,6 +276,38 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
   Google adapterinn, svo eigið routing og Google-backed routing gefi sömu
   mannamálslegu viðvaranir.
 
+### R7 - Eigið Kortalag Prototype
+
+Staða: ekki byrjað.
+
+Markmið er að prófa eigið kortalag án þess að breyta production `/vedrid`:
+
+- velja einn prototype route bak við `road-intelligence-v1`
+- bera saman MapLibre GL JS, Leaflet og OpenLayers fyrir mobile-first Teskeið UX
+- prófa opið grunnkort frá Landmælingum og/eða Vegagerðinni
+- teikna einfalt road overlay úr open-data eða hand-curated segmentum
+- sýna núverandi Veðurstofu og Vegagerðar gögn ofan á sama korti
+- staðfesta attribution, cache-reglur, hraða og mobile performance
+
+Útkoma þessa fasa á að vera ákvörðunarskjal og mjög lítið prototype, ekki
+production skipti.
+
+### R8 - Live Road OS
+
+Staða: framtíðarsýn, ekki implementation í næsta release.
+
+Þegar road graph, segment state og eigið kortalag eru orðin traust getur
+Teskeið þróast í live ferðafélaga:
+
+- GPS staðsetning mappast á núverandi vegkafla
+- kerfið reiknar ETA á næstu segment
+- spá og raungildi eru borin saman við komu notanda á hvern kafla
+- notandi getur valið ökutækjaprófíl, t.d. eftirvagn, mótorhjól eða vörubíl
+- Teskeið getur bent á betri brottfarartíma, stoppistað eða alternative leið
+
+Þessi fasi þarf sér privacy, battery, push-notification og safety rýni áður en
+hann verður product.
+
 ## Data, Privacy Og Kostnaður
 
 - Route-interest má bara byrja sem aggregate, segment-level insight.
@@ -256,21 +334,25 @@ Fyrsta útgáfa á að vera lítil:
 
 Skrár sem nú eru til:
 
+- `RoadIntelligenceMap.md` — stefna fyrir eigið kortalag, open-data rannsókn,
+  road graph og Live Road OS.
 - `types.ts` — canonical types (IcelandRouteSegment, IcelandRouteFamily, LatLon, ...)
 - `segments.ts` — R1 segment registry (6 stubs, öll `verified: false`)
+- `alternatives.ts` — draft curated Road Intelligence alternatives
+- `cautions.ts` — draft segment-level Road Intelligence cautions
+- `roadIntelligenceResolver.ts` — pure static resolver fyrir route families,
+  alternatives og cautions
 - `lensTypes.ts` — route lens types (OverviewRouteLensResult, OverviewRouteLensRouteFamily)
 - `routeFamilies.ts` — 4 curated route families með corridor waypoints og aliases
 - `lensResolver.ts` — curated corridor resolver, pure function
 - `lensFilter.ts` — haversine corridor filter
-- `index.ts` — export contract v0.3.0
+- `index.ts` — export contract v0.4.0
 
 Næstu skrár koma aðeins þegar þær eru notaðar:
 
 - `controlPoints.ts`
 - `matching.ts`
 - `cacheKeys.ts`
-- `cautions.ts`
-- `alternatives.ts`
 - `intake.ts`
 - `__tests__/iceland-routes-*.test.ts`
 

@@ -1084,7 +1084,12 @@
         "overlayGust": "gust",
         "overlayNanar": "Details",
         "sourceTimePrevious": "Previous time",
-        "sourceTimeNext": "Next time"
+        "sourceTimeNext": "Next time",
+        "roadIntelligenceTitle": "Teskeið knows these routes",
+        "roadIntelligenceBadge": "Experimental",
+        "roadIntelligenceConfidenceDraft": "Draft — unverified",
+        "roadIntelligenceAlternativesLabel": "Route option",
+        "roadIntelligenceCautionsLabel": "Things to know"
       }
     }
   }

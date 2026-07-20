@@ -1088,7 +1088,12 @@
         "overlayGust": "hviða",
         "overlayNanar": "Nánar",
         "sourceTimePrevious": "Fyrri tími",
-        "sourceTimeNext": "Næsti tími"
+        "sourceTimeNext": "Næsti tími",
+        "roadIntelligenceTitle": "Teskeið þekkir þessar leiðir",
+        "roadIntelligenceBadge": "Tilraun",
+        "roadIntelligenceConfidenceDraft": "Uppkast — óstaðfest",
+        "roadIntelligenceAlternativesLabel": "Leiðarkostur",
+        "roadIntelligenceCautionsLabel": "Að vita"
       }
     }
   }

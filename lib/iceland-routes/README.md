@@ -10,7 +10,9 @@ useful across providers, screens, or future Teskeid products.
 ## Current Scope
 
 - Type contracts for canonical Iceland route segments, nodes, route families,
-  safety flags, and route-intelligence checks.
+  safety flags, curated alternatives, route cautions, and route-intelligence
+  checks.
+- Draft pure resolver for static provider-neutral route intelligence.
 - No production routing behavior yet.
 - No Google Routes replacement yet.
 - No Supabase persistence yet.
@@ -28,4 +30,3 @@ Add to this package when work touches reusable route knowledge:
 
 If a change is only UI presentation for one screen, keep it in the Weather UI.
 If it teaches Teskeid something about Icelandic roads, consider this package.
-

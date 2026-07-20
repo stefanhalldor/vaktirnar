@@ -1,6 +1,15 @@
-export const ICELAND_ROUTES_FOUNDATION_VERSION = '0.3.0'
+export const ICELAND_ROUTES_FOUNDATION_VERSION = '0.4.0'
 
 export type {
+  IcelandRoadIntelligenceConfidence,
+  IcelandRoadIntelligenceResult,
+  IcelandRoadIntelligenceStatus,
+  IcelandRouteAlternative,
+  IcelandRouteAlternativeId,
+  IcelandRouteAlternativeLabel,
+  IcelandRouteCaution,
+  IcelandRouteCautionId,
+  IcelandRouteCautionTag,
   IcelandRouteFamily,
   IcelandRouteFamilyId,
   IcelandRouteNode,
@@ -17,6 +26,12 @@ export type {
 } from './types'
 
 export { ICELAND_ROUTE_SEGMENTS, getIcelandSegment } from './segments'
+export {
+  ICELAND_ROAD_INTELLIGENCE_ALTERNATIVES,
+  getRoadIntelligenceAlternativesForFamily,
+} from './alternatives'
+export { ICELAND_ROAD_CAUTIONS, getRoadCautionsForSegments } from './cautions'
+export { resolveRoadIntelligence } from './roadIntelligenceResolver'
 
 // Route lens — curated corridor route filter for /vedrid
 export type {
