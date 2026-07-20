@@ -152,6 +152,14 @@ export function WeatherOverviewClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cautionWindMs: t.cautionWindMs, redWindMs: t.redWindMs, statusFilterMode: nextMode }),
       }).catch(() => {})
+    } else {
+      // Public user: store pending mode (sessionStorage backup) and redirect to login.
+      // Return URL points to /auth-mvp/vedrid so the authenticated page handles the DB save.
+      // ?saveStatusFilterMode param is the primary signal; sessionStorage is backup for flows
+      // where the return URL is consumed by a profile-setup step before reaching /auth-mvp/vedrid.
+      try { sessionStorage.setItem('teskeid_pending_status_filter_mode', nextMode) } catch {}
+      const returnUrl = `/auth-mvp/vedrid?saveStatusFilterMode=${nextMode}`
+      window.location.href = `/innskraning?next=${encodeURIComponent(returnUrl)}`
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuVariant])
@@ -470,18 +478,49 @@ export function WeatherOverviewClient({
   }, [])
 
   // Load user's saved default thresholds and status-filter mode on mount (authenticated users only).
+  // Also consumes any pending status-filter mode left by the public-user login-save flow (sessionStorage backup).
+  // Skips sessionStorage consumption when ?saveStatusFilterMode is in the URL — that handler takes priority.
   useEffect(() => {
     if (menuVariant !== 'authenticated') return
+    // Skip sessionStorage if the URL param handler will already handle this (avoid double-PUT).
+    const hasUrlParam = searchParams.get('saveStatusFilterMode') !== null
+    let pendingMode: 'simple' | 'detailed' | null = null
+    if (!hasUrlParam) {
+      try {
+        const raw = sessionStorage.getItem('teskeid_pending_status_filter_mode')
+        if (raw === 'simple' || raw === 'detailed') {
+          pendingMode = raw
+        }
+      } catch {}
+    }
     fetch('/api/teskeid/weather/preferences/thresholds')
       .then(r => r.ok ? r.json() : null)
       .then((d: { hasPreferences?: boolean; cautionWindMs?: number; redWindMs?: number; statusFilterMode?: 'simple' | 'detailed' | null } | null) => {
+        let thresholdsForPut: { cautionWindMs: number; redWindMs: number } = {
+          cautionWindMs: thresholdsRef.current.cautionWindMs,
+          redWindMs: thresholdsRef.current.redWindMs,
+        }
         if (d?.hasPreferences && typeof d.cautionWindMs === 'number' && typeof d.redWindMs === 'number') {
           setSavedDefaultThresholds({ cautionWindMs: d.cautionWindMs, redWindMs: d.redWindMs })
           setOverrides({ cautionWindMs: d.cautionWindMs, redWindMs: d.redWindMs })
+          thresholdsForPut = { cautionWindMs: d.cautionWindMs, redWindMs: d.redWindMs }
         }
-        if (d?.statusFilterMode === 'simple' || d?.statusFilterMode === 'detailed') {
-          setStatusFilterMode(d.statusFilterMode)
-          try { window.localStorage.setItem(STATUS_FILTER_MODE_STORAGE_KEY, d.statusFilterMode) } catch {}
+        // Pending mode takes priority over DB-stored mode.
+        const dbMode = d?.statusFilterMode === 'simple' || d?.statusFilterMode === 'detailed' ? d.statusFilterMode : null
+        const effectiveMode = pendingMode ?? (hasUrlParam ? null : dbMode)
+        if (effectiveMode) {
+          setStatusFilterMode(effectiveMode)
+          try { window.localStorage.setItem(STATUS_FILTER_MODE_STORAGE_KEY, effectiveMode) } catch {}
+        }
+        // Persist pending mode to DB combined with current thresholds.
+        if (pendingMode) {
+          fetch('/api/teskeid/weather/preferences/thresholds', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cautionWindMs: thresholdsForPut.cautionWindMs, redWindMs: thresholdsForPut.redWindMs, statusFilterMode: pendingMode }),
+          })
+            .then(r => { if (r.ok) { try { sessionStorage.removeItem('teskeid_pending_status_filter_mode') } catch {} } })
+            .catch(() => {})
         }
       })
       .catch(() => {})
@@ -543,6 +582,41 @@ export function WeatherOverviewClient({
     router.replace(window.location.pathname)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams.get('saveDefaults')])
+
+  // After auth flow return: ?saveStatusFilterMode=simple|detailed — save mode to API and clean URL.
+  // This fires on /auth-mvp/vedrid (authenticated page) after the public-user login redirect.
+  // sessionStorage backup is cleared after a successful save.
+  useEffect(() => {
+    if (menuVariant !== 'authenticated') return
+    const raw = searchParams.get('saveStatusFilterMode')
+    if (raw !== 'simple' && raw !== 'detailed') return
+    const mode = raw
+    // Apply mode locally.
+    setStatusFilterMode(mode)
+    try { window.localStorage.setItem(STATUS_FILTER_MODE_STORAGE_KEY, mode) } catch {}
+    // GET current preferences to get the right threshold values, then PUT with mode.
+    fetch('/api/teskeid/weather/preferences/thresholds')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { hasPreferences?: boolean; cautionWindMs?: number; redWindMs?: number } | null) => {
+        const cautionWindMs = (d?.hasPreferences && typeof d.cautionWindMs === 'number') ? d.cautionWindMs : thresholdsRef.current.cautionWindMs
+        const redWindMs = (d?.hasPreferences && typeof d.redWindMs === 'number') ? d.redWindMs : thresholdsRef.current.redWindMs
+        fetch('/api/teskeid/weather/preferences/thresholds', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cautionWindMs, redWindMs, statusFilterMode: mode }),
+        })
+          .then(r => {
+            if (!r.ok) return
+            try { sessionStorage.removeItem('teskeid_pending_status_filter_mode') } catch {}
+            setStatusFilterMode(mode)
+            try { window.localStorage.setItem(STATUS_FILTER_MODE_STORAGE_KEY, mode) } catch {}
+            router.replace(window.location.pathname)
+          })
+          .catch(() => {})
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get('saveStatusFilterMode')])
 
   // Save current thresholds as the user's defaults.
   // Authenticated: saves directly to API.

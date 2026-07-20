@@ -294,7 +294,9 @@ export function IcelandOverviewMap({
 
     const linkEl = document.createElement('a')
     linkEl.href = selectedCallout.detailsHref
-    linkEl.style.cssText = 'color:#2563eb;text-decoration:underline'
+    const primaryHsl = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim()
+    linkEl.style.color = primaryHsl ? `hsl(${primaryHsl})` : '#1a4a16'
+    linkEl.style.textDecoration = 'underline'
     linkEl.textContent = selectedCallout.detailsLabel
     container.appendChild(linkEl)
 
