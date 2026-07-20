@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
+import type { StationExplorerResponse, StationExplorerStation } from '@/lib/weather/providers/vedurstofanStationExplorer'
 import type {
   VegagerdinCurrentStationDto,
   MeasurementFreshness,
@@ -11,7 +11,9 @@ import type {
 import type {
   ProviderMapLayer,
   ProviderMapMarkerTone,
+  ForecastDrawerRow,
   ResolvedTravelThresholds,
+  WeatherStatus,
 } from '@/lib/weather/types'
 import { ConditionsFeedPreview } from '@/components/weather/ConditionsFeedPreview'
 import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview'
@@ -32,6 +34,7 @@ import {
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
 import { WeatherSourceTimeSelector } from '@/components/weather/WeatherSourceTimeSelector'
 import { RouteMemoryPicker, type RouteMemoryPlace } from '@/components/weather/RouteMemoryPicker'
+import { WeatherWatchersComparison } from '@/components/weather/WeatherWatchersComparison'
 import { formatKlTime } from '@/components/weather/travelAuditMap.helpers'
 import { vegagerdinHasNoUsableLayer } from '@/lib/weather/vegagerdinFallback'
 import {
@@ -76,6 +79,107 @@ function classifyVegagerdinObservationStationWindStatus(
   }, thresholds)
   return status === 'no_data' ? 'no_wind_data' : status
 }
+
+type OverviewForecastMetricDirection = ForecastDrawerRow['wind']['direction']
+type OverviewForecastMetricTone = ForecastDrawerRow['wind']['tone']
+
+function getOverviewForecastDirection(delta: number | undefined, epsilon: number): OverviewForecastMetricDirection {
+  if (delta === undefined) return 'none'
+  if (Math.abs(delta) < epsilon) return 'steady'
+  return delta > 0 ? 'up' : 'down'
+}
+
+function getOverviewForecastTone(
+  direction: OverviewForecastMetricDirection,
+  lowerIsBetter: boolean,
+): OverviewForecastMetricTone {
+  if (direction === 'none' || direction === 'steady') return 'neutral'
+  if (lowerIsBetter) return direction === 'down' ? 'positive' : 'negative'
+  return direction === 'up' ? 'positive' : 'negative'
+}
+
+function classifyOverviewForecastStatus(
+  windMs: number,
+  precipMmPerHour: number,
+  thresholds: ResolvedTravelThresholds,
+): WeatherStatus {
+  if (windMs >= thresholds.redWindMs) return 'rautt'
+  if (windMs >= thresholds.cautionWindMs || precipMmPerHour > thresholds.cautionPrecipMmPerHour) return 'gult'
+  return 'graent'
+}
+
+function buildOverviewForecastDrawerRows(
+  forecasts: StationExplorerStation['forecasts'],
+  thresholds: ResolvedTravelThresholds,
+): ForecastDrawerRow[] {
+  const rows: ForecastDrawerRow[] = []
+
+  for (const forecast of forecasts) {
+    if (forecast.windSpeedMs === null || forecast.temperatureC === null) continue
+    const windMs = forecast.windSpeedMs
+    const temperatureC = forecast.temperatureC
+    const precipitationMmPerHour = forecast.precipitationMmPerHour ?? 0
+    const prev = rows[rows.length - 1]
+
+    const windDelta = prev ? +(windMs - prev.wind.value).toFixed(1) : undefined
+    const windDirection = getOverviewForecastDirection(windDelta, 0.5)
+    const tempDelta = prev ? +(temperatureC - prev.temperature.value).toFixed(1) : undefined
+    const tempDirection = getOverviewForecastDirection(tempDelta, 0.5)
+    const precipDelta = prev ? +(precipitationMmPerHour - prev.precipitation.value).toFixed(2) : undefined
+    const precipDirection = getOverviewForecastDirection(precipDelta, 0.1)
+
+    rows.push({
+      timeIso: forecast.ftimeIso,
+      status: classifyOverviewForecastStatus(windMs, precipitationMmPerHour, thresholds),
+      temperature: {
+        value: temperatureC,
+        delta: tempDelta,
+        direction: tempDirection,
+        tone: getOverviewForecastTone(tempDirection, false),
+      },
+      wind: {
+        value: windMs,
+        delta: windDelta,
+        direction: windDirection,
+        tone: getOverviewForecastTone(windDirection, true),
+      },
+      gust: {
+        value: windMs,
+        delta: windDelta,
+        direction: windDirection,
+        tone: getOverviewForecastTone(windDirection, true),
+        severity: 'none',
+      },
+      precipitation: {
+        value: precipitationMmPerHour,
+        delta: precipDelta,
+        direction: precipDirection,
+        tone: getOverviewForecastTone(precipDirection, true),
+      },
+    })
+  }
+
+  return rows
+}
+
+function emptyPlaceFocusIds(): PlaceFocusIds {
+  return { vedurstofan: new Set<string>(), vegagerdin: new Set<string>() }
+}
+
+async function fetchPlaceFocusIds(placeKey: string, signal: AbortSignal): Promise<PlaceFocusIds> {
+  const res = await fetch(`/api/teskeid/weather/route-memory/place-focus?placeKey=${encodeURIComponent(placeKey)}`, {
+    signal,
+  })
+  if (!res.ok) return emptyPlaceFocusIds()
+  const payload = await res.json() as { vedurstofanStationIds?: string[]; vegagerdinStationIds?: string[] }
+  return {
+    vedurstofan: new Set(payload.vedurstofanStationIds ?? []),
+    vegagerdin: new Set(payload.vegagerdinStationIds ?? []),
+  }
+}
+
+type PlaceFocusIds = { vedurstofan: Set<string>; vegagerdin: Set<string> }
+type RouteEndpointFocusIds = { from: PlaceFocusIds; to: PlaceFocusIds }
 
 // ── Veðurstofan overview adapter ────────────────────────────────────────────
 //
@@ -303,8 +407,8 @@ export function WeatherOverviewClient({
   // Single-place endpoint station IDs — fetched from /place-focus when only a from-place
   // is selected. Replaces the previous haversine nearest-station approach so any place in
   // route-memory self-registers without canonical coordinate entries.
-  type PlaceFocusIds = { vedurstofan: Set<string>; vegagerdin: Set<string> }
   const [placeFocusIds, setPlaceFocusIds] = useState<PlaceFocusIds | null>(null)
+  const [routeEndpointFocusIds, setRouteEndpointFocusIds] = useState<RouteEndpointFocusIds | null>(null)
 
   useEffect(() => {
     if (!fromMemoryPlace || toMemoryPlace) {
@@ -312,16 +416,8 @@ export function WeatherOverviewClient({
       return
     }
     const controller = new AbortController()
-    fetch(`/api/teskeid/weather/route-memory/place-focus?placeKey=${encodeURIComponent(fromMemoryPlace.key)}`, {
-      signal: controller.signal,
-    })
-      .then(r => r.ok ? r.json() : { vedurstofanStationIds: [], vegagerdinStationIds: [] })
-      .then((d: { vedurstofanStationIds?: string[]; vegagerdinStationIds?: string[] }) => {
-        setPlaceFocusIds({
-          vedurstofan: new Set(d.vedurstofanStationIds ?? []),
-          vegagerdin: new Set(d.vegagerdinStationIds ?? []),
-        })
-      })
+    fetchPlaceFocusIds(fromMemoryPlace.key, controller.signal)
+      .then(setPlaceFocusIds)
       .catch((err) => {
         if ((err as Error).name === 'AbortError') return
         setPlaceFocusIds(null)
@@ -329,6 +425,29 @@ export function WeatherOverviewClient({
     return () => controller.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromMemoryPlace?.key, !!toMemoryPlace])
+
+  // Two-place endpoint station IDs — separate from the route filter. The map uses exact
+  // route-memory stations, while "Fyrir þá sem eru að elta veðrið" compares endpoint forecasts.
+  useEffect(() => {
+    if (!fromMemoryPlace || !toMemoryPlace) {
+      setRouteEndpointFocusIds(null)
+      return
+    }
+    const controller = new AbortController()
+    Promise.all([
+      fetchPlaceFocusIds(fromMemoryPlace.key, controller.signal),
+      fetchPlaceFocusIds(toMemoryPlace.key, controller.signal),
+    ])
+      .then(([from, to]) => {
+        if (controller.signal.aborted) return
+        setRouteEndpointFocusIds({ from, to })
+      })
+      .catch((err) => {
+        if ((err as Error).name === 'AbortError') return
+        setRouteEndpointFocusIds(null)
+      })
+    return () => controller.abort()
+  }, [fromMemoryPlace?.key, toMemoryPlace?.key])
 
   // Single-place focus filter: when only from-place is selected, narrow map to endpoint stations.
   // Overridden by the exact route-memory filter when both places are selected.
@@ -795,6 +914,44 @@ export function WeatherOverviewClient({
     })
   }, [routeMemory, data, vegagerdinData, activeMode, forecastAnchorMs, thresholds])
 
+  const routeWeatherWatchersComparison = useMemo<{
+    originRows: ForecastDrawerRow[]
+    destinationRows: ForecastDrawerRow[]
+  } | null>(() => {
+    if (!fromMemoryPlace || !toMemoryPlace || !data) return null
+
+    const stationsById = new Map(data.stations.map(station => [station.stationId, station]))
+    const findStationFromFocus = (ids: Set<string> | undefined): StationExplorerStation | null => {
+      if (!ids) return null
+      for (const stationId of ids) {
+        const station = stationsById.get(stationId)
+        if (station && station.forecasts.length > 0) return station
+      }
+      return null
+    }
+    const findStationFromRouteOrder = (stationIds: string[]): StationExplorerStation | null => {
+      for (const stationId of stationIds) {
+        const station = stationsById.get(stationId)
+        if (station && station.forecasts.length > 0) return station
+      }
+      return null
+    }
+
+    const fallbackVariant = activeVariant
+      ?? (routeMemory.status === 'resolved' ? sortedVariants[0] ?? routeMemory.variants[0] ?? null : null)
+    const fallbackRouteStationIds = fallbackVariant?.vedurstofanStationIds ?? []
+    const originStation = findStationFromFocus(routeEndpointFocusIds?.from.vedurstofan)
+      ?? findStationFromRouteOrder(fallbackRouteStationIds)
+    const destinationStation = findStationFromFocus(routeEndpointFocusIds?.to.vedurstofan)
+      ?? findStationFromRouteOrder([...fallbackRouteStationIds].reverse())
+
+    const originRows = buildOverviewForecastDrawerRows(originStation?.forecasts ?? [], thresholds)
+    const destinationRows = buildOverviewForecastDrawerRows(destinationStation?.forecasts ?? [], thresholds)
+    if (originRows.length === 0 && destinationRows.length === 0) return null
+
+    return { originRows, destinationRows }
+  }, [fromMemoryPlace, toMemoryPlace, data, routeEndpointFocusIds, activeVariant, routeMemory, sortedVariants, thresholds])
+
   // ── Status filter visibility helper ───────────────────────────────────────
   // In simple mode, a station is visible if any member of its simple group is in
   // visibleStatuses — so 'innan-marka' markers show when 'nalgast-othaegindi' is
@@ -1236,6 +1393,15 @@ export function WeatherOverviewClient({
                 )
               })}
             </div>
+          )}
+          {fromMemoryPlace && toMemoryPlace && routeWeatherWatchersComparison && (
+            <WeatherWatchersComparison
+              originLabel={fromMemoryPlace.label}
+              destinationLabel={toMemoryPlace.label}
+              originRows={routeWeatherWatchersComparison.originRows}
+              destinationRows={routeWeatherWatchersComparison.destinationRows}
+              thresholds={thresholds}
+            />
           )}
         </div>
       )}
