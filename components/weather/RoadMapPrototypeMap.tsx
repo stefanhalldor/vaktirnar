@@ -1,11 +1,12 @@
 'use client'
 
 // MapLibre CSS is loaded by route layout (app/auth-mvp/vedrid/road-map-prototype/layout.tsx).
-import { type FormEvent, type MutableRefObject, useEffect, useRef, useState } from 'react'
+import { type FormEvent, type MutableRefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import type { DeterministicResult, ResolvedTravelThresholds, TravelCandidate, TravelWindow } from '@/lib/weather/types'
-import type { StationGeoJsonCollection } from '@/lib/road-intelligence/stationGeoJson'
+import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
+import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import { buildTravelBridgeMapData } from '@/lib/road-intelligence/travelBridgeMapData'
 import {
   parsePlaceSearchResults,
@@ -26,15 +27,24 @@ import { formatCompactDateTime, formatKlTime, formatNum } from './travelAuditMap
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import {
   ALL_WIND_DISPLAY_STATUSES,
+  DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES,
+  WIND_STATUS_META,
   classifyForecastWindDisplayStatusAt,
+  classifyObservationWindDisplayStatus,
   classifyPointWindDisplayStatus,
   selectForecastRowAt,
   toSimpleWindDisplayStatus,
+  worstWindDisplayStatus,
   WIND_STATUS_MARKER_COLOR,
   type WindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
+import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
+import { WeatherSourceTimeSelector } from './WeatherSourceTimeSelector'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
+import { ConditionsFeedPreview } from './ConditionsFeedPreview'
+import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview'
+import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import type {
   VegagerdinRouteLayer,
@@ -73,16 +83,6 @@ const ROUTE_LABEL_ALWAYS_STATUSES = new Set<WindDisplayStatus>([
 ])
 const ROUTE_LABEL_DENSITY_THRESHOLD = 6
 
-// Wind speed thresholds (m/s) for station dot colors.
-const WIND_COLOR_EXPRESSION = [
-  'step',
-  ['coalesce', ['get', 'gustMs'], ['get', 'meanWindMs'], 0],
-  '#22c55e', // calm  < 7 m/s
-  7,  '#eab308', // moderate 7–15
-  15, '#f97316', // strong  15–20
-  20, '#ef4444', // severe  20+
-]
-
 const ROAD_SEGMENT_COLOR_EXPRESSION = [
   'case',
   ['has', 'teskeidRoadStatusColor'],
@@ -113,10 +113,16 @@ const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] } as 
 const TRAVEL_METNO_LAYER_ID = 'travel-bridge-weather-points'
 const VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID = 'vedurstofan-route-stations'
 const VEGAGERDIN_ROUTE_STATIONS_LAYER_ID = 'vegagerdin-route-stations'
+const OVERVIEW_VEGAGERDIN_LAYER_ID = 'station-markers'
+const OVERVIEW_VEDURSTOFAN_LAYER_ID = 'overview-vedurstofan-stations'
 const ROUTE_FILTER_LAYER_IDS = [
   TRAVEL_METNO_LAYER_ID,
   VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
   VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
+] as const
+const OVERVIEW_FILTER_LAYER_IDS = [
+  OVERVIEW_VEGAGERDIN_LAYER_ID,
+  OVERVIEW_VEDURSTOFAN_LAYER_ID,
 ] as const
 const TRAVEL_POINT_COLOR_EXPRESSION = [
   'match',
@@ -143,6 +149,20 @@ type RouteBridgeSummary = {
   vegagerdinStationCount: number
   slotStatusSource: RouteSlotStatusSource
 }
+
+type VegagerdinCurrentApiData =
+  | {
+      status: 'ok'
+      cacheStatus: 'fresh' | 'stale' | 'history_fallback'
+      measurementFreshness: string
+      fetchedAtIso: string
+      oldestMeasuredAtIso: string | null
+      stations: VegagerdinCurrentStationDto[]
+    }
+  | {
+      status: 'unavailable'
+      stations: []
+    }
 
 type RouteSlotStatusSource = 'providers' | 'vegagerdin' | 'vedurstofan' | 'fallback'
 
@@ -177,6 +197,30 @@ function readFiniteNumber(value: unknown): number | null {
 
 function isWindDisplayStatus(value: unknown): value is WindDisplayStatus {
   return typeof value === 'string' && WIND_DISPLAY_STATUS_SET.has(value)
+}
+
+function classifyVegagerdinObservationStationWindStatus(
+  station: Pick<VegagerdinCurrentStationDto, 'meanWindMs' | 'gustLast10MinMs'>,
+  thresholds: ResolvedTravelThresholds,
+): WindDisplayStatus {
+  const status = classifyObservationWindDisplayStatus({
+    meanWindMs: station.meanWindMs,
+    gustLast10MinMs: station.gustLast10MinMs,
+  }, thresholds)
+  return status === 'no_data' ? 'no_wind_data' : status
+}
+
+function statusIsVisibleInFilter(
+  status: WindDisplayStatus,
+  statuses: ReadonlySet<WindDisplayStatus>,
+  mode: WindStatusFilterMode,
+): boolean {
+  if (statuses.size === 0) return true
+  if (mode === 'simple') {
+    const simpleStatus = toSimpleWindDisplayStatus(status)
+    return [...statuses].some(st => toSimpleWindDisplayStatus(st) === simpleStatus)
+  }
+  return statuses.has(status)
 }
 
 function windDisplayStatusForRoutePoint(
@@ -326,6 +370,19 @@ function applyRouteStatusFilterToMap(
   }
 }
 
+function applyOverviewStatusFilterToMap(
+  map: import('maplibre-gl').Map | null,
+  statuses: ReadonlySet<WindDisplayStatus>,
+  mode: WindStatusFilterMode,
+) {
+  if (!map) return
+  const filter = buildRouteStatusFilter(statuses, mode)
+  for (const layerId of OVERVIEW_FILTER_LAYER_IDS) {
+    if (!map.getLayer(layerId)) continue
+    map.setFilter(layerId, filter as Parameters<typeof map.setFilter>[1])
+  }
+}
+
 type RoadMapPlaceMarker = {
   marker: import('maplibre-gl').Marker
   element: HTMLButtonElement
@@ -385,6 +442,8 @@ function abortControllerRef(abortRef: MutableRefObject<AbortController | null>) 
  */
 export function RoadMapPrototypeMap() {
   const t = useTranslations('teskeid.vedrid.overview')
+  const tf = useTranslations('teskeid.vedrid.ferdalagid')
+  const tPulse = useTranslations('teskeid.vedrid.eltaVedrid')
   const locale = useLocale()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<import('maplibre-gl').Map | null>(null)
@@ -401,6 +460,10 @@ export function RoadMapPrototypeMap() {
   const visibleRouteStatusesRef = useRef<Set<WindDisplayStatus>>(new Set())
   const routeStatusFilterModeRef = useRef<WindStatusFilterMode>('simple')
   const routeActiveRef = useRef(false)
+  const overviewActiveModeRef = useRef<'now' | number>('now')
+  const overviewVisibleStatusesRef = useRef<Set<WindDisplayStatus>>(
+    new Set(DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES),
+  )
   const vedurstofanLayerRef = useRef<VedurstofanTravelLayer | undefined>(undefined)
   const routeDurationMinutesRef = useRef<number>(0)
   const routeThresholdsRef = useRef<ResolvedTravelThresholds>(DEFAULT_ROUTE_THRESHOLDS)
@@ -430,11 +493,24 @@ export function RoadMapPrototypeMap() {
   const [routeThresholdError, setRouteThresholdError] = useState<string | null>(null)
   const [routeStatusFilterMode, setRouteStatusFilterMode] = useState<WindStatusFilterMode>('simple')
   const [visibleRouteStatuses, setVisibleRouteStatuses] = useState<Set<WindDisplayStatus>>(new Set())
+  const [overviewVisibleStatuses, setOverviewVisibleStatuses] = useState<Set<WindDisplayStatus>>(
+    new Set(DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES),
+  )
+  const [overviewActiveMode, setOverviewActiveMode] = useState<'now' | number>('now')
+  const [overviewVegagerdinData, setOverviewVegagerdinData] = useState<VegagerdinCurrentApiData | null>(null)
+  const [overviewVegagerdinLoading, setOverviewVegagerdinLoading] = useState(true)
+  const [overviewVegagerdinRestricted, setOverviewVegagerdinRestricted] = useState(false)
+  const [overviewVedurstofanData, setOverviewVedurstofanData] = useState<StationExplorerResponse | null>(null)
+  const [overviewVedurstofanLoading, setOverviewVedurstofanLoading] = useState(true)
+  const [overviewVedurstofanRestricted, setOverviewVedurstofanRestricted] = useState(false)
+  const [mapReady, setMapReady] = useState(false)
   const [departureAt, setDepartureAt] = useState('')
   const [routeCandidates, setRouteCandidates] = useState<TravelCandidate[] | null>(null)
   const [routeBestWindow, setRouteBestWindow] = useState<TravelWindow | undefined>(undefined)
   const [routeSlotStatusOverrides, setRouteSlotStatusOverrides] = useState<WindDisplayStatus[] | null>(null)
   const [selectedCandidateIdx, setSelectedCandidateIdx] = useState<number | null>(null)
+  const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [isChatOpen, setIsChatOpen] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const routeBridgeRequestRef = useRef<AbortController | null>(null)
@@ -482,6 +558,271 @@ export function RoadMapPrototypeMap() {
     routeStationNoWind: t('roadMapPrototypeRouteStationNoWind'),
     routeStationStale: t('roadMapPrototypeRouteStationStale'),
   }
+
+  const {
+    items: conditionsItems,
+    loading: conditionsLoading,
+    newSinceOpenCount,
+    acknowledgeCurrentItems,
+  } = useConditionsFeedPreview({ limitItems: 10, isOpen: isChatOpen })
+
+  const overviewThresholds = useMemo<ResolvedTravelThresholds>(() => {
+    const caution = Number(routeCautionWind)
+    const red = Number(routeRedWind)
+    if (
+      !Number.isFinite(caution) ||
+      !Number.isFinite(red) ||
+      caution <= 0 ||
+      red <= 0 ||
+      caution > 40 ||
+      red > 40 ||
+      caution >= red
+    ) {
+      return DEFAULT_ROUTE_THRESHOLDS
+    }
+    return resolveThresholds('none', { cautionWindMs: caution, redWindMs: red })
+  }, [routeCautionWind, routeRedWind])
+
+  const overviewForecastSlots = useMemo<number[]>(() => {
+    if (!overviewVedurstofanData) return []
+    const timeSet = new Set<number>()
+    for (const station of overviewVedurstofanData.stations) {
+      for (const forecast of station.forecasts) {
+        const timeMs = Date.parse(forecast.ftimeIso)
+        if (Number.isFinite(timeMs)) timeSet.add(timeMs)
+      }
+    }
+    return Array.from(timeSet).sort((a, b) => a - b)
+  }, [overviewVedurstofanData])
+
+  const overviewForecastAnchorMs =
+    typeof overviewActiveMode === 'number' ? overviewActiveMode : Date.now()
+
+  const overviewForecastSlotStatuses = useMemo<ForecastTimeScrubberSlot[]>(() => {
+    if (!overviewVedurstofanData || overviewForecastSlots.length === 0) return []
+    return overviewForecastSlots.map(timeMs => {
+      let worst: WindDisplayStatus = 'no_data'
+      for (const station of overviewVedurstofanData.stations) {
+        if (station.lat === null || station.lon === null) continue
+        const status = classifyForecastWindDisplayStatusAt(
+          station.forecasts,
+          overviewThresholds,
+          timeMs,
+        )
+        worst = worstWindDisplayStatus(worst, status)
+      }
+      return {
+        timeMs,
+        worstStatus: worst,
+        worstStatusLabel: tf(WIND_STATUS_META[worst].labelKey as 'statusWithinLimits'),
+      }
+    })
+  }, [overviewForecastSlots, overviewThresholds, overviewVedurstofanData, tf])
+
+  const displayOverviewForecastSlotStatuses = routeStatusFilterMode === 'simple'
+    ? overviewForecastSlotStatuses.map(slot => ({
+        ...slot,
+        worstStatus: toSimpleWindDisplayStatus(slot.worstStatus),
+      }))
+    : overviewForecastSlotStatuses
+
+  const overviewVegagerdinNewestMeasuredAtIso = useMemo(() => {
+    if (overviewVegagerdinData?.status !== 'ok') return null
+    let newestMs = -Infinity
+    let newestIso: string | null = null
+    for (const station of overviewVegagerdinData.stations) {
+      const timeMs = Date.parse(station.measuredAtIso)
+      if (Number.isFinite(timeMs) && timeMs > newestMs) {
+        newestMs = timeMs
+        newestIso = station.measuredAtIso
+      }
+    }
+    return newestIso
+  }, [overviewVegagerdinData])
+
+  const overviewVegagerdinWorstStatus = useMemo<WindDisplayStatus>(() => {
+    if (overviewVegagerdinData?.status !== 'ok') return 'no_data'
+    let worst: WindDisplayStatus = 'no_data'
+    for (const station of overviewVegagerdinData.stations) {
+      worst = worstWindDisplayStatus(
+        worst,
+        classifyVegagerdinObservationStationWindStatus(station, overviewThresholds),
+      )
+    }
+    return worst
+  }, [overviewThresholds, overviewVegagerdinData])
+
+  const overviewStatusCounts = useMemo<Partial<Record<WindDisplayStatus, number>>>(() => {
+    const counts: Partial<Record<WindDisplayStatus, number>> = {}
+    const tally = (status: WindDisplayStatus) => {
+      counts[status] = (counts[status] ?? 0) + 1
+    }
+    if (overviewActiveMode === 'now') {
+      if (overviewVegagerdinData?.status === 'ok') {
+        for (const station of overviewVegagerdinData.stations) {
+          tally(classifyVegagerdinObservationStationWindStatus(station, overviewThresholds))
+        }
+      }
+    } else if (overviewVedurstofanData) {
+      for (const station of overviewVedurstofanData.stations) {
+        if (station.lat === null || station.lon === null) continue
+        tally(classifyForecastWindDisplayStatusAt(
+          station.forecasts,
+          overviewThresholds,
+          overviewForecastAnchorMs,
+        ))
+      }
+    }
+    return counts
+  }, [
+    overviewActiveMode,
+    overviewForecastAnchorMs,
+    overviewThresholds,
+    overviewVedurstofanData,
+    overviewVegagerdinData,
+  ])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/teskeid/weather/vegagerdin/current')
+      .then(res => {
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
+          setOverviewVegagerdinRestricted(true)
+          setOverviewVegagerdinLoading(false)
+          return null
+        }
+        if (!res.ok) throw new Error('vegagerdin-current-failed')
+        return res.json() as Promise<VegagerdinCurrentApiData>
+      })
+      .then(payload => {
+        if (cancelled || !payload) return
+        setOverviewVegagerdinData(payload)
+        setOverviewVegagerdinLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) setOverviewVegagerdinLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/teskeid/weather/vedurstofan/stations')
+      .then(res => {
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
+          setOverviewVedurstofanRestricted(true)
+          setOverviewVedurstofanLoading(false)
+          return null
+        }
+        if (!res.ok) throw new Error('vedurstofan-stations-failed')
+        return res.json() as Promise<StationExplorerResponse>
+      })
+      .then(payload => {
+        if (cancelled || !payload) return
+        setOverviewVedurstofanData(payload)
+        setOverviewVedurstofanLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) setOverviewVedurstofanLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapRef.current
+    const source = map?.getSource(OVERVIEW_VEGAGERDIN_LAYER_ID)
+    if (!map?.isStyleLoaded() || !source) return
+
+    const stations = overviewVegagerdinData?.status === 'ok'
+      ? overviewVegagerdinData.stations
+      : []
+    const geojson = {
+      type: 'FeatureCollection',
+      features: stations.map((station) => {
+        const status = classifyVegagerdinObservationStationWindStatus(station, overviewThresholds)
+        const displayStatus = routeStatusFilterMode === 'simple'
+          ? toSimpleWindDisplayStatus(status)
+          : status
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [station.lon, station.lat] },
+          properties: {
+            stationId: station.stationId,
+            stationName: station.stationName,
+            meanWindMs: station.meanWindMs,
+            gustMs: station.gustLast10MinMs,
+            airTemperatureC: station.airTemperatureC,
+            windDirectionText: station.windDirectionText,
+            measuredAtIso: station.measuredAtIso,
+            windDisplayStatus: displayStatus,
+            rawWindDisplayStatus: status,
+          },
+        }
+      }),
+    }
+
+    ;(source as import('maplibre-gl').GeoJSONSource).setData(geojson as never)
+    if (overviewActiveMode === 'now') setStationCount(stations.length)
+    applyOverviewStatusFilterToMap(map, overviewVisibleStatusesRef.current, routeStatusFilterModeRef.current)
+    updateOverviewLayerVisibility()
+  }, [mapReady, overviewActiveMode, overviewThresholds, overviewVegagerdinData, routeStatusFilterMode])
+
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapRef.current
+    const source = map?.getSource(OVERVIEW_VEDURSTOFAN_LAYER_ID)
+    if (!map?.isStyleLoaded() || !source) return
+
+    const stations = overviewVedurstofanData?.stations ?? []
+    const geojson = {
+      type: 'FeatureCollection',
+      features: stations
+        .filter(station => station.lat !== null && station.lon !== null)
+        .map((station) => {
+          const status = classifyForecastWindDisplayStatusAt(
+            station.forecasts,
+            overviewThresholds,
+            overviewForecastAnchorMs,
+          )
+          const displayStatus = routeStatusFilterMode === 'simple'
+            ? toSimpleWindDisplayStatus(status)
+            : status
+          const selectedIdx = selectForecastRowAt(station.forecasts, overviewForecastAnchorMs)
+          const row = selectedIdx !== null ? station.forecasts[selectedIdx] : null
+          return {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [station.lon, station.lat] },
+            properties: {
+              stationId: station.stationId,
+              stationName: station.stationName,
+              windSpeedMs: row?.windSpeedMs ?? null,
+              forecastTimeIso: row?.ftimeIso ?? null,
+              windDirectionText: row?.windDirectionText ?? null,
+              airTemperatureC: row?.temperatureC ?? null,
+              windDisplayStatus: displayStatus,
+              rawWindDisplayStatus: status,
+            },
+          }
+        }),
+    }
+
+    ;(source as import('maplibre-gl').GeoJSONSource).setData(geojson as never)
+    if (overviewActiveMode !== 'now') setStationCount(geojson.features.length)
+    applyOverviewStatusFilterToMap(map, overviewVisibleStatusesRef.current, routeStatusFilterModeRef.current)
+    updateOverviewLayerVisibility()
+  }, [
+    mapReady,
+    overviewActiveMode,
+    overviewForecastAnchorMs,
+    overviewThresholds,
+    overviewVedurstofanData,
+    routeStatusFilterMode,
+  ])
 
   function routeStatusLabel(status: DeterministicResult['stada']): string {
     switch (status) {
@@ -556,12 +897,7 @@ export function RoadMapPrototypeMap() {
   }
 
   function routeStatusIsVisible(status: WindDisplayStatus, statuses = visibleRouteStatusesRef.current): boolean {
-    if (statuses.size === 0) return true
-    if (routeStatusFilterModeRef.current === 'simple') {
-      const simpleStatus = toSimpleWindDisplayStatus(status)
-      return [...statuses].some(st => toSimpleWindDisplayStatus(st) === simpleStatus)
-    }
-    return statuses.has(status)
+    return statusIsVisibleInFilter(status, statuses, routeStatusFilterModeRef.current)
   }
 
   function updateVegagerdinLabelMarkerState(statuses = visibleRouteStatusesRef.current) {
@@ -588,6 +924,7 @@ export function RoadMapPrototypeMap() {
     routeStatusFilterModeRef.current = mode
     setRouteStatusFilterMode(mode)
     applyRouteStatusFilterToMap(mapRef.current, visibleRouteStatusesRef.current, mode)
+    applyOverviewStatusFilterToMap(mapRef.current, overviewVisibleStatusesRef.current, mode)
     updateVedurstofanLabelMarkerState()
     updateVegagerdinLabelMarkerState()
   }
@@ -603,6 +940,41 @@ export function RoadMapPrototypeMap() {
     applyRouteStatusFilterToMap(mapRef.current, next, routeStatusFilterModeRef.current)
     updateVedurstofanLabelMarkerState(next)
     updateVegagerdinLabelMarkerState(next)
+  }
+
+  function handleOverviewStatusFilterChange(next: Set<WindDisplayStatus>) {
+    overviewVisibleStatusesRef.current = next
+    setOverviewVisibleStatuses(next)
+    applyOverviewStatusFilterToMap(mapRef.current, next, routeStatusFilterModeRef.current)
+  }
+
+  function handleOverviewModeChange(mode: 'now' | number) {
+    overviewActiveModeRef.current = mode
+    setOverviewActiveMode(mode)
+    updateOverviewLayerVisibility(mode, routeActiveRef.current)
+  }
+
+  function updateOverviewLayerVisibility(
+    mode = overviewActiveModeRef.current,
+    routeActive = routeActiveRef.current,
+  ) {
+    const map = mapRef.current
+    if (!map?.isStyleLoaded()) return
+    const showOverview = !routeActive
+    if (map.getLayer(OVERVIEW_VEGAGERDIN_LAYER_ID)) {
+      map.setLayoutProperty(
+        OVERVIEW_VEGAGERDIN_LAYER_ID,
+        'visibility',
+        showOverview && mode === 'now' ? 'visible' : 'none',
+      )
+    }
+    if (map.getLayer(OVERVIEW_VEDURSTOFAN_LAYER_ID)) {
+      map.setLayoutProperty(
+        OVERVIEW_VEDURSTOFAN_LAYER_ID,
+        'visibility',
+        showOverview && mode !== 'now' ? 'visible' : 'none',
+      )
+    }
   }
 
   function handleSelectCandidateIdx(idx: number | null) {
@@ -759,10 +1131,7 @@ export function RoadMapPrototypeMap() {
         )
       }
     }
-    // Restore global station markers
-    if (map.getLayer('station-markers')) {
-      map.setLayoutProperty('station-markers', 'visibility', 'visible')
-    }
+    updateOverviewLayerVisibility(overviewActiveModeRef.current, false)
     // Restore place markers based on current zoom
     const zoom = map.getZoom()
     for (const { element, place } of placeMarkersRef.current) {
@@ -1460,9 +1829,7 @@ export function RoadMapPrototypeMap() {
       routeDurationMinutesRef.current = mapData.durationMinutes
       routeThresholdsRef.current = thresholds
       const map = mapRef.current
-      if (map?.getLayer('station-markers')) {
-        map.setLayoutProperty('station-markers', 'visibility', 'none')
-      }
+      updateOverviewLayerVisibility(overviewActiveModeRef.current, true)
       for (const { element } of placeMarkersRef.current) {
         element.style.display = 'none'
       }
@@ -1773,97 +2140,144 @@ export function RoadMapPrototypeMap() {
             segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
           })
 
-          try {
-            const res = await fetch('/api/teskeid/road-intelligence/station-markers')
-            if (!res.ok || cancelled) return
-            const geojson: StationGeoJsonCollection = await res.json()
-            if (cancelled || !map.isStyleLoaded()) return
+          map.addSource(OVERVIEW_VEGAGERDIN_LAYER_ID, {
+            type: 'geojson',
+            data: EMPTY_FEATURE_COLLECTION as never,
+          })
+          map.addLayer({
+            id: OVERVIEW_VEGAGERDIN_LAYER_ID,
+            type: 'circle',
+            source: OVERVIEW_VEGAGERDIN_LAYER_ID,
+            paint: {
+              'circle-color': TRAVEL_POINT_COLOR_EXPRESSION as unknown as string,
+              'circle-radius': 6,
+              'circle-stroke-width': 1.5,
+              'circle-stroke-color': '#ffffff',
+              'circle-opacity': 0.9,
+            },
+          })
+          map.addSource(OVERVIEW_VEDURSTOFAN_LAYER_ID, {
+            type: 'geojson',
+            data: EMPTY_FEATURE_COLLECTION as never,
+          })
+          map.addLayer({
+            id: OVERVIEW_VEDURSTOFAN_LAYER_ID,
+            type: 'circle',
+            source: OVERVIEW_VEDURSTOFAN_LAYER_ID,
+            layout: { visibility: 'none' },
+            paint: {
+              'circle-color': TRAVEL_POINT_COLOR_EXPRESSION as unknown as string,
+              'circle-radius': 6,
+              'circle-stroke-width': 1.5,
+              'circle-stroke-color': '#ffffff',
+              'circle-opacity': 0.86,
+            },
+          })
 
-            map.addSource('station-markers', { type: 'geojson', data: geojson })
-            map.addLayer({
-              id: 'station-markers',
-              type: 'circle',
-              source: 'station-markers',
-              paint: {
-                // MapLibre expression arrays are not narrowly typed in v5 — cast required.
-                'circle-color': WIND_COLOR_EXPRESSION as unknown as string,
-                'circle-radius': 6,
-                'circle-stroke-width': 1.5,
-                'circle-stroke-color': '#ffffff',
-                'circle-opacity': 0.9,
-              },
-            })
-            if (map.getLayer('travel-bridge-weather-points')) {
-              map.moveLayer('travel-bridge-weather-points')
-            }
-            if (map.getLayer(VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID)) {
-              map.moveLayer(VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID)
-            }
-            if (map.getLayer(VEGAGERDIN_ROUTE_STATIONS_LAYER_ID)) {
-              map.moveLayer(VEGAGERDIN_ROUTE_STATIONS_LAYER_ID)
-            }
-
-            map.on('mouseenter', 'station-markers', () => {
+          for (const layerId of [OVERVIEW_VEGAGERDIN_LAYER_ID, OVERVIEW_VEDURSTOFAN_LAYER_ID] as const) {
+            map.on('mouseenter', layerId, () => {
               map.getCanvas().style.cursor = 'pointer'
             })
-            map.on('mouseleave', 'station-markers', () => {
+            map.on('mouseleave', layerId, () => {
               map.getCanvas().style.cursor = ''
             })
-
-            map.on('click', 'station-markers', (e) => {
-              if (!e.features?.length) return
-              const feature = e.features[0]
-              const coords = (feature.geometry as { type: 'Point'; coordinates: [number, number] })
-                .coordinates
-              const props = feature.properties as {
-                stationName?: string
-                gustMs?: number | null
-                meanWindMs?: number | null
-                airTemperatureC?: number | null
-                windDirectionText?: string | null
-              }
-
-              const gust = props.gustMs != null ? `${props.gustMs.toFixed(1)} m/s` : '—'
-              const mean = props.meanWindMs != null ? `${props.meanWindMs.toFixed(1)} m/s` : '—'
-              const temp =
-                props.airTemperatureC != null ? `${props.airTemperatureC.toFixed(1)} °C` : '—'
-              const dir = props.windDirectionText ?? ''
-
-              // Use setDOMContent to avoid XSS from upstream provider data.
-              const container = document.createElement('div')
-              container.style.cssText = 'font-size:12px;line-height:1.5'
-
-              const name = document.createElement('strong')
-              name.style.fontSize = '13px'
-              name.textContent = props.stationName ?? 'Stöð'
-              container.appendChild(name)
-              container.appendChild(document.createElement('br'))
-
-              const windLine = document.createTextNode(
-                `Vindur: ${mean}${dir ? ' ' + dir : ''}`,
-              )
-              container.appendChild(windLine)
-              container.appendChild(document.createElement('br'))
-
-              container.appendChild(document.createTextNode(`Vindhviða: ${gust}`))
-              container.appendChild(document.createElement('br'))
-
-              container.appendChild(document.createTextNode(`Lofthiti: ${temp}`))
-
-              popupRef.current?.remove()
-              const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
-                .setLngLat(coords)
-                .setDOMContent(container)
-                .addTo(map)
-              popupRef.current = popup
-            })
-
-            if (!cancelled) setStationCount(geojson.features.length)
-          } catch (err) {
-            if (process.env.NODE_ENV !== 'production') {
-              console.warn('[RoadMapPrototype] station layer failed:', err)
-            }
           }
+
+          map.on('click', OVERVIEW_VEGAGERDIN_LAYER_ID, (e) => {
+            if (!e.features?.length) return
+            const feature = e.features[0]
+            const coords = (feature.geometry as { type: 'Point'; coordinates: [number, number] })
+              .coordinates
+            const props = feature.properties as {
+              stationName?: string
+              gustMs?: number | null
+              meanWindMs?: number | null
+              airTemperatureC?: number | null
+              windDirectionText?: string | null
+            }
+
+            const gust = props.gustMs != null ? `${props.gustMs.toFixed(1)} m/s` : '—'
+            const mean = props.meanWindMs != null ? `${props.meanWindMs.toFixed(1)} m/s` : '—'
+            const temp =
+              props.airTemperatureC != null ? `${props.airTemperatureC.toFixed(1)} °C` : '—'
+            const dir = props.windDirectionText ?? ''
+
+            const container = document.createElement('div')
+            container.style.cssText = 'font-size:12px;line-height:1.5'
+
+            const name = document.createElement('strong')
+            name.style.fontSize = '13px'
+            name.textContent = props.stationName ?? 'Stöð'
+            container.appendChild(name)
+            container.appendChild(document.createElement('br'))
+            container.appendChild(document.createTextNode(`Vindur: ${mean}${dir ? ' ' + dir : ''}`))
+            container.appendChild(document.createElement('br'))
+            container.appendChild(document.createTextNode(`Vindhviða: ${gust}`))
+            container.appendChild(document.createElement('br'))
+            container.appendChild(document.createTextNode(`Lofthiti: ${temp}`))
+
+            popupRef.current?.remove()
+            const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
+              .setLngLat(coords)
+              .setDOMContent(container)
+              .addTo(map)
+            popupRef.current = popup
+          })
+
+          map.on('click', OVERVIEW_VEDURSTOFAN_LAYER_ID, (e) => {
+            if (!e.features?.length) return
+            const feature = e.features[0]
+            const coords = (feature.geometry as { type: 'Point'; coordinates: [number, number] })
+              .coordinates
+            const props = feature.properties as {
+              stationName?: string
+              windSpeedMs?: number | null
+              airTemperatureC?: number | null
+              windDirectionText?: string | null
+              forecastTimeIso?: string | null
+            }
+
+            const wind = props.windSpeedMs != null ? `${props.windSpeedMs.toFixed(1)} m/s` : '—'
+            const temp =
+              props.airTemperatureC != null ? `${props.airTemperatureC.toFixed(1)} °C` : '—'
+            const dir = props.windDirectionText ?? ''
+            const time = props.forecastTimeIso ? formatKlTime(props.forecastTimeIso) : null
+
+            const container = document.createElement('div')
+            container.style.cssText = 'font-size:12px;line-height:1.5'
+
+            const name = document.createElement('strong')
+            name.style.fontSize = '13px'
+            name.textContent = props.stationName ?? 'Stöð'
+            container.appendChild(name)
+            container.appendChild(document.createElement('br'))
+            if (time) {
+              container.appendChild(document.createTextNode(`Spá kl. ${time}`))
+              container.appendChild(document.createElement('br'))
+            }
+            container.appendChild(document.createTextNode(`Vindur: ${wind}${dir ? ' ' + dir : ''}`))
+            container.appendChild(document.createElement('br'))
+            container.appendChild(document.createTextNode(`Lofthiti: ${temp}`))
+
+            popupRef.current?.remove()
+            const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
+              .setLngLat(coords)
+              .setDOMContent(container)
+              .addTo(map)
+            popupRef.current = popup
+          })
+
+          if (map.getLayer('travel-bridge-weather-points')) {
+            map.moveLayer('travel-bridge-weather-points')
+          }
+          if (map.getLayer(VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID)) {
+            map.moveLayer(VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID)
+          }
+          if (map.getLayer(VEGAGERDIN_ROUTE_STATIONS_LAYER_ID)) {
+            map.moveLayer(VEGAGERDIN_ROUTE_STATIONS_LAYER_ID)
+          }
+          updateOverviewLayerVisibility()
+          if (!cancelled) setMapReady(true)
         })
       } catch (err) {
         if (!cancelled) {
@@ -1997,314 +2411,344 @@ export function RoadMapPrototypeMap() {
           h-full w-full survives the position override. */}
       <div ref={containerRef} className="h-full w-full" />
 
-      {/* M3A bridge controls — route input powered by the existing /ferdalagid travel API. */}
-      <div className="absolute top-3 left-3 z-10 w-[calc(100%-1.5rem)] max-w-[420px] rounded-lg border border-border/70 bg-background/95 p-3 shadow-sm backdrop-blur-sm">
-        <form ref={formRef} className="space-y-2" onSubmit={handleRouteBridgeSubmit}>
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-foreground">
-              {t('roadMapPrototypeRouteBridgeTitle')}
-            </p>
-            <div className="flex items-center gap-1.5">
-              {routeBridgeStatus === 'success' && routeBridgeSummary && (
-                <span
-                  className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
-                  style={{ backgroundColor: routeStatusColor(displayedRouteStatus) }}
-                >
-                  {routeStatusLabel(displayedRouteStatus)}
-                </span>
-              )}
-              {(routeBridgeStatus === 'success' || routeBridgeStatus === 'error') && (
-                <button
-                  type="button"
-                  onClick={handleClearRoute}
-                  className="shrink-0 rounded-full px-2 py-0.5 text-[10px] text-muted-foreground border border-border hover:bg-muted transition-colors"
-                >
-                  {t('roadMapPrototypeRouteClear')}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
-            <label className="min-w-0">
-              <span className="sr-only">{t('roadMapPrototypeRouteFromLabel')}</span>
-              <div className="relative">
-                <input
-                  value={routeFrom}
-                  onChange={(event) => {
-                    setRouteFrom(event.target.value)
-                    setFromResolved(null)
-                    setActiveRouteFieldState('from')
-                    fetchSuggestionsFor(
-                      event.target.value,
-                      fromSuggestAbortRef,
-                      fromSuggestTimerRef,
-                      fromFocusedRef,
-                      setFromSuggestions,
-                    )
-                  }}
-                  onFocus={() => {
-                    fromFocusedRef.current = true
-                    setActiveRouteFieldState('from')
-                    if (fromBlurTimerRef.current) clearTimeout(fromBlurTimerRef.current)
-                    if (routeFrom.trim().length >= 2) {
-                      setFromSuggestions(findRoadMapPlaceSuggestions(routeFrom, 5))
-                    }
-                  }}
-                  onBlur={() => {
-                    fromFocusedRef.current = false
-                    if (fromBlurTimerRef.current) clearTimeout(fromBlurTimerRef.current)
-                    fromBlurTimerRef.current = setTimeout(() => {
-                      // Only close if focus left the form entirely (not just moved to another field).
-                      if (!formRef.current?.contains(document.activeElement)) {
-                        setFromSuggestions([])
-                      }
-                    }, 150)
-                  }}
-                  placeholder={t('roadMapPrototypeRouteFromPlaceholder')}
-                  autoComplete="off"
-                  className={`h-10 w-full rounded-md border bg-background px-3 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground ${activeRouteField === 'from' ? 'border-primary ring-1 ring-primary/30' : 'border-border focus:border-primary'}`}
-                />
-                {renderPlaceSuggestionList('from', fromSuggestions)}
-              </div>
-            </label>
-            <label className="min-w-0">
-              <span className="sr-only">{t('roadMapPrototypeRouteToLabel')}</span>
-              <div className="relative">
-                <input
-                  value={routeTo}
-                  onChange={(event) => {
-                    setRouteTo(event.target.value)
-                    setToResolved(null)
-                    setActiveRouteFieldState('to')
-                    fetchSuggestionsFor(
-                      event.target.value,
-                      toSuggestAbortRef,
-                      toSuggestTimerRef,
-                      toFocusedRef,
-                      setToSuggestions,
-                    )
-                  }}
-                  onFocus={() => {
-                    toFocusedRef.current = true
-                    setActiveRouteFieldState('to')
-                    if (toBlurTimerRef.current) clearTimeout(toBlurTimerRef.current)
-                    // Switching to Til: close Frá suggestions explicitly.
-                    setFromSuggestions([])
-                    if (routeTo.trim().length >= 2) {
-                      setToSuggestions(findRoadMapPlaceSuggestions(routeTo, 5))
-                    }
-                  }}
-                  onBlur={() => {
-                    toFocusedRef.current = false
-                    if (toBlurTimerRef.current) clearTimeout(toBlurTimerRef.current)
-                    toBlurTimerRef.current = setTimeout(() => {
-                      if (!formRef.current?.contains(document.activeElement)) {
-                        setToSuggestions([])
-                      }
-                    }, 150)
-                  }}
-                  placeholder={t('roadMapPrototypeRouteToPlaceholder')}
-                  autoComplete="off"
-                  className={`h-10 w-full rounded-md border bg-background px-3 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground ${activeRouteField === 'to' ? 'border-primary ring-1 ring-primary/30' : 'border-border focus:border-primary'}`}
-                />
-                {renderPlaceSuggestionList('to', toSuggestions)}
-              </div>
-            </label>
-            <button
-              type="submit"
-              disabled={routeBridgeStatus === 'loading'}
-              className="h-10 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity disabled:cursor-wait disabled:opacity-70"
-            >
-              {routeBridgeStatus === 'loading'
-                ? t('roadMapPrototypeRouteLoading')
-                : t('roadMapPrototypeRouteSubmit')}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1fr_1.25fr]">
-            <label className="min-w-0">
-              <span className="mb-0.5 block text-[10px] text-muted-foreground">
-                {t('thresholdBarCautionLabel')}
-              </span>
-              <span className="flex h-9 items-center rounded-md border border-border bg-background focus-within:border-primary">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0.1"
-                  max="40"
-                  step="0.1"
-                  value={routeCautionWind}
-                  onChange={(event) => {
-                    setRouteCautionWind(event.target.value)
-                    setRouteThresholdError(null)
-                  }}
-                  className="min-w-0 flex-1 bg-transparent px-2 text-base text-foreground outline-none"
-                />
-                <span className="shrink-0 pr-2 text-[11px] text-muted-foreground">
-                  {t('thresholdBarUnit')}
-                </span>
-              </span>
-            </label>
-            <label className="min-w-0">
-              <span className="mb-0.5 block text-[10px] text-muted-foreground">
-                {t('thresholdBarDangerLabel')}
-              </span>
-              <span className="flex h-9 items-center rounded-md border border-border bg-background focus-within:border-primary">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0.1"
-                  max="40"
-                  step="0.1"
-                  value={routeRedWind}
-                  onChange={(event) => {
-                    setRouteRedWind(event.target.value)
-                    setRouteThresholdError(null)
-                  }}
-                  className="min-w-0 flex-1 bg-transparent px-2 text-base text-foreground outline-none"
-                />
-                <span className="shrink-0 pr-2 text-[11px] text-muted-foreground">
-                  {t('thresholdBarUnit')}
-                </span>
-              </span>
-            </label>
-            {!routeBridgeSummary && (
-              <label className="col-span-2 min-w-0 sm:col-span-1">
-                <span className="mb-0.5 block text-[10px] text-muted-foreground">
-                  {t('roadMapPrototypeDepartureLabel')}
-                </span>
-                <input
-                  type="datetime-local"
-                  value={departureAt}
-                  onChange={(e) => setDepartureAt(e.target.value)}
-                  className="h-9 w-full rounded-md border border-border bg-background px-2 text-base text-foreground outline-none focus:border-primary"
-                />
-              </label>
-            )}
-          </div>
-        </form>
-
-        {routeThresholdError && (
-          <p className="mt-2 text-xs text-destructive">{routeThresholdError}</p>
-        )}
-
-        {routeBridgeError && (
-          <p className="mt-2 text-xs text-destructive">{routeBridgeError}</p>
-        )}
-
-        {routeBridgeSummary && (
-          <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
-            <p className="font-medium text-foreground">
-              {t('roadMapPrototypeRouteSummaryPlaces', {
-                from: routeBridgeSummary.fromName,
-                to: routeBridgeSummary.toName,
-              })}
-            </p>
-            <p>
-              {t('roadMapPrototypeRouteSummaryStats', {
-                distance: formatNum(routeBridgeSummary.distanceKm, locale),
-                duration: formatDurationMinutes(routeBridgeSummary.durationMinutes),
-              })}
-            </p>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="font-medium text-foreground">{displayedRouteSlotLabel}</span>
-              {selectedRouteCandidate && (
-                <button
-                  type="button"
-                  onClick={() => handleSelectCandidateIdx(null)}
-                  className="min-h-7 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  {t('roadMapPrototypeReturnToNow')}
-                </button>
-              )}
-            </div>
-            {routeBridgeSummary.vegagerdinStationCount > 0 && (
-              <p className="flex items-center gap-1">
-                <span
-                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: '#2d5a27' }}
-                />
-                {t('roadMapPrototypeVegagerdinStationCount', {
-                  count: routeBridgeSummary.vegagerdinStationCount,
-                })}
-              </p>
-            )}
-            {routeBridgeSummary.vedurstofanStationCount > 0 && (
-              <p className="flex items-center gap-1">
-                <span
-                  className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: '#0891b2' }}
-                />
-                {t('roadMapPrototypeVedurstofanStationCount', {
-                  count: routeBridgeSummary.vedurstofanStationCount,
-                })}
-              </p>
-            )}
-            <p className="line-clamp-2">{displayedRouteAnswer}</p>
-            <p>
-              {t('roadMapPrototypeRouteThresholdSummary', {
-                caution: formatNum(routeBridgeSummary.thresholdsUsed.cautionWindMs, locale),
-                red: formatNum(routeBridgeSummary.thresholdsUsed.redWindMs, locale),
-              })}
-            </p>
-            <div className="mt-2 inline-flex min-h-9 overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
-              {(['simple', 'detailed'] as const).map(mode => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={routeStatusFilterMode === mode}
-                  onClick={() => handleRouteStatusFilterModeChange(mode)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                    routeStatusFilterMode === mode
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {mode === 'simple'
-                    ? t('statusFilterModeSimple')
-                    : t('statusFilterModeDetailed')}
-                </button>
-              ))}
-            </div>
-            {routeCandidates && routeCandidates.length > 0 ? (
-              <div className="mt-2">
-                <DepartureHeatmap
-                  candidates={routeCandidates}
-                  bestWindow={routeBestWindow}
-                  originName={routeBridgeSummary.fromName}
-                  selectedIdx={selectedCandidateIdx}
-                  onSelectIdx={handleSelectCandidateIdx}
-                  visibleStatuses={visibleRouteStatuses}
-                  onVisibleStatusesChange={handleRouteStatusFilterChange}
-                  thresholdsUsed={routeBridgeSummary.thresholdsUsed}
-                  subtitle={routeScrubberSubtitle(routeBridgeSummary.slotStatusSource)}
-                  title={null}
-                  showSelectedDetail={false}
-                  slotStatusOverrides={routeSlotStatusOverrides ?? undefined}
-                  mode={routeStatusFilterMode}
-                  firstSlotLabel={t('roadMapPrototypeScrubberNow')}
-                />
-              </div>
-            ) : (
-              <div className="mt-2 flex flex-col gap-1.5">
-                <WindStatusFilterPills
-                  counts={routeBridgeSummary.statusCounts}
-                  visibleStatuses={visibleRouteStatuses}
-                  onVisibleStatusesChange={handleRouteStatusFilterChange}
-                  showAllLabel={t('roadMapPrototypeShowAll')}
-                  showAllButton
-                  alwaysShowWithinLimits
-                  mode={routeStatusFilterMode}
-                />
-              </div>
-            )}
-          </div>
-        )}
+      {/* Top-left: 🚗 (route panel) + 💬 (conditions feed) emoji buttons */}
+      <div className="absolute left-3 top-3 z-20 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setIsPanelOpen(prev => !prev)}
+          aria-label={t('roadMapPrototypeRouteBridgeTitle')}
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+          style={{ color: routeBridgeSummary ? '#16a34a' : '#9ca3af' }}
+        >
+          🚗
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setIsChatOpen(prev => {
+              const next = !prev
+              if (next) acknowledgeCurrentItems()
+              return next
+            })
+          }}
+          aria-label={t('conditionsFeedTitle')}
+          className="relative flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+        >
+          💬
+          {!isChatOpen && newSinceOpenCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">
+              {newSinceOpenCount}
+            </span>
+          )}
+        </button>
       </div>
 
-      {/* Layer controls — bottom-left, above MapLibre attribution bar */}
-      <div className="absolute bottom-9 left-3 z-10 flex flex-col items-start gap-1.5">
+      {isChatOpen && (
+        <div className="absolute left-3 top-14 z-30 w-[calc(100%-1.5rem)] max-w-[360px] rounded-xl border border-border/70 bg-background/95 p-2 shadow-lg backdrop-blur-sm">
+          <div className="mb-1 flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => setIsChatOpen(false)}
+              className="rounded-full px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              {t('overlayClose')}
+            </button>
+          </div>
+          <ConditionsFeedPreview
+            title={t('conditionsFeedTitle')}
+            items={conditionsItems}
+            loading={conditionsLoading}
+            emptyBehavior="message"
+            emptyLabel={t('conditionsFeedEmpty')}
+            deletedLabel={tPulse('pulseDeleted')}
+            kindLabels={{
+              field_report: tPulse('pulseKindField'),
+              measurement_report: tPulse('pulseKindMeasurement'),
+            }}
+            viewMoreLabel={t('conditionsFeedViewMore')}
+            targetHref={(target) => {
+              const effectiveProvider = target.provider ?? (
+                target.targetType === 'vegagerdin_station' ? 'vegagerdin' : 'vedurstofan'
+              )
+              return effectiveProvider === 'vegagerdin'
+                ? vegagerdinPulseHref(target.targetId, '/auth-mvp/vedrid/road-map-prototype')
+                : vedurstofanPulseHref(
+                    target.targetId,
+                    `/auth-mvp/vedrid/road-map-prototype?stationId=${target.targetId}`,
+                  )
+            }}
+          />
+        </div>
+      )}
+
+      {/* Left drawer panel — slides in from left on 🚗 click */}
+      <div
+        className={`absolute bottom-0 left-0 top-0 z-20 flex w-80 flex-col overflow-hidden border-r border-border/70 bg-background/90 shadow-lg backdrop-blur-sm transition-transform duration-200 ${isPanelOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
+        {/* Panel header */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/50 p-3">
+          <button
+            type="button"
+            onClick={() => setIsPanelOpen(false)}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+            aria-label="Loka"
+          >
+            ◀
+          </button>
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+            {routeBridgeSummary
+              ? t('roadMapPrototypeRouteSummaryPlaces', {
+                  from: routeBridgeSummary.fromName,
+                  to: routeBridgeSummary.toName,
+                })
+              : t('roadMapPrototypeRouteBridgeTitle')}
+          </p>
+          {routeBridgeSummary && (
+            <span
+              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+              style={{ backgroundColor: routeStatusColor(displayedRouteStatus) }}
+            >
+              {routeStatusLabel(displayedRouteStatus)}
+            </span>
+          )}
+        </div>
+
+        {/* Panel body — scrollable */}
+        <div className="flex-1 overflow-y-auto">
+          {routeBridgeSummary ? (
+            /* Route active: route summary info */
+            <div className="space-y-1.5 p-3 text-[11px] text-muted-foreground">
+              <p>
+                {t('roadMapPrototypeRouteSummaryStats', {
+                  distance: formatNum(routeBridgeSummary.distanceKm, locale),
+                  duration: formatDurationMinutes(routeBridgeSummary.durationMinutes),
+                })}
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-medium text-foreground">{displayedRouteSlotLabel}</span>
+                {selectedRouteCandidate && (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCandidateIdx(null)}
+                    className="min-h-7 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {t('roadMapPrototypeReturnToNow')}
+                  </button>
+                )}
+              </div>
+              {routeBridgeSummary.vegagerdinStationCount > 0 && (
+                <p className="flex items-center gap-1">
+                  <span
+                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: '#2d5a27' }}
+                  />
+                  {t('roadMapPrototypeVegagerdinStationCount', {
+                    count: routeBridgeSummary.vegagerdinStationCount,
+                  })}
+                </p>
+              )}
+              {routeBridgeSummary.vedurstofanStationCount > 0 && (
+                <p className="flex items-center gap-1">
+                  <span
+                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: '#0891b2' }}
+                  />
+                  {t('roadMapPrototypeVedurstofanStationCount', {
+                    count: routeBridgeSummary.vedurstofanStationCount,
+                  })}
+                </p>
+              )}
+              <p className="line-clamp-3">{displayedRouteAnswer}</p>
+              <p>
+                {t('roadMapPrototypeRouteThresholdSummary', {
+                  caution: formatNum(routeBridgeSummary.thresholdsUsed.cautionWindMs, locale),
+                  red: formatNum(routeBridgeSummary.thresholdsUsed.redWindMs, locale),
+                })}
+              </p>
+              <button
+                type="button"
+                onClick={handleClearRoute}
+                className="mt-2 min-h-8 w-full rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {t('roadMapPrototypeRouteClear')}
+              </button>
+            </div>
+          ) : (
+            /* No route: route form */
+            <div className="p-3">
+              <form ref={formRef} className="space-y-2" onSubmit={handleRouteBridgeSubmit}>
+                <div className="grid grid-cols-1 gap-2">
+                  <label className="min-w-0">
+                    <span className="sr-only">{t('roadMapPrototypeRouteFromLabel')}</span>
+                    <div className="relative">
+                      <input
+                        value={routeFrom}
+                        onChange={(event) => {
+                          setRouteFrom(event.target.value)
+                          setFromResolved(null)
+                          setActiveRouteFieldState('from')
+                          fetchSuggestionsFor(
+                            event.target.value,
+                            fromSuggestAbortRef,
+                            fromSuggestTimerRef,
+                            fromFocusedRef,
+                            setFromSuggestions,
+                          )
+                        }}
+                        onFocus={() => {
+                          fromFocusedRef.current = true
+                          setActiveRouteFieldState('from')
+                          if (fromBlurTimerRef.current) clearTimeout(fromBlurTimerRef.current)
+                          if (routeFrom.trim().length >= 2) {
+                            setFromSuggestions(findRoadMapPlaceSuggestions(routeFrom, 5))
+                          }
+                        }}
+                        onBlur={() => {
+                          fromFocusedRef.current = false
+                          if (fromBlurTimerRef.current) clearTimeout(fromBlurTimerRef.current)
+                          fromBlurTimerRef.current = setTimeout(() => {
+                            // Only close if focus left the form entirely (not just moved to another field).
+                            if (!formRef.current?.contains(document.activeElement)) {
+                              setFromSuggestions([])
+                            }
+                          }, 150)
+                        }}
+                        placeholder={t('roadMapPrototypeRouteFromPlaceholder')}
+                        autoComplete="off"
+                        className={`h-10 w-full rounded-md border bg-background px-3 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground ${activeRouteField === 'from' ? 'border-primary ring-1 ring-primary/30' : 'border-border focus:border-primary'}`}
+                      />
+                      {renderPlaceSuggestionList('from', fromSuggestions)}
+                    </div>
+                  </label>
+                  <label className="min-w-0">
+                    <span className="sr-only">{t('roadMapPrototypeRouteToLabel')}</span>
+                    <div className="relative">
+                      <input
+                        value={routeTo}
+                        onChange={(event) => {
+                          setRouteTo(event.target.value)
+                          setToResolved(null)
+                          setActiveRouteFieldState('to')
+                          fetchSuggestionsFor(
+                            event.target.value,
+                            toSuggestAbortRef,
+                            toSuggestTimerRef,
+                            toFocusedRef,
+                            setToSuggestions,
+                          )
+                        }}
+                        onFocus={() => {
+                          toFocusedRef.current = true
+                          setActiveRouteFieldState('to')
+                          if (toBlurTimerRef.current) clearTimeout(toBlurTimerRef.current)
+                          // Switching to Til: close Frá suggestions explicitly.
+                          setFromSuggestions([])
+                          if (routeTo.trim().length >= 2) {
+                            setToSuggestions(findRoadMapPlaceSuggestions(routeTo, 5))
+                          }
+                        }}
+                        onBlur={() => {
+                          toFocusedRef.current = false
+                          if (toBlurTimerRef.current) clearTimeout(toBlurTimerRef.current)
+                          toBlurTimerRef.current = setTimeout(() => {
+                            if (!formRef.current?.contains(document.activeElement)) {
+                              setToSuggestions([])
+                            }
+                          }, 150)
+                        }}
+                        placeholder={t('roadMapPrototypeRouteToPlaceholder')}
+                        autoComplete="off"
+                        className={`h-10 w-full rounded-md border bg-background px-3 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground ${activeRouteField === 'to' ? 'border-primary ring-1 ring-primary/30' : 'border-border focus:border-primary'}`}
+                      />
+                      {renderPlaceSuggestionList('to', toSuggestions)}
+                    </div>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="min-w-0">
+                    <span className="mb-0.5 block text-[10px] text-muted-foreground">
+                      {t('thresholdBarCautionLabel')}
+                    </span>
+                    <span className="flex h-9 items-center rounded-md border border-border bg-background focus-within:border-primary">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0.1"
+                        max="40"
+                        step="0.1"
+                        value={routeCautionWind}
+                        onChange={(event) => {
+                          setRouteCautionWind(event.target.value)
+                          setRouteThresholdError(null)
+                        }}
+                        className="min-w-0 flex-1 bg-transparent px-2 text-base text-foreground outline-none"
+                      />
+                      <span className="shrink-0 pr-2 text-[11px] text-muted-foreground">
+                        {t('thresholdBarUnit')}
+                      </span>
+                    </span>
+                  </label>
+                  <label className="min-w-0">
+                    <span className="mb-0.5 block text-[10px] text-muted-foreground">
+                      {t('thresholdBarDangerLabel')}
+                    </span>
+                    <span className="flex h-9 items-center rounded-md border border-border bg-background focus-within:border-primary">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0.1"
+                        max="40"
+                        step="0.1"
+                        value={routeRedWind}
+                        onChange={(event) => {
+                          setRouteRedWind(event.target.value)
+                          setRouteThresholdError(null)
+                        }}
+                        className="min-w-0 flex-1 bg-transparent px-2 text-base text-foreground outline-none"
+                      />
+                      <span className="shrink-0 pr-2 text-[11px] text-muted-foreground">
+                        {t('thresholdBarUnit')}
+                      </span>
+                    </span>
+                  </label>
+                  <label className="col-span-2 min-w-0">
+                    <span className="mb-0.5 block text-[10px] text-muted-foreground">
+                      {t('roadMapPrototypeDepartureLabel')}
+                    </span>
+                    <input
+                      type="datetime-local"
+                      value={departureAt}
+                      onChange={(e) => setDepartureAt(e.target.value)}
+                      className="h-9 w-full rounded-md border border-border bg-background px-2 text-base text-foreground outline-none focus:border-primary"
+                    />
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={routeBridgeStatus === 'loading'}
+                  className="h-10 w-full rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity disabled:cursor-wait disabled:opacity-70"
+                >
+                  {routeBridgeStatus === 'loading'
+                    ? t('roadMapPrototypeRouteLoading')
+                    : t('roadMapPrototypeRouteSubmit')}
+                </button>
+              </form>
+
+              {routeThresholdError && (
+                <p className="mt-2 text-xs text-destructive">{routeThresholdError}</p>
+              )}
+              {routeBridgeError && (
+                <p className="mt-2 text-xs text-destructive">{routeBridgeError}</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Layer controls — bottom-left, offset above bottom strip when route is active */}
+      <div className="absolute bottom-44 left-3 z-10 flex flex-col items-start gap-1.5">
         {/* Toggle buttons — raster road network and vector condition segments are independent */}
         <div className="flex items-center gap-1.5">
           <button
@@ -2324,16 +2768,6 @@ export function RoadMapPrototypeMap() {
               : t('roadMapPrototypeShowConditionSegments')}
           </button>
         </div>
-
-        {routeBridgeSummary && (
-          <div className="flex max-w-[calc(100vw-1.5rem)] items-center gap-1.5 rounded-full bg-background/85 px-2 py-1 text-[10px] font-medium text-foreground shadow-sm backdrop-blur-sm sm:max-w-[360px]">
-            <span
-              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-white/60"
-              style={{ backgroundColor: routeStatusColor(displayedRouteStatus) }}
-            />
-            <span className="truncate">{displayedRouteSlotLabel}</span>
-          </div>
-        )}
 
         {/* Road condition legend */}
         <div className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded-full bg-background/80 backdrop-blur-sm shadow-sm">
@@ -2357,31 +2791,120 @@ export function RoadMapPrototypeMap() {
           )}
         </div>
 
-        {/* Wind speed legend — only shown when global station markers are visible (no active route) */}
-        {!routeBridgeSummary && <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-background/80 backdrop-blur-sm shadow-sm">
-          {(
-            [
-              { color: '#22c55e', label: '<7' },
-              { color: '#eab308', label: '7–15' },
-              { color: '#f97316', label: '15–20' },
-              { color: '#ef4444', label: '20+' },
-            ] as const
-          ).map(({ color, label }) => (
-            <span key={label} className="flex items-center gap-0.5">
-              <span
-                className="inline-block w-2.5 h-2.5 rounded-full border border-white/60"
-                style={{ backgroundColor: color }}
-              />
-              <span className="text-[9px] text-muted-foreground">{label}</span>
+        {/* Overview station count — status colors are explained by the bottom filter pills. */}
+        {!routeBridgeSummary && (
+          <div className="flex items-center gap-1.5 rounded-full bg-background/80 px-2 py-1 text-[9px] text-muted-foreground shadow-sm backdrop-blur-sm">
+            <span>
+              {overviewActiveMode === 'now'
+                ? t('vegagerdinProviderLabel')
+                : t('sourceForecastGroupLabel')}
             </span>
-          ))}
-          <span className="text-[9px] text-muted-foreground ml-0.5">m/s</span>
-          {stationCount !== null && (
-            <span className="text-[9px] text-muted-foreground ml-1">
-              · {t('roadMapPrototypeStationCount', { count: stationCount })}
-            </span>
-          )}
-        </div>}
+            {stationCount !== null && (
+              <span>
+                · {t('roadMapPrototypeStationCount', { count: stationCount })}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Bottom strip — overview source selector or route departure scrubber. */}
+      <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-border/50 bg-background/90 pb-5 backdrop-blur-sm">
+        {/* Filter mode toggle */}
+        <div className="flex items-center gap-2 px-3 pb-1 pt-2">
+          <div className="inline-flex min-h-7 overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
+            {(['simple', 'detailed'] as const).map(mode => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={routeStatusFilterMode === mode}
+                onClick={() => handleRouteStatusFilterModeChange(mode)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                  routeStatusFilterMode === mode
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {mode === 'simple'
+                  ? t('statusFilterModeSimple')
+                  : t('statusFilterModeDetailed')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {routeBridgeSummary ? (
+          routeCandidates && routeCandidates.length > 0 ? (
+          <div className="px-3">
+            <DepartureHeatmap
+              candidates={routeCandidates}
+              bestWindow={routeBestWindow}
+              originName={routeBridgeSummary.fromName}
+              selectedIdx={selectedCandidateIdx}
+              onSelectIdx={handleSelectCandidateIdx}
+              visibleStatuses={visibleRouteStatuses}
+              onVisibleStatusesChange={handleRouteStatusFilterChange}
+              thresholdsUsed={routeBridgeSummary.thresholdsUsed}
+              subtitle={routeScrubberSubtitle(routeBridgeSummary.slotStatusSource)}
+              title={null}
+              showSelectedDetail={false}
+              slotStatusOverrides={routeSlotStatusOverrides ?? undefined}
+              mode={routeStatusFilterMode}
+              firstSlotLabel={t('roadMapPrototypeScrubberNow')}
+            />
+          </div>
+          ) : (
+          <div className="px-3 pb-1">
+            <WindStatusFilterPills
+              counts={routeBridgeSummary.statusCounts}
+              visibleStatuses={visibleRouteStatuses}
+              onVisibleStatusesChange={handleRouteStatusFilterChange}
+              showAllLabel={t('roadMapPrototypeShowAll')}
+              showAllButton
+              alwaysShowWithinLimits
+              mode={routeStatusFilterMode}
+            />
+          </div>
+          )
+        ) : (
+          <div className="flex flex-col gap-2 px-3 pb-1">
+            <WeatherSourceTimeSelector
+              vegagerdinGroupLabel={t('vegagerdinProviderLabel')}
+              nowLabel={t('sourceNowLabel')}
+              nowMeasuredAtLabel={
+                overviewVegagerdinNewestMeasuredAtIso
+                  ? t('sourceMeasuredAt', { time: formatKlTime(overviewVegagerdinNewestMeasuredAtIso) })
+                  : undefined
+              }
+              nowStatusColor={WIND_STATUS_MARKER_COLOR[
+                routeStatusFilterMode === 'simple'
+                  ? toSimpleWindDisplayStatus(overviewVegagerdinWorstStatus)
+                  : overviewVegagerdinWorstStatus
+              ]}
+              nowStatusLabel={tf(WIND_STATUS_META[overviewVegagerdinWorstStatus].labelKey as 'statusWithinLimits')}
+              nowLoading={overviewVegagerdinLoading}
+              nowLoadingLabel={t('sourceLoadingNow')}
+              nowDisabled={overviewVegagerdinRestricted}
+              forecastGroupLabel={t('sourceForecastGroupLabel')}
+              forecastLabel={t('sourceForecastLabel')}
+              forecastSlots={displayOverviewForecastSlotStatuses}
+              forecastLoading={overviewVedurstofanLoading && !overviewVedurstofanRestricted}
+              forecastLoadingLabel={t('sourceLoadingForecast')}
+              activeMode={overviewActiveMode}
+              onModeChange={handleOverviewModeChange}
+              prevLabel={t('sourceTimePrevious')}
+              nextLabel={t('sourceTimeNext')}
+            />
+            <WindStatusFilterPills
+              counts={overviewStatusCounts}
+              visibleStatuses={overviewVisibleStatuses}
+              onVisibleStatusesChange={handleOverviewStatusFilterChange}
+              showAllLabel={t('roadMapPrototypeShowAll')}
+              showAllButton
+              mode={routeStatusFilterMode}
+            />
+          </div>
+        )}
       </div>
     </div>
   )
