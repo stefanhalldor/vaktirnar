@@ -161,7 +161,7 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 type FeatureAccessEntry = { email: string; granted_at: string }
 
 interface FeatureAccessSectionProps {
-  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin'
+  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1'
   heading: string
   flagName: string
 }
@@ -1681,6 +1681,11 @@ export default function AdminPage() {
             featureKey="weather-provider-vegagerdin"
             heading="Vegagerðin-veðurlagalayer"
             flagName="WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED"
+          />
+          <FeatureAccessSection
+            featureKey="road-intelligence-v1"
+            heading="Road Intelligence kort (v1)"
+            flagName="ROAD_INTELLIGENCE_V1_ENABLED"
           />
         </div>
 
