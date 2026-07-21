@@ -75,9 +75,9 @@ function samplePoints(
 
 /**
  * RDP epsilon for provider-matching geometry.
- * 10 m keeps fjords and curves accurate while pruning redundant collinear points.
+ * 3 m keeps fjords and road bends accurate while pruning redundant collinear points.
  */
-const PROVIDER_MATCHING_RDP_EPSILON_M = 10
+const PROVIDER_MATCHING_RDP_EPSILON_M = 3
 
 /**
  * Hard cap on provider-matching points sent to the provider-stations endpoint.

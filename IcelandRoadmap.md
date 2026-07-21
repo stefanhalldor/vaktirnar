@@ -336,8 +336,12 @@ Skrár sem nú eru til:
 
 - `RoadIntelligenceMap.md` — stefna fyrir eigið kortalag, open-data rannsókn,
   road graph og Live Road OS.
+- `DataLicenses.md` — canonical attribution, leyfi og production varúð fyrir
+  open-data uppsprettur.
 - `types.ts` — canonical types (IcelandRouteSegment, IcelandRouteFamily, LatLon, ...)
 - `segments.ts` — R1 segment registry (6 stubs, öll `verified: false`)
+- `openDataSources.ts` — typed registry fyrir open-data sources, CORS stöðu,
+  attribution og proxy-readiness.
 - `alternatives.ts` — draft curated Road Intelligence alternatives
 - `cautions.ts` — draft segment-level Road Intelligence cautions
 - `roadIntelligenceResolver.ts` — pure static resolver fyrir route families,

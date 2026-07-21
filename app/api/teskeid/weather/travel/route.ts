@@ -15,9 +15,18 @@ import type { HourPoint, TravelPointForecast, TravelThresholdOverrides } from '@
 import type { TrailerKind } from '@/lib/weather/question'
 import type { PlaceCandidate } from '@/lib/weather/provider.types'
 import { sampleRouteWeatherPoints } from '@/lib/weather/routeSampling'
-import { haversineM, matchProviderPointsToRoute, DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M } from '@/lib/weather/providerRouteMatching'
+import {
+  haversineM,
+  matchProviderPointsToRoute,
+  DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
+  VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
+  type ProviderRouteMatch,
+  type ProviderRoutePoint,
+} from '@/lib/weather/providerRouteMatching'
 import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
 import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
+import type { VegagerdinRouteLayer } from '@/lib/road-intelligence/vegagerdinRouteLayer'
+import { classifyObservationWindDisplayStatus } from '@/lib/weather/windDisplayStatus'
 import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
 import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
 
@@ -164,6 +173,7 @@ export async function POST(request: Request) {
       )
     }
   }
+  const resolvedThresholds = resolveThresholds(trailerKind, thresholdOverrides)
 
   // Check provider
   const provider = getWeatherMapProvider()
@@ -236,6 +246,7 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
   }
+  const routePolyline = routeGeometry.providerMatchingPoints ?? routeGeometry.points
 
   // Sample route weather points using exhaustive-when-cheap strategy.
   // Computes cumulative Haversine distance for all route points, then deduplicates
@@ -252,13 +263,20 @@ export async function POST(request: Request) {
   // is open to all callers including public users — deletion from Vercel = open.
   const vedurstofanAccessRequired =
     process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED === 'true'
-  const [routeForecastResults, destForecastRaw, layerEnabled] = await Promise.all([
+  const vegagerdinAccessRequired =
+    process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED === 'true'
+  const [routeForecastResults, destForecastRaw, layerEnabled, vegagerdinLayerEnabled] = await Promise.all([
     Promise.allSettled(weatherPoints.map((pt) => fetchForecast(pt.lat, pt.lon))),
     fetchForecast(destCandidate.lat, destCandidate.lon).catch(() => null),
     !vedurstofanAccessRequired
       ? Promise.resolve(true)
       : user?.id && user?.email
         ? checkFeatureAccess(user.id, user.email, 'weather-provider-vedurstofan').catch(() => false)
+        : Promise.resolve(false),
+    !vegagerdinAccessRequired
+      ? Promise.resolve(true)
+      : user?.id && user?.email
+        ? checkFeatureAccess(user.id, user.email, 'weather-provider-vegagerdin').catch(() => false)
         : Promise.resolve(false),
   ])
 
@@ -269,7 +287,7 @@ export async function POST(request: Request) {
         points: VEDURSTOFAN_STATIONS_REGISTRY
           .filter(s => s.stationId !== null && s.lat !== null && s.lon !== null)
           .map(s => ({ id: s.stationId!, name: s.name, lat: s.lat!, lon: s.lon! })),
-        routePolyline: routeGeometry.providerMatchingPoints ?? routeGeometry.points,
+        routePolyline,
         maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
       })
     : []
@@ -324,13 +342,18 @@ export async function POST(request: Request) {
     earliestDepartureAt,
     latestArrivalBy,
     latestHomeBy,
-    auditPolylinePoints: routeGeometry.points,
+    // providerMatchingPoints is the full RDP-simplified Google polyline (≤1000 pts, low-metre epsilon).
+    // It follows roads accurately. Falls back to the 80-point met.no sample when absent.
+    auditPolylinePoints: routePolyline,
     samplingDiagnostics,
     thresholdOverrides,
   })
 
   // Build Veðurstofan experimental layer (fail-open — never breaks baseline result)
   let vedurstofanLayer: VedurstofanTravelLayer | undefined
+  let vegagerdinLayer: VegagerdinRouteLayer | undefined
+  let vegagerdinRouteMatches: ProviderRouteMatch<ProviderRoutePoint>[] = []
+  let vegagerdinProviderEvaluated = false
   if (layerEnabled && vedurstofanResults) {
 
     // Build station lookup maps for metadata
@@ -417,6 +440,96 @@ export async function POST(request: Request) {
     }
   }
 
+  // Build Vegagerðin route layer from cached/current observations, separately from
+  // route-memory writes so the experimental map can render live road-station labels
+  // even if route-memory normalization or persistence fails.
+  try {
+    const vegagerdinResult = await readVegagerdinCurrentWithHistoryFallback()
+    const vegagerdinAvailable = vegagerdinResult.status === 'fresh' || vegagerdinResult.status === 'stale'
+
+    if (vegagerdinAvailable) {
+      vegagerdinProviderEvaluated = true
+      const vegagerdinMatchable = vegagerdinResult.payload.measurements
+        .filter(m => m.stationId && m.lat !== null && m.lon !== null)
+
+      vegagerdinRouteMatches = matchProviderPointsToRoute({
+        points: vegagerdinMatchable.map(m => ({
+          id: m.stationId,
+          name: m.stationName,
+          lat: m.lat,
+          lon: m.lon,
+        })),
+        routePolyline,
+        maxDistanceM: VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
+      })
+
+      if (vegagerdinLayerEnabled) {
+        const measurementByStationId = new Map(
+          vegagerdinMatchable.map(m => [m.stationId, m]),
+        )
+        const layerPoints: VegagerdinRouteLayer['points'] = vegagerdinRouteMatches
+          .map((match): VegagerdinRouteLayer['points'][number] | null => {
+            const measurement = measurementByStationId.get(match.point.id)
+            if (!measurement) return null
+            const statusWindMs = measurement.gustLast10MinMs ?? measurement.meanWindMs
+            return {
+              routePointId: `vegagerdin_${measurement.stationId}`,
+              stationId: measurement.stationId,
+              stationName: measurement.stationName,
+              lat: measurement.lat,
+              lon: measurement.lon,
+              distanceM: Math.round(match.distanceM),
+              distanceFromOriginM: Math.round(match.distanceFromOriginM),
+              routeFraction: match.routeFraction,
+              measuredAtIso: measurement.measuredAtIso,
+              fetchedAtIso: measurement.fetchedAtIso,
+              meanWindMs: measurement.meanWindMs,
+              gustLast10MinMs: measurement.gustLast10MinMs,
+              windDirectionDeg: measurement.windDirectionDeg,
+              windDirectionText: measurement.windDirectionText,
+              airTemperatureC: measurement.airTemperatureC,
+              roadTemperatureC: measurement.roadTemperatureC,
+              dataQuality: measurement.dataQuality,
+              windDisplayStatus: classifyObservationWindDisplayStatus(measurement, resolvedThresholds),
+              statusWindMs,
+            }
+          })
+          .filter((p): p is VegagerdinRouteLayer['points'][number] => p !== null)
+          .sort((a, b) => {
+            const af = a.distanceFromOriginM ?? Infinity
+            const bf = b.distanceFromOriginM ?? Infinity
+            return af !== bf ? af - bf : a.stationId.localeCompare(b.stationId)
+          })
+
+        const noWindDataPointCount = layerPoints.filter(p => p.windDisplayStatus === 'no_data').length
+        const measuredAtIsoValues = layerPoints.map(p => p.measuredAtIso).sort()
+        const fetchedAtIsoValues = layerPoints.map(p => p.fetchedAtIso).sort()
+
+        vegagerdinLayer = {
+          provider: 'vegagerdin',
+          status:
+            layerPoints.length === 0
+              ? 'unavailable'
+              : noWindDataPointCount > 0
+                ? 'partial'
+                : 'available',
+          cacheStatus: vegagerdinResult.cacheStatus,
+          measurementFreshness: vegagerdinResult.measurementFreshness,
+          measuredAtIso: measuredAtIsoValues[measuredAtIsoValues.length - 1] ?? null,
+          fetchedAtIso: fetchedAtIsoValues[fetchedAtIsoValues.length - 1] ?? null,
+          mappedPointCount: vegagerdinRouteMatches.length,
+          availablePointCount: layerPoints.length - noWindDataPointCount,
+          noWindDataPointCount,
+          points: layerPoints,
+        }
+      }
+    }
+  } catch {
+    // Fail-open: Vegagerðin labels are an experimental overlay, not a reason to
+    // fail the route calculation. Keep logs static to avoid leaking route content.
+    console.error('[vegagerdin-route-layer] build failed')
+  }
+
   // ── Route-memory write (best-effort) ─────────────────────────────────────────
   // Record exact provider station IDs for this route so /vedrid can filter its map
   // without any corridor/radius approximation on subsequent visits.
@@ -427,26 +540,6 @@ export async function POST(request: Request) {
     const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
 
     if (fromNorm && toNorm) {
-      // Match Vegagerðin stations to this route (uses cached data, no live fetch)
-      const vegagerdinResult = await readVegagerdinCurrentWithHistoryFallback()
-      const vegagerdinAvailable = vegagerdinResult.status === 'fresh' || vegagerdinResult.status === 'stale'
-      const vegagerdinMatchable = (
-        vegagerdinAvailable
-          ? vegagerdinResult.payload.measurements
-          : []
-      ).filter(m => m.stationId && m.lat !== null && m.lon !== null)
-
-      const vegagerdinRouteMatches = matchProviderPointsToRoute({
-        points: vegagerdinMatchable.map(m => ({
-          id: m.stationId,
-          name: m.stationName,
-          lat: m.lat!,
-          lon: m.lon!,
-        })),
-        routePolyline: routeGeometry.providerMatchingPoints ?? routeGeometry.points,
-        maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
-      })
-
       // Use selectedRouteId as variant key so different route options get distinct memory rows.
       const routeKey = buildRouteMemoryKey(fromNorm.key, toNorm.key, selectedRouteId ?? undefined)
 
@@ -471,6 +564,10 @@ export async function POST(request: Request) {
         })),
       ]
 
+      const providersEvaluated: Array<'vedurstofan' | 'vegagerdin'> = []
+      if (layerEnabled) providersEvaluated.push('vedurstofan')
+      if (vegagerdinProviderEvaluated) providersEvaluated.push('vegagerdin')
+
       await recordRouteMemory({
         routeKey,
         fromPlaceKey: fromNorm.key,
@@ -479,11 +576,9 @@ export async function POST(request: Request) {
         toPlaceLabel: toNorm.label,
         routeVariantKey: selectedRouteId ?? undefined,
         stations,
-        // vegagerdin included in evaluated when its cache was available (even if 0 matched).
-        // When unavailable, omit it so stale station rows from previous runs are preserved.
-        providersEvaluated: vegagerdinAvailable
-          ? ['vedurstofan', 'vegagerdin']
-          : ['vedurstofan'],
+        // Only include providers that were actually evaluated. If a provider was gated
+        // off or its cache was unavailable, leave existing station rows untouched.
+        providersEvaluated,
       })
     }
   } catch (err) {
@@ -507,5 +602,9 @@ export async function POST(request: Request) {
     },
   })
 
-  return NextResponse.json(vedurstofanLayer ? { ...result, vedurstofanLayer } : result)
+  return NextResponse.json({
+    ...result,
+    ...(vedurstofanLayer ? { vedurstofanLayer } : {}),
+    ...(vegagerdinLayer ? { vegagerdinLayer } : {}),
+  })
 }

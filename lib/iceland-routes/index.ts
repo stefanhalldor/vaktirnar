@@ -32,6 +32,23 @@ export {
 } from './alternatives'
 export { ICELAND_ROAD_CAUTIONS, getRoadCautionsForSegments } from './cautions'
 export { resolveRoadIntelligence } from './roadIntelligenceResolver'
+export type {
+  RoadIntelligenceCorsStatus,
+  RoadIntelligenceDataRole,
+  RoadIntelligenceOpenDataProvider,
+  RoadIntelligenceOpenDataSource,
+  RoadIntelligenceOpenDataSourceId,
+  RoadIntelligenceProductionReadiness,
+} from './openDataSources'
+export {
+  formatLmiAttribution,
+  getRoadIntelligenceAttributions,
+  getRoadIntelligenceOpenDataSource,
+  needsRoadIntelligenceMapProxy,
+  OPENSTREETMAP_ATTRIBUTION,
+  ROAD_INTELLIGENCE_OPEN_DATA_SOURCES,
+  VEGAGERDIN_ATTRIBUTION,
+} from './openDataSources'
 
 // Route lens — curated corridor route filter for /vedrid
 export type {

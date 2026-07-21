@@ -157,6 +157,19 @@ Næsti tæknilegi rannsóknarskammtur:
 - skrá leyfi, attribution, cache-reglur, hraða og uppfærslutíðni
 - skrifa stutta niðurstöðu í þetta skjal áður en provider er valinn
 
+**Byrjað (v252 - first open-data research):**
+
+Fyrsta niðurstaða er skráð í `OpenDataResearch.md`. Þar er mælt með M2A sem
+lítið feature-flaggað open-map proof áður en Google kortinu er skipt út í
+production.
+
+**Byrjað (v254 - source registry og CORS preflight):**
+
+Attribution og open-data source metadata eru komin í `DataLicenses.md` og
+`lib/iceland-routes/openDataSources.ts`. Fyrsta CORS preflight bendir til að
+LMÍ basemap geti farið beint í browser, en Vegagerðin ArcGIS overlay þurfi
+líklega same-origin allowlisted proxy.
+
 ### M2 - Feature-Flagged Map Prototype
 
 Búa til sér prototype leið, t.d. `/auth-mvp/vedrid/road-map-prototype`, aðeins

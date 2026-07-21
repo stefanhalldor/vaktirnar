@@ -13,6 +13,8 @@ useful across providers, screens, or future Teskeid products.
   safety flags, curated alternatives, route cautions, and route-intelligence
   checks.
 - Draft pure resolver for static provider-neutral route intelligence.
+- Open-data source metadata for Road Intelligence basemaps, overlays,
+  attribution, CORS status, and proxy-readiness.
 - No production routing behavior yet.
 - No Google Routes replacement yet.
 - No Supabase persistence yet.
@@ -25,6 +27,8 @@ Add to this package when work touches reusable route knowledge:
 - curated route concepts
 - control points or route evidence points
 - route caution metadata
+- open-data source metadata that road graph, map prototype, or segment-state
+  logic depends on
 - provider-station matching concepts
 - route cache or segment-interest heatmap keys
 

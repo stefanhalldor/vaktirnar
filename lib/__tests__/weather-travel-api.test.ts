@@ -16,6 +16,7 @@ const { mockGetRouteGeometry } = vi.hoisted(() => ({ mockGetRouteGeometry: vi.fn
 const { mockFetchForecast } = vi.hoisted(() => ({ mockFetchForecast: vi.fn() }))
 const { mockSampleRouteWeatherPoints } = vi.hoisted(() => ({ mockSampleRouteWeatherPoints: vi.fn() }))
 const { mockFetchVedurstofan } = vi.hoisted(() => ({ mockFetchVedurstofan: vi.fn() }))
+const { mockReadVegagerdinCurrent } = vi.hoisted(() => ({ mockReadVegagerdinCurrent: vi.fn() }))
 const { mockMatchProviderPoints } = vi.hoisted(() => ({
   mockMatchProviderPoints: vi.fn(),
 }))
@@ -48,6 +49,10 @@ vi.mock('@/lib/weather/routeSampling', () => ({
 vi.mock('@/lib/weather/providers/vedurstofan.server', () => ({
   readVedurstofanProductForStations: mockFetchVedurstofan,
   getLastVedurstofanWarmAttemptIso: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock('@/lib/weather/providers/vegagerdinCurrent.server', () => ({
+  readVegagerdinCurrentWithHistoryFallback: mockReadVegagerdinCurrent,
 }))
 
 vi.mock('@/lib/weather/providers/vedurstofanStations', () => ({
@@ -156,6 +161,7 @@ beforeEach(() => {
   // Default: no Veðurstofan stations matched — enrichment is skipped
   mockMatchProviderPoints.mockReturnValue([])
   mockFetchVedurstofan.mockResolvedValue(new Map())
+  mockReadVegagerdinCurrent.mockResolvedValue({ status: 'unavailable' })
 })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -315,6 +321,36 @@ function makeVedurstofanPayload() {
   }
 }
 
+function makeVegagerdinCurrentResult() {
+  return {
+    status: 'fresh' as const,
+    cacheStatus: 'fresh' as const,
+    measurementFreshness: 'fresh' as const,
+    payload: {
+      source: 'vegagerdin' as const,
+      endpoint: 'vedur2014_1' as const,
+      fetchedAtIso: '2026-07-10T08:05:00Z',
+      oldestMeasuredAtIso: '2026-07-10T08:00:00Z',
+      measurements: [{
+        source: 'vegagerdin' as const,
+        stationId: HELLISH_ID,
+        stationName: 'Hellisheiði',
+        lat: 64.04,
+        lon: -21.37,
+        measuredAtIso: '2026-07-10T08:00:00Z',
+        fetchedAtIso: '2026-07-10T08:05:00Z',
+        meanWindMs: 8,
+        gustLast10MinMs: 16,
+        windDirectionDeg: 180,
+        windDirectionText: 'S',
+        airTemperatureC: 5,
+        roadTemperatureC: 2,
+        dataQuality: 'complete' as const,
+      }],
+    },
+  }
+}
+
 function setupLayerEnabled() {
   // authedUser() makes checkFeatureAccess return true for all calls, including weather-provider-vedurstofan.
   // No separate env var needed — the gate is now purely per-user feature access.
@@ -366,6 +402,27 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     expect(body.vedurstofanLayer.points).toHaveLength(1)
     expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
     expect(body.vedurstofanLayer.points[0].forecastRows).toHaveLength(2)
+  })
+
+  it('includes vegagerdinLayer with gust-based status when current stations match the route', async () => {
+    authedUser()
+    setupLayerEnabled()
+    setupStationMapping()
+    mockReadVegagerdinCurrent.mockResolvedValue(makeVegagerdinCurrentResult())
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(body.vegagerdinLayer).toBeDefined()
+    expect(body.vegagerdinLayer.points).toHaveLength(1)
+    expect(body.vegagerdinLayer.points[0]).toMatchObject({
+      stationId: HELLISH_ID,
+      meanWindMs: 8,
+      gustLast10MinMs: 16,
+      windDisplayStatus: 'haettulegt',
+      statusWindMs: 16,
+    })
   })
 
   it('baseline result is unchanged and has no vedurstofanStation when layer is enabled', async () => {
@@ -613,9 +670,8 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
 
     // sampleRouteWeatherPoints must still be called for MET/Yr baseline — unchanged by this refactor
     expect(mockSampleRouteWeatherPoints).toHaveBeenCalledTimes(1)
-    // matchProviderPoints is called twice: once for the Veðurstofan layer, once for
-    // the Vegagerðin route-memory write (which now runs because both Garðabær and
-    // Þorlákshöfn self-register via the generic address parser).
-    expect(mockMatchProviderPoints).toHaveBeenCalledTimes(2)
+    // matchProviderPoints is called for the Veðurstofan layer. Vegagerðin is mocked
+    // unavailable by default in this suite; its route-layer behaviour has a separate test.
+    expect(mockMatchProviderPoints).toHaveBeenCalledTimes(1)
   })
 })

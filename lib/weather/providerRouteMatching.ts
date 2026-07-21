@@ -19,6 +19,21 @@
  */
 export const DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M = 1_000
 
+/**
+ * Extended threshold for Vegagerðin route station matching.
+ *
+ * Vegagerðin stations are physical roadside measurement posts. Their registered
+ * coordinates can be several hundred metres from the road centreline (offset to
+ * verge or service area), and the route polyline uses projected road centrelines.
+ * A 2.5 km buffer catches stations that are genuinely on the route but fall just
+ * outside the strict 1 km threshold due to coordinate offset or road geometry.
+ *
+ * False-positive risk is low on Icelandic highways: parallel roads within 2.5 km
+ * are rare outside of Reykjavík, and each match is still projected to its nearest
+ * route segment so `distanceFromOriginM` / `routeFraction` are accurate.
+ */
+export const VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M = 2_500
+
 export type ProviderRoutePoint = {
   id: string
   name?: string | null

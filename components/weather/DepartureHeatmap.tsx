@@ -11,7 +11,7 @@ import {
   classifyCandidateWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import { WIND_STATUS_UI_META as WIND_STATUS_META } from './windStatusUi'
-import { WindStatusFilterPills } from './WindStatusFilterPills'
+import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 
 function utcDateKey(isoString: string): string {
   return new Date(isoString).toISOString().slice(0, 10)
@@ -64,6 +64,11 @@ type DepartureHeatmapProps = {
    * (counts, filter, selection, slot dots). Used in Veðurstofan-only mode.
    */
   slotStatusOverrides?: WindDisplayStatus[]
+  /**
+   * Controls whether status filter pills are grouped into simple categories or
+   * shown with all fine-grained near-threshold states.
+   */
+  mode?: WindStatusFilterMode
 }
 
 /** Returns compact hour label for whole-hour slots: "00" for midnight, "1"–"23" otherwise. */
@@ -78,7 +83,7 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
   return dep >= new Date(bestWindow.fromIso).getTime() && dep <= new Date(bestWindow.toIso).getTime()
 }
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -160,6 +165,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
         onVisibleStatusesChange={handleStatusesChange}
         showAllLabel=""
         alwaysShowWithinLimits
+        mode={mode}
       />
 
       {/* Scrollable slot row — grouped by day with sticky day labels */}
