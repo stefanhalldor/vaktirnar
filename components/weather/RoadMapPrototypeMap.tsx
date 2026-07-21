@@ -113,7 +113,7 @@ const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] } as 
 const TRAVEL_METNO_LAYER_ID = 'travel-bridge-weather-points'
 const VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID = 'vedurstofan-route-stations'
 const VEGAGERDIN_ROUTE_STATIONS_LAYER_ID = 'vegagerdin-route-stations'
-const OVERVIEW_VEGAGERDIN_LAYER_ID = 'station-markers'
+const OVERVIEW_VEGAGERDIN_LAYER_ID = 'overview-vegagerdin-stations'
 const OVERVIEW_VEDURSTOFAN_LAYER_ID = 'overview-vedurstofan-stations'
 const ROUTE_FILTER_LAYER_IDS = [
   TRAVEL_METNO_LAYER_ID,
@@ -124,6 +124,7 @@ const OVERVIEW_FILTER_LAYER_IDS = [
   OVERVIEW_VEGAGERDIN_LAYER_ID,
   OVERVIEW_VEDURSTOFAN_LAYER_ID,
 ] as const
+const LEGACY_OVERVIEW_LAYER_IDS = ['station-markers'] as const
 const TRAVEL_POINT_COLOR_EXPRESSION = [
   'match',
   ['get', 'windDisplayStatus'],
@@ -370,16 +371,25 @@ function applyRouteStatusFilterToMap(
   }
 }
 
-function applyOverviewStatusFilterToMap(
-  map: import('maplibre-gl').Map | null,
-  statuses: ReadonlySet<WindDisplayStatus>,
-  mode: WindStatusFilterMode,
-) {
-  if (!map) return
-  const filter = buildRouteStatusFilter(statuses, mode)
-  for (const layerId of OVERVIEW_FILTER_LAYER_IDS) {
-    if (!map.getLayer(layerId)) continue
-    map.setFilter(layerId, filter as Parameters<typeof map.setFilter>[1])
+function toFiniteCoordinate(value: unknown): number | null {
+  const numberValue = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Number(value)
+      : NaN
+  return Number.isFinite(numberValue) ? numberValue : null
+}
+
+function bringWeatherLayersToFront(map: import('maplibre-gl').Map | null) {
+  if (!map?.isStyleLoaded()) return
+  for (const layerId of [
+    OVERVIEW_VEGAGERDIN_LAYER_ID,
+    OVERVIEW_VEDURSTOFAN_LAYER_ID,
+    TRAVEL_METNO_LAYER_ID,
+    VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
+    VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
+  ] as const) {
+    if (map.getLayer(layerId)) map.moveLayer(layerId)
   }
 }
 
@@ -412,6 +422,13 @@ type RouteVegagerdinLabelMarker = {
   marker: import('maplibre-gl').Marker
   element: HTMLButtonElement
   point: VegagerdinRouteLayerPoint
+}
+
+type OverviewStationMarker = {
+  marker: import('maplibre-gl').Marker
+  element: HTMLButtonElement
+  provider: 'vegagerdin' | 'vedurstofan'
+  status: WindDisplayStatus
 }
 
 function clearTimerRef(timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>) {
@@ -451,6 +468,8 @@ export function RoadMapPrototypeMap() {
   const popupConstructorRef = useRef<typeof import('maplibre-gl').Popup | null>(null)
   const markerConstructorRef = useRef<typeof import('maplibre-gl').Marker | null>(null)
   const placeMarkersRef = useRef<RoadMapPlaceMarker[]>([])
+  const overviewVegagerdinMarkersRef = useRef<OverviewStationMarker[]>([])
+  const overviewVedurstofanMarkersRef = useRef<OverviewStationMarker[]>([])
   const routeVedurstofanLabelMarkersRef = useRef<RouteVedurstofanLabelMarker[]>([])
   const routeVedurstofanEntriesRef = useRef<VedurstofanRouteStatusEntry[]>([])
   const routeVegagerdinLabelMarkersRef = useRef<RouteVegagerdinLabelMarker[]>([])
@@ -735,89 +754,90 @@ export function RoadMapPrototypeMap() {
   useEffect(() => {
     if (!mapReady) return
     const map = mapRef.current
-    const source = map?.getSource(OVERVIEW_VEGAGERDIN_LAYER_ID)
-    if (!map?.isStyleLoaded() || !source) return
+    const Marker = markerConstructorRef.current
+    clearOverviewMarkerSet(overviewVegagerdinMarkersRef)
 
     const stations = overviewVegagerdinData?.status === 'ok'
       ? overviewVegagerdinData.stations
       : []
-    const geojson = {
-      type: 'FeatureCollection',
-      features: stations.map((station) => {
-        const status = classifyVegagerdinObservationStationWindStatus(station, overviewThresholds)
-        const displayStatus = routeStatusFilterMode === 'simple'
-          ? toSimpleWindDisplayStatus(status)
-          : status
-        return {
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [station.lon, station.lat] },
-          properties: {
-            stationId: station.stationId,
-            stationName: station.stationName,
-            meanWindMs: station.meanWindMs,
-            gustMs: station.gustLast10MinMs,
-            airTemperatureC: station.airTemperatureC,
-            windDirectionText: station.windDirectionText,
-            measuredAtIso: station.measuredAtIso,
-            windDisplayStatus: displayStatus,
-            rawWindDisplayStatus: status,
-          },
-        }
-      }),
+    if (!map?.isStyleLoaded() || !Marker || stations.length === 0) {
+      updateOverviewLayerVisibility()
+      return
     }
 
-    ;(source as import('maplibre-gl').GeoJSONSource).setData(geojson as never)
-    if (overviewActiveMode === 'now') setStationCount(stations.length)
-    applyOverviewStatusFilterToMap(map, overviewVisibleStatusesRef.current, routeStatusFilterModeRef.current)
+    for (const station of stations) {
+      const lat = toFiniteCoordinate(station.lat)
+      const lon = toFiniteCoordinate(station.lon)
+      if (lat === null || lon === null) continue
+
+      const status = classifyVegagerdinObservationStationWindStatus(station, overviewThresholds)
+      const coords: [number, number] = [lon, lat]
+      const element = createOverviewStationDotElement({
+        stationName: station.stationName ?? 'Stöð',
+        status,
+        onClick: () => openOverviewVegagerdinPopup(station, coords),
+      })
+      const marker = new Marker({ element, anchor: 'center' })
+        .setLngLat(coords)
+        .addTo(map)
+      overviewVegagerdinMarkersRef.current.push({
+        marker,
+        element,
+        provider: 'vegagerdin',
+        status,
+      })
+    }
+
     updateOverviewLayerVisibility()
-  }, [mapReady, overviewActiveMode, overviewThresholds, overviewVegagerdinData, routeStatusFilterMode])
+  }, [
+    mapReady,
+    overviewThresholds,
+    overviewVegagerdinData,
+    routeStatusFilterMode,
+  ])
 
   useEffect(() => {
     if (!mapReady) return
     const map = mapRef.current
-    const source = map?.getSource(OVERVIEW_VEDURSTOFAN_LAYER_ID)
-    if (!map?.isStyleLoaded() || !source) return
+    const Marker = markerConstructorRef.current
+    clearOverviewMarkerSet(overviewVedurstofanMarkersRef)
 
     const stations = overviewVedurstofanData?.stations ?? []
-    const geojson = {
-      type: 'FeatureCollection',
-      features: stations
-        .filter(station => station.lat !== null && station.lon !== null)
-        .map((station) => {
-          const status = classifyForecastWindDisplayStatusAt(
-            station.forecasts,
-            overviewThresholds,
-            overviewForecastAnchorMs,
-          )
-          const displayStatus = routeStatusFilterMode === 'simple'
-            ? toSimpleWindDisplayStatus(status)
-            : status
-          const selectedIdx = selectForecastRowAt(station.forecasts, overviewForecastAnchorMs)
-          const row = selectedIdx !== null ? station.forecasts[selectedIdx] : null
-          return {
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [station.lon, station.lat] },
-            properties: {
-              stationId: station.stationId,
-              stationName: station.stationName,
-              windSpeedMs: row?.windSpeedMs ?? null,
-              forecastTimeIso: row?.ftimeIso ?? null,
-              windDirectionText: row?.windDirectionText ?? null,
-              airTemperatureC: row?.temperatureC ?? null,
-              windDisplayStatus: displayStatus,
-              rawWindDisplayStatus: status,
-            },
-          }
-        }),
+    if (!map?.isStyleLoaded() || !Marker || stations.length === 0) {
+      updateOverviewLayerVisibility()
+      return
     }
 
-    ;(source as import('maplibre-gl').GeoJSONSource).setData(geojson as never)
-    if (overviewActiveMode !== 'now') setStationCount(geojson.features.length)
-    applyOverviewStatusFilterToMap(map, overviewVisibleStatusesRef.current, routeStatusFilterModeRef.current)
+    for (const station of stations) {
+      const lat = toFiniteCoordinate(station.lat)
+      const lon = toFiniteCoordinate(station.lon)
+      if (lat === null || lon === null) continue
+
+      const status = classifyForecastWindDisplayStatusAt(
+        station.forecasts,
+        overviewThresholds,
+        overviewForecastAnchorMs,
+      )
+      const coords: [number, number] = [lon, lat]
+      const element = createOverviewStationDotElement({
+        stationName: station.stationName ?? 'Stöð',
+        status,
+        onClick: () => openOverviewVedurstofanPopup(station, coords, overviewForecastAnchorMs),
+      })
+      const marker = new Marker({ element, anchor: 'center' })
+        .setLngLat(coords)
+        .addTo(map)
+      overviewVedurstofanMarkersRef.current.push({
+        marker,
+        element,
+        provider: 'vedurstofan',
+        status,
+      })
+    }
+
     updateOverviewLayerVisibility()
   }, [
     mapReady,
-    overviewActiveMode,
     overviewForecastAnchorMs,
     overviewThresholds,
     overviewVedurstofanData,
@@ -900,6 +920,169 @@ export function RoadMapPrototypeMap() {
     return statusIsVisibleInFilter(status, statuses, routeStatusFilterModeRef.current)
   }
 
+  function removeOverviewMapLayerArtifacts(map: import('maplibre-gl').Map) {
+    for (const layerId of [...OVERVIEW_FILTER_LAYER_IDS, ...LEGACY_OVERVIEW_LAYER_IDS] as const) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId)
+    }
+    for (const sourceId of [...OVERVIEW_FILTER_LAYER_IDS, ...LEGACY_OVERVIEW_LAYER_IDS] as const) {
+      if (map.getSource(sourceId)) map.removeSource(sourceId)
+    }
+  }
+
+  function clearOverviewMarkerSet(markersRef: MutableRefObject<OverviewStationMarker[]>) {
+    markersRef.current.forEach(({ marker }) => marker.remove())
+    markersRef.current = []
+  }
+
+  function clearOverviewStationMarkers() {
+    clearOverviewMarkerSet(overviewVegagerdinMarkersRef)
+    clearOverviewMarkerSet(overviewVedurstofanMarkersRef)
+  }
+
+  function updateOverviewMarkerVisibility(
+    statuses = overviewVisibleStatusesRef.current,
+    mode = overviewActiveModeRef.current,
+    routeActive = routeActiveRef.current,
+  ) {
+    let visibleCount = 0
+    const showOverview = !routeActive
+
+    for (const entry of [
+      ...overviewVegagerdinMarkersRef.current,
+      ...overviewVedurstofanMarkersRef.current,
+    ]) {
+      const providerIsActive =
+        (entry.provider === 'vegagerdin' && mode === 'now') ||
+        (entry.provider === 'vedurstofan' && mode !== 'now')
+      const visible =
+        showOverview &&
+        providerIsActive &&
+        statusIsVisibleInFilter(entry.status, statuses, routeStatusFilterModeRef.current)
+      const displayStatus = displayWindStatus(entry.status)
+      const color = WIND_STATUS_MARKER_COLOR[displayStatus]
+      entry.element.style.display = visible ? 'block' : 'none'
+      entry.element.style.backgroundColor = color
+      if (visible) visibleCount += 1
+    }
+
+    if (!routeActive) setStationCount(visibleCount)
+  }
+
+  function createOverviewStationDotElement({
+    stationName,
+    status,
+    onClick,
+  }: {
+    stationName: string
+    status: WindDisplayStatus
+    onClick: () => void
+  }): HTMLButtonElement {
+    const displayStatus = displayWindStatus(status)
+    const element = document.createElement('button')
+    element.type = 'button'
+    element.title = stationName
+    element.setAttribute('aria-label', stationName)
+    element.style.cssText = [
+      'pointer-events:auto',
+      'display:block',
+      'width:15px',
+      'height:15px',
+      'border-radius:999px',
+      'border:2px solid #ffffff',
+      `background:${WIND_STATUS_MARKER_COLOR[displayStatus]}`,
+      'box-shadow:0 1px 4px rgba(15,23,42,0.35)',
+      'cursor:pointer',
+      'padding:0',
+    ].join(';')
+    element.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onClick()
+    })
+    return element
+  }
+
+  function openOverviewVegagerdinPopup(
+    station: VegagerdinCurrentStationDto,
+    coords: [number, number],
+  ) {
+    const Popup = popupConstructorRef.current
+    const map = mapRef.current
+    if (!Popup || !map) return
+
+    const gust = station.gustLast10MinMs != null
+      ? `${formatNum(station.gustLast10MinMs, locale)} m/s`
+      : '–'
+    const mean = station.meanWindMs != null
+      ? `${formatNum(station.meanWindMs, locale)} m/s`
+      : '–'
+    const temp = station.airTemperatureC != null
+      ? `${formatNum(station.airTemperatureC, locale)} °C`
+      : '–'
+    const dir = station.windDirectionText ?? ''
+
+    const container = document.createElement('div')
+    container.style.cssText = 'font-size:12px;line-height:1.5'
+
+    const name = document.createElement('strong')
+    name.style.fontSize = '13px'
+    name.textContent = station.stationName ?? 'Stöð'
+    container.appendChild(name)
+    container.appendChild(document.createElement('br'))
+    container.appendChild(document.createTextNode(`Vindur: ${mean}${dir ? ' ' + dir : ''}`))
+    container.appendChild(document.createElement('br'))
+    container.appendChild(document.createTextNode(`Vindhviða: ${gust}`))
+    container.appendChild(document.createElement('br'))
+    container.appendChild(document.createTextNode(`Lofthiti: ${temp}`))
+
+    popupRef.current?.remove()
+    const popup = new Popup({ closeButton: true, maxWidth: '220px' })
+      .setLngLat(coords)
+      .setDOMContent(container)
+      .addTo(map)
+    popupRef.current = popup
+  }
+
+  function openOverviewVedurstofanPopup(
+    station: StationExplorerResponse['stations'][number],
+    coords: [number, number],
+    forecastAnchorMs: number,
+  ) {
+    const Popup = popupConstructorRef.current
+    const map = mapRef.current
+    if (!Popup || !map) return
+
+    const selectedIdx = selectForecastRowAt(station.forecasts, forecastAnchorMs)
+    const row = selectedIdx !== null ? station.forecasts[selectedIdx] : null
+    const wind = row?.windSpeedMs != null ? `${formatNum(row.windSpeedMs, locale)} m/s` : '–'
+    const temp = row?.temperatureC != null ? `${formatNum(row.temperatureC, locale)} °C` : '–'
+    const dir = row?.windDirectionText ?? ''
+    const time = row?.ftimeIso ? formatKlTime(row.ftimeIso) : null
+
+    const container = document.createElement('div')
+    container.style.cssText = 'font-size:12px;line-height:1.5'
+
+    const name = document.createElement('strong')
+    name.style.fontSize = '13px'
+    name.textContent = station.stationName ?? 'Stöð'
+    container.appendChild(name)
+    container.appendChild(document.createElement('br'))
+    if (time) {
+      container.appendChild(document.createTextNode(`Spá kl. ${time}`))
+      container.appendChild(document.createElement('br'))
+    }
+    container.appendChild(document.createTextNode(`Vindur: ${wind}${dir ? ' ' + dir : ''}`))
+    container.appendChild(document.createElement('br'))
+    container.appendChild(document.createTextNode(`Lofthiti: ${temp}`))
+
+    popupRef.current?.remove()
+    const popup = new Popup({ closeButton: true, maxWidth: '220px' })
+      .setLngLat(coords)
+      .setDOMContent(container)
+      .addTo(map)
+    popupRef.current = popup
+  }
+
   function updateVegagerdinLabelMarkerState(statuses = visibleRouteStatusesRef.current) {
     for (const { element, point } of routeVegagerdinLabelMarkersRef.current) {
       const visible = routeStatusIsVisible(point.windDisplayStatus, statuses)
@@ -924,9 +1107,9 @@ export function RoadMapPrototypeMap() {
     routeStatusFilterModeRef.current = mode
     setRouteStatusFilterMode(mode)
     applyRouteStatusFilterToMap(mapRef.current, visibleRouteStatusesRef.current, mode)
-    applyOverviewStatusFilterToMap(mapRef.current, overviewVisibleStatusesRef.current, mode)
     updateVedurstofanLabelMarkerState()
     updateVegagerdinLabelMarkerState()
+    updateOverviewMarkerVisibility()
   }
 
   function setActiveRouteFieldState(field: RouteBridgeField) {
@@ -945,7 +1128,7 @@ export function RoadMapPrototypeMap() {
   function handleOverviewStatusFilterChange(next: Set<WindDisplayStatus>) {
     overviewVisibleStatusesRef.current = next
     setOverviewVisibleStatuses(next)
-    applyOverviewStatusFilterToMap(mapRef.current, next, routeStatusFilterModeRef.current)
+    updateOverviewMarkerVisibility(next)
   }
 
   function handleOverviewModeChange(mode: 'now' | number) {
@@ -960,21 +1143,23 @@ export function RoadMapPrototypeMap() {
   ) {
     const map = mapRef.current
     if (!map?.isStyleLoaded()) return
-    const showOverview = !routeActive
+    removeOverviewMapLayerArtifacts(map)
     if (map.getLayer(OVERVIEW_VEGAGERDIN_LAYER_ID)) {
       map.setLayoutProperty(
         OVERVIEW_VEGAGERDIN_LAYER_ID,
         'visibility',
-        showOverview && mode === 'now' ? 'visible' : 'none',
+        'none',
       )
     }
     if (map.getLayer(OVERVIEW_VEDURSTOFAN_LAYER_ID)) {
       map.setLayoutProperty(
         OVERVIEW_VEDURSTOFAN_LAYER_ID,
         'visibility',
-        showOverview && mode !== 'now' ? 'visible' : 'none',
+        'none',
       )
     }
+    updateOverviewMarkerVisibility(overviewVisibleStatusesRef.current, mode, routeActive)
+    bringWeatherLayersToFront(map)
   }
 
   function handleSelectCandidateIdx(idx: number | null) {
@@ -1232,7 +1417,7 @@ export function RoadMapPrototypeMap() {
             'line-opacity': 0.86,
           },
         },
-        map.getLayer('station-markers') ? 'station-markers' : undefined,
+        map.getLayer(OVERVIEW_VEGAGERDIN_LAYER_ID) ? OVERVIEW_VEGAGERDIN_LAYER_ID : undefined,
       )
     }
 
@@ -2008,6 +2193,7 @@ export function RoadMapPrototypeMap() {
             if (existingSrc) {
               // Source already exists — update data in place without re-adding the layer.
               ;(existingSrc as import('maplibre-gl').GeoJSONSource).setData(geojson as never)
+              bringWeatherLayersToFront(map)
             } else {
               map.addSource('road-segments', { type: 'geojson', data: geojson as never })
               map.addLayer({
@@ -2110,6 +2296,7 @@ export function RoadMapPrototypeMap() {
                   .addTo(map)
                 popupRef.current = popup
               })
+              bringWeatherLayersToFront(map)
             }
             return geojson.features.length
           }
@@ -2140,142 +2327,9 @@ export function RoadMapPrototypeMap() {
             segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
           })
 
-          map.addSource(OVERVIEW_VEGAGERDIN_LAYER_ID, {
-            type: 'geojson',
-            data: EMPTY_FEATURE_COLLECTION as never,
-          })
-          map.addLayer({
-            id: OVERVIEW_VEGAGERDIN_LAYER_ID,
-            type: 'circle',
-            source: OVERVIEW_VEGAGERDIN_LAYER_ID,
-            paint: {
-              'circle-color': TRAVEL_POINT_COLOR_EXPRESSION as unknown as string,
-              'circle-radius': 6,
-              'circle-stroke-width': 1.5,
-              'circle-stroke-color': '#ffffff',
-              'circle-opacity': 0.9,
-            },
-          })
-          map.addSource(OVERVIEW_VEDURSTOFAN_LAYER_ID, {
-            type: 'geojson',
-            data: EMPTY_FEATURE_COLLECTION as never,
-          })
-          map.addLayer({
-            id: OVERVIEW_VEDURSTOFAN_LAYER_ID,
-            type: 'circle',
-            source: OVERVIEW_VEDURSTOFAN_LAYER_ID,
-            layout: { visibility: 'none' },
-            paint: {
-              'circle-color': TRAVEL_POINT_COLOR_EXPRESSION as unknown as string,
-              'circle-radius': 6,
-              'circle-stroke-width': 1.5,
-              'circle-stroke-color': '#ffffff',
-              'circle-opacity': 0.86,
-            },
-          })
+          removeOverviewMapLayerArtifacts(map)
 
-          for (const layerId of [OVERVIEW_VEGAGERDIN_LAYER_ID, OVERVIEW_VEDURSTOFAN_LAYER_ID] as const) {
-            map.on('mouseenter', layerId, () => {
-              map.getCanvas().style.cursor = 'pointer'
-            })
-            map.on('mouseleave', layerId, () => {
-              map.getCanvas().style.cursor = ''
-            })
-          }
-
-          map.on('click', OVERVIEW_VEGAGERDIN_LAYER_ID, (e) => {
-            if (!e.features?.length) return
-            const feature = e.features[0]
-            const coords = (feature.geometry as { type: 'Point'; coordinates: [number, number] })
-              .coordinates
-            const props = feature.properties as {
-              stationName?: string
-              gustMs?: number | null
-              meanWindMs?: number | null
-              airTemperatureC?: number | null
-              windDirectionText?: string | null
-            }
-
-            const gust = props.gustMs != null ? `${props.gustMs.toFixed(1)} m/s` : '—'
-            const mean = props.meanWindMs != null ? `${props.meanWindMs.toFixed(1)} m/s` : '—'
-            const temp =
-              props.airTemperatureC != null ? `${props.airTemperatureC.toFixed(1)} °C` : '—'
-            const dir = props.windDirectionText ?? ''
-
-            const container = document.createElement('div')
-            container.style.cssText = 'font-size:12px;line-height:1.5'
-
-            const name = document.createElement('strong')
-            name.style.fontSize = '13px'
-            name.textContent = props.stationName ?? 'Stöð'
-            container.appendChild(name)
-            container.appendChild(document.createElement('br'))
-            container.appendChild(document.createTextNode(`Vindur: ${mean}${dir ? ' ' + dir : ''}`))
-            container.appendChild(document.createElement('br'))
-            container.appendChild(document.createTextNode(`Vindhviða: ${gust}`))
-            container.appendChild(document.createElement('br'))
-            container.appendChild(document.createTextNode(`Lofthiti: ${temp}`))
-
-            popupRef.current?.remove()
-            const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
-              .setLngLat(coords)
-              .setDOMContent(container)
-              .addTo(map)
-            popupRef.current = popup
-          })
-
-          map.on('click', OVERVIEW_VEDURSTOFAN_LAYER_ID, (e) => {
-            if (!e.features?.length) return
-            const feature = e.features[0]
-            const coords = (feature.geometry as { type: 'Point'; coordinates: [number, number] })
-              .coordinates
-            const props = feature.properties as {
-              stationName?: string
-              windSpeedMs?: number | null
-              airTemperatureC?: number | null
-              windDirectionText?: string | null
-              forecastTimeIso?: string | null
-            }
-
-            const wind = props.windSpeedMs != null ? `${props.windSpeedMs.toFixed(1)} m/s` : '—'
-            const temp =
-              props.airTemperatureC != null ? `${props.airTemperatureC.toFixed(1)} °C` : '—'
-            const dir = props.windDirectionText ?? ''
-            const time = props.forecastTimeIso ? formatKlTime(props.forecastTimeIso) : null
-
-            const container = document.createElement('div')
-            container.style.cssText = 'font-size:12px;line-height:1.5'
-
-            const name = document.createElement('strong')
-            name.style.fontSize = '13px'
-            name.textContent = props.stationName ?? 'Stöð'
-            container.appendChild(name)
-            container.appendChild(document.createElement('br'))
-            if (time) {
-              container.appendChild(document.createTextNode(`Spá kl. ${time}`))
-              container.appendChild(document.createElement('br'))
-            }
-            container.appendChild(document.createTextNode(`Vindur: ${wind}${dir ? ' ' + dir : ''}`))
-            container.appendChild(document.createElement('br'))
-            container.appendChild(document.createTextNode(`Lofthiti: ${temp}`))
-
-            popupRef.current?.remove()
-            const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
-              .setLngLat(coords)
-              .setDOMContent(container)
-              .addTo(map)
-            popupRef.current = popup
-          })
-
-          if (map.getLayer('travel-bridge-weather-points')) {
-            map.moveLayer('travel-bridge-weather-points')
-          }
-          if (map.getLayer(VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID)) {
-            map.moveLayer(VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID)
-          }
-          if (map.getLayer(VEGAGERDIN_ROUTE_STATIONS_LAYER_ID)) {
-            map.moveLayer(VEGAGERDIN_ROUTE_STATIONS_LAYER_ID)
-          }
+          bringWeatherLayersToFront(map)
           updateOverviewLayerVisibility()
           if (!cancelled) setMapReady(true)
         })
@@ -2303,6 +2357,7 @@ export function RoadMapPrototypeMap() {
       resizeObserverRef.current = null
       placeMarkersRef.current.forEach(({ marker }) => marker.remove())
       placeMarkersRef.current = []
+      clearOverviewStationMarkers()
       clearRouteVedurstofanLabelMarkers()
       clearRouteVegagerdinLabelMarkers()
       popupRef.current?.remove()
