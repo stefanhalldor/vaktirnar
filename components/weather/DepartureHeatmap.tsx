@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
 import type { TravelCandidate, TravelWindow, ResolvedTravelThresholds } from '@/lib/weather/types'
 import { deriveThreshold, resolveThresholds } from '@/lib/weather/thresholds'
@@ -69,6 +69,11 @@ type DepartureHeatmapProps = {
    * shown with all fine-grained near-threshold states.
    */
   mode?: WindStatusFilterMode
+  /**
+   * Optional element rendered before the filter pills in the same row.
+   * Used by the Road Intelligence prototype to inline Einfalt/Nánar toggle.
+   */
+  modeToggle?: ReactNode
 }
 
 /** Returns compact hour label for whole-hour slots: "00" for midnight, "1"–"23" otherwise. */
@@ -83,7 +88,7 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
   return dep >= new Date(bestWindow.fromIso).getTime() && dep <= new Date(bestWindow.toIso).getTime()
 }
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode, modeToggle }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -158,15 +163,18 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       {title !== null && <p className="text-xs font-medium text-foreground">{title ?? tf('heatmapTitle')}</p>}
       {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
 
-      {/* Status filter chips — 'innan-marka' always shown even at count 0 */}
-      <WindStatusFilterPills
-        counts={statusCounts}
-        visibleStatuses={visibleStatuses}
-        onVisibleStatusesChange={handleStatusesChange}
-        showAllLabel=""
-        alwaysShowWithinLimits
-        mode={mode}
-      />
+      {/* Status filter chips — modeToggle (if provided) sits in the same row as the pills */}
+      <div className="flex flex-wrap items-center gap-2">
+        {modeToggle}
+        <WindStatusFilterPills
+          counts={statusCounts}
+          visibleStatuses={visibleStatuses}
+          onVisibleStatusesChange={handleStatusesChange}
+          showAllLabel=""
+          alwaysShowWithinLimits
+          mode={mode}
+        />
+      </div>
 
       {/* Scrollable slot row — grouped by day with sticky day labels */}
       {filteredWithIdx.length > 0 ? (() => {

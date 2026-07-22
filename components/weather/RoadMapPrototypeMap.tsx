@@ -2865,32 +2865,10 @@ export function RoadMapPrototypeMap() {
 
       {/* Bottom strip — overview source selector or route departure scrubber. */}
       <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-border/50 bg-background/90 pb-5 backdrop-blur-sm">
-        {/* Filter mode toggle */}
-        <div className="flex items-center gap-2 px-3 pb-1 pt-2">
-          <div className="inline-flex min-h-7 overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
-            {(['simple', 'detailed'] as const).map(mode => (
-              <button
-                key={mode}
-                type="button"
-                aria-pressed={routeStatusFilterMode === mode}
-                onClick={() => handleRouteStatusFilterModeChange(mode)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                  routeStatusFilterMode === mode
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {mode === 'simple'
-                  ? t('statusFilterModeSimple')
-                  : t('statusFilterModeDetailed')}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {routeBridgeSummary ? (
           routeCandidates && routeCandidates.length > 0 ? (
-          <div className="px-3">
+          /* Route + candidates: DepartureHeatmap with Einfalt/Nánar inline before pills */
+          <div className="px-3 pt-2">
             <DepartureHeatmap
               candidates={routeCandidates}
               bestWindow={routeBestWindow}
@@ -2906,23 +2884,60 @@ export function RoadMapPrototypeMap() {
               slotStatusOverrides={routeSlotStatusOverrides ?? undefined}
               mode={routeStatusFilterMode}
               firstSlotLabel={t('roadMapPrototypeScrubberNow')}
+              modeToggle={
+                <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
+                  {(['simple', 'detailed'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={routeStatusFilterMode === mode}
+                      onClick={() => handleRouteStatusFilterModeChange(mode)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                        routeStatusFilterMode === mode
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {mode === 'simple' ? t('statusFilterModeSimple') : t('statusFilterModeDetailed')}
+                    </button>
+                  ))}
+                </div>
+              }
             />
           </div>
           ) : (
-          <div className="px-3 pb-1">
+          /* Route + no candidates: Einfalt/Nánar + pills in same row */
+          <div className="flex flex-wrap items-center gap-2 px-3 pb-2 pt-2">
+            <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
+              {(['simple', 'detailed'] as const).map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={routeStatusFilterMode === mode}
+                  onClick={() => handleRouteStatusFilterModeChange(mode)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                    routeStatusFilterMode === mode
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {mode === 'simple' ? t('statusFilterModeSimple') : t('statusFilterModeDetailed')}
+                </button>
+              ))}
+            </div>
             <WindStatusFilterPills
               counts={routeBridgeSummary.statusCounts}
               visibleStatuses={visibleRouteStatuses}
               onVisibleStatusesChange={handleRouteStatusFilterChange}
-              showAllLabel={t('roadMapPrototypeShowAll')}
-              showAllButton
+              showAllLabel=""
               alwaysShowWithinLimits
               mode={routeStatusFilterMode}
             />
           </div>
           )
         ) : (
-          <div className="flex flex-col gap-2 px-3 pb-1">
+          /* Default overview: time selector + Einfalt/Nánar inline with pills */
+          <div className="flex flex-col gap-2 px-3 pb-1 pt-2">
             <WeatherSourceTimeSelector
               vegagerdinGroupLabel={t('vegagerdinProviderLabel')}
               nowLabel={t('sourceNowLabel')}
@@ -2950,14 +2965,32 @@ export function RoadMapPrototypeMap() {
               prevLabel={t('sourceTimePrevious')}
               nextLabel={t('sourceTimeNext')}
             />
-            <WindStatusFilterPills
-              counts={overviewStatusCounts}
-              visibleStatuses={overviewVisibleStatuses}
-              onVisibleStatusesChange={handleOverviewStatusFilterChange}
-              showAllLabel={t('roadMapPrototypeShowAll')}
-              showAllButton
-              mode={routeStatusFilterMode}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
+                {(['simple', 'detailed'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={routeStatusFilterMode === mode}
+                    onClick={() => handleRouteStatusFilterModeChange(mode)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                      routeStatusFilterMode === mode
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {mode === 'simple' ? t('statusFilterModeSimple') : t('statusFilterModeDetailed')}
+                  </button>
+                ))}
+              </div>
+              <WindStatusFilterPills
+                counts={overviewStatusCounts}
+                visibleStatuses={overviewVisibleStatuses}
+                onVisibleStatusesChange={handleOverviewStatusFilterChange}
+                showAllLabel=""
+                mode={routeStatusFilterMode}
+              />
+            </div>
           </div>
         )}
       </div>
