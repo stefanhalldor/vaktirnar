@@ -80,6 +80,14 @@ type DepartureHeatmapProps = {
    * Use when the pills should reflect route station counts rather than departure slot counts.
    */
   countsOverride?: Partial<Record<WindDisplayStatus, number>>
+  /**
+   * Older /ferdalagid flows treat `selectedIdx=null` + `firstSlotLabel` as
+   * "the first slot is active". Road Intelligence needs null to mean the
+   * separate Vegagerðin current view is active, so callers can disable this.
+   */
+  selectFirstSlotWhenNone?: boolean
+  /** Controls the legacy "Besti" ring/label on green departure windows. */
+  showBestWindowHint?: boolean
 }
 
 /** Returns compact hour label for whole-hour slots: "00" for midnight, "1"–"23" otherwise. */
@@ -107,7 +115,7 @@ function slotStatusIsVisible(
   return visibleStatuses.has(status)
 }
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode, modeToggle, countsOverride }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode = 'detailed', modeToggle, countsOverride, selectFirstSlotWhenNone = true, showBestWindowHint = true }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -135,6 +143,11 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
     return classifyCandidateWindDisplayStatus(c, thresholdsForClassify)
   }
 
+  function getDisplaySlotStatus(c: TravelCandidate, idx: number): WindDisplayStatus {
+    const status = getSlotStatus(c, idx)
+    return mode === 'simple' ? toSimpleWindDisplayStatus(status) : status
+  }
+
   // Status counts across all candidates (before filtering)
   const statusCounts: Partial<Record<WindDisplayStatus, number>> = {}
   for (let i = 0; i < candidates.length; i++) {
@@ -155,7 +168,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
   // candidate is rendered as the special "Now" slot. Keep null support for
   // older callers, but new route flows select the real first index (0).
   const selectedFilteredIdx = selectedIdx === null
-    ? firstSlotLabel
+    ? firstSlotLabel && selectFirstSlotWhenNone
       ? filteredWithIdx.findIndex(item => item.realIdx === 0)
       : -1
     : filteredWithIdx.findIndex(item => item.realIdx === selectedIdx)
@@ -239,11 +252,11 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                   </div>
                   <div className="flex gap-1 items-end">
                     {items.map(({ c, realIdx }) => {
-                      const wst = getSlotStatus(c, realIdx)
-                      const meta = WIND_STATUS_META[wst]
-                      const best = isBestSlot(c, bestWindow)
+                      const displayStatus = getDisplaySlotStatus(c, realIdx)
+                      const meta = WIND_STATUS_META[displayStatus]
+                      const best = showBestWindowHint && isBestSlot(c, bestWindow)
                       const isSelected = selectedIdx === realIdx ||
-                        (selectedIdx === null && realIdx === 0 && Boolean(firstSlotLabel))
+                        (selectedIdx === null && realIdx === 0 && Boolean(firstSlotLabel) && selectFirstSlotWhenNone)
                       return (
                         <button
                           key={c.departureIso}
@@ -269,8 +282,8 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                           }`}
                         >
                           <span className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${meta.dotClass}`} aria-hidden>
-                            {wst === 'innan-marka' && <Check className="w-2.5 h-2.5 text-white stroke-[3]" />}
-                            {wst === 'haettulegt' && <TriangleAlert className="w-2.5 h-2.5 text-white stroke-[3]" />}
+                            {displayStatus === 'innan-marka' && <Check className="w-2.5 h-2.5 text-white stroke-[3]" />}
+                            {displayStatus === 'haettulegt' && <TriangleAlert className="w-2.5 h-2.5 text-white stroke-[3]" />}
                           </span>
                           {realIdx === 0 && firstSlotLabel ? (
                             <>

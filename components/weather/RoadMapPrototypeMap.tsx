@@ -5,7 +5,7 @@ import { type FormEvent, type MutableRefObject, useEffect, useMemo, useRef, useS
 import { useLocale, useTranslations } from 'next-intl'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import type { RouteOption } from '@/lib/weather/provider.types'
-import type { DeterministicResult, ResolvedTravelThresholds, TravelCandidate, TravelWindow } from '@/lib/weather/types'
+import type { DeterministicResult, ResolvedTravelThresholds, TravelCandidate } from '@/lib/weather/types'
 import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import { buildTravelBridgeMapData } from '@/lib/road-intelligence/travelBridgeMapData'
@@ -42,9 +42,11 @@ import {
   DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES,
   WIND_STATUS_META,
   classifyForecastWindDisplayStatusAt,
+  classifyNearestForecastWindDisplayStatusAt,
   classifyObservationWindDisplayStatus,
   classifyPointWindDisplayStatus,
   selectForecastRowAt,
+  selectNearestForecastRowAt,
   toSimpleWindDisplayStatus,
   worstWindDisplayStatus,
   WIND_STATUS_MARKER_COLOR,
@@ -66,8 +68,6 @@ import type {
 import {
   worstWindDisplayStatusFromCounts,
   countVedurstofanForecastStatusesAt,
-  buildProviderSlotStatusOverrides,
-  buildProviderBestWindow,
   windDisplayStatusToTravelStatus,
 } from '@/lib/road-intelligence/routeSlotStatuses'
 
@@ -262,11 +262,6 @@ function nextWholeUtcHourAfter(ms: number): number {
   return wholeHourMs <= ms ? wholeHourMs + 3_600_000 : wholeHourMs
 }
 
-function nextWholeUtcTenMinutesAfter(ms: number): number {
-  const stepMs = 10 * 60_000
-  return Math.floor(ms / stepMs) * stepMs + stepMs
-}
-
 function readStationMarkerFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
@@ -314,11 +309,8 @@ function buildRouteTimelineCandidates(
   if (!Number.isFinite(seedDepartureMs)) return existing
 
   const candidates: TravelCandidate[] = [seed]
-  let nextDepartureMs = nextWholeUtcTenMinutesAfter(seedDepartureMs)
-  candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
-
-  nextDepartureMs = nextWholeUtcHourAfter(nextDepartureMs)
-  while (candidates.length < ROUTE_TIMELINE_INITIAL_HOURLY_SLOT_COUNT + 2) {
+  let nextDepartureMs = nextWholeUtcHourAfter(seedDepartureMs)
+  while (candidates.length < ROUTE_TIMELINE_INITIAL_HOURLY_SLOT_COUNT + 1) {
     candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
     nextDepartureMs += 3_600_000
   }
@@ -342,10 +334,7 @@ function buildSyntheticRouteTimelineCandidates(
     status: windDisplayStatusToTravelStatus(nowStatus),
   }
   const candidates: TravelCandidate[] = [seed]
-  let nextDepartureMs = nextWholeUtcTenMinutesAfter(departureMs)
-  candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
-
-  nextDepartureMs = nextWholeUtcHourAfter(nextDepartureMs)
+  let nextDepartureMs = nextWholeUtcHourAfter(departureMs)
   while (candidates.length < ROUTE_TIMELINE_TOTAL_SLOT_COUNT) {
     candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
     nextDepartureMs += 3_600_000
@@ -356,6 +345,39 @@ function buildSyntheticRouteTimelineCandidates(
 
 function countStatusesTotal(counts: Partial<Record<WindDisplayStatus, number>>): number {
   return ALL_WIND_DISPLAY_STATUSES.reduce((sum, status) => sum + (counts[status] ?? 0), 0)
+}
+
+function newestVegagerdinRouteMeasuredAtIso(
+  points: ReadonlyArray<Pick<VegagerdinRouteLayerPoint, 'measuredAtIso'>>,
+): string | null {
+  let newestMs = -Infinity
+  let newestIso: string | null = null
+  for (const point of points) {
+    if (!point.measuredAtIso) continue
+    const timeMs = Date.parse(point.measuredAtIso)
+    if (Number.isFinite(timeMs) && timeMs > newestMs) {
+      newestMs = timeMs
+      newestIso = point.measuredAtIso
+    }
+  }
+  return newestIso
+}
+
+function buildDepartureForecastSlotStatusOverrides(
+  context: RouteForecastBuildContext,
+): WindDisplayStatus[] | null {
+  if (!context.vedurstofanLayer || context.vedurstofanStationCount <= 0) return null
+
+  return context.timelineCandidates.map(candidate => {
+    const departureMs = Date.parse(candidate.departureIso)
+    const counts = countVedurstofanForecastStatusesAt(
+      context.vedurstofanLayer,
+      context.routeDurationMinutes,
+      context.thresholds,
+      Number.isFinite(departureMs) ? departureMs : Date.now(),
+    )
+    return worstWindDisplayStatusFromCounts(counts) ?? 'no_data'
+  })
 }
 
 function nearestProviderPointDiagnostics<T extends ProviderRoutePoint>(
@@ -480,6 +502,33 @@ function classifyVegagerdinObservationStationWindStatus(
   return status === 'no_data' ? 'no_wind_data' : status
 }
 
+function normalizeVegagerdinRoutePointForRender(
+  point: VegagerdinRouteLayerPoint,
+): VegagerdinRouteLayerPoint | null {
+  const raw = point as unknown as Record<string, unknown>
+  const lat = readFiniteNumber(raw['lat'])
+  const lon = readFiniteNumber(raw['lon'])
+  if (lat === null || lon === null) return null
+
+  return {
+    ...point,
+    lat,
+    lon,
+    distanceM: readFiniteNumber(raw['distanceM']) ?? point.distanceM,
+    distanceFromOriginM: readFiniteNumber(raw['distanceFromOriginM']),
+    routeFraction: readFiniteNumber(raw['routeFraction']),
+    meanWindMs: readFiniteNumber(raw['meanWindMs']),
+    gustLast10MinMs: readFiniteNumber(raw['gustLast10MinMs']),
+    windDirectionDeg: readFiniteNumber(raw['windDirectionDeg']),
+    airTemperatureC: readFiniteNumber(raw['airTemperatureC']),
+    roadTemperatureC: readFiniteNumber(raw['roadTemperatureC']),
+    statusWindMs: readFiniteNumber(raw['statusWindMs']),
+    windDisplayStatus: isWindDisplayStatus(raw['windDisplayStatus'])
+      ? raw['windDisplayStatus']
+      : 'no_data',
+  }
+}
+
 function statusIsVisibleInFilter(
   status: WindDisplayStatus,
   statuses: ReadonlySet<WindDisplayStatus>,
@@ -590,6 +639,16 @@ function isVegagerdinRouteLayer(value: unknown): value is VegagerdinRouteLayer {
   )
 }
 
+function canUseMapStyle(map: import('maplibre-gl').Map | null): map is import('maplibre-gl').Map {
+  if (!map) return false
+  try {
+    const style = map.getStyle()
+    return Boolean(style && Array.isArray(style.layers) && style.sources)
+  } catch {
+    return false
+  }
+}
+
 function expandRouteFilterStatuses(
   statuses: ReadonlySet<WindDisplayStatus>,
   mode: WindStatusFilterMode,
@@ -637,7 +696,7 @@ function toFiniteCoordinate(value: unknown): number | null {
 }
 
 function bringWeatherLayersToFront(map: import('maplibre-gl').Map | null) {
-  if (!map?.isStyleLoaded()) return
+  if (!canUseMapStyle(map)) return
   for (const layerId of [
     OVERVIEW_VEGAGERDIN_LAYER_ID,
     OVERVIEW_VEDURSTOFAN_LAYER_ID,
@@ -781,6 +840,7 @@ export function RoadMapPrototypeMap() {
   const [routeNowStatusCounts, setRouteNowStatusCounts] = useState<
     Partial<Record<WindDisplayStatus, number>> | null
   >(null)
+  const [routeNowMeasuredAtIso, setRouteNowMeasuredAtIso] = useState<string | null>(null)
   const [routeVisibleStatusCounts, setRouteVisibleStatusCounts] = useState<
     Partial<Record<WindDisplayStatus, number>> | null
   >(null)
@@ -796,7 +856,6 @@ export function RoadMapPrototypeMap() {
   const [overviewVedurstofanRestricted, setOverviewVedurstofanRestricted] = useState(false)
   const [mapReady, setMapReady] = useState(false)
   const [routeCandidates, setRouteCandidates] = useState<TravelCandidate[] | null>(null)
-  const [routeBestWindow, setRouteBestWindow] = useState<TravelWindow | undefined>(undefined)
   const [routeSlotStatusOverrides, setRouteSlotStatusOverrides] = useState<WindDisplayStatus[] | null>(null)
   const [routeForecastBuildStatus, setRouteForecastBuildStatus] = useState<RouteForecastBuildStatus>('idle')
   const [routeDepartureForecastExpanded, setRouteDepartureForecastExpanded] = useState(false)
@@ -1290,7 +1349,7 @@ export function RoadMapPrototypeMap() {
     if (routeActiveRef.current) {
       hideOverviewStationMarkers()
     }
-    if (map?.isStyleLoaded()) {
+    if (canUseMapStyle(map)) {
       setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, mode === 'now')
       setRouteLayerLayoutVisibility(map, VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID, mode === 'forecast')
       setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
@@ -1496,25 +1555,29 @@ export function RoadMapPrototypeMap() {
     bringWeatherLayersToFront(map)
   }
 
-  function handleSelectCandidateIdx(idx: number | null) {
-    const nextIdx = idx ?? 0
-    setSelectedCandidateIdx(nextIdx)
-    const layer = vedurstofanLayerRef.current
-    const candidates = routeCandidates
-    const candidate = nextIdx > 0 && candidates ? candidates[nextIdx] : null
+  function handleSelectRouteNow() {
+    setSelectedCandidateIdx(null)
+    setRouteDepartureForecastExpanded(false)
+    setRouteWeatherModeState('now')
+    const counts = countWindDisplayStatuses(routeVegagerdinPointsRef.current)
+    setRouteNowStatusCounts(counts)
+    setRouteVisibleStatusCounts(counts)
+    updateRouteWeatherLayerVisibility('now')
+  }
 
-    if (nextIdx === 0) {
-      setRouteWeatherModeState('now')
-      const counts = countWindDisplayStatuses(routeVegagerdinPointsRef.current)
-      setRouteNowStatusCounts(counts)
-      setRouteVisibleStatusCounts(counts)
-      updateRouteWeatherLayerVisibility('now')
+  function handleSelectCandidateIdx(idx: number | null) {
+    if (idx === null) {
+      handleSelectRouteNow()
       return
     }
 
-    if (!layer) {
-      setRouteWeatherModeState('now')
-      updateRouteWeatherLayerVisibility('now')
+    setSelectedCandidateIdx(idx)
+    const layer = vedurstofanLayerRef.current
+    const candidates = routeCandidates
+    const candidate = candidates ? candidates[idx] : null
+
+    if (!layer || !candidate) {
+      handleSelectRouteNow()
       return
     }
     const newDepartureMs = candidate ? Date.parse(candidate.departureIso) : Date.now()
@@ -1649,9 +1712,9 @@ export function RoadMapPrototypeMap() {
     setFromSuggestions([])
     setToSuggestions([])
     setRouteCandidates(null)
-    setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
     setRouteNowStatusCounts(null)
+    setRouteNowMeasuredAtIso(null)
     setRouteVisibleStatusCounts(null)
     resetRouteDepartureForecastState()
     setRouteSurfaceChoices([])
@@ -2333,9 +2396,6 @@ export function RoadMapPrototypeMap() {
     departureMsOverride?: number,
   ): { count: number; statusCounts: Partial<Record<WindDisplayStatus, number>> } {
     const map = mapRef.current
-    if (!map?.isStyleLoaded()) return { count: 0, statusCounts: {} }
-
-    clearRouteVedurstofanLabelMarkers()
     const rawPoints = Array.isArray(layer?.points) ? layer.points : []
     const validPoints = rawPoints.filter(
       (p): p is VedurstofanRoutePoint =>
@@ -2347,12 +2407,12 @@ export function RoadMapPrototypeMap() {
       const anchorMs = Number.isFinite(departureMs)
         ? departureMs + (p.routeFraction ?? 0) * routeDurationMs
         : Date.now()
-      const windDisplayStatus = classifyForecastWindDisplayStatusAt(
+      const windDisplayStatus = classifyNearestForecastWindDisplayStatusAt(
         p.forecastRows,
         thresholds,
         anchorMs,
       )
-      const selectedRowIdx = selectForecastRowAt(p.forecastRows, anchorMs)
+      const selectedRowIdx = selectNearestForecastRowAt(p.forecastRows, anchorMs)
       return {
         point: p,
         windDisplayStatus,
@@ -2363,6 +2423,16 @@ export function RoadMapPrototypeMap() {
     // Publish all entries to the data ref so the circle click handler can find
     // stations that have no DOM label (due to density rules).
     routeVedurstofanEntriesRef.current = statusEntries
+    if (!canUseMapStyle(map)) {
+      logRoadMapDiagnostic('vedurstofan render deferred', {
+        reason: 'map-style-not-ready',
+        rawPointCount: rawPoints.length,
+        validPointCount: validPoints.length,
+      })
+      return { count: validPoints.length, statusCounts }
+    }
+
+    clearRouteVedurstofanLabelMarkers()
 
     const geojson = {
       type: 'FeatureCollection',
@@ -2596,7 +2666,7 @@ export function RoadMapPrototypeMap() {
   ) {
     const map = mapRef.current
     const Marker = markerConstructorRef.current
-    if (!map?.isStyleLoaded() || !Marker) return
+    if (!canUseMapStyle(map) || !Marker) return
 
     clearRouteEndpointMarkers()
     for (const [place, kind] of [
@@ -2620,14 +2690,12 @@ export function RoadMapPrototypeMap() {
     layer: VegagerdinRouteLayer | undefined,
   ): { count: number; statusCounts: Partial<Record<WindDisplayStatus, number>> } {
     const map = mapRef.current
-    if (!map?.isStyleLoaded()) return { count: 0, statusCounts: {} }
-
-    clearRouteVegagerdinLabelMarkers()
     const rawPoints = Array.isArray(layer?.points) ? layer.points : []
-    const validPoints = rawPoints.filter(
-      (p): p is VegagerdinRouteLayerPoint =>
-        Number.isFinite(p.lat) && Number.isFinite(p.lon),
-    )
+    const validPoints = rawPoints
+      .map(normalizeVegagerdinRoutePointForRender)
+      .filter((point): point is VegagerdinRouteLayerPoint => point !== null)
+    routeVegagerdinPointsRef.current = validPoints
+    const statusCounts = countWindDisplayStatuses(validPoints)
     logRoadMapDiagnostic('vegagerdin render input', {
       hasLayer: Boolean(layer),
       layerStatus: layer?.status ?? null,
@@ -2635,9 +2703,25 @@ export function RoadMapPrototypeMap() {
       validPointCount: validPoints.length,
       routeWeatherMode: routeWeatherModeRef.current,
       visibleStatuses: Array.from(visibleRouteStatusesRef.current),
+      canUseMapStyle: canUseMapStyle(map),
+      sample: validPoints.slice(0, 5).map(point => ({
+        id: point.stationId,
+        name: point.stationName,
+        lat: point.lat,
+        lon: point.lon,
+        status: point.windDisplayStatus,
+        wind: point.statusWindMs,
+      })),
     })
-    routeVegagerdinPointsRef.current = validPoints
-    const statusCounts = countWindDisplayStatuses(validPoints)
+    if (!canUseMapStyle(map)) {
+      logRoadMapDiagnostic('vegagerdin render deferred', {
+        reason: 'map-style-not-ready',
+        validPointCount: validPoints.length,
+      })
+      return { count: validPoints.length, statusCounts }
+    }
+
+    clearRouteVegagerdinLabelMarkers()
 
     const geojson = {
       type: 'FeatureCollection',
@@ -2910,21 +2994,12 @@ export function RoadMapPrototypeMap() {
           })
           setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
           setRouteCandidates(context.timelineCandidates)
-          setRouteBestWindow(undefined)
           setRouteSlotStatusOverrides(null)
           setRouteForecastBuildStatus('ready')
           return
         }
 
-        const slotStatusOverrides = buildProviderSlotStatusOverrides({
-          candidates: context.timelineCandidates,
-          thresholds: context.thresholds,
-          routeDurationMinutes: context.routeDurationMinutes,
-          vedurstofanLayer: context.vedurstofanLayer,
-          vedurstofanStationCount: context.vedurstofanStationCount,
-          vegagerdinStatusCounts: context.vegagerdinStatusCounts,
-          vegagerdinStationCount: context.vegagerdinStationCount,
-        })
+        const slotStatusOverrides = buildDepartureForecastSlotStatusOverrides(context)
 
         if (context.signal.aborted) return
         if (slotStatusOverrides == null) {
@@ -2936,20 +3011,11 @@ export function RoadMapPrototypeMap() {
           })
           setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
           setRouteCandidates(context.timelineCandidates)
-          setRouteBestWindow(undefined)
           setRouteSlotStatusOverrides(null)
           setRouteForecastBuildStatus('ready')
           return
         }
 
-        const timelineSlotStatusOverrides = [
-          context.nowWorstStatus,
-          ...slotStatusOverrides.slice(1),
-        ]
-        const providerBestWindow = buildProviderBestWindow(
-          context.timelineCandidates,
-          timelineSlotStatusOverrides,
-        )
         console.log(
           '[RoadMap] forecast slots: opt-in computed',
           slotStatusOverrides.length,
@@ -2959,8 +3025,7 @@ export function RoadMapPrototypeMap() {
         )
         setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
         setRouteCandidates(context.timelineCandidates)
-        setRouteBestWindow(providerBestWindow)
-        setRouteSlotStatusOverrides(timelineSlotStatusOverrides)
+        setRouteSlotStatusOverrides(slotStatusOverrides)
         setRouteForecastBuildStatus('ready')
       } catch (e) {
         if (!context.signal.aborted) {
@@ -3097,6 +3162,9 @@ export function RoadMapPrototypeMap() {
       vegagerdinRender.count > 0
         ? vegagerdinRender.statusCounts
         : {}
+    const nowMeasuredAtIso =
+      vegagerdinLayer?.measuredAtIso ??
+      newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
     const nowWorstStatus = worstWindDisplayStatusFromCounts(nowStatusCounts) ?? 'innan-marka'
     const providerStatus = routeStatusFromCounts(nowStatusCounts)
     const providerAnswer =
@@ -3106,7 +3174,6 @@ export function RoadMapPrototypeMap() {
     const initialRouteCandidates = timelineCandidates && timelineCandidates.length > 0
       ? timelineCandidates.slice(0, 1)
       : null
-    const initialRouteSlotOverrides = initialRouteCandidates ? [nowWorstStatus] : null
     const nowRouteMode: RouteWeatherMode = 'now'
 
     // Hide global station markers and place labels — route stations are the focus now.
@@ -3143,15 +3210,15 @@ export function RoadMapPrototypeMap() {
       slotStatusSource: slotSource,
     })
     setRouteNowStatusCounts(nowStatusCounts)
+    setRouteNowMeasuredAtIso(nowMeasuredAtIso)
     setRouteVisibleStatusCounts(nowStatusCounts)
     setRouteCandidates(initialRouteCandidates)
-    setRouteBestWindow(undefined)
-    setRouteSlotStatusOverrides(initialRouteSlotOverrides)
-    setSelectedCandidateIdx(0)
+    setRouteSlotStatusOverrides(null)
+    setSelectedCandidateIdx(null)
     handleRouteStatusFilterChange(new Set())
     updateRouteWeatherLayerVisibility(nowRouteMode)
     setRouteBridgeStatus('success')
-    console.log('[RoadMap] route success — initial candidates:', initialRouteCandidates?.length ?? 0, '| selectedCandidateIdx: 0 | nowCounts:', nowStatusCounts)
+    console.log('[RoadMap] route success — initial candidates:', initialRouteCandidates?.length ?? 0, '| selectedCandidateIdx: null | nowCounts:', nowStatusCounts, '| nowMeasuredAtIso:', nowMeasuredAtIso)
 
     routeForecastBuildContextRef.current =
       timelineCandidates && timelineCandidates.length > 1
@@ -3198,9 +3265,9 @@ export function RoadMapPrototypeMap() {
     setRouteBridgeError(null)
     setRouteBridgeSummary(null)
     setRouteCandidates(null)
-    setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
     setRouteNowStatusCounts(null)
+    setRouteNowMeasuredAtIso(null)
     setRouteVisibleStatusCounts(null)
     resetRouteDepartureForecastState()
     setRouteSurfaceChoices([])
@@ -3776,12 +3843,11 @@ export function RoadMapPrototypeMap() {
   // When the user selects slot N in the heatmap, the badge and answer update to
   // reflect that slot's provider status rather than the initial "Núna" status.
   const effectiveSelectedCandidateIdx =
-    routeBridgeSummary
-      ? selectedCandidateIdx ?? 0
-      : selectedCandidateIdx
+    routeBridgeSummary && routeWeatherMode === 'forecast'
+      ? selectedCandidateIdx
+      : null
   const displayedRouteStatus: DeterministicResult['stada'] =
     effectiveSelectedCandidateIdx !== null &&
-    effectiveSelectedCandidateIdx > 0 &&
     routeSlotStatusOverrides != null &&
     routeSlotStatusOverrides[effectiveSelectedCandidateIdx] != null
       ? windDisplayStatusToTravelStatus(routeSlotStatusOverrides[effectiveSelectedCandidateIdx])
@@ -3790,14 +3856,13 @@ export function RoadMapPrototypeMap() {
     routeBridgeSummary == null
       ? ''
       : effectiveSelectedCandidateIdx !== null &&
-          effectiveSelectedCandidateIdx > 0 &&
           routeSlotStatusOverrides != null &&
           routeSlotStatusOverrides[effectiveSelectedCandidateIdx] != null &&
           routeBridgeSummary.slotStatusSource !== 'fallback'
         ? providerRouteAnswer(displayedRouteStatus)
         : routeBridgeSummary.answer
   const selectedRouteCandidate =
-    effectiveSelectedCandidateIdx !== null && effectiveSelectedCandidateIdx > 0 && routeCandidates?.[effectiveSelectedCandidateIdx]
+    effectiveSelectedCandidateIdx !== null && routeCandidates?.[effectiveSelectedCandidateIdx]
       ? routeCandidates[effectiveSelectedCandidateIdx]
       : null
   const displayedRouteSlotLabel =
@@ -3812,9 +3877,14 @@ export function RoadMapPrototypeMap() {
   const displayedSlotStatusOverrides = routeSlotStatusOverrides ? routeSlotStatusOverrides.slice(0, visibleCandidateLimit) : null
   const hasMoreCandidates = routeCandidates !== null && routeCandidates.length > visibleCandidateLimit
   const activeRouteStatusCounts =
-    (effectiveSelectedCandidateIdx === null || effectiveSelectedCandidateIdx === 0) && routeWeatherMode === 'now'
+    routeWeatherMode === 'now'
       ? routeNowStatusCounts ?? {}
       : routeVisibleStatusCounts ?? routeBridgeSummary?.statusCounts ?? {}
+  const routeNowMeasuredLabel = routeNowMeasuredAtIso
+    ? t('roadMapPrototypeVegagerdinNowLabel', {
+        time: formatKlTime(routeNowMeasuredAtIso),
+      })
+    : t('roadMapPrototypeVegagerdinNowFallback')
   const routeScrubberStatusText =
     routeForecastBuildStatus === 'loading'
       ? t('roadMapPrototypeScrubberCalculatingHourly')
@@ -4273,10 +4343,10 @@ export function RoadMapPrototypeMap() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                aria-pressed={effectiveSelectedCandidateIdx === 0}
-                onClick={() => handleSelectCandidateIdx(0)}
+                aria-pressed={routeWeatherMode === 'now'}
+                onClick={handleSelectRouteNow}
                 className={`min-h-10 rounded-lg border px-3 py-1.5 text-left text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                  effectiveSelectedCandidateIdx === 0
+                  routeWeatherMode === 'now'
                     ? 'border-primary bg-primary/10 text-primary'
                     : 'border-border bg-background/85 text-muted-foreground hover:text-foreground'
                 }`}
@@ -4286,10 +4356,7 @@ export function RoadMapPrototypeMap() {
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: routeStatusColor(routeBridgeSummary.status) }}
                   />
-                  {t('roadMapPrototypeScrubberNow')}
-                </span>
-                <span className="block text-[10px] text-muted-foreground">
-                  {formatKlTime(new Date().toISOString())}
+                  {routeNowMeasuredLabel}
                 </span>
               </button>
 
@@ -4300,7 +4367,7 @@ export function RoadMapPrototypeMap() {
                   className="min-h-10 rounded-lg border border-border bg-background/85 px-3 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <span className="block font-semibold text-foreground">
-                    {t('roadMapPrototypeDepartureOptInTitle')}
+                    {t('roadMapPrototypeDepartureDrawerTitle')}
                   </span>
                   <span className="block text-[10px]">
                     {t('roadMapPrototypeDepartureOptInButton')}
@@ -4314,7 +4381,7 @@ export function RoadMapPrototypeMap() {
                 <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-xs font-semibold text-foreground">
-                      {t('roadMapPrototypeDepartureOptInTitle')}
+                      {t('roadMapPrototypeDepartureDrawerTitle')}
                     </p>
                     <p className="text-[11px] text-muted-foreground">
                       {routeForecastBuildStatus === 'loading'
@@ -4339,7 +4406,7 @@ export function RoadMapPrototypeMap() {
                   <>
                     <DepartureHeatmap
                       candidates={displayedRouteCandidates}
-                      bestWindow={routeBestWindow}
+                      bestWindow={undefined}
                       originName={routeBridgeSummary.fromName}
                       selectedIdx={effectiveSelectedCandidateIdx}
                       onSelectIdx={handleSelectCandidateIdx}
@@ -4352,6 +4419,8 @@ export function RoadMapPrototypeMap() {
                       slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
                       mode={routeStatusFilterMode}
                       firstSlotLabel={t('roadMapPrototypeScrubberNow')}
+                      selectFirstSlotWhenNone={false}
+                      showBestWindowHint={false}
                     />
                     {hasMoreCandidates && (
                       <div className="mt-1 pb-1 text-right">

@@ -166,6 +166,39 @@ export function selectForecastRowAt(
 }
 
 /**
+ * Returns the forecast row index closest in time to anchorMs.
+ *
+ * Route ETA matching uses this rather than at-or-before semantics so Road
+ * Intelligence matches the long-tested /ferdalagid behavior: estimate when the
+ * driver reaches the station, then use the nearest Veðurstofan forecast slot.
+ *
+ * Ties keep the first matching row encountered, matching the existing
+ * /ferdalagid reduce() behavior for sorted forecast rows.
+ */
+export function selectNearestForecastRowAt(
+  forecasts: ReadonlyArray<{ ftimeIso: string }>,
+  anchorMs: number,
+): number | null {
+  if (forecasts.length === 0) return null
+
+  const effectiveAnchorMs = Number.isFinite(anchorMs) ? anchorMs : Date.now()
+  let usedIdx = -1
+  let bestDiff = Infinity
+
+  for (let i = 0; i < forecasts.length; i++) {
+    const t = Date.parse(forecasts[i].ftimeIso)
+    if (!Number.isFinite(t)) continue
+    const diff = Math.abs(t - effectiveAnchorMs)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      usedIdx = i
+    }
+  }
+
+  return usedIdx !== -1 ? usedIdx : null
+}
+
+/**
  * Classifies a Veðurstofan station's forecast into WindDisplayStatus at an explicit
  * anchor time, using at-or-before semantics (delegates to selectForecastRowAt).
  *
@@ -179,6 +212,26 @@ export function classifyForecastWindDisplayStatusAt(
   anchorMs: number,
 ): WindDisplayStatus {
   const idx = selectForecastRowAt(forecasts, anchorMs)
+  if (idx === null) return 'no_data'
+  const row = forecasts[idx]
+  if (row.windSpeedMs === null) return 'no_data'
+  return classifyPointWindDisplayStatus(row.windSpeedMs, true, thresholds)
+}
+
+/**
+ * Classifies a Veðurstofan station's forecast into WindDisplayStatus at an
+ * explicit ETA anchor, using the forecast row closest to that ETA.
+ *
+ * Use this for route planning / station-on-route assessments. Keep
+ * classifyForecastWindDisplayStatusAt for overview scrubber slots where the
+ * user selected a specific forecast timestamp.
+ */
+export function classifyNearestForecastWindDisplayStatusAt(
+  forecasts: ReadonlyArray<{ ftimeIso: string; windSpeedMs: number | null }>,
+  thresholds: ResolvedTravelThresholds,
+  anchorMs: number,
+): WindDisplayStatus {
+  const idx = selectNearestForecastRowAt(forecasts, anchorMs)
   if (idx === null) return 'no_data'
   const row = forecasts[idx]
   if (row.windSpeedMs === null) return 'no_data'

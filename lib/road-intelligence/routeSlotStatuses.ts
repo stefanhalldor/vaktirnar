@@ -6,12 +6,11 @@
  * default MET/Yr candidate classification when provider data is available.
  *
  * Design contract:
- * - Vegagerðin current observations are RAUNGILDI (current measured values). They do NOT
- *   change per departure slot — the same station status applies as a floor across all slots.
+ * - Vegagerðin current observations are RAUNGILDI (current measured values). They apply
+ *   only to the "Núna" slot and must not color future departure slots.
  * - Veðurstofan forecast rows CAN vary per slot — ETA at each station is computed as:
  *     anchorMs = departureMs + routeFraction * routeDurationMs
- * - When both providers are present, each slot takes the WORST of:
- *     Vegagerðin current worst + Veðurstofan ETA forecast worst at that departure time
+ * - Future departure slots are driven by Veðurstofan ETA-matched forecasts when present.
  * - When neither provider has route station data, returns null so the caller can fall back
  *   to MET/Yr native candidate classification.
  */
@@ -19,7 +18,7 @@
 import {
   ALL_WIND_DISPLAY_STATUSES,
   classifyCandidateWindDisplayStatus,
-  classifyForecastWindDisplayStatusAt,
+  classifyNearestForecastWindDisplayStatusAt,
   worstWindDisplayStatus,
   type WindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
@@ -53,8 +52,8 @@ export function worstWindDisplayStatusFromCounts(
  *
  * For each valid Veðurstofan station on the route:
  *   anchorMs = departureMs + station.routeFraction * routeDurationMs
- * The latest forecast row at or before anchorMs is used for classification.
- * If no past row exists, the first future row is used.
+ * The forecast row closest to anchorMs is used for classification, matching the
+ * old /ferdalagid ETA-aware route logic.
  */
 export function countVedurstofanForecastStatusesAt(
   layer: VedurstofanTravelLayer | undefined,
@@ -73,7 +72,7 @@ export function countVedurstofanForecastStatusesAt(
 
   for (const point of validPoints) {
     const anchorMs = effectiveDepartureMs + (point.routeFraction ?? 0) * routeDurationMs
-    const status = classifyForecastWindDisplayStatusAt(
+    const status = classifyNearestForecastWindDisplayStatusAt(
       point.forecastRows,
       thresholds,
       anchorMs,
@@ -100,16 +99,13 @@ type BuildProviderSlotStatusOverridesParams = {
  * Returns null when no Icelandic provider data is available, allowing the caller to
  * fall back to MET/Yr native candidate classification in DepartureHeatmap.
  *
- * When overrides are returned, each slot status is the WORST of:
- * - Vegagerðin current observed worst (same for all slots — current conditions)
- * - Veðurstofan ETA-matched forecast worst for that specific departure time
- * If only one provider is present, the other is skipped.
+ * When overrides are returned:
+ * - slot 0 ("Núna") uses Vegagerðin current observed worst when available
+ * - future slots use Veðurstofan ETA-matched forecast worst when available
+ * - slots without a relevant provider status fall back to MET/Yr native classification
  *
- * Note: Vegagerðin acting as a constant floor means a route with an óþægilegt station
- * will show every departure slot as at least óþægilegt. This is correct behaviour —
- * current conditions apply regardless of when you plan to leave — but callers should
- * consider hiding the MET/Yr bestWindow highlight when overrides are present, since
- * the best-window is no longer meaningful relative to the provider-derived status.
+ * Note: do not apply Vegagerðin as a constant floor across the scrubber. It is a
+ * current-measurement provider, while future departure slots are planning/forecast UI.
  */
 export function buildProviderSlotStatusOverrides({
   candidates,
@@ -128,8 +124,8 @@ export function buildProviderSlotStatusOverrides({
 
   if (!vegagerdinWorst && !hasVedurstofan) return null
 
-  return candidates.map((candidate) => {
-    let providerStatus = vegagerdinWorst
+  return candidates.map((candidate, index) => {
+    let providerStatus = index === 0 ? vegagerdinWorst : null
     if (hasVedurstofan) {
       const departureMs = Date.parse(candidate.departureIso)
       const vedurstofanCounts = countVedurstofanForecastStatusesAt(

@@ -148,6 +148,39 @@ describe('countVedurstofanForecastStatusesAt', () => {
     const result = countVedurstofanForecastStatusesAt(layer, 60, DEFAULT_SLOT_THRESHOLDS, Date.now())
     expect(result['innan-marka']).toBeGreaterThanOrEqual(1)
   })
+
+  it('uses the forecast row nearest to route ETA instead of the previous forecast row', () => {
+    const layer = makeVedurstofanLayer([
+      {
+        ftimeIso: '2026-07-22T18:00:00.000Z',
+        windSpeedMs: 20,
+        precipitationMmPerHour: 0,
+        temperatureC: 8,
+        windDirectionText: null,
+        weatherText: null,
+      },
+      {
+        ftimeIso: '2026-07-22T21:00:00.000Z',
+        windSpeedMs: 5,
+        precipitationMmPerHour: 0,
+        temperatureC: 8,
+        windDirectionText: null,
+        weatherText: null,
+      },
+    ], 0.5)
+
+    // Departure 19:00, 3h route, station at 50% => ETA 20:30.
+    // Old /ferdalagid chooses the nearest forecast row, so 21:00 wins over 18:00.
+    const result = countVedurstofanForecastStatusesAt(
+      layer,
+      180,
+      DEFAULT_SLOT_THRESHOLDS,
+      Date.parse('2026-07-22T19:00:00.000Z'),
+    )
+    expect(result['innan-marka']).toBe(1)
+    expect(result.othaegilegt ?? 0).toBe(0)
+    expect(result.haettulegt ?? 0).toBe(0)
+  })
 })
 
 // ─── buildProviderSlotStatusOverrides ───────────────────────────────────────
@@ -224,7 +257,7 @@ describe('buildProviderSlotStatusOverrides', () => {
     expect(result).toBeNull()
   })
 
-  it('propagates Vegagerðin worst as constant floor across all slots', () => {
+  it('uses Vegagerðin worst only for the Now slot when no Veðurstofan forecast exists', () => {
     const candidates = makeCandidates(4)
     const result = buildProviderSlotStatusOverrides({
       candidates,
@@ -236,12 +269,7 @@ describe('buildProviderSlotStatusOverrides', () => {
       vegagerdinStationCount: 3,
     })
     expect(result).not.toBeNull()
-    expect(result).toHaveLength(4)
-    // All slots should be at least othaegilegt (the worst from Vegagerðin)
-    for (const status of result!) {
-      // othaegilegt or worse (haettulegt, nalgast-haettumork)
-      expect(['haettulegt', 'nalgast-haettumork', 'othaegilegt']).toContain(status)
-    }
+    expect(result).toEqual(['othaegilegt', 'innan-marka', 'innan-marka', 'innan-marka'])
   })
 
   it('returns array with same length as candidates', () => {
@@ -271,7 +299,7 @@ describe('buildProviderSlotStatusOverrides', () => {
     expect(result).toEqual([])
   })
 
-  it('haettulegt vegagerdin floor propagates even when vedurstofan is calm', () => {
+  it('does not let dangerous Vegagerðin current values color future calm Veðurstofan slots', () => {
     const nowIso = new Date().toISOString()
     const layer: VedurstofanTravelLayer = {
       experimental: true,
@@ -314,9 +342,7 @@ describe('buildProviderSlotStatusOverrides', () => {
       vegagerdinStationCount: 1,
     })
     expect(result).not.toBeNull()
-    for (const status of result!) {
-      expect(status).toBe('haettulegt')
-    }
+    expect(result).toEqual(['haettulegt', 'innan-marka', 'innan-marka'])
   })
 
   it('lets Veðurstofan forecasts change status by departure slot', () => {

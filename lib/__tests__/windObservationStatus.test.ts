@@ -3,7 +3,9 @@ import {
   classifyObservationWindDisplayStatus,
   classifyNowAnchoredForecastWindDisplayStatus,
   classifyForecastWindDisplayStatusAt,
+  classifyNearestForecastWindDisplayStatusAt,
   selectForecastRowAt,
+  selectNearestForecastRowAt,
   DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES,
 } from '@/lib/weather/windDisplayStatus'
 import type { ResolvedTravelThresholds } from '@/lib/weather/types'
@@ -306,6 +308,39 @@ describe('selectForecastRowAt', () => {
   it('returns null when array is empty regardless of anchor', () => {
     expect(selectForecastRowAt([], 0)).toBeNull()
     expect(selectForecastRowAt([], Infinity)).toBeNull()
+  })
+})
+
+// ── selectNearestForecastRowAt ───────────────────────────────────────────────
+
+describe('selectNearestForecastRowAt', () => {
+  it('returns the future row when it is closer to the ETA than the previous row', () => {
+    const anchorMs = Date.parse('2026-07-22T20:30:00.000Z')
+    const forecasts = [
+      { ftimeIso: '2026-07-22T18:00:00.000Z' },
+      { ftimeIso: '2026-07-22T21:00:00.000Z' },
+    ]
+    expect(selectNearestForecastRowAt(forecasts, anchorMs)).toBe(1)
+  })
+
+  it('keeps exact timestamp matches exact', () => {
+    const anchorMs = Date.parse('2026-07-22T21:00:00.000Z')
+    const forecasts = [
+      { ftimeIso: '2026-07-22T18:00:00.000Z' },
+      { ftimeIso: '2026-07-22T21:00:00.000Z' },
+    ]
+    expect(selectNearestForecastRowAt(forecasts, anchorMs)).toBe(1)
+  })
+})
+
+describe('classifyNearestForecastWindDisplayStatusAt', () => {
+  it('classifies route ETA from the nearest forecast row, matching old /ferdalagid behavior', () => {
+    const anchorMs = Date.parse('2026-07-22T20:30:00.000Z')
+    const forecasts = [
+      { ftimeIso: '2026-07-22T18:00:00.000Z', windSpeedMs: 20 },
+      { ftimeIso: '2026-07-22T21:00:00.000Z', windSpeedMs: 5 },
+    ]
+    expect(classifyNearestForecastWindDisplayStatusAt(forecasts, wideThresholds, anchorMs)).toBe('innan-marka')
   })
 })
 
