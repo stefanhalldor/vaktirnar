@@ -495,6 +495,7 @@ export function RoadMapPrototypeMap() {
   const routeVedurstofanLabelMarkersRef = useRef<RouteVedurstofanLabelMarker[]>([])
   const routeVedurstofanEntriesRef = useRef<VedurstofanRouteStatusEntry[]>([])
   const routeVegagerdinLabelMarkersRef = useRef<RouteVegagerdinLabelMarker[]>([])
+  const routeVegagerdinPointsRef = useRef<VegagerdinRouteLayerPoint[]>([])
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const showOverlayRef = useRef(true)
   const showSegmentsRef = useRef(true)
@@ -550,6 +551,8 @@ export function RoadMapPrototypeMap() {
   const [routeBestWindow, setRouteBestWindow] = useState<TravelWindow | undefined>(undefined)
   const [routeSlotStatusOverrides, setRouteSlotStatusOverrides] = useState<WindDisplayStatus[] | null>(null)
   const [routeSurfaceChoices, setRouteSurfaceChoices] = useState<RouteSurfaceChoice[]>([])
+  const [routeSurfaceChoicesStatus, setRouteSurfaceChoicesStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [visibleCandidateLimit, setVisibleCandidateLimit] = useState(24)
   const [routeCalculationPlaceNames, setRouteCalculationPlaceNames] = useState<{
     from: string
     to: string
@@ -1254,6 +1257,7 @@ export function RoadMapPrototypeMap() {
   function clearRouteVegagerdinLabelMarkers() {
     routeVegagerdinLabelMarkersRef.current.forEach(({ marker }) => marker.remove())
     routeVegagerdinLabelMarkersRef.current = []
+    routeVegagerdinPointsRef.current = []
   }
 
   function clearRouteVedurstofanLabelMarkers() {
@@ -1323,6 +1327,8 @@ export function RoadMapPrototypeMap() {
     setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
     setRouteSurfaceChoices([])
+    setRouteSurfaceChoicesStatus('idle')
+    setVisibleCandidateLimit(24)
     setRouteCalculationPlaceNames(null)
     setSelectedCandidateIdx(null)
     routeActiveRef.current = false
@@ -1830,6 +1836,7 @@ export function RoadMapPrototypeMap() {
       (p): p is VegagerdinRouteLayerPoint =>
         Number.isFinite(p.lat) && Number.isFinite(p.lon),
     )
+    routeVegagerdinPointsRef.current = validPoints
     const statusCounts = countWindDisplayStatuses(validPoints)
 
     const geojson = {
@@ -1878,9 +1885,9 @@ export function RoadMapPrototypeMap() {
         if (!feature) return
         const stationId = (feature.properties as Record<string, unknown>)['stationId']
         if (typeof stationId !== 'string') return
-        const point = routeVegagerdinLabelMarkersRef.current.find(
-          marker => marker.point.stationId === stationId,
-        )?.point
+        const point = routeVegagerdinPointsRef.current.find(
+          p => p.stationId === stationId,
+        )
         if (!point) return
         const coords = (
           feature.geometry as { type: 'Point'; coordinates: [number, number] }
@@ -2115,6 +2122,7 @@ export function RoadMapPrototypeMap() {
     setRouteBestWindow(slotStatusOverrides ? providerBestWindow : travelResult.travelPlan?.outbound.bestWindow)
     setRouteSlotStatusOverrides(slotStatusOverrides)
     setSelectedCandidateIdx(null)
+    handleRouteStatusFilterChange(new Set())
     setRouteBridgeStatus('success')
   }
 
@@ -2147,6 +2155,8 @@ export function RoadMapPrototypeMap() {
     setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
     setRouteSurfaceChoices([])
+    setRouteSurfaceChoicesStatus('idle')
+    setVisibleCandidateLimit(24)
     setRouteCalculationPlaceNames({ from: fromQuery, to: toQuery })
     setSelectedCandidateIdx(null)
     setFromSuggestions([])
@@ -2162,18 +2172,27 @@ export function RoadMapPrototypeMap() {
       resolvedRoutePlacesRef.current = { origin, destination }
       setRouteCalculationPlaceNames({ from: origin.name, to: destination.name })
 
-      const surfaceChoices = await fetchRouteSurfaceChoices(origin, destination, controller.signal)
-      if (controller.signal.aborted) return
-      const selectedRouteId = surfaceChoices[0]?.routeId ?? null
-      setRouteSurfaceChoices(surfaceChoices)
-
+      // Calculate default route first — do not wait for surface alternatives.
       await calculateResolvedRoute({
         origin,
         destination,
         thresholds,
         signal: controller.signal,
-        selectedRouteId,
+        selectedRouteId: null,
       })
+      if (controller.signal.aborted) return
+
+      // Route is now visible on map. Fetch surface alternatives in the background.
+      setRouteSurfaceChoicesStatus('loading')
+      fetchRouteSurfaceChoices(origin, destination, controller.signal)
+        .then(choices => {
+          if (controller.signal.aborted) return
+          setRouteSurfaceChoices(choices)
+          setRouteSurfaceChoicesStatus('ready')
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setRouteSurfaceChoicesStatus('error')
+        })
     } catch (err) {
       if (controller.signal.aborted) return
       const code = err instanceof Error ? err.message : 'unknown'
@@ -2210,6 +2229,7 @@ export function RoadMapPrototypeMap() {
     setRouteCandidates(null)
     setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
+    setVisibleCandidateLimit(24)
     setSelectedCandidateIdx(null)
     setIsPanelOpen(false)
 
@@ -2598,7 +2618,17 @@ export function RoadMapPrototypeMap() {
   }
 
   function renderRouteSurfaceChoices() {
-    if (!routeBridgeSummary || routeSurfaceChoices.length === 0) return null
+    if (!routeBridgeSummary) return null
+
+    if (routeSurfaceChoicesStatus === 'loading') {
+      return (
+        <p className="mb-2 text-[10px] text-muted-foreground">
+          {t('roadMapPrototypeSurfaceChoicesSearching')}
+        </p>
+      )
+    }
+
+    if (routeSurfaceChoices.length === 0) return null
 
     const selectedRouteId = routeBridgeSummary.selectedRouteId ?? routeSurfaceChoices[0]?.routeId ?? null
     const selectedChoice = routeSurfaceChoices.find(choice => choice.routeId === selectedRouteId)
@@ -2700,6 +2730,9 @@ export function RoadMapPrototypeMap() {
             time: formatCompactDateTime(selectedRouteCandidate.departureIso, locale),
           })
         : t('roadMapPrototypeViewingDepartureNow')
+  const displayedRouteCandidates = routeCandidates ? routeCandidates.slice(0, visibleCandidateLimit) : null
+  const displayedSlotStatusOverrides = routeSlotStatusOverrides ? routeSlotStatusOverrides.slice(0, visibleCandidateLimit) : null
+  const hasMoreCandidates = routeCandidates !== null && routeCandidates.length > visibleCandidateLimit
   const routeLoaderFrom = routeCalculationPlaceNames?.from ?? routeFrom.trim()
   const routeLoaderTo = routeCalculationPlaceNames?.to ?? routeTo.trim()
   const routeLoaderTitles = [
@@ -2709,7 +2742,6 @@ export function RoadMapPrototypeMap() {
       to: routeLoaderTo || t('roadMapPrototypeRouteToLabel'),
     }),
     t('roadMapPrototypeRouteLoaderNow'),
-    t('roadMapPrototypeScrubberCalculatingHourly'),
   ]
 
   return (
@@ -3131,12 +3163,12 @@ export function RoadMapPrototypeMap() {
             {t('roadMapPrototypeScrubberCalculatingHourly')}
           </div>
         ) : routeBridgeSummary ? (
-          routeCandidates && routeCandidates.length > 0 ? (
+          displayedRouteCandidates && displayedRouteCandidates.length > 0 ? (
           /* Route + candidates: DepartureHeatmap with Einfalt/Nánar inline before pills */
           <div className="px-3 pt-2">
             {renderRouteSurfaceChoices()}
             <DepartureHeatmap
-              candidates={routeCandidates}
+              candidates={displayedRouteCandidates}
               bestWindow={routeBestWindow}
               originName={routeBridgeSummary.fromName}
               selectedIdx={selectedCandidateIdx}
@@ -3147,9 +3179,10 @@ export function RoadMapPrototypeMap() {
               subtitle={routeScrubberSubtitle(routeBridgeSummary.slotStatusSource)}
               title={null}
               showSelectedDetail={false}
-              slotStatusOverrides={routeSlotStatusOverrides ?? undefined}
+              slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
               mode={routeStatusFilterMode}
               firstSlotLabel={t('roadMapPrototypeScrubberNow')}
+              countsOverride={routeBridgeSummary.statusCounts}
               modeToggle={
                 <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
                   {(['simple', 'detailed'] as const).map(mode => (
@@ -3170,6 +3203,17 @@ export function RoadMapPrototypeMap() {
                 </div>
               }
             />
+            {hasMoreCandidates && (
+              <div className="mt-1 pb-1 text-right">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCandidateLimit(prev => prev + 24)}
+                  className="text-[10px] text-primary underline-offset-2 hover:underline focus-visible:outline-none"
+                >
+                  {t('roadMapPrototypeLoadMoreCandidates')}
+                </button>
+              </div>
+            )}
           </div>
           ) : (
           /* Route + no candidates: Einfalt/Nánar + pills in same row */

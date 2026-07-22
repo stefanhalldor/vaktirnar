@@ -1137,6 +1137,8 @@
         "roadMapPrototypeSurfaceUnknownRoad": "an unspecified gravel segment",
         "roadMapPrototypeSurfaceSelectedHasGravel": "The selected route uses gravel on {roads}. You can choose another route if it avoids gravel.",
         "roadMapPrototypeSurfaceSelectedAvoidsGravel": "The selected route appears to avoid gravel. Other options are shown for comparison.",
+        "roadMapPrototypeSurfaceChoicesSearching": "Looking for more route options…",
+        "roadMapPrototypeLoadMoreCandidates": "Load more forecast slots",
         "roadMapPrototypeSurfaceRouteChoicesReady": "Route options have been checked against available Vegagerðin surface data.",
         "roadMapPrototypeSurfaceRoutePaved": "Paved",
         "roadMapPrototypeSurfaceRouteGravel": "Gravel",

@@ -1141,6 +1141,8 @@
         "roadMapPrototypeSurfaceUnknownRoad": "ótilgreindum malarkafla",
         "roadMapPrototypeSurfaceSelectedHasGravel": "Valda leiðin fer um möl á {roads}. Þú getur valið aðra leið ef hún forðast möl.",
         "roadMapPrototypeSurfaceSelectedAvoidsGravel": "Valda leiðin virðist forðast malarveg. Aðrir valkostir eru hér til samanburðar.",
+        "roadMapPrototypeSurfaceChoicesSearching": "Leita að fleiri leiðum…",
+        "roadMapPrototypeLoadMoreCandidates": "Sækja fleiri spátíma",
         "roadMapPrototypeSurfaceRouteChoicesReady": "Leiðavalkostir eru greindir m.t.t. slitlags þar sem Vegagerðargögn eru tiltæk.",
         "roadMapPrototypeSurfaceRoutePaved": "Bundið slitlag",
         "roadMapPrototypeSurfaceRouteGravel": "Möl",

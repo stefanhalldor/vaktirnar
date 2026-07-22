@@ -74,6 +74,11 @@ type DepartureHeatmapProps = {
    * Used by the Road Intelligence prototype to inline Einfalt/Nánar toggle.
    */
   modeToggle?: ReactNode
+  /**
+   * When provided, overrides the internally-computed status counts for WindStatusFilterPills.
+   * Use when the pills should reflect route station counts rather than departure slot counts.
+   */
+  countsOverride?: Partial<Record<WindDisplayStatus, number>>
 }
 
 /** Returns compact hour label for whole-hour slots: "00" for midnight, "1"–"23" otherwise. */
@@ -88,7 +93,7 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
   return dep >= new Date(bestWindow.fromIso).getTime() && dep <= new Date(bestWindow.toIso).getTime()
 }
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode, modeToggle }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode, modeToggle, countsOverride }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -167,7 +172,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       <div className="flex flex-wrap items-center gap-2">
         {modeToggle}
         <WindStatusFilterPills
-          counts={statusCounts}
+          counts={countsOverride ?? statusCounts}
           visibleStatuses={visibleStatuses}
           onVisibleStatusesChange={handleStatusesChange}
           showAllLabel=""
