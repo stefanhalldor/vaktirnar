@@ -1,5 +1,6 @@
 export type RoadIntelligenceOpenDataSourceId =
   | 'vegagerdin-vegakerfi'
+  | 'vegagerdin-road-surface'
   | 'vegagerdin-faerd'
   | 'vegagerdin-vedur-current'
   | 'lmi-geoserver'
@@ -71,6 +72,26 @@ export const ROAD_INTELLIGENCE_OPEN_DATA_SOURCES: readonly RoadIntelligenceOpenD
     notes: [
       'CORS checked 2026-07-20 with Origin https://www.teskeid.is; response did not include Access-Control-Allow-Origin.',
       'Good candidate for road overlay and road graph discovery, but not production without attribution and cache review.',
+    ],
+  },
+  {
+    id: 'vegagerdin-road-surface',
+    provider: 'vegagerdin',
+    name: 'Vegagerðin slitlag MapServer',
+    roles: ['road-overlay', 'segment-state'],
+    endpoints: [
+      'https://vegasja.vegagerdin.is/arcgis/rest/services/vegakerfi/yfirbord/MapServer/0',
+    ],
+    licenseName: 'Vegagerðin gjaldfrjáls vefþjónustugögn',
+    licenseUrl: 'https://www.vegagerdin.is/vegagerdin/gagnasafn/vefthjonustur/skilmalar-vefthjonustur',
+    attribution: VEGAGERDIN_ATTRIBUTION,
+    corsStatus: 'proxy-likely-required',
+    productionReadiness: 'production-needs-review',
+    cacheGuidance: 'Road surface changes slowly; query server-side by route bbox and cache briefly during prototype use.',
+    notes: [
+      'Layer 0 is Slitlag. Field GERD_SL maps 0 to Möl and 1 to Bundið.',
+      'Use this to detect whether a candidate route touches gravel, then offer paved alternatives when Google returns them.',
+      'This is surface classification data only; exact routing over non-gravel roads still needs road-graph alignment in a later phase.',
     ],
   },
   {

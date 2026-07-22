@@ -4,6 +4,7 @@
 import { type FormEvent, type MutableRefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
+import type { RouteOption } from '@/lib/weather/provider.types'
 import type { DeterministicResult, ResolvedTravelThresholds, TravelCandidate, TravelWindow } from '@/lib/weather/types'
 import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
@@ -20,9 +21,13 @@ import {
   type RoadMapPlace,
 } from '@/lib/road-intelligence/roadMapPlaces'
 import {
-  ROAD_SEGMENT_FALLBACK_COLOR,
   ROAD_SEGMENT_STATUS_COLORS,
 } from '@/lib/road-intelligence/vegagerdinSegments'
+import {
+  buildRouteSurfaceBbox,
+  summarizeRouteRoadSurface,
+  type RouteSurfaceSummary,
+} from '@/lib/road-intelligence/vegagerdinRoadSurface'
 import { formatCompactDateTime, formatKlTime, formatNum } from './travelAuditMap.helpers'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import {
@@ -43,6 +48,7 @@ import { WeatherSourceTimeSelector } from './WeatherSourceTimeSelector'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
 import { ConditionsFeedPreview } from './ConditionsFeedPreview'
+import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
 import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview'
 import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
@@ -139,6 +145,7 @@ const TRAVEL_POINT_COLOR_EXPRESSION = [
 type RouteBridgeSummary = {
   fromName: string
   toName: string
+  selectedRouteId: string | null
   status: DeterministicResult['stada']
   distanceKm: number
   durationMinutes: number
@@ -149,6 +156,21 @@ type RouteBridgeSummary = {
   vedurstofanStationCount: number
   vegagerdinStationCount: number
   slotStatusSource: RouteSlotStatusSource
+}
+
+type RouteSurfaceChoice = {
+  routeId: string
+  routeIndex: number
+  label: string
+  description: string
+  distanceKm: number
+  durationMinutes: number
+  surfaceSummary: RouteSurfaceSummary | null
+}
+
+type ResolvedRoutePlaces = {
+  origin: RoadIntelligencePlaceResult
+  destination: RoadIntelligencePlaceResult
 }
 
 type VegagerdinCurrentApiData =
@@ -527,6 +549,11 @@ export function RoadMapPrototypeMap() {
   const [routeCandidates, setRouteCandidates] = useState<TravelCandidate[] | null>(null)
   const [routeBestWindow, setRouteBestWindow] = useState<TravelWindow | undefined>(undefined)
   const [routeSlotStatusOverrides, setRouteSlotStatusOverrides] = useState<WindDisplayStatus[] | null>(null)
+  const [routeSurfaceChoices, setRouteSurfaceChoices] = useState<RouteSurfaceChoice[]>([])
+  const [routeCalculationPlaceNames, setRouteCalculationPlaceNames] = useState<{
+    from: string
+    to: string
+  } | null>(null)
   const [selectedCandidateIdx, setSelectedCandidateIdx] = useState<number | null>(null)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
@@ -540,6 +567,7 @@ export function RoadMapPrototypeMap() {
   const toSuggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fromBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resolvedRoutePlacesRef = useRef<ResolvedRoutePlaces | null>(null)
   // Track which input is currently focused so late API responses don't reopen the wrong dropdown.
   const fromFocusedRef = useRef(false)
   const toFocusedRef = useRef(false)
@@ -1294,9 +1322,12 @@ export function RoadMapPrototypeMap() {
     setRouteCandidates(null)
     setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
+    setRouteSurfaceChoices([])
+    setRouteCalculationPlaceNames(null)
     setSelectedCandidateIdx(null)
     routeActiveRef.current = false
     vedurstofanLayerRef.current = undefined
+    resolvedRoutePlacesRef.current = null
     handleRouteStatusFilterChange(new Set())
     setActiveRouteFieldState('from')
     clearRouteVedurstofanLabelMarkers()
@@ -1885,6 +1916,208 @@ export function RoadMapPrototypeMap() {
     return { count: validPoints.length, statusCounts }
   }
 
+  function routeSurfaceChoiceLabel(route: RouteOption, index: number): string {
+    if (route.description && route.description.trim().length > 0) return route.description
+    if (route.labels.length > 0) return route.labels.join(' · ')
+    if (route.isDefault) return t('roadMapPrototypeSurfaceRouteDefault')
+    return t('roadMapPrototypeSurfaceRouteNumber', { number: index + 1 })
+  }
+
+  async function fetchRouteSurfaceSummary(
+    route: RouteOption,
+    signal: AbortSignal,
+  ): Promise<RouteSurfaceSummary | null> {
+    const routePoints = route.providerMatchingPoints?.length
+      ? route.providerMatchingPoints
+      : route.points
+    const bbox = buildRouteSurfaceBbox(routePoints)
+    if (!bbox) return null
+
+    const res = await fetch(
+      `/api/teskeid/road-intelligence/road-surface?bbox=${encodeURIComponent(bbox.join(','))}`,
+      {
+        credentials: 'same-origin',
+        signal,
+      },
+    )
+    if (res.status === 401) throw new Error('auth')
+    if (res.status === 404 || res.status === 403) return null
+    if (!res.ok) return null
+
+    const geojson = await res.json().catch(() => null)
+    if (!geojson || signal.aborted) return null
+    return summarizeRouteRoadSurface({ routePoints, surfaceGeoJson: geojson })
+  }
+
+  async function fetchRouteSurfaceChoices(
+    origin: RoadIntelligencePlaceResult,
+    destination: RoadIntelligencePlaceResult,
+    signal: AbortSignal,
+  ): Promise<RouteSurfaceChoice[]> {
+    const res = await fetch('/api/teskeid/weather/travel/routes', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        origin,
+        destination,
+        trailerKind: 'none',
+      }),
+    })
+    if (res.status === 401) throw new Error('auth')
+    if (!res.ok) return []
+
+    const payload = await res.json().catch(() => null)
+    const routes = Array.isArray(payload?.routes) ? (payload.routes as RouteOption[]) : []
+    const choices: RouteSurfaceChoice[] = []
+    for (const route of routes.slice(0, 6)) {
+      if (signal.aborted) return choices
+      const surfaceSummary = await fetchRouteSurfaceSummary(route, signal).catch(() => null)
+      choices.push({
+        routeId: route.id,
+        routeIndex: route.routeIndex,
+        label: routeSurfaceChoiceLabel(route, choices.length),
+        description: route.description ?? route.labels.join(' · '),
+        distanceKm: route.distanceM / 1000,
+        durationMinutes: route.durationS / 60,
+        surfaceSummary,
+      })
+    }
+
+    return choices
+  }
+
+  async function calculateResolvedRoute({
+    origin,
+    destination,
+    thresholds,
+    signal,
+    selectedRouteId,
+  }: {
+    origin: RoadIntelligencePlaceResult
+    destination: RoadIntelligencePlaceResult
+    thresholds: ResolvedTravelThresholds
+    signal: AbortSignal
+    selectedRouteId?: string | null
+  }) {
+    const res = await fetch('/api/teskeid/weather/travel', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        origin,
+        destination,
+        trailerKind: 'none',
+        thresholdOverrides: {
+          cautionWindMs: thresholds.cautionWindMs,
+          redWindMs: thresholds.redWindMs,
+        },
+        ...(selectedRouteId ? { selectedRouteId } : {}),
+        ...(departureAt ? { earliestDepartureAt: departureAt } : {}),
+      }),
+    })
+
+    const contentType = res.headers.get('content-type') ?? ''
+    if (res.status === 401 || !contentType.includes('application/json')) {
+      throw new Error('auth')
+    }
+    if (res.status === 429) throw new Error('rate_limited')
+
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data) {
+      throw new Error(typeof data?.error === 'string' ? data.error : 'travel_failed')
+    }
+    if (signal.aborted) return
+
+    const travelResult = data as DeterministicResult
+    const extra = data as Record<string, unknown>
+    const vedurstofanLayer = isVedurstofanTravelLayer(extra['vedurstofanLayer'])
+      ? extra['vedurstofanLayer']
+      : undefined
+    const vegagerdinLayer = isVegagerdinRouteLayer(extra['vegagerdinLayer'])
+      ? extra['vegagerdinLayer']
+      : undefined
+    const mapData = renderTravelBridgeResult(travelResult, thresholds)
+    const vedurstofanRender = renderVedurstofanStations(
+      vedurstofanLayer,
+      mapData.durationMinutes,
+      thresholds,
+    )
+    const vegagerdinRender = renderVegagerdinStations(vegagerdinLayer)
+    const candidates = travelResult.travelPlan?.outbound.candidates ?? null
+    const slotStatusOverrides = candidates
+      ? buildProviderSlotStatusOverrides({
+          candidates,
+          thresholds,
+          routeDurationMinutes: mapData.durationMinutes,
+          vedurstofanLayer,
+          vedurstofanStationCount: vedurstofanRender.count,
+          vegagerdinStatusCounts: vegagerdinRender.statusCounts,
+          vegagerdinStationCount: vegagerdinRender.count,
+        })
+      : null
+    const slotSource = routeSlotStatusSource(
+      vegagerdinRender.count,
+      vedurstofanRender.count,
+    )
+    const providerBestWindow =
+      candidates && slotStatusOverrides
+        ? buildProviderBestWindow(candidates, slotStatusOverrides)
+        : undefined
+    const providerStatusCounts =
+      vegagerdinRender.count > 0 && vedurstofanRender.count > 0
+        ? mergeWindDisplayStatusCounts(
+            vegagerdinRender.statusCounts,
+            vedurstofanRender.statusCounts,
+          )
+        : vegagerdinRender.count > 0
+          ? vegagerdinRender.statusCounts
+          : vedurstofanRender.count > 0
+            ? vedurstofanRender.statusCounts
+            : mapData.statusCounts
+    const providerStatus =
+      slotStatusOverrides?.[0]
+        ? windDisplayStatusToTravelStatus(slotStatusOverrides[0])
+        : routeStatusFromCounts(providerStatusCounts)
+    const providerAnswer =
+      slotSource !== 'fallback'
+        ? providerRouteAnswer(providerStatus)
+        : travelResult.svar
+
+    // Hide global station markers and place labels — route stations are the focus now.
+    routeActiveRef.current = true
+    vedurstofanLayerRef.current = vedurstofanLayer
+    routeDurationMinutesRef.current = mapData.durationMinutes
+    routeThresholdsRef.current = thresholds
+    updateOverviewLayerVisibility(overviewActiveModeRef.current, true)
+    for (const { element } of placeMarkersRef.current) {
+      element.style.display = 'none'
+    }
+
+    setRouteBridgeSummary({
+      fromName: origin.name,
+      toName: destination.name,
+      selectedRouteId: selectedRouteId ?? null,
+      status: providerStatus,
+      distanceKm: mapData.distanceKm,
+      durationMinutes: mapData.durationMinutes,
+      metnoPointCount: mapData.pointCount,
+      answer: providerAnswer,
+      statusCounts: providerStatusCounts,
+      thresholdsUsed: thresholds,
+      vedurstofanStationCount: vedurstofanRender.count,
+      vegagerdinStationCount: vegagerdinRender.count,
+      slotStatusSource: slotSource,
+    })
+    setRouteCandidates(candidates)
+    setRouteBestWindow(slotStatusOverrides ? providerBestWindow : travelResult.travelPlan?.outbound.bestWindow)
+    setRouteSlotStatusOverrides(slotStatusOverrides)
+    setSelectedCandidateIdx(null)
+    setRouteBridgeStatus('success')
+  }
+
   async function handleRouteBridgeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (routeBridgeStatus === 'loading') return
@@ -1913,9 +2146,12 @@ export function RoadMapPrototypeMap() {
     setRouteCandidates(null)
     setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
+    setRouteSurfaceChoices([])
+    setRouteCalculationPlaceNames({ from: fromQuery, to: toQuery })
     setSelectedCandidateIdx(null)
     setFromSuggestions([])
     setToSuggestions([])
+    setIsPanelOpen(false)
 
     try {
       const [origin, destination] = await Promise.all([
@@ -1923,121 +2159,21 @@ export function RoadMapPrototypeMap() {
         resolveBridgePlace(toQuery, controller.signal, [toResolved, ...toSuggestions]),
       ])
       if (controller.signal.aborted) return
+      resolvedRoutePlacesRef.current = { origin, destination }
+      setRouteCalculationPlaceNames({ from: origin.name, to: destination.name })
 
-      const res = await fetch('/api/teskeid/weather/travel', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          origin,
-          destination,
-          trailerKind: 'none',
-          thresholdOverrides: {
-            cautionWindMs: thresholds.cautionWindMs,
-            redWindMs: thresholds.redWindMs,
-          },
-          ...(departureAt ? { earliestDepartureAt: departureAt } : {}),
-        }),
-      })
-
-      const contentType = res.headers.get('content-type') ?? ''
-      if (res.status === 401 || !contentType.includes('application/json')) {
-        throw new Error('auth')
-      }
-      if (res.status === 429) throw new Error('rate_limited')
-
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'travel_failed')
-      }
+      const surfaceChoices = await fetchRouteSurfaceChoices(origin, destination, controller.signal)
       if (controller.signal.aborted) return
+      const selectedRouteId = surfaceChoices[0]?.routeId ?? null
+      setRouteSurfaceChoices(surfaceChoices)
 
-      const travelResult = data as DeterministicResult
-      const extra = data as Record<string, unknown>
-      const vedurstofanLayer = isVedurstofanTravelLayer(extra['vedurstofanLayer'])
-        ? extra['vedurstofanLayer']
-        : undefined
-      const vegagerdinLayer = isVegagerdinRouteLayer(extra['vegagerdinLayer'])
-        ? extra['vegagerdinLayer']
-        : undefined
-      const mapData = renderTravelBridgeResult(travelResult, thresholds)
-      const vedurstofanRender = renderVedurstofanStations(
-        vedurstofanLayer,
-        mapData.durationMinutes,
+      await calculateResolvedRoute({
+        origin,
+        destination,
         thresholds,
-      )
-      const vegagerdinRender = renderVegagerdinStations(vegagerdinLayer)
-      const candidates = travelResult.travelPlan?.outbound.candidates ?? null
-      const slotStatusOverrides = candidates
-        ? buildProviderSlotStatusOverrides({
-            candidates,
-            thresholds,
-            routeDurationMinutes: mapData.durationMinutes,
-            vedurstofanLayer,
-            vedurstofanStationCount: vedurstofanRender.count,
-            vegagerdinStatusCounts: vegagerdinRender.statusCounts,
-            vegagerdinStationCount: vegagerdinRender.count,
-          })
-        : null
-      const slotSource = routeSlotStatusSource(
-        vegagerdinRender.count,
-        vedurstofanRender.count,
-      )
-      const providerBestWindow =
-        candidates && slotStatusOverrides
-          ? buildProviderBestWindow(candidates, slotStatusOverrides)
-          : undefined
-      const providerStatusCounts =
-        vegagerdinRender.count > 0 && vedurstofanRender.count > 0
-          ? mergeWindDisplayStatusCounts(
-              vegagerdinRender.statusCounts,
-              vedurstofanRender.statusCounts,
-            )
-          : vegagerdinRender.count > 0
-            ? vegagerdinRender.statusCounts
-            : vedurstofanRender.count > 0
-              ? vedurstofanRender.statusCounts
-              : mapData.statusCounts
-      const providerStatus =
-        slotStatusOverrides?.[0]
-          ? windDisplayStatusToTravelStatus(slotStatusOverrides[0])
-          : routeStatusFromCounts(providerStatusCounts)
-      const providerAnswer =
-        slotSource !== 'fallback'
-          ? providerRouteAnswer(providerStatus)
-          : travelResult.svar
-
-      // Hide global station markers and place labels — route stations are the focus now
-      routeActiveRef.current = true
-      vedurstofanLayerRef.current = vedurstofanLayer
-      routeDurationMinutesRef.current = mapData.durationMinutes
-      routeThresholdsRef.current = thresholds
-      const map = mapRef.current
-      updateOverviewLayerVisibility(overviewActiveModeRef.current, true)
-      for (const { element } of placeMarkersRef.current) {
-        element.style.display = 'none'
-      }
-
-      setRouteBridgeSummary({
-        fromName: origin.name,
-        toName: destination.name,
-        status: providerStatus,
-        distanceKm: mapData.distanceKm,
-        durationMinutes: mapData.durationMinutes,
-        metnoPointCount: mapData.pointCount,
-        answer: providerAnswer,
-        statusCounts: providerStatusCounts,
-        thresholdsUsed: thresholds,
-        vedurstofanStationCount: vedurstofanRender.count,
-        vegagerdinStationCount: vegagerdinRender.count,
-        slotStatusSource: slotSource,
+        signal: controller.signal,
+        selectedRouteId,
       })
-      setRouteCandidates(candidates)
-      setRouteBestWindow(slotStatusOverrides ? providerBestWindow : travelResult.travelPlan?.outbound.bestWindow)
-      setRouteSlotStatusOverrides(slotStatusOverrides)
-      setSelectedCandidateIdx(null)
-      setRouteBridgeStatus('success')
     } catch (err) {
       if (controller.signal.aborted) return
       const code = err instanceof Error ? err.message : 'unknown'
@@ -2051,6 +2187,51 @@ export function RoadMapPrototypeMap() {
               : code === 'rate_limited'
                 ? t('roadMapPrototypeRouteRateLimited')
                 : t('roadMapPrototypeRouteError')
+      setRouteBridgeStatus('error')
+      setRouteBridgeError(message)
+    }
+  }
+
+  async function handleSelectSurfaceRouteChoice(choice: RouteSurfaceChoice) {
+    if (routeBridgeStatus === 'loading') return
+    const resolvedPlaces = resolvedRoutePlacesRef.current
+    const thresholds = routeBridgeSummary?.thresholdsUsed ?? routeThresholdsRef.current
+    if (!resolvedPlaces || !thresholds) return
+
+    routeBridgeRequestRef.current?.abort()
+    const controller = new AbortController()
+    routeBridgeRequestRef.current = controller
+    setRouteBridgeStatus('loading')
+    setRouteBridgeError(null)
+    setRouteCalculationPlaceNames({
+      from: resolvedPlaces.origin.name,
+      to: resolvedPlaces.destination.name,
+    })
+    setRouteCandidates(null)
+    setRouteBestWindow(undefined)
+    setRouteSlotStatusOverrides(null)
+    setSelectedCandidateIdx(null)
+    setIsPanelOpen(false)
+
+    try {
+      await calculateResolvedRoute({
+        origin: resolvedPlaces.origin,
+        destination: resolvedPlaces.destination,
+        thresholds,
+        signal: controller.signal,
+        selectedRouteId: choice.routeId,
+      })
+    } catch (err) {
+      if (controller.signal.aborted) return
+      const code = err instanceof Error ? err.message : 'unknown'
+      const message =
+        code === 'map_not_ready'
+          ? t('roadMapPrototypeRouteMapNotReady')
+          : code === 'auth'
+            ? t('roadMapPrototypeRouteAuthError')
+            : code === 'rate_limited'
+              ? t('roadMapPrototypeRouteRateLimited')
+              : t('roadMapPrototypeRouteError')
       setRouteBridgeStatus('error')
       setRouteBridgeError(message)
     }
@@ -2416,6 +2597,68 @@ export function RoadMapPrototypeMap() {
     )
   }
 
+  function renderRouteSurfaceChoices() {
+    if (!routeBridgeSummary || routeSurfaceChoices.length === 0) return null
+
+    const selectedRouteId = routeBridgeSummary.selectedRouteId ?? routeSurfaceChoices[0]?.routeId ?? null
+    const selectedChoice = routeSurfaceChoices.find(choice => choice.routeId === selectedRouteId)
+      ?? routeSurfaceChoices[0]
+    const selectedHasGravel = selectedChoice?.surfaceSummary?.hasGravel === true
+    const hasGravelRoute = routeSurfaceChoices.some(choice => choice.surfaceSummary?.hasGravel)
+    const hasPavedAlternative = routeSurfaceChoices.some(choice =>
+      choice.routeId !== selectedRouteId && choice.surfaceSummary?.hasGravel === false,
+    )
+
+    if (!hasGravelRoute && routeSurfaceChoices.length <= 1) return null
+
+    const gravelRoadNames = selectedChoice?.surfaceSummary?.gravelRoadNames ?? []
+    const intro = selectedHasGravel
+      ? t('roadMapPrototypeSurfaceSelectedHasGravel', {
+          roads: gravelRoadNames.length > 0
+            ? gravelRoadNames.join(', ')
+            : t('roadMapPrototypeSurfaceUnknownRoad'),
+        })
+      : hasPavedAlternative
+        ? t('roadMapPrototypeSurfaceSelectedAvoidsGravel')
+        : t('roadMapPrototypeSurfaceRouteChoicesReady')
+
+    return (
+      <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50/95 p-2 text-[11px] text-amber-950 shadow-sm dark:border-amber-800 dark:bg-amber-950/80 dark:text-amber-100">
+        <p className="mb-1.5 leading-snug">{intro}</p>
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+          {routeSurfaceChoices.map((choice) => {
+            const selected = choice.routeId === selectedRouteId
+            const hasGravel = choice.surfaceSummary?.hasGravel
+            const surfaceLabel =
+              hasGravel === true
+                ? t('roadMapPrototypeSurfaceRouteGravel')
+                : hasGravel === false
+                  ? t('roadMapPrototypeSurfaceRoutePaved')
+                  : t('roadMapPrototypeSurfaceRouteUnknown')
+            return (
+              <button
+                key={choice.routeId}
+                type="button"
+                disabled={routeBridgeStatus === 'loading' || selected}
+                onClick={() => handleSelectSurfaceRouteChoice(choice)}
+                className={`min-w-[150px] shrink-0 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default ${
+                  selected
+                    ? 'border-primary bg-background text-foreground'
+                    : 'border-amber-300 bg-background/80 text-amber-950 hover:bg-background dark:border-amber-700 dark:text-amber-100'
+                }`}
+              >
+                <span className="block truncate font-medium">{choice.label}</span>
+                <span className="block truncate text-[10px] text-muted-foreground">
+                  {surfaceLabel} · {formatNum(choice.distanceKm, locale)} km · {formatDurationMinutes(choice.durationMinutes)}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   if (mapError) {
     return (
       <div className="flex items-center justify-center w-full h-full text-muted-foreground">
@@ -2457,6 +2700,17 @@ export function RoadMapPrototypeMap() {
             time: formatCompactDateTime(selectedRouteCandidate.departureIso, locale),
           })
         : t('roadMapPrototypeViewingDepartureNow')
+  const routeLoaderFrom = routeCalculationPlaceNames?.from ?? routeFrom.trim()
+  const routeLoaderTo = routeCalculationPlaceNames?.to ?? routeTo.trim()
+  const routeLoaderTitles = [
+    t('roadMapPrototypeRouteLoaderForecast'),
+    t('roadMapPrototypeRouteLoaderDistance', {
+      from: routeLoaderFrom || t('roadMapPrototypeRouteFromLabel'),
+      to: routeLoaderTo || t('roadMapPrototypeRouteToLabel'),
+    }),
+    t('roadMapPrototypeRouteLoaderNow'),
+    t('roadMapPrototypeScrubberCalculatingHourly'),
+  ]
 
   return (
     <div className="absolute inset-0">
@@ -2465,6 +2719,18 @@ export function RoadMapPrototypeMap() {
           override Tailwind's `absolute` and cause inset-0 to collapse to 0px.
           h-full w-full survives the position override. */}
       <div ref={containerRef} className="h-full w-full" />
+
+      {routeBridgeStatus === 'loading' && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/95 px-5 backdrop-blur-sm">
+          <TeskeidLoader
+            ideaTitles={routeLoaderTitles}
+            loadingLabel={t('roadMapPrototypeRouteLoading')}
+            fallbackIdeaTitle={t('roadMapPrototypeRouteLoaderNow')}
+            intervalMs={1800}
+            className="min-h-[320px] w-full max-w-sm"
+          />
+        </div>
+      )}
 
       {/* Top-left: 🚗 (route panel) + 💬 (conditions feed) emoji buttons */}
       <div className="absolute left-3 top-3 z-20 flex items-center gap-1.5">
@@ -2800,75 +3066,75 @@ export function RoadMapPrototypeMap() {
             </div>
           )}
         </div>
-      </div>
 
-      {/* Layer controls — bottom-left, offset above bottom strip when route is active */}
-      <div className="absolute bottom-44 left-3 z-10 flex flex-col items-start gap-1.5">
-        {/* Toggle buttons — raster road network and vector condition segments are independent */}
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={handleOverlayToggle}
-            className="text-[11px] px-2.5 py-1.5 rounded-full border border-border bg-background/90 backdrop-blur-sm text-foreground/80 shadow-sm hover:bg-background transition-colors"
-          >
-            {showOverlay ? t('roadMapPrototypeHideRoadNetwork') : t('roadMapPrototypeShowRoadNetwork')}
-          </button>
-          <button
-            type="button"
-            onClick={handleSegmentsToggle}
-            className="text-[11px] px-2.5 py-1.5 rounded-full border border-border bg-background/90 backdrop-blur-sm text-foreground/80 shadow-sm hover:bg-background transition-colors"
-          >
-            {showSegments
-              ? t('roadMapPrototypeHideConditionSegments')
-              : t('roadMapPrototypeShowConditionSegments')}
-          </button>
-        </div>
+        {/* Layer controls — fixed at bottom of panel */}
+        <div className="shrink-0 border-t border-border/50 p-3 space-y-2">
+          {/* Toggle buttons */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleOverlayToggle}
+              className="text-[11px] px-2.5 py-1.5 rounded-full border border-border bg-background/80 text-foreground/80 transition-colors hover:bg-muted"
+            >
+              {showOverlay ? t('roadMapPrototypeHideRoadNetwork') : t('roadMapPrototypeShowRoadNetwork')}
+            </button>
+            <button
+              type="button"
+              onClick={handleSegmentsToggle}
+              className="text-[11px] px-2.5 py-1.5 rounded-full border border-border bg-background/80 text-foreground/80 transition-colors hover:bg-muted"
+            >
+              {showSegments
+                ? t('roadMapPrototypeHideConditionSegments')
+                : t('roadMapPrototypeShowConditionSegments')}
+            </button>
+          </div>
 
-        {/* Road condition legend */}
-        <div className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded-full bg-background/80 backdrop-blur-sm shadow-sm">
-          {ROAD_CONDITION_LEGEND.map(({ color, label }) => (
-            <span key={label} className="flex items-center gap-0.5">
-              <span
-                className="inline-block w-2 h-2 rounded-full border border-white/60 shrink-0"
-                style={{ backgroundColor: color }}
-              />
-              <span className="text-[9px] text-muted-foreground">{label}</span>
-            </span>
-          ))}
-          {segmentCount !== null && (
-            <span className="text-[9px] text-muted-foreground ml-0.5">
-              {segmentCount === 'loading'
-                ? `· ${t('roadMapPrototypeSegmentCountLoading')}`
-                : segmentCount === 'error'
-                  ? `· ${t('roadMapPrototypeSegmentCountError')}`
-                  : `· ${t('roadMapPrototypeSegmentCount', { count: segmentCount })}`}
-            </span>
-          )}
-        </div>
-
-        {/* Overview station count — status colors are explained by the bottom filter pills. */}
-        {!routeBridgeSummary && (
-          <div className="flex items-center gap-1.5 rounded-full bg-background/80 px-2 py-1 text-[9px] text-muted-foreground shadow-sm backdrop-blur-sm">
-            <span>
-              {overviewActiveMode === 'now'
-                ? t('vegagerdinProviderLabel')
-                : t('sourceForecastGroupLabel')}
-            </span>
-            {stationCount !== null && (
-              <span>
-                · {t('roadMapPrototypeStationCount', { count: stationCount })}
+          {/* Road condition legend */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {ROAD_CONDITION_LEGEND.map(({ color, label }) => (
+              <span key={label} className="flex items-center gap-0.5">
+                <span
+                  className="inline-block w-2 h-2 rounded-full border border-border/60 shrink-0"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="text-[10px] text-muted-foreground">{label}</span>
+              </span>
+            ))}
+            {segmentCount !== null && (
+              <span className="text-[10px] text-muted-foreground">
+                {segmentCount === 'loading'
+                  ? `· ${t('roadMapPrototypeSegmentCountLoading')}`
+                  : segmentCount === 'error'
+                    ? `· ${t('roadMapPrototypeSegmentCountError')}`
+                    : `· ${t('roadMapPrototypeSegmentCount', { count: segmentCount })}`}
               </span>
             )}
           </div>
-        )}
+
+          {/* Overview station count */}
+          {!routeBridgeSummary && stationCount !== null && (
+            <p className="text-[10px] text-muted-foreground">
+              {overviewActiveMode === 'now'
+                ? t('vegagerdinProviderLabel')
+                : t('sourceForecastGroupLabel')}
+              {' · '}
+              {t('roadMapPrototypeStationCount', { count: stationCount })}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Bottom strip — overview source selector or route departure scrubber. */}
       <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-border/50 bg-background/90 pb-5 backdrop-blur-sm">
-        {routeBridgeSummary ? (
+        {routeBridgeStatus === 'loading' ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground">
+            {t('roadMapPrototypeScrubberCalculatingHourly')}
+          </div>
+        ) : routeBridgeSummary ? (
           routeCandidates && routeCandidates.length > 0 ? (
           /* Route + candidates: DepartureHeatmap with Einfalt/Nánar inline before pills */
           <div className="px-3 pt-2">
+            {renderRouteSurfaceChoices()}
             <DepartureHeatmap
               candidates={routeCandidates}
               bestWindow={routeBestWindow}
@@ -2907,32 +3173,35 @@ export function RoadMapPrototypeMap() {
           </div>
           ) : (
           /* Route + no candidates: Einfalt/Nánar + pills in same row */
-          <div className="flex flex-wrap items-center gap-2 px-3 pb-2 pt-2">
-            <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
-              {(['simple', 'detailed'] as const).map(mode => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={routeStatusFilterMode === mode}
-                  onClick={() => handleRouteStatusFilterModeChange(mode)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                    routeStatusFilterMode === mode
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {mode === 'simple' ? t('statusFilterModeSimple') : t('statusFilterModeDetailed')}
-                </button>
-              ))}
+          <div className="px-3 pb-2 pt-2">
+            {renderRouteSurfaceChoices()}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
+                {(['simple', 'detailed'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={routeStatusFilterMode === mode}
+                    onClick={() => handleRouteStatusFilterModeChange(mode)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                      routeStatusFilterMode === mode
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {mode === 'simple' ? t('statusFilterModeSimple') : t('statusFilterModeDetailed')}
+                  </button>
+                ))}
+              </div>
+              <WindStatusFilterPills
+                counts={routeBridgeSummary.statusCounts}
+                visibleStatuses={visibleRouteStatuses}
+                onVisibleStatusesChange={handleRouteStatusFilterChange}
+                showAllLabel=""
+                alwaysShowWithinLimits
+                mode={routeStatusFilterMode}
+              />
             </div>
-            <WindStatusFilterPills
-              counts={routeBridgeSummary.statusCounts}
-              visibleStatuses={visibleRouteStatuses}
-              onVisibleStatusesChange={handleRouteStatusFilterChange}
-              showAllLabel=""
-              alwaysShowWithinLimits
-              mode={routeStatusFilterMode}
-            />
           </div>
           )
         ) : (
