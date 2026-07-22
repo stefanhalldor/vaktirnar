@@ -18,6 +18,7 @@ import { sampleRouteWeatherPoints } from '@/lib/weather/routeSampling'
 import {
   haversineM,
   matchProviderPointsToRoute,
+  pointToPolylineDistanceM,
   DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
   VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
   type ProviderRouteMatch,
@@ -51,6 +52,40 @@ function withLayerTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M = 12_000
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS = 40
 
+function shouldLogRoadMapApiDiagnostics(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.ROAD_INTELLIGENCE_DEBUG === 'true'
+}
+
+function logRoadMapApiDiagnostic(message: string, details?: Record<string, unknown>) {
+  if (!shouldLogRoadMapApiDiagnostics()) return
+  if (details) {
+    console.info(`[RoadMap API][diagnostic] ${message}`, details)
+  } else {
+    console.info(`[RoadMap API][diagnostic] ${message}`)
+  }
+}
+
+function nearestProviderPointDiagnostics<T extends ProviderRoutePoint>(
+  points: readonly T[],
+  routePolyline: ReadonlyArray<{ lat: number; lon: number }>,
+) {
+  if (routePolyline.length < 2) return []
+  return points
+    .filter((point): point is T & { lat: number; lon: number } =>
+      typeof point.lat === 'number' &&
+      Number.isFinite(point.lat) &&
+      typeof point.lon === 'number' &&
+      Number.isFinite(point.lon),
+    )
+    .map(point => ({
+      id: point.id,
+      name: point.name ?? null,
+      distanceM: Math.round(pointToPolylineDistanceM(point.lat, point.lon, routePolyline)),
+    }))
+    .sort((a, b) => a.distanceM - b.distanceM || a.id.localeCompare(b.id))
+    .slice(0, 8)
+}
+
 function matchVegagerdinPointsToRoute<T extends ProviderRoutePoint>({
   points,
   routePolyline,
@@ -63,14 +98,45 @@ function matchVegagerdinPointsToRoute<T extends ProviderRoutePoint>({
     routePolyline,
     maxDistanceM: VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
   })
-  if (strictMatches.length > 0) return strictMatches
+  if (strictMatches.length > 0) {
+    logRoadMapApiDiagnostic('vegagerdin route match', {
+      mode: 'strict',
+      routePointCount: routePolyline.length,
+      providerPointCount: points.length,
+      strictCount: strictMatches.length,
+      wideCount: null,
+      nearest: strictMatches.slice(0, 8).map(match => ({
+        id: match.point.id,
+        name: match.point.name ?? null,
+        distanceM: Math.round(match.distanceM),
+        distanceFromOriginM: Math.round(match.distanceFromOriginM),
+      })),
+    })
+    return strictMatches
+  }
 
-  return matchProviderPointsToRoute({
+  const wideMatches = matchProviderPointsToRoute({
     points,
     routePolyline,
     maxDistanceM: VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M,
     maxPoints: VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS,
   })
+  logRoadMapApiDiagnostic('vegagerdin route match', {
+    mode: wideMatches.length > 0 ? 'wide-fallback' : 'no-match',
+    routePointCount: routePolyline.length,
+    providerPointCount: points.length,
+    strictCount: strictMatches.length,
+    wideCount: wideMatches.length,
+    nearest: wideMatches.length > 0
+      ? wideMatches.slice(0, 8).map(match => ({
+          id: match.point.id,
+          name: match.point.name ?? null,
+          distanceM: Math.round(match.distanceM),
+          distanceFromOriginM: Math.round(match.distanceFromOriginM),
+        }))
+      : nearestProviderPointDiagnostics(points, routePolyline),
+  })
+  return wideMatches
 }
 
 function validateThresholdOverrides(raw: unknown): TravelThresholdOverrides | undefined {
@@ -470,11 +536,25 @@ export async function POST(request: Request) {
   try {
     const vegagerdinResult = await readVegagerdinCurrentWithHistoryFallback()
     const vegagerdinAvailable = vegagerdinResult.status === 'fresh' || vegagerdinResult.status === 'stale'
+    logRoadMapApiDiagnostic('vegagerdin current read', {
+      status: vegagerdinResult.status,
+      cacheStatus: vegagerdinAvailable ? vegagerdinResult.cacheStatus : null,
+      measurementFreshness: vegagerdinAvailable ? vegagerdinResult.measurementFreshness : null,
+      measurementCount: vegagerdinAvailable ? vegagerdinResult.payload.measurements.length : 0,
+      reason: vegagerdinResult.status === 'unavailable' ? vegagerdinResult.reason : null,
+      vegagerdinLayerEnabled,
+      routePolylineCount: routePolyline.length,
+    })
 
     if (vegagerdinAvailable) {
       vegagerdinProviderEvaluated = true
       const vegagerdinMatchable = vegagerdinResult.payload.measurements
         .filter(m => m.stationId && m.lat !== null && m.lon !== null)
+      logRoadMapApiDiagnostic('vegagerdin match input', {
+        measurementCount: vegagerdinResult.payload.measurements.length,
+        matchableCount: vegagerdinMatchable.length,
+        routePolylineCount: routePolyline.length,
+      })
 
       vegagerdinRouteMatches = matchVegagerdinPointsToRoute({
         points: vegagerdinMatchable.map(m => ({
@@ -545,12 +625,32 @@ export async function POST(request: Request) {
           noWindDataPointCount,
           points: layerPoints,
         }
+        logRoadMapApiDiagnostic('vegagerdin layer built', {
+          matchCount: vegagerdinRouteMatches.length,
+          layerPointCount: layerPoints.length,
+          availablePointCount: layerPoints.length - noWindDataPointCount,
+          noWindDataPointCount,
+          layerStatus: vegagerdinLayer.status,
+        })
+      } else {
+        logRoadMapApiDiagnostic('vegagerdin layer not returned', {
+          reason: 'feature-access-disabled',
+          matchCount: vegagerdinRouteMatches.length,
+        })
       }
+    } else {
+      logRoadMapApiDiagnostic('vegagerdin unavailable for route layer', {
+        status: vegagerdinResult.status,
+        reason: vegagerdinResult.status === 'unavailable' ? vegagerdinResult.reason : null,
+      })
     }
-  } catch {
+  } catch (error) {
     // Fail-open: Vegagerðin labels are an experimental overlay, not a reason to
     // fail the route calculation. Keep logs static to avoid leaking route content.
     console.error('[vegagerdin-route-layer] build failed')
+    logRoadMapApiDiagnostic('vegagerdin layer exception', {
+      message: error instanceof Error ? error.message : String(error),
+    })
   }
 
   // ── Route-memory write (best-effort) ─────────────────────────────────────────
@@ -625,9 +725,34 @@ export async function POST(request: Request) {
     },
   })
 
+  const roadIntelligenceDebug = shouldLogRoadMapApiDiagnostics()
+    ? {
+        route: {
+          routePolylineCount: routePolyline.length,
+          sampledWeatherPointCount: weatherPoints.length,
+          resultStatus: result.stada,
+        },
+        vegagerdin: {
+          layerEnabled: vegagerdinLayerEnabled,
+          providerEvaluated: vegagerdinProviderEvaluated,
+          routeMatchCount: vegagerdinRouteMatches.length,
+          layerReturned: Boolean(vegagerdinLayer),
+          layerStatus: vegagerdinLayer?.status ?? null,
+          layerPointCount: vegagerdinLayer?.points.length ?? 0,
+        },
+        vedurstofan: {
+          layerEnabled,
+          stationMatchCount: vedurstofanMatches.length,
+          layerReturned: Boolean(vedurstofanLayer),
+          layerPointCount: vedurstofanLayer?.points.length ?? 0,
+        },
+      }
+    : undefined
+
   return NextResponse.json({
     ...result,
     ...(vedurstofanLayer ? { vedurstofanLayer } : {}),
     ...(vegagerdinLayer ? { vegagerdinLayer } : {}),
+    ...(roadIntelligenceDebug ? { roadIntelligenceDebug } : {}),
   })
 }

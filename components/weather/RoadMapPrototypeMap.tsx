@@ -26,6 +26,7 @@ import {
 import {
   VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
   matchProviderPointsToRoute,
+  pointToPolylineDistanceM,
   type ProviderRouteMatch,
   type ProviderRoutePoint,
 } from '@/lib/weather/providerRouteMatching'
@@ -86,6 +87,19 @@ const DEFAULT_ROUTE_THRESHOLDS = resolveThresholds('none')
 const WIND_DISPLAY_STATUS_SET = new Set<string>(ALL_WIND_DISPLAY_STATUSES)
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M = 12_000
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS = 40
+
+function shouldLogRoadMapDiagnostics(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ROAD_INTELLIGENCE_DEBUG === 'true'
+}
+
+function logRoadMapDiagnostic(message: string, details?: Record<string, unknown>) {
+  if (!shouldLogRoadMapDiagnostics()) return
+  if (details) {
+    console.info(`[RoadMap][diagnostic] ${message}`, details)
+  } else {
+    console.info(`[RoadMap][diagnostic] ${message}`)
+  }
+}
 
 const ROAD_SEGMENT_COLOR_EXPRESSION = [
   'case',
@@ -344,26 +358,82 @@ function countStatusesTotal(counts: Partial<Record<WindDisplayStatus, number>>):
   return ALL_WIND_DISPLAY_STATUSES.reduce((sum, status) => sum + (counts[status] ?? 0), 0)
 }
 
+function nearestProviderPointDiagnostics<T extends ProviderRoutePoint>(
+  points: readonly T[],
+  routePolyline: ReadonlyArray<{ lat: number; lon: number }>,
+) {
+  if (routePolyline.length < 2) return []
+  return points
+    .filter((point): point is T & { lat: number; lon: number } =>
+      typeof point.lat === 'number' &&
+      Number.isFinite(point.lat) &&
+      typeof point.lon === 'number' &&
+      Number.isFinite(point.lon),
+    )
+    .map(point => ({
+      id: point.id,
+      name: point.name ?? null,
+      distanceM: Math.round(pointToPolylineDistanceM(point.lat, point.lon, routePolyline)),
+    }))
+    .sort((a, b) => a.distanceM - b.distanceM || a.id.localeCompare(b.id))
+    .slice(0, 8)
+}
+
 function matchVegagerdinPointsToRoute<T extends ProviderRoutePoint>({
   points,
   routePolyline,
+  debugLabel,
 }: {
   points: readonly T[]
   routePolyline: ReadonlyArray<{ lat: number; lon: number }>
+  debugLabel: string
 }): ProviderRouteMatch<T>[] {
   const strictMatches = matchProviderPointsToRoute({
     points,
     routePolyline,
     maxDistanceM: VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
   })
-  if (strictMatches.length > 0) return strictMatches
+  if (strictMatches.length > 0) {
+    logRoadMapDiagnostic('vegagerdin route match', {
+      debugLabel,
+      mode: 'strict',
+      routePointCount: routePolyline.length,
+      providerPointCount: points.length,
+      strictCount: strictMatches.length,
+      wideCount: null,
+      nearest: strictMatches.slice(0, 8).map(match => ({
+        id: match.point.id,
+        name: match.point.name ?? null,
+        distanceM: Math.round(match.distanceM),
+        distanceFromOriginM: Math.round(match.distanceFromOriginM),
+      })),
+    })
+    return strictMatches
+  }
 
-  return matchProviderPointsToRoute({
+  const wideMatches = matchProviderPointsToRoute({
     points,
     routePolyline,
     maxDistanceM: VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M,
     maxPoints: VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS,
   })
+  logRoadMapDiagnostic('vegagerdin route match', {
+    debugLabel,
+    mode: wideMatches.length > 0 ? 'wide-fallback' : 'no-match',
+    routePointCount: routePolyline.length,
+    providerPointCount: points.length,
+    strictCount: strictMatches.length,
+    wideCount: wideMatches.length,
+    nearest: wideMatches.length > 0
+      ? wideMatches.slice(0, 8).map(match => ({
+          id: match.point.id,
+          name: match.point.name ?? null,
+          distanceM: Math.round(match.distanceM),
+          distanceFromOriginM: Math.round(match.distanceFromOriginM),
+        }))
+      : nearestProviderPointDiagnostics(points, routePolyline),
+  })
+  return wideMatches
 }
 
 type RoadMapPrototypeLabels = {
@@ -1675,7 +1745,14 @@ export function RoadMapPrototypeMap() {
   async function fetchVegagerdinCurrentForRoute(
     signal: AbortSignal,
   ): Promise<VegagerdinCurrentApiData | null> {
-    if (overviewVegagerdinData?.status === 'ok') return overviewVegagerdinData
+    if (overviewVegagerdinData?.status === 'ok' && overviewVegagerdinData.stations.length > 0) {
+      logRoadMapDiagnostic('vegagerdin route data using overview cache', {
+        stationCount: overviewVegagerdinData.stations.length,
+        cacheStatus: overviewVegagerdinData.cacheStatus,
+        measurementFreshness: overviewVegagerdinData.measurementFreshness,
+      })
+      return overviewVegagerdinData
+    }
 
     try {
       if (!overviewVegagerdinRestricted) {
@@ -1683,14 +1760,25 @@ export function RoadMapPrototypeMap() {
           credentials: 'same-origin',
           signal,
         })
+        logRoadMapDiagnostic('vegagerdin current fetch response', {
+          status: res.status,
+          ok: res.ok,
+        })
         if (res.status === 401 || res.status === 403 || res.status === 404) {
           setOverviewVegagerdinRestricted(true)
         } else if (res.ok) {
           const payload = await res.json().catch(() => null) as VegagerdinCurrentApiData | null
+          const payloadObject = typeof payload === 'object' && payload !== null ? payload : null
+          logRoadMapDiagnostic('vegagerdin current payload', {
+            payloadStatus: payload?.status ?? null,
+            stationCount: Array.isArray(payload?.stations) ? payload.stations.length : null,
+            cacheStatus: payloadObject && 'cacheStatus' in payloadObject ? payloadObject.cacheStatus : null,
+            measurementFreshness: payloadObject && 'measurementFreshness' in payloadObject ? payloadObject.measurementFreshness : null,
+          })
           if (payload?.status === 'ok' && Array.isArray(payload.stations)) {
             setOverviewVegagerdinData(payload)
             setOverviewVegagerdinRestricted(false)
-            return payload
+            if (payload.stations.length > 0) return payload
           }
         }
       }
@@ -1704,6 +1792,9 @@ export function RoadMapPrototypeMap() {
       const fallback = await fetchRoadIntelligenceVegagerdinStationsForRoute(signal)
       if (fallback?.status === 'ok') {
         setOverviewVegagerdinData(fallback)
+        logRoadMapDiagnostic('vegagerdin route data using station-markers fallback', {
+          stationCount: fallback.stations.length,
+        })
         return fallback
       }
     } catch (error) {
@@ -1726,6 +1817,10 @@ export function RoadMapPrototypeMap() {
       credentials: 'same-origin',
       signal,
     })
+    logRoadMapDiagnostic('station-markers fallback fetch response', {
+      status: res.status,
+      ok: res.ok,
+    })
     if (res.status === 401 || res.status === 403 || res.status === 404) return null
     if (!res.ok) return null
 
@@ -1733,6 +1828,9 @@ export function RoadMapPrototypeMap() {
     const features = Array.isArray(geojson?.features)
       ? geojson.features as RoadIntelligenceStationMarkerFeature[]
       : []
+    logRoadMapDiagnostic('station-markers fallback payload', {
+      featureCount: features.length,
+    })
     if (features.length === 0) return null
 
     const fetchedAtIso = new Date().toISOString()
@@ -1767,8 +1865,21 @@ export function RoadMapPrototypeMap() {
         }
       })
       .filter((station): station is VegagerdinCurrentStationDto => station !== null)
+    logRoadMapDiagnostic('station-markers fallback parsed payload', {
+      featureCount: features.length,
+      stationCount: stations.length,
+      sample: stations.slice(0, 5).map(station => ({
+        id: station.stationId,
+        name: station.stationName,
+        hasWind: typeof station.meanWindMs === 'number',
+        hasGust: typeof station.gustLast10MinMs === 'number',
+      })),
+    })
 
     if (stations.length === 0) {
+      logRoadMapDiagnostic('station-markers fallback parsed zero stations', {
+        featureCount: features.length,
+      })
       return null
     }
 
@@ -1787,16 +1898,36 @@ export function RoadMapPrototypeMap() {
     thresholds: ResolvedTravelThresholds,
     currentData: VegagerdinCurrentApiData | null = overviewVegagerdinData,
   ): VegagerdinRouteLayer | undefined {
-    if (currentData?.status !== 'ok') return undefined
+    if (currentData?.status !== 'ok') {
+      logRoadMapDiagnostic('vegagerdin client layer skipped', {
+        reason: 'current-data-not-ok',
+        currentStatus: currentData?.status ?? null,
+      })
+      return undefined
+    }
 
     const routePolyline = result.travelPlan?.route.auditPolylinePoints ?? []
-    if (routePolyline.length < 2) return undefined
+    if (routePolyline.length < 2) {
+      logRoadMapDiagnostic('vegagerdin client layer skipped', {
+        reason: 'route-polyline-too-short',
+        routePolylineCount: routePolyline.length,
+        stationCount: currentData.stations.length,
+      })
+      return undefined
+    }
 
     const matchableStations = currentData.stations.filter(station =>
       Number.isFinite(station.lat) &&
       Number.isFinite(station.lon) &&
       station.stationId.trim().length > 0,
     )
+    logRoadMapDiagnostic('vegagerdin client layer input', {
+      routePolylineCount: routePolyline.length,
+      stationCount: currentData.stations.length,
+      matchableStationCount: matchableStations.length,
+      cacheStatus: currentData.cacheStatus,
+      measurementFreshness: currentData.measurementFreshness,
+    })
     if (matchableStations.length === 0) return undefined
 
     const measurementByStationId = new Map(
@@ -1810,6 +1941,7 @@ export function RoadMapPrototypeMap() {
         lon: station.lon,
       })),
       routePolyline,
+      debugLabel: 'client-buildClientVegagerdinRouteLayer',
     })
 
     const layerPoints: VegagerdinRouteLayer['points'] = matches
@@ -1846,7 +1978,12 @@ export function RoadMapPrototypeMap() {
         return af !== bf ? af - bf : a.stationId.localeCompare(b.stationId)
       })
 
-    if (layerPoints.length === 0) return undefined
+    if (layerPoints.length === 0) {
+      logRoadMapDiagnostic('vegagerdin client layer empty after matches', {
+        matchCount: matches.length,
+      })
+      return undefined
+    }
 
     const noWindDataPointCount = layerPoints.filter(point =>
       point.windDisplayStatus === 'no_data' || point.windDisplayStatus === 'no_wind_data',
@@ -2491,6 +2628,14 @@ export function RoadMapPrototypeMap() {
       (p): p is VegagerdinRouteLayerPoint =>
         Number.isFinite(p.lat) && Number.isFinite(p.lon),
     )
+    logRoadMapDiagnostic('vegagerdin render input', {
+      hasLayer: Boolean(layer),
+      layerStatus: layer?.status ?? null,
+      rawPointCount: rawPoints.length,
+      validPointCount: validPoints.length,
+      routeWeatherMode: routeWeatherModeRef.current,
+      visibleStatuses: Array.from(visibleRouteStatusesRef.current),
+    })
     routeVegagerdinPointsRef.current = validPoints
     const statusCounts = countWindDisplayStatuses(validPoints)
 
@@ -2757,7 +2902,17 @@ export function RoadMapPrototypeMap() {
           (!context.vedurstofanLayer || context.vedurstofanStationCount <= 0) &&
           context.vegagerdinStationCount <= 0
         ) {
-          setRouteForecastBuildStatus('unavailable')
+          logRoadMapDiagnostic('forecast slots using native route timeline', {
+            reason: 'no-provider-route-data',
+            timelineCandidateCount: context.timelineCandidates.length,
+            vedurstofanStationCount: context.vedurstofanStationCount,
+            vegagerdinStationCount: context.vegagerdinStationCount,
+          })
+          setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
+          setRouteCandidates(context.timelineCandidates)
+          setRouteBestWindow(undefined)
+          setRouteSlotStatusOverrides(null)
+          setRouteForecastBuildStatus('ready')
           return
         }
 
@@ -2773,7 +2928,17 @@ export function RoadMapPrototypeMap() {
 
         if (context.signal.aborted) return
         if (slotStatusOverrides == null) {
-          setRouteForecastBuildStatus('unavailable')
+          logRoadMapDiagnostic('forecast slots using native route timeline', {
+            reason: 'provider-overrides-unavailable',
+            timelineCandidateCount: context.timelineCandidates.length,
+            vedurstofanStationCount: context.vedurstofanStationCount,
+            vegagerdinStationCount: context.vegagerdinStationCount,
+          })
+          setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
+          setRouteCandidates(context.timelineCandidates)
+          setRouteBestWindow(undefined)
+          setRouteSlotStatusOverrides(null)
+          setRouteForecastBuildStatus('ready')
           return
         }
 
@@ -2883,6 +3048,9 @@ export function RoadMapPrototypeMap() {
 
     const travelResult = data as DeterministicResult
     const extra = data as Record<string, unknown>
+    if (extra['roadIntelligenceDebug'] && typeof extra['roadIntelligenceDebug'] === 'object') {
+      logRoadMapDiagnostic('route api debug payload', extra['roadIntelligenceDebug'] as Record<string, unknown>)
+    }
     const vedurstofanLayer = isVedurstofanTravelLayer(extra['vedurstofanLayer'])
       ? extra['vedurstofanLayer']
       : undefined
@@ -2890,6 +3058,16 @@ export function RoadMapPrototypeMap() {
       ? extra['vegagerdinLayer']
       : undefined
     const mapData = renderTravelBridgeResult(travelResult, thresholds)
+    logRoadMapDiagnostic('route api provider layers', {
+      hasServerVegagerdinLayer: Boolean(serverVegagerdinLayer),
+      serverVegagerdinPointCount: serverVegagerdinLayer?.points.length ?? null,
+      serverVegagerdinStatus: serverVegagerdinLayer?.status ?? null,
+      hasVedurstofanLayer: Boolean(vedurstofanLayer),
+      vedurstofanPointCount: Array.isArray(vedurstofanLayer?.points) ? vedurstofanLayer.points.length : null,
+      mapRoutePointCount: mapData.pointCount,
+      routeDistanceKm: mapData.distanceKm,
+      routeDurationMinutes: mapData.durationMinutes,
+    })
     const currentVegagerdinData =
       serverVegagerdinLayer && serverVegagerdinLayer.points.length > 0
         ? null
