@@ -61,6 +61,7 @@ vi.mock('@/lib/weather/providers/vedurstofanStations', () => ({
 
 vi.mock('@/lib/weather/providerRouteMatching', () => ({
   DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M: 1_000,
+  VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M: 2_500,
   haversineM: vi.fn((lat1: number, lon1: number, lat2: number, lon2: number) => {
     // Real haversine for cumDist computation in route.ts
     const R = 6_371_000

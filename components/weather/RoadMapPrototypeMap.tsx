@@ -24,6 +24,12 @@ import {
   ROAD_SEGMENT_STATUS_COLORS,
 } from '@/lib/road-intelligence/vegagerdinSegments'
 import {
+  VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
+  matchProviderPointsToRoute,
+  type ProviderRouteMatch,
+  type ProviderRoutePoint,
+} from '@/lib/weather/providerRouteMatching'
+import {
   buildRouteSurfaceBbox,
   summarizeRouteRoadSurface,
   type RouteSurfaceSummary,
@@ -78,16 +84,8 @@ const ICELAND_CENTER: [number, number] = [-18.9, 64.9]
 const ICELAND_ZOOM = 6
 const DEFAULT_ROUTE_THRESHOLDS = resolveThresholds('none')
 const WIND_DISPLAY_STATUS_SET = new Set<string>(ALL_WIND_DISPLAY_STATUSES)
-
-// Route station DOM label density rules (applied to both providers).
-// Danger/uncomfortable stations always get a label; quiet routes keep first/last anchors.
-const ROUTE_LABEL_ALWAYS_STATUSES = new Set<WindDisplayStatus>([
-  'haettulegt',
-  'nalgast-haettumork',
-  'othaegilegt',
-  'nalgast-othaegindi',
-])
-const ROUTE_LABEL_DENSITY_THRESHOLD = 6
+const VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M = 12_000
+const VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS = 40
 
 const ROAD_SEGMENT_COLOR_EXPRESSION = [
   'case',
@@ -166,6 +164,15 @@ type RouteSurfaceChoice = {
   distanceKm: number
   durationMinutes: number
   surfaceSummary: RouteSurfaceSummary | null
+  route: RouteOption
+}
+
+type RouteLabelAnchor = 'center' | 'top' | 'bottom' | 'left' | 'right'
+
+type RouteLabelPlacement = {
+  layout: 'vertical' | 'horizontal'
+  anchor: RouteLabelAnchor
+  offset: [number, number]
 }
 
 type ResolvedRoutePlaces = {
@@ -176,8 +183,8 @@ type ResolvedRoutePlaces = {
 type VegagerdinCurrentApiData =
   | {
       status: 'ok'
-      cacheStatus: 'fresh' | 'stale' | 'history_fallback'
-      measurementFreshness: string
+      cacheStatus: VegagerdinRouteLayer['cacheStatus']
+      measurementFreshness: VegagerdinRouteLayer['measurementFreshness']
       fetchedAtIso: string
       oldestMeasuredAtIso: string | null
       stations: VegagerdinCurrentStationDto[]
@@ -187,7 +194,177 @@ type VegagerdinCurrentApiData =
       stations: []
     }
 
+type RoadIntelligenceStationMarkerProperties = {
+  stationId?: unknown
+  stationName?: unknown
+  meanWindMs?: unknown
+  gustMs?: unknown
+  windDirectionDeg?: unknown
+  airTemperatureC?: unknown
+  measuredAtIso?: unknown
+}
+
+type RoadIntelligenceStationMarkerFeature = {
+  type?: unknown
+  geometry?: {
+    type?: unknown
+    coordinates?: unknown
+  }
+  properties?: RoadIntelligenceStationMarkerProperties
+}
+
 type RouteSlotStatusSource = 'providers' | 'vegagerdin' | 'vedurstofan' | 'fallback'
+type RouteWeatherMode = 'now' | 'forecast'
+type RouteForecastBuildStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'error'
+const ROUTE_TIMELINE_INITIAL_SLOT_COUNT = 8
+const ROUTE_TIMELINE_TOTAL_SLOT_COUNT = 25
+const ROUTE_TIMELINE_INITIAL_HOURLY_SLOT_COUNT = 6
+
+type RouteForecastBuildContext = {
+  timelineCandidates: TravelCandidate[]
+  thresholds: ResolvedTravelThresholds
+  routeDurationMinutes: number
+  vedurstofanLayer: VedurstofanTravelLayer | undefined
+  vedurstofanStationCount: number
+  vegagerdinStatusCounts: Partial<Record<WindDisplayStatus, number>>
+  vegagerdinStationCount: number
+  nowWorstStatus: WindDisplayStatus
+  signal: AbortSignal
+}
+
+function getRouteDepartureCandidates(result: DeterministicResult): TravelCandidate[] | null {
+  const outbound = result.travelPlan?.outbound
+  if (!outbound) return null
+  const candidates = outbound.windowMode
+    ? outbound.candidates
+    : outbound.timelineCandidates ?? outbound.candidates
+  return candidates.length > 0 ? candidates : null
+}
+
+function nextWholeUtcHourAfter(ms: number): number {
+  const d = new Date(ms)
+  d.setUTCMinutes(0, 0, 0)
+  const wholeHourMs = d.getTime()
+  return wholeHourMs <= ms ? wholeHourMs + 3_600_000 : wholeHourMs
+}
+
+function nextWholeUtcTenMinutesAfter(ms: number): number {
+  const stepMs = 10 * 60_000
+  return Math.floor(ms / stepMs) * stepMs + stepMs
+}
+
+function readStationMarkerFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function readStationMarkerString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function cloneRouteCandidateForDeparture(
+  seed: TravelCandidate,
+  departureMs: number,
+  durationMinutes: number,
+): TravelCandidate {
+  const departureIso = new Date(departureMs).toISOString()
+  const durationMs = Math.max(0, durationMinutes) * 60_000
+  return {
+    ...seed,
+    departureIso,
+    arrivalIso: new Date(departureMs + durationMs).toISOString(),
+    status: 'graent',
+    reasonCode: undefined,
+    worstWind: undefined,
+    worstGust: undefined,
+    worstPrecip: undefined,
+    pointStatuses: undefined,
+    displayPoint: undefined,
+    arrivalWeather: undefined,
+  }
+}
+
+function buildRouteTimelineCandidates(
+  result: DeterministicResult,
+  durationMinutes: number,
+): TravelCandidate[] | null {
+  const existing = getRouteDepartureCandidates(result)
+  const outbound = result.travelPlan?.outbound
+  const seed =
+    existing?.[0] ??
+    outbound?.leavingAt ??
+    outbound?.candidates?.[0] ??
+    null
+  if (!seed) return existing
+
+  const seedDepartureMs = Date.parse(seed.departureIso)
+  if (!Number.isFinite(seedDepartureMs)) return existing
+
+  const candidates: TravelCandidate[] = [seed]
+  let nextDepartureMs = nextWholeUtcTenMinutesAfter(seedDepartureMs)
+  candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
+
+  nextDepartureMs = nextWholeUtcHourAfter(nextDepartureMs)
+  while (candidates.length < ROUTE_TIMELINE_INITIAL_HOURLY_SLOT_COUNT + 2) {
+    candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
+    nextDepartureMs += 3_600_000
+  }
+
+  while (candidates.length < ROUTE_TIMELINE_TOTAL_SLOT_COUNT) {
+    candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
+    nextDepartureMs += 3_600_000
+  }
+
+  return candidates
+}
+
+function buildSyntheticRouteTimelineCandidates(
+  durationMinutes: number,
+  nowStatus: WindDisplayStatus,
+): TravelCandidate[] {
+  const departureMs = Date.now()
+  const seed: TravelCandidate = {
+    departureIso: new Date(departureMs).toISOString(),
+    arrivalIso: new Date(departureMs + Math.max(0, durationMinutes) * 60_000).toISOString(),
+    status: windDisplayStatusToTravelStatus(nowStatus),
+  }
+  const candidates: TravelCandidate[] = [seed]
+  let nextDepartureMs = nextWholeUtcTenMinutesAfter(departureMs)
+  candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
+
+  nextDepartureMs = nextWholeUtcHourAfter(nextDepartureMs)
+  while (candidates.length < ROUTE_TIMELINE_TOTAL_SLOT_COUNT) {
+    candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
+    nextDepartureMs += 3_600_000
+  }
+
+  return candidates
+}
+
+function countStatusesTotal(counts: Partial<Record<WindDisplayStatus, number>>): number {
+  return ALL_WIND_DISPLAY_STATUSES.reduce((sum, status) => sum + (counts[status] ?? 0), 0)
+}
+
+function matchVegagerdinPointsToRoute<T extends ProviderRoutePoint>({
+  points,
+  routePolyline,
+}: {
+  points: readonly T[]
+  routePolyline: ReadonlyArray<{ lat: number; lon: number }>
+}): ProviderRouteMatch<T>[] {
+  const strictMatches = matchProviderPointsToRoute({
+    points,
+    routePolyline,
+    maxDistanceM: VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
+  })
+  if (strictMatches.length > 0) return strictMatches
+
+  return matchProviderPointsToRoute({
+    points,
+    routePolyline,
+    maxDistanceM: VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M,
+    maxPoints: VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS,
+  })
+}
 
 type RoadMapPrototypeLabels = {
   roadFallback: (number: string) => string
@@ -313,19 +490,6 @@ function countWindDisplayStatuses(
   return counts
 }
 
-function mergeWindDisplayStatusCounts(
-  ...countsList: Array<Partial<Record<WindDisplayStatus, number>>>
-): Partial<Record<WindDisplayStatus, number>> {
-  const merged: Partial<Record<WindDisplayStatus, number>> = {}
-  for (const counts of countsList) {
-    for (const status of ALL_WIND_DISPLAY_STATUSES) {
-      const count = counts[status] ?? 0
-      if (count > 0) merged[status] = (merged[status] ?? 0) + count
-    }
-  }
-  return merged
-}
-
 function routeStatusFromCounts(
   counts: Partial<Record<WindDisplayStatus, number>>,
 ): DeterministicResult['stada'] {
@@ -446,6 +610,11 @@ type RouteVegagerdinLabelMarker = {
   point: VegagerdinRouteLayerPoint
 }
 
+type RouteEndpointMarker = {
+  marker: import('maplibre-gl').Marker
+  element: HTMLDivElement
+}
+
 type OverviewStationMarker = {
   marker: import('maplibre-gl').Marker
   element: HTMLButtonElement
@@ -496,11 +665,13 @@ export function RoadMapPrototypeMap() {
   const routeVedurstofanEntriesRef = useRef<VedurstofanRouteStatusEntry[]>([])
   const routeVegagerdinLabelMarkersRef = useRef<RouteVegagerdinLabelMarker[]>([])
   const routeVegagerdinPointsRef = useRef<VegagerdinRouteLayerPoint[]>([])
+  const routeEndpointMarkersRef = useRef<RouteEndpointMarker[]>([])
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const showOverlayRef = useRef(true)
   const showSegmentsRef = useRef(true)
   const visibleRouteStatusesRef = useRef<Set<WindDisplayStatus>>(new Set())
   const routeStatusFilterModeRef = useRef<WindStatusFilterMode>('simple')
+  const routeWeatherModeRef = useRef<RouteWeatherMode>('now')
   const routeActiveRef = useRef(false)
   const overviewActiveModeRef = useRef<'now' | number>('now')
   const overviewVisibleStatusesRef = useRef<Set<WindDisplayStatus>>(
@@ -509,6 +680,7 @@ export function RoadMapPrototypeMap() {
   const vedurstofanLayerRef = useRef<VedurstofanTravelLayer | undefined>(undefined)
   const routeDurationMinutesRef = useRef<number>(0)
   const routeThresholdsRef = useRef<ResolvedTravelThresholds>(DEFAULT_ROUTE_THRESHOLDS)
+  const routeForecastBuildContextRef = useRef<RouteForecastBuildContext | null>(null)
   const activeRouteFieldRef = useRef<RouteBridgeField>('from')
   const selectRoutePlaceRef = useRef<
     (place: RoadIntelligencePlaceResult, target?: RouteBridgeField) => void
@@ -535,6 +707,13 @@ export function RoadMapPrototypeMap() {
   const [routeThresholdError, setRouteThresholdError] = useState<string | null>(null)
   const [routeStatusFilterMode, setRouteStatusFilterMode] = useState<WindStatusFilterMode>('simple')
   const [visibleRouteStatuses, setVisibleRouteStatuses] = useState<Set<WindDisplayStatus>>(new Set())
+  const [routeWeatherMode, setRouteWeatherMode] = useState<RouteWeatherMode>('now')
+  const [routeNowStatusCounts, setRouteNowStatusCounts] = useState<
+    Partial<Record<WindDisplayStatus, number>> | null
+  >(null)
+  const [routeVisibleStatusCounts, setRouteVisibleStatusCounts] = useState<
+    Partial<Record<WindDisplayStatus, number>> | null
+  >(null)
   const [overviewVisibleStatuses, setOverviewVisibleStatuses] = useState<Set<WindDisplayStatus>>(
     new Set(DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES),
   )
@@ -546,13 +725,15 @@ export function RoadMapPrototypeMap() {
   const [overviewVedurstofanLoading, setOverviewVedurstofanLoading] = useState(true)
   const [overviewVedurstofanRestricted, setOverviewVedurstofanRestricted] = useState(false)
   const [mapReady, setMapReady] = useState(false)
-  const [departureAt, setDepartureAt] = useState('')
   const [routeCandidates, setRouteCandidates] = useState<TravelCandidate[] | null>(null)
   const [routeBestWindow, setRouteBestWindow] = useState<TravelWindow | undefined>(undefined)
   const [routeSlotStatusOverrides, setRouteSlotStatusOverrides] = useState<WindDisplayStatus[] | null>(null)
+  const [routeForecastBuildStatus, setRouteForecastBuildStatus] = useState<RouteForecastBuildStatus>('idle')
+  const [routeDepartureForecastExpanded, setRouteDepartureForecastExpanded] = useState(false)
   const [routeSurfaceChoices, setRouteSurfaceChoices] = useState<RouteSurfaceChoice[]>([])
   const [routeSurfaceChoicesStatus, setRouteSurfaceChoicesStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [visibleCandidateLimit, setVisibleCandidateLimit] = useState(24)
+  const [routeSwitchingChoiceId, setRouteSwitchingChoiceId] = useState<string | null>(null)
+  const [visibleCandidateLimit, setVisibleCandidateLimit] = useState(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
   const [routeCalculationPlaceNames, setRouteCalculationPlaceNames] = useState<{
     from: string
     to: string
@@ -927,7 +1108,7 @@ export function RoadMapPrototypeMap() {
       case 'vedurstofan':
         return t('roadMapPrototypeScrubberSourceVedurstofan')
       default:
-        return t('roadMapPrototypeScrubberSourceFallback')
+        return ''
     }
   }
 
@@ -997,6 +1178,56 @@ export function RoadMapPrototypeMap() {
     }
 
     if (!routeActive) setStationCount(visibleCount)
+  }
+
+  function hideOverviewStationMarkers() {
+    for (const entry of [
+      ...overviewVegagerdinMarkersRef.current,
+      ...overviewVedurstofanMarkersRef.current,
+    ]) {
+      entry.element.style.display = 'none'
+    }
+  }
+
+  function setRouteLayerLayoutVisibility(
+    map: import('maplibre-gl').Map | null,
+    layerId: string,
+    visible: boolean,
+  ) {
+    if (!map?.getLayer(layerId)) return
+    map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none')
+  }
+
+  function setRouteWeatherModeState(mode: RouteWeatherMode) {
+    routeWeatherModeRef.current = mode
+    setRouteWeatherMode(mode)
+  }
+
+  function scheduleRouteLabelCollisionUpdate() {
+    window.requestAnimationFrame(() => {
+      applyRouteLabelCollisionAvoidance([
+        ...routeVegagerdinLabelMarkersRef.current.map(({ element }) => element),
+        ...routeVedurstofanLabelMarkersRef.current.map(({ element }) => element),
+      ])
+    })
+  }
+
+  function updateRouteWeatherLayerVisibility(
+    mode = routeWeatherModeRef.current,
+    statuses = visibleRouteStatusesRef.current,
+  ) {
+    const map = mapRef.current
+    if (routeActiveRef.current) {
+      hideOverviewStationMarkers()
+    }
+    if (map?.isStyleLoaded()) {
+      setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, mode === 'now')
+      setRouteLayerLayoutVisibility(map, VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID, mode === 'forecast')
+      setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
+    }
+    updateVegagerdinLabelMarkerState(statuses, mode)
+    updateVedurstofanLabelMarkerState(statuses, mode)
+    scheduleRouteLabelCollisionUpdate()
   }
 
   function createOverviewStationDotElement({
@@ -1114,23 +1345,27 @@ export function RoadMapPrototypeMap() {
     popupRef.current = popup
   }
 
-  function updateVegagerdinLabelMarkerState(statuses = visibleRouteStatusesRef.current) {
+  function updateVegagerdinLabelMarkerState(
+    statuses = visibleRouteStatusesRef.current,
+    mode = routeWeatherModeRef.current,
+  ) {
     for (const { element, point } of routeVegagerdinLabelMarkersRef.current) {
-      const visible = routeStatusIsVisible(point.windDisplayStatus, statuses)
+      const visible = mode === 'now' && routeStatusIsVisible(point.windDisplayStatus, statuses)
       const color = WIND_STATUS_MARKER_COLOR[displayWindStatus(point.windDisplayStatus)]
-      element.style.display = visible ? 'flex' : 'none'
-      element.style.borderColor = color
-      element.style.color = color
+      element.style.display = visible ? 'block' : 'none'
+      updateRouteWindLabelColor(element, color)
     }
   }
 
-  function updateVedurstofanLabelMarkerState(statuses = visibleRouteStatusesRef.current) {
+  function updateVedurstofanLabelMarkerState(
+    statuses = visibleRouteStatusesRef.current,
+    mode = routeWeatherModeRef.current,
+  ) {
     for (const { element, entry } of routeVedurstofanLabelMarkersRef.current) {
-      const visible = routeStatusIsVisible(entry.windDisplayStatus, statuses)
+      const visible = mode === 'forecast' && routeStatusIsVisible(entry.windDisplayStatus, statuses)
       const color = WIND_STATUS_MARKER_COLOR[displayWindStatus(entry.windDisplayStatus)]
-      element.style.display = visible ? 'flex' : 'none'
-      element.style.borderColor = color
-      element.style.color = color
+      element.style.display = visible ? 'block' : 'none'
+      updateRouteWindLabelColor(element, color)
     }
   }
 
@@ -1138,8 +1373,7 @@ export function RoadMapPrototypeMap() {
     routeStatusFilterModeRef.current = mode
     setRouteStatusFilterMode(mode)
     applyRouteStatusFilterToMap(mapRef.current, visibleRouteStatusesRef.current, mode)
-    updateVedurstofanLabelMarkerState()
-    updateVegagerdinLabelMarkerState()
+    updateRouteWeatherLayerVisibility()
     updateOverviewMarkerVisibility()
   }
 
@@ -1152,8 +1386,7 @@ export function RoadMapPrototypeMap() {
     visibleRouteStatusesRef.current = next
     setVisibleRouteStatuses(next)
     applyRouteStatusFilterToMap(mapRef.current, next, routeStatusFilterModeRef.current)
-    updateVedurstofanLabelMarkerState(next)
-    updateVegagerdinLabelMarkerState(next)
+    updateRouteWeatherLayerVisibility(routeWeatherModeRef.current, next)
   }
 
   function handleOverviewStatusFilterChange(next: Set<WindDisplayStatus>) {
@@ -1194,18 +1427,36 @@ export function RoadMapPrototypeMap() {
   }
 
   function handleSelectCandidateIdx(idx: number | null) {
-    setSelectedCandidateIdx(idx)
+    const nextIdx = idx ?? 0
+    setSelectedCandidateIdx(nextIdx)
     const layer = vedurstofanLayerRef.current
-    if (!layer) return
     const candidates = routeCandidates
-    const candidate = idx !== null && candidates ? candidates[idx] : null
+    const candidate = nextIdx > 0 && candidates ? candidates[nextIdx] : null
+
+    if (nextIdx === 0) {
+      setRouteWeatherModeState('now')
+      const counts = countWindDisplayStatuses(routeVegagerdinPointsRef.current)
+      setRouteNowStatusCounts(counts)
+      setRouteVisibleStatusCounts(counts)
+      updateRouteWeatherLayerVisibility('now')
+      return
+    }
+
+    if (!layer) {
+      setRouteWeatherModeState('now')
+      updateRouteWeatherLayerVisibility('now')
+      return
+    }
     const newDepartureMs = candidate ? Date.parse(candidate.departureIso) : Date.now()
-    renderVedurstofanStations(
+    const render = renderVedurstofanStations(
       layer,
       routeDurationMinutesRef.current,
       routeThresholdsRef.current,
       newDepartureMs,
     )
+    setRouteWeatherModeState('forecast')
+    setRouteVisibleStatusCounts(render.statusCounts)
+    updateRouteWeatherLayerVisibility('forecast')
   }
 
   function resolveRouteThresholdInputs(): ResolvedTravelThresholds | null {
@@ -1266,6 +1517,11 @@ export function RoadMapPrototypeMap() {
     routeVedurstofanEntriesRef.current = []
   }
 
+  function clearRouteEndpointMarkers() {
+    routeEndpointMarkersRef.current.forEach(({ marker }) => marker.remove())
+    routeEndpointMarkersRef.current = []
+  }
+
   function fetchSuggestionsFor(
     query: string,
     abortRef: MutableRefObject<AbortController | null>,
@@ -1322,15 +1578,19 @@ export function RoadMapPrototypeMap() {
     setToResolved(null)
     setFromSuggestions([])
     setToSuggestions([])
-    setDepartureAt('')
     setRouteCandidates(null)
     setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
+    setRouteNowStatusCounts(null)
+    setRouteVisibleStatusCounts(null)
+    resetRouteDepartureForecastState()
     setRouteSurfaceChoices([])
     setRouteSurfaceChoicesStatus('idle')
-    setVisibleCandidateLimit(24)
+    setRouteSwitchingChoiceId(null)
+    setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
     setRouteCalculationPlaceNames(null)
     setSelectedCandidateIdx(null)
+    setRouteWeatherModeState('now')
     routeActiveRef.current = false
     vedurstofanLayerRef.current = undefined
     resolvedRoutePlacesRef.current = null
@@ -1338,6 +1598,7 @@ export function RoadMapPrototypeMap() {
     setActiveRouteFieldState('from')
     clearRouteVedurstofanLabelMarkers()
     clearRouteVegagerdinLabelMarkers()
+    clearRouteEndpointMarkers()
     const map = mapRef.current
     if (!map) return
     for (const sourceId of [
@@ -1409,6 +1670,202 @@ export function RoadMapPrototypeMap() {
 
     if (!place) throw new Error('place_not_found')
     return place
+  }
+
+  async function fetchVegagerdinCurrentForRoute(
+    signal: AbortSignal,
+  ): Promise<VegagerdinCurrentApiData | null> {
+    if (overviewVegagerdinData?.status === 'ok') return overviewVegagerdinData
+
+    try {
+      if (!overviewVegagerdinRestricted) {
+        const res = await fetch('/api/teskeid/weather/vegagerdin/current', {
+          credentials: 'same-origin',
+          signal,
+        })
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
+          setOverviewVegagerdinRestricted(true)
+        } else if (res.ok) {
+          const payload = await res.json().catch(() => null) as VegagerdinCurrentApiData | null
+          if (payload?.status === 'ok' && Array.isArray(payload.stations)) {
+            setOverviewVegagerdinData(payload)
+            setOverviewVegagerdinRestricted(false)
+            return payload
+          }
+        }
+      }
+    } catch (error) {
+      if (!signal.aborted) {
+        console.warn('[RoadMap] vegagerdin current route fetch failed:', error)
+      }
+    }
+
+    try {
+      const fallback = await fetchRoadIntelligenceVegagerdinStationsForRoute(signal)
+      if (fallback?.status === 'ok') {
+        setOverviewVegagerdinData(fallback)
+        return fallback
+      }
+    } catch (error) {
+      if (!signal.aborted) {
+        console.warn('[RoadMap] road-intelligence station route fallback failed:', error)
+      }
+    } finally {
+      if (!signal.aborted) {
+        setOverviewVegagerdinLoading(false)
+      }
+    }
+
+    return null
+  }
+
+  async function fetchRoadIntelligenceVegagerdinStationsForRoute(
+    signal: AbortSignal,
+  ): Promise<VegagerdinCurrentApiData | null> {
+    const res = await fetch('/api/teskeid/road-intelligence/station-markers', {
+      credentials: 'same-origin',
+      signal,
+    })
+    if (res.status === 401 || res.status === 403 || res.status === 404) return null
+    if (!res.ok) return null
+
+    const geojson = await res.json().catch(() => null) as { features?: unknown } | null
+    const features = Array.isArray(geojson?.features)
+      ? geojson.features as RoadIntelligenceStationMarkerFeature[]
+      : []
+    if (features.length === 0) return null
+
+    const fetchedAtIso = new Date().toISOString()
+    const stations = features
+      .map((feature): VegagerdinCurrentStationDto | null => {
+        const coords = feature.geometry?.coordinates
+        if (!Array.isArray(coords) || coords.length < 2) return null
+        const lon = readStationMarkerFiniteNumber(coords[0])
+        const lat = readStationMarkerFiniteNumber(coords[1])
+        if (lat === null || lon === null) return null
+
+        const properties = feature.properties ?? {}
+        const stationId = readStationMarkerString(properties.stationId)
+        if (!stationId) return null
+        const stationName = readStationMarkerString(properties.stationName) ?? stationId
+        const measuredAtIso = readStationMarkerString(properties.measuredAtIso) ?? fetchedAtIso
+
+        return {
+          stationId,
+          stationName,
+          lat,
+          lon,
+          measuredAtIso,
+          fetchedAtIso,
+          meanWindMs: readStationMarkerFiniteNumber(properties.meanWindMs),
+          gustLast10MinMs: readStationMarkerFiniteNumber(properties.gustMs),
+          windDirectionDeg: readStationMarkerFiniteNumber(properties.windDirectionDeg),
+          windDirectionText: null,
+          airTemperatureC: readStationMarkerFiniteNumber(properties.airTemperatureC),
+          roadTemperatureC: null,
+          dataQuality: 'partial',
+        }
+      })
+      .filter((station): station is VegagerdinCurrentStationDto => station !== null)
+
+    if (stations.length === 0) {
+      return null
+    }
+
+    return {
+      status: 'ok',
+      cacheStatus: null,
+      measurementFreshness: 'unknown',
+      fetchedAtIso,
+      oldestMeasuredAtIso: null,
+      stations,
+    }
+  }
+
+  function buildClientVegagerdinRouteLayer(
+    result: DeterministicResult,
+    thresholds: ResolvedTravelThresholds,
+    currentData: VegagerdinCurrentApiData | null = overviewVegagerdinData,
+  ): VegagerdinRouteLayer | undefined {
+    if (currentData?.status !== 'ok') return undefined
+
+    const routePolyline = result.travelPlan?.route.auditPolylinePoints ?? []
+    if (routePolyline.length < 2) return undefined
+
+    const matchableStations = currentData.stations.filter(station =>
+      Number.isFinite(station.lat) &&
+      Number.isFinite(station.lon) &&
+      station.stationId.trim().length > 0,
+    )
+    if (matchableStations.length === 0) return undefined
+
+    const measurementByStationId = new Map(
+      matchableStations.map(station => [station.stationId, station]),
+    )
+    const matches = matchVegagerdinPointsToRoute({
+      points: matchableStations.map(station => ({
+        id: station.stationId,
+        name: station.stationName,
+        lat: station.lat,
+        lon: station.lon,
+      })),
+      routePolyline,
+    })
+
+    const layerPoints: VegagerdinRouteLayer['points'] = matches
+      .map((match): VegagerdinRouteLayer['points'][number] | null => {
+        const station = measurementByStationId.get(match.point.id)
+        if (!station) return null
+        const statusWindMs = station.gustLast10MinMs ?? station.meanWindMs
+        return {
+          routePointId: `vegagerdin_client_${station.stationId}`,
+          stationId: station.stationId,
+          stationName: station.stationName,
+          lat: station.lat,
+          lon: station.lon,
+          distanceM: Math.round(match.distanceM),
+          distanceFromOriginM: Math.round(match.distanceFromOriginM),
+          routeFraction: match.routeFraction,
+          measuredAtIso: station.measuredAtIso,
+          fetchedAtIso: station.fetchedAtIso,
+          meanWindMs: station.meanWindMs,
+          gustLast10MinMs: station.gustLast10MinMs,
+          windDirectionDeg: station.windDirectionDeg,
+          windDirectionText: station.windDirectionText,
+          airTemperatureC: station.airTemperatureC,
+          roadTemperatureC: station.roadTemperatureC,
+          dataQuality: station.dataQuality,
+          windDisplayStatus: classifyObservationWindDisplayStatus(station, thresholds),
+          statusWindMs,
+        }
+      })
+      .filter((point): point is VegagerdinRouteLayer['points'][number] => point !== null)
+      .sort((a, b) => {
+        const af = a.distanceFromOriginM ?? Infinity
+        const bf = b.distanceFromOriginM ?? Infinity
+        return af !== bf ? af - bf : a.stationId.localeCompare(b.stationId)
+      })
+
+    if (layerPoints.length === 0) return undefined
+
+    const noWindDataPointCount = layerPoints.filter(point =>
+      point.windDisplayStatus === 'no_data' || point.windDisplayStatus === 'no_wind_data',
+    ).length
+    const measuredAtIsoValues = layerPoints.map(point => point.measuredAtIso).sort()
+    const fetchedAtIsoValues = layerPoints.map(point => point.fetchedAtIso).sort()
+
+    return {
+      provider: 'vegagerdin',
+      status: noWindDataPointCount > 0 ? 'partial' : 'available',
+      cacheStatus: currentData.cacheStatus,
+      measurementFreshness: currentData.measurementFreshness,
+      measuredAtIso: measuredAtIsoValues[measuredAtIsoValues.length - 1] ?? null,
+      fetchedAtIso: fetchedAtIsoValues[fetchedAtIsoValues.length - 1] ?? null,
+      mappedPointCount: matches.length,
+      availablePointCount: layerPoints.length - noWindDataPointCount,
+      noWindDataPointCount,
+      points: layerPoints,
+    }
   }
 
   function renderTravelBridgeResult(
@@ -1537,46 +1994,163 @@ export function RoadMapPrototypeMap() {
     popupRef.current = popup
   }
 
+  function routeLabelPlacementForPoint(
+    points: ReadonlyArray<{ lat: number; lon: number }>,
+    index: number,
+  ): RouteLabelPlacement {
+    void points
+    void index
+    return { layout: 'vertical', anchor: 'center', offset: [0, 0] }
+  }
+
+  function rectsOverlap(a: DOMRect, b: DOMRect, padding = 2): boolean {
+    return !(
+      a.right + padding < b.left ||
+      a.left - padding > b.right ||
+      a.bottom + padding < b.top ||
+      a.top - padding > b.bottom
+    )
+  }
+
+  function applyRouteLabelCollisionAvoidance(elements: HTMLButtonElement[]) {
+    const visibleElements = elements.filter(element => element.style.display !== 'none')
+    if (visibleElements.length <= 14) {
+      for (const element of visibleElements) {
+        const nameLabel = element.querySelector<HTMLElement>('[data-route-wind-name="true"]')
+        if (nameLabel) nameLabel.style.display = 'inline-flex'
+      }
+      return
+    }
+
+    const valueRects = visibleElements
+      .map(element => element.querySelector<HTMLElement>('[data-route-wind-value="true"]'))
+      .filter((value): value is HTMLElement => Boolean(value))
+      .map(value => value.getBoundingClientRect())
+    const acceptedNameRects: DOMRect[] = []
+
+    for (const element of visibleElements) {
+      const nameLabel = element.querySelector<HTMLElement>('[data-route-wind-name="true"]')
+      if (!nameLabel) continue
+      nameLabel.style.display = 'inline-flex'
+      const nameRect = nameLabel.getBoundingClientRect()
+      const collidesWithValue = valueRects.some(rect => rectsOverlap(nameRect, rect, 3))
+      const collidesWithName = acceptedNameRects.some(rect => rectsOverlap(nameRect, rect, 4))
+      if (collidesWithValue || collidesWithName) {
+        nameLabel.style.display = 'none'
+      } else {
+        acceptedNameRects.push(nameRect)
+      }
+    }
+  }
+
   function createRouteWindLabelElement({
     stationName,
     valueText,
     color,
+    placement = { layout: 'vertical', anchor: 'bottom', offset: [0, -8] },
     onClick,
   }: {
     stationName: string
     valueText: string
     color: string
+    placement?: RouteLabelPlacement
     onClick: () => void
   }): HTMLButtonElement {
+    void placement
     const element = document.createElement('button')
     element.type = 'button'
     element.title = stationName
     element.setAttribute('aria-label', `${stationName}: ${valueText} m/s`)
     element.style.cssText = [
       'pointer-events:auto',
+      'display:block',
+      'width:0',
+      'height:0',
+      'border:0',
+      'background:transparent',
+      'font:700 11px/1.12 Inter,system-ui,sans-serif',
+      'padding:0',
+      'cursor:pointer',
+      'position:relative',
+      'overflow:visible',
+      'transform:translateZ(0)',
+      'z-index:8',
+    ].join(';')
+
+    const dot = document.createElement('span')
+    dot.dataset.routeWindDot = 'true'
+    dot.style.cssText = [
+      'position:absolute',
+      'left:-5px',
+      'top:-5px',
+      'width:10px',
+      'height:10px',
+      'border:2px solid #ffffff',
+      'border-radius:999px',
+      `background:${color}`,
+      'box-shadow:0 1px 4px rgba(15,23,42,0.24)',
+    ].join(';')
+    element.appendChild(dot)
+
+    const labelStack = document.createElement('span')
+    labelStack.style.cssText = [
+      'position:absolute',
+      'left:50%',
+      'bottom:10px',
       'display:flex',
+      'flex-direction:column',
       'align-items:center',
       'gap:3px',
+      'max-width:128px',
+      'transform:translateX(-50%)',
+    ].join(';')
+
+    const valueRow = document.createElement('span')
+    valueRow.dataset.routeWindValue = 'true'
+    valueRow.style.cssText = [
+      'display:flex',
+      'align-items:baseline',
+      'gap:3px',
+      'white-space:nowrap',
       `border:1.5px solid ${color}`,
-      'border-radius:99px',
-      'background:rgba(255,255,255,0.96)',
+      'border-radius:7px',
+      'background:rgba(255,255,255,0.97)',
       `color:${color}`,
       'box-shadow:0 1px 4px rgba(15,23,42,0.18)',
-      'font:700 11px/1.15 Inter,system-ui,sans-serif',
-      'min-height:22px',
-      'padding:2px 6px',
-      'white-space:nowrap',
-      'cursor:pointer',
+      'padding:3px 6px',
     ].join(';')
 
     const value = document.createElement('span')
     value.textContent = valueText
-    element.appendChild(value)
+    valueRow.appendChild(value)
 
     const unit = document.createElement('span')
     unit.textContent = 'm/s'
     unit.style.cssText = 'font-weight:500;font-size:9px;color:#475569'
-    element.appendChild(unit)
+    valueRow.appendChild(unit)
+    labelStack.appendChild(valueRow)
+
+    const name = document.createElement('span')
+    name.dataset.routeWindName = 'true'
+    name.textContent = stationName
+    name.style.cssText = [
+      'display:inline-flex',
+      'max-width:120px',
+      'overflow:hidden',
+      'text-overflow:ellipsis',
+      'white-space:nowrap',
+      'font-weight:600',
+      'font-size:9px',
+      'line-height:1.15',
+      'border:1px solid rgba(21,66,18,0.18)',
+      'border-radius:999px',
+      'background:rgba(255,255,255,0.92)',
+      'color:#334155',
+      'box-shadow:0 1px 3px rgba(15,23,42,0.12)',
+      'padding:2px 5px',
+    ].join(';')
+    labelStack.appendChild(name)
+    element.appendChild(labelStack)
 
     element.addEventListener('click', (event) => {
       event.preventDefault()
@@ -1587,7 +2161,20 @@ export function RoadMapPrototypeMap() {
     return element
   }
 
-  function createVedurstofanRouteLabel(entry: VedurstofanRouteStatusEntry): HTMLButtonElement {
+  function updateRouteWindLabelColor(element: HTMLElement, color: string) {
+    const valueLabel = element.querySelector<HTMLElement>('[data-route-wind-value="true"]')
+    if (valueLabel) {
+      valueLabel.style.borderColor = color
+      valueLabel.style.color = color
+    }
+    const dot = element.querySelector<HTMLElement>('[data-route-wind-dot="true"]')
+    if (dot) dot.style.background = color
+  }
+
+  function createVedurstofanRouteLabel(
+    entry: VedurstofanRouteStatusEntry,
+    placement?: RouteLabelPlacement,
+  ): HTMLButtonElement {
     const valueText = entry.selectedRow?.windSpeedMs != null
       ? formatNum(entry.selectedRow.windSpeedMs, locale)
       : '–'
@@ -1596,6 +2183,7 @@ export function RoadMapPrototypeMap() {
       stationName: entry.point.stationName,
       valueText,
       color,
+      placement,
       onClick: () => openVedurstofanRouteStationPopup(entry),
     })
   }
@@ -1616,7 +2204,7 @@ export function RoadMapPrototypeMap() {
       (p): p is VedurstofanRoutePoint =>
         typeof p.lat === 'number' && typeof p.lon === 'number',
     )
-    const departureMs = departureMsOverride ?? (departureAt ? Date.parse(departureAt) : Date.now())
+    const departureMs = departureMsOverride ?? Date.now()
     const routeDurationMs = Math.max(0, routeDurationMinutes) * 60_000
     const statusEntries = validPoints.map((p) => {
       const anchorMs = Number.isFinite(departureMs)
@@ -1705,9 +2293,6 @@ export function RoadMapPrototypeMap() {
 
     const Marker = markerConstructorRef.current
     if (Marker) {
-      // Density rule: danger/uncomfortable always get a label.
-      // Long quiet routes keep true first/last route anchors for orientation.
-      let entriesToLabel: typeof statusEntries
       const routeOrderedEntries = [...statusEntries].sort((a, b) => {
         const aPosition = a.point.routeFraction ?? (
           a.point.distanceFromOriginM != null ? a.point.distanceFromOriginM : Number.MAX_SAFE_INTEGER
@@ -1717,33 +2302,17 @@ export function RoadMapPrototypeMap() {
         )
         return aPosition - bPosition
       })
-      if (routeOrderedEntries.length <= ROUTE_LABEL_DENSITY_THRESHOLD) {
-        entriesToLabel = routeOrderedEntries
-      } else {
-        const entriesByKey = new Map<string, typeof statusEntries[number]>()
-        const addLabelEntry = (entry: typeof statusEntries[number] | undefined) => {
-          if (!entry) return
-          entriesByKey.set(`${entry.point.stationId}:${entry.point.routePointId}`, entry)
-        }
-        addLabelEntry(routeOrderedEntries[0])
-        addLabelEntry(routeOrderedEntries[routeOrderedEntries.length - 1])
-        for (const entry of routeOrderedEntries) {
-          if (ROUTE_LABEL_ALWAYS_STATUSES.has(entry.windDisplayStatus)) {
-            addLabelEntry(entry)
-          }
-        }
-        entriesToLabel = [...entriesByKey.values()].sort((a, b) =>
-          routeOrderedEntries.indexOf(a) - routeOrderedEntries.indexOf(b),
-        )
-      }
-      for (const entry of entriesToLabel) {
-        const element = createVedurstofanRouteLabel(entry)
-        const marker = new Marker({ element, anchor: 'bottom', offset: [0, -8] })
+      // Route planning needs every matched station to be visible. We accept
+      // some label crowding in the prototype so matching bugs are obvious.
+      for (const [index, entry] of routeOrderedEntries.entries()) {
+        const placement = routeLabelPlacementForPoint(routeOrderedEntries.map(({ point }) => point), index)
+        const element = createVedurstofanRouteLabel(entry, placement)
+        const marker = new Marker({ element, anchor: placement.anchor, offset: placement.offset })
           .setLngLat([entry.point.lon, entry.point.lat])
           .addTo(map)
         routeVedurstofanLabelMarkersRef.current.push({ marker, element, entry })
       }
-      updateVedurstofanLabelMarkerState()
+      updateVedurstofanLabelMarkerState(visibleRouteStatusesRef.current, routeWeatherModeRef.current)
     }
 
     applyRouteStatusFilterToMap(
@@ -1751,9 +2320,20 @@ export function RoadMapPrototypeMap() {
       visibleRouteStatusesRef.current,
       routeStatusFilterModeRef.current,
     )
-    updateVedurstofanLabelMarkerState()
+    updateRouteWeatherLayerVisibility()
 
     return { count: validPoints.length, statusCounts }
+  }
+
+  function formatVegagerdinRouteWindValue(point: VegagerdinRouteLayerPoint): string {
+    if (point.meanWindMs == null && point.gustLast10MinMs == null) return '–'
+    const meanText = point.meanWindMs != null
+      ? formatNum(point.meanWindMs, locale)
+      : '–'
+    const gustText = point.gustLast10MinMs != null
+      ? `(${formatNum(point.gustLast10MinMs, locale)})`
+      : ''
+    return `${meanText}${gustText}`
   }
 
   function openVegagerdinRouteStationPopup(
@@ -1783,11 +2363,8 @@ export function RoadMapPrototypeMap() {
       ))
     }
     appendLine(labelsRef.current.routeStationMeasured(formatKlTime(point.measuredAtIso)))
-    if (point.meanWindMs != null) {
-      appendLine(labelsRef.current.routePointWind(formatNum(point.meanWindMs, locale)))
-    }
-    if (point.gustLast10MinMs != null) {
-      appendLine(labelsRef.current.routePointGust(formatNum(point.gustLast10MinMs, locale)))
+    if (point.meanWindMs != null || point.gustLast10MinMs != null) {
+      appendLine(labelsRef.current.routePointWind(formatVegagerdinRouteWindValue(point)))
     }
     if (point.meanWindMs == null && point.gustLast10MinMs == null) {
       appendLine(labelsRef.current.routeStationNoWind)
@@ -1807,21 +2384,99 @@ export function RoadMapPrototypeMap() {
     popupRef.current = popup
   }
 
-  function createVegagerdinRouteLabel(point: VegagerdinRouteLayerPoint): HTMLButtonElement {
-    const valueText = point.gustLast10MinMs != null && point.meanWindMs != null
-      ? `${formatNum(point.meanWindMs, locale)} / ${formatNum(point.gustLast10MinMs, locale)}`
-      : point.gustLast10MinMs != null
-        ? formatNum(point.gustLast10MinMs, locale)
-        : point.meanWindMs != null
-          ? formatNum(point.meanWindMs, locale)
-          : '–'
+  function createVegagerdinRouteLabel(
+    point: VegagerdinRouteLayerPoint,
+    placement?: RouteLabelPlacement,
+  ): HTMLButtonElement {
+    const valueText = formatVegagerdinRouteWindValue(point)
     const color = WIND_STATUS_MARKER_COLOR[displayWindStatus(point.windDisplayStatus)]
     return createRouteWindLabelElement({
       stationName: point.stationName,
       valueText,
       color,
+      placement,
       onClick: () => openVegagerdinRouteStationPopup(point),
     })
+  }
+
+  function createRouteEndpointLabelElement(label: string, kind: 'origin' | 'destination'): HTMLDivElement {
+    const element = document.createElement('div')
+    element.title = label
+    const accent = kind === 'origin' ? '#2563eb' : '#154212'
+    element.style.cssText = [
+      'pointer-events:none',
+      'position:relative',
+      'width:0',
+      'height:0',
+      'overflow:visible',
+      'z-index:13',
+    ].join(';')
+
+    const dot = document.createElement('span')
+    dot.style.cssText = [
+      'position:absolute',
+      'left:-5px',
+      'top:-5px',
+      'width:10px',
+      'height:10px',
+      `background:${accent}`,
+      'border:2px solid #ffffff',
+      'border-radius:999px',
+      'box-shadow:0 1px 5px rgba(15,23,42,0.22)',
+    ].join(';')
+    element.appendChild(dot)
+
+    const labelElement = document.createElement('span')
+    labelElement.textContent = label
+    labelElement.style.cssText = [
+      'position:absolute',
+      'left:50%',
+      'bottom:10px',
+      'pointer-events:none',
+      `border:1px solid ${accent}`,
+      'background:rgba(255,255,255,0.95)',
+      `color:${accent}`,
+      'border-radius:999px',
+      'box-shadow:0 1px 6px rgba(15,23,42,0.22)',
+      'font:800 12px/1.2 Inter,system-ui,sans-serif',
+      'max-width:160px',
+      'overflow:hidden',
+      'padding:4px 8px',
+      'text-overflow:ellipsis',
+      'transform:translateX(-50%)',
+      'white-space:nowrap',
+      'z-index:12',
+    ].join(';')
+    element.appendChild(labelElement)
+    return element
+  }
+
+  function renderRouteEndpointLabels(
+    origin: RoadIntelligencePlaceResult,
+    destination: RoadIntelligencePlaceResult,
+    originLabel = origin.name,
+    destinationLabel = destination.name,
+  ) {
+    const map = mapRef.current
+    const Marker = markerConstructorRef.current
+    if (!map?.isStyleLoaded() || !Marker) return
+
+    clearRouteEndpointMarkers()
+    for (const [place, kind] of [
+      [origin, 'origin'],
+      [destination, 'destination'],
+    ] as const) {
+      const label = kind === 'origin' ? originLabel : destinationLabel
+      const element = createRouteEndpointLabelElement(label, kind)
+      const marker = new Marker({
+        element,
+        anchor: 'center',
+        offset: [0, 0],
+      })
+        .setLngLat([place.lon, place.lat])
+        .addTo(map)
+      routeEndpointMarkersRef.current.push({ marker, element })
+    }
   }
 
   function renderVegagerdinStations(
@@ -1905,14 +2560,15 @@ export function RoadMapPrototypeMap() {
       // Vegagerðin: always show all matched route stations.
       // Stebbi needs to see measured wind values at every on-route station —
       // density rules are not applied here. These are current observations, not forecasts.
-      for (const point of validPoints) {
-        const element = createVegagerdinRouteLabel(point)
-        const marker = new Marker({ element, anchor: 'bottom', offset: [0, -8] })
+      for (const [index, point] of validPoints.entries()) {
+        const placement = routeLabelPlacementForPoint(validPoints, index)
+        const element = createVegagerdinRouteLabel(point, placement)
+        const marker = new Marker({ element, anchor: placement.anchor, offset: placement.offset })
           .setLngLat([point.lon, point.lat])
           .addTo(map)
         routeVegagerdinLabelMarkersRef.current.push({ marker, element, point })
       }
-      updateVegagerdinLabelMarkerState()
+      updateVegagerdinLabelMarkerState(visibleRouteStatusesRef.current, routeWeatherModeRef.current)
     }
 
     applyRouteStatusFilterToMap(
@@ -1920,6 +2576,7 @@ export function RoadMapPrototypeMap() {
       visibleRouteStatusesRef.current,
       routeStatusFilterModeRef.current,
     )
+    updateRouteWeatherLayerVisibility()
     return { count: validPoints.length, statusCounts }
   }
 
@@ -1956,6 +2613,14 @@ export function RoadMapPrototypeMap() {
     return summarizeRouteRoadSurface({ routePoints, surfaceGeoJson: geojson })
   }
 
+  function yieldToBrowser(): Promise<void> {
+    return new Promise(resolve => window.setTimeout(resolve, 0))
+  }
+
+  function waitForBrowser(ms: number): Promise<void> {
+    return new Promise(resolve => window.setTimeout(resolve, ms))
+  }
+
   async function fetchRouteSurfaceChoices(
     origin: RoadIntelligencePlaceResult,
     destination: RoadIntelligencePlaceResult,
@@ -1977,22 +2642,195 @@ export function RoadMapPrototypeMap() {
 
     const payload = await res.json().catch(() => null)
     const routes = Array.isArray(payload?.routes) ? (payload.routes as RouteOption[]) : []
-    const choices: RouteSurfaceChoice[] = []
-    for (const route of routes.slice(0, 6)) {
-      if (signal.aborted) return choices
-      const surfaceSummary = await fetchRouteSurfaceSummary(route, signal).catch(() => null)
-      choices.push({
-        routeId: route.id,
-        routeIndex: route.routeIndex,
-        label: routeSurfaceChoiceLabel(route, choices.length),
-        description: route.description ?? route.labels.join(' · '),
-        distanceKm: route.distanceM / 1000,
-        durationMinutes: route.durationS / 60,
-        surfaceSummary,
+    return routes.slice(0, 6).map((route, index) => ({
+      routeId: route.id,
+      routeIndex: route.routeIndex,
+      label: routeSurfaceChoiceLabel(route, index),
+      description: route.description ?? route.labels.join(' · '),
+      distanceKm: route.distanceM / 1000,
+      durationMinutes: route.durationS / 60,
+      surfaceSummary: null,
+      route,
+    }))
+  }
+
+  async function hydrateRouteSurfaceChoiceSummaries(
+    choices: RouteSurfaceChoice[],
+    signal: AbortSignal,
+  ) {
+    console.log('[RoadMap] surface hydration: starting for', choices.length, 'route choices')
+    for (const [i, choice] of choices.entries()) {
+      if (signal.aborted) return
+      await waitForBrowser(160)
+      await yieldToBrowser()
+      const tHydrate = performance.now()
+      const surfaceSummary = await fetchRouteSurfaceSummary(choice.route, signal).catch((e) => {
+        console.warn('[RoadMap] surface hydration: fetch failed for', choice.routeId, e)
+        return null
       })
+      await yieldToBrowser()
+      if (signal.aborted) return
+      if (!surfaceSummary) {
+        console.log('[RoadMap] surface hydration: [', i + 1, '/', choices.length, '] no summary —', choice.routeId)
+        continue
+      }
+      console.log('[RoadMap] surface hydration: [', i + 1, '/', choices.length, ']', choice.routeId, 'in', Math.round(performance.now() - tHydrate), 'ms — hasGravel:', surfaceSummary.hasGravel, 'gravelLengthM:', surfaceSummary.gravelLengthM)
+      setRouteSurfaceChoices(prev =>
+        prev.map(route =>
+          route.routeId === choice.routeId
+            ? { ...route, surfaceSummary }
+            : route,
+        ),
+      )
+    }
+    console.log('[RoadMap] surface hydration: complete')
+  }
+
+  function scheduleRouteSurfaceChoiceSummaries(
+    choices: RouteSurfaceChoice[],
+    signal: AbortSignal,
+  ) {
+    window.setTimeout(() => {
+      if (signal.aborted) return
+      void hydrateRouteSurfaceChoiceSummaries(choices, signal)
+    }, 900)
+  }
+
+  function resetRouteDepartureForecastState() {
+    routeForecastBuildContextRef.current = null
+    setRouteDepartureForecastExpanded(false)
+    setRouteForecastBuildStatus('idle')
+  }
+
+  function handleRouteDepartureForecastOptIn() {
+    setRouteDepartureForecastExpanded(true)
+
+    let context = routeForecastBuildContextRef.current
+    if (!context && routeBridgeSummary) {
+      const nowCounts = routeNowStatusCounts ?? routeBridgeSummary.statusCounts ?? {}
+      const nowWorstStatus = worstWindDisplayStatusFromCounts(nowCounts) ?? 'innan-marka'
+      context = {
+        timelineCandidates: buildSyntheticRouteTimelineCandidates(
+          routeBridgeSummary.durationMinutes,
+          nowWorstStatus,
+        ),
+        thresholds: routeBridgeSummary.thresholdsUsed,
+        routeDurationMinutes: routeBridgeSummary.durationMinutes,
+        vedurstofanLayer: vedurstofanLayerRef.current,
+        vedurstofanStationCount: routeBridgeSummary.vedurstofanStationCount,
+        vegagerdinStatusCounts: nowCounts,
+        vegagerdinStationCount: countStatusesTotal(nowCounts),
+        nowWorstStatus,
+        signal: routeBridgeRequestRef.current?.signal ?? new AbortController().signal,
+      }
+      routeForecastBuildContextRef.current = context
     }
 
-    return choices
+    if (!context || context.timelineCandidates.length <= 1) {
+      setRouteForecastBuildStatus('unavailable')
+      return
+    }
+
+    if (
+      routeCandidates &&
+      routeCandidates.length > 1 &&
+      routeSlotStatusOverrides &&
+      routeSlotStatusOverrides.length > 1
+    ) {
+      setRouteForecastBuildStatus('ready')
+      return
+    }
+
+    setRouteForecastBuildStatus('loading')
+    window.setTimeout(() => {
+      if (context.signal.aborted) return
+      try {
+        console.log(
+          '[RoadMap] forecast slots: opt-in computing for',
+          context.timelineCandidates.length,
+          'slots, vedurstofan:',
+          context.vedurstofanStationCount,
+          'stations',
+        )
+        const tSlot = performance.now()
+        if (
+          (!context.vedurstofanLayer || context.vedurstofanStationCount <= 0) &&
+          context.vegagerdinStationCount <= 0
+        ) {
+          setRouteForecastBuildStatus('unavailable')
+          return
+        }
+
+        const slotStatusOverrides = buildProviderSlotStatusOverrides({
+          candidates: context.timelineCandidates,
+          thresholds: context.thresholds,
+          routeDurationMinutes: context.routeDurationMinutes,
+          vedurstofanLayer: context.vedurstofanLayer,
+          vedurstofanStationCount: context.vedurstofanStationCount,
+          vegagerdinStatusCounts: context.vegagerdinStatusCounts,
+          vegagerdinStationCount: context.vegagerdinStationCount,
+        })
+
+        if (context.signal.aborted) return
+        if (slotStatusOverrides == null) {
+          setRouteForecastBuildStatus('unavailable')
+          return
+        }
+
+        const timelineSlotStatusOverrides = [
+          context.nowWorstStatus,
+          ...slotStatusOverrides.slice(1),
+        ]
+        const providerBestWindow = buildProviderBestWindow(
+          context.timelineCandidates,
+          timelineSlotStatusOverrides,
+        )
+        console.log(
+          '[RoadMap] forecast slots: opt-in computed',
+          slotStatusOverrides.length,
+          'overrides in',
+          Math.round(performance.now() - tSlot),
+          'ms',
+        )
+        setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
+        setRouteCandidates(context.timelineCandidates)
+        setRouteBestWindow(providerBestWindow)
+        setRouteSlotStatusOverrides(timelineSlotStatusOverrides)
+        setRouteForecastBuildStatus('ready')
+      } catch (e) {
+        if (!context.signal.aborted) {
+          console.error('[RoadMap] forecast slots: opt-in error computing overrides:', e)
+          setRouteForecastBuildStatus('error')
+        }
+      }
+    }, 0)
+  }
+
+  function waitForMapReady(timeoutMs = 6000): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const map = mapRef.current
+      if (!map) {
+        console.warn('[RoadMap] waitForMapReady: map not initialized')
+        reject(new Error('map_not_ready'))
+        return
+      }
+      if (map.isStyleLoaded()) {
+        resolve()
+        return
+      }
+      console.warn('[RoadMap] waitForMapReady: style not yet loaded, waiting up to', timeoutMs, 'ms')
+      const timer = window.setTimeout(() => {
+        console.error('[RoadMap] waitForMapReady: timed out after', timeoutMs, 'ms — throwing map_not_ready')
+        reject(new Error('map_not_ready'))
+      }, timeoutMs)
+      map.once('styledata', () => {
+        if (map.isStyleLoaded()) {
+          clearTimeout(timer)
+          console.log('[RoadMap] waitForMapReady: style loaded, proceeding')
+          resolve()
+        }
+      })
+    })
   }
 
   async function calculateResolvedRoute({
@@ -2008,6 +2846,8 @@ export function RoadMapPrototypeMap() {
     signal: AbortSignal
     selectedRouteId?: string | null
   }) {
+    console.log('[RoadMap] route fetch:', origin.name, '→', destination.name, selectedRouteId ? `routeId=${selectedRouteId}` : '(default)')
+    const t0 = performance.now()
     const res = await fetch('/api/teskeid/weather/travel', {
       method: 'POST',
       credentials: 'same-origin',
@@ -2022,7 +2862,6 @@ export function RoadMapPrototypeMap() {
           redWindMs: thresholds.redWindMs,
         },
         ...(selectedRouteId ? { selectedRouteId } : {}),
-        ...(departureAt ? { earliestDepartureAt: departureAt } : {}),
       }),
     })
 
@@ -2038,70 +2877,77 @@ export function RoadMapPrototypeMap() {
     }
     if (signal.aborted) return
 
+    console.log('[RoadMap] route API:', Math.round(performance.now() - t0), 'ms, status:', res.status)
+    await waitForMapReady()
+    if (signal.aborted) return
+
     const travelResult = data as DeterministicResult
     const extra = data as Record<string, unknown>
     const vedurstofanLayer = isVedurstofanTravelLayer(extra['vedurstofanLayer'])
       ? extra['vedurstofanLayer']
       : undefined
-    const vegagerdinLayer = isVegagerdinRouteLayer(extra['vegagerdinLayer'])
+    const serverVegagerdinLayer = isVegagerdinRouteLayer(extra['vegagerdinLayer'])
       ? extra['vegagerdinLayer']
       : undefined
     const mapData = renderTravelBridgeResult(travelResult, thresholds)
+    const currentVegagerdinData =
+      serverVegagerdinLayer && serverVegagerdinLayer.points.length > 0
+        ? null
+        : await fetchVegagerdinCurrentForRoute(signal)
+    if (signal.aborted) return
+    const vegagerdinLayer =
+      serverVegagerdinLayer && serverVegagerdinLayer.points.length > 0
+        ? serverVegagerdinLayer
+        : buildClientVegagerdinRouteLayer(
+            travelResult,
+            thresholds,
+            currentVegagerdinData ?? overviewVegagerdinData,
+          )
     const vedurstofanRender = renderVedurstofanStations(
       vedurstofanLayer,
       mapData.durationMinutes,
       thresholds,
     )
     const vegagerdinRender = renderVegagerdinStations(vegagerdinLayer)
-    const candidates = travelResult.travelPlan?.outbound.candidates ?? null
-    const slotStatusOverrides = candidates
-      ? buildProviderSlotStatusOverrides({
-          candidates,
-          thresholds,
-          routeDurationMinutes: mapData.durationMinutes,
-          vedurstofanLayer,
-          vedurstofanStationCount: vedurstofanRender.count,
-          vegagerdinStatusCounts: vegagerdinRender.statusCounts,
-          vegagerdinStationCount: vegagerdinRender.count,
-        })
-      : null
+    const timelineCandidates = buildRouteTimelineCandidates(travelResult, mapData.durationMinutes)
     const slotSource = routeSlotStatusSource(
       vegagerdinRender.count,
       vedurstofanRender.count,
     )
-    const providerBestWindow =
-      candidates && slotStatusOverrides
-        ? buildProviderBestWindow(candidates, slotStatusOverrides)
-        : undefined
-    const providerStatusCounts =
-      vegagerdinRender.count > 0 && vedurstofanRender.count > 0
-        ? mergeWindDisplayStatusCounts(
-            vegagerdinRender.statusCounts,
-            vedurstofanRender.statusCounts,
-          )
-        : vegagerdinRender.count > 0
-          ? vegagerdinRender.statusCounts
-          : vedurstofanRender.count > 0
-            ? vedurstofanRender.statusCounts
-            : mapData.statusCounts
-    const providerStatus =
-      slotStatusOverrides?.[0]
-        ? windDisplayStatusToTravelStatus(slotStatusOverrides[0])
-        : routeStatusFromCounts(providerStatusCounts)
+    console.log('[RoadMap] providers — vegagerdin:', vegagerdinRender.count, 'stations', vegagerdinRender.statusCounts, '| vedurstofan:', vedurstofanRender.count, '| slotSource:', slotSource, '| timeline:', timelineCandidates?.length ?? 0, 'slots')
+    const nowStatusCounts =
+      vegagerdinRender.count > 0
+        ? vegagerdinRender.statusCounts
+        : {}
+    const nowWorstStatus = worstWindDisplayStatusFromCounts(nowStatusCounts) ?? 'innan-marka'
+    const providerStatus = routeStatusFromCounts(nowStatusCounts)
     const providerAnswer =
       slotSource !== 'fallback'
         ? providerRouteAnswer(providerStatus)
         : travelResult.svar
+    const initialRouteCandidates = timelineCandidates && timelineCandidates.length > 0
+      ? timelineCandidates.slice(0, 1)
+      : null
+    const initialRouteSlotOverrides = initialRouteCandidates ? [nowWorstStatus] : null
+    const nowRouteMode: RouteWeatherMode = 'now'
 
     // Hide global station markers and place labels — route stations are the focus now.
     routeActiveRef.current = true
+    setRouteWeatherModeState(nowRouteMode)
     vedurstofanLayerRef.current = vedurstofanLayer
     routeDurationMinutesRef.current = mapData.durationMinutes
     routeThresholdsRef.current = thresholds
     updateOverviewLayerVisibility(overviewActiveModeRef.current, true)
+    hideOverviewStationMarkers()
     for (const { element } of placeMarkersRef.current) {
       element.style.display = 'none'
     }
+    renderRouteEndpointLabels(
+      origin,
+      destination,
+      routeFrom.trim() || origin.name,
+      routeTo.trim() || destination.name,
+    )
 
     setRouteBridgeSummary({
       fromName: origin.name,
@@ -2112,18 +2958,39 @@ export function RoadMapPrototypeMap() {
       durationMinutes: mapData.durationMinutes,
       metnoPointCount: mapData.pointCount,
       answer: providerAnswer,
-      statusCounts: providerStatusCounts,
+      statusCounts: nowStatusCounts,
       thresholdsUsed: thresholds,
       vedurstofanStationCount: vedurstofanRender.count,
       vegagerdinStationCount: vegagerdinRender.count,
       slotStatusSource: slotSource,
     })
-    setRouteCandidates(candidates)
-    setRouteBestWindow(slotStatusOverrides ? providerBestWindow : travelResult.travelPlan?.outbound.bestWindow)
-    setRouteSlotStatusOverrides(slotStatusOverrides)
-    setSelectedCandidateIdx(null)
+    setRouteNowStatusCounts(nowStatusCounts)
+    setRouteVisibleStatusCounts(nowStatusCounts)
+    setRouteCandidates(initialRouteCandidates)
+    setRouteBestWindow(undefined)
+    setRouteSlotStatusOverrides(initialRouteSlotOverrides)
+    setSelectedCandidateIdx(0)
     handleRouteStatusFilterChange(new Set())
+    updateRouteWeatherLayerVisibility(nowRouteMode)
     setRouteBridgeStatus('success')
+    console.log('[RoadMap] route success — initial candidates:', initialRouteCandidates?.length ?? 0, '| selectedCandidateIdx: 0 | nowCounts:', nowStatusCounts)
+
+    routeForecastBuildContextRef.current =
+      timelineCandidates && timelineCandidates.length > 1
+        ? {
+            timelineCandidates,
+            thresholds,
+            routeDurationMinutes: mapData.durationMinutes,
+            vedurstofanLayer,
+            vedurstofanStationCount: vedurstofanRender.count,
+            vegagerdinStatusCounts: nowStatusCounts,
+            vegagerdinStationCount: vegagerdinRender.count,
+            nowWorstStatus,
+            signal,
+          }
+        : null
+    setRouteDepartureForecastExpanded(false)
+    setRouteForecastBuildStatus('idle')
   }
 
   async function handleRouteBridgeSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2145,6 +3012,7 @@ export function RoadMapPrototypeMap() {
       return
     }
 
+    console.log('[RoadMap] route submit:', fromQuery, '→', toQuery)
     routeBridgeRequestRef.current?.abort()
     const controller = new AbortController()
     routeBridgeRequestRef.current = controller
@@ -2154,11 +3022,16 @@ export function RoadMapPrototypeMap() {
     setRouteCandidates(null)
     setRouteBestWindow(undefined)
     setRouteSlotStatusOverrides(null)
+    setRouteNowStatusCounts(null)
+    setRouteVisibleStatusCounts(null)
+    resetRouteDepartureForecastState()
     setRouteSurfaceChoices([])
     setRouteSurfaceChoicesStatus('idle')
-    setVisibleCandidateLimit(24)
+    setRouteSwitchingChoiceId(null)
+    setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
     setRouteCalculationPlaceNames({ from: fromQuery, to: toQuery })
     setSelectedCandidateIdx(null)
+    setRouteWeatherModeState('now')
     setFromSuggestions([])
     setToSuggestions([])
     setIsPanelOpen(false)
@@ -2182,20 +3055,30 @@ export function RoadMapPrototypeMap() {
       })
       if (controller.signal.aborted) return
 
-      // Route is now visible on map. Fetch surface alternatives in the background.
-      setRouteSurfaceChoicesStatus('loading')
-      fetchRouteSurfaceChoices(origin, destination, controller.signal)
-        .then(choices => {
-          if (controller.signal.aborted) return
-          setRouteSurfaceChoices(choices)
-          setRouteSurfaceChoicesStatus('ready')
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) setRouteSurfaceChoicesStatus('error')
-        })
+      // Route is now visible on map. Fetch surface alternatives after the
+      // browser has had a moment to paint and accept map gestures.
+      window.setTimeout(() => {
+        if (controller.signal.aborted) return
+        setRouteSurfaceChoicesStatus('loading')
+        fetchRouteSurfaceChoices(origin, destination, controller.signal)
+          .then(choices => {
+            if (controller.signal.aborted) return
+            setRouteSurfaceChoices(choices)
+            setRouteSurfaceChoicesStatus('ready')
+            // Do not hydrate surface summaries automatically here.
+            // summarizeRouteRoadSurface() is intentionally thorough and can be
+            // CPU-heavy on long routes; running it after route-options makes the
+            // interactive map feel frozen. Surface scoring belongs in the native
+            // road-graph phase or behind an explicit user action.
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) setRouteSurfaceChoicesStatus('error')
+          })
+      }, 1200)
     } catch (err) {
       if (controller.signal.aborted) return
       const code = err instanceof Error ? err.message : 'unknown'
+      console.error('[RoadMap] route failed:', code, err)
       const message =
         code === 'place_not_found'
           ? t('roadMapPrototypeRoutePlaceNotFound')
@@ -2212,25 +3095,21 @@ export function RoadMapPrototypeMap() {
   }
 
   async function handleSelectSurfaceRouteChoice(choice: RouteSurfaceChoice) {
-    if (routeBridgeStatus === 'loading') return
+    if (routeBridgeStatus === 'loading' || routeSwitchingChoiceId) return
     const resolvedPlaces = resolvedRoutePlacesRef.current
     const thresholds = routeBridgeSummary?.thresholdsUsed ?? routeThresholdsRef.current
     if (!resolvedPlaces || !thresholds) return
 
+    console.log('[RoadMap] route switch to:', choice.routeId, choice.label)
     routeBridgeRequestRef.current?.abort()
     const controller = new AbortController()
     routeBridgeRequestRef.current = controller
-    setRouteBridgeStatus('loading')
+    setRouteSwitchingChoiceId(choice.routeId)
     setRouteBridgeError(null)
     setRouteCalculationPlaceNames({
       from: resolvedPlaces.origin.name,
       to: resolvedPlaces.destination.name,
     })
-    setRouteCandidates(null)
-    setRouteBestWindow(undefined)
-    setRouteSlotStatusOverrides(null)
-    setVisibleCandidateLimit(24)
-    setSelectedCandidateIdx(null)
     setIsPanelOpen(false)
 
     try {
@@ -2241,9 +3120,11 @@ export function RoadMapPrototypeMap() {
         signal: controller.signal,
         selectedRouteId: choice.routeId,
       })
+      if (!controller.signal.aborted) setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
     } catch (err) {
       if (controller.signal.aborted) return
       const code = err instanceof Error ? err.message : 'unknown'
+      console.error('[RoadMap] route switch failed:', code, err)
       const message =
         code === 'map_not_ready'
           ? t('roadMapPrototypeRouteMapNotReady')
@@ -2252,8 +3133,9 @@ export function RoadMapPrototypeMap() {
             : code === 'rate_limited'
               ? t('roadMapPrototypeRouteRateLimited')
               : t('roadMapPrototypeRouteError')
-      setRouteBridgeStatus('error')
       setRouteBridgeError(message)
+    } finally {
+      if (!controller.signal.aborted) setRouteSwitchingChoiceId(null)
     }
   }
 
@@ -2526,13 +3408,18 @@ export function RoadMapPrototypeMap() {
           map.on('moveend', () => {
             if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current)
             segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
+            scheduleRouteLabelCollisionUpdate()
           })
+          map.on('zoomend', scheduleRouteLabelCollisionUpdate)
 
           removeOverviewMapLayerArtifacts(map)
 
           bringWeatherLayersToFront(map)
           updateOverviewLayerVisibility()
-          if (!cancelled) setMapReady(true)
+          if (!cancelled) {
+            console.log('[RoadMap] map ready — style loaded, all layers initialized')
+            setMapReady(true)
+          }
         })
       } catch (err) {
         if (!cancelled) {
@@ -2561,6 +3448,7 @@ export function RoadMapPrototypeMap() {
       clearOverviewStationMarkers()
       clearRouteVedurstofanLabelMarkers()
       clearRouteVegagerdinLabelMarkers()
+      clearRouteEndpointMarkers()
       popupRef.current?.remove()
       popupRef.current = null
       popupConstructorRef.current = null
@@ -2633,6 +3521,7 @@ export function RoadMapPrototypeMap() {
     const selectedRouteId = routeBridgeSummary.selectedRouteId ?? routeSurfaceChoices[0]?.routeId ?? null
     const selectedChoice = routeSurfaceChoices.find(choice => choice.routeId === selectedRouteId)
       ?? routeSurfaceChoices[0]
+    const hasSurfaceSummary = routeSurfaceChoices.some(choice => choice.surfaceSummary !== null)
     const selectedHasGravel = selectedChoice?.surfaceSummary?.hasGravel === true
     const hasGravelRoute = routeSurfaceChoices.some(choice => choice.surfaceSummary?.hasGravel)
     const hasPavedAlternative = routeSurfaceChoices.some(choice =>
@@ -2642,15 +3531,17 @@ export function RoadMapPrototypeMap() {
     if (!hasGravelRoute && routeSurfaceChoices.length <= 1) return null
 
     const gravelRoadNames = selectedChoice?.surfaceSummary?.gravelRoadNames ?? []
-    const intro = selectedHasGravel
-      ? t('roadMapPrototypeSurfaceSelectedHasGravel', {
-          roads: gravelRoadNames.length > 0
-            ? gravelRoadNames.join(', ')
-            : t('roadMapPrototypeSurfaceUnknownRoad'),
-        })
-      : hasPavedAlternative
-        ? t('roadMapPrototypeSurfaceSelectedAvoidsGravel')
-        : t('roadMapPrototypeSurfaceRouteChoicesReady')
+    const intro = !hasSurfaceSummary
+      ? t('roadMapPrototypeSurfaceRouteChoicesFound')
+      : selectedHasGravel
+        ? t('roadMapPrototypeSurfaceSelectedHasGravel', {
+            roads: gravelRoadNames.length > 0
+              ? gravelRoadNames.join(', ')
+              : t('roadMapPrototypeSurfaceUnknownRoad'),
+          })
+        : hasPavedAlternative
+          ? t('roadMapPrototypeSurfaceSelectedAvoidsGravel')
+          : t('roadMapPrototypeSurfaceRouteChoicesReady')
 
     return (
       <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50/95 p-2 text-[11px] text-amber-950 shadow-sm dark:border-amber-800 dark:bg-amber-950/80 dark:text-amber-100">
@@ -2658,6 +3549,7 @@ export function RoadMapPrototypeMap() {
         <div className="flex gap-1.5 overflow-x-auto pb-0.5">
           {routeSurfaceChoices.map((choice) => {
             const selected = choice.routeId === selectedRouteId
+            const switching = routeSwitchingChoiceId === choice.routeId
             const hasGravel = choice.surfaceSummary?.hasGravel
             const surfaceLabel =
               hasGravel === true
@@ -2669,7 +3561,7 @@ export function RoadMapPrototypeMap() {
               <button
                 key={choice.routeId}
                 type="button"
-                disabled={routeBridgeStatus === 'loading' || selected}
+                disabled={routeBridgeStatus === 'loading' || Boolean(routeSwitchingChoiceId) || selected}
                 onClick={() => handleSelectSurfaceRouteChoice(choice)}
                 className={`min-w-[150px] shrink-0 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default ${
                   selected
@@ -2677,7 +3569,9 @@ export function RoadMapPrototypeMap() {
                     : 'border-amber-300 bg-background/80 text-amber-950 hover:bg-background dark:border-amber-700 dark:text-amber-100'
                 }`}
               >
-                <span className="block truncate font-medium">{choice.label}</span>
+                <span className="block truncate font-medium">
+                  {switching ? t('roadMapPrototypeSurfaceRouteSwitching') : choice.label}
+                </span>
                 <span className="block truncate text-[10px] text-muted-foreground">
                   {surfaceLabel} · {formatNum(choice.distanceKm, locale)} km · {formatDurationMinutes(choice.durationMinutes)}
                 </span>
@@ -2703,24 +3597,30 @@ export function RoadMapPrototypeMap() {
   // Derive the displayed route status + answer from the selected scrubber slot.
   // When the user selects slot N in the heatmap, the badge and answer update to
   // reflect that slot's provider status rather than the initial "Núna" status.
+  const effectiveSelectedCandidateIdx =
+    routeBridgeSummary
+      ? selectedCandidateIdx ?? 0
+      : selectedCandidateIdx
   const displayedRouteStatus: DeterministicResult['stada'] =
-    selectedCandidateIdx !== null &&
+    effectiveSelectedCandidateIdx !== null &&
+    effectiveSelectedCandidateIdx > 0 &&
     routeSlotStatusOverrides != null &&
-    routeSlotStatusOverrides[selectedCandidateIdx] != null
-      ? windDisplayStatusToTravelStatus(routeSlotStatusOverrides[selectedCandidateIdx])
+    routeSlotStatusOverrides[effectiveSelectedCandidateIdx] != null
+      ? windDisplayStatusToTravelStatus(routeSlotStatusOverrides[effectiveSelectedCandidateIdx])
       : (routeBridgeSummary?.status ?? 'graent')
   const displayedRouteAnswer: string =
     routeBridgeSummary == null
       ? ''
-      : selectedCandidateIdx !== null &&
+      : effectiveSelectedCandidateIdx !== null &&
+          effectiveSelectedCandidateIdx > 0 &&
           routeSlotStatusOverrides != null &&
-          routeSlotStatusOverrides[selectedCandidateIdx] != null &&
+          routeSlotStatusOverrides[effectiveSelectedCandidateIdx] != null &&
           routeBridgeSummary.slotStatusSource !== 'fallback'
         ? providerRouteAnswer(displayedRouteStatus)
         : routeBridgeSummary.answer
   const selectedRouteCandidate =
-    selectedCandidateIdx !== null && routeCandidates?.[selectedCandidateIdx]
-      ? routeCandidates[selectedCandidateIdx]
+    effectiveSelectedCandidateIdx !== null && effectiveSelectedCandidateIdx > 0 && routeCandidates?.[effectiveSelectedCandidateIdx]
+      ? routeCandidates[effectiveSelectedCandidateIdx]
       : null
   const displayedRouteSlotLabel =
     routeBridgeSummary == null
@@ -2733,6 +3633,16 @@ export function RoadMapPrototypeMap() {
   const displayedRouteCandidates = routeCandidates ? routeCandidates.slice(0, visibleCandidateLimit) : null
   const displayedSlotStatusOverrides = routeSlotStatusOverrides ? routeSlotStatusOverrides.slice(0, visibleCandidateLimit) : null
   const hasMoreCandidates = routeCandidates !== null && routeCandidates.length > visibleCandidateLimit
+  const activeRouteStatusCounts =
+    (effectiveSelectedCandidateIdx === null || effectiveSelectedCandidateIdx === 0) && routeWeatherMode === 'now'
+      ? routeNowStatusCounts ?? {}
+      : routeVisibleStatusCounts ?? routeBridgeSummary?.statusCounts ?? {}
+  const routeScrubberStatusText =
+    routeForecastBuildStatus === 'loading'
+      ? t('roadMapPrototypeScrubberCalculatingHourly')
+      : routeBridgeSummary
+        ? routeScrubberSubtitle(routeBridgeSummary.slotStatusSource)
+        : ''
   const routeLoaderFrom = routeCalculationPlaceNames?.from ?? routeFrom.trim()
   const routeLoaderTo = routeCalculationPlaceNames?.to ?? routeTo.trim()
   const routeLoaderTitles = [
@@ -3065,17 +3975,6 @@ export function RoadMapPrototypeMap() {
                       </span>
                     </span>
                   </label>
-                  <label className="col-span-2 min-w-0">
-                    <span className="mb-0.5 block text-[10px] text-muted-foreground">
-                      {t('roadMapPrototypeDepartureLabel')}
-                    </span>
-                    <input
-                      type="datetime-local"
-                      value={departureAt}
-                      onChange={(e) => setDepartureAt(e.target.value)}
-                      className="h-9 w-full rounded-md border border-border bg-background px-2 text-base text-foreground outline-none focus:border-primary"
-                    />
-                  </label>
                 </div>
 
                 <button
@@ -3163,60 +4062,6 @@ export function RoadMapPrototypeMap() {
             {t('roadMapPrototypeScrubberCalculatingHourly')}
           </div>
         ) : routeBridgeSummary ? (
-          displayedRouteCandidates && displayedRouteCandidates.length > 0 ? (
-          /* Route + candidates: DepartureHeatmap with Einfalt/Nánar inline before pills */
-          <div className="px-3 pt-2">
-            {renderRouteSurfaceChoices()}
-            <DepartureHeatmap
-              candidates={displayedRouteCandidates}
-              bestWindow={routeBestWindow}
-              originName={routeBridgeSummary.fromName}
-              selectedIdx={selectedCandidateIdx}
-              onSelectIdx={handleSelectCandidateIdx}
-              visibleStatuses={visibleRouteStatuses}
-              onVisibleStatusesChange={handleRouteStatusFilterChange}
-              thresholdsUsed={routeBridgeSummary.thresholdsUsed}
-              subtitle={routeScrubberSubtitle(routeBridgeSummary.slotStatusSource)}
-              title={null}
-              showSelectedDetail={false}
-              slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
-              mode={routeStatusFilterMode}
-              firstSlotLabel={t('roadMapPrototypeScrubberNow')}
-              countsOverride={routeBridgeSummary.statusCounts}
-              modeToggle={
-                <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
-                  {(['simple', 'detailed'] as const).map(mode => (
-                    <button
-                      key={mode}
-                      type="button"
-                      aria-pressed={routeStatusFilterMode === mode}
-                      onClick={() => handleRouteStatusFilterModeChange(mode)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                        routeStatusFilterMode === mode
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {mode === 'simple' ? t('statusFilterModeSimple') : t('statusFilterModeDetailed')}
-                    </button>
-                  ))}
-                </div>
-              }
-            />
-            {hasMoreCandidates && (
-              <div className="mt-1 pb-1 text-right">
-                <button
-                  type="button"
-                  onClick={() => setVisibleCandidateLimit(prev => prev + 24)}
-                  className="text-[10px] text-primary underline-offset-2 hover:underline focus-visible:outline-none"
-                >
-                  {t('roadMapPrototypeLoadMoreCandidates')}
-                </button>
-              </div>
-            )}
-          </div>
-          ) : (
-          /* Route + no candidates: Einfalt/Nánar + pills in same row */
           <div className="px-3 pb-2 pt-2">
             {renderRouteSurfaceChoices()}
             <div className="flex flex-wrap items-center gap-2">
@@ -3238,7 +4083,7 @@ export function RoadMapPrototypeMap() {
                 ))}
               </div>
               <WindStatusFilterPills
-                counts={routeBridgeSummary.statusCounts}
+                counts={activeRouteStatusCounts}
                 visibleStatuses={visibleRouteStatuses}
                 onVisibleStatusesChange={handleRouteStatusFilterChange}
                 showAllLabel=""
@@ -3246,8 +4091,106 @@ export function RoadMapPrototypeMap() {
                 mode={routeStatusFilterMode}
               />
             </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                aria-pressed={effectiveSelectedCandidateIdx === 0}
+                onClick={() => handleSelectCandidateIdx(0)}
+                className={`min-h-10 rounded-lg border px-3 py-1.5 text-left text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                  effectiveSelectedCandidateIdx === 0
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background/85 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span className="flex items-center gap-1.5 font-semibold">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: routeStatusColor(routeBridgeSummary.status) }}
+                  />
+                  {t('roadMapPrototypeScrubberNow')}
+                </span>
+                <span className="block text-[10px] text-muted-foreground">
+                  {formatKlTime(new Date().toISOString())}
+                </span>
+              </button>
+
+              {!routeDepartureForecastExpanded && (
+                <button
+                  type="button"
+                  onClick={handleRouteDepartureForecastOptIn}
+                  className="min-h-10 rounded-lg border border-border bg-background/85 px-3 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <span className="block font-semibold text-foreground">
+                    {t('roadMapPrototypeDepartureOptInTitle')}
+                  </span>
+                  <span className="block text-[10px]">
+                    {t('roadMapPrototypeDepartureOptInButton')}
+                  </span>
+                </button>
+              )}
+            </div>
+
+            {routeDepartureForecastExpanded && (
+              <div className="mt-2 rounded-lg border border-border/70 bg-background/70 p-2">
+                <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">
+                      {t('roadMapPrototypeDepartureOptInTitle')}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {routeForecastBuildStatus === 'loading'
+                        ? t('roadMapPrototypeScrubberCalculatingHourly')
+                        : routeForecastBuildStatus === 'unavailable' || routeForecastBuildStatus === 'error'
+                          ? t('roadMapPrototypeDepartureOptInUnavailable')
+                          : t('roadMapPrototypeDepartureOptInDescription')}
+                    </p>
+                  </div>
+                  {(routeForecastBuildStatus === 'unavailable' || routeForecastBuildStatus === 'error') && (
+                    <button
+                      type="button"
+                      onClick={handleRouteDepartureForecastOptIn}
+                      className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      {t('roadMapPrototypeDepartureOptInRetry')}
+                    </button>
+                  )}
+                </div>
+
+                {displayedRouteCandidates && displayedRouteCandidates.length > 1 && (
+                  <>
+                    <DepartureHeatmap
+                      candidates={displayedRouteCandidates}
+                      bestWindow={routeBestWindow}
+                      originName={routeBridgeSummary.fromName}
+                      selectedIdx={effectiveSelectedCandidateIdx}
+                      onSelectIdx={handleSelectCandidateIdx}
+                      visibleStatuses={visibleRouteStatuses}
+                      onVisibleStatusesChange={handleRouteStatusFilterChange}
+                      thresholdsUsed={routeBridgeSummary.thresholdsUsed}
+                      subtitle={routeScrubberStatusText}
+                      title={null}
+                      showSelectedDetail={false}
+                      slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
+                      mode={routeStatusFilterMode}
+                      firstSlotLabel={t('roadMapPrototypeScrubberNow')}
+                    />
+                    {hasMoreCandidates && (
+                      <div className="mt-1 pb-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setVisibleCandidateLimit(prev => prev + 24)}
+                          className="text-[10px] text-primary underline-offset-2 hover:underline focus-visible:outline-none"
+                        >
+                          {t('roadMapPrototypeLoadMoreCandidates')}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
-          )
         ) : (
           /* Default overview: time selector + Einfalt/Nánar inline with pills */
           <div className="flex flex-col gap-2 px-3 pb-1 pt-2">

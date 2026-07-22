@@ -9,6 +9,7 @@ import { Check, ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
 import {
   type WindDisplayStatus,
   classifyCandidateWindDisplayStatus,
+  toSimpleWindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import { WIND_STATUS_UI_META as WIND_STATUS_META } from './windStatusUi'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
@@ -93,6 +94,19 @@ function isBestSlot(c: TravelCandidate, bestWindow?: TravelWindow): boolean {
   return dep >= new Date(bestWindow.fromIso).getTime() && dep <= new Date(bestWindow.toIso).getTime()
 }
 
+function slotStatusIsVisible(
+  status: WindDisplayStatus,
+  visibleStatuses: ReadonlySet<WindDisplayStatus>,
+  mode: WindStatusFilterMode = 'detailed',
+): boolean {
+  if (visibleStatuses.size === 0) return true
+  if (mode === 'simple') {
+    const simpleStatus = toSimpleWindDisplayStatus(status)
+    return [...visibleStatuses].some(st => toSimpleWindDisplayStatus(st) === simpleStatus)
+  }
+  return visibleStatuses.has(status)
+}
+
 export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode, modeToggle, countsOverride }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
@@ -131,20 +145,28 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
   // Filtered candidates with their real indices in the candidates array
   const filteredWithIdx: Array<{ c: TravelCandidate; realIdx: number }> =
     candidates.reduce<Array<{ c: TravelCandidate; realIdx: number }>>((acc, c, i) => {
-      if (visibleStatuses.size === 0 || visibleStatuses.has(getSlotStatus(c, i))) {
+      if (slotStatusIsVisible(getSlotStatus(c, i), visibleStatuses, mode)) {
         acc.push({ c, realIdx: i })
       }
       return acc
     }, [])
 
-  // Arrow navigation through filtered candidates.
+  // Arrow navigation through filtered candidates. In route mode, the first
+  // candidate is rendered as the special "Now" slot. Keep null support for
+  // older callers, but new route flows select the real first index (0).
   const selectedFilteredIdx = selectedIdx === null
-    ? -1
+    ? firstSlotLabel
+      ? filteredWithIdx.findIndex(item => item.realIdx === 0)
+      : -1
     : filteredWithIdx.findIndex(item => item.realIdx === selectedIdx)
 
   function selectRelative(delta: -1 | 1) {
     if (filteredWithIdx.length === 0) return
-    const baseIdx = selectedFilteredIdx >= 0 ? selectedFilteredIdx : -1
+    const baseIdx = selectedFilteredIdx >= 0
+      ? selectedFilteredIdx
+      : delta > 0
+        ? -1
+        : filteredWithIdx.length
     const next = filteredWithIdx[baseIdx + delta]
     if (next) onSelectIdx(next.realIdx)
   }
@@ -158,7 +180,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
   function handleStatusesChange(next: Set<WindDisplayStatus>) {
     if (selectedIdx !== null && next.size > 0) {
       const selSt = getSlotStatus(candidates[selectedIdx], selectedIdx)
-      if (!next.has(selSt)) onSelectIdx(null)
+      if (!slotStatusIsVisible(selSt, next, mode)) onSelectIdx(null)
     }
     onVisibleStatusesChange(next)
   }
@@ -220,7 +242,8 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                       const wst = getSlotStatus(c, realIdx)
                       const meta = WIND_STATUS_META[wst]
                       const best = isBestSlot(c, bestWindow)
-                      const isSelected = selectedIdx === realIdx
+                      const isSelected = selectedIdx === realIdx ||
+                        (selectedIdx === null && realIdx === 0 && Boolean(firstSlotLabel))
                       return (
                         <button
                           key={c.departureIso}
@@ -229,7 +252,13 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                             if (el) btnRefsRef.current.set(realIdx, el)
                             else btnRefsRef.current.delete(realIdx)
                           }}
-                          onClick={() => onSelectIdx(realIdx === selectedIdx ? null : realIdx)}
+                          onClick={() => {
+                            if (realIdx === 0 && firstSlotLabel) {
+                              onSelectIdx(0)
+                              return
+                            }
+                            onSelectIdx(realIdx === selectedIdx ? null : realIdx)
+                          }}
                           aria-label={realIdx === 0 && firstSlotLabel
                             ? `${firstSlotLabel} · ${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`
                             : `${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`}
@@ -284,7 +313,9 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
       })() : (
         <div className="flex flex-col items-start gap-1.5 py-2">
           <p className="text-xs text-muted-foreground">
-            {visibleStatuses.size > 0 && !visibleStatuses.has('innan-marka') && (statusCounts['innan-marka'] ?? 0) === candidates.length
+            {visibleStatuses.size > 0 &&
+              !slotStatusIsVisible('innan-marka', visibleStatuses, mode) &&
+              (statusCounts['innan-marka'] ?? 0) === candidates.length
               ? tf('timelineEmptyGreenHidden')
               : tf('timelineEmptyFilter')}
           </p>

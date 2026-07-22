@@ -48,6 +48,30 @@ function withLayerTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
 // Provider route distance policy: imported from providerRouteMatching so both this endpoint
 // and the route-selection provider-stations endpoint always use the same cutoff.
 // Change DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M in providerRouteMatching.ts to update both.
+const VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M = 12_000
+const VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS = 40
+
+function matchVegagerdinPointsToRoute<T extends ProviderRoutePoint>({
+  points,
+  routePolyline,
+}: {
+  points: readonly T[]
+  routePolyline: ReadonlyArray<{ lat: number; lon: number }>
+}): ProviderRouteMatch<T>[] {
+  const strictMatches = matchProviderPointsToRoute({
+    points,
+    routePolyline,
+    maxDistanceM: VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
+  })
+  if (strictMatches.length > 0) return strictMatches
+
+  return matchProviderPointsToRoute({
+    points,
+    routePolyline,
+    maxDistanceM: VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M,
+    maxPoints: VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS,
+  })
+}
 
 function validateThresholdOverrides(raw: unknown): TravelThresholdOverrides | undefined {
   if (!raw || typeof raw !== 'object') return undefined
@@ -452,7 +476,7 @@ export async function POST(request: Request) {
       const vegagerdinMatchable = vegagerdinResult.payload.measurements
         .filter(m => m.stationId && m.lat !== null && m.lon !== null)
 
-      vegagerdinRouteMatches = matchProviderPointsToRoute({
+      vegagerdinRouteMatches = matchVegagerdinPointsToRoute({
         points: vegagerdinMatchable.map(m => ({
           id: m.stationId,
           name: m.stationName,
@@ -460,7 +484,6 @@ export async function POST(request: Request) {
           lon: m.lon,
         })),
         routePolyline,
-        maxDistanceM: VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M,
       })
 
       if (vegagerdinLayerEnabled) {
