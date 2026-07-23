@@ -815,20 +815,16 @@ export function WeatherChasePanel({
           )}
         </div>
 
-        <div className="rounded-lg border border-border/70 bg-background/75 p-3">
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">{labels.criteriaTitle}</p>
-            <p className="text-xs leading-snug text-muted-foreground">{labels.criteriaHint}</p>
-          </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+        <div className="rounded-md border border-border/60 bg-muted/20 p-1.5">
+          <div className="grid grid-cols-3 gap-1">
+            <label className="space-y-0.5 text-[10px] font-medium text-muted-foreground">
               <span>{labels.minTemperatureLabel}</span>
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+              <div className="flex items-center rounded border border-border bg-background px-0.5 focus-within:border-primary">
                 <button
                   type="button"
                   onClick={() => stepTemperatureCriteria(-1)}
                   aria-label={labels.decreaseTemperatureLabel}
-                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
                 >
                   -
                 </button>
@@ -837,27 +833,27 @@ export function WeatherChasePanel({
                   inputMode="decimal"
                   value={temperatureDraft}
                   onChange={event => updateTemperatureCriteriaFromText(event.target.value)}
-                  className="h-9 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
+                  className="h-7 min-w-0 flex-1 bg-transparent text-center text-xs font-medium text-foreground outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => stepTemperatureCriteria(1)}
                   aria-label={labels.increaseTemperatureLabel}
-                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
                 >
                   +
                 </button>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{labels.temperatureUnit}</span>
+                <span className="shrink-0 pr-0.5 text-[10px] text-muted-foreground">{labels.temperatureUnit}</span>
               </div>
             </label>
-            <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+            <label className="space-y-0.5 text-[10px] font-medium text-muted-foreground">
               <span>{labels.maxWindLabel}</span>
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+              <div className="flex items-center rounded border border-border bg-background px-0.5 focus-within:border-primary">
                 <button
                   type="button"
                   onClick={() => stepWindCriteria(-1)}
                   aria-label={labels.decreaseWindLabel}
-                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
                 >
                   -
                 </button>
@@ -866,27 +862,27 @@ export function WeatherChasePanel({
                   inputMode="decimal"
                   value={windDraft}
                   onChange={event => updateWindCriteriaFromText(event.target.value)}
-                  className="h-9 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
+                  className="h-7 min-w-0 flex-1 bg-transparent text-center text-xs font-medium text-foreground outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => stepWindCriteria(1)}
                   aria-label={labels.increaseWindLabel}
-                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
                 >
                   +
                 </button>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{labels.windUnit}</span>
+                <span className="shrink-0 pr-0.5 text-[10px] text-muted-foreground">{labels.windUnit}</span>
               </div>
             </label>
-            <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
+            <label className="space-y-0.5 text-[10px] font-medium text-muted-foreground">
               <span>{labels.maxPrecipitationLabel}</span>
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+              <div className="flex items-center rounded border border-border bg-background px-0.5 focus-within:border-primary">
                 <button
                   type="button"
                   onClick={() => stepPrecipitationCriteria(-1)}
                   aria-label={labels.decreasePrecipitationLabel}
-                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
                 >
                   -
                 </button>
@@ -895,17 +891,17 @@ export function WeatherChasePanel({
                   inputMode="decimal"
                   value={precipitationDraft}
                   onChange={event => updatePrecipitationCriteriaFromText(event.target.value)}
-                  className="h-9 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
+                  className="h-7 min-w-0 flex-1 bg-transparent text-center text-xs font-medium text-foreground outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => stepPrecipitationCriteria(1)}
                   aria-label={labels.increasePrecipitationLabel}
-                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
                 >
                   +
                 </button>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{labels.precipitationUnit}</span>
+                <span className="shrink-0 pr-0.5 text-[10px] text-muted-foreground">{labels.precipitationUnit}</span>
               </div>
             </label>
           </div>
