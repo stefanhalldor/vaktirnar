@@ -160,6 +160,8 @@ export type ForecastDrawerRow = {
   wind: ForecastDrawerMetricCell
   gust: ForecastDrawerGustCell
   precipitation: ForecastDrawerMetricCell
+  windDirectionText?: string | null
+  weatherEmoji?: string | null
 }
 
 export type CandidateArrivalWeather = {

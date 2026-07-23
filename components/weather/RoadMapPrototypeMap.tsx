@@ -575,6 +575,24 @@ function weatherEmojiFromText(
   return '💨'
 }
 
+function degreesToIcelandicDirection(deg: number): string {
+  const dirs = ['N', 'NA', 'A', 'SA', 'S', 'SV', 'V', 'NV']
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8]
+}
+
+function metnoSymbolToEmoji(symbolCode: string | null | undefined): string | null {
+  if (!symbolCode) return null
+  const code = symbolCode.replace(/_day$|_night$|_polartwilight$/, '')
+  if (code === 'clearsky' || code === 'fair') return '☀️'
+  if (code === 'partlycloudy') return '⛅'
+  if (code === 'cloudy') return '☁️'
+  if (code === 'fog') return '🌫️'
+  if (code.includes('thunder')) return '⛈️'
+  if (code.includes('snow') || code.includes('sleet')) return '🌨️'
+  if (code.includes('rain') || code.includes('shower')) return '🌧️'
+  return null
+}
+
 type RoadMapForecastMetricDirection = ForecastDrawerRow['wind']['direction']
 type RoadMapForecastMetricTone = ForecastDrawerRow['wind']['tone']
 
@@ -654,6 +672,10 @@ function buildRoadMapForecastDrawerRows(
         direction: precipDirection,
         tone: roadMapForecastTone(precipDirection, true),
       },
+      windDirectionText: forecast.windDirectionText ?? null,
+      weatherEmoji: forecast.weatherText
+        ? weatherEmojiFromText(forecast.weatherText, precipitationMmPerHour)
+        : null,
     })
   }
 
@@ -737,6 +759,10 @@ function buildRoadMapMetnoForecastDrawerRows(
         direction: precipDirection,
         tone: roadMapForecastTone(precipDirection, true),
       },
+      windDirectionText: Number.isFinite(forecast.windFromDegrees)
+        ? degreesToIcelandicDirection(forecast.windFromDegrees)
+        : null,
+      weatherEmoji: metnoSymbolToEmoji(forecast.symbolCode),
     })
   }
 
@@ -2423,10 +2449,10 @@ export function RoadMapPrototypeMap() {
       stationName: item.label,
       windText,
       gustText,
-      directionText: null,
+      directionText: row?.windDirectionText ?? null,
       temperatureText: row ? formatNum(row.temperature.value, locale) : null,
       precipitationText: row ? formatNum(row.precipitation.value, locale) : null,
-      weatherEmoji: null,
+      weatherEmoji: row?.weatherEmoji ?? null,
       color: kind === 'nearby-vedurstofan' ? '#64748b' : '#2563eb',
       compact: true,
       showNameLabel: true,
@@ -4389,7 +4415,7 @@ export function RoadMapPrototypeMap() {
       : null
     const nowRouteMode: RouteWeatherMode = 'now'
 
-    // Hide global station markers and place labels — route stations are the focus now.
+    // Hide global station markers, chase markers, and place labels — route stations are the focus now.
     routeActiveRef.current = true
     setRouteWeatherModeState(nowRouteMode)
     vedurstofanLayerRef.current = vedurstofanLayer
@@ -4397,6 +4423,7 @@ export function RoadMapPrototypeMap() {
     routeThresholdsRef.current = thresholds
     updateOverviewLayerVisibility(overviewActiveModeRef.current, true)
     hideOverviewStationMarkers()
+    clearWeatherChaseMapMarkers()
     for (const { element } of placeMarkersRef.current) {
       element.style.display = 'none'
     }
