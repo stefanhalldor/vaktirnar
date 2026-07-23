@@ -67,6 +67,10 @@ type WeatherChaseLabels = {
   maxPrecipitationLabel: string
   decreasePrecipitationLabel: string
   increasePrecipitationLabel: string
+  decreaseTemperatureLabel: string
+  increaseTemperatureLabel: string
+  decreaseWindLabel: string
+  increaseWindLabel: string
   temperatureUnit: string
   windUnit: string
   precipitationUnit: string
@@ -363,6 +367,10 @@ export function WeatherChasePanel({
   const [precipitationDraft, setPrecipitationDraft] = useState(
     criteriaInputValue(activeCriteria.maxPrecipitationMmPerHour),
   )
+  const temperatureCriteriaValueRef = useRef<number | null>(activeCriteria.minTemperatureC)
+  const [temperatureDraft, setTemperatureDraft] = useState(criteriaInputValue(activeCriteria.minTemperatureC))
+  const windCriteriaValueRef = useRef<number | null>(activeCriteria.maxWindMs)
+  const [windDraft, setWindDraft] = useState(criteriaInputValue(activeCriteria.maxWindMs))
 
   const itemById = useMemo(() => {
     return new Map(items.map(item => {
@@ -512,6 +520,18 @@ export function WeatherChasePanel({
   }, [activeCriteria.maxPrecipitationMmPerHour])
 
   useEffect(() => {
+    if (temperatureCriteriaValueRef.current === activeCriteria.minTemperatureC) return
+    temperatureCriteriaValueRef.current = activeCriteria.minTemperatureC
+    setTemperatureDraft(criteriaInputValue(activeCriteria.minTemperatureC))
+  }, [activeCriteria.minTemperatureC])
+
+  useEffect(() => {
+    if (windCriteriaValueRef.current === activeCriteria.maxWindMs) return
+    windCriteriaValueRef.current = activeCriteria.maxWindMs
+    setWindDraft(criteriaInputValue(activeCriteria.maxWindMs))
+  }, [activeCriteria.maxWindMs])
+
+  useEffect(() => {
     return () => clearSearchBlurTimer()
   }, [])
 
@@ -528,6 +548,36 @@ export function WeatherChasePanel({
     precipitationCriteriaValueRef.current = next
     setPrecipitationDraft(criteriaStepInputValue(next, locale))
     updateCriteria({ maxPrecipitationMmPerHour: next })
+  }
+
+  function updateTemperatureCriteriaFromText(value: string) {
+    const parsed = criteriaNumber(value)
+    temperatureCriteriaValueRef.current = parsed
+    setTemperatureDraft(value)
+    updateCriteria({ minTemperatureC: parsed })
+  }
+
+  function stepTemperatureCriteria(delta: -1 | 1) {
+    const current = activeCriteria.minTemperatureC ?? 0
+    const next = Math.round(current + delta)
+    temperatureCriteriaValueRef.current = next
+    setTemperatureDraft(criteriaStepInputValue(next, locale))
+    updateCriteria({ minTemperatureC: next })
+  }
+
+  function updateWindCriteriaFromText(value: string) {
+    const parsed = criteriaNumber(value)
+    windCriteriaValueRef.current = parsed
+    setWindDraft(value)
+    updateCriteria({ maxWindMs: parsed })
+  }
+
+  function stepWindCriteria(delta: -1 | 1) {
+    const current = activeCriteria.maxWindMs ?? 0
+    const next = Math.max(0, Math.round(current + delta))
+    windCriteriaValueRef.current = next
+    setWindDraft(criteriaStepInputValue(next, locale))
+    updateCriteria({ maxWindMs: next })
   }
 
   function handleSaveDefault() {
@@ -773,28 +823,59 @@ export function WeatherChasePanel({
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
               <span>{labels.minTemperatureLabel}</span>
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-2 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+                <button
+                  type="button"
+                  onClick={() => stepTemperatureCriteria(-1)}
+                  aria-label={labels.decreaseTemperatureLabel}
+                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  -
+                </button>
                 <input
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  value={criteriaInputValue(activeCriteria.minTemperatureC)}
-                  onChange={event => updateCriteria({ minTemperatureC: criteriaNumber(event.target.value) })}
-                  className="h-9 min-w-0 flex-1 bg-transparent text-base font-medium text-foreground outline-none"
+                  value={temperatureDraft}
+                  onChange={event => updateTemperatureCriteriaFromText(event.target.value)}
+                  className="h-9 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
                 />
+                <button
+                  type="button"
+                  onClick={() => stepTemperatureCriteria(1)}
+                  aria-label={labels.increaseTemperatureLabel}
+                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  +
+                </button>
                 <span className="shrink-0 text-[11px] text-muted-foreground">{labels.temperatureUnit}</span>
               </div>
             </label>
             <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
               <span>{labels.maxWindLabel}</span>
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-2 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+                <button
+                  type="button"
+                  onClick={() => stepWindCriteria(-1)}
+                  aria-label={labels.decreaseWindLabel}
+                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  -
+                </button>
                 <input
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  min={0}
-                  value={criteriaInputValue(activeCriteria.maxWindMs)}
-                  onChange={event => updateCriteria({ maxWindMs: criteriaNumber(event.target.value) })}
-                  className="h-9 min-w-0 flex-1 bg-transparent text-base font-medium text-foreground outline-none"
+                  value={windDraft}
+                  onChange={event => updateWindCriteriaFromText(event.target.value)}
+                  className="h-9 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
                 />
+                <button
+                  type="button"
+                  onClick={() => stepWindCriteria(1)}
+                  aria-label={labels.increaseWindLabel}
+                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  +
+                </button>
                 <span className="shrink-0 text-[11px] text-muted-foreground">{labels.windUnit}</span>
               </div>
             </label>

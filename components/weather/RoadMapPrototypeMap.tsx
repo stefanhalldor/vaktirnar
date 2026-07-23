@@ -1246,6 +1246,7 @@ export function RoadMapPrototypeMap() {
   const [weatherChaseSaveStatus, setWeatherChaseSaveStatus] = useState<WeatherChaseSaveStatus>('idle')
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
+  const [routeActive, setRouteActive] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const routeBridgeRequestRef = useRef<AbortController | null>(null)
@@ -1905,6 +1906,7 @@ export function RoadMapPrototypeMap() {
       weatherChaseSelectedItems.length > 0
     if (!shouldShowWeatherChaseMarkers) {
       updateOverviewMarkerVisibility()
+      reconcilePlaceMarkerVisibility()
       return
     }
 
@@ -1979,29 +1981,16 @@ export function RoadMapPrototypeMap() {
     }
 
     hideOverviewStationMarkers()
-    weatherChaseActiveRef.current = true
-    for (const { element } of placeMarkersRef.current) {
-      element.style.display = 'none'
-    }
+    reconcilePlaceMarkerVisibility()
 
     return () => {
       clearWeatherChaseMapMarkers()
-      weatherChaseActiveRef.current = false
-      if (!routeActiveRef.current) {
-        const zoom = mapRef.current?.getZoom() ?? 6
-        for (const { element, place } of placeMarkersRef.current) {
-          const isVisible =
-            place.importance === 3 ||
-            (place.importance === 2 && zoom >= 5.8) ||
-            zoom >= 7.2
-          element.style.display = isVisible ? 'block' : 'none'
-        }
-      }
     }
   }, [
     isPanelOpen,
     mapReady,
     overviewActiveMode,
+    routeActive,
     weatherChaseNearbyFocusId,
     weatherChaseSelectedItems,
     weatherChaseVedurstofanItems,
@@ -2743,6 +2732,24 @@ export function RoadMapPrototypeMap() {
     routeEndpointMarkersRef.current = []
   }
 
+  function reconcilePlaceMarkerVisibility() {
+    const selectionOwnsMap = weatherChaseSelectedItemsRef.current.length > 0
+    if (routeActiveRef.current || selectionOwnsMap) {
+      for (const { element } of placeMarkersRef.current) {
+        element.style.display = 'none'
+      }
+      return
+    }
+    const zoom = mapRef.current?.getZoom() ?? 6
+    for (const { element, place } of placeMarkersRef.current) {
+      const isVisible =
+        place.importance === 3 ||
+        (place.importance === 2 && zoom >= 5.8) ||
+        zoom >= 7.2
+      element.style.display = isVisible ? 'block' : 'none'
+    }
+  }
+
   function clearWeatherChaseMapMarkers() {
     weatherChaseMapMarkersRef.current.forEach(({ marker }) => marker.remove())
     weatherChaseMapMarkersRef.current = []
@@ -2818,6 +2825,7 @@ export function RoadMapPrototypeMap() {
     setSelectedCandidateIdx(null)
     setRouteWeatherModeState('now')
     routeActiveRef.current = false
+    setRouteActive(false)
     vedurstofanLayerRef.current = undefined
     resolvedRoutePlacesRef.current = null
     handleRouteStatusFilterChange(new Set())
@@ -2841,15 +2849,7 @@ export function RoadMapPrototypeMap() {
       }
     }
     updateOverviewLayerVisibility(overviewActiveModeRef.current, false)
-    // Restore place markers based on current zoom
-    const zoom = map.getZoom()
-    for (const { element, place } of placeMarkersRef.current) {
-      const isVisible =
-        place.importance === 3 ||
-        (place.importance === 2 && zoom >= 5.8) ||
-        zoom >= 7.2
-      element.style.display = isVisible ? 'block' : 'none'
-    }
+    reconcilePlaceMarkerVisibility()
     map.flyTo({ center: ICELAND_CENTER, zoom: ICELAND_ZOOM, duration: 600 })
   }
 
@@ -4432,6 +4432,7 @@ export function RoadMapPrototypeMap() {
 
     // Hide global station markers, chase markers, and place labels — route stations are the focus now.
     routeActiveRef.current = true
+    setRouteActive(true)
     setRouteWeatherModeState(nowRouteMode)
     vedurstofanLayerRef.current = vedurstofanLayer
     routeDurationMinutesRef.current = mapData.durationMinutes
@@ -4743,16 +4744,7 @@ export function RoadMapPrototypeMap() {
           })
 
           function updateRoadMapPlaceMarkerVisibility() {
-            if (routeActiveRef.current) return
-            if (weatherChaseActiveRef.current) return
-            const zoom = map.getZoom()
-            for (const { element, place } of placeMarkersRef.current) {
-              const isVisible =
-                place.importance === 3 ||
-                (place.importance === 2 && zoom >= 5.8) ||
-                zoom >= 7.2
-              element.style.display = isVisible ? 'block' : 'none'
-            }
+            reconcilePlaceMarkerVisibility()
           }
 
           updateRoadMapPlaceMarkerVisibility()
@@ -5266,6 +5258,10 @@ export function RoadMapPrototypeMap() {
                 maxPrecipitationLabel: t('roadMapPrototypeWeatherChaseMaxPrecipitationLabel'),
                 decreasePrecipitationLabel: t('roadMapPrototypeWeatherChaseDecreasePrecipitation'),
                 increasePrecipitationLabel: t('roadMapPrototypeWeatherChaseIncreasePrecipitation'),
+                decreaseTemperatureLabel: t('roadMapPrototypeWeatherChaseDecreaseTemperature'),
+                increaseTemperatureLabel: t('roadMapPrototypeWeatherChaseIncreaseTemperature'),
+                decreaseWindLabel: t('roadMapPrototypeWeatherChaseDecreaseWind'),
+                increaseWindLabel: t('roadMapPrototypeWeatherChaseIncreaseWind'),
                 temperatureUnit: t('roadMapPrototypeWeatherChaseTemperatureUnit'),
                 windUnit: t('roadMapPrototypeWeatherChaseWindUnit'),
                 precipitationUnit: t('roadMapPrototypeWeatherChasePrecipitationUnit'),
