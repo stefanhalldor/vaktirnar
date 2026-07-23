@@ -841,7 +841,6 @@ export function WeatherChasePanel({
 
         {settingsOpen && (
           <div className="flex flex-col gap-4">
-            <p className="text-sm leading-snug text-muted-foreground">{labels.subtitle}</p>
             <div className="relative space-y-1">
               <label htmlFor="weather-chase-search" className="text-xs font-medium text-foreground">
                 {labels.searchLabel}

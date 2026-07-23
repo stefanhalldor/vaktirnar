@@ -5188,7 +5188,41 @@ export function RoadMapPrototypeMap() {
   ]
 
   return (
-    <div className="absolute inset-0">
+    <div className="flex h-full w-full flex-col">
+      {/* Topbar */}
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-border/60 bg-background px-3 py-2">
+        <button
+          type="button"
+          onClick={() => { setIsWeatherChaseOpen(true); setIsPanelOpen(false); setIsChatOpen(false); }}
+          className="flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background px-3 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-muted"
+          style={{ color: isWeatherChaseOpen ? '#16a34a' : undefined }}
+        >
+          {t('roadMapPrototypeWeatherChaseTitle')}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setIsPanelOpen(true); setIsWeatherChaseOpen(false); setIsChatOpen(false); }}
+          className="flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background px-3 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-muted"
+          style={{ color: isPanelOpen ? '#16a34a' : undefined }}
+        >
+          {t('roadMapPrototypePanelRoute')}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setIsChatOpen(true); setIsWeatherChaseOpen(false); setIsPanelOpen(false); acknowledgeCurrentItems(); }}
+          className="relative flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background px-3 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-muted"
+          style={{ color: isChatOpen ? '#16a34a' : undefined }}
+        >
+          {t('roadMapPrototypePanelMessages')}
+          {!isChatOpen && newSinceOpenCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">{newSinceOpenCount}</span>
+          )}
+        </button>
+        <div className="flex-1" />
+        <TeskeidMenu variant="authenticated" />
+      </div>
+      {/* Map area */}
+      <div className="relative flex-1 min-h-0">
       {/* h-full w-full — NOT absolute inset-0 — because MapLibre adds
           .maplibregl-map { position: relative } to this element, which would
           override Tailwind's `absolute` and cause inset-0 to collapse to 0px.
@@ -5207,87 +5241,6 @@ export function RoadMapPrototypeMap() {
         </div>
       )}
 
-      {/* Desktop: 🌦️ + 🚗 + 💬 emoji buttons — top-left, hidden on mobile */}
-      <div className="absolute left-3 top-3 z-50 hidden items-center gap-1.5 sm:flex">
-        <button
-          type="button"
-          onClick={() => {
-            setIsWeatherChaseOpen(prev => !prev)
-            setIsPanelOpen(false)
-            setIsChatOpen(false)
-          }}
-          aria-label={t('roadMapPrototypeWeatherChaseTitle')}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-          style={{ color: isWeatherChaseOpen ? '#16a34a' : '#9ca3af' }}
-        >
-          🌦️
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setIsPanelOpen(prev => !prev)
-            setIsWeatherChaseOpen(false)
-          }}
-          aria-label={t('roadMapPrototypeRouteBridgeTitle')}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-          style={{ color: routeBridgeSummary ? '#16a34a' : '#9ca3af' }}
-        >
-          🚗
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setIsChatOpen(prev => {
-              const next = !prev
-              if (next) acknowledgeCurrentItems()
-              return next
-            })
-            setIsPanelOpen(false)
-            setIsWeatherChaseOpen(false)
-          }}
-          aria-label={t('conditionsFeedTitle')}
-          className="relative flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-        >
-          💬
-          {!isChatOpen && newSinceOpenCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">
-              {newSinceOpenCount}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Mobile: panel nav + Teskeið menu — top-right, hidden on desktop */}
-      <div className="absolute right-3 top-3 z-50 flex items-center gap-1.5 sm:hidden">
-        <button
-          type="button"
-          onClick={() => { setIsWeatherChaseOpen(true); setIsPanelOpen(false); setIsChatOpen(false); }}
-          className="flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-          style={{ color: isWeatherChaseOpen ? '#16a34a' : undefined }}
-        >
-          {t('roadMapPrototypeWeatherChaseTitle')}
-        </button>
-        <button
-          type="button"
-          onClick={() => { setIsPanelOpen(true); setIsWeatherChaseOpen(false); setIsChatOpen(false); }}
-          className="flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-          style={{ color: isPanelOpen ? '#16a34a' : undefined }}
-        >
-          {t('roadMapPrototypePanelRoute')}
-        </button>
-        <button
-          type="button"
-          onClick={() => { setIsChatOpen(true); setIsWeatherChaseOpen(false); setIsPanelOpen(false); acknowledgeCurrentItems(); }}
-          className="relative flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-          style={{ color: isChatOpen ? '#16a34a' : undefined }}
-        >
-          {t('roadMapPrototypePanelMessages')}
-          {!isChatOpen && newSinceOpenCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">{newSinceOpenCount}</span>
-          )}
-        </button>
-        <TeskeidMenu variant="authenticated" />
-      </div>
 
       {isWeatherChaseOpen && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:pointer-events-none sm:absolute sm:inset-x-3 sm:bottom-28 sm:top-14 sm:z-[40] sm:flex-row sm:items-start sm:bg-transparent sm:backdrop-blur-none">
@@ -5458,11 +5411,11 @@ export function RoadMapPrototypeMap() {
         className={`fixed inset-0 z-[100] flex-col overflow-hidden bg-background/90 backdrop-blur-sm sm:absolute sm:bottom-0 sm:left-3 sm:top-14 sm:z-20 sm:w-[calc(100%-1.5rem)] sm:max-w-[360px] sm:rounded-t-xl sm:border sm:border-b-0 sm:border-border/70 sm:shadow-lg sm:transition-transform sm:duration-200 ${isPanelOpen ? 'flex sm:translate-x-0' : 'hidden sm:flex sm:-translate-x-[calc(100%+0.75rem)]'}`}
       >
         {/* Panel header */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/50 p-3">
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-2">
           <button
             type="button"
             onClick={() => setIsPanelOpen(false)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+            className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted sm:flex"
             aria-label="Loka"
           >
             ◀
@@ -5483,6 +5436,36 @@ export function RoadMapPrototypeMap() {
               {routeStatusLabel(displayedRouteStatus)}
             </span>
           )}
+          {/* Mobile nav buttons */}
+          <div className="flex shrink-0 items-center gap-1.5 sm:hidden">
+            <button
+              type="button"
+              onClick={() => { setIsWeatherChaseOpen(true); setIsPanelOpen(false); setIsChatOpen(false); }}
+              className="flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+              style={{ color: isWeatherChaseOpen ? '#16a34a' : undefined }}
+            >
+              {t('roadMapPrototypeWeatherChaseTitle')}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setIsChatOpen(true); setIsPanelOpen(false); setIsWeatherChaseOpen(false); acknowledgeCurrentItems(); }}
+              className="relative flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+              style={{ color: isChatOpen ? '#16a34a' : undefined }}
+            >
+              {t('roadMapPrototypePanelMessages')}
+              {!isChatOpen && newSinceOpenCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">{newSinceOpenCount}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setIsPanelOpen(false); setIsWeatherChaseOpen(false); setIsChatOpen(false); }}
+              className="flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+            >
+              {t('roadMapPrototypeBackToMap')}
+            </button>
+            <TeskeidMenu variant="authenticated" />
+          </div>
         </div>
 
         {/* Panel body — scrollable */}
@@ -5959,6 +5942,7 @@ export function RoadMapPrototypeMap() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   )
