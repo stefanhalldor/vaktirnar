@@ -783,11 +783,6 @@ export function WeatherChasePanel({
   return (
     <>
       <section className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-        <div className="space-y-1">
-          <h2 className="text-base font-semibold text-foreground">{labels.title}</h2>
-          <p className="text-sm leading-snug text-muted-foreground">{labels.subtitle}</p>
-        </div>
-
         {loading ? (
           <p className="rounded-lg border border-border bg-background/80 px-3 py-3 text-sm text-muted-foreground">
             {labels.loading}
