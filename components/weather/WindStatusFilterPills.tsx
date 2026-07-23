@@ -50,6 +50,8 @@ export type WindStatusFilterPillsProps = {
    * Default: 'detailed' to preserve existing behavior for shared callers.
    */
   mode?: WindStatusFilterMode
+  /** Render pills without risk colors/icons. Useful when status is a filter, not a warning surface. */
+  neutralColors?: boolean
 }
 
 /**
@@ -79,6 +81,7 @@ export function WindStatusFilterPills({
   showAllButton = false,
   alwaysShowWithinLimits = false,
   mode = 'detailed',
+  neutralColors = false,
 }: WindStatusFilterPillsProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -134,6 +137,10 @@ export function WindStatusFilterPills({
       {visibleList.map(group => {
         const isActive = groupIsActive(group)
         const meta = WIND_STATUS_UI_META[group.metaStatus]
+        const activeClass = neutralColors
+          ? 'border-primary/40 bg-primary/5 text-primary'
+          : meta.chipActiveClass
+        const dotClass = neutralColors ? 'bg-muted-foreground/50' : meta.dotClass
         return (
           <button
             key={group.id}
@@ -141,17 +148,17 @@ export function WindStatusFilterPills({
             onClick={() => handleToggle(group)}
             className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
               isActive
-                ? meta.chipActiveClass
+                ? activeClass
                 : noFilter
                   ? 'border-border bg-transparent text-muted-foreground'
                   : 'border-border bg-transparent text-muted-foreground/30'
             }`}
           >
             <span
-              className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${meta.dotClass}`}
+              className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${dotClass}`}
               aria-hidden
             />
-            <span aria-hidden>{meta.icon}</span>
+            {!neutralColors && <span aria-hidden>{meta.icon}</span>}
             {tf(meta.labelKey as 'statusWithinLimits')} ({groupCount(group)})
           </button>
         )

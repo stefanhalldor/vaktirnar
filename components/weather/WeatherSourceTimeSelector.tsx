@@ -8,6 +8,8 @@ import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTime
 import { formatLongDepartureDateTime } from '@/components/weather/travelAuditMap.helpers'
 import { groupSlotsByDay } from '@/lib/weather/forecastSlotHelpers'
 
+const NEUTRAL_STATUS_DOT_COLOR = '#94a3b8'
+
 interface WeatherSourceTimeSelectorProps {
   // Vegagerðin / current-observations group
   vegagerdinGroupLabel: string
@@ -35,6 +37,8 @@ interface WeatherSourceTimeSelectorProps {
   prevLabel: string
   /** Aria label for the next-slot arrow button. */
   nextLabel: string
+  /** Render dots as neutral time markers instead of status-colored risk markers. */
+  neutralStatusColors?: boolean
 }
 
 /**
@@ -64,6 +68,7 @@ export function WeatherSourceTimeSelector({
   onModeChange,
   prevLabel,
   nextLabel,
+  neutralStatusColors = false,
 }: WeatherSourceTimeSelectorProps) {
   const locale = useLocale()
   const nowActive = activeMode === 'now'
@@ -137,7 +142,7 @@ export function WeatherSourceTimeSelector({
               >
                 <span
                   className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ background: nowStatusColor }}
+                  style={{ background: neutralStatusColors ? NEUTRAL_STATUS_DOT_COLOR : nowStatusColor }}
                   aria-hidden
                 />
                 {nowMeasuredAtLabel && (
@@ -184,7 +189,11 @@ export function WeatherSourceTimeSelector({
                           >
                             <span
                               className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ background: WIND_STATUS_MARKER_COLOR[slot.worstStatus] }}
+                              style={{
+                                background: neutralStatusColors
+                                  ? NEUTRAL_STATUS_DOT_COLOR
+                                  : WIND_STATUS_MARKER_COLOR[slot.worstStatus],
+                              }}
                               aria-hidden
                             />
                             <span className="text-[10px] font-mono text-muted-foreground leading-none">
