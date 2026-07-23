@@ -1158,6 +1158,7 @@
         "roadMapPrototypeWeatherChaseSavedDefaults": "Vistað sem sjálfgefið.",
         "roadMapPrototypeWeatherChaseSavedLocalDefaults": "Vistað í þessum vafra. Keyrðu SQL90 fyrir notandavistun.",
         "roadMapPrototypeWeatherChaseSaveDefaultsFailed": "Náði ekki að vista.",
+        "roadMapPrototypeWeatherChaseSettings": "Breyta / stilla",
         "roadMapPrototypeErrorTitle": "Kort gat ekki hlaðist",
         "roadMapPrototypeHideRoadNetwork": "Fela vegakerfi",
         "roadMapPrototypeShowRoadNetwork": "Sýna vegakerfi",

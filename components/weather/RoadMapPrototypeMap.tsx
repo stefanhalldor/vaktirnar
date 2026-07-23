@@ -5301,6 +5301,7 @@ export function RoadMapPrototypeMap() {
                 savedDefaultsLabel: t('roadMapPrototypeWeatherChaseSavedDefaults'),
                 savedLocalDefaultsLabel: t('roadMapPrototypeWeatherChaseSavedLocalDefaults'),
                 saveDefaultsFailedLabel: t('roadMapPrototypeWeatherChaseSaveDefaultsFailed'),
+                settingsLabel: t('roadMapPrototypeWeatherChaseSettings'),
               }}
               locale={locale}
               thresholds={overviewThresholds}

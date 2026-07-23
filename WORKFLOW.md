@@ -310,7 +310,7 @@ Síðan er úttakið notað bæði í filename og í `Created:` línu inni í sk
 - Mælt filename format: `YYYY-MM-DD-HHMM-todo-XYZ-vNNN-agent-description.md`
   - `todo-XYZ` = númer viðeigandi atriðis úr `TODO.md`
   - `vNNN` = hlaupandi útgáfunúmer fyrir þetta TODO atriði
-  - `agent` = `codex` eða `claude`
+  - `agent` = `codex` eða `Claude` (nákvæmlega þannig: Codex skrár nota `codex`, Claude Code skrár nota `-Claude-`)
   - `description` = stutt kebab-case lýsing
 - Ekki nota `#` eða `:` í filename.
 - Ekki yfirskrifa eldri handoff/review skrár - búa skal til nýja `vNNN` skrá.

@@ -1152,6 +1152,7 @@
         "roadMapPrototypeWeatherChaseSavedDefaults": "Saved as your default.",
         "roadMapPrototypeWeatherChaseSavedLocalDefaults": "Saved in this browser. Run SQL90 for user persistence.",
         "roadMapPrototypeWeatherChaseSaveDefaultsFailed": "Could not save.",
+        "roadMapPrototypeWeatherChaseSettings": "Edit / settings",
         "roadMapPrototypeErrorTitle": "Map could not load",
         "roadMapPrototypeHideRoadNetwork": "Hide road network",
         "roadMapPrototypeShowRoadNetwork": "Show road network",

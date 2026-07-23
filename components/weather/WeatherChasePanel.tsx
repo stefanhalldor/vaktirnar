@@ -81,6 +81,7 @@ type WeatherChaseLabels = {
   savedDefaultsLabel: string
   savedLocalDefaultsLabel: string
   saveDefaultsFailedLabel: string
+  settingsLabel: string
 }
 
 type Props = {
@@ -354,6 +355,7 @@ export function WeatherChasePanel({
 }: Props) {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [internalCriteria, setInternalCriteria] = useState<WeatherChaseCriteria>(DEFAULT_WEATHER_CHASE_CRITERIA)
   const [loadedRowsById, setLoadedRowsById] = useState<Map<string, ForecastDrawerRow[]>>(new Map())
@@ -732,7 +734,7 @@ export function WeatherChasePanel({
     }
 
     return (
-      <div className="overflow-x-auto rounded-lg border border-border/70 bg-background/75">
+      <div className="overflow-auto rounded-lg border border-border/70 bg-background/75" style={{ maxHeight: '55vh' }}>
         <div
           className="inline-grid min-w-full"
           style={{ gridTemplateColumns: `minmax(8.5rem, 9.75rem) repeat(${cols.length}, 4.85rem)` }}
@@ -781,173 +783,6 @@ export function WeatherChasePanel({
   return (
     <>
       <section className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-        <div className="space-y-1">
-          <h2 className="text-base font-semibold text-foreground">{labels.title}</h2>
-          <p className="text-sm leading-snug text-muted-foreground">{labels.subtitle}</p>
-        </div>
-
-        <div className="relative space-y-1">
-          <label htmlFor="weather-chase-search" className="text-xs font-medium text-foreground">
-            {labels.searchLabel}
-          </label>
-          <input
-            ref={searchInputRef}
-            id="weather-chase-search"
-            type="search"
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-            onFocus={() => {
-              clearSearchBlurTimer()
-              setSearchFocused(true)
-            }}
-            onBlur={() => {
-              clearSearchBlurTimer()
-              searchBlurTimerRef.current = window.setTimeout(() => {
-                setSearchFocused(false)
-                searchBlurTimerRef.current = null
-              }, 120)
-            }}
-            placeholder={labels.searchPlaceholder}
-            className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
-          />
-          {showSuggestions && (
-            <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-background p-1 shadow-lg">
-              {suggestions.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-muted-foreground">{labels.noSuggestions}</p>
-              ) : suggestions.map(item => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onMouseDown={event => event.preventDefault()}
-                  onClick={() => addItem(item.id)}
-                  className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-foreground">{item.label}</span>
-                    {item.sourceLabel && (
-                      <span className="block truncate text-[11px] text-muted-foreground">{item.sourceLabel}</span>
-                    )}
-                  </span>
-                  <ProviderBadge item={item} />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-md border border-border/60 bg-muted/20 p-1.5">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <label className="space-y-1 text-xs font-medium text-muted-foreground">
-              <span>{labels.minTemperatureLabel}</span>
-              <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
-                <button
-                  type="button"
-                  onClick={() => stepTemperatureCriteria(-1)}
-                  aria-label={labels.decreaseTemperatureLabel}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  -
-                </button>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={temperatureDraft}
-                  onChange={event => updateTemperatureCriteriaFromText(event.target.value)}
-                  className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => stepTemperatureCriteria(1)}
-                  aria-label={labels.increaseTemperatureLabel}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  +
-                </button>
-                <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.temperatureUnit}</span>
-              </div>
-            </label>
-            <label className="space-y-1 text-xs font-medium text-muted-foreground">
-              <span>{labels.maxWindLabel}</span>
-              <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
-                <button
-                  type="button"
-                  onClick={() => stepWindCriteria(-1)}
-                  aria-label={labels.decreaseWindLabel}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  -
-                </button>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={windDraft}
-                  onChange={event => updateWindCriteriaFromText(event.target.value)}
-                  className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => stepWindCriteria(1)}
-                  aria-label={labels.increaseWindLabel}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  +
-                </button>
-                <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.windUnit}</span>
-              </div>
-            </label>
-            <label className="space-y-1 text-xs font-medium text-muted-foreground">
-              <span>{labels.maxPrecipitationLabel}</span>
-              <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
-                <button
-                  type="button"
-                  onClick={() => stepPrecipitationCriteria(-1)}
-                  aria-label={labels.decreasePrecipitationLabel}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  -
-                </button>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={precipitationDraft}
-                  onChange={event => updatePrecipitationCriteriaFromText(event.target.value)}
-                  className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => stepPrecipitationCriteria(1)}
-                  aria-label={labels.increasePrecipitationLabel}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  +
-                </button>
-                <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.precipitationUnit}</span>
-              </div>
-            </label>
-          </div>
-          {onSaveDefault && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={handleSaveDefault}
-                disabled={saveStatus === 'saving' || selectedItems.length === 0}
-                className="min-h-10 rounded-full border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-50"
-              >
-                {saveStatus === 'saving' ? labels.savingDefaultsLabel : labels.saveDefaultsLabel}
-              </button>
-              {saveStatus === 'saved' && (
-                <span className="text-xs text-emerald-700 dark:text-emerald-400">{labels.savedDefaultsLabel}</span>
-              )}
-              {saveStatus === 'local' && (
-                <span className="text-xs text-amber-700 dark:text-amber-400">{labels.savedLocalDefaultsLabel}</span>
-              )}
-              {saveStatus === 'error' && (
-                <span className="text-xs text-destructive">{labels.saveDefaultsFailedLabel}</span>
-              )}
-            </div>
-          )}
-        </div>
-
         {loading ? (
           <p className="rounded-lg border border-border bg-background/80 px-3 py-3 text-sm text-muted-foreground">
             {labels.loading}
@@ -956,11 +791,9 @@ export function WeatherChasePanel({
           <p className="rounded-lg border border-border bg-background/80 px-3 py-3 text-sm text-muted-foreground">
             {labels.emptyData}
           </p>
-        ) : selectedItems.length === 0 && (
-          <p className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-4 text-sm text-muted-foreground">
-            {labels.emptySelection}
-          </p>
-        )}
+        ) : null}
+
+        {renderComparison(compactCols)}
 
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground">{labels.visibleHoursLabel}</p>
@@ -989,9 +822,187 @@ export function WeatherChasePanel({
           </div>
         </div>
 
-        {renderComparison(compactCols)}
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(v => !v)}
+          className="flex min-h-9 w-full items-center justify-between rounded-lg border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <span>{labels.settingsLabel}</span>
+          <span>{settingsOpen ? '▲' : '▼'}</span>
+        </button>
 
-        {renderReorderList()}
+        {settingsOpen && (
+          <div className="flex flex-col gap-4">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-foreground">{labels.title}</h2>
+              <p className="text-sm leading-snug text-muted-foreground">{labels.subtitle}</p>
+            </div>
+
+            <div className="relative space-y-1">
+              <label htmlFor="weather-chase-search" className="text-xs font-medium text-foreground">
+                {labels.searchLabel}
+              </label>
+              <input
+                ref={searchInputRef}
+                id="weather-chase-search"
+                type="search"
+                value={query}
+                onChange={event => setQuery(event.target.value)}
+                onFocus={() => {
+                  clearSearchBlurTimer()
+                  setSearchFocused(true)
+                }}
+                onBlur={() => {
+                  clearSearchBlurTimer()
+                  searchBlurTimerRef.current = window.setTimeout(() => {
+                    setSearchFocused(false)
+                    searchBlurTimerRef.current = null
+                  }, 120)
+                }}
+                placeholder={labels.searchPlaceholder}
+                className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
+              />
+              {showSuggestions && (
+                <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-background p-1 shadow-lg">
+                  {suggestions.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-muted-foreground">{labels.noSuggestions}</p>
+                  ) : suggestions.map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => addItem(item.id)}
+                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-foreground">{item.label}</span>
+                        {item.sourceLabel && (
+                          <span className="block truncate text-[11px] text-muted-foreground">{item.sourceLabel}</span>
+                        )}
+                      </span>
+                      <ProviderBadge item={item} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-md border border-border/60 bg-muted/20 p-1.5">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>{labels.minTemperatureLabel}</span>
+                  <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
+                    <button
+                      type="button"
+                      onClick={() => stepTemperatureCriteria(-1)}
+                      aria-label={labels.decreaseTemperatureLabel}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={temperatureDraft}
+                      onChange={event => updateTemperatureCriteriaFromText(event.target.value)}
+                      className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => stepTemperatureCriteria(1)}
+                      aria-label={labels.increaseTemperatureLabel}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      +
+                    </button>
+                    <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.temperatureUnit}</span>
+                  </div>
+                </label>
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>{labels.maxWindLabel}</span>
+                  <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
+                    <button
+                      type="button"
+                      onClick={() => stepWindCriteria(-1)}
+                      aria-label={labels.decreaseWindLabel}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={windDraft}
+                      onChange={event => updateWindCriteriaFromText(event.target.value)}
+                      className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => stepWindCriteria(1)}
+                      aria-label={labels.increaseWindLabel}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      +
+                    </button>
+                    <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.windUnit}</span>
+                  </div>
+                </label>
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>{labels.maxPrecipitationLabel}</span>
+                  <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
+                    <button
+                      type="button"
+                      onClick={() => stepPrecipitationCriteria(-1)}
+                      aria-label={labels.decreasePrecipitationLabel}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={precipitationDraft}
+                      onChange={event => updatePrecipitationCriteriaFromText(event.target.value)}
+                      className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => stepPrecipitationCriteria(1)}
+                      aria-label={labels.increasePrecipitationLabel}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      +
+                    </button>
+                    <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.precipitationUnit}</span>
+                  </div>
+                </label>
+              </div>
+              {onSaveDefault && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveDefault}
+                    disabled={saveStatus === 'saving' || selectedItems.length === 0}
+                    className="min-h-10 rounded-full border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {saveStatus === 'saving' ? labels.savingDefaultsLabel : labels.saveDefaultsLabel}
+                  </button>
+                  {saveStatus === 'saved' && (
+                    <span className="text-xs text-emerald-700 dark:text-emerald-400">{labels.savedDefaultsLabel}</span>
+                  )}
+                  {saveStatus === 'local' && (
+                    <span className="text-xs text-amber-700 dark:text-amber-400">{labels.savedLocalDefaultsLabel}</span>
+                  )}
+                  {saveStatus === 'error' && (
+                    <span className="text-xs text-destructive">{labels.saveDefaultsFailedLabel}</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {renderReorderList()}
+          </div>
+        )}
       </section>
     </>
   )
