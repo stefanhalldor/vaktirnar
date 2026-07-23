@@ -1127,6 +1127,7 @@
         "roadMapPrototypeWeatherChaseMoveDownLabel": "Move down",
         "roadMapPrototypeWeatherChaseShowNearbyStations": "Show nearby IMO stations",
         "roadMapPrototypeWeatherChaseEmptySelection": "Choose places to compare.",
+        "roadMapPrototypeWeatherChaseReorderTitle": "Reorder or remove places.",
         "roadMapPrototypeWeatherChaseNoRows": "No forecast values were found for the selected places.",
         "roadMapPrototypeWeatherChaseProviderVedurstofan": "Icelandic Met Office",
         "roadMapPrototypeWeatherChaseProviderMetno": "Yr / met.no",

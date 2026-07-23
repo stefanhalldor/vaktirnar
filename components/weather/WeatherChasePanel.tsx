@@ -58,11 +58,7 @@ type WeatherChaseLabels = {
   moveDownLabel: string
   showNearbyStationsLabel: string
   emptySelection: string
-  viewMoreLabel: string
-  closeLabel: string
-  comparePresetKl12: string
-  comparePresetMorning: string
-  comparePreset3h: string
+  reorderTitle: string
   noRowsLabel: string
   criteriaTitle: string
   criteriaHint: string
@@ -353,8 +349,6 @@ export function WeatherChasePanel({
   const [loadedRowsById, setLoadedRowsById] = useState<Map<string, ForecastDrawerRow[]>>(new Map())
   const [loadingRowIds, setLoadingRowIds] = useState<Set<string>>(new Set())
   const [failedRowIds, setFailedRowIds] = useState<Set<string>>(new Set())
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [preset, setPreset] = useState<'kl12' | 'morning' | '3h'>('kl12')
   const appliedDefaultsKeyRef = useRef<string | null>(null)
   const inFlightLoadIdsRef = useRef<Set<string>>(new Set())
   const activeCriteria = criteria ?? internalCriteria
@@ -453,15 +447,9 @@ export function WeatherChasePanel({
   const showSuggestions = searchFocused && normalizedQuery.length > 0
 
   const compactCols = useMemo(
-    () => buildWeatherChaseColumns(selectedItems, [12], locale),
+    () => buildWeatherChaseColumns(selectedItems, [9, 12, 18], locale),
     [locale, selectedItems],
   )
-
-  const presetHours: Record<typeof preset, number[]> = {
-    kl12: [12],
-    morning: [9, 12, 18],
-    '3h': [0, 3, 6, 9, 12, 15, 18, 21],
-  }
 
   function addItem(id: string) {
     setSelectedIds(prev => (prev.includes(id) ? prev : [...prev, id]))
@@ -523,54 +511,56 @@ export function WeatherChasePanel({
     })
   }
 
-  function renderItemControls(item: WeatherChaseItem, index: number, compact = false) {
+  function renderReorderList() {
+    if (selectedItems.length === 0) return null
     return (
-      <div className={cn('flex flex-wrap items-center gap-1', compact ? 'mt-1' : 'mt-1.5')}>
-        <button
-          type="button"
-          onClick={() => removeItem(item.id)}
-          aria-label={`${labels.removeLabel}: ${item.label}`}
-          title={labels.removeLabel}
-          className="flex h-7 min-w-7 items-center justify-center rounded-full border border-border bg-background px-2 text-[12px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
-        >
-          ×
-        </button>
-        <button
-          type="button"
-          onClick={() => moveItem(item.id, -1)}
-          disabled={index === 0}
-          aria-label={`${labels.moveUpLabel}: ${item.label}`}
-          title={labels.moveUpLabel}
-          className="flex h-7 min-w-7 items-center justify-center rounded-full border border-border bg-background px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
-        >
-          ↑
-        </button>
-        <button
-          type="button"
-          onClick={() => moveItem(item.id, 1)}
-          disabled={index === selectedItems.length - 1}
-          aria-label={`${labels.moveDownLabel}: ${item.label}`}
-          title={labels.moveDownLabel}
-          className="flex h-7 min-w-7 items-center justify-center rounded-full border border-border bg-background px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
-        >
-          ↓
-        </button>
-        {item.providerId === 'metno' && onShowNearbyStations && (
-          <button
-            type="button"
-            onClick={() => onShowNearbyStations(item)}
-            aria-label={`${labels.showNearbyStationsLabel}: ${item.label}`}
-            title={labels.showNearbyStationsLabel}
-            className={cn(
-              'h-7 rounded-full border px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-              nearbyStationItemId === item.id
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-primary',
-            )}
-          >
-            {labels.showNearbyStationsLabel}
-          </button>
-        )}
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-muted-foreground">{labels.reorderTitle}</p>
+        <div className="divide-y divide-border/50 rounded-lg border border-border/70 bg-background/75">
+          {selectedItems.map((item, index) => (
+            <div key={item.id} className="flex items-center gap-2 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] font-semibold text-foreground">{item.label}</span>
+                <ProviderBadge item={item} />
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => moveItem(item.id, -1)}
+                  disabled={index === 0}
+                  aria-label={`${labels.moveUpLabel}: ${item.label}`}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
+                >↑</button>
+                <button
+                  type="button"
+                  onClick={() => moveItem(item.id, 1)}
+                  disabled={index === selectedItems.length - 1}
+                  aria-label={`${labels.moveDownLabel}: ${item.label}`}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
+                >↓</button>
+                {item.providerId === 'metno' && onShowNearbyStations && (
+                  <button
+                    type="button"
+                    onClick={() => onShowNearbyStations(item)}
+                    aria-label={`${labels.showNearbyStationsLabel}: ${item.label}`}
+                    className={cn(
+                      'h-7 rounded-full border px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      nearbyStationItemId === item.id
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-primary',
+                    )}
+                  >{labels.showNearbyStationsLabel}</button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeItem(item.id)}
+                  aria-label={`${labels.removeLabel}: ${item.label}`}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[12px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                >×</button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
@@ -609,7 +599,6 @@ export function WeatherChasePanel({
                       <div className="min-w-0">
                         <p className="truncate text-[11px] font-semibold text-foreground">{item.label}</p>
                         <ProviderBadge item={item} />
-                        {renderItemControls(item, index, true)}
                       </div>
                       <MetricStack
                         row={row}
@@ -635,21 +624,20 @@ export function WeatherChasePanel({
           className="inline-grid min-w-full"
           style={{ gridTemplateColumns: `minmax(8.5rem, 9.75rem) repeat(${cols.length}, 4.85rem)` }}
         >
-          <div className="sticky left-0 z-20 border-b border-r border-border/60 bg-background/95 p-2 text-[10px] font-semibold text-muted-foreground shadow-[4px_0_8px_rgba(15,23,42,0.06)]" />
+          <div className="sticky left-0 top-0 z-30 border-b border-r border-border/60 bg-background/95 p-2 text-[10px] font-semibold text-muted-foreground shadow-[4px_0_8px_rgba(15,23,42,0.06)]" />
           {cols.map(col => (
-            <div key={col.targetIso} className="border-b border-border/60 px-2 py-2 text-[10px] text-muted-foreground">
+            <div key={col.targetIso} className="sticky top-0 z-20 border-b border-border/60 bg-background/95 px-2 py-2 text-[10px] text-muted-foreground">
               <div className="truncate font-semibold">{col.dayLabel}</div>
               <div className="text-muted-foreground/65">{col.timeLabel}</div>
             </div>
           ))}
-          {selectedItems.map((item, index) => (
+          {selectedItems.map((item) => (
             <div key={item.id} className="contents">
               <div className="sticky left-0 z-10 min-w-0 border-r border-border/60 bg-background/95 p-2 shadow-[4px_0_8px_rgba(15,23,42,0.06)]">
                 <p className="truncate text-[11px] font-semibold text-foreground">{item.label}</p>
                 <div className="mt-1">
                   <ProviderBadge item={item} />
                 </div>
-                {renderItemControls(item, index)}
                 {loadingRowIds.has(item.id) && (
                   <p className="mt-1 text-[10px] text-muted-foreground">{labels.loading}</p>
                 )}
@@ -826,67 +814,8 @@ export function WeatherChasePanel({
 
         {renderComparison(compactCols)}
 
-        {selectedItems.length > 0 && compactCols.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="self-start text-xs text-primary underline underline-offset-2 transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            {labels.viewMoreLabel}
-          </button>
-        )}
+        {renderReorderList()}
       </section>
-
-      {drawerOpen && (() => {
-        const drawerCols = buildWeatherChaseColumns(selectedItems, presetHours[preset], locale)
-        return (
-          <div
-            className="fixed inset-0 z-50 flex flex-col justify-end"
-            onClick={() => setDrawerOpen(false)}
-          >
-            <div className="absolute inset-0 bg-black/40" />
-            <div
-              className="relative mx-auto flex max-h-[78vh] w-full max-w-md flex-col rounded-t-xl border-t border-border bg-background"
-              onClick={event => event.stopPropagation()}
-            >
-              <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
-                <p className="text-sm font-semibold text-foreground">{labels.title}</p>
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen(false)}
-                  className="rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  {labels.closeLabel}
-                </button>
-              </div>
-              <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-border/60 px-4 py-2.5">
-                {(['kl12', 'morning', '3h'] as const).map(value => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setPreset(value)}
-                    className={cn(
-                      'rounded-full border px-2.5 py-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                      preset === value
-                        ? 'border-foreground bg-foreground text-background'
-                        : 'border-border text-muted-foreground hover:border-foreground/40',
-                    )}
-                  >
-                    {value === 'kl12'
-                      ? labels.comparePresetKl12
-                      : value === 'morning'
-                        ? labels.comparePresetMorning
-                        : labels.comparePreset3h}
-                  </button>
-                ))}
-              </div>
-              <div className="overflow-y-auto px-4 py-3">
-                {renderComparison(drawerCols)}
-              </div>
-            </div>
-          </div>
-        )
-      })()}
     </>
   )
 }

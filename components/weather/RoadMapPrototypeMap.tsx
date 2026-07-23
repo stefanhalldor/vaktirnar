@@ -1909,7 +1909,8 @@ export function RoadMapPrototypeMap() {
       ) {
         continue
       }
-      const row = selectWeatherChaseMarkerRow(item)
+      const chaseTargetTimeMs = typeof overviewActiveMode === 'number' ? overviewActiveMode : null
+      const row = selectWeatherChaseMarkerRow(item, chaseTargetTimeMs)
       const element = createWeatherChaseMapMarkerElement(item, row, kind)
       const marker = new Marker({ element, anchor: 'center' })
         .setLngLat([item.lon, item.lat])
@@ -1959,6 +1960,7 @@ export function RoadMapPrototypeMap() {
   }, [
     isPanelOpen,
     mapReady,
+    overviewActiveMode,
     weatherChaseNearbyFocusId,
     weatherChaseSelectedItems,
     weatherChaseVedurstofanItems,
@@ -2371,11 +2373,11 @@ export function RoadMapPrototypeMap() {
     return element
   }
 
-  function selectWeatherChaseMarkerRow(item: WeatherChaseItem): ForecastDrawerRow | null {
+  function selectWeatherChaseMarkerRow(item: WeatherChaseItem, targetTimeMs: number | null): ForecastDrawerRow | null {
     if (item.rows.length === 0) return null
-    const nowMs = Date.now()
+    const t = targetTimeMs ?? Date.now()
     return [...item.rows].sort((a, b) => (
-      Math.abs(Date.parse(a.timeIso) - nowMs) - Math.abs(Date.parse(b.timeIso) - nowMs)
+      Math.abs(Date.parse(a.timeIso) - t) - Math.abs(Date.parse(b.timeIso) - t)
     ))[0] ?? null
   }
 
@@ -5212,11 +5214,7 @@ export function RoadMapPrototypeMap() {
                 moveDownLabel: t('roadMapPrototypeWeatherChaseMoveDownLabel'),
                 showNearbyStationsLabel: t('roadMapPrototypeWeatherChaseShowNearbyStations'),
                 emptySelection: t('roadMapPrototypeWeatherChaseEmptySelection'),
-                viewMoreLabel: tf('weatherCompareViewMore'),
-                closeLabel: t('overlayClose'),
-                comparePresetKl12: tf('comparePresetKl12'),
-                comparePresetMorning: tf('comparePresetMorning'),
-                comparePreset3h: tf('comparePreset3h'),
+                reorderTitle: t('roadMapPrototypeWeatherChaseReorderTitle'),
                 noRowsLabel: t('roadMapPrototypeWeatherChaseNoRows'),
                 criteriaTitle: t('roadMapPrototypeWeatherChaseCriteriaTitle'),
                 criteriaHint: t('roadMapPrototypeWeatherChaseCriteriaHint'),
@@ -5587,7 +5585,7 @@ export function RoadMapPrototypeMap() {
           </div>
 
           {/* Overview station count */}
-          {!routeBridgeSummary && stationCount !== null && (
+          {!routeBridgeSummary && !isWeatherChaseOpen && stationCount !== null && (
             <p className="text-[10px] text-muted-foreground">
               {overviewActiveMode === 'now'
                 ? t('vegagerdinProviderLabel')

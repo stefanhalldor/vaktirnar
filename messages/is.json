@@ -1131,6 +1131,7 @@
         "roadMapPrototypeWeatherChaseMoveDownLabel": "Færa niður",
         "roadMapPrototypeWeatherChaseShowNearbyStations": "Sýna nálægar Veðurstofustöðvar",
         "roadMapPrototypeWeatherChaseEmptySelection": "Veldu staði til að bera saman.",
+        "roadMapPrototypeWeatherChaseReorderTitle": "Breyttu röðinni eða fjarlægðu staði.",
         "roadMapPrototypeWeatherChaseNoRows": "Engin spágildi fundust fyrir valda staði.",
         "roadMapPrototypeWeatherChaseProviderVedurstofan": "Veðurstofa Íslands",
         "roadMapPrototypeWeatherChaseProviderMetno": "Yr / met.no",
