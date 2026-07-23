@@ -101,6 +101,7 @@ type Props = {
   }) => void
   saveStatus?: WeatherChaseSaveStatus
   nearbyStationItemId?: string | null
+  nearbyStationItems?: WeatherChaseItem[]
 }
 
 const CMP_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
@@ -146,7 +147,7 @@ function precipMetricClass(
   if (thresholds && value >= thresholds.cautionPrecipMmPerHour) {
     return 'text-amber-600 dark:text-amber-500'
   }
-  if (peerValues.length > 0 && value === Math.min(...peerValues, value)) {
+  if (value > 0 && peerValues.length > 0 && value === Math.min(...peerValues, value)) {
     return 'text-emerald-600 dark:text-emerald-500'
   }
   return ''
@@ -349,6 +350,7 @@ export function WeatherChasePanel({
   onSaveDefault,
   saveStatus = 'idle',
   nearbyStationItemId = null,
+  nearbyStationItems = [],
 }: Props) {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
@@ -611,46 +613,64 @@ export function WeatherChasePanel({
         <p className="text-xs font-medium text-muted-foreground">{labels.reorderTitle}</p>
         <div className="divide-y divide-border/50 rounded-lg border border-border/70 bg-background/75">
           {selectedItems.map((item, index) => (
-            <div key={item.id} className="flex items-center gap-2 px-3 py-2">
-              <div className="min-w-0 flex-1">
-                <span className="block truncate text-[11px] font-semibold text-foreground">{item.label}</span>
-                <ProviderBadge item={item} />
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => moveItem(item.id, -1)}
-                  disabled={index === 0}
-                  aria-label={`${labels.moveUpLabel}: ${item.label}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
-                >↑</button>
-                <button
-                  type="button"
-                  onClick={() => moveItem(item.id, 1)}
-                  disabled={index === selectedItems.length - 1}
-                  aria-label={`${labels.moveDownLabel}: ${item.label}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
-                >↓</button>
-                {item.providerId === 'metno' && onShowNearbyStations && (
+            <div key={item.id}>
+              <div className="flex items-center gap-2 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-[11px] font-semibold text-foreground">{item.label}</span>
+                  <ProviderBadge item={item} />
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => onShowNearbyStations(item)}
-                    aria-label={`${labels.showNearbyStationsLabel}: ${item.label}`}
-                    className={cn(
-                      'h-7 rounded-full border px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                      nearbyStationItemId === item.id
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-primary',
-                    )}
-                  >{labels.showNearbyStationsLabel}</button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeItem(item.id)}
-                  aria-label={`${labels.removeLabel}: ${item.label}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[12px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
-                >×</button>
+                    onClick={() => moveItem(item.id, -1)}
+                    disabled={index === 0}
+                    aria-label={`${labels.moveUpLabel}: ${item.label}`}
+                    className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
+                  >↑</button>
+                  <button
+                    type="button"
+                    onClick={() => moveItem(item.id, 1)}
+                    disabled={index === selectedItems.length - 1}
+                    aria-label={`${labels.moveDownLabel}: ${item.label}`}
+                    className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
+                  >↓</button>
+                  {item.providerId === 'metno' && onShowNearbyStations && (
+                    <button
+                      type="button"
+                      onClick={() => onShowNearbyStations(item)}
+                      aria-label={`${labels.showNearbyStationsLabel}: ${item.label}`}
+                      className={cn(
+                        'h-7 rounded-full border px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                        nearbyStationItemId === item.id
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-primary',
+                      )}
+                    >{labels.showNearbyStationsLabel}</button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeItem(item.id)}
+                    aria-label={`${labels.removeLabel}: ${item.label}`}
+                    className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[12px] font-semibold text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+                  >×</button>
+                </div>
               </div>
+              {nearbyStationItemId === item.id && nearbyStationItems.length > 0 && (
+                <div className="border-t border-border/40 bg-muted/30 px-3 py-2 space-y-1">
+                  <p className="text-[10px] font-medium text-muted-foreground">{labels.showNearbyStationsLabel}</p>
+                  {nearbyStationItems.map(nearbyItem => (
+                    <div key={nearbyItem.id} className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-foreground">{nearbyItem.label}</span>
+                      <button
+                        type="button"
+                        onClick={() => addItem(nearbyItem.id)}
+                        disabled={selectedIdSet.has(nearbyItem.id)}
+                        className="shrink-0 h-6 rounded-full border border-border bg-background px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-40"
+                      >{selectedIdSet.has(nearbyItem.id) ? '✓' : labels.addLabel}</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -816,15 +836,15 @@ export function WeatherChasePanel({
         </div>
 
         <div className="rounded-md border border-border/60 bg-muted/20 p-1.5">
-          <div className="grid grid-cols-3 gap-1">
-            <label className="space-y-0.5 text-[10px] font-medium text-muted-foreground">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <label className="space-y-1 text-xs font-medium text-muted-foreground">
               <span>{labels.minTemperatureLabel}</span>
-              <div className="flex items-center rounded border border-border bg-background px-0.5 focus-within:border-primary">
+              <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
                 <button
                   type="button"
                   onClick={() => stepTemperatureCriteria(-1)}
                   aria-label={labels.decreaseTemperatureLabel}
-                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   -
                 </button>
@@ -833,27 +853,27 @@ export function WeatherChasePanel({
                   inputMode="decimal"
                   value={temperatureDraft}
                   onChange={event => updateTemperatureCriteriaFromText(event.target.value)}
-                  className="h-7 min-w-0 flex-1 bg-transparent text-center text-xs font-medium text-foreground outline-none"
+                  className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => stepTemperatureCriteria(1)}
                   aria-label={labels.increaseTemperatureLabel}
-                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   +
                 </button>
-                <span className="shrink-0 pr-0.5 text-[10px] text-muted-foreground">{labels.temperatureUnit}</span>
+                <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.temperatureUnit}</span>
               </div>
             </label>
-            <label className="space-y-0.5 text-[10px] font-medium text-muted-foreground">
+            <label className="space-y-1 text-xs font-medium text-muted-foreground">
               <span>{labels.maxWindLabel}</span>
-              <div className="flex items-center rounded border border-border bg-background px-0.5 focus-within:border-primary">
+              <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
                 <button
                   type="button"
                   onClick={() => stepWindCriteria(-1)}
                   aria-label={labels.decreaseWindLabel}
-                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   -
                 </button>
@@ -862,27 +882,27 @@ export function WeatherChasePanel({
                   inputMode="decimal"
                   value={windDraft}
                   onChange={event => updateWindCriteriaFromText(event.target.value)}
-                  className="h-7 min-w-0 flex-1 bg-transparent text-center text-xs font-medium text-foreground outline-none"
+                  className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => stepWindCriteria(1)}
                   aria-label={labels.increaseWindLabel}
-                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   +
                 </button>
-                <span className="shrink-0 pr-0.5 text-[10px] text-muted-foreground">{labels.windUnit}</span>
+                <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.windUnit}</span>
               </div>
             </label>
-            <label className="space-y-0.5 text-[10px] font-medium text-muted-foreground">
+            <label className="space-y-1 text-xs font-medium text-muted-foreground">
               <span>{labels.maxPrecipitationLabel}</span>
-              <div className="flex items-center rounded border border-border bg-background px-0.5 focus-within:border-primary">
+              <div className="flex min-h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
                 <button
                   type="button"
                   onClick={() => stepPrecipitationCriteria(-1)}
                   aria-label={labels.decreasePrecipitationLabel}
-                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   -
                 </button>
@@ -891,17 +911,17 @@ export function WeatherChasePanel({
                   inputMode="decimal"
                   value={precipitationDraft}
                   onChange={event => updatePrecipitationCriteriaFromText(event.target.value)}
-                  className="h-7 min-w-0 flex-1 bg-transparent text-center text-xs font-medium text-foreground outline-none"
+                  className="h-10 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => stepPrecipitationCriteria(1)}
                   aria-label={labels.increasePrecipitationLabel}
-                  className="flex h-6 w-5 shrink-0 items-center justify-center text-sm text-muted-foreground hover:text-primary focus-visible:outline-none"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center text-base text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   +
                 </button>
-                <span className="shrink-0 pr-0.5 text-[10px] text-muted-foreground">{labels.precipitationUnit}</span>
+                <span className="shrink-0 pr-2 text-xs text-muted-foreground">{labels.precipitationUnit}</span>
               </div>
             </label>
           </div>
@@ -911,7 +931,7 @@ export function WeatherChasePanel({
                 type="button"
                 onClick={handleSaveDefault}
                 disabled={saveStatus === 'saving' || selectedItems.length === 0}
-                className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-50"
+                className="min-h-10 rounded-full border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-50"
               >
                 {saveStatus === 'saving' ? labels.savingDefaultsLabel : labels.saveDefaultsLabel}
               </button>

@@ -1460,6 +1460,35 @@ export function RoadMapPrototypeMap() {
     setWeatherChaseNearbyFocusId(prev => (prev === item.id ? null : item.id))
   }, [])
 
+  const weatherChaseNearbyDisplayItems = useMemo<WeatherChaseItem[]>(() => {
+    if (!weatherChaseNearbyFocusId) return []
+    const focusItem = weatherChaseSelectedItems.find(item => item.id === weatherChaseNearbyFocusId) ?? null
+    if (!focusItem || focusItem.providerId !== 'metno') return []
+    if (
+      typeof focusItem.lat !== 'number' ||
+      !Number.isFinite(focusItem.lat) ||
+      typeof focusItem.lon !== 'number' ||
+      !Number.isFinite(focusItem.lon)
+    ) return []
+    return weatherChaseVedurstofanItems
+      .filter(c =>
+        typeof c.lat === 'number' &&
+        Number.isFinite(c.lat) &&
+        typeof c.lon === 'number' &&
+        Number.isFinite(c.lon),
+      )
+      .map(c => ({
+        item: c,
+        distanceM: haversineDistanceM(
+          { lat: focusItem.lat as number, lon: focusItem.lon as number },
+          { lat: c.lat as number, lon: c.lon as number },
+        ),
+      }))
+      .sort((a, b) => a.distanceM - b.distanceM || a.item.label.localeCompare(b.item.label, 'is'))
+      .slice(0, 3)
+      .map(c => c.item)
+  }, [weatherChaseNearbyFocusId, weatherChaseSelectedItems, weatherChaseVedurstofanItems])
+
   const weatherChaseDefaultItemIds = useMemo(() => {
     const ids = new Set<string>()
     const itemsWithCoords = weatherChaseVedurstofanItems.filter(
@@ -5187,7 +5216,7 @@ export function RoadMapPrototypeMap() {
             setIsChatOpen(false)
           }}
           aria-label={t('roadMapPrototypeWeatherChaseTitle')}
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
           style={{ color: isWeatherChaseOpen ? '#16a34a' : '#9ca3af' }}
         >
           🌦️
@@ -5199,7 +5228,7 @@ export function RoadMapPrototypeMap() {
             setIsWeatherChaseOpen(false)
           }}
           aria-label={t('roadMapPrototypeRouteBridgeTitle')}
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
           style={{ color: routeBridgeSummary ? '#16a34a' : '#9ca3af' }}
         >
           🚗
@@ -5216,7 +5245,7 @@ export function RoadMapPrototypeMap() {
             setIsWeatherChaseOpen(false)
           }}
           aria-label={t('conditionsFeedTitle')}
-          className="relative flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+          className="relative flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
         >
           💬
           {!isChatOpen && newSinceOpenCount > 0 && (
@@ -5284,6 +5313,7 @@ export function RoadMapPrototypeMap() {
               onSaveDefault={handleSaveWeatherChaseDefault}
               saveStatus={weatherChaseSaveStatus}
               nearbyStationItemId={weatherChaseNearbyFocusId}
+              nearbyStationItems={weatherChaseNearbyDisplayItems}
             />
           </div>
         </div>
@@ -5295,7 +5325,7 @@ export function RoadMapPrototypeMap() {
             <button
               type="button"
               onClick={() => setIsChatOpen(false)}
-              className="rounded-full px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="min-h-10 rounded-full px-3 py-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               {t('overlayClose')}
             </button>
@@ -5327,16 +5357,16 @@ export function RoadMapPrototypeMap() {
         </div>
       )}
 
-      {/* Left drawer panel — slides in from left on 🚗 click */}
+      {/* Route panel — starts below the shared emoji controls on every viewport. */}
       <div
-        className={`absolute bottom-0 left-0 top-0 z-20 flex w-80 flex-col overflow-hidden border-r border-border/70 bg-background/90 shadow-lg backdrop-blur-sm transition-transform duration-200 ${isPanelOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`absolute bottom-0 left-3 top-14 z-20 flex w-[calc(100%-1.5rem)] max-w-[360px] flex-col overflow-hidden rounded-t-xl border border-b-0 border-border/70 bg-background/90 shadow-lg backdrop-blur-sm transition-transform duration-200 ${isPanelOpen ? 'translate-x-0' : '-translate-x-[calc(100%+0.75rem)]'}`}
       >
         {/* Panel header */}
         <div className="flex shrink-0 items-center gap-2 border-b border-border/50 p-3">
           <button
             type="button"
             onClick={() => setIsPanelOpen(false)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
             aria-label="Loka"
           >
             ◀
@@ -5376,7 +5406,7 @@ export function RoadMapPrototypeMap() {
                   <button
                     type="button"
                     onClick={() => handleSelectCandidateIdx(null)}
-                    className="min-h-7 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="min-h-10 rounded-full border border-border bg-background px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
                     {t('roadMapPrototypeReturnToNow')}
                   </button>
@@ -5414,7 +5444,7 @@ export function RoadMapPrototypeMap() {
               <button
                 type="button"
                 onClick={handleClearRoute}
-                className="mt-2 min-h-8 w-full rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="mt-2 min-h-10 w-full rounded-full border border-border bg-background px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 {t('roadMapPrototypeRouteClear')}
               </button>
@@ -5516,7 +5546,7 @@ export function RoadMapPrototypeMap() {
                     <span className="mb-0.5 block text-[10px] text-muted-foreground">
                       {t('thresholdBarCautionLabel')}
                     </span>
-                    <span className="flex h-9 items-center rounded-md border border-border bg-background focus-within:border-primary">
+                    <span className="flex h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
                       <input
                         type="number"
                         inputMode="decimal"
@@ -5539,7 +5569,7 @@ export function RoadMapPrototypeMap() {
                     <span className="mb-0.5 block text-[10px] text-muted-foreground">
                       {t('thresholdBarDangerLabel')}
                     </span>
-                    <span className="flex h-9 items-center rounded-md border border-border bg-background focus-within:border-primary">
+                    <span className="flex h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
                       <input
                         type="number"
                         inputMode="decimal"
@@ -5588,14 +5618,14 @@ export function RoadMapPrototypeMap() {
             <button
               type="button"
               onClick={handleOverlayToggle}
-              className="text-[11px] px-2.5 py-1.5 rounded-full border border-border bg-background/80 text-foreground/80 transition-colors hover:bg-muted"
+              className="min-h-10 rounded-full border border-border bg-background/80 px-3 py-2 text-[11px] text-foreground/80 transition-colors hover:bg-muted"
             >
               {showOverlay ? t('roadMapPrototypeHideRoadNetwork') : t('roadMapPrototypeShowRoadNetwork')}
             </button>
             <button
               type="button"
               onClick={handleSegmentsToggle}
-              className="text-[11px] px-2.5 py-1.5 rounded-full border border-border bg-background/80 text-foreground/80 transition-colors hover:bg-muted"
+              className="min-h-10 rounded-full border border-border bg-background/80 px-3 py-2 text-[11px] text-foreground/80 transition-colors hover:bg-muted"
             >
               {showSegments
                 ? t('roadMapPrototypeHideConditionSegments')
