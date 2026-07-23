@@ -70,6 +70,8 @@ type WeatherChaseLabels = {
   temperatureUnit: string
   windUnit: string
   precipitationUnit: string
+  visibleHoursLabel: string
+  visibleHourAriaLabel: string
   saveDefaultsLabel: string
   savingDefaultsLabel: string
   savedDefaultsLabel: string
@@ -106,6 +108,8 @@ const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
   maxWindMs: null,
   maxPrecipitationMmPerHour: null,
 }
+const WEATHER_CHASE_VISIBLE_HOURS = [0, 3, 6, 9, 12, 15, 18, 21] as const
+type WeatherChaseVisibleHour = (typeof WEATHER_CHASE_VISIBLE_HOURS)[number]
 
 function normalizeSearch(value: string): string {
   return value
@@ -349,6 +353,9 @@ export function WeatherChasePanel({
   const [loadedRowsById, setLoadedRowsById] = useState<Map<string, ForecastDrawerRow[]>>(new Map())
   const [loadingRowIds, setLoadingRowIds] = useState<Set<string>>(new Set())
   const [failedRowIds, setFailedRowIds] = useState<Set<string>>(new Set())
+  const [visibleHours, setVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const searchBlurTimerRef = useRef<number | null>(null)
   const appliedDefaultsKeyRef = useRef<string | null>(null)
   const inFlightLoadIdsRef = useRef<Set<string>>(new Set())
   const activeCriteria = criteria ?? internalCriteria
@@ -374,8 +381,19 @@ export function WeatherChasePanel({
       .map(id => itemById.get(id))
       .filter((item): item is WeatherChaseItem => !!item)
       .slice(0, 7)
-    const fallback = selected.length > 0 ? selected : items.slice(0, 3)
-    setSelectedIds(fallback.map(item => item.id))
+
+    if (initialSelectedIds.length > 0) {
+      const waitingForSavedVedurstofanItems =
+        initialSelectedIds.some(id => id.startsWith('vedurstofan:') && !itemById.has(id)) &&
+        !items.some(item => item.providerId === 'vedurstofan')
+      if (waitingForSavedVedurstofanItems) return
+      if (selected.length === 0) return
+      setSelectedIds(selected.map(item => item.id))
+      appliedDefaultsKeyRef.current = defaultsKey
+      return
+    }
+
+    setSelectedIds(items.slice(0, 3).map(item => item.id))
     appliedDefaultsKeyRef.current = defaultsKey
   }, [initialSelectedIds, itemById, items])
 
@@ -447,14 +465,35 @@ export function WeatherChasePanel({
   const showSuggestions = searchFocused && normalizedQuery.length > 0
 
   const compactCols = useMemo(
-    () => buildWeatherChaseColumns(selectedItems, [9, 12, 18], locale),
-    [locale, selectedItems],
+    () => buildWeatherChaseColumns(selectedItems, visibleHours, locale),
+    [locale, selectedItems, visibleHours],
   )
 
+  function clearSearchBlurTimer() {
+    if (searchBlurTimerRef.current) {
+      window.clearTimeout(searchBlurTimerRef.current)
+      searchBlurTimerRef.current = null
+    }
+  }
+
   function addItem(id: string) {
+    clearSearchBlurTimer()
     setSelectedIds(prev => (prev.includes(id) ? prev : [...prev, id]))
     setQuery('')
-    setSearchFocused(false)
+    setSearchFocused(true)
+    window.setTimeout(() => {
+      searchInputRef.current?.focus()
+    }, 0)
+  }
+
+  function toggleVisibleHour(hour: WeatherChaseVisibleHour) {
+    setVisibleHours(prev => {
+      if (prev.includes(hour)) {
+        const next = prev.filter(currentHour => currentHour !== hour)
+        return next.length > 0 ? next : prev
+      }
+      return [...prev, hour].sort((a, b) => a - b)
+    })
   }
 
   function updateCriteria(patch: Partial<WeatherChaseCriteria>) {
@@ -471,6 +510,10 @@ export function WeatherChasePanel({
     precipitationCriteriaValueRef.current = activeCriteria.maxPrecipitationMmPerHour
     setPrecipitationDraft(criteriaInputValue(activeCriteria.maxPrecipitationMmPerHour))
   }, [activeCriteria.maxPrecipitationMmPerHour])
+
+  useEffect(() => {
+    return () => clearSearchBlurTimer()
+  }, [])
 
   function updatePrecipitationCriteriaFromText(value: string) {
     const parsed = criteriaNumber(value)
@@ -678,12 +721,22 @@ export function WeatherChasePanel({
             {labels.searchLabel}
           </label>
           <input
+            ref={searchInputRef}
             id="weather-chase-search"
             type="search"
             value={query}
             onChange={event => setQuery(event.target.value)}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => window.setTimeout(() => setSearchFocused(false), 120)}
+            onFocus={() => {
+              clearSearchBlurTimer()
+              setSearchFocused(true)
+            }}
+            onBlur={() => {
+              clearSearchBlurTimer()
+              searchBlurTimerRef.current = window.setTimeout(() => {
+                setSearchFocused(false)
+                searchBlurTimerRef.current = null
+              }, 120)
+            }}
             placeholder={labels.searchPlaceholder}
             className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
           />
@@ -811,6 +864,33 @@ export function WeatherChasePanel({
             {labels.emptySelection}
           </p>
         )}
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">{labels.visibleHoursLabel}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {WEATHER_CHASE_VISIBLE_HOURS.map(hour => {
+              const selected = visibleHours.includes(hour)
+              const hourLabel = String(hour)
+              return (
+                <button
+                  key={hour}
+                  type="button"
+                  onClick={() => toggleVisibleHour(hour)}
+                  aria-pressed={selected}
+                  aria-label={`${labels.visibleHourAriaLabel} ${hourLabel}`}
+                  className={cn(
+                    'min-h-8 min-w-8 rounded-full border px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    selected
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border bg-background/85 text-muted-foreground hover:border-primary/40 hover:text-primary',
+                  )}
+                >
+                  {hourLabel}
+                </button>
+              )
+            })}
+          </div>
+        </div>
 
         {renderComparison(compactCols)}
 

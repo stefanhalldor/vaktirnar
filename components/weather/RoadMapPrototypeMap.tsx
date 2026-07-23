@@ -5226,6 +5226,8 @@ export function RoadMapPrototypeMap() {
                 temperatureUnit: t('roadMapPrototypeWeatherChaseTemperatureUnit'),
                 windUnit: t('roadMapPrototypeWeatherChaseWindUnit'),
                 precipitationUnit: t('roadMapPrototypeWeatherChasePrecipitationUnit'),
+                visibleHoursLabel: t('roadMapPrototypeWeatherChaseVisibleHoursLabel'),
+                visibleHourAriaLabel: t('roadMapPrototypeWeatherChaseVisibleHourAriaLabel'),
                 saveDefaultsLabel: t('roadMapPrototypeWeatherChaseSaveDefaults'),
                 savingDefaultsLabel: t('roadMapPrototypeWeatherChaseSavingDefaults'),
                 savedDefaultsLabel: t('roadMapPrototypeWeatherChaseSavedDefaults'),

@@ -1141,6 +1141,8 @@
         "roadMapPrototypeWeatherChaseTemperatureUnit": "°C",
         "roadMapPrototypeWeatherChaseWindUnit": "m/s",
         "roadMapPrototypeWeatherChasePrecipitationUnit": "mm/hr",
+        "roadMapPrototypeWeatherChaseVisibleHoursLabel": "Times in table",
+        "roadMapPrototypeWeatherChaseVisibleHourAriaLabel": "Show hour",
         "roadMapPrototypeWeatherChaseSaveDefaults": "Save my weather map",
         "roadMapPrototypeWeatherChaseSavingDefaults": "Saving...",
         "roadMapPrototypeWeatherChaseSavedDefaults": "Saved as your default.",
