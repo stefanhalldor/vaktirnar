@@ -734,7 +734,7 @@ export function WeatherChasePanel({
     }
 
     return (
-      <div className="overflow-auto rounded-lg border border-border/70 bg-background/75" style={{ maxHeight: '55vh' }}>
+      <div className="overflow-x-auto rounded-lg border border-border/70 bg-background/75">
         <div
           className="inline-grid min-w-full"
           style={{ gridTemplateColumns: `minmax(8.5rem, 9.75rem) repeat(${cols.length}, 4.85rem)` }}
@@ -783,6 +783,11 @@ export function WeatherChasePanel({
   return (
     <>
       <section className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+        <div className="space-y-1">
+          <h2 className="text-base font-semibold text-foreground">{labels.title}</h2>
+          <p className="text-sm leading-snug text-muted-foreground">{labels.subtitle}</p>
+        </div>
+
         {loading ? (
           <p className="rounded-lg border border-border bg-background/80 px-3 py-3 text-sm text-muted-foreground">
             {labels.loading}
@@ -833,11 +838,6 @@ export function WeatherChasePanel({
 
         {settingsOpen && (
           <div className="flex flex-col gap-4">
-            <div className="space-y-1">
-              <h2 className="text-base font-semibold text-foreground">{labels.title}</h2>
-              <p className="text-sm leading-snug text-muted-foreground">{labels.subtitle}</p>
-            </div>
-
             <div className="relative space-y-1">
               <label htmlFor="weather-chase-search" className="text-xs font-medium text-foreground">
                 {labels.searchLabel}
