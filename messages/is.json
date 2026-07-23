@@ -740,7 +740,7 @@
         "convertToTrip": "Breyta í ferðalag",
         "tripComingSoon": "Ferðalag kemur fljótlega. Þessi akstur verður þá fyrsta leggið.",
         "viewFullForecast": "Skoða spána á áfangastað betur",
-        "weatherCompareSection": "Fyrir þá sem eru að elta veðrið",
+        "weatherCompareSection": "Veldu staði og berðu saman veðrið",
         "weatherCompareViewMore": "Skoða samanburð nánar",
         "comparePresetKl12": "Kl. 12",
         "comparePresetMorning": "Morgun · hádegi · kvöld",
@@ -929,7 +929,7 @@
         "roadMapPrototypeMarkerRoadTemperatureTitle": "Veghiti"
       },
       "eltaVedrid": {
-        "title": "Elta veðrið",
+        "title": "Mitt veður",
         "subtitle": "Allar staðfestar Veðurstofustöðvar til sannprófunar. Þetta eru spágögn, ekki rauntímamælingar eða hviður, og hafa ekki áhrif á ferðamat enn.",
         "back": "Til baka í ferðaveðrið",
         "backToTrip": "Til baka í ferðalagið mitt",
@@ -1116,7 +1116,7 @@
         "roadMapPrototypeBack": "← Til baka í Veðrið",
         "roadMapPrototypeTitle": "Korttilraun",
         "roadMapPrototypeSubtitle": "M3A · Ferðaleið á nýju korti · road-intelligence-v1",
-        "roadMapPrototypeWeatherChaseTitle": "Elta veðrið",
+        "roadMapPrototypeWeatherChaseTitle": "Mitt veður",
         "roadMapPrototypeWeatherChaseSubtitle": "Veldu staði og berðu saman spár. Uppruninn er sýndur á hverjum stað svo síðar sé hægt að bera saman Veðurstofuna, Yr og fleiri gagnaveitur.",
         "roadMapPrototypeWeatherChaseLoading": "Sæki spár...",
         "roadMapPrototypeWeatherChaseEmptyData": "Engar spár fundust til samanburðar.",

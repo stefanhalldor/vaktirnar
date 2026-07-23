@@ -925,7 +925,7 @@
         "roadMapPrototypeMarkerRoadTemperatureTitle": "Road temp"
       },
       "eltaVedrid": {
-        "title": "Chase the weather",
+        "title": "My weather",
         "subtitle": "All official Veðurstofan stations for validation. These are forecast rows, not live observations or gusts, and do not affect route results yet.",
         "back": "Back to route weather",
         "backToTrip": "Back to my trip",
@@ -1112,7 +1112,7 @@
         "roadMapPrototypeBack": "← Back to Weather",
         "roadMapPrototypeTitle": "Map prototype",
         "roadMapPrototypeSubtitle": "M3A · Travel route on the new map · road-intelligence-v1",
-        "roadMapPrototypeWeatherChaseTitle": "Chase the weather",
+        "roadMapPrototypeWeatherChaseTitle": "My weather",
         "roadMapPrototypeWeatherChaseSubtitle": "Choose places and compare forecasts. The source is shown for each place so we can later compare the Icelandic Met Office, Yr and other providers.",
         "roadMapPrototypeWeatherChaseLoading": "Fetching forecasts...",
         "roadMapPrototypeWeatherChaseEmptyData": "No forecasts were found for comparison.",

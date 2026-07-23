@@ -1979,9 +1979,24 @@ export function RoadMapPrototypeMap() {
     }
 
     hideOverviewStationMarkers()
+    weatherChaseActiveRef.current = true
+    for (const { element } of placeMarkersRef.current) {
+      element.style.display = 'none'
+    }
 
     return () => {
       clearWeatherChaseMapMarkers()
+      weatherChaseActiveRef.current = false
+      if (!routeActiveRef.current) {
+        const zoom = mapRef.current?.getZoom() ?? 6
+        for (const { element, place } of placeMarkersRef.current) {
+          const isVisible =
+            place.importance === 3 ||
+            (place.importance === 2 && zoom >= 5.8) ||
+            zoom >= 7.2
+          element.style.display = isVisible ? 'block' : 'none'
+        }
+      }
     }
   }, [
     isPanelOpen,
@@ -4729,6 +4744,7 @@ export function RoadMapPrototypeMap() {
 
           function updateRoadMapPlaceMarkerVisibility() {
             if (routeActiveRef.current) return
+            if (weatherChaseActiveRef.current) return
             const zoom = map.getZoom()
             for (const { element, place } of placeMarkersRef.current) {
               const isVisible =
