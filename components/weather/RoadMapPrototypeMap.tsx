@@ -1247,6 +1247,7 @@ export function RoadMapPrototypeMap() {
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [routeActive, setRouteActive] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const routeBridgeRequestRef = useRef<AbortController | null>(null)
@@ -5206,8 +5207,8 @@ export function RoadMapPrototypeMap() {
         </div>
       )}
 
-      {/* Top-left: 🌦️ (weather chase) + 🚗 (route panel) + 💬 (conditions feed) emoji buttons */}
-      <div className="absolute left-3 top-3 z-50 flex items-center gap-1.5">
+      {/* Desktop: 🌦️ + 🚗 + 💬 emoji buttons — top-left, hidden on mobile */}
+      <div className="absolute left-3 top-3 z-50 hidden items-center gap-1.5 sm:flex">
         <button
           type="button"
           onClick={() => {
@@ -5256,9 +5257,104 @@ export function RoadMapPrototypeMap() {
         </button>
       </div>
 
+      {/* Mobile: tap-outside overlay to close hamburger menu */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-40 sm:hidden" onClick={() => setMobileMenuOpen(false)} />
+      )}
+
+      {/* Mobile: "Kort" + hamburger — top-right, hidden on desktop */}
+      <div className="absolute right-3 top-3 z-50 flex items-center gap-2 sm:hidden">
+        {(isWeatherChaseOpen || isPanelOpen || isChatOpen) && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsWeatherChaseOpen(false)
+              setIsPanelOpen(false)
+              setIsChatOpen(false)
+              setMobileMenuOpen(false)
+            }}
+            className="flex h-10 items-center justify-center rounded-full border border-border/70 bg-background/90 px-4 text-sm font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+          >
+            {t('roadMapPrototypeBackToMap')}
+          </button>
+        )}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(v => !v)}
+            aria-label={t('menu')}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/90 text-lg shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
+          >
+            ☰
+          </button>
+          {mobileMenuOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1 min-w-[180px] overflow-hidden rounded-xl border border-border bg-background/95 shadow-lg backdrop-blur-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsWeatherChaseOpen(true)
+                  setIsPanelOpen(false)
+                  setIsChatOpen(false)
+                  setMobileMenuOpen(false)
+                }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-sm text-foreground transition-colors hover:bg-muted"
+                style={{ color: isWeatherChaseOpen ? '#16a34a' : undefined }}
+              >
+                <span>🌦️</span>
+                <span className="font-medium">{t('roadMapPrototypeWeatherChaseTitle')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPanelOpen(true)
+                  setIsWeatherChaseOpen(false)
+                  setIsChatOpen(false)
+                  setMobileMenuOpen(false)
+                }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-sm text-foreground transition-colors hover:bg-muted"
+                style={{ color: routeBridgeSummary ? '#16a34a' : undefined }}
+              >
+                <span>🚗</span>
+                <span className="font-medium">{t('roadMapPrototypeRouteBridgeTitle')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsChatOpen(true)
+                  setIsPanelOpen(false)
+                  setIsWeatherChaseOpen(false)
+                  setMobileMenuOpen(false)
+                  acknowledgeCurrentItems()
+                }}
+                className="relative flex w-full items-center gap-3 px-4 py-3 text-sm text-foreground transition-colors hover:bg-muted"
+              >
+                <span>💬</span>
+                <span className="font-medium">{t('conditionsFeedTitle')}</span>
+                {!isChatOpen && newSinceOpenCount > 0 && (
+                  <span className="ml-auto min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">
+                    {newSinceOpenCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {isWeatherChaseOpen && (
-        <div className="pointer-events-none absolute inset-x-3 bottom-28 top-14 z-[40] flex items-start">
-          <div className="pointer-events-auto max-h-[calc(100vh-9rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-border/70 bg-background/95 p-3 shadow-xl backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:pointer-events-none sm:absolute sm:inset-x-3 sm:bottom-28 sm:top-14 sm:z-[40] sm:flex-row sm:items-start sm:bg-transparent sm:backdrop-blur-none">
+          {/* Mobile-only header */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-4 py-2 sm:hidden">
+            <p className="flex-1 text-sm font-semibold text-foreground">{t('roadMapPrototypeWeatherChaseTitle')}</p>
+            <button
+              type="button"
+              onClick={() => setIsWeatherChaseOpen(false)}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="pointer-events-auto flex-1 overflow-y-auto p-3 sm:flex-none sm:max-h-[calc(100vh-9rem)] sm:w-full sm:max-w-2xl sm:rounded-xl sm:border sm:border-border/70 sm:bg-background/95 sm:shadow-xl sm:backdrop-blur-sm">
             <WeatherChasePanel
               items={weatherChaseItems}
               initialSelectedIds={weatherChaseInitialSelectedIds}
@@ -5321,8 +5417,20 @@ export function RoadMapPrototypeMap() {
       )}
 
       {isChatOpen && (
-        <div className="absolute left-3 top-14 z-30 w-[calc(100%-1.5rem)] max-w-[360px] rounded-xl border border-border/70 bg-background/95 p-2 shadow-lg backdrop-blur-sm">
-          <div className="mb-1 flex items-center justify-end">
+        <div className="fixed inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:absolute sm:bottom-auto sm:left-3 sm:top-14 sm:z-30 sm:block sm:w-[calc(100%-1.5rem)] sm:max-w-[360px] sm:rounded-xl sm:border sm:border-border/70 sm:p-2 sm:shadow-lg">
+          {/* Mobile-only header */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-4 py-2 sm:hidden">
+            <p className="flex-1 text-sm font-semibold text-foreground">{t('conditionsFeedTitle')}</p>
+            <button
+              type="button"
+              onClick={() => setIsChatOpen(false)}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
+            >
+              ✕
+            </button>
+          </div>
+          {/* Desktop-only close button */}
+          <div className="mb-1 hidden items-center justify-end sm:flex">
             <button
               type="button"
               onClick={() => setIsChatOpen(false)}
@@ -5331,6 +5439,7 @@ export function RoadMapPrototypeMap() {
               {t('overlayClose')}
             </button>
           </div>
+          <div className="flex-1 overflow-y-auto p-3 sm:flex-none sm:overflow-visible sm:p-0">
           <ConditionsFeedPreview
             title={t('conditionsFeedTitle')}
             items={conditionsItems}
@@ -5355,12 +5464,13 @@ export function RoadMapPrototypeMap() {
                   )
             }}
           />
+          </div>
         </div>
       )}
 
       {/* Route panel — starts below the shared emoji controls on every viewport. */}
       <div
-        className={`absolute bottom-0 left-3 top-14 z-20 flex w-[calc(100%-1.5rem)] max-w-[360px] flex-col overflow-hidden rounded-t-xl border border-b-0 border-border/70 bg-background/90 shadow-lg backdrop-blur-sm transition-transform duration-200 ${isPanelOpen ? 'translate-x-0' : '-translate-x-[calc(100%+0.75rem)]'}`}
+        className={`fixed inset-0 z-[100] flex-col overflow-hidden bg-background/90 backdrop-blur-sm sm:absolute sm:bottom-0 sm:left-3 sm:top-14 sm:z-20 sm:w-[calc(100%-1.5rem)] sm:max-w-[360px] sm:rounded-t-xl sm:border sm:border-b-0 sm:border-border/70 sm:shadow-lg sm:transition-transform sm:duration-200 ${isPanelOpen ? 'flex sm:translate-x-0' : 'hidden sm:flex sm:-translate-x-[calc(100%+0.75rem)]'}`}
       >
         {/* Panel header */}
         <div className="flex shrink-0 items-center gap-2 border-b border-border/50 p-3">

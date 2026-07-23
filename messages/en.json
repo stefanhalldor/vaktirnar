@@ -1090,6 +1090,7 @@
         "statusFilterModeSimple": "Simple",
         "statusFilterModeDetailed": "Detailed",
         "overlayClose": "Close",
+        "roadMapPrototypeBackToMap": "Map",
         "overlayGust": "gust",
         "overlayNanar": "Details",
         "sourceTimePrevious": "Previous time",
