@@ -364,6 +364,7 @@ export function WeatherChasePanel({
   const [visibleHours, setVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchBlurTimerRef = useRef<number | null>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const appliedDefaultsKeyRef = useRef<string | null>(null)
   const inFlightLoadIdsRef = useRef<Set<string>>(new Set())
   const activeCriteria = criteria ?? internalCriteria
@@ -534,6 +535,12 @@ export function WeatherChasePanel({
     windCriteriaValueRef.current = activeCriteria.maxWindMs
     setWindDraft(criteriaInputValue(activeCriteria.maxWindMs))
   }, [activeCriteria.maxWindMs])
+
+  useEffect(() => {
+    if (settingsOpen) {
+      settingsButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [settingsOpen])
 
   useEffect(() => {
     return () => clearSearchBlurTimer()
@@ -823,6 +830,7 @@ export function WeatherChasePanel({
         </div>
 
         <button
+          ref={settingsButtonRef}
           type="button"
           onClick={() => setSettingsOpen(v => !v)}
           className="flex min-h-9 w-full items-center justify-between rounded-lg border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -833,6 +841,7 @@ export function WeatherChasePanel({
 
         {settingsOpen && (
           <div className="flex flex-col gap-4">
+            <p className="text-sm leading-snug text-muted-foreground">{labels.subtitle}</p>
             <div className="relative space-y-1">
               <label htmlFor="weather-chase-search" className="text-xs font-medium text-foreground">
                 {labels.searchLabel}
