@@ -1135,6 +1135,8 @@
         "roadMapPrototypeWeatherChaseMinTemperatureLabel": "Minimum temperature",
         "roadMapPrototypeWeatherChaseMaxWindLabel": "Maximum wind",
         "roadMapPrototypeWeatherChaseMaxPrecipitationLabel": "Maximum precipitation",
+        "roadMapPrototypeWeatherChaseDecreasePrecipitation": "Lower precipitation limit",
+        "roadMapPrototypeWeatherChaseIncreasePrecipitation": "Raise precipitation limit",
         "roadMapPrototypeWeatherChaseTemperatureUnit": "°C",
         "roadMapPrototypeWeatherChaseWindUnit": "m/s",
         "roadMapPrototypeWeatherChasePrecipitationUnit": "mm/hr",

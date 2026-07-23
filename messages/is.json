@@ -1139,6 +1139,8 @@
         "roadMapPrototypeWeatherChaseMinTemperatureLabel": "Lágmarkshiti",
         "roadMapPrototypeWeatherChaseMaxWindLabel": "Hámarksvindur",
         "roadMapPrototypeWeatherChaseMaxPrecipitationLabel": "Hámarksúrkoma",
+        "roadMapPrototypeWeatherChaseDecreasePrecipitation": "Lækka úrkomumark",
+        "roadMapPrototypeWeatherChaseIncreasePrecipitation": "Hækka úrkomumark",
         "roadMapPrototypeWeatherChaseTemperatureUnit": "°C",
         "roadMapPrototypeWeatherChaseWindUnit": "m/s",
         "roadMapPrototypeWeatherChasePrecipitationUnit": "mm/klst",

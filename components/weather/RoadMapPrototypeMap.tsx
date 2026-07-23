@@ -1144,6 +1144,7 @@ export function RoadMapPrototypeMap() {
   const routeWeatherModeRef = useRef<RouteWeatherMode>('now')
   const routeActiveRef = useRef(false)
   const weatherChaseActiveRef = useRef(false)
+  const weatherChaseSelectedItemsRef = useRef<WeatherChaseItem[]>([])
   const overviewActiveModeRef = useRef<'now' | number>('now')
   const overviewVisibleStatusesRef = useRef<Set<WindDisplayStatus>>(
     new Set(DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES),
@@ -1421,6 +1422,7 @@ export function RoadMapPrototypeMap() {
   }, [overviewThresholds])
 
   const handleWeatherChaseSelectedItemsChange = useCallback((items: WeatherChaseItem[]) => {
+    weatherChaseSelectedItemsRef.current = items
     setWeatherChaseSelectedItems(items)
     setWeatherChaseNearbyFocusId(prev => (
       prev && items.some(item => item.id === prev) ? prev : null
@@ -1603,7 +1605,6 @@ export function RoadMapPrototypeMap() {
   useEffect(() => {
     weatherChaseActiveRef.current = isWeatherChaseOpen
     if (!isWeatherChaseOpen) {
-      clearWeatherChaseMapMarkers()
       weatherChaseBoundsKeyRef.current = null
       setWeatherChaseNearbyFocusId(null)
     }
@@ -1872,7 +1873,14 @@ export function RoadMapPrototypeMap() {
   useEffect(() => {
     if (!mapReady) return
     clearWeatherChaseMapMarkers()
-    if (!isWeatherChaseOpen) return
+    const shouldShowWeatherChaseMarkers =
+      !routeActiveRef.current &&
+      !isPanelOpen &&
+      weatherChaseSelectedItems.length > 0
+    if (!shouldShowWeatherChaseMarkers) {
+      updateOverviewMarkerVisibility()
+      return
+    }
 
     const map = mapRef.current
     const Marker = markerConstructorRef.current
@@ -1949,7 +1957,7 @@ export function RoadMapPrototypeMap() {
       clearWeatherChaseMapMarkers()
     }
   }, [
-    isWeatherChaseOpen,
+    isPanelOpen,
     mapReady,
     weatherChaseNearbyFocusId,
     weatherChaseSelectedItems,
@@ -2176,7 +2184,8 @@ export function RoadMapPrototypeMap() {
     routeActive = routeActiveRef.current,
   ) {
     const map = mapRef.current
-    const showOverview = !routeActive && !weatherChaseActiveRef.current
+    const hasWeatherChaseSelection = weatherChaseSelectedItemsRef.current.length > 0
+    const showOverview = !routeActive && !weatherChaseActiveRef.current && !hasWeatherChaseSelection
     const allEntries = [
       ...overviewVegagerdinMarkersRef.current,
       ...overviewVedurstofanMarkersRef.current,
@@ -5214,6 +5223,8 @@ export function RoadMapPrototypeMap() {
                 minTemperatureLabel: t('roadMapPrototypeWeatherChaseMinTemperatureLabel'),
                 maxWindLabel: t('roadMapPrototypeWeatherChaseMaxWindLabel'),
                 maxPrecipitationLabel: t('roadMapPrototypeWeatherChaseMaxPrecipitationLabel'),
+                decreasePrecipitationLabel: t('roadMapPrototypeWeatherChaseDecreasePrecipitation'),
+                increasePrecipitationLabel: t('roadMapPrototypeWeatherChaseIncreasePrecipitation'),
                 temperatureUnit: t('roadMapPrototypeWeatherChaseTemperatureUnit'),
                 windUnit: t('roadMapPrototypeWeatherChaseWindUnit'),
                 precipitationUnit: t('roadMapPrototypeWeatherChasePrecipitationUnit'),

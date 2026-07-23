@@ -69,6 +69,8 @@ type WeatherChaseLabels = {
   minTemperatureLabel: string
   maxWindLabel: string
   maxPrecipitationLabel: string
+  decreasePrecipitationLabel: string
+  increasePrecipitationLabel: string
   temperatureUnit: string
   windUnit: string
   precipitationUnit: string
@@ -164,15 +166,24 @@ function criteriaNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-function rowMatchesCriteria(row: ForecastDrawerRow | null, criteria: WeatherChaseCriteria): boolean {
-  if (!row) return false
-  if (criteria.minTemperatureC !== null && row.temperature.value < criteria.minTemperatureC) return false
-  if (criteria.maxWindMs !== null && row.wind.value > criteria.maxWindMs) return false
-  if (
-    criteria.maxPrecipitationMmPerHour !== null &&
-    row.precipitation.value > criteria.maxPrecipitationMmPerHour
-  ) return false
-  return true
+function criteriaStepInputValue(value: number, locale: string): string {
+  const rounded = Math.round(value * 10) / 10
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+  return locale.startsWith('is') ? text.replace('.', ',') : text
+}
+
+function metricFailsCriteria(
+  metric: 'temperature' | 'wind' | 'precipitation',
+  value: number,
+  criteria: WeatherChaseCriteria,
+): boolean {
+  if (metric === 'temperature') {
+    return criteria.minTemperatureC !== null && value < criteria.minTemperatureC
+  }
+  if (metric === 'wind') {
+    return criteria.maxWindMs !== null && value > criteria.maxWindMs
+  }
+  return criteria.maxPrecipitationMmPerHour !== null && value > criteria.maxPrecipitationMmPerHour
 }
 
 function preferenceItemFromWeatherChaseItem(item: WeatherChaseItem): WeatherChasePreferenceItem {
@@ -263,22 +274,37 @@ function MetricStack({
   const peerTemps = peerRows.map(peer => peer.temperature.value)
   const peerWinds = peerRows.map(peer => peer.wind.value)
   const peerPrecip = peerRows.map(peer => peer.precipitation.value)
-  const matchesCriteria = rowMatchesCriteria(row, criteria)
+  const temperatureFailsCriteria = metricFailsCriteria('temperature', row.temperature.value, criteria)
+  const windFailsCriteria = metricFailsCriteria('wind', row.wind.value, criteria)
+  const precipitationFailsCriteria = metricFailsCriteria('precipitation', row.precipitation.value, criteria)
 
   return (
-    <div
-      className={cn(
-        'space-y-0.5 rounded-md transition-opacity',
-        !matchesCriteria && 'opacity-35 grayscale',
-      )}
-    >
-      <p className={cn('text-sm font-semibold text-foreground', tempMetricClass(row.temperature.value, peerTemps))}>
+    <div className="space-y-0.5 rounded-md">
+      <p
+        className={cn(
+          'text-sm font-semibold text-foreground transition-opacity',
+          tempMetricClass(row.temperature.value, peerTemps),
+          temperatureFailsCriteria && 'opacity-35 grayscale',
+        )}
+      >
         {formatNum(row.temperature.value, locale)}{labels.temperatureUnit}
       </p>
-      <p className={cn('text-xs font-medium text-foreground', windMetricClass(row.wind.value, peerWinds, thresholds))}>
+      <p
+        className={cn(
+          'text-xs font-medium text-foreground transition-opacity',
+          windMetricClass(row.wind.value, peerWinds, thresholds),
+          windFailsCriteria && 'opacity-35 grayscale',
+        )}
+      >
         {formatNum(row.wind.value, locale)} {labels.windUnit}
       </p>
-      <p className={cn('text-[11px] text-muted-foreground', precipMetricClass(row.precipitation.value, peerPrecip, thresholds))}>
+      <p
+        className={cn(
+          'text-[11px] text-muted-foreground transition-opacity',
+          precipMetricClass(row.precipitation.value, peerPrecip, thresholds),
+          precipitationFailsCriteria && 'opacity-35 grayscale',
+        )}
+      >
         {formatNum(row.precipitation.value, locale)} {labels.precipitationUnit}
       </p>
     </div>
@@ -332,6 +358,10 @@ export function WeatherChasePanel({
   const appliedDefaultsKeyRef = useRef<string | null>(null)
   const inFlightLoadIdsRef = useRef<Set<string>>(new Set())
   const activeCriteria = criteria ?? internalCriteria
+  const precipitationCriteriaValueRef = useRef<number | null>(activeCriteria.maxPrecipitationMmPerHour)
+  const [precipitationDraft, setPrecipitationDraft] = useState(
+    criteriaInputValue(activeCriteria.maxPrecipitationMmPerHour),
+  )
 
   const itemById = useMemo(() => {
     return new Map(items.map(item => {
@@ -446,6 +476,27 @@ export function WeatherChasePanel({
     } else {
       setInternalCriteria(next)
     }
+  }
+
+  useEffect(() => {
+    if (precipitationCriteriaValueRef.current === activeCriteria.maxPrecipitationMmPerHour) return
+    precipitationCriteriaValueRef.current = activeCriteria.maxPrecipitationMmPerHour
+    setPrecipitationDraft(criteriaInputValue(activeCriteria.maxPrecipitationMmPerHour))
+  }, [activeCriteria.maxPrecipitationMmPerHour])
+
+  function updatePrecipitationCriteriaFromText(value: string) {
+    const parsed = criteriaNumber(value)
+    precipitationCriteriaValueRef.current = parsed
+    setPrecipitationDraft(value)
+    updateCriteria({ maxPrecipitationMmPerHour: parsed })
+  }
+
+  function stepPrecipitationCriteria(delta: -1 | 1) {
+    const current = activeCriteria.maxPrecipitationMmPerHour ?? 0
+    const next = Math.max(0, Math.round((current + delta * 0.1) * 10) / 10)
+    precipitationCriteriaValueRef.current = next
+    setPrecipitationDraft(criteriaStepInputValue(next, locale))
+    updateCriteria({ maxPrecipitationMmPerHour: next })
   }
 
   function handleSaveDefault() {
@@ -708,15 +759,30 @@ export function WeatherChasePanel({
             </label>
             <label className="space-y-1 text-[11px] font-medium text-muted-foreground">
               <span>{labels.maxPrecipitationLabel}</span>
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-2 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-background px-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/30">
+                <button
+                  type="button"
+                  onClick={() => stepPrecipitationCriteria(-1)}
+                  aria-label={labels.decreasePrecipitationLabel}
+                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  -
+                </button>
                 <input
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  min={0}
-                  value={criteriaInputValue(activeCriteria.maxPrecipitationMmPerHour)}
-                  onChange={event => updateCriteria({ maxPrecipitationMmPerHour: criteriaNumber(event.target.value) })}
-                  className="h-9 min-w-0 flex-1 bg-transparent text-base font-medium text-foreground outline-none"
+                  value={precipitationDraft}
+                  onChange={event => updatePrecipitationCriteriaFromText(event.target.value)}
+                  className="h-9 min-w-0 flex-1 bg-transparent text-center text-base font-medium text-foreground outline-none"
                 />
+                <button
+                  type="button"
+                  onClick={() => stepPrecipitationCriteria(1)}
+                  aria-label={labels.increasePrecipitationLabel}
+                  className="flex h-7 min-w-7 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  +
+                </button>
                 <span className="shrink-0 text-[11px] text-muted-foreground">{labels.precipitationUnit}</span>
               </div>
             </label>
