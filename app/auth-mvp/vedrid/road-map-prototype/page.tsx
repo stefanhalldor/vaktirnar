@@ -14,7 +14,7 @@ export default async function RoadMapPrototypePage() {
 
   return (
     <main className="h-screen bg-background overflow-hidden">
-      <RoadMapPrototypeMap />
+      <RoadMapPrototypeMap isAuthenticated />
     </main>
   )
 }

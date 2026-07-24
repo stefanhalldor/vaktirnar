@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAdmin } from '@/lib/supabase/admin'
+import { normalizeWeatherChaseVisibleHours } from '@/lib/weather/chasePreferences'
 
 type WeatherChaseProviderId = 'vedurstofan' | 'metno' | 'vegagerdin'
 
@@ -112,6 +113,11 @@ export async function GET() {
     hasPreferences: true,
     selectedItems: normalizeSelectedItems(data.selected_items),
     criteria: normalizeCriteria(data.criteria),
+    visibleHours: normalizeWeatherChaseVisibleHours(
+      typeof data.criteria === 'object' && data.criteria !== null
+        ? (data.criteria as Record<string, unknown>).visibleHours
+        : undefined,
+    ),
   })
 }
 
@@ -132,6 +138,7 @@ export async function PUT(request: Request) {
   const input = typeof body === 'object' && body !== null ? body as Record<string, unknown> : {}
   const selectedItems = normalizeSelectedItems(input.selectedItems)
   const criteria = normalizeCriteria(input.criteria)
+  const visibleHours = normalizeWeatherChaseVisibleHours(input.visibleHours)
 
   const admin = getAdmin()
 
@@ -148,7 +155,7 @@ export async function PUT(request: Request) {
     .upsert({
       user_id: user.id,
       selected_items: selectedItems,
-      criteria,
+      criteria: { ...criteria, visibleHours },
     }, { onConflict: 'user_id' })
 
   if (error && isMissingTableError(error)) {
@@ -164,5 +171,6 @@ export async function PUT(request: Request) {
     success: true,
     selectedItems,
     criteria: { ...DEFAULT_CRITERIA, ...criteria },
+    visibleHours,
   })
 }

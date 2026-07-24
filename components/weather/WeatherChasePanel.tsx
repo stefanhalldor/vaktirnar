@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ForecastDrawerRow, ResolvedTravelThresholds } from '@/lib/weather/types'
+import {
+  normalizeWeatherChaseVisibleHours,
+  WEATHER_CHASE_VISIBLE_HOURS,
+  type WeatherChaseVisibleHour,
+} from '@/lib/weather/chasePreferences'
 import { formatNum } from '@/components/weather/travelAuditMap.helpers'
 import { cn } from '@/lib/utils'
 
@@ -99,10 +104,14 @@ type Props = {
   onSaveDefault?: (input: {
     selectedItems: WeatherChasePreferenceItem[]
     criteria: WeatherChaseCriteria
+    visibleHours: WeatherChaseVisibleHour[]
   }) => void
   saveStatus?: WeatherChaseSaveStatus
   nearbyStationItemId?: string | null
   nearbyStationItems?: WeatherChaseItem[]
+  onHourSelect?: (hour: number) => void
+  visibleHours?: number[]
+  onVisibleHoursChange?: (hours: number[]) => void
 }
 
 const CMP_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
@@ -114,9 +123,6 @@ const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
   maxWindMs: null,
   maxPrecipitationMmPerHour: null,
 }
-const WEATHER_CHASE_VISIBLE_HOURS = [0, 3, 6, 9, 12, 15, 18, 21] as const
-type WeatherChaseVisibleHour = (typeof WEATHER_CHASE_VISIBLE_HOURS)[number]
-
 function normalizeSearch(value: string): string {
   return value
     .trim()
@@ -192,7 +198,7 @@ function metricFailsCriteria(
   return criteria.maxPrecipitationMmPerHour !== null && value > criteria.maxPrecipitationMmPerHour
 }
 
-function preferenceItemFromWeatherChaseItem(item: WeatherChaseItem): WeatherChasePreferenceItem {
+export function preferenceItemFromWeatherChaseItem(item: WeatherChaseItem): WeatherChasePreferenceItem {
   return {
     id: item.id,
     providerId: item.providerId,
@@ -352,6 +358,9 @@ export function WeatherChasePanel({
   saveStatus = 'idle',
   nearbyStationItemId = null,
   nearbyStationItems = [],
+  onHourSelect,
+  visibleHours: visibleHoursInput,
+  onVisibleHoursChange,
 }: Props) {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
@@ -361,7 +370,7 @@ export function WeatherChasePanel({
   const [loadedRowsById, setLoadedRowsById] = useState<Map<string, ForecastDrawerRow[]>>(new Map())
   const [loadingRowIds, setLoadingRowIds] = useState<Set<string>>(new Set())
   const [failedRowIds, setFailedRowIds] = useState<Set<string>>(new Set())
-  const [visibleHours, setVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
+  const visibleHours = normalizeWeatherChaseVisibleHours(visibleHoursInput)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchBlurTimerRef = useRef<number | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -500,13 +509,17 @@ export function WeatherChasePanel({
   }
 
   function toggleVisibleHour(hour: WeatherChaseVisibleHour) {
-    setVisibleHours(prev => {
-      if (prev.includes(hour)) {
-        const next = prev.filter(currentHour => currentHour !== hour)
-        return next.length > 0 ? next : prev
-      }
-      return [...prev, hour].sort((a, b) => a - b)
-    })
+    const adding = !visibleHours.includes(hour)
+    let next: WeatherChaseVisibleHour[]
+    if (adding) {
+      next = [...visibleHours, hour].sort((a, b) => a - b) as WeatherChaseVisibleHour[]
+    } else {
+      const filtered = visibleHours.filter(h => h !== hour)
+      if (filtered.length === 0) return
+      next = filtered
+    }
+    onVisibleHoursChange?.(next)
+    if (adding) onHourSelect?.(hour)
   }
 
   function updateCriteria(patch: Partial<WeatherChaseCriteria>) {
@@ -595,6 +608,7 @@ export function WeatherChasePanel({
     onSaveDefault?.({
       selectedItems: selectedItems.map(preferenceItemFromWeatherChaseItem),
       criteria: activeCriteria,
+      visibleHours,
     })
   }
 
