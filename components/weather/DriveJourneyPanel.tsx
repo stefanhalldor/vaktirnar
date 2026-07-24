@@ -119,6 +119,8 @@ export function DriveJourneyPanel({
   destinationName,
   onClearRoute,
   routePoints,
+  hasMoreCandidates,
+  onLoadMore,
 }: {
   layer: VedurstofanTravelLayer | null
   candidates: TravelCandidate[]
@@ -132,6 +134,8 @@ export function DriveJourneyPanel({
   destinationName: string
   onClearRoute: () => void
   routePoints: Array<{ lat: number; lon: number }>
+  hasMoreCandidates?: boolean
+  onLoadMore?: () => void
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const t = useTranslations('teskeid.vedrid.overview')
@@ -207,6 +211,15 @@ export function DriveJourneyPanel({
               firstSlotLabel={t('roadMapPrototypeScrubberNow')}
               showBestWindowHint={false}
             />
+            {hasMoreCandidates && onLoadMore && (
+              <button
+                type="button"
+                onClick={onLoadMore}
+                className="mt-2 min-h-9 w-full rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t('roadMapPrototypeLoadMoreCandidates')}
+              </button>
+            )}
           </div>
         )}
 

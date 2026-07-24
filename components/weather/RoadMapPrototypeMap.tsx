@@ -5150,6 +5150,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const displayedRouteCandidates = routeCandidates ? routeCandidates.slice(0, visibleCandidateLimit) : null
   const displayedSlotStatusOverrides = routeSlotStatusOverrides ? routeSlotStatusOverrides.slice(0, visibleCandidateLimit) : null
   const hasMoreCandidates = routeCandidates !== null && routeCandidates.length > visibleCandidateLimit
+  const isRouteLoading = routeBridgeStatus === 'loading'
   const activeRouteStatusCounts =
     routeWeatherMode === 'now'
       ? routeNowStatusCounts ?? {}
@@ -5457,7 +5458,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               destinationName={routeBridgeSummary.toName}
               onClearRoute={handleClearRoute}
               routePoints={routeTravelResult?.travelPlan?.route.auditPolylinePoints ?? []}
+              hasMoreCandidates={hasMoreCandidates}
+              onLoadMore={() => setVisibleCandidateLimit(prev => prev + 24)}
             />
+          ) : isRouteLoading ? (
+            <div className="flex items-center justify-center p-10 text-sm text-muted-foreground">
+              {t('roadMapPrototypeRouteLoading')}
+            </div>
           ) : (
             /* No route: route form */
             <div className="p-3">
@@ -5601,12 +5608,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
                 <button
                   type="submit"
-                  disabled={routeBridgeStatus === 'loading'}
-                  className="h-10 w-full rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity disabled:cursor-wait disabled:opacity-70"
+                  className="h-10 w-full rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity"
                 >
-                  {routeBridgeStatus === 'loading'
-                    ? t('roadMapPrototypeRouteLoading')
-                    : t('roadMapPrototypeRouteSubmit')}
+                  {t('roadMapPrototypeRouteSubmit')}
                 </button>
               </form>
 
@@ -5788,32 +5792,46 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 </span>
               </button>
 
-              <button
-                type="button"
-                aria-pressed={routeStatusFilterMode === 'detailed'}
-                onClick={() => handleRouteStatusFilterModeChange(
-                  routeStatusFilterMode === 'detailed' ? 'simple' : 'detailed'
-                )}
-                className={`min-h-10 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                  routeStatusFilterMode === 'detailed'
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-background/85 text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {t('statusFilterModeDetailed')}
-              </button>
             </div>
 
-            {routeStatusFilterMode === 'detailed' && (
-              <WindStatusFilterPills
-                counts={activeRouteStatusCounts}
-                visibleStatuses={visibleRouteStatuses}
-                onVisibleStatusesChange={handleRouteStatusFilterChange}
-                showAllLabel=""
-                alwaysShowWithinLimits
-                mode="detailed"
-              />
-            )}
+            <WindStatusFilterPills
+              counts={activeRouteStatusCounts}
+              visibleStatuses={visibleRouteStatuses}
+              onVisibleStatusesChange={handleRouteStatusFilterChange}
+              showAllLabel=""
+              alwaysShowWithinLimits
+              mode="detailed"
+            />
+
+            {routeSelectedStation?.kind === 'vegagerdin' && (() => {
+              const point = routeSelectedStation.point
+              const href = vegagerdinPulseHref(point.stationId, '/auth-mvp/vedrid/road-map-prototype')
+              return (
+                <a
+                  href={href}
+                  className="mt-1 flex overflow-hidden rounded-xl border border-border bg-card transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <div className="flex flex-1 flex-col">
+                    <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">{point.stationName}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {formatVegagerdinRouteWindValue(point)} m/s
+                        </p>
+                      </div>
+                      <WindStatusBadge status={point.windDisplayStatus} variant="chip" />
+                    </div>
+                    {point.airTemperatureC != null && (
+                      <div className="px-3 py-1.5">
+                        <p className="text-[11px] text-muted-foreground">
+                          {formatNum(point.airTemperatureC, locale)}°C
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </a>
+              )
+            })()}
           </div>
         ) : (
           /* Default overview: time selector + Einfalt/Nánar inline with pills */
