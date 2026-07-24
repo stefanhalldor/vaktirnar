@@ -92,7 +92,7 @@ type WeatherChaseLabels = {
 
 type Props = {
   items: WeatherChaseItem[]
-  initialSelectedIds: string[]
+  initialSelectedIds: string[] | null
   labels: WeatherChaseLabels
   locale: string
   thresholds?: ResolvedTravelThresholds | null
@@ -410,6 +410,7 @@ export function WeatherChasePanel({
 
   useEffect(() => {
     if (items.length === 0) return
+    if (initialSelectedIds === null) return
     const defaultsKey = initialSelectedIds.length > 0 ? initialSelectedIds.join('|') : '__fallback__'
     if (appliedDefaultsKeyRef.current === defaultsKey) return
     const selected = initialSelectedIds

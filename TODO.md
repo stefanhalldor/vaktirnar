@@ -70,6 +70,7 @@ tilvísanir og verkefnasaga rofni ekki.
 | 38  | **#88 Veður: fuzzy staðarleit og staðfesting á korti**      | **Ferðalagið route-selection polish.** Þegar notandi velur eða skrifar stað sem er ekki nákvæmlega úr fellilistanum þarf fuzzy leit, pinni á korti og staðfesting svo réttur staður sé valinn. |
 | 39  | **#89 Veður: spjall per live punkt og síðar vegakafla**     | **Community/weather layer.** Eftir að Vegagerðin er komin inn: byrja á spjalli per live Vegagerðarpunkt; Veðurstofustöðvar geta verið fallback/viðbót og síðar tengt við vegakafla. |
 | 40  | **#90 Veður: eigið Íslandsleiðarkerfi og vegkaflagrunnur** | **Stór architecture/discovery vinna.** Meta hvort Teskeið eigi að byggja eigin einfalt leiðarkerfi fyrir Ísland, byggt á vegkafla-grunni/cache, í stað þess að rembast endalaust við Google Routes fyrir langar landsleiðir. |
+| 41  | **#91 Veður: basemap refresh og kortapússun**               | **Afmarkað 2–3 daga UI sprint fyrir Road OS.** Bera saman tilbúna MapLibre-basemap stíla, velja einn og pússa route, weather overlay og markera án eigin tile server eða sérhannaðs kortastíls. |
 
 ## Vinnupakkar
 
@@ -99,7 +100,7 @@ OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
 hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
 fullkomnara.
 
-**Pakki F — Veðrið / Ferðalagið:** #85, #81, #82, #83, #67, #70, #71, #72, #73, #74, #75, #79, #80, #88, #89, #90 og áframhaldandi `todo-067` handoff.
+**Pakki F — Veðrið / Ferðalagið:** #85, #81, #82, #83, #67, #70, #71, #72, #73, #74, #75, #79, #80, #88, #89, #90, #91 og áframhaldandi `todo-067` handoff.
 Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
 traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
 brottfarar- eða heimferðartíma kerfið mælir með.
@@ -3265,3 +3266,184 @@ ferðaveður, vegakafla, stöðvar, púlsgögn og yfirlit yfir Ísland.
     overlap eða dauðum loading states.
 12. Ef route-interest/heatmap er hluti af fasa: staðfesta að aðeins aggregate
     segment-level gögn séu skráð og að engin nákvæm heimilisföng leki.
+
+---
+
+#91
+## Veður: basemap refresh og kortapússun
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-24
+
+**Samhengi frá Stebba:** Teskeið er nú þegar á MapLibre og á ekki að skipta um
+kortavél, byggja eigin tile server eða fara í sérhannaðan kortastíl. Þetta er
+afmarkaður 2–3 daga UI sprint áður en fókus færist yfir á Road Segment Engine
+og Community. Road OS er varan; kortið á aðeins að verða nógu faglegt og
+læsilegt til að notandinn taki fyrst eftir upplýsingunum sem Teskeið veitir.
+
+**Vandamál:** Núverandi kort, leiðarlína, veðurlag og markerar mynda ekki enn
+nógu samræmda og faglega heild. Basemap getur sýnt of mikið af óviðkomandi POI,
+vegakerfið getur horfið í bakgrunninn og veður-/route-lög geta virst liggja ofan
+á kortinu í stað þess að tilheyra sömu sjónrænu heild.
+
+**Ósk:** Prófa nokkra tilbúna MapLibre-basemap kosti á sömu stöðum á Íslandi,
+velja einn skýran sigurvegara og gera síðan litlar, afmarkaðar breytingar á
+kortinu, leiðarlínu, weather overlay og markerum sem rúmast innan 2–3 daga.
+
+**Scope og deliverable:**
+
+1. Setja upp samanburð á að minnsta kosti:
+   - OpenFreeMap,
+   - MapTiler Basic,
+   - MapTiler Outdoor,
+   - MapTiler Landscape,
+   - Stadia Terrain ef aðgangur/API-lykill og skilmálar gera raunhæfan samanburð
+     mögulegan.
+2. Sýna sömu staði í öllum kortunum:
+   - Reykjavík,
+   - Gullfoss,
+   - Vatnajökul,
+   - Mývatn,
+   - Vestfirði,
+   - Hálendið.
+3. Meta og skrá fyrir hvern kost:
+   - typography og íslensk stað-/náttúrunöfn,
+   - stofnvegi og minni vegi,
+   - jökla, ár og vötn,
+   - náttúrulegt útlit,
+   - POI-magn og mikilvægi,
+   - læsileika,
+   - mobile upplifun,
+   - performance,
+   - leyfi, attribution, API-lykla, verð/billing og notkunarskilmála.
+4. Skila einum samanburði og einni skýrri ráðleggingu um sigurvegara.
+5. Skila lista yfir þær breytingar sem raunhæft er að klára innan 2–3 daga.
+6. Taka saman fyrir/eftir skjáskot á mobile og desktop ef mögulegt er.
+
+**Kortapússun sem á að meta innan tímarammans:**
+
+- Draga úr óþarfa kaffihúsa-, hótela-, verslana-, fyrirtækja- og öðrum
+  ferðaveðursóviðkomandi POI ef valinn tilbúinn stíll og leyfi hans leyfa það án
+  sérhannaðs vector-stíls.
+- Gera vegakerfið að aðalatriði:
+  - meiri contrast á stofnvegum,
+  - minni vegir daufari,
+  - staðfesta að leið og vegir haldist læsilegir bæði í birtu og á mobile.
+- Bæta typography ef tilbúni stíllinn styður það án þess að verkefnið breytist í
+  sérhannaða cartography-vinnu:
+  - staðanöfn,
+  - náttúrunöfn,
+  - jöklar,
+  - ár og vötn.
+- Fínpússa route-línu:
+  - þykkt,
+  - lit,
+  - outline,
+  - upphafs- og endamerki,
+  - leiðin skal alltaf vera augljósasta elementið á kortinu.
+- Fínpússa weather overlay:
+  - transparency,
+  - litaval,
+  - contrast,
+  - blending við basemap,
+  - veðrið á að líta út eins og hluti af kortinu en ekki ótengt lag ofan á því.
+- Fara yfir alla markera:
+  - stærðir,
+  - skugga,
+  - clustering,
+  - stuttar og rólegar state-animationir,
+  - consistency milli markerategunda.
+
+**Afmörkun / á ekki að gera:**
+
+- Ekki skipta út MapLibre.
+- Ekki byggja eigin tile server.
+- Ekki hanna eigin vector-kortastíl.
+- Ekki nota LMÍ sem basemap í þessum áfanga.
+- Ekki eyða sprintinum í ítarlega cartography.
+- Ekki láta basemap-vinnu tefja Road Segment Engine eða Community.
+- Ef ósk um POI-, vega- eða typography-breytingu krefst í reynd sérhannaðs
+  stíls skal skrá hana sem deferred en ekki víkka scope.
+
+**Design.md og mobile viðmið:**
+
+- Kortið skal fylgja rólegri, hlýrri og traustri Teskeið-stefnu og nota
+  Teskeið-tokens fyrir eigin route-, overlay- og marker-lög þar sem við á.
+- Hanna og meta fyrst við 360, 390 og 460 px breidd.
+- Kort, controls, attribution og popup/detail UI mega ekki valda horizontal
+  overflowi, overlap-i, óvæntu mobile zoomi eða rangri scroll-stöðu.
+- Touch targets skulu almennt vera minnst 40x40 px.
+- Animation skal aðeins útskýra state-breytingu og ekki vera stöðugt skraut.
+- Loading/pending við style- eða gagnaskipti skal vera sýnilegt, rólegt og ekki
+  valda layout shift.
+- Allur nýr notendatexti skal fara í `messages/is.json` og `messages/en.json`.
+
+**Öryggi, kostnaður og ytri þjónustur:**
+
+- Staðfesta attribution og leyfisskilmála hvers basemap áður en sigurvegari er
+  valinn.
+- Ekki setja API-lykla eða secrets í repo. Meta sérstaklega hvort browser-lykill
+  þarf domain restrictions, usage limits eða billing alerts.
+- Ekki virkja greidda þjónustu, breyta billing, env/secrets, Vercel eða
+  production án sérstaks samþykkis Stebba.
+- Mæla eða bera saman performance án þess að senda route queries,
+  heimilisföng eða önnur notendagögn til nýrra þjónustuaðila.
+- Basemap-skipti mega ekki veikja auth, feature flags eða núverandi
+  privacy-mörk.
+
+**Route intelligence check:**
+
+- Þetta breytir sjónrænni framsetningu vega og route en á ekki að breyta
+  routing provider, canonical segments eða route-reikningi.
+- Engin ný route-þekking þarf sjálfkrafa að fara í `IcelandRoadmap.md` eða
+  `lib/iceland-routes/` í þessum UI sprint.
+- Ef samanburðurinn leiðir í ljós að basemap eða stíll hefur áhrif á
+  road-segment auðkenni, geometry eða provider-binding skal stoppa og færa það í
+  sérstakt Road OS architecture-atriði.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Opna núverandi ferðaveðurkort á localhost í mobile 390 px og desktop.
+2. Reikna sömu leið eða nota sömu stöðugu sýn fyrir Reykjavík, Gullfoss,
+   Vatnajökul, Mývatn, Vestfirði og Hálendið.
+3. Taka baseline skjáskot og skrá núverandi:
+   - basemap/stíl,
+   - POI-magn,
+   - vega- og typography-læsileika,
+   - route-línu,
+   - weather overlay,
+   - markera og clustering,
+   - attribution,
+   - load tíma og sýnilegar villur.
+4. Kortleggja hvaða MapLibre style-, source- og layer-stillingar eru nú þegar
+   notaðar og hvaða eigin layers Teskeið bætir ofan á basemap.
+5. Staðfesta hvort hver provider krefst API-lykils, reiknings, domain
+   restrictions eða greiðslukorts áður en samanburður er settur upp.
+6. Skilgreina fyrirfram einfalt scorecard svo sigurvegari sé valinn út frá
+   ferðaveðursnotkun en ekki aðeins smekk.
+7. Staðfesta að breytingar á POI, vegum og typography séu mögulegar innan
+   tilbúins stíls án þess að brjóta afmörkunina um engan sérhannaðan stíl.
+
+**Localhost checks for Stebbi eftir framtíðarbreytingu:**
+
+1. Opna ferðaveðurkortið á localhost við 360, 390 og 460 px og á desktop.
+2. Skoða Reykjavík, Gullfoss, Vatnajökul, Mývatn, Vestfirði og Hálendið við
+   sambærilegt zoom.
+3. Vænt: vegir eru aðalatriðið, óviðkomandi POI trufla minna og stað-, jökla-,
+   ár- og vatnaheiti eru læsileg.
+4. Reikna stutta og langa leið með route options.
+5. Vænt: valin route-lína er augljósasta elementið, outline heldur henni
+   læsilegri yfir mismunandi landgerðum og upphaf/endir eru skýr.
+6. Kveikja á weather overlay og skoða bæði rólegt og sterkt veðurlag.
+7. Vænt: overlay blandast basemap en hylur ekki vegi, route eða mikilvæg nöfn;
+   contrast heldur bæði á mobile og desktop.
+8. Prófa alla markerategundir, popup/detail og clustering við mismunandi zoom.
+9. Vænt: markerar eru samræmdir, touch targets nothæf og animation truflar ekki.
+10. Prófa hæga tengingu eða style-load villu ef hægt er án dev-server breytinga.
+11. Vænt: loader/error state er sýnilegt og kortið skilur notanda ekki eftir með
+    autt eða dautt viðmót.
+12. Staðfesta að attribution sé rétt og sýnileg án þess að valda overlap-i.
+13. Bera saman fyrir/eftir skjáskot.
+14. Vænt: munurinn er greinilega faglegri og læsilegri, án nýs tile servers,
+    sérhannaðs vector-stíls eða breytinga á route engine.

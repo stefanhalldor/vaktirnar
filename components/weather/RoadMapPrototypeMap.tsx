@@ -61,6 +61,7 @@ import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTime
 import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
+import { RouteTravelDetails } from './RouteTravelDetails'
 import { ConditionsFeedPreview } from './ConditionsFeedPreview'
 import {
   WeatherChasePanel,
@@ -1209,6 +1210,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   >('idle')
   const [routeBridgeError, setRouteBridgeError] = useState<string | null>(null)
   const [routeBridgeSummary, setRouteBridgeSummary] = useState<RouteBridgeSummary | null>(null)
+  const [routeTravelResult, setRouteTravelResult] = useState<DeterministicResult | null>(null)
+  const [routeTravelDetailsOpen, setRouteTravelDetailsOpen] = useState(false)
+  const [selectedRoutePointIndex, setSelectedRoutePointIndex] = useState<number | null>(null)
   const [fromSuggestions, setFromSuggestions] = useState<RoadIntelligencePlaceResult[]>([])
   const [toSuggestions, setToSuggestions] = useState<RoadIntelligencePlaceResult[]>([])
   const [fromResolved, setFromResolved] = useState<RoadIntelligencePlaceResult | null>(null)
@@ -1532,7 +1536,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }, [weatherChaseVedurstofanItems])
 
   const weatherChaseInitialSelectedIds = useMemo(() => {
-    const savedIds = weatherChasePreferenceItems?.map(item => item.id).filter(Boolean) ?? []
+    if (weatherChasePreferenceItems === null) return null
+    const savedIds = weatherChasePreferenceItems.map(item => item.id).filter(Boolean)
     return savedIds.length > 0 ? savedIds : weatherChaseDefaultItemIds
   }, [weatherChaseDefaultItemIds, weatherChasePreferenceItems])
 
@@ -1765,7 +1770,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       !isChatOpen &&
       !routeBridgeSummary
     if (
-      weatherMapIsVisible &&
+      (weatherMapIsVisible || isWeatherChaseOpen) &&
       typeof overviewActiveMode !== 'number' &&
       firstWeatherMapTimeMs !== null
     ) {
@@ -2478,7 +2483,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     if (canUseMapStyle(map)) {
       setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, mode === 'now')
       setRouteLayerLayoutVisibility(map, VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID, mode === 'forecast')
-      setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
+      setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, true)
     }
     updateVegagerdinLabelMarkerState(statuses, mode)
     updateVedurstofanLabelMarkerState(statuses, mode)
@@ -2966,6 +2971,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteBridgeError(null)
     setRouteThresholdError(null)
     setRouteBridgeSummary(null)
+    setRouteTravelResult(null)
+    setRouteTravelDetailsOpen(false)
+    setSelectedRoutePointIndex(null)
     setRouteFrom('')
     setRouteTo('')
     setFromResolved(null)
@@ -3369,17 +3377,76 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       )
     }
 
-    // M3B: do not render the sampled MET/Yr route points on the prototype map.
-    // They still exist in the response as a fallback assessment path, but the visible
-    // route weather layer is provider-station based (Vegagerðin first, Veðurstofan fallback).
     const pointSource = map.getSource(TRAVEL_METNO_LAYER_ID)
     if (pointSource) {
-      ;(pointSource as import('maplibre-gl').GeoJSONSource).setData(
-        EMPTY_FEATURE_COLLECTION as never,
-      )
-    }
-    if (map.getLayer(TRAVEL_METNO_LAYER_ID)) {
-      map.setLayoutProperty(TRAVEL_METNO_LAYER_ID, 'visibility', 'none')
+      ;(pointSource as import('maplibre-gl').GeoJSONSource).setData(weatherPointGeoJson as never)
+    } else {
+      map.addSource(TRAVEL_METNO_LAYER_ID, {
+        type: 'geojson',
+        data: weatherPointGeoJson as never,
+      })
+      map.addLayer({
+        id: TRAVEL_METNO_LAYER_ID,
+        type: 'circle',
+        source: TRAVEL_METNO_LAYER_ID,
+        paint: {
+          'circle-color': ['get', 'color'],
+          'circle-radius': [
+            'case',
+            ['boolean', ['get', 'isHighlightedIssue'], false],
+            6,
+            4,
+          ] as unknown as number,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+          'circle-opacity': 0.92,
+        },
+      })
+      map.on('mouseenter', TRAVEL_METNO_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', TRAVEL_METNO_LAYER_ID, () => {
+        map.getCanvas().style.cursor = ''
+      })
+      map.on('click', TRAVEL_METNO_LAYER_ID, (event) => {
+        const feature = event.features?.[0]
+        const properties = feature?.properties as Record<string, unknown> | undefined
+        const routeIndex = Number(properties?.['routeIndex'])
+        if (!Number.isInteger(routeIndex)) return
+        setSelectedRoutePointIndex(routeIndex)
+
+        const coordinates = (
+          feature?.geometry as { type: 'Point'; coordinates: [number, number] }
+        )?.coordinates
+        const Popup = popupConstructorRef.current
+        if (!Popup || !coordinates) return
+        const panel = document.createElement('div')
+        panel.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:2px;font:500 11px/1.35 Inter,system-ui,sans-serif;color:#1f2937'
+        const title = document.createElement('strong')
+        title.textContent = t('roadMapPrototypeRoutePointTitle', {
+          index: routeIndex + 1,
+          total: Number(properties?.['totalRouteWeatherPoints']) || '–',
+        })
+        panel.appendChild(title)
+        const etaIso = typeof properties?.['etaIso'] === 'string' ? properties['etaIso'] : null
+        if (etaIso) {
+          const eta = document.createElement('span')
+          eta.textContent = `🚗 ${formatKlTime(etaIso)}`
+          panel.appendChild(eta)
+        }
+        const windMs = Number(properties?.['windMs'])
+        if (Number.isFinite(windMs)) {
+          const wind = document.createElement('span')
+          wind.textContent = labelsRef.current.routeMarkerWind(formatNum(windMs, locale))
+          panel.appendChild(wind)
+        }
+        popupRef.current?.remove()
+        const popup = new Popup({ closeButton: true, maxWidth: '220px' })
+          .setLngLat(coordinates)
+          .setDOMContent(panel)
+          .addTo(map)
+        popupRef.current = popup
+      })
     }
     applyRouteStatusFilterToMap(
       map,
@@ -3533,9 +3600,12 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     onClick: () => void
   }): HTMLButtonElement {
     void placement
+    void compact
+    void showNameLabel
+    void weatherEmoji
     const windValueText = gustText ? `${windText} (${gustText})` : windText
-    const rightMetricText = secondaryMetricText ?? precipitationText ?? null
-    const rightMetricTitle = secondaryMetricTitle ?? labelsRef.current.routeMarkerPrecipitationTitle
+    void secondaryMetricText
+    void secondaryMetricTitle
     const ariaParts = [
       stationName,
       directionText ? labelsRef.current.routeMarkerWindDirection(directionText) : null,
@@ -3613,121 +3683,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       stack.appendChild(eta)
     }
 
-    if (weatherEmoji) {
-      const emoji = document.createElement('span')
-      emoji.textContent = weatherEmoji
-      emoji.style.cssText = [
-        'display:block',
-        `font-size:${compact ? '12px' : '14px'}`,
-        'line-height:1',
-        `height:${compact ? '12px' : '14px'}`,
-        'text-align:center',
-        'text-shadow:0 1px 2px rgba(255,255,255,0.95),0 1px 5px rgba(15,23,42,0.18)',
-      ].join(';')
-      stack.appendChild(emoji)
-    }
-
-    const weatherCard = document.createElement('span')
-    weatherCard.dataset.routeWindValue = 'true'
-    weatherCard.style.cssText = [
-      'display:flex',
-      'flex-direction:column',
-      `min-width:${compact ? '56px' : '64px'}`,
-      'overflow:hidden',
-      'white-space:nowrap',
-      `border:1.5px solid ${color}`,
-      'border-radius:7px',
-      'background:rgba(255,255,255,0.97)',
-      'color:#1f2937',
-      'box-shadow:0 1px 5px rgba(15,23,42,0.20)',
-    ].join(';')
-
-    const windRow = document.createElement('span')
-    windRow.style.cssText = [
-      'display:flex',
-      'align-items:baseline',
-      'justify-content:center',
-      'gap:3px',
-      'border-bottom:1px solid rgba(15,23,42,0.12)',
-      'padding:3px 6px',
-      `font:800 ${compact ? '10px' : '11px'}/1 Inter,system-ui,sans-serif`,
-    ].join(';')
-
-    const direction = document.createElement('span')
-    direction.textContent = windDirectionTextToArrow(directionText)
-    direction.title = directionText ?? ''
-    direction.style.cssText = [
-      `font-size:${compact ? '11px' : '12px'}`,
-      'line-height:1',
-      'color:#475569',
-    ].join(';')
-    windRow.appendChild(direction)
-
-    const wind = document.createElement('span')
-    wind.dataset.routeWindSpeed = 'true'
-    wind.textContent = windValueText
-    wind.style.cssText = `color:${color}`
-    windRow.appendChild(wind)
-    weatherCard.appendChild(windRow)
-
-    const bottomRow = document.createElement('span')
-    bottomRow.dataset.routeWeatherBottom = 'true'
-    bottomRow.style.cssText = [
-      'display:grid',
-      'grid-template-columns:1fr 1fr',
-      `min-height:${compact ? '16px' : '17px'}`,
-      `font:700 ${compact ? '9px' : '10px'}/1 Inter,system-ui,sans-serif`,
-    ].join(';')
-
-    const temp = document.createElement('span')
-    temp.textContent = temperatureText ? `${temperatureText}°` : '–'
-    temp.title = labelsRef.current.routeMarkerTemperatureTitle
-    temp.style.cssText = [
-      'display:flex',
-      'align-items:center',
-      'justify-content:center',
-      'border-right:1px solid rgba(15,23,42,0.12)',
-      'padding:3px 5px',
-      'color:#334155',
-    ].join(';')
-    bottomRow.appendChild(temp)
-
-    const precip = document.createElement('span')
-    precip.textContent = rightMetricText ?? '–'
-    precip.title = rightMetricTitle
-    precip.style.cssText = [
-      'display:flex',
-      'align-items:center',
-      'justify-content:center',
-      'padding:3px 5px',
-      'color:#334155',
-    ].join(';')
-    bottomRow.appendChild(precip)
-    weatherCard.appendChild(bottomRow)
-    stack.appendChild(weatherCard)
-
-    if (showNameLabel) {
-      const name = document.createElement('span')
-      name.dataset.routeWindName = 'true'
-      name.textContent = stationName
-      name.style.cssText = [
-        'display:inline-flex',
-        'max-width:120px',
-        'overflow:hidden',
-        'text-overflow:ellipsis',
-        'white-space:nowrap',
-        'font-weight:600',
-        'font-size:9px',
-        'line-height:1.15',
-        'border:1px solid rgba(21,66,18,0.18)',
-        'border-radius:999px',
-        'background:rgba(255,255,255,0.92)',
-        'color:#334155',
-        'box-shadow:0 1px 3px rgba(15,23,42,0.12)',
-        'padding:2px 5px',
-      ].join(';')
-      stack.appendChild(name)
-    }
     element.appendChild(stack)
 
     element.addEventListener('click', (event) => {
@@ -4626,6 +4581,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       vegagerdinStationCount: vegagerdinRender.count,
       slotStatusSource: slotSource,
     })
+    setRouteTravelResult(travelResult)
+    setRouteTravelDetailsOpen(false)
+    setSelectedRoutePointIndex(null)
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteNowMeasuredAtIso(nowMeasuredAtIso)
     setRouteVisibleStatusCounts(nowStatusCounts)
@@ -4681,6 +4639,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteBridgeStatus('loading')
     setRouteBridgeError(null)
     setRouteBridgeSummary(null)
+    setRouteTravelResult(null)
+    setRouteTravelDetailsOpen(false)
+    setSelectedRoutePointIndex(null)
     setRouteCandidates(null)
     setRouteSlotStatusOverrides(null)
     setRouteNowStatusCounts(null)
@@ -5865,7 +5826,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             {t('roadMapPrototypeScrubberCalculatingHourly')}
           </div>
         ) : routeBridgeSummary ? (
-          <div className="px-3 pb-2 pt-2">
+          <div className="max-h-[82vh] overflow-y-auto overscroll-contain px-3 pb-2 pt-2">
             {renderRouteSurfaceChoices()}
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
@@ -5989,6 +5950,38 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                       </div>
                     )}
                   </>
+                )}
+              </div>
+            )}
+
+            {routeTravelResult?.travelPlan && (
+              <div className="mt-2 overflow-hidden rounded-lg border border-border/70 bg-background/95">
+                <button
+                  type="button"
+                  onClick={() => setRouteTravelDetailsOpen(open => !open)}
+                  aria-expanded={routeTravelDetailsOpen}
+                  className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-semibold text-foreground transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <span>{t('roadMapPrototypeTravelDetailsTitle')}</span>
+                  <span className="shrink-0 text-[10px] font-medium text-primary">
+                    {routeTravelDetailsOpen
+                      ? t('roadMapPrototypeTravelDetailsClose')
+                      : t('roadMapPrototypeTravelDetailsOpen')}
+                  </span>
+                </button>
+                {routeTravelDetailsOpen && (
+                  <div className="max-h-[58vh] overflow-y-auto border-t border-border/70 px-3 py-3 overscroll-contain">
+                    <RouteTravelDetails
+                      result={routeTravelResult}
+                      candidate={selectedRouteCandidate}
+                      status={displayedRouteStatus}
+                      answer={displayedRouteAnswer}
+                      thresholds={routeBridgeSummary.thresholdsUsed}
+                      originName={routeBridgeSummary.fromName}
+                      destinationName={routeBridgeSummary.toName}
+                      selectedRouteIndex={selectedRoutePointIndex}
+                    />
+                  </div>
                 )}
               </div>
             )}
