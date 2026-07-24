@@ -134,6 +134,7 @@ export function DriveJourneyPanel({
   routePoints: Array<{ lat: number; lon: number }>
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
+  const t = useTranslations('teskeid.vedrid.overview')
   const locale = useLocale()
   const [visibleStatuses, setVisibleStatuses] = useState<Set<WindDisplayStatus>>(
     () => new Set(ALL_WIND_DISPLAY_STATUSES),
@@ -170,7 +171,7 @@ export function DriveJourneyPanel({
   if (!layer || stations.length === 0) {
     return (
       <div className="p-4 text-sm text-muted-foreground">
-        {tf('roadMapPrototypeDepartureOptInUnavailable')}
+        {t('roadMapPrototypeDepartureOptInUnavailable')}
       </div>
     )
   }
@@ -203,7 +204,7 @@ export function DriveJourneyPanel({
               thresholdsUsed={thresholds}
               showSelectedDetail={false}
               slotStatusOverrides={slotStatusOverrides}
-              firstSlotLabel={tf('roadMapPrototypeScrubberNow')}
+              firstSlotLabel={t('roadMapPrototypeScrubberNow')}
               showBestWindowHint={false}
             />
           </div>
@@ -320,7 +321,7 @@ export function DriveJourneyPanel({
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
               <span>{tf('allRouteForecastPointsDrawer')}</span>
               <span className="text-[10px] font-medium text-muted-foreground">
-                {tf('roadMapPrototypeVedurstofanStationCount', { count: stations.length })}
+                {t('roadMapPrototypeVedurstofanStationCount', { count: stations.length })}
               </span>
             </summary>
             <div className="space-y-2 border-t border-border/70 p-3">
@@ -349,7 +350,7 @@ export function DriveJourneyPanel({
           onClick={onClearRoute}
           className="mt-4 min-h-10 w-full rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {tf('roadMapPrototypeRouteClear')}
+          {t('roadMapPrototypeRouteClear')}
         </button>
       </div>
     </div>

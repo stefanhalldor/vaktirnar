@@ -4503,6 +4503,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         : null
     setRouteDepartureForecastExpanded(false)
     setRouteForecastBuildStatus('idle')
+    // Auto-build departure forecast so DriveJourneyPanel scrubber is ready
+    handleRouteDepartureForecastOptIn()
   }
 
   async function handleRouteBridgeSubmit(event: FormEvent<HTMLFormElement>) {
@@ -5738,7 +5740,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             {t('roadMapPrototypeScrubberCalculatingHourly')}
           </div>
         ) : routeBridgeSummary ? (
-          <div className="px-3 pb-2 pt-2">
+          <div className="px-3 pb-2 pt-2 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -5778,14 +5780,40 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 }`}
               >
                 <span className="font-semibold">
-                  {tf('roadMapPrototypeMapDeparturePill', {
+                  {t('roadMapPrototypeMapDeparturePill', {
                     time: selectedRouteCandidate
                       ? formatKlTime(selectedRouteCandidate.departureIso)
-                      : tf('roadMapPrototypeScrubberNow'),
+                      : t('roadMapPrototypeScrubberNow'),
                   })}
                 </span>
               </button>
+
+              <button
+                type="button"
+                aria-pressed={routeStatusFilterMode === 'detailed'}
+                onClick={() => handleRouteStatusFilterModeChange(
+                  routeStatusFilterMode === 'detailed' ? 'simple' : 'detailed'
+                )}
+                className={`min-h-10 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                  routeStatusFilterMode === 'detailed'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background/85 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t('statusFilterModeDetailed')}
+              </button>
             </div>
+
+            {routeStatusFilterMode === 'detailed' && (
+              <WindStatusFilterPills
+                counts={activeRouteStatusCounts}
+                visibleStatuses={visibleRouteStatuses}
+                onVisibleStatusesChange={handleRouteStatusFilterChange}
+                showAllLabel=""
+                alwaysShowWithinLimits
+                mode="detailed"
+              />
+            )}
           </div>
         ) : (
           /* Default overview: time selector + Einfalt/Nánar inline with pills */
