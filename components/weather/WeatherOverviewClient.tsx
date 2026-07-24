@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import type { StationExplorerResponse, StationExplorerStation } from '@/lib/weather/providers/vedurstofanStationExplorer'
@@ -1226,6 +1225,12 @@ export function WeatherOverviewClient({
       subtitle={subtitle}
       menuVariant={menuVariant}
       tripHref={activeTripHref}
+      experimentalHref={hasRoadIntelligence
+        ? '/auth-mvp/vedrid/road-map-prototype'
+        : undefined}
+      experimentalLabel={hasRoadIntelligence
+        ? tOv('roadMapPrototypeLink')
+        : undefined}
       providers={[vegagerdinProvider, vedurstofanProvider]}
       requestedSelection={null}
       buildSelectedCallout={(selected, onDeselect) => {
@@ -1414,16 +1419,6 @@ export function WeatherOverviewClient({
               fromLabel={fromMemoryPlace.label}
               toLabel={toMemoryPlace.label}
             />
-          )}
-          {hasRoadIntelligence && (
-            <div className="pt-2 border-t border-border/40">
-              <Link
-                href="/auth-mvp/vedrid/road-map-prototype"
-                className="text-[11px] text-primary/70 hover:text-primary"
-              >
-                {tOv('roadMapPrototypeLink')}
-              </Link>
-            </div>
           )}
         </div>
       )}

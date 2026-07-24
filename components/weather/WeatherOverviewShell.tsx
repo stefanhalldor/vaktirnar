@@ -102,6 +102,8 @@ interface WeatherOverviewShellProps {
   subtitle: string
   menuVariant?: 'public' | 'authenticated'
   tripHref?: string
+  experimentalHref?: string
+  experimentalLabel?: string
   providers: WeatherOverviewProviderConfig[]
   /**
    * When provided, replaces the default provider filter pills with a custom
@@ -147,6 +149,8 @@ export function WeatherOverviewShell({
   subtitle,
   menuVariant,
   tripHref,
+  experimentalHref,
+  experimentalLabel,
   providers,
   renderProviderSelector,
   renderBelowSelector,
@@ -412,6 +416,17 @@ export function WeatherOverviewShell({
           >
             <Car className="w-4 h-4" aria-hidden />
             {t('tripCta')}
+          </Link>
+        </div>
+      )}
+
+      {experimentalHref && experimentalLabel && (
+        <div className="flex justify-center">
+          <Link
+            href={experimentalHref}
+            className="inline-flex min-h-8 items-center justify-center px-2 text-[9px] font-normal text-muted-foreground/35 transition-colors hover:text-muted-foreground/70 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {experimentalLabel}
           </Link>
         </div>
       )}

@@ -126,10 +126,15 @@ export async function checkFeatureAccess(
     return checkPerUserAccess(email, 'weather-provider-vegagerdin')
   }
   if (featureKey === 'road-intelligence-v1') {
-    // No graduation path — this is a permanent per-user experimental feature.
-    // ROAD_INTELLIGENCE_V1_ENABLED=true is required (global kill-switch).
-    // A feature_access row is always required regardless of the env var.
+    if (getWeatherEnabledMode() === 'off') return false
+    // Two-level graduation pattern:
+    // 1. ROAD_INTELLIGENCE_V1_ENABLED=true is the global kill-switch.
+    // 2. ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED=true enables the per-user gate.
+    //    Unset/false opens the feature to all eligible authenticated weather users.
     if (process.env.ROAD_INTELLIGENCE_V1_ENABLED !== 'true') return false
+    const accessRequired =
+      process.env.ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED === 'true'
+    if (!accessRequired) return true
     return checkPerUserAccess(email, 'road-intelligence-v1')
   }
   return false

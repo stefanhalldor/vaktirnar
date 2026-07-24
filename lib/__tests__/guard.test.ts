@@ -1208,42 +1208,73 @@ describe('checkFeatureAccess — weather-provider-vegagerdin (per-user gate, WEA
 
 describe('checkFeatureAccess — road-intelligence-v1', () => {
   let savedEnabled: string | undefined
+  let savedAccessRequired: string | undefined
+  let savedWeatherEnabled: string | undefined
 
   beforeEach(() => {
     vi.clearAllMocks()
     savedEnabled = process.env.ROAD_INTELLIGENCE_V1_ENABLED
+    savedAccessRequired = process.env.ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED
+    savedWeatherEnabled = process.env.WEATHER_ENABLED
+    process.env.WEATHER_ENABLED = 'Authenticated'
   })
 
   afterEach(() => {
     setEnv('ROAD_INTELLIGENCE_V1_ENABLED', savedEnabled)
+    setEnv('ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED', savedAccessRequired)
+    setEnv('WEATHER_ENABLED', savedWeatherEnabled)
   })
 
-  it('returns false when ROAD_INTELLIGENCE_V1_ENABLED is not set', async () => {
+  it('returns false when base weather is off', async () => {
+    delete process.env.WEATHER_ENABLED
+    process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns false when the global kill-switch is not set', async () => {
     delete process.env.ROAD_INTELLIGENCE_V1_ENABLED
     expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(false)
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 
-  it('returns false when ROAD_INTELLIGENCE_V1_ENABLED=false', async () => {
+  it('returns false when the global kill-switch is false', async () => {
     process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'false'
     expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(false)
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 
-  it('returns false when env=true but no feature_access row', async () => {
+  it('opens to all eligible weather users when access-required is not set', async () => {
     process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    delete process.env.ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(true)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('opens to all eligible weather users when access-required is false', async () => {
+    process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    process.env.ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED = 'false'
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(true)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('returns false when per-user access is required but no feature_access row exists', async () => {
+    process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    process.env.ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED = 'true'
     mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
     expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(false)
   })
 
-  it('returns true when env=true and feature_access row exists', async () => {
+  it('returns true when per-user access is required and a feature_access row exists', async () => {
     process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    process.env.ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED = 'true'
     mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
     expect(await checkFeatureAccess('uid', 'user@example.com', 'road-intelligence-v1')).toBe(true)
   })
 
-  it('returns false for invalid email even when env=true', async () => {
+  it('returns false for invalid email when per-user access is required', async () => {
     process.env.ROAD_INTELLIGENCE_V1_ENABLED = 'true'
+    process.env.ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED = 'true'
     expect(await checkFeatureAccess('uid', 'not-an-email', 'road-intelligence-v1')).toBe(false)
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })

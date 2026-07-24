@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { unstable_cache } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
@@ -6,6 +7,24 @@ import { readVedurstofanProductForStations } from '@/lib/weather/providers/vedur
 import type { VedurstofanStationResult } from '@/lib/weather/providers/vedurstofan.server'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { buildStationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
+
+const readCachedStationExplorer = unstable_cache(
+  async () => {
+    const stationIds = VEDURSTOFAN_STATIONS_REGISTRY
+      .filter(s => s.stationId !== null)
+      .map(s => s.stationId!)
+    let results: Map<string, VedurstofanStationResult>
+    try {
+      const raw = await readVedurstofanProductForStations(stationIds)
+      results = raw instanceof Map ? raw : new Map()
+    } catch {
+      results = new Map()
+    }
+    return buildStationExplorerResponse(VEDURSTOFAN_STATIONS_REGISTRY, results)
+  },
+  ['vedurstofan-station-explorer-v1'],
+  { revalidate: 60 },
+)
 
 export async function GET() {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
@@ -33,22 +52,11 @@ export async function GET() {
     }
   }
 
-  const stationIds = VEDURSTOFAN_STATIONS_REGISTRY
-    .filter(s => s.stationId !== null)
-    .map(s => s.stationId!)
   // Product-table read: returns data from vedurstofan_forecasts_latest.
   // Never makes live HTTP requests. Status (ok/stale/unavailable) is determined
-  // from expires_at. Background warmer must be run to populate the table.
-  let results: Map<string, VedurstofanStationResult>
-  try {
-    const raw = await readVedurstofanProductForStations(stationIds)
-    // Defensive: normalize to Map in case reader returns null/undefined instead of throwing
-    results = raw instanceof Map ? raw : new Map()
-  } catch {
-    results = new Map()
-  }
-
-  const payload = buildStationExplorerResponse(VEDURSTOFAN_STATIONS_REGISTRY, results)
+  // from expires_at. The assembled response is shared for 60 seconds so every
+  // panel open does not repeat the same paginated product-table read.
+  const payload = await readCachedStationExplorer()
   return NextResponse.json(payload, {
     headers: {
       // Cache for 60 s in browser only (private — station data is not user-specific but

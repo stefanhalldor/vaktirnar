@@ -164,9 +164,15 @@ interface FeatureAccessSectionProps {
   featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1'
   heading: string
   flagName: string
+  enabledFlagName?: string
 }
 
-function FeatureAccessSection({ featureKey, heading, flagName }: FeatureAccessSectionProps) {
+function FeatureAccessSection({
+  featureKey,
+  heading,
+  flagName,
+  enabledFlagName,
+}: FeatureAccessSectionProps) {
   const [entries, setEntries] = useState<FeatureAccessEntry[]>([])
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -229,7 +235,17 @@ function FeatureAccessSection({ featureKey, heading, flagName }: FeatureAccessSe
     <div className="bg-white border border-[#c2c9bb] rounded-xl shadow-sm p-5">
       <h2 className="text-sm font-semibold text-gray-700 mb-4">{heading}</h2>
       <p className="text-xs text-gray-500 mb-4">
-        Stjórnar hverjir sjá þetta þegar <code className="font-mono">{flagName}=true</code>.
+        {enabledFlagName ? (
+          <>
+            <code className="font-mono">{enabledFlagName}=true</code> opnar virknina.
+            {' '}Listinn gildir þegar <code className="font-mono">{flagName}=true</code>;
+            {' '}ef sú breyta er ósett eða false fá allir gjaldgengir veðurnotendur aðgang.
+          </>
+        ) : (
+          <>
+            Stjórnar hverjir sjá þetta þegar <code className="font-mono">{flagName}=true</code>.
+          </>
+        )}
       </p>
       {loadError ? (
         <p className="text-xs text-red-600 mb-4">
@@ -1685,7 +1701,8 @@ export default function AdminPage() {
           <FeatureAccessSection
             featureKey="road-intelligence-v1"
             heading="Road Intelligence kort (v1)"
-            flagName="ROAD_INTELLIGENCE_V1_ENABLED"
+            flagName="ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED"
+            enabledFlagName="ROAD_INTELLIGENCE_V1_ENABLED"
           />
         </div>
 
