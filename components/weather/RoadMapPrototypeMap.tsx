@@ -541,6 +541,11 @@ function readFiniteNumber(value: unknown): number | null {
 function windDirectionTextToArrow(value: string | null | undefined): string {
   const normalized = value?.trim().toUpperCase()
   if (!normalized) return '•'
+  const degreeMatch = normalized.match(/^-?\d+(?:[.,]\d+)?/)
+  const degrees = degreeMatch ? Number(degreeMatch[0].replace(',', '.')) : Number.NaN
+  if (Number.isFinite(degrees)) {
+    return windDirectionTextToArrow(degreesToIcelandicDirection(degrees))
+  }
 
   const map: Record<string, string> = {
     N: '↓',
@@ -561,7 +566,7 @@ function windDirectionTextToArrow(value: string | null | undefined): string {
     NNV: '↘',
   }
 
-  return map[normalized] ?? normalized
+  return map[normalized] ?? '•'
 }
 
 function weatherEmojiFromText(
@@ -5425,6 +5430,39 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }),
     t('roadMapPrototypeRouteLoaderNow'),
   ]
+  const weatherTabActive = !isChatOpen && lastMapContext === 'weather'
+  const routeTabActive = !isChatOpen && lastMapContext === 'route'
+  const activeContextShowsMap = weatherTabActive ? !isWeatherChaseOpen : !isPanelOpen
+
+  function handleWeatherMapToggle() {
+    setLastMapContext('weather')
+    setIsChatOpen(false)
+    setIsPanelOpen(false)
+    if (isWeatherChaseOpen) {
+      setIsWeatherChaseOpen(false)
+      applyMapContextVisibility('weather')
+      if (typeof overviewActiveMode !== 'number' && mapForecastSlotStatuses[0]) {
+        handleOverviewModeChange(mapForecastSlotStatuses[0].timeMs)
+      }
+      return
+    }
+    setIsWeatherChaseOpen(true)
+  }
+
+  function handleRouteMapToggle() {
+    setLastMapContext('route')
+    setIsChatOpen(false)
+    setIsWeatherChaseOpen(false)
+    if (isPanelOpen) {
+      setIsPanelOpen(false)
+      applyMapContextVisibility('route')
+      return
+    }
+    setIsPanelOpen(true)
+    if (routeBridgeSummary && routeForecastBuildStatus === 'idle') {
+      handleRouteDepartureForecastOptIn()
+    }
+  }
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -5438,9 +5476,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             setIsPanelOpen(false)
             setIsChatOpen(false)
           }}
-          aria-pressed={isWeatherChaseOpen}
+          aria-pressed={weatherTabActive}
           className={`flex h-10 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] font-semibold shadow-sm transition-colors ${
-            isWeatherChaseOpen
+            weatherTabActive
               ? 'border-primary bg-primary/10 text-primary'
               : 'border-border/70 bg-background text-foreground hover:bg-muted'
           }`}
@@ -5481,39 +5519,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             setIsWeatherChaseOpen(false)
             setIsChatOpen(false)
           }}
-          aria-pressed={isPanelOpen}
+          aria-pressed={routeTabActive}
           className={`flex h-10 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] font-semibold shadow-sm transition-colors ${
-            isPanelOpen
+            routeTabActive
               ? 'border-primary bg-primary/10 text-primary'
               : 'border-border/70 bg-background text-foreground hover:bg-muted'
           }`}
         >
           {t('roadMapPrototypePanelRoute')}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setIsWeatherChaseOpen(false)
-            setIsPanelOpen(false)
-            setIsChatOpen(false)
-            applyMapContextVisibility(lastMapContext)
-            if (
-              lastMapContext === 'weather' &&
-              !routeBridgeSummary &&
-              typeof overviewActiveMode !== 'number' &&
-              mapForecastSlotStatuses[0]
-            ) {
-              handleOverviewModeChange(mapForecastSlotStatuses[0].timeMs)
-            }
-          }}
-          aria-pressed={!isWeatherChaseOpen && !isPanelOpen && !isChatOpen}
-          className={`flex h-10 items-center justify-center whitespace-nowrap rounded-full border px-2 text-[11px] font-semibold shadow-sm transition-colors ${
-            !isWeatherChaseOpen && !isPanelOpen && !isChatOpen
-              ? 'border-primary bg-primary/10 text-primary'
-              : 'border-border/70 bg-background text-foreground hover:bg-muted'
-          }`}
-        >
-          {t('roadMapPrototypeBackToMap')}
         </button>
         <div className="min-w-0 flex-1" />
         <TeskeidMenu variant="authenticated" />
@@ -5526,7 +5539,34 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           h-full w-full survives the position override. */}
       <div ref={containerRef} className="h-full w-full" />
 
-      {isRouteLoading && !isPanelOpen && (
+      {!isChatOpen && (
+        <button
+          type="button"
+          onClick={lastMapContext === 'weather' ? handleWeatherMapToggle : handleRouteMapToggle}
+          aria-label={activeContextShowsMap
+            ? t('roadMapPrototypeShowNumbers')
+            : t('roadMapPrototypeShowMap')}
+          title={activeContextShowsMap
+            ? t('roadMapPrototypeShowNumbers')
+            : t('roadMapPrototypeShowMap')}
+          className="absolute right-3 top-3 z-[130] flex min-h-12 min-w-12 flex-col items-center justify-center rounded-xl border border-primary/30 bg-background/95 px-2 py-1 text-primary shadow-lg backdrop-blur-sm transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 64 42"
+            className="h-6 w-9 fill-current"
+          >
+            <path d="M3 23 8 18l5-1 2-5 6 2 4-6 6 3 5-8 5 6 7-2 2 6 8 3-3 6 6 5-7 4-1 6-8-2-6 4-6-5-8 2-3-6-7-1 2-5-5-4Z" />
+          </svg>
+          <span className="text-[9px] font-semibold leading-none">
+            {activeContextShowsMap
+              ? t('roadMapPrototypeShowNumbers')
+              : t('roadMapPrototypeBackToMap')}
+          </span>
+        </button>
+      )}
+
+      {lastMapContext === 'route' && isRouteLoading && !isPanelOpen && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/95 px-5 backdrop-blur-sm">
           <TeskeidLoader
             ideaTitles={routeLoaderTitles}
@@ -5985,7 +6025,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           <div className="px-3 py-3 text-xs text-muted-foreground">
             {t('roadMapPrototypeScrubberCalculatingHourly')}
           </div>
-        ) : routeBridgeSummary ? (
+        ) : lastMapContext === 'route' && routeBridgeSummary ? (
           <div className="px-3 pb-2 pt-2 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <button

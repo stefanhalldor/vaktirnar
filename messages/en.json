@@ -1092,6 +1092,8 @@
         "statusFilterModeDetailed": "Detailed",
         "overlayClose": "Close",
         "roadMapPrototypeBackToMap": "Map",
+        "roadMapPrototypeShowMap": "Show map",
+        "roadMapPrototypeShowNumbers": "Show figures",
         "roadMapPrototypePanelRoute": "Route",
         "roadMapPrototypePanelMessages": "Messages",
         "overlayGust": "gust",

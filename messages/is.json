@@ -1096,6 +1096,8 @@
         "statusFilterModeDetailed": "Nánar",
         "overlayClose": "Loka",
         "roadMapPrototypeBackToMap": "Kort",
+        "roadMapPrototypeShowMap": "Sýna kort",
+        "roadMapPrototypeShowNumbers": "Sýna tölur",
         "roadMapPrototypePanelRoute": "Akstur",
         "roadMapPrototypePanelMessages": "Skilaboð",
         "overlayGust": "hviða",
