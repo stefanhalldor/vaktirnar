@@ -7,6 +7,7 @@ import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland
 import type { RouteOption } from '@/lib/weather/provider.types'
 import type { DeterministicResult, ForecastDrawerRow, ResolvedTravelThresholds, TravelCandidate, WeatherStatus } from '@/lib/weather/types'
 import {
+  getMedalEmoji,
   normalizeWeatherChaseVisibleHours,
   type WeatherChaseVisibleHour,
 } from '@/lib/weather/chasePreferences'
@@ -57,7 +58,7 @@ import {
   type WindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
-import { WeatherSourceTimeSelector } from './WeatherSourceTimeSelector'
+import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
 import { ConditionsFeedPreview } from './ConditionsFeedPreview'
@@ -1230,6 +1231,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   )
   const [overviewActiveMode, setOverviewActiveMode] = useState<'now' | number>('now')
   const [mapVisibleHours, setMapVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
+  const [showMedals, setShowMedals] = useState(true)
   const [overviewVegagerdinData, setOverviewVegagerdinData] = useState<VegagerdinCurrentApiData | null>(null)
   const [overviewVegagerdinLoading, setOverviewVegagerdinLoading] = useState(true)
   const [overviewVegagerdinRestricted, setOverviewVegagerdinRestricted] = useState(false)
@@ -1260,6 +1262,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [weatherChaseSelectionInitialized, setWeatherChaseSelectionInitialized] = useState(false)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
+  const [lastMapContext, setLastMapContext] = useState<'weather' | 'route'>('weather')
   const [routeActive, setRouteActive] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1752,6 +1755,32 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const mapForecastSlotStatuses = displayOverviewForecastSlotStatuses.filter(
     slot => mapVisibleHours.some(hour => hour === new Date(slot.timeMs).getUTCHours()),
   )
+  const firstWeatherMapTimeMs = mapForecastSlotStatuses[0]?.timeMs ?? null
+
+  useEffect(() => {
+    const weatherMapIsVisible =
+      lastMapContext === 'weather' &&
+      !isWeatherChaseOpen &&
+      !isPanelOpen &&
+      !isChatOpen &&
+      !routeBridgeSummary
+    if (
+      weatherMapIsVisible &&
+      typeof overviewActiveMode !== 'number' &&
+      firstWeatherMapTimeMs !== null
+    ) {
+      overviewActiveModeRef.current = firstWeatherMapTimeMs
+      setOverviewActiveMode(firstWeatherMapTimeMs)
+    }
+  }, [
+    firstWeatherMapTimeMs,
+    isChatOpen,
+    isPanelOpen,
+    isWeatherChaseOpen,
+    lastMapContext,
+    overviewActiveMode,
+    routeBridgeSummary,
+  ])
 
   const overviewVegagerdinNewestMeasuredAtIso = useMemo(() => {
     if (overviewVegagerdinData?.status !== 'ok') return null
@@ -2036,6 +2065,17 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         .map(item => ({ item, kind: 'nearby-vedurstofan' as const })),
     ]
 
+    const chaseTargetTimeMs = typeof overviewActiveMode === 'number' ? overviewActiveMode : null
+    const selectedItemRows = new Map(
+      weatherChaseSelectedItems.map(item => [item.id, selectWeatherChaseMarkerRow(item, chaseTargetTimeMs)]),
+    )
+    const allSelectedTemps = Array.from(selectedItemRows.values())
+      .filter((r): r is ForecastDrawerRow => r !== null)
+      .map(r => r.temperature.value)
+    const allSelectedWinds = Array.from(selectedItemRows.values())
+      .filter((r): r is ForecastDrawerRow => r !== null)
+      .map(r => r.wind.value)
+
     for (const { item, kind } of markerItems) {
       if (
         typeof item.lat !== 'number' ||
@@ -2045,9 +2085,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       ) {
         continue
       }
-      const chaseTargetTimeMs = typeof overviewActiveMode === 'number' ? overviewActiveMode : null
-      const row = selectWeatherChaseMarkerRow(item, chaseTargetTimeMs)
-      const element = createWeatherChaseMapMarkerElement(item, row, kind)
+      const row = kind === 'selected'
+        ? (selectedItemRows.get(item.id) ?? null)
+        : selectWeatherChaseMarkerRow(item, chaseTargetTimeMs)
+      const medal = kind === 'selected' && row && showMedals
+        ? (getMedalEmoji(row.temperature.value, allSelectedTemps, 'desc') ?? getMedalEmoji(row.wind.value, allSelectedWinds, 'asc'))
+        : null
+      const element = createWeatherChaseMapMarkerElement(item, row, kind, medal)
       const marker = new Marker({ element, anchor: 'center' })
         .setLngLat([item.lon, item.lat])
         .addTo(map)
@@ -2099,6 +2143,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     mapReady,
     overviewActiveMode,
     routeActive,
+    showMedals,
     weatherChaseNearbyFocusId,
     weatherChaseSelectedItems,
     weatherChaseVedurstofanItems,
@@ -2552,6 +2597,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     item: WeatherChaseItem,
     row: ForecastDrawerRow | null,
     kind: WeatherChaseMapMarker['kind'],
+    medal?: string | null,
   ): HTMLButtonElement {
     const windText = row ? formatNum(row.wind.value, locale) : '–'
     const gustText = row && Math.abs(row.gust.value - row.wind.value) >= 0.1
@@ -2574,6 +2620,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     element.style.zIndex = kind === 'nearby-vedurstofan' ? '18' : '20'
     if (kind === 'nearby-vedurstofan') {
       element.style.opacity = '0.88'
+    }
+    if (medal) {
+      element.style.position = 'relative'
+      const badge = document.createElement('span')
+      badge.style.cssText = 'position:absolute;top:-7px;right:-7px;font-size:13px;line-height:1;pointer-events:none;z-index:1'
+      badge.textContent = medal
+      element.appendChild(badge)
     }
     return element
   }
@@ -5268,32 +5321,96 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   return (
     <div className="flex h-full w-full flex-col">
       {/* Topbar */}
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border/60 bg-background px-3 py-2">
+      <div className="relative z-[110] flex shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 py-2">
         <button
           type="button"
-          onClick={() => { if (isWeatherChaseOpen) { setIsWeatherChaseOpen(false) } else { setIsWeatherChaseOpen(true); setIsPanelOpen(false); setIsChatOpen(false) } }}
-          className={`flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm transition-colors ${isWeatherChaseOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background text-foreground hover:bg-muted'}`}
+          onClick={() => {
+            setLastMapContext('weather')
+            if (isWeatherChaseOpen) {
+              setIsWeatherChaseOpen(false)
+              if (typeof overviewActiveMode !== 'number' && mapForecastSlotStatuses[0]) {
+                handleOverviewModeChange(mapForecastSlotStatuses[0].timeMs)
+              }
+            } else {
+              setIsWeatherChaseOpen(true)
+            }
+            setIsPanelOpen(false)
+            setIsChatOpen(false)
+          }}
+          aria-pressed={isWeatherChaseOpen || (!isPanelOpen && !isChatOpen && lastMapContext === 'weather')}
+          className={`flex h-10 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] font-semibold shadow-sm transition-colors ${
+            isWeatherChaseOpen || (!isPanelOpen && !isChatOpen && lastMapContext === 'weather')
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border/70 bg-background text-foreground hover:bg-muted'
+          }`}
         >
-          🌦️ {t('roadMapPrototypeWeatherChaseTitle')}
+          {t('roadMapPrototypeWeatherChaseTitle')}
         </button>
         <button
           type="button"
-          onClick={() => { if (isPanelOpen) { setIsPanelOpen(false) } else { setIsPanelOpen(true); setIsWeatherChaseOpen(false); setIsChatOpen(false) } }}
-          className={`flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm transition-colors ${isPanelOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background text-foreground hover:bg-muted'}`}
+          onClick={() => {
+            setIsChatOpen(prev => {
+              const next = !prev
+              if (next) acknowledgeCurrentItems()
+              return next
+            })
+            setIsWeatherChaseOpen(false)
+            setIsPanelOpen(false)
+          }}
+          aria-pressed={isChatOpen}
+          className={`relative flex h-10 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] font-semibold shadow-sm transition-colors ${
+            isChatOpen
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border/70 bg-background text-foreground hover:bg-muted'
+          }`}
         >
-          🚗 {t('roadMapPrototypePanelRoute')}
-        </button>
-        <button
-          type="button"
-          onClick={() => { if (isChatOpen) { setIsChatOpen(false) } else { setIsChatOpen(true); setIsWeatherChaseOpen(false); setIsPanelOpen(false); acknowledgeCurrentItems() } }}
-          className={`relative flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm transition-colors ${isChatOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background text-foreground hover:bg-muted'}`}
-        >
-          💬 {t('roadMapPrototypePanelMessages')}
+          {t('roadMapPrototypePanelMessages')}
           {!isChatOpen && newSinceOpenCount > 0 && (
             <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">{newSinceOpenCount}</span>
           )}
         </button>
-        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => {
+            setLastMapContext('route')
+            setIsPanelOpen(prev => !prev)
+            setIsWeatherChaseOpen(false)
+            setIsChatOpen(false)
+          }}
+          aria-pressed={isPanelOpen || (!isWeatherChaseOpen && !isChatOpen && lastMapContext === 'route')}
+          className={`flex h-10 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11px] font-semibold shadow-sm transition-colors ${
+            isPanelOpen || (!isWeatherChaseOpen && !isChatOpen && lastMapContext === 'route')
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border/70 bg-background text-foreground hover:bg-muted'
+          }`}
+        >
+          {t('roadMapPrototypePanelRoute')}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setIsWeatherChaseOpen(false)
+            setIsPanelOpen(false)
+            setIsChatOpen(false)
+            if (
+              lastMapContext === 'weather' &&
+              !routeBridgeSummary &&
+              typeof overviewActiveMode !== 'number' &&
+              mapForecastSlotStatuses[0]
+            ) {
+              handleOverviewModeChange(mapForecastSlotStatuses[0].timeMs)
+            }
+          }}
+          aria-pressed={!isWeatherChaseOpen && !isPanelOpen && !isChatOpen}
+          className={`flex h-10 items-center justify-center whitespace-nowrap rounded-full border px-2 text-[11px] font-semibold shadow-sm transition-colors ${
+            !isWeatherChaseOpen && !isPanelOpen && !isChatOpen
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border/70 bg-background text-foreground hover:bg-muted'
+          }`}
+        >
+          {t('roadMapPrototypeBackToMap')}
+        </button>
+        <div className="min-w-0 flex-1" />
         <TeskeidMenu variant="authenticated" />
       </div>
       {/* Map area */}
@@ -5318,36 +5435,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
 
       {isWeatherChaseOpen && (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:pointer-events-none sm:absolute sm:inset-x-3 sm:bottom-28 sm:top-14 sm:z-[40] sm:flex-row sm:items-start sm:bg-transparent sm:backdrop-blur-none">
-          {/* Mobile-only header */}
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-2 sm:hidden">
-            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{t('roadMapPrototypeWeatherChaseTitle')}</p>
-            <button
-              type="button"
-              onClick={() => { setIsPanelOpen(true); setIsWeatherChaseOpen(false); setIsChatOpen(false); }}
-              className={`flex h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors ${isPanelOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background/90 text-foreground hover:bg-background'}`}
-            >
-              🚗 {t('roadMapPrototypePanelRoute')}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setIsChatOpen(true); setIsWeatherChaseOpen(false); setIsPanelOpen(false); acknowledgeCurrentItems(); }}
-              className={`relative flex h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors ${isChatOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background/90 text-foreground hover:bg-background'}`}
-            >
-              💬 {t('roadMapPrototypePanelMessages')}
-              {!isChatOpen && newSinceOpenCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">{newSinceOpenCount}</span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setIsWeatherChaseOpen(false); setIsPanelOpen(false); setIsChatOpen(false); }}
-              className="flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-            >
-              {t('roadMapPrototypeBackToMap')}
-            </button>
-            <TeskeidMenu variant="authenticated" />
-          </div>
+        <div className="absolute inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:pointer-events-none sm:inset-x-3 sm:bottom-28 sm:top-14 sm:z-[40] sm:flex-row sm:items-start sm:bg-transparent sm:backdrop-blur-none">
           <div className="pointer-events-auto flex-1 overflow-y-auto p-3 sm:flex-none sm:max-h-[calc(100vh-9rem)] sm:w-full sm:max-w-2xl sm:rounded-xl sm:border sm:border-border/70 sm:bg-background/95 sm:shadow-xl sm:backdrop-blur-sm">
             <WeatherChasePanel
               items={weatherChaseItems}
@@ -5411,39 +5499,15 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               }}
               visibleHours={mapVisibleHours}
               onVisibleHoursChange={(hours) => setMapVisibleHours(normalizeWeatherChaseVisibleHours(hours))}
+              showMedals={showMedals}
+              onShowMedalsChange={setShowMedals}
             />
           </div>
         </div>
       )}
 
       {isChatOpen && (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:absolute sm:bottom-auto sm:left-3 sm:top-14 sm:z-30 sm:block sm:w-[calc(100%-1.5rem)] sm:max-w-[360px] sm:rounded-xl sm:border sm:border-border/70 sm:p-2 sm:shadow-lg">
-          {/* Mobile-only header */}
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-2 sm:hidden">
-            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{t('roadMapPrototypePanelMessages')}</p>
-            <button
-              type="button"
-              onClick={() => { setIsWeatherChaseOpen(true); setIsPanelOpen(false); setIsChatOpen(false); }}
-              className={`flex h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors ${isWeatherChaseOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background/90 text-foreground hover:bg-background'}`}
-            >
-              🌦️ {t('roadMapPrototypeWeatherChaseTitle')}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setIsPanelOpen(true); setIsWeatherChaseOpen(false); setIsChatOpen(false); }}
-              className={`flex h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors ${isPanelOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background/90 text-foreground hover:bg-background'}`}
-            >
-              🚗 {t('roadMapPrototypePanelRoute')}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setIsWeatherChaseOpen(false); setIsPanelOpen(false); setIsChatOpen(false); }}
-              className="flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-            >
-              {t('roadMapPrototypeBackToMap')}
-            </button>
-            <TeskeidMenu variant="authenticated" />
-          </div>
+        <div className="absolute inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:bottom-auto sm:left-3 sm:top-14 sm:z-30 sm:block sm:w-[calc(100%-1.5rem)] sm:max-w-[360px] sm:rounded-xl sm:border sm:border-border/70 sm:p-2 sm:shadow-lg">
           {/* Desktop-only close button */}
           <div className="mb-1 hidden items-center justify-end sm:flex">
             <button
@@ -5485,7 +5549,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
       {/* Route panel — starts below the shared emoji controls on every viewport. */}
       <div
-        className={`fixed inset-0 z-[100] flex-col overflow-hidden bg-background/90 backdrop-blur-sm sm:absolute sm:bottom-0 sm:left-3 sm:top-14 sm:z-20 sm:w-[calc(100%-1.5rem)] sm:max-w-[360px] sm:rounded-t-xl sm:border sm:border-b-0 sm:border-border/70 sm:shadow-lg sm:transition-transform sm:duration-200 ${isPanelOpen ? 'flex sm:translate-x-0' : 'hidden sm:flex sm:-translate-x-[calc(100%+0.75rem)]'}`}
+        className={`absolute inset-0 z-[100] flex-col overflow-hidden bg-background/90 backdrop-blur-sm sm:bottom-0 sm:left-3 sm:top-14 sm:z-20 sm:w-[calc(100%-1.5rem)] sm:max-w-[360px] sm:rounded-t-xl sm:border sm:border-b-0 sm:border-border/70 sm:shadow-lg sm:transition-transform sm:duration-200 ${isPanelOpen ? 'flex sm:translate-x-0' : 'hidden sm:flex sm:-translate-x-[calc(100%+0.75rem)]'}`}
       >
         {/* Panel header */}
         <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-3 py-2">
@@ -5513,34 +5577,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               {routeStatusLabel(displayedRouteStatus)}
             </span>
           )}
-          {/* Mobile nav buttons */}
-          <div className="flex shrink-0 items-center gap-1.5 sm:hidden">
-            <button
-              type="button"
-              onClick={() => { setIsWeatherChaseOpen(true); setIsPanelOpen(false); setIsChatOpen(false); }}
-              className={`flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors ${isWeatherChaseOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background/90 text-foreground hover:bg-background'}`}
-            >
-              🌦️ {t('roadMapPrototypeWeatherChaseTitle')}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setIsChatOpen(true); setIsPanelOpen(false); setIsWeatherChaseOpen(false); acknowledgeCurrentItems(); }}
-              className={`relative flex h-9 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3 text-xs font-semibold shadow-sm backdrop-blur-sm transition-colors ${isChatOpen ? 'border-primary bg-primary/10 text-primary' : 'border-border/70 bg-background/90 text-foreground hover:bg-background'}`}
-            >
-              💬 {t('roadMapPrototypePanelMessages')}
-              {!isChatOpen && newSinceOpenCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] font-semibold leading-4 text-destructive-foreground">{newSinceOpenCount}</span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setIsPanelOpen(false); setIsWeatherChaseOpen(false); setIsChatOpen(false); }}
-              className="flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-3 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background"
-            >
-              {t('roadMapPrototypeBackToMap')}
-            </button>
-            <TeskeidMenu variant="authenticated" />
-          </div>
         </div>
 
         {/* Panel body — scrollable */}
@@ -5960,34 +5996,18 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         ) : (
           /* Default overview: time selector + Einfalt/Nánar inline with pills */
           <div className="flex flex-col gap-2 px-3 pb-1 pt-2">
-            <WeatherSourceTimeSelector
-              vegagerdinGroupLabel={t('vegagerdinProviderLabel')}
-              nowLabel={t('sourceNowLabel')}
-              nowMeasuredAtLabel={
-                overviewVegagerdinNewestMeasuredAtIso
-                  ? t('sourceMeasuredAt', { time: formatKlTime(overviewVegagerdinNewestMeasuredAtIso) })
-                  : undefined
-              }
-              nowStatusColor={WIND_STATUS_MARKER_COLOR[
-                routeStatusFilterMode === 'simple'
-                  ? toSimpleWindDisplayStatus(overviewVegagerdinWorstStatus)
-                  : overviewVegagerdinWorstStatus
-              ]}
-              nowStatusLabel={tf(WIND_STATUS_META[overviewVegagerdinWorstStatus].labelKey as 'statusWithinLimits')}
-              nowLoading={overviewVegagerdinLoading}
-              nowLoadingLabel={t('sourceLoadingNow')}
-              nowDisabled={overviewVegagerdinRestricted}
-              forecastGroupLabel={t('sourceForecastGroupLabel')}
-              forecastLabel={t('sourceForecastLabel')}
-              forecastSlots={mapForecastSlotStatuses}
-              forecastLoading={overviewVedurstofanLoading && !overviewVedurstofanRestricted}
-              forecastLoadingLabel={t('sourceLoadingForecast')}
-              activeMode={overviewActiveMode}
-              onModeChange={handleOverviewModeChange}
-              prevLabel={t('sourceTimePrevious')}
-              nextLabel={t('sourceTimeNext')}
-              neutralStatusColors
-            />
+            {lastMapContext === 'weather' && (
+              <WeatherChaseTimeSelector
+                slots={mapForecastSlotStatuses}
+                loading={overviewVedurstofanLoading && !overviewVedurstofanRestricted}
+                loadingLabel={t('sourceLoadingForecast')}
+                activeTimeMs={typeof overviewActiveMode === 'number' ? overviewActiveMode : null}
+                onTimeChange={handleOverviewModeChange}
+                previousLabel={t('sourceTimePrevious')}
+                nextLabel={t('sourceTimeNext')}
+                forecastLabel={t('sourceForecastLabel')}
+              />
+            )}
             {isPanelOpen && (
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">

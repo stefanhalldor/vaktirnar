@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ForecastDrawerRow, ResolvedTravelThresholds } from '@/lib/weather/types'
 import {
+  getMedalEmoji,
   normalizeWeatherChaseVisibleHours,
   WEATHER_CHASE_VISIBLE_HOURS,
   type WeatherChaseVisibleHour,
@@ -112,6 +113,8 @@ type Props = {
   onHourSelect?: (hour: number) => void
   visibleHours?: number[]
   onVisibleHoursChange?: (hours: number[]) => void
+  showMedals?: boolean
+  onShowMedalsChange?: (v: boolean) => void
 }
 
 const CMP_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
@@ -271,6 +274,7 @@ function MetricStack({
   locale,
   criteria,
   labels,
+  showMedals,
 }: {
   row: ForecastDrawerRow | null
   peerRows: ForecastDrawerRow[]
@@ -278,6 +282,7 @@ function MetricStack({
   locale: string
   criteria: WeatherChaseCriteria
   labels: Pick<WeatherChaseLabels, 'temperatureUnit' | 'windUnit' | 'precipitationUnit'>
+  showMedals?: boolean
 }) {
   if (!row) {
     return <span className="text-[11px] text-muted-foreground/40">–</span>
@@ -289,6 +294,10 @@ function MetricStack({
   const temperatureFailsCriteria = metricFailsCriteria('temperature', row.temperature.value, criteria)
   const windFailsCriteria = metricFailsCriteria('wind', row.wind.value, criteria)
   const precipitationFailsCriteria = metricFailsCriteria('precipitation', row.precipitation.value, criteria)
+  const allTemps = [row.temperature.value, ...peerTemps]
+  const allWinds = [row.wind.value, ...peerWinds]
+  const tempMedal = showMedals ? getMedalEmoji(row.temperature.value, allTemps, 'desc') : null
+  const windMedal = showMedals ? getMedalEmoji(row.wind.value, allWinds, 'asc') : null
 
   return (
     <div className="space-y-0.5 rounded-md">
@@ -299,7 +308,8 @@ function MetricStack({
           temperatureFailsCriteria && 'opacity-35 grayscale',
         )}
       >
-        {formatNum(row.temperature.value, locale)}{labels.temperatureUnit}
+        {tempMedal && <span className="mr-0.5 text-xs">{tempMedal}</span>}
+        {formatNum(Math.round(row.temperature.value), locale)}{labels.temperatureUnit}
       </p>
       <p
         className={cn(
@@ -308,7 +318,8 @@ function MetricStack({
           windFailsCriteria && 'opacity-35 grayscale',
         )}
       >
-        {formatNum(row.wind.value, locale)} {labels.windUnit}
+        {windMedal && <span className="mr-0.5 text-xs">{windMedal}</span>}
+        {formatNum(Math.round(row.wind.value), locale)} {labels.windUnit}
       </p>
       <p
         className={cn(
@@ -361,6 +372,8 @@ export function WeatherChasePanel({
   onHourSelect,
   visibleHours: visibleHoursInput,
   onVisibleHoursChange,
+  showMedals = true,
+  onShowMedalsChange,
 }: Props) {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
@@ -743,6 +756,7 @@ export function WeatherChasePanel({
                         locale={locale}
                         criteria={activeCriteria}
                         labels={labels}
+                        showMedals={showMedals}
                       />
                     </div>
                   )
@@ -790,6 +804,7 @@ export function WeatherChasePanel({
                       locale={locale}
                       criteria={activeCriteria}
                       labels={labels}
+                      showMedals={showMedals}
                     />
                   </div>
                 )
@@ -817,7 +832,23 @@ export function WeatherChasePanel({
         {renderComparison(compactCols)}
 
         <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">{labels.visibleHoursLabel}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">{labels.visibleHoursLabel}</p>
+            {selectedItems.length > 1 && (
+              <button
+                type="button"
+                onClick={() => onShowMedalsChange?.(!showMedals)}
+                className={cn(
+                  'flex h-6 items-center gap-1 rounded-full border px-2 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  showMedals
+                    ? 'border-amber-300/70 bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                    : 'border-border/60 text-muted-foreground hover:text-foreground',
+                )}
+              >
+                🏆 {showMedals ? 'Fela' : 'Sýna'}
+              </button>
+            )}
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {WEATHER_CHASE_VISIBLE_HOURS.map(hour => {
               const selected = visibleHours.includes(hour)

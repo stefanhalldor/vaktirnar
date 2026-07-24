@@ -4,6 +4,17 @@ export type WeatherChaseVisibleHour = (typeof WEATHER_CHASE_VISIBLE_HOURS)[numbe
 
 const WEATHER_CHASE_VISIBLE_HOUR_SET = new Set<number>(WEATHER_CHASE_VISIBLE_HOURS)
 
+export function getMedalEmoji(value: number, allValues: number[], direction: 'asc' | 'desc'): string | null {
+  const valid = allValues.filter(Number.isFinite)
+  if (valid.length < 2) return null
+  const sorted = [...new Set(valid)].sort((a, b) => direction === 'desc' ? b - a : a - b)
+  const rank = sorted.indexOf(value)
+  if (rank === 0) return '🏆'
+  if (rank === 1) return '🥈'
+  if (rank === 2) return '🥉'
+  return null
+}
+
 export function normalizeWeatherChaseVisibleHours(value: unknown): WeatherChaseVisibleHour[] {
   if (!Array.isArray(value)) return [12]
 

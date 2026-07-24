@@ -21,6 +21,25 @@ const IS_MONTH_FULL = [
   'janúar', 'febrúar', 'mars', 'apríl', 'maí', 'júní',
   'júlí', 'ágúst', 'september', 'október', 'nóvember', 'desember',
 ]
+const IS_WEEKDAY_SHORT = ['Sun.', 'Mán.', 'Þri.', 'Mið.', 'Fim.', 'Fös.', 'Lau.']
+
+export function formatCompactForecastDay(
+  timeMs: number,
+  locale: string,
+): { weekdayLabel: string; dateLabel: string } {
+  const date = new Date(timeMs)
+  if (locale.startsWith('is')) {
+    return {
+      weekdayLabel: IS_WEEKDAY_SHORT[date.getUTCDay()],
+      dateLabel: `${date.getUTCDate()}.${date.getUTCMonth() + 1}`,
+    }
+  }
+
+  return {
+    weekdayLabel: date.toLocaleDateString(locale, { weekday: 'short', timeZone: 'UTC' }),
+    dateLabel: `${date.getUTCMonth() + 1}/${date.getUTCDate()}`,
+  }
+}
 
 /**
  * Groups slots by UTC calendar day. Returns groups in input order (first slot
