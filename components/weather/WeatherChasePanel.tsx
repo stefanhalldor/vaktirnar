@@ -439,8 +439,9 @@ export function WeatherChasePanel({
   )
 
   useEffect(() => {
+    if (initialSelectedIds === null || appliedDefaultsKeyRef.current === null) return
     onSelectedItemsChange?.(selectedItems)
-  }, [onSelectedItemsChange, selectedItems])
+  }, [initialSelectedIds, onSelectedItemsChange, selectedItems])
 
   useEffect(() => {
     if (!onLoadItemRows) return

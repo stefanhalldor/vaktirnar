@@ -1277,9 +1277,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [weatherChaseSaveStatus, setWeatherChaseSaveStatus] = useState<WeatherChaseSaveStatus>('idle')
   const [weatherChasePreferencesHydrated, setWeatherChasePreferencesHydrated] = useState(false)
   const [weatherChaseSelectionInitialized, setWeatherChaseSelectionInitialized] = useState(false)
-  const [isPanelOpen, setIsPanelOpen] = useState(true)
+  const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
-  const [lastMapContext, setLastMapContext] = useState<'weather' | 'route'>('route')
+  const [lastMapContext, setLastMapContext] = useState<'weather' | 'route'>('weather')
   const [routeActive, setRouteActive] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1483,13 +1483,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }, [overviewThresholds])
 
   const handleWeatherChaseSelectedItemsChange = useCallback((items: WeatherChaseItem[]) => {
+    if (!weatherChasePreferencesHydrated) return
     weatherChaseSelectedItemsRef.current = items
     setWeatherChaseSelectedItems(items)
     setWeatherChaseSelectionInitialized(true)
     setWeatherChaseNearbyFocusId(prev => (
       prev && items.some(item => item.id === prev) ? prev : null
     ))
-  }, [])
+  }, [weatherChasePreferencesHydrated])
 
   const handleWeatherChaseShowNearbyStations = useCallback((item: WeatherChaseItem) => {
     setWeatherChaseNearbyFocusId(prev => (prev === item.id ? null : item.id))
@@ -2071,7 +2072,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     if (!mapReady) return
     clearWeatherChaseMapMarkers()
     const shouldShowWeatherChaseMarkers =
-      !routeActiveRef.current &&
+      lastMapContext === 'weather' &&
       !isPanelOpen &&
       weatherChaseSelectedItems.length > 0
     if (!shouldShowWeatherChaseMarkers) {
@@ -2173,6 +2174,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
   }, [
     isPanelOpen,
+    lastMapContext,
     mapReady,
     overviewActiveMode,
     routeActive,
@@ -2403,7 +2405,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   ) {
     const map = mapRef.current
     const hasWeatherChaseSelection = weatherChaseSelectedItemsRef.current.length > 0
-    const showOverview = !routeActive && !weatherChaseActiveRef.current && !hasWeatherChaseSelection
+    const showOverview =
+      lastMapContext === 'weather' &&
+      !weatherChaseActiveRef.current &&
+      !hasWeatherChaseSelection
     const allEntries = [
       ...overviewVegagerdinMarkersRef.current,
       ...overviewVedurstofanMarkersRef.current,
@@ -2516,6 +2521,43 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     updateVegagerdinLabelMarkerState(statuses, mode)
     updateVedurstofanLabelMarkerState(statuses, mode)
     scheduleRouteLabelCollisionUpdate()
+  }
+
+  function applyMapContextVisibility(context: 'weather' | 'route') {
+    const map = mapRef.current
+    if (!canUseMapStyle(map)) return
+
+    if (context === 'weather') {
+      setRouteLayerLayoutVisibility(map, 'travel-bridge-route', false)
+      setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
+      setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, false)
+      setRouteLayerLayoutVisibility(map, VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID, false)
+      for (const { element } of [
+        ...routeVegagerdinLabelMarkersRef.current,
+        ...routeVedurstofanLabelMarkersRef.current,
+        ...routeEndpointMarkersRef.current,
+      ]) {
+        element.style.display = 'none'
+      }
+      updateOverviewLayerVisibility(overviewActiveModeRef.current, false)
+      updateOverviewMarkerVisibility(
+        overviewVisibleStatusesRef.current,
+        overviewActiveModeRef.current,
+        false,
+      )
+      return
+    }
+
+    clearWeatherChaseMapMarkers()
+    hideOverviewStationMarkers()
+    setRouteLayerLayoutVisibility(map, 'travel-bridge-route', Boolean(routeBridgeSummary))
+    for (const { element } of routeEndpointMarkersRef.current) {
+      element.style.display = routeBridgeSummary ? '' : 'none'
+    }
+    updateRouteWeatherLayerVisibility(
+      routeWeatherModeRef.current,
+      visibleRouteStatusesRef.current,
+    )
   }
 
   function createOverviewStationDotElement({
@@ -3525,6 +3567,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     color,
     compact = false,
     showNameLabel = true,
+    showWeatherCard = false,
     placement = { layout: 'vertical', anchor: 'bottom', offset: [0, -8] },
     onClick,
   }: {
@@ -3542,16 +3585,15 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     color: string
     compact?: boolean
     showNameLabel?: boolean
+    showWeatherCard?: boolean
     placement?: RouteLabelPlacement
     onClick: () => void
   }): HTMLButtonElement {
     void placement
     void compact
-    void showNameLabel
-    void weatherEmoji
     const windValueText = gustText ? `${windText} (${gustText})` : windText
-    void secondaryMetricText
-    void secondaryMetricTitle
+    const rightMetricText = secondaryMetricText ?? precipitationText ?? null
+    const rightMetricTitle = secondaryMetricTitle ?? labelsRef.current.routeMarkerPrecipitationTitle
     const ariaParts = [
       stationName,
       directionText ? labelsRef.current.routeMarkerWindDirection(directionText) : null,
@@ -3627,6 +3669,124 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         'padding:2px 5px',
       ].join(';')
       stack.appendChild(eta)
+    }
+
+    if (showWeatherCard && weatherEmoji) {
+      const emoji = document.createElement('span')
+      emoji.textContent = weatherEmoji
+      emoji.style.cssText = [
+        'display:block',
+        `font-size:${compact ? '12px' : '14px'}`,
+        'line-height:1',
+        `height:${compact ? '12px' : '14px'}`,
+        'text-align:center',
+        'text-shadow:0 1px 2px rgba(255,255,255,0.95),0 1px 5px rgba(15,23,42,0.18)',
+      ].join(';')
+      stack.appendChild(emoji)
+    }
+
+    if (showWeatherCard) {
+      const weatherCard = document.createElement('span')
+      weatherCard.dataset.routeWindValue = 'true'
+      weatherCard.style.cssText = [
+        'display:flex',
+        'flex-direction:column',
+        `min-width:${compact ? '56px' : '64px'}`,
+        'overflow:hidden',
+        'white-space:nowrap',
+        `border:1.5px solid ${color}`,
+        'border-radius:7px',
+        'background:rgba(255,255,255,0.97)',
+        'color:#1f2937',
+        'box-shadow:0 1px 5px rgba(15,23,42,0.20)',
+      ].join(';')
+
+      const windRow = document.createElement('span')
+      windRow.style.cssText = [
+        'display:flex',
+        'align-items:baseline',
+        'justify-content:center',
+        'gap:3px',
+        'border-bottom:1px solid rgba(15,23,42,0.12)',
+        'padding:3px 6px',
+        `font:800 ${compact ? '10px' : '11px'}/1 Inter,system-ui,sans-serif`,
+      ].join(';')
+
+      const direction = document.createElement('span')
+      direction.textContent = windDirectionTextToArrow(directionText)
+      direction.title = directionText ?? ''
+      direction.style.cssText = [
+        `font-size:${compact ? '11px' : '12px'}`,
+        'line-height:1',
+        'color:#475569',
+      ].join(';')
+      windRow.appendChild(direction)
+
+      const wind = document.createElement('span')
+      wind.dataset.routeWindSpeed = 'true'
+      wind.textContent = windValueText
+      wind.style.cssText = `color:${color}`
+      windRow.appendChild(wind)
+      weatherCard.appendChild(windRow)
+
+      const bottomRow = document.createElement('span')
+      bottomRow.dataset.routeWeatherBottom = 'true'
+      bottomRow.style.cssText = [
+        'display:grid',
+        'grid-template-columns:1fr 1fr',
+        `min-height:${compact ? '16px' : '17px'}`,
+        `font:700 ${compact ? '9px' : '10px'}/1 Inter,system-ui,sans-serif`,
+      ].join(';')
+
+      const temperature = document.createElement('span')
+      temperature.textContent = temperatureText ? `${temperatureText}°` : '–'
+      temperature.title = labelsRef.current.routeMarkerTemperatureTitle
+      temperature.style.cssText = [
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'border-right:1px solid rgba(15,23,42,0.12)',
+        'padding:3px 5px',
+        'color:#334155',
+      ].join(';')
+      bottomRow.appendChild(temperature)
+
+      const secondaryMetric = document.createElement('span')
+      secondaryMetric.textContent = rightMetricText ?? '–'
+      secondaryMetric.title = rightMetricTitle
+      secondaryMetric.style.cssText = [
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'padding:3px 5px',
+        'color:#334155',
+      ].join(';')
+      bottomRow.appendChild(secondaryMetric)
+      weatherCard.appendChild(bottomRow)
+      stack.appendChild(weatherCard)
+    }
+
+    if (showWeatherCard && showNameLabel) {
+      const name = document.createElement('span')
+      name.dataset.routeWindName = 'true'
+      name.textContent = stationName
+      name.style.cssText = [
+        'display:inline-flex',
+        'max-width:120px',
+        'overflow:hidden',
+        'text-overflow:ellipsis',
+        'white-space:nowrap',
+        'font-weight:600',
+        'font-size:9px',
+        'line-height:1.15',
+        'border:1px solid rgba(21,66,18,0.18)',
+        'border-radius:999px',
+        'background:rgba(255,255,255,0.92)',
+        'color:#334155',
+        'box-shadow:0 1px 3px rgba(15,23,42,0.12)',
+        'padding:2px 5px',
+      ].join(';')
+      stack.appendChild(name)
     }
 
     element.appendChild(stack)
@@ -3880,6 +4040,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         : null,
       weatherEmoji: null,
       color,
+      showWeatherCard: true,
       placement,
       onClick: () => openVegagerdinRouteStationPopup(point),
     })
@@ -5273,14 +5434,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           type="button"
           onClick={() => {
             setLastMapContext('weather')
-            if (isWeatherChaseOpen) {
-              setIsWeatherChaseOpen(false)
-              if (typeof overviewActiveMode !== 'number' && mapForecastSlotStatuses[0]) {
-                handleOverviewModeChange(mapForecastSlotStatuses[0].timeMs)
-              }
-            } else {
-              setIsWeatherChaseOpen(true)
-            }
+            setIsWeatherChaseOpen(true)
             setIsPanelOpen(false)
             setIsChatOpen(false)
           }}
@@ -5320,9 +5474,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           type="button"
           onClick={() => {
             setLastMapContext('route')
-            const opening = !isPanelOpen
-            setIsPanelOpen(opening)
-            if (opening && routeBridgeSummary && routeForecastBuildStatus === 'idle') {
+            setIsPanelOpen(true)
+            if (routeBridgeSummary && routeForecastBuildStatus === 'idle') {
               handleRouteDepartureForecastOptIn()
             }
             setIsWeatherChaseOpen(false)
@@ -5343,6 +5496,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             setIsWeatherChaseOpen(false)
             setIsPanelOpen(false)
             setIsChatOpen(false)
+            applyMapContextVisibility(lastMapContext)
             if (
               lastMapContext === 'weather' &&
               !routeBridgeSummary &&

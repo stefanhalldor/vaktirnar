@@ -1116,7 +1116,7 @@
         "roadMapPrototypeBack": "← Back to Weather",
         "roadMapPrototypeTitle": "Map prototype",
         "roadMapPrototypeSubtitle": "M3A · Travel route on the new map · road-intelligence-v1",
-        "roadMapPrototypeWeatherChaseTitle": "My weather",
+        "roadMapPrototypeWeatherChaseTitle": "Forecast",
         "roadMapPrototypeWeatherChaseSubtitle": "Edit stations and set your weather preferences",
         "roadMapPrototypeWeatherChaseLoading": "Fetching forecasts...",
         "roadMapPrototypeWeatherChaseEmptyData": "No forecasts were found for comparison.",
