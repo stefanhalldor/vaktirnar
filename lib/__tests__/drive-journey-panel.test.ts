@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildDriveStationAssessment,
+  projectDriveMiniMapPoints,
   vedurstofanRowsToComparisonRows,
 } from '@/components/weather/DriveJourneyPanel'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
@@ -77,5 +78,17 @@ describe('DriveJourneyPanel Veðurstofan view model', () => {
     })
     expect(rows[0]).not.toHaveProperty('yrnoUrl')
     expect(rows[0]).not.toHaveProperty('metnoUrl')
+  })
+
+  it('projects route coordinates into the mini-map bounds', () => {
+    const points = projectDriveMiniMapPoints([
+      { lat: 64, lon: -22 },
+      { lat: 65, lon: -20 },
+    ], 320, 150, 14)
+
+    expect(points).toEqual([
+      { x: 14, y: 136 },
+      { x: 306, y: 14 },
+    ])
   })
 })

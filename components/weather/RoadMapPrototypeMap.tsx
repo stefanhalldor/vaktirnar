@@ -1274,9 +1274,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [weatherChaseSaveStatus, setWeatherChaseSaveStatus] = useState<WeatherChaseSaveStatus>('idle')
   const [weatherChasePreferencesHydrated, setWeatherChasePreferencesHydrated] = useState(false)
   const [weatherChaseSelectionInitialized, setWeatherChaseSelectionInitialized] = useState(false)
-  const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [isPanelOpen, setIsPanelOpen] = useState(true)
   const [isChatOpen, setIsChatOpen] = useState(false)
-  const [lastMapContext, setLastMapContext] = useState<'weather' | 'route'>('weather')
+  const [lastMapContext, setLastMapContext] = useState<'weather' | 'route'>('route')
   const [routeActive, setRouteActive] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -4171,6 +4171,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     routeForecastBuildContextRef.current = null
     setRouteDepartureForecastExpanded(false)
     setRouteForecastBuildStatus('idle')
+    if (routeForecastBuildContextRef.current) {
+      handleRouteDepartureForecastOptIn()
+    }
   }
 
   function handleRouteDepartureForecastOptIn() {
@@ -4268,6 +4271,20 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
         setRouteCandidates(context.timelineCandidates)
         setRouteSlotStatusOverrides(slotStatusOverrides)
+        const firstCandidate = context.timelineCandidates[0]
+        if (context.vedurstofanLayer && firstCandidate) {
+          const firstDepartureMs = Date.parse(firstCandidate.departureIso)
+          const render = renderVedurstofanStations(
+            context.vedurstofanLayer,
+            context.routeDurationMinutes,
+            context.thresholds,
+            firstDepartureMs,
+          )
+          setSelectedCandidateIdx(0)
+          setRouteWeatherModeState('forecast')
+          setRouteVisibleStatusCounts(render.statusCounts)
+          updateRouteWeatherLayerVisibility('forecast')
+        }
         setRouteForecastBuildStatus('ready')
       } catch (e) {
         if (!context.signal.aborted) {
@@ -4535,7 +4552,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteWeatherModeState('now')
     setFromSuggestions([])
     setToSuggestions([])
-    setIsPanelOpen(false)
+    setIsPanelOpen(true)
 
     try {
       const [origin, destination] = await Promise.all([
@@ -4611,7 +4628,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       from: resolvedPlaces.origin.name,
       to: resolvedPlaces.destination.name,
     })
-    setIsPanelOpen(false)
+    setIsPanelOpen(true)
 
     try {
       await calculateResolvedRoute({
@@ -5437,6 +5454,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               originName={routeBridgeSummary.fromName}
               destinationName={routeBridgeSummary.toName}
               onClearRoute={handleClearRoute}
+              routePoints={routeTravelResult?.travelPlan?.route.auditPolylinePoints ?? []}
             />
           ) : (
             /* No route: route form */
@@ -5720,37 +5738,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             {t('roadMapPrototypeScrubberCalculatingHourly')}
           </div>
         ) : routeBridgeSummary ? (
-          <div className="max-h-[82vh] overflow-y-auto overscroll-contain px-3 pb-2 pt-2">
-            {renderRouteSurfaceChoices()}
+          <div className="px-3 pb-2 pt-2">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex overflow-hidden rounded-full border border-border bg-background/80 p-0.5">
-                {(['simple', 'detailed'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    type="button"
-                    aria-pressed={routeStatusFilterMode === mode}
-                    onClick={() => handleRouteStatusFilterModeChange(mode)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                      routeStatusFilterMode === mode
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {mode === 'simple' ? t('statusFilterModeSimple') : t('statusFilterModeDetailed')}
-                  </button>
-                ))}
-              </div>
-              <WindStatusFilterPills
-                counts={activeRouteStatusCounts}
-                visibleStatuses={visibleRouteStatuses}
-                onVisibleStatusesChange={handleRouteStatusFilterChange}
-                showAllLabel=""
-                alwaysShowWithinLimits
-                mode={routeStatusFilterMode}
-              />
-            </div>
-
-            <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 aria-pressed={routeWeatherMode === 'now'}
@@ -5766,159 +5755,37 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: routeStatusColor(routeBridgeSummary.status) }}
                   />
-                  {routeNowMeasuredLabel}
+                  {t('vegagerdinProviderLabel')}
                 </span>
               </button>
 
-              {!routeDepartureForecastExpanded && (
-                <button
-                  type="button"
-                  onClick={handleRouteDepartureForecastOptIn}
-                  className="min-h-10 rounded-lg border border-border bg-background/85 px-3 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <span className="block font-semibold text-foreground">
-                    {t('roadMapPrototypeDepartureDrawerTitle')}
-                  </span>
-                  <span className="block text-[10px]">
-                    {t('roadMapPrototypeDepartureOptInButton')}
-                  </span>
-                </button>
-              )}
+              <button
+                type="button"
+                aria-pressed={routeWeatherMode === 'forecast'}
+                onClick={() => {
+                  if (effectiveSelectedCandidateIdx !== null) {
+                    handleSelectCandidateIdx(effectiveSelectedCandidateIdx)
+                  } else if (displayedRouteCandidates && displayedRouteCandidates.length > 0) {
+                    handleSelectCandidateIdx(0)
+                  } else {
+                    handleRouteDepartureForecastOptIn()
+                  }
+                }}
+                className={`min-h-10 rounded-full border px-3 py-1.5 text-left text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                  routeWeatherMode === 'forecast'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background/85 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span className="font-semibold">
+                  {tf('roadMapPrototypeMapDeparturePill', {
+                    time: selectedRouteCandidate
+                      ? formatKlTime(selectedRouteCandidate.departureIso)
+                      : tf('roadMapPrototypeScrubberNow'),
+                  })}
+                </span>
+              </button>
             </div>
-
-            {routeSelectedStation && (
-              <div className="mt-2 overflow-hidden rounded-xl border border-border bg-card">
-                <div className="flex items-start justify-between gap-2 px-3 pb-2 pt-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">
-                      {routeSelectedStation.kind === 'vedurstofan'
-                        ? routeSelectedStation.entry.point.stationName
-                        : routeSelectedStation.point.stationName}
-                    </p>
-                    <WindStatusBadge
-                      status={routeSelectedStation.kind === 'vedurstofan'
-                        ? routeSelectedStation.entry.windDisplayStatus
-                        : routeSelectedStation.point.windDisplayStatus}
-                      variant="line"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setRouteSelectedStation(null); setRouteStationDetailOpen(false) }}
-                    className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    aria-label="Loka"
-                  >
-                    ✕
-                  </button>
-                </div>
-                {routeTravelResult?.travelPlan && (
-                  <div className="border-t border-border/50">
-                    <button
-                      type="button"
-                      onClick={() => setRouteStationDetailOpen(true)}
-                      className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    >
-                      <span className="text-xs font-semibold text-foreground">{t('roadMapPrototypeTravelDetailsTitle')}</span>
-                      <span className="shrink-0 text-[10px] font-medium text-primary">{t('roadMapPrototypeTravelDetailsOpen')}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {routeDepartureForecastExpanded && (
-              <div className="mt-2 rounded-lg border border-border/70 bg-background/70 p-2">
-                <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-semibold text-foreground">
-                      {t('roadMapPrototypeDepartureDrawerTitle')}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {routeForecastBuildStatus === 'loading'
-                        ? t('roadMapPrototypeScrubberCalculatingHourly')
-                        : routeForecastBuildStatus === 'unavailable' || routeForecastBuildStatus === 'error'
-                          ? t('roadMapPrototypeDepartureOptInUnavailable')
-                          : t('roadMapPrototypeDepartureOptInDescription')}
-                    </p>
-                  </div>
-                  {(routeForecastBuildStatus === 'unavailable' || routeForecastBuildStatus === 'error') && (
-                    <button
-                      type="button"
-                      onClick={handleRouteDepartureForecastOptIn}
-                      className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    >
-                      {t('roadMapPrototypeDepartureOptInRetry')}
-                    </button>
-                  )}
-                </div>
-
-                {displayedRouteCandidates && displayedRouteCandidates.length > 1 && (
-                  <>
-                    <DepartureHeatmap
-                      candidates={displayedRouteCandidates}
-                      bestWindow={undefined}
-                      originName={routeBridgeSummary.fromName}
-                      selectedIdx={effectiveSelectedCandidateIdx}
-                      onSelectIdx={handleSelectCandidateIdx}
-                      visibleStatuses={visibleRouteStatuses}
-                      onVisibleStatusesChange={handleRouteStatusFilterChange}
-                      thresholdsUsed={routeBridgeSummary.thresholdsUsed}
-                      subtitle={routeScrubberStatusText}
-                      title={null}
-                      showSelectedDetail={false}
-                      slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
-                      mode={routeStatusFilterMode}
-                      firstSlotLabel={t('roadMapPrototypeScrubberNow')}
-                      selectFirstSlotWhenNone={false}
-                      showBestWindowHint={false}
-                    />
-                    {hasMoreCandidates && (
-                      <div className="mt-1 pb-1 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setVisibleCandidateLimit(prev => prev + 24)}
-                          className="text-[10px] text-primary underline-offset-2 hover:underline focus-visible:outline-none"
-                        >
-                          {t('roadMapPrototypeLoadMoreCandidates')}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {routeTravelResult?.travelPlan && (
-              <div className="mt-2 overflow-hidden rounded-lg border border-border/70 bg-background/95">
-                <button
-                  type="button"
-                  onClick={() => setRouteTravelDetailsOpen(open => !open)}
-                  aria-expanded={routeTravelDetailsOpen}
-                  className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-semibold text-foreground transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <span>{t('roadMapPrototypeTravelDetailsTitle')}</span>
-                  <span className="shrink-0 text-[10px] font-medium text-primary">
-                    {routeTravelDetailsOpen
-                      ? t('roadMapPrototypeTravelDetailsClose')
-                      : t('roadMapPrototypeTravelDetailsOpen')}
-                  </span>
-                </button>
-                {routeTravelDetailsOpen && (
-                  <div className="max-h-[58vh] overflow-y-auto border-t border-border/70 px-3 py-3 overscroll-contain">
-                    <RouteTravelDetails
-                      result={routeTravelResult}
-                      candidate={selectedRouteCandidate}
-                      status={displayedRouteStatus}
-                      answer={displayedRouteAnswer}
-                      thresholds={routeBridgeSummary.thresholdsUsed}
-                      originName={routeBridgeSummary.fromName}
-                      destinationName={routeBridgeSummary.toName}
-                      selectedRouteIndex={selectedRoutePointIndex}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         ) : (
           /* Default overview: time selector + Einfalt/Nánar inline with pills */

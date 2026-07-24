@@ -118,6 +118,7 @@ export function DriveJourneyPanel({
   originName,
   destinationName,
   onClearRoute,
+  routePoints,
 }: {
   layer: VedurstofanTravelLayer | null
   candidates: TravelCandidate[]
@@ -130,13 +131,14 @@ export function DriveJourneyPanel({
   originName: string
   destinationName: string
   onClearRoute: () => void
+  routePoints: Array<{ lat: number; lon: number }>
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
-  const t = useTranslations('teskeid.vedrid')
   const locale = useLocale()
   const [visibleStatuses, setVisibleStatuses] = useState<Set<WindDisplayStatus>>(
     () => new Set(ALL_WIND_DISPLAY_STATUSES),
   )
+  const [selectedStationId, setSelectedStationId] = useState<string | null>(null)
   const candidate =
     selectedCandidateIdx !== null
       ? candidates[selectedCandidateIdx] ?? candidates[0] ?? null
@@ -161,11 +163,14 @@ export function DriveJourneyPanel({
   const originRows = originStation ? vedurstofanRowsToComparisonRows(originStation.forecastRows) : []
   const destinationRows = destinationStation ? vedurstofanRowsToComparisonRows(destinationStation.forecastRows) : []
   const effectiveStatus = worst ? statusFromWindDisplay(worst.status) : 'graent'
+  const selectedAssessment =
+    assessments.find(assessment => assessment.station.routePointId === selectedStationId) ??
+    worst
 
   if (!layer || stations.length === 0) {
     return (
       <div className="p-4 text-sm text-muted-foreground">
-        {t('roadMapPrototypeDepartureOptInUnavailable')}
+        {tf('roadMapPrototypeDepartureOptInUnavailable')}
       </div>
     )
   }
@@ -198,7 +203,7 @@ export function DriveJourneyPanel({
               thresholdsUsed={thresholds}
               showSelectedDetail={false}
               slotStatusOverrides={slotStatusOverrides}
-              firstSlotLabel={t('roadMapPrototypeScrubberNow')}
+              firstSlotLabel={tf('roadMapPrototypeScrubberNow')}
               showBestWindowHint={false}
             />
           </div>
@@ -272,31 +277,71 @@ export function DriveJourneyPanel({
           />
         )}
 
-        <section className="mt-4 space-y-2 border-t border-border/70 pt-3">
-          <p className="text-[11px] font-semibold text-foreground/70">
-            {tf('routePointsTitle')}
-          </p>
-          <p className="text-[10px] text-muted-foreground">
-            {formatNum(distanceKm, locale)} km · {t('roadMapPrototypeVedurstofanStationCount', {
-              count: stations.length,
+        <section className="mt-4 space-y-3 border-t border-border/70 pt-3">
+          <DriveMiniMap
+            routePoints={routePoints}
+            assessments={assessments}
+            selectedStationId={selectedAssessment?.station.routePointId ?? null}
+            onSelectStation={setSelectedStationId}
+            ariaLabel={tf('auditMapAlt', {
+              origin: originName,
+              destination: destinationName,
             })}
-          </p>
-          {assessments.map(assessment => (
+          />
+
+          {selectedAssessment && (
             <VedurstofanPointCard
-              key={assessment.station.routePointId}
-              station={assessment.station}
-              status={assessment.status}
-              etaIso={assessment.etaIso}
+              station={selectedAssessment.station}
+              status={selectedAssessment.status}
+              etaIso={selectedAssessment.etaIso}
               departureIso={candidate?.departureIso ?? null}
               originName={originName}
               panelTitle={
-                assessment.station.routePointId === worst?.station.routePointId
+                selectedAssessment.station.routePointId === worst?.station.routePointId
                   ? tf('decisivePointLabel')
-                  : undefined
+                  : tf('manualSelectedPointTitle')
               }
+              isManualSelection={selectedAssessment.station.routePointId !== worst?.station.routePointId}
               returnTo="/auth-mvp/vedrid/road-map-prototype"
             />
-          ))}
+          )}
+
+          {selectedStationId && selectedStationId !== worst?.station.routePointId && (
+            <button
+              type="button"
+              onClick={() => setSelectedStationId(null)}
+              className="min-h-10 text-xs font-medium text-primary underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {tf('showWorstPoint')}
+            </button>
+          )}
+
+          <details className="group rounded-xl border border-border bg-card">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+              <span>{tf('allRouteForecastPointsDrawer')}</span>
+              <span className="text-[10px] font-medium text-muted-foreground">
+                {tf('roadMapPrototypeVedurstofanStationCount', { count: stations.length })}
+              </span>
+            </summary>
+            <div className="space-y-2 border-t border-border/70 p-3">
+              {assessments.map(assessment => (
+                <VedurstofanPointCard
+                  key={assessment.station.routePointId}
+                  station={assessment.station}
+                  status={assessment.status}
+                  etaIso={assessment.etaIso}
+                  departureIso={candidate?.departureIso ?? null}
+                  originName={originName}
+                  panelTitle={
+                    assessment.station.routePointId === worst?.station.routePointId
+                      ? tf('decisivePointLabel')
+                      : undefined
+                  }
+                  returnTo="/auth-mvp/vedrid/road-map-prototype"
+                />
+              ))}
+            </div>
+          </details>
         </section>
 
         <button
@@ -304,9 +349,110 @@ export function DriveJourneyPanel({
           onClick={onClearRoute}
           className="mt-4 min-h-10 w-full rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {t('roadMapPrototypeRouteClear')}
+          {tf('roadMapPrototypeRouteClear')}
         </button>
       </div>
+    </div>
+  )
+}
+
+type MiniMapPoint = { x: number; y: number }
+
+export function projectDriveMiniMapPoints(
+  points: Array<{ lat: number; lon: number }>,
+  width = 320,
+  height = 150,
+  padding = 14,
+): MiniMapPoint[] {
+  const valid = points.filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+  if (valid.length === 0) return []
+  const minLat = Math.min(...valid.map(point => point.lat))
+  const maxLat = Math.max(...valid.map(point => point.lat))
+  const minLon = Math.min(...valid.map(point => point.lon))
+  const maxLon = Math.max(...valid.map(point => point.lon))
+  const latSpan = Math.max(maxLat - minLat, 0.001)
+  const lonSpan = Math.max(maxLon - minLon, 0.001)
+  return valid.map(point => ({
+    x: padding + ((point.lon - minLon) / lonSpan) * (width - padding * 2),
+    y: height - padding - ((point.lat - minLat) / latSpan) * (height - padding * 2),
+  }))
+}
+
+function DriveMiniMap({
+  routePoints,
+  assessments,
+  selectedStationId,
+  onSelectStation,
+  ariaLabel,
+}: {
+  routePoints: Array<{ lat: number; lon: number }>
+  assessments: StationAssessment[]
+  selectedStationId: string | null
+  onSelectStation: (stationId: string) => void
+  ariaLabel: string
+}) {
+  const width = 320
+  const height = 150
+  const allCoords = [
+    ...routePoints,
+    ...assessments
+      .filter(assessment => assessment.station.lat !== null && assessment.station.lon !== null)
+      .map(assessment => ({ lat: assessment.station.lat!, lon: assessment.station.lon! })),
+  ]
+  const projected = projectDriveMiniMapPoints(allCoords, width, height)
+  const projectedRoute = projected.slice(0, routePoints.length)
+  const projectedStations = projected.slice(routePoints.length)
+  const routePath = projectedRoute
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+    .join(' ')
+  let stationProjectionIndex = 0
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-[#eef5f3]">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="block h-auto w-full"
+        role="img"
+        aria-label={ariaLabel}
+      >
+        {routePath && (
+          <>
+            <path d={routePath} fill="none" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={routePath} fill="none" stroke="#154212" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          </>
+        )}
+        {assessments.map(assessment => {
+          if (assessment.station.lat === null || assessment.station.lon === null) return null
+          const point = projectedStations[stationProjectionIndex++]
+          if (!point) return null
+          const selected = assessment.station.routePointId === selectedStationId
+          const fill =
+            assessment.status === 'haettulegt' || assessment.status === 'nalgast-haettumork'
+              ? '#dc2626'
+              : assessment.status === 'othaegilegt' || assessment.status === 'nalgast-othaegindi'
+                ? '#f59e0b'
+                : '#2d5a27'
+          return (
+            <g
+              key={assessment.station.routePointId}
+              role="button"
+              tabIndex={0}
+              aria-label={assessment.station.stationName}
+              onClick={() => onSelectStation(assessment.station.routePointId)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onSelectStation(assessment.station.routePointId)
+                }
+              }}
+              className="cursor-pointer focus:outline-none"
+            >
+              <circle cx={point.x} cy={point.y} r={selected ? 9 : 7} fill="white" opacity="0.96" />
+              <circle cx={point.x} cy={point.y} r={selected ? 6 : 4.5} fill={fill} />
+            </g>
+          )
+        })}
+      </svg>
     </div>
   )
 }
