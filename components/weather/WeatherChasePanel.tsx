@@ -388,6 +388,8 @@ export function WeatherChasePanel({
   const searchBlurTimerRef = useRef<number | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const appliedDefaultsKeyRef = useRef<string | null>(null)
+  const appliedSelectedIdsKeyRef = useRef<string | null>(null)
+  const hasPublishedInitialSelectionRef = useRef(false)
   const inFlightLoadIdsRef = useRef<Set<string>>(new Set())
   const activeCriteria = criteria ?? internalCriteria
   const precipitationCriteriaValueRef = useRef<number | null>(activeCriteria.maxPrecipitationMmPerHour)
@@ -424,12 +426,18 @@ export function WeatherChasePanel({
         !items.some(item => item.providerId === 'vedurstofan')
       if (waitingForSavedVedurstofanItems) return
       if (selected.length === 0) return
-      setSelectedIds(selected.map(item => item.id))
+      const nextSelectedIds = selected.map(item => item.id)
+      hasPublishedInitialSelectionRef.current = false
+      setSelectedIds(nextSelectedIds)
+      appliedSelectedIdsKeyRef.current = nextSelectedIds.join('|')
       appliedDefaultsKeyRef.current = defaultsKey
       return
     }
 
-    setSelectedIds(items.slice(0, 3).map(item => item.id))
+    const nextSelectedIds = items.slice(0, 3).map(item => item.id)
+    hasPublishedInitialSelectionRef.current = false
+    setSelectedIds(nextSelectedIds)
+    appliedSelectedIdsKeyRef.current = nextSelectedIds.join('|')
     appliedDefaultsKeyRef.current = defaultsKey
   }, [initialSelectedIds, itemById, items])
 
@@ -440,8 +448,13 @@ export function WeatherChasePanel({
 
   useEffect(() => {
     if (initialSelectedIds === null || appliedDefaultsKeyRef.current === null) return
+    if (
+      !hasPublishedInitialSelectionRef.current &&
+      selectedIds.join('|') !== appliedSelectedIdsKeyRef.current
+    ) return
+    hasPublishedInitialSelectionRef.current = true
     onSelectedItemsChange?.(selectedItems)
-  }, [initialSelectedIds, onSelectedItemsChange, selectedItems])
+  }, [initialSelectedIds, onSelectedItemsChange, selectedIds, selectedItems])
 
   useEffect(() => {
     if (!onLoadItemRows) return

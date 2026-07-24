@@ -2174,7 +2174,22 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     hideOverviewStationMarkers()
     reconcilePlaceMarkerVisibility()
 
+    let collisionFrame: number | null = null
+    const scheduleWeatherChaseCollisionUpdate = () => {
+      if (collisionFrame !== null) window.cancelAnimationFrame(collisionFrame)
+      collisionFrame = window.requestAnimationFrame(() => {
+        collisionFrame = null
+        applyWeatherChaseCardCollisionAvoidance()
+      })
+    }
+    map.on('moveend', scheduleWeatherChaseCollisionUpdate)
+    map.on('zoomend', scheduleWeatherChaseCollisionUpdate)
+    scheduleWeatherChaseCollisionUpdate()
+
     return () => {
+      map.off('moveend', scheduleWeatherChaseCollisionUpdate)
+      map.off('zoomend', scheduleWeatherChaseCollisionUpdate)
+      if (collisionFrame !== null) window.cancelAnimationFrame(collisionFrame)
       clearWeatherChaseMapMarkers()
     }
   }, [
@@ -2673,6 +2688,51 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       .map(candidate => candidate.item)
   }
 
+  function applyWeatherChaseCardCollisionAvoidance() {
+    const mapBounds = containerRef.current?.getBoundingClientRect() ?? null
+    const stacks = weatherChaseMapMarkersRef.current
+      .filter(marker => marker.kind === 'selected')
+      .map(({ element }) => element.querySelector<HTMLElement>('[data-route-weather-stack="true"]'))
+      .filter((stack): stack is HTMLElement => Boolean(stack))
+
+    const candidateOffsets: ReadonlyArray<readonly [number, number]> = [
+      [0, 0],
+      [72, 0],
+      [-72, 0],
+      [0, 64],
+      [0, -64],
+      [72, 64],
+      [-72, 64],
+      [72, -64],
+      [-72, -64],
+      [144, 0],
+      [-144, 0],
+    ]
+    const acceptedRects: DOMRect[] = []
+
+    for (const stack of stacks) {
+      const acceptedCountBeforePlacement = acceptedRects.length
+      for (const [x, y] of candidateOffsets) {
+        stack.style.transform = `translateX(-50%) translate(${x}px, ${y}px)`
+        const rect = stack.getBoundingClientRect()
+        const staysInsideMap = !mapBounds || (
+          rect.left >= mapBounds.left + 6 &&
+          rect.right <= mapBounds.right - 6 &&
+          rect.top >= mapBounds.top + 6 &&
+          rect.bottom <= mapBounds.bottom - 6
+        )
+        const overlaps = acceptedRects.some(accepted => rectsOverlap(rect, accepted, 6))
+        if (staysInsideMap && !overlaps) {
+          acceptedRects.push(rect)
+          break
+        }
+      }
+      if (acceptedRects.length === acceptedCountBeforePlacement) {
+        acceptedRects.push(stack.getBoundingClientRect())
+      }
+    }
+  }
+
   function createWeatherChaseMapMarkerElement(
     item: WeatherChaseItem,
     row: ForecastDrawerRow | null,
@@ -2691,6 +2751,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       temperatureText: row ? formatNum(row.temperature.value, locale) : null,
       precipitationText: row ? formatNum(row.precipitation.value, locale) : null,
       weatherEmoji: row?.weatherEmoji ?? null,
+      providerLabel: item.providerLabel,
       color: kind === 'nearby-vedurstofan' ? '#64748b' : '#2563eb',
       compact: true,
       showNameLabel: true,
@@ -3570,6 +3631,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     secondaryMetricAriaText,
     weatherEmoji,
     etaText,
+    providerLabel,
     color,
     compact = false,
     showNameLabel = true,
@@ -3588,6 +3650,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     secondaryMetricAriaText?: string | null
     weatherEmoji?: string | null
     etaText?: string | null
+    providerLabel?: string | null
     color: string
     compact?: boolean
     showNameLabel?: boolean
@@ -3706,6 +3769,23 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         'color:#1f2937',
         'box-shadow:0 1px 5px rgba(15,23,42,0.20)',
       ].join(';')
+
+      if (providerLabel) {
+        const provider = document.createElement('span')
+        provider.textContent = providerLabel
+        provider.style.cssText = [
+          'display:block',
+          'overflow:hidden',
+          'text-overflow:ellipsis',
+          'white-space:nowrap',
+          'border-bottom:1px solid rgba(15,23,42,0.12)',
+          'padding:3px 6px 2px',
+          'color:#64748b',
+          `font:700 ${compact ? '8px' : '9px'}/1.1 Inter,system-ui,sans-serif`,
+          'text-align:center',
+        ].join(';')
+        weatherCard.appendChild(provider)
+      }
 
       const windRow = document.createElement('span')
       windRow.style.cssText = [
