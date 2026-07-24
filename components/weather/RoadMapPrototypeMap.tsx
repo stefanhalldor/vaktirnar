@@ -62,6 +62,8 @@ import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
 import { RouteTravelDetails } from './RouteTravelDetails'
+import { VedurstofanPointCard } from './VedurstofanPointCard'
+import { WindStatusBadge } from './WindStatusBadge'
 import { ConditionsFeedPreview } from './ConditionsFeedPreview'
 import {
   WeatherChasePanel,
@@ -1213,6 +1215,12 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [routeTravelResult, setRouteTravelResult] = useState<DeterministicResult | null>(null)
   const [routeTravelDetailsOpen, setRouteTravelDetailsOpen] = useState(false)
   const [selectedRoutePointIndex, setSelectedRoutePointIndex] = useState<number | null>(null)
+  const [routeSelectedStation, setRouteSelectedStation] = useState<
+    | { kind: 'vedurstofan'; entry: VedurstofanRouteStatusEntry }
+    | { kind: 'vegagerdin'; point: VegagerdinRouteLayerPoint }
+    | null
+  >(null)
+  const [routeStationDetailOpen, setRouteStationDetailOpen] = useState(false)
   const [fromSuggestions, setFromSuggestions] = useState<RoadIntelligencePlaceResult[]>([])
   const [toSuggestions, setToSuggestions] = useState<RoadIntelligencePlaceResult[]>([])
   const [fromResolved, setFromResolved] = useState<RoadIntelligencePlaceResult | null>(null)
@@ -2483,7 +2491,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     if (canUseMapStyle(map)) {
       setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, mode === 'now')
       setRouteLayerLayoutVisibility(map, VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID, mode === 'forecast')
-      setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, true)
+      setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
     }
     updateVegagerdinLabelMarkerState(statuses, mode)
     updateVedurstofanLabelMarkerState(statuses, mode)
@@ -2974,6 +2982,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteTravelResult(null)
     setRouteTravelDetailsOpen(false)
     setSelectedRoutePointIndex(null)
+    setRouteSelectedStation(null)
+    setRouteStationDetailOpen(false)
     setRouteFrom('')
     setRouteTo('')
     setFromResolved(null)
@@ -3379,74 +3389,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
     const pointSource = map.getSource(TRAVEL_METNO_LAYER_ID)
     if (pointSource) {
-      ;(pointSource as import('maplibre-gl').GeoJSONSource).setData(weatherPointGeoJson as never)
-    } else {
-      map.addSource(TRAVEL_METNO_LAYER_ID, {
-        type: 'geojson',
-        data: weatherPointGeoJson as never,
-      })
-      map.addLayer({
-        id: TRAVEL_METNO_LAYER_ID,
-        type: 'circle',
-        source: TRAVEL_METNO_LAYER_ID,
-        paint: {
-          'circle-color': ['get', 'color'],
-          'circle-radius': [
-            'case',
-            ['boolean', ['get', 'isHighlightedIssue'], false],
-            6,
-            4,
-          ] as unknown as number,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff',
-          'circle-opacity': 0.92,
-        },
-      })
-      map.on('mouseenter', TRAVEL_METNO_LAYER_ID, () => {
-        map.getCanvas().style.cursor = 'pointer'
-      })
-      map.on('mouseleave', TRAVEL_METNO_LAYER_ID, () => {
-        map.getCanvas().style.cursor = ''
-      })
-      map.on('click', TRAVEL_METNO_LAYER_ID, (event) => {
-        const feature = event.features?.[0]
-        const properties = feature?.properties as Record<string, unknown> | undefined
-        const routeIndex = Number(properties?.['routeIndex'])
-        if (!Number.isInteger(routeIndex)) return
-        setSelectedRoutePointIndex(routeIndex)
-
-        const coordinates = (
-          feature?.geometry as { type: 'Point'; coordinates: [number, number] }
-        )?.coordinates
-        const Popup = popupConstructorRef.current
-        if (!Popup || !coordinates) return
-        const panel = document.createElement('div')
-        panel.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:2px;font:500 11px/1.35 Inter,system-ui,sans-serif;color:#1f2937'
-        const title = document.createElement('strong')
-        title.textContent = t('roadMapPrototypeRoutePointTitle', {
-          index: routeIndex + 1,
-          total: Number(properties?.['totalRouteWeatherPoints']) || '–',
-        })
-        panel.appendChild(title)
-        const etaIso = typeof properties?.['etaIso'] === 'string' ? properties['etaIso'] : null
-        if (etaIso) {
-          const eta = document.createElement('span')
-          eta.textContent = `🚗 ${formatKlTime(etaIso)}`
-          panel.appendChild(eta)
-        }
-        const windMs = Number(properties?.['windMs'])
-        if (Number.isFinite(windMs)) {
-          const wind = document.createElement('span')
-          wind.textContent = labelsRef.current.routeMarkerWind(formatNum(windMs, locale))
-          panel.appendChild(wind)
-        }
-        popupRef.current?.remove()
-        const popup = new Popup({ closeButton: true, maxWidth: '220px' })
-          .setLngLat(coordinates)
-          .setDOMContent(panel)
-          .addTo(map)
-        popupRef.current = popup
-      })
+      ;(pointSource as import('maplibre-gl').GeoJSONSource).setData(EMPTY_FEATURE_COLLECTION as never)
+    }
+    if (map.getLayer(TRAVEL_METNO_LAYER_ID)) {
+      map.setLayoutProperty(TRAVEL_METNO_LAYER_ID, 'visibility', 'none')
     }
     applyRouteStatusFilterToMap(
       map,
@@ -3466,53 +3412,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
   function openVedurstofanRouteStationPopup(
     entry: VedurstofanRouteStatusEntry,
-    coords: [number, number] = [entry.point.lon, entry.point.lat],
+    // coords kept for API compatibility but not used in React-rendered card
+    coords?: [number, number],
   ) {
-    const Popup = popupConstructorRef.current
-    const map = mapRef.current
-    if (!Popup || !map) return
-
-    const container = document.createElement('div')
-    container.style.cssText = 'font-size:12px;line-height:1.5;min-width:160px'
-
-    const name = document.createElement('strong')
-    name.style.fontSize = '13px'
-    name.textContent = entry.point.stationName
-    container.appendChild(name)
-
-    const appendLine = (text: string) => {
-      container.appendChild(document.createElement('br'))
-      container.appendChild(document.createTextNode(text))
-    }
-
-    if (entry.point.distanceFromOriginM != null) {
-      appendLine(labelsRef.current.routePointDistance(
-        formatNum(entry.point.distanceFromOriginM / 1000, locale),
-      ))
-    }
-
-    if (entry.selectedRow?.windSpeedMs != null) {
-      appendLine(labelsRef.current.routePointWind(formatNum(entry.selectedRow.windSpeedMs, locale)))
-    }
-
-    if (entry.selectedRow?.ftimeIso) {
-      appendLine(labelsRef.current.routePointEta(formatKlTime(entry.selectedRow.ftimeIso)))
-    }
-
-    if (entry.point.status === 'stale') {
-      container.appendChild(document.createElement('br'))
-      const staleNote = document.createElement('span')
-      staleNote.style.color = '#94a3b8'
-      staleNote.textContent = labelsRef.current.routeStationStale
-      container.appendChild(staleNote)
-    }
-
+    void coords
     popupRef.current?.remove()
-    const popup = new Popup({ closeButton: true, maxWidth: '240px' })
-      .setLngLat(coords)
-      .setDOMContent(container)
-      .addTo(map)
-    popupRef.current = popup
+    setRouteSelectedStation({ kind: 'vedurstofan', entry })
+    setRouteStationDetailOpen(false)
   }
 
   function routeLabelPlacementForPoint(
@@ -3895,50 +3801,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
   function openVegagerdinRouteStationPopup(
     point: VegagerdinRouteLayerPoint,
-    coords: [number, number] = [point.lon, point.lat],
+    // coords kept for API compatibility but not used in React-rendered card
+    coords?: [number, number],
   ) {
-    const Popup = popupConstructorRef.current
-    const map = mapRef.current
-    if (!Popup || !map) return
-
-    const container = document.createElement('div')
-    container.style.cssText = 'font-size:12px;line-height:1.5;min-width:170px'
-
-    const title = document.createElement('strong')
-    title.style.fontSize = '13px'
-    title.textContent = point.stationName
-    container.appendChild(title)
-
-    const appendLine = (text: string) => {
-      container.appendChild(document.createElement('br'))
-      container.appendChild(document.createTextNode(text))
-    }
-
-    if (point.distanceFromOriginM != null) {
-      appendLine(labelsRef.current.routePointDistance(
-        formatNum(point.distanceFromOriginM / 1000, locale),
-      ))
-    }
-    appendLine(labelsRef.current.routeStationMeasured(formatKlTime(point.measuredAtIso)))
-    if (point.meanWindMs != null || point.gustLast10MinMs != null) {
-      appendLine(labelsRef.current.routePointWind(formatVegagerdinRouteWindValue(point)))
-    }
-    if (point.meanWindMs == null && point.gustLast10MinMs == null) {
-      appendLine(labelsRef.current.routeStationNoWind)
-    }
-    if (point.airTemperatureC != null) {
-      appendLine(labelsRef.current.routeStationAirTemp(formatNum(point.airTemperatureC, locale)))
-    }
-    if (point.roadTemperatureC != null) {
-      appendLine(labelsRef.current.routeStationRoadTemp(formatNum(point.roadTemperatureC, locale)))
-    }
-
+    void coords
     popupRef.current?.remove()
-    const popup = new Popup({ closeButton: true, maxWidth: '240px' })
-      .setLngLat(coords)
-      .setDOMContent(container)
-      .addTo(map)
-    popupRef.current = popup
+    setRouteSelectedStation({ kind: 'vegagerdin', point })
+    setRouteStationDetailOpen(false)
   }
 
   function createVegagerdinRouteLabel(
@@ -4584,6 +4453,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteTravelResult(travelResult)
     setRouteTravelDetailsOpen(false)
     setSelectedRoutePointIndex(null)
+    setRouteSelectedStation(null)
+    setRouteStationDetailOpen(false)
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteNowMeasuredAtIso(nowMeasuredAtIso)
     setRouteVisibleStatusCounts(nowStatusCounts)
@@ -4642,6 +4513,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteTravelResult(null)
     setRouteTravelDetailsOpen(false)
     setSelectedRoutePointIndex(null)
+    setRouteSelectedStation(null)
+    setRouteStationDetailOpen(false)
     setRouteCandidates(null)
     setRouteSlotStatusOverrides(null)
     setRouteNowStatusCounts(null)
@@ -5819,6 +5692,62 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         </div>
       </div>
 
+      {routeStationDetailOpen && routeSelectedStation && routeTravelResult && routeBridgeSummary && (
+        <div className="absolute inset-0 z-[95] flex flex-col bg-background/95 backdrop-blur-sm sm:pointer-events-none sm:inset-x-3 sm:bottom-28 sm:top-14 sm:z-[45] sm:flex-row sm:items-start sm:bg-transparent sm:backdrop-blur-none">
+          <div className="pointer-events-auto flex-1 overflow-y-auto overscroll-contain p-3 sm:flex-none sm:max-h-[calc(100vh-9rem)] sm:w-full sm:max-w-2xl sm:rounded-xl sm:border sm:border-border/70 sm:bg-background/95 sm:shadow-xl sm:backdrop-blur-sm">
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setRouteStationDetailOpen(false)}
+                className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                ◀ {t('roadMapPrototypeTravelDetailsClose')}
+              </button>
+              {displayedRouteCandidates && displayedRouteCandidates.length > 1 && (
+                <DepartureHeatmap
+                  candidates={displayedRouteCandidates}
+                  bestWindow={undefined}
+                  originName={routeBridgeSummary.fromName}
+                  selectedIdx={effectiveSelectedCandidateIdx}
+                  onSelectIdx={handleSelectCandidateIdx}
+                  visibleStatuses={visibleRouteStatuses}
+                  onVisibleStatusesChange={handleRouteStatusFilterChange}
+                  thresholdsUsed={routeBridgeSummary.thresholdsUsed}
+                  subtitle={routeScrubberStatusText}
+                  title={null}
+                  showSelectedDetail={false}
+                  slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
+                  mode={routeStatusFilterMode}
+                  firstSlotLabel={t('roadMapPrototypeScrubberNow')}
+                  selectFirstSlotWhenNone={false}
+                  showBestWindowHint={false}
+                />
+              )}
+              {routeSelectedStation.kind === 'vedurstofan' && (
+                <VedurstofanPointCard
+                  station={routeSelectedStation.entry.point}
+                  status={routeSelectedStation.entry.windDisplayStatus}
+                  etaIso={routeSelectedStation.entry.etaIso ?? null}
+                  departureIso={selectedRouteCandidate?.departureIso ?? null}
+                  originName={routeBridgeSummary.fromName}
+                  variant="full"
+                />
+              )}
+              <RouteTravelDetails
+                result={routeTravelResult}
+                candidate={selectedRouteCandidate}
+                status={displayedRouteStatus}
+                answer={displayedRouteAnswer}
+                thresholds={routeBridgeSummary.thresholdsUsed}
+                originName={routeBridgeSummary.fromName}
+                destinationName={routeBridgeSummary.toName}
+                selectedRouteIndex={selectedRoutePointIndex}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bottom strip — overview source selector or route departure scrubber. */}
       <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-border/50 bg-background/90 pb-5 backdrop-blur-sm">
         {routeBridgeStatus === 'loading' ? (
@@ -5891,6 +5820,46 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 </button>
               )}
             </div>
+
+            {routeSelectedStation && (
+              <div className="mt-2 overflow-hidden rounded-xl border border-border bg-card">
+                <div className="flex items-start justify-between gap-2 px-3 pb-2 pt-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">
+                      {routeSelectedStation.kind === 'vedurstofan'
+                        ? routeSelectedStation.entry.point.stationName
+                        : routeSelectedStation.point.stationName}
+                    </p>
+                    <WindStatusBadge
+                      status={routeSelectedStation.kind === 'vedurstofan'
+                        ? routeSelectedStation.entry.windDisplayStatus
+                        : routeSelectedStation.point.windDisplayStatus}
+                      variant="line"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setRouteSelectedStation(null); setRouteStationDetailOpen(false) }}
+                    className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-label="Loka"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {routeTravelResult?.travelPlan && (
+                  <div className="border-t border-border/50">
+                    <button
+                      type="button"
+                      onClick={() => setRouteStationDetailOpen(true)}
+                      className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      <span className="text-xs font-semibold text-foreground">{t('roadMapPrototypeTravelDetailsTitle')}</span>
+                      <span className="shrink-0 text-[10px] font-medium text-primary">{t('roadMapPrototypeTravelDetailsOpen')}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {routeDepartureForecastExpanded && (
               <div className="mt-2 rounded-lg border border-border/70 bg-background/70 p-2">
