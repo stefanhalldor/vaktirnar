@@ -63,6 +63,7 @@ import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFi
 import { DepartureHeatmap } from './DepartureHeatmap'
 import { RouteTravelDetails } from './RouteTravelDetails'
 import { VedurstofanPointCard } from './VedurstofanPointCard'
+import { DriveJourneyPanel } from './DriveJourneyPanel'
 import { WindStatusBadge } from './WindStatusBadge'
 import { ConditionsFeedPreview } from './ConditionsFeedPreview'
 import {
@@ -1213,6 +1214,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [routeBridgeError, setRouteBridgeError] = useState<string | null>(null)
   const [routeBridgeSummary, setRouteBridgeSummary] = useState<RouteBridgeSummary | null>(null)
   const [routeTravelResult, setRouteTravelResult] = useState<DeterministicResult | null>(null)
+  const [routeVedurstofanLayer, setRouteVedurstofanLayer] = useState<VedurstofanTravelLayer | null>(null)
   const [routeTravelDetailsOpen, setRouteTravelDetailsOpen] = useState(false)
   const [selectedRoutePointIndex, setSelectedRoutePointIndex] = useState<number | null>(null)
   const [routeSelectedStation, setRouteSelectedStation] = useState<
@@ -2980,6 +2982,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteThresholdError(null)
     setRouteBridgeSummary(null)
     setRouteTravelResult(null)
+    setRouteVedurstofanLayer(null)
     setRouteTravelDetailsOpen(false)
     setSelectedRoutePointIndex(null)
     setRouteSelectedStation(null)
@@ -4451,6 +4454,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       slotStatusSource: slotSource,
     })
     setRouteTravelResult(travelResult)
+    setRouteVedurstofanLayer(vedurstofanLayer ?? null)
     setRouteTravelDetailsOpen(false)
     setSelectedRoutePointIndex(null)
     setRouteSelectedStation(null)
@@ -4511,6 +4515,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteBridgeError(null)
     setRouteBridgeSummary(null)
     setRouteTravelResult(null)
+    setRouteVedurstofanLayer(null)
     setRouteTravelDetailsOpen(false)
     setSelectedRoutePointIndex(null)
     setRouteSelectedStation(null)
@@ -5207,7 +5212,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           type="button"
           onClick={() => {
             setLastMapContext('route')
-            setIsPanelOpen(prev => !prev)
+            const opening = !isPanelOpen
+            setIsPanelOpen(opening)
+            if (opening && routeBridgeSummary && routeForecastBuildStatus === 'idle') {
+              handleRouteDepartureForecastOptIn()
+            }
             setIsWeatherChaseOpen(false)
             setIsChatOpen(false)
           }}
@@ -5416,63 +5425,19 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         {/* Panel body — scrollable */}
         <div className="flex-1 overflow-y-auto">
           {routeBridgeSummary ? (
-            /* Route active: route summary info */
-            <div className="space-y-1.5 p-3 text-[11px] text-muted-foreground">
-              <p>
-                {t('roadMapPrototypeRouteSummaryStats', {
-                  distance: formatNum(routeBridgeSummary.distanceKm, locale),
-                  duration: formatDurationMinutes(routeBridgeSummary.durationMinutes),
-                })}
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="font-medium text-foreground">{displayedRouteSlotLabel}</span>
-                {selectedRouteCandidate && (
-                  <button
-                    type="button"
-                    onClick={() => handleSelectCandidateIdx(null)}
-                    className="min-h-10 rounded-full border border-border bg-background px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    {t('roadMapPrototypeReturnToNow')}
-                  </button>
-                )}
-              </div>
-              {routeBridgeSummary.vegagerdinStationCount > 0 && (
-                <p className="flex items-center gap-1">
-                  <span
-                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: '#2d5a27' }}
-                  />
-                  {t('roadMapPrototypeVegagerdinStationCount', {
-                    count: routeBridgeSummary.vegagerdinStationCount,
-                  })}
-                </p>
-              )}
-              {routeBridgeSummary.vedurstofanStationCount > 0 && (
-                <p className="flex items-center gap-1">
-                  <span
-                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: '#0891b2' }}
-                  />
-                  {t('roadMapPrototypeVedurstofanStationCount', {
-                    count: routeBridgeSummary.vedurstofanStationCount,
-                  })}
-                </p>
-              )}
-              <p className="line-clamp-3">{displayedRouteAnswer}</p>
-              <p>
-                {t('roadMapPrototypeRouteThresholdSummary', {
-                  caution: formatNum(routeBridgeSummary.thresholdsUsed.cautionWindMs, locale),
-                  red: formatNum(routeBridgeSummary.thresholdsUsed.redWindMs, locale),
-                })}
-              </p>
-              <button
-                type="button"
-                onClick={handleClearRoute}
-                className="mt-2 min-h-10 w-full rounded-full border border-border bg-background px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {t('roadMapPrototypeRouteClear')}
-              </button>
-            </div>
+            <DriveJourneyPanel
+              layer={routeVedurstofanLayer}
+              candidates={displayedRouteCandidates ?? []}
+              selectedCandidateIdx={effectiveSelectedCandidateIdx}
+              onSelectCandidateIdx={handleSelectCandidateIdx}
+              slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
+              thresholds={routeBridgeSummary.thresholdsUsed}
+              durationMinutes={routeBridgeSummary.durationMinutes}
+              distanceKm={routeBridgeSummary.distanceKm}
+              originName={routeBridgeSummary.fromName}
+              destinationName={routeBridgeSummary.toName}
+              onClearRoute={handleClearRoute}
+            />
           ) : (
             /* No route: route form */
             <div className="p-3">
@@ -5636,7 +5601,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         </div>
 
         {/* Layer controls — fixed at bottom of panel */}
-        <div className="shrink-0 border-t border-border/50 p-3 space-y-2">
+        <div className={`shrink-0 border-t border-border/50 p-3 space-y-2 ${routeBridgeSummary ? 'hidden' : ''}`}>
           {/* Toggle buttons */}
           <div className="flex flex-wrap items-center gap-1.5">
             <button
@@ -5749,7 +5714,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       )}
 
       {/* Bottom strip — overview source selector or route departure scrubber. */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-border/50 bg-background/90 pb-5 backdrop-blur-sm">
+      <div className={`absolute bottom-0 left-0 right-0 z-10 border-t border-border/50 bg-background/90 pb-5 backdrop-blur-sm ${isPanelOpen ? 'hidden' : ''}`}>
         {routeBridgeStatus === 'loading' ? (
           <div className="px-3 py-3 text-xs text-muted-foreground">
             {t('roadMapPrototypeScrubberCalculatingHourly')}
