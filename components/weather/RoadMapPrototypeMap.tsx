@@ -2694,6 +2694,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       color: kind === 'nearby-vedurstofan' ? '#64748b' : '#2563eb',
       compact: true,
       showNameLabel: true,
+      showWeatherCard: kind === 'selected',
       onClick: () => {},
     })
     element.dataset.weatherChaseMapMarker = kind
