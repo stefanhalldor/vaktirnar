@@ -1202,6 +1202,7 @@
         "roadMapPrototypeSegmentCountError": "segments: error",
         "roadMapPrototypeSegmentCount": "{count, plural, one {# segment} other {# segments}}",
         "roadMapPrototypeRouteBridgeTitle": "Route",
+        "roadMapPrototypeRouteWarningBanner": "Google routes are often unsafe and should not be followed without verification. Teskeið is developing its own routing system to improve safety on Icelandic roads.",
         "roadMapPrototypeRouteFromLabel": "From",
         "roadMapPrototypeRouteToLabel": "To",
         "roadMapPrototypeRouteFromPlaceholder": "From, e.g. Reykjavík",

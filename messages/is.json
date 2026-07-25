@@ -1208,6 +1208,7 @@
         "roadMapPrototypeSegmentCountError": "kaflar: villa",
         "roadMapPrototypeSegmentCount": "{count, plural, one {# kafli} other {# kaflar}}",
         "roadMapPrototypeRouteBridgeTitle": "Akstur",
+        "roadMapPrototypeRouteWarningBanner": "Google gefur oft upp óöruggar akstursleiðir sem er ekki hægt að treysta í blindni. Unnið er að eigin leiðakerfi í Teskeiðinni sem stuðlar að auknu öryggi á vegum landsins.",
         "roadMapPrototypeRouteFromLabel": "Frá",
         "roadMapPrototypeRouteToLabel": "Til",
         "roadMapPrototypeRouteFromPlaceholder": "Frá, t.d. Reykjavík",
