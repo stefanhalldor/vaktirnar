@@ -864,7 +864,7 @@ export function WeatherChasePanel({
       return (
         <div className="rounded-lg border border-border/70 bg-background/75">
           <div
-            className="sticky top-0 z-20 grid gap-3 rounded-t-lg border-b border-border/60 bg-background/95 px-3 py-2 backdrop-blur-sm"
+            className="sticky top-0 z-20 isolate grid gap-3 rounded-t-lg border-b border-border/60 bg-background px-3 py-2 shadow-sm"
             style={{ gridTemplateColumns: `repeat(${selectedItems.length}, minmax(0, 1fr))` }}
           >
             {selectedItems.map(item => (
@@ -913,9 +913,9 @@ export function WeatherChasePanel({
           className="inline-grid min-w-full"
           style={{ gridTemplateColumns: `minmax(8.5rem, 9.75rem) repeat(${cols.length}, 4.85rem)` }}
         >
-          <div className="sticky left-0 top-0 z-30 border-b border-r border-border/60 bg-background/95 p-2 text-[10px] font-semibold text-muted-foreground shadow-[4px_0_8px_rgba(15,23,42,0.06)]" />
+          <div className="sticky left-0 top-0 z-30 isolate border-b border-r border-border/60 bg-background p-2 text-[10px] font-semibold text-muted-foreground shadow-[4px_0_8px_rgba(15,23,42,0.06)]" />
           {cols.map(col => (
-            <div key={col.targetIso} className="sticky top-0 z-20 border-b border-border/60 bg-background/95 px-2 py-2 text-[10px] text-muted-foreground">
+            <div key={col.targetIso} className="sticky top-0 z-20 isolate border-b border-border/60 bg-background px-2 py-2 text-[10px] text-muted-foreground shadow-sm">
               <div className="truncate font-semibold">{col.dayLabel}</div>
               <div className="text-muted-foreground/65">{col.timeLabel}</div>
             </div>

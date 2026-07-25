@@ -1982,6 +1982,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
 
     if (!isAuthenticated) {
+      if (!restoredPublicSessionDraft) {
+        setWeatherChasePreferenceItems([])
+      }
       setWeatherChasePreferencesHydrated(true)
       cleanWeatherChaseSaveParam()
       return () => {
