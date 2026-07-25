@@ -69,6 +69,9 @@ const EXACT_PUBLIC_PATHS = new Set([
   '/api/teskeid/weather/route-memory/destinations',
   // Route-memory place-focus — returns endpoint station IDs for a place key; no coords required.
   '/api/teskeid/weather/route-memory/place-focus',
+  // Road map prototype — publicly accessible; auth push happens inside the component when
+  // users try to save their own weather map. Exact-match only.
+  '/auth-mvp/vedrid/road-map-prototype',
 ])
 
 export async function middleware(request: NextRequest) {
