@@ -22,6 +22,7 @@ import {
 import {
   ROAD_MAP_PLACES,
   findRoadMapPlaceSuggestions,
+  findNearestKnownRoadMapPlace,
   mergePlaceSuggestions,
   type RoadMapPlace,
 } from '@/lib/road-intelligence/roadMapPlaces'
@@ -61,9 +62,16 @@ import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTime
 import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
-import { RouteTravelDetails } from './RouteTravelDetails'
-import { VedurstofanPointCard } from './VedurstofanPointCard'
 import { DriveJourneyPanel } from './DriveJourneyPanel'
+import {
+  DriveRouteMap,
+  DRIVE_MAP_CARTO_ATTRIBUTION,
+  DRIVE_MAP_CARTO_TILES,
+  DRIVE_MAP_ROAD_NETWORK_TILES,
+  DRIVE_MAP_ROUTE_COLOR,
+  DRIVE_MAP_SEGMENT_COLOR_EXPRESSION,
+  DRIVE_MAP_SEGMENT_WIDTH_EXPRESSION,
+} from './DriveRouteMap'
 import { WindStatusBadge } from './WindStatusBadge'
 import { ConditionsFeedPreview } from './ConditionsFeedPreview'
 import {
@@ -79,7 +87,7 @@ import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview'
 import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
 import { haversineDistanceM } from '@/lib/weather/nearestStations'
-import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
+import { makeWeatherPlaceKey, type SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import type {
   VegagerdinRouteLayer,
@@ -93,8 +101,6 @@ import {
 
 // CartoDB Voyager basemap (XYZ tiles, CORS open, no proxy needed).
 // LMI_Island_einfalt was too simplified at zoom 6 — can be revisited with a better LMÍ layer.
-const CARTO_VOYAGER_TILES = ['https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png']
-const CARTO_ATTRIBUTION = `${OPENSTREETMAP_ATTRIBUTION} | © CARTO`
 const STAMEN_TERRAIN_BACKGROUND_TILES = [
   'https://tiles-eu.stadiamaps.com/tiles/stamen_terrain_background/{z}/{x}/{y}@2x.png',
 ]
@@ -105,10 +111,6 @@ const STAMEN_TERRAIN_ATTRIBUTION =
   `${OPENSTREETMAP_ATTRIBUTION} | © Stadia Maps | © Stamen Design | © OpenMapTiles`
 
 // Vegagerðin road network via same-origin allowlisted proxy (CORS not open to browser).
-const VEGAGERDIN_VEGAKERFI_TILES = [
-  '/api/teskeid/road-intelligence/map-proxy?source=vegakerfi&bbox={bbox-epsg-3857}',
-]
-
 const ICELAND_CENTER: [number, number] = [-18.9, 64.9]
 const ICELAND_ZOOM = 6
 const DEFAULT_ROUTE_THRESHOLDS = resolveThresholds('none')
@@ -120,12 +122,51 @@ const WEATHER_CHASE_PENDING_STORAGE_KEY = 'teskeid_weather_chase_preferences_pen
 const PUBLIC_WEATHER_CHASE_SESSION_STORAGE_KEY = 'teskeid_weather_chase_public_session_v1'
 const PUBLIC_WEATHER_CHASE_SESSION_TTL_MS = 30 * 60 * 1_000
 const PUBLIC_WEATHER_CHASE_PROMPT_DELAY_MS = 25 * 60 * 1_000
+const ROAD_MAP_ROUTE_RETURN_STORAGE_KEY = 'teskeid_road_map_route_return_v1'
+const ROAD_MAP_ROUTE_RETURN_TTL_MS = 2 * 60 * 60 * 1_000
+const PUBLIC_SAVED_PLACES_STORAGE_KEY = 'teskeid_public_saved_places_v1'
+const PUBLIC_SAVED_PLACES_LIMIT = 50
 const LEGACY_FORECAST_CARD_SCALE_LOCAL_STORAGE_KEY = 'teskeid_forecast_card_scale_v1'
 const FORECAST_CARD_SCALE_LEVELS = [1, 1.2, 1.4, 1.6] as const
 const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
   minTemperatureC: null,
   maxWindMs: null,
   maxPrecipitationMmPerHour: null,
+}
+
+function readPublicSavedPlaces(storage: Storage): SavedWeatherPlace[] {
+  try {
+    const raw = storage.getItem(PUBLIC_SAVED_PLACES_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+      .map((item): SavedWeatherPlace | null => {
+        const name = typeof item.name === 'string' ? item.name.trim() : ''
+        const lat = typeof item.lat === 'number' ? item.lat : Number.NaN
+        const lon = typeof item.lon === 'number' ? item.lon : Number.NaN
+        if (!name || !Number.isFinite(lat) || !Number.isFinite(lon)) return null
+        const key = makeWeatherPlaceKey(lat, lon)
+        return {
+          id: `session:${key}`,
+          name,
+          formattedAddress: typeof item.formattedAddress === 'string' ? item.formattedAddress : '',
+          lat,
+          lon,
+          usageCount: typeof item.usageCount === 'number' ? item.usageCount : 1,
+          lastUsedAt: typeof item.lastUsedAt === 'string' ? item.lastUsedAt : new Date(0).toISOString(),
+        }
+      })
+      .filter((item): item is SavedWeatherPlace => item !== null)
+      .slice(0, PUBLIC_SAVED_PLACES_LIMIT)
+  } catch {
+    return []
+  }
+}
+
+function writePublicSavedPlaces(storage: Storage, places: SavedWeatherPlace[]) {
+  storage.setItem(PUBLIC_SAVED_PLACES_STORAGE_KEY, JSON.stringify(places.slice(0, PUBLIC_SAVED_PLACES_LIMIT)))
 }
 const DEFAULT_WEATHER_CHASE_PREFERENCE_ITEMS = [
   {
@@ -179,32 +220,6 @@ function logRoadMapDiagnostic(message: string, details?: Record<string, unknown>
   }
 }
 
-const ROAD_SEGMENT_COLOR_EXPRESSION = [
-  'case',
-  ['has', 'teskeidRoadStatusColor'],
-  ['to-color', ['get', 'teskeidRoadStatusColor']],
-  '#64748b',
-]
-
-const ROAD_SEGMENT_WIDTH_EXPRESSION = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  5, 1.4,
-  8, 2.4,
-  11, 4,
-]
-
-// Road condition legend entries in severity order.
-const ROAD_CONDITION_LEGEND = [
-  { color: ROAD_SEGMENT_STATUS_COLORS.clear,     label: 'Greiðfært' },
-  { color: ROAD_SEGMENT_STATUS_COLORS.caution,   label: 'Varasamt' },
-  { color: ROAD_SEGMENT_STATUS_COLORS.difficult, label: 'Erfitt' },
-  { color: ROAD_SEGMENT_STATUS_COLORS.danger,    label: 'Hættulegt' },
-  { color: ROAD_SEGMENT_STATUS_COLORS.closed,    label: 'Lokað' },
-] as const
-
-const TRAVEL_ROUTE_COLOR = '#14532d'
 const OVERVIEW_WEATHER_MARKER_COLOR = '#475569'
 const OVERVIEW_DENSITY_COMPACT_ZOOM = 5.8
 const OVERVIEW_DENSITY_FULL_ZOOM = 7.2
@@ -1189,6 +1204,13 @@ type WeatherChasePreferencesPayload = {
   forecastCardScaleIndex?: number
 }
 
+type RoutePlaceFallbackSuggestion = {
+  field: RouteBridgeField
+  originalName: string
+  nearbyPlace: RoadIntelligencePlaceResult
+  distanceKm: number
+}
+
 type OverviewMarkerDensityLevel = 'aggregate' | 'compact' | 'full'
 type OverviewAggregateRegion = (typeof OVERVIEW_AGGREGATE_REGIONS)[number]
 
@@ -1292,8 +1314,12 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const tPulse = useTranslations('teskeid.vedrid.eltaVedrid')
   const tPlace = useTranslations('teskeid.vedrid.placeSearch')
   const locale = useLocale()
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const setMapContainer = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+  }, [])
   const mapRef = useRef<import('maplibre-gl').Map | null>(null)
+  const mapInitializationReadyRef = useRef(false)
   const popupRef = useRef<import('maplibre-gl').Popup | null>(null)
   const popupConstructorRef = useRef<typeof import('maplibre-gl').Popup | null>(null)
   const markerConstructorRef = useRef<typeof import('maplibre-gl').Marker | null>(null)
@@ -1327,6 +1353,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const weatherChaseAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const weatherChaseAutoSaveQueuedRef = useRef<WeatherChasePreferencesPayload | null>(null)
   const weatherChaseAutoSaveRunningRef = useRef(false)
+  const routeContextViewRef = useRef<'information' | 'map'>('information')
+  const pendingRouteRestoreViewRef = useRef<'information' | 'map' | null>(null)
+  const pendingRouteRestoreSubmitRef = useRef(false)
   const overviewActiveModeRef = useRef<'now' | number>('now')
   const overviewVisibleStatusesRef = useRef<Set<WindDisplayStatus>>(
     new Set(DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES),
@@ -1340,14 +1369,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const selectRoutePlaceRef = useRef<
     (place: RoadIntelligencePlaceResult, target?: RouteBridgeField) => void
   >(() => {})
-  const [showOverlay, setShowOverlay] = useState(true)
-  const [showSegments, setShowSegments] = useState(true)
   const [showForecastStations, setShowForecastStations] = useState(true)
   const [showAllForecastGlaciers, setShowAllForecastGlaciers] = useState(false)
   const [showAllForecastMountains, setShowAllForecastMountains] = useState(false)
   const [activeRouteField, setActiveRouteField] = useState<RouteBridgeField>('from')
-  const [stationCount, setStationCount] = useState<number | null>(null)
-  const [segmentCount, setSegmentCount] = useState<number | 'loading' | 'error' | null>(null)
   const [mapError, setMapError] = useState<string | null>(null)
   const [routeFrom, setRouteFrom] = useState('')
   const [routeTo, setRouteTo] = useState('')
@@ -1355,17 +1380,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     'idle' | 'loading' | 'success' | 'error'
   >('idle')
   const [routeBridgeError, setRouteBridgeError] = useState<string | null>(null)
+  const [routePlaceFallbackSuggestion, setRoutePlaceFallbackSuggestion] =
+    useState<RoutePlaceFallbackSuggestion | null>(null)
   const [routeBridgeSummary, setRouteBridgeSummary] = useState<RouteBridgeSummary | null>(null)
   const [routeTravelResult, setRouteTravelResult] = useState<DeterministicResult | null>(null)
   const [routeVedurstofanLayer, setRouteVedurstofanLayer] = useState<VedurstofanTravelLayer | null>(null)
-  const [routeTravelDetailsOpen, setRouteTravelDetailsOpen] = useState(false)
-  const [selectedRoutePointIndex, setSelectedRoutePointIndex] = useState<number | null>(null)
-  const [routeSelectedStation, setRouteSelectedStation] = useState<
-    | { kind: 'vedurstofan'; entry: VedurstofanRouteStatusEntry }
-    | { kind: 'vegagerdin'; point: VegagerdinRouteLayerPoint }
-    | null
-  >(null)
-  const [routeStationDetailOpen, setRouteStationDetailOpen] = useState(false)
   const [fromSuggestions, setFromSuggestions] = useState<RoadIntelligencePlaceResult[]>([])
   const [toSuggestions, setToSuggestions] = useState<RoadIntelligencePlaceResult[]>([])
   const [fromResolved, setFromResolved] = useState<RoadIntelligencePlaceResult | null>(null)
@@ -1429,6 +1448,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [forecastCardScaleIndex, setForecastCardScaleIndex] = useState(1)
   const [forecastCardScaleChanged, setForecastCardScaleChanged] = useState(false)
   const [forecastCardGuideOpen, setForecastCardGuideOpen] = useState(true)
+  const [hiddenForecastCardCount, setHiddenForecastCardCount] = useState(0)
   const [routeActive, setRouteActive] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2107,6 +2127,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
     if (showForecastStations) {
       window.requestAnimationFrame(() => applyWeatherChaseCardCollisionAvoidance())
+    } else {
+      setHiddenForecastCardCount(0)
     }
   }, [showForecastStations])
 
@@ -2130,13 +2152,52 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }, [forecastCardScaleIndex])
 
   useEffect(() => {
-    if (!isAuthenticated) return
+    if (hiddenForecastCardCount <= 0) return
+    window.requestAnimationFrame(() => applyWeatherChaseCardCollisionAvoidance())
+  }, [hiddenForecastCardCount])
+
+  useEffect(() => {
     let cancelled = false
     ;(async () => {
+      if (!isAuthenticated) {
+        const sessionPlaces = readPublicSavedPlaces(window.sessionStorage)
+        if (!cancelled) setSavedPlaces(sessionPlaces)
+        return
+      }
+
       try {
         const res = await fetch('/api/teskeid/weather/saved-places', { credentials: 'same-origin' })
         if (!cancelled && res.ok) {
           const data = await res.json()
+          setSavedPlaces(Array.isArray(data?.places) ? (data.places as SavedWeatherPlace[]) : [])
+        }
+
+        const pending = readPublicSavedPlaces(window.sessionStorage)
+        if (pending.length === 0) return
+        const remaining: SavedWeatherPlace[] = []
+        for (const place of pending) {
+          const promoteRes = await fetch('/api/teskeid/weather/saved-places', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: place.name,
+              formattedAddress: place.formattedAddress,
+              lat: place.lat,
+              lon: place.lon,
+              mergeOnly: true,
+            }),
+          })
+          if (!promoteRes.ok) remaining.push(place)
+        }
+        if (remaining.length > 0) {
+          writePublicSavedPlaces(window.sessionStorage, remaining)
+        } else {
+          window.sessionStorage.removeItem(PUBLIC_SAVED_PLACES_STORAGE_KEY)
+        }
+        const refreshed = await fetch('/api/teskeid/weather/saved-places', { credentials: 'same-origin' })
+        if (!cancelled && refreshed.ok) {
+          const data = await refreshed.json()
           setSavedPlaces(Array.isArray(data?.places) ? (data.places as SavedWeatherPlace[]) : [])
         }
       } catch {}
@@ -2580,11 +2641,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
     map.on('moveend', scheduleWeatherChaseCollisionUpdate)
     map.on('zoomend', scheduleWeatherChaseCollisionUpdate)
+    window.addEventListener('resize', scheduleWeatherChaseCollisionUpdate)
     scheduleWeatherChaseCollisionUpdate()
 
     return () => {
       map.off('moveend', scheduleWeatherChaseCollisionUpdate)
       map.off('zoomend', scheduleWeatherChaseCollisionUpdate)
+      window.removeEventListener('resize', scheduleWeatherChaseCollisionUpdate)
       if (collisionFrame !== null) window.cancelAnimationFrame(collisionFrame)
       clearWeatherChaseMapMarkers()
     }
@@ -2879,7 +2942,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       }
     }
 
-    if (!routeActive) setStationCount(eligibleEntries.length)
   }
 
   function scheduleOverviewMarkerVisibilityUpdate() {
@@ -3170,39 +3232,60 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       .filter(marker => marker.kind === 'selected')
       .map(({ element }) => element.querySelector<HTMLElement>('[data-route-weather-stack="true"]'))
       .filter((stack): stack is HTMLElement => Boolean(stack))
-
-    // Collect all selected-marker dot X positions so a card cannot extend
-    // past the nearest right-neighbour dot (prevents left-station cards from
-    // overlapping right-station dots on screen).
-    const dotXPositions = stacks
-      .map(stack => stack.parentElement?.getBoundingClientRect().left ?? null)
-      .filter((x): x is number => x !== null)
-
-    const candidateOffsets: ReadonlyArray<readonly [number, number]> = [
-      [0, 0],
-      [72, 0],
-      [-72, 0],
-      [0, 64],
-      [0, -64],
-      [72, 64],
-      [-72, 64],
-      [72, -64],
-      [-72, -64],
-      [144, 0],
-      [-144, 0],
-    ]
+    const obstacleRects = Array.from(
+      containerRef.current?.parentElement?.querySelectorAll<HTMLElement>(
+        '[data-weather-card-obstacle="true"]',
+      ) ?? [],
+    )
+      .filter(element => {
+        const style = window.getComputedStyle(element)
+        return style.display !== 'none' && style.visibility !== 'hidden'
+      })
+      .map(element => element.getBoundingClientRect())
+    const nearbyLabelRects = weatherChaseMapMarkersRef.current
+      .filter(marker => marker.kind === 'nearby-vedurstofan')
+      .map(({ element }) =>
+        element.querySelector<HTMLElement>('[data-route-weather-stack="true"]')
+          ?.getBoundingClientRect() ?? null,
+      )
+      .filter((rect): rect is DOMRect => rect !== null)
     const acceptedRects: DOMRect[] = []
+    let hiddenCount = 0
 
     for (const stack of stacks) {
-      const dotX = stack.parentElement?.getBoundingClientRect().left ?? null
-      const rightNeighborX = dotX !== null
-        ? dotXPositions.filter(x => x > dotX + 8).sort((a, b) => a - b)[0] ?? null
-        : null
-
-      const acceptedCountBeforePlacement = acceptedRects.length
+      stack.style.display = 'flex'
+      stack.style.visibility = 'hidden'
+      stack.style.transform = 'translateX(-50%)'
+      const baseRect = stack.getBoundingClientRect()
+      const stepX = Math.max(54, baseRect.width + 10)
+      const stepY = Math.max(48, baseRect.height + 10)
+      const candidateOffsets: ReadonlyArray<readonly [number, number]> = [
+        [0, 0],
+        [stepX, 0],
+        [-stepX, 0],
+        [0, stepY],
+        [0, -stepY],
+        [stepX, stepY],
+        [-stepX, stepY],
+        [stepX, -stepY],
+        [-stepX, -stepY],
+        [stepX * 2, 0],
+        [-stepX * 2, 0],
+        [0, stepY * 2],
+        [0, -stepY * 2],
+        [stepX * 2, stepY],
+        [-stepX * 2, stepY],
+        [stepX * 2, -stepY],
+        [-stepX * 2, -stepY],
+      ]
+      const ownDot = stack.parentElement?.querySelector<HTMLElement>('[data-route-wind-dot="true"]')
+      const otherPointRects = weatherChaseMapMarkersRef.current
+        .map(({ element }) => element.querySelector<HTMLElement>('[data-route-wind-dot="true"]'))
+        .filter((dot): dot is HTMLElement => Boolean(dot) && dot !== ownDot)
+        .map(dot => dot.getBoundingClientRect())
+      let placed = false
       for (const [x, y] of candidateOffsets) {
         stack.style.transform = `translateX(-50%) translate(${x}px, ${y}px)`
-        updateWeatherChaseCardConnector(stack.parentElement)
         const rect = stack.getBoundingClientRect()
         const staysInsideMap = !mapBounds || (
           rect.left >= mapBounds.left + 6 &&
@@ -3210,17 +3293,39 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           rect.top >= mapBounds.top + 6 &&
           rect.bottom <= mapBounds.bottom - 6
         )
-        const overlaps = acceptedRects.some(accepted => rectsOverlap(rect, accepted, 6))
-        const doesNotPassRightNeighbor = rightNeighborX === null || rect.right <= rightNeighborX - 4
-        if (staysInsideMap && !overlaps && doesNotPassRightNeighbor) {
+        const overlapsCard = acceptedRects.some(accepted => rectsOverlap(rect, accepted, 6))
+        const overlapsInterface = obstacleRects.some(obstacle => rectsOverlap(rect, obstacle, 6))
+        const overlapsNearbyLabel = nearbyLabelRects.some(label => rectsOverlap(rect, label, 4))
+        const overlapsOtherPoint = otherPointRects.some(point => rectsOverlap(rect, point, 4))
+        if (
+          staysInsideMap &&
+          !overlapsCard &&
+          !overlapsInterface &&
+          !overlapsNearbyLabel &&
+          !overlapsOtherPoint
+        ) {
           acceptedRects.push(rect)
+          stack.style.visibility = 'visible'
+          updateWeatherChaseCardConnector(stack.parentElement)
+          const connector = stack.parentElement?.querySelector<HTMLElement>(
+            '[data-weather-card-connector="true"]',
+          )
+          if (connector) connector.style.display = ''
+          placed = true
           break
         }
       }
-      if (acceptedRects.length === acceptedCountBeforePlacement) {
-        acceptedRects.push(stack.getBoundingClientRect())
+      if (!placed) {
+        hiddenCount += 1
+        stack.style.display = 'none'
+        stack.style.visibility = 'visible'
+        const connector = stack.parentElement?.querySelector<HTMLElement>(
+          '[data-weather-card-connector="true"]',
+        )
+        if (connector) connector.style.display = 'none'
       }
     }
+    setHiddenForecastCardCount(current => current === hiddenCount ? current : hiddenCount)
   }
 
   function updateWeatherChaseCardConnector(
@@ -3231,44 +3336,60 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     if (!connector || !stack || !markerElement) return
 
     const markerRect = markerElement.getBoundingClientRect()
-    const stackRect = stack.getBoundingClientRect()
     const originX = markerRect.left
     const originY = markerRect.top
-    let targetX = Math.min(Math.max(originX, stackRect.left), stackRect.right)
-    let targetY = Math.min(Math.max(originY, stackRect.top), stackRect.bottom)
+    const connectableRects = Array.from(
+      stack.querySelectorAll<HTMLElement>(
+        '[data-route-wind-value="true"], [data-route-wind-name="true"]',
+      ),
+    ).map(element => element.getBoundingClientRect())
+    const targetRects = connectableRects.length > 0
+      ? connectableRects
+      : [stack.getBoundingClientRect()]
 
-    // If the station point falls inside the card rectangle, connect it to the
-    // nearest side instead of drawing a zero-length line through the card.
-    if (
-      originX >= stackRect.left &&
-      originX <= stackRect.right &&
-      originY >= stackRect.top &&
-      originY <= stackRect.bottom
-    ) {
+    const closestTarget = targetRects
+      .map(rect => {
+        let x = Math.min(Math.max(originX, rect.left), rect.right)
+        let y = Math.min(Math.max(originY, rect.top), rect.bottom)
+        const pointInside = (
+          originX >= rect.left &&
+          originX <= rect.right &&
+          originY >= rect.top &&
+          originY <= rect.bottom
+        )
+        if (!pointInside) {
+          return { x, y, distance: Math.hypot(x - originX, y - originY) }
+        }
+
+        // If the station point falls inside the target, connect it to the
+        // nearest side instead of drawing a zero-length line through it.
       const sideDistances = [
-        { side: 'left' as const, distance: originX - stackRect.left },
-        { side: 'right' as const, distance: stackRect.right - originX },
-        { side: 'top' as const, distance: originY - stackRect.top },
-        { side: 'bottom' as const, distance: stackRect.bottom - originY },
+          { side: 'left' as const, distance: originX - rect.left },
+          { side: 'right' as const, distance: rect.right - originX },
+          { side: 'top' as const, distance: originY - rect.top },
+          { side: 'bottom' as const, distance: rect.bottom - originY },
       ].sort((a, b) => a.distance - b.distance)
       switch (sideDistances[0]?.side) {
         case 'left':
-          targetX = stackRect.left
+            x = rect.left
           break
         case 'right':
-          targetX = stackRect.right
+            x = rect.right
           break
         case 'top':
-          targetY = stackRect.top
+            y = rect.top
           break
         case 'bottom':
-          targetY = stackRect.bottom
+            y = rect.bottom
           break
       }
-    }
+        return { x, y, distance: Math.hypot(x - originX, y - originY) }
+      })
+      .sort((a, b) => a.distance - b.distance)[0]
+    if (!closestTarget) return
 
-    const deltaX = targetX - originX
-    const deltaY = targetY - originY
+    const deltaX = closestTarget.x - originX
+    const deltaY = closestTarget.y - originY
     const length = Math.max(1, Math.hypot(deltaX, deltaY))
     const angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI)
     connector.style.width = `${length}px`
@@ -3555,7 +3676,29 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }
 
   async function savePlaceBestEffort(place: RoadIntelligencePlaceResult) {
-    if (!isAuthenticated) return
+    if (!isAuthenticated) {
+      try {
+        const key = makeWeatherPlaceKey(place.lat, place.lon)
+        const current = readPublicSavedPlaces(window.sessionStorage)
+        const existing = current.find(item => makeWeatherPlaceKey(item.lat, item.lon) === key)
+        const nextPlace: SavedWeatherPlace = {
+          id: `session:${key}`,
+          name: place.name,
+          formattedAddress: place.formattedAddress ?? '',
+          lat: place.lat,
+          lon: place.lon,
+          usageCount: (existing?.usageCount ?? 0) + 1,
+          lastUsedAt: new Date().toISOString(),
+        }
+        const next = [
+          nextPlace,
+          ...current.filter(item => makeWeatherPlaceKey(item.lat, item.lon) !== key),
+        ].slice(0, PUBLIC_SAVED_PLACES_LIMIT)
+        writePublicSavedPlaces(window.sessionStorage, next)
+        setSavedPlaces(next.slice(0, 12))
+      } catch {}
+      return
+    }
     try {
       await fetch('/api/teskeid/weather/saved-places', {
         method: 'POST',
@@ -3573,6 +3716,17 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
   function selectRoutePlace(place: RoadIntelligencePlaceResult, target = activeRouteFieldRef.current) {
     setRouteBridgeError(null)
+    setRoutePlaceFallbackSuggestion(null)
+    const oppositePlace = target === 'from' ? toResolved : fromResolved
+    if (
+      oppositePlace &&
+      (
+        (place.placeId && oppositePlace.placeId && place.placeId === oppositePlace.placeId) ||
+        makeWeatherPlaceKey(place.lat, place.lon) === makeWeatherPlaceKey(oppositePlace.lat, oppositePlace.lon)
+      )
+    ) {
+      return
+    }
     if (target === 'from') {
       setRouteFrom(place.name)
       setFromResolved(place)
@@ -3587,6 +3741,22 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setToSuggestions([])
     setActiveRouteFieldState('to')
     void savePlaceBestEffort(place)
+  }
+
+  function applyNearbyRouteFallback() {
+    const suggestion = routePlaceFallbackSuggestion
+    if (!suggestion) return
+    if (suggestion.field === 'from') {
+      setRouteFrom(suggestion.nearbyPlace.name)
+      setFromResolved(suggestion.nearbyPlace)
+      setFromSuggestions([])
+    } else {
+      setRouteTo(suggestion.nearbyPlace.name)
+      setToResolved(suggestion.nearbyPlace)
+      setToSuggestions([])
+    }
+    setRouteBridgeError(null)
+    setRoutePlaceFallbackSuggestion(null)
   }
 
   selectRoutePlaceRef.current = selectRoutePlace
@@ -3629,6 +3799,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   function clearWeatherChaseMapMarkers() {
     weatherChaseMapMarkersRef.current.forEach(({ marker }) => marker.remove())
     weatherChaseMapMarkersRef.current = []
+    setHiddenForecastCardCount(0)
   }
 
   function fetchSuggestionsFor(
@@ -3679,14 +3850,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   function handleClearRoute() {
     setRouteBridgeStatus('idle')
     setRouteBridgeError(null)
+    setRoutePlaceFallbackSuggestion(null)
     setRouteThresholdError(null)
     setRouteBridgeSummary(null)
     setRouteTravelResult(null)
     setRouteVedurstofanLayer(null)
-    setRouteTravelDetailsOpen(false)
-    setSelectedRoutePointIndex(null)
-    setRouteSelectedStation(null)
-    setRouteStationDetailOpen(false)
     setRouteFrom('')
     setRouteTo('')
     setFromResolved(null)
@@ -4051,7 +4219,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     if (!mapData.ok) throw new Error(mapData.error)
 
     const map = mapRef.current
-    if (!map?.isStyleLoaded()) throw new Error('map_not_ready')
+    if (!map || !mapInitializationReadyRef.current) throw new Error('map_not_ready')
 
     const weatherPointGeoJson = annotateRouteWeatherPointStatuses(
       mapData.weatherPointGeoJson,
@@ -4074,7 +4242,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           source: 'travel-bridge-route',
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': TRAVEL_ROUTE_COLOR,
+            'line-color': DRIVE_MAP_ROUTE_COLOR,
             'line-width': [
               'interpolate',
               ['linear'],
@@ -4113,15 +4281,43 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     return { ...mapData, statusCounts }
   }
 
-  function openVedurstofanRouteStationPopup(
+  function routeReturnHref(view = routeContextViewRef.current): string {
+    const params = new URLSearchParams({
+      context: 'route',
+      view,
+      restoreRoute: '1',
+    })
+    return `/auth-mvp/vedrid/road-map-prototype?${params.toString()}`
+  }
+
+  function persistRouteReturnSnapshot(view = routeContextViewRef.current) {
+    try {
+      const resolvedPlaces = resolvedRoutePlacesRef.current
+      window.sessionStorage.setItem(ROAD_MAP_ROUTE_RETURN_STORAGE_KEY, JSON.stringify({
+        updatedAt: Date.now(),
+        from: routeFrom,
+        to: routeTo,
+        origin: resolvedPlaces?.origin ?? null,
+        destination: resolvedPlaces?.destination ?? null,
+        cautionWind: routeCautionWind,
+        redWind: routeRedWind,
+        view,
+      }))
+    } catch {
+      // The in-page back button still preserves live state when storage is unavailable.
+    }
+  }
+
+  function openVedurstofanRouteStationPage(
     entry: VedurstofanRouteStatusEntry,
-    // coords kept for API compatibility but not used in React-rendered card
     coords?: [number, number],
   ) {
     void coords
     popupRef.current?.remove()
-    setRouteSelectedStation({ kind: 'vedurstofan', entry })
-    setRouteStationDetailOpen(false)
+    persistRouteReturnSnapshot()
+    const returnHref = routeReturnHref()
+    window.history.replaceState(window.history.state, '', returnHref)
+    window.location.href = vedurstofanPulseHref(entry.point.stationId, returnHref)
   }
 
   function routeLabelPlacementForPoint(
@@ -4252,10 +4448,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     dot.dataset.routeWindDot = 'true'
     dot.style.cssText = [
       'position:absolute',
-      'left:-5px',
-      'top:-5px',
-      `width:${compact ? '8px' : '10px'}`,
-      `height:${compact ? '8px' : '10px'}`,
+      `left:${compact ? '-5px' : '-7px'}`,
+      `top:${compact ? '-5px' : '-7px'}`,
+      `width:${compact ? '10px' : '14px'}`,
+      `height:${compact ? '10px' : '14px'}`,
       'border:2px solid #ffffff',
       'border-radius:999px',
       `background:${color}`,
@@ -4505,7 +4701,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       etaText: entry.etaIso ? formatKlTime(entry.etaIso) : null,
       color,
       placement,
-      onClick: () => openVedurstofanRouteStationPopup(entry),
+      onClick: () => openVedurstofanRouteStationPage(entry),
     })
   }
 
@@ -4612,7 +4808,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           e => e.point.stationId === stationId,
         )
         if (!entry) return
-        openVedurstofanRouteStationPopup(entry, coords)
+        openVedurstofanRouteStationPage(entry, coords)
       })
     }
 
@@ -4665,15 +4861,16 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     return `${meanText}${gustText}`
   }
 
-  function openVegagerdinRouteStationPopup(
+  function openVegagerdinRouteStationPage(
     point: VegagerdinRouteLayerPoint,
-    // coords kept for API compatibility but not used in React-rendered card
     coords?: [number, number],
   ) {
     void coords
     popupRef.current?.remove()
-    setRouteSelectedStation({ kind: 'vegagerdin', point })
-    setRouteStationDetailOpen(false)
+    persistRouteReturnSnapshot()
+    const returnHref = routeReturnHref()
+    window.history.replaceState(window.history.state, '', returnHref)
+    window.location.href = vegagerdinPulseHref(point.stationId, returnHref)
   }
 
   function createVegagerdinRouteLabel(
@@ -4708,7 +4905,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       color,
       showWeatherCard: true,
       placement,
-      onClick: () => openVegagerdinRouteStationPopup(point),
+      onClick: () => openVegagerdinRouteStationPage(point),
     })
   }
 
@@ -4882,7 +5079,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         const coords = (
           feature.geometry as { type: 'Point'; coordinates: [number, number] }
         ).coordinates
-        openVegagerdinRouteStationPopup(point, coords)
+        openVegagerdinRouteStationPage(point, coords)
       })
     }
 
@@ -5159,30 +5356,44 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }, 0)
   }
 
-  function waitForMapReady(timeoutMs = 6000): Promise<void> {
+  function waitForMapReady(
+    timeoutMs = 20_000,
+    signal?: AbortSignal,
+  ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const map = mapRef.current
-      if (!map) {
-        console.warn('[RoadMap] waitForMapReady: map not initialized')
-        reject(new Error('map_not_ready'))
-        return
+      const startedAt = performance.now()
+      let timer: number | null = null
+      let settled = false
+
+      const finish = (error?: Error) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        signal?.removeEventListener('abort', handleAbort)
+        if (error) reject(error)
+        else resolve()
       }
-      if (map.isStyleLoaded()) {
-        resolve()
-        return
-      }
-      console.warn('[RoadMap] waitForMapReady: style not yet loaded, waiting up to', timeoutMs, 'ms')
-      const timer = window.setTimeout(() => {
-        console.error('[RoadMap] waitForMapReady: timed out after', timeoutMs, 'ms — throwing map_not_ready')
-        reject(new Error('map_not_ready'))
-      }, timeoutMs)
-      map.once('styledata', () => {
-        if (map.isStyleLoaded()) {
-          clearTimeout(timer)
-          console.log('[RoadMap] waitForMapReady: style loaded, proceeding')
-          resolve()
+      const handleAbort = () => finish(new DOMException('Aborted', 'AbortError'))
+      const check = () => {
+        if (signal?.aborted) {
+          handleAbort()
+          return
         }
-      })
+        if (mapInitializationReadyRef.current && mapRef.current) {
+          console.log('[RoadMap] waitForMapReady: initialized map available')
+          finish()
+          return
+        }
+        if (performance.now() - startedAt >= timeoutMs) {
+          console.error('[RoadMap] waitForMapReady: timed out after', timeoutMs, 'ms')
+          finish(new Error('map_not_ready'))
+          return
+        }
+        timer = window.setTimeout(check, 50)
+      }
+
+      signal?.addEventListener('abort', handleAbort, { once: true })
+      check()
     })
   }
 
@@ -5201,6 +5412,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }) {
     console.log('[RoadMap] route fetch:', origin.name, '→', destination.name, selectedRouteId ? `routeId=${selectedRouteId}` : '(default)')
     const t0 = performance.now()
+    const mapReadyPromise = waitForMapReady(20_000, signal)
+      .then(() => null)
+      .catch((error: unknown) => error)
     const res = await fetch('/api/teskeid/weather/travel', {
       method: 'POST',
       credentials: 'same-origin',
@@ -5231,7 +5445,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     if (signal.aborted) return
 
     console.log('[RoadMap] route API:', Math.round(performance.now() - t0), 'ms, status:', res.status)
-    await waitForMapReady()
+    const mapReadyError = await mapReadyPromise
+    if (mapReadyError) throw mapReadyError
     if (signal.aborted) return
 
     const travelResult = data as DeterministicResult
@@ -5336,10 +5551,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     })
     setRouteTravelResult(travelResult)
     setRouteVedurstofanLayer(vedurstofanLayer ?? null)
-    setRouteTravelDetailsOpen(false)
-    setSelectedRoutePointIndex(null)
-    setRouteSelectedStation(null)
-    setRouteStationDetailOpen(false)
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteNowMeasuredAtIso(nowMeasuredAtIso)
     setRouteVisibleStatusCounts(nowStatusCounts)
@@ -5396,13 +5607,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     routeBridgeRequestRef.current = controller
     setRouteBridgeStatus('loading')
     setRouteBridgeError(null)
+    setRoutePlaceFallbackSuggestion(null)
     setRouteBridgeSummary(null)
     setRouteTravelResult(null)
     setRouteVedurstofanLayer(null)
-    setRouteTravelDetailsOpen(false)
-    setSelectedRoutePointIndex(null)
-    setRouteSelectedStation(null)
-    setRouteStationDetailOpen(false)
     setRouteCandidates(null)
     setRouteSlotStatusOverrides(null)
     setRouteNowStatusCounts(null)
@@ -5421,12 +5629,16 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setRouteContextView('information')
     setIsPanelOpen(true)
 
+    let attemptedOrigin: RoadIntelligencePlaceResult | null = null
+    let attemptedDestination: RoadIntelligencePlaceResult | null = null
     try {
       const [origin, destination] = await Promise.all([
         resolveBridgePlace(fromQuery, controller.signal, [fromResolved, ...fromSuggestions]),
         resolveBridgePlace(toQuery, controller.signal, [toResolved, ...toSuggestions]),
       ])
       if (controller.signal.aborted) return
+      attemptedOrigin = origin
+      attemptedDestination = destination
       resolvedRoutePlacesRef.current = { origin, destination }
       setRouteCalculationPlaceNames({ from: origin.name, to: destination.name })
       void savePlaceBestEffort(origin)
@@ -5466,6 +5678,37 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       if (controller.signal.aborted) return
       const code = err instanceof Error ? err.message : 'unknown'
       console.error('[RoadMap] route failed:', code, err)
+      if (
+        code !== 'auth' &&
+        code !== 'rate_limited' &&
+        code !== 'map_not_ready'
+      ) {
+        const fallbackCandidate = (
+          [
+            { field: 'from' as const, place: attemptedOrigin },
+            { field: 'to' as const, place: attemptedDestination },
+          ] as const
+        )
+          .filter(candidate => candidate.place !== null)
+          .map(candidate => ({
+            ...candidate,
+            nearest: findNearestKnownRoadMapPlace(candidate.place!, 30_000),
+          }))
+          .filter(candidate =>
+            candidate.nearest !== null &&
+            makeWeatherPlaceKey(candidate.place!.lat, candidate.place!.lon) !==
+              makeWeatherPlaceKey(candidate.nearest.place.lat, candidate.nearest.place.lon),
+          )
+          .sort((a, b) => a.nearest!.distanceM - b.nearest!.distanceM)[0]
+        if (fallbackCandidate?.place && fallbackCandidate.nearest) {
+          setRoutePlaceFallbackSuggestion({
+            field: fallbackCandidate.field,
+            originalName: fallbackCandidate.place.name,
+            nearbyPlace: fallbackCandidate.nearest.place,
+            distanceKm: fallbackCandidate.nearest.distanceM / 1000,
+          })
+        }
+      }
       const message =
         code === 'place_not_found'
           ? t('roadMapPrototypeRoutePlaceNotFound')
@@ -5534,6 +5777,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     async function initMap() {
       if (!containerRef.current) return
       try {
+        mapInitializationReadyRef.current = false
         const maplibregl = await import('maplibre-gl')
         if (cancelled || !containerRef.current) return
 
@@ -5551,9 +5795,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               // provider fails, users still get a usable map instead of white.
               'forecast-fallback': {
                 type: 'raster',
-                tiles: CARTO_VOYAGER_TILES,
+                tiles: DRIVE_MAP_CARTO_TILES,
                 tileSize: 256,
-                attribution: CARTO_ATTRIBUTION,
+                attribution: DRIVE_MAP_CARTO_ATTRIBUTION,
               },
               'forecast-terrain-background': {
                 type: 'raster',
@@ -5589,7 +5833,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           zoom: ICELAND_ZOOM,
         })
 
-        map.addControl(new maplibregl.NavigationControl(), 'top-right')
         mapRef.current = map
         popupConstructorRef.current = maplibregl.Popup
         markerConstructorRef.current = maplibregl.Marker
@@ -5619,9 +5862,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
           map.addSource('carto-basemap', {
             type: 'raster',
-            tiles: CARTO_VOYAGER_TILES,
+            tiles: DRIVE_MAP_CARTO_TILES,
             tileSize: 256,
-            attribution: CARTO_ATTRIBUTION,
+            attribution: DRIVE_MAP_CARTO_ATTRIBUTION,
           })
           map.addLayer({
             id: 'carto-basemap',
@@ -5634,7 +5877,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
           map.addSource('vegagerdin-vegakerfi', {
             type: 'raster',
-            tiles: VEGAGERDIN_VEGAKERFI_TILES,
+            tiles: DRIVE_MAP_ROAD_NETWORK_TILES,
             tileSize: 256,
             attribution: VEGAGERDIN_ATTRIBUTION,
           })
@@ -5782,8 +6025,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 },
                 paint: {
                   // Provider road-condition color, normalized by the same-origin API.
-                  'line-color': ROAD_SEGMENT_COLOR_EXPRESSION as unknown as string,
-                  'line-width': ROAD_SEGMENT_WIDTH_EXPRESSION as unknown as number,
+                  'line-color': DRIVE_MAP_SEGMENT_COLOR_EXPRESSION as unknown as string,
+                  'line-width': DRIVE_MAP_SEGMENT_WIDTH_EXPRESSION as unknown as number,
                   'line-opacity': 0.8,
                 },
               })
@@ -5881,13 +6124,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             segmentRequestRef.current?.abort()
             const controller = new AbortController()
             segmentRequestRef.current = controller
-            setSegmentCount('loading')
             try {
-              const count = await fetchAndRenderSegments(controller.signal)
-              if (!cancelled && !controller.signal.aborted) setSegmentCount(count)
+              await fetchAndRenderSegments(controller.signal)
             } catch {
               if (!cancelled && !controller.signal.aborted) {
-                setSegmentCount('error')
                 if (process.env.NODE_ENV !== 'production') {
                   console.warn('[RoadMapPrototype] road segments failed')
                 }
@@ -5895,14 +6135,12 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             }
           }
 
-          // Road-segment endpoint is feature-gated. Public users keep the
-          // provider-neutral weather map without issuing expected 401 requests.
-          if (isAuthenticated) triggerSegmentLoad()
+          // Road condition segments are always present in Akstur. The endpoint
+          // permits public reads only while public weather is enabled.
+          triggerSegmentLoad()
           map.on('moveend', () => {
-            if (isAuthenticated) {
-              if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current)
-              segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
-            }
+            if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current)
+            segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
             scheduleRouteLabelCollisionUpdate()
             scheduleOverviewMarkerVisibilityUpdate()
           })
@@ -5914,6 +6152,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           updateOverviewLayerVisibility()
           if (!cancelled) {
             console.log('[RoadMap] map ready — style loaded, all layers initialized')
+            mapInitializationReadyRef.current = true
             setMapReady(true)
           }
         })
@@ -5928,6 +6167,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
     return () => {
       cancelled = true
+      mapInitializationReadyRef.current = false
       clearTimerRef(segmentTimerRef)
       clearTimerRef(fromSuggestTimerRef)
       clearTimerRef(toSuggestTimerRef)
@@ -5963,14 +6203,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
   }, [])
 
-  function handleOverlayToggle() {
-    const next = !showOverlay
-    showOverlayRef.current = next
-    setShowOverlay(next)
-    mapRef.current?.isStyleLoaded() &&
-      mapRef.current.setLayoutProperty('vegagerdin-vegakerfi', 'visibility', next ? 'visible' : 'none')
-  }
-
   function changeForecastCardScale(delta: -1 | 1) {
     setForecastCardScaleIndex(index =>
       Math.max(0, Math.min(FORECAST_CARD_SCALE_LEVELS.length - 1, index + delta)),
@@ -5994,26 +6226,28 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     window.location.href = `/innskraning?next=${encodeURIComponent(returnUrl)}`
   }
 
-  function handleSegmentsToggle() {
-    const next = !showSegments
-    showSegmentsRef.current = next
-    setShowSegments(next)
-    const map = mapRef.current
-    if (map?.isStyleLoaded() && map.getLayer('road-segments')) {
-      map.setLayoutProperty('road-segments', 'visibility', next ? 'visible' : 'none')
-    }
-  }
-
   function renderPlaceSuggestionList(
     field: RouteBridgeField,
     suggestions: RoadIntelligencePlaceResult[],
   ) {
     if (activeRouteField !== field) return null
+    const oppositePlace = field === 'from' ? toResolved : fromResolved
+    const isOppositePlace = (place: Pick<RoadIntelligencePlaceResult, 'placeId' | 'lat' | 'lon'>) =>
+      Boolean(
+        oppositePlace &&
+        (
+          (place.placeId && oppositePlace.placeId && place.placeId === oppositePlace.placeId) ||
+          makeWeatherPlaceKey(place.lat, place.lon) ===
+            makeWeatherPlaceKey(oppositePlace.lat, oppositePlace.lon)
+        ),
+      )
+    const availableSuggestions = suggestions.filter(place => !isOppositePlace(place))
+    const availableSavedPlaces = savedPlaces.filter(place => !isOppositePlace(place))
 
-    if (suggestions.length > 0) {
+    if (availableSuggestions.length > 0) {
       return (
         <ul className="mt-1 max-h-40 overflow-y-auto rounded-md border border-border bg-background shadow-sm">
-          {suggestions.map((place) => (
+          {availableSuggestions.map((place) => (
             <li key={`${place.placeId ?? place.name}-${place.lat}-${place.lon}`}>
               <button
                 type="button"
@@ -6035,14 +6269,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
 
     const fieldValue = field === 'from' ? routeFrom : routeTo
-    if (fieldValue.trim().length < 2 && savedPlaces.length > 0) {
+    if (fieldValue.trim().length < 2 && availableSavedPlaces.length > 0) {
       return (
         <div className="mt-1 rounded-md border border-border bg-background shadow-sm">
           <p className="px-3 pb-1 pt-2 text-[10px] font-medium text-muted-foreground">
             {tPlace('savedPlacesTitle')}
           </p>
           <ul className="pb-1">
-            {savedPlaces.map(p => (
+            {availableSavedPlaces.map(p => (
               <li key={p.id} className="flex items-center">
                 <button
                   type="button"
@@ -6064,8 +6298,22 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
-                    setSavedPlaces(prev => prev.filter(sp => sp.id !== p.id))
-                    void fetch(`/api/teskeid/weather/saved-places/${p.id}`, { method: 'DELETE', credentials: 'same-origin' })
+                    setSavedPlaces(prev => {
+                      const next = prev.filter(sp => sp.id !== p.id)
+                      if (!isAuthenticated) {
+                        try {
+                          const allSessionPlaces = readPublicSavedPlaces(window.sessionStorage)
+                          writePublicSavedPlaces(
+                            window.sessionStorage,
+                            allSessionPlaces.filter(sp => sp.id !== p.id),
+                          )
+                        } catch {}
+                      }
+                      return next
+                    })
+                    if (isAuthenticated) {
+                      void fetch(`/api/teskeid/weather/saved-places/${p.id}`, { method: 'DELETE', credentials: 'same-origin' })
+                    }
                   }}
                   className="shrink-0 px-3 py-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   aria-label={tPlace('savedPlaceDelete')}
@@ -6075,6 +6323,19 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               </li>
             ))}
           </ul>
+          {!isAuthenticated && (
+            <div className="border-t border-border/60 px-3 py-2">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {t('roadMapPrototypePublicPlacesTemporary')}
+              </p>
+              <a
+                href={`/innskraning?next=${encodeURIComponent('/auth-mvp/vedrid/road-map-prototype?context=route&view=information')}`}
+                className="mt-2 inline-flex min-h-10 items-center justify-center rounded-full border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t('roadMapPrototypePublicPlacesSignIn')}
+              </a>
+            </div>
+          )}
         </div>
       )
     }
@@ -6160,17 +6421,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     )
   }
 
-  if (mapError) {
-    return (
-      <div className="flex items-center justify-center w-full h-full text-muted-foreground">
-        <div className="text-center space-y-2 p-4">
-          <p className="text-sm font-medium text-foreground">{t('roadMapPrototypeErrorTitle')}</p>
-          <p className="text-xs">{mapError}</p>
-        </div>
-      </div>
-    )
-  }
-
   // Derive the displayed route status + answer from the selected scrubber slot.
   // When the user selects slot N in the heatmap, the badge and answer update to
   // reflect that slot's provider status rather than the initial "Núna" status.
@@ -6228,6 +6478,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const routeLoaderTo = routeCalculationPlaceNames?.to ?? routeTo.trim()
   const routeLoaderTitles = [
     t('roadMapPrototypeRouteLoaderForecast'),
+    t('roadMapPrototypeRouteLoaderRoadData'),
     t('roadMapPrototypeRouteLoaderDistance', {
       from: routeLoaderFrom || t('roadMapPrototypeRouteFromLabel'),
       to: routeLoaderTo || t('roadMapPrototypeRouteToLabel'),
@@ -6256,6 +6507,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }
 
   function openRouteContext(view = routeContextView) {
+    routeContextViewRef.current = view
     setRouteContextView(view)
     setLastMapContext('route')
     setIsChatOpen(false)
@@ -6269,6 +6521,114 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     ) {
       handleRouteDepartureForecastOptIn()
     }
+  }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('context') !== 'route') return
+    const requestedView = params.get('view') === 'map' ? 'map' : 'information'
+    routeContextViewRef.current = requestedView
+    if (params.get('restoreRoute') !== '1') {
+      openRouteContext(requestedView)
+      return
+    }
+
+    try {
+      const raw = window.sessionStorage.getItem(ROAD_MAP_ROUTE_RETURN_STORAGE_KEY)
+      if (!raw) {
+        openRouteContext(requestedView)
+        return
+      }
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0
+      const from = typeof parsed.from === 'string' ? parsed.from.trim() : ''
+      const to = typeof parsed.to === 'string' ? parsed.to.trim() : ''
+      const cautionWind = typeof parsed.cautionWind === 'string' ? parsed.cautionWind : ''
+      const redWind = typeof parsed.redWind === 'string' ? parsed.redWind : ''
+      const parseStoredPlace = (value: unknown): RoadIntelligencePlaceResult | null => {
+        if (!value || typeof value !== 'object') return null
+        const candidate = value as Record<string, unknown>
+        if (
+          typeof candidate.name !== 'string' ||
+          typeof candidate.lat !== 'number' ||
+          !Number.isFinite(candidate.lat) ||
+          typeof candidate.lon !== 'number' ||
+          !Number.isFinite(candidate.lon)
+        ) {
+          return null
+        }
+        return {
+          name: candidate.name,
+          formattedAddress:
+            typeof candidate.formattedAddress === 'string'
+              ? candidate.formattedAddress
+              : candidate.name,
+          lat: candidate.lat,
+          lon: candidate.lon,
+        }
+      }
+      const origin = parseStoredPlace(parsed.origin)
+      const destination = parseStoredPlace(parsed.destination)
+      if (
+        updatedAt <= 0 ||
+        Date.now() - updatedAt > ROAD_MAP_ROUTE_RETURN_TTL_MS ||
+        from.length < 2 ||
+        to.length < 2
+      ) {
+        window.sessionStorage.removeItem(ROAD_MAP_ROUTE_RETURN_STORAGE_KEY)
+        openRouteContext(requestedView)
+        return
+      }
+
+      pendingRouteRestoreViewRef.current = requestedView
+      setRouteFrom(from)
+      setRouteTo(to)
+      setRouteCautionWind(cautionWind)
+      setRouteRedWind(redWind)
+      if (origin && destination) {
+        resolvedRoutePlacesRef.current = { origin, destination }
+        setFromResolved(origin)
+        setToResolved(destination)
+      }
+      openRouteContext('information')
+      pendingRouteRestoreSubmitRef.current = true
+    } catch {
+      openRouteContext(requestedView)
+    }
+  // One-time return hydration. Re-running MapLibre route restoration would duplicate requests.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (
+      !pendingRouteRestoreSubmitRef.current ||
+      routeFrom.trim().length < 2 ||
+      routeTo.trim().length < 2
+    ) {
+      return
+    }
+    pendingRouteRestoreSubmitRef.current = false
+    formRef.current?.requestSubmit()
+  }, [routeFrom, routeTo, fromResolved, toResolved])
+
+  useEffect(() => {
+    if (routeBridgeStatus !== 'success' || !pendingRouteRestoreViewRef.current) return
+    const restoredView = pendingRouteRestoreViewRef.current
+    pendingRouteRestoreViewRef.current = null
+    openRouteContext(restoredView)
+  // openRouteContext intentionally reflects the current live route state.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeBridgeStatus])
+
+  if (mapError) {
+    return (
+      <div className="flex items-center justify-center w-full h-full text-muted-foreground">
+        <div className="text-center space-y-2 p-4">
+          <p className="text-sm font-medium text-foreground">{t('roadMapPrototypeErrorTitle')}</p>
+          <p className="text-xs">{mapError}</p>
+        </div>
+      </div>
+    )
   }
 
   function handleMessagesToggle() {
@@ -6439,10 +6799,45 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           .maplibregl-map { position: relative } to this element, which would
           override Tailwind's `absolute` and cause inset-0 to collapse to 0px.
           h-full w-full survives the position override. */}
-      <div ref={containerRef} className="h-full w-full" />
+      <DriveRouteMap
+        externalContainer={setMapContainer}
+        className="h-full w-full"
+      />
 
       {mapViewVisible && lastMapContext === 'weather' && (
-        <div className="absolute left-3 top-3 z-[90] hidden max-w-[calc(100%-5rem)] flex-row items-start gap-2 lg:flex">
+        <div
+          data-weather-card-obstacle="true"
+          className="absolute right-3 top-3 z-[90] inline-flex overflow-hidden rounded-full border border-border/80 bg-background/95 shadow-md backdrop-blur-sm lg:hidden"
+          role="group"
+          aria-label={t('roadMapPrototypeForecastCardTextSize')}
+        >
+          <button
+            type="button"
+            onClick={() => changeForecastCardScale(-1)}
+            disabled={forecastCardScaleIndex === 0}
+            aria-label={t('roadMapPrototypeForecastCardTextSmaller')}
+            className="flex h-10 min-w-11 items-center justify-center px-2 text-xs font-bold text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          >
+            A−
+          </button>
+          <span aria-hidden="true" className="w-px bg-border" />
+          <button
+            type="button"
+            onClick={() => changeForecastCardScale(1)}
+            disabled={forecastCardScaleIndex === FORECAST_CARD_SCALE_LEVELS.length - 1}
+            aria-label={t('roadMapPrototypeForecastCardTextLarger')}
+            className="flex h-10 min-w-11 items-center justify-center px-2 text-xs font-bold text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          >
+            A+
+          </button>
+        </div>
+      )}
+
+      {mapViewVisible && lastMapContext === 'weather' && (
+        <div
+          data-weather-card-obstacle="true"
+          className="absolute left-3 top-3 z-[90] hidden max-w-[calc(100%-5rem)] flex-row items-start gap-2 lg:flex"
+        >
           <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
@@ -6581,6 +6976,16 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         >
           {t('roadMapPrototypeViewMap')}
         </button>
+      )}
+
+      {mapViewVisible && lastMapContext === 'weather' && hiddenForecastCardCount > 0 && (
+        <div
+          data-weather-card-obstacle="true"
+          className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+7.5rem)] left-3 right-3 z-[125] rounded-xl border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-900 shadow-md backdrop-blur-sm sm:left-1/2 sm:right-auto sm:max-w-md sm:-translate-x-1/2"
+          role="status"
+        >
+          {t('roadMapPrototypeHiddenForecastCards', { count: hiddenForecastCardCount })}
+        </div>
       )}
 
       {lastMapContext === 'route' && isRouteLoading && !isPanelOpen && (
@@ -6753,6 +7158,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
           <p className="text-[11px] leading-snug text-amber-800 dark:text-amber-300">
             {t('roadMapPrototypeRouteWarningBanner')}
+            <strong className="mt-1 block font-semibold">
+              {t('roadMapPrototypeRouteWarningBannerEmphasis')}
+            </strong>
           </p>
         </div>
 
@@ -6777,9 +7185,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               onEnlargeMap={() => openRouteContext('map')}
             />
           ) : isRouteLoading ? (
-            <div className="flex items-center justify-center p-10 text-sm text-muted-foreground">
-              {t('roadMapPrototypeRouteLoading')}
-            </div>
+            <TeskeidLoader
+              ideaTitles={routeLoaderTitles}
+              loadingLabel={t('roadMapPrototypeRouteLoading')}
+              fallbackIdeaTitle={t('roadMapPrototypeRouteLoaderNow')}
+              intervalMs={1800}
+              className="min-h-[320px] px-5 py-10"
+            />
           ) : (
             /* No route: route form */
             <div className="p-3">
@@ -6793,6 +7205,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                         onChange={(event) => {
                           setRouteFrom(event.target.value)
                           setFromResolved(null)
+                          setRoutePlaceFallbackSuggestion(null)
                           setActiveRouteFieldState('from')
                           fetchSuggestionsFor(
                             event.target.value,
@@ -6835,6 +7248,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                         onChange={(event) => {
                           setRouteTo(event.target.value)
                           setToResolved(null)
+                          setRoutePlaceFallbackSuggestion(null)
                           setActiveRouteFieldState('to')
                           fetchSuggestionsFor(
                             event.target.value,
@@ -6949,125 +7363,35 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               {routeBridgeError && (
                 <p className="mt-2 text-xs text-destructive">{routeBridgeError}</p>
               )}
+              {routePlaceFallbackSuggestion && (
+                <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-amber-950">
+                  <p className="text-xs leading-relaxed">
+                    {t('roadMapPrototypeNearbyKnownPlaceSuggestion', {
+                      original: routePlaceFallbackSuggestion.originalName,
+                      nearby: routePlaceFallbackSuggestion.nearbyPlace.name,
+                      distance: formatNum(routePlaceFallbackSuggestion.distanceKm, locale),
+                    })}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={applyNearbyRouteFallback}
+                    className="mt-2 min-h-10 rounded-full border border-amber-500 bg-background px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {t('roadMapPrototypeUseNearbyKnownPlace', {
+                      place: routePlaceFallbackSuggestion.nearbyPlace.name,
+                    })}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Layer controls — fixed at bottom of panel */}
-        <div className={`shrink-0 border-t border-border/50 p-3 space-y-2 ${routeBridgeSummary ? 'hidden' : ''}`}>
-          {/* Toggle buttons */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={handleOverlayToggle}
-              className="min-h-10 rounded-full border border-border bg-background/80 px-3 py-2 text-[11px] text-foreground/80 transition-colors hover:bg-muted"
-            >
-              {showOverlay ? t('roadMapPrototypeHideRoadNetwork') : t('roadMapPrototypeShowRoadNetwork')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSegmentsToggle}
-              className="min-h-10 rounded-full border border-border bg-background/80 px-3 py-2 text-[11px] text-foreground/80 transition-colors hover:bg-muted"
-            >
-              {showSegments
-                ? t('roadMapPrototypeHideConditionSegments')
-                : t('roadMapPrototypeShowConditionSegments')}
-            </button>
-          </div>
-
-          {/* Road condition legend */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {ROAD_CONDITION_LEGEND.map(({ color, label }) => (
-              <span key={label} className="flex items-center gap-0.5">
-                <span
-                  className="inline-block w-2 h-2 rounded-full border border-border/60 shrink-0"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="text-[10px] text-muted-foreground">{label}</span>
-              </span>
-            ))}
-            {segmentCount !== null && (
-              <span className="text-[10px] text-muted-foreground">
-                {segmentCount === 'loading'
-                  ? `· ${t('roadMapPrototypeSegmentCountLoading')}`
-                  : segmentCount === 'error'
-                    ? `· ${t('roadMapPrototypeSegmentCountError')}`
-                    : `· ${t('roadMapPrototypeSegmentCount', { count: segmentCount })}`}
-              </span>
-            )}
-          </div>
-
-          {/* Overview station count */}
-          {!routeBridgeSummary && !isWeatherChaseOpen && stationCount !== null && (
-            <p className="text-[10px] text-muted-foreground">
-              {overviewActiveMode === 'now'
-                ? t('vegagerdinProviderLabel')
-                : t('sourceForecastGroupLabel')}
-              {' · '}
-              {t('roadMapPrototypeStationCount', { count: stationCount })}
-            </p>
-          )}
-        </div>
       </div>
-
-      {routeStationDetailOpen && routeSelectedStation && routeTravelResult && routeBridgeSummary && (
-        <div className="absolute inset-0 z-[95] flex flex-col bg-background/95 backdrop-blur-sm sm:pointer-events-none sm:inset-x-3 sm:bottom-28 sm:top-14 sm:z-[45] sm:flex-row sm:items-start sm:bg-transparent sm:backdrop-blur-none">
-          <div className="pointer-events-auto flex-1 overflow-y-auto overscroll-contain p-3 sm:flex-none sm:max-h-[calc(100vh-9rem)] sm:w-full sm:max-w-2xl sm:rounded-xl sm:border sm:border-border/70 sm:bg-background/95 sm:shadow-xl sm:backdrop-blur-sm">
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={() => setRouteStationDetailOpen(false)}
-                className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                ◀ {t('roadMapPrototypeTravelDetailsClose')}
-              </button>
-              {displayedRouteCandidates && displayedRouteCandidates.length > 1 && (
-                <DepartureHeatmap
-                  candidates={displayedRouteCandidates}
-                  bestWindow={undefined}
-                  originName={routeBridgeSummary.fromName}
-                  selectedIdx={effectiveSelectedCandidateIdx}
-                  onSelectIdx={handleSelectCandidateIdx}
-                  visibleStatuses={visibleRouteStatuses}
-                  onVisibleStatusesChange={handleRouteStatusFilterChange}
-                  thresholdsUsed={routeBridgeSummary.thresholdsUsed}
-                  subtitle={routeScrubberStatusText}
-                  title={null}
-                  showSelectedDetail={false}
-                  slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
-                  mode={routeStatusFilterMode}
-                  firstSlotLabel={t('roadMapPrototypeScrubberNow')}
-                  selectFirstSlotWhenNone={false}
-                  showBestWindowHint={false}
-                />
-              )}
-              {routeSelectedStation.kind === 'vedurstofan' && (
-                <VedurstofanPointCard
-                  station={routeSelectedStation.entry.point}
-                  status={routeSelectedStation.entry.windDisplayStatus}
-                  etaIso={routeSelectedStation.entry.etaIso ?? null}
-                  departureIso={selectedRouteCandidate?.departureIso ?? null}
-                  originName={routeBridgeSummary.fromName}
-                  variant="full"
-                />
-              )}
-              <RouteTravelDetails
-                result={routeTravelResult}
-                candidate={selectedRouteCandidate}
-                status={displayedRouteStatus}
-                answer={displayedRouteAnswer}
-                thresholds={routeBridgeSummary.thresholdsUsed}
-                originName={routeBridgeSummary.fromName}
-                destinationName={routeBridgeSummary.toName}
-                selectedRouteIndex={selectedRoutePointIndex}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Bottom strip — overview source selector or route departure scrubber. */}
       <div
+        data-weather-card-obstacle="true"
         className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-5 ${
           isPanelOpen || (lastMapContext === 'weather' && isWeatherChaseOpen) ? 'hidden' : ''
         }`}
@@ -7136,35 +7460,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               mode="detailed"
             />
 
-            {routeSelectedStation?.kind === 'vegagerdin' && (() => {
-              const point = routeSelectedStation.point
-              const href = vegagerdinPulseHref(point.stationId, '/auth-mvp/vedrid/road-map-prototype')
-              return (
-                <a
-                  href={href}
-                  className="mt-1 flex overflow-hidden rounded-xl border border-border bg-card transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <div className="flex flex-1 flex-col">
-                    <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
-                      <div>
-                        <p className="text-xs font-semibold text-foreground">{point.stationName}</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {formatVegagerdinRouteWindValue(point)} m/s
-                        </p>
-                      </div>
-                      <WindStatusBadge status={point.windDisplayStatus} variant="chip" />
-                    </div>
-                    {point.airTemperatureC != null && (
-                      <div className="px-3 py-1.5">
-                        <p className="text-[11px] text-muted-foreground">
-                          {formatNum(point.airTemperatureC, locale)}°C
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </a>
-              )
-            })()}
           </div>
         ) : (
           /* Default overview: time selector + Einfalt/Nánar inline with pills */

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useTranslations, useLocale } from 'next-intl'
+import { useTranslations } from 'next-intl'
 import { ChevronLeft } from 'lucide-react'
 import { ChatPreviewList } from '@/components/chat/ChatPreviewList'
 import { useChatPreview } from '@/components/chat/useChatPreview'
@@ -26,6 +26,7 @@ export type NearbyVegagerdinStation = {
 
 interface VedurstofanPulsClientProps {
   stationId: string
+  locale: string
   stationName: string
   returnTo: string | null
   forecastRows: ForecastRowData[]
@@ -39,9 +40,8 @@ interface VedurstofanPulsClientProps {
  * This page shows the Vedurstofan forecast context and any legacy pulse messages
  * that existed before the migration.
  */
-export function VedurstofanPulsClient({ stationId, stationName, returnTo, forecastRows, atimeIso, nearbyVegagerdinStations }: VedurstofanPulsClientProps) {
+export function VedurstofanPulsClient({ stationId, locale, stationName, returnTo, forecastRows, atimeIso, nearbyVegagerdinStations }: VedurstofanPulsClientProps) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
-  const locale = useLocale()
   const backDest = resolvePulseBackDestination(returnTo)
   const [showAllForecast, setShowAllForecast] = useState(false)
   const { messages, loaded: previewLoaded } = useChatPreview({
@@ -68,6 +68,8 @@ export function VedurstofanPulsClient({ stationId, stationName, returnTo, foreca
             <ChevronLeft className="w-3 h-3" />
             {backDest.kind === 'trip'
               ? t('backToTrip')
+              : backDest.kind === 'drive'
+                ? t('backToDrive')
               : backDest.kind === 'overview'
                 ? t('backToOverview')
                 : t('backToStationExplorer')}

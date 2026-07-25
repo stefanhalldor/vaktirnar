@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import {
   buildVegagerdinRoadSurfaceQueryUrl,
   isAllowedRoadSurfaceContentType,
@@ -31,18 +32,18 @@ export async function GET(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: ERROR_HEADERS })
-  }
-
-  const hasRoadIntelligence = await checkFeatureAccess(
-    user.id,
-    user.email,
-    'road-intelligence-v1',
-  ).catch(() => false)
-
-  if (!hasRoadIntelligence) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404, headers: ERROR_HEADERS })
+  if (getWeatherEnabledMode() !== 'all') {
+    if (!user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: ERROR_HEADERS })
+    }
+    const hasRoadIntelligence = await checkFeatureAccess(
+      user.id,
+      user.email,
+      'road-intelligence-v1',
+    ).catch(() => false)
+    if (!hasRoadIntelligence) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404, headers: ERROR_HEADERS })
+    }
   }
 
   const parsed = parseRoadSurfaceBboxRequest(request.nextUrl.searchParams)

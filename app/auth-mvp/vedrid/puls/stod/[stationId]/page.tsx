@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
+import { getLocale } from 'next-intl/server'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { checkChatAccess } from '@/lib/chat/access.server'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
@@ -19,6 +20,7 @@ export default async function VedurstofanPulsPage({
 }) {
   const { stationId } = await params
   const { returnTo } = await searchParams
+  const locale = await getLocale()
   const { user } = await guardTeskeidSession()
 
   const access = await checkChatAccess(user)
@@ -87,6 +89,7 @@ export default async function VedurstofanPulsPage({
   return (
     <VedurstofanPulsClient
       stationId={stationId}
+      locale={locale}
       stationName={entry.name}
       returnTo={returnTo ?? null}
       forecastRows={forecastRows}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROAD_MAP_PLACES,
+  findNearestKnownRoadMapPlace,
   findRoadMapPlaceSuggestions,
   mergePlaceSuggestions,
 } from '@/lib/road-intelligence/roadMapPlaces'
@@ -48,5 +49,15 @@ describe('roadMapPlaces', () => {
       expect(place.lon).toBeGreaterThanOrEqual(-25)
       expect(place.lon).toBeLessThanOrEqual(-13)
     }
+  })
+
+  it('offers the nearest curated place for a legacy saved coordinate', () => {
+    const nearby = findNearestKnownRoadMapPlace({ lat: 64.33, lon: -22.08 })
+
+    expect(nearby?.place.name).toBe('Akranes')
+    expect(nearby?.distanceM).toBeLessThan(2_000)
+    expect(
+      findNearestKnownRoadMapPlace({ lat: 63.1, lon: -24.9 }, 1_000),
+    ).toBeNull()
   })
 })

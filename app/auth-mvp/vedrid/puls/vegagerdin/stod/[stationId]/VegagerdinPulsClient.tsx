@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useTranslations, useLocale } from 'next-intl'
+import { useTranslations } from 'next-intl'
 import { ChevronLeft } from 'lucide-react'
 import { ScopedChatPanel } from '@/components/chat/ScopedChatPanel'
 import { VEDURPULS_TRANSPORT } from '@/app/auth-mvp/vedrid/vedurpulsTransport'
@@ -17,6 +17,7 @@ import type { NearbyVedurstofanStation } from './page'
 
 interface VegagerdinPulsClientProps {
   stationId: string
+  locale: string
   measurement: VegagerdinCurrentMeasurement
   returnTo: string | null
   nearbyStations: NearbyVedurstofanStation[]
@@ -24,12 +25,12 @@ interface VegagerdinPulsClientProps {
 
 export function VegagerdinPulsClient({
   stationId,
+  locale,
   measurement,
   returnTo,
   nearbyStations,
 }: VegagerdinPulsClientProps) {
   const t = useTranslations('teskeid.vedrid.eltaVedrid')
-  const locale = useLocale()
   const backDest = resolvePulseBackDestination(returnTo)
   const [threadId, setThreadId] = useState<string | null>(null)
   const [accessDenied, setAccessDenied] = useState(false)
@@ -84,6 +85,8 @@ export function VegagerdinPulsClient({
             <ChevronLeft className="w-3 h-3" />
             {backDest.kind === 'trip'
               ? t('backToTrip')
+              : backDest.kind === 'drive'
+                ? t('backToDrive')
               : backDest.kind === 'overview'
                 ? t('backToOverview')
                 : t('backToStationExplorer')}

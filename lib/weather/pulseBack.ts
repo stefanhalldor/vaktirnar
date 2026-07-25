@@ -15,6 +15,7 @@
 export type PulseBackDestination =
   | { kind: 'overview'; href: string }
   | { kind: 'trip'; href: string }
+  | { kind: 'drive'; href: string }
   | { kind: 'stationExplorer'; href: string }
   | { kind: 'pulseStation'; href: string }
 
@@ -24,6 +25,15 @@ export function resolvePulseBackDestination(returnTo: string | null): PulseBackD
     const decoded = decodeURIComponent(returnTo)
     if (decoded.startsWith('http://') || decoded.startsWith('https://') || decoded.startsWith('//')) return null
     if (!decoded.startsWith('/')) return null
+
+    // Akstur / Road Map prototype: exact path, query or hash only.
+    if (
+      decoded === '/auth-mvp/vedrid/road-map-prototype' ||
+      decoded.startsWith('/auth-mvp/vedrid/road-map-prototype?') ||
+      decoded.startsWith('/auth-mvp/vedrid/road-map-prototype#')
+    ) {
+      return { kind: 'drive', href: decoded }
+    }
 
     // Overview: /auth-mvp/vedrid or /vedrid exactly, or with query/hash (no sub-path)
     if (

@@ -2,6 +2,7 @@ import {
   normalizePlaceSearchText,
   type RoadIntelligencePlaceResult,
 } from './placeSearchBridge'
+import { haversineDistanceM } from '@/lib/weather/nearestStations'
 
 export type RoadMapPlace = RoadIntelligencePlaceResult & {
   id: string
@@ -108,4 +109,25 @@ export function mergePlaceSuggestions(
   }
 
   return merged
+}
+
+export function findNearestKnownRoadMapPlace(
+  place: Pick<RoadIntelligencePlaceResult, 'lat' | 'lon'>,
+  maxDistanceM = 30_000,
+): { place: RoadMapPlace; distanceM: number } | null {
+  if (!Number.isFinite(place.lat) || !Number.isFinite(place.lon) || maxDistanceM <= 0) {
+    return null
+  }
+
+  let nearest: { place: RoadMapPlace; distanceM: number } | null = null
+  for (const candidate of ROAD_MAP_PLACES) {
+    const distanceM = haversineDistanceM(place, candidate)
+    if (
+      distanceM <= maxDistanceM &&
+      (!nearest || distanceM < nearest.distanceM)
+    ) {
+      nearest = { place: candidate, distanceM }
+    }
+  }
+  return nearest
 }

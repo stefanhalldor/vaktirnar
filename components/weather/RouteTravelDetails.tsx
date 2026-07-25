@@ -45,7 +45,7 @@ export function RouteTravelDetails({
   selectedRouteIndex?: number | null
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
-  const t = useTranslations('teskeid.vedrid')
+  const t = useTranslations('teskeid.vedrid.overview')
   const locale = useLocale()
   const route = result.travelPlan?.route
   const points = result.travelPlan?.routeWeatherPoints ?? []

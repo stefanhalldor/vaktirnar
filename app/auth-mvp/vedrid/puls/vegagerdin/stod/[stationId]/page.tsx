@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
+import { getLocale } from 'next-intl/server'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { checkChatAccess } from '@/lib/chat/access.server'
 import { findVegagerdinCurrentMeasurementByStationId } from '@/lib/weather/providers/vegagerdinCurrent.server'
@@ -28,6 +29,7 @@ export default async function VegagerdinPulsPage({
 }) {
   const { stationId } = await params
   const { returnTo } = await searchParams
+  const locale = await getLocale()
   const { user } = await guardTeskeidSession()
 
   const access = await checkChatAccess(user, { provider: 'vegagerdin' })
@@ -70,6 +72,7 @@ export default async function VegagerdinPulsPage({
   return (
     <VegagerdinPulsClient
       stationId={stationId}
+      locale={locale}
       measurement={measurement}
       returnTo={returnTo ?? null}
       nearbyStations={nearbyStations}

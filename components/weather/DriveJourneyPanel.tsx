@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import type {
   ForecastDrawerRow,
@@ -19,6 +19,8 @@ import { DepartureHeatmap } from './DepartureHeatmap'
 import { VedurstofanPointCard } from './VedurstofanPointCard'
 import { WeatherWatchersComparison } from './WeatherWatchersComparison'
 import { formatCompactDateTime, formatNum } from './travelAuditMap.helpers'
+import { DriveRouteMap, type DriveRouteMapStation } from './DriveRouteMap'
+import { WindStatusFilterPills } from './WindStatusFilterPills'
 
 type Station = VedurstofanTravelLayer['points'][number]
 type ForecastRow = Station['forecastRows'][number]
@@ -150,11 +152,17 @@ export function DriveJourneyPanel({
     selectedCandidateIdx !== null
       ? candidates[selectedCandidateIdx] ?? candidates[0] ?? null
       : candidates[0] ?? null
-  const stations = layer?.points
-    .filter(station => station.forecastRows.length > 0)
-    .sort((a, b) => (a.routeFraction ?? 0) - (b.routeFraction ?? 0)) ?? []
-  const assessments = stations.map(station =>
-    buildDriveStationAssessment(station, candidate, durationMinutes, thresholds),
+  const stations = useMemo(
+    () => layer?.points
+      .filter(station => station.forecastRows.length > 0)
+      .sort((a, b) => (a.routeFraction ?? 0) - (b.routeFraction ?? 0)) ?? [],
+    [layer],
+  )
+  const assessments = useMemo(
+    () => stations.map(station =>
+      buildDriveStationAssessment(station, candidate, durationMinutes, thresholds),
+    ),
+    [candidate, durationMinutes, stations, thresholds],
   )
   const worst = assessments.reduce<StationAssessment | null>((current, assessment) => {
     if (!current) return assessment
@@ -171,8 +179,51 @@ export function DriveJourneyPanel({
   const destinationRows = destinationStation ? vedurstofanRowsToComparisonRows(destinationStation.forecastRows) : []
   const effectiveStatus = worst ? statusFromWindDisplay(worst.status) : 'graent'
   const selectedAssessment =
-    assessments.find(assessment => assessment.station.routePointId === selectedStationId) ??
-    worst
+    selectedStationId === null
+      ? null
+      : assessments.find(assessment => assessment.station.stationId === selectedStationId) ?? null
+  const visibleSelectedAssessment =
+    selectedAssessment && visibleStatuses.has(selectedAssessment.status)
+      ? selectedAssessment
+      : null
+  const driveMapStations = useMemo<DriveRouteMapStation[]>(
+    () => assessments
+      .filter(assessment => assessment.station.lat !== null && assessment.station.lon !== null)
+      .map(assessment => ({
+        id: assessment.station.stationId,
+        name: assessment.station.stationName,
+        lat: assessment.station.lat!,
+        lon: assessment.station.lon!,
+        driveTimeLabel: assessment.etaIso
+          ? new Intl.DateTimeFormat(locale, {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            }).format(new Date(assessment.etaIso))
+          : null,
+        color:
+          assessment.status === 'haettulegt' || assessment.status === 'nalgast-haettumork'
+            ? '#dc2626'
+            : assessment.status === 'othaegilegt' || assessment.status === 'nalgast-othaegindi'
+              ? '#f59e0b'
+              : '#2d5a27',
+      })),
+    [assessments, locale],
+  )
+  const driveMapStatusCounts = useMemo(
+    () => assessments.reduce<Partial<Record<WindDisplayStatus, number>>>((counts, assessment) => {
+      counts[assessment.status] = (counts[assessment.status] ?? 0) + 1
+      return counts
+    }, {}),
+    [assessments],
+  )
+  const visibleDriveMapStations = useMemo(
+    () => driveMapStations.filter(station => {
+      const assessment = assessments.find(item => item.station.stationId === station.id)
+      return assessment ? visibleStatuses.has(assessment.status) : true
+    }),
+    [assessments, driveMapStations, visibleStatuses],
+  )
 
   if (!layer || stations.length === 0) {
     return (
@@ -287,16 +338,24 @@ export function DriveJourneyPanel({
         )}
 
         <section className="mt-4 space-y-3 border-t border-border/70 pt-3">
+          <WindStatusFilterPills
+            counts={driveMapStatusCounts}
+            visibleStatuses={visibleStatuses}
+            onVisibleStatusesChange={setVisibleStatuses}
+            showAllLabel=""
+            alwaysShowWithinLimits
+            mode="detailed"
+          />
           <div className="relative">
-            <DriveMiniMap
+            <DriveRouteMap
               routePoints={routePoints}
-              assessments={assessments}
-              selectedStationId={selectedAssessment?.station.routePointId ?? null}
+              stations={visibleDriveMapStations}
               onSelectStation={setSelectedStationId}
               ariaLabel={tf('auditMapAlt', {
                 origin: originName,
                 destination: destinationName,
               })}
+              className="h-[190px] w-full overflow-hidden rounded-xl border border-border"
             />
             {onEnlargeMap && (
               <button
@@ -309,31 +368,17 @@ export function DriveJourneyPanel({
             )}
           </div>
 
-          {selectedAssessment && (
+          {visibleSelectedAssessment && (
             <VedurstofanPointCard
-              station={selectedAssessment.station}
-              status={selectedAssessment.status}
-              etaIso={selectedAssessment.etaIso}
+              station={visibleSelectedAssessment.station}
+              status={visibleSelectedAssessment.status}
+              etaIso={visibleSelectedAssessment.etaIso}
               departureIso={candidate?.departureIso ?? null}
               originName={originName}
-              panelTitle={
-                selectedAssessment.station.routePointId === worst?.station.routePointId
-                  ? tf('decisivePointLabel')
-                  : tf('manualSelectedPointTitle')
-              }
-              isManualSelection={selectedAssessment.station.routePointId !== worst?.station.routePointId}
+              panelTitle={tf('manualSelectedPointTitle')}
+              isManualSelection
               returnTo="/auth-mvp/vedrid/road-map-prototype"
             />
-          )}
-
-          {selectedStationId && selectedStationId !== worst?.station.routePointId && (
-            <button
-              type="button"
-              onClick={() => setSelectedStationId(null)}
-              className="min-h-10 text-xs font-medium text-primary underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {tf('showWorstPoint')}
-            </button>
           )}
 
           <details className="group rounded-xl border border-border bg-card">
@@ -396,83 +441,4 @@ export function projectDriveMiniMapPoints(
     x: padding + ((point.lon - minLon) / lonSpan) * (width - padding * 2),
     y: height - padding - ((point.lat - minLat) / latSpan) * (height - padding * 2),
   }))
-}
-
-function DriveMiniMap({
-  routePoints,
-  assessments,
-  selectedStationId,
-  onSelectStation,
-  ariaLabel,
-}: {
-  routePoints: Array<{ lat: number; lon: number }>
-  assessments: StationAssessment[]
-  selectedStationId: string | null
-  onSelectStation: (stationId: string) => void
-  ariaLabel: string
-}) {
-  const width = 320
-  const height = 150
-  const allCoords = [
-    ...routePoints,
-    ...assessments
-      .filter(assessment => assessment.station.lat !== null && assessment.station.lon !== null)
-      .map(assessment => ({ lat: assessment.station.lat!, lon: assessment.station.lon! })),
-  ]
-  const projected = projectDriveMiniMapPoints(allCoords, width, height)
-  const projectedRoute = projected.slice(0, routePoints.length)
-  const projectedStations = projected.slice(routePoints.length)
-  const routePath = projectedRoute
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
-    .join(' ')
-  let stationProjectionIndex = 0
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-border bg-[#eef5f3]">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="block h-auto w-full"
-        role="img"
-        aria-label={ariaLabel}
-      >
-        {routePath && (
-          <>
-            <path d={routePath} fill="none" stroke="white" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
-            <path d={routePath} fill="none" stroke="#154212" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-          </>
-        )}
-        {assessments.map(assessment => {
-          if (assessment.station.lat === null || assessment.station.lon === null) return null
-          const point = projectedStations[stationProjectionIndex++]
-          if (!point) return null
-          const selected = assessment.station.routePointId === selectedStationId
-          const fill =
-            assessment.status === 'haettulegt' || assessment.status === 'nalgast-haettumork'
-              ? '#dc2626'
-              : assessment.status === 'othaegilegt' || assessment.status === 'nalgast-othaegindi'
-                ? '#f59e0b'
-                : '#2d5a27'
-          return (
-            <g
-              key={assessment.station.routePointId}
-              role="button"
-              tabIndex={0}
-              aria-label={assessment.station.stationName}
-              onClick={() => onSelectStation(assessment.station.routePointId)}
-              onKeyDown={event => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  onSelectStation(assessment.station.routePointId)
-                }
-              }}
-              className="cursor-pointer focus:outline-none"
-            >
-              <circle cx={point.x} cy={point.y} r={selected ? 9 : 7} fill="white" opacity="0.96" />
-              <circle cx={point.x} cy={point.y} r={selected ? 6 : 4.5} fill={fill} />
-            </g>
-          )
-        })}
-      </svg>
-    </div>
-  )
 }

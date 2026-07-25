@@ -67,6 +67,18 @@ describe('resolvePulseBackDestination — trip', () => {
     expect(resolvePulseBackDestination('%2Fauth-mvp%2Fvedrid%2Fferdalagid')).toEqual({ kind: 'trip', href: '/auth-mvp/vedrid/ferdalagid' }))
 })
 
+describe('resolvePulseBackDestination — drive', () => {
+  it('accepts the Road Map prototype with a safe return view', () => {
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/road-map-prototype?context=route&view=map&restoreRoute=1')).toEqual({
+      kind: 'drive',
+      href: '/auth-mvp/vedrid/road-map-prototype?context=route&view=map&restoreRoute=1',
+    })
+  })
+  it('rejects a lookalike Road Map path', () => {
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/road-map-prototype-evil')).toBeNull()
+  })
+})
+
 describe('resolvePulseBackDestination — stationExplorer', () => {
   it('allows /auth-mvp/vedrid/elta-vedrid', () =>
     expect(resolvePulseBackDestination('/auth-mvp/vedrid/elta-vedrid')).toEqual({ kind: 'stationExplorer', href: '/auth-mvp/vedrid/elta-vedrid' }))

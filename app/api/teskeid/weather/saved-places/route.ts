@@ -85,6 +85,7 @@ export async function POST(request: Request) {
   }
 
   const { name: rawName, formattedAddress: rawAddress } = body
+  const mergeOnly = body.mergeOnly === true
   if (typeof rawName !== 'string' || !rawName.trim()) {
     return NextResponse.json({ error: 'invalid_name' }, { status: 400 })
   }
@@ -101,12 +102,15 @@ export async function POST(request: Request) {
   let savedRow = null
   const { data: existing } = await supabase
     .from('weather_saved_places')
-    .select('id, usage_count')
+    .select('id, name, formatted_address, lat, lon, usage_count, last_used_at')
     .eq('user_id', user.id)
     .eq('place_key', placeKey)
     .maybeSingle()
 
   if (existing) {
+    if (mergeOnly) {
+      return NextResponse.json({ place: toClientPlace(existing) })
+    }
     const { data, error: updateError } = await supabase
       .from('weather_saved_places')
       .update({
@@ -126,6 +130,19 @@ export async function POST(request: Request) {
     }
     savedRow = data
   } else {
+    if (mergeOnly) {
+      const { count: existingCount, error: countError } = await supabase
+        .from('weather_saved_places')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+      if (countError) {
+        console.error('[saved-places POST] merge count error')
+        return NextResponse.json({ error: 'save_failed' }, { status: 500 })
+      }
+      if ((existingCount ?? 0) >= STORED_CAP) {
+        return NextResponse.json({ error: 'saved_places_full' }, { status: 409 })
+      }
+    }
     const { data, error: insertError } = await supabase
       .from('weather_saved_places')
       .insert({
