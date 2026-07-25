@@ -1225,10 +1225,10 @@ export function WeatherOverviewClient({
       subtitle={subtitle}
       menuVariant={menuVariant}
       tripHref={activeTripHref}
-      experimentalHref={hasRoadIntelligence
+      experimentalHref={hasRoadIntelligence || menuVariant === 'public'
         ? '/auth-mvp/vedrid/road-map-prototype'
         : undefined}
-      experimentalLabel={hasRoadIntelligence
+      experimentalLabel={hasRoadIntelligence || menuVariant === 'public'
         ? tOv('roadMapPrototypeLink')
         : undefined}
       providers={[vegagerdinProvider, vedurstofanProvider]}
