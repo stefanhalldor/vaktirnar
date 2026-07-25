@@ -24,6 +24,7 @@ export type WeatherChaseItem = {
   lon?: number | null
   needsRowLoad?: boolean
   nearbyDistanceM?: number
+  nearbyDistanceFromProviderId?: 'vedurstofan' | 'metno'
 }
 
 export type WeatherChaseCriteria = {
@@ -64,7 +65,9 @@ type WeatherChaseLabels = {
   moveUpLabel: string
   moveDownLabel: string
   showNearbyStationsLabel: string
-  nearbyDistanceLabel: string
+  showNearbyMetnoPointsLabel: string
+  nearbyDistanceFromMetnoLabel: string
+  nearbyDistanceFromVedurstofanLabel: string
   emptySelection: string
   reorderTitle: string
   noRowsLabel: string
@@ -716,14 +719,37 @@ export function WeatherChasePanel({
     if (selectedItems.length === 0) return null
     return (
       <div className="space-y-1.5">
-        <p className="text-xs font-medium text-muted-foreground">{labels.reorderTitle}</p>
+        <p className="text-xs font-medium text-foreground">{labels.reorderTitle}</p>
         <div className="divide-y divide-border/50 rounded-lg border border-border/70 bg-background/75">
           {selectedItems.map((item, index) => (
             <div key={item.id}>
               <div className="flex items-center gap-2 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-[11px] font-semibold text-foreground">{item.label}</span>
-                  <ProviderBadge item={item} />
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <ProviderBadge item={item} />
+                    {(item.providerId === 'metno' || item.providerId === 'vedurstofan') && onShowNearbyStations && (
+                      <button
+                        type="button"
+                        onClick={() => onShowNearbyStations(item)}
+                        aria-label={`${
+                          item.providerId === 'metno'
+                            ? labels.showNearbyStationsLabel
+                            : labels.showNearbyMetnoPointsLabel
+                        }: ${item.label}`}
+                        className={cn(
+                          'min-h-6 rounded-full border px-2 text-[9px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                          nearbyStationItemId === item.id
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-primary',
+                        )}
+                      >
+                        {item.providerId === 'metno'
+                          ? labels.showNearbyStationsLabel
+                          : labels.showNearbyMetnoPointsLabel}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <button
@@ -740,19 +766,6 @@ export function WeatherChasePanel({
                     aria-label={`${labels.moveDownLabel}: ${item.label}`}
                     className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:pointer-events-none disabled:opacity-30"
                   >↓</button>
-                  {item.providerId === 'metno' && onShowNearbyStations && (
-                    <button
-                      type="button"
-                      onClick={() => onShowNearbyStations(item)}
-                      aria-label={`${labels.showNearbyStationsLabel}: ${item.label}`}
-                      className={cn(
-                        'h-7 rounded-full border px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                        nearbyStationItemId === item.id
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-primary',
-                      )}
-                    >{labels.showNearbyStationsLabel}</button>
-                  )}
                   <button
                     type="button"
                     onClick={() => removeItem(item.id)}
@@ -763,7 +776,11 @@ export function WeatherChasePanel({
               </div>
               {nearbyStationItemId === item.id && nearbyStationItems.length > 0 && (
                 <div className="border-t border-border/40 bg-muted/30 px-3 py-2 space-y-1">
-                  <p className="text-[10px] font-medium text-muted-foreground">{labels.showNearbyStationsLabel}</p>
+                  <p className="text-[10px] font-medium text-muted-foreground">
+                    {item.providerId === 'metno'
+                      ? labels.showNearbyStationsLabel
+                      : labels.showNearbyMetnoPointsLabel}
+                  </p>
                   {nearbyStationItems.map(nearbyItem => (
                     <div key={nearbyItem.id} className="flex items-center gap-2">
                       <span className="min-w-0 flex-1">
@@ -772,7 +789,11 @@ export function WeatherChasePanel({
                           <span className="block text-[10px] text-muted-foreground">
                             {new Intl.NumberFormat(locale, {
                               maximumFractionDigits: nearbyItem.nearbyDistanceM < 10_000 ? 1 : 0,
-                            }).format(nearbyItem.nearbyDistanceM / 1000)} {labels.nearbyDistanceLabel}
+                            }).format(nearbyItem.nearbyDistanceM / 1000)} {
+                              nearbyItem.nearbyDistanceFromProviderId === 'vedurstofan'
+                                ? labels.nearbyDistanceFromVedurstofanLabel
+                                : labels.nearbyDistanceFromMetnoLabel
+                            }
                           </span>
                         )}
                       </span>

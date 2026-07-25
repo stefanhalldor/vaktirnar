@@ -118,7 +118,7 @@ const VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS = 40
 const LEGACY_WEATHER_CHASE_LOCAL_STORAGE_KEY = 'teskeid_weather_chase_preferences_v1'
 const WEATHER_CHASE_PENDING_STORAGE_KEY = 'teskeid_weather_chase_preferences_pending_v1'
 const LEGACY_FORECAST_CARD_SCALE_LOCAL_STORAGE_KEY = 'teskeid_forecast_card_scale_v1'
-const FORECAST_CARD_SCALE_LEVELS = [1, 1.2, 1.4] as const
+const FORECAST_CARD_SCALE_LEVELS = [1, 1.2, 1.4, 1.6] as const
 const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
   minTemperatureC: null,
   maxWindMs: null,
@@ -1183,6 +1183,7 @@ type WeatherChasePreferencesPayload = {
   selectedItems: WeatherChasePreferenceItem[]
   criteria: WeatherChaseCriteria
   visibleHours: WeatherChaseVisibleHour[]
+  forecastCardScaleIndex?: number
 }
 
 type OverviewMarkerDensityLevel = 'aggregate' | 'compact' | 'full'
@@ -1256,6 +1257,13 @@ function normalizeWeatherChasePreferences(value: unknown): WeatherChasePreferenc
     selectedItems: normalizeWeatherChasePreferenceItems(input.selectedItems),
     criteria: normalizeWeatherChaseCriteria(input.criteria),
     visibleHours: normalizeWeatherChaseVisibleHours(input.visibleHours),
+    forecastCardScaleIndex:
+      typeof input.forecastCardScaleIndex === 'number' &&
+      Number.isInteger(input.forecastCardScaleIndex) &&
+      input.forecastCardScaleIndex >= 0 &&
+      input.forecastCardScaleIndex < FORECAST_CARD_SCALE_LEVELS.length
+        ? input.forecastCardScaleIndex
+        : 1,
   }
 }
 
@@ -1301,6 +1309,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const showOverlayRef = useRef(true)
   const showSegmentsRef = useRef(true)
+  const showForecastStationsRef = useRef(true)
+  const showAllForecastGlaciersRef = useRef(false)
+  const showAllForecastMountainsRef = useRef(false)
   const visibleRouteStatusesRef = useRef<Set<WindDisplayStatus>>(new Set())
   const routeStatusFilterModeRef = useRef<WindStatusFilterMode>('simple')
   const routeWeatherModeRef = useRef<RouteWeatherMode>('now')
@@ -1328,6 +1339,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   >(() => {})
   const [showOverlay, setShowOverlay] = useState(true)
   const [showSegments, setShowSegments] = useState(true)
+  const [showForecastStations, setShowForecastStations] = useState(true)
+  const [showAllForecastGlaciers, setShowAllForecastGlaciers] = useState(false)
+  const [showAllForecastMountains, setShowAllForecastMountains] = useState(false)
   const [activeRouteField, setActiveRouteField] = useState<RouteBridgeField>('from')
   const [stationCount, setStationCount] = useState<number | null>(null)
   const [segmentCount, setSegmentCount] = useState<number | 'loading' | 'error' | null>(null)
@@ -1407,6 +1421,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [weatherContextView, setWeatherContextView] = useState<'information' | 'map'>('information')
   const [routeContextView, setRouteContextView] = useState<'information' | 'map'>('information')
   const [forecastCardScaleIndex, setForecastCardScaleIndex] = useState(1)
+  const [forecastCardScaleChanged, setForecastCardScaleChanged] = useState(false)
+  const [forecastCardGuideOpen, setForecastCardGuideOpen] = useState(true)
   const [routeActive, setRouteActive] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1675,10 +1691,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }, [overviewThresholds])
 
   const handleWeatherChaseSelectedItemsChange = useCallback((items: WeatherChaseItem[]) => {
-    if (!weatherChasePreferencesHydrated) return
     weatherChaseSelectedItemsRef.current = items
     setWeatherChaseSelectedItems(items)
-    setWeatherChaseSelectionInitialized(true)
+    if (weatherChasePreferencesHydrated) {
+      setWeatherChaseSelectionInitialized(true)
+    }
     setWeatherChaseNearbyFocusId(prev => (
       prev && items.some(item => item.id === prev) ? prev : null
     ))
@@ -1691,14 +1708,18 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const weatherChaseNearbyDisplayItems = useMemo<WeatherChaseItem[]>(() => {
     if (!weatherChaseNearbyFocusId) return []
     const focusItem = weatherChaseSelectedItems.find(item => item.id === weatherChaseNearbyFocusId) ?? null
-    if (!focusItem || focusItem.providerId !== 'metno') return []
+    if (!focusItem || (focusItem.providerId !== 'metno' && focusItem.providerId !== 'vedurstofan')) return []
     if (
       typeof focusItem.lat !== 'number' ||
       !Number.isFinite(focusItem.lat) ||
       typeof focusItem.lon !== 'number' ||
       !Number.isFinite(focusItem.lon)
     ) return []
-    return weatherChaseVedurstofanItems
+    const candidates =
+      focusItem.providerId === 'metno'
+        ? weatherChaseVedurstofanItems
+        : weatherChaseMetnoItems
+    return candidates
       .filter(c =>
         typeof c.lat === 'number' &&
         Number.isFinite(c.lat) &&
@@ -1714,8 +1735,17 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       }))
       .sort((a, b) => a.distanceM - b.distanceM || a.item.label.localeCompare(b.item.label, 'is'))
       .slice(0, 5)
-      .map(c => ({ ...c.item, nearbyDistanceM: c.distanceM }))
-  }, [weatherChaseNearbyFocusId, weatherChaseSelectedItems, weatherChaseVedurstofanItems])
+      .map(c => ({
+        ...c.item,
+        nearbyDistanceM: c.distanceM,
+        nearbyDistanceFromProviderId: focusItem.providerId as 'vedurstofan' | 'metno',
+      }))
+  }, [
+    weatherChaseMetnoItems,
+    weatherChaseNearbyFocusId,
+    weatherChaseSelectedItems,
+    weatherChaseVedurstofanItems,
+  ])
 
   const weatherChaseInitialSelectedIds = useMemo(() => {
     if (weatherChasePreferenceItems === null) return null
@@ -1727,6 +1757,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     setWeatherChasePreferenceItems(payload.selectedItems)
     setWeatherChaseCriteria(payload.criteria)
     setMapVisibleHours(payload.visibleHours)
+    setForecastCardScaleIndex(payload.forecastCardScaleIndex ?? 1)
+    setForecastCardScaleChanged(false)
   }, [])
 
   const cleanWeatherChaseSaveParam = useCallback(() => {
@@ -1761,13 +1793,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }, [])
 
   const handleSaveWeatherChaseDefault = useCallback(async (payload: WeatherChasePreferencesPayload) => {
-    applyWeatherChasePreferences(payload)
+    const payloadWithScale = { ...payload, forecastCardScaleIndex }
+    applyWeatherChasePreferences(payloadWithScale)
     setWeatherChaseSaveStatus('saving')
 
-    const result = await saveWeatherChasePreferencesToApi(payload)
+    const result = await saveWeatherChasePreferencesToApi(payloadWithScale)
     if (result === 'unauthorized') {
       try {
-        window.sessionStorage.setItem(WEATHER_CHASE_PENDING_STORAGE_KEY, JSON.stringify(payload))
+        window.sessionStorage.setItem(WEATHER_CHASE_PENDING_STORAGE_KEY, JSON.stringify(payloadWithScale))
       } catch {
         // Continue to auth even if pending session storage is unavailable.
       }
@@ -1784,7 +1817,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         // No-op.
       }
     }
-  }, [applyWeatherChasePreferences, saveWeatherChasePreferencesToApi])
+  }, [applyWeatherChasePreferences, forecastCardScaleIndex, saveWeatherChasePreferencesToApi])
 
   const flushWeatherChaseAutoSave = useCallback(async () => {
     if (weatherChaseAutoSaveRunningRef.current) return
@@ -1876,6 +1909,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           selectedItems: input.selectedItems,
           criteria: input.criteria,
           visibleHours: input.visibleHours,
+          forecastCardScaleIndex: input.forecastCardScaleIndex,
         })
         if (!payload) {
           setWeatherChasePreferenceItems([])
@@ -1908,6 +1942,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       selectedItems: weatherChaseSelectedItems.map(preferenceItemFromWeatherChaseItem),
       criteria: weatherChaseCriteria,
       visibleHours: mapVisibleHours,
+      forecastCardScaleIndex,
     }
     weatherChaseAutoSaveTimerRef.current = setTimeout(() => {
       weatherChaseAutoSaveQueuedRef.current = payload
@@ -1920,6 +1955,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     isAuthenticated,
     mapVisibleHours,
     weatherChaseCriteria,
+    forecastCardScaleIndex,
     weatherChasePreferencesHydrated,
     weatherChaseSelectedItems,
     weatherChaseSelectionInitialized,
@@ -1933,6 +1969,26 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
     updateOverviewMarkerVisibility()
   }, [isWeatherChaseOpen])
+
+  useEffect(() => {
+    showForecastStationsRef.current = showForecastStations
+    for (const { element } of weatherChaseMapMarkersRef.current) {
+      element.style.display = showForecastStations ? '' : 'none'
+    }
+    if (showForecastStations) {
+      window.requestAnimationFrame(() => applyWeatherChaseCardCollisionAvoidance())
+    }
+  }, [showForecastStations])
+
+  useEffect(() => {
+    showAllForecastGlaciersRef.current = showAllForecastGlaciers
+    updateForecastGlacierLabelPresentation()
+  }, [showAllForecastGlaciers])
+
+  useEffect(() => {
+    showAllForecastMountainsRef.current = showAllForecastMountains
+    updateForecastMountainLabelPresentation()
+  }, [showAllForecastMountains])
 
   useEffect(() => {
     const scale = FORECAST_CARD_SCALE_LEVELS[forecastCardScaleIndex] ?? 1.2
@@ -2305,6 +2361,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         ? (getMedalEmoji(row.temperature.value, allSelectedTemps, 'desc') ?? getMedalEmoji(row.wind.value, allSelectedWinds, 'asc'))
         : null
       const element = createWeatherChaseMapMarkerElement(item, row, kind, medal)
+      element.style.display = showForecastStationsRef.current ? '' : 'none'
       const marker = new Marker({ element, anchor: 'center' })
         .setLngLat([item.lon, item.lat])
         .addTo(map)
@@ -2319,10 +2376,43 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         Number.isFinite(item.lon),
       )
       .map(({ item, kind }) => ({ id: item.id, kind, lat: item.lat as number, lon: item.lon as number }))
-    const boundsKey = boundsItems.map(item => `${item.kind}:${item.id}:${item.lat.toFixed(4)},${item.lon.toFixed(4)}`).join('|')
+    const showDesktopInformationMap =
+      isWeatherChaseOpen &&
+      typeof window !== 'undefined' &&
+      window.matchMedia('(min-width: 1200px)').matches
+    const showDesktopMapControls =
+      !isWeatherChaseOpen &&
+      typeof window !== 'undefined' &&
+      window.matchMedia('(min-width: 1024px)').matches
+    const boundsKey = `${
+      showDesktopInformationMap
+        ? 'desktop-iceland'
+        : showDesktopMapControls
+          ? 'desktop-controls'
+          : 'selected'
+    }:${
+      boundsItems.map(item => `${item.kind}:${item.id}:${item.lat.toFixed(4)},${item.lon.toFixed(4)}`).join('|')
+    }`
     if (boundsItems.length > 0 && boundsKey && weatherChaseBoundsKeyRef.current !== boundsKey) {
       weatherChaseBoundsKeyRef.current = boundsKey
-      if (boundsItems.length === 1) {
+      if (showDesktopInformationMap) {
+        map.fitBounds(
+          [
+            [-24.8, 63.25],
+            [-13.1, 66.75],
+          ],
+          {
+            padding: {
+              top: 48,
+              right: 48,
+              bottom: 96,
+              left: Math.min(700, Math.round(window.innerWidth * 0.48)),
+            },
+            maxZoom: 6.5,
+            duration: 450,
+          },
+        )
+      } else if (boundsItems.length === 1) {
         map.easeTo({
           center: [boundsItems[0].lon, boundsItems[0].lat],
           zoom: Math.max(map.getZoom(), 7),
@@ -2337,7 +2427,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             [Math.max(...lons), Math.max(...lats)],
           ],
           {
-            padding: { top: 96, right: 40, bottom: 220, left: 40 },
+            padding: showDesktopMapControls
+              ? { top: 190, right: 48, bottom: 260, left: 230 }
+              : { top: 96, right: 40, bottom: 220, left: 40 },
             maxZoom: 7.5,
             duration: 450,
           },
@@ -2368,6 +2460,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
   }, [
     isPanelOpen,
+    isWeatherChaseOpen,
     lastMapContext,
     mapReady,
     overviewActiveMode,
@@ -2728,14 +2821,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     const areaLogRange = Math.max(1, maximumAreaLog - minimumAreaLog)
     const zoomAdjustment = Math.max(-0.5, Math.min(2, (zoom - ICELAND_ZOOM) * 0.55))
     const areaFormatter =
-      zoom >= FORECAST_GLACIER_DETAIL_ZOOM
+      showAllForecastGlaciersRef.current || zoom >= FORECAST_GLACIER_DETAIL_ZOOM
         ? new Intl.NumberFormat(locale)
         : null
 
     for (const { element, glacier } of forecastGlacierLabelMarkersRef.current) {
       const visible =
         lastMapContextRef.current === 'weather' &&
-        zoom >= glacier.minZoom
+        (showAllForecastGlaciersRef.current || zoom >= glacier.minZoom)
       element.style.display = visible ? '' : 'none'
       if (!visible) continue
 
@@ -2760,14 +2853,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     const elevationRange = Math.max(1, maximumElevation - minimumElevation)
     const zoomAdjustment = Math.max(-0.4, Math.min(1.5, (zoom - 7) * 0.45))
     const elevationFormatter =
-      zoom >= FORECAST_MOUNTAIN_DETAIL_ZOOM
+      showAllForecastMountainsRef.current || zoom >= FORECAST_MOUNTAIN_DETAIL_ZOOM
         ? new Intl.NumberFormat(locale)
         : null
 
     for (const { element, mountain } of forecastMountainLabelMarkersRef.current) {
       const visible =
         lastMapContextRef.current === 'weather' &&
-        zoom >= mountain.minZoom
+        (showAllForecastMountainsRef.current || zoom >= mountain.minZoom)
       element.style.display = visible ? '' : 'none'
       if (!visible) continue
 
@@ -3049,6 +3142,12 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     const gustText = row && Math.abs(row.gust.value - row.wind.value) >= 0.1
       ? formatNum(row.gust.value, locale)
       : null
+    const compactProviderLabel =
+      item.providerId === 'vedurstofan'
+        ? 'IS'
+        : item.providerId === 'metno'
+          ? 'NO'
+          : item.providerLabel
     const element = createRouteWeatherPointMarkerElement({
       stationName: item.label,
       windText,
@@ -3057,7 +3156,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       temperatureText: row ? formatNum(row.temperature.value, locale) : null,
       precipitationText: row ? formatNum(row.precipitation.value, locale) : null,
       weatherEmoji: row?.weatherEmoji ?? null,
-      providerLabel: item.providerLabel,
+      providerLabel: compactProviderLabel,
       color: kind === 'nearby-vedurstofan' ? '#64748b' : '#2563eb',
       compact: true,
       showNameLabel: true,
@@ -3066,6 +3165,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       onClick: () => {},
     })
     element.dataset.weatherChaseMapMarker = kind
+    const providerElement = element.querySelector<HTMLElement>('[data-weather-provider="true"]')
+    if (providerElement) {
+      providerElement.title = item.providerLabel
+      providerElement.setAttribute('aria-label', item.providerLabel)
+    }
     element.style.zIndex = kind === 'nearby-vedurstofan' ? '18' : '20'
     if (kind === 'nearby-vedurstofan') {
       element.style.opacity = '0.88'
@@ -4104,6 +4208,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
       if (providerLabel) {
         const provider = document.createElement('span')
+        provider.dataset.weatherProvider = 'true'
         provider.textContent = providerLabel
         provider.style.cssText = [
           'display:block',
@@ -5720,6 +5825,29 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       mapRef.current.setLayoutProperty('vegagerdin-vegakerfi', 'visibility', next ? 'visible' : 'none')
   }
 
+  function changeForecastCardScale(delta: -1 | 1) {
+    setForecastCardScaleIndex(index =>
+      Math.max(0, Math.min(FORECAST_CARD_SCALE_LEVELS.length - 1, index + delta)),
+    )
+    if (!isAuthenticated) setForecastCardScaleChanged(true)
+  }
+
+  function handleForecastCardScaleSignIn() {
+    const payload: WeatherChasePreferencesPayload = {
+      selectedItems: weatherChaseSelectedItems.map(preferenceItemFromWeatherChaseItem),
+      criteria: weatherChaseCriteria,
+      visibleHours: mapVisibleHours,
+      forecastCardScaleIndex,
+    }
+    try {
+      window.sessionStorage.setItem(WEATHER_CHASE_PENDING_STORAGE_KEY, JSON.stringify(payload))
+    } catch {
+      // Continue to sign-in even if session storage is unavailable.
+    }
+    const returnUrl = `${window.location.pathname}?saveWeatherChaseDefaults=1`
+    window.location.href = `/innskraning?next=${encodeURIComponent(returnUrl)}`
+  }
+
   function handleSegmentsToggle() {
     const next = !showSegments
     showSegmentsRef.current = next
@@ -6107,7 +6235,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           )}
         </button>
         <div className="min-w-0 flex-1" />
-        <TeskeidMenu variant="authenticated" />
+        <TeskeidMenu variant={isAuthenticated ? 'authenticated' : 'public'} />
       </div>
       {/* Map area */}
       <div className="relative flex-1 min-h-0">
@@ -6117,34 +6245,146 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           h-full w-full survives the position override. */}
       <div ref={containerRef} className="h-full w-full" />
 
-      {mapViewVisible && (
-        <div
-          className="absolute right-14 top-3 z-[90] flex overflow-hidden rounded-lg border border-border/80 bg-background/95 shadow-md backdrop-blur-sm"
-          role="group"
-          aria-label={t('roadMapPrototypeForecastCardTextSize')}
-        >
-          <button
-            type="button"
-            onClick={() => setForecastCardScaleIndex(index => Math.max(0, index - 1))}
-            disabled={forecastCardScaleIndex === 0}
-            aria-label={t('roadMapPrototypeForecastCardTextSmaller')}
-            className="flex h-10 w-10 items-center justify-center text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          >
-            A−
-          </button>
-          <span aria-hidden="true" className="w-px bg-border/80" />
-          <button
-            type="button"
-            onClick={() => setForecastCardScaleIndex(index =>
-              Math.min(FORECAST_CARD_SCALE_LEVELS.length - 1, index + 1),
+      {mapViewVisible && lastMapContext === 'weather' && (
+        <div className="absolute left-3 top-3 z-[90] hidden max-w-[calc(100%-5rem)] flex-row items-start gap-2 lg:flex">
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              aria-pressed={showForecastStations}
+              onClick={() => setShowForecastStations(value => !value)}
+              className={`min-h-9 rounded-full border px-3 text-[11px] font-semibold shadow-sm backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                showForecastStations
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border/80 bg-background/95 text-foreground hover:bg-muted'
+              }`}
+            >
+              {showForecastStations
+                ? t('roadMapPrototypeHideForecastStations')
+                : t('roadMapPrototypeShowForecastStations')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={showAllForecastGlaciers}
+              onClick={() => setShowAllForecastGlaciers(value => !value)}
+              className={`min-h-9 rounded-full border px-3 text-[11px] font-semibold shadow-sm backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                showAllForecastGlaciers
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border/80 bg-background/95 text-foreground hover:bg-muted'
+              }`}
+            >
+              {t('roadMapPrototypeShowMoreGlaciers')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={showAllForecastMountains}
+              onClick={() => setShowAllForecastMountains(value => !value)}
+              className={`min-h-9 rounded-full border px-3 text-[11px] font-semibold shadow-sm backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                showAllForecastMountains
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border/80 bg-background/95 text-foreground hover:bg-muted'
+              }`}
+            >
+              {t('roadMapPrototypeShowMoreMountains')}
+            </button>
+          </div>
+
+          {forecastCardGuideOpen ? (
+            <div
+              className="order-first shrink-0 overflow-hidden rounded-lg border-[1.5px] border-blue-600 bg-white/95 text-slate-700 shadow-md backdrop-blur-sm"
+              style={{ fontSize: `${10 * (FORECAST_CARD_SCALE_LEVELS[forecastCardScaleIndex] ?? 1.2)}px` }}
+            >
+            <div className="flex items-center border-b border-slate-200 font-semibold text-slate-600">
+              <span className="flex-1 px-2 py-1 text-center text-[0.9em]">
+                {t('roadMapPrototypeForecastCardGuideProviders')}
+              </span>
+              <span aria-hidden="true" className="h-5 w-px bg-slate-200" />
+              <span
+                className="flex self-stretch"
+                role="group"
+                aria-label={t('roadMapPrototypeForecastCardTextSize')}
+              >
+                <button
+                  type="button"
+                  onClick={() => changeForecastCardScale(-1)}
+                  disabled={forecastCardScaleIndex === 0}
+                  aria-label={t('roadMapPrototypeForecastCardTextSmaller')}
+                  className="min-h-7 min-w-8 px-1 font-bold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-600"
+                >
+                  A−
+                </button>
+                <span aria-hidden="true" className="w-px bg-slate-200" />
+                <button
+                  type="button"
+                  onClick={() => changeForecastCardScale(1)}
+                  disabled={forecastCardScaleIndex === FORECAST_CARD_SCALE_LEVELS.length - 1}
+                  aria-label={t('roadMapPrototypeForecastCardTextLarger')}
+                  className="min-h-7 min-w-8 px-1 font-bold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-600"
+                >
+                  A+
+                </button>
+                <span aria-hidden="true" className="w-px bg-slate-200" />
+                <button
+                  type="button"
+                  onClick={() => setForecastCardGuideOpen(false)}
+                  aria-label={t('roadMapPrototypeForecastCardGuideHide')}
+                  title={t('roadMapPrototypeForecastCardGuideHide')}
+                  className="min-h-7 min-w-8 px-1 font-bold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-600"
+                >
+                  ×
+                </button>
+              </span>
+            </div>
+            <div className="grid grid-cols-2 border-b border-slate-200 font-semibold">
+              <span className="border-r border-slate-200 px-2 py-1 text-center">
+                ↓ {t('roadMapPrototypeForecastCardGuideDirection')}
+              </span>
+              <span className="px-2 py-1 text-center">
+                5 m/s · {t('roadMapPrototypeForecastCardGuideWind')}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 font-semibold">
+              <span className="border-r border-slate-200 px-2 py-1 text-center">
+                12° · {t('roadMapPrototypeForecastCardGuideTemperature')}
+              </span>
+              <span className="px-2 py-1 text-center">
+                0 mm · {t('roadMapPrototypeForecastCardGuidePrecipitation')}
+              </span>
+            </div>
+            <p className="border-t border-slate-200 px-2 py-1 text-center text-[0.9em] font-medium text-slate-500">
+              {t('roadMapPrototypeForecastCardGuideNorthWind')}
+            </p>
+            {!isAuthenticated && forecastCardScaleChanged && (
+              <button
+                type="button"
+                onClick={handleForecastCardScaleSignIn}
+                className="block w-full border-t border-slate-200 px-2 py-1 text-center text-[0.85em] font-semibold text-blue-700 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-600"
+              >
+                {t('roadMapPrototypeForecastCardSignInToRemember')}
+              </button>
             )}
-            disabled={forecastCardScaleIndex === FORECAST_CARD_SCALE_LEVELS.length - 1}
-            aria-label={t('roadMapPrototypeForecastCardTextLarger')}
-            className="flex h-10 w-10 items-center justify-center text-sm font-bold text-foreground transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          >
-            A+
-          </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setForecastCardGuideOpen(true)}
+              aria-label={t('roadMapPrototypeForecastCardGuideShow')}
+              title={t('roadMapPrototypeForecastCardGuideShow')}
+              className="order-first flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[1.5px] border-blue-600 bg-white/95 text-sm font-bold text-blue-700 shadow-md backdrop-blur-sm transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            >
+              i
+            </button>
+          )}
         </div>
+      )}
+
+      {isWeatherChaseOpen && lastMapContext === 'weather' && (
+        <button
+          type="button"
+          onClick={() => openWeatherContext('map')}
+          className="absolute right-14 top-3 z-[90] hidden min-h-10 rounded-full border border-border/80 bg-background/95 px-4 text-xs font-semibold text-foreground shadow-md backdrop-blur-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:block"
+        >
+          {t('roadMapPrototypeViewMap')}
+        </button>
       )}
 
       {lastMapContext === 'route' && isRouteLoading && !isPanelOpen && (
@@ -6181,7 +6421,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 moveUpLabel: t('roadMapPrototypeWeatherChaseMoveUpLabel'),
                 moveDownLabel: t('roadMapPrototypeWeatherChaseMoveDownLabel'),
                 showNearbyStationsLabel: t('roadMapPrototypeWeatherChaseShowNearbyStations'),
-                nearbyDistanceLabel: t('roadMapPrototypeWeatherChaseNearbyDistance'),
+                showNearbyMetnoPointsLabel: t('roadMapPrototypeWeatherChaseShowNearbyMetnoPoints'),
+                nearbyDistanceFromMetnoLabel: t('roadMapPrototypeWeatherChaseNearbyDistance'),
+                nearbyDistanceFromVedurstofanLabel: t('roadMapPrototypeWeatherChaseNearbyDistanceFromVedurstofan'),
                 emptySelection: t('roadMapPrototypeWeatherChaseEmptySelection'),
                 reorderTitle: t('roadMapPrototypeWeatherChaseReorderTitle'),
                 noRowsLabel: t('roadMapPrototypeWeatherChaseNoRows'),
@@ -6607,7 +6849,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       )}
 
       {/* Bottom strip — overview source selector or route departure scrubber. */}
-      <div className={`absolute bottom-0 left-0 right-0 z-10 border-t border-border/50 bg-background/90 pb-5 backdrop-blur-sm ${isPanelOpen ? 'hidden' : ''}`}>
+      <div
+        className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-5 ${
+          isPanelOpen || (lastMapContext === 'weather' && isWeatherChaseOpen) ? 'hidden' : ''
+        }`}
+      >
         {routeBridgeStatus === 'loading' ? (
           <div className="px-3 py-3 text-xs text-muted-foreground">
             {t('roadMapPrototypeScrubberCalculatingHourly')}
