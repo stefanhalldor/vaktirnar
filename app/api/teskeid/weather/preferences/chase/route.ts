@@ -29,6 +29,11 @@ const DEFAULT_CRITERIA: WeatherChasePreferenceCriteria = {
   maxPrecipitationMmPerHour: null,
 }
 
+function normalizeForecastCardScaleIndex(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 3 ? parsed : 1
+}
+
 function finiteNumberOrNull(value: unknown, min: number, max: number): number | null {
   if (value === null || value === undefined || value === '') return null
   const n = typeof value === 'number' ? value : Number(value)
@@ -118,6 +123,11 @@ export async function GET() {
         ? (data.criteria as Record<string, unknown>).visibleHours
         : undefined,
     ),
+    forecastCardScaleIndex: normalizeForecastCardScaleIndex(
+      typeof data.criteria === 'object' && data.criteria !== null
+        ? (data.criteria as Record<string, unknown>).forecastCardScaleIndex
+        : undefined,
+    ),
   })
 }
 
@@ -139,6 +149,7 @@ export async function PUT(request: Request) {
   const selectedItems = normalizeSelectedItems(input.selectedItems)
   const criteria = normalizeCriteria(input.criteria)
   const visibleHours = normalizeWeatherChaseVisibleHours(input.visibleHours)
+  const forecastCardScaleIndex = normalizeForecastCardScaleIndex(input.forecastCardScaleIndex)
 
   const admin = getAdmin()
 
@@ -155,7 +166,7 @@ export async function PUT(request: Request) {
     .upsert({
       user_id: user.id,
       selected_items: selectedItems,
-      criteria: { ...criteria, visibleHours },
+      criteria: { ...criteria, visibleHours, forecastCardScaleIndex },
     }, { onConflict: 'user_id' })
 
   if (error && isMissingTableError(error)) {
@@ -172,5 +183,6 @@ export async function PUT(request: Request) {
     selectedItems,
     criteria: { ...DEFAULT_CRITERIA, ...criteria },
     visibleHours,
+    forecastCardScaleIndex,
   })
 }
