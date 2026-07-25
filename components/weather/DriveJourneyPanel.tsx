@@ -121,6 +121,7 @@ export function DriveJourneyPanel({
   routePoints,
   hasMoreCandidates,
   onLoadMore,
+  onEnlargeMap,
 }: {
   layer: VedurstofanTravelLayer | null
   candidates: TravelCandidate[]
@@ -136,6 +137,7 @@ export function DriveJourneyPanel({
   routePoints: Array<{ lat: number; lon: number }>
   hasMoreCandidates?: boolean
   onLoadMore?: () => void
+  onEnlargeMap?: () => void
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const t = useTranslations('teskeid.vedrid.overview')
@@ -210,16 +212,9 @@ export function DriveJourneyPanel({
               slotStatusOverrides={slotStatusOverrides}
               firstSlotLabel={t('roadMapPrototypeScrubberNow')}
               showBestWindowHint={false}
+              hasMoreCandidates={hasMoreCandidates}
+              onLoadMore={onLoadMore}
             />
-            {hasMoreCandidates && onLoadMore && (
-              <button
-                type="button"
-                onClick={onLoadMore}
-                className="mt-2 min-h-9 w-full rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {t('roadMapPrototypeLoadMoreCandidates')}
-              </button>
-            )}
           </div>
         )}
 
@@ -292,16 +287,27 @@ export function DriveJourneyPanel({
         )}
 
         <section className="mt-4 space-y-3 border-t border-border/70 pt-3">
-          <DriveMiniMap
-            routePoints={routePoints}
-            assessments={assessments}
-            selectedStationId={selectedAssessment?.station.routePointId ?? null}
-            onSelectStation={setSelectedStationId}
-            ariaLabel={tf('auditMapAlt', {
-              origin: originName,
-              destination: destinationName,
-            })}
-          />
+          <div className="relative">
+            <DriveMiniMap
+              routePoints={routePoints}
+              assessments={assessments}
+              selectedStationId={selectedAssessment?.station.routePointId ?? null}
+              onSelectStation={setSelectedStationId}
+              ariaLabel={tf('auditMapAlt', {
+                origin: originName,
+                destination: destinationName,
+              })}
+            />
+            {onEnlargeMap && (
+              <button
+                type="button"
+                onClick={onEnlargeMap}
+                className="absolute bottom-2 right-2 rounded-full border border-border bg-background/90 px-2.5 py-1 text-[10px] font-medium text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {tf('enlargeMap')}
+              </button>
+            )}
+          </div>
 
           {selectedAssessment && (
             <VedurstofanPointCard

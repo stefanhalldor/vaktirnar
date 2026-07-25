@@ -88,6 +88,10 @@ type DepartureHeatmapProps = {
   selectFirstSlotWhenNone?: boolean
   /** Controls the legacy "Besti" ring/label on green departure windows. */
   showBestWindowHint?: boolean
+  /** When true, shows a "Fleiri…" button at the end of the scrollable scrubber. */
+  hasMoreCandidates?: boolean
+  /** Called when user clicks the "Fleiri…" button. */
+  onLoadMore?: () => void
 }
 
 /** Returns compact hour label for whole-hour slots: "00" for midnight, "1"–"23" otherwise. */
@@ -115,7 +119,7 @@ function slotStatusIsVisible(
   return visibleStatuses.has(status)
 }
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode = 'detailed', modeToggle, countsOverride, selectFirstSlotWhenNone = true, showBestWindowHint = true }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode = 'detailed', modeToggle, countsOverride, selectFirstSlotWhenNone = true, showBestWindowHint = true, hasMoreCandidates, onLoadMore }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
@@ -306,6 +310,17 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                   </div>
                 </div>
               ))}
+              {hasMoreCandidates && onLoadMore && (
+                <div className="flex items-end pb-1 pl-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={onLoadMore}
+                    className="flex items-center px-2 py-1.5 rounded-lg border border-dashed border-border text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {tf('timelineLoadMore')}
+                  </button>
+                </div>
+              )}
             </div>
             </div>
 

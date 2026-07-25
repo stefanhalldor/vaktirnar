@@ -197,6 +197,18 @@ function criteriaStepInputValue(value: number, locale: string): string {
   return locale.startsWith('is') ? text.replace('.', ',') : text
 }
 
+function formatPrecipitationForCriteria(
+  value: number,
+  locale: string,
+  maxPrecipitationMmPerHour: number | null,
+): string {
+  if (maxPrecipitationMmPerHour !== 0 || value <= 0 || value >= 0.1) {
+    return formatNum(value, locale)
+  }
+  const text = value < 0.01 ? '<0.01' : value.toFixed(2)
+  return locale.startsWith('is') ? text.replace('.', ',') : text
+}
+
 function metricFailsCriteria(
   metric: 'temperature' | 'wind' | 'precipitation',
   value: number,
@@ -338,7 +350,12 @@ function MetricStack({
           precipitationFailsCriteria && 'opacity-35 grayscale',
         )}
       >
-        {formatNum(row.precipitation.value, locale)} {labels.precipitationUnit}
+        {formatPrecipitationForCriteria(
+          row.precipitation.value,
+          locale,
+          criteria.maxPrecipitationMmPerHour,
+        )}{' '}
+        {labels.precipitationUnit}
       </p>
     </div>
   )
@@ -391,6 +408,7 @@ export function WeatherChasePanel({
   const [searchFocused, setSearchFocused] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(defaultSettingsOpen)
   const [placesChanged, setPlacesChanged] = useState(false)
+  const [criteriaChanged, setCriteriaChanged] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [internalCriteria, setInternalCriteria] = useState<WeatherChaseCriteria>(DEFAULT_WEATHER_CHASE_CRITERIA)
   const [loadedRowsById, setLoadedRowsById] = useState<Map<string, ForecastDrawerRow[]>>(new Map())
@@ -597,6 +615,12 @@ export function WeatherChasePanel({
 
   function updateCriteria(patch: Partial<WeatherChaseCriteria>) {
     const next = { ...activeCriteria, ...patch }
+    const changed =
+      next.minTemperatureC !== activeCriteria.minTemperatureC ||
+      next.maxWindMs !== activeCriteria.maxWindMs ||
+      next.maxPrecipitationMmPerHour !== activeCriteria.maxPrecipitationMmPerHour
+    if (!changed) return
+    setCriteriaChanged(true)
     if (onCriteriaChange) {
       onCriteriaChange(next)
     } else {
@@ -838,38 +862,47 @@ export function WeatherChasePanel({
 
     if (selectedItems.length <= 3) {
       return (
-        <div className="divide-y divide-border/60 rounded-lg border border-border/70 bg-background/75">
-          {cols.map(col => (
-            <section key={col.targetIso} className="px-3 py-3">
-              <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
-                {col.dayLabel} · {col.timeLabel}
-              </p>
-              <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${selectedItems.length}, minmax(0, 1fr))` }}>
-                {selectedItems.map((item, index) => {
-                  const row = col.rowsByItemId.get(item.id) ?? null
-                  const peers = findPeers(selectedItems, col, item.id)
-                  return (
-                    <div key={item.id} className="min-w-0 space-y-1">
-                      <div className="min-w-0">
-                        <p className="truncate text-[11px] font-semibold text-foreground">{item.label}</p>
-                        <ProviderBadge item={item} />
-                        {renderItemLoadState(item.id)}
-                      </div>
-                      <MetricStack
-                        row={row}
-                        peerRows={peers}
-                        thresholds={thresholds}
-                        locale={locale}
-                        criteria={activeCriteria}
-                        labels={labels}
-                        showMedals={showMedals}
-                      />
-                    </div>
-                  )
-                })}
+        <div className="rounded-lg border border-border/70 bg-background/75">
+          <div
+            className="sticky top-0 z-20 grid gap-3 rounded-t-lg border-b border-border/60 bg-background/95 px-3 py-2 backdrop-blur-sm"
+            style={{ gridTemplateColumns: `repeat(${selectedItems.length}, minmax(0, 1fr))` }}
+          >
+            {selectedItems.map(item => (
+              <div key={item.id} className="min-w-0">
+                <p className="truncate text-[11px] font-semibold text-foreground">{item.label}</p>
+                <ProviderBadge item={item} />
               </div>
-            </section>
-          ))}
+            ))}
+          </div>
+          <div className="divide-y divide-border/60">
+            {cols.map(col => (
+              <section key={col.targetIso} className="px-3 py-3">
+                <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
+                  {col.dayLabel} · {col.timeLabel}
+                </p>
+                <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${selectedItems.length}, minmax(0, 1fr))` }}>
+                  {selectedItems.map(item => {
+                    const row = col.rowsByItemId.get(item.id) ?? null
+                    const peers = findPeers(selectedItems, col, item.id)
+                    return (
+                      <div key={item.id} className="min-w-0">
+                        {renderItemLoadState(item.id)}
+                        <MetricStack
+                          row={row}
+                          peerRows={peers}
+                          thresholds={thresholds}
+                          locale={locale}
+                          criteria={activeCriteria}
+                          labels={labels}
+                          showMedals={showMedals}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
         </div>
       )
     }
@@ -1086,7 +1119,7 @@ export function WeatherChasePanel({
                   </div>
                 </label>
               </div>
-              {onSaveDefault && (
+              {onSaveDefault && criteriaChanged && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
                     type="button"

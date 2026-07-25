@@ -112,24 +112,19 @@ export function WindStatusFilterPills({
   }
 
   function handleToggle(group: WindStatusPillGroup) {
-    // When all groups are effectively selected (either no filter active, or every
-    // visible pill is individually in the set), clicking one pill isolates it
-    // rather than deselecting it — same behaviour as clicking a pill right after
-    // "Sýna allt" was pressed.
-    const allSelected = noFilter || visibleList.every(g => groupIsActive(g))
-    if (allSelected) {
-      const next = new Set<WindDisplayStatus>()
-      group.statuses.forEach(st => next.add(st))
-      onVisibleStatusesChange(next)
-      return
-    }
-    const next = new Set(visibleStatuses)
-    if (groupIsActive(group)) {
-      group.statuses.forEach(st => next.delete(st))
+    // When no filter is active (all shown), treat it as if all are individually selected.
+    const base = noFilter
+      ? new Set<WindDisplayStatus>(visibleList.flatMap(g => g.statuses))
+      : new Set(visibleStatuses)
+    if (groupIsActive(group) || noFilter) {
+      group.statuses.forEach(st => base.delete(st))
     } else {
-      group.statuses.forEach(st => next.add(st))
+      group.statuses.forEach(st => base.add(st))
     }
-    onVisibleStatusesChange(next)
+    // If everything ends up selected, collapse back to "no filter" (empty set = show all).
+    const allStatuses = visibleList.flatMap(g => g.statuses)
+    const allNowSelected = allStatuses.every(st => base.has(st))
+    onVisibleStatusesChange(allNowSelected ? new Set() : base)
   }
 
   return (

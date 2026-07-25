@@ -117,6 +117,9 @@ const VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M = 12_000
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS = 40
 const LEGACY_WEATHER_CHASE_LOCAL_STORAGE_KEY = 'teskeid_weather_chase_preferences_v1'
 const WEATHER_CHASE_PENDING_STORAGE_KEY = 'teskeid_weather_chase_preferences_pending_v1'
+const PUBLIC_WEATHER_CHASE_SESSION_STORAGE_KEY = 'teskeid_weather_chase_public_session_v1'
+const PUBLIC_WEATHER_CHASE_SESSION_TTL_MS = 30 * 60 * 1_000
+const PUBLIC_WEATHER_CHASE_PROMPT_DELAY_MS = 25 * 60 * 1_000
 const LEGACY_FORECAST_CARD_SCALE_LOCAL_STORAGE_KEY = 'teskeid_forecast_card_scale_v1'
 const FORECAST_CARD_SCALE_LEVELS = [1, 1.2, 1.4, 1.6] as const
 const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
@@ -1368,8 +1371,9 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [fromResolved, setFromResolved] = useState<RoadIntelligencePlaceResult | null>(null)
   const [toResolved, setToResolved] = useState<RoadIntelligencePlaceResult | null>(null)
   const [savedPlaces, setSavedPlaces] = useState<SavedWeatherPlace[]>([])
-  const [routeCautionWind, setRouteCautionWind] = useState(String(DEFAULT_ROUTE_THRESHOLDS.cautionWindMs))
-  const [routeRedWind, setRouteRedWind] = useState(String(DEFAULT_ROUTE_THRESHOLDS.redWindMs))
+  const [routeCautionWind, setRouteCautionWind] = useState('')
+  const [routeRedWind, setRouteRedWind] = useState('')
+  const [savedRouteThresholds, setSavedRouteThresholds] = useState<{ cautionWindMs: number; redWindMs: number } | null>(null)
   const [routeThresholdError, setRouteThresholdError] = useState<string | null>(null)
   const [routeStatusFilterMode, setRouteStatusFilterMode] = useState<WindStatusFilterMode>('simple')
   const [visibleRouteStatuses, setVisibleRouteStatuses] = useState<Set<WindDisplayStatus>>(new Set())
@@ -1415,6 +1419,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [weatherChaseSaveStatus, setWeatherChaseSaveStatus] = useState<WeatherChaseSaveStatus>('idle')
   const [weatherChasePreferencesHydrated, setWeatherChasePreferencesHydrated] = useState(false)
   const [weatherChaseSelectionInitialized, setWeatherChaseSelectionInitialized] = useState(false)
+  const [publicSavePromptOpen, setPublicSavePromptOpen] = useState(false)
+  const [publicSavePromptDueAt, setPublicSavePromptDueAt] = useState<number | null>(null)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [lastMapContext, setLastMapContext] = useState<'weather' | 'route'>('weather')
@@ -1693,13 +1699,34 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const handleWeatherChaseSelectedItemsChange = useCallback((items: WeatherChaseItem[]) => {
     weatherChaseSelectedItemsRef.current = items
     setWeatherChaseSelectedItems(items)
+    if (!isAuthenticated) {
+      const selectedItems = items.map(preferenceItemFromWeatherChaseItem)
+      // Keep the public selection stable when the information panel unmounts
+      // while switching to the map. sessionStorage deliberately scopes this
+      // draft to the current browser tab; the timestamp prevents stale reloads.
+      setWeatherChasePreferenceItems(previous => {
+        const previousKey = previous?.map(item => item.id).join('|') ?? ''
+        const nextKey = selectedItems.map(item => item.id).join('|')
+        return previousKey === nextKey ? previous : selectedItems
+      })
+      const now = Date.now()
+      setPublicSavePromptDueAt(now + PUBLIC_WEATHER_CHASE_PROMPT_DELAY_MS)
+      try {
+        window.sessionStorage.setItem(PUBLIC_WEATHER_CHASE_SESSION_STORAGE_KEY, JSON.stringify({
+          updatedAt: now,
+          selectedItems,
+        }))
+      } catch {
+        // Storage can be blocked; parent state still preserves the live view switch.
+      }
+    }
     if (weatherChasePreferencesHydrated) {
       setWeatherChaseSelectionInitialized(true)
     }
     setWeatherChaseNearbyFocusId(prev => (
       prev && items.some(item => item.id === prev) ? prev : null
     ))
-  }, [weatherChasePreferencesHydrated])
+  }, [isAuthenticated, weatherChasePreferencesHydrated])
 
   const handleWeatherChaseShowNearbyStations = useCallback((item: WeatherChaseItem) => {
     setWeatherChaseNearbyFocusId(prev => (prev === item.id ? null : item.id))
@@ -1797,6 +1824,17 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     applyWeatherChasePreferences(payloadWithScale)
     setWeatherChaseSaveStatus('saving')
 
+    if (!isAuthenticated) {
+      try {
+        window.sessionStorage.setItem(WEATHER_CHASE_PENDING_STORAGE_KEY, JSON.stringify(payloadWithScale))
+      } catch {
+        // Continue to auth even if pending session storage is unavailable.
+      }
+      const returnUrl = `${window.location.pathname}?saveWeatherChaseDefaults=1`
+      window.location.href = `/innskraning?next=${encodeURIComponent(returnUrl)}`
+      return
+    }
+
     const result = await saveWeatherChasePreferencesToApi(payloadWithScale)
     if (result === 'unauthorized') {
       try {
@@ -1817,7 +1855,44 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         // No-op.
       }
     }
-  }, [applyWeatherChasePreferences, forecastCardScaleIndex, saveWeatherChasePreferencesToApi])
+  }, [applyWeatherChasePreferences, forecastCardScaleIndex, isAuthenticated, saveWeatherChasePreferencesToApi])
+
+  const continuePublicWeatherChaseSession = useCallback(() => {
+    const selectedItems = weatherChaseSelectedItemsRef.current.map(preferenceItemFromWeatherChaseItem)
+    const now = Date.now()
+    setPublicSavePromptOpen(false)
+    setPublicSavePromptDueAt(now + PUBLIC_WEATHER_CHASE_PROMPT_DELAY_MS)
+    try {
+      window.sessionStorage.setItem(PUBLIC_WEATHER_CHASE_SESSION_STORAGE_KEY, JSON.stringify({
+        updatedAt: now,
+        selectedItems,
+      }))
+    } catch {
+      // Parent state still preserves the current live session.
+    }
+  }, [])
+
+  const savePublicWeatherChaseSession = useCallback(() => {
+    setPublicSavePromptOpen(false)
+    void handleSaveWeatherChaseDefault({
+      selectedItems: weatherChaseSelectedItemsRef.current.map(preferenceItemFromWeatherChaseItem),
+      criteria: weatherChaseCriteria,
+      visibleHours: mapVisibleHours,
+      forecastCardScaleIndex,
+    })
+  }, [
+    forecastCardScaleIndex,
+    handleSaveWeatherChaseDefault,
+    mapVisibleHours,
+    weatherChaseCriteria,
+  ])
+
+  useEffect(() => {
+    if (isAuthenticated || publicSavePromptDueAt === null || publicSavePromptOpen) return
+    const delay = Math.max(0, publicSavePromptDueAt - Date.now())
+    const timer = window.setTimeout(() => setPublicSavePromptOpen(true), delay)
+    return () => window.clearTimeout(timer)
+  }, [isAuthenticated, publicSavePromptDueAt, publicSavePromptOpen])
 
   const flushWeatherChaseAutoSave = useCallback(async () => {
     if (weatherChaseAutoSaveRunningRef.current) return
@@ -1836,6 +1911,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
   useEffect(() => {
     let cancelled = false
+    let restoredPublicSessionDraft = false
 
     // Remove browser-persisted settings from earlier builds. From this point on,
     // authenticated preferences live only in the user's server-side settings.
@@ -1856,6 +1932,33 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     }
 
     const pendingPayload = readPendingPayload(window.sessionStorage, WEATHER_CHASE_PENDING_STORAGE_KEY)
+    if (!isAuthenticated) {
+      try {
+        const raw = window.sessionStorage.getItem(PUBLIC_WEATHER_CHASE_SESSION_STORAGE_KEY)
+        if (raw) {
+          const parsed = JSON.parse(raw) as Record<string, unknown>
+          const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0
+          const selectedItems = normalizeWeatherChasePreferenceItems(parsed.selectedItems)
+          if (
+            selectedItems.length > 0 &&
+            updatedAt > 0 &&
+            Date.now() - updatedAt <= PUBLIC_WEATHER_CHASE_SESSION_TTL_MS
+          ) {
+            setWeatherChasePreferenceItems(selectedItems)
+            setPublicSavePromptDueAt(updatedAt + PUBLIC_WEATHER_CHASE_PROMPT_DELAY_MS)
+            restoredPublicSessionDraft = true
+          } else {
+            window.sessionStorage.removeItem(PUBLIC_WEATHER_CHASE_SESSION_STORAGE_KEY)
+          }
+        }
+      } catch {
+        try {
+          window.sessionStorage.removeItem(PUBLIC_WEATHER_CHASE_SESSION_STORAGE_KEY)
+        } catch {
+          // Storage is unavailable; continue with in-memory defaults.
+        }
+      }
+    }
     const shouldSavePending = new URLSearchParams(window.location.search).get('saveWeatherChaseDefaults') === '1'
     if (shouldSavePending && pendingPayload) {
       applyWeatherChasePreferences(pendingPayload)
@@ -1878,6 +1981,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       }
     }
 
+    if (!isAuthenticated) {
+      setWeatherChasePreferencesHydrated(true)
+      cleanWeatherChaseSaveParam()
+      return () => {
+        cancelled = true
+      }
+    }
+
     void fetch('/api/teskeid/weather/preferences/chase', { credentials: 'same-origin' })
       .then(async res => {
         if (!res.ok) return { ok: false as const, raw: null }
@@ -1889,19 +2000,19 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           // A signed-out visitor needs usable in-memory defaults after the
           // expected 401. An authenticated transient failure must not be
           // interpreted as "no saved preferences" and then autosaved.
-          if (!isAuthenticated) setWeatherChasePreferenceItems([])
+          if (!isAuthenticated && !restoredPublicSessionDraft) setWeatherChasePreferenceItems([])
           setWeatherChasePreferencesHydrated(true)
           return
         }
         const raw = result.raw
         if (!raw || typeof raw !== 'object') {
-          if (!isAuthenticated) setWeatherChasePreferenceItems([])
+          if (!isAuthenticated && !restoredPublicSessionDraft) setWeatherChasePreferenceItems([])
           setWeatherChasePreferencesHydrated(true)
           return
         }
         const input = raw as Record<string, unknown>
         if (input.hasPreferences !== true) {
-          setWeatherChasePreferenceItems([])
+          if (isAuthenticated || !restoredPublicSessionDraft) setWeatherChasePreferenceItems([])
           setWeatherChasePreferencesHydrated(true)
           return
         }
@@ -1912,7 +2023,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           forecastCardScaleIndex: input.forecastCardScaleIndex,
         })
         if (!payload) {
-          setWeatherChasePreferenceItems([])
+          if (isAuthenticated || !restoredPublicSessionDraft) setWeatherChasePreferenceItems([])
           setWeatherChasePreferencesHydrated(true)
           return
         }
@@ -1923,7 +2034,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         // Public users use in-memory defaults. Authenticated failures stay
         // unresolved so autosave cannot overwrite an existing server choice.
         if (!cancelled) {
-          if (!isAuthenticated) setWeatherChasePreferenceItems([])
+          if (!isAuthenticated && !restoredPublicSessionDraft) setWeatherChasePreferenceItems([])
           setWeatherChasePreferencesHydrated(true)
         }
       })
@@ -1933,6 +2044,22 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       cancelled = true
     }
   }, [applyWeatherChasePreferences, cleanWeatherChaseSaveParam, isAuthenticated, saveWeatherChasePreferencesToApi])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    void fetch('/api/teskeid/weather/preferences/thresholds', { credentials: 'same-origin' })
+      .then(async res => {
+        if (!res.ok) return
+        const data = await res.json() as Record<string, unknown>
+        if (data.hasPreferences !== true) return
+        const c = Number(data.cautionWindMs)
+        const r = Number(data.redWindMs)
+        if (Number.isFinite(c) && Number.isFinite(r) && c > 0 && r > 0 && c < r) {
+          setSavedRouteThresholds({ cautionWindMs: c, redWindMs: r })
+        }
+      })
+      .catch(() => { /* no-op */ })
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (!isAuthenticated || !weatherChasePreferencesHydrated || !weatherChaseSelectionInitialized) return
@@ -3041,6 +3168,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       .map(({ element }) => element.querySelector<HTMLElement>('[data-route-weather-stack="true"]'))
       .filter((stack): stack is HTMLElement => Boolean(stack))
 
+    // Collect all selected-marker dot X positions so a card cannot extend
+    // past the nearest right-neighbour dot (prevents left-station cards from
+    // overlapping right-station dots on screen).
+    const dotXPositions = stacks
+      .map(stack => stack.parentElement?.getBoundingClientRect().left ?? null)
+      .filter((x): x is number => x !== null)
+
     const candidateOffsets: ReadonlyArray<readonly [number, number]> = [
       [0, 0],
       [72, 0],
@@ -3057,6 +3191,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     const acceptedRects: DOMRect[] = []
 
     for (const stack of stacks) {
+      const dotX = stack.parentElement?.getBoundingClientRect().left ?? null
+      const rightNeighborX = dotX !== null
+        ? dotXPositions.filter(x => x > dotX + 8).sort((a, b) => a - b)[0] ?? null
+        : null
+
       const acceptedCountBeforePlacement = acceptedRects.length
       for (const [x, y] of candidateOffsets) {
         stack.style.transform = `translateX(-50%) translate(${x}px, ${y}px)`
@@ -3069,7 +3208,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           rect.bottom <= mapBounds.bottom - 6
         )
         const overlaps = acceptedRects.some(accepted => rectsOverlap(rect, accepted, 6))
-        if (staysInsideMap && !overlaps) {
+        const doesNotPassRightNeighbor = rightNeighborX === null || rect.right <= rightNeighborX - 4
+        if (staysInsideMap && !overlaps && doesNotPassRightNeighbor) {
           acceptedRects.push(rect)
           break
         }
@@ -5752,11 +5892,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             }
           }
 
-          // Initial load, then refresh on every pan/zoom (debounced 400 ms).
-          triggerSegmentLoad()
+          // Road-segment endpoint is feature-gated. Public users keep the
+          // provider-neutral weather map without issuing expected 401 requests.
+          if (isAuthenticated) triggerSegmentLoad()
           map.on('moveend', () => {
-            if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current)
-            segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
+            if (isAuthenticated) {
+              if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current)
+              segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
+            }
             scheduleRouteLabelCollisionUpdate()
             scheduleOverviewMarkerVisibilityUpdate()
           })
@@ -6237,6 +6380,56 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         <div className="min-w-0 flex-1" />
         <TeskeidMenu variant={isAuthenticated ? 'authenticated' : 'public'} />
       </div>
+
+      {!isAuthenticated && publicSavePromptOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-end justify-center bg-black/35 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-16 sm:items-center"
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="public-weather-save-title"
+            className="w-full max-w-sm rounded-2xl border border-border bg-background p-4 shadow-xl"
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <h2 id="public-weather-save-title" className="text-base font-semibold text-foreground">
+                  {t('roadMapPrototypePublicSavePromptTitle')}
+                </h2>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  {t('roadMapPrototypePublicSavePromptBody')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={continuePublicWeatherChaseSession}
+                aria-label={t('roadMapPrototypePublicSavePromptClose')}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                ×
+              </button>
+            </div>
+            <div className="mt-4 grid gap-2">
+              <button
+                type="button"
+                onClick={savePublicWeatherChaseSession}
+                className="min-h-11 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t('roadMapPrototypePublicSavePromptSave')}
+              </button>
+              <button
+                type="button"
+                onClick={continuePublicWeatherChaseSession}
+                className="min-h-11 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t('roadMapPrototypePublicSavePromptContinue')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Map area */}
       <div className="relative flex-1 min-h-0">
       {/* h-full w-full — NOT absolute inset-0 — because MapLibre adds
@@ -6578,6 +6771,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               routePoints={routeTravelResult?.travelPlan?.route.auditPolylinePoints ?? []}
               hasMoreCandidates={hasMoreCandidates}
               onLoadMore={() => setVisibleCandidateLimit(prev => prev + 24)}
+              onEnlargeMap={() => openRouteContext('map')}
             />
           ) : isRouteLoading ? (
             <div className="flex items-center justify-center p-10 text-sm text-muted-foreground">
@@ -6723,6 +6917,20 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                     </span>
                   </label>
                 </div>
+
+                {isAuthenticated && savedRouteThresholds && (routeCautionWind === '' || routeRedWind === '') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRouteCautionWind(String(savedRouteThresholds.cautionWindMs))
+                      setRouteRedWind(String(savedRouteThresholds.redWindMs))
+                      setRouteThresholdError(null)
+                    }}
+                    className="text-xs text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+                  >
+                    {t('thresholdBarUseSaved')} ({savedRouteThresholds.cautionWindMs}/{savedRouteThresholds.redWindMs} m/s)
+                  </button>
+                )}
 
                 <button
                   type="submit"
