@@ -1334,7 +1334,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   )
   const [overviewActiveMode, setOverviewActiveMode] = useState<'now' | number>('now')
   const [mapVisibleHours, setMapVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
-  const [showMedals, setShowMedals] = useState(true)
+  const [showMedals, setShowMedals] = useState(false)
   const [overviewVegagerdinData, setOverviewVegagerdinData] = useState<VegagerdinCurrentApiData | null>(null)
   const [overviewVegagerdinLoading, setOverviewVegagerdinLoading] = useState(true)
   const [overviewVegagerdinRestricted, setOverviewVegagerdinRestricted] = useState(false)
