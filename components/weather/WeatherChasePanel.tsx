@@ -31,7 +31,7 @@ export type WeatherChaseCriteria = {
   maxPrecipitationMmPerHour: number | null
 }
 
-export type WeatherChaseSaveStatus = 'idle' | 'saving' | 'saved' | 'local' | 'error'
+export type WeatherChaseSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 export type WeatherChasePreferenceItem = {
   id: string
@@ -85,7 +85,6 @@ type WeatherChaseLabels = {
   saveDefaultsLabel: string
   savingDefaultsLabel: string
   savedDefaultsLabel: string
-  savedLocalDefaultsLabel: string
   saveDefaultsFailedLabel: string
   settingsLabel: string
 }
@@ -1052,9 +1051,6 @@ export function WeatherChasePanel({
                   </button>
                   {saveStatus === 'saved' && (
                     <span className="text-xs text-emerald-700 dark:text-emerald-400">{labels.savedDefaultsLabel}</span>
-                  )}
-                  {saveStatus === 'local' && (
-                    <span className="text-xs text-amber-700 dark:text-amber-400">{labels.savedLocalDefaultsLabel}</span>
                   )}
                   {saveStatus === 'error' && (
                     <span className="text-xs text-destructive">{labels.saveDefaultsFailedLabel}</span>

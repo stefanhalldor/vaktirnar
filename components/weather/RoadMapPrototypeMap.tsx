@@ -115,9 +115,9 @@ const DEFAULT_ROUTE_THRESHOLDS = resolveThresholds('none')
 const WIND_DISPLAY_STATUS_SET = new Set<string>(ALL_WIND_DISPLAY_STATUSES)
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M = 12_000
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS = 40
-const WEATHER_CHASE_LOCAL_STORAGE_KEY = 'teskeid_weather_chase_preferences_v1'
+const LEGACY_WEATHER_CHASE_LOCAL_STORAGE_KEY = 'teskeid_weather_chase_preferences_v1'
 const WEATHER_CHASE_PENDING_STORAGE_KEY = 'teskeid_weather_chase_preferences_pending_v1'
-const FORECAST_CARD_SCALE_LOCAL_STORAGE_KEY = 'teskeid_forecast_card_scale_v1'
+const LEGACY_FORECAST_CARD_SCALE_LOCAL_STORAGE_KEY = 'teskeid_forecast_card_scale_v1'
 const FORECAST_CARD_SCALE_LEVELS = [1, 1.2, 1.4] as const
 const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
   minTemperatureC: null,
@@ -1369,7 +1369,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const [weatherContextView, setWeatherContextView] = useState<'information' | 'map'>('information')
   const [routeContextView, setRouteContextView] = useState<'information' | 'map'>('information')
   const [forecastCardScaleIndex, setForecastCardScaleIndex] = useState(1)
-  const [forecastCardScaleHydrated, setForecastCardScaleHydrated] = useState(false)
   const [routeActive, setRouteActive] = useState(false)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1705,7 +1704,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
   const saveWeatherChasePreferencesToApi = useCallback(async (
     payload: WeatherChasePreferencesPayload,
-  ): Promise<'saved' | 'local' | 'unauthorized' | 'error'> => {
+  ): Promise<'saved' | 'unauthorized' | 'error'> => {
     try {
       const res = await fetch('/api/teskeid/weather/preferences/chase', {
         method: 'PUT',
@@ -1714,7 +1713,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         body: JSON.stringify(payload),
       })
       if (res.status === 401) return 'unauthorized'
-      if (res.status === 503) return 'local'
       if (!res.ok) return 'error'
       return 'saved'
     } catch {
@@ -1724,18 +1722,12 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
   const handleWeatherChaseCriteriaChange = useCallback((next: WeatherChaseCriteria) => {
     setWeatherChaseCriteria(next)
-    setWeatherChaseSaveStatus(prev => (prev === 'saved' || prev === 'local' || prev === 'error' ? 'idle' : prev))
+    setWeatherChaseSaveStatus(prev => (prev === 'saved' || prev === 'error' ? 'idle' : prev))
   }, [])
 
   const handleSaveWeatherChaseDefault = useCallback(async (payload: WeatherChasePreferencesPayload) => {
     applyWeatherChasePreferences(payload)
     setWeatherChaseSaveStatus('saving')
-
-    try {
-      window.localStorage.setItem(WEATHER_CHASE_LOCAL_STORAGE_KEY, JSON.stringify(payload))
-    } catch {
-      // Local persistence is best-effort; API persistence below is still the source of truth for signed-in users.
-    }
 
     const result = await saveWeatherChasePreferencesToApi(payload)
     if (result === 'unauthorized') {
@@ -1767,11 +1759,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       while (weatherChaseAutoSaveQueuedRef.current) {
         const payload = weatherChaseAutoSaveQueuedRef.current
         weatherChaseAutoSaveQueuedRef.current = null
-        try {
-          window.localStorage.setItem(WEATHER_CHASE_LOCAL_STORAGE_KEY, JSON.stringify(payload))
-        } catch {
-          // API persistence remains authoritative when local storage is unavailable.
-        }
         await saveWeatherChasePreferencesToApi(payload)
       }
     } finally {
@@ -1782,7 +1769,16 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   useEffect(() => {
     let cancelled = false
 
-    function readStoredPayload(storage: Storage, key: string): WeatherChasePreferencesPayload | null {
+    // Remove browser-persisted settings from earlier builds. From this point on,
+    // authenticated preferences live only in the user's server-side settings.
+    try {
+      window.localStorage.removeItem(LEGACY_WEATHER_CHASE_LOCAL_STORAGE_KEY)
+      window.localStorage.removeItem(LEGACY_FORECAST_CARD_SCALE_LOCAL_STORAGE_KEY)
+    } catch {
+      // Storage can be unavailable in privacy-restricted browsers.
+    }
+
+    function readPendingPayload(storage: Storage, key: string): WeatherChasePreferencesPayload | null {
       try {
         const raw = storage.getItem(key)
         return raw ? normalizeWeatherChasePreferences(JSON.parse(raw)) : null
@@ -1791,12 +1787,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       }
     }
 
-    const localPayload = readStoredPayload(window.localStorage, WEATHER_CHASE_LOCAL_STORAGE_KEY)
-    if (localPayload) {
-      applyWeatherChasePreferences(localPayload)
-    }
-
-    const pendingPayload = readStoredPayload(window.sessionStorage, WEATHER_CHASE_PENDING_STORAGE_KEY)
+    const pendingPayload = readPendingPayload(window.sessionStorage, WEATHER_CHASE_PENDING_STORAGE_KEY)
     const shouldSavePending = new URLSearchParams(window.location.search).get('saveWeatherChaseDefaults') === '1'
     if (shouldSavePending && pendingPayload) {
       applyWeatherChasePreferences(pendingPayload)
@@ -1806,7 +1797,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         setWeatherChaseSaveStatus(result === 'unauthorized' ? 'error' : result)
         if (result === 'saved') {
           try {
-            window.localStorage.setItem(WEATHER_CHASE_LOCAL_STORAGE_KEY, JSON.stringify(pendingPayload))
             window.sessionStorage.removeItem(WEATHER_CHASE_PENDING_STORAGE_KEY)
           } catch {
             // No-op.
@@ -1846,15 +1836,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           return
         }
         applyWeatherChasePreferences(payload)
-        try {
-          window.localStorage.setItem(WEATHER_CHASE_LOCAL_STORAGE_KEY, JSON.stringify(payload))
-        } catch {
-          // No-op.
-        }
         setWeatherChasePreferencesHydrated(true)
       })
       .catch(() => {
-        // The table still works with local/browser defaults if the preference API is unavailable.
+        // Public users and temporary API failures use in-memory defaults only.
         if (!cancelled) setWeatherChasePreferencesHydrated(true)
       })
 
@@ -1899,27 +1884,13 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }, [isWeatherChaseOpen])
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(FORECAST_CARD_SCALE_LOCAL_STORAGE_KEY)
-    const parsed = stored == null ? NaN : Number(stored)
-    if (Number.isInteger(parsed) && parsed >= 0 && parsed < FORECAST_CARD_SCALE_LEVELS.length) {
-      setForecastCardScaleIndex(parsed)
-    }
-    setForecastCardScaleHydrated(true)
-  }, [])
-
-  useEffect(() => {
-    if (!forecastCardScaleHydrated) return
     const scale = FORECAST_CARD_SCALE_LEVELS[forecastCardScaleIndex] ?? 1.2
     containerRef.current?.style.setProperty('--teskeid-forecast-card-scale', String(scale))
-    window.localStorage.setItem(
-      FORECAST_CARD_SCALE_LOCAL_STORAGE_KEY,
-      String(forecastCardScaleIndex),
-    )
     window.requestAnimationFrame(() => {
       applyWeatherChaseCardCollisionAvoidance()
       scheduleRouteLabelCollisionUpdate()
     })
-  }, [forecastCardScaleHydrated, forecastCardScaleIndex])
+  }, [forecastCardScaleIndex])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -5276,6 +5247,15 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           style: {
             version: 8,
             sources: {
+              // Always keep a no-auth fallback below Stadia. The terrain layers
+              // cover it when available; if production domain auth or the tile
+              // provider fails, users still get a usable map instead of white.
+              'forecast-fallback': {
+                type: 'raster',
+                tiles: CARTO_VOYAGER_TILES,
+                tileSize: 256,
+                attribution: CARTO_ATTRIBUTION,
+              },
               'forecast-terrain-background': {
                 type: 'raster',
                 tiles: STAMEN_TERRAIN_BACKGROUND_TILES,
@@ -5289,6 +5269,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               },
             },
             layers: [
+              {
+                id: 'forecast-fallback',
+                type: 'raster',
+                source: 'forecast-fallback',
+              },
               {
                 id: 'forecast-terrain-background',
                 type: 'raster',
@@ -5310,11 +5295,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         popupConstructorRef.current = maplibregl.Popup
         markerConstructorRef.current = maplibregl.Marker
 
-        if (process.env.NODE_ENV !== 'production') {
-          map.on('error', (e) => {
-            console.warn('[RoadMapPrototype] MapLibre error:', e.error)
-          })
-        }
+        const reportedMapErrors = new Set<string>()
+        map.on('error', (event) => {
+          const error = event.error
+          const message = error instanceof Error ? error.message : String(error)
+          if (reportedMapErrors.has(message)) return
+          reportedMapErrors.add(message)
+          console.warn('[RoadMapPrototype] MapLibre source error; fallback remains active:', error)
+        })
 
         // Resize after layout settles and again on load to ensure correct canvas dimensions.
         requestAnimationFrame(() => { if (!cancelled) map.resize() })
@@ -6161,7 +6149,6 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 saveDefaultsLabel: t('roadMapPrototypeWeatherChaseSaveDefaults'),
                 savingDefaultsLabel: t('roadMapPrototypeWeatherChaseSavingDefaults'),
                 savedDefaultsLabel: t('roadMapPrototypeWeatherChaseSavedDefaults'),
-                savedLocalDefaultsLabel: t('roadMapPrototypeWeatherChaseSavedLocalDefaults'),
                 saveDefaultsFailedLabel: t('roadMapPrototypeWeatherChaseSaveDefaultsFailed'),
                 settingsLabel: t('roadMapPrototypeWeatherChaseSettings'),
               }}
