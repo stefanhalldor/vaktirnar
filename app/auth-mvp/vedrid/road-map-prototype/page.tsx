@@ -1,15 +1,10 @@
-import { createClient } from '@/lib/supabase/server'
-import { RoadMapPrototypeMap } from '@/components/weather/RoadMapPrototypeMap'
+import { redirect } from 'next/navigation'
+import { buildPrototypeLegacyRedirectUrl } from '@/lib/weather/prototypeRedirect'
 
-export default async function RoadMapPrototypePage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  return (
-    <main className="h-screen bg-background overflow-hidden">
-      <RoadMapPrototypeMap isAuthenticated={!!(user?.email)} />
-    </main>
-  )
+export default async function RoadMapPrototypeLegacyPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  redirect(buildPrototypeLegacyRedirectUrl(await searchParams))
 }

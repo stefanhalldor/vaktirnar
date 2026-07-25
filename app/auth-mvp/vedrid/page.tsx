@@ -1,21 +1,25 @@
 import { notFound } from 'next/navigation'
 import { guardTeskeidSession } from '@/lib/auth/guard'
-import { resolveAuthenticatedWeatherShellAccess } from '@/lib/weather/weatherBaseAccess.server'
+import { resolveAuthenticatedWeatherShellAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
-import { WeatherOverviewClient } from '@/components/weather/WeatherOverviewClient'
+import { RoadMapPrototypeMap } from '@/components/weather/RoadMapPrototypeMap'
 
 export default async function VedridPage() {
   const { user } = await guardTeskeidSession()
   const weatherShellAccess = await resolveAuthenticatedWeatherShellAccess(user)
   if (weatherShellAccess.mode === 'blocked') notFound()
-  const hasRoadIntelligence = await checkFeatureAccess('', user.email ?? '', 'road-intelligence-v1')
+
+  const hasRoadIntelligence =
+    getWeatherEnabledMode() === 'all' ||
+    (await checkFeatureAccess(user.id, user.email ?? '', 'road-intelligence-v1').catch(() => false))
+
   return (
-    <WeatherOverviewClient
-      isOverview
-      tripHref="/auth-mvp/vedrid/ferdalagid"
-      stationPulseReturnBase="/auth-mvp/vedrid"
-      menuVariant="authenticated"
-      hasRoadIntelligence={hasRoadIntelligence}
-    />
+    <main className="h-screen bg-background overflow-hidden">
+      <RoadMapPrototypeMap
+        isAuthenticated
+        hasRoadIntelligence={hasRoadIntelligence}
+        navigation={{ canonicalPath: '/auth-mvp/vedrid', authenticatedPath: '/auth-mvp/vedrid' }}
+      />
+    </main>
   )
 }

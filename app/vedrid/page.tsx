@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
-import { WeatherOverviewClient } from '@/components/weather/WeatherOverviewClient'
+import { RoadMapPrototypeMap } from '@/components/weather/RoadMapPrototypeMap'
 
 export default function VedridPublicPage() {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
@@ -16,11 +16,12 @@ export default function VedridPublicPage() {
   }
 
   return (
-    <WeatherOverviewClient
-      isOverview
-      tripHref="/vedrid/ferdalagid"
-      stationPulseReturnBase="/vedrid"
-      menuVariant="public"
-    />
+    <main className="h-screen bg-background overflow-hidden">
+      <RoadMapPrototypeMap
+        isAuthenticated={false}
+        hasRoadIntelligence
+        navigation={{ canonicalPath: '/vedrid', authenticatedPath: '/auth-mvp/vedrid' }}
+      />
+    </main>
   )
 }

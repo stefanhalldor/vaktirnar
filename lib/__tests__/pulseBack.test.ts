@@ -15,6 +15,8 @@ describe('resolvePulseBackDestination — external URLs rejected', () => {
 describe('resolvePulseBackDestination — lookalikes rejected', () => {
   it('rejects /auth-mvp/vedrid-anything', () =>
     expect(resolvePulseBackDestination('/auth-mvp/vedrid-anything')).toBeNull())
+  it('rejects /vedrid-anything', () =>
+    expect(resolvePulseBackDestination('/vedrid-anything')).toBeNull())
   it('rejects /auth-mvp/vedrid/puls/stod/ (empty stationId)', () =>
     expect(resolvePulseBackDestination('/auth-mvp/vedrid/puls/stod/')).toBeNull())
   it('rejects /auth-mvp/vedrid/puls/stod/123/sub (sub-path)', () =>
@@ -34,26 +36,41 @@ describe('resolvePulseBackDestination — pulseStation', () => {
     expect(resolvePulseBackDestination('%2Fauth-mvp%2Fvedrid%2Fpuls%2Fstod%2F32097')).toEqual({ kind: 'pulseStation', href: '/auth-mvp/vedrid/puls/stod/32097' }))
 })
 
-describe('resolvePulseBackDestination — overview (auth)', () => {
-  it('allows /auth-mvp/vedrid', () =>
-    expect(resolvePulseBackDestination('/auth-mvp/vedrid')).toEqual({ kind: 'overview', href: '/auth-mvp/vedrid' }))
-  it('allows /auth-mvp/vedrid?stationId=32097', () =>
-    expect(resolvePulseBackDestination('/auth-mvp/vedrid?stationId=32097')).toEqual({ kind: 'overview', href: '/auth-mvp/vedrid?stationId=32097' }))
-  it('allows /auth-mvp/vedrid# fragment', () =>
-    expect(resolvePulseBackDestination('/auth-mvp/vedrid#top')).toEqual({ kind: 'overview', href: '/auth-mvp/vedrid#top' }))
-  it('decodes encoded overview returnTo', () =>
-    expect(resolvePulseBackDestination('%2Fauth-mvp%2Fvedrid')).toEqual({ kind: 'overview', href: '/auth-mvp/vedrid' }))
+describe('resolvePulseBackDestination — drive (public canonical)', () => {
+  it('allows /vedrid', () =>
+    expect(resolvePulseBackDestination('/vedrid')).toEqual({ kind: 'drive', href: '/vedrid' }))
+  it('allows /vedrid?stationId=32097', () =>
+    expect(resolvePulseBackDestination('/vedrid?stationId=32097')).toEqual({ kind: 'drive', href: '/vedrid?stationId=32097' }))
+  it('allows /vedrid# fragment', () =>
+    expect(resolvePulseBackDestination('/vedrid#top')).toEqual({ kind: 'drive', href: '/vedrid#top' }))
+  it('decodes encoded public canonical returnTo', () =>
+    expect(resolvePulseBackDestination('%2Fvedrid%3FstationId%3D32097')).toEqual({ kind: 'drive', href: '/vedrid?stationId=32097' }))
 })
 
-describe('resolvePulseBackDestination — overview (public)', () => {
-  it('allows /vedrid', () =>
-    expect(resolvePulseBackDestination('/vedrid')).toEqual({ kind: 'overview', href: '/vedrid' }))
-  it('allows /vedrid?stationId=32097', () =>
-    expect(resolvePulseBackDestination('/vedrid?stationId=32097')).toEqual({ kind: 'overview', href: '/vedrid?stationId=32097' }))
-  it('allows /vedrid# fragment', () =>
-    expect(resolvePulseBackDestination('/vedrid#top')).toEqual({ kind: 'overview', href: '/vedrid#top' }))
-  it('decodes encoded public overview returnTo', () =>
-    expect(resolvePulseBackDestination('%2Fvedrid%3FstationId%3D32097')).toEqual({ kind: 'overview', href: '/vedrid?stationId=32097' }))
+describe('resolvePulseBackDestination — drive (auth canonical)', () => {
+  it('allows /auth-mvp/vedrid', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid')).toEqual({ kind: 'drive', href: '/auth-mvp/vedrid' }))
+  it('allows /auth-mvp/vedrid?stationId=32097', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid?stationId=32097')).toEqual({ kind: 'drive', href: '/auth-mvp/vedrid?stationId=32097' }))
+  it('allows /auth-mvp/vedrid# fragment', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid#top')).toEqual({ kind: 'drive', href: '/auth-mvp/vedrid#top' }))
+  it('decodes encoded auth canonical returnTo', () =>
+    expect(resolvePulseBackDestination('%2Fauth-mvp%2Fvedrid')).toEqual({ kind: 'drive', href: '/auth-mvp/vedrid' }))
+})
+
+describe('resolvePulseBackDestination — drive (legacy prototype)', () => {
+  it('accepts the prototype path with a route restore view', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/road-map-prototype?context=route&view=map&restoreRoute=1')).toEqual({
+      kind: 'drive',
+      href: '/auth-mvp/vedrid/road-map-prototype?context=route&view=map&restoreRoute=1',
+    }))
+  it('accepts the bare prototype path', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/road-map-prototype')).toEqual({
+      kind: 'drive',
+      href: '/auth-mvp/vedrid/road-map-prototype',
+    }))
+  it('rejects a lookalike prototype path', () =>
+    expect(resolvePulseBackDestination('/auth-mvp/vedrid/road-map-prototype-evil')).toBeNull())
 })
 
 describe('resolvePulseBackDestination — trip', () => {
@@ -65,18 +82,6 @@ describe('resolvePulseBackDestination — trip', () => {
     expect(resolvePulseBackDestination('/auth-mvp/vedrid/ferdalagid#top')).toEqual({ kind: 'trip', href: '/auth-mvp/vedrid/ferdalagid#top' }))
   it('decodes encoded trip returnTo', () =>
     expect(resolvePulseBackDestination('%2Fauth-mvp%2Fvedrid%2Fferdalagid')).toEqual({ kind: 'trip', href: '/auth-mvp/vedrid/ferdalagid' }))
-})
-
-describe('resolvePulseBackDestination — drive', () => {
-  it('accepts the Road Map prototype with a safe return view', () => {
-    expect(resolvePulseBackDestination('/auth-mvp/vedrid/road-map-prototype?context=route&view=map&restoreRoute=1')).toEqual({
-      kind: 'drive',
-      href: '/auth-mvp/vedrid/road-map-prototype?context=route&view=map&restoreRoute=1',
-    })
-  })
-  it('rejects a lookalike Road Map path', () => {
-    expect(resolvePulseBackDestination('/auth-mvp/vedrid/road-map-prototype-evil')).toBeNull()
-  })
 })
 
 describe('resolvePulseBackDestination — stationExplorer', () => {

@@ -70,8 +70,6 @@ export function VedurstofanPulsClient({ stationId, locale, stationName, returnTo
               ? t('backToTrip')
               : backDest.kind === 'drive'
                 ? t('backToDrive')
-              : backDest.kind === 'overview'
-                ? t('backToOverview')
                 : t('backToStationExplorer')}
           </Link>
         )}

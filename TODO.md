@@ -71,6 +71,7 @@ tilvísanir og verkefnasaga rofni ekki.
 | 39  | **#89 Veður: spjall per live punkt og síðar vegakafla**     | **Community/weather layer.** Eftir að Vegagerðin er komin inn: byrja á spjalli per live Vegagerðarpunkt; Veðurstofustöðvar geta verið fallback/viðbót og síðar tengt við vegakafla. |
 | 40  | **#90 Veður: eigið Íslandsleiðarkerfi og vegkaflagrunnur** | **Stór architecture/discovery vinna.** Meta hvort Teskeið eigi að byggja eigin einfalt leiðarkerfi fyrir Ísland, byggt á vegkafla-grunni/cache, í stað þess að rembast endalaust við Google Routes fyrir langar landsleiðir. |
 | 41  | **#91 Veður: basemap refresh og kortapússun**               | **Afmarkað 2–3 daga UI sprint fyrir Road OS.** Bera saman tilbúna MapLibre-basemap stíla, velja einn og pússa route, weather overlay og markera án eigin tile server eða sérhannaðs kortastíls. |
+| 42  | **#92 Veður: notendaskilgreindir met.no spápunktar**         | **Product/data discovery, sérstaklega fyrir bændur.** Meta hvort notandi geti sett pinna eða hnit á sinn bæ/tún/vinnusvæði, nefnt punktinn og fengið þar eigin met.no spá án þess að rugla honum saman við mælistöð. |
 
 ## Vinnupakkar
 
@@ -3447,3 +3448,109 @@ kortinu, leiðarlínu, weather overlay og markerum sem rúmast innan 2–3 daga.
 13. Bera saman fyrir/eftir skjáskot.
 14. Vænt: munurinn er greinilega faglegri og læsilegri, án nýs tile servers,
     sérhannaðs vector-stíls eða breytinga á route engine.
+
+## Veður: notendaskilgreindir met.no spápunktar
+
+**Númer:** #92
+**Staða:** Bíður
+
+**Samhengi frá Stebba:** Pælingin er hvort met.no punktaspár séu þannig
+uppbyggðar að Teskeið geti leyft notendum að búa til sinn eigin spápunkt. Það
+gæti til dæmis verið gagnlegt fyrir bændur sem vilja fylgjast með spá fyrir
+bæ, tún, beitiland eða annað afmarkað vinnusvæði sem er ekki nú þegar
+skilgreindur staður í Teskeið.
+
+**Vandamál:** Núverandi notandi velur fyrst og fremst fyrirfram skilgreinda
+staði, leiðarpunkta eða stöðvar. Það nær ekki endilega nógu vel yfir dreifbýli
+og staðbundin svæði þar sem notandinn þekkir sjálfur hvaða hnit skipta máli.
+Met.no spá fyrir hnit er ekki mæling á staðnum og má því ekki líta út eins og
+Veðurstofu- eða Vegagerðarmælistöð.
+
+**Staðfest gagnaskilgreining:** Punktarnir sem Teskeið sækir úr met.no
+Locationforecast eru reiknaðar, sjálfvirkar spár fyrir latitude/longitude og
+mögulega hæð, ekki met.no mælistöðvar á Íslandi. Fyrir Norðurlönd byggir
+Locationforecast einkum á MEPS-spálíkaninu og eftirvinnslu. Raunverulegar
+staðbundnar mælingar í núverandi Teskeiðarflæði koma hins vegar frá
+Veðurstofu Íslands og Vegagerðinni. UI, types og notendatextar eiga því að
+nota `spápunktur`, `reiknuð spá fyrir þennan stað` eða `þinn spápunktur` um
+met.no gögn en ekki `stöð`, nema verið sé að vísa til raunverulegrar
+mælistöðvar. Nákvæmni sérvalins pinna takmarkast af upplausn spálíkans,
+landslagi og réttri hæð, ekki bara nákvæmni hnitanna.
+
+**Ósk:** Meta og hanna einfalt flæði þar sem notandi getur:
+
+1. sett pinna á kort eða leitað að stað;
+2. fínstillt staðsetninguna;
+3. nefnt punktinn, t.d. `Melás`, `Norðurtún` eða `Beitarhólf`;
+4. vistað punktinn sem sinn eigin spápunkt;
+5. séð met.no spá fyrir hnit punktsins í sama Teskeiðarútliti og aðrar
+   punktaspár;
+6. fengið skýra merkingu um að þetta sé reiknuð punktaspá en ekki mælistöð.
+
+**Discovery áður en framkvæmd er plönuð:**
+
+- Staðfesta gildandi met.no Locationforecast/API-skilmála fyrir arbitrary
+  latitude/longitude, attribution, User-Agent, cache og rate limits.
+- Kortleggja hvort núverandi `/api/teskeid/weather/metno/point` samþykki aðeins
+  canonical punkta af öryggis- og kostnaðarástæðum og hvort nýtt afmarkað
+  contract þurfi fyrir notendapunkta.
+- Meta precision/rounding og cache-lykla svo margir mjög nálægir pinnar valdi
+  ekki óþarfa fjölda upstream-kalla.
+- Ákveða hvort public notandi megi geyma punkta tímabundið í sessionStorage og
+  innskráður notandi varanlega með autosave, í samræmi við núverandi saved
+  places flæði.
+- Staðfesta merge-reglu við innskráningu: bæta nýjum public punktum við en
+  aldrei yfirskrifa fyrirliggjandi punkta notanda.
+- Meta hámarksfjölda punkta per notanda, duplicate detection og eyðingu.
+- Skoða hvernig sérpunktur birtist í Spá, korti og mögulega Akstri án þess að
+  vera ranglega talinn staðfest veðurstöð.
+- Meta hvort hæð yfir sjó og landslag geti valdið því að hnitapunktaspá sé
+  villandi, sérstaklega í fjalllendi, og hvaða notendatexti skýrir það.
+
+**Privacy og öryggi:**
+
+- Vistaður punktur getur gefið til kynna heimili, vinnustað, bújörð eða daglega
+  staðsetningu og telst því notendagagn.
+- Public punktar skulu aðeins vera í afmörkuðu browser-sessioni nema notandi
+  velji innskráningu.
+- Varanlegir punktar skulu vera bundnir réttum user ID með RLS og mega aldrei
+  sjást milli ótengdra notenda.
+- Ekki logga nákvæm sérhnit, heiti býlis eða notendaleiðir í analytics eða
+  server logs nema sérstök privacy-hönnun hafi verið samþykkt.
+- Ekki keyra migration, breyta RLS eða virkja ný upstream-köll í production
+  án sérstaks plans og framkvæmdarleyfis.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Opna núverandi `/vedrid` og prófa staðaleit í dreifbýli.
+2. Leita að bæ eða svæði sem er ekki canonical staður, t.d. nákvæmu býli eða
+   túni.
+3. Staðfesta hvort hægt sé í dag að velja nákvæm hnit og varðveita þau sem
+   veðurstað.
+4. Skoða Network-köll og staðfesta hvaða endpoint fær met.no spá og hvort það
+   hafnar arbitrary hnitum.
+5. Bera saman spá á tveimur mjög nálægum punktum og skrá hvort munurinn er
+   raunverulega gagnlegur eða hvort cache/hnitarúnnun ætti að sameina þá.
+
+**Localhost checks for Stebbi eftir framtíðarbreytingu:**
+
+1. Opna `/vedrid` sem public notandi.
+2. Setja pinna á stað utan canonical staðalistans, nefna hann og vista.
+3. Vænt: punkturinn birtist sem `Þinn spápunktur` eða sambærilega skýr
+   punktaspá, ekki sem Veðurstofu- eða Vegagerðarstöð.
+4. Endurhlaða og flippa milli flipa innan sessions.
+5. Vænt: punkturinn helst innan skilgreinds public session-tíma.
+6. Skrá inn og samþykkja vistun.
+7. Vænt: punkturinn bætist við fyrirliggjandi vistaða punkta án
+   yfirskriftar og autosave tekur við.
+8. Búa til annan punkt mjög nálægt þeim fyrri.
+9. Vænt: UI varar við duplicate eða sameinar samkvæmt fyrirfram ákveðinni
+   precision-reglu.
+10. Skoða spáspjald og attribution.
+11. Vænt: met.no uppruni er rétt merktur og texti segir skýrt að um
+    reiknaða spá fyrir hnit sé að ræða.
+12. Prófa mobile við 360, 390 og 460 px.
+13. Vænt: pinnaflutningur, heiti, save CTA og keyboard valda ekki zoomi,
+    overflowi eða röngum scroll-state.
+14. Staðfesta í Network/console að pinnaflutningur kalli ekki stjórnlaust á
+    upstream API og að engin nákvæm sérhnit leki í analytics.

@@ -88,6 +88,13 @@ import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview
 import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
 import { haversineDistanceM } from '@/lib/weather/nearestStations'
 import { makeWeatherPlaceKey, type SavedWeatherPlace } from '@/lib/weather/savedPlaces'
+import {
+  ROAD_MAP_PROTOTYPE_NAVIGATION,
+  buildRoadMapRouteReturnHref,
+  buildRoadMapSignInReturnHref,
+  buildRoadMapStationReturnHref,
+  type RoadMapNavigation,
+} from '@/lib/weather/roadMapNavigation'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import type {
   VegagerdinRouteLayer,
@@ -1308,7 +1315,22 @@ function normalizeWeatherChasePreferences(value: unknown): WeatherChasePreferenc
  * No user GPS. No Supabase writes. No routing advice.
  * Visible only to users with road-intelligence-v1 feature flag.
  */
-export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticated?: boolean }) {
+export function RoadMapPrototypeMap({
+  isAuthenticated = false,
+  hasRoadIntelligence,
+  navigation = ROAD_MAP_PROTOTYPE_NAVIGATION,
+}: {
+  isAuthenticated?: boolean
+  /**
+   * Controls optional Vegagerðin road-network, condition-segment and surface
+   * features. API routes remain the security boundary; this prevents expected
+   * denied requests and dead controls when the capability is unavailable.
+   *
+   * Required — callers must pass an explicit server-derived access result.
+   */
+  hasRoadIntelligence: boolean
+  navigation?: RoadMapNavigation
+}) {
   const t = useTranslations('teskeid.vedrid.overview')
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const tPulse = useTranslations('teskeid.vedrid.eltaVedrid')
@@ -1336,8 +1358,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const routeEndpointMarkersRef = useRef<RouteEndpointMarker[]>([])
   const overviewDensityFrameRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
-  const showOverlayRef = useRef(true)
-  const showSegmentsRef = useRef(true)
+  const showOverlayRef = useRef(hasRoadIntelligence)
+  const showSegmentsRef = useRef(hasRoadIntelligence)
   const showForecastStationsRef = useRef(true)
   const showAllForecastGlaciersRef = useRef(false)
   const showAllForecastMountainsRef = useRef(false)
@@ -3106,8 +3128,16 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       element.style.display = 'none'
     }
     setRouteLayerLayoutVisibility(map, 'carto-basemap', true)
-    setRouteLayerLayoutVisibility(map, 'vegagerdin-vegakerfi', showOverlayRef.current)
-    setRouteLayerLayoutVisibility(map, 'road-segments', showSegmentsRef.current)
+    setRouteLayerLayoutVisibility(
+      map,
+      'vegagerdin-vegakerfi',
+      hasRoadIntelligence && showOverlayRef.current,
+    )
+    setRouteLayerLayoutVisibility(
+      map,
+      'road-segments',
+      hasRoadIntelligence && showSegmentsRef.current,
+    )
     setRouteLayerLayoutVisibility(map, 'travel-bridge-route', Boolean(routeBridgeSummary))
     for (const { element } of routeEndpointMarkersRef.current) {
       element.style.display = routeBridgeSummary ? '' : 'none'
@@ -4019,6 +4049,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   async function fetchRoadIntelligenceVegagerdinStationsForRoute(
     signal: AbortSignal,
   ): Promise<VegagerdinCurrentApiData | null> {
+    if (!hasRoadIntelligence) return null
+
     const res = await fetch('/api/teskeid/road-intelligence/station-markers', {
       credentials: 'same-origin',
       signal,
@@ -4282,12 +4314,15 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }
 
   function routeReturnHref(view = routeContextViewRef.current): string {
-    const params = new URLSearchParams({
-      context: 'route',
-      view,
-      restoreRoute: '1',
-    })
-    return `/auth-mvp/vedrid/road-map-prototype?${params.toString()}`
+    return buildRoadMapRouteReturnHref(navigation, view)
+  }
+
+  function stationReturnHref(stationId?: string): string {
+    return buildRoadMapStationReturnHref(navigation, stationId)
+  }
+
+  function signInReturnHref(): string {
+    return buildRoadMapSignInReturnHref(navigation)
   }
 
   function persistRouteReturnSnapshot(view = routeContextViewRef.current) {
@@ -5123,6 +5158,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     route: RouteOption,
     signal: AbortSignal,
   ): Promise<RouteSurfaceSummary | null> {
+    if (!hasRoadIntelligence) return null
+
     const routePoints = route.providerMatchingPoints?.length
       ? route.providerMatchingPoints
       : route.points
@@ -5656,7 +5693,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
       // Route is now visible on map. Fetch surface alternatives after the
       // browser has had a moment to paint and accept map gestures.
-      window.setTimeout(() => {
+      if (hasRoadIntelligence) window.setTimeout(() => {
         if (controller.signal.aborted) return
         setRouteSurfaceChoicesStatus('loading')
         fetchRouteSurfaceChoices(origin, destination, controller.signal)
@@ -5875,30 +5912,26 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             },
           })
 
-          map.addSource('vegagerdin-vegakerfi', {
-            type: 'raster',
-            tiles: DRIVE_MAP_ROAD_NETWORK_TILES,
-            tileSize: 256,
-            attribution: VEGAGERDIN_ATTRIBUTION,
-          })
-          map.addLayer({
-            id: 'vegagerdin-vegakerfi',
-            type: 'raster',
-            source: 'vegagerdin-vegakerfi',
-            layout: {
-              visibility:
-                lastMapContextRef.current === 'route' && showOverlayRef.current
-                  ? 'visible'
-                  : 'none',
-            },
-            paint: { 'raster-opacity': 0.78 },
-          })
-
-          map.setLayoutProperty(
-            'vegagerdin-vegakerfi',
-            'visibility',
-            lastMapContextRef.current === 'route' && showOverlayRef.current ? 'visible' : 'none',
-          )
+          if (hasRoadIntelligence) {
+            map.addSource('vegagerdin-vegakerfi', {
+              type: 'raster',
+              tiles: DRIVE_MAP_ROAD_NETWORK_TILES,
+              tileSize: 256,
+              attribution: VEGAGERDIN_ATTRIBUTION,
+            })
+            map.addLayer({
+              id: 'vegagerdin-vegakerfi',
+              type: 'raster',
+              source: 'vegagerdin-vegakerfi',
+              layout: {
+                visibility:
+                  lastMapContextRef.current === 'route' && showOverlayRef.current
+                    ? 'visible'
+                    : 'none',
+              },
+              paint: { 'raster-opacity': 0.78 },
+            })
+          }
 
           forecastGlacierLabelMarkersRef.current.forEach(({ marker }) => marker.remove())
           forecastGlacierLabelMarkersRef.current = FORECAST_GLACIER_LABELS.map((glacier) => {
@@ -6135,12 +6168,14 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
             }
           }
 
-          // Road condition segments are always present in Akstur. The endpoint
-          // permits public reads only while public weather is enabled.
-          triggerSegmentLoad()
+          // Road condition segments are optional capability data. Do not use
+          // denied endpoint responses as client-side feature detection.
+          if (hasRoadIntelligence) triggerSegmentLoad()
           map.on('moveend', () => {
-            if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current)
-            segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
+            if (hasRoadIntelligence) {
+              if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current)
+              segmentTimerRef.current = setTimeout(triggerSegmentLoad, 400)
+            }
             scheduleRouteLabelCollisionUpdate()
             scheduleOverviewMarkerVisibilityUpdate()
           })
@@ -6329,7 +6364,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 {t('roadMapPrototypePublicPlacesTemporary')}
               </p>
               <a
-                href={`/innskraning?next=${encodeURIComponent('/auth-mvp/vedrid/road-map-prototype?context=route&view=information')}`}
+                href={`/innskraning?next=${encodeURIComponent(signInReturnHref())}`}
                 className="mt-2 inline-flex min-h-10 items-center justify-center rounded-full border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {t('roadMapPrototypePublicPlacesSignIn')}
@@ -6344,6 +6379,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }
 
   function renderRouteSurfaceChoices() {
+    if (!hasRoadIntelligence) return null
     if (!routeBridgeSummary) return null
 
     if (routeSurfaceChoicesStatus === 'loading') {
@@ -7111,10 +7147,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 target.targetType === 'vegagerdin_station' ? 'vegagerdin' : 'vedurstofan'
               )
               return effectiveProvider === 'vegagerdin'
-                ? vegagerdinPulseHref(target.targetId, '/auth-mvp/vedrid/road-map-prototype')
+                ? vegagerdinPulseHref(target.targetId, stationReturnHref())
                 : vedurstofanPulseHref(
                     target.targetId,
-                    `/auth-mvp/vedrid/road-map-prototype?stationId=${target.targetId}`,
+                    stationReturnHref(target.targetId),
                   )
             }}
           />
@@ -7183,6 +7219,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               hasMoreCandidates={hasMoreCandidates}
               onLoadMore={() => setVisibleCandidateLimit(prev => prev + 24)}
               onEnlargeMap={() => openRouteContext('map')}
+              stationReturnTo={routeReturnHref('information')}
             />
           ) : isRouteLoading ? (
             <TeskeidLoader

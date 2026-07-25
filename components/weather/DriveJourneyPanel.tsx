@@ -124,6 +124,7 @@ export function DriveJourneyPanel({
   hasMoreCandidates,
   onLoadMore,
   onEnlargeMap,
+  stationReturnTo,
 }: {
   layer: VedurstofanTravelLayer | null
   candidates: TravelCandidate[]
@@ -140,6 +141,7 @@ export function DriveJourneyPanel({
   hasMoreCandidates?: boolean
   onLoadMore?: () => void
   onEnlargeMap?: () => void
+  stationReturnTo: string
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const t = useTranslations('teskeid.vedrid.overview')
@@ -290,7 +292,7 @@ export function DriveJourneyPanel({
               ftimeIso={worst.row?.ftimeIso ?? null}
               windMs={worst.row?.windSpeedMs ?? null}
               originName={originName}
-              returnTo="/auth-mvp/vedrid/road-map-prototype"
+              returnTo={stationReturnTo}
             />
           )}
 
@@ -377,7 +379,7 @@ export function DriveJourneyPanel({
               originName={originName}
               panelTitle={tf('manualSelectedPointTitle')}
               isManualSelection
-              returnTo="/auth-mvp/vedrid/road-map-prototype"
+              returnTo={stationReturnTo}
             />
           )}
 
@@ -402,7 +404,7 @@ export function DriveJourneyPanel({
                       ? tf('decisivePointLabel')
                       : undefined
                   }
-                  returnTo="/auth-mvp/vedrid/road-map-prototype"
+                  returnTo={stationReturnTo}
                 />
               ))}
             </div>

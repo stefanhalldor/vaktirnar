@@ -87,8 +87,6 @@ export function VegagerdinPulsClient({
               ? t('backToTrip')
               : backDest.kind === 'drive'
                 ? t('backToDrive')
-              : backDest.kind === 'overview'
-                ? t('backToOverview')
                 : t('backToStationExplorer')}
           </Link>
         )}

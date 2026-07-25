@@ -4,18 +4,19 @@
  * Returns `null` when `returnTo` is absent, external, or does not match a
  * known safe internal destination — in which case no back link is rendered.
  *
- * Three recognised destinations:
- *   'overview'        — /auth-mvp/vedrid or /vedrid (exact, query or hash only)
+ * Recognised destinations:
+ *   'drive'           — /vedrid or /auth-mvp/vedrid (canonical map, exact, query or hash only)
+ *                       /auth-mvp/vedrid/road-map-prototype (legacy path — still in EXACT_PUBLIC_PATHS)
  *   'trip'            — /auth-mvp/vedrid/ferdalagid (exact, query or hash)
  *   'stationExplorer' — /auth-mvp/vedrid/elta-vedrid (exact, query or hash)
+ *   'pulseStation'    — /auth-mvp/vedrid/puls/stod/{stationId}
  *
  * Uses the same boundary-safe matching style as lib/auth/loginNext.ts so that
- * lookalikes such as /auth-mvp/vedrid-anything are rejected.
+ * lookalikes such as /auth-mvp/vedrid-anything or /vedrid-anything are rejected.
  */
 export type PulseBackDestination =
-  | { kind: 'overview'; href: string }
-  | { kind: 'trip'; href: string }
   | { kind: 'drive'; href: string }
+  | { kind: 'trip'; href: string }
   | { kind: 'stationExplorer'; href: string }
   | { kind: 'pulseStation'; href: string }
 
@@ -26,25 +27,21 @@ export function resolvePulseBackDestination(returnTo: string | null): PulseBackD
     if (decoded.startsWith('http://') || decoded.startsWith('https://') || decoded.startsWith('//')) return null
     if (!decoded.startsWith('/')) return null
 
-    // Akstur / Road Map prototype: exact path, query or hash only.
+    // Drive: canonical map paths and legacy prototype path (exact or with query/hash only).
+    // Legacy /auth-mvp/vedrid/road-map-prototype now redirects to /vedrid but is kept
+    // in EXACT_PUBLIC_PATHS — returnTo values using the old path still resolve correctly.
     if (
+      decoded === '/vedrid' ||
+      decoded.startsWith('/vedrid?') ||
+      decoded.startsWith('/vedrid#') ||
+      decoded === '/auth-mvp/vedrid' ||
+      decoded.startsWith('/auth-mvp/vedrid?') ||
+      decoded.startsWith('/auth-mvp/vedrid#') ||
       decoded === '/auth-mvp/vedrid/road-map-prototype' ||
       decoded.startsWith('/auth-mvp/vedrid/road-map-prototype?') ||
       decoded.startsWith('/auth-mvp/vedrid/road-map-prototype#')
     ) {
       return { kind: 'drive', href: decoded }
-    }
-
-    // Overview: /auth-mvp/vedrid or /vedrid exactly, or with query/hash (no sub-path)
-    if (
-      decoded === '/auth-mvp/vedrid' ||
-      decoded.startsWith('/auth-mvp/vedrid?') ||
-      decoded.startsWith('/auth-mvp/vedrid#') ||
-      decoded === '/vedrid' ||
-      decoded.startsWith('/vedrid?') ||
-      decoded.startsWith('/vedrid#')
-    ) {
-      return { kind: 'overview', href: decoded }
     }
 
     // Trip: /auth-mvp/vedrid/ferdalagid exactly, or with query/hash
