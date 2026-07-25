@@ -1458,6 +1458,7 @@ export function RoadMapPrototypeMap({
   const [weatherChasePreferenceItems, setWeatherChasePreferenceItems] = useState<WeatherChasePreferenceItem[] | null>(null)
   const [weatherChaseCriteria, setWeatherChaseCriteria] = useState<WeatherChaseCriteria>(DEFAULT_WEATHER_CHASE_CRITERIA)
   const [weatherChaseSaveStatus, setWeatherChaseSaveStatus] = useState<WeatherChaseSaveStatus>('idle')
+  const [weatherChasePlacesChanged, setWeatherChasePlacesChanged] = useState(false)
   const [weatherChasePreferencesHydrated, setWeatherChasePreferencesHydrated] = useState(false)
   const [weatherChaseSelectionInitialized, setWeatherChaseSelectionInitialized] = useState(false)
   const [publicSavePromptOpen, setPublicSavePromptOpen] = useState(false)
@@ -4555,9 +4556,9 @@ export function RoadMapPrototypeMap({
       emoji.textContent = weatherEmoji
       emoji.style.cssText = [
         'display:block',
-        `font-size:${compact ? '12px' : '14px'}`,
+        `font-size:${compact ? '18px' : '21px'}`,
         'line-height:1',
-        `height:${compact ? '12px' : '14px'}`,
+        `height:${compact ? '18px' : '21px'}`,
         'text-align:center',
         'text-shadow:0 1px 2px rgba(255,255,255,0.95),0 1px 5px rgba(15,23,42,0.18)',
       ].join(';')
@@ -7100,6 +7101,8 @@ export function RoadMapPrototypeMap({
               onCriteriaChange={handleWeatherChaseCriteriaChange}
               onSaveDefault={isAuthenticated ? undefined : handleSaveWeatherChaseDefault}
               saveStatus={weatherChaseSaveStatus}
+              placesChanged={weatherChasePlacesChanged}
+              onPlacesChangedChange={setWeatherChasePlacesChanged}
               nearbyStationItemId={weatherChaseNearbyFocusId}
               nearbyStationItems={weatherChaseNearbyDisplayItems}
               onHourSelect={(hour) => {

@@ -116,6 +116,8 @@ type Props = {
     visibleHours: WeatherChaseVisibleHour[]
   }) => void
   saveStatus?: WeatherChaseSaveStatus
+  placesChanged?: boolean
+  onPlacesChangedChange?: (changed: boolean) => void
   nearbyStationItemId?: string | null
   nearbyStationItems?: WeatherChaseItem[]
   onHourSelect?: (hour: number) => void
@@ -332,6 +334,11 @@ function MetricStack({
       >
         {tempMedal && <span className="mr-0.5 text-xs">{tempMedal}</span>}
         {formatNum(Math.round(row.temperature.value), locale)}{labels.temperatureUnit}
+        {row.weatherEmoji && (
+          <span aria-hidden="true" className="ml-1 text-[0.8em] font-normal leading-none">
+            {row.weatherEmoji}
+          </span>
+        )}
       </p>
       <p
         className={cn(
@@ -394,6 +401,8 @@ export function WeatherChasePanel({
   onCriteriaChange,
   onSaveDefault,
   saveStatus = 'idle',
+  placesChanged: controlledPlacesChanged,
+  onPlacesChangedChange,
   nearbyStationItemId = null,
   nearbyStationItems = [],
   onHourSelect,
@@ -407,7 +416,7 @@ export function WeatherChasePanel({
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(defaultSettingsOpen)
-  const [placesChanged, setPlacesChanged] = useState(false)
+  const [internalPlacesChanged, setInternalPlacesChanged] = useState(false)
   const [criteriaChanged, setCriteriaChanged] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [internalCriteria, setInternalCriteria] = useState<WeatherChaseCriteria>(DEFAULT_WEATHER_CHASE_CRITERIA)
@@ -426,6 +435,12 @@ export function WeatherChasePanel({
   const hasPublishedInitialSelectionRef = useRef(false)
   const inFlightLoadIdsRef = useRef<Set<string>>(new Set())
   const activeCriteria = criteria ?? internalCriteria
+  const placesChanged = controlledPlacesChanged ?? internalPlacesChanged
+
+  function setPlacesChanged(changed: boolean) {
+    if (controlledPlacesChanged === undefined) setInternalPlacesChanged(changed)
+    onPlacesChangedChange?.(changed)
+  }
   const precipitationCriteriaValueRef = useRef<number | null>(activeCriteria.maxPrecipitationMmPerHour)
   const [precipitationDraft, setPrecipitationDraft] = useState(
     criteriaInputValue(activeCriteria.maxPrecipitationMmPerHour),
