@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   WeatherChasePanel,
   type WeatherChaseItem,
+  type WeatherChasePreferenceItem,
 } from '@/components/weather/WeatherChasePanel'
 
 const labels = new Proxy({}, {
@@ -34,6 +35,72 @@ const items: WeatherChaseItem[] = [
 ]
 
 describe('WeatherChasePanel preference hydration', () => {
+  it('opens public settings by default and offers the secondary save action after adding a place', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    const onSaveDefault = vi.fn()
+
+    render(
+      <WeatherChasePanel
+        items={items}
+        initialSelectedIds={['vedurstofan:1']}
+        labels={labels}
+        locale="is"
+        onSaveDefault={onSaveDefault}
+        defaultSettingsOpen
+        visibleHours={[12]}
+      />,
+    )
+
+    const search = screen.getByLabelText('searchLabel')
+    fireEvent.focus(search)
+    fireEvent.change(search, { target: { value: 'Önnur' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Önnur stöð/ }))
+
+    const saveForecast = await screen.findByRole('button', { name: 'savePlacesLabel' })
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+    fireEvent.click(saveForecast)
+
+    expect(onSaveDefault).toHaveBeenCalledTimes(1)
+    expect(onSaveDefault.mock.calls[0]?.[0].selectedItems.map((item: WeatherChasePreferenceItem) => item.id))
+      .toEqual(['vedurstofan:1', 'vedurstofan:2'])
+  })
+
+  it('applies defaults when hydration resolves from loading to no saved preferences', async () => {
+    const onSelectedItemsChange = vi.fn()
+    const { rerender } = render(
+      <WeatherChasePanel
+        items={items}
+        initialSelectedIds={null}
+        labels={labels}
+        locale="is"
+        onSelectedItemsChange={onSelectedItemsChange}
+        visibleHours={[12]}
+      />,
+    )
+
+    expect(onSelectedItemsChange).not.toHaveBeenCalled()
+
+    rerender(
+      <WeatherChasePanel
+        items={items}
+        initialSelectedIds={['vedurstofan:1', 'vedurstofan:2']}
+        labels={labels}
+        locale="is"
+        onSelectedItemsChange={onSelectedItemsChange}
+        visibleHours={[12]}
+      />,
+    )
+
+    await waitFor(() => expect(onSelectedItemsChange).toHaveBeenCalled())
+    expect(onSelectedItemsChange.mock.calls.map(([selected]) => (
+      (selected as WeatherChaseItem[]).map(item => item.id)
+    ))).toEqual([['vedurstofan:1', 'vedurstofan:2']])
+  })
+
   it('does not publish the stale empty selection before saved station ids are applied', async () => {
     const onSelectedItemsChange = vi.fn()
 

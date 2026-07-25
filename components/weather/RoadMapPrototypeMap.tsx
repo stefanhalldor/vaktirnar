@@ -1713,8 +1713,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         ),
       }))
       .sort((a, b) => a.distanceM - b.distanceM || a.item.label.localeCompare(b.item.label, 'is'))
-      .slice(0, 3)
-      .map(c => c.item)
+      .slice(0, 5)
+      .map(c => ({ ...c.item, nearbyDistanceM: c.distanceM }))
   }, [weatherChaseNearbyFocusId, weatherChaseSelectedItems, weatherChaseVedurstofanItems])
 
   const weatherChaseInitialSelectedIds = useMemo(() => {
@@ -1847,17 +1847,28 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
 
     void fetch('/api/teskeid/weather/preferences/chase', { credentials: 'same-origin' })
       .then(async res => {
-        if (!res.ok) return null
-        return await res.json() as unknown
+        if (!res.ok) return { ok: false as const, raw: null }
+        return { ok: true as const, raw: await res.json() as unknown }
       })
-      .then(raw => {
+      .then(result => {
         if (cancelled) return
+        if (!result.ok) {
+          // A signed-out visitor needs usable in-memory defaults after the
+          // expected 401. An authenticated transient failure must not be
+          // interpreted as "no saved preferences" and then autosaved.
+          if (!isAuthenticated) setWeatherChasePreferenceItems([])
+          setWeatherChasePreferencesHydrated(true)
+          return
+        }
+        const raw = result.raw
         if (!raw || typeof raw !== 'object') {
+          if (!isAuthenticated) setWeatherChasePreferenceItems([])
           setWeatherChasePreferencesHydrated(true)
           return
         }
         const input = raw as Record<string, unknown>
         if (input.hasPreferences !== true) {
+          setWeatherChasePreferenceItems([])
           setWeatherChasePreferencesHydrated(true)
           return
         }
@@ -1867,6 +1878,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
           visibleHours: input.visibleHours,
         })
         if (!payload) {
+          setWeatherChasePreferenceItems([])
           setWeatherChasePreferencesHydrated(true)
           return
         }
@@ -1874,15 +1886,19 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
         setWeatherChasePreferencesHydrated(true)
       })
       .catch(() => {
-        // Public users and temporary API failures use in-memory defaults only.
-        if (!cancelled) setWeatherChasePreferencesHydrated(true)
+        // Public users use in-memory defaults. Authenticated failures stay
+        // unresolved so autosave cannot overwrite an existing server choice.
+        if (!cancelled) {
+          if (!isAuthenticated) setWeatherChasePreferenceItems([])
+          setWeatherChasePreferencesHydrated(true)
+        }
       })
 
     cleanWeatherChaseSaveParam()
     return () => {
       cancelled = true
     }
-  }, [applyWeatherChasePreferences, cleanWeatherChaseSaveParam, saveWeatherChasePreferencesToApi])
+  }, [applyWeatherChasePreferences, cleanWeatherChaseSaveParam, isAuthenticated, saveWeatherChasePreferencesToApi])
 
   useEffect(() => {
     if (!isAuthenticated || !weatherChasePreferencesHydrated || !weatherChaseSelectionInitialized) return
@@ -6069,7 +6085,10 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   return (
     <div className="flex h-full w-full flex-col">
       {/* Topbar */}
-      <div className="relative z-[110] flex shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 py-2">
+      <div
+        className="relative z-[110] flex shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 pb-2 pt-2"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
+      >
         {renderContextTab('weather')}
         {renderContextTab('route')}
         <button
@@ -6162,6 +6181,7 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 moveUpLabel: t('roadMapPrototypeWeatherChaseMoveUpLabel'),
                 moveDownLabel: t('roadMapPrototypeWeatherChaseMoveDownLabel'),
                 showNearbyStationsLabel: t('roadMapPrototypeWeatherChaseShowNearbyStations'),
+                nearbyDistanceLabel: t('roadMapPrototypeWeatherChaseNearbyDistance'),
                 emptySelection: t('roadMapPrototypeWeatherChaseEmptySelection'),
                 reorderTitle: t('roadMapPrototypeWeatherChaseReorderTitle'),
                 noRowsLabel: t('roadMapPrototypeWeatherChaseNoRows'),
@@ -6187,6 +6207,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 savingDefaultsLabel: t('roadMapPrototypeWeatherChaseSavingDefaults'),
                 savedDefaultsLabel: t('roadMapPrototypeWeatherChaseSavedDefaults'),
                 saveDefaultsFailedLabel: t('roadMapPrototypeWeatherChaseSaveDefaultsFailed'),
+                savePlacesLabel: t('roadMapPrototypeWeatherChaseSavePlaces'),
+                stationsTitle: t('roadMapPrototypeWeatherChaseStationsTitle'),
                 settingsLabel: t('roadMapPrototypeWeatherChaseSettings'),
               }}
               locale={locale}
@@ -6209,6 +6231,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
               onVisibleHoursChange={(hours) => setMapVisibleHours(normalizeWeatherChaseVisibleHours(hours))}
               showMedals={showMedals}
               onShowMedalsChange={setShowMedals}
+              defaultSettingsOpen={!isAuthenticated}
+              hideSettingsToggle={!isAuthenticated}
             />
           </div>
         </div>

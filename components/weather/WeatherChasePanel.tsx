@@ -23,6 +23,7 @@ export type WeatherChaseItem = {
   lat?: number | null
   lon?: number | null
   needsRowLoad?: boolean
+  nearbyDistanceM?: number
 }
 
 export type WeatherChaseCriteria = {
@@ -63,6 +64,7 @@ type WeatherChaseLabels = {
   moveUpLabel: string
   moveDownLabel: string
   showNearbyStationsLabel: string
+  nearbyDistanceLabel: string
   emptySelection: string
   reorderTitle: string
   noRowsLabel: string
@@ -88,6 +90,8 @@ type WeatherChaseLabels = {
   savingDefaultsLabel: string
   savedDefaultsLabel: string
   saveDefaultsFailedLabel: string
+  savePlacesLabel: string
+  stationsTitle: string
   settingsLabel: string
 }
 
@@ -116,6 +120,8 @@ type Props = {
   onVisibleHoursChange?: (hours: number[]) => void
   showMedals?: boolean
   onShowMedalsChange?: (v: boolean) => void
+  defaultSettingsOpen?: boolean
+  hideSettingsToggle?: boolean
 }
 
 const CMP_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
@@ -375,10 +381,13 @@ export function WeatherChasePanel({
   onVisibleHoursChange,
   showMedals = true,
   onShowMedalsChange,
+  defaultSettingsOpen = false,
+  hideSettingsToggle = false,
 }: Props) {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(defaultSettingsOpen)
+  const [placesChanged, setPlacesChanged] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [internalCriteria, setInternalCriteria] = useState<WeatherChaseCriteria>(DEFAULT_WEATHER_CHASE_CRITERIA)
   const [loadedRowsById, setLoadedRowsById] = useState<Map<string, ForecastDrawerRow[]>>(new Map())
@@ -388,6 +397,9 @@ export function WeatherChasePanel({
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchBlurTimerRef = useRef<number | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
+  const panelBottomRef = useRef<HTMLDivElement | null>(null)
+  const shouldScrollToAddedPlaceRef = useRef(false)
+  const skipInitialSettingsScrollRef = useRef(defaultSettingsOpen)
   const appliedDefaultsKeyRef = useRef<string | null>(null)
   const appliedSelectedIdsKeyRef = useRef<string | null>(null)
   const hasPublishedInitialSelectionRef = useRef(false)
@@ -561,10 +573,9 @@ export function WeatherChasePanel({
     clearSearchBlurTimer()
     setSelectedIds(prev => (prev.includes(id) ? prev : [...prev, id]))
     setQuery('')
-    setSearchFocused(true)
-    window.setTimeout(() => {
-      searchInputRef.current?.focus()
-    }, 0)
+    setSearchFocused(false)
+    setPlacesChanged(true)
+    shouldScrollToAddedPlaceRef.current = true
   }
 
   function toggleVisibleHour(hour: WeatherChaseVisibleHour) {
@@ -609,10 +620,22 @@ export function WeatherChasePanel({
   }, [activeCriteria.maxWindMs])
 
   useEffect(() => {
+    if (skipInitialSettingsScrollRef.current) {
+      skipInitialSettingsScrollRef.current = false
+      return
+    }
     if (settingsOpen) {
       settingsButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }, [settingsOpen])
+
+  useEffect(() => {
+    if (!shouldScrollToAddedPlaceRef.current) return
+    shouldScrollToAddedPlaceRef.current = false
+    window.setTimeout(() => {
+      panelBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }, 0)
+  }, [selectedItems])
 
   useEffect(() => {
     return () => clearSearchBlurTimer()
@@ -672,6 +695,7 @@ export function WeatherChasePanel({
   }
 
   function removeItem(id: string) {
+    setPlacesChanged(true)
     setSelectedIds(prev => prev.filter(itemId => itemId !== id))
   }
 
@@ -742,7 +766,16 @@ export function WeatherChasePanel({
                   <p className="text-[10px] font-medium text-muted-foreground">{labels.showNearbyStationsLabel}</p>
                   {nearbyStationItems.map(nearbyItem => (
                     <div key={nearbyItem.id} className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate text-[11px] text-foreground">{nearbyItem.label}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[11px] text-foreground">{nearbyItem.label}</span>
+                        {typeof nearbyItem.nearbyDistanceM === 'number' && (
+                          <span className="block text-[10px] text-muted-foreground">
+                            {new Intl.NumberFormat(locale, {
+                              maximumFractionDigits: nearbyItem.nearbyDistanceM < 10_000 ? 1 : 0,
+                            }).format(nearbyItem.nearbyDistanceM / 1000)} {labels.nearbyDistanceLabel}
+                          </span>
+                        )}
+                      </span>
                       <button
                         type="button"
                         onClick={() => addItem(nearbyItem.id)}
@@ -924,68 +957,25 @@ export function WeatherChasePanel({
           </div>
         </div>
 
-        <button
-          ref={settingsButtonRef}
-          type="button"
-          onClick={() => setSettingsOpen(v => !v)}
-          className="flex min-h-9 w-full items-center justify-between rounded-lg border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          <span>{labels.settingsLabel}</span>
-          <span>{settingsOpen ? '▲' : '▼'}</span>
-        </button>
+        {!hideSettingsToggle && (
+          <button
+            ref={settingsButtonRef}
+            type="button"
+            onClick={() => setSettingsOpen(v => !v)}
+            className="flex min-h-9 w-full items-center justify-between rounded-lg border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <span>{labels.settingsLabel}</span>
+            <span>{settingsOpen ? '▲' : '▼'}</span>
+          </button>
+        )}
 
         {settingsOpen && (
           <div className="flex flex-col gap-4">
-            <div className="relative space-y-1">
-              <label htmlFor="weather-chase-search" className="text-xs font-medium text-foreground">
-                {labels.searchLabel}
-              </label>
-              <input
-                ref={searchInputRef}
-                id="weather-chase-search"
-                type="search"
-                value={query}
-                onChange={event => setQuery(event.target.value)}
-                onFocus={() => {
-                  clearSearchBlurTimer()
-                  setSearchFocused(true)
-                }}
-                onBlur={() => {
-                  clearSearchBlurTimer()
-                  searchBlurTimerRef.current = window.setTimeout(() => {
-                    setSearchFocused(false)
-                    searchBlurTimerRef.current = null
-                  }, 120)
-                }}
-                placeholder={labels.searchPlaceholder}
-                className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
-              />
-              {showSuggestions && (
-                <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-background p-1 shadow-lg">
-                  {suggestions.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-muted-foreground">{labels.noSuggestions}</p>
-                  ) : suggestions.map(item => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onMouseDown={event => event.preventDefault()}
-                      onClick={() => addItem(item.id)}
-                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-foreground">{item.label}</span>
-                        {item.sourceLabel && (
-                          <span className="block truncate text-[11px] text-muted-foreground">{item.sourceLabel}</span>
-                        )}
-                      </span>
-                      <ProviderBadge item={item} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-md border border-border/60 bg-muted/20 p-1.5">
+            <div className="rounded-lg border border-border/70 bg-background/75 p-3">
+              <div className="mb-3">
+                <h3 className="text-sm font-semibold text-foreground">{labels.criteriaTitle}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{labels.criteriaHint}</p>
+              </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <label className="space-y-1 text-xs font-medium text-muted-foreground">
                   <span>{labels.minTemperatureLabel}</span>
@@ -1095,7 +1085,77 @@ export function WeatherChasePanel({
               )}
             </div>
 
-            {renderReorderList()}
+            <div className="rounded-lg border border-border/70 bg-background/75 p-3">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">{labels.stationsTitle}</h3>
+              <div className="relative mb-4 space-y-1">
+                <label htmlFor="weather-chase-search" className="text-xs font-medium text-foreground">
+                  {labels.searchLabel}
+                </label>
+                <input
+                  ref={searchInputRef}
+                  id="weather-chase-search"
+                  type="search"
+                  value={query}
+                  onChange={event => setQuery(event.target.value)}
+                  onFocus={() => {
+                    clearSearchBlurTimer()
+                    setSearchFocused(true)
+                  }}
+                  onBlur={() => {
+                    clearSearchBlurTimer()
+                    searchBlurTimerRef.current = window.setTimeout(() => {
+                      setSearchFocused(false)
+                      searchBlurTimerRef.current = null
+                    }, 120)
+                  }}
+                  placeholder={labels.searchPlaceholder}
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
+                />
+                {showSuggestions && (
+                  <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-background p-1 shadow-lg">
+                    {suggestions.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">{labels.noSuggestions}</p>
+                    ) : suggestions.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={() => addItem(item.id)}
+                        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-foreground">{item.label}</span>
+                          {item.sourceLabel && (
+                            <span className="block truncate text-[11px] text-muted-foreground">{item.sourceLabel}</span>
+                          )}
+                        </span>
+                        <ProviderBadge item={item} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {renderReorderList()}
+              {onSaveDefault && placesChanged && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveDefault}
+                    disabled={saveStatus === 'saving' || selectedItems.length === 0}
+                    className="min-h-10 rounded-full border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {saveStatus === 'saving' ? labels.savingDefaultsLabel : labels.savePlacesLabel}
+                  </button>
+                  {saveStatus === 'saved' && (
+                    <span className="text-xs text-emerald-700 dark:text-emerald-400">{labels.savedDefaultsLabel}</span>
+                  )}
+                  {saveStatus === 'error' && (
+                    <span className="text-xs text-destructive">{labels.saveDefaultsFailedLabel}</span>
+                  )}
+                </div>
+              )}
+            </div>
+            <div ref={panelBottomRef} aria-hidden="true" />
           </div>
         )}
       </section>
