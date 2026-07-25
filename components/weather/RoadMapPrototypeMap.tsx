@@ -124,6 +124,44 @@ const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
   maxWindMs: null,
   maxPrecipitationMmPerHour: null,
 }
+const DEFAULT_WEATHER_CHASE_PREFERENCE_ITEMS = [
+  {
+    id: 'vedurstofan:6315',
+    providerId: 'vedurstofan',
+    label: 'Hella',
+    lat: 63.8257,
+    lon: -20.3654,
+  },
+  {
+    id: 'vedurstofan:1475',
+    providerId: 'vedurstofan',
+    label: 'Reykjavík',
+    lat: 64.1275,
+    lon: -21.902,
+  },
+  {
+    id: 'vedurstofan:6015',
+    providerId: 'vedurstofan',
+    label: 'Vestmannaeyjabær',
+    lat: 63.4359,
+    lon: -20.2758,
+  },
+  {
+    id: 'metno:egilsstadir',
+    providerId: 'metno',
+    label: 'Egilsstaðir',
+    lat: 65.2674,
+    lon: -14.3948,
+  },
+  {
+    id: 'metno:isafjordur',
+    providerId: 'metno',
+    label: 'Ísafjörður',
+    lat: 66.0748,
+    lon: -23.125,
+  },
+] satisfies WeatherChasePreferenceItem[]
+const DEFAULT_WEATHER_CHASE_ITEM_IDS = DEFAULT_WEATHER_CHASE_PREFERENCE_ITEMS.map(item => item.id)
 
 function shouldLogRoadMapDiagnostics(): boolean {
   return process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ROAD_INTELLIGENCE_DEBUG === 'true'
@@ -1541,7 +1579,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   const weatherChaseItems = useMemo<WeatherChaseItem[]>(() => {
     const availableItems = [...weatherChaseVedurstofanItems, ...weatherChaseMetnoItems]
     const availableIds = new Set(availableItems.map(item => item.id))
-    const savedPlaceholders = (weatherChasePreferenceItems ?? [])
+    const preferencePlaceholders =
+      weatherChasePreferenceItems && weatherChasePreferenceItems.length > 0
+        ? weatherChasePreferenceItems
+        : DEFAULT_WEATHER_CHASE_PREFERENCE_ITEMS
+    const savedPlaceholders = preferencePlaceholders
       .filter(item => !availableIds.has(item.id))
       .map((item): WeatherChaseItem => ({
         id: item.id,
@@ -1570,14 +1612,12 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
   }, [t, weatherChaseMetnoItems, weatherChasePreferenceItems, weatherChaseVedurstofanItems])
 
   const loadWeatherChaseItemRows = useCallback(async (item: WeatherChaseItem): Promise<ForecastDrawerRow[]> => {
-    if (
-      item.providerId !== 'metno' ||
-      typeof item.lat !== 'number' ||
-      !Number.isFinite(item.lat) ||
-      typeof item.lon !== 'number' ||
-      !Number.isFinite(item.lon)
-    ) {
+    if (item.providerId !== 'metno') {
       return item.rows
+    }
+    const placeId = item.id.startsWith('metno:') ? item.id.slice('metno:'.length) : ''
+    if (!ROAD_MAP_PLACES.some(place => place.id === placeId)) {
+      throw new Error('Unknown met.no place')
     }
 
     const requestKey =
@@ -1588,24 +1628,43 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
     const existingRequest = weatherChaseMetnoRowsInFlightRef.current.get(requestKey)
     if (existingRequest) return existingRequest
 
-    const params = new URLSearchParams({
-      lat: String(item.lat),
-      lon: String(item.lon),
-    })
-    const request = fetch(`/api/teskeid/weather/metno/point?${params.toString()}`, {
+    const params = new URLSearchParams({ placeId })
+    const fetchRows = async () => {
+      const res = await fetch(`/api/teskeid/weather/metno/point?${params.toString()}`, {
         credentials: 'same-origin',
       })
-      .then(async res => {
-        if (!res.ok) {
-          throw new Error(`met.no point forecast failed: ${res.status}`)
+      if (!res.ok) {
+        throw new Error(`met.no point forecast failed: ${res.status}`)
+      }
+      const data = await res.json() as RoadMapMetnoPointForecastResponse
+      if (data.status !== 'ok') {
+        throw new Error(data.error ?? 'met.no point forecast unavailable')
+      }
+      const rows = buildRoadMapMetnoForecastDrawerRows(data.forecasts, overviewThresholds)
+      if (rows.length === 0) {
+        throw new Error('met.no point forecast returned no usable rows')
+      }
+      weatherChaseMetnoRowsCacheRef.current.set(requestKey, rows)
+      return rows
+    }
+    const request = (async () => {
+      try {
+        return await fetchRows()
+      } catch {
+        return fetchRows()
+      }
+    })()
+      .then(rows => {
+        if (rows.length === 0) {
+          throw new Error('met.no point forecast returned no usable rows')
         }
-        const data = await res.json() as RoadMapMetnoPointForecastResponse
-        if (data.status !== 'ok') {
-          throw new Error(data.error ?? 'met.no point forecast unavailable')
-        }
-        const rows = buildRoadMapMetnoForecastDrawerRows(data.forecasts, overviewThresholds)
-        weatherChaseMetnoRowsCacheRef.current.set(requestKey, rows)
         return rows
+      })
+      .catch(error => {
+        if (shouldLogRoadMapDiagnostics()) {
+          console.error('[RoadMap] met.no place forecast failed', { placeId, error })
+        }
+        throw error
       })
       .finally(() => {
         weatherChaseMetnoRowsInFlightRef.current.delete(requestKey)
@@ -1658,35 +1717,11 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
       .map(c => c.item)
   }, [weatherChaseNearbyFocusId, weatherChaseSelectedItems, weatherChaseVedurstofanItems])
 
-  const weatherChaseDefaultItemIds = useMemo(() => {
-    const ids = new Set<string>()
-    const itemsWithCoords = weatherChaseVedurstofanItems.filter(
-      (item): item is WeatherChaseItem & { lat: number; lon: number } =>
-        typeof item.lat === 'number' &&
-        Number.isFinite(item.lat) &&
-        typeof item.lon === 'number' &&
-        Number.isFinite(item.lon),
-    )
-
-    for (const region of OVERVIEW_AGGREGATE_REGIONS) {
-      const nearest = itemsWithCoords
-        .map(item => ({
-          item,
-          distanceM: haversineDistanceM(region, { lat: item.lat, lon: item.lon }),
-        }))
-        .sort((a, b) => a.distanceM - b.distanceM || a.item.label.localeCompare(b.item.label, 'is'))[0]
-        ?.item
-      if (nearest) ids.add(nearest.id)
-    }
-
-    return Array.from(ids)
-  }, [weatherChaseVedurstofanItems])
-
   const weatherChaseInitialSelectedIds = useMemo(() => {
     if (weatherChasePreferenceItems === null) return null
     const savedIds = weatherChasePreferenceItems.map(item => item.id).filter(Boolean)
-    return savedIds.length > 0 ? savedIds : weatherChaseDefaultItemIds
-  }, [weatherChaseDefaultItemIds, weatherChasePreferenceItems])
+    return savedIds.length > 0 ? savedIds : DEFAULT_WEATHER_CHASE_ITEM_IDS
+  }, [weatherChasePreferenceItems])
 
   const applyWeatherChasePreferences = useCallback((payload: WeatherChasePreferencesPayload) => {
     setWeatherChasePreferenceItems(payload.selectedItems)
@@ -6130,6 +6165,8 @@ export function RoadMapPrototypeMap({ isAuthenticated = false }: { isAuthenticat
                 emptySelection: t('roadMapPrototypeWeatherChaseEmptySelection'),
                 reorderTitle: t('roadMapPrototypeWeatherChaseReorderTitle'),
                 noRowsLabel: t('roadMapPrototypeWeatherChaseNoRows'),
+                rowLoadFailedLabel: t('roadMapPrototypeWeatherChaseRowLoadFailed'),
+                retryRowLoadLabel: t('roadMapPrototypeWeatherChaseRetryRowLoad'),
                 criteriaTitle: t('roadMapPrototypeWeatherChaseCriteriaTitle'),
                 criteriaHint: t('roadMapPrototypeWeatherChaseCriteriaHint'),
                 minTemperatureLabel: t('roadMapPrototypeWeatherChaseMinTemperatureLabel'),

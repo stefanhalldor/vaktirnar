@@ -1144,6 +1144,8 @@
         "roadMapPrototypeWeatherChaseEmptySelection": "Choose places to compare.",
         "roadMapPrototypeWeatherChaseReorderTitle": "Reorder or remove places.",
         "roadMapPrototypeWeatherChaseNoRows": "No forecast values were found for the selected places.",
+        "roadMapPrototypeWeatherChaseRowLoadFailed": "Could not fetch the forecast.",
+        "roadMapPrototypeWeatherChaseRetryRowLoad": "Try again",
         "roadMapPrototypeWeatherChaseProviderVedurstofan": "Icelandic Met Office",
         "roadMapPrototypeWeatherChaseProviderMetno": "Yr / met.no",
         "roadMapPrototypeWeatherChaseCriteriaTitle": "What kind of weather are you looking for?",

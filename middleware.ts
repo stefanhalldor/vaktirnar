@@ -53,6 +53,9 @@ const EXACT_PUBLIC_PATHS = new Set([
   // Public Vegagerðin current-measurements overview — read-only cache; handler enforces own flag and access checks.
   // Exact-match only: /current/foo must not become public.
   '/api/teskeid/weather/vegagerdin/current',
+  // Public forecast comparison can fetch met.no only for canonical ROAD_MAP_PLACES.
+  // Exact-match only; the handler does not accept arbitrary coordinates.
+  '/api/teskeid/weather/metno/point',
   // Public conditions feed preview — latest visible message per target, no auth, no write.
   // Exact-match only: sub-paths under /feed-preview must not become public without explicit review.
   '/api/teskeid/weather/vedurpuls/feed-preview',

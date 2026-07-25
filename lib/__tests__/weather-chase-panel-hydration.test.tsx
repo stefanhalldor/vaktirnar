@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -53,5 +53,70 @@ describe('WeatherChasePanel preference hydration', () => {
     expect(onSelectedItemsChange.mock.calls.map(([selected]) => (
       (selected as WeatherChaseItem[]).map(item => item.id)
     ))).toEqual([['vedurstofan:1']])
+  })
+
+  it('shows a recoverable error instead of a silently empty met.no row', async () => {
+    const metnoItem: WeatherChaseItem = {
+      id: 'metno:egilsstadir',
+      label: 'Egilsstaðir',
+      providerId: 'metno',
+      providerLabel: 'Yr / met.no',
+      sourceLabel: 'Yr / met.no',
+      rows: [],
+      lat: 65.2674,
+      lon: -14.3948,
+      needsRowLoad: true,
+    }
+    const onLoadItemRows = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce([{
+        validTime: '2026-07-25T12:00:00.000Z',
+        temperatureC: 12,
+        windMs: 4,
+        precipitationMm: 0,
+        status: 'within_limits',
+      }])
+
+    render(
+      <WeatherChasePanel
+        items={[metnoItem]}
+        initialSelectedIds={[metnoItem.id]}
+        labels={labels}
+        locale="is"
+        onLoadItemRows={onLoadItemRows}
+        visibleHours={[12]}
+      />,
+    )
+
+    expect(await screen.findByText('rowLoadFailedLabel')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'retryRowLoadLabel' }))
+
+    await waitFor(() => expect(onLoadItemRows).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('rowLoadFailedLabel')).not.toBeInTheDocument())
+  })
+
+  it('treats an empty met.no response as a load failure', async () => {
+    const metnoItem: WeatherChaseItem = {
+      id: 'metno:isafjordur',
+      label: 'Ísafjörður',
+      providerId: 'metno',
+      providerLabel: 'Yr / met.no',
+      sourceLabel: 'Yr / met.no',
+      rows: [],
+      needsRowLoad: true,
+    }
+
+    render(
+      <WeatherChasePanel
+        items={[metnoItem]}
+        initialSelectedIds={[metnoItem.id]}
+        labels={labels}
+        locale="is"
+        onLoadItemRows={vi.fn().mockResolvedValue([])}
+        visibleHours={[12]}
+      />,
+    )
+
+    expect(await screen.findByText('rowLoadFailedLabel')).toBeInTheDocument()
   })
 })

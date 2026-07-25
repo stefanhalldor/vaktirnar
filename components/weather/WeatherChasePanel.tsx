@@ -66,6 +66,8 @@ type WeatherChaseLabels = {
   emptySelection: string
   reorderTitle: string
   noRowsLabel: string
+  rowLoadFailedLabel: string
+  retryRowLoadLabel: string
   criteriaTitle: string
   criteriaHint: string
   minTemperatureLabel: string
@@ -472,6 +474,9 @@ export function WeatherChasePanel({
       inFlightLoadIdsRef.current.add(item.id)
       onLoadItemRows(item)
         .then(rows => {
+          if (rows.length === 0) {
+            throw new Error('Empty forecast rows')
+          }
           setLoadedRowsById(prev => {
             const next = new Map(prev)
             next.set(item.id, rows)
@@ -491,6 +496,33 @@ export function WeatherChasePanel({
         })
     }
   }, [failedRowIds, loadingRowIds, onLoadItemRows, selectedItems])
+
+  function retryItemRows(itemId: string) {
+    setFailedRowIds(prev => {
+      const next = new Set(prev)
+      next.delete(itemId)
+      return next
+    })
+  }
+
+  function renderItemLoadState(itemId: string) {
+    if (loadingRowIds.has(itemId)) {
+      return <p className="mt-1 text-[10px] text-muted-foreground">{labels.loading}</p>
+    }
+    if (!failedRowIds.has(itemId)) return null
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
+        <span className="text-destructive">{labels.rowLoadFailedLabel}</span>
+        <button
+          type="button"
+          onClick={() => retryItemRows(itemId)}
+          className="font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {labels.retryRowLoadLabel}
+        </button>
+      </div>
+    )
+  }
 
   const normalizedQuery = normalizeSearch(query)
   const suggestions = useMemo(() => {
@@ -739,9 +771,14 @@ export function WeatherChasePanel({
     if (cols.length === 0) {
       const isLoadingRows = selectedItems.some(item => loadingRowIds.has(item.id))
       return (
-        <p className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-4 text-sm text-muted-foreground">
-          {isLoadingRows ? labels.loading : labels.noRowsLabel}
-        </p>
+        <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-4">
+          <p className="text-sm text-muted-foreground">
+            {isLoadingRows ? labels.loading : labels.noRowsLabel}
+          </p>
+          {selectedItems.map(item => (
+            <div key={item.id}>{renderItemLoadState(item.id)}</div>
+          ))}
+        </div>
       )
     }
 
@@ -762,6 +799,7 @@ export function WeatherChasePanel({
                       <div className="min-w-0">
                         <p className="truncate text-[11px] font-semibold text-foreground">{item.label}</p>
                         <ProviderBadge item={item} />
+                        {renderItemLoadState(item.id)}
                       </div>
                       <MetricStack
                         row={row}
@@ -802,9 +840,7 @@ export function WeatherChasePanel({
                 <div className="mt-1">
                   <ProviderBadge item={item} />
                 </div>
-                {loadingRowIds.has(item.id) && (
-                  <p className="mt-1 text-[10px] text-muted-foreground">{labels.loading}</p>
-                )}
+                {renderItemLoadState(item.id)}
               </div>
               {cols.map(col => {
                 const row = col.rowsByItemId.get(item.id) ?? null

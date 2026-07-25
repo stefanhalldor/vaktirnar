@@ -6,6 +6,10 @@ const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
 const { mockFetchVedurstofan } = vi.hoisted(() => ({ mockFetchVedurstofan: vi.fn() }))
 
+vi.mock('next/cache', () => ({
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+}))
+
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
     auth: { getUser: mockGetUser },
