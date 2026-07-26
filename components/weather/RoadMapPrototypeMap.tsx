@@ -453,6 +453,17 @@ export function formatRouteReferenceLabel({
     : numberedProviderLabel
 }
 
+export function PublicWeatherMapCta({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      className="mb-3 flex min-h-11 w-full items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-center text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    >
+      {label}
+    </a>
+  )
+}
+
 function getRouteDepartureCandidates(result: DeterministicResult): TravelCandidate[] | null {
   const outbound = result.travelPlan?.outbound
   if (!outbound) return null
@@ -4453,8 +4464,8 @@ export function RoadMapPrototypeMap({
     return buildRoadMapStationReturnHref(navigation, stationId)
   }
 
-  function signInReturnHref(): string {
-    return buildRoadMapSignInReturnHref(navigation)
+  function signInReturnHref(context: 'weather' | 'route' = 'route'): string {
+    return buildRoadMapSignInReturnHref(navigation, context)
   }
 
   function persistRouteReturnSnapshot(view = routeContextViewRef.current) {
@@ -7013,7 +7024,13 @@ export function RoadMapPrototypeMap({
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('context') !== 'route') return
+    const requestedContext = params.get('context')
+    if (requestedContext === 'weather') {
+      const requestedView = params.get('view') === 'map' ? 'map' : 'information'
+      openWeatherContext(requestedView)
+      return
+    }
+    if (requestedContext !== 'route') return
     const requestedView = params.get('view') === 'map' ? 'map' : 'information'
     routeContextViewRef.current = requestedView
     if (params.get('restoreRoute') !== '1') {
@@ -7492,6 +7509,12 @@ export function RoadMapPrototypeMap({
       {isWeatherChaseOpen && (
         <div className="absolute inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:pointer-events-none sm:inset-x-3 sm:bottom-28 sm:top-14 sm:z-[40] sm:flex-row sm:items-start sm:bg-transparent sm:backdrop-blur-none">
           <div className="pointer-events-auto flex-1 overflow-y-auto p-3 sm:flex-none sm:max-h-[calc(100vh-9rem)] sm:w-full sm:max-w-2xl sm:rounded-xl sm:border sm:border-border/70 sm:bg-background/95 sm:shadow-xl sm:backdrop-blur-sm">
+            {!isAuthenticated && (
+              <PublicWeatherMapCta
+                href={`/innskraning?next=${encodeURIComponent(signInReturnHref('weather'))}`}
+                label={t('roadMapPrototypePublicWeatherMapSignIn')}
+              />
+            )}
             <WeatherChasePanel
               items={weatherChaseItems}
               initialSelectedIds={weatherChaseInitialSelectedIds}

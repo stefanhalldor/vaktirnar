@@ -29,6 +29,9 @@ describe('road map navigation', () => {
     expect(buildRoadMapSignInReturnHref(promotedPublicNavigation)).toBe(
       '/auth-mvp/vedrid?context=route&view=information',
     )
+    expect(buildRoadMapSignInReturnHref(promotedPublicNavigation, 'weather')).toBe(
+      '/auth-mvp/vedrid?context=weather&view=information',
+    )
   })
 
   it('builds station return URLs without losing the canonical path', () => {

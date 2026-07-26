@@ -39,9 +39,10 @@ export function buildRoadMapStationReturnHref(
 
 export function buildRoadMapSignInReturnHref(
   navigation: RoadMapNavigation,
+  context: 'weather' | 'route' = 'route',
 ): string {
   const params = new URLSearchParams({
-    context: 'route',
+    context,
     view: 'information',
   })
   return `${navigation.authenticatedPath}?${params.toString()}`

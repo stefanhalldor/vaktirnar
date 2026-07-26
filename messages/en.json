@@ -1227,6 +1227,7 @@
         "roadMapPrototypePublicSavePromptClose": "Close and continue temporarily",
         "roadMapPrototypePublicPlacesTemporary": "These places are stored temporarily in this tab. Sign in to save them permanently.",
         "roadMapPrototypePublicPlacesSignIn": "Sign in and save places",
+        "roadMapPrototypePublicWeatherMapSignIn": "Sign in to create your weather map",
         "roadMapPrototypeWeatherChaseSettings": "Edit stations and set weather preferences",
         "roadMapPrototypeErrorTitle": "Map could not load",
         "roadMapPrototypeHideRoadNetwork": "Hide road network",

@@ -1233,6 +1233,7 @@
         "roadMapPrototypePublicSavePromptClose": "Loka og halda áfram tímabundið",
         "roadMapPrototypePublicPlacesTemporary": "Þessir staðir geymast aðeins tímabundið í þessum flipa. Skráðu þig inn til að vista þá varanlega.",
         "roadMapPrototypePublicPlacesSignIn": "Skrá inn og vista staðina",
+        "roadMapPrototypePublicWeatherMapSignIn": "Skráðu þig inn til að búa til þitt veðurkort",
         "roadMapPrototypeWeatherChaseSettings": "Breyta stöðum og stilla veðurvæntingar",
         "roadMapPrototypeErrorTitle": "Kort gat ekki hlaðist",
         "roadMapPrototypeHideRoadNetwork": "Fela vegakerfi",
