@@ -1,4 +1,4 @@
-export const ICELAND_ROUTES_FOUNDATION_VERSION = '0.4.0'
+export const ICELAND_ROUTES_FOUNDATION_VERSION = '0.6.0'
 
 export type {
   IcelandRoadIntelligenceConfidence,
@@ -59,6 +59,61 @@ export type {
 export { resolveOverviewRouteLensCacheOnly, normalizePlaceName } from './lensResolver'
 export { filterStationIdsForRouteLens } from './lensFilter'
 export { ROUTE_FAMILIES, getRouteFamily } from './routeFamilies'
+
+// Provider-neutral routing boundary. Server-only shadow execution is exported
+// directly from routingShadow.server.ts to prevent accidental client imports.
+export type {
+  IcelandRoutingAvoidance,
+  IcelandRoutingConfidence,
+  IcelandRoutingPath,
+  IcelandRoutingPlace,
+  IcelandRoutingProvider,
+  IcelandRoutingProviderId,
+  IcelandRoutingRequest,
+  IcelandRoutingResult,
+  IcelandRoutingSurfaceBreakdown,
+  IcelandRoutingVehicleProfile,
+} from './routingProvider'
+
+// Automated Iceland road graph. Server-only fetching/provider implementations
+// stay behind explicit *.server imports to prevent accidental client bundling.
+export type {
+  IcelandRoadClass,
+  IcelandRoadDirection,
+  IcelandRoadGraph,
+  IcelandRoadGraphDiagnostics,
+  IcelandRoadGraphEdge,
+  IcelandRoadGraphNode,
+  IcelandRoadGraphRoute,
+  IcelandRoadGraphRouteResult,
+  IcelandRoadGraphSegmentInput,
+  IcelandRoadRoutingObjective,
+  IcelandRoadRoutingProfile,
+  IcelandRoadSpeedSource,
+  IcelandRoadSurface,
+  IcelandRoadSurfaceBreakdown,
+} from './roadGraphTypes'
+export {
+  analyzeIcelandRoadGraph,
+  buildIcelandRoadGraph,
+  derivedRoadSpeedKmh,
+  findIcelandRoadGraphRoute,
+  findIcelandRoadGraphAlternatives,
+  geometryLengthM,
+  haversineDistanceM,
+  ICELAND_ROUTING_PROFILES,
+} from './roadGraph'
+export type {
+  ArcGisGeoJsonFeature,
+  ArcGisGeoJsonFeatureCollection,
+  NormalizeVegagerdinRoadGraphInput,
+} from './vegagerdinRoadGraphSource'
+export {
+  normalizeVegagerdinRoadGraphSegments,
+  vegagerdinDirection,
+  vegagerdinRoadClass,
+  vegagerdinSurface,
+} from './vegagerdinRoadGraphSource'
 
 // Route draft — overview-to-ferdalagid place handoff via sessionStorage
 export type { RouteDraftPlace, OverviewRouteDraft } from './routeDraft'

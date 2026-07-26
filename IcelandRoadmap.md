@@ -276,6 +276,68 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
   Google adapterinn, svo eigið routing og Google-backed routing gefi sömu
   mannamálslegu viðvaranir.
 
+**Byrjað (provider contract og shadow foundation):**
+
+- `lib/iceland-routes/routingProvider.ts` skilgreinir provider-neutral request,
+  result og provider contract fyrir Google- og Teskeiðar-adaptera.
+- `lib/iceland-routes/routingShadow.server.ts` er server-only, fail-closed
+  shadow runner bak við `TESKEID_ROUTING_SHADOW_ENABLED`.
+- Shadow scheduler notar Next.js `after()` og er tengdur final travel API bak
+  við fail-closed `TESKEID_ROUTING_SHADOW_ENABLED`. Hann skrifar engin gögn og
+  skilar aldrei shadow-niðurstöðu til client.
+- Corridor-provider er aðeins integration fixture og verður ekki þróaður í
+  handsmíðað leiðakerfi.
+
+**Byrjað (v0.6 — sjálfvirkt all-Iceland road graph spike):**
+
+- Opinbera `data/vegakerfi/MapServer/6` Vegir-lagið er topology source.
+- Opinbera `data/slitlag/MapServer/0` lagið tengist með `IDKAFLI` sem
+  surface-attribute; mixed kaflar eru ekki taldir fully paved.
+- `roadGraph.ts` byggir directed graph og reiknar shortest/fastest/paved-only
+  leiðir með priority queue og multi-component endpoint matching.
+- `IcelandRoadGraphRoutingProvider` skilar sama provider-neutral contracti og
+  shadow foundation.
+- Read-only live audit 2026-07-25 byggði 1.226 segment / 1.363 node graph við
+  20 m topology tolerance og fann sjálfvirkt Reykjavík → Akureyri:
+  390,2 km, áætlaðar 4 klst. 35 mín., 57 kaflar, allt flokkað paved.
+- Endpoint snapping var 767 m við Reykjavík og 1.091 m við Akureyri. Graphið er
+  því sannreynt sem landsleiðaspike en þarf edge map-matching/local-road coverage
+  áður en það má verða notendasýnilegt.
+- Allur hraði í þessari niðurstöðu er enn afleiddur. Tíminn er engineering
+  estimate, ekki production ETA, þar til official speed layer og regression
+  calibration hafa verið tengd.
+- Ekkert graph er vistað og Google er óbreytt primary provider.
+
+**Framhald (v0.7 — almenn localhost leiðastofa):**
+
+- 20 para gullfylki nær yfir helstu landsleiðir og lifandi read-only úttekt
+  finnur nú öll pörin innan skilgreindra fjarlægðarbila.
+- `/preview/teskeid-routes` tekur við hvaða íslensku upphafs- og endastöðum sem
+  núverandi staðaleit leysir í hnit; gullfylkið takmarkar því ekki leitina.
+- Bounded alternative-leit finnur fleiri raunverulega ólíkar leiðir án
+  handskrifaðra route-family reglna. Reykjavík → Ísafjörður skilar nú þremur
+  öðrum candidates auk aðalleiðar og sýnir slitlagsblöndu hverrar leiðar.
+- Núverandi vindur og hviður úr cache Vegagerðarinnar eru tengd við nálægar
+  stöðvar á hverri candidate-leið. Þetta eru mælingar, ekki spá eða safety claim.
+- Browser-GPS prófun færir bíl á route-sketch og sýnir vegalengd að næsta
+  geometry-skrefi. Götunöfn, fullgildar beygjuleiðbeiningar, turn restrictions,
+  off-route rerouting og lokanir eru enn blockers fyrir production navigation.
+
+**Framhald (v0.8 — flaggaður candidate samhliða Google):**
+
+- `TESKEID_ROUTE_CANDIDATE_ENABLED=true` bætir einni Teskeiðarleið aftast við
+  núverandi Google-leiðaval. Google er áfram fyrst og sjálfvalið.
+- Sameiginlegur server-helper reiknar leiðina bæði fyrir leiðaval og þegar valin
+  leið er notuð í ferðaveðri. Þannig getur preview ekki sýnt leið sem final submit
+  reynir síðan ranglega að finna hjá Google.
+- Átta sekúndna budget, flag-off, graph/source-villa eða no-route fela aðeins
+  Teskeiðarleiðina. Google-response helst óbreytt og notandi sér enga Teskeiðarvillu.
+- UI merkir leiðina skýrt sem tilraun, segir að tíminn sé áætlaður og sýnir
+  malarmerkingu þegar source facts innihalda skráð malarslitlag.
+- Þetta er prófunarstig, ekki production-default eða öryggisleiðsögn. Lokanir,
+  færð, official speed limits, turn restrictions og off-route rerouting eru enn
+  blockers fyrir almenna útgáfu.
+
 ### R7 - Eigið Kortalag Prototype
 
 Staða: ekki byrjað.

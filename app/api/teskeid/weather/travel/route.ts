@@ -30,6 +30,12 @@ import type { VegagerdinRouteLayer } from '@/lib/road-intelligence/vegagerdinRou
 import { classifyObservationWindDisplayStatus } from '@/lib/weather/windDisplayStatus'
 import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
 import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
+import { scheduleTeskeidShadowRun } from '@/lib/iceland-routes/routingScheduler.server'
+import {
+  getTeskeidRouteCandidateById,
+  TESKEID_ROUTE_CANDIDATE_ID,
+  TESKEID_ROUTE_CANDIDATE_ID_PREFIX,
+} from '@/lib/iceland-routes/roadGraphCandidate.server'
 
 const VALID_TRAILER_KINDS = new Set([
   'none', 'generic_trailer', 'tent_trailer', 'folding_camper', 'caravan', 'horse_trailer',
@@ -294,12 +300,48 @@ export async function POST(request: Request) {
   const { actor, userId } = access
 
   const selectedRouteId = typeof body.selectedRouteId === 'string' ? body.selectedRouteId : null
+  const selectedTeskeidRouteId = selectedRouteId && (
+    selectedRouteId === TESKEID_ROUTE_CANDIDATE_ID
+    || selectedRouteId.startsWith(TESKEID_ROUTE_CANDIDATE_ID_PREFIX)
+  ) ? selectedRouteId : null
   const routePairHash = routePairFingerprint(origin, destination)
   const hashMeta = routePairHash !== null ? { routePairHash } : {}
 
+  if (selectedTeskeidRouteId) {
+    const hasTeskeidRouting = user?.id && user.email
+      ? await checkFeatureAccess(user.id, user.email, 'teskeid-routing-v1').catch(() => false)
+      : false
+    if (!hasTeskeidRouting) {
+      await recordTeskeidUsageEvent({
+        userId,
+        featureKey: 'vedrid',
+        eventName: 'weather_final_forecast_failed',
+        path: '/api/teskeid/weather/travel',
+        metadata: { actor, ...hashMeta, failureReason: 'selected_route_unavailable', selectedRouteProvided: true },
+      })
+      return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
+    }
+  }
+
   let routeGeometry
   try {
-    if (selectedRouteId) {
+    if (selectedTeskeidRouteId) {
+      routeGeometry = await getTeskeidRouteCandidateById(
+        { lat: originCandidate.lat, lon: originCandidate.lon },
+        { lat: destCandidate.lat, lon: destCandidate.lon },
+        selectedTeskeidRouteId,
+      )
+      if (!routeGeometry) {
+        await recordTeskeidUsageEvent({
+          userId,
+          featureKey: 'vedrid',
+          eventName: 'weather_final_forecast_failed',
+          path: '/api/teskeid/weather/travel',
+          metadata: { actor, ...hashMeta, failureReason: 'selected_route_unavailable', selectedRouteProvided: true },
+        })
+        return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
+      }
+    } else if (selectedRouteId) {
       const routeOptions = await provider.getRouteOptions(originCandidate, destCandidate)
       const matched = routeOptions.find(r => r.id === selectedRouteId)
       if (!matched) {
@@ -314,9 +356,23 @@ export async function POST(request: Request) {
       }
       routeGeometry = matched
     } else {
-      routeGeometry = await provider.getRouteGeometry(originCandidate, destCandidate)
+      try {
+        routeGeometry = await provider.getRouteGeometry(originCandidate, destCandidate)
+      } catch (error) {
+        if (shouldLogRoadMapApiDiagnostics()) {
+          console.warn('[RoadMap API] default route geometry failed; trying route options fallback')
+        }
+        routeGeometry = null
+      }
+      if (!routeGeometry) {
+        const fallbackOptions = await provider.getRouteOptions(originCandidate, destCandidate)
+        routeGeometry = fallbackOptions.find(route => route.isDefault) ?? fallbackOptions[0] ?? null
+      }
     }
-  } catch {
+  } catch (error) {
+    if (shouldLogRoadMapApiDiagnostics()) {
+      console.error('[RoadMap API] route provider unavailable')
+    }
     await recordTeskeidUsageEvent({
       userId,
       featureKey: 'vedrid',
@@ -324,7 +380,12 @@ export async function POST(request: Request) {
       path: '/api/teskeid/weather/travel',
       metadata: { actor, ...hashMeta, failureReason: 'route_unavailable', selectedRouteProvided: !!selectedRouteId },
     })
-    return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
+    return NextResponse.json({
+      error: 'route_unavailable',
+      ...(process.env.NODE_ENV !== 'production'
+        ? { diagnostic: error instanceof Error ? error.message : 'unknown' }
+        : {}),
+    }, { status: 503 })
   }
   if (!routeGeometry) {
     await recordTeskeidUsageEvent({
@@ -337,6 +398,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
   }
   const routePolyline = routeGeometry.providerMatchingPoints ?? routeGeometry.points
+
+  // Schedule shadow run via after() so it outlives the response flush in serverless.
+  // No-op when TESKEID_ROUTING_SHADOW_ENABLED is not exactly 'true'.
+  scheduleTeskeidShadowRun({
+    origin: { lat: originCandidate.lat, lon: originCandidate.lon },
+    destination: { lat: destCandidate.lat, lon: destCandidate.lon },
+    trailerKind: typeof trailerKind === 'string' ? trailerKind : null,
+  })
 
   // Sample route weather points using exhaustive-when-cheap strategy.
   // Computes cumulative Haversine distance for all route points, then deduplicates

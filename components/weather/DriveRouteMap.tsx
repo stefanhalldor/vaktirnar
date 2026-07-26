@@ -37,6 +37,19 @@ export type DriveRouteMapStation = {
   driveTimeLabel?: string | null
 }
 
+export type DriveRouteMapRoute = {
+  id: string
+  points: Array<{ lat: number; lon: number }>
+  color: string
+  offset?: number
+  opacity?: number
+  width?: number
+}
+
+const EMPTY_ROUTE_POINTS: Array<{ lat: number; lon: number }> = []
+const EMPTY_ROUTES: DriveRouteMapRoute[] = []
+const EMPTY_STATIONS: DriveRouteMapStation[] = []
+
 function routeGeoJson(points: Array<{ lat: number; lon: number }>) {
   return {
     type: 'FeatureCollection' as const,
@@ -54,19 +67,23 @@ function routeGeoJson(points: Array<{ lat: number; lon: number }>) {
 }
 
 export function DriveRouteMap({
-  routePoints = [],
-  stations = [],
+  routePoints = EMPTY_ROUTE_POINTS,
+  routes = EMPTY_ROUTES,
+  stations = EMPTY_STATIONS,
   onSelectStation,
   ariaLabel,
   className = 'h-[190px] w-full',
   externalContainer,
+  interactive = true,
 }: {
   routePoints?: Array<{ lat: number; lon: number }>
+  routes?: DriveRouteMapRoute[]
   stations?: DriveRouteMapStation[]
   onSelectStation?: (stationId: string) => void
   ariaLabel?: string
   className?: string
   externalContainer?: (node: HTMLDivElement | null) => void
+  interactive?: boolean
 }) {
   const localContainerRef = useRef<HTMLDivElement | null>(null)
   const onSelectStationRef = useRef(onSelectStation)
@@ -76,7 +93,12 @@ export function DriveRouteMap({
   }, [onSelectStation])
 
   useEffect(() => {
-    if (externalContainer || !localContainerRef.current || routePoints.length < 2) return
+    const drawableRoutes = routes.length > 0
+      ? routes.filter(route => route.points.length >= 2)
+      : routePoints.length >= 2
+        ? [{ id: 'primary', points: routePoints, color: DRIVE_MAP_ROUTE_COLOR }]
+        : []
+    if (externalContainer || !localContainerRef.current || drawableRoutes.length === 0) return
     let cancelled = false
     let resizeObserver: ResizeObserver | null = null
     const markers: import('maplibre-gl').Marker[] = []
@@ -100,9 +122,10 @@ export function DriveRouteMap({
           },
           layers: [{ id: 'drive-basemap', type: 'raster', source: 'drive-basemap' }],
         },
-        center: [routePoints[0].lon, routePoints[0].lat],
+        center: [drawableRoutes[0].points[0].lon, drawableRoutes[0].points[0].lat],
         zoom: 6,
         attributionControl: false,
+        interactive,
       })
 
       map.addControl(
@@ -118,17 +141,21 @@ export function DriveRouteMap({
 
       map.on('load', () => {
         if (!map || cancelled) return
-        map.addSource('drive-route', { type: 'geojson', data: routeGeoJson(routePoints) })
-        map.addLayer({
-          id: 'drive-route',
-          type: 'line',
-          source: 'drive-route',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': DRIVE_MAP_ROUTE_COLOR,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 5, 11, 7] as unknown as number,
-            'line-opacity': 0.86,
-          },
+        drawableRoutes.forEach((route, index) => {
+          const sourceId = `drive-route-${index}`
+          map!.addSource(sourceId, { type: 'geojson', data: routeGeoJson(route.points) })
+          map!.addLayer({
+            id: `drive-route-line-${index}`,
+            type: 'line',
+            source: sourceId,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': route.color,
+              'line-width': route.width ?? 4,
+              'line-opacity': route.opacity ?? 0.88,
+              'line-offset': route.offset ?? 0,
+            },
+          })
         })
 
         for (const station of stations) {
@@ -189,8 +216,10 @@ export function DriveRouteMap({
         }
 
         const bounds = new maplibregl.LngLatBounds()
-        routePoints.forEach(point => bounds.extend([point.lon, point.lat]))
-        map.fitBounds(bounds, { padding: 24, duration: 0, maxZoom: 9 })
+        drawableRoutes.forEach(route => {
+          route.points.forEach(point => bounds.extend([point.lon, point.lat]))
+        })
+        map.fitBounds(bounds, { padding: 18, duration: 0, maxZoom: 9 })
       })
 
       resizeObserver = new ResizeObserver(() => map?.resize())
@@ -203,7 +232,7 @@ export function DriveRouteMap({
       markers.forEach(marker => marker.remove())
       map?.remove()
     }
-  }, [externalContainer, routePoints, stations])
+  }, [externalContainer, interactive, routePoints, routes, stations])
 
   const setContainer = (node: HTMLDivElement | null) => {
     localContainerRef.current = node

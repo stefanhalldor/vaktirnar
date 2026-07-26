@@ -14,6 +14,7 @@ const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: v
 const { mockGetRouteOptions } = vi.hoisted(() => ({ mockGetRouteOptions: vi.fn() }))
 const { mockRecordTeskeidUsageEvent } = vi.hoisted(() => ({ mockRecordTeskeidUsageEvent: vi.fn() }))
 const { mockCheckWeatherGuestRateLimit } = vi.hoisted(() => ({ mockCheckWeatherGuestRateLimit: vi.fn() }))
+const { mockGetTeskeidRouteCandidate } = vi.hoisted(() => ({ mockGetTeskeidRouteCandidate: vi.fn() }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -38,6 +39,10 @@ vi.mock('@/lib/teskeid/usage.server', () => ({
 
 vi.mock('@/lib/weather/ip-rate-limit.server', () => ({
   checkWeatherGuestRateLimit: mockCheckWeatherGuestRateLimit,
+}))
+
+vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
+  getTeskeidRouteCandidate: mockGetTeskeidRouteCandidate,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/routes/route'
@@ -94,6 +99,7 @@ beforeEach(() => {
   process.env.AUTH_MVP_ENABLED = 'true'
   process.env.WEATHER_ENABLED = 'true'
   delete process.env.WEATHER_PUBLIC_ENABLED
+  mockGetTeskeidRouteCandidate.mockResolvedValue(null)
 })
 
 describe('POST /api/teskeid/weather/travel/routes', () => {
@@ -193,6 +199,62 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
     const body = await res.json()
     expect(body.routes.map((r: { durationS: number }) => r.durationS)).toEqual([3600, 5400, 7200])
+  })
+
+  it('appends an experimental Teskeið candidate after sorted Google routes', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([
+      makeRouteOption('google-slow', 0, 5400, 100000, true),
+      makeRouteOption('google-fast', 1, 3600, 80000, false),
+    ])
+    mockGetTeskeidRouteCandidate.mockResolvedValue({
+      ...makeRouteOption('teskeid-road-graph-v1', -1, 3000, 75000),
+      provider: 'teskeid',
+      labels: ['TESKEID_EXPERIMENTAL'],
+    })
+
+    const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    const body = await res.json()
+
+    expect(body.routes.map((route: { id: string }) => route.id)).toEqual([
+      'google-fast',
+      'google-slow',
+      'teskeid-road-graph-v1',
+    ])
+  })
+
+  it('does not calculate or expose a Teskeið candidate without per-user access', async () => {
+    authedUser()
+    mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, featureKey: string) => (
+      featureKey !== 'teskeid-routing-v1'
+    ))
+    mockGetRouteOptions.mockResolvedValue([
+      makeRouteOption('google-0', 0, 3600, 80000, true),
+    ])
+    mockGetTeskeidRouteCandidate.mockResolvedValue({
+      ...makeRouteOption('teskeid-road-graph-v1', -1, 3000, 75000),
+      provider: 'teskeid',
+      labels: ['TESKEID_EXPERIMENTAL'],
+    })
+
+    const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.routes.map((route: { id: string }) => route.id)).toEqual(['google-0'])
+    expect(mockGetTeskeidRouteCandidate).not.toHaveBeenCalled()
+  })
+
+  it('returns Google routes unchanged when the Teskeið candidate is unavailable', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
+    mockGetTeskeidRouteCandidate.mockResolvedValue(null)
+
+    const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.routes.map((route: { id: string }) => route.id)).toEqual(['google-0'])
   })
 
   it('forwards a valid string placeId to the provider', async () => {

@@ -31,6 +31,7 @@ export function TeskeidLoader({
   const [reducedMotion, setReducedMotion] = useState(false)
 
   useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     setReducedMotion(mq.matches)
     const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches)

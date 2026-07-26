@@ -20,6 +20,9 @@ const { mockReadVegagerdinCurrent } = vi.hoisted(() => ({ mockReadVegagerdinCurr
 const { mockMatchProviderPoints } = vi.hoisted(() => ({
   mockMatchProviderPoints: vi.fn(),
 }))
+const { mockGetTeskeidRouteCandidateById } = vi.hoisted(() => ({
+  mockGetTeskeidRouteCandidateById: vi.fn(),
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -72,6 +75,12 @@ vi.mock('@/lib/weather/providerRouteMatching', () => ({
   }),
   pointToPolylineDistanceM: vi.fn(() => 0),
   matchProviderPointsToRoute: mockMatchProviderPoints,
+}))
+
+vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
+  TESKEID_ROUTE_CANDIDATE_ID: 'teskeid-road-graph-v1',
+  TESKEID_ROUTE_CANDIDATE_ID_PREFIX: 'teskeid-road-graph-v1-alt-',
+  getTeskeidRouteCandidateById: mockGetTeskeidRouteCandidateById,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route'
@@ -137,6 +146,7 @@ beforeEach(() => {
   delete process.env.WEATHER_PUBLIC_ENABLED
   delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
   delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+  mockGetTeskeidRouteCandidateById.mockResolvedValue(null)
 
   mockSampleRouteWeatherPoints.mockReturnValue({
     weatherPoints: [{
@@ -169,6 +179,20 @@ beforeEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('POST /api/teskeid/weather/travel/route — auth / public access', () => {
+  it('uses the default provider route when selectedRouteId is omitted', async () => {
+    authedUser()
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockGetRouteGeometry).toHaveBeenCalledOnce()
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+  })
+
   it('signed-in user without vedrid is allowed in Authenticated mode (legacy: WEATHER_ENABLED=true)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
     mockCheckFeatureAccess.mockResolvedValue(false)
@@ -224,6 +248,71 @@ describe('POST /api/teskeid/weather/travel/route — auth / public access', () =
 })
 
 describe('POST /api/teskeid/weather/travel/route — curated route final-submit', () => {
+  it('uses the shared Teskeið candidate without asking Google to match its id', async () => {
+    authedUser()
+    mockGetTeskeidRouteCandidateById.mockResolvedValue({
+      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
+      provider: 'teskeid',
+      experimental: {
+        derivedDuration: true,
+        surface: { pavedM: 56_000, gravelM: 0, mixedM: 0, unknownM: 0 },
+      },
+    })
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      selectedRouteId: 'teskeid-road-graph-v1',
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockGetTeskeidRouteCandidateById).toHaveBeenCalledWith(
+      { lat: GARDABAER.lat, lon: GARDABAER.lon },
+      { lat: THORLAKSHOFN.lat, lon: THORLAKSHOFN.lon },
+      'teskeid-road-graph-v1',
+    )
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale Teskeið selection when the candidate is no longer available', async () => {
+    authedUser()
+    mockGetTeskeidRouteCandidateById.mockResolvedValue(null)
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      selectedRouteId: 'teskeid-road-graph-v1',
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+  })
+
+  it('rejects a direct Teskeið route submit without per-user routing access', async () => {
+    authedUser()
+    mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, featureKey: string) => (
+      featureKey !== 'teskeid-routing-v1'
+    ))
+    mockGetTeskeidRouteCandidateById.mockResolvedValue({
+      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
+      provider: 'teskeid',
+    })
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      selectedRouteId: 'teskeid-road-graph-v1',
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+  })
+
   it('succeeds when selectedRouteId matches a curated CURATED_VIA_THRENGSLAVEGUR route', async () => {
     authedUser()
     const curatedId = 'google-56000-64.0900,-21.9300-63.9695,-21.6475-63.8490,-21.3650'

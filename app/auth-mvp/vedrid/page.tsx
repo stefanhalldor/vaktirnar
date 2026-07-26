@@ -12,12 +12,18 @@ export default async function VedridPage() {
   const hasRoadIntelligence =
     getWeatherEnabledMode() === 'all' ||
     (await checkFeatureAccess(user.id, user.email ?? '', 'road-intelligence-v1').catch(() => false))
+  const hasTeskeidRouting = await checkFeatureAccess(
+    user.id,
+    user.email ?? '',
+    'teskeid-routing-v1',
+  ).catch(() => false)
 
   return (
     <main className="h-screen bg-background overflow-hidden">
       <RoadMapPrototypeMap
         isAuthenticated
         hasRoadIntelligence={hasRoadIntelligence}
+        teskeidRouteCandidateEnabled={hasTeskeidRouting}
         navigation={{ canonicalPath: '/auth-mvp/vedrid', authenticatedPath: '/auth-mvp/vedrid' }}
       />
     </main>

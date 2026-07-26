@@ -20,6 +20,7 @@ export default function VedridPublicPage() {
       <RoadMapPrototypeMap
         isAuthenticated={false}
         hasRoadIntelligence
+        teskeidRouteCandidateEnabled={false}
         navigation={{ canonicalPath: '/vedrid', authenticatedPath: '/auth-mvp/vedrid' }}
       />
     </main>

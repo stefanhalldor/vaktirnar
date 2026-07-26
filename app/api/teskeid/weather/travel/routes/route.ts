@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { checkFeatureAccess } from '@/lib/loans/guard'
 import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
@@ -11,6 +12,7 @@ import { matchProviderPointsToRoute, DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M } fro
 import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
 import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
 import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
+import { getTeskeidRouteCandidate } from '@/lib/iceland-routes/roadGraphCandidate.server'
 
 function validateConfirmedPlace(raw: unknown): raw is { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string } {
   if (!raw || typeof raw !== 'object') return false
@@ -137,8 +139,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
   }
 
-  // Sort by durationS ascending — shortest driving time first
+  // Google remains canonical and first. The experimental Teskeið candidate is
+  // appended only for an explicitly allowed user, with the global server flag
+  // enabled, and when calculation succeeds within its bounded budget.
   const sorted = [...routes].sort((a, b) => a.durationS - b.durationS)
+  const includeTeskeidCandidate = body.includeTeskeidCandidate !== false
+  const hasTeskeidRouting = includeTeskeidCandidate && user?.id && user.email
+    ? await checkFeatureAccess(user.id, user.email, 'teskeid-routing-v1').catch(() => false)
+    : false
+  const teskeidCandidate = hasTeskeidRouting
+    ? await getTeskeidRouteCandidate(
+        { lat: originCandidate.lat, lon: originCandidate.lon },
+        { lat: destCandidate.lat, lon: destCandidate.lon },
+      )
+    : null
+  const responseRoutes = teskeidCandidate ? [...sorted, teskeidCandidate] : sorted
 
   await recordTeskeidUsageEvent({
     userId,
@@ -149,7 +164,9 @@ export async function POST(request: Request) {
       actor,
       ...hashMeta,
       provider: 'google',
-      routeCount: sorted.length,
+      routeCount: responseRoutes.length,
+      googleRouteCount: sorted.length,
+      teskeidCandidateIncluded: teskeidCandidate !== null,
       originIdPresent: originCandidate.placeId !== 'confirmed',
       destinationIdPresent: destCandidate.placeId !== 'confirmed',
       curatedRouteLabels: [...new Set(sorted.flatMap(r => r.labels).filter(l => l.startsWith('CURATED_')))],
@@ -164,10 +181,10 @@ export async function POST(request: Request) {
   const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
   const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
   if (fromNorm && toNorm) {
-    await warmRouteMemoryFromOptions(sorted, fromNorm, toNorm)
+    await warmRouteMemoryFromOptions(responseRoutes, fromNorm, toNorm)
   }
 
-  return NextResponse.json({ routes: sorted })
+  return NextResponse.json({ routes: responseRoutes })
 }
 
 // ── Route-memory warming helper ───────────────────────────────────────────────

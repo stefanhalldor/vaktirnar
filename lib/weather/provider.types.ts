@@ -39,11 +39,21 @@ export type RouteCautionResult = {
 export type RouteOption = RouteGeometry & {
   id: string
   routeIndex: number
-  provider: 'google' | 'mapbox'
+  provider: 'google' | 'mapbox' | 'teskeid'
   labels: string[]
   isDefault: boolean
   description?: string
   cautions?: RouteCautionResult[]
+  /** Present only for the flag-gated Teskeið road-graph candidate. */
+  experimental?: {
+    derivedDuration: true
+    surface: {
+      pavedM: number
+      gravelM: number
+      mixedM: number
+      unknownM: number
+    }
+  }
 }
 
 export type StaticMapParams = {

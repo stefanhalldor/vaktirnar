@@ -75,6 +75,45 @@ Túlkun:
 
 ## Vegagerðin GIS Og Gagnaveita
 
+### Road graph live spike 2026-07-25
+
+Nákvæm source-skipting var sannreynd með read-only ArcGIS query:
+
+- `data/vegakerfi/MapServer/6` (`Vegir`): 1.226 canonical vegkaflar með
+  `IDKAFLI`, geometry, kaflalengd, vegflokki, vegtegund og `STEFNA`.
+- `data/slitlag/MapServer/0` (`Slitlag`): 5.514 slitlagsfærslur með geometry,
+  `IDKAFLI`, `SLITLAGLENGD` og `GERD_SL` (`0=Möl`, `1=Bundið`).
+
+Mikilvæg niðurstaða: slitlagsgeometry er ekki sjálfstætt connected routing
+network. Endpoint graph úr því varð 3.322 weak components við 20 m snapping og
+fann ekki Reykjavík–Akureyri. Það má því ekki nota slitlagslínurnar beint sem
+topology.
+
+Réttari prototype:
+
+- `Vegir` sér um topology og direction.
+- `Slitlag` tengist sem attribute með `IDKAFLI`.
+- fleiri en einn surface-flokkur á sama kafla verður `mixed` og er fail-closed
+  fyrir paved-only routing.
+- seinni linear-referencing áfangi getur klofið kafla við nákvæm slitlagsskil án
+  þess að tapa vegatengingum.
+
+Live graph við 20 m tolerance:
+
+- 1.363 nodes
+- 2.452 directed edges
+- 1.226 source segments
+- 199 weak components
+- stærsti component: 854 nodes
+- 1.490 paved edges, 538 gravel edges, 424 mixed edges
+
+Multi-component endpoint matching fann síðan sjálfvirkt Reykjavík–Akureyri án
+manual route family: 390.190 m, 16.526 sekúndur (~4:35), 57 segment og 0 m
+gravel/mixed/unknown á valdri leið. Allir 390.190 metrarnir nota enn derived
+speed, svo tíminn er ekki talinn staðfestur ETA. Endpoint snapping var 767 m
+við Reykjavík og 1.091 m við Akureyri; síðara gildið þarf edge map-matching eða
+þéttara local-road source áður en niðurstaðan verður notendasýnileg.
+
 ### Staðfest endpoints og þjónustur
 
 Opinber þjónustusíða Vegagerðarinnar segir að gögn séu uppfærð reglulega; sum

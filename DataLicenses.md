@@ -40,6 +40,8 @@ License/skilmálar:
 Relevant endpoints:
 
 - https://vegasja.vegagerdin.is/arcgis/rest/services/data/vegakerfi/MapServer
+- https://vegasja.vegagerdin.is/arcgis/rest/services/data/vegakerfi/MapServer/6
+- https://vegasja.vegagerdin.is/arcgis/rest/services/data/slitlag/MapServer/0
 - https://vegasja.vegagerdin.is/arcgis/rest/services/data/faerd/FeatureServer
 - https://gagnaveita.vegagerdin.is/api/vedur2014_1
 

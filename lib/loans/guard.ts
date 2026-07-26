@@ -137,6 +137,14 @@ export async function checkFeatureAccess(
     if (!accessRequired) return true
     return checkPerUserAccess(email, 'road-intelligence-v1')
   }
+  if (featureKey === 'teskeid-routing-v1') {
+    if (getWeatherEnabledMode() === 'off') return false
+    // Strict experimental rollout: the global switch must be on and every
+    // user must have an explicit feature_access row. There is intentionally
+    // no open-to-all graduation fallback for this feature yet.
+    if (process.env.TESKEID_ROUTE_CANDIDATE_ENABLED !== 'true') return false
+    return checkPerUserAccess(email, 'teskeid-routing-v1')
+  }
   return false
 }
 

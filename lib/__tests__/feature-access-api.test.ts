@@ -107,6 +107,12 @@ describe('GET /api/admin/feature-access — auth', () => {
     expect(res.status).toBe(200)
   })
 
+  it('returns 200 for ?feature=teskeid-routing-v1', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('teskeid-routing-v1'))
+    expect(res.status).toBe(200)
+  })
+
   it('returns 400 for unknown ?feature=badkey', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
     const res = await GET(makeGetRequest('badkey'))
@@ -170,6 +176,21 @@ describe('POST /api/admin/feature-access — auth and validation', () => {
     mockAdminQuery.mockResolvedValue({ error: null })
     const res = await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'tengsl'))
     expect(res.status).toBe(201)
+  })
+
+  it('?feature=teskeid-routing-v1 inserts the strict routing feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest(
+      { email: 'user@example.com' },
+      'POST',
+      'teskeid-routing-v1',
+    ))
+    expect(res.status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith({
+      feature_key: 'teskeid-routing-v1',
+      email: 'user@example.com',
+    })
   })
 
   it('returns 200 idempotently for duplicate grant', async () => {

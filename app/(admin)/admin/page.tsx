@@ -161,7 +161,7 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 type FeatureAccessEntry = { email: string; granted_at: string }
 
 interface FeatureAccessSectionProps {
-  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1'
+  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1'
   heading: string
   flagName: string
   enabledFlagName?: string
@@ -1703,6 +1703,11 @@ export default function AdminPage() {
             heading="Road Intelligence kort (v1)"
             flagName="ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED"
             enabledFlagName="ROAD_INTELLIGENCE_V1_ENABLED"
+          />
+          <FeatureAccessSection
+            featureKey="teskeid-routing-v1"
+            heading="Teskeiðarleiðakerfi (v1)"
+            flagName="TESKEID_ROUTE_CANDIDATE_ENABLED"
           />
         </div>
 

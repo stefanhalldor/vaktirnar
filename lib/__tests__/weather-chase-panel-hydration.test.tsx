@@ -35,6 +35,50 @@ const items: WeatherChaseItem[] = [
 ]
 
 describe('WeatherChasePanel preference hydration', () => {
+  it('shows available forecast rows while another provider is still loading', () => {
+    const progressiveItems: WeatherChaseItem[] = [
+      {
+        id: 'metno:reykjavik',
+        label: 'Reykjavík',
+        providerId: 'metno',
+        providerLabel: 'Yr / met.no',
+        sourceLabel: 'Yr / met.no',
+        rows: [{
+          timeIso: '2026-07-26T12:00:00.000Z',
+          status: 'graent',
+          temperature: { value: 12, direction: 'none', tone: 'neutral' },
+          wind: { value: 4, direction: 'none', tone: 'neutral' },
+          gust: { value: 6, direction: 'none', tone: 'neutral', severity: 'none' },
+          precipitation: { value: 0, direction: 'none', tone: 'neutral' },
+        }],
+      },
+      {
+        id: 'vedurstofan:1',
+        label: 'Veðurstofustöð',
+        providerId: 'vedurstofan',
+        providerLabel: 'Veðurstofa Íslands',
+        sourceLabel: 'Veðurstofa Íslands',
+        rows: [],
+      },
+    ]
+
+    render(
+      <WeatherChasePanel
+        items={progressiveItems}
+        initialSelectedIds={progressiveItems.map(item => item.id)}
+        labels={labels}
+        locale="is"
+        loading
+        visibleHours={[12]}
+      />,
+    )
+
+    expect(screen.queryByRole('status', { name: 'loading' })).not.toBeInTheDocument()
+    expect(screen.getByText('Reykjavík')).toBeInTheDocument()
+    expect(screen.getByText('Veðurstofustöð')).toBeInTheDocument()
+    expect(screen.getByText('… stillLoading')).toBeInTheDocument()
+  })
+
   it('opens public settings by default and offers the secondary save action after adding a place', async () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(Element.prototype, 'scrollIntoView', {

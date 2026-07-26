@@ -121,6 +121,15 @@ describe('AdminPage — FeatureAccessSection', () => {
     })
   })
 
+  it('renders strict Teskeið routing access controls', async () => {
+    vi.stubGlobal('fetch', makeFetch([]))
+    render(<AdminPage />)
+    await waitFor(() => {
+      expect(screen.getByText('Teskeiðarleiðakerfi (v1)')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/TESKEID_ROUTE_CANDIDATE_ENABLED=true/)).toBeInTheDocument()
+  })
+
   it('renders empty list message when feature_access returns []', async () => {
     vi.stubGlobal('fetch', makeFetch([]))
     render(<AdminPage />)

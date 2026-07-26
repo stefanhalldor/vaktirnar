@@ -10,6 +10,7 @@ import {
 } from '@/lib/weather/chasePreferences'
 import { formatNum } from '@/components/weather/travelAuditMap.helpers'
 import { cn } from '@/lib/utils'
+import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
 
 export type WeatherChaseProviderId = 'vedurstofan' | 'metno' | 'vegagerdin'
 
@@ -54,6 +55,7 @@ type WeatherChaseLabels = {
   title: string
   subtitle: string
   loading: string
+  stillLoading: string
   emptyData: string
   searchLabel: string
   searchPlaceholder: string
@@ -299,6 +301,8 @@ function MetricStack({
   criteria,
   labels,
   showMedals,
+  pending = false,
+  pendingLabel,
 }: {
   row: ForecastDrawerRow | null
   peerRows: ForecastDrawerRow[]
@@ -307,9 +311,13 @@ function MetricStack({
   criteria: WeatherChaseCriteria
   labels: Pick<WeatherChaseLabels, 'temperatureUnit' | 'windUnit' | 'precipitationUnit'>
   showMedals?: boolean
+  pending?: boolean
+  pendingLabel: string
 }) {
   if (!row) {
-    return <span className="text-[11px] text-muted-foreground/40">–</span>
+    return pending
+      ? <span className="text-[10px] leading-snug text-muted-foreground">… {pendingLabel}</span>
+      : <span className="text-[11px] text-muted-foreground/40">–</span>
   }
 
   const peerTemps = peerRows.map(peer => peer.temperature.value)
@@ -494,6 +502,13 @@ export function WeatherChasePanel({
     () => selectedIds.map(id => itemById.get(id)).filter((item): item is WeatherChaseItem => !!item),
     [itemById, selectedIds],
   )
+  const hasAnySelectedRows = selectedItems.some(item => item.rows.length > 0)
+  const showBlockingLoader = loading && !hasAnySelectedRows
+
+  function itemForecastPending(item: WeatherChaseItem): boolean {
+    return loadingRowIds.has(item.id)
+      || (loading && item.providerId === 'vedurstofan' && item.rows.length === 0)
+  }
 
   useEffect(() => {
     if (initialSelectedIds === null || appliedDefaultsKeyRef.current === null) return
@@ -555,7 +570,7 @@ export function WeatherChasePanel({
 
   function renderItemLoadState(itemId: string) {
     if (loadingRowIds.has(itemId)) {
-      return <p className="mt-1 text-[10px] text-muted-foreground">{labels.loading}</p>
+      return null
     }
     if (!failedRowIds.has(itemId)) return null
     return (
@@ -862,15 +877,24 @@ export function WeatherChasePanel({
       )
     }
     if (cols.length === 0) {
-      const isLoadingRows = selectedItems.some(item => loadingRowIds.has(item.id))
+      const isLoadingRows = selectedItems.some(item => itemForecastPending(item))
       return (
         <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-4">
-          <p className="text-sm text-muted-foreground">
-            {isLoadingRows ? labels.loading : labels.noRowsLabel}
-          </p>
-          {selectedItems.map(item => (
-            <div key={item.id}>{renderItemLoadState(item.id)}</div>
-          ))}
+          {isLoadingRows ? (
+            <TeskeidLoader
+              ideaTitles={[labels.loading]}
+              loadingLabel={labels.loading}
+              fallbackIdeaTitle={labels.loading}
+              className="min-h-[180px]"
+            />
+          ) : (
+            <div>
+              <p className="text-sm text-muted-foreground">{labels.noRowsLabel}</p>
+              {selectedItems.map(item => (
+                <div key={item.id}>{renderItemLoadState(item.id)}</div>
+              ))}
+            </div>
+          )}
         </div>
       )
     }
@@ -910,6 +934,8 @@ export function WeatherChasePanel({
                           criteria={activeCriteria}
                           labels={labels}
                           showMedals={showMedals}
+                          pending={itemForecastPending(item)}
+                          pendingLabel={labels.stillLoading}
                         />
                       </div>
                     )
@@ -957,6 +983,8 @@ export function WeatherChasePanel({
                       criteria={activeCriteria}
                       labels={labels}
                       showMedals={showMedals}
+                      pending={itemForecastPending(item)}
+                      pendingLabel={labels.stillLoading}
                     />
                   </div>
                 )
@@ -971,17 +999,20 @@ export function WeatherChasePanel({
   return (
     <>
       <section className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-        {loading ? (
-          <p className="rounded-lg border border-border bg-background/80 px-3 py-3 text-sm text-muted-foreground">
-            {labels.loading}
-          </p>
+        {showBlockingLoader ? (
+          <TeskeidLoader
+            ideaTitles={[labels.loading]}
+            loadingLabel={labels.loading}
+            fallbackIdeaTitle={labels.loading}
+            className="min-h-[220px] rounded-lg border border-border bg-background/80"
+          />
         ) : items.length === 0 ? (
           <p className="rounded-lg border border-border bg-background/80 px-3 py-3 text-sm text-muted-foreground">
             {labels.emptyData}
           </p>
         ) : null}
 
-        {renderComparison(compactCols)}
+        {!showBlockingLoader && renderComparison(compactCols)}
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
