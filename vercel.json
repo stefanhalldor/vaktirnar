@@ -11,6 +11,14 @@
     {
       "path": "/api/cron/warm-vegagerdin",
       "schedule": "*/3 * * * *"
+    },
+    {
+      "path": "/api/cron/warm-metno-points",
+      "schedule": "25 */3 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-road-graph",
+      "schedule": "17 4 * * *"
     }
   ]
 }

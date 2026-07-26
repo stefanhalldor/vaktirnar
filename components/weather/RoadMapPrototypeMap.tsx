@@ -65,6 +65,7 @@ import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFi
 import { DepartureHeatmap } from './DepartureHeatmap'
 import { DriveJourneyPanel } from './DriveJourneyPanel'
 import {
+  RouteComparisonFullscreenMap,
   RouteComparisonMiniMap,
   routeComparisonColor,
   selectBestWeatherRouteIds,
@@ -84,10 +85,15 @@ import {
   WeatherChasePanel,
   preferenceItemFromWeatherChaseItem,
   type WeatherChaseCriteria,
+  type WeatherChaseHistoryLoadResult,
   type WeatherChaseItem,
   type WeatherChasePreferenceItem,
   type WeatherChaseSaveStatus,
 } from './WeatherChasePanel'
+import type {
+  WeatherChaseHistoryResponse,
+  WeatherChaseHistoryRow,
+} from '@/lib/weather/weatherChaseHistory.types'
 import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview'
@@ -356,8 +362,10 @@ type RouteSurfaceChoice = {
   route: RouteOption
 }
 
-type TeskeidCandidateStatus = 'idle' | 'loading' | 'ready' | 'timeout' | 'no_route' | 'unavailable'
+type TeskeidCandidateStatus = 'idle' | 'loading' | 'pending' | 'ready' | 'no_route' | 'unavailable'
 type TeskeidAlternativesStatus = 'idle' | 'loading' | 'ready' | 'none' | 'unavailable'
+
+const TESKEID_CANDIDATE_RETRY_DELAYS_MS = [1_500, 3_000, 6_000] as const
 
 type RouteLabelAnchor = 'center' | 'top' | 'bottom' | 'left' | 'right'
 
@@ -956,6 +964,51 @@ function buildRoadMapMetnoForecastDrawerRows(
   return rows
 }
 
+function buildWeatherChaseHistoryDrawerRows(
+  forecasts: WeatherChaseHistoryRow[],
+  thresholds: ResolvedTravelThresholds,
+): ForecastDrawerRow[] {
+  const rows: ForecastDrawerRow[] = []
+  for (const forecast of forecasts) {
+    const windMs = forecast.windSpeedMs
+    const gustMs = forecast.windGustMs
+    const temperatureC = forecast.temperatureC
+    const precipitationMmPerHour = forecast.precipitationMmPerHour
+    if (![windMs, gustMs, temperatureC, precipitationMmPerHour].every(Number.isFinite)) continue
+    const previous = rows.at(-1)
+    const metric = (
+      value: number,
+      previousValue: number | undefined,
+      epsilon: number,
+      lowerIsBetter: boolean,
+    ) => {
+      const delta = previousValue === undefined ? undefined : +(value - previousValue).toFixed(2)
+      const direction = roadMapForecastDirection(delta, epsilon)
+      return { value, delta, direction, tone: roadMapForecastTone(direction, lowerIsBetter) }
+    }
+    const wind = metric(windMs, previous?.wind.value, 0.5, true)
+    const gust = metric(gustMs, previous?.gust.value, 0.5, true)
+    rows.push({
+      timeIso: forecast.timeIso,
+      status: classifyRoadMapForecastStatus(windMs, precipitationMmPerHour, thresholds),
+      temperature: metric(temperatureC, previous?.temperature.value, 0.5, false),
+      wind,
+      gust: { ...gust, severity: 'none' },
+      precipitation: metric(
+        precipitationMmPerHour,
+        previous?.precipitation.value,
+        0.1,
+        true,
+      ),
+      windDirectionText: forecast.windDirectionText,
+      weatherEmoji: forecast.symbolCode
+        ? metnoSymbolToEmoji(forecast.symbolCode)
+        : weatherEmojiFromText(forecast.weatherText, precipitationMmPerHour),
+    })
+  }
+  return rows
+}
+
 function isWindDisplayStatus(value: unknown): value is WindDisplayStatus {
   return typeof value === 'string' && WIND_DISPLAY_STATUS_SET.has(value)
 }
@@ -1380,6 +1433,15 @@ export function RoadMapPrototypeMap({
   const t = useTranslations('teskeid.vedrid.overview')
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const tPulse = useTranslations('teskeid.vedrid.eltaVedrid')
+  const formatDurationMinutes = useCallback((minutes: number): string => {
+    const rounded = Math.max(0, Math.round(minutes))
+    const hours = Math.floor(rounded / 60)
+    const mins = rounded % 60
+    if (hours > 0) {
+      return t('roadMapPrototypeDurationHoursMinutes', { hours, minutes: mins })
+    }
+    return t('roadMapPrototypeDurationMinutes', { minutes: rounded })
+  }, [t])
   const tPlace = useTranslations('teskeid.vedrid.placeSearch')
   const locale = useLocale()
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -1496,15 +1558,16 @@ export function RoadMapPrototypeMap({
   const [teskeidCandidateStatus, setTeskeidCandidateStatus] = useState<TeskeidCandidateStatus>('idle')
   const [previewRouteChoiceId, setPreviewRouteChoiceId] = useState<string | null>(null)
   const [teskeidAlternativesStatus, setTeskeidAlternativesStatus] = useState<TeskeidAlternativesStatus>('idle')
+  const [routeComparisonFullscreen, setRouteComparisonFullscreen] = useState(false)
+
+  const defaultRouteChoiceId = routeSurfaceChoices.find(choice => choice.route.isDefault)?.routeId
+    ?? routeSurfaceChoices[0]?.routeId
+    ?? null
+  const appliedRouteChoiceId = routeBridgeSummary?.selectedRouteId ?? defaultRouteChoiceId
+  const selectedRouteChoiceId = previewRouteChoiceId ?? appliedRouteChoiceId
 
   const routeComparisonItems = useMemo(() => {
-    const defaultRouteId = routeSurfaceChoices.find(choice => choice.route.isDefault)?.routeId
-      ?? routeSurfaceChoices[0]?.routeId
-      ?? null
-    const selectedRouteId = previewRouteChoiceId
-      ?? routeBridgeSummary?.selectedRouteId
-      ?? defaultRouteId
-    return routeSurfaceChoices.map(choice => {
+    return routeSurfaceChoices.map((choice, index) => {
       const sameProvider = routeSurfaceChoices.filter(route => route.route.provider === choice.route.provider)
       const providerNumber = sameProvider.findIndex(route => route.routeId === choice.routeId) + 1
       const baseLabel = choice.route.provider === 'teskeid'
@@ -1513,14 +1576,17 @@ export function RoadMapPrototypeMap({
       return {
         id: choice.routeId,
         label: sameProvider.length > 1 ? `${baseLabel} ${providerNumber}` : baseLabel,
+        detail: choice.label !== baseLabel ? choice.label : choice.description,
+        meta: `${formatNum(choice.distanceKm, locale)} km · ${formatDurationMinutes(choice.durationMinutes)}`,
         provider: choice.route.provider,
         points: choice.route.providerMatchingPoints?.length
           ? choice.route.providerMatchingPoints
           : choice.route.points,
-        selected: choice.routeId === selectedRouteId,
+        selected: choice.routeId === selectedRouteChoiceId,
+        color: routeComparisonColor(index),
       }
     })
-  }, [previewRouteChoiceId, routeBridgeSummary?.selectedRouteId, routeSurfaceChoices, t])
+  }, [formatDurationMinutes, locale, routeSurfaceChoices, selectedRouteChoiceId, t])
 
   const bestWeatherRouteIds = useMemo(() => {
     const best = new Set<string>()
@@ -1861,6 +1927,59 @@ export function RoadMapPrototypeMap({
     weatherChaseMetnoRowsInFlightRef.current.set(requestKey, request)
     return request
   }, [overviewThresholds])
+
+  const loadWeatherChaseHistoryDay = useCallback(async (
+    day: string,
+    items: WeatherChaseItem[],
+  ): Promise<WeatherChaseHistoryLoadResult> => {
+    const requestItems = items
+      .filter((item): item is WeatherChaseItem & { providerId: 'vedurstofan' | 'metno' } => (
+        item.providerId === 'metno'
+        || (item.providerId === 'vedurstofan'
+          && !overviewVedurstofanLoading
+          && !overviewVedurstofanRestricted)
+      ))
+      .map(item => ({ id: item.id, providerId: item.providerId }))
+    const providerRequests = (['vedurstofan', 'metno'] as const)
+      .map(providerId => requestItems.filter(item => item.providerId === providerId))
+      .filter(providerItems => providerItems.length > 0)
+    const rowsByItemId: Record<string, ForecastDrawerRow[]> = Object.fromEntries(
+      requestItems.map(item => [item.id, []]),
+    )
+    if (providerRequests.length === 0) {
+      return {
+        requestedDay: day,
+        availableFromDay: day,
+        availableToDay: day,
+        rowsByItemId,
+      }
+    }
+    const successful = await Promise.all(providerRequests.map(async providerItems => {
+      const response = await fetch('/api/teskeid/weather/forecast-history', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ day, items: providerItems }),
+      })
+      if (!response.ok) throw new Error(`forecast history failed: ${response.status}`)
+      const data = await response.json() as WeatherChaseHistoryResponse
+      if (data.status !== 'ok' || data.requestedDay !== day) {
+        throw new Error('forecast history response invalid')
+      }
+      return data
+    }))
+    for (const data of successful) {
+      for (const [itemId, rows] of Object.entries(data.rowsByItemId)) {
+        rowsByItemId[itemId] = buildWeatherChaseHistoryDrawerRows(rows, overviewThresholds)
+      }
+    }
+    return {
+      requestedDay: day,
+      availableFromDay: successful.map(data => data.availableFromDay).sort()[0],
+      availableToDay: successful.map(data => data.availableToDay).sort().at(-1) ?? day,
+      rowsByItemId,
+    }
+  }, [overviewThresholds, overviewVedurstofanLoading, overviewVedurstofanRestricted])
 
   const handleWeatherChaseSelectedItemsChange = useCallback((items: WeatherChaseItem[]) => {
     weatherChaseSelectedItemsRef.current = items
@@ -2864,16 +2983,6 @@ export function RoadMapPrototypeMap({
       default:
         return ''
     }
-  }
-
-  function formatDurationMinutes(minutes: number): string {
-    const rounded = Math.max(0, Math.round(minutes))
-    const hours = Math.floor(rounded / 60)
-    const mins = rounded % 60
-    if (hours > 0) {
-      return t('roadMapPrototypeDurationHoursMinutes', { hours, minutes: mins })
-    }
-    return t('roadMapPrototypeDurationMinutes', { minutes: rounded })
   }
 
   function displayWindStatus(status: WindDisplayStatus): WindDisplayStatus {
@@ -4027,6 +4136,7 @@ export function RoadMapPrototypeMap({
     setTeskeidCandidateStatus('idle')
     setPreviewRouteChoiceId(null)
     setTeskeidAlternativesStatus('idle')
+    setRouteComparisonFullscreen(false)
     setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
     setRouteCalculationPlaceNames(null)
     setSelectedCandidateIdx(null)
@@ -5362,6 +5472,24 @@ export function RoadMapPrototypeMap({
     return new Promise(resolve => window.setTimeout(resolve, ms))
   }
 
+  function waitForAbortableBrowser(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'))
+        return
+      }
+      const timer = window.setTimeout(() => {
+        signal.removeEventListener('abort', handleAbort)
+        resolve()
+      }, ms)
+      const handleAbort = () => {
+        window.clearTimeout(timer)
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+      signal.addEventListener('abort', handleAbort, { once: true })
+    })
+  }
+
   async function fetchRouteSurfaceChoices(
     origin: RoadIntelligencePlaceResult,
     destination: RoadIntelligencePlaceResult,
@@ -5402,7 +5530,7 @@ export function RoadMapPrototypeMap({
     })
     const payload = await res.json().catch(() => null)
     const status: TeskeidCandidateStatus =
-      payload?.status === 'ready' || payload?.status === 'timeout' || payload?.status === 'no_route'
+      payload?.status === 'ready' || payload?.status === 'pending' || payload?.status === 'no_route'
         ? payload.status
         : 'unavailable'
     const routes = Array.isArray(payload?.routes)
@@ -5416,13 +5544,57 @@ export function RoadMapPrototypeMap({
     }
   }
 
+  async function fetchTeskeidCandidateWithRetry(
+    origin: RoadIntelligencePlaceResult,
+    destination: RoadIntelligencePlaceResult,
+    signal: AbortSignal,
+    alternatives = false,
+    onPending?: () => void,
+  ): Promise<{ status: TeskeidCandidateStatus; choices: RouteSurfaceChoice[] }> {
+    for (let attempt = 0; attempt <= TESKEID_CANDIDATE_RETRY_DELAYS_MS.length; attempt += 1) {
+      const result = await fetchTeskeidCandidate(origin, destination, signal, alternatives)
+      if (result.status !== 'pending') return result
+      onPending?.()
+      const delay = TESKEID_CANDIDATE_RETRY_DELAYS_MS[attempt]
+      if (delay === undefined) return { status: 'unavailable', choices: [] }
+      await waitForAbortableBrowser(delay, signal)
+    }
+    return { status: 'unavailable', choices: [] }
+  }
+
+  async function handleRetryTeskeidCandidate() {
+    const places = resolvedRoutePlacesRef.current
+    const signal = routeBridgeRequestRef.current?.signal
+    if (!places || !signal || signal.aborted || teskeidCandidateStatus === 'loading' || teskeidCandidateStatus === 'pending') return
+    setTeskeidCandidateStatus('loading')
+    try {
+      const result = await fetchTeskeidCandidateWithRetry(
+        places.origin,
+        places.destination,
+        signal,
+        false,
+        () => setTeskeidCandidateStatus('pending'),
+      )
+      if (signal.aborted) return
+      setTeskeidCandidateStatus(result.status)
+      if (result.choices.length > 0) {
+        setRouteSurfaceChoices(current => [
+          ...current.filter(choice => choice.route.provider !== 'teskeid'),
+          result.choices[0],
+        ])
+      }
+    } catch {
+      if (!signal.aborted) setTeskeidCandidateStatus('unavailable')
+    }
+  }
+
   async function handleFindMoreTeskeidRoutes() {
     const places = resolvedRoutePlacesRef.current
     if (!places || teskeidAlternativesStatus === 'loading') return
     const controller = new AbortController()
     setTeskeidAlternativesStatus('loading')
     try {
-      const result = await fetchTeskeidCandidate(places.origin, places.destination, controller.signal, true)
+      const result = await fetchTeskeidCandidateWithRetry(places.origin, places.destination, controller.signal, true)
       if (result.status !== 'ready') {
         setTeskeidAlternativesStatus('unavailable')
         return
@@ -5878,6 +6050,7 @@ export function RoadMapPrototypeMap({
     setTeskeidCandidateStatus('idle')
     setPreviewRouteChoiceId(null)
     setTeskeidAlternativesStatus('idle')
+    setRouteComparisonFullscreen(false)
     setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
     setRouteCalculationPlaceNames({ from: fromQuery, to: toQuery })
     setSelectedCandidateIdx(null)
@@ -5928,7 +6101,13 @@ export function RoadMapPrototypeMap({
             setRouteSurfaceChoicesStatus('ready')
             if (teskeidRouteCandidateEnabled) {
               setTeskeidCandidateStatus('loading')
-              void fetchTeskeidCandidate(origin, destination, controller.signal)
+              void fetchTeskeidCandidateWithRetry(
+                origin,
+                destination,
+                controller.signal,
+                false,
+                () => setTeskeidCandidateStatus('pending'),
+              )
                 .then(result => {
                   if (controller.signal.aborted) return
                   setTeskeidCandidateStatus(result.status)
@@ -6666,11 +6845,8 @@ export function RoadMapPrototypeMap({
 
     if (routeSurfaceChoices.length === 0) return null
 
-    const appliedRouteId = routeBridgeSummary.selectedRouteId
-      ?? routeSurfaceChoices.find(choice => choice.route.isDefault)?.routeId
-      ?? routeSurfaceChoices[0]?.routeId
-      ?? null
-    const selectedRouteId = previewRouteChoiceId ?? appliedRouteId
+    const appliedRouteId = appliedRouteChoiceId
+    const selectedRouteId = selectedRouteChoiceId
     const selectedChoice = routeSurfaceChoices.find(choice => choice.routeId === selectedRouteId)
       ?? routeSurfaceChoices[0]
     const appliedChoice = routeSurfaceChoices.find(choice => choice.routeId === appliedRouteId)
@@ -6707,8 +6883,8 @@ export function RoadMapPrototypeMap({
     }
     const intro = teskeidCandidateStatus === 'loading'
       ? t('roadMapPrototypeTeskeidCandidateLoading')
-      : teskeidCandidateStatus === 'timeout'
-        ? t('roadMapPrototypeTeskeidCandidateTimeout')
+      : teskeidCandidateStatus === 'pending'
+        ? t('roadMapPrototypeTeskeidCandidatePending')
         : teskeidCandidateStatus === 'no_route'
           ? t('roadMapPrototypeTeskeidCandidateNoRoute')
           : teskeidCandidateStatus === 'unavailable'
@@ -6733,6 +6909,8 @@ export function RoadMapPrototypeMap({
         <RouteComparisonMiniMap
           ariaLabel={t('roadMapPrototypeRouteComparisonMapLabel')}
           routes={routeComparisonItems}
+          onEnlarge={() => setRouteComparisonFullscreen(true)}
+          enlargeLabel={tf('enlargeMap')}
         />
         <div className="flex gap-1.5 overflow-x-auto pb-0.5">
           {routeSurfaceChoices.map((choice) => {
@@ -6856,12 +7034,21 @@ export function RoadMapPrototypeMap({
               <span className="block text-[10px] leading-snug text-muted-foreground">
                 {teskeidCandidateStatus === 'loading'
                   ? t('roadMapPrototypeTeskeidCandidateCardLoading')
-                  : teskeidCandidateStatus === 'timeout'
-                    ? t('roadMapPrototypeTeskeidCandidateCardTimeout')
+                  : teskeidCandidateStatus === 'pending'
+                    ? t('roadMapPrototypeTeskeidCandidateCardPending')
                     : teskeidCandidateStatus === 'no_route'
                       ? t('roadMapPrototypeTeskeidCandidateCardNoRoute')
                       : t('roadMapPrototypeTeskeidCandidateCardUnavailable')}
               </span>
+              {teskeidCandidateStatus === 'unavailable' && (
+                <button
+                  type="button"
+                  onClick={() => void handleRetryTeskeidCandidate()}
+                  className="mt-2 min-h-10 rounded-md border border-orange-300 bg-background px-3 py-2 text-[10px] font-semibold text-orange-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-orange-700 dark:text-orange-100"
+                >
+                  {t('roadMapPrototypeTeskeidCandidateRetry')}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -7523,6 +7710,8 @@ export function RoadMapPrototypeMap({
                 subtitle: t('roadMapPrototypeWeatherChaseSubtitle'),
                 loading: t('roadMapPrototypeWeatherChaseLoading'),
                 stillLoading: t('roadMapPrototypeWeatherChaseStillLoading'),
+                missingHistoryValue: t('roadMapPrototypeWeatherChaseMissingHistoryValue'),
+                missingForecastValue: t('roadMapPrototypeWeatherChaseMissingForecastValue'),
                 emptyData: t('roadMapPrototypeWeatherChaseEmptyData'),
                 searchLabel: t('roadMapPrototypeWeatherChaseSearchLabel'),
                 searchPlaceholder: t('roadMapPrototypeWeatherChaseSearchPlaceholder'),
@@ -7565,11 +7754,28 @@ export function RoadMapPrototypeMap({
                 savePlacesLabel: t('roadMapPrototypeWeatherChaseSavePlaces'),
                 stationsTitle: t('roadMapPrototypeWeatherChaseStationsTitle'),
                 settingsLabel: t('roadMapPrototypeWeatherChaseSettings'),
+                historyLabel: t('roadMapPrototypeWeatherChaseHistoryLabel'),
+                historyShowOlderLabel: t('roadMapPrototypeWeatherChaseHistoryShowOlder'),
+                historyLoadingLabel: t('roadMapPrototypeWeatherChaseHistoryLoading'),
+                historyLoadFailedLabel: t('roadMapPrototypeWeatherChaseHistoryLoadFailed'),
+                historyRetryLabel: t('roadMapPrototypeWeatherChaseHistoryRetry'),
               }}
               locale={locale}
               thresholds={overviewThresholds}
               loading={overviewVedurstofanLoading && !overviewVedurstofanRestricted}
               onLoadItemRows={loadWeatherChaseItemRows}
+              onLoadHistoryDay={loadWeatherChaseHistoryDay}
+              historyDataVersion={[
+                overviewThresholds.cautionWindMs,
+                overviewThresholds.redWindMs,
+                overviewThresholds.redGustMs,
+                overviewThresholds.cautionPrecipMmPerHour,
+                overviewVedurstofanLoading
+                  ? 'vedur-loading'
+                  : overviewVedurstofanRestricted
+                    ? 'vedur-restricted'
+                    : 'vedur-ready',
+              ].join(':')}
               onSelectedItemsChange={handleWeatherChaseSelectedItemsChange}
               onShowNearbyStations={handleWeatherChaseShowNearbyStations}
               criteria={weatherChaseCriteria}
@@ -7683,9 +7889,9 @@ export function RoadMapPrototypeMap({
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
           <p className="text-[11px] leading-snug text-amber-800 dark:text-amber-300">
             {t('roadMapPrototypeRouteWarningBanner')}
-            <strong className="mt-1 block font-semibold">
-              {t('roadMapPrototypeRouteWarningBannerEmphasis')}
-            </strong>
+          </p>
+          <p className="mt-1 text-[11px] font-semibold leading-snug text-amber-900 dark:text-amber-200">
+            {t('roadMapPrototypeRouteWarningBannerEmphasis')}
           </p>
         </div>
 
@@ -7919,6 +8125,28 @@ export function RoadMapPrototypeMap({
         </div>
 
       </div>
+
+      {routeComparisonFullscreen && routeComparisonItems.length >= 2 && (
+        <RouteComparisonFullscreenMap
+          routes={routeComparisonItems}
+          selectedRouteId={selectedRouteChoiceId}
+          title={t('roadMapPrototypeRouteComparisonFullscreenTitle')}
+          closeLabel={t('roadMapPrototypeRouteComparisonFullscreenClose')}
+          applyLabel={t('roadMapPrototypeRouteViewConditions')}
+          onSelectRouteId={(routeId) => {
+            const choice = routeSurfaceChoices.find(route => route.routeId === routeId)
+            if (choice) previewSurfaceRouteChoice(choice)
+          }}
+          onClose={() => setRouteComparisonFullscreen(false)}
+          onApply={() => {
+            const choice = routeSurfaceChoices.find(route => route.routeId === selectedRouteChoiceId)
+            setRouteComparisonFullscreen(false)
+            if (choice && choice.routeId !== appliedRouteChoiceId) {
+              void handleSelectSurfaceRouteChoice(choice)
+            }
+          }}
+        />
+      )}
 
       {/* Bottom strip — overview source selector or route departure scrubber. */}
       <div

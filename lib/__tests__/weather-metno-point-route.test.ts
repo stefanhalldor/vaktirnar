@@ -4,8 +4,8 @@ const { fetchForecast } = vi.hoisted(() => ({
   fetchForecast: vi.fn(),
 }))
 
-vi.mock('@/lib/weather/metno.server', () => ({
-  fetchForecast,
+vi.mock('@/lib/weather/weatherChaseHistory.server', () => ({
+  fetchRoadMapPlaceMetnoForecast: fetchForecast,
 }))
 
 import { GET } from '@/app/api/teskeid/weather/metno/point/route'
@@ -23,7 +23,9 @@ describe('public met.no point route', () => {
     ))
 
     expect(response.status).toBe(200)
-    expect(fetchForecast).toHaveBeenCalledWith(65.2674, -14.3948)
+    expect(fetchForecast).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'egilsstadir', lat: 65.2674, lon: -14.3948,
+    }))
   })
 
   it('rejects arbitrary coordinates and unknown place ids', async () => {

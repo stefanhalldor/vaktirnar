@@ -23,6 +23,7 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [codeNotice, setCodeNotice] = useState('')
   const [showSlowHint, setShowSlowHint] = useState(false)
   const [resendCountdown, setResendCountdown] = useState(0)
   const codeInputRef = useRef<HTMLInputElement>(null)
@@ -50,7 +51,11 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
     })
   }
 
-  type RequestCodeResult = { ok: true } | { ok: false; rateLimited: true; retryAfter: string } | { ok: false; rateLimited?: false }
+  type RequestCodeResult =
+    | { status: 'ok'; delivery: 'active' | 'uncertain' }
+    | { status: 'rate_limited'; retryAfter: string }
+    | { status: 'failed' }
+    | { status: 'uncertain' }
 
   async function requestCode(targetEmail: string): Promise<RequestCodeResult> {
     try {
@@ -59,14 +64,28 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: targetEmail }),
       })
-      if (!res.ok) return { ok: false }
-      const data = await res.json().catch(() => ({}))
-      if (data.rateLimited && data.retryAfter) {
-        return { ok: false, rateLimited: true, retryAfter: data.retryAfter }
+      // A real Fetch Response has json(), but guards/mocks/proxies can return a
+      // response-shaped object without it. Missing response metadata is not a
+      // network exception and must not turn a definitive HTTP rejection into
+      // an "email may have been sent" outcome.
+      const data = typeof res.json === 'function'
+        ? await res.json().catch(() => ({}))
+        : {}
+      if (!res.ok) {
+        if (data.success === false) return { status: 'failed' }
+        return [408, 425, 502, 503, 504].includes(res.status)
+          ? { status: 'uncertain' }
+          : { status: 'failed' }
       }
-      return { ok: true }
+      if (data.rateLimited && data.retryAfter) {
+        return { status: 'rate_limited', retryAfter: data.retryAfter }
+      }
+      return {
+        status: 'ok',
+        delivery: data.delivery === 'uncertain' ? 'uncertain' : 'active',
+      }
     } catch {
-      return { ok: false }
+      return { status: 'uncertain' }
     }
   }
 
@@ -84,16 +103,23 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
       slowHintTimer.current = null
     }
     setShowSlowHint(false)
-    if (!result.ok) {
-      if ('rateLimited' in result && result.rateLimited) {
-        setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
-      } else {
-        setError(t('genericError'))
-      }
+    if (result.status === 'rate_limited') {
+      setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
       setLoading(false)
       requestInFlight.current = false
       return
     }
+    if (result.status === 'failed') {
+      setError(t('genericError'))
+      setLoading(false)
+      requestInFlight.current = false
+      return
+    }
+    setCodeNotice(
+      result.status === 'uncertain' || result.delivery === 'uncertain'
+        ? t('deliveryUncertain')
+        : '',
+    )
     setStep('code')
     setResendCountdown(RESEND_COOLDOWN)
     setLoading(false)
@@ -137,12 +163,20 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
     if (resendCountdown > 0 || requestInFlight.current) return
     requestInFlight.current = true
     setError('')
+    setCodeNotice('')
     setCode('')
     const result = await requestCode(email)
     requestInFlight.current = false
-    if (!result.ok && 'rateLimited' in result && result.rateLimited) {
+    if (result.status === 'rate_limited') {
       setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
       return
+    }
+    if (result.status === 'failed') {
+      setError(t('genericError'))
+      return
+    }
+    if (result.status === 'uncertain' || result.delivery === 'uncertain') {
+      setCodeNotice(t('deliveryUncertain'))
     }
     setResendCountdown(RESEND_COOLDOWN)
     codeInputRef.current?.focus()
@@ -194,7 +228,12 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
           ) : (
             <>
               <h2 className="mb-2 text-center text-xl font-semibold text-[#154212]">{t('codeTitle')}</h2>
-              <p className="mb-6 text-center text-sm text-[#72796e]">{t('emailSubmitted', { email })}</p>
+              <p className={`${codeNotice ? 'mb-2' : 'mb-6'} text-center text-sm text-[#72796e]`}>{t('emailSubmitted', { email })}</p>
+              {codeNotice && (
+                <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900" role="status">
+                  {codeNotice}
+                </p>
+              )}
               <form onSubmit={handleCodeSubmit} className="flex flex-col gap-4">
                 <label className="flex flex-col gap-1">
                   <span className="text-sm font-medium text-[#42493e]">{t('codeLabel')}</span>
@@ -222,8 +261,8 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
               <div className="mt-4 flex justify-between text-sm">
                 <button
                   type="button"
-                  onClick={() => { setStep('email'); setCode(''); setError('') }}
-                  className="text-[#72796e] hover:text-[#154212] transition-colors"
+                  onClick={() => { setStep('email'); setCode(''); setError(''); setCodeNotice('') }}
+                  className="min-h-10 px-1 text-[#72796e] hover:text-[#154212] transition-colors"
                 >
                   {t('backToEmail')}
                 </button>
@@ -231,7 +270,7 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
                   type="button"
                   onClick={handleResend}
                   disabled={resendCountdown > 0}
-                  className="font-medium text-[#154212] hover:underline disabled:text-gray-300 disabled:no-underline transition-colors"
+                  className="min-h-10 px-1 font-medium text-[#154212] hover:underline disabled:text-gray-300 disabled:no-underline transition-colors"
                 >
                   {resendCountdown > 0 ? t('resendIn', { seconds: resendCountdown }) : t('resend')}
                 </button>

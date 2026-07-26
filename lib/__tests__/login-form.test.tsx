@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -43,15 +43,22 @@ vi.mock('next-intl', () => ({
         resendIn: 'Senda aftur eftir {seconds}s',
         backToEmail: 'Til baka',
         genericError: 'Eitthvað fór úrskeiðis. Reyndu aftur.',
+        deliveryUncertain: 'Ekki náðist að staðfesta sendinguna, en kóðinn gæti hafa farið af stað. Athugaðu póstinn áður en þú reynir aftur.',
         emailSubmitted: 'Ef netfangið þitt er með aðgang færðu kóða innan skamms.',
       },
     }
-    return (key: string) => T[ns]?.[key] ?? key
+    return (key: string, values?: Record<string, string | number>) => {
+      const template = T[ns]?.[key] ?? key
+      return Object.entries(values ?? {}).reduce(
+        (text, [name, value]) => text.replace(`{${name}}`, String(value)),
+        template,
+      )
+    }
   }),
 }))
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
 })
 
 import { TeskeidLoginForm } from '@/components/teskeid/TeskeidLoginForm'
@@ -111,6 +118,76 @@ describe('TeskeidLoginForm — mobile input size', () => {
     const { container } = render(React.createElement(TeskeidLoginForm))
     const input = container.querySelector('input[type="email"]') as HTMLInputElement
     expect(input?.className).toContain('text-base')
+  })
+})
+
+describe('TeskeidLoginForm — uncertain code delivery', () => {
+  it('moves to the code step with a truthful notice when the request outcome is uncertain', async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('network interrupted after send'))
+    render(React.createElement(TeskeidLoginForm))
+
+    fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+
+    expect(await screen.findByText('Sláðu inn kóðann')).toBeDefined()
+    expect(screen.getByRole('status').textContent).toContain('kóðinn gæti hafa farið af stað')
+  })
+
+  it('stays on the email step after a definitive server rejection', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response)
+    render(React.createElement(TeskeidLoginForm))
+
+    fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Eitthvað fór úrskeiðis. Reyndu aftur.')).toBeDefined()
+    })
+    expect(screen.queryByText('Sláðu inn kóðann')).toBeNull()
+  })
+
+  it('treats a gateway timeout as uncertain because the email may already be in flight', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 504,
+      json: async () => ({}),
+    } as Response)
+    render(React.createElement(TeskeidLoginForm))
+
+    fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+
+    expect(await screen.findByText('Sláðu inn kóðann')).toBeDefined()
+    expect(screen.getByRole('status').textContent).toContain('kóðinn gæti hafa farið af stað')
+  })
+
+  it('does not start a success countdown after a definitive resend rejection', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.mocked(fetch)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
+      render(React.createElement(TeskeidLoginForm))
+
+      fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+      await act(async () => {})
+
+      for (let second = 0; second < 120; second += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000)
+        })
+      }
+      const resendButton = screen.getByRole('button', { name: 'Senda aftur' })
+
+      fetchMock.mockResolvedValueOnce({ ok: false } as Response)
+      fireEvent.click(resendButton)
+      await act(async () => {})
+
+      expect(screen.getByText('Eitthvað fór úrskeiðis. Reyndu aftur.')).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Senda aftur' })).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

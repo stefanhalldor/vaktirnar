@@ -24,6 +24,7 @@ vi.mock('@supabase/ssr', () => ({
 }))
 
 import { middleware } from '@/middleware'
+import { config } from '@/middleware'
 
 // ── Request helper ─────────────────────────────────────────────────────────
 
@@ -57,6 +58,45 @@ function redirectedTo(res: Response): string {
   const loc = res.headers.get('location') ?? ''
   return new URL(loc).pathname
 }
+
+describe('middleware — public static and road-intelligence boundaries', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  it('excludes manifest.json from auth middleware so the static JSON is served', () => {
+    expect(config.matcher[0]).toContain('manifest.json')
+  })
+
+  it.each([
+    '/api/teskeid/road-intelligence/station-markers',
+    '/api/teskeid/road-intelligence/road-segments?bbox=-24,63,-13,67',
+    '/api/teskeid/road-intelligence/road-surface?bbox=-24,63,-13,67',
+    '/api/teskeid/road-intelligence/map-proxy?source=vegakerfi&bbox=1,2,3,4',
+    '/api/teskeid/road-intelligence/lmi-tile?z=1&x=1&y=1',
+    '/api/teskeid/weather/forecast-history',
+    '/api/cron/warm-metno-points',
+  ])('lets exact public weather read reach its own handler: %s', async path => {
+    const res = await middleware(makeReq(path))
+    expect(res.status).toBe(200)
+  })
+
+  it('lets weather route-candidate reach its strict per-user route handler', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/travel/route-candidate'))
+    expect(res.status).toBe(200)
+  })
+
+  it('does not open road-intelligence subpaths by prefix', async () => {
+    const res = await middleware(makeReq('/api/teskeid/road-intelligence/road-segments/private'))
+    expect(res.status).toBe(401)
+  })
+
+  it('does not open forecast-history subpaths by prefix', async () => {
+    const res = await middleware(makeReq('/api/teskeid/weather/forecast-history/private'))
+    expect(res.status).toBe(401)
+  })
+})
 
 // ── Teskeið login alias redirects ──────────────────────────────────────────
 
@@ -161,11 +201,14 @@ describe('middleware — unauthenticated private route', () => {
     expect(body.error).toBe('Unauthorized')
   })
 
-  it('unauthenticated place search API → 401 JSON, not redirect', async () => {
+  it('allows the exact public place search API to reach its own access gates', async () => {
     const res = await middleware(makeReq('/api/place/search?q=reykjavik'))
+    expect(res.status).toBe(200)
+  })
+
+  it('keeps place-search subpaths private', async () => {
+    const res = await middleware(makeReq('/api/place/search/private?q=reykjavik'))
     expect(res.status).toBe(401)
-    const body = await res.json()
-    expect(body.error).toBe('Unauthorized')
   })
 })
 

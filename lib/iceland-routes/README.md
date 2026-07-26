@@ -17,14 +17,15 @@ useful across providers, screens, or future Teskeid products.
   attribution, CORS status, and proxy-readiness.
 - No production routing behavior yet.
 - No Google Routes replacement yet.
-- No Supabase persistence yet.
+- Supabase persistence is limited to versioned, provider-level road-graph
+  snapshots and validation metadata. No user routes or exact addresses persist.
 - Provider-neutral routing contract for future Google and Teskeid adapters.
 - Server-only shadow runner behind `TESKEID_ROUTING_SHADOW_ENABLED` (off unless
   explicitly set to `true`), scheduled after the primary travel response.
 - Automated road-graph core with directed edges, topology repair,
   multi-component endpoint matching, priority-queue routing and surface profiles.
-- Read-only Vegagerdin ArcGIS import boundary. It performs no persistence and
-  is not wired to a user request path.
+- Read-only Vegagerdin ArcGIS import boundary. Only the protected refresh worker
+  reaches it. User-facing consumers read a validated last-known-good snapshot.
 - A localhost-only route lab at `/preview/teskeid-routes` can calculate any
   Icelandic place pair resolved by the existing place search, request bounded
   alternative routes, audit surface composition, attach cached current
@@ -33,10 +34,40 @@ useful across providers, screens, or future Teskeid products.
 - A single road-graph candidate can be appended after the existing Google route
   options with `TESKEID_ROUTE_CANDIDATE_ENABLED=true` plus per-user
   `feature_access` key `teskeid-routing-v1`. Google remains first and
-  default. The candidate has an eight-second server budget and disappears on
-  timeout, source failure, no route, or flag-off; those states never fail the
-  Google result. The same helper recalculates a selected candidate for final
-  travel-weather sampling so preview and submit cannot use different rules.
+  default. The request has an eight-second response budget, but budget expiry is
+  a pending state: graph materialisation from the active snapshot continues with
+  `after()`. Live source refresh is separate, protected by admin/cron auth and a
+  database lease, and promotes only snapshots that pass structural checks plus
+  all 20 golden routes. Source failure, no route, or flag-off never fail the Google result. The same helper
+  recalculates a selected candidate for final travel-weather sampling so preview
+  and submit cannot use different rules.
+
+## Last-known-good snapshot lifecycle
+
+- `sql/92_teskeid_road_graph_snapshots.sql` creates service-role-only metadata,
+  atomic lease/promotion functions and a private Storage bucket. It must be run
+  manually by Stebbi before snapshot routes are used.
+- `POST /api/admin/weather/refresh-road-graph` bootstraps or manually refreshes
+  the snapshot for an authenticated Teskeið admin.
+- `GET /api/cron/refresh-road-graph` runs daily with `CRON_SECRET` when the
+  global route-candidate flag or the independent
+  `TESKEID_ROAD_GRAPH_REFRESH_ENABLED=true` prewarm flag is on.
+- Refresh fetches and normalizes official source data, sorts it deterministically,
+  skips byte-identical source content, builds the graph and rejects suspicious
+  count changes, weak connectivity or any failed golden route. The official
+  20 m topology baseline measured on 2026-07-26 has 854 of 1,363 nodes (62.66%)
+  in its largest weak component because the layer includes many small detached
+  road stubs. Bootstrap therefore requires at least 60%, while later refreshes
+  must also retain at least 90% of the active snapshot's component share. All
+  20 golden routes remain mandatory and the 20 m topology tolerance is fixed.
+- A validated payload is canonicalized, SHA-256 hashed, gzip-compressed and
+  uploaded to an immutable private object path. Only then can one SQL transaction
+  retire the previous active version and promote the new one.
+- Runtime verifies bucket/path, compressed and uncompressed sizes, SHA-256,
+  schema, graph diagnostics and golden-route pass metadata. It never imports or
+  calls the live Vegagerðin source.
+- Active plus the two previous retired snapshots are retained. Failed and
+  unchanged refresh metadata is retained for 30 days; no user route is stored.
 
 ## Shadow Routing Safety
 

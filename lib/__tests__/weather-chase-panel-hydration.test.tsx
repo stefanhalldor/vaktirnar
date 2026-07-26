@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -9,6 +9,14 @@ import {
 
 const labels = new Proxy({}, {
   get: (_target, property) => String(property),
+}) as ComponentProps<typeof WeatherChasePanel>['labels']
+
+const labelsWith = (overrides: Record<string, string>) => new Proxy(overrides, {
+  get: (target, property) => (
+    Reflect.has(target, property)
+      ? Reflect.get(target, property)
+      : String(property)
+  ),
 }) as ComponentProps<typeof WeatherChasePanel>['labels']
 
 const items: WeatherChaseItem[] = [
@@ -35,6 +43,481 @@ const items: WeatherChaseItem[] = [
 ]
 
 describe('WeatherChasePanel preference hydration', () => {
+  it('labels missing past and future values explicitly', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const yesterdayDate = new Date(`${today}T00:00:00.000Z`)
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1)
+    const yesterday = yesterdayDate.toISOString().slice(0, 10)
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+    const anchorItem: WeatherChaseItem = {
+      ...items[0],
+      rows: [{
+        timeIso: `${tomorrow}T00:00:00.000Z`,
+        status: 'graent',
+        temperature: { value: 15, direction: 'none', tone: 'neutral' },
+        wind: { value: 4, direction: 'none', tone: 'neutral' },
+        gust: { value: 4, direction: 'none', tone: 'neutral', severity: 'none' },
+        precipitation: { value: 0, direction: 'none', tone: 'neutral' },
+      }],
+    }
+    const missingItem = { ...items[1], rows: [] }
+    const onLoadHistoryDay = vi.fn(async (day: string) => ({
+      requestedDay: day,
+      availableFromDay: yesterday,
+      availableToDay: tomorrow,
+      rowsByItemId: { [anchorItem.id]: [], [missingItem.id]: [] },
+    }))
+
+    render(
+      <WeatherChasePanel
+        items={[anchorItem, missingItem]}
+        initialSelectedIds={[anchorItem.id, missingItem.id]}
+        labels={labelsWith({
+          missingHistoryValue: 'Sögugildi vantar',
+          missingForecastValue: 'Spá vantar',
+        })}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[0]}
+      />,
+    )
+
+    expect(await screen.findAllByText('Sögugildi vantar')).not.toHaveLength(0)
+    expect(screen.getAllByText('Spá vantar')).not.toHaveLength(0)
+  })
+
+  it('adds a passed selected hour for today instead of starting tomorrow', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+    const item: WeatherChaseItem = {
+      ...items[0],
+      rows: [{
+        timeIso: `${tomorrow}T12:00:00.000Z`,
+        status: 'graent',
+        temperature: { value: 15, direction: 'none', tone: 'neutral' },
+        wind: { value: 4, direction: 'none', tone: 'neutral' },
+        gust: { value: 4, direction: 'none', tone: 'neutral', severity: 'none' },
+        precipitation: { value: 0, direction: 'none', tone: 'neutral' },
+      }],
+    }
+    const onLoadHistoryDay = vi.fn().mockResolvedValue({
+      requestedDay: today,
+      availableFromDay: today,
+      availableToDay: tomorrow,
+      rowsByItemId: {
+        [item.id]: [{
+          ...item.rows[0],
+          timeIso: `${today}T12:00:00.000Z`,
+          temperature: { value: 12, direction: 'none', tone: 'neutral' },
+        }],
+      },
+    })
+
+    render(
+      <WeatherChasePanel
+        items={[item]}
+        initialSelectedIds={[item.id]}
+        labels={labels}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[12]}
+      />,
+    )
+
+    await waitFor(() => expect(onLoadHistoryDay).toHaveBeenCalledWith(today, expect.any(Array)))
+    expect(await screen.findByText('12temperatureUnit')).toBeInTheDocument()
+    expect(screen.getByText('15temperatureUnit')).toBeInTheDocument()
+  })
+
+  it('shows today through the last day that has forecast data', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+    const item: WeatherChaseItem = {
+      ...items[0],
+      rows: [{
+        timeIso: `${tomorrow}T12:00:00.000Z`,
+        status: 'graent',
+        temperature: { value: 15, direction: 'none', tone: 'neutral' },
+        wind: { value: 4, direction: 'none', tone: 'neutral' },
+        gust: { value: 4, direction: 'none', tone: 'neutral', severity: 'none' },
+        precipitation: { value: 0, direction: 'none', tone: 'neutral' },
+      }],
+    }
+    const onLoadHistoryDay = vi.fn().mockResolvedValue({
+      requestedDay: today,
+      availableFromDay: today,
+      availableToDay: tomorrow,
+      rowsByItemId: { [item.id]: [] },
+    })
+
+    render(
+      <WeatherChasePanel
+        items={[item]}
+        initialSelectedIds={[item.id]}
+        labels={labels}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[12]}
+      />,
+    )
+
+    await waitFor(() => expect(onLoadHistoryDay).toHaveBeenCalled())
+    expect(screen.getAllByText(/kl\. 12:00/)).toHaveLength(2)
+    expect(screen.getByText('15temperatureUnit')).toBeInTheDocument()
+  })
+
+  it('refreshes and replaces cached history when its data version changes', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const historyResult = (temperature: number) => ({
+      requestedDay: today,
+      availableFromDay: today,
+      availableToDay: today,
+      rowsByItemId: {
+        [items[0].id]: [{
+          timeIso: `${today}T12:00:00.000Z`,
+          status: 'graent' as const,
+          temperature: { value: temperature, direction: 'none' as const, tone: 'neutral' as const },
+          wind: { value: 4, direction: 'none' as const, tone: 'neutral' as const },
+          gust: { value: 4, direction: 'none' as const, tone: 'neutral' as const, severity: 'none' as const },
+          precipitation: { value: 0, direction: 'none' as const, tone: 'neutral' as const },
+        }],
+      },
+    })
+    const onLoadHistoryDay = vi.fn()
+      .mockResolvedValueOnce(historyResult(8))
+      .mockResolvedValueOnce(historyResult(10))
+
+    const { rerender } = render(
+      <WeatherChasePanel
+        items={[items[0]]}
+        initialSelectedIds={[items[0].id]}
+        labels={labels}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        historyDataVersion="8:15"
+        visibleHours={[12]}
+      />,
+    )
+    expect(await screen.findByText('8temperatureUnit')).toBeInTheDocument()
+
+    rerender(
+      <WeatherChasePanel
+        items={[items[0]]}
+        initialSelectedIds={[items[0].id]}
+        labels={labels}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        historyDataVersion="10:15"
+        visibleHours={[12]}
+      />,
+    )
+
+    expect(await screen.findByText('10temperatureUnit')).toBeInTheDocument()
+    expect(screen.queryByText('8temperatureUnit')).not.toBeInTheDocument()
+    expect(onLoadHistoryDay).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads one continuous range from the oldest retained day through the future horizon', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const oldestDate = new Date(`${today}T00:00:00.000Z`)
+    oldestDate.setUTCDate(oldestDate.getUTCDate() - 2)
+    const oldest = oldestDate.toISOString().slice(0, 10)
+    const middleDate = new Date(`${today}T00:00:00.000Z`)
+    middleDate.setUTCDate(middleDate.getUTCDate() - 1)
+    const middle = middleDate.toISOString().slice(0, 10)
+    const futureDate = new Date(`${today}T00:00:00.000Z`)
+    futureDate.setUTCDate(futureDate.getUTCDate() + 2)
+    const future = futureDate.toISOString().slice(0, 10)
+    const makeRow = (day: string, temperature: number) => ({
+      timeIso: `${day}T00:00:00.000Z`,
+      status: 'graent' as const,
+      temperature: { value: temperature, direction: 'none' as const, tone: 'neutral' as const },
+      wind: { value: 2, direction: 'none' as const, tone: 'neutral' as const },
+      gust: { value: 2, direction: 'none' as const, tone: 'neutral' as const, severity: 'none' as const },
+      precipitation: { value: 0, direction: 'none' as const, tone: 'neutral' as const },
+    })
+    const todayRow = makeRow(today, 7)
+    const item = { ...items[0], rows: [makeRow(future, 11)] }
+    const onLoadHistoryDay = vi.fn(async (day: string) => ({
+      requestedDay: day,
+      availableFromDay: oldest,
+      availableToDay: future,
+      rowsByItemId: {
+        [item.id]: day === today
+          ? [todayRow]
+          : [makeRow(oldest, 5), makeRow(middle, 6), todayRow, makeRow(future, 11)],
+      },
+    }))
+
+    render(
+      <WeatherChasePanel
+        items={[item]}
+        initialSelectedIds={[item.id]}
+        labels={labels}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[0]}
+      />,
+    )
+
+    expect(await screen.findByText('7temperatureUnit')).toBeInTheDocument()
+    expect(screen.getAllByText(/kl\. 00:00/)).toHaveLength(3)
+    expect(screen.queryByRole('button', { name: 'historyPreviousLabel' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'historyNextLabel' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'historyShowOlderLabel' }))
+
+    await waitFor(() => expect(onLoadHistoryDay).toHaveBeenCalledWith(oldest, expect.any(Array)))
+    expect(await screen.findByText('5temperatureUnit')).toBeInTheDocument()
+    expect(screen.getByText('6temperatureUnit')).toBeInTheDocument()
+    expect(screen.getByText('11temperatureUnit')).toBeInTheDocument()
+    expect(screen.getAllByText(/kl\. 00:00/)).toHaveLength(5)
+    expect(screen.queryByRole('button', { name: 'historyShowOlderLabel' })).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('region', { name: 'historyLabel' }))
+    })
+  })
+
+  it('places the older-forecast action in the table corner', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const yesterdayDate = new Date(`${today}T00:00:00.000Z`)
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1)
+    const yesterday = yesterdayDate.toISOString().slice(0, 10)
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+    const comparisonItems = Array.from({ length: 4 }, (_, index): WeatherChaseItem => ({
+      ...items[index % items.length],
+      id: `vedurstofan:corner-${index}`,
+      label: `Samanburðarstöð ${index + 1}`,
+      rows: [{
+        timeIso: `${tomorrow}T12:00:00.000Z`,
+        status: 'graent',
+        temperature: { value: 12 + index, direction: 'none', tone: 'neutral' },
+        wind: { value: 4, direction: 'none', tone: 'neutral' },
+        gust: { value: 4, direction: 'none', tone: 'neutral', severity: 'none' },
+        precipitation: { value: 0, direction: 'none', tone: 'neutral' },
+      }],
+    }))
+    const onLoadHistoryDay = vi.fn(async (day: string) => ({
+      requestedDay: day,
+      availableFromDay: yesterday,
+      availableToDay: tomorrow,
+      rowsByItemId: Object.fromEntries(comparisonItems.map(item => [item.id, []])),
+    }))
+
+    render(
+      <WeatherChasePanel
+        items={comparisonItems}
+        initialSelectedIds={comparisonItems.map(item => item.id)}
+        labels={labels}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[12]}
+      />,
+    )
+
+    const historyCorner = await screen.findByRole('group', { name: 'historyLabel' })
+    expect(within(historyCorner).getByRole('button', { name: 'historyShowOlderLabel' })).toBeInTheDocument()
+  })
+
+  it('keeps the current met.no loader stable while history is still in flight', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+    const item: WeatherChaseItem = {
+      id: 'metno:reykjavik',
+      label: 'Reykjavík',
+      providerId: 'metno',
+      providerLabel: 'Yr / met.no',
+      sourceLabel: 'Yr / met.no',
+      rows: [],
+      needsRowLoad: true,
+    }
+    const currentRow = {
+      timeIso: `${today}T00:00:00.000Z`,
+      status: 'graent' as const,
+      temperature: { value: 7, direction: 'none' as const, tone: 'neutral' as const },
+      wind: { value: 2, direction: 'none' as const, tone: 'neutral' as const },
+      gust: { value: 2, direction: 'none' as const, tone: 'neutral' as const, severity: 'none' as const },
+      precipitation: { value: 0, direction: 'none' as const, tone: 'neutral' as const },
+    }
+    type DeferredHistoryResult = {
+      requestedDay: string
+      availableFromDay: string
+      availableToDay: string
+      rowsByItemId: Record<string, Array<typeof currentRow>>
+    }
+    let resolveHistory!: (result: DeferredHistoryResult) => void
+    const historyPromise = new Promise<DeferredHistoryResult>(resolve => { resolveHistory = resolve })
+    const onLoadHistoryDay = vi.fn(() => historyPromise)
+    const onLoadItemRows = vi.fn().mockResolvedValue([{
+      ...currentRow,
+      timeIso: `${tomorrow}T00:00:00.000Z`,
+      temperature: { ...currentRow.temperature, value: 11 },
+    }])
+
+    render(
+      <WeatherChasePanel
+        items={[item]}
+        initialSelectedIds={[item.id]}
+        labels={labelsWith({
+          stillLoading: 'Sæki spá...',
+          missingHistoryValue: 'Sögugildi vantar',
+          missingForecastValue: 'Spá vantar',
+        })}
+        locale="is"
+        onLoadItemRows={onLoadItemRows}
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[0]}
+      />,
+    )
+
+    expect(await screen.findByText('11temperatureUnit')).toBeInTheDocument()
+    expect(onLoadHistoryDay).toHaveBeenCalledTimes(1)
+    expect(screen.getAllByText('Sæki spá...')).toHaveLength(2)
+    expect(screen.queryByText('Sögugildi vantar')).not.toBeInTheDocument()
+    resolveHistory({
+      requestedDay: today,
+      availableFromDay: today,
+      availableToDay: tomorrow,
+      rowsByItemId: { [item.id]: [currentRow] },
+    })
+    expect(await screen.findByText('7temperatureUnit')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Sæki spá...')).not.toBeInTheDocument())
+    expect(onLoadHistoryDay).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers a retry when the older forecast range fails to load', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const oldestDate = new Date(`${today}T00:00:00.000Z`)
+    oldestDate.setUTCDate(oldestDate.getUTCDate() - 1)
+    const oldest = oldestDate.toISOString().slice(0, 10)
+    const makeRow = (day: string, temperature: number) => ({
+      timeIso: `${day}T12:00:00.000Z`,
+      status: 'graent' as const,
+      temperature: { value: temperature, direction: 'none' as const, tone: 'neutral' as const },
+      wind: { value: 2, direction: 'none' as const, tone: 'neutral' as const },
+      gust: { value: 2, direction: 'none' as const, tone: 'neutral' as const, severity: 'none' as const },
+      precipitation: { value: 0, direction: 'none' as const, tone: 'neutral' as const },
+    })
+    const item = { ...items[0], rows: [makeRow(today, 7)] }
+    const historyResult = (day: string, rows: ReturnType<typeof makeRow>[]) => ({
+      requestedDay: day,
+      availableFromDay: oldest,
+      availableToDay: today,
+      rowsByItemId: { [item.id]: rows },
+    })
+    const onLoadHistoryDay = vi.fn()
+      .mockResolvedValueOnce(historyResult(today, [makeRow(today, 7)]))
+      .mockRejectedValueOnce(new Error('history unavailable'))
+      .mockResolvedValueOnce(historyResult(oldest, [makeRow(oldest, 5), makeRow(today, 7)]))
+
+    render(
+      <WeatherChasePanel
+        items={[item]}
+        initialSelectedIds={[item.id]}
+        labels={labels}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[12]}
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'historyShowOlderLabel' }))
+    expect(await screen.findByText('historyLoadFailedLabel', { exact: false })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'historyRetryLabel' }))
+
+    expect(await screen.findByText('5temperatureUnit')).toBeInTheDocument()
+    expect(onLoadHistoryDay).toHaveBeenCalledTimes(3)
+  })
+
+  it('shows a retry when discovering the available history initially fails', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const oldestDate = new Date(`${today}T00:00:00.000Z`)
+    oldestDate.setUTCDate(oldestDate.getUTCDate() - 1)
+    const oldest = oldestDate.toISOString().slice(0, 10)
+    const item = { ...items[0], rows: [] }
+    const onLoadHistoryDay = vi.fn()
+      .mockRejectedValueOnce(new Error('history unavailable'))
+      .mockResolvedValueOnce({
+        requestedDay: today,
+        availableFromDay: oldest,
+        availableToDay: today,
+        rowsByItemId: { [item.id]: [] },
+      })
+
+    render(
+      <WeatherChasePanel
+        items={[item]}
+        initialSelectedIds={[item.id]}
+        labels={labels}
+        locale="is"
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[12]}
+      />,
+    )
+
+    expect(await screen.findByText('historyLoadFailedLabel', { exact: false })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'historyRetryLabel' }))
+
+    expect(await screen.findByRole('button', { name: 'historyShowOlderLabel' })).toBeInTheDocument()
+    expect(onLoadHistoryDay).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads current met.no rows alongside the history request', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+    const item: WeatherChaseItem = {
+      id: 'metno:reykjavik',
+      label: 'Reykjavík',
+      providerId: 'metno',
+      providerLabel: 'Yr / met.no',
+      sourceLabel: 'Yr / met.no',
+      rows: [],
+      needsRowLoad: true,
+    }
+    const onLoadItemRows = vi.fn().mockResolvedValue([{
+      timeIso: `${tomorrow}T12:00:00.000Z`,
+      status: 'graent' as const,
+      temperature: { value: 11, direction: 'none' as const, tone: 'neutral' as const },
+      wind: { value: 3, direction: 'none' as const, tone: 'neutral' as const },
+      gust: { value: 4, direction: 'none' as const, tone: 'neutral' as const, severity: 'none' as const },
+      precipitation: { value: 0, direction: 'none' as const, tone: 'neutral' as const },
+    }])
+    const onLoadHistoryDay = vi.fn().mockResolvedValue({
+      requestedDay: today,
+      availableFromDay: today,
+      availableToDay: today,
+      rowsByItemId: { [item.id]: [] },
+    })
+
+    render(
+      <WeatherChasePanel
+        items={[item]}
+        initialSelectedIds={[item.id]}
+        labels={labels}
+        locale="is"
+        onLoadItemRows={onLoadItemRows}
+        onLoadHistoryDay={onLoadHistoryDay}
+        visibleHours={[12]}
+      />,
+    )
+
+    await waitFor(() => expect(onLoadItemRows).toHaveBeenCalledOnce())
+    await waitFor(() => expect(onLoadHistoryDay).toHaveBeenCalledOnce())
+    expect(await screen.findByText('11temperatureUnit')).toBeInTheDocument()
+  })
+
   it('shows available forecast rows while another provider is still loading', () => {
     const progressiveItems: WeatherChaseItem[] = [
       {
@@ -66,7 +549,7 @@ describe('WeatherChasePanel preference hydration', () => {
       <WeatherChasePanel
         items={progressiveItems}
         initialSelectedIds={progressiveItems.map(item => item.id)}
-        labels={labels}
+        labels={labelsWith({ stillLoading: 'Sæki spá...' })}
         locale="is"
         loading
         visibleHours={[12]}
@@ -76,7 +559,8 @@ describe('WeatherChasePanel preference hydration', () => {
     expect(screen.queryByRole('status', { name: 'loading' })).not.toBeInTheDocument()
     expect(screen.getByText('Reykjavík')).toBeInTheDocument()
     expect(screen.getByText('Veðurstofustöð')).toBeInTheDocument()
-    expect(screen.getByText('… stillLoading')).toBeInTheDocument()
+    expect(screen.getAllByText('Sæki spá...')).toHaveLength(2)
+    expect(screen.queryByText('… Sæki spá...')).not.toBeInTheDocument()
   })
 
   it('opens public settings by default and offers the secondary save action after adding a place', async () => {

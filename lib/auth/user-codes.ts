@@ -71,6 +71,36 @@ export async function createUserCode(email: string): Promise<CreateCodeResult | 
   return null
 }
 
+/** Mark a code unusable after the email provider definitively rejects it. */
+export async function invalidateUserCodeAfterSendFailure(
+  email: string,
+  code: string,
+): Promise<boolean> {
+  const normalizedEmail = email.toLowerCase().trim()
+  let codeHash: string
+  try {
+    codeHash = hashCode(normalizedEmail, code)
+  } catch {
+    return false
+  }
+
+  try {
+    const { error } = await getAdmin()
+      .from('auth_email_codes')
+      .update({ used_at: new Date().toISOString() })
+      .eq('email', normalizedEmail)
+      .eq('code_hash', codeHash)
+      .is('used_at', null)
+
+    if (!error) return true
+    console.error('[user-codes] failed to invalidate code after email rejection')
+    return false
+  } catch {
+    console.error('[user-codes] code invalidation outcome uncertain')
+    return false
+  }
+}
+
 /**
  * Verify a submitted code against the latest active code for the email.
  *

@@ -5,6 +5,7 @@ import { roundCoord } from './places'
 import type { HourPoint } from './types'
 
 const METNO_BASE = 'https://api.met.no/weatherapi/locationforecast/2.0/compact'
+const METNO_FETCH_TIMEOUT_MS = 12_000
 
 function cacheKey(lat: number, lon: number): string {
   return `metno:locationforecast:2.0:compact:${roundCoord(lat)}:${roundCoord(lon)}`
@@ -14,13 +15,19 @@ type CacheRow = {
   response_body: unknown
   expires_at: string
   last_modified: string | null
+  fetched_at: string | null
+}
+
+export type MetnoForecastSnapshot = {
+  forecasts: HourPoint[]
+  updatedAtIso: string
 }
 
 async function getFromCache(key: string): Promise<CacheRow | null> {
   try {
     const { data } = await getAdmin()
       .from('weather_cache')
-      .select('response_body, expires_at, last_modified')
+      .select('response_body, expires_at, last_modified, fetched_at')
       .eq('cache_key', key)
       .maybeSingle()
     return data as CacheRow | null
@@ -69,6 +76,25 @@ function parseExpires(header: string | null): string {
 }
 
 export async function fetchForecast(lat: number, lon: number): Promise<HourPoint[]> {
+  return (await fetchForecastSnapshot(lat, lon)).forecasts
+}
+
+function snapshotFromBody(body: unknown, fallbackIso: string | null | undefined): MetnoForecastSnapshot {
+  const providerUpdatedAt = (body as { properties?: { meta?: { updated_at?: unknown } } })
+    ?.properties?.meta?.updated_at
+  const parsedProviderTime = typeof providerUpdatedAt === 'string' ? Date.parse(providerUpdatedAt) : NaN
+  const parsedFallback = fallbackIso ? Date.parse(fallbackIso) : NaN
+  return {
+    forecasts: parseMetnoForecast(body),
+    updatedAtIso: Number.isFinite(parsedProviderTime)
+      ? new Date(parsedProviderTime).toISOString()
+      : Number.isFinite(parsedFallback)
+        ? new Date(parsedFallback).toISOString()
+        : new Date().toISOString(),
+  }
+}
+
+export async function fetchForecastSnapshot(lat: number, lon: number): Promise<MetnoForecastSnapshot> {
   const key = cacheKey(lat, lon)
   const cached = await getFromCache(key)
   const userAgent =
@@ -77,7 +103,7 @@ export async function fetchForecast(lat: number, lon: number): Promise<HourPoint
 
   // Cache hit and not expired: return immediately
   if (cached && new Date(cached.expires_at) > new Date()) {
-    return parseMetnoForecast(cached.response_body)
+    return snapshotFromBody(cached.response_body, cached.fetched_at)
   }
 
   const headers: Record<string, string> = { 'User-Agent': userAgent }
@@ -87,18 +113,22 @@ export async function fetchForecast(lat: number, lon: number): Promise<HourPoint
 
   const url = `${METNO_BASE}?lat=${roundCoord(lat)}&lon=${roundCoord(lon)}`
   let res: Response
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), METNO_FETCH_TIMEOUT_MS)
 
   try {
-    res = await fetch(url, { headers, cache: 'no-store' })
+    res = await fetch(url, { headers, cache: 'no-store', signal: controller.signal })
   } catch (err) {
     console.error('[weather/metno] fetch error', err)
-    if (cached) return parseMetnoForecast(cached.response_body)
+    if (cached) return snapshotFromBody(cached.response_body, cached.fetched_at)
     throw new Error('met.no fetch failed')
+  } finally {
+    clearTimeout(timeout)
   }
 
   if (res.status === 304) {
     await touchCache(key)
-    if (cached) return parseMetnoForecast(cached.response_body)
+    if (cached) return snapshotFromBody(cached.response_body, cached.fetched_at)
     throw new Error('met.no 304 but no cache')
   }
 
@@ -108,19 +138,19 @@ export async function fetchForecast(lat: number, lon: number): Promise<HourPoint
 
   if (res.status === 403) {
     console.error('[weather/metno] 403 Forbidden — check User-Agent and met.no terms')
-    if (cached) return parseMetnoForecast(cached.response_body)
+    if (cached) return snapshotFromBody(cached.response_body, cached.fetched_at)
     throw new Error('met.no access denied')
   }
 
   if (res.status === 429) {
     console.error('[weather/metno] 429 Too Many Requests')
-    if (cached) return parseMetnoForecast(cached.response_body)
+    if (cached) return snapshotFromBody(cached.response_body, cached.fetched_at)
     throw new Error('met.no rate limited')
   }
 
   if (!res.ok) {
     console.error(`[weather/metno] HTTP ${res.status}`)
-    if (cached) return parseMetnoForecast(cached.response_body)
+    if (cached) return snapshotFromBody(cached.response_body, cached.fetched_at)
     throw new Error(`met.no HTTP ${res.status}`)
   }
 
@@ -129,5 +159,5 @@ export async function fetchForecast(lat: number, lon: number): Promise<HourPoint
   const lastModified = res.headers.get('Last-Modified')
 
   await saveToCache(key, body, expiresAt, lastModified)
-  return parseMetnoForecast(body)
+  return snapshotFromBody(body, new Date().toISOString())
 }

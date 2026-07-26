@@ -36,6 +36,13 @@ export type WeatherChaseCriteria = {
 
 export type WeatherChaseSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
+export type WeatherChaseHistoryLoadResult = {
+  requestedDay: string
+  availableFromDay: string
+  availableToDay: string
+  rowsByItemId: Record<string, ForecastDrawerRow[]>
+}
+
 export type WeatherChasePreferenceItem = {
   id: string
   providerId: WeatherChaseProviderId
@@ -56,6 +63,8 @@ type WeatherChaseLabels = {
   subtitle: string
   loading: string
   stillLoading: string
+  missingHistoryValue: string
+  missingForecastValue: string
   emptyData: string
   searchLabel: string
   searchPlaceholder: string
@@ -98,6 +107,11 @@ type WeatherChaseLabels = {
   savePlacesLabel: string
   stationsTitle: string
   settingsLabel: string
+  historyLabel: string
+  historyShowOlderLabel: string
+  historyLoadingLabel: string
+  historyLoadFailedLabel: string
+  historyRetryLabel: string
 }
 
 type Props = {
@@ -108,6 +122,11 @@ type Props = {
   thresholds?: ResolvedTravelThresholds | null
   loading?: boolean
   onLoadItemRows?: (item: WeatherChaseItem) => Promise<ForecastDrawerRow[]>
+  onLoadHistoryDay?: (
+    day: string,
+    items: WeatherChaseItem[],
+  ) => Promise<WeatherChaseHistoryLoadResult>
+  historyDataVersion?: string
   onSelectedItemsChange?: (items: WeatherChaseItem[]) => void
   onShowNearbyStations?: (item: WeatherChaseItem) => void
   criteria?: WeatherChaseCriteria
@@ -241,6 +260,8 @@ function buildWeatherChaseColumns(
   items: WeatherChaseItem[],
   targetHoursUtc: number[],
   locale: string,
+  windowStartDay?: string,
+  windowEndDay?: string,
 ): WeatherChaseColumn[] {
   const toleranceMs = 90 * 60 * 1000
   const isIs = locale === 'is' || locale.startsWith('is')
@@ -267,20 +288,19 @@ function buildWeatherChaseColumns(
   }
 
   const cols: WeatherChaseColumn[] = []
-  const dates = Array.from(dateSet).sort()
+  const dates = windowStartDay
+    ? buildUtcDayRange(windowStartDay, windowEndDay ?? addUtcDays(windowStartDay, 6))
+    : Array.from(dateSet).sort()
   for (const dateStr of dates) {
     for (const hour of targetHoursUtc) {
       const hh = String(hour).padStart(2, '0')
       const targetIso = `${dateStr}T${hh}:00:00.000Z`
       const targetMs = new Date(targetIso).getTime()
       const rowsByItemId = new Map<string, ForecastDrawerRow | null>()
-      let hasAny = false
       for (const item of items) {
         const row = findNearest(item.rows, targetMs)
         rowsByItemId.set(item.id, row)
-        if (row) hasAny = true
       }
-      if (!hasAny) continue
       const d = new Date(targetIso)
       const dayLabel = isIs
         ? `${CMP_IS_WEEKDAY[d.getUTCDay()]}. ${d.getUTCDate()}. ${CMP_IS_MONTH[d.getUTCMonth()]}`
@@ -293,31 +313,79 @@ function buildWeatherChaseColumns(
   return cols
 }
 
+function utcDayKey(date = new Date()): string {
+  return date.toISOString().slice(0, 10)
+}
+
+function addUtcDays(day: string, delta: number): string {
+  const date = new Date(`${day}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() + delta)
+  return utcDayKey(date)
+}
+
+function buildUtcDayRange(fromDay: string, toDay: string): string[] {
+  if (toDay < fromDay) return [fromDay]
+  const days: string[] = []
+  for (let day = fromDay; day <= toDay; day = addUtcDays(day, 1)) {
+    days.push(day)
+  }
+  return days
+}
+
+function mergeForecastRows(
+  baseRows: ForecastDrawerRow[],
+  historyRows: ForecastDrawerRow[],
+): ForecastDrawerRow[] {
+  const byTime = new Map<string, ForecastDrawerRow>()
+  for (const row of historyRows) byTime.set(row.timeIso, row)
+  for (const row of baseRows) byTime.set(row.timeIso, row)
+  return [...byTime.values()].sort((a, b) => Date.parse(a.timeIso) - Date.parse(b.timeIso))
+}
+
 function MetricStack({
   row,
+  targetIso,
+  pending,
   peerRows,
   thresholds,
   locale,
   criteria,
   labels,
   showMedals,
-  pending = false,
-  pendingLabel,
 }: {
   row: ForecastDrawerRow | null
+  targetIso: string
+  pending: boolean
   peerRows: ForecastDrawerRow[]
   thresholds?: ResolvedTravelThresholds | null
   locale: string
   criteria: WeatherChaseCriteria
-  labels: Pick<WeatherChaseLabels, 'temperatureUnit' | 'windUnit' | 'precipitationUnit'>
+  labels: Pick<WeatherChaseLabels,
+    | 'temperatureUnit'
+    | 'windUnit'
+    | 'precipitationUnit'
+    | 'stillLoading'
+    | 'missingHistoryValue'
+    | 'missingForecastValue'
+  >
   showMedals?: boolean
-  pending?: boolean
-  pendingLabel: string
 }) {
   if (!row) {
-    return pending
-      ? <span className="text-[10px] leading-snug text-muted-foreground">… {pendingLabel}</span>
-      : <span className="text-[11px] text-muted-foreground/40">–</span>
+    if (pending) {
+      return (
+        <span className="block text-[10px] leading-tight text-muted-foreground/55">
+          {labels.stillLoading}
+        </span>
+      )
+    }
+    const missingLabel = Date.parse(targetIso) < Date.now()
+      ? labels.missingHistoryValue
+      : labels.missingForecastValue
+    return (
+      <span className="block text-[10px] leading-tight text-muted-foreground/55">
+        {missingLabel}
+      </span>
+    )
   }
 
   const peerTemps = peerRows.map(peer => peer.temperature.value)
@@ -403,6 +471,8 @@ export function WeatherChasePanel({
   thresholds,
   loading = false,
   onLoadItemRows,
+  onLoadHistoryDay,
+  historyDataVersion = '',
   onSelectedItemsChange,
   onShowNearbyStations,
   criteria,
@@ -429,6 +499,14 @@ export function WeatherChasePanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [internalCriteria, setInternalCriteria] = useState<WeatherChaseCriteria>(DEFAULT_WEATHER_CHASE_CRITERIA)
   const [loadedRowsById, setLoadedRowsById] = useState<Map<string, ForecastDrawerRow[]>>(new Map())
+  const [historyRowsById, setHistoryRowsById] = useState<Map<string, ForecastDrawerRow[]>>(new Map())
+  const [historyAvailableFromDay, setHistoryAvailableFromDay] = useState<string | null>(null)
+  const [historyLoadingDay, setHistoryLoadingDay] = useState<string | null>(null)
+  const [historyFailedDay, setHistoryFailedDay] = useState<string | null>(null)
+  const [historyLoadedStartDay, setHistoryLoadedStartDay] = useState<string | null>(null)
+  const [showHistoryDiscoveryStatus, setShowHistoryDiscoveryStatus] = useState(false)
+  const [historyRetryVersion, setHistoryRetryVersion] = useState(0)
+  const [windowStartDay, setWindowStartDay] = useState(() => utcDayKey())
   const [loadingRowIds, setLoadingRowIds] = useState<Set<string>>(new Set())
   const [failedRowIds, setFailedRowIds] = useState<Set<string>>(new Set())
   const visibleHours = normalizeWeatherChaseVisibleHours(visibleHoursInput)
@@ -436,12 +514,16 @@ export function WeatherChasePanel({
   const searchBlurTimerRef = useRef<number | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const panelBottomRef = useRef<HTMLDivElement | null>(null)
+  const comparisonScrollRef = useRef<HTMLDivElement | null>(null)
+  const comparisonRegionRef = useRef<HTMLDivElement | null>(null)
   const shouldScrollToAddedPlaceRef = useRef(false)
+  const shouldJumpToHistoryStartRef = useRef(false)
   const skipInitialSettingsScrollRef = useRef(defaultSettingsOpen)
   const appliedDefaultsKeyRef = useRef<string | null>(null)
   const appliedSelectedIdsKeyRef = useRef<string | null>(null)
   const hasPublishedInitialSelectionRef = useRef(false)
   const inFlightLoadIdsRef = useRef<Set<string>>(new Set())
+  const loadedHistoryRequestKeysRef = useRef<Map<string, string>>(new Map())
   const activeCriteria = criteria ?? internalCriteria
   const placesChanged = controlledPlacesChanged ?? internalPlacesChanged
 
@@ -461,9 +543,13 @@ export function WeatherChasePanel({
   const itemById = useMemo(() => {
     return new Map(items.map(item => {
       const loadedRows = loadedRowsById.get(item.id)
-      return [item.id, loadedRows ? { ...item, rows: loadedRows } : item] as const
+      const currentRows = loadedRows ?? item.rows
+      const historyRows = historyRowsById.get(item.id) ?? []
+      return [item.id, historyRows.length > 0
+        ? { ...item, rows: mergeForecastRows(currentRows, historyRows) }
+        : loadedRows ? { ...item, rows: loadedRows } : item] as const
     }))
-  }, [items, loadedRowsById])
+  }, [historyRowsById, items, loadedRowsById])
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
@@ -502,11 +588,14 @@ export function WeatherChasePanel({
     () => selectedIds.map(id => itemById.get(id)).filter((item): item is WeatherChaseItem => !!item),
     [itemById, selectedIds],
   )
+  const selectionIsInitializing = initialSelectedIds !== null && appliedDefaultsKeyRef.current === null
   const hasAnySelectedRows = selectedItems.some(item => item.rows.length > 0)
+    || (selectionIsInitializing && items.some(item => item.rows.length > 0))
   const showBlockingLoader = loading && !hasAnySelectedRows
 
   function itemForecastPending(item: WeatherChaseItem): boolean {
     return loadingRowIds.has(item.id)
+      || (historyLoadingDay !== null && historyRequestItems.some(candidate => candidate.id === item.id))
       || (loading && item.providerId === 'vedurstofan' && item.rows.length === 0)
   }
 
@@ -524,7 +613,8 @@ export function WeatherChasePanel({
     if (!onLoadItemRows) return
     const toLoad = selectedItems.filter(item =>
       item.needsRowLoad &&
-      item.rows.length === 0 &&
+      !loadedRowsById.has(item.id) &&
+      (items.find(candidate => candidate.id === item.id)?.rows.length ?? 0) === 0 &&
       !loadingRowIds.has(item.id) &&
       !inFlightLoadIdsRef.current.has(item.id) &&
       !failedRowIds.has(item.id),
@@ -558,7 +648,66 @@ export function WeatherChasePanel({
           })
         })
     }
-  }, [failedRowIds, loadingRowIds, onLoadItemRows, selectedItems])
+  }, [failedRowIds, items, loadedRowsById, loadingRowIds, onLoadItemRows, selectedItems])
+
+  const historyRequestItems = useMemo(
+    () => selectedIds
+      .map(id => items.find(item => item.id === id))
+      .filter((item): item is WeatherChaseItem & { providerId: 'vedurstofan' | 'metno' } => (
+        item?.providerId === 'vedurstofan' || item?.providerId === 'metno'
+      )),
+    [items, selectedIds],
+  )
+  const historyRequestIdsKey = historyRequestItems.map(item => item.id).sort().join('|')
+
+  useEffect(() => {
+    if (!onLoadHistoryDay || historyRequestItems.length === 0) {
+      setHistoryAvailableFromDay(null)
+      setHistoryLoadingDay(null)
+      setHistoryFailedDay(null)
+      setHistoryLoadedStartDay(null)
+      setShowHistoryDiscoveryStatus(false)
+      return
+    }
+    const requestKey = `${historyDataVersion}:${windowStartDay}:${historyRequestIdsKey}`
+    const cachedAvailableFromDay = loadedHistoryRequestKeysRef.current.get(requestKey)
+    if (cachedAvailableFromDay) {
+      setHistoryAvailableFromDay(cachedAvailableFromDay)
+      setHistoryLoadingDay(null)
+      setHistoryFailedDay(null)
+      setHistoryLoadedStartDay(windowStartDay)
+      setShowHistoryDiscoveryStatus(false)
+      return
+    }
+    let active = true
+    setHistoryAvailableFromDay(null)
+    setHistoryLoadingDay(windowStartDay)
+    setHistoryFailedDay(null)
+    onLoadHistoryDay(windowStartDay, historyRequestItems)
+      .then(result => {
+        if (!active) return
+        loadedHistoryRequestKeysRef.current.set(requestKey, result.availableFromDay)
+        setHistoryRowsById(previous => {
+          const next = new Map(previous)
+          for (const [itemId, rows] of Object.entries(result.rowsByItemId)) {
+            next.set(itemId, rows)
+          }
+          return next
+        })
+        setHistoryAvailableFromDay(result.availableFromDay)
+        setHistoryLoadedStartDay(result.requestedDay)
+        setShowHistoryDiscoveryStatus(false)
+      })
+      .catch(() => {
+        if (!active) return
+        setHistoryFailedDay(windowStartDay)
+        if (windowStartDay === utcDayKey()) setShowHistoryDiscoveryStatus(true)
+      })
+      .finally(() => {
+        if (active) setHistoryLoadingDay(current => current === windowStartDay ? null : current)
+      })
+    return () => { active = false }
+  }, [historyDataVersion, historyRequestIdsKey, historyRequestItems, historyRetryVersion, onLoadHistoryDay, windowStartDay])
 
   function retryItemRows(itemId: string) {
     setFailedRowIds(prev => {
@@ -568,17 +717,21 @@ export function WeatherChasePanel({
     })
   }
 
-  function renderItemLoadState(itemId: string) {
-    if (loadingRowIds.has(itemId)) {
-      return null
+  function renderItemLoadState(item: WeatherChaseItem) {
+    if (itemForecastPending(item)) {
+      return (
+        <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+          {labels.stillLoading}
+        </p>
+      )
     }
-    if (!failedRowIds.has(itemId)) return null
+    if (!failedRowIds.has(item.id)) return null
     return (
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
         <span className="text-destructive">{labels.rowLoadFailedLabel}</span>
         <button
           type="button"
-          onClick={() => retryItemRows(itemId)}
+          onClick={() => retryItemRows(item.id)}
           className="font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {labels.retryRowLoadLabel}
@@ -608,10 +761,43 @@ export function WeatherChasePanel({
 
   const showSuggestions = searchFocused && normalizedQuery.length > 0
 
+  const todayDay = utcDayKey()
+  const lastVisibleDay = useMemo(() => {
+    let latest = todayDay
+    for (const item of selectedItems) {
+      for (const row of item.rows) {
+        if (typeof row.timeIso !== 'string') continue
+        const day = row.timeIso.slice(0, 10)
+        if (/^\d{4}-\d{2}-\d{2}$/.test(day) && day > latest) latest = day
+      }
+    }
+    return latest
+  }, [selectedItems, todayDay])
   const compactCols = useMemo(
-    () => buildWeatherChaseColumns(selectedItems, visibleHours, locale),
-    [locale, selectedItems, visibleHours],
+    () => buildWeatherChaseColumns(selectedItems, visibleHours, locale, windowStartDay, lastVisibleDay),
+    [lastVisibleDay, locale, selectedItems, visibleHours, windowStartDay],
   )
+  const hasOlderForecasts = historyAvailableFromDay !== null && historyAvailableFromDay < todayDay
+  const loadingOlderForecasts = windowStartDay < todayDay
+    && historyLoadedStartDay !== windowStartDay
+    && historyFailedDay !== windowStartDay
+  const failedToLoadOlderForecasts = windowStartDay < todayDay && historyFailedDay === windowStartDay
+  const loadingHistoryDiscovery = showHistoryDiscoveryStatus
+    && historyLoadingDay === todayDay
+    && historyFailedDay !== todayDay
+  const failedHistoryDiscovery = showHistoryDiscoveryStatus && historyFailedDay === todayDay
+  const showHistoryControl = selectedItems.length > 0 && (
+    (windowStartDay === todayDay && hasOlderForecasts)
+    || loadingOlderForecasts
+    || failedToLoadOlderForecasts
+    || showHistoryDiscoveryStatus
+  )
+
+  function showOlderForecasts() {
+    if (!historyAvailableFromDay || historyAvailableFromDay >= todayDay) return
+    shouldJumpToHistoryStartRef.current = true
+    setWindowStartDay(historyAvailableFromDay)
+  }
 
   function clearSearchBlurTimer() {
     if (searchBlurTimerRef.current) {
@@ -693,6 +879,17 @@ export function WeatherChasePanel({
       panelBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }, 0)
   }, [selectedItems])
+
+  useEffect(() => {
+    if (
+      !shouldJumpToHistoryStartRef.current
+      || windowStartDay >= todayDay
+      || historyLoadedStartDay !== windowStartDay
+    ) return
+    shouldJumpToHistoryStartRef.current = false
+    if (comparisonScrollRef.current) comparisonScrollRef.current.scrollLeft = 0
+    comparisonRegionRef.current?.focus({ preventScroll: true })
+  }, [compactCols, historyLoadedStartDay, todayDay, windowStartDay])
 
   useEffect(() => {
     return () => clearSearchBlurTimer()
@@ -868,6 +1065,67 @@ export function WeatherChasePanel({
     )
   }
 
+  function renderHistoryControl(variant: 'corner' | 'standalone') {
+    if (!showHistoryControl) return null
+
+    const isCorner = variant === 'corner'
+    if (loadingOlderForecasts || loadingHistoryDiscovery) {
+      return (
+        <p
+          className={isCorner
+            ? 'flex min-h-10 items-center px-2 text-[10px] font-semibold text-muted-foreground'
+            : 'px-2 text-xs font-semibold text-muted-foreground'}
+          role="status"
+        >
+          {labels.historyLoadingLabel}
+        </p>
+      )
+    }
+
+    if (failedToLoadOlderForecasts || failedHistoryDiscovery) {
+      if (isCorner) {
+        return (
+          <button
+            type="button"
+            onClick={() => setHistoryRetryVersion(value => value + 1)}
+            className="flex min-h-10 w-full items-center px-2 text-left text-[10px] font-semibold text-destructive transition-colors hover:bg-destructive/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            aria-label={`${labels.historyLoadFailedLabel} ${labels.historyRetryLabel}`}
+            title={labels.historyLoadFailedLabel}
+          >
+            {labels.historyRetryLabel}
+          </button>
+        )
+      }
+
+      return (
+        <p className="px-2 text-xs text-destructive">
+          {labels.historyLoadFailedLabel}{' '}
+          <button
+            type="button"
+            onClick={() => setHistoryRetryVersion(value => value + 1)}
+            className="font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {labels.historyRetryLabel}
+          </button>
+        </p>
+      )
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={showOlderForecasts}
+        disabled={historyLoadingDay !== null}
+        className={isCorner
+          ? 'flex min-h-10 w-full items-center gap-1 px-2 text-left text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50'
+          : 'flex min-h-10 items-center gap-1 rounded-md px-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50'}
+      >
+        <span aria-hidden="true">←</span>
+        <span>{labels.historyShowOlderLabel}</span>
+      </button>
+    )
+  }
+
   function renderComparison(cols: WeatherChaseColumn[]) {
     if (selectedItems.length === 0) {
       return (
@@ -891,7 +1149,7 @@ export function WeatherChasePanel({
             <div>
               <p className="text-sm text-muted-foreground">{labels.noRowsLabel}</p>
               {selectedItems.map(item => (
-                <div key={item.id}>{renderItemLoadState(item.id)}</div>
+                <div key={item.id}>{renderItemLoadState(item)}</div>
               ))}
             </div>
           )}
@@ -910,6 +1168,7 @@ export function WeatherChasePanel({
               <div key={item.id} className="min-w-0">
                 <p className="truncate text-[11px] font-semibold text-foreground">{item.label}</p>
                 <ProviderBadge item={item} />
+                {renderItemLoadState(item)}
               </div>
             ))}
           </div>
@@ -925,17 +1184,16 @@ export function WeatherChasePanel({
                     const peers = findPeers(selectedItems, col, item.id)
                     return (
                       <div key={item.id} className="min-w-0">
-                        {renderItemLoadState(item.id)}
                         <MetricStack
                           row={row}
+                          targetIso={col.targetIso}
+                          pending={itemForecastPending(item)}
                           peerRows={peers}
                           thresholds={thresholds}
                           locale={locale}
                           criteria={activeCriteria}
                           labels={labels}
                           showMedals={showMedals}
-                          pending={itemForecastPending(item)}
-                          pendingLabel={labels.stillLoading}
                         />
                       </div>
                     )
@@ -949,12 +1207,18 @@ export function WeatherChasePanel({
     }
 
     return (
-      <div className="overflow-x-auto rounded-lg border border-border/70 bg-background/75">
+      <div ref={comparisonScrollRef} className="overflow-x-auto rounded-lg border border-border/70 bg-background/75">
         <div
           className="inline-grid min-w-full"
           style={{ gridTemplateColumns: `minmax(8.5rem, 9.75rem) repeat(${cols.length}, 4.85rem)` }}
         >
-          <div className="sticky left-0 top-0 z-30 isolate border-b border-r border-border/60 bg-background p-2 text-[10px] font-semibold text-muted-foreground shadow-[4px_0_8px_rgba(15,23,42,0.06)]" />
+          <div
+            role={showHistoryControl ? 'group' : undefined}
+            aria-label={showHistoryControl ? labels.historyLabel : undefined}
+            className="sticky left-0 top-0 z-30 isolate border-b border-r border-border/60 bg-background shadow-[4px_0_8px_rgba(15,23,42,0.06)]"
+          >
+            {renderHistoryControl('corner')}
+          </div>
           {cols.map(col => (
             <div key={col.targetIso} className="sticky top-0 z-20 isolate border-b border-border/60 bg-background px-2 py-2 text-[10px] text-muted-foreground shadow-sm">
               <div className="truncate font-semibold">{col.dayLabel}</div>
@@ -968,7 +1232,7 @@ export function WeatherChasePanel({
                 <div className="mt-1">
                   <ProviderBadge item={item} />
                 </div>
-                {renderItemLoadState(item.id)}
+                {renderItemLoadState(item)}
               </div>
               {cols.map(col => {
                 const row = col.rowsByItemId.get(item.id) ?? null
@@ -977,14 +1241,14 @@ export function WeatherChasePanel({
                   <div key={`${item.id}:${col.targetIso}`} className="border-b border-border/40 px-2 py-2">
                     <MetricStack
                       row={row}
+                      targetIso={col.targetIso}
+                      pending={itemForecastPending(item)}
                       peerRows={peers}
                       thresholds={thresholds}
                       locale={locale}
                       criteria={activeCriteria}
                       labels={labels}
                       showMedals={showMedals}
-                      pending={itemForecastPending(item)}
-                      pendingLabel={labels.stillLoading}
                     />
                   </div>
                 )
@@ -1012,7 +1276,23 @@ export function WeatherChasePanel({
           </p>
         ) : null}
 
-        {!showBlockingLoader && renderComparison(compactCols)}
+        {!showBlockingLoader && selectedItems.length > 0 && selectedItems.length <= 3 && showHistoryControl && (
+          <div className="flex min-h-10 items-center" aria-label={labels.historyLabel}>
+            {renderHistoryControl('standalone')}
+          </div>
+        )}
+
+        {!showBlockingLoader && (
+          <div
+            ref={comparisonRegionRef}
+            role="region"
+            aria-label={labels.historyLabel}
+            tabIndex={-1}
+            className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {renderComparison(compactCols)}
+          </div>
+        )}
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">

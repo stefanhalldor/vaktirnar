@@ -1,7 +1,8 @@
 import 'server-only'
+import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createUserCode } from '@/lib/auth/user-codes'
+import { createUserCode, invalidateUserCodeAfterSendFailure } from '@/lib/auth/user-codes'
 import { sendUserLoginCode } from '@/lib/auth/email'
 import { checkIpRateLimit } from '@/lib/auth/ip-rate-limit'
 
@@ -9,10 +10,11 @@ const schema = z.object({
   email: z.string().email().max(320).transform((e) => e.toLowerCase().trim()),
 })
 
-// Always returns { success: true } — never leaks whether email exists,
-// whether the IP is rate-limited, or whether email sending succeeded.
+// Public policy responses avoid leaking whether an email exists or whether
+// deduplication suppressed a send. Operational failures use a generic 500.
 export async function POST(request: NextRequest) {
   const t0 = Date.now()
+  const requestId = randomUUID()
 
   // IP rate-limit check (best-effort; fails open so an RPC outage doesn't
   // block all logins). Must happen before body parsing to reject abuse early.
@@ -25,7 +27,7 @@ export async function POST(request: NextRequest) {
 
   if (!withinLimit) {
     console.error('[auth-mvp/request-code] IP rate limit exceeded')
-    console.info('[auth-mvp/request-code]', JSON.stringify({ result: 'ip_rate_limited', ipRateLimitMs, totalMs: Date.now() - t0 }))
+    console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'ip_rate_limited', ipRateLimitMs, totalMs: Date.now() - t0 }))
     // Reykjavik is UTC+0 year-round — next window opens at next calendar midnight UTC
     const todayRvk = new Date().toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
     const [y, m, d] = todayRvk.split('-').map(Number)
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
     } catch {
       // createUserCode should not throw; this is a safety net
       console.error('[auth-mvp/request-code] internal error (not exposed to client)')
-      console.info('[auth-mvp/request-code]', JSON.stringify({ result: 'db_error', ipRateLimitMs, createCodeMs: Date.now() - t2, totalMs: Date.now() - t0 }))
+      console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'db_error', ipRateLimitMs, createCodeMs: Date.now() - t2, totalMs: Date.now() - t0 }))
       return NextResponse.json({ success: false }, { status: 500 })
     }
     const createCodeMs = Date.now() - t2
@@ -52,19 +54,19 @@ export async function POST(request: NextRequest) {
     if (result === null) {
       // DB or hashing error — surface as generic error so user is not left on code step
       console.error('[auth-mvp/request-code] code creation failed (DB error)')
-      console.info('[auth-mvp/request-code]', JSON.stringify({ result: 'db_error', ipRateLimitMs, createCodeMs, totalMs: Date.now() - t0 }))
+      console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'db_error', ipRateLimitMs, createCodeMs, totalMs: Date.now() - t0 }))
       return NextResponse.json({ success: false }, { status: 500 })
     }
 
     if (typeof result === 'object' && 'rateLimited' in result) {
-      console.info('[auth-mvp/request-code]', JSON.stringify({ result: 'rate_limited', ipRateLimitMs, createCodeMs, totalMs: Date.now() - t0 }))
+      console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'rate_limited', ipRateLimitMs, createCodeMs, totalMs: Date.now() - t0 }))
       return NextResponse.json({ success: true, rateLimited: true, retryAfter: result.retryAfter })
     }
 
     if (typeof result === 'object' && 'recentActive' in result) {
       // A recent unused code is still active — do not create or send a new one.
       // Return success so the client proceeds normally without leaking dedupe state.
-      console.info('[auth-mvp/request-code]', JSON.stringify({ result: 'recent_active_suppressed', ipRateLimitMs, createCodeMs, totalMs: Date.now() - t0 }))
+      console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'recent_active_suppressed', ipRateLimitMs, createCodeMs, totalMs: Date.now() - t0 }))
       return NextResponse.json({ success: true })
     }
 
@@ -73,16 +75,19 @@ export async function POST(request: NextRequest) {
       console.error('[auth-mvp/request-code] RESEND_API_KEY not configured — code generated but email will not be sent')
     }
     const t3 = Date.now()
-    try {
-      await sendUserLoginCode(parsed.data.email, result)
-    } catch {
-      const sendEmailMs = Date.now() - t3
-      console.error('[auth-mvp/request-code] email send failed')
-      console.info('[auth-mvp/request-code]', JSON.stringify({ result: 'email_error', ipRateLimitMs, createCodeMs, sendEmailMs, totalMs: Date.now() - t0 }))
+    const deliveryStatus = await sendUserLoginCode(parsed.data.email, result)
+    const sendEmailMs = Date.now() - t3
+    if (deliveryStatus === 'failed') {
+      const invalidationAttemptSucceeded = await invalidateUserCodeAfterSendFailure(parsed.data.email, result)
+      console.error('[auth-mvp/request-code] email send rejected')
+      console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'email_rejected', invalidationAttemptSucceeded, ipRateLimitMs, createCodeMs, sendEmailMs, totalMs: Date.now() - t0 }))
       return NextResponse.json({ success: false }, { status: 500 })
     }
-    const sendEmailMs = Date.now() - t3
-    console.info('[auth-mvp/request-code]', JSON.stringify({ result: 'created_and_sent', ipRateLimitMs, createCodeMs, sendEmailMs, totalMs: Date.now() - t0 }))
+    if (deliveryStatus === 'uncertain') {
+      console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'email_outcome_uncertain', ipRateLimitMs, createCodeMs, sendEmailMs, totalMs: Date.now() - t0 }))
+      return NextResponse.json({ success: true, delivery: 'uncertain' })
+    }
+    console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'created_and_sent', ipRateLimitMs, createCodeMs, sendEmailMs, totalMs: Date.now() - t0 }))
     return NextResponse.json({ success: true })
   }
 

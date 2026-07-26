@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
@@ -8,6 +8,7 @@ import {
   getTeskeidRouteCandidatesOutcome,
   isTeskeidRouteCandidateEnabled,
 } from '@/lib/iceland-routes/roadGraphCandidate.server'
+import { getIcelandRoadGraph } from '@/lib/iceland-routes/roadGraphRuntime.server'
 
 function validPoint(value: unknown): value is { lat: number; lon: number } {
   if (!value || typeof value !== 'object') return false
@@ -55,6 +56,18 @@ export async function POST(request: Request) {
 
   const includeAlternatives = body?.alternatives === true
   const outcome = await getTeskeidRouteCandidatesOutcome(body.origin, body.destination, includeAlternatives)
+  if (outcome.status === 'pending') {
+    // The request budget protects latency, but the shared graph warm-up must be
+    // allowed to finish after the response in serverless. A later client retry
+    // then reads the same pending L1 promise or the durable active snapshot.
+    after(async () => {
+      try {
+        await getIcelandRoadGraph()
+      } catch {
+        console.error('[route-candidate] graph warm-up failed')
+      }
+    })
+  }
   return NextResponse.json({
     status: outcome.status,
     routes: outcome.routes,

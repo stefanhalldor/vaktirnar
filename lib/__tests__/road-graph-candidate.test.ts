@@ -16,6 +16,7 @@ vi.mock('@/lib/iceland-routes/roadGraph', () => ({
 
 import {
   getTeskeidRouteCandidate,
+  getTeskeidRouteCandidatesOutcome,
   isTeskeidRouteCandidateEnabled,
   TESKEID_ROUTE_CANDIDATE_ID,
 } from '@/lib/iceland-routes/roadGraphCandidate.server'
@@ -74,16 +75,16 @@ describe('Teskeið route candidate flag', () => {
     await expect(getTeskeidRouteCandidate(ORIGIN, DESTINATION)).resolves.toBeNull()
   })
 
-  it('fails closed when graph construction exceeds its time budget', async () => {
+  it('returns a non-terminal pending state when graph construction exceeds its time budget', async () => {
     vi.useFakeTimers()
     try {
       process.env.TESKEID_ROUTE_CANDIDATE_ENABLED = 'true'
       mockGetIcelandRoadGraph.mockReturnValue(new Promise(() => {}))
 
-      const candidatePromise = getTeskeidRouteCandidate(ORIGIN, DESTINATION)
+      const outcomePromise = getTeskeidRouteCandidatesOutcome(ORIGIN, DESTINATION)
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await expect(candidatePromise).resolves.toBeNull()
+      await expect(outcomePromise).resolves.toEqual({ status: 'pending', routes: [] })
       expect(mockFindRoute).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()

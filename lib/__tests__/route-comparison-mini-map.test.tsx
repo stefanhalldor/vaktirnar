@@ -1,17 +1,24 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { driveRouteMapSpy } = vi.hoisted(() => ({ driveRouteMapSpy: vi.fn() }))
 
 vi.mock('@/components/weather/DriveRouteMap', () => ({
-  DriveRouteMap: (props: unknown) => {
+  DriveRouteMap: (props: { onSelectRoute?: (routeId: string) => void }) => {
     driveRouteMapSpy(props)
-    return <div data-testid="drive-route-map" />
+    return (
+      <div data-testid="drive-route-map">
+        {props.onSelectRoute && (
+          <button type="button" onClick={() => props.onSelectRoute?.('teskeid')}>select map route</button>
+        )}
+      </div>
+    )
   },
 }))
 
 import {
   RouteComparisonMiniMap,
+  RouteComparisonFullscreenMap,
   routeComparisonColor,
   selectBestWeatherRouteIds,
 } from '@/components/weather/RouteComparisonMiniMap'
@@ -71,6 +78,56 @@ describe('RouteComparisonMiniMap', () => {
       '#4d7c0f',
       '#be123c',
     ])
+  })
+
+  it('offers a visible compact-map expand action', () => {
+    const onEnlarge = vi.fn()
+    render(
+      <RouteComparisonMiniMap
+        ariaLabel="Leiðasamanburður"
+        enlargeLabel="Stækka kort"
+        onEnlarge={onEnlarge}
+        routes={[
+          { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: true },
+          { id: 'teskeid', label: 'Teskeiðarleið', provider: 'teskeid', points: POINTS, selected: false },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stækka kort' }))
+    expect(onEnlarge).toHaveBeenCalledOnce()
+  })
+})
+
+describe('RouteComparisonFullscreenMap', () => {
+  it('selects from both the map and cards and exposes one explicit apply action', () => {
+    const onSelectRouteId = vi.fn()
+    const onApply = vi.fn()
+    render(
+      <RouteComparisonFullscreenMap
+        title="Veldu leið á korti"
+        closeLabel="Loka leiðakorti"
+        applyLabel="Skoða veðurskilyrði fyrir þessa leið"
+        selectedRouteId="google"
+        onSelectRouteId={onSelectRouteId}
+        onClose={vi.fn()}
+        onApply={onApply}
+        routes={[
+          { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: true },
+          { id: 'teskeid', label: 'Teskeiðarleið', provider: 'teskeid', points: POINTS, selected: false },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'select map route' }))
+    fireEvent.click(screen.getByRole('button', { name: /Teskeiðarleið/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Skoða veðurskilyrði fyrir þessa leið' }))
+
+    expect(onSelectRouteId).toHaveBeenCalledWith('teskeid')
+    expect(onApply).toHaveBeenCalledOnce()
+    expect(driveRouteMapSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      onSelectRoute: onSelectRouteId,
+    }))
   })
 })
 

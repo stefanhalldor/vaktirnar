@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 
 export const DRIVE_MAP_ROUTE_COLOR = '#14532d'
@@ -71,6 +71,7 @@ export function DriveRouteMap({
   routes = EMPTY_ROUTES,
   stations = EMPTY_STATIONS,
   onSelectStation,
+  onSelectRoute,
   ariaLabel,
   className = 'h-[190px] w-full',
   externalContainer,
@@ -80,6 +81,7 @@ export function DriveRouteMap({
   routes?: DriveRouteMapRoute[]
   stations?: DriveRouteMapStation[]
   onSelectStation?: (stationId: string) => void
+  onSelectRoute?: (routeId: string) => void
   ariaLabel?: string
   className?: string
   externalContainer?: (node: HTMLDivElement | null) => void
@@ -87,17 +89,35 @@ export function DriveRouteMap({
 }) {
   const localContainerRef = useRef<HTMLDivElement | null>(null)
   const onSelectStationRef = useRef(onSelectStation)
+  const onSelectRouteRef = useRef(onSelectRoute)
+  const mapRef = useRef<import('maplibre-gl').Map | null>(null)
+  const currentDrawableRoutes = useMemo<DriveRouteMapRoute[]>(() => (
+    routes.length > 0
+      ? routes.filter(route => route.points.length >= 2)
+      : routePoints.length >= 2
+        ? [{ id: 'primary', points: routePoints, color: DRIVE_MAP_ROUTE_COLOR }]
+        : []
+  ), [routePoints, routes])
+  const routeStructureKey = currentDrawableRoutes.map(route => route.id).join('\u0000')
+  const stationStructureKey = stations.map(station => (
+    `${station.id}:${station.lat}:${station.lon}:${station.color}:${station.driveTimeLabel ?? ''}`
+  )).join('\u0000')
+  const drawableRoutesRef = useRef(currentDrawableRoutes)
+  const stationsRef = useRef(stations)
+  drawableRoutesRef.current = currentDrawableRoutes
+  stationsRef.current = stations
 
   useEffect(() => {
     onSelectStationRef.current = onSelectStation
   }, [onSelectStation])
 
   useEffect(() => {
-    const drawableRoutes = routes.length > 0
-      ? routes.filter(route => route.points.length >= 2)
-      : routePoints.length >= 2
-        ? [{ id: 'primary', points: routePoints, color: DRIVE_MAP_ROUTE_COLOR }]
-        : []
+    onSelectRouteRef.current = onSelectRoute
+  }, [onSelectRoute])
+
+  useEffect(() => {
+    const drawableRoutes = drawableRoutesRef.current
+    const initialStations = stationsRef.current
     if (externalContainer || !localContainerRef.current || drawableRoutes.length === 0) return
     let cancelled = false
     let resizeObserver: ResizeObserver | null = null
@@ -127,6 +147,7 @@ export function DriveRouteMap({
         attributionControl: false,
         interactive,
       })
+      mapRef.current = map
 
       map.addControl(
         new maplibregl.AttributionControl({
@@ -156,9 +177,29 @@ export function DriveRouteMap({
               'line-offset': route.offset ?? 0,
             },
           })
+          const hitLayerId = `drive-route-hit-${index}`
+          map!.addLayer({
+            id: hitLayerId,
+            type: 'line',
+            source: sourceId,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': route.color,
+              'line-width': Math.max(16, (route.width ?? 4) + 10),
+              'line-opacity': 0,
+              'line-offset': route.offset ?? 0,
+            },
+          })
+          map!.on('click', hitLayerId, () => onSelectRouteRef.current?.(route.id))
+          map!.on('mouseenter', hitLayerId, () => {
+            if (map) map.getCanvas().style.cursor = 'pointer'
+          })
+          map!.on('mouseleave', hitLayerId, () => {
+            if (map) map.getCanvas().style.cursor = ''
+          })
         })
 
-        for (const station of stations) {
+        for (const station of initialStations) {
           const element = document.createElement('button')
           element.type = 'button'
           element.title = station.name
@@ -231,8 +272,37 @@ export function DriveRouteMap({
       resizeObserver?.disconnect()
       markers.forEach(marker => marker.remove())
       map?.remove()
+      if (mapRef.current === map) mapRef.current = null
     }
-  }, [externalContainer, interactive, routePoints, routes, stations])
+  }, [externalContainer, interactive, routeStructureKey, stationStructureKey])
+
+  // Selection/style changes update existing layers in place. This keeps route
+  // switching instant instead of destroying and rebuilding MapLibre.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const updateRoutes = () => {
+      if (!mapRef.current || !map.isStyleLoaded()) return
+      currentDrawableRoutes.forEach((route, index) => {
+        const source = map.getSource(`drive-route-${index}`) as import('maplibre-gl').GeoJSONSource | undefined
+        source?.setData(routeGeoJson(route.points) as never)
+        const lineId = `drive-route-line-${index}`
+        const hitId = `drive-route-hit-${index}`
+        if (map.getLayer(lineId)) {
+          map.setPaintProperty(lineId, 'line-color', route.color)
+          map.setPaintProperty(lineId, 'line-width', route.width ?? 4)
+          map.setPaintProperty(lineId, 'line-opacity', route.opacity ?? 0.88)
+          map.setPaintProperty(lineId, 'line-offset', route.offset ?? 0)
+        }
+        if (map.getLayer(hitId)) {
+          map.setPaintProperty(hitId, 'line-width', Math.max(16, (route.width ?? 4) + 10))
+          map.setPaintProperty(hitId, 'line-offset', route.offset ?? 0)
+        }
+      })
+    }
+    if (map.isStyleLoaded()) updateRoutes()
+    else map.once('load', updateRoutes)
+  }, [currentDrawableRoutes])
 
   const setContainer = (node: HTMLDivElement | null) => {
     localContainerRef.current = node

@@ -92,8 +92,9 @@ export interface FetchVegagerdinRoadGraphSegmentsOptions {
 }
 
 /**
- * Read-only discovery/import boundary. It performs no persistence and must not
- * be called in a user request path until cache/refresh policy is approved.
+ * Read-only discovery/import boundary. It performs no persistence. User-facing
+ * consumers must never call this boundary. Only the protected snapshot refresh
+ * worker may contact the live source; roadGraphRuntime reads the validated LKG.
  */
 export async function fetchVegagerdinRoadGraphSegments(
   options: FetchVegagerdinRoadGraphSegmentsOptions = {},
@@ -105,4 +106,3 @@ export async function fetchVegagerdinRoadGraphSegments(
   ])
   return normalizeVegagerdinRoadGraphSegments({ roads, surfaces })
 }
-

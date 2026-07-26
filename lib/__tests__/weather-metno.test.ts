@@ -43,7 +43,7 @@ vi.mock('@/lib/weather/forecast', () => ({
 
 vi.stubGlobal('fetch', mockFetch)
 
-import { fetchForecast } from '@/lib/weather/metno.server'
+import { fetchForecast, fetchForecastSnapshot } from '@/lib/weather/metno.server'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -100,6 +100,15 @@ describe('fetchForecast — cache miss (no row)', () => {
     expect(mockFetch).toHaveBeenCalledOnce()
   })
 
+  it('preserves the provider updated_at used as the history cycle', async () => {
+    mockFetch.mockResolvedValue(makeResponse(200, {
+      properties: { meta: { updated_at: '2026-07-03T15:42:00Z' }, timeseries: [] },
+    }))
+    await expect(fetchForecastSnapshot(64.135, -21.895)).resolves.toMatchObject({
+      updatedAtIso: '2026-07-03T15:42:00.000Z',
+    })
+  })
+
   it('uses the correct met.no URL with rounded coordinates', async () => {
     mockFetch.mockResolvedValue(makeResponse(200))
     await fetchForecast(64.135, -21.895)
@@ -114,6 +123,13 @@ describe('fetchForecast — cache miss (no row)', () => {
     await fetchForecast(64.135, -21.895)
     const opts = mockFetch.mock.calls[0][1] as RequestInit & { headers: Record<string, string> }
     expect(opts.headers['User-Agent']).toBeDefined()
+  })
+
+  it('bounds an upstream request with an abort signal', async () => {
+    mockFetch.mockResolvedValue(makeResponse(200))
+    await fetchForecast(64.135, -21.895)
+    const opts = mockFetch.mock.calls[0][1] as RequestInit
+    expect(opts.signal).toBeInstanceOf(AbortSignal)
   })
 })
 

@@ -38,11 +38,11 @@ function withCandidateTimeout<T>(promise: Promise<T>, fallback: T, timeoutMs: nu
 
 export type TeskeidRouteCandidateOutcome =
   | { status: 'ready'; route: RouteOption }
-  | { status: 'disabled' | 'timeout' | 'no_route' | 'unavailable'; route: null }
+  | { status: 'disabled' | 'pending' | 'no_route' | 'unavailable'; route: null }
 
 export type TeskeidRouteCandidatesOutcome =
   | { status: 'ready'; routes: RouteOption[] }
-  | { status: 'disabled' | 'timeout' | 'no_route' | 'unavailable'; routes: [] }
+  | { status: 'disabled' | 'pending' | 'no_route' | 'unavailable'; routes: [] }
 
 function toRouteOption(
   route: IcelandRoadGraphRoute,
@@ -122,7 +122,7 @@ export async function getTeskeidRouteCandidatesOutcome(
     } catch {
       return { status: 'unavailable', routes: [] }
     }
-  })(), { status: 'timeout', routes: [] }, candidateBudgetMs())
+  })(), { status: 'pending', routes: [] }, candidateBudgetMs())
 }
 
 export async function getTeskeidRouteCandidateOutcome(
@@ -150,7 +150,7 @@ export async function getTeskeidRouteCandidateById(
 /**
  * Builds the single experimental Teskeið candidate used by both route selection
  * and the final travel calculation. It is deliberately fail-closed: flag off,
- * timeout, graph refresh failure, and no-route results all return null.
+ * pending graph warm-up, graph refresh failure, and no-route results all return null.
  */
 export async function getTeskeidRouteCandidate(
   origin: Point,

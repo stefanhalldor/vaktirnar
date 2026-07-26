@@ -17,17 +17,35 @@ import { join } from 'path'
 
 // ── Shared RPC mock ───────────────────────────────────────────────────────────
 
-const { mockRpc } = vi.hoisted(() => ({
+const { mockRpc, mockUpdate, mockEq, mockIs } = vi.hoisted(() => ({
   mockRpc: vi.fn(),
+  mockUpdate: vi.fn(),
+  mockEq: vi.fn(),
+  mockIs: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/admin', () => ({
-  getAdmin: vi.fn(() => ({
-    rpc: mockRpc,
-  })),
+  getAdmin: vi.fn(() => {
+    const updateChain = {
+      eq: (...args: unknown[]) => {
+        mockEq(...args)
+        return updateChain
+      },
+      is: (...args: unknown[]) => mockIs(...args),
+    }
+    return {
+      rpc: mockRpc,
+      from: vi.fn(() => ({
+        update: (...args: unknown[]) => {
+          mockUpdate(...args)
+          return updateChain
+        },
+      })),
+    }
+  }),
 }))
 
-import { createUserCode } from '@/lib/auth/user-codes'
+import { createUserCode, invalidateUserCodeAfterSendFailure } from '@/lib/auth/user-codes'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -174,6 +192,54 @@ describe('createUserCode — privacy', () => {
     restore()
     const output = calls.flat().join(' ')
     expect(output).not.toContain(TEST_EMAIL)
+  })
+})
+
+describe('invalidateUserCodeAfterSendFailure', () => {
+  let restoreSecret: () => void
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    restoreSecret = saveSecret(VALID_SECRET)
+    mockIs.mockResolvedValue({ error: null })
+  })
+
+  afterEach(() => {
+    restoreSecret()
+    vi.restoreAllMocks()
+  })
+
+  it('marks only the matching unused email/code hash as used', async () => {
+    await expect(invalidateUserCodeAfterSendFailure(TEST_EMAIL, '123456')).resolves.toBe(true)
+
+    expect(mockUpdate).toHaveBeenCalledWith({ used_at: expect.any(String) })
+    expect(mockEq).toHaveBeenCalledWith('email', TEST_EMAIL)
+    expect(mockEq).toHaveBeenCalledWith('code_hash', expect.stringMatching(/^[0-9a-f]{64}$/))
+    expect(mockIs).toHaveBeenCalledWith('used_at', null)
+  })
+
+  it('returns false without logging sensitive DB details when invalidation fails', async () => {
+    mockIs.mockResolvedValue({ error: { message: `failure for ${TEST_EMAIL} code 123456` } })
+    const { calls, restore } = captureErrors()
+
+    await expect(invalidateUserCodeAfterSendFailure(TEST_EMAIL, '123456')).resolves.toBe(false)
+
+    restore()
+    const output = calls.flat().join(' ')
+    expect(output).not.toContain(TEST_EMAIL)
+    expect(output).not.toContain('123456')
+  })
+
+  it('returns false when the database request throws', async () => {
+    mockIs.mockRejectedValue(new Error(`failure for ${TEST_EMAIL} code 123456`))
+    const { calls, restore } = captureErrors()
+
+    await expect(invalidateUserCodeAfterSendFailure(TEST_EMAIL, '123456')).resolves.toBe(false)
+
+    restore()
+    const output = calls.flat().join(' ')
+    expect(output).not.toContain(TEST_EMAIL)
+    expect(output).not.toContain('123456')
   })
 })
 

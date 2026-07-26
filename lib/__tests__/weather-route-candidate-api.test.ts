@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
+const { mockGetUser, mockAfter } = vi.hoisted(() => ({ mockGetUser: vi.fn(), mockAfter: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
 const { mockGetCandidates } = vi.hoisted(() => ({ mockGetCandidates: vi.fn() }))
 const { mockGuestRateLimit } = vi.hoisted(() => ({ mockGuestRateLimit: vi.fn() }))
+const { mockGetRoadGraph } = vi.hoisted(() => ({ mockGetRoadGraph: vi.fn() }))
+
+vi.mock('next/server', async importOriginal => {
+  const actual = await importOriginal<typeof import('next/server')>()
+  return { ...actual, after: mockAfter }
+})
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({ auth: { getUser: mockGetUser } })),
@@ -22,6 +28,10 @@ vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
     process.env.TESKEID_ROUTE_CANDIDATE_ENABLED === 'true'
   )),
   getTeskeidRouteCandidatesOutcome: mockGetCandidates,
+}))
+
+vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
+  getIcelandRoadGraph: mockGetRoadGraph,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route-candidate/route'
@@ -50,6 +60,8 @@ beforeEach(() => {
   ))
   mockGetCandidates.mockResolvedValue({ status: 'ready', routes: [{ id: 'teskeid-road-graph-v1' }] })
   mockGuestRateLimit.mockResolvedValue(true)
+  mockAfter.mockImplementation((callback: () => unknown) => callback())
+  mockGetRoadGraph.mockResolvedValue({ graph: true })
 })
 
 describe('POST /api/teskeid/weather/travel/route-candidate — strict per-user gate', () => {
@@ -91,5 +103,16 @@ describe('POST /api/teskeid/weather/travel/route-candidate — strict per-user g
     expect(res.status).toBe(404)
     expect(mockGetUser).not.toHaveBeenCalled()
     expect(mockGetCandidates).not.toHaveBeenCalled()
+  })
+
+  it('returns pending and extends graph warm-up beyond the response', async () => {
+    mockGetCandidates.mockResolvedValue({ status: 'pending', routes: [] })
+
+    const res = await POST(request())
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ status: 'pending', route: null })
+    expect(mockAfter).toHaveBeenCalledOnce()
+    expect(mockGetRoadGraph).toHaveBeenCalledOnce()
   })
 })

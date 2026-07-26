@@ -47,6 +47,8 @@ const EXACT_PUBLIC_PATHS = new Set([
   // Cron — no browser session; route handler enforces CRON_SECRET bearer auth
   '/api/cron/warm-vedurstofan',
   '/api/cron/warm-vegagerdin',
+  '/api/cron/warm-metno-points',
+  '/api/cron/refresh-road-graph',
   // Public Veðurstofan station overview — read-only cache; handler enforces own flag and access checks.
   // Exact-match only: /stations/foo and /stations-extra must not become public.
   '/api/teskeid/weather/vedurstofan/stations',
@@ -56,6 +58,9 @@ const EXACT_PUBLIC_PATHS = new Set([
   // Public forecast comparison can fetch met.no only for canonical ROAD_MAP_PLACES.
   // Exact-match only; the handler does not accept arbitrary coordinates.
   '/api/teskeid/weather/metno/point',
+  // Provider-neutral bounded history for the public comparison table. The
+  // handler accepts only canonical station/place IDs and at most seven items.
+  '/api/teskeid/weather/forecast-history',
   // Public conditions feed preview — latest visible message per target, no auth, no write.
   // Exact-match only: sub-paths under /feed-preview must not become public without explicit review.
   '/api/teskeid/weather/vedurpuls/feed-preview',
@@ -72,6 +77,17 @@ const EXACT_PUBLIC_PATHS = new Set([
   '/api/teskeid/weather/route-memory/destinations',
   // Route-memory place-focus — returns endpoint station IDs for a place key; no coords required.
   '/api/teskeid/weather/route-memory/place-focus',
+  // Public weather route planning needs bounded place autocomplete. The exact
+  // handler still enforces weather access, rate limits, query bounds and Icelandic coordinates.
+  '/api/place/search',
+  // Public weather road-intelligence reads. Middleware only lets these exact
+  // routes reach their handlers; each handler still enforces WEATHER_ENABLED,
+  // request validation, feature access, and upstream safety limits.
+  '/api/teskeid/road-intelligence/station-markers',
+  '/api/teskeid/road-intelligence/road-segments',
+  '/api/teskeid/road-intelligence/road-surface',
+  '/api/teskeid/road-intelligence/map-proxy',
+  '/api/teskeid/road-intelligence/lmi-tile',
   // Road map prototype — publicly accessible; auth push happens inside the component when
   // users try to save their own weather map. Exact-match only.
   '/auth-mvp/vedrid/road-map-prototype',
@@ -265,6 +281,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|manifest.json|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

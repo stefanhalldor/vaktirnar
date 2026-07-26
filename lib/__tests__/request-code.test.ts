@@ -3,7 +3,8 @@
  *
  * Covers:
  *   - Valid email: creates code and sends email
- *   - API responses never reveal rate-limit status (always { success: true })
+ *   - Public policy responses avoid leaking email existence/dedupe state
+ *   - Provider rejection and uncertain delivery outcomes
  *   - Invalid payload: still returns success (no validation leak)
  *   - IP rate-limit: blocked IPs return { success: true } without further work
  */
@@ -20,11 +21,13 @@ vi.mock('@/lib/auth/ip-rate-limit', () => ({
   checkIpRateLimit: mockCheckIpRateLimit,
 }))
 
-const { mockCreateUserCode } = vi.hoisted(() => ({
+const { mockCreateUserCode, mockInvalidateUserCode } = vi.hoisted(() => ({
   mockCreateUserCode: vi.fn(),
+  mockInvalidateUserCode: vi.fn(),
 }))
 vi.mock('@/lib/auth/user-codes', () => ({
   createUserCode: mockCreateUserCode,
+  invalidateUserCodeAfterSendFailure: mockInvalidateUserCode,
 }))
 
 const { mockSendUserLoginCode } = vi.hoisted(() => ({
@@ -51,7 +54,8 @@ function makeRequest(body: unknown, headers?: Record<string, string>): NextReque
 beforeEach(() => {
   vi.clearAllMocks()
   mockCheckIpRateLimit.mockResolvedValue(true) // allowed by default
-  mockSendUserLoginCode.mockResolvedValue(undefined)
+  mockSendUserLoginCode.mockResolvedValue('accepted')
+  mockInvalidateUserCode.mockResolvedValue(true)
   mockCreateUserCode.mockResolvedValue('123456')
 })
 
@@ -78,6 +82,35 @@ describe('POST /api/auth-mvp/request-code — valid email', () => {
     await POST(makeRequest({ email: 'User@Example.COM' }))
     expect(mockCreateUserCode).toHaveBeenCalledWith('user@example.com')
   })
+
+  it('suppresses a duplicate send while the recent code remains active', async () => {
+    mockCreateUserCode.mockResolvedValue({ recentActive: true })
+
+    const res = await POST(makeRequest({ email: 'user@example.com' }))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ success: true })
+    expect(mockSendUserLoginCode).not.toHaveBeenCalled()
+  })
+
+  it('invalidates a code and returns 500 after a definitive provider rejection', async () => {
+    mockSendUserLoginCode.mockResolvedValue('failed')
+
+    const res = await POST(makeRequest({ email: 'user@example.com' }))
+
+    expect(res.status).toBe(500)
+    expect(mockInvalidateUserCode).toHaveBeenCalledWith('user@example.com', '123456')
+  })
+
+  it('keeps an uncertain code active and tells the client to check for delivery', async () => {
+    mockSendUserLoginCode.mockResolvedValue('uncertain')
+
+    const res = await POST(makeRequest({ email: 'user@example.com' }))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ success: true, delivery: 'uncertain' })
+    expect(mockInvalidateUserCode).not.toHaveBeenCalled()
+  })
 })
 
 // ── Response never reveals internals ─────────────────────────────────────────
@@ -103,6 +136,18 @@ describe('POST /api/auth-mvp/request-code — no information leak', () => {
     const res = await POST(makeRequest({}))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ success: true })
+  })
+
+  it('logs a correlation id without email or plaintext code', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    await POST(makeRequest({ email: 'user@example.com' }))
+
+    const output = infoSpy.mock.calls.flat().join(' ')
+    infoSpy.mockRestore()
+    expect(output).toMatch(/"requestId":"[0-9a-f-]{36}"/)
+    expect(output).not.toContain('user@example.com')
+    expect(output).not.toContain('123456')
   })
 })
 

@@ -330,13 +330,42 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
 - Sameiginlegur server-helper reiknar leiðina bæði fyrir leiðaval og þegar valin
   leið er notuð í ferðaveðri. Þannig getur preview ekki sýnt leið sem final submit
   reynir síðan ranglega að finna hjá Google.
-- Átta sekúndna budget, flag-off, graph/source-villa eða no-route fela aðeins
-  Teskeiðarleiðina. Google-response helst óbreytt og notandi sér enga Teskeiðarvillu.
+- Átta sekúndna response-budget ver Google-leiðina fyrir bið. Ef materialization
+  úr virku snapshoti er enn í gangi verður Teskeiðarleiðin `pending`, vinnan fær
+  að klárast með `after()` og clientinn reynir aftur án terminal timeout-villu.
+- User request path sækir aldrei live Vegagerðargögn. Hann les aðeins virkt,
+  fullsannreynt last-known-good snapshot og heldur materialized graph í
+  process-minni sem hraðasta L1-lagi.
+- Protected admin/cron refresh notar gagnagrunns-lease, 20 gullleiðir,
+  magn-/samfelldnipróf, canonical SHA-256 og private immutable gzip-object.
+  Atomic promote lætur gamla active snapshotið halda gildi nema nýja útgáfan
+  standist allt; active og tvær fyrri útgáfur eru varðveittar til rollback.
+- Read-only live bootstrap audit 2026-07-26 mældi stærsta weak component sem
+  854 af 1.363 hnútum (62,66%) við canonical 20 m tolerance. Hinir 509
+  hnútarnir dreifðust á 198 lítil component, að meðaltali 2,57 hnútar, á meðan
+  allar 20 gullleiðir stóðust. Snapshot-vörnin notar því 60% absolute
+  bootstrap-floor og krefst síðan að nýtt snapshot haldi að minnsta kosti 90%
+  af connectivity-share síðasta active snapshots. Þetta varðveitir fail-closed
+  drift-vörn án þess að hækka tolerance og falsa vegtengingar.
+- Graph/source-villa, no-route eða flag-off hafa aðeins áhrif á
+  Teskeiðarleiðina. Google-response helst óbreytt.
 - UI merkir leiðina skýrt sem tilraun, segir að tíminn sé áætlaður og sýnir
   malarmerkingu þegar source facts innihalda skráð malarslitlag.
 - Þetta er prófunarstig, ekki production-default eða öryggisleiðsögn. Lokanir,
   færð, official speed limits, turn restrictions og off-route rerouting eru enn
   blockers fyrir almenna útgáfu.
+
+**Framhald (v0.9 — leiðasamanburður og hraður preview/apply):**
+
+- Hver leið fær stöðugan, aðgreindan lit óháð provider og sama lit í korti,
+  legendu og leiðaspjaldi.
+- Litla samanburðarkortið má stækka í full-screen kort þar sem kortalínur og
+  leiðaspjöld velja aðeins preview. Veður, stöðvar og scrubber eru ekki
+  endurreiknuð fyrr en notandi velur sérstaklega að skoða veðurskilyrðin.
+- MapLibre-lög uppfæra lit, breidd og opacity í stað þess að endurbyggja kortið
+  við hvert preview-val.
+- Þetta er áfram flaggað prófunarkerfi, en graph-líftíminn byggir nú á versioned
+  last-known-good snapshoti fremur en serverless process-cache eða live fetchi.
 
 ### R7 - Eigið Kortalag Prototype
 

@@ -78,7 +78,7 @@ describe('lib/auth/email — no PII in production error log', () => {
     vi.stubEnv('NODE_ENV', 'production')
     const { calls, restore } = captureConsoleLogs()
 
-    await sendLoginCode(TEST_EMAIL, '123456')
+    await expect(sendLoginCode(TEST_EMAIL, '123456')).rejects.toThrow('email_delivery_failed')
 
     restore()
     const allOutput = calls.flat().join(' ')
