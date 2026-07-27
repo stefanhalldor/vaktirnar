@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -9,8 +10,9 @@ import {
   type KeyboardEvent,
   type Ref,
 } from 'react'
-import { useTranslations } from 'next-intl'
-import { LocateFixed, Search, X } from 'lucide-react'
+import { useLocale, useTranslations } from 'next-intl'
+import { LocateFixed, MapPinned, Search, X } from 'lucide-react'
+import { PlaceMapPicker } from './PlaceMapPicker'
 import type {
   PlaceRoutingReference,
   PlaceSource,
@@ -62,6 +64,9 @@ export type PlaceExclusion = {
   lon: number
 }
 
+export type SelectedPlaceDisplay = Pick<SelectedLocation, 'name'>
+  & Partial<Omit<SelectedLocation, 'name'>>
+
 export type PlaceSearchProps = {
   onPlaceSelected: (place: PlaceResult) => void
   onCancel?: () => void
@@ -81,6 +86,10 @@ export type PlaceSearchProps = {
   variant?: 'default' | 'compact'
   /** Optional focus handoff for route forms that keep both fields mounted. */
   inputRef?: Ref<HTMLInputElement>
+  /** Canonical place already chosen by the parent. Shown as a visible confirmation card. */
+  selectedPlace?: SelectedPlaceDisplay | null
+  onClearSelectedPlace?: () => void
+  allowMapSelection?: boolean
 }
 
 const EMPTY_PLACE_EXCLUSIONS: readonly PlaceExclusion[] = []
@@ -108,6 +117,7 @@ function normalizedSource(value: unknown): PlaceResult['source'] {
   if (
     value === 'hms' ||
     value === 'device' ||
+    value === 'map' ||
     value === 'saved' ||
     value === 'static' ||
     value === 'google'
@@ -237,7 +247,7 @@ function savedPlaceResult(place: SavedPlace): PlaceResult {
   }
 }
 
-function secondaryLabel(place: PlaceResult): string | null {
+function secondaryLabel(place: SelectedPlaceDisplay): string | null {
   if (place.formattedAddress && place.formattedAddress !== place.name) {
     return place.formattedAddress
   }
@@ -274,8 +284,12 @@ export function PlaceSearch({
   onResultsChange,
   variant = 'default',
   inputRef,
+  selectedPlace = null,
+  onClearSelectedPlace,
+  allowMapSelection = true,
 }: PlaceSearchProps) {
   const t = useTranslations('teskeid.vedrid.placeSearch')
+  const locale = useLocale()
   const generatedId = useId()
   const inputId = `place-search-${generatedId}`
   const listboxId = `${inputId}-results`
@@ -293,6 +307,10 @@ export function PlaceSearch({
   const [activeIndex, setActiveIndex] = useState(-1)
   const [locationLoading, setLocationLoading] = useState(false)
   const [locationError, setLocationError] = useState<CurrentLocationErrorCode | null>(null)
+  const [showEnglishPermissionHelp, setShowEnglishPermissionHelp] = useState(false)
+  const [mapPickerOpen, setMapPickerOpen] = useState(false)
+  const [mapPickerPlaces, setMapPickerPlaces] = useState<PlaceResult[]>([])
+  const localInputRef = useRef<HTMLInputElement | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchAbortRef = useRef<AbortController | null>(null)
   const locationAbortRef = useRef<AbortController | null>(null)
@@ -311,13 +329,24 @@ export function PlaceSearch({
     [excludePlaces, savedPlaces],
   )
 
-  const trimmedQuery = query.trim()
+  const trimmedQuery = selectedPlace ? '' : query.trim()
   const resultsOpen = focused && !dismissed && visibleResults.length > 0
   const hasVisibleHmsResults = resultsOpen && visibleResults.some(place => place.source === 'hms')
   const noResults = searchComplete && !loading && !fetchError && visibleResults.length === 0
+  const interfaceUsesEnglish = locale.toLowerCase().startsWith('en')
+  const permissionHelpUsesEnglish = interfaceUsesEnglish || showEnglishPermissionHelp
   const describedBy = [loading ? statusId : null, fetchError ? errorId : null]
     .filter(Boolean)
     .join(' ') || undefined
+
+  const mergedInputRef = useCallback((node: HTMLInputElement | null) => {
+    localInputRef.current = node
+    if (typeof inputRef === 'function') {
+      inputRef(node)
+    } else if (inputRef) {
+      ;(inputRef as { current: HTMLInputElement | null }).current = node
+    }
+  }, [inputRef])
 
   function updateQuery(next: string) {
     if (value === undefined) setInternalValue(next)
@@ -481,7 +510,48 @@ export function PlaceSearch({
     }
   }
 
+  function openMapPicker() {
+    setMapPickerPlaces(visibleResults)
+    setMapPickerOpen(true)
+  }
+
+  function clearSelectedPlace() {
+    onClearSelectedPlace?.()
+    window.setTimeout(() => localInputRef.current?.focus(), 0)
+  }
+
   const compact = variant === 'compact'
+
+  if (selectedPlace) {
+    const secondary = secondaryLabel(selectedPlace)
+    const accuracy = selectedPlace.accuracyM === undefined
+      ? null
+      : t('currentLocationAccuracy', { meters: Math.round(selectedPlace.accuracyM) })
+    return (
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex min-h-14 items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+          <MapPinned size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t('selectedLocationLabel')}
+            </p>
+            <p className="truncate text-sm font-medium text-foreground">{selectedPlace.name}</p>
+            {secondary && <p className="truncate text-xs text-muted-foreground">{secondary}</p>}
+            {accuracy && <p className="text-xs text-muted-foreground">{accuracy}</p>}
+          </div>
+          {onClearSelectedPlace && (
+            <button
+              type="button"
+              onClick={clearSelectedPlace}
+              className="min-h-10 shrink-0 rounded-md px-2 text-xs font-medium text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {t('changeSelectedPlace')}
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -501,7 +571,7 @@ export function PlaceSearch({
           aria-hidden
         />
         <input
-          ref={inputRef}
+          ref={mergedInputRef}
           id={inputId}
           type="text"
           value={query}
@@ -555,6 +625,19 @@ export function PlaceSearch({
         </button>
       )}
 
+      {allowMapSelection && (
+        <button
+          type="button"
+          onClick={openMapPicker}
+          className={`inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg px-3 py-2 font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${compact ? 'text-xs' : 'text-sm'}`}
+        >
+          <MapPinned size={16} aria-hidden />
+          {visibleResults.length > 0
+            ? t('chooseFromMapResults', { count: visibleResults.length })
+            : t('chooseFromMap')}
+        </button>
+      )}
+
       {loading && (
         <p id={statusId} role="status" aria-live="polite" className="px-1 text-xs text-muted-foreground">
           {t('loading')}
@@ -579,8 +662,32 @@ export function PlaceSearch({
                 {t('currentLocationPermissionHelpTitle')}
               </summary>
               <div className="flex flex-col gap-2 border-t border-border px-3 py-2 text-xs leading-relaxed">
-                <p>{t('currentLocationPermissionIosHelp')}</p>
-                <p>{t('currentLocationPermissionBrowserHelp')}</p>
+                {!interfaceUsesEnglish && (
+                  <button
+                    type="button"
+                    onClick={() => setShowEnglishPermissionHelp(current => !current)}
+                    className="min-h-10 self-start rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {showEnglishPermissionHelp
+                      ? t('currentLocationPermissionShowIcelandic')
+                      : t('currentLocationPermissionShowEnglish')}
+                  </button>
+                )}
+                <div
+                  lang={permissionHelpUsesEnglish ? 'en' : 'is'}
+                  className="flex flex-col gap-2"
+                >
+                  <p>
+                    {t(permissionHelpUsesEnglish
+                      ? 'currentLocationPermissionIosHelpEnglish'
+                      : 'currentLocationPermissionIosHelp')}
+                  </p>
+                  <p>
+                    {t(permissionHelpUsesEnglish
+                      ? 'currentLocationPermissionBrowserHelpEnglish'
+                      : 'currentLocationPermissionBrowserHelp')}
+                  </p>
+                </div>
               </div>
             </details>
           )}
@@ -686,6 +793,17 @@ export function PlaceSearch({
         >
           {t('cancel')}
         </button>
+      )}
+
+      {mapPickerOpen && (
+        <PlaceMapPicker
+          places={mapPickerPlaces}
+          onClose={() => setMapPickerOpen(false)}
+          onSelect={place => {
+            setMapPickerOpen(false)
+            selectPlace(place)
+          }}
+        />
       )}
     </div>
   )

@@ -7,7 +7,7 @@ export type RoadIntelligencePlaceResult = {
   lon: number
   placeId?: string
   googlePlaceId?: string
-  source?: 'hms' | 'device' | 'saved' | 'static' | 'curated' | 'google'
+  source?: 'hms' | 'device' | 'map' | 'saved' | 'static' | 'curated' | 'google'
   sourceId?: string
   postalCode?: string
   municipality?: string
@@ -70,7 +70,7 @@ function coercePlaceResult(raw: unknown): RoadIntelligencePlaceResult | null {
         ? googlePlaceId.trim()
         : undefined,
     source:
-      source === 'hms' || source === 'device' || source === 'saved' ||
+      source === 'hms' || source === 'device' || source === 'map' || source === 'saved' ||
       source === 'static' || source === 'curated' || source === 'google'
         ? source
         : undefined,

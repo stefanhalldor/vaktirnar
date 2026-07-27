@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CurrentLocationError,
   getCurrentLocation,
+  getLocationFromCoordinates,
 } from '@/lib/places/currentLocation.client'
 
 type GeolocationSuccess = Parameters<Geolocation['getCurrentPosition']>[0]
@@ -226,5 +227,118 @@ describe('getCurrentLocation', () => {
 
     await expect(promise).rejects.toMatchObject({ code: 'aborted' })
     expect(geo.getCurrentPosition).not.toHaveBeenCalled()
+  })
+})
+
+describe('getLocationFromCoordinates', () => {
+  it('keeps the exact clicked point authoritative and uses only the same-origin reverse-label endpoint', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        location: {
+          name: 'Hella',
+          formattedAddress: 'Hella, 851 Rangárþing ytra',
+          postalCode: '851',
+          municipality: 'Rangárþing ytra',
+          municipalityCode: '8614',
+        },
+      }),
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(
+      getLocationFromCoordinates(63.835_700_4, -20.400_099_6, {
+        fallbackName: 'Valinn staður á korti',
+        formatNearbyLabel: place => `Nálægt ${place}`,
+      }),
+    ).resolves.toEqual({
+      id: 'map:63.835700:-20.400100',
+      name: 'Valinn staður á korti',
+      formattedAddress: 'Nálægt Hella, 851 Rangárþing ytra',
+      lat: 63.835_700_4,
+      lon: -20.400_099_6,
+      source: 'map',
+      postalCode: '851',
+      municipality: 'Rangárþing ytra',
+      municipalityCode: '8614',
+      accuracyM: undefined,
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/place/reverse-geocode',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: 63.835_700_4, lon: -20.400_099_6 }),
+      }),
+    )
+  })
+
+  it('returns the exact clicked point with fallback copy when reverse lookup fails', async () => {
+    const fetchSpy = vi.fn().mockRejectedValue(new Error('offline'))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(
+      getLocationFromCoordinates(65.6835, -18.0878, {
+        fallbackName: 'Valinn staður á korti',
+      }),
+    ).resolves.toMatchObject({
+      name: 'Valinn staður á korti',
+      formattedAddress: 'Valinn staður á korti',
+      lat: 65.6835,
+      lon: -18.0878,
+      source: 'map',
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a clicked point outside the Iceland envelope before any reverse lookup', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const promise = getLocationFromCoordinates(51.5072, -0.1276, {
+      fallbackName: 'Valinn staður á korti',
+    })
+
+    await expect(promise).rejects.toBeInstanceOf(CurrentLocationError)
+    await expect(promise).rejects.toMatchObject({ code: 'outside_iceland' })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('honours an already-aborted map selection before reverse lookup', async () => {
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const controller = new AbortController()
+    controller.abort()
+
+    const promise = getLocationFromCoordinates(64.1466, -21.9426, {
+      fallbackName: 'Valinn staður á korti',
+      signal: controller.signal,
+    })
+
+    await expect(promise).rejects.toBeInstanceOf(CurrentLocationError)
+    await expect(promise).rejects.toMatchObject({ code: 'aborted' })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('reports an abort that happens while the reverse-label request is in flight', async () => {
+    const controller = new AbortController()
+    const fetchSpy = vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+        once: true,
+      })
+    }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const promise = getLocationFromCoordinates(64.1466, -21.9426, {
+      fallbackName: 'Valinn staður á korti',
+      signal: controller.signal,
+    })
+    controller.abort()
+
+    await expect(promise).rejects.toMatchObject({ code: 'aborted' })
   })
 })

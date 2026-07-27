@@ -1,15 +1,17 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { fetchMock, getCurrentLocationMock } = vi.hoisted(() => ({
+const { fetchMock, getCurrentLocationMock, localeMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
   getCurrentLocationMock: vi.fn(),
+  localeMock: vi.fn(() => 'is'),
 }))
 
 vi.mock('next-intl', () => ({
+  useLocale: localeMock,
   useTranslations: () => (
     key: string,
-    values?: Record<string, string>,
+    values?: Record<string, string | number>,
   ) => {
     const translations: Record<string, string> = {
       ariaLabel: 'Search for a place',
@@ -19,13 +21,22 @@ vi.mock('next-intl', () => ({
       noResults: 'No place found.',
       rateLimited: 'Too many searches right now.',
       useCurrentLocation: 'Use current location',
+      chooseFromMap: 'Choose on map',
+      chooseFromMapResults: `Choose on map (${values?.count ?? 0})`,
+      selectedLocationLabel: 'Selected place',
+      changeSelectedPlace: 'Change',
       currentLocationLoading: 'Finding your location...',
       currentLocationName: 'Current location',
       currentLocationNear: `Near ${values?.place ?? ''}`,
+      currentLocationAccuracy: `Accuracy about ±${values?.meters ?? 0} m`,
       currentLocationPermissionDenied: 'The browser or device blocked location access.',
       currentLocationPermissionHelpTitle: 'How do I enable location?',
-      currentLocationPermissionIosHelp: 'Open iPhone or iPad location settings.',
-      currentLocationPermissionBrowserHelp: 'Allow teskeid.is in the browser and try again.',
+      currentLocationPermissionIosHelp: 'Opnaðu staðsetningarstillingar á iPhone eða iPad.',
+      currentLocationPermissionBrowserHelp: 'Leyfðu teskeid.is í vafranum og reyndu aftur.',
+      currentLocationPermissionIosHelpEnglish: 'Open iPhone or iPad location settings.',
+      currentLocationPermissionBrowserHelpEnglish: 'Allow teskeid.is in the browser and try again.',
+      currentLocationPermissionShowEnglish: 'English instructions',
+      currentLocationPermissionShowIcelandic: 'Íslenskar leiðbeiningar',
       currentLocationRetry: 'Try again',
       currentLocationUnavailable: 'Your device could not find its location.',
       currentLocationTimeout: 'Finding your location took too long.',
@@ -35,6 +46,27 @@ vi.mock('next-intl', () => ({
     }
     return translations[key] ?? key
   },
+}))
+
+vi.mock('@/components/weather/PlaceMapPicker', () => ({
+  PlaceMapPicker: ({
+    places,
+    onSelect,
+    onClose,
+  }: {
+    places: Array<{ id: string; name: string; formattedAddress?: string }>
+    onSelect: (place: unknown) => void
+    onClose: () => void
+  }) => (
+    <div role="dialog" aria-label="Map picker test double">
+      {places.map((place, index) => (
+        <button key={place.id} type="button" onClick={() => onSelect(place)}>
+          {index + 1}. {place.name}, {place.formattedAddress}
+        </button>
+      ))}
+      <button type="button" onClick={onClose}>Close map picker</button>
+    </div>
+  ),
 }))
 
 vi.mock('@/lib/places/currentLocation.client', async (importOriginal) => {
@@ -87,11 +119,87 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  localeMock.mockReturnValue('is')
   vi.useFakeTimers()
   vi.stubGlobal('fetch', fetchMock)
 })
 
 describe('PlaceSearch', () => {
+  it('shows a confirmed current location with nearby label and accuracy until changed', () => {
+    const onClearSelectedPlace = vi.fn()
+    render(
+      <PlaceSearch
+        autoFocus={false}
+        selectedPlace={{
+          id: 'device:64.146600:-21.942600',
+          source: 'device',
+          name: 'Current location',
+          formattedAddress: 'Near Laugavegur 1',
+          lat: 64.1466,
+          lon: -21.9426,
+          accuracyM: 12.4,
+        }}
+        onClearSelectedPlace={onClearSelectedPlace}
+        onPlaceSelected={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Selected place')).toBeInTheDocument()
+    expect(screen.getByText('Current location')).toBeInTheDocument()
+    expect(screen.getByText('Near Laugavegur 1')).toBeInTheDocument()
+    expect(screen.getByText('Accuracy about ±12 m')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    expect(onClearSelectedPlace).toHaveBeenCalledOnce()
+  })
+
+  it('passes every same-name search result to the map picker and keeps exact selection identity', async () => {
+    const onPlaceSelected = vi.fn()
+    fetchMock.mockResolvedValue(searchResponse([
+      {
+        id: 'hms:hella-dalvik',
+        source: 'hms',
+        sourceId: 'hella-dalvik',
+        name: 'Hella',
+        formattedAddress: 'Hella, 621 Dalvíkurbyggð',
+        lat: 65.91,
+        lon: -18.31,
+      },
+      {
+        id: 'hms:hella-sudurnes',
+        source: 'hms',
+        sourceId: 'hella-sudurnes',
+        name: 'Hella',
+        formattedAddress: 'Hella, 250 Suðurnesjabær',
+        lat: 63.99,
+        lon: -22.56,
+      },
+    ]))
+
+    render(<PlaceSearch autoFocus={false} onPlaceSelected={onPlaceSelected} />)
+    const input = screen.getByRole('combobox', { name: 'Search for a place' })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'Hella' } })
+    await advanceSearchDebounce()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose on map (2)' }))
+
+    expect(screen.getByRole('button', { name: /Hella, Hella, 621 Dalvíkurbyggð/ })).toBeInTheDocument()
+    const exactResult = screen.getByRole('button', { name: /Hella, Hella, 250 Suðurnesjabær/ })
+    fireEvent.click(exactResult)
+
+    expect(onPlaceSelected).toHaveBeenCalledOnce()
+    expect(onPlaceSelected).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'hms:hella-sudurnes',
+      source: 'hms',
+      sourceId: 'hella-sudurnes',
+      formattedAddress: 'Hella, 250 Suðurnesjabær',
+      lat: 63.99,
+      lon: -22.56,
+    }))
+  })
+
   it('debounces POST searches and ignores a stale response after the query changes', async () => {
     const firstResponse = deferred<Response>()
     fetchMock
@@ -368,7 +476,7 @@ describe('PlaceSearch', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('shows collapsed recovery guidance and retries after a stored permission denial', async () => {
+  it('toggles recovery guidance between Icelandic and English and retries after denial', async () => {
     const onPlaceSelected = vi.fn()
     getCurrentLocationMock
       .mockRejectedValueOnce(new CurrentLocationError('permission_denied'))
@@ -398,8 +506,21 @@ describe('PlaceSearch', () => {
     )
     const helpSummary = screen.getByText('How do I enable location?')
     expect(helpSummary.closest('details')).not.toHaveAttribute('open')
+    expect(screen.getByText('Opnaðu staðsetningarstillingar á iPhone eða iPad.')).toBeInTheDocument()
+    expect(screen.getByText('Leyfðu teskeid.is í vafranum og reyndu aftur.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'English instructions' }))
+
     expect(screen.getByText('Open iPhone or iPad location settings.')).toBeInTheDocument()
     expect(screen.getByText('Allow teskeid.is in the browser and try again.')).toBeInTheDocument()
+    expect(screen.queryByText('Opnaðu staðsetningarstillingar á iPhone eða iPad.')).not.toBeInTheDocument()
+    expect(screen.getByText('Open iPhone or iPad location settings.').closest('[lang]')).toHaveAttribute('lang', 'en')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Íslenskar leiðbeiningar' }))
+
+    expect(screen.getByText('Opnaðu staðsetningarstillingar á iPhone eða iPad.')).toBeInTheDocument()
+    expect(screen.queryByText('Open iPhone or iPad location settings.')).not.toBeInTheDocument()
+    expect(screen.getByText('Opnaðu staðsetningarstillingar á iPhone eða iPad.').closest('[lang]')).toHaveAttribute('lang', 'is')
 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     await act(async () => { await Promise.resolve() })
@@ -410,5 +531,28 @@ describe('PlaceSearch', () => {
       lat: 64.1466,
       lon: -21.9426,
     }))
+  })
+
+  it('uses English help without a redundant language toggle in an English interface', async () => {
+    localeMock.mockReturnValue('en')
+    getCurrentLocationMock.mockRejectedValueOnce(
+      new CurrentLocationError('permission_denied'),
+    )
+
+    render(
+      <PlaceSearch
+        autoFocus={false}
+        allowCurrentLocation
+        onPlaceSelected={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use current location' }))
+    await act(async () => { await Promise.resolve() })
+
+    expect(screen.queryByRole('button', { name: 'English instructions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Íslenskar leiðbeiningar' })).not.toBeInTheDocument()
+    expect(screen.getByText('Open iPhone or iPad location settings.')).toBeInTheDocument()
+    expect(screen.getByText('Open iPhone or iPad location settings.').closest('[lang]')).toHaveAttribute('lang', 'en')
   })
 })

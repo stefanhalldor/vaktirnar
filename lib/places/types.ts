@@ -1,4 +1,4 @@
-export type PlaceSource = 'hms' | 'device' | 'saved' | 'static' | 'curated' | 'google'
+export type PlaceSource = 'hms' | 'device' | 'map' | 'saved' | 'static' | 'curated' | 'google'
 
 export type PlaceRoutingReference = {
   provider: 'google'

@@ -201,8 +201,7 @@ describe('POST /api/place/search — HMS-first privacy contract', () => {
     expect(await response.json()).toEqual({ results: [] })
     expect(mocks.geocodePlace).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalledWith(
-      '[place-search] Google fallback unavailable',
-      { category: 'fallback_disabled' },
+      '[place-search] Google fallback unavailable (category=fallback_disabled)',
     )
   })
 
@@ -215,8 +214,7 @@ describe('POST /api/place/search — HMS-first privacy contract', () => {
 
     expect(response.status).toBe(200)
     expect(warnSpy).toHaveBeenCalledWith(
-      '[place-search] Google fallback unavailable',
-      { category: 'provider_unavailable' },
+      '[place-search] Google fallback unavailable (category=provider_unavailable)',
     )
     expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('Private Laugavegur 10')
   })
@@ -230,8 +228,7 @@ describe('POST /api/place/search — HMS-first privacy contract', () => {
 
     expect(response.status).toBe(200)
     expect(warnSpy).toHaveBeenCalledWith(
-      '[place-search] Google fallback unavailable',
-      { category: 'upstream_error' },
+      '[place-search] Google fallback unavailable (category=upstream_error)',
     )
     const serializedLogs = JSON.stringify(warnSpy.mock.calls)
     expect(serializedLogs).not.toContain('Private Melás 8')
@@ -244,8 +241,7 @@ describe('POST /api/place/search — HMS-first privacy contract', () => {
 
     await POST_SEARCH(searchRequest('No provider match'))
     expect(warnSpy).toHaveBeenLastCalledWith(
-      '[place-search] Google fallback unavailable',
-      { category: 'zero_candidates' },
+      '[place-search] Google fallback unavailable (category=zero_candidates)',
     )
 
     mocks.geocodePlace.mockResolvedValue([{
@@ -257,8 +253,7 @@ describe('POST /api/place/search — HMS-first privacy contract', () => {
     }])
     await POST_SEARCH(searchRequest('Outside Iceland'))
     expect(warnSpy).toHaveBeenLastCalledWith(
-      '[place-search] Google fallback unavailable',
-      { category: 'all_candidates_outside_iceland' },
+      '[place-search] Google fallback unavailable (category=all_candidates_outside_iceland)',
     )
   })
 

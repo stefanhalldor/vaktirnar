@@ -114,7 +114,7 @@ export function WindStatusFilterPills({
   function handleToggle(group: WindStatusPillGroup) {
     // When no filter is active (all shown), treat it as if all are individually selected.
     const base = noFilter
-      ? new Set<WindDisplayStatus>(visibleList.flatMap(g => g.statuses))
+      ? new Set<WindDisplayStatus>(ALL_WIND_DISPLAY_STATUSES)
       : new Set(visibleStatuses)
     if (groupIsActive(group) || noFilter) {
       group.statuses.forEach(st => base.delete(st))
@@ -122,8 +122,7 @@ export function WindStatusFilterPills({
       group.statuses.forEach(st => base.add(st))
     }
     // If everything ends up selected, collapse back to "no filter" (empty set = show all).
-    const allStatuses = visibleList.flatMap(g => g.statuses)
-    const allNowSelected = allStatuses.every(st => base.has(st))
+    const allNowSelected = ALL_WIND_DISPLAY_STATUSES.every(st => base.has(st))
     onVisibleStatusesChange(allNowSelected ? new Set() : base)
   }
 
@@ -140,8 +139,9 @@ export function WindStatusFilterPills({
           <button
             key={group.id}
             type="button"
+            aria-pressed={noFilter || isActive}
             onClick={() => handleToggle(group)}
-            className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+            className={`flex min-h-10 items-center gap-1 rounded-full border px-3 py-1 text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
               isActive
                 ? activeClass
                 : noFilter
@@ -162,7 +162,7 @@ export function WindStatusFilterPills({
         <button
           type="button"
           onClick={() => onVisibleStatusesChange(new Set())}
-          className="text-[10px] px-2 py-1 rounded-full border border-primary/40 text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="min-h-10 rounded-full border border-primary/40 px-3 py-1 text-[10px] text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {showAllLabel}
         </button>

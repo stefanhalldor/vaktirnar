@@ -34,6 +34,15 @@ export type CurrentLocationOptions = {
 }
 
 export type CurrentDeviceLocation = SelectedLocation & { source: 'device' }
+export type MapSelectedLocation = SelectedLocation & { source: 'map' }
+
+export type CoordinateLocationOptions = {
+  /** Localized fallback shown when the reverse lookup has no useful label. */
+  fallbackName: string
+  /** Localized wrapper for a nearby HMS label; it must not imply exact address matching. */
+  formatNearbyLabel?: (place: string) => string
+  signal?: AbortSignal
+}
 
 type ReverseGeocodePayload = {
   location?: unknown
@@ -78,6 +87,59 @@ async function reverseGeocode(
     if (signal?.aborted) throw new CurrentLocationError('aborted')
     return null
   }
+}
+
+async function locationFromCoordinates(
+  lat: number,
+  lon: number,
+  source: 'device' | 'map',
+  options: CoordinateLocationOptions,
+  accuracyM?: number,
+): Promise<CurrentDeviceLocation | MapSelectedLocation> {
+  if (!validateIcelandicCoords(lat, lon)) {
+    throw new CurrentLocationError('outside_iceland')
+  }
+  if (options.signal?.aborted) {
+    throw new CurrentLocationError('aborted')
+  }
+
+  const reverse = await reverseGeocode(lat, lon, options.signal)
+  const reverseName = reverse
+    ? stringValue(reverse.name ?? reverse.displayName)
+    : undefined
+  const formattedAddress = reverse
+    ? stringValue(reverse.formattedAddress ?? reverse.address)
+    : undefined
+  const nearbyPlace = formattedAddress ?? reverseName
+
+  return {
+    id: `${source}:${lat.toFixed(6)}:${lon.toFixed(6)}`,
+    name: options.fallbackName,
+    formattedAddress: nearbyPlace
+      ? options.formatNearbyLabel?.(nearbyPlace) ?? nearbyPlace
+      : options.fallbackName,
+    lat,
+    lon,
+    source,
+    postalCode: reverse ? stringValue(reverse.postalCode) : undefined,
+    municipality: reverse ? stringValue(reverse.municipality) : undefined,
+    municipalityCode: reverse ? stringValue(reverse.municipalityCode) : undefined,
+    accuracyM,
+  }
+}
+
+/**
+ * Resolves display copy for an exact point chosen on the map.
+ *
+ * The clicked coordinate remains authoritative. Reverse lookup is same-origin,
+ * display-only, and may fail without preventing the user from selecting the point.
+ */
+export async function getLocationFromCoordinates(
+  lat: number,
+  lon: number,
+  options: CoordinateLocationOptions,
+): Promise<MapSelectedLocation> {
+  return locationFromCoordinates(lat, lon, 'map', options) as Promise<MapSelectedLocation>
 }
 
 function readPosition(
@@ -140,37 +202,9 @@ export async function getCurrentLocation(
   const lat = position.coords.latitude
   const lon = position.coords.longitude
 
-  if (!validateIcelandicCoords(lat, lon)) {
-    throw new CurrentLocationError('outside_iceland')
-  }
-  if (options.signal?.aborted) {
-    throw new CurrentLocationError('aborted')
-  }
-
-  const reverse = await reverseGeocode(lat, lon, options.signal)
-  const reverseName = reverse
-    ? stringValue(reverse.name ?? reverse.displayName)
-    : undefined
-  const formattedAddress = reverse
-    ? stringValue(reverse.formattedAddress ?? reverse.address)
-    : undefined
-  const nearbyPlace = formattedAddress ?? reverseName
   const accuracyM = Number.isFinite(position.coords.accuracy)
     ? Math.max(0, position.coords.accuracy)
     : undefined
 
-  return {
-    id: `device:${lat.toFixed(6)}:${lon.toFixed(6)}`,
-    name: options.fallbackName,
-    formattedAddress: nearbyPlace
-      ? options.formatNearbyLabel?.(nearbyPlace) ?? nearbyPlace
-      : options.fallbackName,
-    lat,
-    lon,
-    source: 'device',
-    postalCode: reverse ? stringValue(reverse.postalCode) : undefined,
-    municipality: reverse ? stringValue(reverse.municipality) : undefined,
-    municipalityCode: reverse ? stringValue(reverse.municipalityCode) : undefined,
-    accuracyM,
-  }
+  return locationFromCoordinates(lat, lon, 'device', options, accuracyM) as Promise<CurrentDeviceLocation>
 }

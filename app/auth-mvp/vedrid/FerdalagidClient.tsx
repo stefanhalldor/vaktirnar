@@ -570,9 +570,9 @@ export function FerdalagidClient({
   }
 
   async function savePlaceBestEffort(place: RoutePlace) {
-    // A one-shot GPS point is not a recent/saved place unless the user makes
-    // that choice explicitly in a separate save action.
-    if (isGuest || place.source === 'device') return
+    // A one-shot GPS or hand-picked map point is not a recent/saved place
+    // unless the user makes that choice explicitly in a separate save action.
+    if (isGuest || place.source === 'device' || place.source === 'map') return
     try {
       const saveRes = await fetch('/api/teskeid/weather/saved-places', {
         method: 'POST',

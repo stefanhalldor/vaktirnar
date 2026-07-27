@@ -104,7 +104,22 @@ type GoogleFallbackFailureCategory =
 function logGoogleFallbackFailure(category: GoogleFallbackFailureCategory): void {
   // Never attach the query, coordinates, provider response, user identity or
   // environment values here. Production diagnostics must remain non-sensitive.
-  console.warn('[place-search] Google fallback unavailable', { category })
+  switch (category) {
+    case 'fallback_disabled':
+      console.warn('[place-search] Google fallback unavailable (category=fallback_disabled)')
+      return
+    case 'provider_unavailable':
+      console.warn('[place-search] Google fallback unavailable (category=provider_unavailable)')
+      return
+    case 'upstream_error':
+      console.warn('[place-search] Google fallback unavailable (category=upstream_error)')
+      return
+    case 'zero_candidates':
+      console.warn('[place-search] Google fallback unavailable (category=zero_candidates)')
+      return
+    case 'all_candidates_outside_iceland':
+      console.warn('[place-search] Google fallback unavailable (category=all_candidates_outside_iceland)')
+  }
 }
 
 async function googleFallback(query: string): Promise<SelectedLocation[]> {

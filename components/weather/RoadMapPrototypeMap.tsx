@@ -3,7 +3,7 @@
 // MapLibre CSS is loaded by route layout (app/auth-mvp/vedrid/road-map-prototype/layout.tsx).
 import { type FormEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { Pencil } from 'lucide-react'
+import { LocateFixed, Pencil } from 'lucide-react'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import {
   createFirstReadyCoordinator,
@@ -114,6 +114,11 @@ import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview
 import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
 import { haversineDistanceM } from '@/lib/weather/nearestStations'
 import { makeWeatherPlaceKey, type SavedWeatherPlace } from '@/lib/weather/savedPlaces'
+import {
+  watchLiveLocation,
+  type LiveLocationErrorCode,
+  type LiveLocationPoint,
+} from '@/lib/places/liveLocation.client'
 import {
   ROAD_MAP_PROTOTYPE_NAVIGATION,
   buildRoadMapRouteReturnHref,
@@ -462,6 +467,9 @@ type RouteForecastBuildStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | '
 const ROUTE_TIMELINE_INITIAL_SLOT_COUNT = 8
 const ROUTE_TIMELINE_TOTAL_SLOT_COUNT = 25
 const ROUTE_TIMELINE_INITIAL_HOURLY_SLOT_COUNT = 6
+const VEGAGERDIN_ROUTE_REFRESH_INTERVAL_MS = 60_000
+
+type RouteLiveLocationStatus = 'idle' | 'waiting' | 'active' | 'error'
 
 type RouteForecastBuildContext = {
   timelineCandidates: TravelCandidate[]
@@ -614,6 +622,10 @@ function buildSyntheticRouteTimelineCandidates(
 
 function countStatusesTotal(counts: Partial<Record<WindDisplayStatus, number>>): number {
   return ALL_WIND_DISPLAY_STATUSES.reduce((sum, status) => sum + (counts[status] ?? 0), 0)
+}
+
+function countUsableWindStatuses(counts: Partial<Record<WindDisplayStatus, number>>): number {
+  return countStatusesTotal(counts) - (counts.no_data ?? 0) - (counts.no_wind_data ?? 0)
 }
 
 function newestVegagerdinRouteMeasuredAtIso(
@@ -1451,8 +1463,11 @@ function normalizeWeatherChasePreferences(value: unknown): WeatherChasePreferenc
  * which would override Tailwind's `absolute` and collapse inset-0 to zero height.
  * h-full w-full survives that override.
  *
- * No user GPS. No Supabase writes. No routing advice.
- * Visible only to users with road-intelligence-v1 feature flag.
+ * Optional user GPS is browser-local, opt-in and limited to the active
+ * authenticated Vegagerðin route view. No coordinates are sent or stored.
+ * No Supabase writes. No routing advice.
+ * The route tools are available to authenticated weather users while the
+ * server-side Teskeið route-candidate switch remains the emergency gate.
  */
 export function RoadMapPrototypeMap({
   isAuthenticated = false,
@@ -1506,6 +1521,9 @@ export function RoadMapPrototypeMap({
   const routeVegagerdinLabelMarkersRef = useRef<RouteVegagerdinLabelMarker[]>([])
   const routeVegagerdinPointsRef = useRef<VegagerdinRouteLayerPoint[]>([])
   const routeEndpointMarkersRef = useRef<RouteEndpointMarker[]>([])
+  const routeLiveLocationMarkerRef = useRef<import('maplibre-gl').Marker | null>(null)
+  const routeLiveLocationStopRef = useRef<(() => void) | null>(null)
+  const routeLiveLocationCenteredRef = useRef(false)
   const overviewDensityFrameRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const showOverlayRef = useRef(hasRoadIntelligence)
@@ -1575,6 +1593,9 @@ export function RoadMapPrototypeMap({
     Partial<Record<WindDisplayStatus, number>> | null
   >(null)
   const [routeNowMeasuredAtIso, setRouteNowMeasuredAtIso] = useState<string | null>(null)
+  const [routeNowMeasurementFreshness, setRouteNowMeasurementFreshness] = useState<
+    VegagerdinRouteLayer['measurementFreshness']
+  >(null)
   const [routeVisibleStatusCounts, setRouteVisibleStatusCounts] = useState<
     Partial<Record<WindDisplayStatus, number>> | null
   >(null)
@@ -1585,12 +1606,17 @@ export function RoadMapPrototypeMap({
   const [mapVisibleHours, setMapVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
   const [showMedals, setShowMedals] = useState(false)
   const [overviewVegagerdinData, setOverviewVegagerdinData] = useState<VegagerdinCurrentApiData | null>(null)
+  const overviewVegagerdinDataRef = useRef<VegagerdinCurrentApiData | null>(null)
+  const applyRefreshedRouteVegagerdinDataRef = useRef<
+    (payload: Extract<VegagerdinCurrentApiData, { status: 'ok' }>) => void
+  >(() => {})
   const [overviewVegagerdinLoading, setOverviewVegagerdinLoading] = useState(true)
   const [overviewVegagerdinRestricted, setOverviewVegagerdinRestricted] = useState(false)
   const [overviewVedurstofanData, setOverviewVedurstofanData] = useState<StationExplorerResponse | null>(null)
   const [overviewVedurstofanLoading, setOverviewVedurstofanLoading] = useState(true)
   const [overviewVedurstofanRestricted, setOverviewVedurstofanRestricted] = useState(false)
   const [mapReady, setMapReady] = useState(false)
+  overviewVegagerdinDataRef.current = overviewVegagerdinData
   const [routeCandidates, setRouteCandidates] = useState<TravelCandidate[] | null>(null)
   const [routeSlotStatusOverrides, setRouteSlotStatusOverrides] = useState<WindDisplayStatus[] | null>(null)
   const [routeForecastBuildStatus, setRouteForecastBuildStatus] = useState<RouteForecastBuildStatus>('idle')
@@ -1877,6 +1903,10 @@ export function RoadMapPrototypeMap({
   const [forecastCardGuideOpen, setForecastCardGuideOpen] = useState(true)
   const [hiddenForecastCardCount, setHiddenForecastCardCount] = useState(0)
   const [routeActive, setRouteActive] = useState(false)
+  const [routeLiveLocationStatus, setRouteLiveLocationStatus] = useState<RouteLiveLocationStatus>('idle')
+  const [routeLiveLocationPoint, setRouteLiveLocationPoint] = useState<LiveLocationPoint | null>(null)
+  const [routeLiveLocationError, setRouteLiveLocationError] = useState<LiveLocationErrorCode | null>(null)
+  const [routeVegagerdinLastRefreshIso, setRouteVegagerdinLastRefreshIso] = useState<string | null>(null)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const routeBridgeRequestRef = useRef<AbortController | null>(null)
@@ -1886,6 +1916,18 @@ export function RoadMapPrototypeMap({
   const routeBridgeRunIdRef = useRef(0)
   const formRef = useRef<HTMLFormElement | null>(null)
   const resolvedRoutePlacesRef = useRef<ResolvedRoutePlaces | null>(null)
+  const stopRouteLiveLocation = useCallback((resetState = true) => {
+    routeLiveLocationStopRef.current?.()
+    routeLiveLocationStopRef.current = null
+    routeLiveLocationMarkerRef.current?.remove()
+    routeLiveLocationMarkerRef.current = null
+    routeLiveLocationCenteredRef.current = false
+    if (resetState) {
+      setRouteLiveLocationPoint(null)
+      setRouteLiveLocationError(null)
+      setRouteLiveLocationStatus('idle')
+    }
+  }, [])
   const labelsRef = useRef<RoadMapPrototypeLabels>({
     roadFallback: (number) => t('roadMapPrototypeRoadFallback', { number }),
     unknownRoad: t('roadMapPrototypeUnknownRoad'),
@@ -2797,6 +2839,23 @@ export function RoadMapPrototypeMap({
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!isAuthenticated || !routeActive || routeWeatherMode !== 'now') {
+      stopRouteLiveLocation()
+    }
+  }, [isAuthenticated, routeActive, routeWeatherMode, stopRouteLiveLocation])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') stopRouteLiveLocation()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      stopRouteLiveLocation(false)
+    }
+  }, [stopRouteLiveLocation])
 
   useEffect(() => {
     let cancelled = false
@@ -4152,9 +4211,9 @@ export function RoadMapPrototypeMap({
   }
 
   async function savePlaceBestEffort(place: RoadIntelligencePlaceResult) {
-    // Device GPS is precise personal data. Never turn it into a recent/saved
-    // place as a side effect of route selection.
-    if (place.source === 'device') return
+    // Device GPS and hand-picked points are precise personal data. Never turn
+    // either into a recent/saved place as a side effect of route selection.
+    if (place.source === 'device' || place.source === 'map') return
     if (!isAuthenticated) {
       try {
         const key = makeWeatherPlaceKey(place.lat, place.lon)
@@ -4292,6 +4351,84 @@ export function RoadMapPrototypeMap({
     routeEndpointMarkersRef.current = []
   }
 
+  function updateRouteLiveLocationMarker(point: LiveLocationPoint) {
+    const map = mapRef.current
+    const Marker = markerConstructorRef.current
+    if (!map || !Marker) return
+
+    let marker = routeLiveLocationMarkerRef.current
+    if (!marker) {
+      const element = document.createElement('div')
+      element.setAttribute('role', 'img')
+      element.setAttribute('aria-label', t('roadMapPrototypeLiveLocationMarkerLabel'))
+      element.title = t('roadMapPrototypeLiveLocationMarkerLabel')
+      element.style.cssText = [
+        'width:22px',
+        'height:22px',
+        'border:4px solid rgba(255,255,255,0.96)',
+        'border-radius:999px',
+        'background:#2563eb',
+        'box-shadow:0 1px 7px rgba(15,23,42,0.38)',
+        'pointer-events:none',
+      ].join(';')
+      marker = new Marker({ element, anchor: 'center' })
+        .setLngLat([point.lon, point.lat])
+        .addTo(map)
+      routeLiveLocationMarkerRef.current = marker
+    } else {
+      marker.setLngLat([point.lon, point.lat])
+    }
+
+    if (!routeLiveLocationCenteredRef.current) {
+      routeLiveLocationCenteredRef.current = true
+      const locationIsVisible = map.getBounds().contains([point.lon, point.lat])
+      if (!locationIsVisible) {
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        map.easeTo({
+          center: [point.lon, point.lat],
+          duration: reduceMotion ? 0 : 450,
+        })
+      }
+    }
+  }
+
+  function handleToggleRouteLiveLocation() {
+    if (routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active') {
+      stopRouteLiveLocation()
+      return
+    }
+    if (!isAuthenticated || !routeActiveRef.current || routeWeatherModeRef.current !== 'now') return
+
+    stopRouteLiveLocation()
+    setRouteLiveLocationStatus('waiting')
+    setRouteLiveLocationError(null)
+    let failedSynchronously = false
+    const stop = watchLiveLocation({
+      onPosition: point => {
+        if (!routeActiveRef.current || routeWeatherModeRef.current !== 'now') {
+          stopRouteLiveLocation()
+          return
+        }
+        setRouteLiveLocationPoint(point)
+        setRouteLiveLocationError(null)
+        setRouteLiveLocationStatus('active')
+        updateRouteLiveLocationMarker(point)
+      },
+      onError: error => {
+        failedSynchronously = true
+        stopRouteLiveLocation(false)
+        setRouteLiveLocationPoint(null)
+        setRouteLiveLocationError(error)
+        setRouteLiveLocationStatus('error')
+      },
+    })
+    if (failedSynchronously) {
+      stop()
+    } else {
+      routeLiveLocationStopRef.current = stop
+    }
+  }
+
   function reconcilePlaceMarkerVisibility() {
     const selectionOwnsMap = weatherChaseSelectedItemsRef.current.length > 0
     if (routeActiveRef.current || selectionOwnsMap) {
@@ -4338,6 +4475,8 @@ export function RoadMapPrototypeMap({
     setRouteSlotStatusOverrides(null)
     setRouteNowStatusCounts(null)
     setRouteNowMeasuredAtIso(null)
+    setRouteNowMeasurementFreshness(null)
+    setRouteVegagerdinLastRefreshIso(null)
     setRouteVisibleStatusCounts(null)
     resetRouteDepartureForecastState()
     setRouteSurfaceChoices([])
@@ -4354,6 +4493,7 @@ export function RoadMapPrototypeMap({
     setRouteCalculationPlaceNames(null)
     setSelectedCandidateIdx(null)
     setRouteWeatherModeState('now')
+    stopRouteLiveLocation()
     routeActiveRef.current = false
     setRouteActive(false)
     vedurstofanLayerRef.current = undefined
@@ -5406,8 +5546,10 @@ export function RoadMapPrototypeMap({
         ? labelsRef.current.routeMarkerRoadTemperature(formatNum(point.roadTemperatureC, locale))
         : null,
       weatherEmoji: null,
+      providerLabel: point.stationName,
       color,
       showWeatherCard: true,
+      showNameLabel: false,
       placement,
       onClick: () => openVegagerdinRouteStationPage(point),
     })
@@ -6076,7 +6218,7 @@ export function RoadMapPrototypeMap({
     let context = routeForecastBuildContextRef.current
     if (!context && routeBridgeSummary) {
       const nowCounts = routeNowStatusCounts ?? routeBridgeSummary.statusCounts ?? {}
-      const nowWorstStatus = worstWindDisplayStatusFromCounts(nowCounts) ?? 'innan-marka'
+      const nowWorstStatus = worstWindDisplayStatusFromCounts(nowCounts) ?? 'no_data'
       context = {
         timelineCandidates: buildSyntheticRouteTimelineCandidates(
           routeBridgeSummary.durationMinutes,
@@ -6335,7 +6477,7 @@ export function RoadMapPrototypeMap({
     const vegagerdinRender = renderVegagerdinStations(vegagerdinLayer)
     const timelineCandidates = buildRouteTimelineCandidates(travelResult, mapData.durationMinutes)
     const slotSource = routeSlotStatusSource(
-      vegagerdinRender.count,
+      countUsableWindStatuses(vegagerdinRender.statusCounts),
       vedurstofanRender.count,
     )
     console.log('[RoadMap] providers — vegagerdin:', vegagerdinRender.count, 'stations', vegagerdinRender.statusCounts, '| vedurstofan:', vedurstofanRender.count, '| slotSource:', slotSource, '| timeline:', timelineCandidates?.length ?? 0, 'slots')
@@ -6343,13 +6485,16 @@ export function RoadMapPrototypeMap({
       vegagerdinRender.count > 0
         ? vegagerdinRender.statusCounts
         : {}
+    const hasUsableVegagerdinNow = countUsableWindStatuses(nowStatusCounts) > 0
     const nowMeasuredAtIso =
       vegagerdinLayer?.measuredAtIso ??
       newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
-    const nowWorstStatus = worstWindDisplayStatusFromCounts(nowStatusCounts) ?? 'innan-marka'
-    const providerStatus = routeStatusFromCounts(nowStatusCounts)
+    const nowWorstStatus = worstWindDisplayStatusFromCounts(nowStatusCounts) ?? 'no_data'
+    const providerStatus = hasUsableVegagerdinNow
+      ? routeStatusFromCounts(nowStatusCounts)
+      : travelResult.stada
     const providerAnswer =
-      slotSource !== 'fallback'
+      hasUsableVegagerdinNow
         ? providerRouteAnswer(providerStatus)
         : travelResult.svar
     const initialRouteCandidates = timelineCandidates && timelineCandidates.length > 0
@@ -6401,6 +6546,7 @@ export function RoadMapPrototypeMap({
     setRouteVedurstofanLayer(vedurstofanLayer ?? null)
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteNowMeasuredAtIso(nowMeasuredAtIso)
+    setRouteNowMeasurementFreshness(vegagerdinLayer?.measurementFreshness ?? null)
     setRouteVisibleStatusCounts(nowStatusCounts)
     setRouteCandidates(initialRouteCandidates)
     setRouteSlotStatusOverrides(null)
@@ -7226,6 +7372,7 @@ export function RoadMapPrototypeMap({
       clearRouteVedurstofanLabelMarkers()
       clearRouteVegagerdinLabelMarkers()
       clearRouteEndpointMarkers()
+      stopRouteLiveLocation(false)
       popupRef.current?.remove()
       popupRef.current = null
       popupConstructorRef.current = null
@@ -7233,7 +7380,7 @@ export function RoadMapPrototypeMap({
       mapRef.current?.remove()
       mapRef.current = null
     }
-  }, [])
+  }, [stopRouteLiveLocation])
 
   function changeForecastCardScale(delta: -1 | 1) {
     setForecastCardScaleIndex(index =>
@@ -7535,6 +7682,156 @@ export function RoadMapPrototypeMap({
     )
   }
 
+  applyRefreshedRouteVegagerdinDataRef.current = payload => {
+    const travelResult = routeTravelResult
+    if (!travelResult || !routeActiveRef.current || routeWeatherModeRef.current !== 'now') return
+
+    const layer = buildClientVegagerdinRouteLayer(
+      travelResult,
+      routeThresholdsRef.current,
+      payload,
+    )
+    const render = renderVegagerdinStations(layer)
+    const nowStatusCounts = render.statusCounts
+    const nowWorstStatus = worstWindDisplayStatusFromCounts(nowStatusCounts) ?? 'no_data'
+    const nowMeasuredAtIso =
+      layer?.measuredAtIso ?? newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
+
+    setRouteNowStatusCounts(nowStatusCounts)
+    setRouteVisibleStatusCounts(nowStatusCounts)
+    setRouteNowMeasuredAtIso(nowMeasuredAtIso)
+    setRouteNowMeasurementFreshness(layer?.measurementFreshness ?? payload.measurementFreshness)
+    setRouteVegagerdinLastRefreshIso(payload.fetchedAtIso)
+    setRouteBridgeSummary(current => {
+      if (!current || !routeActiveRef.current) return current
+      const slotSource = routeSlotStatusSource(
+        countUsableWindStatuses(nowStatusCounts),
+        current.vedurstofanStationCount,
+      )
+      const hasUsableVegagerdinNow = countUsableWindStatuses(nowStatusCounts) > 0
+      const status = hasUsableVegagerdinNow
+        ? routeStatusFromCounts(nowStatusCounts)
+        : travelResult.stada
+      return {
+        ...current,
+        status,
+        answer: hasUsableVegagerdinNow ? providerRouteAnswer(status) : travelResult.svar,
+        statusCounts: nowStatusCounts,
+        vegagerdinStationCount: render.count,
+        slotStatusSource: slotSource,
+      }
+    })
+
+    const forecastContext = routeForecastBuildContextRef.current
+    if (forecastContext) {
+      routeForecastBuildContextRef.current = {
+        ...forecastContext,
+        vegagerdinStatusCounts: nowStatusCounts,
+        vegagerdinStationCount: render.count,
+        nowWorstStatus,
+      }
+      builtRouteForecastContextRef.current = null
+    }
+    updateRouteWeatherLayerVisibility('now')
+  }
+
+  useEffect(() => {
+    if (
+      !routeActive ||
+      routeWeatherMode !== 'now' ||
+      !routeTravelResult ||
+      overviewVegagerdinRestricted
+    ) {
+      return
+    }
+
+    const routeRunId = routeBridgeRunIdRef.current
+    let disposed = false
+    let inFlight = false
+    let requestController: AbortController | null = null
+
+    const refresh = async () => {
+      if (disposed || inFlight || document.visibilityState === 'hidden') return
+      inFlight = true
+      const controller = new AbortController()
+      requestController = controller
+      try {
+        const response = await fetch('/api/teskeid/weather/vegagerdin/current', {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        if (!response.ok) return
+        const payload = await response.json().catch(() => null) as VegagerdinCurrentApiData | null
+        if (
+          disposed ||
+          controller.signal.aborted ||
+          routeBridgeRunIdRef.current !== routeRunId ||
+          !routeActiveRef.current ||
+          routeWeatherModeRef.current !== 'now' ||
+          payload?.status !== 'ok' ||
+          payload.stations.length === 0
+        ) {
+          return
+        }
+
+        const current = overviewVegagerdinDataRef.current
+        if (current?.status === 'ok') {
+          if (current.fetchedAtIso === payload.fetchedAtIso) {
+            if (
+              current.measurementFreshness !== payload.measurementFreshness ||
+              current.cacheStatus !== payload.cacheStatus
+            ) {
+              overviewVegagerdinDataRef.current = payload
+              setOverviewVegagerdinData(payload)
+              setRouteNowMeasurementFreshness(payload.measurementFreshness)
+            }
+            return
+          }
+          const currentIsProviderCache = current.cacheStatus !== null
+          const currentFetchedMs = Date.parse(current.fetchedAtIso)
+          const nextFetchedMs = Date.parse(payload.fetchedAtIso)
+          if (
+            currentIsProviderCache &&
+            Number.isFinite(currentFetchedMs) &&
+            Number.isFinite(nextFetchedMs) &&
+            nextFetchedMs <= currentFetchedMs
+          ) {
+            return
+          }
+        }
+
+        overviewVegagerdinDataRef.current = payload
+        setOverviewVegagerdinData(payload)
+        applyRefreshedRouteVegagerdinDataRef.current(payload)
+      } catch {
+        // Keep the last successful provider payload and route rendering intact.
+      } finally {
+        inFlight = false
+        if (requestController === controller) requestController = null
+      }
+    }
+
+    const intervalId = window.setInterval(() => void refresh(), VEGAGERDIN_ROUTE_REFRESH_INTERVAL_MS)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    void refresh()
+
+    return () => {
+      disposed = true
+      window.clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      requestController?.abort()
+    }
+  }, [
+    overviewVegagerdinRestricted,
+    routeActive,
+    routeTravelResult,
+    routeWeatherMode,
+  ])
+
   // Derive the displayed route status + answer from the selected scrubber slot.
   // When the user selects slot N in the heatmap, the badge and answer update to
   // reflect that slot's provider status rather than the initial "Núna" status.
@@ -7591,6 +7888,31 @@ export function RoadMapPrototypeMap({
         time: formatKlTime(routeNowMeasuredAtIso),
       })
     : t('roadMapPrototypeVegagerdinNowFallback')
+  const routeNowFreshnessLabel = routeNowMeasurementFreshness === 'aging'
+    ? t('roadMapPrototypeVegagerdinDataAging')
+    : routeNowMeasurementFreshness === 'stale'
+      ? t('roadMapPrototypeVegagerdinDataStale')
+      : routeNowMeasurementFreshness === 'fresh'
+        ? t('vegagerdinFreshnessFresh')
+        : null
+  const hasUsableRouteNowMeasurements = countUsableWindStatuses(routeNowStatusCounts ?? {}) > 0
+  const routeLiveLocationStatusLabel = routeLiveLocationStatus === 'waiting'
+    ? t('roadMapPrototypeLiveLocationLoading')
+    : routeLiveLocationStatus === 'active' && routeLiveLocationPoint
+      ? t('roadMapPrototypeLiveLocationActive', {
+          accuracy: Math.max(0, Math.round(routeLiveLocationPoint.accuracyM)),
+        })
+      : routeLiveLocationError === 'permission_denied'
+        ? t('roadMapPrototypeLiveLocationPermissionDenied')
+        : routeLiveLocationError === 'timeout'
+          ? t('roadMapPrototypeLiveLocationTimeout')
+          : routeLiveLocationError === 'outside_iceland'
+            ? t('roadMapPrototypeLiveLocationOutsideIceland')
+            : routeLiveLocationError === 'insecure_context'
+              ? t('roadMapPrototypeLiveLocationInsecureContext')
+              : routeLiveLocationError
+                ? t('roadMapPrototypeLiveLocationUnavailable')
+                : null
   const routeScrubberStatusText =
     routeForecastBuildStatus === 'loading'
       ? t('roadMapPrototypeScrubberCalculatingHourly')
@@ -8494,6 +8816,14 @@ export function RoadMapPrototypeMap({
                       }}
                       onPlaceSelected={(place) => selectRoutePlace(place, 'from')}
                       onResultsChange={setFromSuggestions}
+                      selectedPlace={fromResolved}
+                      onClearSelectedPlace={() => {
+                        setRouteFrom('')
+                        setFromResolved(null)
+                        setFromSuggestions([])
+                        setRoutePlaceFallbackSuggestion(null)
+                        setActiveRouteFieldState('from')
+                      }}
                       savedPlaces={savedPlaces}
                       onDeleteSavedPlace={deleteSavedPlace}
                       excludePlaces={toResolved ? [toResolved] : []}
@@ -8520,6 +8850,14 @@ export function RoadMapPrototypeMap({
                       }}
                       onPlaceSelected={(place) => selectRoutePlace(place, 'to')}
                       onResultsChange={setToSuggestions}
+                      selectedPlace={toResolved}
+                      onClearSelectedPlace={() => {
+                        setRouteTo('')
+                        setToResolved(null)
+                        setToSuggestions([])
+                        setRoutePlaceFallbackSuggestion(null)
+                        setActiveRouteFieldState('to')
+                      }}
                       savedPlaces={savedPlaces}
                       onDeleteSavedPlace={deleteSavedPlace}
                       excludePlaces={fromResolved ? [fromResolved] : []}
@@ -8704,7 +9042,11 @@ export function RoadMapPrototypeMap({
                 <span className="flex items-center gap-1.5 font-semibold">
                   <span
                     className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: routeStatusColor(routeBridgeSummary.status) }}
+                    style={{
+                      backgroundColor: hasUsableRouteNowMeasurements
+                        ? routeStatusColor(routeBridgeSummary.status)
+                        : WIND_STATUS_MARKER_COLOR.no_data,
+                    }}
                   />
                   {t('vegagerdinProviderLabel')}
                 </span>
@@ -8739,13 +9081,75 @@ export function RoadMapPrototypeMap({
 
             </div>
 
+            {routeWeatherMode === 'now' && (
+              <div className="space-y-1">
+                {hasUsableRouteNowMeasurements ? (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <span>{routeNowMeasuredLabel}</span>
+                    {routeNowFreshnessLabel && (
+                      <span className="rounded-full border border-border bg-background/80 px-2 py-0.5 font-medium">
+                        {routeNowFreshnessLabel}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    {t('roadMapPrototypeVegagerdinNoRouteStations')}
+                  </p>
+                )}
+
+                {isAuthenticated && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      aria-pressed={
+                        routeLiveLocationStatus === 'waiting' ||
+                        routeLiveLocationStatus === 'active'
+                      }
+                      onClick={handleToggleRouteLiveLocation}
+                      className={`inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
+                          ? 'border-blue-600 bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-100'
+                          : 'border-border bg-background/85 text-foreground'
+                      }`}
+                    >
+                      <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
+                      {routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
+                        ? t('roadMapPrototypeLiveLocationHide')
+                        : t('roadMapPrototypeLiveLocationShow')}
+                    </button>
+                    {routeLiveLocationStatusLabel && (
+                      <span
+                        role={routeLiveLocationStatus === 'error' ? 'alert' : 'status'}
+                        aria-live="polite"
+                        className={`max-w-full text-[10px] leading-snug ${
+                          routeLiveLocationStatus === 'error'
+                            ? 'text-destructive'
+                            : 'text-muted-foreground'
+                        }`}
+                      >
+                        {routeLiveLocationStatusLabel}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <span className="sr-only" aria-live="polite">
+                  {routeVegagerdinLastRefreshIso
+                    ? t('roadMapPrototypeVegagerdinDataRefreshed', {
+                        time: formatKlTime(routeVegagerdinLastRefreshIso),
+                      })
+                    : ''}
+                </span>
+              </div>
+            )}
+
             <WindStatusFilterPills
               counts={activeRouteStatusCounts}
               visibleStatuses={visibleRouteStatuses}
               onVisibleStatusesChange={handleRouteStatusFilterChange}
               showAllLabel=""
-              alwaysShowWithinLimits
-              mode="detailed"
+              mode={routeStatusFilterMode}
             />
 
           </div>
