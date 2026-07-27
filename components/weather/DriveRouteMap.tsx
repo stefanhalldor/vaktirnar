@@ -46,6 +46,32 @@ export type DriveRouteMapRoute = {
   width?: number
 }
 
+type DriveRouteMapStationMarkerVisual = {
+  id: string
+  element: HTMLButtonElement
+  dot: HTMLSpanElement
+}
+
+function applyStationMarkerSelection(
+  visuals: DriveRouteMapStationMarkerVisual[],
+  selectedStationId: string | null,
+) {
+  for (const visual of visuals) {
+    const selected = visual.id === selectedStationId
+    const size = selected ? 18 : 14
+    visual.element.setAttribute('aria-pressed', String(selected))
+    visual.element.style.zIndex = selected ? '2' : '1'
+    visual.dot.style.left = `${-size / 2}px`
+    visual.dot.style.top = `${-size / 2}px`
+    visual.dot.style.width = `${size}px`
+    visual.dot.style.height = `${size}px`
+    visual.dot.style.borderWidth = selected ? '4px' : '3px'
+    visual.dot.style.boxShadow = selected
+      ? '0 0 0 2px rgba(20,83,45,0.32),0 2px 6px rgba(15,23,42,0.32)'
+      : '0 1px 4px rgba(15,23,42,0.3)'
+  }
+}
+
 const EMPTY_ROUTE_POINTS: Array<{ lat: number; lon: number }> = []
 const EMPTY_ROUTES: DriveRouteMapRoute[] = []
 const EMPTY_STATIONS: DriveRouteMapStation[] = []
@@ -70,6 +96,7 @@ export function DriveRouteMap({
   routePoints = EMPTY_ROUTE_POINTS,
   routes = EMPTY_ROUTES,
   stations = EMPTY_STATIONS,
+  selectedStationId = null,
   onSelectStation,
   onSelectRoute,
   ariaLabel,
@@ -80,6 +107,7 @@ export function DriveRouteMap({
   routePoints?: Array<{ lat: number; lon: number }>
   routes?: DriveRouteMapRoute[]
   stations?: DriveRouteMapStation[]
+  selectedStationId?: string | null
   onSelectStation?: (stationId: string) => void
   onSelectRoute?: (routeId: string) => void
   ariaLabel?: string
@@ -90,6 +118,8 @@ export function DriveRouteMap({
   const localContainerRef = useRef<HTMLDivElement | null>(null)
   const onSelectStationRef = useRef(onSelectStation)
   const onSelectRouteRef = useRef(onSelectRoute)
+  const selectedStationIdRef = useRef(selectedStationId)
+  const stationMarkerVisualsRef = useRef<DriveRouteMapStationMarkerVisual[]>([])
   const mapRef = useRef<import('maplibre-gl').Map | null>(null)
   const currentDrawableRoutes = useMemo<DriveRouteMapRoute[]>(() => (
     routes.length > 0
@@ -106,6 +136,7 @@ export function DriveRouteMap({
   const stationsRef = useRef(stations)
   drawableRoutesRef.current = currentDrawableRoutes
   stationsRef.current = stations
+  selectedStationIdRef.current = selectedStationId
 
   useEffect(() => {
     onSelectStationRef.current = onSelectStation
@@ -116,12 +147,17 @@ export function DriveRouteMap({
   }, [onSelectRoute])
 
   useEffect(() => {
+    applyStationMarkerSelection(stationMarkerVisualsRef.current, selectedStationId)
+  }, [selectedStationId])
+
+  useEffect(() => {
     const drawableRoutes = drawableRoutesRef.current
     const initialStations = stationsRef.current
     if (externalContainer || !localContainerRef.current || drawableRoutes.length === 0) return
     let cancelled = false
     let resizeObserver: ResizeObserver | null = null
     const markers: import('maplibre-gl').Marker[] = []
+    const stationMarkerVisuals: DriveRouteMapStationMarkerVisual[] = []
     let map: import('maplibre-gl').Map | null = null
 
     void (async () => {
@@ -218,14 +254,11 @@ export function DriveRouteMap({
           const dot = document.createElement('span')
           dot.style.cssText = [
             'position:absolute',
-            'left:-7px',
-            'top:-7px',
-            'width:14px',
-            'height:14px',
-            'border:3px solid white',
+            'border-style:solid',
+            'border-color:white',
             'border-radius:999px',
             `background:${station.color}`,
-            'box-shadow:0 1px 4px rgba(15,23,42,0.3)',
+            'transition:left 120ms ease,top 120ms ease,width 120ms ease,height 120ms ease,box-shadow 120ms ease',
           ].join(';')
           element.appendChild(dot)
           const pill = document.createElement('span')
@@ -249,12 +282,16 @@ export function DriveRouteMap({
           ].join(';')
           element.appendChild(pill)
           element.addEventListener('click', () => onSelectStationRef.current?.(station.id))
+          const markerVisual = { id: station.id, element, dot }
+          stationMarkerVisuals.push(markerVisual)
+          applyStationMarkerSelection([markerVisual], selectedStationIdRef.current)
           markers.push(
             new maplibregl.Marker({ element, anchor: 'center' })
               .setLngLat([station.lon, station.lat])
               .addTo(map!),
           )
         }
+        stationMarkerVisualsRef.current = stationMarkerVisuals
 
         const bounds = new maplibregl.LngLatBounds()
         drawableRoutes.forEach(route => {
@@ -271,6 +308,9 @@ export function DriveRouteMap({
       cancelled = true
       resizeObserver?.disconnect()
       markers.forEach(marker => marker.remove())
+      if (stationMarkerVisualsRef.current === stationMarkerVisuals) {
+        stationMarkerVisualsRef.current = []
+      }
       map?.remove()
       if (mapRef.current === map) mapRef.current = null
     }

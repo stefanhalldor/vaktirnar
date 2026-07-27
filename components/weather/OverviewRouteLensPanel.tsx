@@ -104,6 +104,7 @@ export function OverviewRouteLensPanel({
             onPlaceSelected={handleFromSelect}
             placeholder={labels.fromPlaceholder}
             autoFocus={activeField === 'from' && fromPlace === null}
+            allowCurrentLocation
           />
         )}
       </div>
@@ -124,6 +125,7 @@ export function OverviewRouteLensPanel({
             onPlaceSelected={handleToSelect}
             placeholder={labels.toPlaceholder}
             autoFocus={activeField === 'to'}
+            allowCurrentLocation={false}
           />
         )}
       </div>

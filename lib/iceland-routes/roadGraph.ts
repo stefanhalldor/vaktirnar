@@ -336,6 +336,8 @@ function buildRoute(edges: readonly IcelandRoadGraphEdge[]): IcelandRoadGraphRou
   let distanceM = 0
   let durationS = 0
   let derivedSpeedDistanceM = 0
+  let fRoadDistanceM = 0
+  const fRoadNumbers = new Set<string>()
 
   for (const edge of edges) {
     if (nodeIds.length === 0) nodeIds.push(edge.fromNodeId)
@@ -344,6 +346,10 @@ function buildRoute(edges: readonly IcelandRoadGraphEdge[]): IcelandRoadGraphRou
     distanceM += edge.lengthM
     durationS += edge.travelTimeS
     if (edge.speedSource === 'derived') derivedSpeedDistanceM += edge.lengthM
+    if (edge.isFRoad) {
+      fRoadDistanceM += edge.lengthM
+      if (edge.roadNumber) fRoadNumbers.add(edge.roadNumber)
+    }
     if (edge.surface === 'paved') surface.pavedM += edge.lengthM
     else if (edge.surface === 'gravel') surface.gravelM += edge.lengthM
     else if (edge.surface === 'mixed') surface.mixedM += edge.lengthM
@@ -364,6 +370,8 @@ function buildRoute(edges: readonly IcelandRoadGraphEdge[]): IcelandRoadGraphRou
       unknownM: Math.round(surface.unknownM),
     },
     derivedSpeedDistanceM: Math.round(derivedSpeedDistanceM),
+    fRoadDistanceM: Math.round(fRoadDistanceM),
+    fRoadNumbers: [...fRoadNumbers].sort(),
   }
 }
 

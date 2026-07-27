@@ -1,127 +1,110 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { checkFeatureAccess } from '@/lib/loans/guard'
+import { reverseHmsPlace } from '@/lib/places/hmsDirectory.server'
+import type { ReversePlaceResult, SelectedLocation } from '@/lib/places/types'
+import { findNearestKnownRoadMapPlace } from '@/lib/road-intelligence/roadMapPlaces'
+import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
+import { validateIcelandicCoords } from '@/lib/weather/coords'
 
-// Kill switch: must explicitly set ENABLE_REVERSE_GEOCODE=true to enable (opt-in).
-const ENABLED = process.env.ENABLE_REVERSE_GEOCODE === 'true'
-
-// Simple per-IP rate limit: max 20 requests per 60 seconds (in-memory, best-effort).
 const RATE_LIMIT_MAX = 20
 const RATE_LIMIT_WINDOW_MS = 60_000
-const ipTimestamps = new Map<string, number[]>()
+const RATE_LIMIT_MAX_KEYS = 2_000
+const MAX_REVERSE_DISTANCE_M = 25_000
+
+type RateLimitWindow = { count: number; startedAt: number }
+const rateLimits = new Map<string, RateLimitWindow>()
+
+function noStoreJson(body: unknown, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: { 'Cache-Control': 'private, no-store' },
+  })
+}
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now()
-  const windowStart = now - RATE_LIMIT_WINDOW_MS
-  const prev = (ipTimestamps.get(ip) ?? []).filter(t => t > windowStart)
-  if (prev.length >= RATE_LIMIT_MAX) return true
-  prev.push(now)
-  ipTimestamps.set(ip, prev)
-  return false
+  const current = rateLimits.get(ip)
+  if (!current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS) {
+    rateLimits.set(ip, { count: 1, startedAt: now })
+    if (rateLimits.size > RATE_LIMIT_MAX_KEYS) {
+      for (const [key, value] of rateLimits) {
+        if (now - value.startedAt >= RATE_LIMIT_WINDOW_MS) rateLimits.delete(key)
+      }
+      if (rateLimits.size > RATE_LIMIT_MAX_KEYS) {
+        rateLimits.delete(rateLimits.keys().next().value as string)
+      }
+    }
+    return false
+  }
+  current.count += 1
+  return current.count > RATE_LIMIT_MAX
 }
 
-// Server-side in-memory cache (per process). Keyed by lat/lon rounded to 2dp (~1 km).
-const cache = new Map<string, string | null>()
-
-function cacheKey(lat: number, lon: number): string {
-  return `${lat.toFixed(2)},${lon.toFixed(2)}`
+function isHmsSearchEnabled(): boolean {
+  return process.env.HMS_PLACE_SEARCH_ENABLED === 'true'
 }
 
-export async function GET(request: NextRequest) {
-  if (!ENABLED) {
-    return NextResponse.json({ name: null }, { status: 503 })
+function staticReverse(lat: number, lon: number): ReversePlaceResult | null {
+  const nearest = findNearestKnownRoadMapPlace({ lat, lon }, MAX_REVERSE_DISTANCE_M)
+  if (!nearest) return null
+  const location: SelectedLocation = {
+    id: `static:${nearest.place.id}`,
+    source: 'static',
+    sourceId: nearest.place.id,
+    name: nearest.place.name,
+    formattedAddress: nearest.place.formattedAddress ?? nearest.place.name,
+    lat: nearest.place.lat,
+    lon: nearest.place.lon,
+  }
+  return { location, distanceM: nearest.distanceM }
+}
+
+export async function POST(request: NextRequest) {
+  if (process.env.AUTH_MVP_ENABLED !== 'true' || getWeatherEnabledMode() === 'off') {
+    return noStoreJson({ location: null }, 404)
   }
 
-  // Auth + feature gate — same requirement as the travel weather endpoint
-  if (process.env.AUTH_MVP_ENABLED !== 'true') {
-    return NextResponse.json({ name: null }, { status: 404 })
-  }
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) {
-    return NextResponse.json({ name: null }, { status: 401 })
-  }
-  const allowed = await checkFeatureAccess(user.id, user.email, 'vedrid')
-  if (!allowed) {
-    return NextResponse.json({ name: null }, { status: 404 })
+  const access = await resolveWeatherBaseAccess(user)
+  if (access.mode === 'blocked') {
+    return noStoreJson({ location: null }, 401)
   }
 
-  const ip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    'unknown'
-
-  if (isRateLimited(ip)) {
-    return NextResponse.json({ name: null }, { status: 429 })
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    ?? request.headers.get('x-real-ip')?.trim()
+    ?? ''
+  if (ip && isRateLimited(ip)) {
+    return noStoreJson({ location: null, error: 'rate_limited' }, 429)
   }
 
-  const { searchParams } = request.nextUrl
-  const latStr = searchParams.get('lat')
-  const lonStr = searchParams.get('lon')
-
-  if (!latStr || !lonStr) {
-    return NextResponse.json({ name: null }, { status: 400 })
+  const body = await request.json().catch(() => null) as { lat?: unknown; lon?: unknown } | null
+  if (
+    !body ||
+    typeof body.lat !== 'number' ||
+    typeof body.lon !== 'number' ||
+    !validateIcelandicCoords(body.lat, body.lon)
+  ) {
+    return noStoreJson({ location: null }, 400)
   }
 
-  const lat = parseFloat(latStr)
-  const lon = parseFloat(lonStr)
+  // Reverse lookup is local-only. Exact device coordinates are never placed in
+  // a URL, shared cache or third-party geocoder request.
+  const hmsResult = isHmsSearchEnabled()
+    ? await reverseHmsPlace(
+        body.lat,
+        body.lon,
+        MAX_REVERSE_DISTANCE_M,
+      ).catch(() => {
+        console.error('[place-reverse] HMS reverse lookup unavailable')
+        return null
+      })
+    : null
+  const result = hmsResult ?? staticReverse(body.lat, body.lon)
 
-  if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-    return NextResponse.json({ name: null }, { status: 400 })
-  }
+  return noStoreJson(result ?? { location: null })
+}
 
-  const key = cacheKey(lat, lon)
-  if (cache.has(key)) {
-    return NextResponse.json({ name: cache.get(key) })
-  }
-
-  try {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&accept-language=is`
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'teskeid.is/1.0 weather-forecast-auditability (https://teskeid.is)',
-        'Accept': 'application/json',
-      },
-    })
-
-    if (!res.ok) {
-      cache.set(key, null)
-      return NextResponse.json({ name: null })
-    }
-
-    const data: {
-      name?: string
-      address?: {
-        village?: string
-        hamlet?: string
-        town?: string
-        city?: string
-        municipality?: string
-        county?: string
-        suburb?: string
-      }
-    } = await res.json()
-
-    const addr = data.address ?? {}
-    const name =
-      addr.village ??
-      addr.hamlet ??
-      addr.town ??
-      addr.suburb ??
-      addr.city ??
-      addr.municipality ??
-      addr.county ??
-      data.name ??
-      null
-
-    cache.set(key, name)
-
-    // Cache-Control: 24h for proxies/CDN, revalidation in background
-    return NextResponse.json({ name }, {
-      headers: { 'Cache-Control': 's-maxage=86400, stale-while-revalidate=3600' },
-    })
-  } catch {
-    cache.set(key, null)
-    return NextResponse.json({ name: null })
-  }
+export async function GET() {
+  return noStoreJson({ location: null, error: 'method_not_allowed' }, 405)
 }

@@ -85,13 +85,73 @@ describe('Vegagerdin road graph normalization', () => {
     expect(normalizeVegagerdinRoadGraphSegments({ roads, surfaces })).toEqual([])
   })
 
-  it('marks a road section mixed when its official surface records disagree within the section', () => {
-    const roads = collection([feature({ OBJECTID: 1, IDKAFLI: 10, VEGFLOKKUR: 1, STEFNA: 2 })])
+  it('splits a mixed road section using complete official station intervals', () => {
+    const roads = collection([feature({
+      OBJECTID: 1,
+      IDKAFLI: 10,
+      VEGFLOKKUR: 1,
+      STEFNA: 2,
+      KAFLILENGD: 1_000,
+      KAFLISTODUPPHAF: 0,
+      KAFLISTODENDIR: 1_000,
+    }, [[-21.9, 64.1], [-21.8, 64.2], [-21.7, 64.3]])])
     const surfaces = collection([
-      feature({ OBJECTID: 20, IDKAFLI: 10, GERD_SL: 1 }),
-      feature({ OBJECTID: 21, IDKAFLI: 10, GERD_SL: 0 }),
+      feature({ OBJECTID: 20, IDKAFLI: 10, GERD_SL: 1, UPPH_STOD: 0, ENDA_STOD: 400, SLITLAGLENGD: 400 }),
+      feature({ OBJECTID: 21, IDKAFLI: 10, GERD_SL: 0, UPPH_STOD: 400, ENDA_STOD: 1_000, SLITLAGLENGD: 600 }),
     ])
-    expect(normalizeVegagerdinRoadGraphSegments({ roads, surfaces })[0].surface).toBe('mixed')
+    const result = normalizeVegagerdinRoadGraphSegments({ roads, surfaces })
+    expect(result).toHaveLength(2)
+    expect(result.map(segment => ({ id: segment.id, surface: segment.surface, lengthM: segment.lengthM }))).toEqual([
+      { id: 'vegagerdin-road-1-0-surface-0', surface: 'paved', lengthM: 400 },
+      { id: 'vegagerdin-road-1-0-surface-1', surface: 'gravel', lengthM: 600 },
+    ])
+    expect(result[0].geometry[0]).toEqual({ lat: 64.1, lon: -21.9 })
+    expect(result[0].geometry.at(-1)).toEqual(result[1].geometry[0])
+    expect(result[1].geometry.at(-1)).toEqual({ lat: 64.3, lon: -21.7 })
+  })
+
+  it('fails closed to mixed when official station intervals have a gap', () => {
+    const roads = collection([feature({
+      OBJECTID: 1,
+      IDKAFLI: 10,
+      VEGFLOKKUR: 1,
+      STEFNA: 2,
+      KAFLILENGD: 1_000,
+      KAFLISTODUPPHAF: 0,
+      KAFLISTODENDIR: 1_000,
+    })])
+    const surfaces = collection([
+      feature({ OBJECTID: 20, IDKAFLI: 10, GERD_SL: 1, UPPH_STOD: 0, ENDA_STOD: 400, SLITLAGLENGD: 400 }),
+      feature({ OBJECTID: 21, IDKAFLI: 10, GERD_SL: 0, UPPH_STOD: 500, ENDA_STOD: 1_000, SLITLAGLENGD: 500 }),
+    ])
+    const result = normalizeVegagerdinRoadGraphSegments({ roads, surfaces })
+    expect(result).toHaveLength(1)
+    expect(result[0].surface).toBe('mixed')
+  })
+
+  it('maps surface intervals in geometry order when road stationing runs in reverse', () => {
+    const roads = collection([feature({
+      OBJECTID: 1,
+      IDKAFLI: 10,
+      VEGFLOKKUR: 1,
+      STEFNA: 2,
+      KAFLILENGD: 1_000,
+      KAFLISTODUPPHAF: 1_000,
+      KAFLISTODENDIR: 0,
+    }, [[-21.9, 64.1], [-21.8, 64.2], [-21.7, 64.3]])])
+    const surfaces = collection([
+      feature({ OBJECTID: 20, IDKAFLI: 10, GERD_SL: 1, UPPH_STOD: 0, ENDA_STOD: 600, SLITLAGLENGD: 600 }),
+      feature({ OBJECTID: 21, IDKAFLI: 10, GERD_SL: 0, UPPH_STOD: 600, ENDA_STOD: 1_000, SLITLAGLENGD: 400 }),
+    ])
+
+    const result = normalizeVegagerdinRoadGraphSegments({ roads, surfaces })
+    expect(result.map(segment => ({ surface: segment.surface, lengthM: segment.lengthM }))).toEqual([
+      { surface: 'gravel', lengthM: 400 },
+      { surface: 'paved', lengthM: 600 },
+    ])
+    expect(result[0].geometry[0]).toEqual({ lat: 64.1, lon: -21.9 })
+    expect(result[0].geometry.at(-1)).toEqual(result[1].geometry[0])
+    expect(result[1].geometry.at(-1)).toEqual({ lat: 64.3, lon: -21.7 })
   })
 })
 
@@ -124,6 +184,12 @@ describe('Vegagerdin road graph fetch boundary', () => {
       expect(url.searchParams.get('outSR')).toBe('4326')
       expect(url.searchParams.get('f')).toBe('geojson')
     }
+    const roadUrl = new URL(calls.find(call => call.includes('/vegakerfi/'))!)
+    expect(roadUrl.searchParams.get('outFields')).toContain('KAFLISTODUPPHAF')
+    expect(roadUrl.searchParams.get('outFields')).toContain('KAFLISTODENDIR')
+    const surfaceUrl = new URL(calls.find(call => call.includes('/slitlag/'))!)
+    expect(surfaceUrl.searchParams.get('outFields')).toContain('UPPH_STOD')
+    expect(surfaceUrl.searchParams.get('outFields')).toContain('ENDA_STOD')
   })
 
   it('fails closed on an upstream HTTP error', async () => {

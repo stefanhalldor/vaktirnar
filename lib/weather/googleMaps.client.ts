@@ -19,15 +19,6 @@ function ensureInitialized(): void {
 }
 
 /**
- * Load the Places library using importLibrary (v2-style).
- * Returns the PlacesLibrary — call on demand, not at module load time.
- */
-export async function loadPlacesLibrary(): Promise<google.maps.PlacesLibrary> {
-  ensureInitialized()
-  return importLibrary('places')
-}
-
-/**
  * Load the Maps library.
  * Returns the MapsLibrary (Map, Polyline, etc.).
  */

@@ -75,6 +75,8 @@ export function validateRoadGraphSnapshot(input: {
       || largestComponentShare >= previousLargestComponentShare * MIN_RELATIVE_LARGEST_COMPONENT_SHARE,
     allGoldenRoutesPass: input.goldenRouteStatuses.length === ICELAND_GOLDEN_ROUTES.length
       && input.goldenRouteStatuses.every(status => status === 'ok'),
+    officialSurfaceCoverage: diagnostics.surfaceEdgeCounts.mixed === 0
+      && diagnostics.surfaceEdgeCounts.unknown === 0,
     segmentCountStable: withinRelativeBoundary(diagnostics.segmentCount, previous?.segmentCount),
     nodeCountStable: withinRelativeBoundary(diagnostics.nodeCount, previous?.nodeCount),
     edgeCountStable: withinRelativeBoundary(diagnostics.edgeCount, previous?.edgeCount),

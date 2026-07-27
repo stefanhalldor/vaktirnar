@@ -308,6 +308,18 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
   calibration hafa verið tengd.
 - Ekkert graph er vistað og Google er óbreytt primary provider.
 
+**Framhald (v0.6.1 — nákvæmt slitlag með opinberum stöðvabilum):**
+
+- Slitlagsfærslur eru áfram tengdar canonical vegakerfi með `IDKAFLI`, en
+  `UPPH_STOD`/`ENDA_STOD` eru nú notuð til að skipta veglínunni nákvæmlega þar
+  sem `GERD_SL` skiptir milli bundins slitlags og malar.
+- Aðliggjandi bil með sömu slitlagsgerð eru sameinuð svo graph-stærð vaxi aðeins
+  við raunveruleg slitlagsskil.
+- Linear-reference skipting er fail-closed: eyður, skörun, röng lengd, óþekkt
+  domain-gildi eða geometry-vandamál halda kaflanum `mixed/unknown`.
+- Snapshot-validation leyfir ekki promotion ef unresolved `mixed/unknown`
+  surface-edges standa eftir. Virkt last-known-good snapshot heldur þá gildi.
+
 **Framhald (v0.7 — almenn localhost leiðastofa):**
 
 - 20 para gullfylki nær yfir helstu landsleiðir og lifandi read-only úttekt
@@ -366,6 +378,25 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
   við hvert preview-val.
 - Þetta er áfram flaggað prófunarkerfi, en graph-líftíminn byggir nú á versioned
   last-known-good snapshoti fremur en serverless process-cache eða live fetchi.
+
+**Framhald (v0.9.1 — gagnavissa í leiðavali):**
+
+- Sjálfgefin röðun greinir nú ekki aðeins hvort slitlag sé óstaðfest heldur
+  ber saman fjölda óstaðfestra kílómetra áður en malarlengd ræður röðinni.
+- Google-leiðir fara aftast í sjálfgefnu röðuninni þar sem spjöld þeirra hafa
+  ekki sambærilega Teskeiðar-greiningu eða confidence-merki. Sérstök röðun eftir
+  aksturstíma, vegalengd eða veðri heldur áfram að fylgja völdum mælikvarða.
+- Virkar Vegagerðin-stöðvar með nothæfum vindgögnum eru varpaðar á hverja
+  candidate-línu. Ef engin slík stöð finnst eða einhver punktur leiðarinnar er
+  meira en 50 km eftir leiðinni frá næstu stöð fær leiðin merkið `Takmörkuð
+  veðurvissa`.
+- Merkið er confidence-fullyrðing, ekki fullyrðing um slæmt veður eða
+  eftirvagnahættu. Skýringin segir af hverju gögnin eru óvissari.
+- Leið með takmarkaða veðurvissu fær ekki `Besta veðrið` merki og fer aftar í
+  sjálfgefnu og veðurröðun. Leið án stöðvagagna útilokar ekki veðurröðun ef
+  aðrar leiðir hafa nothæf gögn.
+- Skýringar á route-caution og veðurvissu opnast í fullbreiðri focus-skúffu með
+  eigin scrolli, backdrop, Escape/lokun og focus-restore á triggerinn.
 
 ### R7 - Eigið Kortalag Prototype
 

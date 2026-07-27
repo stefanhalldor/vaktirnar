@@ -72,6 +72,7 @@ tilvísanir og verkefnasaga rofni ekki.
 | 40  | **#90 Veður: eigið Íslandsleiðarkerfi og vegkaflagrunnur** | **Stór architecture/discovery vinna.** Meta hvort Teskeið eigi að byggja eigin einfalt leiðarkerfi fyrir Ísland, byggt á vegkafla-grunni/cache, í stað þess að rembast endalaust við Google Routes fyrir langar landsleiðir. |
 | 41  | **#91 Veður: basemap refresh og kortapússun**               | **Afmarkað 2–3 daga UI sprint fyrir Road OS.** Bera saman tilbúna MapLibre-basemap stíla, velja einn og pússa route, weather overlay og markera án eigin tile server eða sérhannaðs kortastíls. |
 | 42  | **#92 Veður: notendaskilgreindir met.no spápunktar**         | **Product/data discovery, sérstaklega fyrir bændur.** Meta hvort notandi geti sett pinna eða hnit á sinn bæ/tún/vinnusvæði, nefnt punktinn og fengið þar eigin met.no spá án þess að rugla honum saman við mælistöð. |
+| 43  | **#93 Veður: HMS staðaleit og autocomplete**                 | **Innleiðing tilbúin til localhost- og rollout-staðfestingar.** HMS-first staðaleit, provider-hlutlaust staðacontract og „Nota núverandi staðsetningu“ eru útfærð; migration/import bíða handvirkrar keyrslu eftir staðfestingu á endurnýtingarskilmálum HMS. |
 
 ## Vinnupakkar
 
@@ -101,7 +102,7 @@ OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
 hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
 fullkomnara.
 
-**Pakki F — Veðrið / Ferðalagið:** #85, #81, #82, #83, #67, #70, #71, #72, #73, #74, #75, #79, #80, #88, #89, #90, #91 og áframhaldandi `todo-067` handoff.
+**Pakki F — Veðrið / Ferðalagið:** #85, #81, #82, #83, #67, #70, #71, #72, #73, #74, #75, #79, #80, #88, #89, #90, #91, #92, #93 og áframhaldandi `todo-067` handoff.
 Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
 traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
 brottfarar- eða heimferðartíma kerfið mælir með.
@@ -3090,7 +3091,7 @@ bíða eftir fullu vegakafla-módeli.
 #90
 ## Veður: eigið Íslandsleiðarkerfi og vegkaflagrunnur
 
-**Staða:** Bíður
+**Staða:** Í vinnslu – kóði og sjálfvirk próf tilbúin; bíður localhost-staðfestingar, HMS-skilmála og handvirks rollout
 
 **Stofnað:** 2026-07-18
 
@@ -3248,6 +3249,53 @@ ferðaveður, vegakafla, stöðvar, púlsgögn og yfirlit yfir Ísland.
    - route matching við existing Google polyline,
    - eða eigin graph prototype á bakvið flag.
 
+### Frávik: löng leið sýnd án malar- eða fjallavegamerkingar
+
+**Staða:** Bíður
+
+**Skráð:** 2026-07-27
+
+**Skjámynd:** Stebbi afhenti skjámynd í Codex-samtalinu 2026-07-27. Inline
+myndin barst ekki sem aðgengileg attachment-skrá og bíður því vistunar í
+`feedback/images/` þegar upprunalega PNG-skráin er tiltæk.
+
+**Vandamál:** Á skjámyndinni er 333,7 km Teskeiðarleið merkt `Leið á bundnu
+slitlagi` og spjaldið sýnir `333,7 km bundið · 0 km möl · 0 km óvíst`. Engin
+`Fjallavegur`-merking birtist heldur. Stebbi á erfitt með að trúa að þessi langa
+leið, sem liggur sýnilega um hálendi/inn til landsins á kortinu, sé hvorki með
+möl né fjallveg. Núverandi framsetning lítur því út fyrir að fullyrða meiri vissu
+um vegflokk og slitlag en gögnin kunna að styðja.
+
+**Ósk:** Rannsaka nákvæmlega hvaða canonical vegkaflar og Vegagerðar-gögn
+liggja undir þessari niðurstöðu. Leiðrétta slitlags- og fjallavegagreiningu ef
+matching eða samlagning er röng. Ef gögn duga ekki til staðfestingar á bundnu
+slitlagi skal sýna heiðarlegt óstaðfest slitlag í stað `0 km óvíst`.
+
+**Við rýni og framkvæmd:**
+
+- Endurgera sömu leið og varðveita origin, destination, route geometry og
+  segment IDs sem regression fixture án persónugreinanlegra staðfanga.
+- Telja upp hvaða vegkaflar fá `paved`, `gravel`, `unknown` og mountain/F-road
+  flokkun og frá hvaða source/layer hver niðurstaða kemur.
+- Staðfesta hvort leiðin snerti veg 35 eða annan hálendis-/fjallveg og hvort
+  canonical road number tapist við snapping, route-envelope hydration eða
+  sameiningu vegkafla.
+- Athuga sérstaklega hvort vöntun á slitlagsgögnum sé ranglega túlkuð sem
+  bundið slitlag; missing/ambiguous gögn eiga að verða `unknown`, ekki `paved`.
+- Nota opinbera vegflokkun/slitlagsgögn þegar þau eru tiltæk. `F` í vegmerkingu
+  má styðja `Fjallavegur` label en ekki vera eina leiðin til að finna fjallveg ef
+  opinber metadata segir annað.
+- Bæta við regression-prófi sem sannar að leiðin geti ekki aftur endað sem
+  `0 km möl · 0 km óvíst` nema hver einasti samsvaraður kafli sé raunverulega
+  staðfestur bundinn.
+- Staðfesta að sjálfgefin röðun taki leiðrétta möl, óstaðfest slitlag,
+  fjallaveg og varasama kafla með í reikninginn.
+
+**Vænt niðurstaða:** Spjaldið segir sannleikann um staðfest slitlag og vegflokk:
+raunverulegir malarkaflar og fjallvegir eru merktir, óstaðfest gögn eru sýnd sem
+óstaðfest og leið fær ekki heitið `Leið á bundnu slitlagi` nema gögnin styðji það
+fyrir alla leiðina.
+
 **Localhost checks for Stebbi eftir framtíðarbreytingu:**
 
 1. Opna `/vedrid`.
@@ -3273,7 +3321,8 @@ ferðaveður, vegakafla, stöðvar, púlsgögn og yfirlit yfir Ísland.
 #91
 ## Veður: basemap refresh og kortapússun
 
-**Staða:** Bíður
+**Staða:** Í vinnslu — kóði og sjálfvirk próf tilbúin; bíður HMS-skilmála,
+production-safe shadow-innlestrar og localhost-staðfestingar.
 
 **Stofnað:** 2026-07-24
 
@@ -3554,3 +3603,164 @@ landslagi og réttri hæð, ekki bara nákvæmni hnitanna.
     overflowi eða röngum scroll-state.
 14. Staðfesta í Network/console að pinnaflutningur kalli ekki stjórnlaust á
     upstream API og að engin nákvæm sérhnit leki í analytics.
+
+---
+
+#93
+## Veður: HMS staðaleit og autocomplete
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-27
+
+**Samhengi frá Stebba:** Bæta á við staðaleit í Veðrið á Teskeið.is þar sem
+notandi getur skrifað heimilisfang, bæjarnafn, sumarhús, fyrirtæki eða annan
+skilgreindan áfangastað og valið niðurstöðu úr dropdown. Þetta á að vera
+staðaleit, ekki aðeins hefðbundin heimilisfangaleit.
+
+**Vandamál:** Núverandi staðaval nær ekki með áreiðanlegum hætti yfir öll
+íslensk staðföng, sérheiti, sveitabæi og frístundahús. Veðrið þarf sameiginlegt
+location object með birtingarheiti, póstnúmeri, sveitarfélagi og WGS84-hnitum
+sem hægt er að nota beint fyrir veðurgögn og kort.
+
+**Ósk:** Byrja á tæknilegri greiningu og framkvæmdaráætlun. Skoða
+Staðfangaskrá HMS sem aðalheimild og skila:
+
+1. greiningu á því hvar staðaleitin tengist núverandi Veðrið-kóða;
+2. tillögu að gagnalíkani;
+3. tillögu að reglulegu import-ferli frá HMS;
+4. tillögu að afmörkuðu API endpointi;
+5. tillögu að keyboard- og mobile-aðgengilegum autocomplete component;
+6. áhættum og atriðum sem þarf að staðfesta áður en framkvæmd hefst.
+
+**Fyrirhuguð gögn í leitarniðurstöðu:**
+
+- birtingarheiti;
+- heimilisfang eða staðarheiti;
+- póstnúmer og sveitarfélag;
+- breiddar- og lengdargráða í WGS84;
+- stöðugt source ID ef HMS veitir það;
+- skýr upprunamerking, t.d. `hms`.
+
+**Discovery áður en framkvæmd er plönuð:**
+
+- Staðfesta hvaða opinbera HMS niðurhal eða þjónusta hentar best: heildarskrá,
+  WFS eða annað stöðugt útgáfuform.
+- Staðfesta gildandi leyfi, attribution, uppfærslutíðni og hvort nota megi
+  afleiddan eigin leitargrunn.
+- Kortleggja nákvæm schema og merkingu á staðföngum, sérheitum, bæjum,
+  frístundahúsum, fyrirtækjum, sveitarfélögum og hnitum.
+- Staðfesta stöðug auðkenni, duplicate-reglur, mörg heiti á sömu hnitum og
+  möguleg mörg staðföng fyrir sama stað.
+- Meta reglulegt backend import sem sækir útgáfu, normaliserar gögn, sameinar
+  sannar tvítekningar og uppfærir eigin grunn idempotent án þess að eyða góðu
+  síðasta snapshoti ef upstream gögn eru óheil.
+- Bera saman Supabase/Postgres `pg_trgm`, full-text search og einfaldari
+  prefix-röðun. Byrjunarsamsvörun á heiti/götu á að vega meira en almenn fuzzy
+  samsvörun.
+- Skilgreina íslenska leitar-normaliseringu sem styður bæði broddstafi og
+  leit eins og `thingholtsstraeti`, án þess að rugla saman ólíkum heitum.
+- Kortleggja tengsl við #88 fuzzy staðarleit og kortastaðfestingu og #92
+  notendaskilgreinda met.no spápunkta svo þrjú samhliða staðakerfi verði ekki
+  byggð.
+- Ekki nota gamla `apis.is/address` sem langtíma aðalgrunn.
+
+**UX-viðmið:**
+
+- Leitarreitur, t.d. `Leita að heimilisfangi eða stað`, byrjar leit eftir 2-3
+  stöfum með um 200-300 ms debounce.
+- Sýna að hámarki um 8-10 niðurstöður með heiti á fyrstu línu og
+  póstnúmeri/sveitarfélagi á annarri.
+- Forgangsröðun: nákvæm byrjun á staðar-/götuheiti, byrjun á display name,
+  póstnúmer/sveitarfélag og síðan fuzzy samsvörun.
+- Virka fyrir fullt heimilisfang, götu og húsnúmer, póstnúmer, bæjarnafn,
+  sumarhús, sveitabæ og sérheiti.
+- Fylgja combobox/listbox ARIA-mynstri, styðja örvatakka, Enter og Escape og
+  halda minnst 40 px touch targets.
+- Fylgja `Design.md`: enginn mobile zoom, lárétt overflow eða röng scroll-staða
+  þegar keyboard opnast/lokast við 360, 390 og 460 px.
+- Allur notendatexti fer í `messages/is.json` og `messages/en.json`.
+
+**Öryggi, privacy og rekstur:**
+
+- Ekki keyra HMS import úr browser eða sækja alla skrána við hverja leit.
+- Search endpoint skal hafa input validation, lágmarks query-lengd, result cap,
+  rate limiting og örugga röðun; ekki taka hrátt SQL frá client.
+- Opinber staðföng mega ekki ruglast saman við vistaða einkastaði notanda.
+- Ekki logga nákvæmar leitarskipanir, heimilisföng eða valin hnit í analytics
+  án sérstakrar privacy-ákvörðunar.
+- Ef Supabase tafla verður notuð þarf afmarkaða grants/RLS/API-hönnun.
+  Engin migration, extension, import eða production breyting má fara fram án
+  sérstaks plans og framkvæmdarleyfis.
+- Import þarf last-known-good, mælingar á fjölda raða/duplicates og rollback ef
+  upstream schema eða gagnamagn breytist óvænt.
+
+**Framkvæmd 2026-07-27:**
+
+- Sameiginlegt `SelectedLocation` contract heldur HMS `HEINUM`, GPS-uppruna og
+  Google routing-auðkenni aðskildum. HMS-auðkenni getur því aldrei óvart orðið
+  Google `placeId`.
+- `PlaceSearch` notar nú aðeins same-origin `POST` leit. Google Places er ekki
+  lengur keyrt í browser; afmarkaður server-fallback er tímabundinn og sjálfgefið
+  óvirkur með `PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED`.
+- „Nota núverandi staðsetningu“ biður aðeins um eina staðsetningu eftir skýran
+  smell, heldur nákvæmum GPS-hnitum sem valda punktinum og notar HMS-nearest
+  eingöngu sem heiðarlega „Nálægt …“ birtingarskýringu. GPS-val vistast ekki
+  sjálfkrafa sem nýlegur staður.
+- `sql/94_hms_place_directory.sql` skilgreinir service-role-only, versionaðan
+  HMS leitargrunn með exact/prefix og indexaðri multi-token leit, reverse lookup,
+  atomic promotion og rollback í eldri last-known-good útgáfu.
+- Refresh-kóðinn sannreynir schema, gagnamagn, tvítekningar, hnit,
+  sveitarfélagsþekju og SHA-256 áður en ný útgáfa verður virk. Cron og admin
+  refresh eru fail-closed á `HMS_PLACE_DIRECTORY_REFRESH_ENABLED`.
+- Sjálfstætt `HMS_PLACE_SEARCH_ENABLED` flagg heldur HMS leit og reverse lookup
+  óvirku á production-vefnum meðan gögnin eru flutt í einangraðar production
+  töflur og prófuð frá localhost. Google fallback getur haldið núverandi leit
+  gangandi á meðan.
+- Import notar 2.000-raða, afmarkaða PostgREST hluta, um 69 beiðnir fyrir
+  núverandi snapshot í stað um 275, og skráir heildartíma og beiðnafjölda.
+- Eldri TravelAuditMap reverse-label helper notar nú sama POST-only HMS/static
+  privacy-contract og sendir hnit ekki lengur í URL.
+- „Nota núverandi staðsetningu“ er mobile-only undir 640 px.
+- Raunskrá HMS 2026-07-27 var lesin read-only til schema-audits: 139.297 línur,
+  137.117 canonical `HEINUM`, gild skilgreind field-mörk og enginn óþekktur
+  `SVFNR` gagnvart 2026 sveitarfélagaskrá.
+- Migration var aðeins skrifuð. Hún var ekki keyrð; enginn HMS-importur,
+  production-breyting, deploy, commit eða push var framkvæmdur.
+- Staðfangaskrá styður opinber staðföng og `SERHEITI`, en er ekki tæmandi
+  fyrirtækjaskrá. UI og contract eru provider-hlutlaus svo bæta megi öðrum
+  staðagjafa síðar án þess að endurbyggja leiða- eða veðurflæðið.
+
+**Manual pre-check áður en framkvæmd hefst:**
+
+1. Kortleggja núverandi staðaleit, place types og valið location object í
+   Veðrinu, þar með talið public/auth hegðun.
+2. Prófa Reykjavíkurgötu, dreifbýlisbæ, sumarhús/sérheiti og aðeins póstnúmer og
+   skrá hvar núverandi leit bregst.
+3. Skoða #88 og #92 og ákveða eitt sameiginlegt `SelectedLocation` contract.
+4. Sækja aðeins metadata eða lítið sýnishorn frá HMS til að staðfesta schema,
+   leyfi og stöðug auðkenni áður en stór gagnasækja er heimiluð.
+5. Meta gagnamagn, áætlaða index-stærð, refresh-tíma og query-performance áður
+   en Supabase schema er lagt til.
+6. Skila tæknilegri greiningu og afmörkuðu áfangaplani til Stebba; ekki
+   framkvæma gagnagrunns- eða UI-breytingar í discovery-áfanganum.
+
+**Localhost checks for Stebbi eftir framtíðarbreytingu:**
+
+1. Opna Veðrið á localhost sem public og innskráður notandi.
+2. Leita að fullu heimilisfangi, aðeins götu, götu+húsnúmeri, póstnúmeri,
+   bæjarnafni, sumarhúsi/sérheiti og sveitarfélagi.
+3. Prófa bæði íslenska stafi og ASCII-leit, t.d. `þingholtsstræti` og
+   `thingholtsstraeti`.
+4. Vænt: að hámarki 8-10 vel raðaðar niðurstöður birtast án tvítekninga og
+   valin niðurstaða skilar réttu birtingarheiti, sveitarfélagi og WGS84-hnitum.
+5. Velja niðurstöðu og staðfesta að kort og veðurgögn noti sömu hnit og sama
+   location object.
+6. Prófa örvatakka, Enter, Escape, Tab og screen-reader heiti á combobox/listbox.
+7. Prófa 360, 390 og 460 px með keyboard opið og lokað.
+8. Vænt: ekkert mobile zoom, overflow, overlap eða tap á völdum stað.
+9. Prófa tóma niðurstöðu, hæga leit, API-villu og rate-limit state.
+10. Vænt: rólegt loading/error feedback birtist án layout shift og eldri góð
+    niðurstaða er ekki valin óvart.
+11. Staðfesta að engin nákvæm leit, heimilisfang eða hnit leki í console eða
+    analytics og að engin RLS/auth-regression verði.

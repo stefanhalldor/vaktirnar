@@ -23,6 +23,10 @@ const { mockMatchProviderPoints } = vi.hoisted(() => ({
 const { mockGetTeskeidRouteCandidateById } = vi.hoisted(() => ({
   mockGetTeskeidRouteCandidateById: vi.fn(),
 }))
+const { mockIsTeskeidRouteCandidateEnabled } = vi.hoisted(() => ({
+  mockIsTeskeidRouteCandidateEnabled: vi.fn(),
+}))
+const { mockRecordRouteMemory } = vi.hoisted(() => ({ mockRecordRouteMemory: vi.fn() }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -81,15 +85,23 @@ vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
   TESKEID_ROUTE_CANDIDATE_ID: 'teskeid-road-graph-v1',
   TESKEID_ROUTE_CANDIDATE_ID_PREFIX: 'teskeid-road-graph-v1-alt-',
   getTeskeidRouteCandidateById: mockGetTeskeidRouteCandidateById,
+  isTeskeidRouteCandidateEnabled: mockIsTeskeidRouteCandidateEnabled,
+}))
+
+vi.mock('@/lib/iceland-routes/routeMemory.server', () => ({
+  recordRouteMemory: mockRecordRouteMemory,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route'
+import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // Valid Iceland coordinates for Garðabær and Þorlákshöfn
 const GARDABAER = { name: 'Garðabær', lat: 64.09, lon: -21.93 }
 const THORLAKSHOFN = { name: 'Þorlákshöfn', lat: 63.849, lon: -21.365 }
+const GARDABAER_POINT = { lat: GARDABAER.lat, lon: GARDABAER.lon }
+const THORLAKSHOFN_POINT = { lat: THORLAKSHOFN.lat, lon: THORLAKSHOFN.lon }
 
 function makeRequest(body: unknown) {
   return new Request('http://localhost/api/teskeid/weather/travel/route', {
@@ -143,10 +155,13 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
   process.env.WEATHER_ENABLED = 'true'
+  process.env.AUTH_CODE_SECRET = 'test-route-envelope-secret-at-least-32-bytes-long'
   delete process.env.WEATHER_PUBLIC_ENABLED
   delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
   delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
   mockGetTeskeidRouteCandidateById.mockResolvedValue(null)
+  mockIsTeskeidRouteCandidateEnabled.mockReturnValue(true)
+  mockRecordRouteMemory.mockResolvedValue(undefined)
 
   mockSampleRouteWeatherPoints.mockReturnValue({
     weatherPoints: [{
@@ -244,6 +259,192 @@ describe('POST /api/teskeid/weather/travel/route — auth / public access', () =
     const body = await res.json()
     expect(body.vedurstofanLayer).toBeDefined()
     expect(body.vedurstofanLayer.status).toBe('available')
+  })
+})
+
+describe('POST /api/teskeid/weather/travel/route — signed first-ready route', () => {
+  it('uses a verified Google route without a second provider lookup', async () => {
+    authedUser()
+    const coordinateBearingId = 'google-56000-64.0900,-21.9300-63.8490,-21.3650'
+    const route = {
+      ...makeRouteOption(coordinateBearingId, ['DEFAULT_ROUTE']),
+      cautions: [{
+        id: 'wind-sensitive',
+        severity: 'caution' as const,
+        labelKey: 'teskeid.routes.cautions.windSensitive',
+        appliesTo: ['all' as const],
+      }],
+    }
+    const routeEnvelope = signRouteOptionEnvelope({
+      origin: GARDABAER_POINT,
+      destination: THORLAKSHOFN_POINT,
+      route,
+    })
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      routeEnvelope,
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockSampleRouteWeatherPoints.mock.calls[0]?.[0]).toEqual(route.points)
+    expect(mockRecordRouteMemory).toHaveBeenCalledWith(expect.objectContaining({
+      routeVariantKey: 'google:0',
+      routeVariantLabel: null,
+      routeCautionIds: ['wind-sensitive'],
+    }))
+    expect(JSON.stringify(mockRecordRouteMemory.mock.calls)).not.toContain(coordinateBearingId)
+    expect(JSON.stringify(mockRecordRouteMemory.mock.calls)).not.toMatch(/64\.0900|-21\.9300/)
+  })
+
+  it('uses an entitled Teskeið envelope without recomputing either provider', async () => {
+    authedUser()
+    const route = {
+      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
+      provider: 'teskeid' as const,
+      experimental: {
+        derivedDuration: true as const,
+        surface: { pavedM: 56_000, gravelM: 0, mixedM: 0, unknownM: 0 },
+      },
+    }
+    const routeEnvelope = signRouteOptionEnvelope({
+      origin: GARDABAER_POINT,
+      destination: THORLAKSHOFN_POINT,
+      route,
+    })
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      routeEnvelope,
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith('u1', 'test@example.com', 'teskeid-routing-v1')
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+  })
+
+  it('keeps the Teskeið entitlement gate authoritative for signed envelopes', async () => {
+    authedUser()
+    mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, key: string) => (
+      key !== 'teskeid-routing-v1'
+    ))
+    const route = {
+      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
+      provider: 'teskeid' as const,
+    }
+    const routeEnvelope = signRouteOptionEnvelope({
+      origin: GARDABAER_POINT,
+      destination: THORLAKSHOFN_POINT,
+      route,
+    })
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      routeEnvelope,
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+  })
+
+  it('invalidates a signed Teskeið envelope immediately when the global kill switch is off', async () => {
+    authedUser()
+    const route = {
+      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
+      provider: 'teskeid' as const,
+    }
+    const routeEnvelope = signRouteOptionEnvelope({
+      origin: GARDABAER_POINT,
+      destination: THORLAKSHOFN_POINT,
+      route,
+    })
+    mockIsTeskeidRouteCandidateEnabled.mockReturnValue(false)
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      routeEnvelope,
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockFetchForecast).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['tampered route', (envelope: ReturnType<typeof signRouteOptionEnvelope>) => ({
+      ...envelope,
+      route: { ...envelope.route, durationS: envelope.route.durationS + 1 },
+    })],
+    ['wrong endpoint pair', (envelope: ReturnType<typeof signRouteOptionEnvelope>) => envelope],
+    ['expired envelope', (_envelope: ReturnType<typeof signRouteOptionEnvelope>) => signRouteOptionEnvelope({
+      origin: GARDABAER_POINT,
+      destination: THORLAKSHOFN_POINT,
+      route: makeRouteOption('google-expired', ['DEFAULT_ROUTE']),
+    }, { now: new Date(Date.now() - 20 * 60_000), ttlMs: 60_000 })],
+  ])('rejects %s before provider and forecast work', async (caseName, mutateEnvelope) => {
+    authedUser()
+    const routeEnvelope = mutateEnvelope(signRouteOptionEnvelope({
+      origin: GARDABAER_POINT,
+      destination: THORLAKSHOFN_POINT,
+      route: makeRouteOption('google-invalid', ['DEFAULT_ROUTE']),
+    }))
+    const requestOrigin = caseName === 'wrong endpoint pair'
+      ? { ...GARDABAER, lat: GARDABAER.lat + 0.001 }
+      : GARDABAER
+
+    const res = await POST(makeRequest({
+      origin: requestOrigin,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      routeEnvelope,
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockFetchForecast).not.toHaveBeenCalled()
+  })
+
+  it('rejects a selectedRouteId that conflicts with the signed route', async () => {
+    authedUser()
+    const routeEnvelope = signRouteOptionEnvelope({
+      origin: GARDABAER_POINT,
+      destination: THORLAKSHOFN_POINT,
+      route: makeRouteOption('google-envelope-route', ['DEFAULT_ROUTE']),
+    })
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      selectedRouteId: 'google-conflicting-route',
+      routeEnvelope,
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockFetchForecast).not.toHaveBeenCalled()
   })
 })
 

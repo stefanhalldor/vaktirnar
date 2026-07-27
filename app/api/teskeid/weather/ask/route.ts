@@ -6,10 +6,40 @@ import { fetchForecast } from '@/lib/weather/metno.server'
 import { checkGrillWeather, checkGolfWindow, checkRouteWeather } from '@/lib/weather/tools'
 import { getAiAnswer } from '@/lib/weather/ai.server'
 import { detectIntent, extractPlace, extractTrailerKind, extractRouteOrigin, extractRouteDestination, parseTimeWindow } from '@/lib/weather/question'
-import { validateIcelandicCoords } from '@/lib/weather/coords'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import type { WeatherAnswerEnvelope, HourPoint } from '@/lib/weather/types'
 import type { PlaceCandidate, RouteGeometry } from '@/lib/weather/provider.types'
+import { searchHmsPlaces } from '@/lib/places/hmsDirectory.server'
+import { isConfirmedLocationInput, toWeatherPlaceCandidate } from '@/lib/places/providerCandidate'
+
+async function resolveRoutePlaceCandidate(
+  query: string,
+  provider: NonNullable<ReturnType<typeof getWeatherMapProvider>>,
+): Promise<PlaceCandidate | null> {
+  const curated = resolvePlace(query)
+  if (curated) {
+    return {
+      placeId: 'confirmed',
+      displayName: curated.name,
+      formattedAddress: curated.name,
+      lat: curated.lat,
+      lon: curated.lon,
+    }
+  }
+
+  const [hms] = await searchHmsPlaces(query, 1).catch(() => [])
+  if (hms) return toWeatherPlaceCandidate(hms)
+
+  // Temporary, server-only escape hatch while HMS is being bootstrapped.
+  // Once local search is active this stays off and the query never reaches Google.
+  if (process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED !== 'true') return null
+  try {
+    const [google] = await provider.geocodePlace(`${query} Ísland`)
+    return google ?? null
+  } catch {
+    return null
+  }
+}
 
 export async function POST(request: Request) {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
@@ -53,40 +83,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'unknown_route' }, { status: 422 })
     }
 
-    // Resolve origin — curated list first, then geocode
-    let originCandidate: PlaceCandidate
-    const originResolved = resolvePlace(originStr)
-    if (originResolved) {
-      originCandidate = { placeId: 'curated', displayName: originResolved.name, formattedAddress: originResolved.name, lat: originResolved.lat, lon: originResolved.lon }
-    } else {
-      let candidates: PlaceCandidate[]
-      try {
-        candidates = await provider.geocodePlace(`${originStr} Ísland`)
-      } catch {
-        return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
-      }
-      if (!candidates.length) {
-        return NextResponse.json({ error: 'unknown_place' }, { status: 422 })
-      }
-      originCandidate = candidates[0]
-    }
-
-    // Resolve destination — curated list first, then geocode
-    let destCandidate: PlaceCandidate
-    const destResolved = resolvePlace(destStr)
-    if (destResolved) {
-      destCandidate = { placeId: 'curated', displayName: destResolved.name, formattedAddress: destResolved.name, lat: destResolved.lat, lon: destResolved.lon }
-    } else {
-      let candidates: PlaceCandidate[]
-      try {
-        candidates = await provider.geocodePlace(`${destStr} Ísland`)
-      } catch {
-        return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
-      }
-      if (!candidates.length) {
-        return NextResponse.json({ error: 'unknown_place' }, { status: 422 })
-      }
-      destCandidate = candidates[0]
+    const [originCandidate, destCandidate] = await Promise.all([
+      resolveRoutePlaceCandidate(originStr, provider),
+      resolveRoutePlaceCandidate(destStr, provider),
+    ])
+    if (!originCandidate || !destCandidate) {
+      return NextResponse.json({ error: 'unknown_place' }, { status: 422 })
     }
 
     // Get route geometry
@@ -162,26 +164,24 @@ export async function POST(request: Request) {
 
   if (raw && typeof raw === 'object') {
     // Validate server-side — never trust client coordinates blindly
-    if (
-      typeof raw.lat !== 'number' ||
-      typeof raw.lon !== 'number' ||
-      typeof raw.name !== 'string' ||
-      !raw.name.trim() ||
-      !validateIcelandicCoords(raw.lat, raw.lon)
-    ) {
+    if (!isConfirmedLocationInput(raw)) {
       return NextResponse.json({ error: 'invalid_coords' }, { status: 422 })
     }
-    place = { name: String(raw.name).trim(), lat: raw.lat, lon: raw.lon }
+    place = { name: raw.name.trim(), lat: raw.lat, lon: raw.lon }
   } else {
     const placeName = extractPlace(question)
     if (!placeName) {
       return NextResponse.json({ error: 'unknown_place' }, { status: 422 })
     }
-    const resolved = resolvePlace(placeName)
+    const curated = resolvePlace(placeName)
+    const [hms] = curated
+      ? []
+      : await searchHmsPlaces(placeName, 1).catch(() => [])
+    const resolved = curated ?? hms
     if (!resolved) {
       return NextResponse.json({ error: 'unknown_place' }, { status: 422 })
     }
-    place = resolved
+    place = { name: resolved.name, lat: resolved.lat, lon: resolved.lon }
   }
 
   // ── Forecast + deterministic tool ─────────────────────────────────────────

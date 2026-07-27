@@ -49,6 +49,7 @@ const EXACT_PUBLIC_PATHS = new Set([
   '/api/cron/warm-vegagerdin',
   '/api/cron/warm-metno-points',
   '/api/cron/refresh-road-graph',
+  '/api/cron/refresh-hms-places',
   // Public Veðurstofan station overview — read-only cache; handler enforces own flag and access checks.
   // Exact-match only: /stations/foo and /stations-extra must not become public.
   '/api/teskeid/weather/vedurstofan/stations',
@@ -80,6 +81,9 @@ const EXACT_PUBLIC_PATHS = new Set([
   // Public weather route planning needs bounded place autocomplete. The exact
   // handler still enforces weather access, rate limits, query bounds and Icelandic coordinates.
   '/api/place/search',
+  // Current-location labels use the private HMS directory. The exact handler
+  // keeps GPS coordinates out of URL/access logs and enforces weather access.
+  '/api/place/reverse-geocode',
   // Public weather road-intelligence reads. Middleware only lets these exact
   // routes reach their handlers; each handler still enforces WEATHER_ENABLED,
   // request validation, feature access, and upstream safety limits.

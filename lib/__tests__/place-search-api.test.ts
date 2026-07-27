@@ -1,199 +1,99 @@
 /**
- * Tests for /api/place/search route.
- *
- * Verifies auth enforcement, input validation, provider fallback, and
- * Iceland coordinate filtering.
+ * Compatibility smoke tests for the provider-neutral place-search endpoint.
+ * The detailed HMS/local/Google matrix lives in hms-place-api.test.ts.
  */
-
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
-// ── Hoisted mocks ─────────────────────────────────────────────────────────────
-
-const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
-const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
-const { mockGeocodePlace } = vi.hoisted(() => ({ mockGeocodePlace: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  getUser: vi.fn(),
+  resolveAccess: vi.fn(),
+  weatherMode: vi.fn(),
+  searchHmsPlaces: vi.fn(),
+  findSuggestions: vi.fn(),
+  mergeSuggestions: vi.fn(),
+  geocodePlace: vi.fn(),
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(async () => ({
-    auth: { getUser: mockGetUser },
-  })),
+  createClient: vi.fn(async () => ({ auth: { getUser: mocks.getUser } })),
 }))
-
-vi.mock('@/lib/loans/guard', () => ({
-  checkFeatureAccess: mockCheckFeatureAccess,
+vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
+  resolveWeatherBaseAccess: mocks.resolveAccess,
+  getWeatherEnabledMode: mocks.weatherMode,
 }))
-
+vi.mock('@/lib/places/hmsDirectory.server', () => ({
+  searchHmsPlaces: mocks.searchHmsPlaces,
+}))
+vi.mock('@/lib/road-intelligence/roadMapPlaces', () => ({
+  findRoadMapPlaceSuggestions: mocks.findSuggestions,
+  mergePlaceSuggestions: mocks.mergeSuggestions,
+}))
 vi.mock('@/lib/weather/provider.server', () => ({
-  getWeatherMapProvider: vi.fn(() => ({
-    geocodePlace: mockGeocodePlace,
-  })),
+  getWeatherMapProvider: vi.fn(() => ({ geocodePlace: mocks.geocodePlace })),
 }))
 
-import { GET } from '@/app/api/place/search/route'
+import { GET, POST } from '@/app/api/place/search/route'
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function makeRequest(q?: string) {
-  const url = q !== undefined
-    ? `http://localhost/api/place/search?q=${encodeURIComponent(q)}`
-    : 'http://localhost/api/place/search'
-  return new NextRequest(url)
+function post(body: unknown) {
+  return new NextRequest('http://localhost/api/place/search?q=must-not-be-read', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-forwarded-for': '198.51.100.220',
+    },
+    body: JSON.stringify(body),
+  })
 }
-
-function authedUser() {
-  mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
-  mockCheckFeatureAccess.mockResolvedValue(true)
-}
-
-// ── Tests ──────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
-  process.env.WEATHER_ENABLED = 'true'
-  delete process.env.WEATHER_PUBLIC_ENABLED
+  process.env.HMS_PLACE_SEARCH_ENABLED = 'true'
+  delete process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED
+  mocks.weatherMode.mockReturnValue('all')
+  mocks.getUser.mockResolvedValue({ data: { user: null } })
+  mocks.resolveAccess.mockResolvedValue({ mode: 'public', userId: null, actor: 'public' })
+  mocks.searchHmsPlaces.mockResolvedValue([])
+  mocks.findSuggestions.mockReturnValue([])
+  mocks.mergeSuggestions.mockImplementation((primary, secondary, limit) => (
+    [...primary, ...secondary].slice(0, limit)
+  ))
+  mocks.geocodePlace.mockResolvedValue([])
 })
 
-describe('GET /api/place/search', () => {
-  it('returns 404 when AUTH_MVP_ENABLED is not true', async () => {
-    process.env.AUTH_MVP_ENABLED = 'false'
-    const res = await GET(makeRequest('reykjavik'))
-    expect(res.status).toBe(404)
+describe('/api/place/search compatibility contract', () => {
+  it('keeps the former GET transport disabled to avoid address leakage in URLs', async () => {
+    const response = await GET()
+
+    expect(response.status).toBe(405)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
   })
 
-  it('returns 404 when WEATHER_ENABLED is not true, even with WEATHER_PUBLIC_ENABLED=true and guest', async () => {
-    delete process.env.WEATHER_ENABLED
-    process.env.WEATHER_PUBLIC_ENABLED = 'true'
-    mockGetUser.mockResolvedValue({ data: { user: null } })
-    const res = await GET(makeRequest('reykjavik-weather-disabled'))
-    expect(res.status).toBe(404)
-    expect(mockGeocodePlace).not.toHaveBeenCalled()
+  it('reads the address from the POST body, not from the URL query string', async () => {
+    const response = await POST(post({ query: 'Akureyri' }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.searchHmsPlaces).toHaveBeenCalledWith('Akureyri', 8)
+    expect(mocks.searchHmsPlaces).not.toHaveBeenCalledWith('must-not-be-read', expect.anything())
   })
 
-  it('returns 404 when WEATHER_ENABLED is not true, even with WEATHER_PUBLIC_ENABLED=true and signed-in user without vedrid', async () => {
-    delete process.env.WEATHER_ENABLED
-    process.env.WEATHER_PUBLIC_ENABLED = 'true'
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
-    mockCheckFeatureAccess.mockResolvedValue(false)
-    const res = await GET(makeRequest('akureyri-weather-disabled'))
-    expect(res.status).toBe(404)
-    expect(mockGeocodePlace).not.toHaveBeenCalled()
-  })
+  it('preserves public weather access without requiring Google Places', async () => {
+    mocks.searchHmsPlaces.mockResolvedValue([{
+      id: 'hms:0002001',
+      source: 'hms',
+      sourceId: '0002001',
+      name: 'Laugavegur 10',
+      formattedAddress: 'Laugavegur 10, 101 Reykjavík',
+      lat: 64.145,
+      lon: -21.93,
+    }])
 
-  it('returns 404 when WEATHER_ENABLED is off (signed-in user without vedrid)', async () => {
-    delete process.env.WEATHER_ENABLED
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
-    mockCheckFeatureAccess.mockResolvedValue(false)
-    const res = await GET(makeRequest('reykjavik'))
-    expect(res.status).toBe(404)
-  })
+    const response = await POST(post({ query: 'Laugavegur 10' }))
+    const body = await response.json()
 
-  it('guest user returns 401 when WEATHER_PUBLIC_ENABLED is off', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
-    // WEATHER_PUBLIC_ENABLED not set (deleted in beforeEach)
-    const res = await GET(makeRequest('reykjavik'))
-    expect(res.status).toBe(401)
-  })
-
-  it('guest user gets results when WEATHER_PUBLIC_ENABLED=true', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
-    process.env.WEATHER_PUBLIC_ENABLED = 'true'
-    mockGeocodePlace.mockResolvedValue([
-      { placeId: 'p1', displayName: 'Reykjavík', formattedAddress: 'Reykjavík, Ísland', lat: 64.135, lon: -21.895 },
-    ])
-    const res = await GET(makeRequest('reykjavik-public'))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.results).toHaveLength(1)
-  })
-
-  it('signed-in user without vedrid gets results when WEATHER_PUBLIC_ENABLED=true', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
-    mockCheckFeatureAccess.mockResolvedValue(false)
-    process.env.WEATHER_PUBLIC_ENABLED = 'true'
-    mockGeocodePlace.mockResolvedValue([
-      { placeId: 'p1', displayName: 'Akureyri', formattedAddress: 'Akureyri, Ísland', lat: 65.683, lon: -18.1 },
-    ])
-    const res = await GET(makeRequest('akureyri-novedrid'))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.results).toHaveLength(1)
-  })
-
-  it('returns 400 when query is too short', async () => {
-    authedUser()
-    const res = await GET(makeRequest('r'))
-    expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.results).toEqual([])
-  })
-
-  it('returns 400 when query is missing', async () => {
-    authedUser()
-    const res = await GET(makeRequest(''))
-    expect(res.status).toBe(400)
-  })
-
-  it('returns 503 when provider is not configured', async () => {
-    authedUser()
-    const { getWeatherMapProvider } = await import('@/lib/weather/provider.server')
-    vi.mocked(getWeatherMapProvider).mockReturnValueOnce(null)
-    const res = await GET(makeRequest('reykjavik'))
-    expect(res.status).toBe(503)
-  })
-
-  it('returns normalized results for a valid query', async () => {
-    authedUser()
-    mockGeocodePlace.mockResolvedValue([
-      { placeId: 'p1', displayName: 'Reykjavík', formattedAddress: 'Reykjavík, Ísland', lat: 64.135, lon: -21.895 },
-    ])
-    const res = await GET(makeRequest('reykjavik'))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.results).toHaveLength(1)
-    expect(body.results[0]).toMatchObject({ name: 'Reykjavík', lat: 64.135, lon: -21.895 })
-  })
-
-  it('includes placeId in results when provider returns it', async () => {
-    authedUser()
-    mockGeocodePlace.mockResolvedValue([
-      { placeId: 'ChIJreykjavik123', displayName: 'Reykjavík', formattedAddress: 'Reykjavík, Ísland', lat: 64.135, lon: -21.895 },
-    ])
-    const res = await GET(makeRequest('reykjavik-placeid'))
-    const body = await res.json()
-    expect(body.results[0].placeId).toBe('ChIJreykjavik123')
-  })
-
-  it('omits placeId from results when provider returns empty string', async () => {
-    authedUser()
-    mockGeocodePlace.mockResolvedValue([
-      { placeId: '', displayName: 'Akureyri', formattedAddress: 'Akureyri, Ísland', lat: 65.683, lon: -18.1 },
-    ])
-    const res = await GET(makeRequest('akureyri-noplaceid'))
-    const body = await res.json()
-    expect(body.results[0].placeId).toBeUndefined()
-  })
-
-  it('filters out non-Iceland coordinates', async () => {
-    authedUser()
-    mockGeocodePlace.mockResolvedValue([
-      { placeId: 'p1', displayName: 'Reykjavík', formattedAddress: 'Reykjavík, Ísland', lat: 64.135, lon: -21.895 },
-      { placeId: 'p2', displayName: 'London', formattedAddress: 'London, UK', lat: 51.5, lon: -0.12 },
-    ])
-    const res = await GET(makeRequest('rey'))
-    const body = await res.json()
-    expect(body.results).toHaveLength(1)
-    expect(body.results[0].name).toBe('Reykjavík')
-  })
-
-  it('returns empty results when provider throws', async () => {
-    authedUser()
-    mockGeocodePlace.mockRejectedValue(new Error('API error'))
-    // Use a unique query to avoid hitting the module-level in-memory cache from other tests
-    const res = await GET(makeRequest('þórshöfn-provider-error'))
-    expect(res.status).toBe(503)
-    const body = await res.json()
-    expect(body.results).toEqual([])
+    expect(response.status).toBe(200)
+    expect(body.results[0]).toMatchObject({ source: 'hms', sourceId: '0002001' })
+    expect(mocks.geocodePlace).not.toHaveBeenCalled()
   })
 })

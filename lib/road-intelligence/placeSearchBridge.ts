@@ -1,27 +1,25 @@
+import { normalizePlaceSearchText as normalizeCanonicalPlaceSearchText } from '@/lib/places/normalize'
+
 export type RoadIntelligencePlaceResult = {
   name: string
   formattedAddress?: string
   lat: number
   lon: number
   placeId?: string
+  googlePlaceId?: string
+  source?: 'hms' | 'device' | 'saved' | 'static' | 'curated' | 'google'
+  sourceId?: string
+  postalCode?: string
+  municipality?: string
+  municipalityCode?: string
+  accuracyM?: number
 }
 
 type SelectOptions = {
   allowFirstFallback?: boolean
 }
 
-export function normalizePlaceSearchText(value: string): string {
-  return value
-    .toLocaleLowerCase('is')
-    .replace(/[ðđ]/g, 'd')
-    .replace(/þ/g, 'th')
-    .replace(/æ/g, 'ae')
-    .replace(/ö/g, 'o')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[,\s]+/g, ' ')
-    .trim()
-}
+export const normalizePlaceSearchText = normalizeCanonicalPlaceSearchText
 
 function hasFiniteCoords(lat: unknown, lon: unknown): lat is number {
   return (
@@ -47,6 +45,13 @@ function coercePlaceResult(raw: unknown): RoadIntelligencePlaceResult | null {
 
   const formattedAddress = value.formattedAddress ?? value.address
   const placeId = value.placeId ?? value.place_id
+  const googlePlaceId = value.googlePlaceId
+  const source = value.source
+  const sourceId = value.sourceId
+  const postalCode = value.postalCode
+  const municipality = value.municipality
+  const municipalityCode = value.municipalityCode
+  const accuracyM = value.accuracyM
 
   return {
     name: name.trim(),
@@ -59,6 +64,35 @@ function coercePlaceResult(raw: unknown): RoadIntelligencePlaceResult | null {
     placeId:
       typeof placeId === 'string' && placeId.trim().length > 0
         ? placeId.trim()
+        : undefined,
+    googlePlaceId:
+      typeof googlePlaceId === 'string' && googlePlaceId.trim().length > 0
+        ? googlePlaceId.trim()
+        : undefined,
+    source:
+      source === 'hms' || source === 'device' || source === 'saved' ||
+      source === 'static' || source === 'curated' || source === 'google'
+        ? source
+        : undefined,
+    sourceId:
+      typeof sourceId === 'string' && sourceId.trim().length > 0
+        ? sourceId.trim()
+        : undefined,
+    postalCode:
+      typeof postalCode === 'string' && postalCode.trim().length > 0
+        ? postalCode.trim()
+        : undefined,
+    municipality:
+      typeof municipality === 'string' && municipality.trim().length > 0
+        ? municipality.trim()
+        : undefined,
+    municipalityCode:
+      typeof municipalityCode === 'string' && municipalityCode.trim().length > 0
+        ? municipalityCode.trim()
+        : undefined,
+    accuracyM:
+      typeof accuracyM === 'number' && Number.isFinite(accuracyM) && accuracyM >= 0
+        ? accuracyM
         : undefined,
   }
 }

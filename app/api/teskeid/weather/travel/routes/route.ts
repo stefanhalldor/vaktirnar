@@ -1,10 +1,14 @@
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
-import { validateIcelandicCoords } from '@/lib/weather/coords'
 import type { PlaceCandidate, RouteOption } from '@/lib/weather/provider.types'
+import {
+  isConfirmedLocationInput,
+  toWeatherPlaceCandidate,
+  type ConfirmedLocationInput,
+} from '@/lib/places/providerCandidate'
 import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
 import { checkWeatherGuestRateLimit } from '@/lib/weather/ip-rate-limit.server'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
@@ -13,23 +17,11 @@ import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/provider
 import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
 import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
 import { getTeskeidRouteCandidate } from '@/lib/iceland-routes/roadGraphCandidate.server'
-
-function validateConfirmedPlace(raw: unknown): raw is { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string } {
-  if (!raw || typeof raw !== 'object') return false
-  const p = raw as Record<string, unknown>
-  return (
-    typeof p.name === 'string' && p.name.trim().length > 0 &&
-    typeof p.lat === 'number' && typeof p.lon === 'number' &&
-    validateIcelandicCoords(p.lat, p.lon)
-  )
-}
-
-function normalizeOptionalPlaceId(raw: unknown): string | undefined {
-  if (typeof raw !== 'string') return undefined
-  const trimmed = raw.trim()
-  if (!trimmed || trimmed.length > 500) return undefined
-  return trimmed
-}
+import {
+  signRouteOptionEnvelope,
+  type RouteOptionEnvelopeV1,
+} from '@/lib/iceland-routes/routeOptionEnvelope.server'
+import { routeMemoryVariantIdentity } from '@/lib/iceland-routes/routeMemoryVariant'
 
 export async function POST(request: Request) {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
@@ -73,10 +65,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
 
-  if (!validateConfirmedPlace(body.origin)) {
+  if (!isConfirmedLocationInput(body.origin)) {
     return NextResponse.json({ error: 'invalid_origin' }, { status: 400 })
   }
-  if (!validateConfirmedPlace(body.destination)) {
+  if (!isConfirmedLocationInput(body.destination)) {
     return NextResponse.json({ error: 'invalid_destination' }, { status: 400 })
   }
 
@@ -85,31 +77,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'provider_not_configured' }, { status: 422 })
   }
 
-  const origin = body.origin as { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string }
-  const destination = body.destination as { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string }
+  const origin = body.origin as ConfirmedLocationInput
+  const destination = body.destination as ConfirmedLocationInput
 
   if (process.env.NODE_ENV !== 'production') {
     console.log('[routes/routes] placeId in request body:', {
-      origin: origin.placeId ? `present (${String(origin.placeId).slice(0, 20)})` : 'absent',
-      destination: destination.placeId ? `present (${String(destination.placeId).slice(0, 20)})` : 'absent',
+      origin: origin.source ?? 'legacy',
+      destination: destination.source ?? 'legacy',
     })
   }
 
-  const originCandidate: PlaceCandidate = {
-    placeId: normalizeOptionalPlaceId(origin.placeId) ?? 'confirmed',
-    displayName: origin.name.trim(),
-    formattedAddress: (origin.formattedAddress ?? origin.name).trim(),
-    lat: origin.lat,
-    lon: origin.lon,
-  }
-
-  const destCandidate: PlaceCandidate = {
-    placeId: normalizeOptionalPlaceId(destination.placeId) ?? 'confirmed',
-    displayName: destination.name.trim(),
-    formattedAddress: (destination.formattedAddress ?? destination.name).trim(),
-    lat: destination.lat,
-    lon: destination.lon,
-  }
+  const originCandidate: PlaceCandidate = toWeatherPlaceCandidate(origin)
+  const destCandidate: PlaceCandidate = toWeatherPlaceCandidate(destination)
 
   const routePairHash = routePairFingerprint(origin, destination)
   const hashMeta = routePairHash !== null ? { routePairHash } : {}
@@ -155,36 +134,54 @@ export async function POST(request: Request) {
     : null
   const responseRoutes = teskeidCandidate ? [...sorted, teskeidCandidate] : sorted
 
-  await recordTeskeidUsageEvent({
-    userId,
-    featureKey: 'vedrid',
-    eventName: 'weather_route_options_calculated',
-    path: '/api/teskeid/weather/travel/routes',
-    metadata: {
-      actor,
-      ...hashMeta,
-      provider: 'google',
-      routeCount: responseRoutes.length,
-      googleRouteCount: sorted.length,
-      teskeidCandidateIncluded: teskeidCandidate !== null,
-      originIdPresent: originCandidate.placeId !== 'confirmed',
-      destinationIdPresent: destCandidate.placeId !== 'confirmed',
-      curatedRouteLabels: [...new Set(sorted.flatMap(r => r.labels).filter(l => l.startsWith('CURATED_')))],
-    },
-  })
-
-  // Route-memory warming: match provider stations for each route option and persist.
-  // Awaited best-effort — uses only already-returned route geometry, no additional Google calls.
-  // The helper swallows all errors internally so this does not affect the response.
-  // Privacy: only normalized place labels/keys, route variant keys, and derived
-  // station-order metadata are stored. No raw Google geometry, no user ID.
-  const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
-  const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
-  if (fromNorm && toNorm) {
-    await warmRouteMemoryFromOptions(responseRoutes, fromNorm, toNorm)
+  const includeRouteEnvelopes = body.includeRouteEnvelopes === true
+  const compactRouteEnvelopes = includeRouteEnvelopes && body.compactRouteEnvelopes === true
+  let routeEnvelopes: RouteOptionEnvelopeV1[] = []
+  if (includeRouteEnvelopes) {
+    try {
+      routeEnvelopes = responseRoutes.map(route => signRouteOptionEnvelope({
+        origin: { lat: originCandidate.lat, lon: originCandidate.lon },
+        destination: { lat: destCandidate.lat, lon: destCandidate.lon },
+        route,
+      }))
+    } catch {
+      return NextResponse.json({ error: 'route_envelope_unavailable' }, { status: 503 })
+    }
   }
 
-  return NextResponse.json({ routes: responseRoutes })
+  const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
+  const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
+  // Analytics and route-memory warming must not hold back the first usable
+  // route. Next's after() keeps this best-effort work alive after the response.
+  // Privacy remains unchanged: no raw route geometry or user ID is persisted
+  // by the route-memory helper.
+  after(async () => {
+    await recordTeskeidUsageEvent({
+      userId,
+      featureKey: 'vedrid',
+      eventName: 'weather_route_options_calculated',
+      path: '/api/teskeid/weather/travel/routes',
+      metadata: {
+        actor,
+        ...hashMeta,
+        provider: 'google',
+        routeCount: responseRoutes.length,
+        googleRouteCount: sorted.length,
+        teskeidCandidateIncluded: teskeidCandidate !== null,
+        originIdPresent: originCandidate.placeId !== 'confirmed',
+        destinationIdPresent: destCandidate.placeId !== 'confirmed',
+        curatedRouteLabels: [...new Set(sorted.flatMap(r => r.labels).filter(l => l.startsWith('CURATED_')))],
+      },
+    })
+    if (!compactRouteEnvelopes && fromNorm && toNorm) {
+      await warmRouteMemoryFromOptions(responseRoutes, fromNorm, toNorm)
+    }
+  })
+
+  return NextResponse.json({
+    ...(!compactRouteEnvelopes ? { routes: responseRoutes } : {}),
+    ...(includeRouteEnvelopes ? { routeEnvelopes } : {}),
+  })
 }
 
 // ── Route-memory warming helper ───────────────────────────────────────────────
@@ -233,10 +230,7 @@ async function warmRouteMemoryFromOptions(
       })
 
       // Use curated label as variant label — do not store raw Google route text.
-      const curatedLabel = routeOption.labels.find(l => l.startsWith('CURATED_')) ?? null
-      // Use curated label as the stable variant key when available, so repeated calculations
-      // of the same curated route upsert the same row instead of creating new duplicates.
-      const stableVariantKey = curatedLabel ?? routeOption.id
+      const variant = routeMemoryVariantIdentity(routeOption)
 
       const stations: RouteMemoryStation[] = [
         ...vedurstofanMatches.map((m, i) => ({
@@ -264,13 +258,13 @@ async function warmRouteMemoryFromOptions(
         : ['vedurstofan']
 
       await recordRouteMemory({
-        routeKey: buildRouteMemoryKey(fromNorm.key, toNorm.key, stableVariantKey),
+        routeKey: buildRouteMemoryKey(fromNorm.key, toNorm.key, variant.key),
         fromPlaceKey: fromNorm.key,
         fromPlaceLabel: fromNorm.label,
         toPlaceKey: toNorm.key,
         toPlaceLabel: toNorm.label,
-        routeVariantKey: stableVariantKey,
-        routeVariantLabel: curatedLabel,
+        routeVariantKey: variant.key,
+        routeVariantLabel: variant.label,
         routeCautionIds: routeOption.cautions?.map(c => c.id) ?? [],
         stations,
         providersEvaluated,

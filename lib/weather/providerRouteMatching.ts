@@ -34,6 +34,15 @@ export const DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M = 1_000
  */
 export const VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M = 2_500
 
+/**
+ * Confidence boundary used when comparing route alternatives. A point more
+ * than 50 km along the route from the nearest usable road-weather station is
+ * treated as having limited measurement coverage. This mirrors the existing
+ * 50 km unavailable-confidence boundary used by the Veðurstofan station
+ * provider while keeping the claim strictly about evidence, not bad weather.
+ */
+export const ROUTE_WEATHER_STATION_CONFIDENCE_DISTANCE_KM = 50
+
 export type ProviderRoutePoint = {
   id: string
   name?: string | null
@@ -141,6 +150,155 @@ export function rdpSimplify(
   }
 
   return [{ ...first }, { ...last }]
+}
+
+/**
+ * Returns the greatest along-route distance from any route position to the
+ * nearest matched station. End points are included, while gaps between two
+ * stations contribute half their length because either station can cover the
+ * midpoint. Returns null when the route or station evidence is unavailable.
+ */
+export function maximumRouteDistanceToMatchedStationKm(
+  routeDistanceKm: number,
+  routeFractions: readonly number[],
+): number | null {
+  if (!Number.isFinite(routeDistanceKm) || routeDistanceKm <= 0) return null
+  const positions = [...new Set(routeFractions
+    .filter(fraction => Number.isFinite(fraction))
+    .map(fraction => Math.max(0, Math.min(1, fraction))))]
+    .sort((a, b) => a - b)
+  if (positions.length === 0) return null
+
+  let maximumFraction = Math.max(positions[0], 1 - positions[positions.length - 1])
+  for (let index = 1; index < positions.length; index += 1) {
+    maximumFraction = Math.max(maximumFraction, (positions[index] - positions[index - 1]) / 2)
+  }
+  return maximumFraction * routeDistanceKm
+}
+
+type BoundedRdpSegment = {
+  startIndex: number
+  endIndex: number
+  splitIndex: number
+  deviationM: number
+}
+
+function boundedRdpSegment(
+  points: ReadonlyArray<{ lat: number; lon: number }>,
+  startIndex: number,
+  endIndex: number,
+): BoundedRdpSegment | null {
+  if (endIndex <= startIndex + 1) return null
+
+  const first = points[startIndex]
+  const last = points[endIndex]
+  let splitIndex = -1
+  let deviationM = -1
+  for (let index = startIndex + 1; index < endIndex; index += 1) {
+    const deviation = perpendicularToSegmentM(
+      points[index].lat,
+      points[index].lon,
+      first.lat,
+      first.lon,
+      last.lat,
+      last.lon,
+    )
+    if (deviation > deviationM) {
+      splitIndex = index
+      deviationM = deviation
+    }
+  }
+
+  return splitIndex < 0
+    ? null
+    : { startIndex, endIndex, splitIndex, deviationM }
+}
+
+function pushBoundedRdpSegment(
+  heap: BoundedRdpSegment[],
+  segment: BoundedRdpSegment,
+): void {
+  heap.push(segment)
+  let index = heap.length - 1
+  while (index > 0) {
+    const parentIndex = Math.floor((index - 1) / 2)
+    if (heap[parentIndex].deviationM >= segment.deviationM) break
+    heap[index] = heap[parentIndex]
+    index = parentIndex
+  }
+  heap[index] = segment
+}
+
+function popBoundedRdpSegment(heap: BoundedRdpSegment[]): BoundedRdpSegment | null {
+  if (heap.length === 0) return null
+  const first = heap[0]
+  const last = heap.pop()!
+  if (heap.length === 0) return first
+
+  let index = 0
+  while (true) {
+    const leftIndex = index * 2 + 1
+    if (leftIndex >= heap.length) break
+    const rightIndex = leftIndex + 1
+    const childIndex = rightIndex < heap.length
+      && heap[rightIndex].deviationM > heap[leftIndex].deviationM
+      ? rightIndex
+      : leftIndex
+    if (heap[childIndex].deviationM <= last.deviationM) break
+    heap[index] = heap[childIndex]
+    index = childIndex
+  }
+  heap[index] = last
+  return first
+}
+
+/**
+ * Shape-preserving RDP simplification with a hard point budget.
+ *
+ * Segments with the greatest deviation are split first. This retains the most
+ * important bends when a dense provider polyline cannot fit inside a transport
+ * contract, instead of stride sampling that can skip fjords or mountain bends.
+ * The first and last points are always preserved and the input is never mutated.
+ */
+export function rdpSimplifyToMaxPoints(
+  points: ReadonlyArray<{ lat: number; lon: number }>,
+  epsilonM: number,
+  maxPoints: number,
+): Array<{ lat: number; lon: number }> {
+  if (!Number.isFinite(epsilonM) || epsilonM < 0) {
+    throw new Error('epsilonM must be a non-negative finite number')
+  }
+  if (!Number.isInteger(maxPoints) || maxPoints < 2) {
+    throw new Error('maxPoints must be an integer of at least 2')
+  }
+  if (points.length <= 2) return points.map(point => ({ ...point }))
+
+  const kept = new Uint8Array(points.length)
+  kept[0] = 1
+  kept[points.length - 1] = 1
+  let keptCount = 2
+
+  const heap: BoundedRdpSegment[] = []
+  const initial = boundedRdpSegment(points, 0, points.length - 1)
+  if (initial) pushBoundedRdpSegment(heap, initial)
+
+  while (keptCount < maxPoints) {
+    const segment = popBoundedRdpSegment(heap)
+    if (!segment || segment.deviationM <= epsilonM) break
+
+    kept[segment.splitIndex] = 1
+    keptCount += 1
+    const left = boundedRdpSegment(points, segment.startIndex, segment.splitIndex)
+    const right = boundedRdpSegment(points, segment.splitIndex, segment.endIndex)
+    if (left) pushBoundedRdpSegment(heap, left)
+    if (right) pushBoundedRdpSegment(heap, right)
+  }
+
+  const result: Array<{ lat: number; lon: number }> = []
+  for (let index = 0; index < points.length; index += 1) {
+    if (kept[index]) result.push({ ...points[index] })
+  }
+  return result
 }
 
 // ── Point-to-polyline distance ────────────────────────────────────────────────

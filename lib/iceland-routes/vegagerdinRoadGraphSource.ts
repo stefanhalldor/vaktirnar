@@ -1,4 +1,5 @@
 import type { LatLon } from './types'
+import { geometryLengthM, haversineDistanceM } from './roadGraph'
 import type {
   IcelandRoadClass,
   IcelandRoadDirection,
@@ -33,7 +34,25 @@ interface VegagerdinRoadMetadata {
 
 interface VegagerdinSurfaceSummary {
   surfaces: Set<IcelandRoadSurface>
+  intervals: VegagerdinSurfaceInterval[]
+  hasInvalidInterval: boolean
 }
+
+interface VegagerdinSurfaceInterval {
+  objectId: number
+  startStation: number
+  endStation: number
+  lengthM: number
+  surface: 'paved' | 'gravel'
+}
+
+interface LinearReferencedSurfaceSegment {
+  geometry: readonly LatLon[]
+  lengthM: number
+  surface: 'paved' | 'gravel'
+}
+
+const STATION_TOLERANCE_M = 10
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -119,8 +138,29 @@ function readSurfaceSummaries(
     const properties = feature.properties ?? {}
     const sectionId = finiteNumber(properties.IDKAFLI)
     if (sectionId === null) continue
-    const existing = result.get(sectionId) ?? { surfaces: new Set<IcelandRoadSurface>() }
-    existing.surfaces.add(vegagerdinSurface(properties.GERD_SL))
+    const existing = result.get(sectionId) ?? {
+      surfaces: new Set<IcelandRoadSurface>(),
+      intervals: [],
+      hasInvalidInterval: false,
+    }
+    const surface = vegagerdinSurface(properties.GERD_SL)
+    existing.surfaces.add(surface)
+    const objectId = finiteNumber(properties.OBJECTID)
+    const startStation = finiteNumber(properties.UPPH_STOD)
+    const endStation = finiteNumber(properties.ENDA_STOD)
+    const lengthM = finiteNumber(properties.SLITLAGLENGD)
+    if (
+      objectId === null
+      || startStation === null
+      || endStation === null
+      || lengthM === null
+      || lengthM <= 0
+      || (surface !== 'paved' && surface !== 'gravel')
+    ) {
+      existing.hasInvalidInterval = true
+    } else {
+      existing.intervals.push({ objectId, startStation, endStation, lengthM, surface })
+    }
     result.set(sectionId, existing)
   }
   return result
@@ -132,6 +172,147 @@ function summarizedSurface(summary: VegagerdinSurfaceSummary | undefined): Icela
   return [...summary.surfaces][0]
 }
 
+function interpolatePoint(a: LatLon, b: LatLon, ratio: number): LatLon {
+  return {
+    lat: a.lat + (b.lat - a.lat) * ratio,
+    lon: a.lon + (b.lon - a.lon) * ratio,
+  }
+}
+
+function pointAtGeometryDistance(
+  geometry: readonly LatLon[],
+  targetM: number,
+): LatLon {
+  if (targetM <= 0) return geometry[0]
+  let traversedM = 0
+  for (let index = 1; index < geometry.length; index += 1) {
+    const segmentLengthM = haversineDistanceM(geometry[index - 1], geometry[index])
+    if (traversedM + segmentLengthM >= targetM) {
+      if (segmentLengthM <= 0) return geometry[index]
+      return interpolatePoint(
+        geometry[index - 1],
+        geometry[index],
+        (targetM - traversedM) / segmentLengthM,
+      )
+    }
+    traversedM += segmentLengthM
+  }
+  return geometry[geometry.length - 1]
+}
+
+function samePoint(a: LatLon, b: LatLon): boolean {
+  return a.lat === b.lat && a.lon === b.lon
+}
+
+function sliceGeometryByFraction(
+  geometry: readonly LatLon[],
+  startFraction: number,
+  endFraction: number,
+): readonly LatLon[] {
+  const geometryDistanceM = geometryLengthM(geometry)
+  if (geometryDistanceM <= 0) return []
+  const startDistanceM = Math.max(0, Math.min(1, startFraction)) * geometryDistanceM
+  const endDistanceM = Math.max(0, Math.min(1, endFraction)) * geometryDistanceM
+  if (endDistanceM <= startDistanceM) return []
+
+  const result: LatLon[] = [pointAtGeometryDistance(geometry, startDistanceM)]
+  let traversedM = 0
+  for (let index = 1; index < geometry.length; index += 1) {
+    traversedM += haversineDistanceM(geometry[index - 1], geometry[index])
+    if (traversedM > startDistanceM && traversedM < endDistanceM) {
+      const point = geometry[index]
+      if (!samePoint(result[result.length - 1], point)) result.push(point)
+    }
+  }
+  const endPoint = pointAtGeometryDistance(geometry, endDistanceM)
+  if (!samePoint(result[result.length - 1], endPoint)) result.push(endPoint)
+  return result
+}
+
+/**
+ * Converts Vegagerðin's authoritative station intervals into topology-safe
+ * subsections of the canonical road geometry. Any incomplete or contradictory
+ * input returns null so callers retain the previous fail-closed surface value.
+ */
+function linearReferencedSurfaceSegments(input: {
+  geometry: readonly LatLon[]
+  roadStartStation: number | null
+  roadEndStation: number | null
+  roadLengthM: number | null
+  summary: VegagerdinSurfaceSummary | undefined
+}): LinearReferencedSurfaceSegment[] | null {
+  const { geometry, roadStartStation, roadEndStation, roadLengthM, summary } = input
+  if (
+    !summary
+    || summary.hasInvalidInterval
+    || summary.intervals.length === 0
+    || roadStartStation === null
+    || roadEndStation === null
+    || roadLengthM === null
+    || roadLengthM <= 0
+  ) return null
+
+  const stationSpanM = Math.abs(roadEndStation - roadStartStation)
+  if (stationSpanM <= 0 || Math.abs(stationSpanM - roadLengthM) > STATION_TOLERANCE_M) return null
+  const fractionTolerance = STATION_TOLERANCE_M / stationSpanM
+  const intervals = summary.intervals.map(interval => {
+    const intervalSpanM = Math.abs(interval.endStation - interval.startStation)
+    if (
+      intervalSpanM <= 0
+      || Math.abs(intervalSpanM - interval.lengthM) > STATION_TOLERANCE_M
+    ) return null
+    const firstFraction = (interval.startStation - roadStartStation) / (roadEndStation - roadStartStation)
+    const secondFraction = (interval.endStation - roadStartStation) / (roadEndStation - roadStartStation)
+    const startFraction = Math.min(firstFraction, secondFraction)
+    const endFraction = Math.max(firstFraction, secondFraction)
+    if (startFraction < -fractionTolerance || endFraction > 1 + fractionTolerance) return null
+    return {
+      ...interval,
+      startFraction: Math.max(0, startFraction),
+      endFraction: Math.min(1, endFraction),
+    }
+  })
+  if (intervals.some(interval => interval === null)) return null
+  const ordered = intervals
+    .filter((interval): interval is NonNullable<typeof interval> => interval !== null)
+    .sort((a, b) => a.startFraction - b.startFraction || a.endFraction - b.endFraction || a.objectId - b.objectId)
+
+  let cursor = 0
+  const merged: Array<{
+    startFraction: number
+    endFraction: number
+    lengthM: number
+    surface: 'paved' | 'gravel'
+  }> = []
+  for (const interval of ordered) {
+    if (Math.abs(interval.startFraction - cursor) > fractionTolerance) return null
+    if (interval.endFraction <= cursor) return null
+    const previous = merged[merged.length - 1]
+    if (previous?.surface === interval.surface) {
+      previous.endFraction = interval.endFraction
+      previous.lengthM += interval.lengthM
+    } else {
+      merged.push({
+        startFraction: interval.startFraction,
+        endFraction: interval.endFraction,
+        lengthM: interval.lengthM,
+        surface: interval.surface,
+      })
+    }
+    cursor = interval.endFraction
+  }
+  if (Math.abs(1 - cursor) > fractionTolerance) return null
+
+  const segments = merged.map((interval, index) => ({
+    geometry: index === 0 && merged.length === 1
+      ? geometry
+      : sliceGeometryByFraction(geometry, interval.startFraction, interval.endFraction),
+    lengthM: merged.length === 1 ? roadLengthM : interval.lengthM,
+    surface: interval.surface,
+  }))
+  return segments.every(segment => segment.geometry.length >= 2) ? segments : null
+}
+
 export interface NormalizeVegagerdinRoadGraphInput {
   roads: ArcGisGeoJsonFeatureCollection
   surfaces: ArcGisGeoJsonFeatureCollection
@@ -139,10 +320,9 @@ export interface NormalizeVegagerdinRoadGraphInput {
 
 /**
  * Uses the canonical road layer for topology. Slitlag geometry is split by
- * surface but is not a connected routing network, so it is joined by IDKAFLI
- * as an attribute. A section with more than one surface becomes `mixed`, which
- * is safely excluded by require-paved profiles until linear referencing can
- * split it without damaging topology.
+ * surface but is not a connected routing network, so its authoritative station
+ * intervals are projected onto the canonical road geometry. Invalid or
+ * incomplete intervals retain the previous fail-closed mixed/unknown value.
  */
 export function normalizeVegagerdinRoadGraphSegments({
   roads,
@@ -164,24 +344,46 @@ export function normalizeVegagerdinRoadGraphSegments({
     const isFRoad = roadNumber?.toUpperCase().startsWith('F') === true ||
       roadType?.toUpperCase().startsWith('F') === true
     const parts = geometryParts(feature)
+    const surfaceSummary = surfaceSummaries.get(sectionId)
+    const roadLengthM = finiteNumber(properties.KAFLILENGD)
+    const linearSegments = parts.length === 1
+      ? linearReferencedSurfaceSegments({
+          geometry: parts[0],
+          roadStartStation: finiteNumber(properties.KAFLISTODUPPHAF),
+          roadEndStation: finiteNumber(properties.KAFLISTODENDIR),
+          roadLengthM,
+          summary: surfaceSummary,
+        })
+      : null
 
     parts.forEach((geometry, partIndex) => {
-      result.push({
-        id: `vegagerdin-road-${objectId}-${partIndex}`,
-        source: 'vegagerdin',
-        sourceId: String(objectId),
-        geometry,
-        lengthM: parts.length === 1 ? finiteNumber(properties.KAFLILENGD) ?? undefined : undefined,
-        roadNumber,
-        roadName: metadata?.roadName ?? nonEmptyString(properties.KAFLIVEGURHEITI),
-        roadClass,
-        surface: summarizedSurface(surfaceSummaries.get(sectionId)),
-        direction: metadata?.direction ?? 'both',
-        isFRoad,
-        isMountainRoad: roadClass === 'highland_trunk' || isFRoad,
-        // F-road does not by itself prove a current or permanent seasonal closure.
-        // Live/seasonal state must come from a dedicated authoritative source.
-        isSeasonal: false,
+      const resolvedSegments = partIndex === 0 && linearSegments
+        ? linearSegments
+        : [{
+            geometry,
+            lengthM: parts.length === 1 ? roadLengthM ?? undefined : undefined,
+            surface: summarizedSurface(surfaceSummary),
+          }]
+      resolvedSegments.forEach((segment, surfaceIndex) => {
+        result.push({
+          id: resolvedSegments.length === 1
+            ? `vegagerdin-road-${objectId}-${partIndex}`
+            : `vegagerdin-road-${objectId}-${partIndex}-surface-${surfaceIndex}`,
+          source: 'vegagerdin',
+          sourceId: String(objectId),
+          geometry: segment.geometry,
+          lengthM: segment.lengthM,
+          roadNumber,
+          roadName: metadata?.roadName ?? nonEmptyString(properties.KAFLIVEGURHEITI),
+          roadClass,
+          surface: segment.surface,
+          direction: metadata?.direction ?? 'both',
+          isFRoad,
+          isMountainRoad: roadClass === 'highland_trunk' || isFRoad,
+          // F-road does not by itself prove a current or permanent seasonal closure.
+          // Live/seasonal state must come from a dedicated authoritative source.
+          isSeasonal: false,
+        })
       })
     })
   }

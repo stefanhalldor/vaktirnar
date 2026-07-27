@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { matchProviderPointsToRoute, haversineM, rdpSimplify, pointToPolylineDistanceM } from '@/lib/weather/providerRouteMatching'
+import {
+  matchProviderPointsToRoute,
+  haversineM,
+  rdpSimplify,
+  rdpSimplifyToMaxPoints,
+  pointToPolylineDistanceM,
+  maximumRouteDistanceToMatchedStationKm,
+} from '@/lib/weather/providerRouteMatching'
 
 // Simple east-west route across Iceland (lat=64.0, lon from -22.0 to -21.0)
 // Segment length ≈ 50 km
@@ -254,6 +261,61 @@ describe('rdpSimplify', () => {
     })
     expect(denseMatches).toHaveLength(1) // station found with dense geometry
     expect(denseMatches[0].distanceM).toBeLessThan(1_000)
+  })
+})
+
+describe('maximumRouteDistanceToMatchedStationKm', () => {
+  it('measures endpoints and half of each internal station gap', () => {
+    expect(maximumRouteDistanceToMatchedStationKm(400, [0.1, 0.4, 0.9])).toBeCloseTo(100)
+  })
+
+  it('deduplicates, clamps, and sorts route fractions', () => {
+    expect(maximumRouteDistanceToMatchedStationKm(200, [0.75, 0.25, 0.25, -1, 2])).toBeCloseTo(50)
+  })
+
+  it('returns null without trustworthy route or station evidence', () => {
+    expect(maximumRouteDistanceToMatchedStationKm(400, [])).toBeNull()
+    expect(maximumRouteDistanceToMatchedStationKm(0, [0.5])).toBeNull()
+    expect(maximumRouteDistanceToMatchedStationKm(Number.NaN, [0.5])).toBeNull()
+  })
+})
+
+describe('rdpSimplifyToMaxPoints', () => {
+  it('bounds a 28,496-point route while preserving endpoints and major bends', () => {
+    const count = 28_496
+    const points = Array.from({ length: count }, (_, index) => {
+      const fraction = index / (count - 1)
+      return {
+        lat: 64.1466 + fraction * 1.9281 + Math.sin(fraction * Math.PI * 4_000) * 0.003,
+        lon: -21.9427 - fraction * 1.1822,
+      }
+    })
+
+    const result = rdpSimplifyToMaxPoints(points, 3, 1_000)
+
+    expect(result).toHaveLength(1_000)
+    expect(result[0]).toEqual(points[0])
+    expect(result[result.length - 1]).toEqual(points[points.length - 1])
+    expect(result.some(point => Math.abs(point.lat - (64.1466 + (
+      (point.lon + 21.9427) / -1.1822
+    ) * 1.9281)) > 0.002)).toBe(true)
+  })
+
+  it('stops below the cap once every remaining deviation is within epsilon', () => {
+    const points = Array.from({ length: 10_000 }, (_, index) => ({
+      lat: 64,
+      lon: -22 + index / 10_000,
+    }))
+
+    expect(rdpSimplifyToMaxPoints(points, 3, 1_000)).toEqual([
+      points[0],
+      points[points.length - 1],
+    ])
+  })
+
+  it('rejects invalid budgets instead of returning an unbounded route', () => {
+    expect(() => rdpSimplifyToMaxPoints(ROUTE_EW, 3, 1)).toThrow(/maxPoints/)
+    expect(() => rdpSimplifyToMaxPoints(ROUTE_EW, -1, 1_000)).toThrow(/epsilonM/)
   })
 })
 

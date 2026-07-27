@@ -9,12 +9,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
+const { mockGetUser, mockAfter } = vi.hoisted(() => ({ mockGetUser: vi.fn(), mockAfter: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
 const { mockGetRouteOptions } = vi.hoisted(() => ({ mockGetRouteOptions: vi.fn() }))
 const { mockRecordTeskeidUsageEvent } = vi.hoisted(() => ({ mockRecordTeskeidUsageEvent: vi.fn() }))
 const { mockCheckWeatherGuestRateLimit } = vi.hoisted(() => ({ mockCheckWeatherGuestRateLimit: vi.fn() }))
 const { mockGetTeskeidRouteCandidate } = vi.hoisted(() => ({ mockGetTeskeidRouteCandidate: vi.fn() }))
+
+vi.mock('next/server', async importOriginal => {
+  const actual = await importOriginal<typeof import('next/server')>()
+  return { ...actual, after: mockAfter }
+})
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -98,8 +103,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
   process.env.WEATHER_ENABLED = 'true'
+  process.env.AUTH_CODE_SECRET = 'test-route-envelope-secret-at-least-32-bytes-long'
   delete process.env.WEATHER_PUBLIC_ENABLED
   mockGetTeskeidRouteCandidate.mockResolvedValue(null)
+  mockAfter.mockImplementation((callback: () => unknown) => callback())
 })
 
 describe('POST /api/teskeid/weather/travel/routes', () => {
@@ -173,6 +180,64 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     const body = await res.json()
     expect(Array.isArray(body.routes)).toBe(true)
     expect(body.routes).toHaveLength(1)
+  })
+
+  it('returns one signed envelope per Google route without starting Teskeið discovery', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([
+      makeRouteOption('google-0', 0, 3600, 80000, true),
+      makeRouteOption('google-1', 1, 4200, 90000, false),
+    ])
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      includeTeskeidCandidate: false,
+      includeRouteEnvelopes: true,
+      compactRouteEnvelopes: true,
+    }))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.routes).toBeUndefined()
+    expect(body.routeEnvelopes).toHaveLength(2)
+    expect(body.routeEnvelopes.map((envelope: { route: { id: string } }) => envelope.route.id))
+      .toEqual(['google-0', 'google-1'])
+    expect(body.routeEnvelopes.every((envelope: { signature: string }) => envelope.signature.length === 64))
+      .toBe(true)
+    expect(mockGetTeskeidRouteCandidate).not.toHaveBeenCalled()
+  })
+
+  it('fails closed instead of returning unsigned selectable routes', async () => {
+    authedUser()
+    delete process.env.AUTH_CODE_SECRET
+    mockGetRouteOptions.mockResolvedValue([
+      makeRouteOption('google-0', 0, 3600, 80000, true),
+    ])
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      includeTeskeidCandidate: false,
+      includeRouteEnvelopes: true,
+    }))
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toEqual({ error: 'route_envelope_unavailable' })
+  })
+
+  it('does not await analytics or route-memory work before returning route choices', async () => {
+    authedUser()
+    mockAfter.mockImplementation(() => undefined)
+    mockGetRouteOptions.mockResolvedValue([
+      makeRouteOption('google-0', 0, 3600, 80000, true),
+    ])
+
+    const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
+
+    expect(res.status).toBe(200)
+    expect(mockAfter).toHaveBeenCalledOnce()
+    expect(mockRecordTeskeidUsageEvent).not.toHaveBeenCalled()
   })
 
   it('sorts routes by durationS ascending — shortest driving time first', async () => {

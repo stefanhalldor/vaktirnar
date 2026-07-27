@@ -149,14 +149,17 @@ describe('matchRouteCautions — Westfjords trailer caution', () => {
 // ── Öxi / Axarvegur 939 caution ───────────────────────────────────────────────
 
 describe('matchRouteCautions — Öxi caution', () => {
-  // Öxi detection point: lat 64.860, lon -14.365, radiusM 10_000
-  // Any route within 10 km of this point gets the Öxi caution.
-
-  // Points that pass near the Öxi corridor (within 6 km of lat 64.860, lon -14.365).
+  // Canonical evidence: Veðurstofan station Öxi (35963), 1.5 km radius.
   const POINTS_VIA_OXI = [
     { lat: 64.25, lon: -15.21 }, // Höfn area
-    { lat: 64.86, lon: -14.37 }, // ~0.3 km from corridor point — within 6 km
+    { lat: 64.826, lon: -14.658 }, // ~0.1 km from Öxi station
     { lat: 65.27, lon: -14.40 }, // Egilsstaðir area
+  ]
+
+  const POINTS_NEAR_OLD_APPROXIMATE_CORRIDOR = [
+    { lat: 64.25, lon: -15.21 },
+    { lat: 64.86, lon: -14.37 },
+    { lat: 65.27, lon: -14.40 },
   ]
 
   // Points that go around the coastal fjords (NOT via Öxi).
@@ -214,10 +217,9 @@ describe('matchRouteCautions — Öxi caution', () => {
     expect(cautions.some(c => c.id === 'oxi-axarvegur-939')).toBe(true)
   })
 
-  it('existing corridor-point detection still fires (backward compat with approximate point)', () => {
-    // POINTS_VIA_OXI uses (64.86, -14.37) ~0.3 km from old corridor point — must still work.
-    const cautions = matchRouteCautions(POINTS_VIA_OXI, FROM_EGILSSTADIR, TO_HOFN)
-    expect(cautions.some(c => c.id === 'oxi-axarvegur-939')).toBe(true)
+  it('does not fire from the removed broad approximate corridor', () => {
+    const cautions = matchRouteCautions(POINTS_NEAR_OLD_APPROXIMATE_CORRIDOR, FROM_EGILSSTADIR, TO_HOFN)
+    expect(cautions.some(c => c.id === 'oxi-axarvegur-939')).toBe(false)
   })
 
   it('segment-only detection: caution fires when route segment passes near evidence point but no vertex is close', () => {
@@ -247,15 +249,10 @@ describe('matchRouteCautions — Öxi caution', () => {
     expect(matchRouteCautions(POINTS_VIA_STATION_ONLY, FROM_HOFN, TO_AKUREYRI, { evidencePointsOnly: true })
       .some(c => c.id === 'oxi-axarvegur-939')).toBe(true)
 
-    // Route near the APPROXIMATE corridorPoint (10 km radius) only — not near station.
-    // POINTS_VIA_OXI hits (64.86, -14.37) which is ~0.3 km from corridorPoint but ~11 km from station.
-    // Without option: corridorPoint fires → caution
-    expect(matchRouteCautions(POINTS_VIA_OXI, FROM_EGILSSTADIR, TO_HOFN)
-      .some(c => c.id === 'oxi-axarvegur-939')).toBe(true)
-    // With evidencePointsOnly: corridorPoint skipped, station not close enough → no caution
-    // This is exactly the curated-route-validation scenario: avoidance route passes near
-    // the approximate area but not near the actual Road 939 station.
-    expect(matchRouteCautions(POINTS_VIA_OXI, FROM_EGILSSTADIR, TO_HOFN, { evidencePointsOnly: true })
+    // The removed approximate corridor no longer fires with or without the option.
+    expect(matchRouteCautions(POINTS_NEAR_OLD_APPROXIMATE_CORRIDOR, FROM_EGILSSTADIR, TO_HOFN)
+      .some(c => c.id === 'oxi-axarvegur-939')).toBe(false)
+    expect(matchRouteCautions(POINTS_NEAR_OLD_APPROXIMATE_CORRIDOR, FROM_EGILSSTADIR, TO_HOFN, { evidencePointsOnly: true })
       .some(c => c.id === 'oxi-axarvegur-939')).toBe(false)
   })
 
@@ -264,7 +261,7 @@ describe('matchRouteCautions — Öxi caution', () => {
     // AND passes near Öxi corridor. Both cautions should fire independently.
     const POINTS_VIA_OXI_AND_WESTFJORDS = [
       { lat: 66.07, lon: -23.13 }, // Ísafjörður — in WESTFJORDS_NORTH_BOUNDS
-      { lat: 64.86, lon: -14.37 }, // near Öxi corridor — within 6 km of detection point
+      { lat: 64.826, lon: -14.658 }, // near confirmed Öxi station
       { lat: 65.27, lon: -14.40 }, // Egilsstaðir area
     ]
     const FROM_ISAFJORDUR_SYN: PlaceCandidate = {

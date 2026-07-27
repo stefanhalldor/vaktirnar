@@ -77,6 +77,7 @@ describe('middleware — public static and road-intelligence boundaries', () => 
     '/api/teskeid/road-intelligence/lmi-tile?z=1&x=1&y=1',
     '/api/teskeid/weather/forecast-history',
     '/api/cron/warm-metno-points',
+    '/api/cron/refresh-hms-places',
   ])('lets exact public weather read reach its own handler: %s', async path => {
     const res = await middleware(makeReq(path))
     expect(res.status).toBe(200)
@@ -209,6 +210,12 @@ describe('middleware — unauthenticated private route', () => {
   it('keeps place-search subpaths private', async () => {
     const res = await middleware(makeReq('/api/place/search/private?q=reykjavik'))
     expect(res.status).toBe(401)
+  })
+
+  it('allows only the exact current-location label API through', async () => {
+    expect((await middleware(makeReq('/api/place/reverse-geocode'))).status).toBe(200)
+    expect((await middleware(makeReq('/api/place/reverse-geocode/private'))).status).toBe(401)
+    expect((await middleware(makeReq('/api/place/reverse-geocode-extra'))).status).toBe(401)
   })
 })
 

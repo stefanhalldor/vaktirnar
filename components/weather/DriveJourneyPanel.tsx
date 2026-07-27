@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import type {
   ForecastDrawerRow,
@@ -40,6 +40,11 @@ type StationAssessment = {
   etaIso: string | null
   row: ForecastRow | null
   status: WindDisplayStatus
+}
+
+type ManualStationSelection = {
+  contextKey: string
+  stationId: string
 }
 
 export function buildDriveStationAssessment(
@@ -125,6 +130,7 @@ export function DriveJourneyPanel({
   onLoadMore,
   onEnlargeMap,
   stationReturnTo,
+  routeSelectionContextKey,
 }: {
   layer: VedurstofanTravelLayer | null
   candidates: TravelCandidate[]
@@ -142,6 +148,7 @@ export function DriveJourneyPanel({
   onLoadMore?: () => void
   onEnlargeMap?: () => void
   stationReturnTo: string
+  routeSelectionContextKey: string
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const t = useTranslations('teskeid.vedrid.overview')
@@ -149,11 +156,20 @@ export function DriveJourneyPanel({
   const [visibleStatuses, setVisibleStatuses] = useState<Set<WindDisplayStatus>>(
     () => new Set(ALL_WIND_DISPLAY_STATUSES),
   )
-  const [selectedStationId, setSelectedStationId] = useState<string | null>(null)
+  const [manualSelection, setManualSelection] = useState<ManualStationSelection | null>(null)
   const candidate =
     selectedCandidateIdx !== null
       ? candidates[selectedCandidateIdx] ?? candidates[0] ?? null
       : candidates[0] ?? null
+  const selectionContextKey = `${routeSelectionContextKey}\u0000${candidate?.departureIso ?? ''}`
+  const selectedStationId = manualSelection?.contextKey === selectionContextKey
+    ? manualSelection.stationId
+    : null
+
+  useEffect(() => {
+    setManualSelection(null)
+  }, [selectionContextKey])
+
   const stations = useMemo(
     () => layer?.points
       .filter(station => station.forecastRows.length > 0)
@@ -184,10 +200,13 @@ export function DriveJourneyPanel({
     selectedStationId === null
       ? null
       : assessments.find(assessment => assessment.station.stationId === selectedStationId) ?? null
-  const visibleSelectedAssessment =
-    selectedAssessment && visibleStatuses.has(selectedAssessment.status)
-      ? selectedAssessment
+  const displayedAssessment = selectedAssessment ?? worst
+  const visibleDisplayedAssessment =
+    displayedAssessment && visibleStatuses.has(displayedAssessment.status)
+      ? displayedAssessment
       : null
+  const displayedAssessmentIsWorst =
+    visibleDisplayedAssessment?.station.routePointId === worst?.station.routePointId
   const driveMapStations = useMemo<DriveRouteMapStation[]>(
     () => assessments
       .filter(assessment => assessment.station.lat !== null && assessment.station.lon !== null)
@@ -352,7 +371,11 @@ export function DriveJourneyPanel({
             <DriveRouteMap
               routePoints={routePoints}
               stations={visibleDriveMapStations}
-              onSelectStation={setSelectedStationId}
+              selectedStationId={visibleDisplayedAssessment?.station.stationId ?? null}
+              onSelectStation={(stationId) => setManualSelection({
+                contextKey: selectionContextKey,
+                stationId,
+              })}
               ariaLabel={tf('auditMapAlt', {
                 origin: originName,
                 destination: destinationName,
@@ -370,17 +393,29 @@ export function DriveJourneyPanel({
             )}
           </div>
 
-          {visibleSelectedAssessment && (
+          {visibleDisplayedAssessment && (
             <VedurstofanPointCard
-              station={visibleSelectedAssessment.station}
-              status={visibleSelectedAssessment.status}
-              etaIso={visibleSelectedAssessment.etaIso}
+              station={visibleDisplayedAssessment.station}
+              status={visibleDisplayedAssessment.status}
+              etaIso={visibleDisplayedAssessment.etaIso}
               departureIso={candidate?.departureIso ?? null}
               originName={originName}
-              panelTitle={tf('manualSelectedPointTitle')}
-              isManualSelection
+              panelTitle={displayedAssessmentIsWorst
+                ? tf('decisivePointLabel')
+                : tf('manualSelectedPointTitle')}
+              isManualSelection={!displayedAssessmentIsWorst}
               returnTo={stationReturnTo}
             />
+          )}
+
+          {visibleDisplayedAssessment && selectedAssessment && !displayedAssessmentIsWorst && (
+            <button
+              type="button"
+              onClick={() => setManualSelection(null)}
+              className="min-h-10 text-xs font-medium text-primary underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {tf('showWorstPoint')}
+            </button>
           )}
 
           <details className="group rounded-xl border border-border bg-card">

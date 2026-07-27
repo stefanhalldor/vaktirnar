@@ -1230,12 +1230,12 @@ describe('googleProvider.getRouteOptions', () => {
 
   // ── Curated Öxi-avoid route (CURATED_AVOID_OXI) ─────────────────────────────
 
-  // Coordinates passing within 6 km of the Öxi corridor point (lat 64.860, lon -14.365).
-  // Used for base-route detection tests — corridorPoint (10 km radius) fires here.
+  // Coordinates passing the confirmed Veðurstofan Öxi station (35963).
+  // Base- and curated-route detection use the same 1.5 km evidence radius.
   // Format: [lon, lat] as used in Google GeoJSON linestring responses.
   const COORDS_VIA_OXI: [number, number][] = [
     [-14.40, 65.27],  // Egilsstaðir area
-    [-14.37, 64.86],  // ~0.3 km from Öxi corridor point — within 10 km radius
+    [-14.657, 64.826], // ~0.1 km from Öxi station
     [-15.21, 64.25],  // Höfn area
   ]
 

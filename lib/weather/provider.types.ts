@@ -53,6 +53,10 @@ export type RouteOption = RouteGeometry & {
       mixedM: number
       unknownM: number
     }
+    fRoad?: {
+      distanceM: number
+      roadNumbers: string[]
+    }
   }
 }
 

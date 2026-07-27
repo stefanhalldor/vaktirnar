@@ -1,15 +1,34 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type Ref,
+} from 'react'
 import { useTranslations } from 'next-intl'
-import { loadPlacesLibrary } from '@/lib/weather/googleMaps.client'
-import { Search, X } from 'lucide-react'
+import { LocateFixed, Search, X } from 'lucide-react'
+import type {
+  PlaceRoutingReference,
+  PlaceSource,
+  SelectedLocation,
+} from '@/lib/places/types'
+import {
+  CurrentLocationError,
+  getCurrentLocation,
+  type CurrentLocationErrorCode,
+} from '@/lib/places/currentLocation.client'
+import { HMS_PLACE_DIRECTORY_ATTRIBUTION } from '@/lib/places/hmsAttribution'
 
-export type PlaceResult = {
-  name: string
-  formattedAddress: string
-  lat: number
-  lon: number
+/** Backwards-compatible public name used by existing weather consumers. */
+export type PlaceResult = Omit<SelectedLocation, 'source'> & {
+  /** UI compatibility while legacy curated/static locations are consolidated. */
+  source: Exclude<PlaceSource, 'curated'>
+  /** Transitional aliases for consumers that have not moved to routingRef yet. */
+  googlePlaceId?: string
   placeId?: string
 }
 
@@ -20,289 +39,629 @@ export type SavedPlace = {
   formattedAddress?: string
   lat: number
   lon: number
+  source?: PlaceSource
+  sourceId?: string
+  postalCode?: string
+  municipality?: string
+  municipalityCode?: string
+  accuracyM?: number
+  routingRef?: PlaceRoutingReference
+  googlePlaceId?: string
+  /** Transitional compatibility for pre-HMS saved values. */
+  placeId?: string
 }
 
-type PlaceSearchProps = {
+export type PlaceExclusion = {
+  id?: string
+  source?: string
+  sourceId?: string
+  routingRef?: PlaceRoutingReference
+  googlePlaceId?: string
+  placeId?: string
+  lat: number
+  lon: number
+}
+
+export type PlaceSearchProps = {
   onPlaceSelected: (place: PlaceResult) => void
   onCancel?: () => void
   autoFocus?: boolean
   placeholder?: string
-  savedPlaces?: SavedPlace[]
+  ariaLabel?: string
+  savedPlaces?: readonly SavedPlace[]
   onDeleteSavedPlace?: (id: string) => void
+  /** Controlled query value. Omit to let PlaceSearch own the query. */
+  value?: string
+  defaultValue?: string
+  onValueChange?: (value: string) => void
+  /** Places hidden from both live and saved results, e.g. the opposite route endpoint. */
+  excludePlaces?: readonly PlaceExclusion[]
+  allowCurrentLocation?: boolean
+  onResultsChange?: (results: PlaceResult[]) => void
+  variant?: 'default' | 'compact'
+  /** Optional focus handoff for route forms that keep both fields mounted. */
+  inputRef?: Ref<HTMLInputElement>
 }
 
-type SearchSuggestion =
-  | { source: 'google'; label: string; raw: google.maps.places.AutocompleteSuggestion }
-  | { source: 'server'; label: string; place: PlaceResult }
+const EMPTY_PLACE_EXCLUSIONS: readonly PlaceExclusion[] = []
 
-type ServerSearchOutcome =
-  | { ok: true; results: SearchSuggestion[] }
-  | { ok: false; results: [] }
+type SearchResponse = { results?: unknown }
 
-// How long to wait for Google Places before falling back to server search.
-const GOOGLE_TIMEOUT_MS = 4_000
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
 
-export function PlaceSearch({ onPlaceSelected, onCancel, autoFocus = true, placeholder, savedPlaces, onDeleteSavedPlace }: PlaceSearchProps) {
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function routingReference(value: unknown): PlaceRoutingReference | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as Record<string, unknown>
+  const placeId = stringValue(candidate.placeId)
+  return candidate.provider === 'google' && placeId
+    ? { provider: 'google', placeId }
+    : undefined
+}
+
+function normalizedSource(value: unknown): PlaceResult['source'] {
+  if (
+    value === 'hms' ||
+    value === 'device' ||
+    value === 'saved' ||
+    value === 'static' ||
+    value === 'google'
+  ) {
+    return value
+  }
+  // `curated` is the old name for the provider-neutral local directory.
+  // Unknown/missing provenance must never be promoted to a Google identity.
+  return 'static'
+}
+
+function generatedPlaceId(
+  source: string,
+  sourceId: string | undefined,
+  name: string,
+  lat: number,
+  lon: number,
+): string {
+  return sourceId
+    ? `${source}:${sourceId}`
+    : `${source}:${name}:${lat.toFixed(6)}:${lon.toFixed(6)}`
+}
+
+function parsePlace(raw: unknown): PlaceResult | null {
+  if (!raw || typeof raw !== 'object') return null
+  const value = raw as Record<string, unknown>
+  const name = stringValue(value.name ?? value.displayName)
+  const lat = finiteNumber(value.lat)
+  const lon = finiteNumber(value.lon ?? value.lng)
+  if (!name || lat === undefined || lon === undefined) return null
+
+  const source = normalizedSource(value.source)
+  const sourceId = stringValue(value.sourceId)
+  const legacyGooglePlaceId = stringValue(value.googlePlaceId ?? value.placeId)
+  const parsedRoutingRef = routingReference(value.routingRef)
+    ?? (source === 'google' && legacyGooglePlaceId
+      ? { provider: 'google', placeId: legacyGooglePlaceId }
+      : undefined)
+  return {
+    id: stringValue(value.id) ?? generatedPlaceId(source, sourceId, name, lat, lon),
+    name,
+    formattedAddress: stringValue(value.formattedAddress ?? value.address) ?? name,
+    lat,
+    lon,
+    source,
+    sourceId,
+    postalCode: stringValue(value.postalCode),
+    municipality: stringValue(value.municipality),
+    municipalityCode: stringValue(value.municipalityCode),
+    accuracyM: finiteNumber(value.accuracyM),
+    routingRef: parsedRoutingRef,
+    googlePlaceId: parsedRoutingRef?.placeId,
+    placeId: parsedRoutingRef?.placeId,
+  }
+}
+
+function parseSearchResults(payload: unknown): PlaceResult[] {
+  const results = (payload as SearchResponse | null)?.results
+  if (!Array.isArray(results)) return []
+  const seen = new Set<string>()
+  return results
+    .map(parsePlace)
+    .filter((place): place is PlaceResult => place !== null)
+    .filter(place => {
+      const identity = place.sourceId
+        ? `${place.source}:${place.sourceId}`
+        : place.id ?? `${place.source}:${coordinateKey(place)}`
+      if (seen.has(identity)) return false
+      seen.add(identity)
+      return true
+    })
+}
+
+function coordinateKey(place: Pick<PlaceResult, 'lat' | 'lon'>): string {
+  return `${place.lat.toFixed(5)}:${place.lon.toFixed(5)}`
+}
+
+function samePlace(
+  place: Pick<PlaceResult, 'id' | 'source' | 'sourceId' | 'routingRef' | 'googlePlaceId' | 'placeId' | 'lat' | 'lon'>,
+  exclusion: PlaceExclusion,
+): boolean {
+  if (exclusion.id && place.id === exclusion.id) return true
+  if (
+    place.sourceId &&
+    exclusion.sourceId &&
+    place.source === exclusion.source &&
+    place.sourceId === exclusion.sourceId
+  ) {
+    return true
+  }
+  if (
+    place.routingRef?.provider === 'google' &&
+    exclusion.routingRef?.provider === 'google' &&
+    place.routingRef.placeId === exclusion.routingRef.placeId
+  ) {
+    return true
+  }
+  if (place.googlePlaceId && place.googlePlaceId === exclusion.googlePlaceId) return true
+  if (place.placeId && place.placeId === exclusion.placeId) return true
+  return coordinateKey(place) === coordinateKey(exclusion)
+}
+
+function savedPlaceResult(place: SavedPlace): PlaceResult {
+  const source: PlaceResult['source'] = place.source === 'curated'
+    ? 'static'
+    : place.source ?? 'saved'
+  const legacyGooglePlaceId = place.googlePlaceId ?? place.placeId
+  const routingRef = place.routingRef
+    ?? (source === 'google' && legacyGooglePlaceId
+      ? { provider: 'google' as const, placeId: legacyGooglePlaceId }
+      : undefined)
+  return {
+    id: place.id,
+    name: place.name,
+    formattedAddress: place.formattedAddress ?? place.name,
+    lat: place.lat,
+    lon: place.lon,
+    source,
+    sourceId: place.sourceId,
+    postalCode: place.postalCode,
+    municipality: place.municipality,
+    municipalityCode: place.municipalityCode,
+    accuracyM: place.accuracyM,
+    routingRef,
+    googlePlaceId: routingRef?.placeId,
+    placeId: routingRef?.placeId,
+  }
+}
+
+function secondaryLabel(place: PlaceResult): string | null {
+  if (place.formattedAddress && place.formattedAddress !== place.name) {
+    return place.formattedAddress
+  }
+  const area = [place.postalCode, place.municipality].filter(Boolean).join(' ')
+  return area || null
+}
+
+function currentLocationMessageKey(code: CurrentLocationErrorCode):
+  | 'currentLocationPermissionDenied'
+  | 'currentLocationUnavailable'
+  | 'currentLocationTimeout'
+  | 'currentLocationOutsideIceland'
+  | 'currentLocationInsecureContext' {
+  if (code === 'permission_denied') return 'currentLocationPermissionDenied'
+  if (code === 'timeout') return 'currentLocationTimeout'
+  if (code === 'outside_iceland') return 'currentLocationOutsideIceland'
+  if (code === 'insecure_context') return 'currentLocationInsecureContext'
+  return 'currentLocationUnavailable'
+}
+
+export function PlaceSearch({
+  onPlaceSelected,
+  onCancel,
+  autoFocus = true,
+  placeholder,
+  ariaLabel,
+  savedPlaces,
+  onDeleteSavedPlace,
+  value,
+  defaultValue = '',
+  onValueChange,
+  excludePlaces = EMPTY_PLACE_EXCLUSIONS,
+  allowCurrentLocation = false,
+  onResultsChange,
+  variant = 'default',
+  inputRef,
+}: PlaceSearchProps) {
   const t = useTranslations('teskeid.vedrid.placeSearch')
-  const [input, setInput] = useState('')
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
+  const generatedId = useId()
+  const inputId = `place-search-${generatedId}`
+  const listboxId = `${inputId}-results`
+  const statusId = `${inputId}-status`
+  const errorId = `${inputId}-error`
+  const [internalValue, setInternalValue] = useState(defaultValue)
+  const query = value === undefined ? internalValue : value
+  const [results, setResults] = useState<PlaceResult[]>([])
   const [loading, setLoading] = useState(false)
-  const [fetchError, setFetchError] = useState(false)
-  const [noResults, setNoResults] = useState(false)
-
-  // Once Google fails in this component instance, stick to the server fallback.
-  const googleUnavailableRef = useRef(false)
-  const sessionTokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null)
-  const requestIdRef = useRef(0)
+  const [searchComplete, setSearchComplete] = useState(false)
+  const [fetchError, setFetchError] = useState<'generic' | 'rate_limited' | null>(null)
+  const [focused, setFocused] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const [locationLoading, setLocationLoading] = useState(false)
+  const [locationError, setLocationError] = useState<CurrentLocationErrorCode | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const inputRef = useRef(input)
-  inputRef.current = input
+  const searchAbortRef = useRef<AbortController | null>(null)
+  const locationAbortRef = useRef<AbortController | null>(null)
+  const requestIdRef = useRef(0)
+  const lastNotifiedResultsRef = useRef<string | null>(null)
 
-  // Clear debounce timer on unmount to avoid state updates after unmount.
+  const visibleResults = useMemo(
+    () => results.filter(place => !excludePlaces.some(exclusion => samePlace(place, exclusion))),
+    [excludePlaces, results],
+  )
+  const visibleSavedPlaces = useMemo(
+    () => (savedPlaces ?? []).filter(place => {
+      const result = savedPlaceResult(place)
+      return !excludePlaces.some(exclusion => samePlace(result, exclusion))
+    }),
+    [excludePlaces, savedPlaces],
+  )
+
+  const trimmedQuery = query.trim()
+  const resultsOpen = focused && !dismissed && visibleResults.length > 0
+  const hasVisibleHmsResults = resultsOpen && visibleResults.some(place => place.source === 'hms')
+  const noResults = searchComplete && !loading && !fetchError && visibleResults.length === 0
+  const describedBy = [loading ? statusId : null, fetchError ? errorId : null]
+    .filter(Boolean)
+    .join(' ') || undefined
+
+  function updateQuery(next: string) {
+    if (value === undefined) setInternalValue(next)
+    onValueChange?.(next)
+  }
+
+  function selectPlace(place: PlaceResult) {
+    searchAbortRef.current?.abort()
+    requestIdRef.current += 1
+    setResults([])
+    setLoading(false)
+    setSearchComplete(false)
+    setFetchError(null)
+    setDismissed(true)
+    setActiveIndex(-1)
+    updateQuery('')
+    onPlaceSelected(place)
+  }
+
   useEffect(() => {
+    const signature = visibleResults
+      .map(place => [
+        place.id,
+        place.source,
+        place.sourceId,
+        place.name,
+        place.formattedAddress,
+        place.lat,
+        place.lon,
+      ].join(':'))
+      .join('|')
+    if (lastNotifiedResultsRef.current === signature) return
+    lastNotifiedResultsRef.current = signature
+    onResultsChange?.(visibleResults)
+  }, [onResultsChange, visibleResults])
+
+  useEffect(() => {
+    if (activeIndex >= visibleResults.length) {
+      setActiveIndex(visibleResults.length > 0 ? visibleResults.length - 1 : -1)
+    }
+  }, [activeIndex, visibleResults.length])
+
+  useEffect(() => {
+    if (!resultsOpen || activeIndex < 0) return
+    document.getElementById(`${listboxId}-option-${activeIndex}`)?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, listboxId, resultsOpen])
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    searchAbortRef.current?.abort()
+    requestIdRef.current += 1
+    const requestId = requestIdRef.current
+    setResults([])
+    setActiveIndex(-1)
+    setSearchComplete(false)
+    setFetchError(null)
+
+    if (trimmedQuery.length < 2) {
+      setLoading(false)
+      return
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController()
+      searchAbortRef.current = controller
+      setLoading(true)
+      try {
+        const response = await fetch('/api/place/search', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: trimmedQuery }),
+          signal: controller.signal,
+        })
+        if (controller.signal.aborted || requestId !== requestIdRef.current) return
+        if (!response.ok) {
+          throw new Error(response.status === 429 ? 'rate_limited' : 'place_search_failed')
+        }
+        const payload = await response.json().catch(() => null)
+        if (controller.signal.aborted || requestId !== requestIdRef.current) return
+        setResults(parseSearchResults(payload))
+        setSearchComplete(true)
+      } catch (error) {
+        if (controller.signal.aborted || requestId !== requestIdRef.current) return
+        setResults([])
+        setFetchError(
+          error instanceof Error && error.message === 'rate_limited'
+            ? 'rate_limited'
+            : 'generic',
+        )
+        setSearchComplete(true)
+      } finally {
+        if (!controller.signal.aborted && requestId === requestIdRef.current) {
+          setLoading(false)
+        }
+      }
+    }, 250)
+
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [])
+  }, [trimmedQuery])
 
-  async function searchViaGoogle(value: string): Promise<SearchSuggestion[]> {
-    const { AutocompleteSuggestion, AutocompleteSessionToken } = await loadPlacesLibrary()
-    if (!sessionTokenRef.current) {
-      sessionTokenRef.current = new AutocompleteSessionToken()
-    }
-    const { suggestions: results } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
-      input: value,
-      sessionToken: sessionTokenRef.current,
-      includedRegionCodes: ['is'],
-      language: 'is',
-    })
-    return results.map(raw => ({
-      source: 'google' as const,
-      label: raw.placePrediction?.text.text ?? '',
-      raw,
-    }))
-  }
-
-  async function searchViaServer(value: string): Promise<ServerSearchOutcome> {
-    try {
-      const res = await fetch(`/api/place/search?q=${encodeURIComponent(value)}`)
-      if (!res.ok) return { ok: false, results: [] }
-      const data = (await res.json()) as { results: PlaceResult[] }
-      return {
-        ok: true,
-        results: (data.results ?? []).map(place => ({
-          source: 'server' as const,
-          label: place.formattedAddress || place.name,
-          place,
-        })),
-      }
-    } catch {
-      return { ok: false, results: [] }
-    }
-  }
-
-  const search = useCallback(async (value: string) => {
-    if (value.length < 2) {
-      setSuggestions([])
-      setFetchError(false)
-      setNoResults(false)
-      return
-    }
-
-    const requestId = ++requestIdRef.current
-    setLoading(true)
-    setFetchError(false)
-    setNoResults(false)
-
-    try {
-      if (!googleUnavailableRef.current) {
-        try {
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('timeout')), GOOGLE_TIMEOUT_MS),
-          )
-          const results = await Promise.race([searchViaGoogle(value), timeoutPromise])
-          if (requestId !== requestIdRef.current) return
-          setSuggestions(results)
-          setLoading(false)
-          return
-        } catch {
-          googleUnavailableRef.current = true
-        }
-      }
-
-      // Server fallback
-      const outcome = await searchViaServer(value)
-      if (requestId !== requestIdRef.current) return
-      setSuggestions(outcome.results)
-      if (!outcome.ok) {
-        setFetchError(true)
-      } else if (outcome.results.length === 0) {
-        setNoResults(true)
-      }
-    } catch {
-      if (requestId === requestIdRef.current) {
-        setSuggestions([])
-        setFetchError(true)
-      }
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false)
-    }
-  }, [])
-
-  function handleInputChange(value: string) {
-    setInput(value)
-    setNoResults(false)
+  useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!value.trim()) {
-      setSuggestions([])
+    searchAbortRef.current?.abort()
+    locationAbortRef.current?.abort()
+  }, [])
+
+  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape') {
+      if (resultsOpen) event.preventDefault()
+      setDismissed(true)
+      setActiveIndex(-1)
       return
     }
-    debounceRef.current = setTimeout(() => search(value), 300)
+    if (visibleResults.length === 0) return
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setDismissed(false)
+      setActiveIndex(current => current < visibleResults.length - 1 ? current + 1 : 0)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setDismissed(false)
+      setActiveIndex(current => current > 0 ? current - 1 : visibleResults.length - 1)
+    } else if (event.key === 'Home' && resultsOpen) {
+      event.preventDefault()
+      setActiveIndex(0)
+    } else if (event.key === 'End' && resultsOpen) {
+      event.preventDefault()
+      setActiveIndex(visibleResults.length - 1)
+    } else if (event.key === 'Enter' && resultsOpen && activeIndex >= 0) {
+      event.preventDefault()
+      selectPlace(visibleResults[activeIndex])
+    }
   }
 
-  async function handleSelect(suggestion: SearchSuggestion) {
-    if (suggestion.source === 'server') {
-      setSuggestions([])
-      setInput('')
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[PlaceSearch] selected (server fallback):', { name: suggestion.place.name, placeId: suggestion.place.placeId ?? 'none' })
-      }
-      onPlaceSelected(suggestion.place)
-      return
-    }
+  async function handleCurrentLocation() {
+    if (locationLoading) return
+    locationAbortRef.current?.abort()
+    const controller = new AbortController()
+    locationAbortRef.current = controller
+    setLocationLoading(true)
+    setLocationError(null)
 
-    // Google path: fetch coordinates via fetchFields. Don't clear input until success
-    // so that if fetchFields fails the user still sees what they typed.
     try {
-      const place = suggestion.raw.placePrediction!.toPlace()
-      await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] })
-      sessionTokenRef.current = null
-      setSuggestions([])
-      setInput('')
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[PlaceSearch] selected (google):', { name: place.displayName, placeId: place.id ?? 'null — place.id was null/undefined' })
-      }
-      onPlaceSelected({
-        name: place.displayName ?? '',
-        formattedAddress: place.formattedAddress ?? '',
-        lat: place.location!.lat(),
-        lon: place.location!.lng(),
-        placeId: place.id ?? undefined,
+      const place = await getCurrentLocation({
+        fallbackName: t('currentLocationName'),
+        formatNearbyLabel: placeName => t('currentLocationNear', { place: placeName }),
+        signal: controller.signal,
       })
-    } catch {
-      // Google fetchFields failed — mark Google as unavailable and try server fallback.
-      googleUnavailableRef.current = true
-      const fallbackQuery = inputRef.current || suggestion.label
-      if (fallbackQuery.length >= 2) {
-        const outcome = await searchViaServer(fallbackQuery)
-        setSuggestions(outcome.results)
-        if (!outcome.ok) { setNoResults(false); setFetchError(true) }
-        else if (outcome.results.length === 0) { setFetchError(false); setNoResults(true) }
-      } else {
-        setSuggestions([])
-        setFetchError(true)
-      }
+      if (!controller.signal.aborted) selectPlace(place)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setLocationError(
+        error instanceof CurrentLocationError ? error.code : 'position_unavailable',
+      )
+    } finally {
+      if (!controller.signal.aborted) setLocationLoading(false)
     }
   }
+
+  const compact = variant === 'compact'
 
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className={`flex flex-col ${compact ? 'gap-1.5' : 'gap-2'}`}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setFocused(false)
+          setActiveIndex(-1)
+        }
+      }}
+    >
       <div className="relative">
         <Search
           size={14}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
           aria-hidden
         />
         <input
+          ref={inputRef}
+          id={inputId}
           type="text"
-          value={input}
-          onChange={(e) => handleInputChange(e.target.value)}
+          value={query}
+          onChange={(event) => {
+            updateQuery(event.target.value)
+            setDismissed(false)
+            setLocationError(null)
+          }}
+          onFocus={() => setDismissed(false)}
+          onKeyDown={handleInputKeyDown}
           placeholder={placeholder ?? t('placeholder')}
           autoFocus={autoFocus}
-          className="w-full rounded-xl border border-border bg-card pl-8 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          style={{ fontSize: '16px' }}
-          aria-label={t('ariaLabel')}
+          autoComplete="off"
+          spellCheck={false}
+          role="combobox"
+          aria-label={ariaLabel ?? t('ariaLabel')}
+          aria-autocomplete="list"
+          aria-expanded={resultsOpen}
+          aria-controls={resultsOpen ? listboxId : undefined}
+          aria-activedescendant={
+            resultsOpen && activeIndex >= 0
+              ? `${listboxId}-option-${activeIndex}`
+              : undefined
+          }
+          aria-busy={loading}
+          aria-invalid={fetchError ? true : undefined}
+          aria-describedby={describedBy}
+          className={`h-10 w-full border bg-card pl-8 pr-4 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:ring-2 focus:ring-ring ${compact ? 'rounded-md' : 'rounded-xl'}`}
         />
       </div>
 
+      {allowCurrentLocation && (
+        <button
+          type="button"
+          onClick={() => void handleCurrentLocation()}
+          disabled={locationLoading}
+          aria-busy={locationLoading}
+          aria-describedby={locationError ? errorId : undefined}
+          className={`inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60 sm:hidden ${compact ? 'text-xs' : ''}`}
+        >
+          {locationLoading ? (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden />
+          ) : (
+            <LocateFixed size={16} aria-hidden />
+          )}
+          {locationLoading ? t('currentLocationLoading') : t('useCurrentLocation')}
+        </button>
+      )}
+
       {loading && (
-        <p className="text-xs text-muted-foreground px-1">{t('loading')}</p>
+        <p id={statusId} role="status" aria-live="polite" className="px-1 text-xs text-muted-foreground">
+          {t('loading')}
+        </p>
       )}
 
-      {fetchError && (
-        <p className="text-xs text-destructive px-1">{t('errorAllProviders')}</p>
+      {(fetchError || locationError) && (
+        <p id={errorId} role="alert" className="px-1 text-xs text-destructive">
+          {locationError
+            ? t(currentLocationMessageKey(locationError))
+            : fetchError === 'rate_limited'
+              ? t('rateLimited')
+              : t('errorAllProviders')}
+        </p>
       )}
 
-      {noResults && !fetchError && (
-        <p className="text-xs text-muted-foreground px-1">{t('noResults')}</p>
+      {noResults && (
+        <p role="status" aria-live="polite" className="px-1 text-xs text-muted-foreground">
+          {t('noResults')}
+        </p>
       )}
 
-      {!input.trim() && savedPlaces && savedPlaces.length > 0 && (
+      {!trimmedQuery && visibleSavedPlaces.length > 0 && (
         <div className="flex flex-col gap-1">
-          <p className="text-xs text-muted-foreground px-1">{t('savedPlacesTitle')}</p>
+          <p id={`${inputId}-saved-label`} className="px-1 text-xs text-muted-foreground">
+            {t('savedPlacesTitle')}
+          </p>
           <ul
-            role="listbox"
-            className="flex flex-col rounded-xl border border-border bg-card overflow-hidden"
+            aria-labelledby={`${inputId}-saved-label`}
+            className={`flex flex-col overflow-hidden border border-border bg-card ${compact ? 'rounded-md' : 'rounded-xl'}`}
           >
-            {savedPlaces.map((p) => (
-              <li key={p.id} role="option" aria-selected={false}>
-                <div className="flex items-center">
+            {visibleSavedPlaces.map(place => (
+              <li key={place.id} className="flex min-h-10 items-stretch">
+                <button
+                  type="button"
+                  onClick={() => selectPlace(savedPlaceResult(place))}
+                  className="min-w-0 flex-1 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <span className="block truncate text-sm text-foreground">{place.name}</span>
+                  {place.formattedAddress && place.formattedAddress !== place.name && (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {place.formattedAddress}
+                    </span>
+                  )}
+                </button>
+                {onDeleteSavedPlace && (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (process.env.NODE_ENV !== 'production') {
-                        console.log('[PlaceSearch] selected (saved place):', { name: p.name, placeId: 'none — saved places have no placeId' })
-                      }
-                      onPlaceSelected({ name: p.name, formattedAddress: p.formattedAddress ?? '', lat: p.lat, lon: p.lon })
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onDeleteSavedPlace(place.id)
                     }}
-                    className="flex-1 text-left px-4 py-2.5 hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    className="flex min-h-10 min-w-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t('savedPlaceDelete')}
                   >
-                    <span className="block text-sm text-foreground truncate">{p.name}</span>
-                    {p.formattedAddress && p.formattedAddress !== p.name && (
-                      <span className="block text-xs text-muted-foreground truncate">{p.formattedAddress}</span>
-                    )}
+                    <X size={14} aria-hidden />
                   </button>
-                  {onDeleteSavedPlace && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); onDeleteSavedPlace(p.id) }}
-                      className="px-3 py-2.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label={t('savedPlaceDelete')}
-                    >
-                      <X size={13} aria-hidden />
-                    </button>
-                  )}
-                </div>
+                )}
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {suggestions.length > 0 && (
-        <ul
-          role="listbox"
-          className="flex flex-col rounded-xl border border-border bg-card overflow-hidden"
-        >
-          {suggestions.map((s, i) => (
-            <li key={i} role="option" aria-selected={false}>
-              <button
-                type="button"
-                onClick={() => handleSelect(s)}
-                className="w-full text-left px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-              >
-                {s.label}
-              </button>
-            </li>
-          ))}
-        </ul>
+      {resultsOpen && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <ul
+            id={listboxId}
+            role="listbox"
+            aria-label={ariaLabel ?? t('ariaLabel')}
+            className={`max-h-64 overflow-y-auto overscroll-contain border border-border bg-card shadow-sm ${compact ? 'rounded-md' : 'rounded-xl'}`}
+          >
+            {visibleResults.map((place, index) => {
+              const secondary = secondaryLabel(place)
+              const selected = index === activeIndex
+              return (
+                <li
+                  id={`${listboxId}-option-${index}`}
+                  key={place.id ?? `${place.source}:${coordinateKey(place)}`}
+                  role="option"
+                  aria-selected={selected}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => selectPlace(place)}
+                  onMouseMove={() => setActiveIndex(index)}
+                  className={`min-h-10 cursor-pointer px-3 py-2 text-left text-sm transition-colors ${selected ? 'bg-muted text-foreground' : 'text-foreground hover:bg-muted'}`}
+                >
+                  <span className="block truncate font-medium">{place.name}</span>
+                  {secondary && (
+                    <span className="block truncate text-xs text-muted-foreground">{secondary}</span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {hasVisibleHmsResults && (
+            <a
+              href={HMS_PLACE_DIRECTORY_ATTRIBUTION.termsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="self-start px-1 text-[11px] leading-tight text-muted-foreground underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {t('hmsAttribution')}
+            </a>
+          )}
+        </div>
       )}
 
       {onCancel && (
         <button
           type="button"
           onClick={onCancel}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded self-start"
+          className="min-h-10 self-start rounded px-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t('cancel')}
         </button>

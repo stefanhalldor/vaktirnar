@@ -1,6 +1,4 @@
-// Client-side reverse geocoding via BFF (/api/place/reverse-geocode).
-// The BFF calls Nominatim server-side with User-Agent, cache, and rate limiting.
-// Attribution: © OpenStreetMap contributors (ODbL 1.0)
+// Client-side label lookup via the same-origin, local-only HMS/static BFF.
 
 const cache = new Map<string, string | null>()
 const inflight = new Map<string, Promise<string | null>>()
@@ -24,10 +22,23 @@ export async function resolvePlaceLabel(lat: number, lon: number): Promise<strin
 
   const promise = (async () => {
     try {
-      const res = await fetch(`/api/place/reverse-geocode?lat=${lat}&lon=${lon}`)
+      const res = await fetch('/api/place/reverse-geocode', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lon }),
+      })
       if (!res.ok) { cache.set(key, null); return null }
-      const data: { name: string | null } = await res.json()
-      const name = data.name ?? null
+      const data = await res.json().catch(() => null) as {
+        location?: { name?: unknown; formattedAddress?: unknown } | null
+      } | null
+      const formattedAddress = data?.location?.formattedAddress
+      const displayName = data?.location?.name
+      const name = typeof formattedAddress === 'string' && formattedAddress.trim()
+        ? formattedAddress.trim()
+        : typeof displayName === 'string' && displayName.trim()
+          ? displayName.trim()
+          : null
       cache.set(key, name)
       return name
     } catch {

@@ -105,6 +105,26 @@ describe('Iceland road graph routing profiles', () => {
     expect(result.route.surface.gravelM).toBe(10_000)
   })
 
+  it('carries F-road distance and road numbers into the routed result', () => {
+    const fRoadGraph = buildIcelandRoadGraph([
+      segment('f-road', [A, B], {
+        lengthM: 12_000,
+        roadNumber: 'F35',
+        roadClass: 'highland_trunk',
+        isFRoad: true,
+        isMountainRoad: true,
+        surface: 'gravel',
+      }),
+    ])
+    const result = findIcelandRoadGraphRoute(fRoadGraph, A, B, {
+      profile: { objective: 'shortest' },
+    })
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.route.fRoadDistanceM).toBe(12_000)
+    expect(result.route.fRoadNumbers).toEqual(['F35'])
+  })
+
   it('selects the fastest route using segment speeds', () => {
     const result = findIcelandRoadGraphRoute(graph, A, B, {
       profile: { objective: 'fastest' },

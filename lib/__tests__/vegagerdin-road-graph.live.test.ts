@@ -8,6 +8,7 @@ import {
 } from '@/lib/iceland-routes/roadGraph'
 import { fetchVegagerdinRoadGraphSegments } from '@/lib/iceland-routes/vegagerdinRoadGraphSource.server'
 import { auditIcelandGoldenRoutes } from '@/lib/iceland-routes/goldenRoutes'
+import { validateRoadGraphSnapshot } from '@/lib/iceland-routes/roadGraphRefresh.server'
 
 const liveEnabled = process.env.ROAD_GRAPH_LIVE_TEST === 'true'
 
@@ -20,6 +21,7 @@ describe.skipIf(!liveEnabled)('Vegagerdin all-Iceland road graph — live read-o
     const akureyri = { lat: 65.6826, lon: -18.0907 }
     let selected: ReturnType<typeof findIcelandRoadGraphRoute> | null = null
     let selectedGraph: ReturnType<typeof buildIcelandRoadGraph> | null = null
+    let selectedDiagnostics: ReturnType<typeof analyzeIcelandRoadGraph> | null = null
     for (const toleranceM of [20, 50, 100, 200]) {
       const graph = buildIcelandRoadGraph(segments, { nodeSnapToleranceM: toleranceM })
       const diagnostics = analyzeIcelandRoadGraph(graph)
@@ -31,6 +33,7 @@ describe.skipIf(!liveEnabled)('Vegagerdin all-Iceland road graph — live read-o
       if (!selected && route.status === 'ok') {
         selected = route
         selectedGraph = graph
+        selectedDiagnostics = diagnostics
       }
     }
 
@@ -48,6 +51,8 @@ describe.skipIf(!liveEnabled)('Vegagerdin all-Iceland road graph — live read-o
     }))
     expect(fastest.route.distanceM).toBeGreaterThan(350_000)
     expect(fastest.route.distanceM).toBeLessThan(500_000)
+    expect(selectedDiagnostics?.surfaceEdgeCounts.mixed).toBe(0)
+    expect(selectedDiagnostics?.surfaceEdgeCounts.unknown).toBe(0)
 
     const paved = findIcelandRoadGraphRoute(selectedGraph!, reykjavik, akureyri, {
       profile: ICELAND_ROUTING_PROFILES.shortestPaved,
@@ -60,6 +65,18 @@ describe.skipIf(!liveEnabled)('Vegagerdin all-Iceland road graph — live read-o
     const goldenRoutes = auditIcelandGoldenRoutes(selectedGraph!)
     console.info('[road-graph-golden-routes]', JSON.stringify(goldenRoutes))
     expect(goldenRoutes.every(route => route.status === 'ok')).toBe(true)
+    const snapshotValidation = validateRoadGraphSnapshot({
+      diagnostics: selectedDiagnostics!,
+      goldenRouteStatuses: goldenRoutes.map(route => route.status),
+      previous: {
+        id: 'measured-pre-linear-reference-baseline',
+        segmentCount: 1_226,
+        nodeCount: 1_363,
+        edgeCount: 2_452,
+        largestWeakComponentNodeCount: 854,
+      },
+    })
+    expect(snapshotValidation.ok, JSON.stringify(snapshotValidation)).toBe(true)
 
     const isafjordurAlternatives = findIcelandRoadGraphAlternatives(
       selectedGraph!, reykjavik, { lat: 66.0748, lon: -23.1340 },

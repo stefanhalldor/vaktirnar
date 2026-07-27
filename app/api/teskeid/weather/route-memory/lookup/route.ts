@@ -4,6 +4,7 @@ import { checkFeatureAccess } from '@/lib/loans/guard'
 import { normalizePlaceForMemory } from '@/lib/iceland-routes/routePlaceNormalization'
 import { lookupRouteMemoryBidirectional } from '@/lib/iceland-routes/routeMemory.server'
 import type { RouteMemoryLookupResult } from '@/lib/iceland-routes/routeMemory.server'
+import { sanitizePublicRouteMemoryLookup } from '@/lib/iceland-routes/routeMemoryVariant'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -96,7 +97,11 @@ export async function POST(request: Request) {
     }
   }
 
-  const result = await lookupRouteMemoryBidirectional(fromNorm.key, toNorm.key)
+  const result = sanitizePublicRouteMemoryLookup(
+    await lookupRouteMemoryBidirectional(fromNorm.key, toNorm.key),
+    fromNorm.key,
+    toNorm.key,
+  )
 
   if ((!vedurstofanAccessible || !vegagerdinAccessible) && result.status === 'resolved') {
     const gated: RouteMemoryLookupResult = {

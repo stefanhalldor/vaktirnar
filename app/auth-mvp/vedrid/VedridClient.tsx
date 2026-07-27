@@ -16,7 +16,7 @@ const STATUS_STYLES: Record<WeatherStatus, { dot: string; label: string }> = {
   rautt:  { dot: 'bg-destructive', label: 'text-destructive' },
 }
 
-type ConfirmedPlace = { name: string; lat: number; lon: number }
+type ConfirmedPlace = PlaceResult
 
 export function VedridClient() {
   const t = useTranslations('teskeid.vedrid')
@@ -94,7 +94,7 @@ export function VedridClient() {
   function handlePlaceSelected(place: PlaceResult) {
     setShowPlaceSearch(false)
     const q = pendingQuestion ?? question.trim()
-    submitQuestion(q, { name: place.name, lat: place.lat, lon: place.lon })
+    submitQuestion(q, place)
   }
 
   function handleChangePlace() {
@@ -174,6 +174,7 @@ export function VedridClient() {
           <PlaceSearch
             onPlaceSelected={handlePlaceSelected}
             onCancel={() => setShowPlaceSearch(false)}
+            allowCurrentLocation
           />
         )}
 

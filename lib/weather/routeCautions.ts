@@ -145,32 +145,16 @@ const SENSITIVE_ROAD_SEGMENTS: readonly SensitiveRoadSegment[] = [
     // Visual confirmation: Skjámynd 2026-07-16 165938 (Egilsstaðir → Höfn,
     // Hringvegur/Leið 1) shows the Google route passing through the Öxi area.
     //
-    // Detection: 'present-near-corridor' — fires when the route passes near the Öxi
-    // pass summit area. This is geometry-driven and does NOT require bounds gates,
-    // so it correctly flags the route regardless of origin/destination.
-    //
-    // Corridor coordinates are APPROXIMATE (based on geographic estimate of the
-    // pass area, lat ~64.86, lon ~-14.37). Stebbi should verify on localhost:
-    // 1. Run Egilsstaðir → Höfn and inspect the route map
-    // 2. Confirm the detection point is visually on the Öxi mountain section
-    //    (not on the coastal fjord roads nearby)
-    // 3. Adjust lat/lon and/or radiusM if the detection misses or over-fires
-    //
-    // If coastal Route 1 (the fjord road around Fáskrúðsfjörður/Breiðdalsvík)
-    // incorrectly gets this caution, tighten the radius or move the corridor point
-    // further into the mountain pass interior.
+    // Detection is station-grade geometry evidence only. The previous 10 km
+    // approximate corridor overlapped the Route 1 fjord alternative and caused
+    // provider-dependent false positives. A route must now pass the confirmed
+    // Veðurstofan Öxi station within 1.5 km, regardless of route provider.
     id: 'oxi-axarvegur-939',
     name: 'Öxi / Axarvegur 939',
     roadNumbers: ['939'],
     detection: {
       type: 'present-near-corridor',
-      corridorPoints: [
-        // APPROXIMATE — visually confirmed on screenshot but not GPS-precise.
-        // Key detection point: Öxi pass/summit area.
-        // radiusM widened to 10 km to compensate for approximate coordinates until
-        // the exact Google polyline is confirmed on localhost.
-        { lat: 64.860, lon: -14.365, radiusM: 10_000 },
-      ],
+      corridorPoints: [],
       // Exact-coordinate evidence: Veðurstofan station Öxi (stationId 35963).
       // A route that passes within 1.5 km of this fixed station is strong evidence
       // of Road 939 / Öxi, regardless of whether corridorPoints triggered.
@@ -191,8 +175,8 @@ const SENSITIVE_ROAD_SEGMENTS: readonly SensitiveRoadSegment[] = [
     appliesTo: ['trailer', 'caravan', 'camper'],
     source: {
       type: 'manual-curated',
-      note: 'Corridor point is approximate. Visual confirmation from Skjámynd 2026-07-16 165938 shows Google routing Egilsstaðir → Höfn via Öxi. GPS precision not verified — adjust coordinates after localhost map check.',
-      verified: false,
+      note: 'Canonical evidence is the confirmed Veðurstofan Öxi station (35963); provider-neutral route geometry must pass within 1.5 km.',
+      verified: true,
     },
   },
 ]

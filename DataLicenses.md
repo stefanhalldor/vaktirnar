@@ -17,6 +17,35 @@ uppsprettna í Road Intelligence vinnunni.
 - Ekki geyma open-data geometry í Supabase eða öðrum persistent store fyrr en
   cache, attribution, refresh og license áhrif eru skjalfest.
 
+## HMS Staðfangaskrá
+
+Provider: Húsnæðis- og mannvirkjastofnun (HMS)
+
+Hlutverk:
+
+- staðaleit og heimilisfangaleit
+- provider-neutral WGS84 hnit fyrir leiðarenda
+- nálæg staðarmerking fyrir núverandi staðsetningu og reverse lookup
+
+Canonical attribution:
+
+`Byggir á upplýsingum úr Staðfangaskrá HMS.`
+
+Opinber skrá og skilmálar:
+
+- https://hms.is/gogn-og-maelabord/grunngogntilnidurhals/stadfangaskra
+- https://gatt.natt.is/geonetwork/srv/api/records/%7BA879D973-CA98-49D7-AA50-7BC35047E461%7D
+
+Notkun:
+
+- Heimilt er að afrita, birta, dreifa, aðlaga og nota gögnin, einnig í
+  hagnaðarskyni.
+- Taka þarf fram uppruna upplýsinganna og ekki má gefa í skyn að HMS hafi
+  samþykkt notkun Teskeiðar sérstaklega.
+- HMS ber ekki ábyrgð á villum, vanskráningu eða áframhaldandi aðgengi.
+- Skráin er uppfærð vikulega; Teskeið notar versioned last-known-good import og
+  birtir attribution þegar HMS-niðurstöður eru sýndar.
+
 ## Vegagerðin
 
 Provider: Vegagerðin

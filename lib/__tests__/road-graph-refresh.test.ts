@@ -61,7 +61,7 @@ function diagnostics(segmentCount = 1_226) {
     weakComponentCount: 3,
     largestWeakComponentNodeCount: 1_300,
     isolatedNodeCount: 0,
-    surfaceEdgeCounts: { paved: 2_000, gravel: 300, mixed: 50, unknown: 50 },
+    surfaceEdgeCounts: { paved: 2_100, gravel: 300, mixed: 0, unknown: 0 },
     derivedSpeedEdgeCount: 2_400,
   }
 }
@@ -231,6 +231,19 @@ describe('validateRoadGraphSnapshot', () => {
 
     expect(result.ok).toBe(false)
     expect(result.checks.allGoldenRoutesPass).toBe(false)
+  })
+
+  it('rejects a snapshot that still contains unresolved official surface edges', () => {
+    const result = validateRoadGraphSnapshot({
+      diagnostics: {
+        ...diagnostics(),
+        surfaceEdgeCounts: { paved: 2_398, gravel: 0, mixed: 1, unknown: 1 },
+      },
+      goldenRouteStatuses: Array(20).fill('ok'),
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.checks.officialSurfaceCoverage).toBe(false)
   })
 
   it('rejects material connectivity drift relative to the active snapshot', () => {

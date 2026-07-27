@@ -101,6 +101,8 @@ export interface IcelandRoadGraphRoute {
   durationS: number
   surface: IcelandRoadSurfaceBreakdown
   derivedSpeedDistanceM: number
+  fRoadDistanceM: number
+  fRoadNumbers: readonly string[]
 }
 
 export type IcelandRoadGraphRouteResult =

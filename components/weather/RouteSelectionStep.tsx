@@ -15,11 +15,20 @@ import { ForecastRowLine, selectUpcomingRows } from './VedurstofanForecastRows'
 import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
 
 export type RoutePlace = {
+  id?: PlaceResult['id']
   name: string
   lat: number
   lon: number
   formattedAddress?: string
   placeId?: string
+  googlePlaceId?: string
+  source?: PlaceResult['source']
+  sourceId?: string
+  postalCode?: string
+  municipality?: string
+  municipalityCode?: string
+  accuracyM?: number
+  routingRef?: PlaceResult['routingRef']
 }
 
 type RouteSelectionStepProps = {
@@ -337,12 +346,12 @@ export function RouteSelectionStep({
   }, [vedurstofanStations, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleOriginSelected(p: PlaceResult) {
-    onOriginSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress, placeId: p.placeId })
+    onOriginSelected({ ...p })
     setActiveField(destination ? null : 'destination')
   }
 
   function handleDestinationSelected(p: PlaceResult) {
-    onDestinationSelected({ name: p.name, lat: p.lat, lon: p.lon, formattedAddress: p.formattedAddress, placeId: p.placeId })
+    onDestinationSelected({ ...p })
     setActiveField(null)
   }
 
@@ -381,6 +390,7 @@ export function RouteSelectionStep({
             placeholder={tf('routeSelectOriginPrompt')}
             savedPlaces={originSavedPlaces}
             onDeleteSavedPlace={onDeleteSavedPlace}
+            allowCurrentLocation
           />
         )}
       </div>
@@ -418,6 +428,7 @@ export function RouteSelectionStep({
             placeholder={tf('routeSelectDestinationPrompt')}
             savedPlaces={destinationSavedPlaces}
             onDeleteSavedPlace={onDeleteSavedPlace}
+            allowCurrentLocation={false}
           />
         )}
       </div>

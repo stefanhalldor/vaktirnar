@@ -10,10 +10,9 @@ import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofan
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
-import { validateIcelandicCoords } from '@/lib/weather/coords'
 import type { HourPoint, TravelPointForecast, TravelThresholdOverrides } from '@/lib/weather/types'
 import type { TrailerKind } from '@/lib/weather/question'
-import type { PlaceCandidate } from '@/lib/weather/provider.types'
+import type { PlaceCandidate, RouteOption } from '@/lib/weather/provider.types'
 import { sampleRouteWeatherPoints } from '@/lib/weather/routeSampling'
 import {
   haversineM,
@@ -33,9 +32,17 @@ import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes
 import { scheduleTeskeidShadowRun } from '@/lib/iceland-routes/routingScheduler.server'
 import {
   getTeskeidRouteCandidateById,
+  isTeskeidRouteCandidateEnabled,
   TESKEID_ROUTE_CANDIDATE_ID,
   TESKEID_ROUTE_CANDIDATE_ID_PREFIX,
 } from '@/lib/iceland-routes/roadGraphCandidate.server'
+import { verifyRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
+import { routeMemoryVariantIdentity } from '@/lib/iceland-routes/routeMemoryVariant'
+import {
+  isConfirmedLocationInput,
+  toWeatherPlaceCandidate,
+  type ConfirmedLocationInput,
+} from '@/lib/places/providerCandidate'
 
 const VALID_TRAILER_KINDS = new Set([
   'none', 'generic_trailer', 'tent_trailer', 'folding_camper', 'caravan', 'horse_trailer',
@@ -174,23 +181,6 @@ function isValidDateString(value: unknown): value is string {
   return isFinite(new Date(value).getTime())
 }
 
-function validateConfirmedPlace(raw: unknown): raw is { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string } {
-  if (!raw || typeof raw !== 'object') return false
-  const p = raw as Record<string, unknown>
-  return (
-    typeof p.name === 'string' && p.name.trim().length > 0 &&
-    typeof p.lat === 'number' && typeof p.lon === 'number' &&
-    validateIcelandicCoords(p.lat, p.lon)
-  )
-}
-
-function normalizeOptionalPlaceId(raw: unknown): string | undefined {
-  if (typeof raw !== 'string') return undefined
-  const trimmed = raw.trim()
-  if (!trimmed || trimmed.length > 500) return undefined
-  return trimmed
-}
-
 export async function POST(request: Request) {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -215,10 +205,10 @@ export async function POST(request: Request) {
   }
 
   // Validate origin and destination
-  if (!validateConfirmedPlace(body.origin)) {
+  if (!isConfirmedLocationInput(body.origin)) {
     return NextResponse.json({ error: 'invalid_origin' }, { status: 400 })
   }
-  if (!validateConfirmedPlace(body.destination)) {
+  if (!isConfirmedLocationInput(body.destination)) {
     return NextResponse.json({ error: 'invalid_destination' }, { status: 400 })
   }
 
@@ -271,44 +261,50 @@ export async function POST(request: Request) {
   }
   const resolvedThresholds = resolveThresholds(trailerKind, thresholdOverrides)
 
-  // Check provider
-  const provider = getWeatherMapProvider()
-  if (!provider) {
-    return NextResponse.json({ error: 'provider_not_configured' }, { status: 422 })
-  }
+  const origin = body.origin as ConfirmedLocationInput
+  const destination = body.destination as ConfirmedLocationInput
 
-  const origin = body.origin as { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string }
-  const destination = body.destination as { name: string; lat: number; lon: number; placeId?: string; formattedAddress?: string }
-
-  const originCandidate: PlaceCandidate = {
-    placeId: normalizeOptionalPlaceId(origin.placeId) ?? 'confirmed',
-    displayName: origin.name.trim(),
-    formattedAddress: (origin.formattedAddress ?? origin.name).trim(),
-    lat: origin.lat,
-    lon: origin.lon,
-  }
-
-  const destCandidate: PlaceCandidate = {
-    placeId: normalizeOptionalPlaceId(destination.placeId) ?? 'confirmed',
-    displayName: destination.name.trim(),
-    formattedAddress: (destination.formattedAddress ?? destination.name).trim(),
-    lat: destination.lat,
-    lon: destination.lon,
-  }
+  const originCandidate: PlaceCandidate = toWeatherPlaceCandidate(origin)
+  const destCandidate: PlaceCandidate = toWeatherPlaceCandidate(destination)
 
   // Get route geometry — use selected route if provided, otherwise first available
   const { actor, userId } = access
 
-  const selectedRouteId = typeof body.selectedRouteId === 'string' ? body.selectedRouteId : null
-  const selectedTeskeidRouteId = selectedRouteId && (
+  const hasRouteEnvelope = body.routeEnvelope !== undefined
+  const verifiedRouteEnvelope = hasRouteEnvelope
+    ? verifyRouteOptionEnvelope(body.routeEnvelope, {
+        origin: { lat: originCandidate.lat, lon: originCandidate.lon },
+        destination: { lat: destCandidate.lat, lon: destCandidate.lon },
+      })
+    : null
+  if (hasRouteEnvelope && !verifiedRouteEnvelope) {
+    return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
+  }
+
+  const requestedRouteId = typeof body.selectedRouteId === 'string' ? body.selectedRouteId : null
+  if (
+    verifiedRouteEnvelope
+    && requestedRouteId
+    && requestedRouteId !== verifiedRouteEnvelope.route.id
+  ) {
+    return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
+  }
+  const selectedRouteId = verifiedRouteEnvelope?.route.id ?? requestedRouteId
+  const selectedTeskeidRouteId = verifiedRouteEnvelope?.route.provider === 'teskeid'
+    ? verifiedRouteEnvelope.route.id
+    : selectedRouteId && (
     selectedRouteId === TESKEID_ROUTE_CANDIDATE_ID
     || selectedRouteId.startsWith(TESKEID_ROUTE_CANDIDATE_ID_PREFIX)
   ) ? selectedRouteId : null
+  const provider = getWeatherMapProvider()
+  if (!verifiedRouteEnvelope && !provider) {
+    return NextResponse.json({ error: 'provider_not_configured' }, { status: 422 })
+  }
   const routePairHash = routePairFingerprint(origin, destination)
   const hashMeta = routePairHash !== null ? { routePairHash } : {}
 
   if (selectedTeskeidRouteId) {
-    const hasTeskeidRouting = user?.id && user.email
+    const hasTeskeidRouting = isTeskeidRouteCandidateEnabled() && user?.id && user.email
       ? await checkFeatureAccess(user.id, user.email, 'teskeid-routing-v1').catch(() => false)
       : false
     if (!hasTeskeidRouting) {
@@ -325,7 +321,9 @@ export async function POST(request: Request) {
 
   let routeGeometry
   try {
-    if (selectedTeskeidRouteId) {
+    if (verifiedRouteEnvelope) {
+      routeGeometry = verifiedRouteEnvelope.route
+    } else if (selectedTeskeidRouteId) {
       routeGeometry = await getTeskeidRouteCandidateById(
         { lat: originCandidate.lat, lon: originCandidate.lon },
         { lat: destCandidate.lat, lon: destCandidate.lon },
@@ -342,7 +340,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
       }
     } else if (selectedRouteId) {
-      const routeOptions = await provider.getRouteOptions(originCandidate, destCandidate)
+      const routeOptions = await provider!.getRouteOptions(originCandidate, destCandidate)
       const matched = routeOptions.find(r => r.id === selectedRouteId)
       if (!matched) {
         await recordTeskeidUsageEvent({
@@ -357,7 +355,7 @@ export async function POST(request: Request) {
       routeGeometry = matched
     } else {
       try {
-        routeGeometry = await provider.getRouteGeometry(originCandidate, destCandidate)
+        routeGeometry = await provider!.getRouteGeometry(originCandidate, destCandidate)
       } catch (error) {
         if (shouldLogRoadMapApiDiagnostics()) {
           console.warn('[RoadMap API] default route geometry failed; trying route options fallback')
@@ -365,7 +363,7 @@ export async function POST(request: Request) {
         routeGeometry = null
       }
       if (!routeGeometry) {
-        const fallbackOptions = await provider.getRouteOptions(originCandidate, destCandidate)
+        const fallbackOptions = await provider!.getRouteOptions(originCandidate, destCandidate)
         routeGeometry = fallbackOptions.find(route => route.isDefault) ?? fallbackOptions[0] ?? null
       }
     }
@@ -397,6 +395,9 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
   }
+  const routeMemoryVariant = selectedRouteId
+    ? routeMemoryVariantIdentity(routeGeometry as RouteOption)
+    : null
   const routePolyline = routeGeometry.providerMatchingPoints ?? routeGeometry.points
 
   // Schedule shadow run via after() so it outlives the response flush in serverless.
@@ -732,8 +733,11 @@ export async function POST(request: Request) {
     const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
 
     if (fromNorm && toNorm) {
-      // Use selectedRouteId as variant key so different route options get distinct memory rows.
-      const routeKey = buildRouteMemoryKey(fromNorm.key, toNorm.key, selectedRouteId ?? undefined)
+      const routeKey = buildRouteMemoryKey(
+        fromNorm.key,
+        toNorm.key,
+        routeMemoryVariant?.key,
+      )
 
       const stations: RouteMemoryStation[] = [
         ...vedurstofanMatches.map((m, i) => ({
@@ -766,7 +770,9 @@ export async function POST(request: Request) {
         fromPlaceLabel: fromNorm.label,
         toPlaceKey: toNorm.key,
         toPlaceLabel: toNorm.label,
-        routeVariantKey: selectedRouteId ?? undefined,
+        routeVariantKey: routeMemoryVariant?.key,
+        routeVariantLabel: routeMemoryVariant?.label,
+        routeCautionIds: (routeGeometry as Partial<RouteOption>).cautions?.map(caution => caution.id) ?? [],
         stations,
         // Only include providers that were actually evaluated. If a provider was gated
         // off or its cache was unavailable, leave existing station rows untouched.

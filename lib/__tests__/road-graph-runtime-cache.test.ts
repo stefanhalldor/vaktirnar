@@ -32,6 +32,7 @@ vi.mock('@/lib/iceland-routes/roadGraphSnapshotStore.server', () => ({
 
 import {
   getIcelandRoadGraph,
+  getIcelandRoadGraphCacheStatus,
   resetIcelandRoadGraphCacheForTests,
 } from '@/lib/iceland-routes/roadGraphRuntime.server'
 
@@ -85,13 +86,16 @@ describe('road graph last-known-good runtime', () => {
   })
 
   it('shares one snapshot materialisation across concurrent cold requests', async () => {
+    expect(getIcelandRoadGraphCacheStatus()).toBe('cold')
     const first = getIcelandRoadGraph()
+    expect(getIcelandRoadGraphCacheStatus()).toBe('loading')
     const second = getIcelandRoadGraph()
 
     await expect(first).resolves.toEqual({ graph: true })
     await expect(second).resolves.toEqual({ graph: true })
     expect(mockReadPayload).toHaveBeenCalledOnce()
     expect(mockBuildGraph).toHaveBeenCalledOnce()
+    expect(getIcelandRoadGraphCacheStatus()).toBe('warm')
   })
 
   it('reuses the verified in-process graph without another database read', async () => {

@@ -21,8 +21,25 @@ type CachedRoadGraph = {
   lastVersionCheckAt: number
 }
 
-let cached: CachedRoadGraph | null = null
-let pending: Promise<IcelandRoadGraph> | null = null
+type RoadGraphRuntimeState = {
+  cached: CachedRoadGraph | null
+  pending: Promise<IcelandRoadGraph> | null
+}
+
+// Next.js can evaluate the same server module in separate route bundles and
+// replaces modules during Fast Refresh. A global state keeps the verified graph
+// shared across those boundaries for the lifetime of the Node.js isolate.
+const RUNTIME_STATE_KEY = '__teskeidRoadGraphRuntimeV2__' as const
+
+function runtimeState(): RoadGraphRuntimeState {
+  const runtime = globalThis as typeof globalThis & {
+    [RUNTIME_STATE_KEY]?: RoadGraphRuntimeState
+  }
+  if (!runtime[RUNTIME_STATE_KEY]) {
+    runtime[RUNTIME_STATE_KEY] = { cached: null, pending: null }
+  }
+  return runtime[RUNTIME_STATE_KEY]
+}
 
 function verifySnapshotGraph(input: {
   graph: IcelandRoadGraph
@@ -43,18 +60,19 @@ function verifySnapshotGraph(input: {
 }
 
 async function loadActiveSnapshotGraph(forceVersionCheck: boolean): Promise<IcelandRoadGraph> {
+  const state = runtimeState()
   const now = Date.now()
-  if (cached && !forceVersionCheck && now - cached.lastVersionCheckAt < ACTIVE_VERSION_RECHECK_MS) {
-    return cached.graph
+  if (state.cached && !forceVersionCheck && now - state.cached.lastVersionCheckAt < ACTIVE_VERSION_RECHECK_MS) {
+    return state.cached.graph
   }
 
   let activeMetadata: ActiveRoadGraphSnapshotMetadata | null = null
-  if (cached) {
+  if (state.cached) {
     activeMetadata = await readActiveRoadGraphSnapshotMetadata()
     if (!activeMetadata) throw new Error('road_graph_snapshot_missing')
-    if (activeMetadata.id === cached.snapshotId) {
-      cached.lastVersionCheckAt = now
-      return cached.graph
+    if (activeMetadata.id === state.cached.snapshotId) {
+      state.cached.lastVersionCheckAt = now
+      return state.cached.graph
     }
   }
 
@@ -72,7 +90,7 @@ async function loadActiveSnapshotGraph(forceVersionCheck: boolean): Promise<Icel
     nodeSnapToleranceM: payload.nodeSnapToleranceM,
   })
   verifySnapshotGraph({ graph, metadata })
-  cached = {
+  state.cached = {
     graph,
     snapshotId: metadata.id,
     lastVersionCheckAt: now,
@@ -88,23 +106,31 @@ async function loadActiveSnapshotGraph(forceVersionCheck: boolean): Promise<Icel
 export async function getIcelandRoadGraph(
   options: { forceRefresh?: boolean } = {},
 ): Promise<IcelandRoadGraph> {
-  if (pending) return pending
-  pending = loadActiveSnapshotGraph(options.forceRefresh === true)
+  const state = runtimeState()
+  if (state.pending) return state.pending
+  state.pending = loadActiveSnapshotGraph(options.forceRefresh === true)
     .catch(error => {
-      if (cached) {
+      if (state.cached) {
         // Keep serving the verified LKG graph and avoid retrying a broken new
         // pointer/object on every user request. The normal version interval
         // will try again, while forceRefresh can still retry immediately.
-        cached.lastVersionCheckAt = Date.now()
-        return cached.graph
+        state.cached.lastVersionCheckAt = Date.now()
+        return state.cached.graph
       }
       throw error
     })
-    .finally(() => { pending = null })
-  return pending
+    .finally(() => { state.pending = null })
+  return state.pending
+}
+
+export function getIcelandRoadGraphCacheStatus(): 'cold' | 'loading' | 'warm' {
+  const state = runtimeState()
+  if (state.cached) return 'warm'
+  return state.pending ? 'loading' : 'cold'
 }
 
 export function resetIcelandRoadGraphCacheForTests(): void {
-  cached = null
-  pending = null
+  const state = runtimeState()
+  state.cached = null
+  state.pending = null
 }
