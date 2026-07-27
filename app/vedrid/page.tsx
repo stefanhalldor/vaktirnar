@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
+import { isTeskeidRouteCandidateEnabled } from '@/lib/iceland-routes/roadGraphCandidate.server'
 import { RoadMapPrototypeMap } from '@/components/weather/RoadMapPrototypeMap'
 
 export default function VedridPublicPage() {
@@ -20,7 +21,7 @@ export default function VedridPublicPage() {
       <RoadMapPrototypeMap
         isAuthenticated={false}
         hasRoadIntelligence
-        teskeidRouteCandidateEnabled={false}
+        teskeidRouteCandidateEnabled={isTeskeidRouteCandidateEnabled()}
         navigation={{ canonicalPath: '/vedrid', authenticatedPath: '/auth-mvp/vedrid' }}
       />
     </main>

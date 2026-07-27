@@ -337,10 +337,13 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
 
 **Framhald (v0.8 — flaggaður candidate samhliða Google):**
 
-- `TESKEID_ROUTE_CANDIDATE_ENABLED=true` bætir einni Teskeiðarleið aftast við
-  núverandi Google-leiðaval fyrir alla innskráða notendur sem hafa aðgang að
-  Veðrinu. Flaggið er áfram global neyðarrofi og anonymous/public aðgangur er
-  lokaður. Google er áfram fyrst og sjálfvalið.
+- `TESKEID_ROUTE_CANDIDATE_ENABLED=true` opnar Teskeiðarleiðir fyrir alla sem
+  hafa aðgang að Veðrinu, líka óinnskráða þegar public Veður er virkt. Flaggið
+  er áfram global neyðarrofi. Óinnskráður notandi þarf stuttlíft undirritað
+  Google-leiðarleyfi úr rate-limit-aða leiðavalsendpointinu áður en
+  Teskeiðarleið er reiknuð. Endurtekningar og fleiri valkostir nota sér HMAC-IP
+  þak án þess að geyma hrátt IP, warm-only er lokað og final submit samþykkir
+  aðeins undirritaða Teskeiðarleið en ekki bert route-id. Google er áfram fyrst.
 - Sameiginlegur server-helper reiknar leiðina bæði fyrir leiðaval og þegar valin
   leið er notuð í ferðaveðri. Þannig getur preview ekki sýnt leið sem final submit
   reynir síðan ranglega að finna hjá Google.
@@ -365,8 +368,9 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
   Teskeiðarleiðina. Google-response helst óbreytt.
 - UI merkir leiðina skýrt sem tilraun, segir að tíminn sé áætlaður og sýnir
   malarmerkingu þegar source facts innihalda skráð malarslitlag.
-- Kerfið er production-virkt fyrir innskráða Veðursnotendur en er áfram merkt
-  í vinnslu og er ekki öryggisleiðsögn. Lokanir, færð, official speed limits,
+- Kerfið er production-virkt fyrir alla gjaldgenga Veðursnotendur, þar með talið
+  óinnskráða í public ham, en er áfram merkt í vinnslu og er ekki
+  öryggisleiðsögn. Lokanir, færð, official speed limits,
   turn restrictions og off-route rerouting eru enn blockers fyrir slíka notkun.
 
 **Framhald (v0.9 — leiðasamanburður og hraður preview/apply):**

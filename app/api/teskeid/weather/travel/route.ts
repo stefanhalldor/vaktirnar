@@ -192,6 +192,7 @@ export async function POST(request: Request) {
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  const hasAuthenticatedIdentity = Boolean(user?.id && user.email)
 
   const access = await resolveWeatherBaseAccess(user)
   if (access.mode === 'blocked') {
@@ -304,10 +305,13 @@ export async function POST(request: Request) {
   const hashMeta = routePairHash !== null ? { routePairHash } : {}
 
   if (selectedTeskeidRouteId) {
-    const hasTeskeidRouting = isTeskeidRouteCandidateEnabled() && user?.id && user.email
-      ? await checkFeatureAccess(user.id, user.email, 'teskeid-routing-v1').catch(() => false)
-      : false
-    if (!hasTeskeidRouting) {
+    const anonymousPublicTeskeidEnvelope = access.mode === 'public'
+      && !hasAuthenticatedIdentity
+      && verifiedRouteEnvelope?.route.provider === 'teskeid'
+    if (
+      !isTeskeidRouteCandidateEnabled()
+      || (access.mode === 'public' && !hasAuthenticatedIdentity && !anonymousPublicTeskeidEnvelope)
+    ) {
       await recordTeskeidUsageEvent({
         userId,
         featureKey: 'vedrid',

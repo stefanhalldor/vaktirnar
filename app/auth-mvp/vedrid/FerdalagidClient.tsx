@@ -38,6 +38,8 @@ import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
 import { readOverviewRouteDraft, clearOverviewRouteDraft } from '@/lib/iceland-routes/routeDraft'
 import { buildRouteObservation, recordRouteObservation } from '@/lib/iceland-routes/routeObservation'
+import type { RouteOptionEnvelopeV1 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
+import { findFreshRouteEnvelope } from '@/lib/iceland-routes/routeEnvelopeClient'
 
 
 type VedurstofanAssessment = {
@@ -188,6 +190,7 @@ export function FerdalagidClient({
     destLat: number | undefined
     destLon: number | undefined
   } | null>(null)
+  const restoredSelectedRouteIdRef = useRef<string | null>(null)
 
   // Ferðalag conversion affordance — shown when tripEnabled and result is ready
   const [tripHintVisible, setTripHintVisible] = useState(false)
@@ -196,6 +199,7 @@ export function FerdalagidClient({
   const [routeOptions, setRouteOptions] = useState<RouteOption[] | null>(null)
   const [routeOptionsLoading, setRouteOptionsLoading] = useState(false)
   const [routeOptionsError, setRouteOptionsError] = useState<string | null>(null)
+  const [routeEnvelopes, setRouteEnvelopes] = useState<RouteOptionEnvelopeV1[]>([])
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [routeRetryCount, setRouteRetryCount] = useState(0)
   const [routeFallback, setRouteFallback] = useState(false)
@@ -292,7 +296,10 @@ export function FerdalagidClient({
         }
         if (state.trailerKind) setTrailerKind(state.trailerKind)
         if (state.thresholdOverrides) setThresholdOverrides(state.thresholdOverrides)
-        if (state.selectedRouteId !== undefined) setSelectedRouteId(state.selectedRouteId)
+        if (typeof state.selectedRouteId === 'string') {
+          restoredSelectedRouteIdRef.current = state.selectedRouteId
+          setSelectedRouteId(state.selectedRouteId)
+        }
         if (state.result) setResult(state.result)
         if (state.vedurstofanLayer !== undefined) setVedurstofanLayer(state.vedurstofanLayer)
         if (state.showVedurstofan !== undefined) setShowVedurstofan(state.showVedurstofan)
@@ -444,7 +451,8 @@ export function FerdalagidClient({
   // When destination is Vestmannaeyjar, waits until a ferry port is selected.
   useEffect(() => {
     setRouteOptions(null)
-    setSelectedRouteId(null)
+    setRouteEnvelopes([])
+    if (!restoredSelectedRouteIdRef.current) setSelectedRouteId(null)
     setRouteOptionsError(null)
     setRouteFallback(false)
 
@@ -467,7 +475,11 @@ export function FerdalagidClient({
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ origin, destination: effectiveDest }),
+          body: JSON.stringify({
+            origin,
+            destination: effectiveDest,
+            includeRouteEnvelopes: true,
+          }),
         })
         if (cancelled) return
 
@@ -491,7 +503,17 @@ export function FerdalagidClient({
 
         const options = data.routes as RouteOption[]
         setRouteOptions(options)
-        if (options.length > 0) setSelectedRouteId(options[0].id)
+        setRouteEnvelopes(Array.isArray(data.routeEnvelopes) ? data.routeEnvelopes : [])
+        const restoredRouteId = restoredSelectedRouteIdRef.current
+        if (restoredRouteId) {
+          // Never silently switch a restored result to a different route. If
+          // the route disappeared, keep its id so a later refresh fails closed
+          // with selected_route_unavailable instead of using Google route #1.
+          setSelectedRouteId(restoredRouteId)
+          restoredSelectedRouteIdRef.current = null
+        } else if (options.length > 0) {
+          setSelectedRouteId(options[0].id)
+        }
       } catch {
         if (!cancelled) setRouteOptionsError(tf('routeOptionsUnavailable'))
       } finally {
@@ -612,11 +634,13 @@ export function FerdalagidClient({
   }
 
   function handleOriginSelected(place: RoutePlace) {
+    restoredSelectedRouteIdRef.current = null
     setOrigin(place)
     savePlaceBestEffort(place)
   }
 
   function handleDestinationSelected(place: RoutePlace) {
+    restoredSelectedRouteIdRef.current = null
     setDestination(place)
     // Always clear ferry selection — if new dest is also Vestmannaeyjar, user re-picks port
     setFerrySelection(null)
@@ -634,7 +658,9 @@ export function FerdalagidClient({
     }
     // Clear route state (re-fetch for new port) and any stale result
     setSelectedRouteId(null)
+    restoredSelectedRouteIdRef.current = null
     setRouteOptions(null)
+    setRouteEnvelopes([])
     setRouteOptionsError(null)
     setRouteFallback(false)
     setResult(null)
@@ -648,6 +674,76 @@ export function FerdalagidClient({
     setFerrySelection(newFerry)
     // Invalidate persisted result — ferry port change makes any prior result stale
     try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
+  }
+
+  async function selectedRouteRequestPayload(forceRefresh = false): Promise<{
+    routeEnvelope: RouteOptionEnvelopeV1
+  } | {
+    selectedRouteId: string | undefined
+  }> {
+    if (!selectedRouteId) return { selectedRouteId: undefined }
+
+    const envelope = findFreshRouteEnvelope(routeEnvelopes, selectedRouteId)
+    if (!forceRefresh && envelope) {
+      return { routeEnvelope: envelope }
+    }
+
+    const effectiveDestination = ferrySelection?.ferryPort ?? destination
+    if (!origin || !effectiveDestination) throw new Error('selected_route_unavailable')
+
+    // Route envelopes expire after 15 minutes. Refresh them through the normal
+    // route-options endpoint so public requests remain rate-limited and an old
+    // Teskeið selection can never fall back silently to another route.
+    const res = await fetch('/api/teskeid/weather/travel/routes', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origin,
+        destination: effectiveDestination,
+        includeRouteEnvelopes: true,
+      }),
+    })
+    if (res.status === 429) throw new Error('rate_limited')
+    if (!res.ok) throw new Error('selected_route_unavailable')
+
+    const data = await res.json().catch(() => null)
+    const refreshedOptions = Array.isArray(data?.routes) ? data.routes as RouteOption[] : []
+    const refreshedEnvelopes = Array.isArray(data?.routeEnvelopes)
+      ? data.routeEnvelopes as RouteOptionEnvelopeV1[]
+      : []
+    setRouteOptions(refreshedOptions)
+    setRouteEnvelopes(refreshedEnvelopes)
+
+    const refreshedEnvelope = findFreshRouteEnvelope(refreshedEnvelopes, selectedRouteId)
+    if (!refreshedEnvelope) {
+      throw new Error('selected_route_unavailable')
+    }
+    return { routeEnvelope: refreshedEnvelope }
+  }
+
+  async function postTravelWithSelectedRoute(
+    body: Record<string, unknown>,
+  ): Promise<Response> {
+    const send = async (forceRefresh: boolean): Promise<Response> => {
+      const routeSelection = await selectedRouteRequestPayload(forceRefresh)
+      return fetch('/api/teskeid/weather/travel', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, ...routeSelection }),
+      })
+    }
+
+    const first = await send(false)
+    if (first.status !== 422) return first
+    const firstError = await first.clone().json().catch(() => null)
+    if (firstError?.error !== 'route_envelope_invalid') return first
+
+    // A signing-key rotation or boundary clock race can invalidate an envelope
+    // that looked fresh locally. Refresh exactly once; never loop or fall back
+    // to a bare Teskeið route id.
+    return send(true)
   }
 
   async function handleSubmit(overridesParam?: TravelThresholdOverrides) {
@@ -666,19 +762,12 @@ export function FerdalagidClient({
     setStep('result')
 
     const overridesToSend = overridesParam !== undefined ? overridesParam : thresholdOverrides
-
     try {
-      const res = await fetch('/api/teskeid/weather/travel', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          origin,
-          destination: ferrySelection?.ferryPort ?? destination,
-          trailerKind,
-          selectedRouteId: selectedRouteId ?? undefined,
-          thresholdOverrides: Object.keys(overridesToSend).length > 0 ? overridesToSend : undefined,
-        }),
+      const res = await postTravelWithSelectedRoute({
+        origin,
+        destination: ferrySelection?.ferryPort ?? destination,
+        trailerKind,
+        thresholdOverrides: Object.keys(overridesToSend).length > 0 ? overridesToSend : undefined,
       })
 
       // Guard against auth redirects and non-JSON responses (middleware intercept, CDN error pages).
@@ -733,8 +822,14 @@ export function FerdalagidClient({
           // observation write failure must never surface to the user
         }
       }
-    } catch {
-      setError(tf('errorGeneral'))
+    } catch (submitError) {
+      if (submitError instanceof Error && submitError.message === 'rate_limited') {
+        setGuestRateLimited(true)
+      } else if (submitError instanceof Error && submitError.message === 'selected_route_unavailable') {
+        setError(tf('selectedRouteUnavailable'))
+      } else {
+        setError(tf('errorGeneral'))
+      }
     } finally {
       setLoading(false)
     }
@@ -760,17 +855,11 @@ export function FerdalagidClient({
         // A completed warm always starts a cooldown — the button must not reappear immediately.
         const warmCooldownIso = new Date(Date.now() + 10 * 60 * 1000).toISOString()
         try {
-          const travelRes = await fetch('/api/teskeid/weather/travel', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              origin,
-              destination: ferrySelection?.ferryPort ?? destination,
-              trailerKind,
-              selectedRouteId: selectedRouteId ?? undefined,
-              thresholdOverrides: Object.keys(thresholdOverrides).length > 0 ? thresholdOverrides : undefined,
-            }),
+          const travelRes = await postTravelWithSelectedRoute({
+            origin,
+            destination: ferrySelection?.ferryPort ?? destination,
+            trailerKind,
+            thresholdOverrides: Object.keys(thresholdOverrides).length > 0 ? thresholdOverrides : undefined,
           })
           if (travelRes.ok) {
             const travelData = await travelRes.json() as { vedurstofanLayer?: VedurstofanTravelLayer }
@@ -879,17 +968,11 @@ export function FerdalagidClient({
     setNewerVedurstofanAvailable(false)
     setVedurstofanRefreshState('refreshing')
     try {
-      const res = await fetch('/api/teskeid/weather/travel', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          origin,
-          destination: ferrySelection?.ferryPort ?? destination,
-          trailerKind,
-          selectedRouteId: selectedRouteId ?? undefined,
-          thresholdOverrides: Object.keys(thresholdOverrides).length > 0 ? thresholdOverrides : undefined,
-        }),
+      const res = await postTravelWithSelectedRoute({
+        origin,
+        destination: ferrySelection?.ferryPort ?? destination,
+        trailerKind,
+        thresholdOverrides: Object.keys(thresholdOverrides).length > 0 ? thresholdOverrides : undefined,
       })
       if (res.ok) {
         const data = await res.json() as { vedurstofanLayer?: VedurstofanTravelLayer }
@@ -1462,8 +1545,15 @@ export function FerdalagidClient({
                 destination={destination}
                 onOriginSelected={handleOriginSelected}
                 onDestinationSelected={handleDestinationSelected}
-                onClearOrigin={() => setOrigin(null)}
-                onClearDestination={() => { setDestination(null); setFerrySelection(null) }}
+                onClearOrigin={() => {
+                  restoredSelectedRouteIdRef.current = null
+                  setOrigin(null)
+                }}
+                onClearDestination={() => {
+                  restoredSelectedRouteIdRef.current = null
+                  setDestination(null)
+                  setFerrySelection(null)
+                }}
                 routeOptions={routeOptions}
                 routeOptionsLoading={routeOptionsLoading}
                 routeOptionsError={routeOptionsError}
@@ -1472,6 +1562,7 @@ export function FerdalagidClient({
                 onUseFallback={() => setRouteFallback(true)}
                 selectedRouteId={selectedRouteId}
                 onRouteSelected={(id) => {
+                  restoredSelectedRouteIdRef.current = null
                   setSelectedRouteId(id)
                   try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
                 }}

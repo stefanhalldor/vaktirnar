@@ -39,6 +39,7 @@ vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route-candidate/route'
+import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 
 const ORIGIN = { lat: 64.1466, lon: -21.9426 }
 const DESTINATION = { lat: 66.0748, lon: -23.134 }
@@ -61,10 +62,31 @@ function makeCandidate() {
   }
 }
 
+function makePublicAccessEnvelope() {
+  return signRouteOptionEnvelope({
+    origin: ORIGIN,
+    destination: DESTINATION,
+    route: {
+      id: 'google-public-access',
+      routeIndex: 0,
+      provider: 'google',
+      labels: ['DEFAULT_ROUTE'],
+      isDefault: true,
+      points: [ORIGIN, DESTINATION],
+      providerMatchingPoints: [ORIGIN, DESTINATION],
+      distanceM: 460_000,
+      durationS: 18_000,
+    },
+  })
+}
+
 function request(body: unknown = { origin: ORIGIN, destination: DESTINATION }) {
   return new Request('http://localhost/api/teskeid/weather/travel/route-candidate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-forwarded-for': '203.0.113.41',
+    },
     body: JSON.stringify(body),
   })
 }
@@ -88,15 +110,20 @@ beforeEach(() => {
   mockGetGraphCacheStatus.mockReturnValue('warm')
 })
 
-describe('POST /api/teskeid/weather/travel/route-candidate — authenticated rollout', () => {
+describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout', () => {
   it('returns the candidate for an eligible authenticated weather user', async () => {
-    const res = await POST(request())
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope: makePublicAccessEnvelope(),
+    }))
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toMatchObject({
       status: 'ready',
       route: { id: 'teskeid-road-graph-v1' },
     })
     expect(mockGetCandidates).toHaveBeenCalledOnce()
+    expect(mockGuestRateLimit).not.toHaveBeenCalled()
     expect(res.headers.get('X-Teskeid-Graph-Cache')).toBe('warm')
     expect(res.headers.get('Server-Timing')).toContain('teskeid-candidate;dur=')
   })
@@ -192,24 +219,174 @@ describe('POST /api/teskeid/weather/travel/route-candidate — authenticated rol
     })
   })
 
-  it('returns disabled and skips graph work when the routing access check fails', async () => {
-    mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, key: string) => (
-      key === 'vedrid'
-    ))
+  it('does not require the legacy per-user routing row for an authenticated Weather user', async () => {
+    mockCheckFeatureAccess.mockResolvedValue(false)
 
-    const res = await POST(request())
-    expect(res.status).toBe(404)
-    await expect(res.json()).resolves.toMatchObject({ status: 'disabled', route: null })
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope: makePublicAccessEnvelope(),
+    }))
+    expect(res.status).toBe(200)
+    expect(mockGetCandidates).toHaveBeenCalledOnce()
+  })
+
+  it('exposes candidates to signed-out public Weather users in a separate guest bucket', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope: makePublicAccessEnvelope(),
+    }))
+    expect(res.status).toBe(200)
+    expect(mockGetCandidates).toHaveBeenCalledOnce()
+    expect(mockGuestRateLimit).toHaveBeenCalledWith('203.0.113.41', 'teskeid-candidate')
+  })
+
+  it('treats an email-less Supabase identity as anonymous public traffic', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'anonymous-id', email: null } } })
+
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope: makePublicAccessEnvelope(),
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockGuestRateLimit).toHaveBeenCalledWith('203.0.113.41', 'teskeid-candidate')
+    expect(mockGetCandidates).toHaveBeenCalledOnce()
+  })
+
+  it('returns 429 before graph work when the anonymous candidate bucket is exhausted', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockGuestRateLimit.mockResolvedValue(false)
+
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope: makePublicAccessEnvelope(),
+    }))
+
+    expect(res.status).toBe(429)
+    await expect(res.json()).resolves.toEqual({
+      status: 'unavailable',
+      routes: [],
+      route: null,
+    })
     expect(mockGetCandidates).not.toHaveBeenCalled()
   })
 
-  it('does not expose candidates to signed-out public weather users', async () => {
+  it('rejects anonymous candidate work without a signed Google route grant', async () => {
     process.env.WEATHER_ENABLED = 'All'
     mockGetUser.mockResolvedValue({ data: { user: null } })
 
     const res = await POST(request())
-    expect(res.status).toBe(404)
+
+    expect(res.status).toBe(403)
+    expect(mockGuestRateLimit).not.toHaveBeenCalled()
     expect(mockGetCandidates).not.toHaveBeenCalled()
+  })
+
+  it('rejects a tampered anonymous route grant before rate-limit and graph work', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const accessRouteEnvelope = makePublicAccessEnvelope()
+
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope: {
+        ...accessRouteEnvelope,
+        signature: `${accessRouteEnvelope.signature[0] === '0' ? '1' : '0'}${accessRouteEnvelope.signature.slice(1)}`,
+      },
+    }))
+
+    expect(res.status).toBe(403)
+    expect(mockGuestRateLimit).not.toHaveBeenCalled()
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+  })
+
+  it('rejects a signed Teskeið envelope used as an anonymous access grant', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const accessRouteEnvelope = signRouteOptionEnvelope({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      route: makeCandidate(),
+    })
+
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope,
+    }))
+
+    expect(res.status).toBe(403)
+    expect(mockGuestRateLimit).not.toHaveBeenCalled()
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+  })
+
+  it('rejects an expired anonymous Google route grant before rate-limit and graph work', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const accessRouteEnvelope = signRouteOptionEnvelope({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      route: makePublicAccessEnvelope().route,
+    }, {
+      now: new Date(Date.now() - 20 * 60_000),
+      ttlMs: 60_000,
+    })
+
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope,
+    }))
+
+    expect(res.status).toBe(403)
+    expect(mockGuestRateLimit).not.toHaveBeenCalled()
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+  })
+
+  it('rejects a route grant bound to a different endpoint pair', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+
+    const res = await POST(request({
+      origin: { ...ORIGIN, lat: ORIGIN.lat + 0.01 },
+      destination: DESTINATION,
+      accessRouteEnvelope: makePublicAccessEnvelope(),
+    }))
+
+    expect(res.status).toBe(403)
+    expect(mockGuestRateLimit).not.toHaveBeenCalled()
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+  })
+
+  it('does not expose the graph warm-only operation to anonymous page loads', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+
+    const res = await POST(request({ warmOnly: true }))
+
+    expect(res.status).toBe(404)
+    expect(mockGetRoadGraph).not.toHaveBeenCalled()
+    expect(mockGuestRateLimit).not.toHaveBeenCalled()
+  })
+
+  it('does not expose warm-only to an email-less Supabase identity', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'anonymous-id', email: null } } })
+
+    const res = await POST(request({ warmOnly: true }))
+
+    expect(res.status).toBe(404)
+    expect(mockGetRoadGraph).not.toHaveBeenCalled()
     expect(mockGuestRateLimit).not.toHaveBeenCalled()
   })
 

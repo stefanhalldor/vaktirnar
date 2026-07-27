@@ -3,7 +3,7 @@
  *
  * Coverage:
  *   A. checkWeatherGuestRateLimit — RPC-level rate limiting for guests
- *   B. hashWeatherIp — distinct from auth hashes
+ *   B. hashWeatherIp — scope-separated weather hashes
  *   C. Guest saved-places contract — GET returns empty, POST/DELETE remain 401
  *   D. getWeatherEnabledMode — env parsing (WEATHER_ENABLED=All/Authenticated and legacy fallback)
  *   E. resolveWeatherBaseAccess — access mode logic
@@ -125,17 +125,17 @@ describe('checkWeatherGuestRateLimit', () => {
       'check_and_increment_ip_rate_limit',
       expect.objectContaining({
         p_ip_hash:      expect.any(String),
-        p_window_date:  expect.stringMatching(/^w\./),
+        p_window_date:  expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
         p_max_requests: expect.any(Number),
       }),
     )
   })
 
-  it('p_window_date starts with "w." to separate from auth rate limit buckets', async () => {
+  it('passes the SQL DATE-shaped Reykjavik window expected by the RPC', async () => {
     mockRpc.mockResolvedValue({ data: true, error: null })
     await checkWeatherGuestRateLimit(TEST_IP)
     const [, args] = mockRpc.mock.calls[0]
-    expect((args as { p_window_date: string }).p_window_date).toMatch(/^w\./)
+    expect((args as { p_window_date: string }).p_window_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
   it('p_ip_hash is 64-character hex', async () => {
@@ -162,13 +162,40 @@ describe('checkWeatherGuestRateLimit', () => {
     expect((args as { p_max_requests: number }).p_max_requests).toBe(10)
     restore()
   })
+
+  it('uses a separate 60-request bucket for public Teskeið candidates', async () => {
+    mockRpc.mockResolvedValue({ data: true, error: null })
+    await checkWeatherGuestRateLimit(TEST_IP, 'teskeid-candidate')
+    const [, args] = mockRpc.mock.calls[0]
+    expect((args as { p_max_requests: number }).p_max_requests).toBe(60)
+  })
+
+  it('fails the candidate scope closed when the limiter RPC is unavailable', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'db error' } })
+    expect(await checkWeatherGuestRateLimit(TEST_IP, 'teskeid-candidate')).toBe(false)
+  })
+
+  it('fails the candidate scope closed when no forwarded IP is available', async () => {
+    expect(await checkWeatherGuestRateLimit('', 'teskeid-candidate')).toBe(false)
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('domain-separates route options and Teskeið candidate hashes', async () => {
+    mockRpc.mockResolvedValue({ data: true, error: null })
+    await checkWeatherGuestRateLimit(TEST_IP, 'route-options')
+    await checkWeatherGuestRateLimit(TEST_IP, 'teskeid-candidate')
+    const first = mockRpc.mock.calls[0][1] as { p_ip_hash: string; p_window_date: string }
+    const second = mockRpc.mock.calls[1][1] as { p_ip_hash: string; p_window_date: string }
+    expect(first.p_window_date).toBe(second.p_window_date)
+    expect(first.p_ip_hash).not.toBe(second.p_ip_hash)
+  })
 })
 
-// ── B. hashWeatherIp — distinct from auth hashes ──────────────────────────────
+// ── B. hashWeatherIp — scope-separated weather hashes ─────────────────────────
 
 describe('hashWeatherIp', () => {
   it('returns a 64-character hex string', () => {
-    expect(hashWeatherIp('1.2.3.4', 'w.2026-07-10', 'secret-for-testing-purposes-only-padding')).toMatch(/^[0-9a-f]{64}$/)
+    expect(hashWeatherIp('1.2.3.4', '2026-07-10', 'secret-for-testing-purposes-only-padding')).toMatch(/^[0-9a-f]{64}$/)
   })
 
   it('produces different hashes for different IPs', () => {
@@ -178,11 +205,11 @@ describe('hashWeatherIp', () => {
     expect(h1).not.toBe(h2)
   })
 
-  it('produces different hashes for weather vs auth window keys', () => {
+  it('produces different hashes for route-options and candidate scopes', () => {
     const secret = 'secret-for-testing-purposes-only-padding'
-    const authHash    = hashWeatherIp('1.2.3.4', '2026-07-10',   secret)
-    const weatherHash = hashWeatherIp('1.2.3.4', 'w.2026-07-10', secret)
-    expect(authHash).not.toBe(weatherHash)
+    const routeOptionsHash = hashWeatherIp('1.2.3.4', '2026-07-10', secret, 'route-options')
+    const candidateHash = hashWeatherIp('1.2.3.4', '2026-07-10', secret, 'teskeid-candidate')
+    expect(routeOptionsHash).not.toBe(candidateHash)
   })
 })
 

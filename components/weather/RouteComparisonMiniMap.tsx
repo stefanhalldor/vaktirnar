@@ -402,16 +402,16 @@ export function RouteComparisonFullscreenMap({
 
   return (
     <div
-      className="fixed inset-0 z-[300] flex flex-col bg-background"
+      className="fixed inset-0 z-[300] flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-background"
       role="dialog"
       aria-modal="true"
-      aria-label={title}
+      aria-labelledby="route-comparison-title"
     >
-      <header className="flex min-h-14 shrink-0 items-center border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{title}</h2>
+      <header className="flex min-h-14 shrink-0 items-center border-b border-border bg-background px-3 pt-[env(safe-area-inset-top,0px)]">
+        <h2 id="route-comparison-title" className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{title}</h2>
       </header>
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         <DriveRouteMap
           routes={mapRoutes}
           onSelectRoute={handleMapRouteSelect}
@@ -420,7 +420,11 @@ export function RouteComparisonFullscreenMap({
         />
       </div>
 
-      <div className="max-h-[48dvh] shrink-0 overflow-y-auto border-t border-border bg-background/98 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_24px_rgba(15,23,42,0.10)]">
+      <section className="flex min-h-0 max-h-[48dvh] shrink-0 flex-col overflow-hidden border-t border-border bg-background/98 shadow-[0_-8px_24px_rgba(15,23,42,0.10)]">
+        <div
+          data-route-comparison-scroll-region="true"
+          className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-3 pb-3 pt-3"
+        >
         <div className="mb-2 flex items-center justify-between gap-3">
           <p className="text-xs font-medium text-muted-foreground">{routeCountLabel}</p>
           {onFindMore && findMoreLabel && (
@@ -470,7 +474,7 @@ export function RouteComparisonFullscreenMap({
             {alternativesMessage}
           </p>
         )}
-        <div ref={routeCardsScrollRef} className="mb-3 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1">
+        <div ref={routeCardsScrollRef} className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1">
           {sortedRoutes.map(route => {
             const selected = route.id === selectedRouteId
             return (
@@ -498,15 +502,21 @@ export function RouteComparisonFullscreenMap({
             )
           })}
         </div>
-        <button
-          type="button"
-          onClick={onApply}
-          disabled={!selectedRouteId}
-          className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        </div>
+        <footer
+          data-route-comparison-action-footer="true"
+          className="relative z-20 shrink-0 border-t border-border/70 bg-background px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] pt-2 shadow-[0_-6px_16px_rgba(15,23,42,0.08)]"
         >
-          {applyLabel}
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={!selectedRouteId}
+            className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {applyLabel}
+          </button>
+        </footer>
+      </section>
 
       {expandedCautionRoute?.cautionDrawerLabel && expandedCautionRoute.cautionDetails && expandedCautionRoute.cautionDetails.length > 0 && (
         <div className="fixed inset-0 z-[340]" role="presentation">

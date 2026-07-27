@@ -139,9 +139,9 @@ export async function checkFeatureAccess(
   }
   if (featureKey === 'teskeid-routing-v1') {
     if (getWeatherEnabledMode() === 'off') return false
-    // Graduated rollout: the global switch remains the emergency kill-switch,
-    // while every eligible authenticated weather user gets access when it is on.
-    // Public/anonymous access is still rejected by the page and API auth guards.
+    // Graduated rollout: the global switch remains the emergency kill-switch.
+    // Authenticated feature checks resolve directly from it; public access is
+    // handled by the Weather base-access guards in the route handlers.
     if (process.env.TESKEID_ROUTE_CANDIDATE_ENABLED !== 'true') return false
     return true
   }

@@ -31,10 +31,14 @@ useful across providers, screens, or future Teskeid products.
   alternative routes, audit surface composition, attach cached current
   Vegagerðin observations, and preview browser-GPS movement. It is explicitly
   experimental and is production-closed unless `TESKEID_ROUTE_LAB_ENABLED=true`.
-- A single road-graph candidate can be appended after the existing Google route
+- A road-graph candidate can be appended after the existing Google route
   options with `TESKEID_ROUTE_CANDIDATE_ENABLED=true` for every eligible
-  authenticated Weather user. The flag remains the global kill-switch, and
-  anonymous/public access remains closed. Google remains first and default.
+  Weather user, including signed-out users when public Weather access is on.
+  The flag remains the global kill-switch. Anonymous candidate work requires a
+  short-lived signed Google route envelope from the already rate-limited route
+  options endpoint, uses its own HMAC-IP retry bucket, and cannot use the graph
+  warm-only operation. Final anonymous Teskeið selection likewise requires the
+  signed Teskeið envelope; a bare route ID is rejected. Google remains first.
   The request has an eight-second response budget, but budget expiry is
   a pending state: graph materialisation from the active snapshot continues with
   `after()`. Live source refresh is separate, protected by admin/cron auth and a

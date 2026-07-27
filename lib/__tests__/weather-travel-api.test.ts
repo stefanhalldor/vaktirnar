@@ -302,7 +302,7 @@ describe('POST /api/teskeid/weather/travel/route — signed first-ready route', 
     expect(JSON.stringify(mockRecordRouteMemory.mock.calls)).not.toMatch(/64\.0900|-21\.9300/)
   })
 
-  it('uses an entitled Teskeið envelope without recomputing either provider', async () => {
+  it('uses an enabled Teskeið envelope without recomputing either provider', async () => {
     authedUser()
     const route = {
       ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
@@ -326,17 +326,14 @@ describe('POST /api/teskeid/weather/travel/route — signed first-ready route', 
     }))
 
     expect(res.status).toBe(200)
-    expect(mockCheckFeatureAccess).toHaveBeenCalledWith('u1', 'test@example.com', 'teskeid-routing-v1')
     expect(mockGetRouteGeometry).not.toHaveBeenCalled()
     expect(mockGetRouteOptions).not.toHaveBeenCalled()
     expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
   })
 
-  it('keeps the Teskeið entitlement gate authoritative for signed envelopes', async () => {
-    authedUser()
-    mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, key: string) => (
-      key !== 'teskeid-routing-v1'
-    ))
+  it('accepts a signed Teskeið envelope from a signed-out public Weather user', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    process.env.WEATHER_ENABLED = 'All'
     const route = {
       ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
       provider: 'teskeid' as const,
@@ -352,6 +349,51 @@ describe('POST /api/teskeid/weather/travel/route — signed first-ready route', 
       destination: THORLAKSHOFN,
       trailerKind: 'none',
       routeEnvelope,
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+  })
+
+  it('rejects a bare Teskeið route id from a signed-out public Weather user', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetTeskeidRouteCandidateById.mockResolvedValue({
+      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
+      provider: 'teskeid' as const,
+      experimental: {
+        derivedDuration: true as const,
+        surface: { pavedM: 56_000, gravelM: 0, mixedM: 0, unknownM: 0 },
+      },
+    })
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      selectedRouteId: 'teskeid-road-graph-v1',
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+  })
+
+  it('rejects a bare Teskeið route id from an email-less Supabase identity', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'anonymous-id', email: null } } })
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetTeskeidRouteCandidateById.mockResolvedValue({
+      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
+      provider: 'teskeid' as const,
+    })
+
+    const res = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      selectedRouteId: 'teskeid-road-graph-v1',
     }))
 
     expect(res.status).toBe(422)
@@ -492,7 +534,7 @@ describe('POST /api/teskeid/weather/travel/route — curated route final-submit'
     expect(mockGetRouteOptions).not.toHaveBeenCalled()
   })
 
-  it('rejects a direct Teskeið route submit without per-user routing access', async () => {
+  it('allows an authenticated Weather user without the legacy per-user routing row', async () => {
     authedUser()
     mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, featureKey: string) => (
       featureKey !== 'teskeid-routing-v1'
@@ -509,9 +551,8 @@ describe('POST /api/teskeid/weather/travel/route — curated route final-submit'
       selectedRouteId: 'teskeid-road-graph-v1',
     }))
 
-    expect(res.status).toBe(422)
-    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(mockGetTeskeidRouteCandidateById).toHaveBeenCalledOnce()
   })
 
   it('succeeds when selectedRouteId matches a curated CURATED_VIA_THRENGSLAVEGUR route', async () => {

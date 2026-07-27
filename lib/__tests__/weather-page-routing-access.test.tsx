@@ -7,6 +7,9 @@ const { mockResolveShellAccess, mockGetWeatherMode } = vi.hoisted(() => ({
   mockGetWeatherMode: vi.fn(),
 }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
+const { mockIsTeskeidRouteCandidateEnabled } = vi.hoisted(() => ({
+  mockIsTeskeidRouteCandidateEnabled: vi.fn(),
+}))
 const { roadMapProps } = vi.hoisted(() => ({ roadMapProps: vi.fn() }))
 
 vi.mock('next/navigation', () => ({
@@ -25,6 +28,10 @@ vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
 
 vi.mock('@/lib/loans/guard', () => ({
   checkFeatureAccess: mockCheckFeatureAccess,
+}))
+
+vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
+  isTeskeidRouteCandidateEnabled: mockIsTeskeidRouteCandidateEnabled,
 }))
 
 vi.mock('@/components/weather/RoadMapPrototypeMap', () => ({
@@ -50,10 +57,11 @@ beforeEach(() => {
   })
   mockGetWeatherMode.mockReturnValue('authenticated')
   mockCheckFeatureAccess.mockResolvedValue(false)
+  mockIsTeskeidRouteCandidateEnabled.mockReturnValue(false)
 })
 
 describe('Veðrið page Teskeið routing access', () => {
-  it('keeps the authenticated client feature off without per-user access', async () => {
+  it('keeps the authenticated client feature off when the global switch is off', async () => {
     render(await AuthenticatedVedridPage())
 
     expect(roadMapProps).toHaveBeenCalledWith(expect.objectContaining({
@@ -62,7 +70,7 @@ describe('Veðrið page Teskeið routing access', () => {
     }))
   })
 
-  it('enables the authenticated client feature for an explicitly allowed user', async () => {
+  it('enables the authenticated client feature when the global switch is on', async () => {
     mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, key: string) => (
       key === 'teskeid-routing-v1'
     ))
@@ -75,7 +83,19 @@ describe('Veðrið page Teskeið routing access', () => {
     }))
   })
 
-  it('always keeps the public client feature off', () => {
+  it('enables the public client feature when Weather and the global switch are on', () => {
+    mockGetWeatherMode.mockReturnValue('all')
+    mockIsTeskeidRouteCandidateEnabled.mockReturnValue(true)
+
+    render(<PublicVedridPage />)
+
+    expect(roadMapProps).toHaveBeenCalledWith(expect.objectContaining({
+      isAuthenticated: false,
+      teskeidRouteCandidateEnabled: true,
+    }))
+  })
+
+  it('keeps the public client feature off when the global switch is off', () => {
     mockGetWeatherMode.mockReturnValue('all')
 
     render(<PublicVedridPage />)

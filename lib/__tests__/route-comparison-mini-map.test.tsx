@@ -108,7 +108,7 @@ describe('RouteComparisonFullscreenMap', () => {
   it('selects from both the map and cards and exposes one explicit apply action', () => {
     const onSelectRouteId = vi.fn()
     const onApply = vi.fn()
-    render(
+    const { container } = render(
       <RouteComparisonFullscreenMap
         title="Veldu leið á korti"
         applyLabel="Skoða veðurskilyrði fyrir þessa leið"
@@ -129,6 +129,25 @@ describe('RouteComparisonFullscreenMap', () => {
         ]}
       />,
     )
+
+    const dialog = screen.getByRole('dialog', { name: 'Veldu leið á korti' })
+    const scrollRegion = container.querySelector<HTMLElement>(
+      '[data-route-comparison-scroll-region="true"]',
+    )
+    const actionFooter = container.querySelector<HTMLElement>(
+      '[data-route-comparison-action-footer="true"]',
+    )
+    const applyAction = screen.getByRole('button', {
+      name: 'Skoða veðurskilyrði fyrir þessa leið',
+    })
+
+    expect(dialog).toHaveAccessibleName('Veldu leið á korti')
+    expect(scrollRegion).toHaveClass('overflow-y-auto')
+    expect(scrollRegion).not.toContainElement(applyAction)
+    expect(actionFooter).toContainElement(applyAction)
+    expect(actionFooter).toHaveClass('shrink-0')
+    expect(actionFooter).toHaveClass('pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]')
+    expect(applyAction).toBeEnabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'select map route' }))
     fireEvent.click(screen.getByRole('button', { name: /Teskeiðarleið/ }))

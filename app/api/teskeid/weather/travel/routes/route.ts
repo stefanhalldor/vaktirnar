@@ -1,6 +1,5 @@
 import { after, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { checkFeatureAccess } from '@/lib/loans/guard'
 import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import type { PlaceCandidate, RouteOption } from '@/lib/weather/provider.types'
@@ -16,7 +15,10 @@ import { matchProviderPointsToRoute, DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M } fro
 import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
 import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
 import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
-import { getTeskeidRouteCandidate } from '@/lib/iceland-routes/roadGraphCandidate.server'
+import {
+  getTeskeidRouteCandidate,
+  isTeskeidRouteCandidateEnabled,
+} from '@/lib/iceland-routes/roadGraphCandidate.server'
 import {
   signRouteOptionEnvelope,
   type RouteOptionEnvelopeV1,
@@ -119,13 +121,11 @@ export async function POST(request: Request) {
   }
 
   // Google remains canonical and first. The experimental Teskeið candidate is
-  // appended only for an explicitly allowed user, with the global server flag
-  // enabled, and when calculation succeeds within its bounded budget.
+  // available to every eligible Weather user, including public guests, while
+  // the global server flag remains the emergency switch.
   const sorted = [...routes].sort((a, b) => a.durationS - b.durationS)
   const includeTeskeidCandidate = body.includeTeskeidCandidate !== false
-  const hasTeskeidRouting = includeTeskeidCandidate && user?.id && user.email
-    ? await checkFeatureAccess(user.id, user.email, 'teskeid-routing-v1').catch(() => false)
-    : false
+  const hasTeskeidRouting = includeTeskeidCandidate && isTeskeidRouteCandidateEnabled()
   const teskeidCandidate = hasTeskeidRouting
     ? await getTeskeidRouteCandidate(
         { lat: originCandidate.lat, lon: originCandidate.lon },

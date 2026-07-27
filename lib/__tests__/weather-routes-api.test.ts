@@ -15,6 +15,9 @@ const { mockGetRouteOptions } = vi.hoisted(() => ({ mockGetRouteOptions: vi.fn()
 const { mockRecordTeskeidUsageEvent } = vi.hoisted(() => ({ mockRecordTeskeidUsageEvent: vi.fn() }))
 const { mockCheckWeatherGuestRateLimit } = vi.hoisted(() => ({ mockCheckWeatherGuestRateLimit: vi.fn() }))
 const { mockGetTeskeidRouteCandidate } = vi.hoisted(() => ({ mockGetTeskeidRouteCandidate: vi.fn() }))
+const { mockIsTeskeidRouteCandidateEnabled } = vi.hoisted(() => ({
+  mockIsTeskeidRouteCandidateEnabled: vi.fn(),
+}))
 
 vi.mock('next/server', async importOriginal => {
   const actual = await importOriginal<typeof import('next/server')>()
@@ -48,6 +51,7 @@ vi.mock('@/lib/weather/ip-rate-limit.server', () => ({
 
 vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
   getTeskeidRouteCandidate: mockGetTeskeidRouteCandidate,
+  isTeskeidRouteCandidateEnabled: mockIsTeskeidRouteCandidateEnabled,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/routes/route'
@@ -106,6 +110,7 @@ beforeEach(() => {
   process.env.AUTH_CODE_SECRET = 'test-route-envelope-secret-at-least-32-bytes-long'
   delete process.env.WEATHER_PUBLIC_ENABLED
   mockGetTeskeidRouteCandidate.mockResolvedValue(null)
+  mockIsTeskeidRouteCandidateEnabled.mockReturnValue(true)
   mockAfter.mockImplementation((callback: () => unknown) => callback())
 })
 
@@ -288,11 +293,9 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     ])
   })
 
-  it('does not calculate or expose a Teskeið candidate without per-user access', async () => {
+  it('does not calculate or expose a Teskeið candidate when the global switch is off', async () => {
     authedUser()
-    mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, featureKey: string) => (
-      featureKey !== 'teskeid-routing-v1'
-    ))
+    mockIsTeskeidRouteCandidateEnabled.mockReturnValue(false)
     mockGetRouteOptions.mockResolvedValue([
       makeRouteOption('google-0', 0, 3600, 80000, true),
     ])
@@ -308,6 +311,38 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(res.status).toBe(200)
     expect(body.routes.map((route: { id: string }) => route.id)).toEqual(['google-0'])
     expect(mockGetTeskeidRouteCandidate).not.toHaveBeenCalled()
+  })
+
+  it('returns matching signed Google and Teskeið choices for a signed-out public Weather user', async () => {
+    guestUser()
+    mockGetRouteOptions.mockResolvedValue([
+      makeRouteOption('google-0', 0, 3600, 80000, true),
+    ])
+    mockGetTeskeidRouteCandidate.mockResolvedValue({
+      ...makeRouteOption('teskeid-road-graph-v1', -1, 3000, 75000),
+      provider: 'teskeid',
+      labels: ['TESKEID_EXPERIMENTAL'],
+    })
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      includeRouteEnvelopes: true,
+    }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.routes.map((route: { id: string }) => route.id)).toEqual([
+      'google-0',
+      'teskeid-road-graph-v1',
+    ])
+    expect(body.routeEnvelopes.map((envelope: { route: { id: string } }) => envelope.route.id))
+      .toEqual(['google-0', 'teskeid-road-graph-v1'])
+    expect(body.routeEnvelopes[1]).toMatchObject({
+      route: { id: 'teskeid-road-graph-v1', provider: 'teskeid' },
+      signature: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+    expect(mockCheckWeatherGuestRateLimit).toHaveBeenCalledOnce()
   })
 
   it('returns Google routes unchanged when the Teskeið candidate is unavailable', async () => {

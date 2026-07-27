@@ -2,7 +2,7 @@ import { after, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
-import { checkFeatureAccess } from '@/lib/loans/guard'
+import { checkWeatherGuestRateLimit } from '@/lib/weather/ip-rate-limit.server'
 import {
   getTeskeidRouteCandidatesOutcome,
   isTeskeidRouteCandidateEnabled,
@@ -14,6 +14,7 @@ import {
 import {
   signRouteOptionEnvelope,
   type RouteOptionEnvelopeV1,
+  verifyRouteOptionEnvelope,
 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 
 function validPoint(value: unknown): value is { lat: number; lon: number } {
@@ -68,20 +69,20 @@ export async function POST(request: Request) {
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  const hasAuthenticatedIdentity = Boolean(user?.id && user.email)
   const access = await resolveWeatherBaseAccess(user)
   if (access.mode === 'blocked') {
     return NextResponse.json({ status: 'unavailable', route: null }, { status: 401 })
   }
 
-  const hasTeskeidRouting = user?.id && user.email
-    ? await checkFeatureAccess(user.id, user.email, 'teskeid-routing-v1').catch(() => false)
-    : false
-  if (!hasTeskeidRouting) {
-    return NextResponse.json({ status: 'disabled', route: null }, { status: 404 })
-  }
-
   const body = await request.json().catch(() => null)
   if (body?.warmOnly === true) {
+    // Anonymous page loads must not be able to trigger graph materialisation.
+    // Their first validated route request can warm the graph inside its normal
+    // bounded candidate budget instead.
+    if (!hasAuthenticatedIdentity) {
+      return NextResponse.json({ status: 'disabled', route: null }, { status: 404 })
+    }
     const graphCache = getIcelandRoadGraphCacheStatus()
     const startedAt = performance.now()
     const status = await warmRoadGraph()
@@ -99,6 +100,41 @@ export async function POST(request: Request) {
   // any future client-only metadata into the strict envelope contract.
   const origin = { lat: body.origin.lat, lon: body.origin.lon }
   const destination = { lat: body.destination.lat, lon: body.destination.lon }
+
+  if (access.mode === 'public' && !hasAuthenticatedIdentity) {
+    const accessRouteEnvelope = verifyRouteOptionEnvelope(body.accessRouteEnvelope, {
+      origin,
+      destination,
+    })
+    if (!accessRouteEnvelope || accessRouteEnvelope.route.provider !== 'google') {
+      return NextResponse.json({
+        status: 'unavailable',
+        routes: [],
+        route: null,
+      }, {
+        status: 403,
+        headers: { 'Cache-Control': 'no-store' },
+      })
+    }
+  }
+
+  if (access.mode === 'public' && !hasAuthenticatedIdentity) {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      ?? request.headers.get('x-real-ip')?.trim()
+      ?? ''
+    const withinLimit = await checkWeatherGuestRateLimit(ip, 'teskeid-candidate')
+    if (!withinLimit) {
+      return NextResponse.json({
+        status: 'unavailable',
+        routes: [],
+        route: null,
+      }, {
+        status: 429,
+        headers: { 'Cache-Control': 'no-store' },
+      })
+    }
+  }
+
   const includeAlternatives = body?.alternatives === true
   const graphCache = getIcelandRoadGraphCacheStatus()
   const candidateStartedAt = performance.now()
