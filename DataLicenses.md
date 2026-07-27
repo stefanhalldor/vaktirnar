@@ -46,6 +46,49 @@ Notkun:
 - Skráin er uppfærð vikulega; Teskeið notar versioned last-known-good import og
   birtir attribution þegar HMS-niðurstöður eru sýndar.
 
+## Opinberir þéttbýlisstaðir og póststaðir
+
+Providers: Hagstofa Íslands, Landmælingar Íslands og Byggðastofnun
+
+Hlutverk:
+
+- canonical heiti og auðkenni þéttbýlisstaða úr `Hagstofan:thettbylisstadir`
+- nýrri þéttbýlisflákar og point-on-surface hnit úr `IS_50V:mannvirki_flakar`
+- póstnúmer og póststaðaheiti úr `byggdastofnun:postnumer`
+- skýr aðgreining á `Þéttbýli` og HMS-`Staðfang` í staðaleit
+
+Canonical attribution:
+
+`Byggir á gögnum Hagstofu Íslands og Landmælinga Íslands. Byggt á gögnum frá Byggðastofnun.`
+
+Opinber lýsigögn og skilmálar:
+
+- https://gatt.natt.is/geonetwork/srv/api/records/95c2ff71-c776-462a-8b23-d50cdeb7cb4f
+- https://www-gamli.lmi.is/landupplysingar/mannvirki/
+- https://gatt.natt.is/geonetwork/srv/api/records/22e98d21-a86b-4b62-ad58-a6d17703b612
+
+Notkun:
+
+- Hagstofa heimilar afnot af þéttbýlisgögnunum með heimildarmerkingu.
+- IS 50V gögn Landmælinga Íslands eru notuð samkvæmt CC BY 4.0 og þurfa
+  provider-, gagnasafns- og dagsetningarmerkingu.
+- Byggðastofnun heimilar afritun, endurnýtingu og birtingu póstnúmeragagnanna
+  með textanum `Byggt á gögnum frá Byggðastofnun.`
+- Póstnúmer eru notuð hér sem skýr staðalýsing. Önnur notkun en dreifing pósts
+  er á ábyrgð Teskeiðar samkvæmt fyrirvara Byggðastofnunar.
+
+Refresh og rekjanleiki:
+
+- Production kallar ekki í WFS-þjónusturnar við notendaleit.
+- `npm run places:refresh-official` sækir gögnin handvirkt, valid-ar fjölda,
+  stable IDs, hnit og þekkt viðmið og skrifar versionað last-known-good snapshot
+  í `lib/places/officialPlaceDirectory.generated.json`.
+- Snapshotið geymir sótt-tíma, feature-count og SHA-256 fingerprint fyrir hverja
+  heimild. Hvert refresh á að fara í code review áður en það er gefið út.
+- Snapshotið sem fyrst var búið til 2026-07-27 inniheldur aðeins leitarhæf
+  heiti, póststaði, provenance og reiknuð canonical hnit; polygon geometry er
+  ekki sett í runtime bundle.
+
 ## Vegagerðin
 
 Provider: Vegagerðin

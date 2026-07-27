@@ -83,7 +83,9 @@ describe('HMS directory search repository', () => {
       sourceId: '0002001',
       name: 'Laugavegur 10B',
       formattedAddress: 'Laugavegur 10B, 101 Reykjavík',
+      placeType: 'address',
       postalCode: '101',
+      postalLocality: 'Reykjavík',
       municipalityCode: '0000',
       municipality: 'Reykjavíkurborg',
       lat: 64.145,
@@ -93,6 +95,55 @@ describe('HMS directory search repository', () => {
     expect(place).not.toHaveProperty('placeId')
     expect(place).not.toHaveProperty('googlePlaceId')
     expect(place).not.toHaveProperty('routingRef')
+  })
+
+  it('corrects a trailing HMS municipality label with the official postcode locality', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [hmsRow({
+        source_id: 'hella-611',
+        display_name: 'Hella',
+        formatted_address: 'Hella, 611 Akureyrarbær',
+        postal_code: '611',
+        municipality_code: '6000',
+        municipality_name: 'Akureyrarbær',
+        lat: 66.54,
+        lon: -18.02,
+      })],
+      error: null,
+    })
+
+    const [place] = await searchHmsPlaces('Hella')
+
+    expect(place).toMatchObject({
+      formattedAddress: 'Hella, 611 Grímsey',
+      postalCode: '611',
+      postalLocality: 'Grímsey',
+      municipality: 'Akureyrarbær',
+      placeType: 'address',
+    })
+  })
+
+  it('fails closed when the HMS formatted-address suffix is not recognizable', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [hmsRow({
+        source_id: 'hella-611-unusual',
+        display_name: 'Hella',
+        formatted_address: 'Hella við óvenjulegt kennileiti',
+        postal_code: '611',
+        municipality_name: 'Akureyrarbær',
+        lat: 66.54,
+        lon: -18.02,
+      })],
+      error: null,
+    })
+
+    const [place] = await searchHmsPlaces('Hella')
+
+    expect(place).toMatchObject({
+      formattedAddress: 'Hella við óvenjulegt kennileiti',
+      postalLocality: 'Grímsey',
+      municipality: 'Akureyrarbær',
+    })
   })
 
   it('drops malformed and outside-Iceland rows returned by the RPC', async () => {

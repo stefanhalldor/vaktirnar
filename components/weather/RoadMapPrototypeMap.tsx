@@ -1186,6 +1186,14 @@ function countWindDisplayStatuses(
   return counts
 }
 
+function createDefaultRouteVisibleWindStatuses(): Set<WindDisplayStatus> {
+  return new Set(
+    ALL_WIND_DISPLAY_STATUSES.filter(
+      status => status !== 'no_data' && status !== 'no_wind_data',
+    ),
+  )
+}
+
 function routeStatusFromCounts(
   counts: Partial<Record<WindDisplayStatus, number>>,
 ): DeterministicResult['stada'] {
@@ -1531,7 +1539,9 @@ export function RoadMapPrototypeMap({
   const showForecastStationsRef = useRef(true)
   const showAllForecastGlaciersRef = useRef(false)
   const showAllForecastMountainsRef = useRef(false)
-  const visibleRouteStatusesRef = useRef<Set<WindDisplayStatus>>(new Set())
+  const visibleRouteStatusesRef = useRef<Set<WindDisplayStatus>>(
+    createDefaultRouteVisibleWindStatuses(),
+  )
   const routeStatusFilterModeRef = useRef<WindStatusFilterMode>('simple')
   const routeWeatherModeRef = useRef<RouteWeatherMode>('now')
   const routeActiveRef = useRef(false)
@@ -1587,7 +1597,9 @@ export function RoadMapPrototypeMap({
   const [savedRouteThresholds, setSavedRouteThresholds] = useState<{ cautionWindMs: number; redWindMs: number } | null>(null)
   const [routeThresholdError, setRouteThresholdError] = useState<string | null>(null)
   const [routeStatusFilterMode, setRouteStatusFilterMode] = useState<WindStatusFilterMode>('simple')
-  const [visibleRouteStatuses, setVisibleRouteStatuses] = useState<Set<WindDisplayStatus>>(new Set())
+  const [visibleRouteStatuses, setVisibleRouteStatuses] = useState<Set<WindDisplayStatus>>(
+    createDefaultRouteVisibleWindStatuses,
+  )
   const [routeWeatherMode, setRouteWeatherMode] = useState<RouteWeatherMode>('now')
   const [routeNowStatusCounts, setRouteNowStatusCounts] = useState<
     Partial<Record<WindDisplayStatus, number>> | null
@@ -4498,7 +4510,7 @@ export function RoadMapPrototypeMap({
     setRouteActive(false)
     vedurstofanLayerRef.current = undefined
     resolvedRoutePlacesRef.current = null
-    handleRouteStatusFilterChange(new Set())
+    handleRouteStatusFilterChange(createDefaultRouteVisibleWindStatuses())
     setActiveRouteFieldState('from')
     clearRouteVedurstofanLabelMarkers()
     clearRouteVegagerdinLabelMarkers()
@@ -6551,7 +6563,7 @@ export function RoadMapPrototypeMap({
     setRouteCandidates(initialRouteCandidates)
     setRouteSlotStatusOverrides(null)
     setSelectedCandidateIdx(null)
-    handleRouteStatusFilterChange(new Set())
+    handleRouteStatusFilterChange(createDefaultRouteVisibleWindStatuses())
     updateRouteWeatherLayerVisibility(nowRouteMode)
     setRouteBridgeStatus('success')
     console.log('[RoadMap] route success — initial candidates:', initialRouteCandidates?.length ?? 0, '| selectedCandidateIdx: null | nowCounts:', nowStatusCounts, '| nowMeasuredAtIso:', nowMeasuredAtIso)
@@ -9150,6 +9162,7 @@ export function RoadMapPrototypeMap({
               onVisibleStatusesChange={handleRouteStatusFilterChange}
               showAllLabel=""
               mode={routeStatusFilterMode}
+              combineNoWindDataStatuses
             />
 
           </div>

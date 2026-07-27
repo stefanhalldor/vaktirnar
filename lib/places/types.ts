@@ -1,4 +1,14 @@
-export type PlaceSource = 'hms' | 'device' | 'map' | 'saved' | 'static' | 'curated' | 'google'
+export type PlaceSource =
+  | 'hms'
+  | 'official'
+  | 'device'
+  | 'map'
+  | 'saved'
+  | 'static'
+  | 'curated'
+  | 'google'
+
+export type PlaceType = 'settlement' | 'address' | 'point'
 
 export type PlaceRoutingReference = {
   provider: 'google'
@@ -13,10 +23,15 @@ export type PlaceRoutingReference = {
 export type SelectedLocation = {
   id?: string
   source: PlaceSource
+  /** Provenance of a display-only nearby label when the coordinate source differs. */
+  labelSource?: PlaceSource
   sourceId?: string
   name: string
   formattedAddress: string
+  placeType?: PlaceType
   postalCode?: string
+  /** Postal locality from the official postcode directory; distinct from municipality. */
+  postalLocality?: string
   municipalityCode?: string
   municipality?: string
   lat: number

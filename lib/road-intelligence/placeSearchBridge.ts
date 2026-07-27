@@ -7,9 +7,12 @@ export type RoadIntelligencePlaceResult = {
   lon: number
   placeId?: string
   googlePlaceId?: string
-  source?: 'hms' | 'device' | 'map' | 'saved' | 'static' | 'curated' | 'google'
+  source?: 'hms' | 'device' | 'map' | 'saved' | 'static' | 'curated' | 'official' | 'google'
+  labelSource?: 'hms' | 'device' | 'map' | 'saved' | 'static' | 'curated' | 'official' | 'google'
   sourceId?: string
+  placeType?: 'settlement' | 'address' | 'point'
   postalCode?: string
+  postalLocality?: string
   municipality?: string
   municipalityCode?: string
   accuracyM?: number
@@ -47,8 +50,11 @@ function coercePlaceResult(raw: unknown): RoadIntelligencePlaceResult | null {
   const placeId = value.placeId ?? value.place_id
   const googlePlaceId = value.googlePlaceId
   const source = value.source
+  const labelSource = value.labelSource
   const sourceId = value.sourceId
+  const placeType = value.placeType
   const postalCode = value.postalCode
+  const postalLocality = value.postalLocality
   const municipality = value.municipality
   const municipalityCode = value.municipalityCode
   const accuracyM = value.accuracyM
@@ -71,16 +77,30 @@ function coercePlaceResult(raw: unknown): RoadIntelligencePlaceResult | null {
         : undefined,
     source:
       source === 'hms' || source === 'device' || source === 'map' || source === 'saved' ||
-      source === 'static' || source === 'curated' || source === 'google'
+      source === 'static' || source === 'curated' || source === 'official' || source === 'google'
         ? source
+        : undefined,
+    labelSource:
+      labelSource === 'hms' || labelSource === 'device' || labelSource === 'map' ||
+      labelSource === 'saved' || labelSource === 'static' || labelSource === 'curated' ||
+      labelSource === 'official' || labelSource === 'google'
+        ? labelSource
         : undefined,
     sourceId:
       typeof sourceId === 'string' && sourceId.trim().length > 0
         ? sourceId.trim()
         : undefined,
+    placeType:
+      placeType === 'settlement' || placeType === 'address' || placeType === 'point'
+        ? placeType
+        : undefined,
     postalCode:
       typeof postalCode === 'string' && postalCode.trim().length > 0
         ? postalCode.trim()
+        : undefined,
+    postalLocality:
+      typeof postalLocality === 'string' && postalLocality.trim().length > 0
+        ? postalLocality.trim()
         : undefined,
     municipality:
       typeof municipality === 'string' && municipality.trim().length > 0

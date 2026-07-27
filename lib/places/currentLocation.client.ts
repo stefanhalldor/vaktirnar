@@ -1,6 +1,6 @@
 'use client'
 
-import type { SelectedLocation } from '@/lib/places/types'
+import type { PlaceSource, SelectedLocation } from '@/lib/places/types'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 
 export type CurrentLocationErrorCode =
@@ -50,13 +50,29 @@ type ReverseGeocodePayload = {
   result?: unknown
   name?: unknown
   formattedAddress?: unknown
+  source?: unknown
+  placeType?: unknown
   postalCode?: unknown
+  postalLocality?: unknown
   municipality?: unknown
   municipalityCode?: unknown
 }
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function placeSourceValue(value: unknown): PlaceSource | undefined {
+  return value === 'hms' ||
+    value === 'official' ||
+    value === 'device' ||
+    value === 'map' ||
+    value === 'saved' ||
+    value === 'static' ||
+    value === 'curated' ||
+    value === 'google'
+    ? value
+    : undefined
 }
 
 function reverseLocationFrom(payload: ReverseGeocodePayload): Record<string, unknown> {
@@ -111,6 +127,9 @@ async function locationFromCoordinates(
     ? stringValue(reverse.formattedAddress ?? reverse.address)
     : undefined
   const nearbyPlace = formattedAddress ?? reverseName
+  const labelSource = nearbyPlace && reverse
+    ? placeSourceValue(reverse.source)
+    : undefined
 
   return {
     id: `${source}:${lat.toFixed(6)}:${lon.toFixed(6)}`,
@@ -121,7 +140,10 @@ async function locationFromCoordinates(
     lat,
     lon,
     source,
+    labelSource,
+    placeType: 'point',
     postalCode: reverse ? stringValue(reverse.postalCode) : undefined,
+    postalLocality: reverse ? stringValue(reverse.postalLocality) : undefined,
     municipality: reverse ? stringValue(reverse.municipality) : undefined,
     municipalityCode: reverse ? stringValue(reverse.municipalityCode) : undefined,
     accuracyM,

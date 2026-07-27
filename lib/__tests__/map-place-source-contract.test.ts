@@ -32,6 +32,8 @@ describe('map-selected place contracts', () => {
         lat: 63.8357004,
         lon: -20.4000996,
         source: 'map',
+        labelSource: 'hms',
+        placeType: 'point',
         sourceId: 'map:63.835700:-20.400100',
       }],
     })
@@ -42,6 +44,8 @@ describe('map-selected place contracts', () => {
       lat: 63.8357004,
       lon: -20.4000996,
       source: 'map',
+      labelSource: 'hms',
+      placeType: 'point',
       sourceId: 'map:63.835700:-20.400100',
     })
     expect(parsed.googlePlaceId).toBeUndefined()

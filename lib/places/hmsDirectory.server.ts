@@ -2,6 +2,7 @@ import 'server-only'
 
 import { getAdmin } from '@/lib/supabase/admin'
 import { normalizePlaceSearchText } from './normalize'
+import { getOfficialPostalLocality } from './officialPlaceDirectory.server'
 import type {
   ActiveHmsDataset,
   ReversePlaceResult,
@@ -37,6 +38,22 @@ function finiteNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function formatWithOfficialPostalLocality(
+  row: HmsPlaceRpcRow,
+  postalLocality: string | undefined,
+): string {
+  if (!row.postal_code || !postalLocality || !row.municipality_name) {
+    return row.formatted_address
+  }
+  const currentSuffix = `${row.postal_code} ${row.municipality_name}`
+  const officialSuffix = `${row.postal_code} ${postalLocality}`
+  if (currentSuffix === officialSuffix) return row.formatted_address
+  if (row.formatted_address === currentSuffix) return officialSuffix
+  const commaSuffix = `, ${currentSuffix}`
+  if (!row.formatted_address.endsWith(commaSuffix)) return row.formatted_address
+  return `${row.formatted_address.slice(0, -commaSuffix.length)}, ${officialSuffix}`
+}
+
 function toSelectedLocation(row: HmsPlaceRpcRow): SelectedLocation | null {
   const lat = finiteNumber(row.lat)
   const lon = finiteNumber(row.lon)
@@ -48,13 +65,16 @@ function toSelectedLocation(row: HmsPlaceRpcRow): SelectedLocation | null {
     return null
   }
   const accuracyM = finiteNumber(row.accuracy_m)
+  const postalLocality = getOfficialPostalLocality(row.postal_code)?.name
   return {
     id: `hms:${row.source_id}`,
     source: 'hms',
     sourceId: row.source_id,
     name: row.display_name,
-    formattedAddress: row.formatted_address,
+    formattedAddress: formatWithOfficialPostalLocality(row, postalLocality),
+    placeType: 'address',
     ...(row.postal_code ? { postalCode: row.postal_code } : {}),
+    ...(postalLocality ? { postalLocality } : {}),
     ...(row.municipality_code ? { municipalityCode: row.municipality_code } : {}),
     ...(row.municipality_name ? { municipality: row.municipality_name } : {}),
     lat,

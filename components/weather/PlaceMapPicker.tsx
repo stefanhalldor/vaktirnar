@@ -5,6 +5,8 @@ import { Check, MapPin, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import type { PlaceResult } from './PlaceSearch'
+import { PlaceDataAttributions } from './PlaceDataAttributions'
+import { PlaceResultIdentity } from './PlaceResultIdentity'
 import {
   DRIVE_MAP_CARTO_ATTRIBUTION,
   DRIVE_MAP_CARTO_TILES,
@@ -13,6 +15,7 @@ import {
   CurrentLocationError,
   getLocationFromCoordinates,
 } from '@/lib/places/currentLocation.client'
+import { getPlaceAccessibleLabel } from '@/lib/places/display'
 
 type PlaceMapPickerProps = {
   places: readonly PlaceResult[]
@@ -28,12 +31,6 @@ type ResultMarker = {
 
 function placeKey(place: PlaceResult): string {
   return place.id ?? `${place.source}:${place.lat.toFixed(6)}:${place.lon.toFixed(6)}`
-}
-
-function placeLabel(place: PlaceResult): string {
-  return place.formattedAddress && place.formattedAddress !== place.name
-    ? `${place.name}, ${place.formattedAddress}`
-    : place.name
 }
 
 function prefersReducedMotion(): boolean {
@@ -57,6 +54,8 @@ export function PlaceMapPicker({ places, onSelect, onClose }: PlaceMapPickerProp
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null)
   const [resolvingPoint, setResolvingPoint] = useState(false)
   const [pointError, setPointError] = useState<string | null>(null)
+  const settlementTypeLabel = t('placeTypeSettlement')
+  const addressTypeLabel = t('placeTypeAddress')
 
   useEffect(() => {
     let cancelled = false
@@ -141,7 +140,17 @@ export function PlaceMapPicker({ places, onSelect, onClose }: PlaceMapPickerProp
       const element = document.createElement('button')
       element.type = 'button'
       element.className = 'flex size-10 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-      element.setAttribute('aria-label', placeLabel(place))
+      element.setAttribute(
+        'aria-label',
+        getPlaceAccessibleLabel(
+          place,
+          place.placeType === 'settlement'
+            ? settlementTypeLabel
+            : place.placeType === 'address'
+              ? addressTypeLabel
+              : null,
+        ),
+      )
       element.setAttribute('aria-pressed', 'false')
       const pin = document.createElement('span')
       pin.className = 'flex size-7 items-center justify-center rounded-full border-[3px] border-white bg-primary text-xs font-bold text-primary-foreground shadow-md'
@@ -176,7 +185,7 @@ export function PlaceMapPicker({ places, onSelect, onClose }: PlaceMapPickerProp
       resultMarkersRef.current.forEach(item => item.marker.remove())
       resultMarkersRef.current = []
     }
-  }, [mapReady, places])
+  }, [addressTypeLabel, mapReady, places, settlementTypeLabel])
 
   useEffect(() => {
     const selectedKey = selectedPlace ? placeKey(selectedPlace) : null
@@ -318,19 +327,20 @@ export function PlaceMapPicker({ places, onSelect, onClose }: PlaceMapPickerProp
                         type="button"
                         onClick={() => selectCandidate(place, index)}
                         aria-pressed={active}
+                        aria-label={getPlaceAccessibleLabel(
+                          place,
+                          place.placeType === 'settlement'
+                            ? settlementTypeLabel
+                            : place.placeType === 'address'
+                              ? addressTypeLabel
+                              : null,
+                        )}
                         className={`flex min-h-11 w-full items-start gap-2 border-b border-border px-3 py-2 text-left last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${active ? 'bg-primary/5' : 'bg-background'}`}
                       >
                         <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
                           {index + 1}
                         </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{place.name}</span>
-                          {place.formattedAddress && place.formattedAddress !== place.name && (
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {place.formattedAddress}
-                            </span>
-                          )}
-                        </span>
+                        <PlaceResultIdentity place={place} />
                         {active && <Check size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />}
                       </button>
                     </li>
@@ -338,6 +348,11 @@ export function PlaceMapPicker({ places, onSelect, onClose }: PlaceMapPickerProp
                 })}
               </ul>
             )}
+
+            <PlaceDataAttributions
+              places={selectedPlace ? [...places, selectedPlace] : places}
+              className="mb-3"
+            />
 
             {resolvingPoint && (
               <p role="status" className="mb-3 text-xs text-muted-foreground">
@@ -349,14 +364,7 @@ export function PlaceMapPicker({ places, onSelect, onClose }: PlaceMapPickerProp
             {selectedPlace && (
               <div className="mb-3 flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
                 <MapPin size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{selectedPlace.name}</p>
-                  {selectedPlace.formattedAddress && selectedPlace.formattedAddress !== selectedPlace.name && (
-                    <p className="truncate text-xs text-muted-foreground">
-                      {selectedPlace.formattedAddress}
-                    </p>
-                  )}
-                </div>
+                <PlaceResultIdentity place={selectedPlace} />
               </div>
             )}
 

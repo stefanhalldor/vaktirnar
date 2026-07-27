@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { searchHmsPlaces } from '@/lib/places/hmsDirectory.server'
+import {
+  officialPlaceHasAlias,
+  officialPlaceSearchScore,
+  searchOfficialPlaces,
+} from '@/lib/places/officialPlaceDirectory.server'
 import type { SelectedLocation } from '@/lib/places/types'
 import {
   findRoadMapPlaceSuggestions,
@@ -62,6 +67,9 @@ function staticPlaces(query: string): SelectedLocation[] {
 }
 
 function relevanceScore(query: string, place: SelectedLocation): number {
+  if (place.source === 'official') {
+    return officialPlaceSearchScore(query, place.sourceId)
+  }
   const normalizedQuery = normalizePlaceSearchText(query)
   const name = normalizePlaceSearchText(place.name)
   const address = normalizePlaceSearchText(place.formattedAddress)
@@ -79,6 +87,15 @@ function relevanceScore(query: string, place: SelectedLocation): number {
 
   if (place.source === 'hms') score += 4
   return score
+}
+
+function removeCuratedOfficialDuplicates(
+  official: readonly SelectedLocation[],
+  curated: readonly SelectedLocation[],
+): SelectedLocation[] {
+  return curated.filter(candidate => !official.some(place => (
+    officialPlaceHasAlias(place.sourceId, candidate.name)
+  )))
 }
 
 function dedupeAndRank(
@@ -196,10 +213,11 @@ export async function POST(request: NextRequest) {
   const query = await readQuery(request)
   if (!query) return noStoreJson({ results: [] }, 400)
 
-  // The public HMS directory is canonical. Curated localities complement it,
-  // because an address register is not a settlement gazetteer. Google is an
-  // explicit, transitional server-only fallback and receives the query only
-  // when both local sources return no match.
+  // Official settlements answer locality intent, while HMS remains canonical
+  // for address intent. Curated points only fill remaining locality gaps.
+  // Google is an explicit, transitional server-only fallback and receives the
+  // query only when every local source returns no match.
+  const official = searchOfficialPlaces(query, MAX_RESULTS)
   const [hms, curated] = await Promise.all([
     isHmsSearchEnabled()
       ? searchHmsPlaces(query, MAX_RESULTS).catch(() => {
@@ -209,7 +227,8 @@ export async function POST(request: NextRequest) {
       : Promise.resolve([]),
     Promise.resolve(staticPlaces(query)),
   ])
-  let results = dedupeAndRank(query, hms, curated)
+  const curatedWithoutOfficialDuplicates = removeCuratedOfficialDuplicates(official, curated)
+  let results = dedupeAndRank(query, [...official, ...hms], curatedWithoutOfficialDuplicates)
   if (results.length === 0) {
     results = dedupeAndRank(query, await googleFallback(`${query} Ísland`), [])
   }

@@ -1,0 +1,3530 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-27T18:30:52.766Z",
+  "sources": {
+    "hagstofa": {
+      "dataset": "Þéttbýlisstaðir 2020–2024",
+      "metadataUrl": "https://gatt.natt.is/geonetwork/srv/api/records/95c2ff71-c776-462a-8b23-d50cdeb7cb4f",
+      "dataUrl": "https://gis.is/geoserver/Hagstofan/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Hagstofan%3Athettbylisstadir&outputFormat=application%2Fjson&srsName=EPSG%3A4326",
+      "featureCount": 97,
+      "contentSha256": "543a8a7227e34111ce9b6f177cc17429145128c8c3fa669be67566d425b6ef68"
+    },
+    "is50v": {
+      "dataset": "IS 50V Mannvirki — þéttbýlisflákar",
+      "metadataUrl": "https://www-gamli.lmi.is/landupplysingar/mannvirki/",
+      "dataUrl": "https://gis.lmi.is/geoserver/IS_50V/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=IS_50V%3Amannvirki_flakar&outputFormat=application%2Fjson&srsName=EPSG%3A4326",
+      "featureCount": 110,
+      "contentSha256": "6339ab4de97ee557103dbf853737c2a4405bc623b21e3e965514b79e26c66442"
+    },
+    "postal": {
+      "dataset": "Póstnúmer",
+      "metadataUrl": "https://gatt.lmi.is/geonetwork/srv/resources/datasets/22e98d21-a86b-4b62-ad58-a6d17703b612",
+      "dataUrl": "https://gis.lmi.is/geoserver/byggdastofnun/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=byggdastofnun%3Apostnumer&outputFormat=application%2Fjson&srsName=EPSG%3A4326",
+      "featureCount": 175,
+      "contentSha256": "f09910e97bd1461f9078ed30c39f30d07f143efa5daf1a7c046b38834dd3a2a4"
+    }
+  },
+  "settlements": [
+    {
+      "id": "is50v:7c958ef5-5f21-d2f9-62a2-0f58cd080973",
+      "name": "Akranes",
+      "aliases": [
+        "Akranes"
+      ],
+      "lat": 64.319957,
+      "lon": -22.062097,
+      "postalCode": "300",
+      "postalLocality": "Akranes",
+      "postalCodes": [
+        "300"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "7c958ef5-5f21-d2f9-62a2-0f58cd080973"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "akranes 300 300 akranes akranes 300"
+    },
+    {
+      "id": "is50v:158f6b1d-1fa3-c4f9-75f2-c659a02cdca3",
+      "name": "Akureyri",
+      "aliases": [
+        "Akureyri"
+      ],
+      "lat": 65.680617,
+      "lon": -18.112194,
+      "postalCode": "600",
+      "postalLocality": "Akureyri",
+      "postalCodes": [
+        "600"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "158f6b1d-1fa3-c4f9-75f2-c659a02cdca3"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "akureyri 600 600 akureyri akureyri 600"
+    },
+    {
+      "id": "hagstofa:0030",
+      "name": "Álftanes",
+      "aliases": [
+        "Álftanes"
+      ],
+      "lat": 64.10426,
+      "lon": -22.02046,
+      "postalCode": "225",
+      "postalLocality": "Garðabær",
+      "postalCodes": [
+        "225"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0030",
+      "is50vIds": [
+        "5bbb9f84-cec6-60cc-89d3-102a8a71bdd1"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "alftanes 225 225 alftanes alftanes 225"
+    },
+    {
+      "id": "is50v:8fc3f64b-26ec-aa6c-f462-c8a0dceef15d",
+      "name": "Árbæjarhverfi",
+      "aliases": [
+        "Árbæjarhverfi"
+      ],
+      "lat": 63.944964,
+      "lon": -21.02997,
+      "postalCode": "816",
+      "postalLocality": "Ölfus",
+      "postalCodes": [
+        "816"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "8fc3f64b-26ec-aa6c-f462-c8a0dceef15d"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "arbaejarhverfi 816 816 arbaejarhverfi arbaejarhverfi 816"
+    },
+    {
+      "id": "hagstofa:1157",
+      "name": "Árnes",
+      "aliases": [
+        "Árnes"
+      ],
+      "lat": 64.041631,
+      "lon": -20.250086,
+      "postalCode": "804",
+      "postalLocality": "Selfoss, dreifbýli",
+      "postalCodes": [
+        "804"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1157",
+      "is50vIds": [
+        "bf6aeacf-e12c-15b7-8f5e-886e821064e1"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "arnes 804 804 arnes arnes 804"
+    },
+    {
+      "id": "is50v:a8c1b209-a969-f5da-8142-5a91793746f3",
+      "name": "Árskógssandur",
+      "aliases": [
+        "Árskógssandur"
+      ],
+      "lat": 65.944376,
+      "lon": -18.354495,
+      "postalCode": "621",
+      "postalLocality": "Dalvík, dreifbýli",
+      "postalCodes": [
+        "621"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "a8c1b209-a969-f5da-8142-5a91793746f3"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "arskogssandur 621 621 arskogssandur arskogssandur 621"
+    },
+    {
+      "id": "is50v:047c1b9a-726a-1a43-9453-4f10fe954079",
+      "name": "Ásbrú",
+      "aliases": [
+        "Ásbrú"
+      ],
+      "lat": 63.971168,
+      "lon": -22.580032,
+      "postalCode": "262",
+      "postalLocality": "Reykjanesbær",
+      "postalCodes": [
+        "262"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "047c1b9a-726a-1a43-9453-4f10fe954079"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "asbru 262 262 asbru asbru 262"
+    },
+    {
+      "id": "hagstofa:0869",
+      "name": "Bakkafjörður",
+      "aliases": [
+        "Bakkafjörður"
+      ],
+      "lat": 66.036182,
+      "lon": -14.803719,
+      "postalCode": "685",
+      "postalLocality": "Bakkafjörður",
+      "postalCodes": [
+        "685"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0869",
+      "is50vIds": [
+        "794c461c-40f2-32ee-401d-ae9afdbf61a1"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "bakkafjordur 685 685 bakkafjordur bakkafjordur 685"
+    },
+    {
+      "id": "is50v:10a454dc-acbe-f9f7-0276-fb315bb6e744",
+      "name": "Bakkagerði",
+      "aliases": [
+        "Bakkagerði"
+      ],
+      "lat": 65.524545,
+      "lon": -13.807936,
+      "postalCode": "720",
+      "postalLocality": "Borgarfjörður eystri",
+      "postalCodes": [
+        "720"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "10a454dc-acbe-f9f7-0276-fb315bb6e744"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "bakkagerdi 720 720 bakkagerdi bakkagerdi 720"
+    },
+    {
+      "id": "hagstofa:0205",
+      "name": "Bifröst",
+      "aliases": [
+        "Bifröst"
+      ],
+      "lat": 64.766798,
+      "lon": -21.551815,
+      "postalCode": "311",
+      "postalLocality": "Borgarnes, dreifbýli",
+      "postalCodes": [
+        "311"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0205",
+      "is50vIds": [
+        "9fceb834-d231-e5f3-ff83-1e2e4bc24e20"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "bifrost 311 311 bifrost bifrost 311"
+    },
+    {
+      "id": "hagstofa:0360",
+      "name": "Bíldudalur",
+      "aliases": [
+        "Bíldudalur"
+      ],
+      "lat": 65.683253,
+      "lon": -23.604801,
+      "postalCode": "465",
+      "postalLocality": "Bíldudalur",
+      "postalCodes": [
+        "465"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0360",
+      "is50vIds": [
+        "be631095-f925-4c89-710b-d7d475e52144"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "bildudalur 465 465 bildudalur bildudalur 465"
+    },
+    {
+      "id": "hagstofa:0540",
+      "name": "Blönduós",
+      "aliases": [
+        "Blönduós"
+      ],
+      "lat": 65.660693,
+      "lon": -20.287554,
+      "postalCode": "540",
+      "postalLocality": "Blönduós",
+      "postalCodes": [
+        "540"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0540",
+      "is50vIds": [
+        "66d3f8b5-998d-cd9d-e6d3-e8ca1cb38e5e"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "blonduos 540 540 blonduos blonduos 540"
+    },
+    {
+      "id": "hagstofa:0400",
+      "name": "Bolungarvík",
+      "aliases": [
+        "Bolungarvík"
+      ],
+      "lat": 66.157744,
+      "lon": -23.253061,
+      "postalCode": "415",
+      "postalLocality": "Bolungarvík",
+      "postalCodes": [
+        "415"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0400",
+      "is50vIds": [
+        "7e5845aa-cf50-2f8f-bb8a-88f402ffe169"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "bolungarvik 415 415 bolungarvik bolungarvik 415"
+    },
+    {
+      "id": "is50v:5fe58ddf-c36c-c70a-6db3-db40b48809af",
+      "name": "Borðeyri",
+      "aliases": [
+        "Borðeyri"
+      ],
+      "lat": 65.20862,
+      "lon": -21.096952,
+      "postalCode": "500",
+      "postalLocality": "Staður",
+      "postalCodes": [
+        "500"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "5fe58ddf-c36c-c70a-6db3-db40b48809af"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "bordeyri 500 500 bordeyri bordeyri 500"
+    },
+    {
+      "id": "is50v:4cbd0168-c462-aa41-6388-f4c0c0fa5e3d",
+      "name": "Borg",
+      "aliases": [
+        "Borg"
+      ],
+      "lat": 64.076439,
+      "lon": -20.764316,
+      "postalCode": "805",
+      "postalLocality": "Selfoss, dreifbýli",
+      "postalCodes": [
+        "805"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "4cbd0168-c462-aa41-6388-f4c0c0fa5e3d"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "borg 805 805 borg borg 805"
+    },
+    {
+      "id": "hagstofa:0200",
+      "name": "Borgarnes",
+      "aliases": [
+        "Borgarnes"
+      ],
+      "lat": 64.549671,
+      "lon": -21.907474,
+      "postalCode": "310",
+      "postalLocality": "Borgarnes",
+      "postalCodes": [
+        "310"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0200",
+      "is50vIds": [
+        "a1b632e8-123b-3cfc-fe75-44eecc681e55"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "borgarnes 310 310 borgarnes borgarnes 310"
+    },
+    {
+      "id": "is50v:badc22b9-62b3-1dad-2758-0349b6a8e93e",
+      "name": "Brautarholt",
+      "aliases": [
+        "Brautarholt"
+      ],
+      "lat": 64.022289,
+      "lon": -20.519365,
+      "postalCode": "804",
+      "postalLocality": "Selfoss, dreifbýli",
+      "postalCodes": [
+        "804"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "badc22b9-62b3-1dad-2758-0349b6a8e93e"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "brautarholt 804 804 brautarholt brautarholt 804"
+    },
+    {
+      "id": "hagstofa:0960",
+      "name": "Breiðdalsvík",
+      "aliases": [
+        "Breiðdalsvík"
+      ],
+      "lat": 64.791769,
+      "lon": -14.00575,
+      "postalCode": "760",
+      "postalLocality": "Breiðdalsvík",
+      "postalCodes": [
+        "760"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0960",
+      "is50vIds": [
+        "c9cb1299-fc5e-0323-76cf-737ba93c2863"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "breiddalsvik 760 760 breiddalsvik breiddalsvik 760"
+    },
+    {
+      "id": "is50v:33e5b9bd-00c1-2011-42e9-32d595071021",
+      "name": "Brúnahlíð",
+      "aliases": [
+        "Brúnahlíð"
+      ],
+      "lat": 65.654663,
+      "lon": -18.025703,
+      "postalCode": "605",
+      "postalLocality": "Akureyri, dreifbýli",
+      "postalCodes": [
+        "605"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "33e5b9bd-00c1-2011-42e9-32d595071021"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "brunahlid 605 605 brunahlid brunahlid 605"
+    },
+    {
+      "id": "hagstofa:0250",
+      "name": "Búðardalur",
+      "aliases": [
+        "Búðardalur"
+      ],
+      "lat": 65.108685,
+      "lon": -21.765479,
+      "postalCode": "370",
+      "postalLocality": "Búðardalur",
+      "postalCodes": [
+        "370"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0250",
+      "is50vIds": [
+        "27ac7a2f-f222-4af4-2172-de42efc66e30"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "budardalur 370 370 budardalur budardalur 370"
+    },
+    {
+      "id": "hagstofa:0660",
+      "name": "Dalvík",
+      "aliases": [
+        "Dalvík"
+      ],
+      "lat": 65.971824,
+      "lon": -18.533763,
+      "postalCode": "620",
+      "postalLocality": "Dalvík",
+      "postalCodes": [
+        "620"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0660",
+      "is50vIds": [
+        "c7c722af-d80a-9ce1-6e87-ced8554aaa21"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "dalvik 620 620 dalvik dalvik 620"
+    },
+    {
+      "id": "hagstofa:0970",
+      "name": "Djúpivogur",
+      "aliases": [
+        "Djúpivogur"
+      ],
+      "lat": 64.656651,
+      "lon": -14.289051,
+      "postalCode": "765",
+      "postalLocality": "Djúpivogur",
+      "postalCodes": [
+        "765"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0970",
+      "is50vIds": [
+        "4ecdf980-c7d1-79a0-6f44-d921afba44bf"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "djupivogur 765 765 djupivogur djupivogur 765"
+    },
+    {
+      "id": "hagstofa:0431",
+      "name": "Drangsnes",
+      "aliases": [
+        "Drangsnes"
+      ],
+      "lat": 65.689379,
+      "lon": -21.441741,
+      "postalCode": "520",
+      "postalLocality": "Drangsnes",
+      "postalCodes": [
+        "520"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0431",
+      "is50vIds": [
+        "b8c5d362-7421-23de-5182-cb0eec007670"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "drangsnes 520 520 drangsnes drangsnes 520"
+    },
+    {
+      "id": "hagstofa:0902",
+      "name": "Egilsstaðir",
+      "aliases": [
+        "Egilsstaðir"
+      ],
+      "lat": 65.262048,
+      "lon": -14.396654,
+      "postalCode": "700",
+      "postalLocality": "Egilsstaðir",
+      "postalCodes": [
+        "700"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0902",
+      "is50vIds": [
+        "ac028b5d-128d-81cf-3c6c-053406380abc"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "egilsstadir 700 700 egilsstadir egilsstadir 700"
+    },
+    {
+      "id": "hagstofa:0920",
+      "name": "Eskifjörður",
+      "aliases": [
+        "Eskifjörður"
+      ],
+      "lat": 65.074369,
+      "lon": -14.023213,
+      "postalCode": "735",
+      "postalLocality": "Eskifjörður",
+      "postalCodes": [
+        "735"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0920",
+      "is50vIds": [
+        "1b2688bf-4b3c-978a-75bf-df6d5f900915"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "eskifjordur 735 735 eskifjordur eskifjordur 735"
+    },
+    {
+      "id": "hagstofa:1140",
+      "name": "Eyrarbakki",
+      "aliases": [
+        "Eyrarbakki"
+      ],
+      "lat": 63.862977,
+      "lon": -21.147919,
+      "postalCode": "820",
+      "postalLocality": "Eyrarbakki",
+      "postalCodes": [
+        "820"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1140",
+      "is50vIds": [
+        "21c1ef35-7dad-c370-ffa3-6ab6bf45bcf2"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "eyrarbakki 820 820 eyrarbakki eyrarbakki 820"
+    },
+    {
+      "id": "hagstofa:0940",
+      "name": "Fáskrúðsfjörður",
+      "aliases": [
+        "Fáskrúðsfjörður"
+      ],
+      "lat": 64.93057,
+      "lon": -14.012994,
+      "postalCode": "750",
+      "postalLocality": "Fáskrúðsfjörður",
+      "postalCodes": [
+        "750"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0940",
+      "is50vIds": [
+        "5e359162-19f3-b030-9bfb-80257ed74ece"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "faskrudsfjordur 750 750 faskrudsfjordur faskrudsfjordur 750"
+    },
+    {
+      "id": "hagstofa:0890",
+      "name": "Fellabær",
+      "aliases": [
+        "Fellabær"
+      ],
+      "lat": 65.285235,
+      "lon": -14.425897,
+      "postalCode": "700",
+      "postalLocality": "Egilsstaðir",
+      "postalCodes": [
+        "700"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0890",
+      "is50vIds": [
+        "2b0b3674-eb7b-bc22-23e4-dcc4ab63f6c8"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "fellabaer 700 700 fellabaer fellabaer 700"
+    },
+    {
+      "id": "hagstofa:0380",
+      "name": "Flateyri",
+      "aliases": [
+        "Flateyri"
+      ],
+      "lat": 66.050227,
+      "lon": -23.513244,
+      "postalCode": "425",
+      "postalLocality": "Flateyri",
+      "postalCodes": [
+        "425"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0380",
+      "is50vIds": [
+        "2cb2072d-36d1-0348-e257-50e2694fc902"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "flateyri 425 425 flateyri flateyri 425"
+    },
+    {
+      "id": "hagstofa:1160",
+      "name": "Flúðir",
+      "aliases": [
+        "Flúðir"
+      ],
+      "lat": 64.13442,
+      "lon": -20.3234,
+      "postalCode": "845",
+      "postalLocality": "Flúðir",
+      "postalCodes": [
+        "845"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1160",
+      "is50vIds": [
+        "45a2e3db-5529-9c67-702b-82f8d0924dab"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "fludir 845 845 fludir fludir 845"
+    },
+    {
+      "id": "is50v:1407fdee-3621-5c85-686f-8bd6a4316272",
+      "name": "Garðabær",
+      "aliases": [
+        "Garðabær"
+      ],
+      "lat": 64.091018,
+      "lon": -21.921047,
+      "postalCode": "210",
+      "postalLocality": "Garðabær",
+      "postalCodes": [
+        "210"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "1407fdee-3621-5c85-686f-8bd6a4316272"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "gardabaer 210 210 gardabaer gardabaer 210"
+    },
+    {
+      "id": "hagstofa:0130",
+      "name": "Garður",
+      "aliases": [
+        "Garður"
+      ],
+      "lat": 64.071749,
+      "lon": -22.659772,
+      "postalCode": "250",
+      "postalLocality": "Garður",
+      "postalCodes": [
+        "250"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0130",
+      "is50vIds": [
+        "ce0e3029-bf74-8cfa-7399-d796ea08d71c"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "gardur 250 250 gardur gardur 250"
+    },
+    {
+      "id": "hagstofa:0690",
+      "name": "Grenivík",
+      "aliases": [
+        "Grenivík"
+      ],
+      "lat": 65.948899,
+      "lon": -18.17998,
+      "postalCode": "610",
+      "postalLocality": "Grenivík",
+      "postalCodes": [
+        "610"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0690",
+      "is50vIds": [
+        "5974ea3d-bdef-273a-1972-de44d3bcb1f8"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "grenivik 610 610 grenivik grenivik 610"
+    },
+    {
+      "id": "hagstofa:0110",
+      "name": "Grindavík",
+      "aliases": [
+        "Grindavík"
+      ],
+      "lat": 63.843197,
+      "lon": -22.43038,
+      "postalCode": "240",
+      "postalLocality": "Grindavík",
+      "postalCodes": [
+        "240"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0110",
+      "is50vIds": [
+        "704367c2-dbc7-46c8-4c75-d230df0b6f48"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "grindavik 240 240 grindavik grindavik 240"
+    },
+    {
+      "id": "hagstofa:0649",
+      "name": "Grímsey",
+      "aliases": [
+        "Grímsey"
+      ],
+      "lat": 66.538871,
+      "lon": -18.012995,
+      "postalCode": "611",
+      "postalLocality": "Grímsey",
+      "postalCodes": [
+        "611"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0649",
+      "is50vIds": [
+        "28cbcef7-cadc-a099-173c-70c1ccf72fe9"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "grimsey 611 611 grimsey grimsey 611"
+    },
+    {
+      "id": "hagstofa:0230",
+      "name": "Grundarfjörður",
+      "aliases": [
+        "Grundarfjörður"
+      ],
+      "lat": 64.923269,
+      "lon": -23.257808,
+      "postalCode": "350",
+      "postalLocality": "Grundarfjörður",
+      "postalCodes": [
+        "350"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0230",
+      "is50vIds": [
+        "e7db82e2-c115-a1f1-b96e-3bd586fd41df"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "grundarfjordur 350 350 grundarfjordur grundarfjordur 350"
+    },
+    {
+      "id": "is50v:c248afaf-c1cd-28a6-6333-0e01a979de99",
+      "name": "Grundarhverfi",
+      "aliases": [
+        "Grundarhverfi"
+      ],
+      "lat": 64.239997,
+      "lon": -21.833095,
+      "postalCode": "116",
+      "postalLocality": "Reykjavík",
+      "postalCodes": [
+        "116"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "c248afaf-c1cd-28a6-6333-0e01a979de99"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "grundarhverfi 116 116 grundarhverfi grundarhverfi 116"
+    },
+    {
+      "id": "is50v:34ac5117-b781-7aaf-1c10-f5fb2d99bf29",
+      "name": "Hafnarfjörður",
+      "aliases": [
+        "Hafnarfjörður"
+      ],
+      "lat": 64.066159,
+      "lon": -21.95307,
+      "postalCode": null,
+      "postalLocality": null,
+      "postalCodes": [
+        "220",
+        "221"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "34ac5117-b781-7aaf-1c10-f5fb2d99bf29"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hafnarfjordur 220 221 220 hafnarfjordur hafnarfjordur 220 221 hafnarfjordur hafnarfjordur 221"
+    },
+    {
+      "id": "hagstofa:0111",
+      "name": "Hafnir",
+      "aliases": [
+        "Hafnir"
+      ],
+      "lat": 63.933422,
+      "lon": -22.685761,
+      "postalCode": "233",
+      "postalLocality": "Reykjanesbær",
+      "postalCodes": [
+        "233"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0111",
+      "is50vIds": [
+        "e5aec9af-a184-3c26-4a5f-5f5a697ef1fd"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hafnir 233 233 hafnir hafnir 233"
+    },
+    {
+      "id": "hagstofa:0672",
+      "name": "Hauganes",
+      "aliases": [
+        "Hauganes"
+      ],
+      "lat": 65.924908,
+      "lon": -18.306615,
+      "postalCode": "621",
+      "postalLocality": "Dalvík, dreifbýli",
+      "postalCodes": [
+        "621"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0672",
+      "is50vIds": [
+        "0e67b27c-6420-8b1a-b52b-cf9a6272b9ea"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hauganes 621 621 hauganes hauganes 621"
+    },
+    {
+      "id": "hagstofa:1120",
+      "name": "Hella",
+      "aliases": [
+        "Hella"
+      ],
+      "lat": 63.836027,
+      "lon": -20.394082,
+      "postalCode": "850",
+      "postalLocality": "Hella",
+      "postalCodes": [
+        "850"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1120",
+      "is50vIds": [
+        "eacafed9-a756-c9d7-6ec3-7ad1184477f9"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hella 850 850 hella hella 850"
+    },
+    {
+      "id": "hagstofa:0210",
+      "name": "Hellissandur",
+      "aliases": [
+        "Hellissandur"
+      ],
+      "lat": 64.916868,
+      "lon": -23.883248,
+      "postalCode": "360",
+      "postalLocality": "Hellissandur",
+      "postalCodes": [
+        "360"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0210",
+      "is50vIds": [
+        "81e098cb-4b05-4fd0-40da-74fc47481798"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hellissandur 360 360 hellissandur hellissandur 360"
+    },
+    {
+      "id": "is50v:af29b565-d938-8736-8c9d-5ec5b4724928",
+      "name": "Hjalteyri",
+      "aliases": [
+        "Hjalteyri"
+      ],
+      "lat": 65.84942,
+      "lon": -18.197478,
+      "postalCode": "604",
+      "postalLocality": "Akureyri, dreifbýli",
+      "postalCodes": [
+        "604"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "af29b565-d938-8736-8c9d-5ec5b4724928"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hjalteyri 604 604 hjalteyri hjalteyri 604"
+    },
+    {
+      "id": "hagstofa:0420",
+      "name": "Hnífsdalur",
+      "aliases": [
+        "Hnífsdalur"
+      ],
+      "lat": 66.108085,
+      "lon": -23.11996,
+      "postalCode": "410",
+      "postalLocality": "Hnífsdalur",
+      "postalCodes": [
+        "410"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0420",
+      "is50vIds": [
+        "27d4f233-0910-cfe9-e9a1-bd6449758aa8"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hnifsdalur 410 410 hnifsdalur hnifsdalur 410"
+    },
+    {
+      "id": "hagstofa:0570",
+      "name": "Hofsós",
+      "aliases": [
+        "Hofsós"
+      ],
+      "lat": 65.897744,
+      "lon": -19.411561,
+      "postalCode": "565",
+      "postalLocality": "Hofsós",
+      "postalCodes": [
+        "565"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0570",
+      "is50vIds": [
+        "feef85b6-2449-965d-3b89-6e928ebd43a1"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hofsos 565 565 hofsos hofsos 565"
+    },
+    {
+      "id": "is50v:d231f5c1-197f-6a5d-8fc8-98851de8e7ef",
+      "name": "Hólar",
+      "aliases": [
+        "Hólar"
+      ],
+      "lat": 65.73216,
+      "lon": -19.110838,
+      "postalCode": "551",
+      "postalLocality": "Sauðárkrókur, dreifbýli",
+      "postalCodes": [
+        "551"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "d231f5c1-197f-6a5d-8fc8-98851de8e7ef"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "holar 551 551 holar holar 551"
+    },
+    {
+      "id": "hagstofa:0440",
+      "name": "Hólmavík",
+      "aliases": [
+        "Hólmavík"
+      ],
+      "lat": 65.703747,
+      "lon": -21.67875,
+      "postalCode": "510",
+      "postalLocality": "Hólmavík",
+      "postalCodes": [
+        "510"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0440",
+      "is50vIds": [
+        "a695e3f4-6988-df30-abe3-beb31c86fd7c"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "holmavik 510 510 holmavik holmavik 510"
+    },
+    {
+      "id": "hagstofa:0682",
+      "name": "Hrafnagil",
+      "aliases": [
+        "Hrafnagil"
+      ],
+      "lat": 65.57543,
+      "lon": -18.093791,
+      "postalCode": "605",
+      "postalLocality": "Akureyri, dreifbýli",
+      "postalCodes": [
+        "605"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0682",
+      "is50vIds": [],
+      "sourceUpdatedAt": "2024-12-31Z",
+      "searchTextNormalized": "hrafnagil 605 605 hrafnagil hrafnagil 605"
+    },
+    {
+      "id": "hagstofa:0670",
+      "name": "Hrísey",
+      "aliases": [
+        "Hrísey"
+      ],
+      "lat": 65.978294,
+      "lon": -18.372278,
+      "postalCode": "630",
+      "postalLocality": "Hrísey",
+      "postalCodes": [
+        "630"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0670",
+      "is50vIds": [
+        "ec41b11e-3445-2ec3-00e4-2f844d68b8b0"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hrisey 630 630 hrisey hrisey 630"
+    },
+    {
+      "id": "hagstofa:0710",
+      "name": "Húsavík",
+      "aliases": [
+        "Húsavík"
+      ],
+      "lat": 66.043642,
+      "lon": -17.341239,
+      "postalCode": "640",
+      "postalLocality": "Húsavík",
+      "postalCodes": [
+        "640"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0710",
+      "is50vIds": [
+        "40a7a99c-85e1-5afc-2d5d-a790de12d62c"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "husavik 640 640 husavik husavik 640"
+    },
+    {
+      "id": "hagstofa:0530",
+      "name": "Hvammstangi",
+      "aliases": [
+        "Hvammstangi"
+      ],
+      "lat": 65.396016,
+      "lon": -20.940193,
+      "postalCode": "530",
+      "postalLocality": "Hvammstangi",
+      "postalCodes": [
+        "530"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0530",
+      "is50vIds": [
+        "424f92c2-16e2-a6fe-5a65-4285c1e32484"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hvammstangi 530 530 hvammstangi hvammstangi 530"
+    },
+    {
+      "id": "hagstofa:0191",
+      "name": "Hvanneyri",
+      "aliases": [
+        "Hvanneyri"
+      ],
+      "lat": 64.562683,
+      "lon": -21.763895,
+      "postalCode": "311",
+      "postalLocality": "Borgarnes, dreifbýli",
+      "postalCodes": [
+        "311"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0191",
+      "is50vIds": [
+        "94bfabe4-92b7-61b3-1ab6-3d018eb5d3b7"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hvanneyri 311 311 hvanneyri hvanneyri 311"
+    },
+    {
+      "id": "is50v:35b0292b-5ed6-5bff-05ce-da76fc0ad823",
+      "name": "Hveragerði",
+      "aliases": [
+        "Hveragerði"
+      ],
+      "lat": 63.99941,
+      "lon": -21.190258,
+      "postalCode": "810",
+      "postalLocality": "Hveragerði",
+      "postalCodes": [
+        "810"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "35b0292b-5ed6-5bff-05ce-da76fc0ad823"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hveragerdi 810 810 hveragerdi hveragerdi 810"
+    },
+    {
+      "id": "hagstofa:1110",
+      "name": "Hvolsvöllur",
+      "aliases": [
+        "Hvolsvöllur"
+      ],
+      "lat": 63.75227,
+      "lon": -20.22569,
+      "postalCode": "860",
+      "postalLocality": "Hvolsvöllur",
+      "postalCodes": [
+        "860"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1110",
+      "is50vIds": [
+        "ac339eb5-c9dd-add3-6460-0d340a84d4d1"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hvolsvollur 860 860 hvolsvollur hvolsvollur 860"
+    },
+    {
+      "id": "is50v:d31a2350-f5d3-b54e-4b5e-9dbb571ea059",
+      "name": "Höfn",
+      "aliases": [
+        "Höfn"
+      ],
+      "lat": 64.254656,
+      "lon": -15.205392,
+      "postalCode": "780",
+      "postalLocality": "Höfn í Hornafirði",
+      "postalCodes": [
+        "780"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "d31a2350-f5d3-b54e-4b5e-9dbb571ea059"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "hofn 780 780 hofn hofn 780"
+    },
+    {
+      "id": "is50v:658ff432-4ab6-ff00-b2a0-9d8d014efe0b",
+      "name": "Innnes",
+      "aliases": [
+        "Innnes"
+      ],
+      "lat": 64.310227,
+      "lon": -22.035312,
+      "postalCode": "301",
+      "postalLocality": "Akranes, dreifbýli",
+      "postalCodes": [
+        "301"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "658ff432-4ab6-ff00-b2a0-9d8d014efe0b"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "innnes 301 301 innnes innnes 301"
+    },
+    {
+      "id": "hagstofa:0410",
+      "name": "Ísafjörður",
+      "aliases": [
+        "Ísafjörður"
+      ],
+      "lat": 66.07275,
+      "lon": -23.1358,
+      "postalCode": "400",
+      "postalLocality": "Ísafjörður",
+      "postalCodes": [
+        "400"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0410",
+      "is50vIds": [
+        "86740857-10b9-227d-4908-fe7a1f1e4ad6"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "isafjordur 400 400 isafjordur isafjordur 400"
+    },
+    {
+      "id": "is50v:4bfbfcfd-7449-6eaa-f2ee-8c74c5796dd5",
+      "name": "Keflavík",
+      "aliases": [
+        "Keflavík"
+      ],
+      "lat": 64.001633,
+      "lon": -22.567627,
+      "postalCode": "230",
+      "postalLocality": "Reykjanesbær",
+      "postalCodes": [
+        "230"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "4bfbfcfd-7449-6eaa-f2ee-8c74c5796dd5"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "keflavik 230 230 keflavik keflavik 230"
+    },
+    {
+      "id": "hagstofa:1089",
+      "name": "Kirkjubæjarklaustur",
+      "aliases": [
+        "Kirkjubæjarklaustur"
+      ],
+      "lat": 63.791138,
+      "lon": -18.047327,
+      "postalCode": "880",
+      "postalLocality": "Kirkjubæjarklaustur",
+      "postalCodes": [
+        "880"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1089",
+      "is50vIds": [
+        "3b999d2d-f70b-0d37-5996-1ba528ea6046"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "kirkjubaejarklaustur 880 880 kirkjubaejarklaustur kirkjubaejarklaustur 880"
+    },
+    {
+      "id": "hagstofa:0192",
+      "name": "Kleppjárnsreykir",
+      "aliases": [
+        "Kleppjárnsreykir"
+      ],
+      "lat": 64.655385,
+      "lon": -21.405159,
+      "postalCode": "320",
+      "postalLocality": "Reykholt",
+      "postalCodes": [
+        "320"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0192",
+      "is50vIds": [
+        "32dec822-54c7-b251-15fe-9f2130353f95"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "kleppjarnsreykir 320 320 kleppjarnsreykir kleppjarnsreykir 320"
+    },
+    {
+      "id": "hagstofa:0711",
+      "name": "Kópasker",
+      "aliases": [
+        "Kópasker"
+      ],
+      "lat": 66.301238,
+      "lon": -16.445406,
+      "postalCode": "670",
+      "postalLocality": "Kópasker",
+      "postalCodes": [
+        "670"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0711",
+      "is50vIds": [
+        "179e55f6-1c14-b1f9-5225-efc98dc3a460"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "kopasker 670 670 kopasker kopasker 670"
+    },
+    {
+      "id": "is50v:20eb830e-07b1-4f81-f7ac-f8139f0857f0",
+      "name": "Kópavogur",
+      "aliases": [
+        "Kópavogur"
+      ],
+      "lat": 64.100388,
+      "lon": -21.865967,
+      "postalCode": null,
+      "postalLocality": null,
+      "postalCodes": [
+        "200",
+        "201",
+        "203"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "20eb830e-07b1-4f81-f7ac-f8139f0857f0"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "kopavogur 200 201 203 200 kopavogur kopavogur 200 201 kopavogur kopavogur 201 203 kopavogur kopavogur 203"
+    },
+    {
+      "id": "hagstofa:0681",
+      "name": "Kristnes",
+      "aliases": [
+        "Kristnes"
+      ],
+      "lat": 65.595475,
+      "lon": -18.087499,
+      "postalCode": "605",
+      "postalLocality": "Akureyri, dreifbýli",
+      "postalCodes": [
+        "605"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0681",
+      "is50vIds": [
+        "028805ae-6f34-03b8-0a68-2c0d4b15b4e1"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "kristnes 605 605 kristnes kristnes 605"
+    },
+    {
+      "id": "hagstofa:0701",
+      "name": "Laugar",
+      "aliases": [
+        "Laugar"
+      ],
+      "lat": 65.721516,
+      "lon": -17.363016,
+      "postalCode": "650",
+      "postalLocality": "Laugar",
+      "postalCodes": [
+        "650"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0701",
+      "is50vIds": [
+        "deaf2867-0319-dc08-b49b-c54ea2910f0b"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "laugar 650 650 laugar laugar 650"
+    },
+    {
+      "id": "hagstofa:1161",
+      "name": "Laugarás",
+      "aliases": [
+        "Laugarás"
+      ],
+      "lat": 64.116902,
+      "lon": -20.498576,
+      "postalCode": "806",
+      "postalLocality": "Selfoss, dreifbýli",
+      "postalCodes": [
+        "806"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1161",
+      "is50vIds": [
+        "c144d66b-9f7f-4727-95e6-8fc634de4f4c"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "laugaras 806 806 laugaras laugaras 806"
+    },
+    {
+      "id": "is50v:a3b2bf81-4be1-bc67-b7ce-ee7a70c9b6d4",
+      "name": "Laugarbakki",
+      "aliases": [
+        "Laugarbakki"
+      ],
+      "lat": 65.327416,
+      "lon": -20.89279,
+      "postalCode": "531",
+      "postalLocality": "Hvammstangi, dreifbýli",
+      "postalCodes": [
+        "531"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "a3b2bf81-4be1-bc67-b7ce-ee7a70c9b6d4"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "laugarbakki 531 531 laugarbakki laugarbakki 531"
+    },
+    {
+      "id": "hagstofa:1163",
+      "name": "Laugarvatn",
+      "aliases": [
+        "Laugarvatn"
+      ],
+      "lat": 64.215453,
+      "lon": -20.732663,
+      "postalCode": "840",
+      "postalLocality": "Laugarvatn",
+      "postalCodes": [
+        "840"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1163",
+      "is50vIds": [
+        "c2612328-fde5-e71c-c5be-bcfb18e5b906"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "laugarvatn 840 840 laugarvatn laugarvatn 840"
+    },
+    {
+      "id": "is50v:a35af2fd-0509-733c-d709-d108afa9f160",
+      "name": "Lónsbakki",
+      "aliases": [
+        "Lónsbakki"
+      ],
+      "lat": 65.702234,
+      "lon": -18.15571,
+      "postalCode": "604",
+      "postalLocality": "Akureyri, dreifbýli",
+      "postalCodes": [
+        "604"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "a35af2fd-0509-733c-d709-d108afa9f160"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "lonsbakki 604 604 lonsbakki lonsbakki 604"
+    },
+    {
+      "id": "is50v:56ea54b1-78ae-240f-7f35-05184290600a",
+      "name": "Melahverfi",
+      "aliases": [
+        "Melahverfi"
+      ],
+      "lat": 64.381354,
+      "lon": -21.839829,
+      "postalCode": "301",
+      "postalLocality": "Akranes, dreifbýli",
+      "postalCodes": [
+        "301"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "56ea54b1-78ae-240f-7f35-05184290600a"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "melahverfi 301 301 melahverfi melahverfi 301"
+    },
+    {
+      "id": "is50v:284a1ecb-9924-022d-21d7-85bb7a45245c",
+      "name": "Mosfellsbær",
+      "aliases": [
+        "Mosfellsbær"
+      ],
+      "lat": 64.164212,
+      "lon": -21.688554,
+      "postalCode": "270",
+      "postalLocality": "Mosfellsbær",
+      "postalCodes": [
+        "270"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "284a1ecb-9924-022d-21d7-85bb7a45245c"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "mosfellsbaer 270 270 mosfellsbaer mosfellsbaer 270"
+    },
+    {
+      "id": "hagstofa:0080",
+      "name": "Mosfellsdalur",
+      "aliases": [
+        "Mosfellsdalur"
+      ],
+      "lat": 64.177136,
+      "lon": -21.622921,
+      "postalCode": "271",
+      "postalLocality": "Mosfellsbær, dreifbýli",
+      "postalCodes": [
+        "271"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0080",
+      "is50vIds": [
+        "d5eba9f6-68f8-98b2-44d1-77dd098aec69"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "mosfellsdalur 271 271 mosfellsdalur mosfellsdalur 271"
+    },
+    {
+      "id": "is50v:535b23dc-30bf-f007-15eb-3216ba3b3ef2",
+      "name": "Nesjahverfi",
+      "aliases": [
+        "Nesjahverfi"
+      ],
+      "lat": 64.315571,
+      "lon": -15.22607,
+      "postalCode": "781",
+      "postalLocality": "Höfn í Hornafirði, dreifbýli",
+      "postalCodes": [
+        "781"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "535b23dc-30bf-f007-15eb-3216ba3b3ef2"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "nesjahverfi 781 781 nesjahverfi nesjahverfi 781"
+    },
+    {
+      "id": "hagstofa:0910",
+      "name": "Neskaupstaður",
+      "aliases": [
+        "Neskaupstaður"
+      ],
+      "lat": 65.148395,
+      "lon": -13.686693,
+      "postalCode": "740",
+      "postalLocality": "Neskaupsstaður",
+      "postalCodes": [
+        "740"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0910",
+      "is50vIds": [
+        "ca5fc59b-cee5-6bba-d815-26e016040b61"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "neskaupstadur 740 740 neskaupstadur neskaupstadur 740"
+    },
+    {
+      "id": "is50v:4b60170b-35ce-06c4-bc6f-9736c25bcc74",
+      "name": "Njarðvík",
+      "aliases": [
+        "Njarðvík"
+      ],
+      "lat": 63.972363,
+      "lon": -22.51042,
+      "postalCode": "260",
+      "postalLocality": "Reykjanesbær",
+      "postalCodes": [
+        "260"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "4b60170b-35ce-06c4-bc6f-9736c25bcc74"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "njardvik 260 260 njardvik njardvik 260"
+    },
+    {
+      "id": "hagstofa:0650",
+      "name": "Ólafsfjörður",
+      "aliases": [
+        "Ólafsfjörður"
+      ],
+      "lat": 66.072051,
+      "lon": -18.650324,
+      "postalCode": "625",
+      "postalLocality": "Ólafsfjörður",
+      "postalCodes": [
+        "625"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0650",
+      "is50vIds": [
+        "a588bf71-c2dc-e00a-21cd-63b7e4736cb9"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "olafsfjordur 625 625 olafsfjordur olafsfjordur 625"
+    },
+    {
+      "id": "hagstofa:0220",
+      "name": "Ólafsvík",
+      "aliases": [
+        "Ólafsvík"
+      ],
+      "lat": 64.894089,
+      "lon": -23.707865,
+      "postalCode": "355",
+      "postalLocality": "Ólafsvík",
+      "postalCodes": [
+        "355"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0220",
+      "is50vIds": [
+        "f81c657b-97a6-f91a-0dab-a2819d3734b8"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "olafsvik 355 355 olafsvik olafsvik 355"
+    },
+    {
+      "id": "hagstofa:0340",
+      "name": "Patreksfjörður",
+      "aliases": [
+        "Patreksfjörður"
+      ],
+      "lat": 65.597175,
+      "lon": -23.996331,
+      "postalCode": "450",
+      "postalLocality": "Patreksfjörður",
+      "postalCodes": [
+        "450"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0340",
+      "is50vIds": [
+        "500694da-0b01-bbe4-7807-a1773d78d6b0"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "patreksfjordur 450 450 patreksfjordur patreksfjordur 450"
+    },
+    {
+      "id": "is50v:59a34c39-511c-1b61-7f7d-37caf6ab00fd",
+      "name": "Rauðalækur",
+      "aliases": [
+        "Rauðalækur"
+      ],
+      "lat": 63.864917,
+      "lon": -20.442731,
+      "postalCode": "851",
+      "postalLocality": "Hella, dreifbýli",
+      "postalCodes": [
+        "851"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "59a34c39-511c-1b61-7f7d-37caf6ab00fd"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "raudalaekur 851 851 raudalaekur raudalaekur 851"
+    },
+    {
+      "id": "hagstofa:0720",
+      "name": "Raufarhöfn",
+      "aliases": [
+        "Raufarhöfn"
+      ],
+      "lat": 66.45265,
+      "lon": -15.948283,
+      "postalCode": "675",
+      "postalLocality": "Raufarhöfn",
+      "postalCodes": [
+        "675"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0720",
+      "is50vIds": [
+        "3f71c29e-3dfe-9e56-8d92-7b22e682b6e6"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "raufarhofn 675 675 raufarhofn raufarhofn 675"
+    },
+    {
+      "id": "hagstofa:0930",
+      "name": "Reyðarfjörður",
+      "aliases": [
+        "Reyðarfjörður"
+      ],
+      "lat": 65.034129,
+      "lon": -14.215208,
+      "postalCode": "730",
+      "postalLocality": "Reyðarfjörður",
+      "postalCodes": [
+        "730"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0930",
+      "is50vIds": [
+        "11790595-1f08-af90-c77d-5d1997b9a484"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "reydarfjordur 730 730 reydarfjordur reydarfjordur 730"
+    },
+    {
+      "id": "is50v:2f354a9d-5b0b-8f87-ac52-bc010d6bd44b",
+      "name": "Reykholt",
+      "aliases": [
+        "Reykholt"
+      ],
+      "lat": 64.179067,
+      "lon": -20.443576,
+      "postalCode": "806",
+      "postalLocality": "Selfoss, dreifbýli",
+      "postalCodes": [
+        "806"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "2f354a9d-5b0b-8f87-ac52-bc010d6bd44b"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "reykholt 806 806 reykholt reykholt 806"
+    },
+    {
+      "id": "is50v:836802d2-312e-ca25-26e3-1d6c6ba09382",
+      "name": "Reykholt",
+      "aliases": [
+        "Reykholt"
+      ],
+      "lat": 64.664775,
+      "lon": -21.290996,
+      "postalCode": "320",
+      "postalLocality": "Reykholt",
+      "postalCodes": [
+        "320"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "836802d2-312e-ca25-26e3-1d6c6ba09382"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "reykholt 320 320 reykholt reykholt 320"
+    },
+    {
+      "id": "hagstofa:0339",
+      "name": "Reykhólar",
+      "aliases": [
+        "Reykhólar"
+      ],
+      "lat": 65.446722,
+      "lon": -22.204374,
+      "postalCode": "380",
+      "postalLocality": "Reykhólahreppur",
+      "postalCodes": [
+        "380"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0339",
+      "is50vIds": [
+        "08fe94cd-7979-dc1c-8963-822f67cf347b"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "reykholar 380 380 reykholar reykholar 380"
+    },
+    {
+      "id": "hagstofa:0700",
+      "name": "Reykjahlíð",
+      "aliases": [
+        "Reykjahlíð"
+      ],
+      "lat": 65.642219,
+      "lon": -16.905518,
+      "postalCode": "660",
+      "postalLocality": "Mývatn",
+      "postalCodes": [
+        "660"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0700",
+      "is50vIds": [
+        "a8525e1d-26ed-9a8d-5d1d-8aa491e30463"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "reykjahlid 660 660 reykjahlid reykjahlid 660"
+    },
+    {
+      "id": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+      "name": "Reykjavík",
+      "aliases": [
+        "Reykjavík"
+      ],
+      "lat": 64.136339,
+      "lon": -21.901054,
+      "postalCode": null,
+      "postalLocality": null,
+      "postalCodes": [
+        "101",
+        "102",
+        "103",
+        "104",
+        "105",
+        "107",
+        "108",
+        "109",
+        "110",
+        "111",
+        "112",
+        "113",
+        "161"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "a3143a0f-aa8a-ceb2-6a97-c657bf94606d"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "reykjavik 101 102 103 104 105 107 108 109 110 111 112 113 161 101 reykjavik reykjavik 101 102 reykjavik reykjavik 102 103 reykjavik reykjavik 103 104 reykjavik reykjavik 104 105 reykjavik reykjavik 105 107 reykjavik reykjavik 107 108 reykjavik reykjavik 108 109 reykjavik reykjavik 109 110 reykjavik reykjavik 110 111 reykjavik reykjavik 111 112 reykjavik reykjavik 112 113 reykjavik reykjavik 113 161 reykjavik reykjavik 161"
+    },
+    {
+      "id": "hagstofa:0211",
+      "name": "Rif",
+      "aliases": [
+        "Rif"
+      ],
+      "lat": 64.922421,
+      "lon": -23.818942,
+      "postalCode": "360",
+      "postalLocality": "Hellissandur",
+      "postalCodes": [
+        "360"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0211",
+      "is50vIds": [
+        "4a2c3c0d-ea65-37f0-e898-aeaf1303dd80"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "rif 360 360 rif rif 360"
+    },
+    {
+      "id": "hagstofa:0120",
+      "name": "Sandgerði",
+      "aliases": [
+        "Sandgerði"
+      ],
+      "lat": 64.035697,
+      "lon": -22.700743,
+      "postalCode": "245",
+      "postalLocality": "Sandgerði",
+      "postalCodes": [
+        "245"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0120",
+      "is50vIds": [
+        "179dac55-53d7-aca4-ada0-5ead0fc0711b"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "sandgerdi 245 245 sandgerdi sandgerdi 245"
+    },
+    {
+      "id": "hagstofa:0560",
+      "name": "Sauðárkrókur",
+      "aliases": [
+        "Sauðárkrókur"
+      ],
+      "lat": 65.742777,
+      "lon": -19.642121,
+      "postalCode": "550",
+      "postalLocality": "Sauðárkrókur",
+      "postalCodes": [
+        "550"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0560",
+      "is50vIds": [
+        "190c79da-ba5d-113b-08e6-f8f434f1d7b9"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "saudarkrokur 550 550 saudarkrokur saudarkrokur 550"
+    },
+    {
+      "id": "is50v:06b9a03a-c426-0878-722c-3a0a202a12b3",
+      "name": "Selfoss",
+      "aliases": [
+        "Selfoss"
+      ],
+      "lat": 63.930542,
+      "lon": -21.001056,
+      "postalCode": "800",
+      "postalLocality": "Selfoss",
+      "postalCodes": [
+        "800"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "06b9a03a-c426-0878-722c-3a0a202a12b3"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "selfoss 800 800 selfoss selfoss 800"
+    },
+    {
+      "id": "is50v:c8e651f6-161c-66a1-53a3-e2cf4d34c4ae",
+      "name": "Seltjarnarnes",
+      "aliases": [
+        "Seltjarnarnes"
+      ],
+      "lat": 64.153304,
+      "lon": -21.994475,
+      "postalCode": "170",
+      "postalLocality": "Seltjarnarnes",
+      "postalCodes": [
+        "170"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "c8e651f6-161c-66a1-53a3-e2cf4d34c4ae"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "seltjarnarnes 170 170 seltjarnarnes seltjarnarnes 170"
+    },
+    {
+      "id": "hagstofa:0900",
+      "name": "Seyðisfjörður",
+      "aliases": [
+        "Seyðisfjörður"
+      ],
+      "lat": 65.261374,
+      "lon": -14.002956,
+      "postalCode": "710",
+      "postalLocality": "Seyðisfjörður",
+      "postalCodes": [
+        "710"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0900",
+      "is50vIds": [
+        "83391d6b-dbd6-72e0-4ddf-326ad52497f0"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "seydisfjordur 710 710 seydisfjordur seydisfjordur 710"
+    },
+    {
+      "id": "hagstofa:0580",
+      "name": "Siglufjörður",
+      "aliases": [
+        "Siglufjörður"
+      ],
+      "lat": 66.149924,
+      "lon": -18.910654,
+      "postalCode": "580",
+      "postalLocality": "Siglufjörður",
+      "postalCodes": [
+        "580"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0580",
+      "is50vIds": [
+        "18a1f88c-7df5-c027-c88f-5cc30b8219ae"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "siglufjordur 580 580 siglufjordur siglufjordur 580"
+    },
+    {
+      "id": "hagstofa:0550",
+      "name": "Skagaströnd",
+      "aliases": [
+        "Skagaströnd"
+      ],
+      "lat": 65.824692,
+      "lon": -20.307224,
+      "postalCode": "545",
+      "postalLocality": "Skagaströnd",
+      "postalCodes": [
+        "545"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0550",
+      "is50vIds": [
+        "09ccb801-5009-f8fb-506d-06bd8e89a9de"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "skagastrond 545 545 skagastrond skagastrond 545"
+    },
+    {
+      "id": "is50v:84c38481-55b8-327f-e10b-2da646a462cc",
+      "name": "Sólheimar",
+      "aliases": [
+        "Sólheimar"
+      ],
+      "lat": 64.066861,
+      "lon": -20.642266,
+      "postalCode": "805",
+      "postalLocality": "Selfoss, dreifbýli",
+      "postalCodes": [
+        "805"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "84c38481-55b8-327f-e10b-2da646a462cc"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "solheimar 805 805 solheimar solheimar 805"
+    },
+    {
+      "id": "hagstofa:1130",
+      "name": "Stokkseyri",
+      "aliases": [
+        "Stokkseyri"
+      ],
+      "lat": 63.838386,
+      "lon": -21.063238,
+      "postalCode": "825",
+      "postalLocality": "Stokkseyri",
+      "postalCodes": [
+        "825"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1130",
+      "is50vIds": [
+        "5d9b269a-3827-fc8a-38ae-e073dbb0ede0"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "stokkseyri 825 825 stokkseyri stokkseyri 825"
+    },
+    {
+      "id": "hagstofa:0240",
+      "name": "Stykkishólmur",
+      "aliases": [
+        "Stykkishólmur"
+      ],
+      "lat": 65.072844,
+      "lon": -22.733467,
+      "postalCode": "340",
+      "postalLocality": "Stykkishólmur",
+      "postalCodes": [
+        "340"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0240",
+      "is50vIds": [
+        "b4637b15-3b5f-8bc2-2682-5409d4f8e00a"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "stykkisholmur 340 340 stykkisholmur stykkisholmur 340"
+    },
+    {
+      "id": "hagstofa:0950",
+      "name": "Stöðvarfjörður",
+      "aliases": [
+        "Stöðvarfjörður"
+      ],
+      "lat": 64.834165,
+      "lon": -13.873936,
+      "postalCode": "755",
+      "postalLocality": "Stöðvarfjörður",
+      "postalCodes": [
+        "755"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0950",
+      "is50vIds": [
+        "becc61d2-969c-db69-8cbd-aa37b429210c"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "stodvarfjordur 755 755 stodvarfjordur stodvarfjordur 755"
+    },
+    {
+      "id": "hagstofa:0390",
+      "name": "Suðureyri",
+      "aliases": [
+        "Suðureyri"
+      ],
+      "lat": 66.129245,
+      "lon": -23.526408,
+      "postalCode": "430",
+      "postalLocality": "Suðureyri",
+      "postalCodes": [
+        "430"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0390",
+      "is50vIds": [
+        "6073cc1a-e99e-9e77-e846-d9b5b5d6a697"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "sudureyri 430 430 sudureyri sudureyri 430"
+    },
+    {
+      "id": "hagstofa:0430",
+      "name": "Súðavík",
+      "aliases": [
+        "Súðavík"
+      ],
+      "lat": 66.03225,
+      "lon": -22.98945,
+      "postalCode": "420",
+      "postalLocality": "Súðavík",
+      "postalCodes": [
+        "420"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0430",
+      "is50vIds": [
+        "0055d2d1-3bcf-e872-5c41-eaef46afaf62"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "sudavik 420 420 sudavik sudavik 420"
+    },
+    {
+      "id": "hagstofa:0689",
+      "name": "Svalbarðseyri",
+      "aliases": [
+        "Svalbarðseyri"
+      ],
+      "lat": 65.746579,
+      "lon": -18.084708,
+      "postalCode": "606",
+      "postalLocality": "Akureyri, dreifbýli",
+      "postalCodes": [
+        "606"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0689",
+      "is50vIds": [
+        "e7fd10fe-8175-27b1-f2c8-654e3343f905"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "svalbardseyri 606 606 svalbardseyri svalbardseyri 606"
+    },
+    {
+      "id": "hagstofa:0350",
+      "name": "Tálknafjörður",
+      "aliases": [
+        "Tálknafjörður"
+      ],
+      "lat": 65.627456,
+      "lon": -23.826932,
+      "postalCode": "460",
+      "postalLocality": "Tálknafjörður",
+      "postalCodes": [
+        "460"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0350",
+      "is50vIds": [
+        "ef5cf049-33cd-5c73-8ad5-0e91d3087993"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "talknafjordur 460 460 talknafjordur talknafjordur 460"
+    },
+    {
+      "id": "hagstofa:1145",
+      "name": "Tjarnabyggð",
+      "aliases": [
+        "Tjarnabyggð"
+      ],
+      "lat": 63.894647,
+      "lon": -21.095153,
+      "postalCode": "801",
+      "postalLocality": "Selfoss, dreifbýli",
+      "postalCodes": [
+        "801"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1145",
+      "is50vIds": [
+        "1eb250f7-40b1-e99c-cc93-ec86787fa60f"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "tjarnabyggd 801 801 tjarnabyggd tjarnabyggd 801"
+    },
+    {
+      "id": "hagstofa:0561",
+      "name": "Varmahlíð",
+      "aliases": [
+        "Varmahlíð"
+      ],
+      "lat": 65.552537,
+      "lon": -19.448318,
+      "postalCode": "560",
+      "postalLocality": "Varmahlíð",
+      "postalCodes": [
+        "560"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0561",
+      "is50vIds": [
+        "902d4d6c-bf9e-89a8-9669-ae9ba2b5c1c2"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "varmahlid 560 560 varmahlid varmahlid 560"
+    },
+    {
+      "id": "hagstofa:1100",
+      "name": "Vestmannaeyjar",
+      "aliases": [
+        "Vestmannaeyjar"
+      ],
+      "lat": 63.43777,
+      "lon": -20.278684,
+      "postalCode": "900",
+      "postalLocality": "Vestmannaeyjar",
+      "postalCodes": [
+        "900"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1100",
+      "is50vIds": [
+        "ffdef6b6-84c3-ef96-7658-a4e34a863dac"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "vestmannaeyjar 900 900 vestmannaeyjar vestmannaeyjar 900"
+    },
+    {
+      "id": "is50v:489790d3-90c0-2985-8e05-c31f2951655c",
+      "name": "Vík",
+      "aliases": [
+        "Vík"
+      ],
+      "lat": 63.418825,
+      "lon": -19.004449,
+      "postalCode": "870",
+      "postalLocality": "Vík",
+      "postalCodes": [
+        "870"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": null,
+      "is50vIds": [
+        "489790d3-90c0-2985-8e05-c31f2951655c"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "vik 870 870 vik vik 870"
+    },
+    {
+      "id": "hagstofa:0160",
+      "name": "Vogar",
+      "aliases": [
+        "Vogar"
+      ],
+      "lat": 63.983388,
+      "lon": -22.380884,
+      "postalCode": "190",
+      "postalLocality": "Vogar",
+      "postalCodes": [
+        "190"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0160",
+      "is50vIds": [
+        "040454f0-be67-57c6-9964-6205febc6f73"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "vogar 190 190 vogar vogar 190"
+    },
+    {
+      "id": "hagstofa:0870",
+      "name": "Vopnafjörður",
+      "aliases": [
+        "Vopnafjörður"
+      ],
+      "lat": 65.754833,
+      "lon": -14.829318,
+      "postalCode": "690",
+      "postalLocality": "Vopnafjörður",
+      "postalCodes": [
+        "690"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0870",
+      "is50vIds": [
+        "31d451af-f121-4ab0-0e6c-87e7432a5076"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "vopnafjordur 690 690 vopnafjordur vopnafjordur 690"
+    },
+    {
+      "id": "hagstofa:0370",
+      "name": "Þingeyri",
+      "aliases": [
+        "Þingeyri"
+      ],
+      "lat": 65.87611,
+      "lon": -23.489339,
+      "postalCode": "470",
+      "postalLocality": "Þingeyri",
+      "postalCodes": [
+        "470"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0370",
+      "is50vIds": [
+        "1926cee7-53ed-5100-1b78-3c32b66f486a"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "thingeyri 470 470 thingeyri thingeyri 470"
+    },
+    {
+      "id": "hagstofa:1180",
+      "name": "Þorlákshöfn",
+      "aliases": [
+        "Þorlákshöfn"
+      ],
+      "lat": 63.856182,
+      "lon": -21.383019,
+      "postalCode": "815",
+      "postalLocality": "Ölfus",
+      "postalCodes": [
+        "815"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1180",
+      "is50vIds": [
+        "89d9808f-9231-24fa-f1c2-3b336f9b145d"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "thorlakshofn 815 815 thorlakshofn thorlakshofn 815"
+    },
+    {
+      "id": "hagstofa:0730",
+      "name": "Þórshöfn",
+      "aliases": [
+        "Þórshöfn"
+      ],
+      "lat": 66.199292,
+      "lon": -15.335123,
+      "postalCode": "680",
+      "postalLocality": "Þórshöfn",
+      "postalCodes": [
+        "680"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "0730",
+      "is50vIds": [
+        "29c5945e-3ccb-f331-6c38-af853d52e167"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "thorshofn 680 680 thorshofn thorshofn 680"
+    },
+    {
+      "id": "hagstofa:1125",
+      "name": "Þykkvibær",
+      "aliases": [
+        "Þykkvibær"
+      ],
+      "lat": 63.746459,
+      "lon": -20.611214,
+      "postalCode": "851",
+      "postalLocality": "Hella, dreifbýli",
+      "postalCodes": [
+        "851"
+      ],
+      "placeType": "settlement",
+      "population2024": null,
+      "hagstofaId": "1125",
+      "is50vIds": [
+        "3c5ce99b-c0c7-fce0-87a3-0753a5da8fd4"
+      ],
+      "sourceUpdatedAt": "2024-04-18Z",
+      "searchTextNormalized": "thykkvibaer 851 851 thykkvibaer thykkvibaer 851"
+    }
+  ],
+  "postalLocalities": {
+    "101": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "dd59582f-4255-1fff-eaf5-f30f35077516",
+      "correctedAt": "2019-10-03Z"
+    },
+    "102": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "480014f9-2256-e33f-91af-a4001488f9ba",
+      "correctedAt": "2019-10-03Z"
+    },
+    "103": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "7a786cfb-e9bf-33ee-b85e-1bbecaf534f1",
+      "correctedAt": "2019-10-03Z"
+    },
+    "104": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "abb4511d-b9b3-d61c-56e2-324c65b4092c",
+      "correctedAt": "2014-01-08Z"
+    },
+    "105": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "9ee7f02d-033b-6b85-68d0-260186588137",
+      "correctedAt": "2019-10-03Z"
+    },
+    "107": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "b9ba63e6-a83e-4d00-3a2e-f5251980c96f",
+      "correctedAt": "2019-10-03Z"
+    },
+    "108": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "0d8e61db-97d1-7800-dfff-aecb1a48ba3d",
+      "correctedAt": "2019-10-03Z"
+    },
+    "109": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "8819dd61-9127-598e-92d7-51e36749c20d",
+      "correctedAt": "2023-10-13Z"
+    },
+    "110": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "8e1a1b5a-7556-c190-f4dd-0eb8f0b0c630",
+      "correctedAt": "2019-10-03Z"
+    },
+    "111": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "5314e12d-2ead-2302-5d0b-829e3c41826b",
+      "correctedAt": "2016-01-25Z"
+    },
+    "112": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "761aec7b-1cf3-6965-9479-c24d1af526a6",
+      "correctedAt": "2019-10-03Z"
+    },
+    "113": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "5d47cac0-7782-128a-f970-af69009c5a03",
+      "correctedAt": "2019-10-03Z"
+    },
+    "116": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "0c465a7f-20ff-3481-b32b-7673efc7efca",
+      "correctedAt": "2016-02-03Z"
+    },
+    "161": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "578a0cb1-b33c-405c-5797-6f30f4e27123",
+      "correctedAt": "2023-10-13Z"
+    },
+    "162": {
+      "name": "Reykjavík",
+      "classification": "Þéttbýli",
+      "sourceId": "ceca2d19-8ed5-2de5-2a21-c75db956af90",
+      "correctedAt": "2022-09-28Z"
+    },
+    "170": {
+      "name": "Seltjarnarnes",
+      "classification": "Þéttbýli",
+      "sourceId": "26de6cae-e662-f681-0283-2f606c07e6fc",
+      "correctedAt": "2016-01-25Z"
+    },
+    "190": {
+      "name": "Vogar",
+      "classification": "Þéttbýli",
+      "sourceId": "1595c186-0f6c-6a65-0b2e-1ef560e97d05",
+      "correctedAt": "2023-09-19Z"
+    },
+    "191": {
+      "name": "Vogar, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "8f9e2ae6-550f-1275-32ad-af2fada9866c",
+      "correctedAt": "2023-09-19Z"
+    },
+    "200": {
+      "name": "Kópavogur",
+      "classification": "Þéttbýli",
+      "sourceId": "f5d0bf76-28e2-589f-bf39-0fcd02729709",
+      "correctedAt": "2023-10-13Z"
+    },
+    "201": {
+      "name": "Kópavogur",
+      "classification": "Þéttbýli",
+      "sourceId": "dc2bc644-e8ba-aa4f-3f41-70a19a4653f3",
+      "correctedAt": "2019-10-03Z"
+    },
+    "203": {
+      "name": "Kópavogur",
+      "classification": "Þéttbýli",
+      "sourceId": "5299b441-9214-3c4d-2c3c-69f1560e9cba",
+      "correctedAt": "2016-01-25Z"
+    },
+    "206": {
+      "name": "Kópavogur",
+      "classification": "Þéttbýli",
+      "sourceId": "123617dc-c071-41a7-8479-d19995501104",
+      "correctedAt": "2019-10-03Z"
+    },
+    "210": {
+      "name": "Garðabær",
+      "classification": "Þéttbýli",
+      "sourceId": "e6b4bdfc-9fab-1237-49c4-15a90b99565f",
+      "correctedAt": "2017-11-20Z"
+    },
+    "220": {
+      "name": "Hafnarfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "203b0d7c-89ba-2870-fb18-43454359d93b",
+      "correctedAt": "2016-05-12Z"
+    },
+    "221": {
+      "name": "Hafnarfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "fe337f36-6a57-8bdc-d74d-80eb08b462ee",
+      "correctedAt": "2017-11-20Z"
+    },
+    "225": {
+      "name": "Garðabær",
+      "classification": "Þéttbýli",
+      "sourceId": "b57a92df-8ed9-4603-6ab3-d0b5778be777",
+      "correctedAt": "2014-12-16Z"
+    },
+    "230": {
+      "name": "Reykjanesbær",
+      "classification": "Þéttbýli",
+      "sourceId": "9c2a4c95-8e50-af32-cf1f-bbae1363dd1f",
+      "correctedAt": "2022-02-18Z"
+    },
+    "233": {
+      "name": "Reykjanesbær",
+      "classification": "Dreifbýli",
+      "sourceId": "a744df70-6f2e-c9bd-6cf5-fa5ec306f205",
+      "correctedAt": null
+    },
+    "235": {
+      "name": "Keflavíkurflugvölllur",
+      "classification": "Dreifbýli",
+      "sourceId": "5b2365e0-399c-229e-9b78-e8f718f31072",
+      "correctedAt": "2017-12-01Z"
+    },
+    "240": {
+      "name": "Grindavík",
+      "classification": "Þéttbýli",
+      "sourceId": "0d5ed993-c88d-4da4-f264-94be4d6f7546",
+      "correctedAt": "2019-10-07Z"
+    },
+    "241": {
+      "name": "Grindavík, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "a0caf4f6-2a24-4d89-8600-3d968b3cad7c",
+      "correctedAt": "2019-10-07Z"
+    },
+    "245": {
+      "name": "Sandgerði",
+      "classification": "Þéttbýli",
+      "sourceId": "c90f03b5-b46a-407d-2eae-57de94fb1c08",
+      "correctedAt": "2021-12-17Z"
+    },
+    "246": {
+      "name": "Sandgerði, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "58b8993d-e4e3-c64f-9766-6cde4f9a5dfd",
+      "correctedAt": "2021-12-17Z"
+    },
+    "250": {
+      "name": "Garður",
+      "classification": "Þéttbýli",
+      "sourceId": "b49a9122-a421-a4c1-ffe9-c45031504d25",
+      "correctedAt": "2019-10-07Z"
+    },
+    "251": {
+      "name": "Garður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "d99f4f69-b9c1-7ab4-342f-ee3aa8261f41",
+      "correctedAt": "2022-02-18Z"
+    },
+    "260": {
+      "name": "Reykjanesbær",
+      "classification": "Þéttbýli",
+      "sourceId": "9ef38c4e-7dda-b027-6c02-44872fb96145",
+      "correctedAt": "2019-10-07Z"
+    },
+    "262": {
+      "name": "Reykjanesbær",
+      "classification": "Þéttbýli",
+      "sourceId": "1f9deb93-00b7-a087-15b4-0c37d7d91d10",
+      "correctedAt": "2017-12-01Z"
+    },
+    "270": {
+      "name": "Mosfellsbær",
+      "classification": "Þéttbýli",
+      "sourceId": "3082bcfd-6c0b-acc4-5eaa-76d50f7d3a3f",
+      "correctedAt": "2025-01-17Z"
+    },
+    "271": {
+      "name": "Mosfellsbær, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "133aa4b2-cf2c-8f3b-3302-e441b3c05222",
+      "correctedAt": "2025-01-17Z"
+    },
+    "276": {
+      "name": "Kjós",
+      "classification": "Dreifbýli",
+      "sourceId": "a69681c4-f2d2-8c15-6369-d600677d2935",
+      "correctedAt": "2024-03-20Z"
+    },
+    "300": {
+      "name": "Akranes",
+      "classification": "Þéttbýli",
+      "sourceId": "7ccd7161-27ec-4c4b-9db0-08cc66aea592",
+      "correctedAt": "2024-03-20Z"
+    },
+    "301": {
+      "name": "Akranes, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "8bd88772-0d1d-d85e-9395-f9fc7f392ca8",
+      "correctedAt": "2024-03-20Z"
+    },
+    "310": {
+      "name": "Borgarnes",
+      "classification": "Þéttbýli",
+      "sourceId": "7eac0fae-fc8c-1bb9-e8fb-cb18b6d9426f",
+      "correctedAt": "2025-01-17Z"
+    },
+    "311": {
+      "name": "Borgarnes, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "7b4bb161-0588-945b-97c6-708b4d86fb11",
+      "correctedAt": "2017-11-29Z"
+    },
+    "320": {
+      "name": "Reykholt",
+      "classification": "Þéttbýli",
+      "sourceId": "87975cf3-c7f5-178d-056f-cd265cf797e7",
+      "correctedAt": "2014-01-07Z"
+    },
+    "340": {
+      "name": "Stykkishólmur",
+      "classification": "Þéttbýli",
+      "sourceId": "892716ee-88c2-2023-4d98-6e9094775fca",
+      "correctedAt": "2022-02-17Z"
+    },
+    "341": {
+      "name": "Stykkishólmur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "6b5a6635-456e-0977-5a0e-b5f2aad20c6a",
+      "correctedAt": "2022-02-17Z"
+    },
+    "342": {
+      "name": "Stykkishólmur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "275497bd-f64c-2fd4-d0d6-913c3e236eca",
+      "correctedAt": "2019-10-03Z"
+    },
+    "345": {
+      "name": "Flatey á Breiðafirði",
+      "classification": "Þéttbýli",
+      "sourceId": "57257051-3f9b-ceb0-9370-0e1527329267",
+      "correctedAt": "2014-10-20Z"
+    },
+    "350": {
+      "name": "Grundarfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "a69d71a2-1a43-a7a9-a128-ab915fa9c781",
+      "correctedAt": "2019-10-07Z"
+    },
+    "351": {
+      "name": "Grundarfjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "d675782c-1aed-6194-5bfc-e866d515a81a",
+      "correctedAt": "2019-10-07Z"
+    },
+    "355": {
+      "name": "Ólafsvík",
+      "classification": "Þéttbýli",
+      "sourceId": "5a3c2141-39b2-1a73-9368-5bf62357d325",
+      "correctedAt": null
+    },
+    "356": {
+      "name": "Snæfellsbær",
+      "classification": "Dreifbýli",
+      "sourceId": "33ef879a-eb80-aaa2-1985-5ce8ae6e3f7c",
+      "correctedAt": "2017-11-29Z"
+    },
+    "360": {
+      "name": "Hellissandur",
+      "classification": "Þéttbýli",
+      "sourceId": "b7b41008-442e-a4bb-ed54-73aa0f081d71",
+      "correctedAt": null
+    },
+    "370": {
+      "name": "Búðardalur",
+      "classification": "Þéttbýli",
+      "sourceId": "290866c1-7377-18bf-174c-372f1fdc9bf8",
+      "correctedAt": null
+    },
+    "371": {
+      "name": "Búðardalur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "06394104-3c21-63cb-bb14-9ca229019a0b",
+      "correctedAt": "2017-11-29Z"
+    },
+    "380": {
+      "name": "Reykhólahreppur",
+      "classification": "Þéttbýli",
+      "sourceId": "6a647425-1fa7-76ed-3a14-f0443a1ce61b",
+      "correctedAt": "2017-12-01Z"
+    },
+    "381": {
+      "name": "Reykhólahreppur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "60c4be59-40c8-baca-3c98-4d04d508f726",
+      "correctedAt": "2017-12-01Z"
+    },
+    "400": {
+      "name": "Ísafjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "299ef1b6-625e-b999-f061-dd4e15d35de6",
+      "correctedAt": "2021-12-17Z"
+    },
+    "401": {
+      "name": "Ísafjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "8fe495e0-9aca-b0ba-f72e-6ba3750e4bd7",
+      "correctedAt": "2017-11-29Z"
+    },
+    "410": {
+      "name": "Hnífsdalur",
+      "classification": "Þéttbýli",
+      "sourceId": "2c609512-a77c-6f8c-2a7c-5758c95e5301",
+      "correctedAt": "2021-12-17Z"
+    },
+    "415": {
+      "name": "Bolungarvík",
+      "classification": "Þéttbýli",
+      "sourceId": "f21c859a-ce85-1056-4153-9f84fefdea0c",
+      "correctedAt": "2025-01-17Z"
+    },
+    "416": {
+      "name": "Bolungarvík, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "5cf01ac1-2530-8043-4f32-37ce294b3ec3",
+      "correctedAt": "2025-01-17Z"
+    },
+    "420": {
+      "name": "Súðavík",
+      "classification": "Þéttbýli",
+      "sourceId": "1e25a98b-8f4d-6343-82d8-9fed8ace1c65",
+      "correctedAt": "2017-12-01Z"
+    },
+    "421": {
+      "name": "Súðavík, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "0035ef4b-0867-4a15-ea1b-81d79e9c7a44",
+      "correctedAt": "2017-12-01Z"
+    },
+    "425": {
+      "name": "Flateyri",
+      "classification": "Þéttbýli",
+      "sourceId": "6c0e177c-40e7-d242-729a-6a06e3df74c5",
+      "correctedAt": "2017-12-01Z"
+    },
+    "426": {
+      "name": "Flateyri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "d0589666-3f7f-3e99-7edf-aba2374bdbe4",
+      "correctedAt": "2017-12-01Z"
+    },
+    "430": {
+      "name": "Suðureyri",
+      "classification": "Þéttbýli",
+      "sourceId": "f0d95de0-b778-701d-b302-59e8a57b7485",
+      "correctedAt": "2017-12-01Z"
+    },
+    "431": {
+      "name": "Suðureyri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "1b2193eb-3d01-f87a-2993-d4f15d393e37",
+      "correctedAt": "2017-12-01Z"
+    },
+    "450": {
+      "name": "Patreksfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "7735f6d6-c7ec-eb9b-8d44-4746d1a9d3d0",
+      "correctedAt": null
+    },
+    "451": {
+      "name": "Patreksfjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "26a0822c-76e8-a591-a922-163c8afd9285",
+      "correctedAt": "2017-12-01Z"
+    },
+    "460": {
+      "name": "Tálknafjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "3aacdfae-7644-9508-91fa-c7ea820e6dcd",
+      "correctedAt": "2017-12-01Z"
+    },
+    "461": {
+      "name": "Tálknafjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "a7d90ad7-b55e-3ead-aa59-46692ca2c37a",
+      "correctedAt": "2017-12-01Z"
+    },
+    "465": {
+      "name": "Bíldudalur",
+      "classification": "Þéttbýli",
+      "sourceId": "f47b3fe0-7095-e26c-4200-2834c5e7807f",
+      "correctedAt": "2019-10-07Z"
+    },
+    "466": {
+      "name": "Bíldudalur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "710f8f4a-115a-fb36-a767-d68c4280f142",
+      "correctedAt": "2019-10-07Z"
+    },
+    "470": {
+      "name": "Þingeyri",
+      "classification": "Þéttbýli",
+      "sourceId": "1aafd288-5512-acbe-d757-a0dbfd4dee3d",
+      "correctedAt": "2019-10-07Z"
+    },
+    "471": {
+      "name": "Þingeyri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "bc9fccb7-ef7b-d1ce-fd69-33701455b3a6",
+      "correctedAt": "2019-10-07Z"
+    },
+    "500": {
+      "name": "Staður",
+      "classification": "Dreifbýli",
+      "sourceId": "5c98da8c-3ae6-0639-fba1-ef44bbfecbdc",
+      "correctedAt": "2017-03-01Z"
+    },
+    "510": {
+      "name": "Hólmavík",
+      "classification": "Þéttbýli",
+      "sourceId": "9eb617e4-86de-2bc9-7c44-652f2734f580",
+      "correctedAt": "2017-12-01Z"
+    },
+    "512": {
+      "name": "Hólmavík",
+      "classification": "Dreifbýli",
+      "sourceId": "1829c51a-230e-1a62-a55e-5db597b8dde9",
+      "correctedAt": "2017-12-01Z"
+    },
+    "520": {
+      "name": "Drangsnes",
+      "classification": "Þéttbýli",
+      "sourceId": "00c86555-0e02-0eb3-8622-0d11aa55c124",
+      "correctedAt": "2019-10-07Z"
+    },
+    "524": {
+      "name": "Árneshreppur",
+      "classification": "Dreifbýli",
+      "sourceId": "e44d2373-81f3-6525-0fb5-b482582bac39",
+      "correctedAt": "2010-03-16Z"
+    },
+    "530": {
+      "name": "Hvammstangi",
+      "classification": "Þéttbýli",
+      "sourceId": "3a88180d-2818-3e5b-a033-a49e5d7553f5",
+      "correctedAt": "2019-10-07Z"
+    },
+    "531": {
+      "name": "Hvammstangi, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "b1c90fb0-18b1-f99d-64b9-d113b3352cc1",
+      "correctedAt": "2019-10-07Z"
+    },
+    "540": {
+      "name": "Blönduós",
+      "classification": "Þéttbýli",
+      "sourceId": "4fe7184e-d1d8-0069-1549-8462742d3f4e",
+      "correctedAt": null
+    },
+    "541": {
+      "name": "Blönduós, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "4611b9a2-65f4-647f-7e33-bc8f89cad0df",
+      "correctedAt": "2017-11-29Z"
+    },
+    "545": {
+      "name": "Skagaströnd",
+      "classification": "Þéttbýli",
+      "sourceId": "421c5471-07de-b599-a069-868e01c15fef",
+      "correctedAt": "2025-01-17Z"
+    },
+    "546": {
+      "name": "Skagaströnd, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "1df36d67-6204-b68a-3c87-c75703c1e951",
+      "correctedAt": "2025-01-17Z"
+    },
+    "550": {
+      "name": "Sauðárkrókur",
+      "classification": "Þéttbýli",
+      "sourceId": "ba822b77-6205-5d95-5d55-9d0366ef6595",
+      "correctedAt": "2017-12-01Z"
+    },
+    "551": {
+      "name": "Sauðárkrókur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "c1f1b974-e3c1-d350-6dd3-2735df075aae",
+      "correctedAt": "2017-11-29Z"
+    },
+    "560": {
+      "name": "Varmahlíð",
+      "classification": "Þéttbýli",
+      "sourceId": "5e9d74b8-9b6b-d09f-d199-63bd78196e76",
+      "correctedAt": "2025-01-17Z"
+    },
+    "561": {
+      "name": "Varmahlíð, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "550380dc-4591-9b0e-39cf-9065087f6c46",
+      "correctedAt": "2025-01-17Z"
+    },
+    "565": {
+      "name": "Hofsós",
+      "classification": "Þéttbýli",
+      "sourceId": "d6462f40-edcc-536c-de2a-2d13eb0b772e",
+      "correctedAt": "2014-01-09Z"
+    },
+    "566": {
+      "name": "Hofsós, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "790866c4-03ca-f4dd-f05e-3c885fd62f1c",
+      "correctedAt": "2017-11-29Z"
+    },
+    "570": {
+      "name": "Fljót",
+      "classification": "Dreifbýli",
+      "sourceId": "b171d4cc-1758-6305-f7a1-6f5c9e17e038",
+      "correctedAt": null
+    },
+    "580": {
+      "name": "Siglufjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "0f4c828a-6ed2-81a1-0455-a43ad70ecdf4",
+      "correctedAt": "2025-01-17Z"
+    },
+    "581": {
+      "name": "Siglufjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "2ea623c3-8323-cd09-2a0b-717f15d15345",
+      "correctedAt": "2025-01-17Z"
+    },
+    "600": {
+      "name": "Akureyri",
+      "classification": "Þéttbýli",
+      "sourceId": "dfe1293f-0389-d6a5-a71f-64b189b034b7",
+      "correctedAt": "2019-10-04Z"
+    },
+    "601": {
+      "name": "Akureyri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "2eb7a4b9-5952-2a22-e80c-ad913ca707f0",
+      "correctedAt": "2019-10-04Z"
+    },
+    "603": {
+      "name": "Akureyri, utan Glerár",
+      "classification": "Þéttbýli",
+      "sourceId": "dbed0c11-4d47-a43c-3e56-63de994f602a",
+      "correctedAt": "2017-11-29Z"
+    },
+    "604": {
+      "name": "Akureyri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "b73b444c-be5b-0429-385f-ca9188d45435",
+      "correctedAt": "2023-03-09Z"
+    },
+    "605": {
+      "name": "Akureyri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "1b81e59c-402d-9165-9160-c0440bb950cb",
+      "correctedAt": "2019-10-04Z"
+    },
+    "606": {
+      "name": "Akureyri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "b27e1c16-53bd-bc8f-90e2-7abdb436119d",
+      "correctedAt": "2019-10-04Z"
+    },
+    "607": {
+      "name": "Akureyri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "9f9a7887-9b95-02d7-80ae-7d1a650483ec",
+      "correctedAt": "2019-10-04Z"
+    },
+    "610": {
+      "name": "Grenivík",
+      "classification": "Þéttbýli",
+      "sourceId": "ddb74609-ee6f-1ddc-99d1-60132d15e827",
+      "correctedAt": "2017-11-29Z"
+    },
+    "611": {
+      "name": "Grímsey",
+      "classification": "Þéttbýli",
+      "sourceId": "e2600959-99b2-81a4-16c0-57880419bacc",
+      "correctedAt": null
+    },
+    "616": {
+      "name": "Grenivík, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "7d735401-8e76-392d-2989-71cdc37d27d9",
+      "correctedAt": "2019-10-04Z"
+    },
+    "620": {
+      "name": "Dalvík",
+      "classification": "Þéttbýli",
+      "sourceId": "946b5e8e-2168-ede9-345f-c7debaf3b4c7",
+      "correctedAt": "2014-10-17Z"
+    },
+    "621": {
+      "name": "Dalvík, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "46433433-e50f-6438-78be-e456aee304d0",
+      "correctedAt": "2023-03-09Z"
+    },
+    "625": {
+      "name": "Ólafsfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "386ddc4d-4149-97a8-43a4-e5cabb65437e",
+      "correctedAt": "2017-12-01Z"
+    },
+    "626": {
+      "name": "Ólafsfjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "16501dc6-d5b6-51e5-b561-ab5cfe8a9344",
+      "correctedAt": "2017-12-01Z"
+    },
+    "630": {
+      "name": "Hrísey",
+      "classification": "Þéttbýli",
+      "sourceId": "24477c9f-0f95-b075-18f8-184e1fde33a2",
+      "correctedAt": null
+    },
+    "640": {
+      "name": "Húsavík",
+      "classification": "Þéttbýli",
+      "sourceId": "4d22019f-843d-6fbe-ab36-59ac7c4e4766",
+      "correctedAt": "2016-06-15Z"
+    },
+    "641": {
+      "name": "Húsavík, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "ca5f3a27-c48a-6bb9-72e4-9851b06d411f",
+      "correctedAt": "2017-11-29Z"
+    },
+    "645": {
+      "name": "Fosshóll",
+      "classification": "Dreifbýli",
+      "sourceId": "990d3083-821c-44d4-f7cd-c2b2a6d8a98f",
+      "correctedAt": "2014-01-07Z"
+    },
+    "650": {
+      "name": "Laugar",
+      "classification": "Þéttbýli",
+      "sourceId": "d3741832-a1f6-b8d6-7d02-c4592103e320",
+      "correctedAt": "2013-09-23Z"
+    },
+    "660": {
+      "name": "Mývatn",
+      "classification": "Dreifbýli",
+      "sourceId": "ba0d1fb4-d46d-322f-ce93-e685d8322db1",
+      "correctedAt": "2017-03-01Z"
+    },
+    "670": {
+      "name": "Kópasker",
+      "classification": "Þéttbýli",
+      "sourceId": "975c658f-b011-7996-ce41-044fb8ce7a8f",
+      "correctedAt": null
+    },
+    "671": {
+      "name": "Kópasker, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "df37f788-af9c-e6c6-8c30-11e23741c92c",
+      "correctedAt": "2017-11-29Z"
+    },
+    "675": {
+      "name": "Raufarhöfn",
+      "classification": "Þéttbýli",
+      "sourceId": "f76f6659-f43e-d8e6-2601-f09ca80081ad",
+      "correctedAt": "2017-12-01Z"
+    },
+    "676": {
+      "name": "Raufarhöfn, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "a036ea16-dce0-4cda-a2fc-082a8b8d0f52",
+      "correctedAt": "2017-12-01Z"
+    },
+    "680": {
+      "name": "Þórshöfn",
+      "classification": "Þéttbýli",
+      "sourceId": "c4250d6d-51ed-8199-35f9-8f63983ca08e",
+      "correctedAt": "2023-09-19Z"
+    },
+    "681": {
+      "name": "Þórshöfn, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "3fd9890b-2730-c9c8-711b-ce67b9e181be",
+      "correctedAt": "2023-09-19Z"
+    },
+    "685": {
+      "name": "Bakkafjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "17aa4999-34d5-b345-e004-d0e02366f41e",
+      "correctedAt": "2017-12-01Z"
+    },
+    "686": {
+      "name": "Bakkafjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "9deaf79f-3896-ba5a-ac2e-6349223936c2",
+      "correctedAt": "2017-12-01Z"
+    },
+    "690": {
+      "name": "Vopnafjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "c36ea0d8-f26d-b5a2-2735-afb63529e0b5",
+      "correctedAt": "2019-10-07Z"
+    },
+    "691": {
+      "name": "Vopnafjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "d52e74ca-39ee-769d-c5d5-fcb82b238ec1",
+      "correctedAt": "2019-10-07Z"
+    },
+    "700": {
+      "name": "Egilsstaðir",
+      "classification": "Þéttbýli",
+      "sourceId": "1a28f5a5-b80f-0188-c8ff-8803e1d8a0ac",
+      "correctedAt": "2014-01-07Z"
+    },
+    "701": {
+      "name": "Egilsstaðir, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "948f28e6-da20-d77a-4a46-6a1fff6d19d4",
+      "correctedAt": "2017-11-29Z"
+    },
+    "710": {
+      "name": "Seyðisfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "6aed85ff-3c13-721f-3580-9552bf4dc317",
+      "correctedAt": "2019-10-04Z"
+    },
+    "711": {
+      "name": "Seyðisfjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "25e792bd-5daa-98cf-f25f-262c8b185f4d",
+      "correctedAt": "2019-10-04Z"
+    },
+    "715": {
+      "name": "Mjóifjörður",
+      "classification": "Dreifbýli",
+      "sourceId": "ac507f0f-eeba-cd59-43fa-6bff043dcd67",
+      "correctedAt": null
+    },
+    "720": {
+      "name": "Borgarfjörður eystri",
+      "classification": "Þéttbýli",
+      "sourceId": "1d7a4a9f-52b5-17dc-e1b7-f2b4824a23ce",
+      "correctedAt": "2022-11-02Z"
+    },
+    "721": {
+      "name": "Borgarfjörður eystri, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "0e950cbb-04f4-acb4-ee8e-903a4e71ec2c",
+      "correctedAt": "2022-11-02Z"
+    },
+    "730": {
+      "name": "Reyðarfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "b71c74ea-7db1-4fa5-aa28-1d7cb8904310",
+      "correctedAt": "2017-12-01Z"
+    },
+    "731": {
+      "name": "Reyðarfjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "fd20757e-4a8b-f383-8b63-09061306bbec",
+      "correctedAt": "2017-12-01Z"
+    },
+    "735": {
+      "name": "Eskifjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "e02ef0b2-afaa-d923-8130-633b1ea4d452",
+      "correctedAt": "2017-12-01Z"
+    },
+    "736": {
+      "name": "Eskifjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "da5dac42-3c51-1028-7357-caf8df6a1820",
+      "correctedAt": "2017-12-01Z"
+    },
+    "740": {
+      "name": "Neskaupsstaður",
+      "classification": "Þéttbýli",
+      "sourceId": "b2660f87-c712-547d-4c6d-0eea376bf738",
+      "correctedAt": "2017-12-01Z"
+    },
+    "741": {
+      "name": "Neskaupsstaður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "95bbb6dd-0469-2da0-bc46-71c7db92a0cd",
+      "correctedAt": "2017-12-01Z"
+    },
+    "750": {
+      "name": "Fáskrúðsfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "34c5c5b4-d8c0-0166-8b6a-7efd89886b54",
+      "correctedAt": "2017-12-01Z"
+    },
+    "751": {
+      "name": "Fáskrúðsfjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "de4ad8e7-e454-2cd4-7e12-85eee81ee837",
+      "correctedAt": "2017-12-01Z"
+    },
+    "755": {
+      "name": "Stöðvarfjörður",
+      "classification": "Þéttbýli",
+      "sourceId": "250a7924-1739-aadc-370b-fbcb53e582a5",
+      "correctedAt": "2017-12-01Z"
+    },
+    "756": {
+      "name": "Stöðvarfjörður, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "8da3ea8f-6dd7-2f6d-2d69-6ed313608190",
+      "correctedAt": "2017-12-01Z"
+    },
+    "760": {
+      "name": "Breiðdalsvík",
+      "classification": "Þéttbýli",
+      "sourceId": "03b7a389-9896-5dab-f33a-ad35bb6b9a76",
+      "correctedAt": "2019-10-07Z"
+    },
+    "761": {
+      "name": "Breiðdalsvík, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "aac2169d-c952-e0e5-66b3-0856c8ab69ff",
+      "correctedAt": "2019-10-07Z"
+    },
+    "765": {
+      "name": "Djúpivogur",
+      "classification": "Þéttbýli",
+      "sourceId": "831791c5-14b2-0732-fb3e-539d1a889235",
+      "correctedAt": "2023-09-19Z"
+    },
+    "766": {
+      "name": "Djúpivogur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "0fc97453-3d93-27f2-7581-3d44b684ab11",
+      "correctedAt": "2023-09-19Z"
+    },
+    "780": {
+      "name": "Höfn í Hornafirði",
+      "classification": "Þéttbýli",
+      "sourceId": "31edda1d-a8c4-d752-fd90-579816fa7f15",
+      "correctedAt": null
+    },
+    "781": {
+      "name": "Höfn í Hornafirði, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "bea2ce01-90d8-90d5-92dd-41e2f20b2753",
+      "correctedAt": "2017-11-29Z"
+    },
+    "785": {
+      "name": "Fagurhólsmýri",
+      "classification": "Dreifbýli",
+      "sourceId": "9cbc9474-8e19-3cca-194d-40d5044f3077",
+      "correctedAt": "2017-11-29Z"
+    },
+    "800": {
+      "name": "Selfoss",
+      "classification": "Þéttbýli",
+      "sourceId": "02f53609-7aca-ffc3-dbb1-df3c7fef9bcd",
+      "correctedAt": "2024-03-20Z"
+    },
+    "801": {
+      "name": "Selfoss, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "fa254133-c915-8882-3b52-73e00894932b",
+      "correctedAt": "2024-03-20Z"
+    },
+    "803": {
+      "name": "Selfoss, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "8611087e-0540-ec44-175b-5e118849b6fb",
+      "correctedAt": "2019-10-03Z"
+    },
+    "804": {
+      "name": "Selfoss, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "eaa78875-4989-b710-cc64-c13593154228",
+      "correctedAt": "2019-10-03Z"
+    },
+    "805": {
+      "name": "Selfoss, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "459d265a-f803-ea36-d4ad-466768c83735",
+      "correctedAt": "2019-10-03Z"
+    },
+    "806": {
+      "name": "Selfoss, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "ce199ade-2823-f623-5cc4-edde109915ee",
+      "correctedAt": "2019-10-03Z"
+    },
+    "810": {
+      "name": "Hveragerði",
+      "classification": "Þéttbýli",
+      "sourceId": "b6475a4c-317c-4aad-8435-07309ac6284c",
+      "correctedAt": "2018-08-23Z"
+    },
+    "815": {
+      "name": "Ölfus",
+      "classification": "Dreifbýli",
+      "sourceId": "e0634d8e-0103-57c4-f404-f647a0779541",
+      "correctedAt": "2022-02-17Z"
+    },
+    "816": {
+      "name": "Ölfus",
+      "classification": "Dreifbýli",
+      "sourceId": "e0634d8e-0103-57c4-f404-f647a0779541",
+      "correctedAt": "2022-02-17Z"
+    },
+    "820": {
+      "name": "Eyrarbakki",
+      "classification": "Þéttbýli",
+      "sourceId": "8f96461d-bde6-3f19-93ea-019a5308f09b",
+      "correctedAt": "2014-10-20Z"
+    },
+    "825": {
+      "name": "Stokkseyri",
+      "classification": "Þéttbýli",
+      "sourceId": "f9b0e12d-c8c5-1193-db52-b7adb3db67ec",
+      "correctedAt": "2014-10-20Z"
+    },
+    "840": {
+      "name": "Laugarvatn",
+      "classification": "Þéttbýli",
+      "sourceId": "6d1d3429-bb75-1b51-26de-38a320e6ce90",
+      "correctedAt": "2017-11-29Z"
+    },
+    "845": {
+      "name": "Flúðir",
+      "classification": "Þéttbýli",
+      "sourceId": "ec1c538a-8423-bcdd-5173-a210db867679",
+      "correctedAt": "2017-12-01Z"
+    },
+    "846": {
+      "name": "Flúðir, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "de2bfb1f-d8f7-1a26-e195-66e1d5c5324e",
+      "correctedAt": "2019-10-03Z"
+    },
+    "850": {
+      "name": "Hella",
+      "classification": "Þéttbýli",
+      "sourceId": "cb00e87d-0e15-a0fd-d318-1d39d1b02d23",
+      "correctedAt": null
+    },
+    "851": {
+      "name": "Hella, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "453b1695-1c60-4a6e-3a69-fd9620c3adb0",
+      "correctedAt": "2021-01-14Z"
+    },
+    "860": {
+      "name": "Hvolsvöllur",
+      "classification": "Þéttbýli",
+      "sourceId": "06e42e32-3c88-1be5-c0c0-e8dffd05b449",
+      "correctedAt": "2021-12-17Z"
+    },
+    "861": {
+      "name": "Hvolsvöllur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "2442c901-1bff-96af-226c-4ee77b84bb49",
+      "correctedAt": "2021-12-17Z"
+    },
+    "870": {
+      "name": "Vík",
+      "classification": "Þéttbýli",
+      "sourceId": "6b889aeb-c9b7-f199-8e62-c30696b82a25",
+      "correctedAt": null
+    },
+    "871": {
+      "name": "Vík, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "f30c9806-2515-92b9-6b90-29f79518d467",
+      "correctedAt": "2017-11-29Z"
+    },
+    "880": {
+      "name": "Kirkjubæjarklaustur",
+      "classification": "Þéttbýli",
+      "sourceId": "fc01f9bc-62a0-3f90-3b4e-7f802653de18",
+      "correctedAt": "2019-10-07Z"
+    },
+    "881": {
+      "name": "Kirkjubæjarklaustur, dreifbýli",
+      "classification": "Dreifbýli",
+      "sourceId": "e01578cf-e040-6840-3669-c4fe1fce7b85",
+      "correctedAt": "2019-10-07Z"
+    },
+    "900": {
+      "name": "Vestmannaeyjar",
+      "classification": "Þéttbýli",
+      "sourceId": "1fbc53b5-8933-429e-5b06-00bb76cfdb3d",
+      "correctedAt": null
+    }
+  }
+}

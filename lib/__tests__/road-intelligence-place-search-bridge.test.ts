@@ -55,6 +55,55 @@ describe('placeSearchBridge', () => {
     ])
   })
 
+  it('preserves official place type, postal locality and canonical identity', () => {
+    expect(parsePlaceSearchResults({
+      results: [{
+        name: 'Hella',
+        formattedAddress: '850 Hella',
+        lat: 63.8357,
+        lon: -20.4001,
+        source: 'official',
+        sourceId: 'hagstofa:1120',
+        placeType: 'settlement',
+        postalCode: '850',
+        postalLocality: 'Hella',
+        municipality: 'Rangárþing ytra',
+      }],
+    })).toEqual([{
+      name: 'Hella',
+      formattedAddress: '850 Hella',
+      lat: 63.8357,
+      lon: -20.4001,
+      source: 'official',
+      sourceId: 'hagstofa:1120',
+      placeType: 'settlement',
+      postalCode: '850',
+      postalLocality: 'Hella',
+      municipality: 'Rangárþing ytra',
+      municipalityCode: undefined,
+      accuracyM: undefined,
+      placeId: undefined,
+      googlePlaceId: undefined,
+    }])
+  })
+
+  it('rejects unknown display-label provenance without losing the place', () => {
+    const [place] = parsePlaceSearchResults({
+      results: [{
+        name: 'Valinn staður',
+        formattedAddress: 'Nálægt Hella',
+        lat: 63.8357,
+        lon: -20.4001,
+        source: 'map',
+        labelSource: 'unknown-provider',
+        placeType: 'point',
+      }],
+    })
+
+    expect(place).toMatchObject({ source: 'map', placeType: 'point' })
+    expect(place.labelSource).toBeUndefined()
+  })
+
   it('selects an accent-insensitive exact match before later candidates', () => {
     const result = selectBestPlaceForQuery('reykjavik', [
       { name: 'Reykjahlíð', formattedAddress: 'Reykjahlíð, Ísland', lat: 65.64, lon: -16.91 },

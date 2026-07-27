@@ -676,7 +676,13 @@
         "mapPickerOutsideIceland": "Veldu stað innan Íslands.",
         "mapPickerPointError": "Náði ekki að velja þennan stað. Reyndu aftur.",
         "mapPickerConfirm": "Nota þennan stað",
+        "placeTypeSettlement": "Þéttbýli",
+        "placeTypeAddress": "Staðfang",
+        "dataAttributionLabel": "Gagnaheimildir staðaleitar",
         "hmsAttribution": "Byggir á upplýsingum úr Staðfangaskrá HMS.",
+        "settlementAttributionHagstofa": "Þéttbýlisstaðir: Hagstofa Íslands",
+        "settlementAttributionLmi": "IS 50V: Landmælingar Íslands, sótt {date}",
+        "postalLocalityAttribution": "Byggt á gögnum frá Byggðastofnun.",
         "rateLimited": "Of margar leitir í bili. Bíddu aðeins og reyndu aftur."
       },
       "mapConfirmation": {
@@ -836,7 +842,7 @@
         "departureCalculationContext": "Allar útreiknaðar upplýsingar hér að neðan taka nú mið af því að þú ætlir að leggja af stað <b>{departure}</b>.<br></br>Veldu annan brottfarartíma hér að ofan ef þú stefnir á að leggja af stað á öðrum tíma.",
         "heatmapNoData": "Engin gögn",
         "heatmapNotAssessed": "Ófullnægjandi gögn",
-        "noWindData": "Engar vindmælingar",
+        "noWindData": "Án vindmælingar",
         "heatmapNotAssessedDetail": "Ekki nóg gögn til að meta þennan brottfarartíma.",
         "heatmapBestSlot": "Besti",
         "heatmapSlotDeparture": "Brottför",

@@ -672,7 +672,13 @@
         "mapPickerOutsideIceland": "Choose a place within Iceland.",
         "mapPickerPointError": "Could not select this place. Please try again.",
         "mapPickerConfirm": "Use this place",
+        "placeTypeSettlement": "Settlement",
+        "placeTypeAddress": "Address",
+        "dataAttributionLabel": "Place-search data sources",
         "hmsAttribution": "Based on information from the HMS Address Register.",
+        "settlementAttributionHagstofa": "Settlements: Statistics Iceland",
+        "settlementAttributionLmi": "IS 50V: National Land Survey of Iceland, retrieved {date}",
+        "postalLocalityAttribution": "Byggt á gögnum frá Byggðastofnun.",
         "rateLimited": "Too many searches right now. Wait a moment and try again."
       },
       "mapConfirmation": {
@@ -832,7 +838,7 @@
         "departureCalculationContext": "All calculations below are based on your planned departure at <b>{departure}</b>.<br></br>Select another departure time above if you plan to leave at a different time.",
         "heatmapNoData": "No data",
         "heatmapNotAssessed": "Not assessed",
-        "noWindData": "No wind measurement",
+        "noWindData": "No wind measurements",
         "heatmapNotAssessedDetail": "Not enough data to assess this departure time.",
         "heatmapBestSlot": "Best",
         "heatmapSlotDeparture": "Departure",

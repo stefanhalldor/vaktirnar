@@ -42,7 +42,13 @@ vi.mock('next-intl', () => ({
       currentLocationTimeout: 'Finding your location took too long.',
       currentLocationOutsideIceland: 'Your location appears to be outside Iceland.',
       currentLocationInsecureContext: 'Location requires a secure connection.',
+      placeTypeSettlement: 'Settlement',
+      placeTypeAddress: 'Address',
+      dataAttributionLabel: 'Place-search data sources',
       hmsAttribution: 'Based on information from the HMS Address Register.',
+      settlementAttributionHagstofa: 'Settlements: Statistics Iceland',
+      settlementAttributionLmi: `IS 50V: National Land Survey of Iceland, retrieved ${values?.date ?? ''}`,
+      postalLocalityAttribution: 'Byggt á gögnum frá Byggðastofnun.',
     }
     return translations[key] ?? key
   },
@@ -133,8 +139,12 @@ describe('PlaceSearch', () => {
         selectedPlace={{
           id: 'device:64.146600:-21.942600',
           source: 'device',
+          labelSource: 'hms',
           name: 'Current location',
           formattedAddress: 'Near Laugavegur 1',
+          placeType: 'point',
+          postalCode: '101',
+          postalLocality: 'Reykjavík',
           lat: 64.1466,
           lon: -21.9426,
           accuracyM: 12.4,
@@ -148,6 +158,12 @@ describe('PlaceSearch', () => {
     expect(screen.getByText('Current location')).toBeInTheDocument()
     expect(screen.getByText('Near Laugavegur 1')).toBeInTheDocument()
     expect(screen.getByText('Accuracy about ±12 m')).toBeInTheDocument()
+    expect(screen.getByRole('link', {
+      name: 'Based on information from the HMS Address Register.',
+    })).toBeInTheDocument()
+    expect(screen.getByRole('link', {
+      name: 'Byggt á gögnum frá Byggðastofnun.',
+    })).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Change' }))
@@ -158,22 +174,29 @@ describe('PlaceSearch', () => {
     const onPlaceSelected = vi.fn()
     fetchMock.mockResolvedValue(searchResponse([
       {
-        id: 'hms:hella-dalvik',
-        source: 'hms',
-        sourceId: 'hella-dalvik',
-        name: 'Hella',
-        formattedAddress: 'Hella, 621 Dalvíkurbyggð',
-        lat: 65.91,
-        lon: -18.31,
-      },
-      {
-        id: 'hms:hella-sudurnes',
-        source: 'hms',
-        sourceId: 'hella-sudurnes',
-        name: 'Hella',
-        formattedAddress: 'Hella, 250 Suðurnesjabær',
-        lat: 63.99,
-        lon: -22.56,
+          id: 'official:hagstofa:1120',
+          source: 'official',
+          sourceId: 'hagstofa:1120',
+          name: 'Hella',
+          formattedAddress: '850 Hella',
+          placeType: 'settlement',
+          postalCode: '850',
+          postalLocality: 'Hella',
+          lat: 63.8357,
+          lon: -20.4001,
+        },
+        {
+          id: 'hms:hella-grimsey',
+          source: 'hms',
+          sourceId: 'hella-grimsey',
+          name: 'Hella',
+          formattedAddress: 'Hella, 611 Grímsey',
+          placeType: 'address',
+          postalCode: '611',
+          postalLocality: 'Grímsey',
+          municipality: 'Akureyrarbær',
+          lat: 66.5362,
+          lon: -18.0053,
       },
     ]))
 
@@ -183,20 +206,29 @@ describe('PlaceSearch', () => {
     fireEvent.change(input, { target: { value: 'Hella' } })
     await advanceSearchDebounce()
 
+    expect(screen.getByRole('option', { name: 'Hella, Settlement, 850 Hella' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Hella, Address, 611 Grímsey · Akureyrarbær' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Settlements: Statistics Iceland' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'IS 50V: National Land Survey of Iceland, retrieved 2026-07-27' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Based on information from the HMS Address Register.' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Byggt á gögnum frá Byggðastofnun.' })).toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('button', { name: 'Choose on map (2)' }))
 
-    expect(screen.getByRole('button', { name: /Hella, Hella, 621 Dalvíkurbyggð/ })).toBeInTheDocument()
-    const exactResult = screen.getByRole('button', { name: /Hella, Hella, 250 Suðurnesjabær/ })
+    expect(screen.getByRole('button', { name: /Hella, 850 Hella/ })).toBeInTheDocument()
+    const exactResult = screen.getByRole('button', { name: /Hella, Hella, 611 Grímsey/ })
     fireEvent.click(exactResult)
 
     expect(onPlaceSelected).toHaveBeenCalledOnce()
     expect(onPlaceSelected).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'hms:hella-sudurnes',
+      id: 'hms:hella-grimsey',
       source: 'hms',
-      sourceId: 'hella-sudurnes',
-      formattedAddress: 'Hella, 250 Suðurnesjabær',
-      lat: 63.99,
-      lon: -22.56,
+      sourceId: 'hella-grimsey',
+      placeType: 'address',
+      postalLocality: 'Grímsey',
+      formattedAddress: 'Hella, 611 Grímsey',
+      lat: 66.5362,
+      lon: -18.0053,
     }))
   })
 

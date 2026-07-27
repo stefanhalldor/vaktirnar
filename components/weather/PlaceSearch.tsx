@@ -13,9 +13,12 @@ import {
 import { useLocale, useTranslations } from 'next-intl'
 import { LocateFixed, MapPinned, Search, X } from 'lucide-react'
 import { PlaceMapPicker } from './PlaceMapPicker'
+import { PlaceDataAttributions } from './PlaceDataAttributions'
+import { PlaceResultIdentity } from './PlaceResultIdentity'
 import type {
   PlaceRoutingReference,
   PlaceSource,
+  PlaceType,
   SelectedLocation,
 } from '@/lib/places/types'
 import {
@@ -23,7 +26,7 @@ import {
   getCurrentLocation,
   type CurrentLocationErrorCode,
 } from '@/lib/places/currentLocation.client'
-import { HMS_PLACE_DIRECTORY_ATTRIBUTION } from '@/lib/places/hmsAttribution'
+import { getPlaceAccessibleLabel } from '@/lib/places/display'
 
 /** Backwards-compatible public name used by existing weather consumers. */
 export type PlaceResult = Omit<SelectedLocation, 'source'> & {
@@ -42,10 +45,13 @@ export type SavedPlace = {
   lat: number
   lon: number
   source?: PlaceSource
+  labelSource?: PlaceSource
   sourceId?: string
   postalCode?: string
   municipality?: string
   municipalityCode?: string
+  postalLocality?: string
+  placeType?: PlaceType
   accuracyM?: number
   routingRef?: PlaceRoutingReference
   googlePlaceId?: string
@@ -113,17 +119,31 @@ function routingReference(value: unknown): PlaceRoutingReference | undefined {
     : undefined
 }
 
-function normalizedSource(value: unknown): PlaceResult['source'] {
+function normalizedPlaceType(value: unknown): PlaceResult['placeType'] {
+  return value === 'settlement' || value === 'address' || value === 'point'
+    ? value
+    : undefined
+}
+
+function optionalPlaceSource(value: unknown): PlaceSource | undefined {
   if (
     value === 'hms' ||
     value === 'device' ||
     value === 'map' ||
     value === 'saved' ||
     value === 'static' ||
-    value === 'google'
+    value === 'official' ||
+    value === 'google' ||
+    value === 'curated'
   ) {
     return value
   }
+  return undefined
+}
+
+function normalizedSource(value: unknown): PlaceResult['source'] {
+  const source = optionalPlaceSource(value)
+  if (source && source !== 'curated') return source
   // `curated` is the old name for the provider-neutral local directory.
   // Unknown/missing provenance must never be promoted to a Google identity.
   return 'static'
@@ -163,10 +183,13 @@ function parsePlace(raw: unknown): PlaceResult | null {
     lat,
     lon,
     source,
+    labelSource: optionalPlaceSource(value.labelSource),
     sourceId,
     postalCode: stringValue(value.postalCode),
+    postalLocality: stringValue(value.postalLocality),
     municipality: stringValue(value.municipality),
     municipalityCode: stringValue(value.municipalityCode),
+    placeType: normalizedPlaceType(value.placeType),
     accuracyM: finiteNumber(value.accuracyM),
     routingRef: parsedRoutingRef,
     googlePlaceId: parsedRoutingRef?.placeId,
@@ -236,23 +259,18 @@ function savedPlaceResult(place: SavedPlace): PlaceResult {
     lat: place.lat,
     lon: place.lon,
     source,
+    labelSource: place.labelSource,
     sourceId: place.sourceId,
     postalCode: place.postalCode,
+    postalLocality: place.postalLocality,
     municipality: place.municipality,
     municipalityCode: place.municipalityCode,
+    placeType: place.placeType,
     accuracyM: place.accuracyM,
     routingRef,
     googlePlaceId: routingRef?.placeId,
     placeId: routingRef?.placeId,
   }
-}
-
-function secondaryLabel(place: SelectedPlaceDisplay): string | null {
-  if (place.formattedAddress && place.formattedAddress !== place.name) {
-    return place.formattedAddress
-  }
-  const area = [place.postalCode, place.municipality].filter(Boolean).join(' ')
-  return area || null
 }
 
 function currentLocationMessageKey(code: CurrentLocationErrorCode):
@@ -331,10 +349,19 @@ export function PlaceSearch({
 
   const trimmedQuery = selectedPlace ? '' : query.trim()
   const resultsOpen = focused && !dismissed && visibleResults.length > 0
-  const hasVisibleHmsResults = resultsOpen && visibleResults.some(place => place.source === 'hms')
   const noResults = searchComplete && !loading && !fetchError && visibleResults.length === 0
   const interfaceUsesEnglish = locale.toLowerCase().startsWith('en')
   const permissionHelpUsesEnglish = interfaceUsesEnglish || showEnglishPermissionHelp
+  const settlementTypeLabel = t('placeTypeSettlement')
+  const addressTypeLabel = t('placeTypeAddress')
+  const accessiblePlaceLabel = (place: PlaceResult | SavedPlace) => getPlaceAccessibleLabel(
+    place,
+    place.placeType === 'settlement'
+      ? settlementTypeLabel
+      : place.placeType === 'address'
+        ? addressTypeLabel
+        : null,
+  )
   const describedBy = [loading ? statusId : null, fetchError ? errorId : null]
     .filter(Boolean)
     .join(' ') || undefined
@@ -371,9 +398,15 @@ export function PlaceSearch({
       .map(place => [
         place.id,
         place.source,
+        place.labelSource,
         place.sourceId,
         place.name,
         place.formattedAddress,
+        place.placeType,
+        place.postalCode,
+        place.postalLocality,
+        place.municipality,
+        place.municipalityCode,
         place.lat,
         place.lon,
       ].join(':'))
@@ -523,7 +556,6 @@ export function PlaceSearch({
   const compact = variant === 'compact'
 
   if (selectedPlace) {
-    const secondary = secondaryLabel(selectedPlace)
     const accuracy = selectedPlace.accuracyM === undefined
       ? null
       : t('currentLocationAccuracy', { meters: Math.round(selectedPlace.accuracyM) })
@@ -535,8 +567,7 @@ export function PlaceSearch({
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               {t('selectedLocationLabel')}
             </p>
-            <p className="truncate text-sm font-medium text-foreground">{selectedPlace.name}</p>
-            {secondary && <p className="truncate text-xs text-muted-foreground">{secondary}</p>}
+            <PlaceResultIdentity place={selectedPlace} />
             {accuracy && <p className="text-xs text-muted-foreground">{accuracy}</p>}
           </div>
           {onClearSelectedPlace && (
@@ -549,6 +580,7 @@ export function PlaceSearch({
             </button>
           )}
         </div>
+        <PlaceDataAttributions places={[selectedPlace]} className="px-1" />
       </div>
     )
   }
@@ -714,14 +746,10 @@ export function PlaceSearch({
                 <button
                   type="button"
                   onClick={() => selectPlace(savedPlaceResult(place))}
+                  aria-label={accessiblePlaceLabel(place)}
                   className="min-w-0 flex-1 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 >
-                  <span className="block truncate text-sm text-foreground">{place.name}</span>
-                  {place.formattedAddress && place.formattedAddress !== place.name && (
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {place.formattedAddress}
-                    </span>
-                  )}
+                  <PlaceResultIdentity place={place} />
                 </button>
                 {onDeleteSavedPlace && (
                   <button
@@ -751,7 +779,6 @@ export function PlaceSearch({
             className={`max-h-64 overflow-y-auto overscroll-contain border border-border bg-card shadow-sm ${compact ? 'rounded-md' : 'rounded-xl'}`}
           >
             {visibleResults.map((place, index) => {
-              const secondary = secondaryLabel(place)
               const selected = index === activeIndex
               return (
                 <li
@@ -759,29 +786,18 @@ export function PlaceSearch({
                   key={place.id ?? `${place.source}:${coordinateKey(place)}`}
                   role="option"
                   aria-selected={selected}
+                  aria-label={accessiblePlaceLabel(place)}
                   onMouseDown={event => event.preventDefault()}
                   onClick={() => selectPlace(place)}
                   onMouseMove={() => setActiveIndex(index)}
                   className={`min-h-10 cursor-pointer px-3 py-2 text-left text-sm transition-colors ${selected ? 'bg-muted text-foreground' : 'text-foreground hover:bg-muted'}`}
                 >
-                  <span className="block truncate font-medium">{place.name}</span>
-                  {secondary && (
-                    <span className="block truncate text-xs text-muted-foreground">{secondary}</span>
-                  )}
+                  <PlaceResultIdentity place={place} />
                 </li>
               )
             })}
           </ul>
-          {hasVisibleHmsResults && (
-            <a
-              href={HMS_PLACE_DIRECTORY_ATTRIBUTION.termsUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="self-start px-1 text-[11px] leading-tight text-muted-foreground underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {t('hmsAttribution')}
-            </a>
-          )}
+          <PlaceDataAttributions places={visibleResults} className="px-1" />
         </div>
       )}
 

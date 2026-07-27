@@ -183,6 +183,70 @@ describe('POST /api/place/search — HMS-first privacy contract', () => {
     expect(body.results[0]).not.toHaveProperty('googlePlaceId')
   })
 
+  it.each(['Hella', 'Hella 850', '850 Hella'])(
+    'ranks the official Hella settlement first for locality intent %s',
+    async query => {
+      mocks.searchHmsPlaces.mockResolvedValue([{
+        ...HMS_LOCATION,
+        id: 'hms:hella-address',
+        sourceId: 'hella-address',
+        name: 'Hella 8',
+        formattedAddress: 'Hella 8, 850 Hella',
+        postalCode: '850',
+      }])
+
+      const response = await POST_SEARCH(searchRequest(query))
+      const body = await response.json()
+
+      expect(body.results[0]).toMatchObject({
+        source: 'official',
+        sourceId: 'hagstofa:1120',
+        name: 'Hella',
+        placeType: 'settlement',
+        postalLocality: 'Hella',
+      })
+    },
+  )
+
+  it.each(['Hella 8', 'Melás 8'])(
+    'keeps an exact HMS address first for address intent %s',
+    async query => {
+      mocks.searchHmsPlaces.mockResolvedValue([{
+        ...HMS_LOCATION,
+        id: `hms:${query}`,
+        sourceId: query,
+        name: query,
+        formattedAddress: `${query}, Ísland`,
+      }])
+
+      const response = await POST_SEARCH(searchRequest(query))
+      const body = await response.json()
+
+      expect(body.results[0]).toMatchObject({ source: 'hms', name: query })
+    },
+  )
+
+  it('suppresses a curated locality duplicated by an official alias', async () => {
+    mocks.findSuggestions.mockReturnValue([{
+      id: 'akureyri',
+      name: 'Akureyri',
+      formattedAddress: 'Akureyri, Ísland',
+      lat: 65.6835,
+      lon: -18.0878,
+    }])
+
+    const response = await POST_SEARCH(searchRequest('Akureyri'))
+    const body = await response.json()
+
+    expect(body.results[0]).toMatchObject({
+      source: 'official',
+      name: 'Akureyri',
+    })
+    expect(body.results).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'static', name: 'Akureyri' }),
+    ]))
+  })
+
   it('keeps HMS reads off behind the independent shadow-rollout flag', async () => {
     process.env.HMS_PLACE_SEARCH_ENABLED = 'false'
     mocks.searchHmsPlaces.mockResolvedValue([HMS_LOCATION])

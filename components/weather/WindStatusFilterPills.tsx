@@ -21,6 +21,12 @@ const SIMPLE_STATUS_GROUPS: WindStatusPillGroup[] = [
   { id: 'simple-dangerous', statuses: ['haettulegt'], metaStatus: 'haettulegt' },
 ]
 
+const NO_WIND_MEASUREMENT_GROUP: WindStatusPillGroup = {
+  id: 'no-wind-measurement',
+  statuses: ['no_data', 'no_wind_data'],
+  metaStatus: 'no_wind_data',
+}
+
 export type WindStatusFilterPillsProps = {
   /**
    * Count of each status across all visible points.
@@ -52,6 +58,8 @@ export type WindStatusFilterPillsProps = {
   mode?: WindStatusFilterMode
   /** Render pills without risk colors/icons. Useful when status is a filter, not a warning surface. */
   neutralColors?: boolean
+  /** Combine missing and unavailable wind data into one user-facing filter. */
+  combineNoWindDataStatuses?: boolean
 }
 
 /**
@@ -82,19 +90,28 @@ export function WindStatusFilterPills({
   alwaysShowWithinLimits = false,
   mode = 'detailed',
   neutralColors = false,
+  combineNoWindDataStatuses = false,
 }: WindStatusFilterPillsProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
   const noFilter = visibleStatuses.size === 0
   const hasActiveFilter = !noFilter
 
-  const groups: WindStatusPillGroup[] = mode === 'simple'
+  const baseGroups: WindStatusPillGroup[] = mode === 'simple'
     ? SIMPLE_STATUS_GROUPS
     : ALL_WIND_DISPLAY_STATUSES.map(st => ({
         id: st,
         statuses: [st],
         metaStatus: st,
       }))
+  const groups = combineNoWindDataStatuses
+    ? [
+        ...baseGroups.filter(group =>
+          !group.statuses.some(status => NO_WIND_MEASUREMENT_GROUP.statuses.includes(status)),
+        ),
+        NO_WIND_MEASUREMENT_GROUP,
+      ]
+    : baseGroups
 
   const visibleList = groups.filter(group =>
     (alwaysShowWithinLimits && group.metaStatus === 'innan-marka') ||
@@ -121,9 +138,13 @@ export function WindStatusFilterPills({
     } else {
       group.statuses.forEach(st => base.add(st))
     }
-    // If everything ends up selected, collapse back to "no filter" (empty set = show all).
+    // Shared callers use an empty set for the neutral "no filter" state. In
+    // the combined missing-wind UI, keep an explicit full set so the newly
+    // enabled pill remains visibly active as well as aria-pressed.
     const allNowSelected = ALL_WIND_DISPLAY_STATUSES.every(st => base.has(st))
-    onVisibleStatusesChange(allNowSelected ? new Set() : base)
+    onVisibleStatusesChange(
+      allNowSelected && !combineNoWindDataStatuses ? new Set() : base,
+    )
   }
 
   return (
