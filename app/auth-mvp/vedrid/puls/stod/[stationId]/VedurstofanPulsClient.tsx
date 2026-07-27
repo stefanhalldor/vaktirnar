@@ -10,6 +10,7 @@ import { resolvePulseBackDestination } from '@/lib/weather/pulseBack'
 import { ForecastRowLine, selectUpcomingRows, type ForecastRowData } from '@/components/weather/VedurstofanForecastRows'
 import { formatKlTime } from '@/components/weather/travelAuditMap.helpers'
 import { formatChatDayLabel, calendarDateKey } from '@/lib/chat/format'
+import { formatPulseDistanceKm } from '@/lib/weather/pulseFormat'
 
 export type NearbyVegagerdinStation = {
   stationId: string
@@ -140,7 +141,7 @@ export function VedurstofanPulsClient({ stationId, locale, stationName, returnTo
           </p>
           <div className="divide-y divide-border/40">
             {nearbyVegagerdinStations.map(s => {
-              const distanceKm = (s.distanceM / 1000).toLocaleString(locale, { maximumFractionDigits: 1 })
+              const distanceKm = formatPulseDistanceKm(s.distanceM, locale)
               const measuredTime = s.measuredAtIso ? s.measuredAtIso.slice(11, 16) : null
               return (
                 <div key={s.stationId} className="flex flex-col gap-0.5 py-2 first:pt-0.5 last:pb-0.5">

@@ -6,6 +6,7 @@ import { formatChatTimestamp, formatChatDayLabel, calendarDateKey } from '../cha
 const ISO_AFTERNOON = '2026-07-17T14:32:00Z'       // Fri 17 Jul 14:32 Reykjavik
 const ISO_BEFORE_MIDNIGHT = '2026-07-16T23:30:00Z'  // Thu 16 Jul 23:30 Reykjavik
 const ISO_AFTER_MIDNIGHT  = '2026-07-17T00:30:00Z'  // Fri 17 Jul 00:30 Reykjavik
+const ISO_HYDRATION_REGRESSION = '2026-07-27T09:00:00Z' // Monday
 
 describe('formatChatTimestamp', () => {
   it('includes Icelandic month name and time', () => {
@@ -36,6 +37,11 @@ describe('formatChatDayLabel', () => {
   it('does not include time', () => {
     const result = formatChatDayLabel(ISO_AFTERNOON, 'is')
     expect(result).not.toContain('14:32')
+  })
+
+  it('uses deterministic Icelandic text for server/client hydration', () => {
+    expect(formatChatDayLabel(ISO_HYDRATION_REGRESSION, 'is')).toBe('Mán., 27. júlí')
+    expect(formatChatDayLabel(ISO_HYDRATION_REGRESSION, 'is-IS')).toBe('Mán., 27. júlí')
   })
 })
 

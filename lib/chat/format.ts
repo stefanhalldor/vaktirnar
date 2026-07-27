@@ -1,4 +1,19 @@
 const ICELAND_TZ = 'Atlantic/Reykjavik'
+const IS_WEEKDAY_SHORT = ['Sun.', 'Mán.', 'Þri.', 'Mið.', 'Fim.', 'Fös.', 'Lau.'] as const
+const IS_MONTH_LONG = [
+  'janúar', 'febrúar', 'mars', 'apríl', 'maí', 'júní',
+  'júlí', 'ágúst', 'september', 'október', 'nóvember', 'desember',
+] as const
+
+function isIcelandicLocale(locale: string): boolean {
+  return locale.toLowerCase().startsWith('is')
+}
+
+function formatIcelandicChatDayLabel(isoString: string): string {
+  const [year, month, day] = calendarDateKey(isoString).split('-').map(Number)
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  return `${IS_WEEKDAY_SHORT[weekday]}, ${day}. ${IS_MONTH_LONG[month - 1]}`
+}
 
 /**
  * Formats an ISO timestamp as "Fös. 17. júlí, 14:32".
@@ -6,12 +21,14 @@ const ICELAND_TZ = 'Atlantic/Reykjavik'
  */
 export function formatChatTimestamp(isoString: string, locale: string): string {
   const d = new Date(isoString)
-  const datePart = new Intl.DateTimeFormat(locale, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'long',
-    timeZone: ICELAND_TZ,
-  }).format(d)
+  const datePart = isIcelandicLocale(locale)
+    ? formatIcelandicChatDayLabel(isoString)
+    : new Intl.DateTimeFormat(locale, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'long',
+        timeZone: ICELAND_TZ,
+      }).format(d)
   const timePart = new Intl.DateTimeFormat(locale, {
     hour: '2-digit',
     minute: '2-digit',
@@ -25,6 +42,7 @@ export function formatChatTimestamp(isoString: string, locale: string): string {
  * Formats an ISO timestamp as a day separator label: "Fös. 17. júlí"
  */
 export function formatChatDayLabel(isoString: string, locale: string): string {
+  if (isIcelandicLocale(locale)) return formatIcelandicChatDayLabel(isoString)
   const d = new Date(isoString)
   const label = new Intl.DateTimeFormat(locale, {
     weekday: 'short',
