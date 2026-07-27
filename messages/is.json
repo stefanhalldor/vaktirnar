@@ -1422,6 +1422,7 @@
         "roadMapPrototypeScrubberNow": "Núna",
         "roadMapPrototypeVegagerdinNowLabel": "Nústaðan hjá Vegagerðinni kl. {time}",
         "roadMapPrototypeVegagerdinNowFallback": "Nústaðan hjá Vegagerðinni",
+        "roadMapPrototypeWindArrowsExplanation": "Örvar sýna hvert vindurinn blæs samkvæmt síðustu mælingu Vegagerðarinnar.",
         "roadMapPrototypeLiveLocationShow": "Sýna núverandi staðsetningu",
         "roadMapPrototypeLiveLocationHide": "Fela núverandi staðsetningu",
         "roadMapPrototypeLiveLocationLoading": "Finn staðsetninguna þína...",

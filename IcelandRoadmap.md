@@ -404,6 +404,24 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
 - Skýringar á route-caution og veðurvissu opnast í fullbreiðri focus-skúffu með
   eigin scrolli, backdrop, Escape/lokun og focus-restore á triggerinn.
 
+**Framhald (v0.9.2 — mæld vindátt meðfram leið):**
+
+- Núverandi vindátt frá Vegagerðinni er birt sem endurteknar, hlutlausar örvar
+  sitt hvoru megin við valda leið í `Vegagerðin`/`Núna` ham. Hliðarbil er
+  skjástöðugt og hornrétt á veginn svo báðar raðir haldist læsilegar líka í
+  yfirlitszoom-i.
+- Vindátt Vegagerðarinnar er meteorological „hvaðan“ átt. Sameiginlegur
+  route-domain helper umbreytir henni í áttina sem vindurinn blæs og MapLibre
+  heldur þeirri landfræðilegu stefnu réttri þegar kortinu er snúið.
+- Örvar eru aðeins settar nálægt nothæfum mælistöðvum, aldrei blandaðar milli
+  stöðva og langar mælingalausar eyður eru skildar eftir auðar. Mæling eldri en
+  30 mínútur eða history-fallback býr ekki til örvar.
+- Reiturinn er deterministic og capped fyrir mobile, fylgir sama status-filter
+  og stöðvarnar, hverfur í forecast/overview og er uppfærður úr núverandi
+  60 sekúndna cache-refresh án þess að endurbyggja kortið.
+- Þetta er sjónræn framsetning á punktmælingum, ekki samfelld vindspá eða ný
+  öryggisfullyrðing. Engin ný leiðar- eða staðsetningargögn eru vistuð.
+
 ### R7 - Eigið Kortalag Prototype
 
 Staða: ekki byrjað.

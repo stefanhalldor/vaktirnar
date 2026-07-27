@@ -25,6 +25,7 @@ import {
 import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import { buildTravelBridgeMapData } from '@/lib/road-intelligence/travelBridgeMapData'
+import { buildRouteWindArrowField } from '@/lib/road-intelligence/routeWindArrowField'
 import {
   parsePlaceSearchResults,
   selectBestPlaceForQuery,
@@ -336,12 +337,16 @@ const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] } as 
 const TRAVEL_METNO_LAYER_ID = 'travel-bridge-weather-points'
 const VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID = 'vedurstofan-route-stations'
 const VEGAGERDIN_ROUTE_STATIONS_LAYER_ID = 'vegagerdin-route-stations'
+const ROUTE_WIND_ARROW_IMAGE_ID = 'teskeid-route-wind-arrow'
+const VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID = 'vegagerdin-route-wind-arrows-source'
+const VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID = 'vegagerdin-route-wind-arrows'
 const OVERVIEW_VEGAGERDIN_LAYER_ID = 'overview-vegagerdin-stations'
 const OVERVIEW_VEDURSTOFAN_LAYER_ID = 'overview-vedurstofan-stations'
 const ROUTE_FILTER_LAYER_IDS = [
   TRAVEL_METNO_LAYER_ID,
   VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
   VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
+  VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID,
 ] as const
 const OVERVIEW_FILTER_LAYER_IDS = [
   OVERVIEW_VEGAGERDIN_LAYER_ID,
@@ -1239,6 +1244,47 @@ function canUseMapStyle(map: import('maplibre-gl').Map | null): map is import('m
   }
 }
 
+function ensureNorthPointingRouteWindArrowImage(
+  map: import('maplibre-gl').Map,
+): boolean {
+  if (map.hasImage(ROUTE_WIND_ARROW_IMAGE_ID)) return true
+  if (typeof document === 'undefined') return false
+
+  const size = 48
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext('2d')
+  if (!context) return false
+
+  // The image points north/up at 0°. MapLibre rotates it clockwise using the
+  // true geographic wind-toward bearing and compensates for camera rotation.
+  context.beginPath()
+  context.moveTo(size * 0.5, size * 0.06)
+  context.lineTo(size * 0.84, size * 0.42)
+  context.lineTo(size * 0.64, size * 0.42)
+  context.lineTo(size * 0.64, size * 0.92)
+  context.lineTo(size * 0.36, size * 0.92)
+  context.lineTo(size * 0.36, size * 0.42)
+  context.lineTo(size * 0.16, size * 0.42)
+  context.closePath()
+  context.lineJoin = 'round'
+  context.lineWidth = 5
+  context.strokeStyle = 'rgba(255,255,255,0.96)'
+  // Neutral slate communicates direction without borrowing the green/orange
+  // safety semantics used by the station status markers.
+  context.fillStyle = '#334155'
+  context.stroke()
+  context.fill()
+
+  map.addImage(
+    ROUTE_WIND_ARROW_IMAGE_ID,
+    context.getImageData(0, 0, size, size),
+    { pixelRatio: 2 },
+  )
+  return true
+}
+
 function expandRouteFilterStatuses(
   statuses: ReadonlySet<WindDisplayStatus>,
   mode: WindStatusFilterMode,
@@ -1292,6 +1338,7 @@ function bringWeatherLayersToFront(map: import('maplibre-gl').Map | null) {
     OVERVIEW_VEDURSTOFAN_LAYER_ID,
     TRAVEL_METNO_LAYER_ID,
     VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
+    VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID,
     VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
   ] as const) {
     if (map.getLayer(layerId)) map.moveLayer(layerId)
@@ -1534,6 +1581,8 @@ export function RoadMapPrototypeMap({
   const routeVedurstofanEntriesRef = useRef<VedurstofanRouteStatusEntry[]>([])
   const routeVegagerdinLabelMarkersRef = useRef<RouteVegagerdinLabelMarker[]>([])
   const routeVegagerdinPointsRef = useRef<VegagerdinRouteLayerPoint[]>([])
+  const routeVegagerdinCacheStatusRef = useRef<VegagerdinRouteLayer['cacheStatus']>(null)
+  const routeAuditPolylinePointsRef = useRef<Array<{ lat: number; lon: number }>>([])
   const routeEndpointMarkersRef = useRef<RouteEndpointMarker[]>([])
   const routeLiveLocationMarkerRef = useRef<import('maplibre-gl').Marker | null>(null)
   const routeLiveLocationStopRef = useRef<(() => void) | null>(null)
@@ -1614,6 +1663,7 @@ export function RoadMapPrototypeMap({
   const [routeNowMeasurementFreshness, setRouteNowMeasurementFreshness] = useState<
     VegagerdinRouteLayer['measurementFreshness']
   >(null)
+  const [routeWindArrowCount, setRouteWindArrowCount] = useState(0)
   const [routeVisibleStatusCounts, setRouteVisibleStatusCounts] = useState<
     Partial<Record<WindDisplayStatus, number>> | null
   >(null)
@@ -3537,6 +3587,7 @@ export function RoadMapPrototypeMap({
     }
     if (canUseMapStyle(map)) {
       setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, mode === 'now')
+      setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID, mode === 'now')
       setRouteLayerLayoutVisibility(map, VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID, mode === 'forecast')
       setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
     }
@@ -3623,6 +3674,7 @@ export function RoadMapPrototypeMap({
       setRouteLayerLayoutVisibility(map, 'travel-bridge-route', false)
       setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
       setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, false)
+      setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID, false)
       setRouteLayerLayoutVisibility(map, VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID, false)
       for (const { element } of [
         ...routeVegagerdinLabelMarkersRef.current,
@@ -4495,6 +4547,7 @@ export function RoadMapPrototypeMap({
     setRouteNowStatusCounts(null)
     setRouteNowMeasuredAtIso(null)
     setRouteNowMeasurementFreshness(null)
+    setRouteWindArrowCount(0)
     setRouteVegagerdinLastRefreshIso(null)
     setRouteVisibleStatusCounts(null)
     resetRouteDepartureForecastState()
@@ -4517,6 +4570,8 @@ export function RoadMapPrototypeMap({
     routeActiveRef.current = false
     setRouteActive(false)
     vedurstofanLayerRef.current = undefined
+    routeAuditPolylinePointsRef.current = []
+    routeVegagerdinCacheStatusRef.current = null
     resolvedRoutePlacesRef.current = null
     handleRouteStatusFilterChange(createDefaultRouteVisibleWindStatuses())
     setActiveRouteFieldState('from')
@@ -4527,6 +4582,7 @@ export function RoadMapPrototypeMap({
     if (!map) return
     for (const sourceId of [
       VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
+      VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID,
       VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
       TRAVEL_METNO_LAYER_ID,
       'travel-bridge-route',
@@ -4878,6 +4934,13 @@ export function RoadMapPrototypeMap({
   ) {
     const mapData = buildTravelBridgeMapData(result)
     if (!mapData.ok) throw new Error(mapData.error)
+
+    const travelPlan = result.travelPlan
+    routeAuditPolylinePointsRef.current = (
+      travelPlan?.route.auditPolylinePoints && travelPlan.route.auditPolylinePoints.length >= 2
+        ? travelPlan.route.auditPolylinePoints
+        : (travelPlan?.routeWeatherPoints ?? []).map(point => ({ lat: point.lat, lon: point.lon }))
+    ).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lon))
 
     const map = mapRef.current
     if (!map || !mapInitializationReadyRef.current) throw new Error('map_not_ready')
@@ -5655,6 +5718,89 @@ export function RoadMapPrototypeMap({
     }
   }
 
+  function renderRouteWindArrows(
+    points: ReadonlyArray<VegagerdinRouteLayerPoint>,
+    cacheStatus: VegagerdinRouteLayer['cacheStatus'],
+  ): number {
+    const geojson = buildRouteWindArrowField({
+      routePoints: routeAuditPolylinePointsRef.current,
+      stations: points,
+      cacheStatus,
+      nowMs: Date.now(),
+    })
+    setRouteWindArrowCount(geojson.features.length)
+
+    const map = mapRef.current
+    if (!canUseMapStyle(map) || !ensureNorthPointingRouteWindArrowImage(map)) {
+      return geojson.features.length
+    }
+
+    const existingSource = map.getSource(VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID)
+    if (existingSource) {
+      ;(existingSource as import('maplibre-gl').GeoJSONSource).setData(geojson as never)
+    } else {
+      map.addSource(VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID, {
+        type: 'geojson',
+        data: geojson as never,
+      })
+    }
+
+    if (!map.getLayer(VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID)) {
+      map.addLayer({
+        id: VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID,
+        type: 'symbol',
+        source: VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID,
+        minzoom: 5.2,
+        layout: {
+          'symbol-placement': 'point',
+          'icon-image': ROUTE_WIND_ARROW_IMAGE_ID,
+          'icon-size': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            5, 0.52,
+            8, 0.68,
+            11, 0.84,
+          ] as unknown as number,
+          'icon-rotate': ['get', 'windTowardDeg'] as unknown as number,
+          'icon-offset': [
+            'array',
+            'number',
+            2,
+            ['get', 'iconOffset'],
+          ] as unknown as [number, number],
+          'icon-rotation-alignment': 'map',
+          'icon-pitch-alignment': 'map',
+          'icon-keep-upright': false,
+          'icon-allow-overlap': false,
+          'icon-ignore-placement': true,
+          'icon-padding': 1,
+          visibility:
+            lastMapContextRef.current === 'route' && routeWeatherModeRef.current === 'now'
+              ? 'visible'
+              : 'none',
+        },
+        paint: {
+          'icon-opacity': ['get', 'opacity'] as unknown as number,
+        },
+      }, map.getLayer(VEGAGERDIN_ROUTE_STATIONS_LAYER_ID)
+        ? VEGAGERDIN_ROUTE_STATIONS_LAYER_ID
+        : undefined)
+    }
+
+    if (
+      map.getLayer(VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID) &&
+      map.getLayer(VEGAGERDIN_ROUTE_STATIONS_LAYER_ID)
+    ) {
+      map.moveLayer(
+        VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID,
+        VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
+      )
+    }
+
+    return geojson.features.length
+  }
+
   function renderVegagerdinStations(
     layer: VegagerdinRouteLayer | undefined,
   ): { count: number; statusCounts: Partial<Record<WindDisplayStatus, number>> } {
@@ -5664,6 +5810,7 @@ export function RoadMapPrototypeMap({
       .map(normalizeVegagerdinRoutePointForRender)
       .filter((point): point is VegagerdinRouteLayerPoint => point !== null)
     routeVegagerdinPointsRef.current = validPoints
+    routeVegagerdinCacheStatusRef.current = layer?.cacheStatus ?? null
     const statusCounts = countWindDisplayStatuses(validPoints)
     logRoadMapDiagnostic('vegagerdin render input', {
       hasLayer: Boolean(layer),
@@ -5691,6 +5838,9 @@ export function RoadMapPrototypeMap({
     }
 
     clearRouteVegagerdinLabelMarkers()
+    routeVegagerdinPointsRef.current = validPoints
+    routeVegagerdinCacheStatusRef.current = layer?.cacheStatus ?? null
+    renderRouteWindArrows(validPoints, routeVegagerdinCacheStatusRef.current)
 
     const geojson = {
       type: 'FeatureCollection',
@@ -7872,6 +8022,12 @@ export function RoadMapPrototypeMap({
     const refresh = async () => {
       if (disposed || inFlight || document.visibilityState === 'hidden') return
       inFlight = true
+      // Age the visual field against wall clock even when the provider cache
+      // returns the same fetchedAtIso. Stale arrows must disappear on time.
+      renderRouteWindArrows(
+        routeVegagerdinPointsRef.current,
+        routeVegagerdinCacheStatusRef.current,
+      )
       const controller = new AbortController()
       requestController = controller
       try {
@@ -9255,6 +9411,12 @@ export function RoadMapPrototypeMap({
                 ) : (
                   <p className="text-[10px] leading-snug text-muted-foreground">
                     {t('roadMapPrototypeVegagerdinNoRouteStations')}
+                  </p>
+                )}
+
+                {routeWindArrowCount > 0 && (
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    {t('roadMapPrototypeWindArrowsExplanation')}
                   </p>
                 )}
 

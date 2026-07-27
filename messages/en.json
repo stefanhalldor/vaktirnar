@@ -1416,6 +1416,7 @@
         "roadMapPrototypeScrubberNow": "Now",
         "roadMapPrototypeVegagerdinNowLabel": "Current conditions from Vegagerðin at {time}",
         "roadMapPrototypeVegagerdinNowFallback": "Current conditions from Vegagerðin",
+        "roadMapPrototypeWindArrowsExplanation": "Arrows show where the wind is blowing according to the latest Vegagerðin measurement.",
         "roadMapPrototypeLiveLocationShow": "Show current location",
         "roadMapPrototypeLiveLocationHide": "Hide current location",
         "roadMapPrototypeLiveLocationLoading": "Finding your location...",
