@@ -584,7 +584,8 @@ async function geocodePlace(query: string): Promise<PlaceCandidate[]> {
   if (!res.ok) throw new Error(`Geocoding API HTTP ${res.status}`)
 
   const data = (await res.json()) as GeoResponse
-  if (data.status !== 'OK') return []
+  if (data.status === 'ZERO_RESULTS') return []
+  if (data.status !== 'OK') throw new Error('google_geocode_upstream_status')
 
   return data.results.slice(0, 5).map((r) => ({
     placeId: r.place_id,

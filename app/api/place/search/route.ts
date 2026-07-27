@@ -94,15 +94,44 @@ function dedupeAndRank(
     .map(item => item.place)
 }
 
+type GoogleFallbackFailureCategory =
+  | 'fallback_disabled'
+  | 'provider_unavailable'
+  | 'upstream_error'
+  | 'zero_candidates'
+  | 'all_candidates_outside_iceland'
+
+function logGoogleFallbackFailure(category: GoogleFallbackFailureCategory): void {
+  // Never attach the query, coordinates, provider response, user identity or
+  // environment values here. Production diagnostics must remain non-sensitive.
+  console.warn('[place-search] Google fallback unavailable', { category })
+}
+
 async function googleFallback(query: string): Promise<SelectedLocation[]> {
-  if (process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED !== 'true') return []
+  if (process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED !== 'true') {
+    logGoogleFallbackFailure('fallback_disabled')
+    return []
+  }
   const provider = getWeatherMapProvider()
-  if (!provider) return []
+  if (!provider) {
+    logGoogleFallbackFailure('provider_unavailable')
+    return []
+  }
 
   try {
     const candidates = await provider.geocodePlace(query)
-    return candidates
-      .filter(candidate => validateIcelandicCoords(candidate.lat, candidate.lon))
+    if (candidates.length === 0) {
+      logGoogleFallbackFailure('zero_candidates')
+      return []
+    }
+    const validCandidates = candidates.filter(candidate => (
+      validateIcelandicCoords(candidate.lat, candidate.lon)
+    ))
+    if (validCandidates.length === 0) {
+      logGoogleFallbackFailure('all_candidates_outside_iceland')
+      return []
+    }
+    return validCandidates
       .slice(0, MAX_RESULTS)
       .map(candidate => ({
         id: `google:${candidate.placeId}`,
@@ -118,6 +147,7 @@ async function googleFallback(query: string): Promise<SelectedLocation[]> {
         lon: candidate.lon,
       }))
   } catch {
+    logGoogleFallbackFailure('upstream_error')
     return []
   }
 }

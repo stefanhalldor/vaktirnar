@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   mergeSuggestions: vi.fn(),
   findNearest: vi.fn(),
   geocodePlace: vi.fn(),
+  getWeatherMapProvider: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -36,9 +37,7 @@ vi.mock('@/lib/road-intelligence/roadMapPlaces', () => ({
 }))
 
 vi.mock('@/lib/weather/provider.server', () => ({
-  getWeatherMapProvider: vi.fn(() => ({
-    geocodePlace: mocks.geocodePlace,
-  })),
+  getWeatherMapProvider: mocks.getWeatherMapProvider,
 }))
 
 import {
@@ -63,6 +62,7 @@ const HMS_LOCATION = {
 }
 
 let requestSequence = 0
+let warnSpy: ReturnType<typeof vi.spyOn>
 
 function searchRequest(
   query: unknown,
@@ -96,6 +96,7 @@ function reverseRequest(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   process.env.AUTH_MVP_ENABLED = 'true'
   process.env.HMS_PLACE_SEARCH_ENABLED = 'true'
   delete process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED
@@ -107,9 +108,14 @@ beforeEach(() => {
   mocks.findSuggestions.mockReturnValue([])
   mocks.findNearest.mockReturnValue(null)
   mocks.geocodePlace.mockResolvedValue([])
+  mocks.getWeatherMapProvider.mockReturnValue({ geocodePlace: mocks.geocodePlace })
   mocks.mergeSuggestions.mockImplementation((primary, secondary, limit) => (
     [...primary, ...secondary].slice(0, limit)
   ))
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('POST /api/place/search — HMS-first privacy contract', () => {
@@ -194,6 +200,66 @@ describe('POST /api/place/search — HMS-first privacy contract', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ results: [] })
     expect(mocks.geocodePlace).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[place-search] Google fallback unavailable',
+      { category: 'fallback_disabled' },
+    )
+  })
+
+  it('reports a missing Google provider without logging the query', async () => {
+    process.env.HMS_PLACE_SEARCH_ENABLED = 'false'
+    process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED = 'true'
+    mocks.getWeatherMapProvider.mockReturnValue(null)
+
+    const response = await POST_SEARCH(searchRequest('Private Laugavegur 10'))
+
+    expect(response.status).toBe(200)
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[place-search] Google fallback unavailable',
+      { category: 'provider_unavailable' },
+    )
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('Private Laugavegur 10')
+  })
+
+  it('reports an upstream Google error without exposing error or query details', async () => {
+    process.env.HMS_PLACE_SEARCH_ENABLED = 'false'
+    process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED = 'true'
+    mocks.geocodePlace.mockRejectedValue(new Error('secret upstream detail'))
+
+    const response = await POST_SEARCH(searchRequest('Private Melás 8'))
+
+    expect(response.status).toBe(200)
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[place-search] Google fallback unavailable',
+      { category: 'upstream_error' },
+    )
+    const serializedLogs = JSON.stringify(warnSpy.mock.calls)
+    expect(serializedLogs).not.toContain('Private Melás 8')
+    expect(serializedLogs).not.toContain('secret upstream detail')
+  })
+
+  it('distinguishes zero Google candidates from candidates outside Iceland', async () => {
+    process.env.HMS_PLACE_SEARCH_ENABLED = 'false'
+    process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED = 'true'
+
+    await POST_SEARCH(searchRequest('No provider match'))
+    expect(warnSpy).toHaveBeenLastCalledWith(
+      '[place-search] Google fallback unavailable',
+      { category: 'zero_candidates' },
+    )
+
+    mocks.geocodePlace.mockResolvedValue([{
+      placeId: 'outside-iceland',
+      displayName: 'Outside',
+      formattedAddress: 'Outside',
+      lat: 51.5072,
+      lon: -0.1276,
+    }])
+    await POST_SEARCH(searchRequest('Outside Iceland'))
+    expect(warnSpy).toHaveBeenLastCalledWith(
+      '[place-search] Google fallback unavailable',
+      { category: 'all_candidates_outside_iceland' },
+    )
   })
 
   it('uses Google only as an explicit transitional fallback after local misses', async () => {

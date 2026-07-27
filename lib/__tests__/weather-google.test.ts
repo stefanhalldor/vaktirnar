@@ -165,6 +165,13 @@ describe('googleProvider.geocodePlace', () => {
     expect(results).toHaveLength(0)
   })
 
+  it('throws a safe generic error for a non-success upstream status', async () => {
+    mockFetch({ status: 'REQUEST_DENIED', results: [] })
+
+    await expect(googleProvider.geocodePlace('Reykjavík'))
+      .rejects.toThrow('google_geocode_upstream_status')
+  })
+
   it('returns at most 5 candidates', async () => {
     const manyResults = Array.from({ length: 10 }, (_, i) => ({
       place_id: `p${i}`,
