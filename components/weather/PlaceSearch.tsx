@@ -281,6 +281,7 @@ export function PlaceSearch({
   const listboxId = `${inputId}-results`
   const statusId = `${inputId}-status`
   const errorId = `${inputId}-error`
+  const permissionHelpId = `${inputId}-location-permission-help`
   const [internalValue, setInternalValue] = useState(defaultValue)
   const query = value === undefined ? internalValue : value
   const [results, setResults] = useState<PlaceResult[]>([])
@@ -546,7 +547,11 @@ export function PlaceSearch({
           ) : (
             <LocateFixed size={16} aria-hidden />
           )}
-          {locationLoading ? t('currentLocationLoading') : t('useCurrentLocation')}
+          {locationLoading
+            ? t('currentLocationLoading')
+            : locationError === 'permission_denied'
+              ? t('currentLocationRetry')
+              : t('useCurrentLocation')}
         </button>
       )}
 
@@ -557,13 +562,29 @@ export function PlaceSearch({
       )}
 
       {(fetchError || locationError) && (
-        <p id={errorId} role="alert" className="px-1 text-xs text-destructive">
-          {locationError
-            ? t(currentLocationMessageKey(locationError))
-            : fetchError === 'rate_limited'
-              ? t('rateLimited')
-              : t('errorAllProviders')}
-        </p>
+        <>
+          <p id={errorId} role="alert" className="px-1 text-xs text-destructive">
+            {locationError
+              ? t(currentLocationMessageKey(locationError))
+              : fetchError === 'rate_limited'
+                ? t('rateLimited')
+                : t('errorAllProviders')}
+          </p>
+          {locationError === 'permission_denied' && (
+            <details
+              id={permissionHelpId}
+              className="overflow-hidden rounded-lg border border-border bg-muted/30 text-muted-foreground"
+            >
+              <summary className="min-h-10 cursor-pointer px-3 py-2 text-xs font-medium leading-6 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                {t('currentLocationPermissionHelpTitle')}
+              </summary>
+              <div className="flex flex-col gap-2 border-t border-border px-3 py-2 text-xs leading-relaxed">
+                <p>{t('currentLocationPermissionIosHelp')}</p>
+                <p>{t('currentLocationPermissionBrowserHelp')}</p>
+              </div>
+            </details>
+          )}
+        </>
       )}
 
       {noResults && (

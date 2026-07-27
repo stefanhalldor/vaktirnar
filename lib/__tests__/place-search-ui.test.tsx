@@ -22,7 +22,11 @@ vi.mock('next-intl', () => ({
       currentLocationLoading: 'Finding your location...',
       currentLocationName: 'Current location',
       currentLocationNear: `Near ${values?.place ?? ''}`,
-      currentLocationPermissionDenied: 'Location permission was not granted.',
+      currentLocationPermissionDenied: 'The browser or device blocked location access.',
+      currentLocationPermissionHelpTitle: 'How do I enable location?',
+      currentLocationPermissionIosHelp: 'Open iPhone or iPad location settings.',
+      currentLocationPermissionBrowserHelp: 'Allow teskeid.is in the browser and try again.',
+      currentLocationRetry: 'Try again',
       currentLocationUnavailable: 'Your device could not find its location.',
       currentLocationTimeout: 'Finding your location took too long.',
       currentLocationOutsideIceland: 'Your location appears to be outside Iceland.',
@@ -42,6 +46,7 @@ vi.mock('@/lib/places/currentLocation.client', async (importOriginal) => {
 })
 
 import { PlaceSearch } from '@/components/weather/PlaceSearch'
+import { CurrentLocationError } from '@/lib/places/currentLocation.client'
 
 type Deferred<T> = {
   promise: Promise<T>
@@ -361,5 +366,49 @@ describe('PlaceSearch', () => {
       accuracyM: 12,
     }))
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('shows collapsed recovery guidance and retries after a stored permission denial', async () => {
+    const onPlaceSelected = vi.fn()
+    getCurrentLocationMock
+      .mockRejectedValueOnce(new CurrentLocationError('permission_denied'))
+      .mockResolvedValueOnce({
+        id: 'device:64.146600:-21.942600',
+        source: 'device',
+        name: 'Current location',
+        formattedAddress: 'Current location',
+        lat: 64.1466,
+        lon: -21.9426,
+        accuracyM: 12,
+      })
+
+    render(
+      <PlaceSearch
+        autoFocus={false}
+        allowCurrentLocation
+        onPlaceSelected={onPlaceSelected}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use current location' }))
+    await act(async () => { await Promise.resolve() })
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The browser or device blocked location access.',
+    )
+    const helpSummary = screen.getByText('How do I enable location?')
+    expect(helpSummary.closest('details')).not.toHaveAttribute('open')
+    expect(screen.getByText('Open iPhone or iPad location settings.')).toBeInTheDocument()
+    expect(screen.getByText('Allow teskeid.is in the browser and try again.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await act(async () => { await Promise.resolve() })
+
+    expect(getCurrentLocationMock).toHaveBeenCalledTimes(2)
+    expect(onPlaceSelected).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'device',
+      lat: 64.1466,
+      lon: -21.9426,
+    }))
   })
 })
