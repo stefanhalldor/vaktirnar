@@ -1704,11 +1704,6 @@ export default function AdminPage() {
             flagName="ROAD_INTELLIGENCE_V1_ACCESS_REQUIRED"
             enabledFlagName="ROAD_INTELLIGENCE_V1_ENABLED"
           />
-          <FeatureAccessSection
-            featureKey="teskeid-routing-v1"
-            heading="Teskeiðarleiðakerfi (v1)"
-            flagName="TESKEID_ROUTE_CANDIDATE_ENABLED"
-          />
         </div>
 
         <hr className="border-[#c2c9bb] my-8" />

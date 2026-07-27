@@ -32,9 +32,10 @@ useful across providers, screens, or future Teskeid products.
   Vegagerðin observations, and preview browser-GPS movement. It is explicitly
   experimental and is production-closed unless `TESKEID_ROUTE_LAB_ENABLED=true`.
 - A single road-graph candidate can be appended after the existing Google route
-  options with `TESKEID_ROUTE_CANDIDATE_ENABLED=true` plus per-user
-  `feature_access` key `teskeid-routing-v1`. Google remains first and
-  default. The request has an eight-second response budget, but budget expiry is
+  options with `TESKEID_ROUTE_CANDIDATE_ENABLED=true` for every eligible
+  authenticated Weather user. The flag remains the global kill-switch, and
+  anonymous/public access remains closed. Google remains first and default.
+  The request has an eight-second response budget, but budget expiry is
   a pending state: graph materialisation from the active snapshot continues with
   `after()`. Live source refresh is separate, protected by admin/cron auth and a
   database lease, and promotes only snapshots that pass structural checks plus

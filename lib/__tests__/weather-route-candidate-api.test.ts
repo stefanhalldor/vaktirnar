@@ -88,8 +88,8 @@ beforeEach(() => {
   mockGetGraphCacheStatus.mockReturnValue('warm')
 })
 
-describe('POST /api/teskeid/weather/travel/route-candidate — strict per-user gate', () => {
-  it('returns the candidate for an explicitly allowed user', async () => {
+describe('POST /api/teskeid/weather/travel/route-candidate — authenticated rollout', () => {
+  it('returns the candidate for an eligible authenticated weather user', async () => {
     const res = await POST(request())
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toMatchObject({
@@ -192,7 +192,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — strict per-user g
     })
   })
 
-  it('returns disabled and skips graph work when the user lacks routing access', async () => {
+  it('returns disabled and skips graph work when the routing access check fails', async () => {
     mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, key: string) => (
       key === 'vedrid'
     ))
@@ -213,7 +213,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — strict per-user g
     expect(mockGuestRateLimit).not.toHaveBeenCalled()
   })
 
-  it('does not double-charge the guest IP bucket for an authenticated flagged public-tier user', async () => {
+  it('does not double-charge the guest IP bucket for an authenticated public-tier user', async () => {
     process.env.WEATHER_ENABLED = 'All'
     mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, key: string) => (
       key === 'teskeid-routing-v1'

@@ -1282,7 +1282,7 @@ describe('checkFeatureAccess — road-intelligence-v1', () => {
 
 // ── checkFeatureAccess — teskeid-routing-v1 ──────────────────────────────────
 
-describe('checkFeatureAccess — teskeid-routing-v1 (strict per-user rollout)', () => {
+describe('checkFeatureAccess — teskeid-routing-v1 (graduated rollout)', () => {
   let savedCandidateEnabled: string | undefined
   let savedWeatherEnabled: string | undefined
 
@@ -1311,21 +1311,17 @@ describe('checkFeatureAccess — teskeid-routing-v1 (strict per-user rollout)', 
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 
-  it('remains closed without a feature_access row even when the global switch is on', async () => {
+  it('opens to every eligible weather user when the global switch is on', async () => {
     process.env.TESKEID_ROUTE_CANDIDATE_ENABLED = 'true'
     mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
-    expect(await checkFeatureAccess('uid', 'user@example.com', 'teskeid-routing-v1')).toBe(false)
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'teskeid-routing-v1')).toBe(true)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 
-  it('opens only when the global switch and per-user row are both present', async () => {
+  it('does not query a legacy per-user row when the global switch is on', async () => {
     process.env.TESKEID_ROUTE_CANDIDATE_ENABLED = 'true'
     mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
     expect(await checkFeatureAccess('uid', 'user@example.com', 'teskeid-routing-v1')).toBe(true)
-  })
-
-  it('fails closed for an invalid email', async () => {
-    process.env.TESKEID_ROUTE_CANDIDATE_ENABLED = 'true'
-    expect(await checkFeatureAccess('uid', 'not-an-email', 'teskeid-routing-v1')).toBe(false)
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 })

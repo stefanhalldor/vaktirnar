@@ -83,7 +83,7 @@ describe('middleware — public static and road-intelligence boundaries', () => 
     expect(res.status).toBe(200)
   })
 
-  it('lets weather route-candidate reach its strict per-user route handler', async () => {
+  it('lets weather route-candidate reach its authenticated route handler', async () => {
     const res = await middleware(makeReq('/api/teskeid/weather/travel/route-candidate'))
     expect(res.status).toBe(200)
   })

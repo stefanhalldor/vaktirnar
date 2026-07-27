@@ -178,7 +178,7 @@ describe('POST /api/admin/feature-access — auth and validation', () => {
     expect(res.status).toBe(201)
   })
 
-  it('?feature=teskeid-routing-v1 inserts the strict routing feature key', async () => {
+  it('?feature=teskeid-routing-v1 keeps accepting the legacy routing feature key', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
     mockAdminQuery.mockResolvedValue({ error: null })
     const res = await POST(makeRequest(

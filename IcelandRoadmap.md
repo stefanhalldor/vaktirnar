@@ -338,7 +338,9 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
 **Framhald (v0.8 — flaggaður candidate samhliða Google):**
 
 - `TESKEID_ROUTE_CANDIDATE_ENABLED=true` bætir einni Teskeiðarleið aftast við
-  núverandi Google-leiðaval. Google er áfram fyrst og sjálfvalið.
+  núverandi Google-leiðaval fyrir alla innskráða notendur sem hafa aðgang að
+  Veðrinu. Flaggið er áfram global neyðarrofi og anonymous/public aðgangur er
+  lokaður. Google er áfram fyrst og sjálfvalið.
 - Sameiginlegur server-helper reiknar leiðina bæði fyrir leiðaval og þegar valin
   leið er notuð í ferðaveðri. Þannig getur preview ekki sýnt leið sem final submit
   reynir síðan ranglega að finna hjá Google.
@@ -363,9 +365,9 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
   Teskeiðarleiðina. Google-response helst óbreytt.
 - UI merkir leiðina skýrt sem tilraun, segir að tíminn sé áætlaður og sýnir
   malarmerkingu þegar source facts innihalda skráð malarslitlag.
-- Þetta er prófunarstig, ekki production-default eða öryggisleiðsögn. Lokanir,
-  færð, official speed limits, turn restrictions og off-route rerouting eru enn
-  blockers fyrir almenna útgáfu.
+- Kerfið er production-virkt fyrir innskráða Veðursnotendur en er áfram merkt
+  í vinnslu og er ekki öryggisleiðsögn. Lokanir, færð, official speed limits,
+  turn restrictions og off-route rerouting eru enn blockers fyrir slíka notkun.
 
 **Framhald (v0.9 — leiðasamanburður og hraður preview/apply):**
 
