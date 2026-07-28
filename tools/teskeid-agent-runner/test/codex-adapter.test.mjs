@@ -6,6 +6,7 @@ import {
   READ_ONLY_DEVELOPER_INSTRUCTIONS,
   buildCodexChildEnv,
   buildCodexArgs,
+  createCodexAdapter,
   executeCodex,
   parseCodexEvent,
   runVersion,
@@ -83,6 +84,66 @@ test("resume keeps all read-only controls and uses a known in-memory thread", ()
   ]);
   assert.equal(args[args.indexOf("-s") + 1], "read-only");
   assert.equal(args[args.indexOf("-a") + 1], "never");
+});
+
+test("a persistent session store resumes the dedicated thread after adapter restart", async () => {
+  const sessions = new Map();
+  const sessionStore = {
+    async get(conversationId) {
+      return sessions.get(conversationId) ?? null;
+    },
+    async set(conversationId, threadId) {
+      sessions.set(conversationId, threadId);
+    },
+    async delete(conversationId) {
+      sessions.delete(conversationId);
+    },
+    release() {},
+  };
+  const seenThreadIds = [];
+  const makeAdapter = () => createCodexAdapter({
+    cwd: "C:\\opaque-workspace",
+    sessionStore,
+    resolveWorkspaceImpl: async (value) => value,
+    resolveBinaryImpl: async () => ({ binary: "codex", version: "codex-cli 1.0" }),
+    executeImpl: async ({ threadId }) => {
+      seenThreadIds.push(threadId);
+      return { threadId: "dedicated-thread", finalMessage: "Safe reply" };
+    },
+  });
+
+  const first = await makeAdapter();
+  await first.run({ conversationId: "conversation-1", prompt: "first" });
+  first.clear();
+  const second = await makeAdapter();
+  await second.run({ conversationId: "conversation-1", prompt: "second" });
+
+  assert.deepEqual(seenThreadIds, [null, "dedicated-thread"]);
+});
+
+test("a transient provider failure does not discard a persistent thread", async () => {
+  const sessions = new Map([["conversation-1", "dedicated-thread"]]);
+  const sessionStore = {
+    async get(key) { return sessions.get(key) ?? null; },
+    async set(key, value) { sessions.set(key, value); },
+    async delete(key) { sessions.delete(key); },
+    release() {},
+  };
+  const adapter = await createCodexAdapter({
+    cwd: "C:\\opaque-workspace",
+    sessionStore,
+    resolveWorkspaceImpl: async (value) => value,
+    resolveBinaryImpl: async () => ({ binary: "codex", version: "codex-cli 1.0" }),
+    executeImpl: async () => {
+      throw new AdapterError("adapter_timeout", { retryable: true });
+    },
+  });
+
+  await assert.rejects(
+    () => adapter.run({ conversationId: "conversation-1", prompt: "retry" }),
+    /adapter_timeout/u,
+  );
+  assert.equal(sessions.get("conversation-1"), "dedicated-thread");
 });
 
 test("JSONL parser retains only thread id and bounded final agent message", () => {

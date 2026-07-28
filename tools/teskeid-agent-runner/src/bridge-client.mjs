@@ -167,7 +167,7 @@ export class AgentBridgeClient {
     this.#sleep = sleep;
   }
 
-  async pair({ code, provider, signal }) {
+  async pair({ code, provider, signal, credentialSink }) {
     const value = await this.#post(
       API_PATHS.pair,
       {
@@ -187,6 +187,24 @@ export class AgentBridgeClient {
     );
     const parsed = parsePairResponse(value);
     this.#accessToken = parsed.accessToken;
+    if (credentialSink !== undefined) {
+      if (typeof credentialSink !== "function") {
+        this.disconnect();
+        throw new BridgeError("bridge_credential_sink_failed");
+      }
+      try {
+        await credentialSink({
+          accessToken: parsed.accessToken,
+          connectorId: parsed.connectorId,
+          providerKey: parsed.providerKey,
+          tokenExpiresAt: parsed.tokenExpiresAt,
+          pollIntervalMs: parsed.pollIntervalMs,
+        });
+      } catch {
+        this.disconnect();
+        throw new BridgeError("bridge_credential_sink_failed");
+      }
+    }
     return {
       connectorId: parsed.connectorId,
       providerKey: parsed.providerKey,
@@ -194,6 +212,18 @@ export class AgentBridgeClient {
       tokenExpiresAt: parsed.tokenExpiresAt,
       pollIntervalMs: parsed.pollIntervalMs,
     };
+  }
+
+  restoreCredential({ accessToken }) {
+    if (
+      typeof accessToken !== "string" ||
+      accessToken.length === 0 ||
+      accessToken.length > 4096 ||
+      /[\r\n\0]/u.test(accessToken)
+    ) {
+      throw new BridgeError("bridge_invalid_credential");
+    }
+    this.#accessToken = accessToken;
   }
 
   async claim({ leaseOwnerId, signal }) {

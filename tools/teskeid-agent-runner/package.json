@@ -10,6 +10,6 @@
     "teskeid-agent-runner": "./bin/teskeid-agent-runner.mjs"
   },
   "scripts": {
-    "test": "node --test test/bridge-client.test.mjs test/codex-adapter.test.mjs test/runner.test.mjs"
+    "test": "node --test test/adapter-registry.test.mjs test/background.test.mjs test/bridge-client.test.mjs test/codex-adapter.test.mjs test/runner.test.mjs"
   }
 }

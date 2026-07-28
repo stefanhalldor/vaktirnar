@@ -30,10 +30,15 @@ Response:
 }
 ```
 
-The runner validates `tokenExpiresAt` as an ISO timestamp and keeps both it and
-`accessToken` in process memory only. Every other endpoint has `Authorization:
-Bearer <accessToken>`. Protocol v1 does not refresh a token in place; a 401
-stops the runner and the user must revoke/re-pair as appropriate.
+The runner validates `tokenExpiresAt` as an ISO timestamp. Interactive mode
+keeps it and `accessToken` in process memory only. Explicit Windows background
+mode stores the connector metadata and bearer in a current-user DPAPI-protected,
+user-ACL local file so the same per-user connector can restart at logon. It
+never stores the pairing code, prompts, replies, provider/API keys, or raw
+events. Every other endpoint has `Authorization: Bearer <accessToken>`.
+Protocol v1 does not refresh a token in place; a 401 stops the runner, clears
+the local protected state in background mode, and requires revoke/re-pair as
+appropriate.
 
 ## Claim
 
@@ -68,9 +73,11 @@ A claimed run is:
 }
 ```
 
-The runner rejects any mode other than `read_only_reply`. It keys its in-memory
-provider thread map by `conversationId`. The Codex reference adapter does not
-trust or persist a server-supplied `agentSessionId`.
+The runner rejects any mode other than `read_only_reply`. It keys its provider
+thread map by `conversationId`. Interactive mode keeps that map in memory;
+Windows background mode can persist only the opaque ID pair inside the same
+DPAPI state. The Codex reference adapter does not trust a server-supplied
+`agentSessionId`.
 
 ## Heartbeat
 
@@ -146,8 +153,9 @@ After claim's bounded per-request retries are exhausted, the connection loop
 keeps the in-memory connector token and retries retryable network,
 408/425/429, and 5xx failures with bounded exponential backoff and jitter. A
 401, connector-token expiry, cancellation, or non-retryable protocol response
-ends the connection. Since the token is memory-only, an intentional process
-restart requires a new one-time pairing.
+ends the connection. An interactive process restart requires a new one-time
+pairing. An explicitly installed Windows background connector can reuse only
+its locally DPAPI-protected, non-expired bearer.
 
 ## Required server guarantees
 

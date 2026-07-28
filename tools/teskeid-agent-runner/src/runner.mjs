@@ -210,6 +210,7 @@ export async function runConnection({
   adapter,
   code,
   provider,
+  connectedPairing = null,
   logger,
   signal,
   sleep = abortableSleep,
@@ -224,7 +225,7 @@ export async function runConnection({
   let claims = 0;
 
   try {
-    const pairing = await bridge.pair({ code, provider, signal });
+    const pairing = connectedPairing ?? await bridge.pair({ code, provider, signal });
     if (pairing.providerKey !== provider) {
       const error = new Error("protocol_provider_mismatch");
       error.category = "protocol_provider_mismatch";

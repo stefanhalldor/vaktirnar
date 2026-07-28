@@ -40,6 +40,49 @@ test("pair does not authenticate the one-time exchange", async () => {
   assert.equal(requests[0].headers.authorization, undefined);
 });
 
+test("background credential sink receives the connector token without exposing it in pair metadata", async () => {
+  let saved;
+  const requests = [];
+  const client = new AgentBridgeClient({
+    baseUrl: "https://www.teskeid.is",
+    fetchImpl: async (url, init) => {
+      requests.push({ url, init });
+      if (url.pathname.endsWith("/pair")) return jsonResponse(PAIR_RESPONSE);
+      return jsonResponse({ run: null, pollAfterMs: 1000 });
+    },
+  });
+
+  const pairing = await client.pair({
+    code: "single-use-code",
+    provider: "codex",
+    credentialSink: async (credential) => { saved = credential; },
+  });
+
+  assert.equal("accessToken" in pairing, false);
+  assert.equal(saved.accessToken, "memory-only-token");
+  assert.equal(JSON.stringify(pairing).includes("memory-only-token"), false);
+});
+
+test("a credential persistence failure disconnects the issued token fail-closed", async () => {
+  const client = new AgentBridgeClient({
+    baseUrl: "https://www.teskeid.is",
+    fetchImpl: async () => jsonResponse(PAIR_RESPONSE),
+  });
+
+  await assert.rejects(
+    () => client.pair({
+      code: "single-use-code",
+      provider: "codex",
+      credentialSink: async () => { throw new Error("private storage detail"); },
+    }),
+    (error) => error.category === "bridge_credential_sink_failed",
+  );
+  await assert.rejects(
+    () => client.claim({ leaseOwnerId: randomUUID() }),
+    (error) => error.category === "bridge_not_paired",
+  );
+});
+
 test("an uncertain pairing outcome is never retried", async () => {
   let attempts = 0;
   const client = new AgentBridgeClient({

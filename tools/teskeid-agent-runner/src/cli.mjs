@@ -7,6 +7,7 @@ import { PROVIDER_CODEX } from "./constants.mjs";
 import { validatePairingCode } from "./protocol.mjs";
 import { runConnection } from "./runner.mjs";
 import { createSafeLogger, toSafeFailureCategory } from "./safe-log.mjs";
+import { createDefaultBackgroundService } from "./background/service.mjs";
 
 async function readPairingCode(input) {
   let value = "";
@@ -51,6 +52,57 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     } catch (error) {
       logger.event("doctor_failed", { category: toSafeFailureCategory(error) });
       return 1;
+    }
+  }
+
+  if (options.command === "background" && options.help) {
+    output.write(HELP_TEXT);
+    return 0;
+  }
+
+  if (options.command === "background") {
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    try {
+      const background = createDefaultBackgroundService();
+      if (options.action === "install") {
+        await background.install({
+          baseUrl: options.url,
+          provider: options.provider,
+          cwd: options.cwd,
+          codexBin: options.codexBin,
+        });
+        logger.event("background_installed", { status: "ok" });
+      } else if (options.action === "start") {
+        const rawCode = options.code === "-" ? await readPairingCode(input) : options.code;
+        const code = rawCode === undefined ? undefined : validatePairingCode(rawCode);
+        options.code = undefined;
+        await background.start({ code, signal: controller.signal });
+        logger.event("background_started", { status: "ok" });
+      } else if (options.action === "run") {
+        await background.run({ logger, signal: controller.signal });
+        logger.event("runner_stopped", { status: "ok" });
+      } else if (options.action === "stop") {
+        await background.stop();
+        logger.event("background_stopped", { status: "ok" });
+      } else if (options.action === "status") {
+        logger.event("background_status", { status: await background.status() });
+      } else if (options.action === "uninstall") {
+        await background.uninstall();
+        logger.event("background_uninstalled", { status: "ok" });
+      }
+      return 0;
+    } catch (error) {
+      const category = controller.signal.aborted
+        ? "runner_aborted"
+        : toSafeFailureCategory(error);
+      logger.event("runner_error", { category });
+      return controller.signal.aborted ? 0 : 1;
+    } finally {
+      process.removeListener("SIGINT", stop);
+      process.removeListener("SIGTERM", stop);
     }
   }
 

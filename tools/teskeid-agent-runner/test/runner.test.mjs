@@ -77,6 +77,30 @@ test("provider-neutral runner completes once without logging prompt or body", as
   assert.match(captured.output(), /"event":"job_completed"/u);
 });
 
+test("a restored background credential skips pairing and remains provider fenced", async () => {
+  let paired = false;
+  const bridge = {
+    pair: async () => {
+      paired = true;
+      assert.fail("must not exchange another one-time code");
+    },
+    claim: async () => ({ run: null, pollAfterMs: 500 }),
+    disconnect: () => {},
+  };
+
+  await runConnection({
+    bridge,
+    adapter: { clear() {} },
+    connectedPairing: pairResponse(),
+    provider: "fake",
+    logger: createSafeLogger({ write() {} }),
+    maxClaims: 1,
+    runnerInstanceId: randomUUID(),
+  });
+
+  assert.equal(paired, false);
+});
+
 test("adapter failures send only category and retryability", async () => {
   const captured = captureLogger();
   let failure;
@@ -145,6 +169,17 @@ test("safe logger never emits an arbitrary category value", () => {
   assert.deepEqual(JSON.parse(captured.output()), {
     event: "job_failed",
     category: "runner_failed",
+  });
+});
+
+test("safe logger never emits an arbitrary status value", () => {
+  const captured = captureLogger();
+  captured.logger.event("background_status", {
+    status: "secret-looking-alphanumeric-value",
+  });
+
+  assert.deepEqual(JSON.parse(captured.output()), {
+    event: "background_status",
   });
 });
 

@@ -9,6 +9,10 @@ import {
   MAX_RESULT_CHARS,
   PROVIDER_CODEX,
 } from "../constants.mjs";
+import {
+  createMemorySessionStore,
+  validateSessionStore,
+} from "../session-store.mjs";
 
 const VERSION_PATTERN = /^codex-cli\s+[0-9A-Za-z.+-]{1,80}$/u;
 const CODEX_RUN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -532,36 +536,35 @@ export async function createCodexAdapter({
   codexBin,
   cwd,
   spawnImpl = nodeSpawn,
+  sessionStore = createMemorySessionStore(),
+  executeImpl = executeCodex,
+  resolveWorkspaceImpl = resolveWorkspace,
+  resolveBinaryImpl = resolveCodexBinary,
 }) {
-  const workspace = await resolveWorkspace(cwd);
-  const resolved = await resolveCodexBinary(codexBin, spawnImpl);
-  const threads = new Map();
+  const workspace = await resolveWorkspaceImpl(cwd);
+  const resolved = await resolveBinaryImpl(codexBin, spawnImpl);
+  const sessions = validateSessionStore(sessionStore);
 
   return {
     provider: PROVIDER_CODEX,
     version: resolved.version,
 
     async run(run, { signal } = {}) {
-      const previousThreadId = threads.get(run.conversationId) ?? null;
-      try {
-        const result = await executeCodex({
-          binary: resolved.binary,
-          cwd: workspace,
-          prompt: run.prompt,
-          threadId: previousThreadId,
-          signal,
-          spawnImpl,
-        });
-        threads.set(run.conversationId, result.threadId);
-        return { text: result.finalMessage };
-      } catch (error) {
-        if (previousThreadId) threads.delete(run.conversationId);
-        throw error;
-      }
+      const previousThreadId = await sessions.get(run.conversationId);
+      const result = await executeImpl({
+        binary: resolved.binary,
+        cwd: workspace,
+        prompt: run.prompt,
+        threadId: previousThreadId,
+        signal,
+        spawnImpl,
+      });
+      await sessions.set(run.conversationId, result.threadId);
+      return { text: result.finalMessage };
     },
 
     clear() {
-      threads.clear();
+      sessions.release?.();
     },
   };
 }
