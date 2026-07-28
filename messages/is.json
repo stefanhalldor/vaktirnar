@@ -1487,6 +1487,7 @@
         "roadMapPrototypeLiveLocationFree": "Staðsetningin uppfærist áfram en kortið eltir þig ekki (nákvæmni um ±{accuracy} m).",
         "roadMapPrototypeLiveLocationFreeUnknownAccuracy": "Staðsetningin uppfærist áfram en kortið eltir þig ekki (nákvæmni óþekkt).",
         "roadMapPrototypeLiveLocationRecenter": "Elta mig aftur",
+        "roadMapPrototypeCompassNorthUp": "Snúa kortinu þannig að norður sé upp",
         "roadMapPrototypeLiveLocationZoomGroup": "Þysjun þegar kortið eltir þig",
         "roadMapPrototypeLiveLocationZoomOut": "Minnka þysjun",
         "roadMapPrototypeLiveLocationZoomIn": "Auka þysjun",

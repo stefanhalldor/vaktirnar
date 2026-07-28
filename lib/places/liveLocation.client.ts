@@ -21,6 +21,7 @@ export type LiveLocationPoint = {
 }
 
 export type LiveLocationFollowMode = 'follow' | 'free'
+export type LiveLocationOrientationMode = 'heading-up' | 'north-up'
 export type LiveLocationFollowEvent =
   | 'programmatic_camera'
   | 'user_camera'
@@ -85,6 +86,15 @@ export function reduceLiveLocationFollowMode(
   if (event === 'recenter') return { mode: 'follow', moveCamera: true }
   if (event === 'zoom_changed') return { mode, moveCamera: mode === 'follow' }
   return { mode, moveCamera: false }
+}
+
+export function resolveLiveLocationCameraBearing(
+  mode: LiveLocationOrientationMode,
+  headingDeg: number | null,
+): number | null {
+  if (mode === 'north-up') return 0
+  if (headingDeg === null || !Number.isFinite(headingDeg)) return null
+  return normalizeHeadingDegrees(headingDeg)
 }
 
 export function normalizeHeadingDegrees(value: number): number {

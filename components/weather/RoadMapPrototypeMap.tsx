@@ -3,7 +3,7 @@
 // MapLibre CSS is loaded by route layout (app/auth-mvp/vedrid/road-map-prototype/layout.tsx).
 import { type FormEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { LocateFixed, Minus, Pencil, Plus } from 'lucide-react'
+import { ArrowUp, LocateFixed, Minus, Pencil, Plus } from 'lucide-react'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import {
   createFirstReadyCoordinator,
@@ -132,9 +132,11 @@ import {
   nearestEquivalentHeadingDegrees,
   normalizeHeadingDegrees,
   reduceLiveLocationFollowMode,
+  resolveLiveLocationCameraBearing,
   watchLiveLocation,
   type LiveLocationErrorCode,
   type LiveLocationFollowMode,
+  type LiveLocationOrientationMode,
   type LiveLocationPoint,
 } from '@/lib/places/liveLocation.client'
 import {
@@ -1568,10 +1570,34 @@ export function RoadMapPrototypeMap({
   const routeLiveLocationMarkerRef = useRef<import('maplibre-gl').Marker | null>(null)
   const routeLiveLocationPuckDirectionRef = useRef<HTMLDivElement | null>(null)
   const routeLiveLocationPuckVisualAngleRef = useRef<number | null>(null)
+  const routeMapCompassDirectionRef = useRef<HTMLSpanElement | null>(null)
+  const routeMapCompassVisualAngleRef = useRef<number | null>(null)
+  const updateRouteMapCompassDirection = useCallback(() => {
+    const map = mapRef.current
+    const direction = routeMapCompassDirectionRef.current
+    if (!map || !direction) return
+
+    const viewportNorth = normalizeHeadingDegrees(-map.getBearing())
+    const visualHeading = nearestEquivalentHeadingDegrees(
+      routeMapCompassVisualAngleRef.current,
+      viewportNorth,
+    )
+    routeMapCompassVisualAngleRef.current = visualHeading
+    direction.style.transform = `rotate(${visualHeading}deg)`
+  }, [])
+  const setRouteMapCompassDirection = useCallback((node: HTMLSpanElement | null) => {
+    routeMapCompassDirectionRef.current = node
+    if (!node) {
+      routeMapCompassVisualAngleRef.current = null
+      return
+    }
+    updateRouteMapCompassDirection()
+  }, [updateRouteMapCompassDirection])
   const routeLiveLocationStopRef = useRef<(() => void) | null>(null)
   const routeLiveLocationMapListenersCleanupRef = useRef<(() => void) | null>(null)
   const routeLiveLocationPointRef = useRef<LiveLocationPoint | null>(null)
   const routeLiveLocationFollowModeRef = useRef<LiveLocationFollowMode>('follow')
+  const routeLiveLocationOrientationModeRef = useRef<LiveLocationOrientationMode>('heading-up')
   const routeLiveLocationFollowZoomRef = useRef(LIVE_LOCATION_FOLLOW_ZOOM_DEFAULT)
   const overviewDensityFrameRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
@@ -1986,6 +2012,7 @@ export function RoadMapPrototypeMap({
     routeLiveLocationPuckVisualAngleRef.current = null
     routeLiveLocationPointRef.current = null
     routeLiveLocationFollowModeRef.current = 'follow'
+    routeLiveLocationOrientationModeRef.current = 'heading-up'
     if (resetState) {
       setRouteLiveLocationPoint(null)
       setRouteLiveLocationError(null)
@@ -4487,10 +4514,14 @@ export function RoadMapPrototypeMap({
     const map = mapRef.current
     if (!map || !point || routeLiveLocationFollowModeRef.current !== 'follow') return
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const bearing = resolveLiveLocationCameraBearing(
+      routeLiveLocationOrientationModeRef.current,
+      point.headingDeg,
+    )
     map.easeTo({
       center: [point.lon, point.lat],
       zoom: routeLiveLocationFollowZoomRef.current,
-      ...(point.headingDeg !== null ? { bearing: point.headingDeg } : {}),
+      ...(bearing !== null ? { bearing } : {}),
       duration: reduceMotion ? 0 : 350,
     })
   }
@@ -4587,6 +4618,23 @@ export function RoadMapPrototypeMap({
     if (decision.moveCamera) moveRouteLiveLocationCamera()
   }
 
+  function handleRouteMapCompassClick() {
+    const map = mapRef.current
+    if (!map) return
+
+    const liveTracking =
+      routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
+    if (liveTracking) {
+      routeLiveLocationOrientationModeRef.current = 'north-up'
+    }
+
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    map.easeTo({
+      bearing: 0,
+      duration: reduceMotion ? 0 : 300,
+    })
+  }
+
   function handleRouteLiveLocationZoomChange(delta: -1 | 1) {
     const nextZoom = clampLiveLocationFollowZoom(
       routeLiveLocationFollowZoomRef.current + delta,
@@ -4620,6 +4668,7 @@ export function RoadMapPrototypeMap({
 
     stopRouteLiveLocation()
     routeLiveLocationFollowModeRef.current = 'follow'
+    routeLiveLocationOrientationModeRef.current = 'heading-up'
     setRouteLiveLocationFollowMode('follow')
     setRouteLiveLocationStatus('waiting')
     setRouteLiveLocationError(null)
@@ -4645,6 +4694,7 @@ export function RoadMapPrototypeMap({
       onError: error => {
         failedSynchronously = true
         stopRouteLiveLocation(false)
+        routeLiveLocationOrientationModeRef.current = 'heading-up'
         setRouteLiveLocationPoint(null)
         setRouteLiveLocationError(error)
         setRouteLiveLocationStatus('error')
@@ -7773,6 +7823,7 @@ export function RoadMapPrototypeMap({
           })
           map.on('zoomend', scheduleRouteLabelCollisionUpdate)
           map.on('rotate', updateViewportWindDirectionMarkers)
+          map.on('rotate', updateRouteMapCompassDirection)
 
           removeOverviewMapLayerArtifacts(map)
 
@@ -7826,7 +7877,7 @@ export function RoadMapPrototypeMap({
       mapRef.current?.remove()
       mapRef.current = null
     }
-  }, [stopRouteLiveLocation])
+  }, [stopRouteLiveLocation, updateRouteMapCompassDirection])
 
   function changeForecastCardScale(delta: -1 | 1) {
     setForecastCardScaleIndex(index =>
@@ -8387,6 +8438,9 @@ export function RoadMapPrototypeMap({
               : routeLiveLocationError
                 ? t('roadMapPrototypeLiveLocationUnavailable')
                 : null
+  const routeLiveLocationIsTracking =
+    routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
+  const routeMapCompassActionLabel = t('roadMapPrototypeCompassNorthUp')
   const routeScrubberStatusText =
     routeForecastBuildStatus === 'loading'
       ? t('roadMapPrototypeScrubberCalculatingHourly')
@@ -8831,45 +8885,62 @@ export function RoadMapPrototypeMap({
         className="h-full w-full"
       />
 
-      {isAuthenticated &&
-        mapViewVisible &&
-        lastMapContext === 'route' &&
-        routeWeatherMode === 'now' &&
-        (routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active') && (
-          <div
-            data-weather-card-obstacle="true"
-            className="absolute right-3 top-3 z-[90] max-w-[calc(100%_-_1.5rem)]"
+      {mapReady && mapViewVisible && lastMapContext === 'route' && !isRouteLoading && (
+        <div
+          data-weather-card-obstacle="true"
+          className="absolute right-3 top-3 z-[90] flex max-w-[calc(100%_-_1.5rem)] flex-col items-end gap-2"
+        >
+          <button
+            type="button"
+            aria-label={routeMapCompassActionLabel}
+            title={routeMapCompassActionLabel}
+            onClick={handleRouteMapCompassClick}
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-md backdrop-blur-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {routeLiveLocationStatus === 'active' && routeLiveLocationFollowMode === 'free' ? (
-              <button
-                type="button"
-                onClick={handleRecenterRouteLiveLocation}
-                className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border border-primary bg-background/95 px-3 py-2 text-xs font-semibold text-primary shadow-md backdrop-blur-sm transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <LocateFixed className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="truncate">{t('roadMapPrototypeLiveLocationRecenter')}</span>
-                <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide">
-                  {t('roadMapPrototypeLiveLocationTrial')}
-                </span>
-              </button>
-            ) : (
-              <div
-                aria-hidden="true"
-                className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-full border border-primary/60 bg-background/95 px-3 py-2 text-xs font-semibold text-primary shadow-md backdrop-blur-sm"
-              >
-                <LocateFixed className="h-4 w-4 shrink-0" />
-                <span className="truncate">
-                  {routeLiveLocationStatus === 'waiting'
-                    ? t('roadMapPrototypeLiveLocationLoadingCompact')
-                    : t('roadMapPrototypeLiveLocationFollowing')}
-                </span>
-                <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide">
-                  {t('roadMapPrototypeLiveLocationTrial')}
-                </span>
-              </div>
+            <span
+              ref={setRouteMapCompassDirection}
+              aria-hidden="true"
+              className="flex h-8 w-8 flex-col items-center justify-center"
+            >
+              <span className="text-[9px] font-black leading-none">N</span>
+              <ArrowUp className="-mt-0.5 h-4 w-4" />
+            </span>
+          </button>
+
+          {isAuthenticated &&
+            routeWeatherMode === 'now' &&
+            routeLiveLocationIsTracking && (
+              routeLiveLocationStatus === 'active' && routeLiveLocationFollowMode === 'free' ? (
+                <button
+                  type="button"
+                  onClick={handleRecenterRouteLiveLocation}
+                  className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border border-primary bg-background/95 px-3 py-2 text-xs font-semibold text-primary shadow-md backdrop-blur-sm transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <LocateFixed className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t('roadMapPrototypeLiveLocationRecenter')}</span>
+                  <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide">
+                    {t('roadMapPrototypeLiveLocationTrial')}
+                  </span>
+                </button>
+              ) : (
+                <div
+                  aria-hidden="true"
+                  className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-full border border-primary/60 bg-background/95 px-3 py-2 text-xs font-semibold text-primary shadow-md backdrop-blur-sm"
+                >
+                  <LocateFixed className="h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    {routeLiveLocationStatus === 'waiting'
+                      ? t('roadMapPrototypeLiveLocationLoadingCompact')
+                      : t('roadMapPrototypeLiveLocationFollowing')}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide">
+                    {t('roadMapPrototypeLiveLocationTrial')}
+                  </span>
+                </div>
+              )
             )}
-          </div>
-        )}
+        </div>
+      )}
 
       {mapViewVisible && lastMapContext === 'weather' && (
         <div

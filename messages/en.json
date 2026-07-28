@@ -1481,6 +1481,7 @@
         "roadMapPrototypeLiveLocationFree": "Your location keeps updating, but the map is not following you (accuracy about ±{accuracy} m).",
         "roadMapPrototypeLiveLocationFreeUnknownAccuracy": "Your location keeps updating, but the map is not following you (accuracy unknown).",
         "roadMapPrototypeLiveLocationRecenter": "Follow me again",
+        "roadMapPrototypeCompassNorthUp": "Rotate the map so north is up",
         "roadMapPrototypeLiveLocationZoomGroup": "Zoom while the map follows you",
         "roadMapPrototypeLiveLocationZoomOut": "Zoom out",
         "roadMapPrototypeLiveLocationZoomIn": "Zoom in",

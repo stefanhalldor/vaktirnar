@@ -5,6 +5,7 @@ import {
   headingAngularDistanceDegrees,
   nearestEquivalentHeadingDegrees,
   reduceLiveLocationFollowMode,
+  resolveLiveLocationCameraBearing,
   stabilizeHeadingDegrees,
   watchLiveLocation,
 } from '@/lib/places/liveLocation.client'
@@ -352,6 +353,13 @@ describe('watchLiveLocation', () => {
 })
 
 describe('live-location heading and zoom guards', () => {
+  it('keeps north-up explicit even without a device heading', () => {
+    expect(resolveLiveLocationCameraBearing('north-up', 147)).toBe(0)
+    expect(resolveLiveLocationCameraBearing('north-up', null)).toBe(0)
+    expect(resolveLiveLocationCameraBearing('heading-up', 361)).toBe(1)
+    expect(resolveLiveLocationCameraBearing('heading-up', null)).toBeNull()
+  })
+
   it('keeps programmatic camera movement in follow, makes user movement free and defers free zoom', () => {
     expect(reduceLiveLocationFollowMode('follow', 'programmatic_camera')).toEqual({
       mode: 'follow',

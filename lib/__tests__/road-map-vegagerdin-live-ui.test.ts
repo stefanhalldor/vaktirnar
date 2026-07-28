@@ -19,7 +19,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("if (document.visibilityState === 'hidden') stopRouteLiveLocation()")
     expect(source).toContain("routeLiveLocationStopRef.current?.()")
     expect(source).toContain('{isAuthenticated ? (')
-    expect(source).toContain('{isAuthenticated &&\n        mapViewVisible &&')
+    expect(source).toContain('{isAuthenticated &&\n            routeWeatherMode === \'now\' &&')
     expect(source).toContain("routeWeatherMode === 'now'")
     expect(source).toContain('enableHighAccuracy: true')
     expect(source).toContain('maximumAgeMs: 0')
@@ -71,6 +71,38 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(messagesEn).toContain('"roadMapPrototypeLiveLocationActiveUnknownAccuracy"')
   })
 
+  it('keeps a route compass visible and preserves an explicit live orientation mode', () => {
+    expect(source).toContain("mapReady && mapViewVisible && lastMapContext === 'route'")
+    expect(source).toContain('ref={setRouteMapCompassDirection}')
+    expect(source).toContain('className="inline-flex h-11 w-11')
+    expect(source).toContain('focus-visible:ring-2 focus-visible:ring-ring')
+    expect(source).toContain('aria-label={routeMapCompassActionLabel}')
+    expect(source).not.toContain('aria-pressed={routeLiveLocationIsTracking ? routeMapCompassNorthUpActive : undefined}')
+    expect(source).toContain('title={routeMapCompassActionLabel}')
+    expect(source).toContain('normalizeHeadingDegrees(-map.getBearing())')
+    expect(source).toContain('routeMapCompassVisualAngleRef.current = visualHeading')
+    expect(source).toContain("map.on('rotate', updateRouteMapCompassDirection)")
+    expect(source).toContain("routeLiveLocationOrientationModeRef.current = 'heading-up'")
+    expect(source).toContain('resolveLiveLocationCameraBearing(')
+    expect(messagesIs).toContain(
+      '"roadMapPrototypeCompassNorthUp": "Snúa kortinu þannig að norður sé upp"',
+    )
+    expect(messagesEn).toContain(
+      '"roadMapPrototypeCompassNorthUp": "Rotate the map so north is up"',
+    )
+    const compassStart = source.indexOf('function handleRouteMapCompassClick()')
+    const compassEnd = source.indexOf('\n  function handleRouteLiveLocationZoomChange', compassStart)
+    const compassBlock = source.slice(compassStart, compassEnd)
+    expect(compassStart).toBeGreaterThan(-1)
+    expect(compassEnd).toBeGreaterThan(compassStart)
+    expect(compassBlock).toContain("routeLiveLocationOrientationModeRef.current = 'north-up'")
+    expect(compassBlock).toContain('map.easeTo({')
+    expect(compassBlock).toContain('bearing: 0')
+    expect(compassBlock).not.toContain('center:')
+    expect(compassBlock).not.toContain('zoom:')
+    expect(source).not.toContain('transition-transform duration-200')
+  })
+
   it('keeps follow zoom bounded and persists only that preference', () => {
     expect(source).toContain('LIVE_LOCATION_FOLLOW_ZOOM_MIN')
     expect(source).toContain('LIVE_LOCATION_FOLLOW_ZOOM_MAX')
@@ -80,6 +112,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
       'window.localStorage.setItem(LIVE_LOCATION_FOLLOW_ZOOM_STORAGE_KEY, String(nextZoom))',
     )
     expect(source).not.toMatch(/localStorage\.setItem\([^\n]*(lat|lon|heading|speed)/i)
+    expect(source).not.toMatch(/localStorage\.setItem\([^\n]*orientation/i)
     expect(source).toContain("'zoom_changed',")
     expect(source).toContain('if (decision.moveCamera) moveRouteLiveLocationCamera()')
     expect(source).toContain('className="inline-flex h-10 w-10 items-center justify-center')
@@ -90,7 +123,8 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain('nearestEquivalentHeadingDegrees(')
     expect(source).toContain('routeLiveLocationPuckVisualAngleRef.current = visualHeading')
     expect(source).toContain('routeLiveLocationPuckVisualAngleRef.current = null')
-    expect(source).toContain("...(point.headingDeg !== null ? { bearing: point.headingDeg } : {})")
+    expect(source).toContain('routeLiveLocationOrientationModeRef.current,')
+    expect(source).toContain('...(bearing !== null ? { bearing } : {})')
     expect(source).toContain("map.on('rotate', syncMapDirections)")
     expect(source).toContain("map.off('rotate', syncMapDirections)")
     expect(source).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches")
