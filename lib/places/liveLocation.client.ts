@@ -40,19 +40,22 @@ export type LiveLocationWatchOptions = {
   timeoutMs?: number
 }
 
-export const LIVE_LOCATION_FOLLOW_ZOOM_MIN = 10
+export const LIVE_LOCATION_FOLLOW_ZOOM_MIN = 5
 export const LIVE_LOCATION_FOLLOW_ZOOM_MAX = 18
 export const LIVE_LOCATION_FOLLOW_ZOOM_DEFAULT = 14
 export const LIVE_LOCATION_FOLLOW_ZOOM_STORAGE_KEY = 'teskeid_route_live_follow_zoom_v1'
 
-const DEVICE_HEADING_MIN_SPEED_MPS = 0.8
-const HEADING_MAX_ACCURACY_M = 75
+const DEVICE_HEADING_MIN_SPEED_MPS = 2
+const HEADING_MAX_ACCURACY_M = 50
 const DERIVED_HEADING_MIN_ELAPSED_MS = 750
-const DERIVED_HEADING_MAX_ELAPSED_MS = 60_000
-const DERIVED_HEADING_MIN_DISTANCE_M = 12
+const DERIVED_HEADING_MAX_ELAPSED_MS = 15_000
+const DERIVED_HEADING_MIN_DISTANCE_M = 15
 const DERIVED_HEADING_MAX_SPEED_MPS = 70
-const RETAINED_HEADING_MAX_AGE_MS = 30_000
+const RETAINED_HEADING_MAX_AGE_MS = 10_000
 const HEADING_SMOOTHING_FACTOR = 0.45
+const DEVICE_DERIVED_AGREEMENT_DEG = 35
+const DEVICE_OUTLIER_CONFIRMATION_DEG = 30
+const DEVICE_OUTLIER_MAX_AGE_MS = 4_000
 
 type HeadingSample = {
   lat: number
@@ -86,6 +89,29 @@ export function reduceLiveLocationFollowMode(
 
 export function normalizeHeadingDegrees(value: number): number {
   return ((value % 360) + 360) % 360
+}
+
+export function headingAngularDistanceDegrees(a: number, b: number): number {
+  const normalizedA = normalizeHeadingDegrees(a)
+  const normalizedB = normalizeHeadingDegrees(b)
+  return Math.abs(((normalizedB - normalizedA + 540) % 360) - 180)
+}
+
+/**
+ * Returns the numerically nearest representation of a geographic bearing.
+ * CSS can then animate 359° -> 361° instead of taking the long way to 1°.
+ */
+export function nearestEquivalentHeadingDegrees(
+  previousUnwrapped: number | null,
+  target: number,
+): number {
+  const normalizedTarget = normalizeHeadingDegrees(target)
+  if (previousUnwrapped === null || !Number.isFinite(previousUnwrapped)) {
+    return normalizedTarget
+  }
+  const previousNormalized = normalizeHeadingDegrees(previousUnwrapped)
+  const shortestDelta = ((normalizedTarget - previousNormalized + 540) % 360) - 180
+  return previousUnwrapped + shortestDelta
 }
 
 export function stabilizeHeadingDegrees(previous: number | null, next: number): number {
@@ -128,6 +154,33 @@ function bearingBetweenSamplesDeg(from: HeadingSample, to: HeadingSample): numbe
   return normalizeHeadingDegrees(toDegrees(Math.atan2(y, x)))
 }
 
+function interpolateHeadingDegrees(from: number, to: number, ratio: number): number {
+  const unwrappedTo = nearestEquivalentHeadingDegrees(from, to)
+  return normalizeHeadingDegrees(from + (unwrappedTo - from) * ratio)
+}
+
+function maxPlausibleHeadingChangeDegrees(speedMps: number | null, elapsedMs: number): number {
+  const turnRateDegPerSecond = speedMps !== null && speedMps >= 15
+    ? 30
+    : speedMps !== null && speedMps >= 5
+      ? 60
+      : 120
+  const elapsedSeconds = Math.max(0.25, Math.min(4, elapsedMs / 1_000))
+  return Math.max(15, turnRateDegPerSecond * elapsedSeconds)
+}
+
+function limitHeadingChangeDegrees(
+  previous: number | null,
+  next: number,
+  maxChangeDeg: number,
+): number {
+  if (previous === null || !Number.isFinite(previous)) return normalizeHeadingDegrees(next)
+  const unwrappedNext = nearestEquivalentHeadingDegrees(previous, next)
+  const delta = unwrappedNext - previous
+  if (Math.abs(delta) <= maxChangeDeg) return normalizeHeadingDegrees(unwrappedNext)
+  return normalizeHeadingDegrees(previous + Math.sign(delta) * maxChangeDeg)
+}
+
 export function deriveLiveLocationHeading(
   previous: HeadingSample,
   current: HeadingSample,
@@ -149,10 +202,8 @@ export function deriveLiveLocationHeading(
   }
 
   const distanceM = distanceBetweenSamplesM(previous, current)
-  const noiseFloorM = Math.max(
-    DERIVED_HEADING_MIN_DISTANCE_M,
-    Math.min(60, Math.max(previous.accuracyM, current.accuracyM) * 1.25),
-  )
+  const combinedAccuracyM = Math.hypot(previous.accuracyM, current.accuracyM)
+  const noiseFloorM = Math.max(DERIVED_HEADING_MIN_DISTANCE_M, combinedAccuracyM * 1.5)
   if (
     !Number.isFinite(distanceM) ||
     distanceM < noiseFloorM ||
@@ -220,6 +271,8 @@ export function watchLiveLocation(options: LiveLocationWatchOptions): () => void
   let stableHeading: number | null = null
   let stableHeadingSource: LiveLocationPoint['headingSource'] = null
   let stableHeadingTimestamp = 0
+  let lastProcessedTimestamp = 0
+  let pendingDeviceHeading: { headingDeg: number; timestamp: number } | null = null
   let watchId: number | null = null
   const stop = () => {
     if (stopped) return
@@ -240,6 +293,8 @@ export function watchLiveLocation(options: LiveLocationWatchOptions): () => void
         const trustedAccuracyM = finiteAccuracyM(position.coords.accuracy)
         const accuracyM = trustedAccuracyM
         const timestamp = Number.isFinite(position.timestamp) ? position.timestamp : Date.now()
+        if (timestamp <= lastProcessedTimestamp) return
+        lastProcessedTimestamp = timestamp
         const speedMps =
           position.coords.speed !== null &&
           Number.isFinite(position.coords.speed) &&
@@ -257,20 +312,86 @@ export function watchLiveLocation(options: LiveLocationWatchOptions): () => void
         const derivedHeading = headingAnchor
           ? deriveLiveLocationHeading(headingAnchor, currentSample)
           : null
-        const nextRawHeading = deviceHeading ?? derivedHeading
-        if (nextRawHeading !== null) {
-          stableHeading = stabilizeHeadingDegrees(stableHeading, nextRawHeading)
-          stableHeadingSource = deviceHeading !== null ? 'device' : 'derived'
-          stableHeadingTimestamp = timestamp
+        if (derivedHeading !== null) {
           headingAnchor = currentSample
         } else if (
           headingAnchor === null ||
-          timestamp <= headingAnchor.timestamp ||
           timestamp - headingAnchor.timestamp > DERIVED_HEADING_MAX_ELAPSED_MS
         ) {
           headingAnchor = currentSample.accuracyM <= HEADING_MAX_ACCURACY_M
             ? currentSample
             : headingAnchor
+        }
+
+        let nextRawHeading: number | null = null
+        let nextHeadingSource: LiveLocationPoint['headingSource'] = null
+        if (deviceHeading !== null && derivedHeading !== null) {
+          if (
+            headingAngularDistanceDegrees(deviceHeading, derivedHeading) <=
+            DEVICE_DERIVED_AGREEMENT_DEG
+          ) {
+            nextRawHeading = interpolateHeadingDegrees(derivedHeading, deviceHeading, 0.4)
+            nextHeadingSource = 'device'
+          } else {
+            // GPS displacement is independent of the browser course value and
+            // wins when the two disagree strongly while the vehicle is moving.
+            nextRawHeading = derivedHeading
+            nextHeadingSource = 'derived'
+          }
+          pendingDeviceHeading = null
+        } else if (derivedHeading !== null) {
+          nextRawHeading = derivedHeading
+          nextHeadingSource = 'derived'
+          pendingDeviceHeading = null
+        } else if (deviceHeading !== null) {
+          const elapsedSinceStableMs = stableHeadingTimestamp > 0
+            ? timestamp - stableHeadingTimestamp
+            : 0
+          const plausibleChangeDeg = maxPlausibleHeadingChangeDegrees(
+            speedMps,
+            elapsedSinceStableMs,
+          )
+          const deviceLooksContinuous = stableHeading !== null &&
+            headingAngularDistanceDegrees(stableHeading, deviceHeading) <= plausibleChangeDeg
+          const pendingLooksConsistent = pendingDeviceHeading !== null &&
+            timestamp - pendingDeviceHeading.timestamp <= DEVICE_OUTLIER_MAX_AGE_MS &&
+            headingAngularDistanceDegrees(
+              pendingDeviceHeading.headingDeg,
+              deviceHeading,
+            ) <= DEVICE_OUTLIER_CONFIRMATION_DEG
+
+          if (deviceLooksContinuous) {
+            nextRawHeading = deviceHeading
+            nextHeadingSource = 'device'
+            pendingDeviceHeading = null
+          } else if (
+            pendingLooksConsistent &&
+            (stableHeading === null || speedMps === null || speedMps < 15)
+          ) {
+            nextRawHeading = interpolateHeadingDegrees(
+              pendingDeviceHeading!.headingDeg,
+              deviceHeading,
+              0.5,
+            )
+            nextHeadingSource = 'device'
+            pendingDeviceHeading = null
+          } else {
+            pendingDeviceHeading = { headingDeg: deviceHeading, timestamp }
+          }
+        }
+
+        if (nextRawHeading !== null) {
+          const elapsedSinceStableMs = stableHeadingTimestamp > 0
+            ? timestamp - stableHeadingTimestamp
+            : 1_000
+          const boundedHeading = limitHeadingChangeDegrees(
+            stableHeading,
+            nextRawHeading,
+            maxPlausibleHeadingChangeDegrees(speedMps, elapsedSinceStableMs),
+          )
+          stableHeading = stabilizeHeadingDegrees(stableHeading, boundedHeading)
+          stableHeadingSource = nextHeadingSource
+          stableHeadingTimestamp = timestamp
         }
         if (timestamp - stableHeadingTimestamp > RETAINED_HEADING_MAX_AGE_MS) {
           stableHeading = null

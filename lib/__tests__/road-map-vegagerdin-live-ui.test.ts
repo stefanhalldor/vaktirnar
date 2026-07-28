@@ -22,6 +22,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain('{isAuthenticated &&\n        mapViewVisible &&')
     expect(source).toContain("routeWeatherMode === 'now'")
     expect(source).toContain('enableHighAccuracy: true')
+    expect(source).toContain('maximumAgeMs: 0')
     expect(source).not.toContain('DeviceOrientationEvent')
   })
 
@@ -86,9 +87,12 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
 
   it('keeps the directional puck geographically aligned and honors reduced motion', () => {
     expect(source).toContain('point.headingDeg - map.getBearing()')
+    expect(source).toContain('nearestEquivalentHeadingDegrees(')
+    expect(source).toContain('routeLiveLocationPuckVisualAngleRef.current = visualHeading')
+    expect(source).toContain('routeLiveLocationPuckVisualAngleRef.current = null')
     expect(source).toContain("...(point.headingDeg !== null ? { bearing: point.headingDeg } : {})")
-    expect(source).toContain("map.on('rotate', syncPuckDirection)")
-    expect(source).toContain("map.off('rotate', syncPuckDirection)")
+    expect(source).toContain("map.on('rotate', syncMapDirections)")
+    expect(source).toContain("map.off('rotate', syncMapDirections)")
     expect(source).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches")
     expect(source).toContain('duration: reduceMotion ? 0 : 350')
   })
@@ -177,6 +181,16 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("context.fillStyle = '#334155'")
     expect(windArrowBlock).not.toContain('map.getBearing()')
     expect(windArrowBlock).not.toContain("map.on('rotate'")
+  })
+
+  it('keeps station-card arrows in the same geographic frame when the map rotates', () => {
+    expect(source).toContain('resolveWindTowardBearingDeg(')
+    expect(source).toContain('direction.dataset.windTowardBearing = String(windTowardBearing)')
+    expect(source).toContain("querySelectorAll<HTMLElement>('[data-wind-toward-bearing]')")
+    expect(source).toContain('windTowardBearing - mapBearing')
+    expect(source).toContain("map.on('rotate', updateViewportWindDirectionMarkers)")
+    expect(source).toContain('directionDegrees: point.windDirectionDeg')
+    expect(source).toContain('directionDegrees: station.windDirectionDeg')
   })
 
   it('keeps wind-arrow lifecycle tied to route filters, current mode, refresh and clear', () => {

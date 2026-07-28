@@ -7,6 +7,8 @@
  * Key semantic rules (from Vegagerðin documentation):
  *   Vindhradi  → meanWindMs   (sustained/mean wind speed, current)
  *   Vindhvida  → gustLast10MinMs (max gust last 10 min; NOT a forecast gust)
+ *   Vindatt    → windDirectionDeg (0=N, 90=A)
+ *   VindattAsc → windDirectionText (Icelandic compass text)
  *   Null stays null. Never coerce missing/absent values to 0.
  *
  * IMPORTANT — Live fetch status:
@@ -21,9 +23,8 @@
  * TTL: 2 minutes (fresh); stale fallback: 30 minutes.
  * Upstream timeout: 8 seconds.
  *
- * Live response shape: VERIFIED 2026-07-18 against gagnaveita.vegagerdin.is/api/vedur2014_1.
- * Field names confirmed: Nr, Breidd, Lengd, Dags, Vindhradi, Vindhvida, VindattAsc, Vindatt,
- * Hiti, Veghiti, Nafn. Array of 202 items on first live fetch.
+ * Response contract and live direction-field types: VERIFIED 2026-07-28
+ * against the official documentation and gagnaveita.vegagerdin.is/api/vedur2014_1.
  */
 import 'server-only'
 import { getAdmin } from '@/lib/supabase/admin'
@@ -66,6 +67,39 @@ function parseStr(val: unknown): string | null {
   if (val === null || val === undefined) return null
   const s = String(val).trim()
   return s === '' ? null : s
+}
+
+/**
+ * Parse the documented numeric direction field without accepting partial
+ * numbers or out-of-contract bearings. Both 0 and 360 represent north.
+ */
+function parseWindDirectionDeg(val: unknown): number | null {
+  if (val === null || val === undefined) return null
+  const raw = typeof val === 'string' ? val.trim().replace(',', '.') : val
+  if (raw === '') return null
+  const parsed = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 360 ? parsed : null
+}
+
+/** Direction labels must be actual text, never a numeric value stringified. */
+function parseWindDirectionText(val: unknown): string | null {
+  const text = parseStr(val)
+  if (text === null) return null
+  const numeric = Number(text.replace(',', '.'))
+  return Number.isFinite(numeric) ? null : text
+}
+
+function parseWindDirection(raw: VegagerdinRawItem): {
+  degrees: number | null
+  text: string | null
+} {
+  // Official contract first. The second operand in each expression is a
+  // deliberately narrow fallback for cached/tests based on the old reversed
+  // field assumption; numeric input cannot become a label and vice versa.
+  return {
+    degrees: parseWindDirectionDeg(raw.Vindatt) ?? parseWindDirectionDeg(raw.VindattAsc),
+    text: parseWindDirectionText(raw.VindattAsc) ?? parseWindDirectionText(raw.Vindatt),
+  }
 }
 
 /**
@@ -154,8 +188,9 @@ export function parseVegagerdinResponse(
     const measuredAtIso = parseDags(r.Dags, fetchedAtIso)
     const meanWindMs = parseNum(r.Vindhradi)
     const gustLast10MinMs = parseNum(r.Vindhvida)
-    const windDirectionDeg = parseNum(r.VindattAsc)
-    const windDirectionText = parseStr(r.Vindatt)
+    const windDirection = parseWindDirection(r)
+    const windDirectionDeg = windDirection.degrees
+    const windDirectionText = windDirection.text
     const airTemperatureC = parseNum(r.Hiti)
     const roadTemperatureC = parseNum(r.Veghiti)
 

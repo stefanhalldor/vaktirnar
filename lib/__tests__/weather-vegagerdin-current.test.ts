@@ -14,7 +14,7 @@ import { parseVegagerdinResponse, readVegagerdinCurrentFromCache, getMeasurement
 
 // ── Fixture data ───────────────────────────────────────────────────────────────
 //
-// Field names verified against live Vegagerðin vedur2014_1 response 2026-07-18.
+// Official field contract and live types verified against Vegagerðin 2026-07-28.
 
 const FETCHED_AT = '2026-07-17T12:00:00.000Z'
 
@@ -26,8 +26,8 @@ const FIXTURE_COMPLETE = {
   Dags: '2026-07-17 11:50:00',
   Vindhradi: 10.5,
   Vindhvida: 15.2,
-  VindattAsc: 180,
-  Vindatt: 'S',
+  Vindatt: 180,
+  VindattAsc: 'S',
   Hiti: 8.5,
   Veghiti: 6.2,
 }
@@ -40,8 +40,8 @@ const FIXTURE_NULL_GUST = {
   Dags: '2026-07-17 11:40:00',
   Vindhradi: 7.0,
   Vindhvida: null,
-  VindattAsc: 270,
-  Vindatt: 'W',
+  Vindatt: 270,
+  VindattAsc: 'V',
   Hiti: 3.0,
   Veghiti: null,
 }
@@ -54,8 +54,8 @@ const FIXTURE_STRING_NUMBERS = {
   Dags: '2026-07-17 11:30:00',
   Vindhradi: '12',
   Vindhvida: '18',
-  VindattAsc: '90',
-  Vindatt: 'E',
+  Vindatt: '90',
+  VindattAsc: 'A',
   Hiti: '4',
   Veghiti: '2',
 }
@@ -91,6 +91,8 @@ describe('parseVegagerdinResponse - basic parsing', () => {
     expect(m.lat).toBe(64.01)
     expect(m.lon).toBe(-21.35)
     expect(m.fetchedAtIso).toBe(FETCHED_AT)
+    expect(m.windDirectionDeg).toBe(180)
+    expect(m.windDirectionText).toBe('S')
     expect(m.dataQuality).toBe('complete')
   })
 
@@ -119,6 +121,49 @@ describe('parseVegagerdinResponse - basic parsing', () => {
     const body = JSON.stringify({ data: [FIXTURE_COMPLETE] })
     const result = parseVegagerdinResponse(body, FETCHED_AT)
     expect(result).toHaveLength(1)
+  })
+})
+
+// ── Parser: Vindatt / VindattAsc contract ─────────────────────────────────────
+
+describe('parseVegagerdinResponse - wind direction contract', () => {
+  it('maps the official Vindatt degrees and VindattAsc Icelandic text fields', () => {
+    const officialRow = {
+      ...FIXTURE_COMPLETE,
+      Vindatt: 61,
+      VindattAsc: 'ANA',
+    }
+    const [measurement] = parseVegagerdinResponse(makeBody([officialRow]), FETCHED_AT)
+
+    expect(measurement.windDirectionDeg).toBe(61)
+    expect(measurement.windDirectionText).toBe('ANA')
+    expect(measurement.dataQuality).toBe('complete')
+  })
+
+  it('retains a bounded fallback for the previously assumed reversed fields', () => {
+    const legacyReversedRow = {
+      ...FIXTURE_COMPLETE,
+      Vindatt: 'S',
+      VindattAsc: 180,
+    }
+    const [measurement] = parseVegagerdinResponse(makeBody([legacyReversedRow]), FETCHED_AT)
+
+    expect(measurement.windDirectionDeg).toBe(180)
+    expect(measurement.windDirectionText).toBe('S')
+    expect(measurement.dataQuality).toBe('complete')
+  })
+
+  it('does not reinterpret out-of-range or partial numeric values as bearings', () => {
+    const invalidDirectionRow = {
+      ...FIXTURE_COMPLETE,
+      Vindatt: '361',
+      VindattAsc: '12abc',
+    }
+    const [measurement] = parseVegagerdinResponse(makeBody([invalidDirectionRow]), FETCHED_AT)
+
+    expect(measurement.windDirectionDeg).toBeNull()
+    expect(measurement.windDirectionText).toBe('12abc')
+    expect(measurement.dataQuality).toBe('partial')
   })
 })
 

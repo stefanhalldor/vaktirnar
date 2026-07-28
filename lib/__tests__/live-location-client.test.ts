@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   clampLiveLocationFollowZoom,
   deriveLiveLocationHeading,
+  headingAngularDistanceDegrees,
+  nearestEquivalentHeadingDegrees,
   reduceLiveLocationFollowMode,
   stabilizeHeadingDegrees,
   watchLiveLocation,
@@ -181,7 +183,18 @@ describe('watchLiveLocation', () => {
       timestamp: 10_000,
     }))
     expect(onPosition).toHaveBeenLastCalledWith(expect.objectContaining({
-      headingDeg: 32,
+      headingDeg: null,
+      headingSource: null,
+      speedMps: 3.5,
+    }))
+
+    geo.emitPosition(position(64.1, -21.9, 10, {
+      heading: 34,
+      speed: 3.5,
+      timestamp: 11_000,
+    }))
+    expect(onPosition).toHaveBeenLastCalledWith(expect.objectContaining({
+      headingDeg: 33,
       headingSource: 'device',
       speedMps: 3.5,
     }))
@@ -189,12 +202,114 @@ describe('watchLiveLocation', () => {
     geo.emitPosition(position(64.1, -21.9, 10, {
       heading: 180,
       speed: 0.2,
-      timestamp: 11_000,
+      timestamp: 12_000,
     }))
     expect(onPosition).toHaveBeenLastCalledWith(expect.objectContaining({
-      headingDeg: 32,
+      headingDeg: 33,
       headingSource: 'device',
       speedMps: 0.2,
+    }))
+  })
+
+  it('rejects opposite browser-course spikes while GPS displacement stays straight', () => {
+    const geo = installGeolocation()
+    const onPosition = vi.fn()
+    watchLiveLocation({ onPosition, onError: vi.fn() })
+
+    const longitudeStep = 0.00052
+    const headings = [90, 92, 88, 270, 91, 272, 90]
+    headings.forEach((heading, index) => {
+      geo.emitPosition(position(64.1, -21.9 + longitudeStep * index, 5, {
+        heading,
+        speed: 25,
+        timestamp: 10_000 + index * 1_000,
+      }))
+    })
+
+    const emitted = onPosition.mock.calls
+      .map(([point]) => point as { headingDeg: number | null })
+      .filter(point => point.headingDeg !== null)
+    expect(emitted.length).toBeGreaterThan(3)
+    expect(emitted.every(point =>
+      headingAngularDistanceDegrees(point.headingDeg!, 90) < 20,
+    )).toBe(true)
+  })
+
+  it('does not accept repeated opposite device-only headings at motorway speed', () => {
+    const geo = installGeolocation()
+    const onPosition = vi.fn()
+    watchLiveLocation({ onPosition, onError: vi.fn() })
+
+    geo.emitPosition(position(64.1, -21.9, 5, { heading: 90, speed: 25, timestamp: 10_000 }))
+    geo.emitPosition(position(64.1, -21.9, 5, { heading: 92, speed: 25, timestamp: 11_000 }))
+    geo.emitPosition(position(64.1, -21.9, 5, { heading: 270, speed: 25, timestamp: 12_000 }))
+    geo.emitPosition(position(64.1, -21.9, 5, { heading: 272, speed: 25, timestamp: 13_000 }))
+
+    const lastPoint = onPosition.mock.calls.at(-1)?.[0] as { headingDeg: number | null }
+    expect(lastPoint.headingDeg).not.toBeNull()
+    expect(headingAngularDistanceDegrees(lastPoint.headingDeg!, 91)).toBeLessThan(5)
+  })
+
+  it('continues to follow a corroborated real bend instead of freezing the course', () => {
+    const geo = installGeolocation()
+    const onPosition = vi.fn()
+    watchLiveLocation({ onPosition, onError: vi.fn() })
+
+    geo.emitPosition(position(64.1, -21.9, 5, { heading: 90, speed: 20, timestamp: 10_000 }))
+    geo.emitPosition(position(64.1, -21.89948, 5, { heading: 90, speed: 20, timestamp: 11_000 }))
+    const straightHeading = (onPosition.mock.calls.at(-1)?.[0] as { headingDeg: number }).headingDeg
+
+    geo.emitPosition(position(64.1002, -21.89905, 5, {
+      heading: 45,
+      speed: 20,
+      timestamp: 12_000,
+    }))
+    geo.emitPosition(position(64.10045, -21.89895, 5, {
+      heading: 12,
+      speed: 20,
+      timestamp: 13_000,
+    }))
+    geo.emitPosition(position(64.1007, -21.89895, 5, {
+      heading: 0,
+      speed: 20,
+      timestamp: 14_000,
+    }))
+
+    const bendHeading = (onPosition.mock.calls.at(-1)?.[0] as { headingDeg: number }).headingDeg
+    expect(headingAngularDistanceDegrees(bendHeading, 0)).toBeLessThan(
+      headingAngularDistanceDegrees(straightHeading, 0),
+    )
+    expect(headingAngularDistanceDegrees(bendHeading, straightHeading)).toBeGreaterThan(20)
+  })
+
+  it('ignores duplicate and out-of-order location callbacks', () => {
+    const geo = installGeolocation()
+    const onPosition = vi.fn()
+    watchLiveLocation({ onPosition, onError: vi.fn() })
+
+    geo.emitPosition(position(64.1, -21.9, 5, { timestamp: 10_000 }))
+    geo.emitPosition(position(64.2, -21.8, 5, { timestamp: 10_000 }))
+    geo.emitPosition(position(64.3, -21.7, 5, { timestamp: 9_000 }))
+
+    expect(onPosition).toHaveBeenCalledOnce()
+    expect(onPosition).toHaveBeenLastCalledWith(expect.objectContaining({
+      lat: 64.1,
+      lon: -21.9,
+    }))
+  })
+
+  it('expires an unsupported heading instead of retaining stale direction', () => {
+    const geo = installGeolocation()
+    const onPosition = vi.fn()
+    watchLiveLocation({ onPosition, onError: vi.fn() })
+
+    geo.emitPosition(position(64.1, -21.9, 5, { heading: 90, speed: 5, timestamp: 10_000 }))
+    geo.emitPosition(position(64.1, -21.9, 5, { heading: 92, speed: 5, timestamp: 11_000 }))
+    geo.emitPosition(position(64.1, -21.9, 5, { timestamp: 21_001 }))
+
+    expect(onPosition).toHaveBeenLastCalledWith(expect.objectContaining({
+      headingDeg: null,
+      headingSource: null,
     }))
   })
 
@@ -260,8 +375,9 @@ describe('live-location heading and zoom guards', () => {
     })
   })
 
-  it('clamps persisted follow zoom to integer levels 10 through 18', () => {
-    expect(clampLiveLocationFollowZoom('9')).toBe(10)
+  it('clamps persisted follow zoom to integer levels 5 through 18', () => {
+    expect(clampLiveLocationFollowZoom('4')).toBe(5)
+    expect(clampLiveLocationFollowZoom('9')).toBe(9)
     expect(clampLiveLocationFollowZoom(14.4)).toBe(14)
     expect(clampLiveLocationFollowZoom('19')).toBe(18)
     expect(clampLiveLocationFollowZoom('invalid')).toBe(14)
@@ -272,6 +388,12 @@ describe('live-location heading and zoom guards', () => {
     const heading = stabilizeHeadingDegrees(359, 1)
     expect(heading).toBeGreaterThan(359)
     expect(heading).toBeLessThan(360)
+  })
+
+  it('unwraps viewport headings so CSS takes the short path across north', () => {
+    expect(nearestEquivalentHeadingDegrees(359, 1)).toBe(361)
+    expect(nearestEquivalentHeadingDegrees(1, 359)).toBe(-1)
+    expect(nearestEquivalentHeadingDegrees(null, 361)).toBe(1)
   })
 
   it('rejects poor accuracy, stale timestamps and implausible jumps for derived headings', () => {

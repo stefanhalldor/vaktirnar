@@ -6,8 +6,8 @@
  * route safety assessments, departure scrubber calculations, worst forecast
  * point, or selectDecisiveProvider in this step.
  *
- * Live response shape VERIFIED 2026-07-18 against gagnaveita.vegagerdin.is/api/vedur2014_1.
- * Array of 202 items. Field names confirmed:
+ * Response contract and live field types VERIFIED 2026-07-28 against the
+ * official vedur2014_1 documentation and endpoint:
  *   Nr         — station identifier
  *   Nafn       — station/road segment name
  *   Breidd     — latitude
@@ -15,16 +15,18 @@
  *   Dags       — measurement time (Iceland is UTC+0 year-round)
  *   Vindhradi  — sustained/mean wind speed in m/s (current measurement)
  *   Vindhvida  — max gust in last 10 minutes in m/s (NOT forecast gust)
- *   VindattAsc — wind direction in degrees
- *   Vindatt    — wind direction as text (e.g. "S", "NA", "NNA")
+ *   Vindatt    — wind direction in degrees (0=N, 90=A)
+ *   VindattAsc — wind direction as Icelandic text (e.g. "S", "NA", "NNA")
  *   Hiti       — air temperature in °C
  *   Veghiti    — road surface temperature in °C
  */
 
 /**
  * Raw item shape as returned by the Vegagerðin vedur2014_1 API.
- * Field names verified against live response 2026-07-18.
- * Values may be numbers, numeric strings, or null — parser handles both.
+ * Field names and direction types verified against the official contract and
+ * live response. Numeric values may still arrive as numeric strings. The two
+ * direction fields also admit the previously assumed reversed shape so the
+ * parser can read bounded legacy fixtures without losing direction data.
  */
 export type VegagerdinRawItem = {
   /** Station identifier. */
@@ -41,10 +43,10 @@ export type VegagerdinRawItem = {
   Vindhradi: string | number | null
   /** Max gust in the last 10 minutes in m/s. NOT forecast gust. */
   Vindhvida: string | number | null
-  /** Wind direction in degrees. */
+  /** Officially wind direction in degrees; legacy input may contain text. */
+  Vindatt: string | number | null
+  /** Officially Icelandic direction text; legacy input may contain degrees. */
   VindattAsc: string | number | null
-  /** Wind direction as text (e.g. "S", "NA"). */
-  Vindatt: string | null
   /** Air temperature in °C. */
   Hiti: string | number | null
   /** Road surface temperature in °C. */

@@ -25,7 +25,10 @@ import {
 import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import { buildTravelBridgeMapData } from '@/lib/road-intelligence/travelBridgeMapData'
-import { buildRouteWindArrowField } from '@/lib/road-intelligence/routeWindArrowField'
+import {
+  buildRouteWindArrowField,
+  resolveWindTowardBearingDeg,
+} from '@/lib/road-intelligence/routeWindArrowField'
 import {
   parsePlaceSearchResults,
   selectBestPlaceForQuery,
@@ -126,6 +129,7 @@ import {
   LIVE_LOCATION_FOLLOW_ZOOM_MAX,
   LIVE_LOCATION_FOLLOW_ZOOM_MIN,
   LIVE_LOCATION_FOLLOW_ZOOM_STORAGE_KEY,
+  nearestEquivalentHeadingDegrees,
   normalizeHeadingDegrees,
   reduceLiveLocationFollowMode,
   watchLiveLocation,
@@ -793,37 +797,6 @@ function readFiniteNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null
   }
   return null
-}
-
-function windDirectionTextToArrow(value: string | null | undefined): string {
-  const normalized = value?.trim().toUpperCase()
-  if (!normalized) return '•'
-  const degreeMatch = normalized.match(/^-?\d+(?:[.,]\d+)?/)
-  const degrees = degreeMatch ? Number(degreeMatch[0].replace(',', '.')) : Number.NaN
-  if (Number.isFinite(degrees)) {
-    return windDirectionTextToArrow(degreesToIcelandicDirection(degrees))
-  }
-
-  const map: Record<string, string> = {
-    N: '↓',
-    NNA: '↓',
-    NA: '↙',
-    ANA: '↙',
-    A: '←',
-    ASA: '←',
-    SA: '↖',
-    SSA: '↖',
-    S: '↑',
-    SSV: '↑',
-    SV: '↗',
-    VSV: '↗',
-    V: '→',
-    VNV: '→',
-    NV: '↘',
-    NNV: '↘',
-  }
-
-  return map[normalized] ?? '•'
 }
 
 function weatherEmojiFromText(
@@ -1594,6 +1567,7 @@ export function RoadMapPrototypeMap({
   const routeEndpointMarkersRef = useRef<RouteEndpointMarker[]>([])
   const routeLiveLocationMarkerRef = useRef<import('maplibre-gl').Marker | null>(null)
   const routeLiveLocationPuckDirectionRef = useRef<HTMLDivElement | null>(null)
+  const routeLiveLocationPuckVisualAngleRef = useRef<number | null>(null)
   const routeLiveLocationStopRef = useRef<(() => void) | null>(null)
   const routeLiveLocationMapListenersCleanupRef = useRef<(() => void) | null>(null)
   const routeLiveLocationPointRef = useRef<LiveLocationPoint | null>(null)
@@ -2009,6 +1983,7 @@ export function RoadMapPrototypeMap({
     routeLiveLocationMarkerRef.current?.remove()
     routeLiveLocationMarkerRef.current = null
     routeLiveLocationPuckDirectionRef.current = null
+    routeLiveLocationPuckVisualAngleRef.current = null
     routeLiveLocationPointRef.current = null
     routeLiveLocationFollowModeRef.current = 'follow'
     if (resetState) {
@@ -3029,6 +3004,7 @@ export function RoadMapPrototypeMap({
         windText,
         gustText,
         directionText: station.windDirectionText,
+        directionDegrees: station.windDirectionDeg,
         temperatureText: station.airTemperatureC != null
           ? formatNum(station.airTemperatureC, locale)
           : null,
@@ -3778,6 +3754,7 @@ export function RoadMapPrototypeMap({
     windText,
     gustText,
     directionText,
+    directionDegrees,
     temperatureText,
     precipitationText,
     secondaryMetricText,
@@ -3791,6 +3768,7 @@ export function RoadMapPrototypeMap({
     windText: string
     gustText?: string | null
     directionText?: string | null
+    directionDegrees?: number | null
     temperatureText?: string | null
     precipitationText?: string | null
     secondaryMetricText?: string | null
@@ -3805,6 +3783,7 @@ export function RoadMapPrototypeMap({
       windText,
       gustText,
       directionText,
+      directionDegrees,
       temperatureText,
       precipitationText,
       secondaryMetricText,
@@ -4470,6 +4449,19 @@ export function RoadMapPrototypeMap({
     routeEndpointMarkersRef.current = []
   }
 
+  function updateViewportWindDirectionMarkers() {
+    const mapBearing = mapRef.current?.getBearing() ?? 0
+    containerRef.current
+      ?.querySelectorAll<HTMLElement>('[data-wind-toward-bearing]')
+      .forEach(direction => {
+        const windTowardBearing = Number(direction.dataset.windTowardBearing)
+        if (!Number.isFinite(windTowardBearing)) return
+        direction.style.transform = `rotate(${normalizeHeadingDegrees(
+          windTowardBearing - mapBearing,
+        )}deg)`
+      })
+  }
+
   function updateRouteLiveLocationPuckDirection() {
     const map = mapRef.current
     const direction = routeLiveLocationPuckDirectionRef.current
@@ -4477,12 +4469,18 @@ export function RoadMapPrototypeMap({
     if (!map || !direction) return
     if (point?.headingDeg === null || point?.headingDeg === undefined) {
       direction.style.display = 'none'
+      routeLiveLocationPuckVisualAngleRef.current = null
       return
     }
 
     direction.style.display = 'block'
     const viewportHeading = normalizeHeadingDegrees(point.headingDeg - map.getBearing())
-    direction.style.transform = `rotate(${viewportHeading}deg)`
+    const visualHeading = nearestEquivalentHeadingDegrees(
+      routeLiveLocationPuckVisualAngleRef.current,
+      viewportHeading,
+    )
+    routeLiveLocationPuckVisualAngleRef.current = visualHeading
+    direction.style.transform = `rotate(${visualHeading}deg)`
   }
 
   function moveRouteLiveLocationCamera(point = routeLiveLocationPointRef.current) {
@@ -4511,19 +4509,22 @@ export function RoadMapPrototypeMap({
       routeLiveLocationFollowModeRef.current = decision.mode
       setRouteLiveLocationFollowMode(decision.mode)
     }
-    const syncPuckDirection = () => updateRouteLiveLocationPuckDirection()
+    const syncMapDirections = () => {
+      updateRouteLiveLocationPuckDirection()
+      updateViewportWindDirectionMarkers()
+    }
 
     map.on('dragstart', leaveFollowForUserGesture)
     map.on('zoomstart', leaveFollowForUserGesture)
     map.on('rotatestart', leaveFollowForUserGesture)
     map.on('pitchstart', leaveFollowForUserGesture)
-    map.on('rotate', syncPuckDirection)
+    map.on('rotate', syncMapDirections)
     routeLiveLocationMapListenersCleanupRef.current = () => {
       map.off('dragstart', leaveFollowForUserGesture)
       map.off('zoomstart', leaveFollowForUserGesture)
       map.off('rotatestart', leaveFollowForUserGesture)
       map.off('pitchstart', leaveFollowForUserGesture)
-      map.off('rotate', syncPuckDirection)
+      map.off('rotate', syncMapDirections)
     }
   }
 
@@ -4649,7 +4650,7 @@ export function RoadMapPrototypeMap({
         setRouteLiveLocationStatus('error')
       },
       enableHighAccuracy: true,
-      maximumAgeMs: 5_000,
+      maximumAgeMs: 0,
     })
     if (failedSynchronously) {
       stop()
@@ -5259,6 +5260,7 @@ export function RoadMapPrototypeMap({
     windText,
     gustText,
     directionText,
+    directionDegrees,
     temperatureText,
     precipitationText,
     secondaryMetricText,
@@ -5279,6 +5281,7 @@ export function RoadMapPrototypeMap({
     windText: string
     gustText?: string | null
     directionText?: string | null
+    directionDegrees?: number | null
     temperatureText?: string | null
     precipitationText?: string | null
     secondaryMetricText?: string | null
@@ -5460,12 +5463,26 @@ export function RoadMapPrototypeMap({
       ].join(';')
 
       const direction = document.createElement('span')
-      direction.textContent = windDirectionTextToArrow(directionText)
+      const windTowardBearing = resolveWindTowardBearingDeg(
+        directionDegrees,
+        directionText,
+      )
+      direction.textContent = windTowardBearing === null ? '•' : '↑'
       direction.title = directionText ?? ''
+      if (windTowardBearing !== null) {
+        direction.dataset.windTowardBearing = String(windTowardBearing)
+      }
       direction.style.cssText = [
+        'display:inline-block',
         `font-size:calc(${compact ? '11px' : '12px'} * var(--teskeid-forecast-card-scale, 1.2))`,
         'line-height:1',
         'color:#475569',
+        'transform-origin:center',
+        windTowardBearing === null
+          ? 'transform:none'
+          : `transform:rotate(${normalizeHeadingDegrees(
+              windTowardBearing - (mapRef.current?.getBearing() ?? 0),
+            )}deg)`,
       ].join(';')
       windRow.appendChild(direction)
 
@@ -5780,6 +5797,7 @@ export function RoadMapPrototypeMap({
       windText,
       gustText,
       directionText: point.windDirectionText,
+      directionDegrees: point.windDirectionDeg,
       temperatureText,
       secondaryMetricText: roadTemperatureText,
       secondaryMetricTitle: labelsRef.current.routeMarkerRoadTemperatureTitle,
@@ -7754,6 +7772,7 @@ export function RoadMapPrototypeMap({
             scheduleOverviewMarkerVisibilityUpdate()
           })
           map.on('zoomend', scheduleRouteLabelCollisionUpdate)
+          map.on('rotate', updateViewportWindDirectionMarkers)
 
           removeOverviewMapLayerArtifacts(map)
 
