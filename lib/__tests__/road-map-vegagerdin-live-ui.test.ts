@@ -6,14 +6,75 @@ const source = readFileSync(
   join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
   'utf8',
 )
+const messagesIs = readFileSync(join(process.cwd(), 'messages/is.json'), 'utf8')
+const messagesEn = readFileSync(join(process.cwd(), 'messages/en.json'), 'utf8')
 
 describe('RoadMap Vegagerðin live-mode contracts', () => {
   it('keeps live location opt-in, authenticated and limited to the current route mode', () => {
-    expect(source).toContain("if (!isAuthenticated || !routeActiveRef.current || routeWeatherModeRef.current !== 'now') return")
+    expect(source).toContain('!isAuthenticated ||')
+    expect(source).toContain('!routeActiveRef.current ||')
+    expect(source).toContain("routeWeatherModeRef.current !== 'now' ||")
+    expect(source).toContain("lastMapContextRef.current !== 'route'")
+    expect(source).toContain("routeContextViewRef.current !== 'map'")
     expect(source).toContain("if (document.visibilityState === 'hidden') stopRouteLiveLocation()")
     expect(source).toContain("routeLiveLocationStopRef.current?.()")
     expect(source).toContain('{isAuthenticated && (')
     expect(source).toContain("routeWeatherMode === 'now'")
+    expect(source).toContain('enableHighAccuracy: true')
+    expect(source).not.toContain('DeviceOrientationEvent')
+  })
+
+  it('separates user camera gestures from programmatic following and offers recenter', () => {
+    expect(source).toContain("map.on('dragstart', leaveFollowForUserGesture)")
+    expect(source).toContain("map.on('zoomstart', leaveFollowForUserGesture)")
+    expect(source).toContain("map.on('rotatestart', leaveFollowForUserGesture)")
+    expect(source).toContain("map.on('pitchstart', leaveFollowForUserGesture)")
+    expect(source).toContain("event.originalEvent ? 'user_camera' : 'programmatic_camera'")
+    expect(source).toContain('reduceLiveLocationFollowMode(')
+    expect(source).toContain('routeLiveLocationFollowModeRef.current = decision.mode')
+    expect(source).toContain("'recenter',")
+    expect(source).toContain('handleRecenterRouteLiveLocation')
+    expect(messagesIs).toContain('"roadMapPrototypeLiveLocationRecenter": "Elta mig aftur"')
+    expect(messagesEn).toContain('"roadMapPrototypeLiveLocationRecenter": "Follow me again"')
+    expect(messagesIs).toContain('"roadMapPrototypeLiveLocationActiveUnknownAccuracy"')
+    expect(messagesEn).toContain('"roadMapPrototypeLiveLocationActiveUnknownAccuracy"')
+  })
+
+  it('keeps follow zoom bounded and persists only that preference', () => {
+    expect(source).toContain('LIVE_LOCATION_FOLLOW_ZOOM_MIN')
+    expect(source).toContain('LIVE_LOCATION_FOLLOW_ZOOM_MAX')
+    expect(source).toContain('LIVE_LOCATION_FOLLOW_ZOOM_DEFAULT')
+    expect(source).toContain('routeLiveLocationFollowZoomRef.current + delta')
+    expect(source).toContain(
+      'window.localStorage.setItem(LIVE_LOCATION_FOLLOW_ZOOM_STORAGE_KEY, String(nextZoom))',
+    )
+    expect(source).not.toMatch(/localStorage\.setItem\([^\n]*(lat|lon|heading|speed)/i)
+    expect(source).toContain("'zoom_changed',")
+    expect(source).toContain('if (decision.moveCamera) moveRouteLiveLocationCamera()')
+    expect(source).toContain('className="inline-flex h-10 w-10 items-center justify-center')
+  })
+
+  it('keeps the directional puck geographically aligned and honors reduced motion', () => {
+    expect(source).toContain('point.headingDeg - map.getBearing()')
+    expect(source).toContain("...(point.headingDeg !== null ? { bearing: point.headingDeg } : {})")
+    expect(source).toContain("map.on('rotate', syncPuckDirection)")
+    expect(source).toContain("map.off('rotate', syncPuckDirection)")
+    expect(source).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches")
+    expect(source).toContain('duration: reduceMotion ? 0 : 350')
+  })
+
+  it('cleans up the watch, marker and map listeners at every exit boundary', () => {
+    expect(source).toContain('routeLiveLocationMapListenersCleanupRef.current?.()')
+    expect(source).toContain('routeLiveLocationMarkerRef.current?.remove()')
+    expect(source).toContain("routeWeatherMode !== 'now' ||")
+    expect(source).toContain("lastMapContext !== 'route'")
+    expect(source).toContain("routeContextView !== 'map'")
+    expect(source).toContain('isChatOpen ||')
+    expect(source).toContain('stopRouteLiveLocation(false)')
+    expect(source).toContain("map.off('dragstart', leaveFollowForUserGesture)")
+    expect(source).toContain("map.off('zoomstart', leaveFollowForUserGesture)")
+    expect(source).toContain("map.off('rotatestart', leaveFollowForUserGesture)")
+    expect(source).toContain("map.off('pitchstart', leaveFollowForUserGesture)")
   })
 
   it('polls only the same-origin cache route and preserves fetched-version guards', () => {
@@ -68,6 +129,11 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
   })
 
   it('renders wind arrows as map-aligned point symbols with true geographic bearings', () => {
+    const windArrowStart = source.indexOf('function renderRouteWindArrows(')
+    const windArrowEnd = source.indexOf('\n  function renderVegagerdinStations(', windArrowStart)
+    const windArrowBlock = source.slice(windArrowStart, windArrowEnd)
+    expect(windArrowStart).toBeGreaterThan(-1)
+    expect(windArrowEnd).toBeGreaterThan(windArrowStart)
     expect(source).toContain("const ROUTE_WIND_ARROW_IMAGE_ID = 'teskeid-route-wind-arrow'")
     expect(source).toContain("const VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID = 'vegagerdin-route-wind-arrows-source'")
     expect(source).toContain("const VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID = 'vegagerdin-route-wind-arrows'")
@@ -79,8 +145,8 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("'icon-keep-upright': false")
     expect(source).toContain('The image points north/up at 0°')
     expect(source).toContain("context.fillStyle = '#334155'")
-    expect(source).not.toContain('map.getBearing()')
-    expect(source).not.toContain("map.on('rotate'")
+    expect(windArrowBlock).not.toContain('map.getBearing()')
+    expect(windArrowBlock).not.toContain("map.on('rotate'")
   })
 
   it('keeps wind-arrow lifecycle tied to route filters, current mode, refresh and clear', () => {

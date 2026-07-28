@@ -3,7 +3,7 @@
 // MapLibre CSS is loaded by route layout (app/auth-mvp/vedrid/road-map-prototype/layout.tsx).
 import { type FormEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { LocateFixed, Pencil } from 'lucide-react'
+import { LocateFixed, Minus, Pencil, Plus } from 'lucide-react'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import {
   createFirstReadyCoordinator,
@@ -121,8 +121,16 @@ import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTa
 import { haversineDistanceM } from '@/lib/weather/nearestStations'
 import { makeWeatherPlaceKey, type SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 import {
+  clampLiveLocationFollowZoom,
+  LIVE_LOCATION_FOLLOW_ZOOM_DEFAULT,
+  LIVE_LOCATION_FOLLOW_ZOOM_MAX,
+  LIVE_LOCATION_FOLLOW_ZOOM_MIN,
+  LIVE_LOCATION_FOLLOW_ZOOM_STORAGE_KEY,
+  normalizeHeadingDegrees,
+  reduceLiveLocationFollowMode,
   watchLiveLocation,
   type LiveLocationErrorCode,
+  type LiveLocationFollowMode,
   type LiveLocationPoint,
 } from '@/lib/places/liveLocation.client'
 import {
@@ -480,7 +488,6 @@ const ROUTE_TIMELINE_INITIAL_HOURLY_SLOT_COUNT = 6
 const VEGAGERDIN_ROUTE_REFRESH_INTERVAL_MS = 60_000
 
 type RouteLiveLocationStatus = 'idle' | 'waiting' | 'active' | 'error'
-
 type RouteForecastBuildContext = {
   timelineCandidates: TravelCandidate[]
   thresholds: ResolvedTravelThresholds
@@ -1585,8 +1592,12 @@ export function RoadMapPrototypeMap({
   const routeAuditPolylinePointsRef = useRef<Array<{ lat: number; lon: number }>>([])
   const routeEndpointMarkersRef = useRef<RouteEndpointMarker[]>([])
   const routeLiveLocationMarkerRef = useRef<import('maplibre-gl').Marker | null>(null)
+  const routeLiveLocationPuckDirectionRef = useRef<HTMLDivElement | null>(null)
   const routeLiveLocationStopRef = useRef<(() => void) | null>(null)
-  const routeLiveLocationCenteredRef = useRef(false)
+  const routeLiveLocationMapListenersCleanupRef = useRef<(() => void) | null>(null)
+  const routeLiveLocationPointRef = useRef<LiveLocationPoint | null>(null)
+  const routeLiveLocationFollowModeRef = useRef<LiveLocationFollowMode>('follow')
+  const routeLiveLocationFollowZoomRef = useRef(LIVE_LOCATION_FOLLOW_ZOOM_DEFAULT)
   const overviewDensityFrameRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const showOverlayRef = useRef(hasRoadIntelligence)
@@ -1975,6 +1986,10 @@ export function RoadMapPrototypeMap({
   const [routeLiveLocationStatus, setRouteLiveLocationStatus] = useState<RouteLiveLocationStatus>('idle')
   const [routeLiveLocationPoint, setRouteLiveLocationPoint] = useState<LiveLocationPoint | null>(null)
   const [routeLiveLocationError, setRouteLiveLocationError] = useState<LiveLocationErrorCode | null>(null)
+  const [routeLiveLocationFollowMode, setRouteLiveLocationFollowMode] = useState<LiveLocationFollowMode>('follow')
+  const [routeLiveLocationFollowZoom, setRouteLiveLocationFollowZoom] = useState(
+    LIVE_LOCATION_FOLLOW_ZOOM_DEFAULT,
+  )
   const [routeVegagerdinLastRefreshIso, setRouteVegagerdinLastRefreshIso] = useState<string | null>(null)
   const segmentRequestRef = useRef<AbortController | null>(null)
   const segmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1988,13 +2003,18 @@ export function RoadMapPrototypeMap({
   const stopRouteLiveLocation = useCallback((resetState = true) => {
     routeLiveLocationStopRef.current?.()
     routeLiveLocationStopRef.current = null
+    routeLiveLocationMapListenersCleanupRef.current?.()
+    routeLiveLocationMapListenersCleanupRef.current = null
     routeLiveLocationMarkerRef.current?.remove()
     routeLiveLocationMarkerRef.current = null
-    routeLiveLocationCenteredRef.current = false
+    routeLiveLocationPuckDirectionRef.current = null
+    routeLiveLocationPointRef.current = null
+    routeLiveLocationFollowModeRef.current = 'follow'
     if (resetState) {
       setRouteLiveLocationPoint(null)
       setRouteLiveLocationError(null)
       setRouteLiveLocationStatus('idle')
+      setRouteLiveLocationFollowMode('follow')
     }
   }, [])
   const labelsRef = useRef<RoadMapPrototypeLabels>({
@@ -2910,10 +2930,37 @@ export function RoadMapPrototypeMap({
   }, [])
 
   useEffect(() => {
-    if (!isAuthenticated || !routeActive || routeWeatherMode !== 'now') {
+    try {
+      const storedZoom = window.localStorage.getItem(LIVE_LOCATION_FOLLOW_ZOOM_STORAGE_KEY)
+      if (storedZoom === null) return
+      const zoom = clampLiveLocationFollowZoom(storedZoom)
+      routeLiveLocationFollowZoomRef.current = zoom
+      setRouteLiveLocationFollowZoom(zoom)
+    } catch {
+      // Live tracking remains usable when browser storage is unavailable.
+    }
+  }, [])
+
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      isChatOpen ||
+      !routeActive ||
+      routeWeatherMode !== 'now' ||
+      lastMapContext !== 'route' ||
+      routeContextView !== 'map'
+    ) {
       stopRouteLiveLocation()
     }
-  }, [isAuthenticated, routeActive, routeWeatherMode, stopRouteLiveLocation])
+  }, [
+    isAuthenticated,
+    isChatOpen,
+    lastMapContext,
+    routeActive,
+    routeContextView,
+    routeWeatherMode,
+    stopRouteLiveLocation,
+  ])
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -3661,9 +3708,9 @@ export function RoadMapPrototypeMap({
   }
 
   function applyMapContextVisibility(context: 'weather' | 'route') {
+    lastMapContextRef.current = context
     const map = mapRef.current
     if (!canUseMapStyle(map)) return
-    lastMapContextRef.current = context
 
     if (context === 'weather') {
       updateForecastGlacierLabelPresentation()
@@ -4422,6 +4469,63 @@ export function RoadMapPrototypeMap({
     routeEndpointMarkersRef.current = []
   }
 
+  function updateRouteLiveLocationPuckDirection() {
+    const map = mapRef.current
+    const direction = routeLiveLocationPuckDirectionRef.current
+    const point = routeLiveLocationPointRef.current
+    if (!map || !direction) return
+    if (point?.headingDeg === null || point?.headingDeg === undefined) {
+      direction.style.display = 'none'
+      return
+    }
+
+    direction.style.display = 'block'
+    const viewportHeading = normalizeHeadingDegrees(point.headingDeg - map.getBearing())
+    direction.style.transform = `rotate(${viewportHeading}deg)`
+  }
+
+  function moveRouteLiveLocationCamera(point = routeLiveLocationPointRef.current) {
+    const map = mapRef.current
+    if (!map || !point || routeLiveLocationFollowModeRef.current !== 'follow') return
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    map.easeTo({
+      center: [point.lon, point.lat],
+      zoom: routeLiveLocationFollowZoomRef.current,
+      ...(point.headingDeg !== null ? { bearing: point.headingDeg } : {}),
+      duration: reduceMotion ? 0 : 350,
+    })
+  }
+
+  function attachRouteLiveLocationMapListeners() {
+    const map = mapRef.current
+    if (!map) return
+    routeLiveLocationMapListenersCleanupRef.current?.()
+
+    const leaveFollowForUserGesture = (event: { originalEvent?: unknown }) => {
+      const decision = reduceLiveLocationFollowMode(
+        routeLiveLocationFollowModeRef.current,
+        event.originalEvent ? 'user_camera' : 'programmatic_camera',
+      )
+      if (decision.mode === routeLiveLocationFollowModeRef.current) return
+      routeLiveLocationFollowModeRef.current = decision.mode
+      setRouteLiveLocationFollowMode(decision.mode)
+    }
+    const syncPuckDirection = () => updateRouteLiveLocationPuckDirection()
+
+    map.on('dragstart', leaveFollowForUserGesture)
+    map.on('zoomstart', leaveFollowForUserGesture)
+    map.on('rotatestart', leaveFollowForUserGesture)
+    map.on('pitchstart', leaveFollowForUserGesture)
+    map.on('rotate', syncPuckDirection)
+    routeLiveLocationMapListenersCleanupRef.current = () => {
+      map.off('dragstart', leaveFollowForUserGesture)
+      map.off('zoomstart', leaveFollowForUserGesture)
+      map.off('rotatestart', leaveFollowForUserGesture)
+      map.off('pitchstart', leaveFollowForUserGesture)
+      map.off('rotate', syncPuckDirection)
+    }
+  }
+
   function updateRouteLiveLocationMarker(point: LiveLocationPoint) {
     const map = mapRef.current
     const Marker = markerConstructorRef.current
@@ -4434,33 +4538,69 @@ export function RoadMapPrototypeMap({
       element.setAttribute('aria-label', t('roadMapPrototypeLiveLocationMarkerLabel'))
       element.title = t('roadMapPrototypeLiveLocationMarkerLabel')
       element.style.cssText = [
-        'width:22px',
-        'height:22px',
-        'border:4px solid rgba(255,255,255,0.96)',
+        'display:grid',
+        'place-items:center',
+        'width:28px',
+        'height:28px',
+        'border:3px solid rgba(255,255,255,0.96)',
         'border-radius:999px',
         'background:#2563eb',
         'box-shadow:0 1px 7px rgba(15,23,42,0.38)',
         'pointer-events:none',
       ].join(';')
+      const direction = document.createElement('div')
+      direction.setAttribute('aria-hidden', 'true')
+      direction.style.cssText = [
+        'display:none',
+        'width:11px',
+        'height:16px',
+        'background:rgba(255,255,255,0.98)',
+        'clip-path:polygon(50% 0,100% 100%,50% 78%,0 100%)',
+        'transform-origin:center',
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'transition:none'
+          : 'transition:transform 160ms linear',
+      ].join(';')
+      element.appendChild(direction)
       marker = new Marker({ element, anchor: 'center' })
         .setLngLat([point.lon, point.lat])
         .addTo(map)
       routeLiveLocationMarkerRef.current = marker
+      routeLiveLocationPuckDirectionRef.current = direction
     } else {
       marker.setLngLat([point.lon, point.lat])
     }
+    updateRouteLiveLocationPuckDirection()
+    moveRouteLiveLocationCamera(point)
+  }
 
-    if (!routeLiveLocationCenteredRef.current) {
-      routeLiveLocationCenteredRef.current = true
-      const locationIsVisible = map.getBounds().contains([point.lon, point.lat])
-      if (!locationIsVisible) {
-        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        map.easeTo({
-          center: [point.lon, point.lat],
-          duration: reduceMotion ? 0 : 450,
-        })
-      }
+  function handleRecenterRouteLiveLocation() {
+    if (!routeLiveLocationPointRef.current) return
+    const decision = reduceLiveLocationFollowMode(
+      routeLiveLocationFollowModeRef.current,
+      'recenter',
+    )
+    routeLiveLocationFollowModeRef.current = decision.mode
+    setRouteLiveLocationFollowMode(decision.mode)
+    if (decision.moveCamera) moveRouteLiveLocationCamera()
+  }
+
+  function handleRouteLiveLocationZoomChange(delta: -1 | 1) {
+    const nextZoom = clampLiveLocationFollowZoom(
+      routeLiveLocationFollowZoomRef.current + delta,
+    )
+    routeLiveLocationFollowZoomRef.current = nextZoom
+    setRouteLiveLocationFollowZoom(nextZoom)
+    try {
+      window.localStorage.setItem(LIVE_LOCATION_FOLLOW_ZOOM_STORAGE_KEY, String(nextZoom))
+    } catch {
+      // The in-memory zoom still applies when browser storage is unavailable.
     }
+    const decision = reduceLiveLocationFollowMode(
+      routeLiveLocationFollowModeRef.current,
+      'zoom_changed',
+    )
+    if (decision.moveCamera) moveRouteLiveLocationCamera()
   }
 
   function handleToggleRouteLiveLocation() {
@@ -4468,18 +4608,33 @@ export function RoadMapPrototypeMap({
       stopRouteLiveLocation()
       return
     }
-    if (!isAuthenticated || !routeActiveRef.current || routeWeatherModeRef.current !== 'now') return
+    if (
+      !isAuthenticated ||
+      !routeActiveRef.current ||
+      routeWeatherModeRef.current !== 'now' ||
+      lastMapContextRef.current !== 'route' ||
+      routeContextViewRef.current !== 'map'
+    ) return
 
     stopRouteLiveLocation()
+    routeLiveLocationFollowModeRef.current = 'follow'
+    setRouteLiveLocationFollowMode('follow')
     setRouteLiveLocationStatus('waiting')
     setRouteLiveLocationError(null)
+    attachRouteLiveLocationMapListeners()
     let failedSynchronously = false
     const stop = watchLiveLocation({
       onPosition: point => {
-        if (!routeActiveRef.current || routeWeatherModeRef.current !== 'now') {
+        if (
+          !routeActiveRef.current ||
+          routeWeatherModeRef.current !== 'now' ||
+          lastMapContextRef.current !== 'route' ||
+          routeContextViewRef.current !== 'map'
+        ) {
           stopRouteLiveLocation()
           return
         }
+        routeLiveLocationPointRef.current = point
         setRouteLiveLocationPoint(point)
         setRouteLiveLocationError(null)
         setRouteLiveLocationStatus('active')
@@ -4492,6 +4647,8 @@ export function RoadMapPrototypeMap({
         setRouteLiveLocationError(error)
         setRouteLiveLocationStatus('error')
       },
+      enableHighAccuracy: true,
+      maximumAgeMs: 5_000,
     })
     if (failedSynchronously) {
       stop()
@@ -8188,9 +8345,17 @@ export function RoadMapPrototypeMap({
   const routeLiveLocationStatusLabel = routeLiveLocationStatus === 'waiting'
     ? t('roadMapPrototypeLiveLocationLoading')
     : routeLiveLocationStatus === 'active' && routeLiveLocationPoint
-      ? t('roadMapPrototypeLiveLocationActive', {
-          accuracy: Math.max(0, Math.round(routeLiveLocationPoint.accuracyM)),
-        })
+      ? routeLiveLocationPoint.accuracyM === null
+        ? routeLiveLocationFollowMode === 'free'
+          ? t('roadMapPrototypeLiveLocationFreeUnknownAccuracy')
+          : t('roadMapPrototypeLiveLocationActiveUnknownAccuracy')
+        : routeLiveLocationFollowMode === 'free'
+          ? t('roadMapPrototypeLiveLocationFree', {
+              accuracy: Math.max(0, Math.round(routeLiveLocationPoint.accuracyM)),
+            })
+          : t('roadMapPrototypeLiveLocationActive', {
+              accuracy: Math.max(0, Math.round(routeLiveLocationPoint.accuracyM)),
+            })
       : routeLiveLocationError === 'permission_denied'
         ? t('roadMapPrototypeLiveLocationPermissionDenied')
         : routeLiveLocationError === 'timeout'
@@ -8645,6 +8810,22 @@ export function RoadMapPrototypeMap({
         externalContainer={setMapContainer}
         className="h-full w-full"
       />
+
+      {mapViewVisible &&
+        lastMapContext === 'route' &&
+        routeWeatherMode === 'now' &&
+        routeLiveLocationStatus === 'active' &&
+        routeLiveLocationFollowMode === 'free' && (
+          <button
+            type="button"
+            data-weather-card-obstacle="true"
+            onClick={handleRecenterRouteLiveLocation}
+            className="absolute right-3 top-3 z-[90] inline-flex min-h-11 items-center gap-2 rounded-full border border-primary bg-background/95 px-3 py-2 text-xs font-semibold text-primary shadow-md backdrop-blur-sm transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <LocateFixed className="h-4 w-4" aria-hidden="true" />
+            {t('roadMapPrototypeLiveLocationRecenter')}
+          </button>
+        )}
 
       {mapViewVisible && lastMapContext === 'weather' && (
         <div
@@ -9431,7 +9612,7 @@ export function RoadMapPrototypeMap({
                       onClick={handleToggleRouteLiveLocation}
                       className={`inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                         routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
-                          ? 'border-blue-600 bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-100'
+                          ? 'border-primary bg-primary/10 text-primary'
                           : 'border-border bg-background/85 text-foreground'
                       }`}
                     >
@@ -9440,6 +9621,41 @@ export function RoadMapPrototypeMap({
                         ? t('roadMapPrototypeLiveLocationHide')
                         : t('roadMapPrototypeLiveLocationShow')}
                     </button>
+                    {routeLiveLocationStatus === 'active' && (
+                      <div
+                        role="group"
+                        aria-label={t('roadMapPrototypeLiveLocationZoomGroup')}
+                        className="inline-flex h-10 items-center overflow-hidden rounded-full border border-border bg-background/85"
+                      >
+                        <button
+                          type="button"
+                          aria-label={t('roadMapPrototypeLiveLocationZoomOut')}
+                          disabled={routeLiveLocationFollowZoom <= LIVE_LOCATION_FOLLOW_ZOOM_MIN}
+                          onClick={() => handleRouteLiveLocationZoomChange(-1)}
+                          className="inline-flex h-10 w-10 items-center justify-center text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        >
+                          <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                        <span
+                          aria-live="polite"
+                          aria-label={t('roadMapPrototypeLiveLocationZoomValue', {
+                            zoom: routeLiveLocationFollowZoom,
+                          })}
+                          className="min-w-9 border-x border-border px-1 text-center text-[10px] font-semibold tabular-nums text-foreground"
+                        >
+                          {routeLiveLocationFollowZoom}×
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={t('roadMapPrototypeLiveLocationZoomIn')}
+                          disabled={routeLiveLocationFollowZoom >= LIVE_LOCATION_FOLLOW_ZOOM_MAX}
+                          onClick={() => handleRouteLiveLocationZoomChange(1)}
+                          className="inline-flex h-10 w-10 items-center justify-center text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        >
+                          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
                     {routeLiveLocationStatusLabel && (
                       <span
                         role={routeLiveLocationStatus === 'error' ? 'alert' : 'status'}
