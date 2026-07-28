@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROAD_MAP_PROTOTYPE_NAVIGATION,
+  buildRoadMapLiveLocationSignInReturnHref,
   buildRoadMapRouteReturnHref,
   buildRoadMapSignInReturnHref,
   buildRoadMapStationReturnHref,
@@ -31,6 +32,12 @@ describe('road map navigation', () => {
     )
     expect(buildRoadMapSignInReturnHref(promotedPublicNavigation, 'weather')).toBe(
       '/auth-mvp/vedrid?context=weather&view=information',
+    )
+  })
+
+  it('restores the route directly into the map after live-location sign-in', () => {
+    expect(buildRoadMapLiveLocationSignInReturnHref(promotedPublicNavigation)).toBe(
+      '/auth-mvp/vedrid?context=route&view=map&restoreRoute=1',
     )
   })
 

@@ -18,10 +18,40 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("routeContextViewRef.current !== 'map'")
     expect(source).toContain("if (document.visibilityState === 'hidden') stopRouteLiveLocation()")
     expect(source).toContain("routeLiveLocationStopRef.current?.()")
-    expect(source).toContain('{isAuthenticated && (')
+    expect(source).toContain('{isAuthenticated ? (')
+    expect(source).toContain('{isAuthenticated &&\n        mapViewVisible &&')
     expect(source).toContain("routeWeatherMode === 'now'")
     expect(source).toContain('enableHighAccuracy: true')
     expect(source).not.toContain('DeviceOrientationEvent')
+  })
+
+  it('advertises the trial publicly without exposing the geolocation action', () => {
+    expect(source).toContain("buildRoadMapLiveLocationSignInReturnHref(navigation)")
+    expect(source).toContain("onClick={() => persistRouteReturnSnapshot('map')}")
+    expect(source).toContain("t('roadMapPrototypeLiveLocationPublicCta')")
+    expect(source).toContain("t('roadMapPrototypeLiveLocationPrivacy')")
+    expect(messagesIs).toContain('"roadMapPrototypeLiveLocationTrial": "Í prófun"')
+    expect(messagesEn).toContain('"roadMapPrototypeLiveLocationTrial": "In testing"')
+    expect(messagesIs).toContain('"roadMapPrototypeLiveLocationPublicCta": "Skrá inn og prófa"')
+    expect(messagesEn).toContain('"roadMapPrototypeLiveLocationPublicCta": "Sign in and try it"')
+    expect(messagesIs).toContain('"roadMapPrototypeLiveLocationPrivacy": "Staðsetningin er aðeins notuð til að færa kortið og er ekki vistuð af Teskeið."')
+    expect(messagesEn).toContain('"roadMapPrototypeLiveLocationPrivacy": "Your location is used only to move the map and is not stored by Teskeið."')
+
+    const publicBranchStart = source.indexOf("t('roadMapPrototypeLiveLocationPublicDescription')")
+    const publicBranchEnd = source.indexOf("t('roadMapPrototypeLiveLocationPrivacy')", publicBranchStart)
+    const publicBranch = source.slice(publicBranchStart, publicBranchEnd)
+    expect(publicBranchStart).toBeGreaterThan(-1)
+    expect(publicBranchEnd).toBeGreaterThan(publicBranchStart)
+    expect(publicBranch).not.toContain('handleToggleRouteLiveLocation')
+    expect(publicBranch).not.toContain('watchLiveLocation')
+  })
+
+  it('keeps the trial and current follow state visible on the route map', () => {
+    expect(source).toContain("t('roadMapPrototypeLiveLocationFollowing')")
+    expect(source).toContain("t('roadMapPrototypeLiveLocationLoadingCompact')")
+    expect(source).toContain("t('roadMapPrototypeLiveLocationTrial')")
+    expect(source).toContain("routeLiveLocationFollowMode === 'free'")
+    expect(source).toContain('aria-hidden="true"')
   })
 
   it('separates user camera gestures from programmatic following and offers recenter', () => {

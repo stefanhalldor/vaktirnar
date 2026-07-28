@@ -135,6 +135,7 @@ import {
 } from '@/lib/places/liveLocation.client'
 import {
   ROAD_MAP_PROTOTYPE_NAVIGATION,
+  buildRoadMapLiveLocationSignInReturnHref,
   buildRoadMapRouteReturnHref,
   buildRoadMapSignInReturnHref,
   buildRoadMapStationReturnHref,
@@ -8811,20 +8812,44 @@ export function RoadMapPrototypeMap({
         className="h-full w-full"
       />
 
-      {mapViewVisible &&
+      {isAuthenticated &&
+        mapViewVisible &&
         lastMapContext === 'route' &&
         routeWeatherMode === 'now' &&
-        routeLiveLocationStatus === 'active' &&
-        routeLiveLocationFollowMode === 'free' && (
-          <button
-            type="button"
+        (routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active') && (
+          <div
             data-weather-card-obstacle="true"
-            onClick={handleRecenterRouteLiveLocation}
-            className="absolute right-3 top-3 z-[90] inline-flex min-h-11 items-center gap-2 rounded-full border border-primary bg-background/95 px-3 py-2 text-xs font-semibold text-primary shadow-md backdrop-blur-sm transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="absolute right-3 top-3 z-[90] max-w-[calc(100%_-_1.5rem)]"
           >
-            <LocateFixed className="h-4 w-4" aria-hidden="true" />
-            {t('roadMapPrototypeLiveLocationRecenter')}
-          </button>
+            {routeLiveLocationStatus === 'active' && routeLiveLocationFollowMode === 'free' ? (
+              <button
+                type="button"
+                onClick={handleRecenterRouteLiveLocation}
+                className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border border-primary bg-background/95 px-3 py-2 text-xs font-semibold text-primary shadow-md backdrop-blur-sm transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <LocateFixed className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="truncate">{t('roadMapPrototypeLiveLocationRecenter')}</span>
+                <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide">
+                  {t('roadMapPrototypeLiveLocationTrial')}
+                </span>
+              </button>
+            ) : (
+              <div
+                aria-hidden="true"
+                className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-full border border-primary/60 bg-background/95 px-3 py-2 text-xs font-semibold text-primary shadow-md backdrop-blur-sm"
+              >
+                <LocateFixed className="h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  {routeLiveLocationStatus === 'waiting'
+                    ? t('roadMapPrototypeLiveLocationLoadingCompact')
+                    : t('roadMapPrototypeLiveLocationFollowing')}
+                </span>
+                <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide">
+                  {t('roadMapPrototypeLiveLocationTrial')}
+                </span>
+              </div>
+            )}
+          </div>
         )}
 
       {mapViewVisible && lastMapContext === 'weather' && (
@@ -9601,74 +9626,111 @@ export function RoadMapPrototypeMap({
                   </p>
                 )}
 
-                {isAuthenticated && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      aria-pressed={
-                        routeLiveLocationStatus === 'waiting' ||
-                        routeLiveLocationStatus === 'active'
-                      }
-                      onClick={handleToggleRouteLiveLocation}
-                      className={`inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                        routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background/85 text-foreground'
-                      }`}
-                    >
-                      <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
-                      {routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
-                        ? t('roadMapPrototypeLiveLocationHide')
-                        : t('roadMapPrototypeLiveLocationShow')}
-                    </button>
-                    {routeLiveLocationStatus === 'active' && (
-                      <div
-                        role="group"
-                        aria-label={t('roadMapPrototypeLiveLocationZoomGroup')}
-                        className="inline-flex h-10 items-center overflow-hidden rounded-full border border-border bg-background/85"
-                      >
-                        <button
-                          type="button"
-                          aria-label={t('roadMapPrototypeLiveLocationZoomOut')}
-                          disabled={routeLiveLocationFollowZoom <= LIVE_LOCATION_FOLLOW_ZOOM_MIN}
-                          onClick={() => handleRouteLiveLocationZoomChange(-1)}
-                          className="inline-flex h-10 w-10 items-center justify-center text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                        >
-                          <Minus className="h-3.5 w-3.5" aria-hidden="true" />
-                        </button>
-                        <span
-                          aria-live="polite"
-                          aria-label={t('roadMapPrototypeLiveLocationZoomValue', {
-                            zoom: routeLiveLocationFollowZoom,
-                          })}
-                          className="min-w-9 border-x border-border px-1 text-center text-[10px] font-semibold tabular-nums text-foreground"
-                        >
-                          {routeLiveLocationFollowZoom}×
-                        </span>
-                        <button
-                          type="button"
-                          aria-label={t('roadMapPrototypeLiveLocationZoomIn')}
-                          disabled={routeLiveLocationFollowZoom >= LIVE_LOCATION_FOLLOW_ZOOM_MAX}
-                          onClick={() => handleRouteLiveLocationZoomChange(1)}
-                          className="inline-flex h-10 w-10 items-center justify-center text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                        >
-                          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                        </button>
-                      </div>
-                    )}
-                    {routeLiveLocationStatusLabel && (
-                      <span
-                        role={routeLiveLocationStatus === 'error' ? 'alert' : 'status'}
-                        aria-live="polite"
-                        className={`max-w-full text-[10px] leading-snug ${
-                          routeLiveLocationStatus === 'error'
-                            ? 'text-destructive'
-                            : 'text-muted-foreground'
+                {isAuthenticated ? (
+                  <div className="space-y-1.5 border-t border-border/50 pt-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-semibold text-foreground">
+                        {t('roadMapPrototypeLiveLocationTitle')}
+                      </span>
+                      <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                        {t('roadMapPrototypeLiveLocationTrial')}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        aria-pressed={
+                          routeLiveLocationStatus === 'waiting' ||
+                          routeLiveLocationStatus === 'active'
+                        }
+                        onClick={handleToggleRouteLiveLocation}
+                        className={`inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                          routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border bg-background/85 text-foreground'
                         }`}
                       >
-                        {routeLiveLocationStatusLabel}
+                        <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
+                        {routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active'
+                          ? t('roadMapPrototypeLiveLocationHide')
+                          : t('roadMapPrototypeLiveLocationShow')}
+                      </button>
+                      {routeLiveLocationStatus === 'active' && (
+                        <div
+                          role="group"
+                          aria-label={t('roadMapPrototypeLiveLocationZoomGroup')}
+                          className="inline-flex h-10 items-center overflow-hidden rounded-full border border-border bg-background/85"
+                        >
+                          <button
+                            type="button"
+                            aria-label={t('roadMapPrototypeLiveLocationZoomOut')}
+                            disabled={routeLiveLocationFollowZoom <= LIVE_LOCATION_FOLLOW_ZOOM_MIN}
+                            onClick={() => handleRouteLiveLocationZoomChange(-1)}
+                            className="inline-flex h-10 w-10 items-center justify-center text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          >
+                            <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                          <span
+                            aria-live="polite"
+                            aria-label={t('roadMapPrototypeLiveLocationZoomValue', {
+                              zoom: routeLiveLocationFollowZoom,
+                            })}
+                            className="min-w-9 border-x border-border px-1 text-center text-[10px] font-semibold tabular-nums text-foreground"
+                          >
+                            {routeLiveLocationFollowZoom}×
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={t('roadMapPrototypeLiveLocationZoomIn')}
+                            disabled={routeLiveLocationFollowZoom >= LIVE_LOCATION_FOLLOW_ZOOM_MAX}
+                            onClick={() => handleRouteLiveLocationZoomChange(1)}
+                            className="inline-flex h-10 w-10 items-center justify-center text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          >
+                            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      )}
+                      {routeLiveLocationStatusLabel && (
+                        <span
+                          role={routeLiveLocationStatus === 'error' ? 'alert' : 'status'}
+                          aria-live="polite"
+                          className={`max-w-full text-[10px] leading-snug ${
+                            routeLiveLocationStatus === 'error'
+                              ? 'text-destructive'
+                              : 'text-muted-foreground'
+                          }`}
+                        >
+                          {routeLiveLocationStatusLabel}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] leading-snug text-muted-foreground">
+                      {t('roadMapPrototypeLiveLocationPrivacy')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 border-t border-border/50 pt-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-semibold text-foreground">
+                        {t('roadMapPrototypeLiveLocationTitle')}
                       </span>
-                    )}
+                      <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                        {t('roadMapPrototypeLiveLocationTrial')}
+                      </span>
+                    </div>
+                    <p className="text-[10px] leading-snug text-muted-foreground">
+                      {t('roadMapPrototypeLiveLocationPublicDescription')}
+                    </p>
+                    <a
+                      href={`/innskraning?next=${encodeURIComponent(buildRoadMapLiveLocationSignInReturnHref(navigation))}`}
+                      onClick={() => persistRouteReturnSnapshot('map')}
+                      className="inline-flex min-h-10 items-center justify-center rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {t('roadMapPrototypeLiveLocationPublicCta')}
+                    </a>
+                    <p className="text-[10px] leading-snug text-muted-foreground">
+                      {t('roadMapPrototypeLiveLocationPrivacy')}
+                    </p>
                   </div>
                 )}
 
