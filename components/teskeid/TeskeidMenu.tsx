@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { Menu, X, Lightbulb, Send, LogIn, UserCircle, LayoutGrid, LogOut } from 'lucide-react'
+import { Menu, X, Lightbulb, Send, LogIn, UserCircle, LayoutGrid, LogOut, MessagesSquare } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 const PUBLIC_ITEMS = [
@@ -15,6 +15,7 @@ const PUBLIC_ITEMS = [
 
 const AUTH_ITEMS = [
   { href: '/auth-mvp/heim', labelKey: 'teskeidar', icon: LayoutGrid, activePrefixes: ['/auth-mvp/heim', '/auth-mvp/lanad-og-skilad', '/auth-mvp/umonnun', '/auth-mvp/vedrid'] },
+  { href: '/auth-mvp/samvinna', labelKey: 'agentCollaboration', icon: MessagesSquare, agentCollaboration: true },
   { href: '/auth-mvp/minn-profill', labelKey: 'profile', icon: UserCircle },
   { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },
 ] as const
@@ -29,9 +30,15 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [agentCollaborationAvailable, setAgentCollaborationAvailable] = useState(false)
+  const [agentUnreadCount, setAgentUnreadCount] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
 
-  const items = variant === 'public' ? PUBLIC_ITEMS : AUTH_ITEMS
+  const items = variant === 'public'
+    ? PUBLIC_ITEMS
+    : AUTH_ITEMS.filter(item => (
+        !('agentCollaboration' in item) || !item.agentCollaboration || agentCollaborationAvailable
+      ))
 
   useEffect(() => {
     if (variant !== 'authenticated') return
@@ -39,6 +46,51 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
       setUserEmail(data.session?.user?.email ?? null)
     })
   }, [variant])
+
+  useEffect(() => {
+    if (variant !== 'authenticated') return
+    let active = true
+
+    async function loadSummary() {
+      try {
+        const response = await fetch('/api/auth-mvp/agent-collaboration/summary', { cache: 'no-store' })
+        if (!response.ok) {
+          if (active && (response.status === 404 || response.status === 401)) {
+            setAgentCollaborationAvailable(false)
+            setAgentUnreadCount(0)
+            active = false
+          }
+          return
+        }
+        const data = await response.json() as { unreadCount?: number }
+        if (active) {
+          setAgentCollaborationAvailable(true)
+          setAgentUnreadCount(Math.max(0, Number(data.unreadCount) || 0))
+        }
+      } catch {
+        // Menu availability must not depend on the optional unread summary.
+      }
+    }
+
+    let timeoutId: number | undefined
+    async function pollSummary() {
+      if (document.visibilityState === 'visible') await loadSummary()
+      if (active) timeoutId = window.setTimeout(pollSummary, 30_000)
+    }
+    function onVisibilityChange() {
+      if (!active || document.visibilityState !== 'visible') return
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+      void pollSummary()
+    }
+
+    void pollSummary()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      active = false
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [variant, pathname])
 
   useEffect(() => {
     if (!open) return
@@ -62,16 +114,32 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
     router.push('/innskraning')
   }
 
+  const showAgentMenuUnread = variant === 'authenticated'
+    && agentCollaborationAvailable
+    && agentUnreadCount > 0
+    && !pathname.startsWith('/auth-mvp/samvinna')
+
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label={open ? t('closeMenu') : t('menu')}
+        aria-label={open
+          ? t('closeMenu')
+          : showAgentMenuUnread
+            ? `${t('menu')} · ${t('agentUnread', { count: agentUnreadCount })}`
+            : t('menu')}
         aria-expanded={open}
-        className="flex items-center justify-center w-11 h-11 rounded-full text-[#42493e] hover:text-[#154212] hover:bg-black/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-1"
+        className="relative flex items-center justify-center w-11 h-11 rounded-full text-[#42493e] hover:text-[#154212] hover:bg-black/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-1"
       >
         {open ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
+        {showAgentMenuUnread && (
+          <span
+            data-testid="agent-unread-indicator"
+            aria-hidden
+            className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-[#fbf9f4] bg-red-600"
+          />
+        )}
       </button>
 
       {open && (
@@ -88,6 +156,10 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
             const active = 'activePrefixes' in item
               ? item.activePrefixes.some((p) => pathname === p || pathname.startsWith(p + '/'))
               : pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
+            const showUnread = 'agentCollaboration' in item
+              && item.agentCollaboration
+              && agentUnreadCount > 0
+              && !pathname.startsWith('/auth-mvp/samvinna')
             return (
               <Link
                 key={href}
@@ -100,7 +172,13 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
                 }`}
               >
                 <Icon size={16} aria-hidden />
-                <span>{t(labelKey)}</span>
+                <span className="min-w-0 flex-1">{t(labelKey)}</span>
+                {showUnread && (
+                  <>
+                    <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                    <span className="sr-only">{t('agentUnread', { count: agentUnreadCount })}</span>
+                  </>
+                )}
               </Link>
             )
           })}

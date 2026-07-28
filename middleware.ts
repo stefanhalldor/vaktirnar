@@ -41,9 +41,21 @@ const PREVIEW_PATH_PATTERNS = [
   /^\/api\/teskeid\/weather\/vedurpuls\/vegagerdin\/stations\/[^/]+\/preview$/,
 ]
 
+const AGENT_BRIDGE_PATHS = new Set([
+  // Provider-neutral local agent bridge. These exact routes do not use a
+  // browser session; each handler enforces one-time pairing or a scoped bearer
+  // token. Sibling paths remain private.
+  '/api/agent-bridge/v1/pair',
+  '/api/agent-bridge/v1/claim',
+  '/api/agent-bridge/v1/heartbeat',
+  '/api/agent-bridge/v1/complete',
+  '/api/agent-bridge/v1/fail',
+])
+
 // Exact-match public paths — no prefix semantics.
 // Use for routes where startsWith would unintentionally open sub-paths or variants.
 const EXACT_PUBLIC_PATHS = new Set([
+  ...AGENT_BRIDGE_PATHS,
   // Cron — no browser session; route handler enforces CRON_SECRET bearer auth
   '/api/cron/warm-vedurstofan',
   '/api/cron/warm-vegagerdin',
@@ -108,6 +120,35 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
     return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  // Agent collaboration has its own fail-closed rollout/emergency switch.
+  // It must be independently removable without disabling the rest of Teskeið.
+  const isAgentCollaborationPage = pathname === '/auth-mvp/samvinna'
+    || pathname.startsWith('/auth-mvp/samvinna/')
+  const isAgentCollaborationApi = pathname === '/api/auth-mvp/agent-collaboration'
+    || pathname.startsWith('/api/auth-mvp/agent-collaboration/')
+  if (
+    (isAgentCollaborationPage || isAgentCollaborationApi)
+    && process.env.AGENT_COLLABORATION_ENABLED !== 'true'
+  ) {
+    if (isAgentCollaborationApi) {
+      return NextResponse.json(
+        { error: 'not_found' },
+        { status: 404, headers: { 'Cache-Control': 'private, no-store' } },
+      )
+    }
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  if (
+    AGENT_BRIDGE_PATHS.has(pathname)
+    && process.env.AGENT_COLLABORATION_ENABLED !== 'true'
+  ) {
+    return NextResponse.json(
+      { error: 'not_found' },
+      { status: 404, headers: { 'Cache-Control': 'private, no-store' } },
+    )
   }
 
   // Feature flag: guard /auth-mvp/lanad-og-skilad and all sub-paths.

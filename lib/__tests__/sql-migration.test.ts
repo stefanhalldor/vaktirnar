@@ -1742,3 +1742,357 @@ describe('sql/84_metno_point_forecasts_history.sql — static checks', () => {
     expect(rollback).not.toContain('DROP FUNCTION')
   })
 })
+
+// ============================================================
+// Static SQL regression tests — sql/95 agent collaboration
+// ============================================================
+
+const sql95 = readFileSync(
+  join(process.cwd(), 'sql/95_teskeid_agent_collaboration.sql'),
+  'utf8'
+)
+
+describe('sql/95_teskeid_agent_collaboration.sql — static security checks', () => {
+  const agentTables = [
+    'teskeid_agent_conversations',
+    'teskeid_agent_pairing_sessions',
+    'teskeid_agent_connectors',
+    'teskeid_agent_messages',
+    'teskeid_agent_read_cursors',
+    'teskeid_agent_runs',
+    'teskeid_agent_audit_events',
+  ]
+
+  it('wraps all changes in a transaction and documents rollback', () => {
+    expect(sql95).toMatch(/^\s*BEGIN\s*;/m)
+    expect(sql95).toMatch(/^\s*COMMIT\s*;/m)
+    expect(sql95).toContain('Recovery / rollback plan')
+  })
+
+  it('adds the dedicated private-beta feature key and documents its rollback', () => {
+    const rollback = sql95.slice(sql95.indexOf('-- Recovery / rollback plan'))
+    expect(sql95).toContain("'agent-collaboration-private-beta'")
+    expect(sql95).toContain('ALTER TABLE public.feature_access')
+    expect(rollback).toContain('feature_access_feature_key_check')
+    expect(rollback).not.toContain("'agent-collaboration-private-beta'")
+  })
+
+  it('canonicalizes both sides of the private-beta email entitlement match', () => {
+    const helper = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_has_beta_access'),
+      sql95.indexOf('-- Authenticated browser RPC'),
+    )
+
+    expect(helper).toMatch(
+      /public\.normalize_email_canonical\(access\.email\)\s*=\s*public\.normalize_email_canonical\(account\.email\)/,
+    )
+    expect(helper).not.toContain('access.email = lower(trim(account.email))')
+  })
+
+  it('creates all seven separate provider-neutral tables', () => {
+    for (const table of agentTables) {
+      expect(sql95).toContain(`CREATE TABLE IF NOT EXISTS public.${table}`)
+    }
+    expect(sql95).not.toContain('ALTER TABLE public.teskeid_chat_')
+  })
+
+  it('uses spaces and composite tenant foreign keys throughout the graph', () => {
+    expect(sql95).toMatch(/space_id\s+uuid\s+NOT NULL REFERENCES public\.spaces\(id\)/)
+    expect(sql95.match(/FOREIGN KEY \(space_id, conversation_id\)/g)?.length).toBeGreaterThanOrEqual(5)
+    expect(sql95.match(/FOREIGN KEY \(space_id, conversation_id, connector_id\)/g)?.length).toBeGreaterThanOrEqual(3)
+    expect(sql95).toContain('FOREIGN KEY (space_id, conversation_id, user_message_id)')
+    expect(sql95).toContain('FOREIGN KEY (space_id, conversation_id, reply_message_id)')
+    expect(sql95).not.toContain('ON DELETE RESTRICT')
+  })
+
+  it('enables RLS and default-denies direct browser access on every table', () => {
+    for (const table of agentTables) {
+      expect(sql95).toContain(`ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY`)
+      expect(sql95).toContain(`REVOKE ALL ON public.${table} FROM PUBLIC, anon, authenticated`)
+      expect(sql95).toContain(`GRANT SELECT, INSERT, UPDATE, DELETE ON public.${table} TO service_role`)
+    }
+    expect(sql95).not.toMatch(/GRANT (?:SELECT|INSERT|UPDATE|DELETE|ALL).*teskeid_agent_.*TO (?:anon|authenticated)/)
+  })
+
+  it('stores only fixed-length pairing and connector HMAC hashes', () => {
+    expect(sql95).toMatch(/code_hash\s+text\s+NOT NULL/)
+    expect(sql95).toMatch(/token_hash\s+text\s+NOT NULL/)
+    expect(sql95).toContain("CHECK (code_hash ~ '^[0-9a-f]{64}$')")
+    expect(sql95).toContain("CHECK (token_hash ~ '^[0-9a-f]{64}$')")
+    expect(sql95).not.toMatch(/\b(?:raw_token|pairing_code|plain_token|secret_value)\b/)
+  })
+
+  it('binds pairing to provider, expiry and single-use state', () => {
+    const exchange = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_exchange_pairing'),
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_claim_run')
+    )
+    expect(exchange).toContain('pairing.provider_type = p_provider_type')
+    expect(exchange).toContain('pairing.consumed_at IS NULL')
+    expect(exchange).toContain('pairing.cancelled_at IS NULL')
+    expect(exchange).toContain('pairing.expires_at > now()')
+    expect(exchange).toContain('SET consumed_at = now()')
+  })
+
+  it('expires connector credentials and permits only one active connector per conversation', () => {
+    expect(sql95).toMatch(/token_expires_at\s+timestamptz\s+NOT NULL/)
+    expect(sql95).toContain("now() + interval '30 days'")
+    expect(sql95).toContain('teskeid_agent_connectors_one_active_idx')
+    expect(sql95).toMatch(/WHERE status = 'active'/)
+    expect(sql95.match(/connector\.token_expires_at > now\(\)/g)?.length).toBeGreaterThanOrEqual(4)
+    const bootstrap = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_bootstrap'),
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_get_summary')
+    )
+    expect(bootstrap).toContain("connector.status = 'active'")
+    expect(bootstrap).toContain('connector.token_expires_at > now()')
+    expect(bootstrap).toContain("'tokenExpiresAt', connector.token_expires_at")
+  })
+
+  it('enforces exact message and audit actor attribution', () => {
+    expect(sql95).toContain('teskeid_agent_messages_actor_exact_check')
+    expect(sql95).toContain("actor_type = 'user' AND actor_user_id IS NOT NULL AND connector_id IS NULL")
+    expect(sql95).toContain("actor_type = 'agent' AND actor_user_id IS NULL AND connector_id IS NOT NULL")
+    expect(sql95).toContain('teskeid_agent_audit_events_actor_exact_check')
+  })
+
+  it('keeps last_message_at monotonic across concurrent inserts', () => {
+    expect(sql95).toContain('coalesce(conversation.last_message_at, NEW.created_at)')
+    expect(sql95).toContain('NEW.created_at')
+  })
+
+  it('locks phase one to read_only_reply without an approval/action table', () => {
+    expect(sql95.match(/CHECK \(policy = 'read_only_reply'\)/g)?.length).toBeGreaterThanOrEqual(3)
+    expect(sql95).not.toMatch(/CREATE TABLE.*(?:approval|action|command)/i)
+    expect(sql95).toContain('Ordinary chat')
+  })
+})
+
+describe('sql/95_teskeid_agent_collaboration.sql — RPC and queue invariants', () => {
+  const authenticatedFunctions = [
+    'teskeid_agent_bootstrap()',
+    'teskeid_agent_get_summary()',
+    'teskeid_agent_list_messages(uuid, timestamptz, uuid, integer)',
+    'teskeid_agent_send_message(uuid, text, uuid, text)',
+    'teskeid_agent_mark_read(uuid, uuid)',
+    'teskeid_agent_create_pairing(uuid, text, timestamptz, text, text)',
+    'teskeid_agent_revoke_connector(uuid)',
+  ]
+
+  const serviceFunctions = [
+    'teskeid_agent_exchange_pairing(text, text, text)',
+    'teskeid_agent_claim_run(text, uuid, integer)',
+    'teskeid_agent_heartbeat_run(text, uuid, uuid, uuid, integer)',
+    'teskeid_agent_complete_run(text, uuid, uuid, uuid, text, uuid, text, text)',
+    'teskeid_agent_fail_run(text, uuid, uuid, uuid, text, text, boolean)',
+  ]
+
+  it('uses SECURITY DEFINER with an empty search path for every RPC and trigger helper', () => {
+    const definitions = sql95.match(/CREATE OR REPLACE FUNCTION public\.teskeid_agent_[\s\S]*?\$\$;/g) ?? []
+    expect(definitions.length).toBeGreaterThanOrEqual(13)
+    for (const definition of definitions) {
+      expect(definition).toContain('SECURITY DEFINER')
+      expect(definition).toContain("SET search_path = ''")
+    }
+  })
+
+  it('grants only the user-scoped RPCs to authenticated', () => {
+    for (const signature of authenticatedFunctions) {
+      expect(sql95).toContain(`GRANT EXECUTE ON FUNCTION public.${signature} TO authenticated`)
+    }
+    for (const signature of serviceFunctions) {
+      expect(sql95).toContain(`REVOKE ALL ON FUNCTION public.${signature}`)
+      expect(sql95).toContain(`GRANT EXECUTE ON FUNCTION public.${signature} TO service_role`)
+      const grantToAuthenticated = new RegExp(
+        `GRANT EXECUTE ON FUNCTION public\\.${signature.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} TO authenticated`
+      )
+      expect(sql95).not.toMatch(grantToAuthenticated)
+    }
+    expect(sql95).toContain(
+      'REVOKE ALL ON FUNCTION public.teskeid_agent_has_beta_access(uuid, timestamptz)',
+    )
+    expect(sql95).not.toContain(
+      'GRANT EXECUTE ON FUNCTION public.teskeid_agent_has_beta_access(uuid, timestamptz) TO authenticated',
+    )
+  })
+
+  it('requires private-beta entitlement inside every browser RPC', () => {
+    const functionNames = [
+      'bootstrap',
+      'get_summary',
+      'list_messages',
+      'send_message',
+      'mark_read',
+      'create_pairing',
+      'revoke_connector',
+    ]
+    const allFunctionStarts = [...sql95.matchAll(/CREATE OR REPLACE FUNCTION public\.teskeid_agent_/g)]
+      .map((match) => match.index ?? 0)
+
+    for (const name of functionNames) {
+      const start = sql95.indexOf(`CREATE OR REPLACE FUNCTION public.teskeid_agent_${name}`)
+      const end = allFunctionStarts.find((index) => index > start) ?? sql95.length
+      expect(sql95.slice(start, end)).toContain(
+        'public.teskeid_agent_has_beta_access(v_actor_id)',
+      )
+    }
+  })
+
+  it('invalidates pairings and connector tokens when access is revoked or re-granted', () => {
+    const helper = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_has_beta_access'),
+      sql95.indexOf('-- Authenticated browser RPC'),
+    )
+    expect(helper).toContain('access.granted_at <= p_credential_created_at')
+    expect(sql95.match(/teskeid_agent_has_beta_access\(pairing\.created_by, pairing\.created_at\)/g))
+      .toHaveLength(2)
+    expect(sql95.match(/teskeid_agent_has_beta_access\(connector\.created_by, connector\.created_at\)/g)?.length)
+      .toBeGreaterThanOrEqual(5)
+  })
+
+  it('derives browser identity from auth.uid and verifies membership or owner role', () => {
+    expect(sql95.match(/v_actor_id uuid := auth\.uid\(\)/g)?.length).toBeGreaterThanOrEqual(7)
+    expect(sql95.match(/JOIN public\.space_members AS membership/g)?.length).toBeGreaterThanOrEqual(7)
+    expect(sql95.match(/membership\.role = 'owner'/g)?.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('returns the locked message DTO and paginates by created_at plus id', () => {
+    expect(sql95).toContain('"conversationId" uuid')
+    expect(sql95).toContain('"actorType" text')
+    expect(sql95).toContain('"authorName" text')
+    expect(sql95).toContain('"createdAt" timestamptz')
+    expect(sql95).toContain('(message.created_at, message.id) < (v_before_created_at, p_before_id)')
+    expect(sql95).toContain('ORDER BY message.created_at DESC, message.id DESC')
+    expect(sql95).toContain('Timestamp-only pagination')
+  })
+
+  it('bootstraps only the latest bounded, tenant-scoped run state', () => {
+    const bootstrap = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_bootstrap'),
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_get_summary')
+    )
+    const latestRunQuery = bootstrap.slice(
+      bootstrap.indexOf('-- One bounded, presentation-safe status object'),
+      bootstrap.indexOf('LIMIT 1;', bootstrap.indexOf('-- One bounded, presentation-safe status object')) + 'LIMIT 1;'.length
+    )
+
+    expect(latestRunQuery).toContain('run.space_id = v_space_id')
+    expect(latestRunQuery).toContain('run.conversation_id = v_conversation.id')
+    expect(latestRunQuery).toContain('ORDER BY run.created_at DESC, run.id DESC')
+    expect(latestRunQuery).toContain("run.lease_expires_at > now() THEN 'working'")
+    expect(latestRunQuery).toContain('run.lease_expires_at <= now()')
+    expect(latestRunQuery).toContain('run.attempt_count >= 3')
+    expect(latestRunQuery).toContain("'failureCategory', 'lease_expired'")
+    expect(latestRunQuery).toContain("WHEN 'completed' THEN 'completed'")
+    expect(latestRunQuery).toContain("'failureCategory', run.failure_category")
+    expect(latestRunQuery).not.toMatch(/run\.(?:user_message_id|lease_id|lease_owner_id)/)
+    expect(latestRunQuery).not.toMatch(/run\.(?:prompt|body|path|details)/i)
+    expect(latestRunQuery).not.toMatch(/\b(?:UPDATE|INSERT|DELETE)\b/)
+    expect(bootstrap).toContain("'latestRun', v_latest_run")
+  })
+
+  it('makes user sends idempotent before both rate and queue limits', () => {
+    const send = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_send_message'),
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_mark_read')
+    )
+    const idempotentReturn = send.indexOf('IF v_existing_message.id IS NOT NULL THEN')
+    const rateLimit = send.indexOf('agent_rate_limited')
+    const queueLimit = send.indexOf('agent_run_backlog_full')
+    expect(idempotentReturn).toBeGreaterThan(-1)
+    expect(rateLimit).toBeGreaterThan(idempotentReturn)
+    expect(queueLimit).toBeGreaterThan(rateLimit)
+    expect(send).toContain("message.created_at >= now() - interval '10 minutes'")
+    expect(send).toContain('v_recent_send_count >= 30')
+    expect(send).toContain("ERRCODE = 'P0001'")
+    expect(send).toContain("MESSAGE = 'agent_rate_limited'")
+    expect(send).toContain('v_outstanding_count >= 20')
+  })
+
+  it('has message/run idempotency uniqueness and bounded body/attempt checks', () => {
+    expect(sql95).toContain('teskeid_agent_messages_client_id_unique_idx')
+    expect(sql95).toContain('teskeid_agent_messages_idempotency_unique_idx')
+    expect(sql95).toContain('teskeid_agent_runs_conversation_idempotency_unique')
+    expect(sql95).toContain('char_length(trim(body)) BETWEEN 1 AND 12000')
+    expect(sql95).toContain('CHECK (attempt_count BETWEEN 0 AND 3)')
+  })
+
+  it('uses fenced, expiring and conversation-serialized leases', () => {
+    expect(sql95).toMatch(/lease_id\s+uuid/)
+    expect(sql95).toMatch(/lease_owner_id\s+uuid/)
+    expect(sql95).toMatch(/lease_expires_at\s+timestamptz/)
+    expect(sql95).toContain('teskeid_agent_runs_one_lease_per_conversation_idx')
+    expect(sql95.match(/(?:run|v_run)\.lease_id\s*(?:=|<>)\s*p_lease_id/g)?.length).toBeGreaterThanOrEqual(4)
+    expect(sql95.match(/(?:run|v_run)\.lease_expires_at\s*(?:>|<=)\s*now\(\)/g)?.length).toBeGreaterThanOrEqual(5)
+    expect(sql95).toContain('FOR UPDATE SKIP LOCKED')
+  })
+
+  it('returns an existing live lease to make lost claim responses idempotent', () => {
+    const claim = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_claim_run'),
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_heartbeat_run')
+    )
+    expect(claim).toContain('Lost claim response')
+    expect(claim).toContain('run.lease_owner_id = p_lease_owner_id')
+    expect(claim).toContain("run.status = 'leased'")
+    expect(claim).toContain("'priorAgentSessionId', v_connector.agent_session_id")
+  })
+
+  it('makes completion replay exact before lease-expiry rejection', () => {
+    const complete = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_complete_run'),
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_fail_run')
+    )
+    const replay = complete.indexOf("IF v_run.status = 'completed' THEN")
+    const expiry = complete.indexOf('v_run.lease_expires_at <= now()')
+    expect(replay).toBeGreaterThan(-1)
+    expect(expiry).toBeGreaterThan(replay)
+    expect(complete).toContain('v_run.completion_idempotency_key = p_idempotency_key')
+    expect(complete).toContain('v_run.completion_client_id = p_client_message_id')
+    expect(complete).toContain('v_message.body = trim(p_reply_body)')
+    expect(complete).toContain('completion_agent_session_id = p_agent_session_id')
+  })
+
+  it('records failure idempotency and caps retry attempts', () => {
+    const fail = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_fail_run'),
+      sql95.indexOf('-- RPC grants')
+    )
+    expect(fail).toContain('p_failure_idempotency_key text')
+    expect(fail).toContain('v_run.last_failure_idempotency_key = p_failure_idempotency_key')
+    expect(fail).toContain('v_run.last_failure_lease_id = p_lease_id')
+    expect(fail).toContain('v_run.last_failure_lease_owner_id = p_lease_owner_id')
+    expect(fail).toContain('v_run.attempt_count < 3')
+    expect(fail).toContain("THEN 'queued'")
+    expect(fail).toContain("ELSE 'failed'")
+  })
+
+  it('refreshes connector presence from a successfully fenced heartbeat', () => {
+    const heartbeat = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_heartbeat_run'),
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_complete_run')
+    )
+    expect(heartbeat).toContain('FOR UPDATE')
+    expect(heartbeat).toContain('run.lease_id = p_lease_id')
+    expect(heartbeat).toContain('SET last_seen_at = now()')
+  })
+
+  it('updates read cursors monotonically using an exact in-conversation message', () => {
+    const markRead = sql95.slice(
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_mark_read'),
+      sql95.indexOf('CREATE OR REPLACE FUNCTION public.teskeid_agent_create_pairing')
+    )
+    expect(markRead).toContain('message.id = p_last_read_message_id')
+    expect(markRead).toContain('ON CONFLICT (space_id, conversation_id, user_id) DO UPDATE')
+    expect(markRead).toContain('EXCLUDED.last_read_at')
+    expect(markRead).toContain('EXCLUDED.last_read_message_id')
+  })
+
+  it('keeps audit details privacy-minimal and never writes message bodies there', () => {
+    const auditInserts = sql95.match(/INSERT INTO public\.teskeid_agent_audit_events[\s\S]*?\);/g) ?? []
+    expect(auditInserts.length).toBeGreaterThanOrEqual(5)
+    for (const insert of auditInserts) {
+      expect(insert).not.toMatch(/p_(?:body|reply_body|token_hash|code_hash)/)
+    }
+  })
+})

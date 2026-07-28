@@ -409,3 +409,48 @@ describe('feature-access API — weather-provider-vegagerdin key', () => {
     expect(res.status).toBe(400)
   })
 })
+
+// ── agent-collaboration-private-beta feature key ─────────────────────────────
+
+describe('feature-access API — agent collaboration private beta', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('accepts the exact private-beta feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ data: [], error: null })
+    const res = await GET(makeGetRequest('agent-collaboration-private-beta'))
+    expect(res.status).toBe(200)
+  })
+
+  it('grants the exact private-beta feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest(
+      { email: 'User@Example.com' },
+      'POST',
+      'agent-collaboration-private-beta',
+    ))
+    expect(res.status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith({
+      feature_key: 'agent-collaboration-private-beta',
+      email: 'user@example.com',
+    })
+  })
+
+  it('revokes the exact private-beta feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await DELETE(makeRequest(
+      { email: 'user@example.com' },
+      'DELETE',
+      'agent-collaboration-private-beta',
+    ))
+    expect(res.status).toBe(200)
+  })
+
+  it('rejects lookalike private-beta keys', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('agent_collaboration_private_beta'))
+    expect(res.status).toBe(400)
+  })
+})

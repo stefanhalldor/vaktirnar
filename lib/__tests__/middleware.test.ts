@@ -171,15 +171,71 @@ describe('middleware — feature flag takes priority over alias redirect', () =>
   })
 })
 
+describe('middleware — agent collaboration emergency switch', () => {
+  let savedAuthMvp: string | undefined
+  let savedAgentCollaboration: string | undefined
+
+  beforeEach(() => {
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    savedAgentCollaboration = process.env.AGENT_COLLABORATION_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+    process.env.AGENT_COLLABORATION_ENABLED = 'false'
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  afterEach(() => {
+    if (savedAuthMvp === undefined) delete process.env.AUTH_MVP_ENABLED
+    else process.env.AUTH_MVP_ENABLED = savedAuthMvp
+    if (savedAgentCollaboration === undefined) delete process.env.AGENT_COLLABORATION_ENABLED
+    else process.env.AGENT_COLLABORATION_ENABLED = savedAgentCollaboration
+  })
+
+  it('hides the UI and browser API before session work when disabled', async () => {
+    const page = await middleware(makeReq('/auth-mvp/samvinna'))
+    expect(page.status).toBe(307)
+    expect(redirectedTo(page)).toBe('/')
+
+    const api = await middleware(makeReq('/api/auth-mvp/agent-collaboration/bootstrap'))
+    expect(api.status).toBe(404)
+    expect(api.headers.get('cache-control')).toBe('private, no-store')
+    expect(await api.json()).toEqual({ error: 'not_found' })
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+
+  it('blocks every exact bearer bridge path before session work when disabled', async () => {
+    for (const action of ['pair', 'claim', 'heartbeat', 'complete', 'fail']) {
+      const response = await middleware(makeReq(`/api/agent-bridge/v1/${action}`))
+      expect(response.status).toBe(404)
+      expect(response.headers.get('cache-control')).toBe('private, no-store')
+    }
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+
+  it('accepts only exact lowercase true and keeps sibling routes out of the gate', async () => {
+    process.env.AGENT_COLLABORATION_ENABLED = 'TRUE'
+    expect((await middleware(makeReq('/api/agent-bridge/v1/claim'))).status).toBe(404)
+
+    const sibling = await middleware(makeReq('/api/agent-bridge/v1-extra/claim'))
+    expect(sibling.status).toBe(401)
+
+    process.env.AGENT_COLLABORATION_ENABLED = 'true'
+    expect((await middleware(makeReq('/api/agent-bridge/v1/claim'))).status).toBe(200)
+  })
+})
+
 // ── Private Krakkavaktin route → /login ────────────────────────────────────
 
 describe('middleware — unauthenticated private route', () => {
   let savedLegacy: string | undefined
+  let savedAgentCollaboration: string | undefined
 
   beforeEach(() => {
     savedLegacy = process.env.LEGACY_ENABLED
+    savedAgentCollaboration = process.env.AGENT_COLLABORATION_ENABLED
     // Must enable legacy so /home passes the legacy block and hits the auth check
     process.env.LEGACY_ENABLED = 'true'
+    process.env.AGENT_COLLABORATION_ENABLED = 'true'
     vi.clearAllMocks()
     mockGetUser.mockResolvedValue({ data: { user: null } })
   })
@@ -187,6 +243,8 @@ describe('middleware — unauthenticated private route', () => {
   afterEach(() => {
     if (savedLegacy !== undefined) process.env.LEGACY_ENABLED = savedLegacy
     else delete process.env.LEGACY_ENABLED
+    if (savedAgentCollaboration !== undefined) process.env.AGENT_COLLABORATION_ENABLED = savedAgentCollaboration
+    else delete process.env.AGENT_COLLABORATION_ENABLED
   })
 
   it('unauthenticated request to /home → /login (not /innskraning)', async () => {
@@ -210,6 +268,14 @@ describe('middleware — unauthenticated private route', () => {
   it('keeps place-search subpaths private', async () => {
     const res = await middleware(makeReq('/api/place/search/private?q=reykjavik'))
     expect(res.status).toBe(401)
+  })
+
+  it('opens only the exact bearer-auth agent bridge routes', async () => {
+    for (const action of ['pair', 'claim', 'heartbeat', 'complete', 'fail']) {
+      expect((await middleware(makeReq(`/api/agent-bridge/v1/${action}`))).status).toBe(200)
+    }
+    expect((await middleware(makeReq('/api/agent-bridge/v1/claim/private'))).status).toBe(401)
+    expect((await middleware(makeReq('/api/agent-bridge/v1-extra/claim'))).status).toBe(401)
   })
 
   it('allows only the exact current-location label API through', async () => {

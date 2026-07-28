@@ -5,6 +5,7 @@ export const VEDURPULS_TRANSPORT: ScopedChatTransport = {
   async loadMessages(threadId, opts) {
     const params = new URLSearchParams({ threadId, limit: String(opts?.limit ?? 10) })
     if (opts?.before) params.set('before', opts.before)
+    if (opts?.beforeId) params.set('beforeId', opts.beforeId)
     const res = await fetch(`/api/auth-mvp/vedurpuls/messages?${params}`)
     if (!res.ok) throw new Error('load failed')
     return res.json()

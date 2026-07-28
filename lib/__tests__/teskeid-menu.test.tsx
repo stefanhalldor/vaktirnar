@@ -16,9 +16,10 @@ import React from 'react'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const { mockPathname, mockPush } = vi.hoisted(() => ({
+const { mockPathname, mockPush, mockFetch } = vi.hoisted(() => ({
   mockPathname: vi.fn().mockReturnValue('/'),
   mockPush: vi.fn(),
+  mockFetch: vi.fn(),
 }))
 vi.mock('next/navigation', () => ({
   usePathname: mockPathname,
@@ -38,6 +39,8 @@ vi.mock('next-intl', () => ({
         profile: 'Minn prófíll',
         loans: 'Lánað og skilað',
         teskeidar: 'Teskeiðar',
+        agentCollaboration: 'Samvinna',
+        agentUnread: 'Ólesin skilaboð',
         signOut: 'Útskrá',
       },
     }
@@ -65,10 +68,17 @@ vi.mock('next/link', () => ({
 
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 
+vi.stubGlobal('fetch', mockFetch)
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockPathname.mockReturnValue('/')
   mockGetSession.mockResolvedValue({ data: { session: null } })
+  mockFetch.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ unreadCount: 0 }),
+  })
 })
 
 // ── Button label ──────────────────────────────────────────────────────────────
@@ -126,11 +136,31 @@ describe('TeskeidMenu — public variant items', () => {
 // ── Authenticated items ───────────────────────────────────────────────────────
 
 describe('TeskeidMenu — authenticated variant items', () => {
-  it('shows Teskeiðar and Minn prófíll when open', () => {
+  it('shows Teskeiðar, Samvinna and Minn prófíll when the summary confirms availability', async () => {
     render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button'))
     expect(screen.getByText('Teskeiðar')).toBeDefined()
+    expect(await screen.findByText('Samvinna')).toBeDefined()
     expect(screen.getByText('Minn prófíll')).toBeDefined()
+  })
+
+  it('hides Samvinna when the fail-closed summary endpoint returns 404', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) })
+    render(<TeskeidMenu variant="authenticated" />)
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.queryByText('Samvinna')).toBeNull()
+  })
+
+  it('shows an unread notification on the closed menu button', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ unreadCount: 3 }),
+    })
+    render(<TeskeidMenu variant="authenticated" />)
+    expect(await screen.findByTestId('agent-unread-indicator')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Valmynd.*ólesin skilaboð/i })).toBeInTheDocument()
   })
 
   it('does not show a separate Heim item', () => {
@@ -139,10 +169,12 @@ describe('TeskeidMenu — authenticated variant items', () => {
     expect(screen.queryByText('Heim')).toBeNull()
   })
 
-  it('links point to correct hrefs', () => {
+  it('links point to correct hrefs', async () => {
     const { container } = render(<TeskeidMenu variant="authenticated" />)
     fireEvent.click(screen.getByRole('button'))
+    await screen.findByText('Samvinna')
     expect(container.querySelector('a[href="/auth-mvp/heim"]')).not.toBeNull()
+    expect(container.querySelector('a[href="/auth-mvp/samvinna"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/minn-profill"]')).not.toBeNull()
   })
 
@@ -251,6 +283,15 @@ describe('TeskeidMenu — active state', () => {
     const link = container.querySelector('a[href="/auth-mvp/heim"]')
     expect(link?.className).not.toContain('bg-[#2d5a27]')
   })
+
+  it('marks Samvinna as active on /auth-mvp/samvinna', async () => {
+    mockPathname.mockReturnValue('/auth-mvp/samvinna')
+    const { container } = render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button'))
+    await screen.findByText('Samvinna')
+    const link = container.querySelector('a[href="/auth-mvp/samvinna"]')
+    expect(link?.className).toContain('bg-[#2d5a27]')
+  })
 })
 
 // ── Sign out ──────────────────────────────────────────────────────────────────
@@ -307,5 +348,6 @@ describe('TeskeidMenu — user email', () => {
   it('does not fetch session in public variant', () => {
     render(<TeskeidMenu variant="public" />)
     expect(mockGetSession).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 })

@@ -46,7 +46,7 @@ export function ChatMessageRow({ msg, deletedLabel, kindLabels, targetName, loca
       {isRedacted ? (
         <span className="text-xs text-muted-foreground italic">{deletedLabel}</span>
       ) : (
-        <span className="text-xs break-words">{msg.body}</span>
+        <span className="whitespace-pre-wrap break-words text-xs">{msg.body}</span>
       )}
     </div>
   )

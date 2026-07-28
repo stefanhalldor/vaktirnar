@@ -1,0 +1,15 @@
+{
+  "name": "@teskeid/agent-runner-reference",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "teskeid-agent-runner": "./bin/teskeid-agent-runner.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/bridge-client.test.mjs test/codex-adapter.test.mjs test/runner.test.mjs"
+  }
+}
