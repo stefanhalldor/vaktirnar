@@ -55,6 +55,48 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain('aria-hidden="true"')
   })
 
+  it('moves explicitly from planning into the current driving view and back', () => {
+    const startHandlerStart = source.indexOf('function handleStartDrivingWithTeskeid()')
+    const startHandlerEnd = source.indexOf('\n  function handlePlanRoute()', startHandlerStart)
+    const startHandler = source.slice(startHandlerStart, startHandlerEnd)
+
+    expect(startHandlerStart).toBeGreaterThan(-1)
+    expect(startHandlerEnd).toBeGreaterThan(startHandlerStart)
+    expect(startHandler).toContain('handleSelectRouteNow()')
+    expect(startHandler).toContain("openRouteContext('map')")
+    expect(startHandler).toContain('startRouteLiveLocation()')
+    expect(source).toContain("t('roadMapPrototypeStartDriving')")
+    expect(source).toContain("t('roadMapPrototypeStartDrivingPrivacy')")
+    expect(source).toContain("onClick={handleStartDrivingWithTeskeid}")
+    expect(source).toContain("onClick={() => persistRouteReturnSnapshot('map')}")
+    expect(source).toContain("t('roadMapPrototypeDrivingNow')")
+    expect(source).toContain('onClick={handlePlanRoute}')
+    expect(source).toContain("t('roadMapPrototypePlanRoute')")
+    const planHandlerStart = source.indexOf('function handlePlanRoute()')
+    const planHandlerEnd = source.indexOf('\n  useEffect(() => {', planHandlerStart)
+    const planHandler = source.slice(planHandlerStart, planHandlerEnd)
+    expect(planHandlerStart).toBeGreaterThan(-1)
+    expect(planHandlerEnd).toBeGreaterThan(planHandlerStart)
+    expect(planHandler).toContain('stopRouteLiveLocation()')
+    expect(planHandler).toContain("openRouteContext('information')")
+    expect(messagesIs).toContain(
+      '"roadMapPrototypeStartDriving": "Keyra af stað með Teskeiðinni"',
+    )
+    expect(messagesEn).toContain(
+      '"roadMapPrototypeStartDriving": "Start driving with Teskeið"',
+    )
+    expect(messagesIs).toContain(
+      '"roadMapPrototypeStartDrivingPrivacy": "Kortið biður um staðsetningu til að elta þig. Hún er ekki vistuð."',
+    )
+    expect(messagesEn).toContain(
+      '"roadMapPrototypeStartDrivingPrivacy": "The map asks for your location to follow you. It is not stored."',
+    )
+    expect(messagesIs).toContain('"roadMapPrototypeDrivingNow": "Á ferðinni núna"')
+    expect(messagesEn).toContain('"roadMapPrototypeDrivingNow": "On the road now"')
+    expect(messagesIs).toContain('"roadMapPrototypePlanRoute": "Skipuleggja"')
+    expect(messagesEn).toContain('"roadMapPrototypePlanRoute": "Plan"')
+  })
+
   it('separates user camera gestures from programmatic following and offers recenter', () => {
     expect(source).toContain("map.on('dragstart', leaveFollowForUserGesture)")
     expect(source).toContain("map.on('zoomstart', leaveFollowForUserGesture)")

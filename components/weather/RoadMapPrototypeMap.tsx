@@ -4653,11 +4653,8 @@ export function RoadMapPrototypeMap({
     if (decision.moveCamera) moveRouteLiveLocationCamera()
   }
 
-  function handleToggleRouteLiveLocation() {
-    if (routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active') {
-      stopRouteLiveLocation()
-      return
-    }
+  function startRouteLiveLocation() {
+    if (routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active') return
     if (
       !isAuthenticated ||
       !routeActiveRef.current ||
@@ -4707,6 +4704,14 @@ export function RoadMapPrototypeMap({
     } else {
       routeLiveLocationStopRef.current = stop
     }
+  }
+
+  function handleToggleRouteLiveLocation() {
+    if (routeLiveLocationStatus === 'waiting' || routeLiveLocationStatus === 'active') {
+      stopRouteLiveLocation()
+      return
+    }
+    startRouteLiveLocation()
   }
 
   function reconcilePlaceMarkerVisibility() {
@@ -8496,6 +8501,17 @@ export function RoadMapPrototypeMap({
     }
   }
 
+  function handleStartDrivingWithTeskeid() {
+    handleSelectRouteNow()
+    openRouteContext('map')
+    startRouteLiveLocation()
+  }
+
+  function handlePlanRoute() {
+    stopRouteLiveLocation()
+    openRouteContext('information')
+  }
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const requestedContext = params.get('context')
@@ -9578,6 +9594,31 @@ export function RoadMapPrototypeMap({
           )}
         </div>
 
+        {routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult && (
+          <div className="shrink-0 border-t border-border/70 bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+            {isAuthenticated ? (
+              <button
+                type="button"
+                onClick={handleStartDrivingWithTeskeid}
+                className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                {t('roadMapPrototypeStartDriving')}
+              </button>
+            ) : (
+              <a
+                href={`/innskraning?next=${encodeURIComponent(buildRoadMapLiveLocationSignInReturnHref(navigation))}`}
+                onClick={() => persistRouteReturnSnapshot('map')}
+                className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2 text-center text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                {t('roadMapPrototypeStartDriving')}
+              </a>
+            )}
+            <p className="mt-1.5 text-center text-[10px] leading-snug text-muted-foreground">
+              {t('roadMapPrototypeStartDrivingPrivacy')}
+            </p>
+          </div>
+        )}
+
       </div>
 
       {routeComparisonFullscreen && routeBridgeSummary && routeComparisonItems.length >= 1 && (
@@ -9630,7 +9671,7 @@ export function RoadMapPrototypeMap({
       {/* Bottom strip — overview source selector or route departure scrubber. */}
       <div
         data-weather-card-obstacle="true"
-        className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-5 ${
+        className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-[max(1.25rem,env(safe-area-inset-bottom))] ${
           isPanelOpen || (lastMapContext === 'weather' && isWeatherChaseOpen) ? 'hidden' : ''
         }`}
       >
@@ -9660,35 +9701,16 @@ export function RoadMapPrototypeMap({
                         : WIND_STATUS_MARKER_COLOR.no_data,
                     }}
                   />
-                  {t('vegagerdinProviderLabel')}
+                  {t('roadMapPrototypeDrivingNow')}
                 </span>
               </button>
 
               <button
                 type="button"
-                aria-pressed={routeWeatherMode === 'forecast'}
-                onClick={() => {
-                  if (effectiveSelectedCandidateIdx !== null) {
-                    handleSelectCandidateIdx(effectiveSelectedCandidateIdx)
-                  } else if (displayedRouteCandidates && displayedRouteCandidates.length > 0) {
-                    handleSelectCandidateIdx(0)
-                  } else {
-                    handleRouteDepartureForecastOptIn()
-                  }
-                }}
-                className={`min-h-10 rounded-full border px-3 py-1.5 text-left text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                  routeWeatherMode === 'forecast'
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-background/85 text-muted-foreground hover:text-foreground'
-                }`}
+                onClick={handlePlanRoute}
+                className="min-h-10 rounded-full border border-border bg-background/85 px-3 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <span className="font-semibold">
-                  {t('roadMapPrototypeMapDeparturePill', {
-                    time: selectedRouteCandidate
-                      ? formatKlTime(selectedRouteCandidate.departureIso)
-                      : t('roadMapPrototypeScrubberNow'),
-                  })}
-                </span>
+                <span className="font-semibold">{t('roadMapPrototypePlanRoute')}</span>
               </button>
 
             </div>
