@@ -10,7 +10,12 @@ import { deriveThreshold, resolveThresholds } from './thresholds'
 // Shared route-leg assessment seam. Ferðaveðrið and Ferðalagið both call
 // assessRouteLeg() — never duplicate route-leg assessment logic here or in
 // product-specific modules. See lib/weather/assessment.ts for the contract.
-import { assessRouteLeg, assessDrivingConditions, getForecastHoursNearEta } from './assessment'
+import {
+  assessRouteLeg,
+  assessDrivingConditions,
+  getForecastHoursNearEta,
+  routePointEtaFraction,
+} from './assessment'
 
 const CANDIDATE_INTERVAL_S = 30 * 60 // 30-minute intervals between candidate departures
 const NEXT_CAUTION_STEP_S = 3600 // 1-hour steps for next-caution scan
@@ -176,8 +181,14 @@ function buildRouteWeatherPoints(
       const { candidate, leg } = summaryInfo
       const depMs = new Date(candidate.departureIso).getTime()
       const durMs = new Date(candidate.arrivalIso).getTime() - depMs
-      // For return leg, point near origin (fraction≈0) is reached late in journey, not early
-      const etaFraction = leg === 'return' ? 1 - routeFraction : routeFraction
+      // Explicit elapsed time preserves the full-trip ETA when weather coverage
+      // begins/ends away from the exact selected endpoints.
+      const etaFraction = routePointEtaFraction(
+        pt,
+        totalDistanceM,
+        durMs / 1000,
+        leg,
+      )
       const etaMs = depMs + etaFraction * durMs
       const hrs = getForecastHoursNearEta(pt.hours, etaMs)
       if (hrs.length > 0) {
@@ -252,6 +263,9 @@ function buildRouteWeatherPoints(
       forecastLon: pt.forecastLon,
       distanceFromOriginM: pt.distanceFromOriginM,
       routeFraction,
+      ...(pt.elapsedFromTripOriginS !== undefined
+        ? { elapsedFromTripOriginS: pt.elapsedFromTripOriginS }
+        : {}),
       isOrigin: routeFraction < 0.02,
       isDestinationClosest: idx === total - 1,
       isHighlightedIssue,

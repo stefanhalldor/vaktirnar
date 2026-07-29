@@ -15,6 +15,7 @@ import {
   type FirstReadyDiscovery,
 } from '@/lib/iceland-routes/firstReadyDiscovery'
 import type { RouteOptionEnvelopeV1 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
+import type { RouteWeatherCoverage } from '@/lib/iceland-routes/trustedRouteCoverage'
 import type { RouteOption } from '@/lib/weather/provider.types'
 import type { DeterministicResult, ForecastDrawerRow, ResolvedTravelThresholds, TravelCandidate, WeatherStatus } from '@/lib/weather/types'
 import {
@@ -25,6 +26,10 @@ import {
 import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import { buildTravelBridgeMapData } from '@/lib/road-intelligence/travelBridgeMapData'
+import {
+  resolveLiveRouteMapPresentation,
+  shouldShowRouteEndpointMarker,
+} from '@/lib/road-intelligence/liveRouteMapPresentation'
 import {
   buildRouteWindArrowField,
   resolveWindTowardBearingDeg,
@@ -86,6 +91,10 @@ import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
 import { DriveJourneyPanel } from './DriveJourneyPanel'
+import {
+  formatRouteCoverageBoundaryLabel,
+  RouteNavigationHandoff,
+} from './RouteNavigationHandoff'
 import {
   RouteComparisonFullscreenMap,
   RouteComparisonMiniMap,
@@ -393,6 +402,9 @@ type RouteBridgeSummary = {
   vedurstofanStationCount: number
   vegagerdinStationCount: number
   slotStatusSource: RouteSlotStatusSource
+  origin: { lat: number; lon: number }
+  destination: { lat: number; lon: number }
+  weatherCoverage: RouteWeatherCoverage
 }
 
 type RouteSurfaceChoice = {
@@ -1375,6 +1387,7 @@ type RouteVegagerdinLabelMarker = {
 type RouteEndpointMarker = {
   marker: import('maplibre-gl').Marker
   element: HTMLDivElement
+  kind: 'origin' | 'destination' | 'coverage-start' | 'coverage-end'
 }
 
 type OverviewStationMarker = {
@@ -1567,6 +1580,7 @@ export function RoadMapPrototypeMap({
   const routeVegagerdinCacheStatusRef = useRef<VegagerdinRouteLayer['cacheStatus']>(null)
   const routeAuditPolylinePointsRef = useRef<Array<{ lat: number; lon: number }>>([])
   const routeEndpointMarkersRef = useRef<RouteEndpointMarker[]>([])
+  const routeEndpointMarkersAreCurrentRef = useRef(false)
   const routeLiveLocationMarkerRef = useRef<import('maplibre-gl').Marker | null>(null)
   const routeLiveLocationPuckDirectionRef = useRef<HTMLDivElement | null>(null)
   const routeLiveLocationPuckVisualAngleRef = useRef<number | null>(null)
@@ -1599,6 +1613,8 @@ export function RoadMapPrototypeMap({
   const routeLiveLocationFollowModeRef = useRef<LiveLocationFollowMode>('follow')
   const routeLiveLocationOrientationModeRef = useRef<LiveLocationOrientationMode>('heading-up')
   const routeLiveLocationFollowZoomRef = useRef(LIVE_LOCATION_FOLLOW_ZOOM_DEFAULT)
+  const routeLiveMapPresentationActiveRef = useRef(false)
+  const applyLiveRouteMapPresentationRef = useRef<(active: boolean) => void>(() => {})
   const overviewDensityFrameRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const showOverlayRef = useRef(hasRoadIntelligence)
@@ -2013,6 +2029,7 @@ export function RoadMapPrototypeMap({
     routeLiveLocationPointRef.current = null
     routeLiveLocationFollowModeRef.current = 'follow'
     routeLiveLocationOrientationModeRef.current = 'heading-up'
+    applyLiveRouteMapPresentationRef.current(false)
     if (resetState) {
       setRouteLiveLocationPoint(null)
       setRouteLiveLocationError(null)
@@ -3711,6 +3728,51 @@ export function RoadMapPrototypeMap({
     }
   }
 
+  function updateRouteEndpointMarkerVisibility() {
+    for (const { element, kind } of routeEndpointMarkersRef.current) {
+      const visible = shouldShowRouteEndpointMarker({
+        routeContextVisible: lastMapContextRef.current === 'route',
+        endpointMarkersCurrent: routeEndpointMarkersAreCurrentRef.current,
+        livePuckVisible: routeLiveLocationMarkerRef.current !== null,
+        kind,
+      })
+      element.style.display = visible ? '' : 'none'
+    }
+  }
+
+  function applyLiveRouteMapPresentation(active: boolean) {
+    routeLiveMapPresentationActiveRef.current = active
+    const map = mapRef.current
+    if (canUseMapStyle(map)) {
+      const routeVisible = lastMapContextRef.current === 'route' && hasRoadIntelligence
+      const presentation = resolveLiveRouteMapPresentation({
+        liveTrackingActive: active && routeVisible,
+        configuredVegagerdinRasterVisibility:
+          routeVisible && showOverlayRef.current ? 'visible' : 'none',
+        configuredRoadSegmentsVisibility:
+          routeVisible && showSegmentsRef.current ? 'visible' : 'none',
+      })
+      setRouteLayerLayoutVisibility(
+        map,
+        'vegagerdin-vegakerfi',
+        presentation.vegagerdinRasterVisibility === 'visible',
+      )
+      setRouteLayerLayoutVisibility(
+        map,
+        'road-segments',
+        presentation.roadSegmentsVisibility === 'visible',
+      )
+      if (map.getLayer('road-segments')) {
+        map.setFilter(
+          'road-segments',
+          presentation.roadSegmentsFilter as Parameters<typeof map.setFilter>[1],
+        )
+      }
+    }
+    updateRouteEndpointMarkerVisibility()
+  }
+  applyLiveRouteMapPresentationRef.current = applyLiveRouteMapPresentation
+
   function applyMapContextVisibility(context: 'weather' | 'route') {
     lastMapContextRef.current = context
     const map = mapRef.current
@@ -3722,6 +3784,7 @@ export function RoadMapPrototypeMap({
       setRouteLayerLayoutVisibility(map, 'carto-basemap', false)
       setRouteLayerLayoutVisibility(map, 'vegagerdin-vegakerfi', false)
       setRouteLayerLayoutVisibility(map, 'road-segments', false)
+      if (map.getLayer('road-segments')) map.setFilter('road-segments', null)
       setRouteLayerLayoutVisibility(map, 'travel-bridge-route', false)
       setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
       setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, false)
@@ -3752,24 +3815,13 @@ export function RoadMapPrototypeMap({
       element.style.display = 'none'
     }
     setRouteLayerLayoutVisibility(map, 'carto-basemap', true)
-    setRouteLayerLayoutVisibility(
-      map,
-      'vegagerdin-vegakerfi',
-      hasRoadIntelligence && showOverlayRef.current,
-    )
-    setRouteLayerLayoutVisibility(
-      map,
-      'road-segments',
-      hasRoadIntelligence && showSegmentsRef.current,
-    )
+    applyLiveRouteMapPresentation(routeLiveMapPresentationActiveRef.current)
     setRouteLayerLayoutVisibility(
       map,
       'travel-bridge-route',
       Boolean(routeBridgeSummary) || routeSurfaceChoices.length > 0,
     )
-    for (const { element } of routeEndpointMarkersRef.current) {
-      element.style.display = routeBridgeSummary ? '' : 'none'
-    }
+    updateRouteEndpointMarkerVisibility()
     updateRouteWeatherLayerVisibility(
       routeWeatherModeRef.current,
       visibleRouteStatusesRef.current,
@@ -4474,6 +4526,7 @@ export function RoadMapPrototypeMap({
   function clearRouteEndpointMarkers() {
     routeEndpointMarkersRef.current.forEach(({ marker }) => marker.remove())
     routeEndpointMarkersRef.current = []
+    routeEndpointMarkersAreCurrentRef.current = false
   }
 
   function updateViewportWindDirectionMarkers() {
@@ -4600,6 +4653,7 @@ export function RoadMapPrototypeMap({
         .addTo(map)
       routeLiveLocationMarkerRef.current = marker
       routeLiveLocationPuckDirectionRef.current = direction
+      updateRouteEndpointMarkerVisibility()
     } else {
       marker.setLngLat([point.lon, point.lat])
     }
@@ -4669,6 +4723,7 @@ export function RoadMapPrototypeMap({
     setRouteLiveLocationFollowMode('follow')
     setRouteLiveLocationStatus('waiting')
     setRouteLiveLocationError(null)
+    applyLiveRouteMapPresentation(true)
     attachRouteLiveLocationMapListeners()
     let failedSynchronously = false
     const stop = watchLiveLocation({
@@ -5869,10 +5924,17 @@ export function RoadMapPrototypeMap({
     })
   }
 
-  function createRouteEndpointLabelElement(label: string, kind: 'origin' | 'destination'): HTMLDivElement {
+  function createRouteEndpointLabelElement(
+    label: string,
+    kind: RouteEndpointMarker['kind'],
+  ): HTMLDivElement {
     const element = document.createElement('div')
     element.title = label
-    const accent = kind === 'origin' ? '#2563eb' : '#154212'
+    const accent = kind === 'origin'
+      ? '#2563eb'
+      : kind === 'destination'
+        ? '#154212'
+        : '#b45309'
     element.style.cssText = [
       'pointer-events:none',
       'position:relative',
@@ -5908,7 +5970,7 @@ export function RoadMapPrototypeMap({
       `color:${accent}`,
       'border-radius:999px',
       'box-shadow:0 1px 6px rgba(15,23,42,0.22)',
-      'font:800 12px/1.2 Inter,system-ui,sans-serif',
+      `font:800 ${kind.startsWith('coverage') ? '10px' : '12px'}/1.2 Inter,system-ui,sans-serif`,
       'max-width:160px',
       'overflow:hidden',
       'padding:4px 8px',
@@ -5926,6 +5988,7 @@ export function RoadMapPrototypeMap({
     destination: RoadIntelligencePlaceResult,
     originLabel = origin.name,
     destinationLabel = destination.name,
+    coverage?: RouteWeatherCoverage,
   ) {
     const map = mapRef.current
     const Marker = markerConstructorRef.current
@@ -5945,8 +6008,32 @@ export function RoadMapPrototypeMap({
       })
         .setLngLat([place.lon, place.lat])
         .addTo(map)
-      routeEndpointMarkersRef.current.push({ marker, element })
+      routeEndpointMarkersRef.current.push({ marker, element, kind })
     }
+
+    if (coverage?.status === 'partial') {
+      for (const [boundary, kind] of [
+        [coverage.start, 'coverage-start'],
+        [coverage.end, 'coverage-end'],
+      ] as const) {
+        if (boundary.kind === 'exact') continue
+        const boundaryName = formatRouteCoverageBoundaryLabel(boundary, {
+          boundaryFallback: t('roadMapPrototypeCoverageBoundaryFallback'),
+          settlementBoundary: t('roadMapPrototypeCoverageSettlementBoundary'),
+          officialRoadBoundary: t('roadMapPrototypeCoverageOfficialRoadBoundary'),
+        })
+        const label = kind === 'coverage-start'
+          ? t('roadMapPrototypeCoverageStartMarker', { place: boundaryName })
+          : t('roadMapPrototypeCoverageEndMarker', { place: boundaryName })
+        const element = createRouteEndpointLabelElement(label, kind)
+        const marker = new Marker({ element, anchor: 'center', offset: [0, 0] })
+          .setLngLat([boundary.point.lon, boundary.point.lat])
+          .addTo(map)
+        routeEndpointMarkersRef.current.push({ marker, element, kind })
+      }
+    }
+    routeEndpointMarkersAreCurrentRef.current = true
+    updateRouteEndpointMarkerVisibility()
   }
 
   function renderRouteWindArrows(
@@ -6911,14 +6998,20 @@ export function RoadMapPrototypeMap({
     if (signal.aborted) return
 
     const travelResult = data as DeterministicResult
+    const weatherCoverage = travelResult.travelPlan?.route.weatherCoverage ?? {
+      status: 'unavailable' as const,
+      reason: 'road_graph_unavailable' as const,
+    }
+    const hasAssessedWeatherCoverage =
+      weatherCoverage.status === 'full' || weatherCoverage.status === 'partial'
     const extra = data as Record<string, unknown>
     if (extra['roadIntelligenceDebug'] && typeof extra['roadIntelligenceDebug'] === 'object') {
       logRoadMapDiagnostic('route api debug payload', extra['roadIntelligenceDebug'] as Record<string, unknown>)
     }
-    const vedurstofanLayer = isVedurstofanTravelLayer(extra['vedurstofanLayer'])
+    const vedurstofanLayer = hasAssessedWeatherCoverage && isVedurstofanTravelLayer(extra['vedurstofanLayer'])
       ? extra['vedurstofanLayer']
       : undefined
-    const serverVegagerdinLayer = isVegagerdinRouteLayer(extra['vegagerdinLayer'])
+    const serverVegagerdinLayer = hasAssessedWeatherCoverage && isVegagerdinRouteLayer(extra['vegagerdinLayer'])
       ? extra['vegagerdinLayer']
       : undefined
     const mapData = renderTravelBridgeResult(travelResult, thresholds)
@@ -6933,12 +7026,14 @@ export function RoadMapPrototypeMap({
       routeDurationMinutes: mapData.durationMinutes,
     })
     const currentVegagerdinData =
-      serverVegagerdinLayer && serverVegagerdinLayer.points.length > 0
+      !hasAssessedWeatherCoverage || (serverVegagerdinLayer && serverVegagerdinLayer.points.length > 0)
         ? null
         : await fetchVegagerdinCurrentForRoute(signal)
     if (signal.aborted) return
     const vegagerdinLayer =
-      serverVegagerdinLayer && serverVegagerdinLayer.points.length > 0
+      !hasAssessedWeatherCoverage
+        ? undefined
+        : serverVegagerdinLayer && serverVegagerdinLayer.points.length > 0
         ? serverVegagerdinLayer
         : buildClientVegagerdinRouteLayer(
             travelResult,
@@ -6966,11 +7061,11 @@ export function RoadMapPrototypeMap({
       vegagerdinLayer?.measuredAtIso ??
       newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
     const nowWorstStatus = worstWindDisplayStatusFromCounts(nowStatusCounts) ?? 'no_data'
-    const providerStatus = hasUsableVegagerdinNow
+    const providerStatus = hasAssessedWeatherCoverage && hasUsableVegagerdinNow
       ? routeStatusFromCounts(nowStatusCounts)
       : travelResult.stada
     const providerAnswer =
-      hasUsableVegagerdinNow
+      hasAssessedWeatherCoverage && hasUsableVegagerdinNow
         ? providerRouteAnswer(providerStatus)
         : travelResult.svar
     const initialRouteCandidates = timelineCandidates && timelineCandidates.length > 0
@@ -6996,6 +7091,7 @@ export function RoadMapPrototypeMap({
       destination,
       routeFrom.trim() || origin.name,
       routeTo.trim() || destination.name,
+      weatherCoverage,
     )
 
     if (openComparisonOnSuccess) {
@@ -7018,6 +7114,9 @@ export function RoadMapPrototypeMap({
       vedurstofanStationCount: vedurstofanRender.count,
       vegagerdinStationCount: vegagerdinRender.count,
       slotStatusSource: slotSource,
+      origin: { lat: origin.lat, lon: origin.lon },
+      destination: { lat: destination.lat, lon: destination.lon },
+      weatherCoverage,
     })
     setRouteTravelResult(travelResult)
     setRouteVedurstofanLayer(vedurstofanLayer ?? null)
@@ -7085,6 +7184,7 @@ export function RoadMapPrototypeMap({
     setRouteBridgeStatus('loading')
     setRouteBridgeError(null)
     setRoutePlaceFallbackSuggestion(null)
+    clearRouteEndpointMarkers()
     setRouteBridgeSummary(null)
     setRouteTravelResult(null)
     setRouteVedurstofanLayer(null)
@@ -7572,7 +7672,9 @@ export function RoadMapPrototypeMap({
               source: 'vegagerdin-vegakerfi',
               layout: {
                 visibility:
-                  lastMapContextRef.current === 'route' && showOverlayRef.current
+                  lastMapContextRef.current === 'route'
+                    && showOverlayRef.current
+                    && !routeLiveMapPresentationActiveRef.current
                     ? 'visible'
                     : 'none',
               },
@@ -7690,6 +7792,19 @@ export function RoadMapPrototypeMap({
               ;(existingSrc as import('maplibre-gl').GeoJSONSource).setData(geojson as never)
               bringWeatherLayersToFront(map)
             } else {
+              const livePresentation = resolveLiveRouteMapPresentation({
+                liveTrackingActive:
+                  routeLiveMapPresentationActiveRef.current
+                  && lastMapContextRef.current === 'route',
+                configuredVegagerdinRasterVisibility:
+                  lastMapContextRef.current === 'route' && showOverlayRef.current
+                    ? 'visible'
+                    : 'none',
+                configuredRoadSegmentsVisibility:
+                  lastMapContextRef.current === 'route' && showSegmentsRef.current
+                    ? 'visible'
+                    : 'none',
+              })
               map.addSource('road-segments', { type: 'geojson', data: geojson as never })
               map.addLayer({
                 id: 'road-segments',
@@ -7698,11 +7813,11 @@ export function RoadMapPrototypeMap({
                 layout: {
                   'line-cap': 'round',
                   'line-join': 'round',
-                  visibility:
-                    lastMapContextRef.current === 'route' && showSegmentsRef.current
-                      ? 'visible'
-                      : 'none',
+                  visibility: livePresentation.roadSegmentsVisibility,
                 },
+                ...(livePresentation.roadSegmentsFilter
+                  ? { filter: livePresentation.roadSegmentsFilter as never }
+                  : {}),
                 paint: {
                   // Provider road-condition color, normalized by the same-origin API.
                   'line-color': DRIVE_MAP_SEGMENT_COLOR_EXPRESSION as unknown as string,
@@ -8238,10 +8353,12 @@ export function RoadMapPrototypeMap({
   }
 
   useEffect(() => {
+    const coverage = routeTravelResult?.travelPlan?.route.weatherCoverage
     if (
       !routeActive ||
       routeWeatherMode !== 'now' ||
       !routeTravelResult ||
+      (coverage?.status !== 'full' && coverage?.status !== 'partial') ||
       overviewVegagerdinRestricted
     ) {
       return
@@ -8418,6 +8535,40 @@ export function RoadMapPrototypeMap({
         ? t('vegagerdinFreshnessFresh')
         : null
   const hasUsableRouteNowMeasurements = countUsableWindStatuses(routeNowStatusCounts ?? {}) > 0
+  const routeWeatherCoverage = routeBridgeSummary?.weatherCoverage ?? null
+  const routeHasAssessedWeatherCoverage = routeWeatherCoverage?.status === 'full'
+    || routeWeatherCoverage?.status === 'partial'
+  const routeNavigationHandoffLabels = {
+    partialTitle: t('roadMapPrototypeCoveragePartialTitle'),
+    sameUrbanTitle: t('roadMapPrototypeCoverageSameUrban', {
+      place: routeWeatherCoverage?.status === 'same_urban_area'
+        ? routeWeatherCoverage.settlementName
+        : '',
+    }),
+    unavailableTitle: t('roadMapPrototypeCoverageUnavailable'),
+    coverageStart: t('roadMapPrototypeCoverageStart'),
+    coverageEnd: t('roadMapPrototypeCoverageEnd'),
+    boundaryFallback: t('roadMapPrototypeCoverageBoundaryFallback'),
+    settlementBoundary: t('roadMapPrototypeCoverageSettlementBoundary'),
+    officialRoadBoundary: t('roadMapPrototypeCoverageOfficialRoadBoundary'),
+    beforeCoverageAction: t('roadMapPrototypeCoverageGoogleFirst', {
+      distance: formatNum(
+        routeWeatherCoverage?.status === 'partial'
+          ? (routeWeatherCoverage.unassessedBeforeM ?? 0) / 1000
+          : 0,
+        locale,
+      ),
+    }),
+    afterCoverageAction: t('roadMapPrototypeCoverageGoogleLast', {
+      distance: formatNum(
+        routeWeatherCoverage?.status === 'partial'
+          ? (routeWeatherCoverage.unassessedAfterM ?? 0) / 1000
+          : 0,
+        locale,
+      ),
+    }),
+    fullTripAction: t('roadMapPrototypeCoverageGoogleWholeTrip'),
+  }
   const routeLiveLocationStatusLabel = routeLiveLocationStatus === 'waiting'
     ? t('roadMapPrototypeLiveLocationLoading')
     : routeLiveLocationStatus === 'active' && routeLiveLocationPoint
@@ -9337,7 +9488,7 @@ export function RoadMapPrototypeMap({
               <Pencil size={16} aria-hidden />
             </button>
           )}
-          {routeResultsDisplayState === 'summary' && routeBridgeSummary && (
+          {routeResultsDisplayState === 'summary' && routeBridgeSummary && routeHasAssessedWeatherCoverage && (
             <span
               className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
               style={{ backgroundColor: routeStatusColor(displayedRouteStatus) }}
@@ -9376,26 +9527,45 @@ export function RoadMapPrototypeMap({
                   </p>
                 )}
                 {renderRouteSurfaceChoices()}
+                {selectedRouteChoiceId === routeBridgeSummary.selectedRouteId && (
+                  <RouteNavigationHandoff
+                    coverage={routeBridgeSummary.weatherCoverage}
+                    origin={routeBridgeSummary.origin}
+                    destination={routeBridgeSummary.destination}
+                    labels={routeNavigationHandoffLabels}
+                    className="mt-3"
+                  />
+                )}
               </div>
-              <DriveJourneyPanel
-                layer={routeVedurstofanLayer}
-                candidates={displayedRouteCandidates ?? []}
-                selectedCandidateIdx={effectiveSelectedCandidateIdx}
-                onSelectCandidateIdx={handleSelectCandidateIdx}
-                slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
-                thresholds={routeBridgeSummary.thresholdsUsed}
-                durationMinutes={routeBridgeSummary.durationMinutes}
-                distanceKm={routeBridgeSummary.distanceKm}
-                originName={routeBridgeSummary.fromName}
-                destinationName={routeBridgeSummary.toName}
-                onClearRoute={handleClearRoute}
-                routePoints={routeTravelResult?.travelPlan?.route.auditPolylinePoints ?? []}
-                hasMoreCandidates={hasMoreCandidates}
-                onLoadMore={() => setVisibleCandidateLimit(prev => prev + 24)}
-                onEnlargeMap={() => openRouteContext('map')}
-                stationReturnTo={routeReturnHref('information')}
-                routeSelectionContextKey={routeTravelResult?.id ?? 'none'}
-              />
+              {routeHasAssessedWeatherCoverage && (
+                <DriveJourneyPanel
+                  layer={routeVedurstofanLayer}
+                  candidates={displayedRouteCandidates ?? []}
+                  selectedCandidateIdx={effectiveSelectedCandidateIdx}
+                  onSelectCandidateIdx={handleSelectCandidateIdx}
+                  slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
+                  thresholds={routeBridgeSummary.thresholdsUsed}
+                  durationMinutes={routeBridgeSummary.durationMinutes}
+                  distanceKm={routeBridgeSummary.distanceKm}
+                  originName={
+                    routeBridgeSummary.weatherCoverage.status === 'partial'
+                      ? routeBridgeSummary.weatherCoverage.start.label || routeBridgeSummary.fromName
+                      : routeBridgeSummary.fromName
+                  }
+                  destinationName={
+                    routeBridgeSummary.weatherCoverage.status === 'partial'
+                      ? routeBridgeSummary.weatherCoverage.end.label || routeBridgeSummary.toName
+                      : routeBridgeSummary.toName
+                  }
+                  onClearRoute={handleClearRoute}
+                  routePoints={routeTravelResult?.travelPlan?.route.auditPolylinePoints ?? []}
+                  hasMoreCandidates={hasMoreCandidates}
+                  onLoadMore={() => setVisibleCandidateLimit(prev => prev + 24)}
+                  onEnlargeMap={() => openRouteContext('map')}
+                  stationReturnTo={routeReturnHref('information')}
+                  routeSelectionContextKey={routeTravelResult?.id ?? 'none'}
+                />
+              )}
             </>
           ) : routeResultsDisplayState === 'route-loading' && isRouteLoading && firstReadyRouteChoice ? (
             <>
@@ -9594,7 +9764,7 @@ export function RoadMapPrototypeMap({
           )}
         </div>
 
-        {routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult && (
+        {routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult && routeHasAssessedWeatherCoverage && (
           <div className="shrink-0 border-t border-border/70 bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
             {isAuthenticated ? (
               <button
@@ -9637,6 +9807,26 @@ export function RoadMapPrototypeMap({
           sortDistanceLabel={t('roadMapPrototypeRouteSortDistance')}
           sortWeatherLabel={t('roadMapPrototypeRouteSortWeather')}
           cautionCloseLabel={t('roadMapPrototypeRouteCautionClose')}
+          selectedRouteDetails={
+            selectedRouteChoiceId === routeBridgeSummary.selectedRouteId
+              ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-foreground">
+                      {t('roadMapPrototypeRouteSummaryPlaces', {
+                        from: routeBridgeSummary.fromName,
+                        to: routeBridgeSummary.toName,
+                      })}
+                    </p>
+                    <RouteNavigationHandoff
+                      coverage={routeBridgeSummary.weatherCoverage}
+                      origin={routeBridgeSummary.origin}
+                      destination={routeBridgeSummary.destination}
+                      labels={routeNavigationHandoffLabels}
+                    />
+                  </div>
+                )
+              : undefined
+          }
           alternativesStatus={teskeidAlternativesStatus}
           alternativesMessage={
             teskeidAlternativesStatus === 'loading'
@@ -9678,6 +9868,15 @@ export function RoadMapPrototypeMap({
         {routeBridgeStatus === 'loading' ? (
           <div className="px-3 py-3 text-xs text-muted-foreground">
             {t('roadMapPrototypeScrubberCalculatingHourly')}
+          </div>
+        ) : lastMapContext === 'route' && routeBridgeSummary && !routeHasAssessedWeatherCoverage ? (
+          <div className="px-3 py-2">
+            <RouteNavigationHandoff
+              coverage={routeBridgeSummary.weatherCoverage}
+              origin={routeBridgeSummary.origin}
+              destination={routeBridgeSummary.destination}
+              labels={routeNavigationHandoffLabels}
+            />
           </div>
         ) : lastMapContext === 'route' && routeBridgeSummary ? (
           <div className="px-3 pb-2 pt-2 space-y-1.5">

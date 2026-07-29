@@ -27,6 +27,9 @@ const { mockIsTeskeidRouteCandidateEnabled } = vi.hoisted(() => ({
   mockIsTeskeidRouteCandidateEnabled: vi.fn(),
 }))
 const { mockRecordRouteMemory } = vi.hoisted(() => ({ mockRecordRouteMemory: vi.fn() }))
+const { mockResolveTrustedRouteCoverage } = vi.hoisted(() => ({
+  mockResolveTrustedRouteCoverage: vi.fn(),
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -90,6 +93,10 @@ vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
 
 vi.mock('@/lib/iceland-routes/routeMemory.server', () => ({
   recordRouteMemory: mockRecordRouteMemory,
+}))
+
+vi.mock('@/lib/iceland-routes/trustedRouteCoverage.server', () => ({
+  resolveTrustedRouteCoverageFromRuntime: mockResolveTrustedRouteCoverage,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route'
@@ -162,15 +169,45 @@ beforeEach(() => {
   mockGetTeskeidRouteCandidateById.mockResolvedValue(null)
   mockIsTeskeidRouteCandidateEnabled.mockReturnValue(true)
   mockRecordRouteMemory.mockResolvedValue(undefined)
-
-  mockSampleRouteWeatherPoints.mockReturnValue({
-    weatherPoints: [{
-      lat: 64.09, lon: -21.93,
-      forecastLat: 64.09, forecastLon: -21.93,
-      routeIndex: 0, distanceFromOriginM: 0,
-    }],
-    diagnostics: { strategy: 'exhaustive', totalCells: 1, sampledCells: 1 },
+  mockResolveTrustedRouteCoverage.mockResolvedValue({
+    status: 'full',
+    start: {
+      kind: 'exact',
+      label: GARDABAER.name,
+      point: GARDABAER_POINT,
+      routeFraction: 0,
+      distanceFromTripOriginM: 0,
+      elapsedFromTripOriginS: 0,
+    },
+    end: {
+      kind: 'exact',
+      label: THORLAKSHOFN.name,
+      point: THORLAKSHOFN_POINT,
+      routeFraction: 1,
+      distanceFromTripOriginM: 56_000,
+      elapsedFromTripOriginS: 3_420,
+    },
+    coverageDistanceM: 56_000,
+    coverageDurationS: 3_420,
+    distanceConfidence: 'reference_route',
   })
+
+  mockSampleRouteWeatherPoints.mockImplementation((points, cumulativeDistances) => ({
+    weatherPoints: [{
+      lat: points[0].lat,
+      lon: points[0].lon,
+      forecastLat: points[0].lat,
+      forecastLon: points[0].lon,
+      routeIndex: 0,
+      distanceFromOriginM: cumulativeDistances[0],
+    }],
+    diagnostics: {
+      mode: 'all_unique_forecast_points',
+      rawRoutePointCount: points.length,
+      uniqueForecastPointCount: 1,
+      selectedWeatherPointCount: 1,
+    },
+  }))
 
   mockFetchForecast.mockResolvedValue([
     makeHour('2026-07-10T08:00:00Z'),
@@ -490,6 +527,108 @@ describe('POST /api/teskeid/weather/travel/route — signed first-ready route', 
   })
 })
 
+describe('POST /api/teskeid/weather/travel/route — trusted weather coverage', () => {
+  it('clips weather work to the confirmed section while preserving full-trip progress', async () => {
+    authedUser()
+    mockResolveTrustedRouteCoverage.mockResolvedValueOnce({
+      status: 'partial',
+      start: {
+        kind: 'settlement_gateway',
+        label: 'Garðabær',
+        point: { lat: 64.02975, lon: -21.78875 },
+        routeFraction: 0.25,
+        distanceFromTripOriginM: 14_000,
+        elapsedFromTripOriginS: 855,
+      },
+      end: {
+        kind: 'official_road_anchor',
+        label: 'Þorlákshafnarvegur',
+        point: { lat: 63.90925, lon: -21.50625 },
+        routeFraction: 0.75,
+        distanceFromTripOriginM: 42_000,
+        elapsedFromTripOriginS: 2_565,
+        roadNumber: '38',
+      },
+      coverageDistanceM: 28_000,
+      coverageDurationS: 1_710,
+      unassessedBeforeM: 14_000,
+      unassessedAfterM: 14_000,
+      distanceConfidence: 'reference_route',
+    })
+
+    const response = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.travelPlan.route.weatherCoverage).toMatchObject({
+      status: 'partial',
+      unassessedAfterM: 14_000,
+    })
+    expect(mockSampleRouteWeatherPoints).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ lat: expect.any(Number), lon: expect.any(Number) }),
+      ]),
+      expect.arrayContaining([expect.any(Number)]),
+    )
+    const sampledCumulative = mockSampleRouteWeatherPoints.mock.calls[0][1] as number[]
+    expect(sampledCumulative[0]).toBeGreaterThan(0)
+    expect(body.travelPlan.routeWeatherPoints[0].distanceFromOriginM).toBeCloseTo(14_000, -2)
+    expect(body.travelPlan.routeWeatherPoints[0].elapsedFromTripOriginS).toBeCloseTo(855, -1)
+    expect(body.travelPlan.routeWeatherPoints[0].isOrigin).toBe(false)
+    expect(body.travelPlan.routeWeatherPoints[0].isDestinationClosest).toBe(false)
+    expect(mockFetchForecast).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    {
+      coverage: {
+        status: 'same_urban_area',
+        settlementId: 'hagstofa:hella',
+        settlementName: 'Hella',
+      },
+      reasonCode: 'same_urban_area',
+    },
+    {
+      coverage: {
+        status: 'unavailable',
+        reason: 'reference_route_mismatch',
+      },
+      reasonCode: 'trusted_route_unavailable',
+    },
+  ])('returns the exact route without inventing weather for $coverage.status', async ({
+    coverage,
+    reasonCode,
+  }) => {
+    authedUser()
+    mockResolveTrustedRouteCoverage.mockResolvedValueOnce(coverage)
+
+    const response = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.reasonCode).toBe(reasonCode)
+    expect(body.travelPlan.route.weatherCoverage).toEqual(coverage)
+    expect(body.travelPlan.route.auditPolylinePoints).toEqual([
+      GARDABAER_POINT,
+      THORLAKSHOFN_POINT,
+    ])
+    expect(body.travelPlan.routeWeatherPoints).toEqual([])
+    expect(mockSampleRouteWeatherPoints).not.toHaveBeenCalled()
+    expect(mockFetchForecast).not.toHaveBeenCalled()
+    expect(mockMatchProviderPoints).not.toHaveBeenCalled()
+    expect(mockReadVegagerdinCurrent).not.toHaveBeenCalled()
+    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+  })
+})
+
 describe('POST /api/teskeid/weather/travel/route — curated route final-submit', () => {
   it('uses the shared Teskeið candidate without asking Google to match its id', async () => {
     authedUser()
@@ -756,6 +895,40 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
       windDisplayStatus: 'haettulegt',
       statusWindMs: 16,
     })
+  })
+
+  it('keeps Vegagerðin layer exceptions privacy-safe in diagnostics', async () => {
+    authedUser()
+    setupLayerEnabled()
+    setupStationMapping()
+    const privateFailureText = 'provider failed at https://example.invalid/?lat=64.09&token=secret'
+    mockReadVegagerdinCurrent.mockRejectedValue(new Error(privateFailureText))
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      const res = await POST(makeRequest({
+        origin: GARDABAER,
+        destination: THORLAKSHOFN,
+        trailerKind: 'none',
+      }))
+
+      expect(res.status).toBe(200)
+      const serializedLogs = JSON.stringify([
+        ...logSpy.mock.calls,
+        ...infoSpy.mock.calls,
+        ...errorSpy.mock.calls,
+      ])
+      expect(serializedLogs).toContain('layer_build_failed')
+      expect(serializedLogs).not.toContain(privateFailureText)
+      expect(serializedLogs).not.toContain('token=secret')
+      expect(serializedLogs).not.toContain('lat=64.09')
+    } finally {
+      logSpy.mockRestore()
+      infoSpy.mockRestore()
+      errorSpy.mockRestore()
+    }
   })
 
   it('baseline result is unchanged and has no vedurstofanStation when layer is enabled', async () => {

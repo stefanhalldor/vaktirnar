@@ -248,6 +248,35 @@ function rounded(value) {
   return Number(value.toFixed(6))
 }
 
+function roundedCanonicalGeometry(geometry) {
+  const polygons = polygonsFromGeometry(geometry)
+    .map(polygon => polygon
+      .map(ring => {
+        const points = ring
+          .filter(point => (
+            Array.isArray(point)
+            && point.length >= 2
+            && Number.isFinite(point[0])
+            && Number.isFinite(point[1])
+          ))
+          .map(point => [rounded(point[0]), rounded(point[1])])
+          .filter((point, index, values) => (
+            index === 0
+            || point[0] !== values[index - 1][0]
+            || point[1] !== values[index - 1][1]
+          ))
+        if (points.length < 3) return null
+        const first = points[0]
+        const last = points[points.length - 1]
+        if (first[0] !== last[0] || first[1] !== last[1]) points.push([...first])
+        return points.length >= 4 ? points : null
+      })
+      .filter(Boolean))
+    .filter(polygon => polygon.length > 0)
+  if (polygons.length === 0) throw new Error('canonical_geometry_empty')
+  return { type: 'MultiPolygon', coordinates: polygons }
+}
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))]
 }
@@ -402,11 +431,16 @@ function buildSettlement(input) {
     is50vIds,
     sourceUpdatedAt: is50vUpdatedAt ?? hagstofa?.validTo ?? null,
     searchTextNormalized,
+    // Retain the checked-in official settlement boundary so runtime route
+    // coverage can use real route crossings instead of town centroids or
+    // municipality guesses. Coordinates are rounded only after topology is
+    // assembled; representative-point validation below guards the snapshot.
+    geometry: roundedCanonicalGeometry(geometry),
   }
 }
 
 function validateSnapshot(snapshot) {
-  if (snapshot.schemaVersion !== 1) throw new Error('snapshot_schema_invalid')
+  if (snapshot.schemaVersion !== 2) throw new Error('snapshot_schema_invalid')
   if (snapshot.settlements.length < 80 || snapshot.settlements.length > 250) {
     throw new Error(`snapshot_settlement_count_${snapshot.settlements.length}`)
   }
@@ -438,6 +472,13 @@ function validateSnapshot(snapshot) {
     }
     if (place.lat < 63 || place.lat > 67 || place.lon < -25 || place.lon > -12) {
       throw new Error(`settlement_outside_iceland_${place.id}`)
+    }
+    if (
+      place.geometry?.type !== 'MultiPolygon'
+      || polygonsFromGeometry(place.geometry).length === 0
+      || !pointInGeometry([place.lon, place.lat], place.geometry)
+    ) {
+      throw new Error(`settlement_geometry_invalid_${place.id}`)
     }
   }
   if (is50vIds.size < 80) throw new Error(`is50v_match_count_${is50vIds.size}`)
@@ -557,7 +598,7 @@ async function main() {
 
   settlements.sort((a, b) => a.name.localeCompare(b.name, 'is') || a.id.localeCompare(b.id))
   const snapshot = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     sources: Object.fromEntries(Object.entries(SOURCES).map(([key, source]) => [key, {
       dataset: source.dataset,

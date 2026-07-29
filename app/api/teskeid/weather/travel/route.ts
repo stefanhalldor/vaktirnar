@@ -10,7 +10,12 @@ import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofan
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
-import type { HourPoint, TravelPointForecast, TravelThresholdOverrides } from '@/lib/weather/types'
+import type {
+  DeterministicResult,
+  HourPoint,
+  TravelPointForecast,
+  TravelThresholdOverrides,
+} from '@/lib/weather/types'
 import type { TrailerKind } from '@/lib/weather/question'
 import type { PlaceCandidate, RouteOption } from '@/lib/weather/provider.types'
 import { sampleRouteWeatherPoints } from '@/lib/weather/routeSampling'
@@ -43,6 +48,11 @@ import {
   toWeatherPlaceCandidate,
   type ConfirmedLocationInput,
 } from '@/lib/places/providerCandidate'
+import { resolveTrustedRouteCoverageFromRuntime } from '@/lib/iceland-routes/trustedRouteCoverage.server'
+import {
+  sliceRouteByFractions,
+  type RouteWeatherCoverage,
+} from '@/lib/iceland-routes/trustedRouteCoverage'
 
 const VALID_TRAILER_KINDS = new Set([
   'none', 'generic_trailer', 'tent_trailer', 'folding_camper', 'caravan', 'horse_trailer',
@@ -173,6 +183,65 @@ function validateThresholdOverrides(raw: unknown): TravelThresholdOverrides | un
   checkMs('cautionPrecipMmPerHour', 0, 100)
 
   return Object.keys(result).length > 0 ? result : undefined
+}
+
+function buildUnassessedRouteResult(input: {
+  originName: string
+  destinationName: string
+  distanceM: number
+  durationS: number
+  earliestDepartureAt?: string
+  routePolyline: Array<{ lat: number; lon: number }>
+  coverage: Extract<RouteWeatherCoverage, { status: 'same_urban_area' | 'unavailable' }>
+}): DeterministicResult {
+  const earliestDepartureIso = input.earliestDepartureAt ?? new Date().toISOString()
+  return {
+    id: `dr_scope_${Date.now()}`,
+    source: 'deterministic',
+    toolName: 'checkTravelWeather',
+    createdAt: new Date().toISOString(),
+    // This is an internal non-display value. Localized product copy is chosen
+    // from weatherCoverage in the client.
+    svar: '',
+    stada: 'gult',
+    reasonCode: input.coverage.status === 'same_urban_area'
+      ? 'same_urban_area'
+      : 'trusted_route_unavailable',
+    travelPlan: {
+      route: {
+        originName: input.originName,
+        destinationName: input.destinationName,
+        distanceKm: Math.round(input.distanceM / 1000),
+        durationMinutes: Math.round(input.durationS / 60),
+        auditPolylinePoints: input.routePolyline,
+        weatherCoverage: input.coverage,
+      },
+      outbound: {
+        earliestDepartureIso,
+        candidates: [],
+        badWindows: [],
+        windowMode: false,
+      },
+      routeWeatherPoints: [],
+    },
+  }
+}
+
+function withAbsoluteRouteProgress<T extends ProviderRoutePoint>(
+  matches: ProviderRouteMatch<T>[],
+  startFraction: number,
+  endFraction: number,
+  routeDistanceM: number,
+): ProviderRouteMatch<T>[] {
+  const span = Math.max(0, endFraction - startFraction)
+  return matches.map(match => {
+    const routeFraction = Math.max(0, Math.min(1, startFraction + match.routeFraction * span))
+    return {
+      ...match,
+      routeFraction,
+      distanceFromOriginM: Math.round(routeFraction * routeDistanceM),
+    }
+  })
 }
 
 
@@ -404,6 +473,22 @@ export async function POST(request: Request) {
     : null
   const routePolyline = routeGeometry.providerMatchingPoints ?? routeGeometry.points
 
+  const weatherCoverage = await resolveTrustedRouteCoverageFromRuntime({
+    origin: {
+      name: originCandidate.displayName,
+      lat: originCandidate.lat,
+      lon: originCandidate.lon,
+    },
+    destination: {
+      name: destCandidate.displayName,
+      lat: destCandidate.lat,
+      lon: destCandidate.lon,
+    },
+    referenceRoute: routePolyline,
+    routeDistanceM: routeGeometry.distanceM,
+    routeDurationS: routeGeometry.durationS,
+  })
+
   // Schedule shadow run via after() so it outlives the response flush in serverless.
   // No-op when TESKEID_ROUTING_SHADOW_ENABLED is not exactly 'true'.
   scheduleTeskeidShadowRun({
@@ -412,15 +497,80 @@ export async function POST(request: Request) {
     trailerKind: typeof trailerKind === 'string' ? trailerKind : null,
   })
 
+  if (weatherCoverage.status === 'same_urban_area' || weatherCoverage.status === 'unavailable') {
+    const unassessedResult = buildUnassessedRouteResult({
+      originName: originCandidate.displayName,
+      destinationName: destCandidate.displayName,
+      distanceM: routeGeometry.distanceM,
+      durationS: routeGeometry.durationS,
+      earliestDepartureAt,
+      routePolyline,
+      coverage: weatherCoverage,
+    })
+    await recordTeskeidUsageEvent({
+      userId,
+      featureKey: 'vedrid',
+      eventName: 'weather_final_forecast_completed',
+      path: '/api/teskeid/weather/travel',
+      metadata: {
+        actor,
+        ...hashMeta,
+        selectedRouteProvided: !!selectedRouteId,
+        selectedRouteMatched: !!selectedRouteId,
+        routeDistanceBucketKm: Math.floor(routeGeometry.distanceM / 1000 / 50) * 50,
+        routeDurationBucketMinutes: Math.floor(routeGeometry.durationS / 60 / 30) * 30,
+        resultStatus: unassessedResult.stada,
+        weatherCoverageStatus: weatherCoverage.status,
+      },
+    })
+    return NextResponse.json(unassessedResult)
+  }
+
+  const assessmentStartFraction = weatherCoverage.start.routeFraction
+  const assessmentEndFraction = weatherCoverage.end.routeFraction
+  const assessmentRoutePolyline = sliceRouteByFractions(
+    routePolyline,
+    assessmentStartFraction,
+    assessmentEndFraction,
+  ).points
+
   // Sample route weather points using exhaustive-when-cheap strategy.
   // Computes cumulative Haversine distance for all route points, then deduplicates
   // by ~1km grid. Uses all unique cells when cheap (≤120), falls back to 10km spacing.
-  const allPts = routeGeometry.points
-  const cumDist: number[] = [0]
-  for (let i = 1; i < allPts.length; i++) {
-    cumDist.push(cumDist[i - 1] + haversineM(allPts[i - 1].lat, allPts[i - 1].lon, allPts[i].lat, allPts[i].lon))
+  const fullRoutePoints = routeGeometry.points
+  const fullRouteCumDist: number[] = [0]
+  for (let i = 1; i < fullRoutePoints.length; i++) {
+    fullRouteCumDist.push(
+      fullRouteCumDist[i - 1]
+      + haversineM(
+        fullRoutePoints[i - 1].lat,
+        fullRoutePoints[i - 1].lon,
+        fullRoutePoints[i].lat,
+        fullRoutePoints[i].lon,
+      ),
+    )
   }
-  const { weatherPoints, diagnostics: samplingDiagnostics } = sampleRouteWeatherPoints(allPts, cumDist)
+  const fullRouteHaversineM = fullRouteCumDist[fullRouteCumDist.length - 1] ?? 0
+  const assessmentRoute = sliceRouteByFractions(
+    fullRoutePoints,
+    assessmentStartFraction,
+    assessmentEndFraction,
+  )
+  const sampledWeather = sampleRouteWeatherPoints(
+    assessmentRoute.points,
+    assessmentRoute.cumulativeDistanceFromTripOriginM,
+  )
+  const weatherPoints = sampledWeather.weatherPoints.map(point => {
+    const routeFraction = fullRouteHaversineM > 0
+      ? Math.max(0, Math.min(1, point.distanceFromOriginM / fullRouteHaversineM))
+      : assessmentStartFraction
+    return {
+      ...point,
+      distanceFromOriginM: Math.round(routeFraction * routeGeometry.distanceM),
+      elapsedFromTripOriginS: Math.round(routeFraction * routeGeometry.durationS),
+    }
+  })
+  const samplingDiagnostics = sampledWeather.diagnostics
 
   // Fetch route point forecasts and check Veðurstofan layer access in parallel.
   // When WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED is not 'true' (or unset), the layer
@@ -431,7 +581,9 @@ export async function POST(request: Request) {
     process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED === 'true'
   const [routeForecastResults, destForecastRaw, layerEnabled, vegagerdinLayerEnabled] = await Promise.all([
     Promise.allSettled(weatherPoints.map((pt) => fetchForecast(pt.lat, pt.lon))),
-    fetchForecast(destCandidate.lat, destCandidate.lon).catch(() => null),
+    weatherCoverage.end.kind === 'exact'
+      ? fetchForecast(destCandidate.lat, destCandidate.lon).catch(() => null)
+      : Promise.resolve(null),
     !vedurstofanAccessRequired
       ? Promise.resolve(true)
       : user?.id && user?.email
@@ -447,13 +599,13 @@ export async function POST(request: Request) {
   // Match Veðurstofan stations directly against the selected route geometry.
   // Station selection is based on actual road proximity, not on sampled MET/Yr forecast points.
   const vedurstofanMatches = layerEnabled
-    ? matchProviderPointsToRoute({
+    ? withAbsoluteRouteProgress(matchProviderPointsToRoute({
         points: VEDURSTOFAN_STATIONS_REGISTRY
           .filter(s => s.stationId !== null && s.lat !== null && s.lon !== null)
           .map(s => ({ id: s.stationId!, name: s.name, lat: s.lat!, lon: s.lon! })),
-        routePolyline,
+        routePolyline: assessmentRoutePolyline,
         maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
-      })
+      }), assessmentStartFraction, assessmentEndFraction, routeGeometry.distanceM)
     : []
   const vedurstofanStationIds = vedurstofanMatches.map(m => m.point.id)
   const stationMatchById = new Map(vedurstofanMatches.map(m => [m.point.id, m]))
@@ -479,9 +631,11 @@ export async function POST(request: Request) {
     layerEnabled ? getLastVedurstofanWarmAttemptIso() : Promise.resolve(null),
   ])
 
-  const pointForecasts: TravelPointForecast[] = routeForecastResults
-    .map((r, i) => r.status === 'fulfilled' ? { hours: r.value as HourPoint[], ...weatherPoints[i] } : null)
-    .filter((x): x is TravelPointForecast => x !== null)
+  const pointForecasts = routeForecastResults.flatMap((routeForecast, index): TravelPointForecast[] => (
+    routeForecast.status === 'fulfilled'
+      ? [{ hours: routeForecast.value as HourPoint[], ...weatherPoints[index] }]
+      : []
+  ))
   const destinationForecast = destForecastRaw ? { hours: destForecastRaw } : undefined
 
   if (pointForecasts.length === 0 && !destinationForecast) {
@@ -512,6 +666,20 @@ export async function POST(request: Request) {
     samplingDiagnostics,
     thresholdOverrides,
   })
+  if (!result.travelPlan) {
+    return NextResponse.json({ error: 'forecast_unavailable' }, { status: 503 })
+  }
+  result.travelPlan.route.weatherCoverage = weatherCoverage
+  if (weatherCoverage.start.kind !== 'exact') {
+    result.travelPlan.routeWeatherPoints?.forEach(point => {
+      point.isOrigin = false
+    })
+  }
+  if (weatherCoverage.end.kind !== 'exact') {
+    result.travelPlan.routeWeatherPoints?.forEach(point => {
+      point.isDestinationClosest = false
+    })
+  }
 
   // Build Veðurstofan experimental layer (fail-open — never breaks baseline result)
   let vedurstofanLayer: VedurstofanTravelLayer | undefined
@@ -617,7 +785,7 @@ export async function POST(request: Request) {
       measurementCount: vegagerdinAvailable ? vegagerdinResult.payload.measurements.length : 0,
       reason: vegagerdinResult.status === 'unavailable' ? vegagerdinResult.reason : null,
       vegagerdinLayerEnabled,
-      routePolylineCount: routePolyline.length,
+      routePolylineCount: assessmentRoutePolyline.length,
     })
 
     if (vegagerdinAvailable) {
@@ -627,18 +795,18 @@ export async function POST(request: Request) {
       logRoadMapApiDiagnostic('vegagerdin match input', {
         measurementCount: vegagerdinResult.payload.measurements.length,
         matchableCount: vegagerdinMatchable.length,
-        routePolylineCount: routePolyline.length,
+        routePolylineCount: assessmentRoutePolyline.length,
       })
 
-      vegagerdinRouteMatches = matchVegagerdinPointsToRoute({
+      vegagerdinRouteMatches = withAbsoluteRouteProgress(matchVegagerdinPointsToRoute({
         points: vegagerdinMatchable.map(m => ({
           id: m.stationId,
           name: m.stationName,
           lat: m.lat,
           lon: m.lon,
         })),
-        routePolyline,
-      })
+        routePolyline: assessmentRoutePolyline,
+      }), assessmentStartFraction, assessmentEndFraction, routeGeometry.distanceM)
 
       if (vegagerdinLayerEnabled) {
         const measurementByStationId = new Map(
@@ -718,12 +886,12 @@ export async function POST(request: Request) {
         reason: vegagerdinResult.status === 'unavailable' ? vegagerdinResult.reason : null,
       })
     }
-  } catch (error) {
+  } catch {
     // Fail-open: Vegagerðin labels are an experimental overlay, not a reason to
     // fail the route calculation. Keep logs static to avoid leaking route content.
     console.error('[vegagerdin-route-layer] build failed')
     logRoadMapApiDiagnostic('vegagerdin layer exception', {
-      message: error instanceof Error ? error.message : String(error),
+      failureCategory: 'layer_build_failed',
     })
   }
 
@@ -801,6 +969,7 @@ export async function POST(request: Request) {
       routeDistanceBucketKm: Math.floor(routeGeometry.distanceM / 1000 / 50) * 50,
       routeDurationBucketMinutes: Math.floor(routeGeometry.durationS / 60 / 30) * 30,
       resultStatus: result.stada,
+      weatherCoverageStatus: weatherCoverage.status,
     },
   })
 
@@ -808,6 +977,7 @@ export async function POST(request: Request) {
     ? {
         route: {
           routePolylineCount: routePolyline.length,
+          assessmentRoutePolylineCount: assessmentRoutePolyline.length,
           sampledWeatherPointCount: weatherPoints.length,
           resultStatus: result.stada,
         },

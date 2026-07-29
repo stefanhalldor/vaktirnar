@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DriveRouteMap, type DriveRouteMapRoute } from './DriveRouteMap'
 
 export type RouteComparisonMiniMapItem = {
@@ -298,6 +298,7 @@ export function RouteComparisonFullscreenMap({
   onApply,
   onFindMore,
   cautionCloseLabel,
+  selectedRouteDetails,
 }: {
   routes: RouteComparisonMiniMapItem[]
   selectedRouteId: string | null
@@ -319,6 +320,7 @@ export function RouteComparisonFullscreenMap({
   onApply: () => void
   onFindMore?: () => void
   cautionCloseLabel: string
+  selectedRouteDetails?: ReactNode
 }) {
   const [sortMode, setSortMode] = useState<RouteComparisonSortMode>('default')
   const sortedRoutes = useMemo(() => sortRouteComparisonItems(routes, sortMode), [routes, sortMode])
@@ -474,6 +476,7 @@ export function RouteComparisonFullscreenMap({
             {alternativesMessage}
           </p>
         )}
+        {selectedRouteDetails && <div className="mb-2">{selectedRouteDetails}</div>}
         <div ref={routeCardsScrollRef} className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1">
           {sortedRoutes.map(route => {
             const selected = route.id === selectedRouteId

@@ -16,6 +16,20 @@ type GeneratedSettlement = {
   placeType: 'settlement'
   population2024: null
   searchTextNormalized: string
+  geometry: OfficialSettlementGeometry
+}
+
+export type OfficialSettlementPosition = readonly [lon: number, lat: number]
+export type OfficialSettlementPolygon = readonly (readonly OfficialSettlementPosition[])[]
+export type OfficialSettlementGeometry = {
+  type: 'MultiPolygon'
+  coordinates: readonly OfficialSettlementPolygon[]
+}
+
+export type OfficialSettlementBoundary = {
+  id: string
+  name: string
+  geometry: OfficialSettlementGeometry
 }
 
 type GeneratedPostalLocality = {
@@ -43,6 +57,49 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isOptionalString(value: unknown): value is string | null {
   return value === null || typeof value === 'string'
+}
+
+function parseSettlementPosition(value: unknown): OfficialSettlementPosition {
+  if (
+    !Array.isArray(value)
+    || value.length < 2
+    || typeof value[0] !== 'number'
+    || typeof value[1] !== 'number'
+    || !Number.isFinite(value[0])
+    || !Number.isFinite(value[1])
+    || value[0] < -25
+    || value[0] > -12
+    || value[1] < 63
+    || value[1] > 67
+  ) {
+    throw new Error('official_place_directory_invalid')
+  }
+  return [value[0], value[1]]
+}
+
+function parseSettlementGeometry(value: unknown): OfficialSettlementGeometry {
+  if (!isRecord(value) || value.type !== 'MultiPolygon' || !Array.isArray(value.coordinates)) {
+    throw new Error('official_place_directory_invalid')
+  }
+  const coordinates = value.coordinates.map(rawPolygon => {
+    if (!Array.isArray(rawPolygon) || rawPolygon.length === 0) {
+      throw new Error('official_place_directory_invalid')
+    }
+    return rawPolygon.map(rawRing => {
+      if (!Array.isArray(rawRing) || rawRing.length < 4) {
+        throw new Error('official_place_directory_invalid')
+      }
+      const ring = rawRing.map(parseSettlementPosition)
+      const first = ring[0]
+      const last = ring[ring.length - 1]
+      if (first[0] !== last[0] || first[1] !== last[1]) {
+        throw new Error('official_place_directory_invalid')
+      }
+      return ring
+    })
+  })
+  if (coordinates.length === 0) throw new Error('official_place_directory_invalid')
+  return { type: 'MultiPolygon', coordinates }
 }
 
 function parseSettlement(value: unknown): GeneratedSettlement {
@@ -76,14 +133,17 @@ function parseSettlement(value: unknown): GeneratedSettlement {
   if (value.postalCode !== null && !/^\d{3}$/.test(value.postalCode)) {
     throw new Error('official_place_directory_invalid')
   }
-  return value as GeneratedSettlement
+  return {
+    ...(value as Omit<GeneratedSettlement, 'geometry'>),
+    geometry: parseSettlementGeometry(value.geometry),
+  }
 }
 
 function parseDirectory(value: unknown): {
   settlements: GeneratedSettlement[]
   postalLocalities: Map<string, OfficialPostalLocality>
 } {
-  if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.settlements)) {
+  if (!isRecord(value) || value.schemaVersion !== 2 || !Array.isArray(value.settlements)) {
     throw new Error('official_place_directory_invalid')
   }
   if (!isRecord(value.postalLocalities)) throw new Error('official_place_directory_invalid')
@@ -137,6 +197,69 @@ function indexSettlement(settlement: GeneratedSettlement): IndexedSettlement {
 
 const settlementIndex = directory.settlements.map(indexSettlement)
 const settlementById = new Map(settlementIndex.map(entry => [entry.settlement.id, entry]))
+
+function pointOnSegment(
+  point: OfficialSettlementPosition,
+  a: OfficialSettlementPosition,
+  b: OfficialSettlementPosition,
+): boolean {
+  const cross = (point[1] - a[1]) * (b[0] - a[0]) - (point[0] - a[0]) * (b[1] - a[1])
+  if (Math.abs(cross) > 1e-12) return false
+  return point[0] >= Math.min(a[0], b[0]) - 1e-12
+    && point[0] <= Math.max(a[0], b[0]) + 1e-12
+    && point[1] >= Math.min(a[1], b[1]) - 1e-12
+    && point[1] <= Math.max(a[1], b[1]) + 1e-12
+}
+
+function pointInRing(
+  point: OfficialSettlementPosition,
+  ring: readonly OfficialSettlementPosition[],
+): boolean {
+  let inside = false
+  for (let current = 0, previous = ring.length - 1; current < ring.length; previous = current, current += 1) {
+    const a = ring[previous]
+    const b = ring[current]
+    if (pointOnSegment(point, a, b)) return true
+    const crosses = (a[1] > point[1]) !== (b[1] > point[1])
+      && point[0] < ((b[0] - a[0]) * (point[1] - a[1])) / (b[1] - a[1]) + a[0]
+    if (crosses) inside = !inside
+  }
+  return inside
+}
+
+export function officialSettlementGeometryContains(
+  geometry: OfficialSettlementGeometry,
+  lat: number,
+  lon: number,
+): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false
+  const point: OfficialSettlementPosition = [lon, lat]
+  return geometry.coordinates.some(polygon => (
+    polygon[0]
+    && pointInRing(point, polygon[0])
+    && !polygon.slice(1).some(hole => pointInRing(point, hole))
+  ))
+}
+
+/**
+ * Resolves an exact WGS84 point to one canonical settlement boundary.
+ * Overlapping/ambiguous boundaries fail closed instead of guessing.
+ */
+export function findOfficialSettlementContainingPoint(
+  lat: number,
+  lon: number,
+): OfficialSettlementBoundary | null {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+  const matches = settlementIndex
+    .map(entry => entry.settlement)
+    .filter(settlement => officialSettlementGeometryContains(settlement.geometry, lat, lon))
+  if (matches.length !== 1) return null
+  return {
+    id: matches[0].id,
+    name: matches[0].name,
+    geometry: matches[0].geometry,
+  }
+}
 
 function scoreIndexedSettlement(normalizedQuery: string, entry: IndexedSettlement): number {
   if (!normalizedQuery) return 0

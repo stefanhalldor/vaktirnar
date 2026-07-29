@@ -1,3 +1,5 @@
+import type { RouteWeatherCoverage } from '@/lib/iceland-routes/trustedRouteCoverage'
+
 export type WeatherStatus = 'graent' | 'gult' | 'rautt'
 
 export type HourPoint = {
@@ -29,6 +31,8 @@ export type TravelPointForecast = {
   forecastLon: number
   routeIndex: number
   distanceFromOriginM: number
+  /** Estimated elapsed trip time at this point; keeps ETA stable when coverage is clipped. */
+  elapsedFromTripOriginS?: number
 }
 
 export type WorstMetric = {
@@ -58,6 +62,7 @@ export type RouteWeatherPoint = {
   forecastLon: number
   distanceFromOriginM: number
   routeFraction: number
+  elapsedFromTripOriginS?: number
   isOrigin?: boolean
   isDestinationClosest?: boolean
   isHighlightedIssue?: boolean
@@ -252,6 +257,8 @@ export type TravelPlan = {
     destinationName: string
     distanceKm: number
     durationMinutes: number
+    /** Exact trip endpoints remain unchanged; this describes only the assessed road interval. */
+    weatherCoverage?: RouteWeatherCoverage
     /** Sampled route polyline points for audit map rendering (max 80). */
     auditPolylinePoints?: Array<{ lat: number; lon: number }>
     /** Google Static Maps URL showing route line + weather point markers. */

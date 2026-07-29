@@ -57,6 +57,29 @@ export function getForecastHoursNearEta(
 }
 
 /**
+ * ETA fraction for a route point. Explicit elapsed trip time wins so clipping
+ * weather coverage never resets a gateway to departure time. Legacy callers
+ * continue to fall back to distance proportion.
+ */
+export function routePointEtaFraction(
+  point: Pick<TravelPointForecast, 'distanceFromOriginM' | 'elapsedFromTripOriginS'>,
+  totalDistanceM: number,
+  totalDurationS: number,
+  leg: 'outbound' | 'return',
+): number {
+  const outboundFraction =
+    point.elapsedFromTripOriginS !== undefined
+    && Number.isFinite(point.elapsedFromTripOriginS)
+    && totalDurationS > 0
+      ? point.elapsedFromTripOriginS / totalDurationS
+      : totalDistanceM > 0
+        ? point.distanceFromOriginM / totalDistanceM
+        : 0
+  const bounded = Math.max(0, Math.min(1, outboundFraction))
+  return leg === 'return' ? 1 - bounded : bounded
+}
+
+/**
  * Applies driving thresholds to wind/gust/precip values.
  * Returns route status and reason code.
  * Supporting utility — not the domain assessment entry point.
@@ -98,10 +121,11 @@ function findWorstRouteMetric(
 ): WorstMetric | undefined {
   const depMs = new Date(departureIso).getTime()
   const durMs = new Date(arrivalIso).getTime() - depMs
+  const totalDurationS = durMs / 1000
   let worst: WorstMetric | undefined
   for (const pt of pointForecasts) {
     const routeFraction = totalDistanceM > 0 ? pt.distanceFromOriginM / totalDistanceM : 0
-    const etaFraction = leg === 'return' ? 1 - routeFraction : routeFraction
+    const etaFraction = routePointEtaFraction(pt, totalDistanceM, totalDurationS, leg)
     const etaMs = depMs + etaFraction * durMs
     for (const h of getForecastHoursNearEta(pt.hours, etaMs)) {
       const val = getter(h)
@@ -213,10 +237,10 @@ export function assessRouteLeg(input: RouteLegInput): RouteLegAssessment {
   // Per-point statuses for timeline-driven map coloring (delta: only non-green entries stored)
   const depMs = new Date(departureIso).getTime()
   const durMs = new Date(arrivalIso).getTime() - depMs
+  const totalDurationS = durMs / 1000
   const pointStatuses: CandidatePointStatus[] = []
   for (const pt of pointForecasts) {
-    const routeFraction = totalDistanceM > 0 ? pt.distanceFromOriginM / totalDistanceM : 0
-    const etaFraction = leg === 'return' ? 1 - routeFraction : routeFraction
+    const etaFraction = routePointEtaFraction(pt, totalDistanceM, totalDurationS, leg)
     const etaMs = depMs + etaFraction * durMs
     const hrs = getForecastHoursNearEta(pt.hours, etaMs)
     if (hrs.length === 0) {

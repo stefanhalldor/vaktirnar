@@ -123,6 +123,7 @@ describe('RouteComparisonFullscreenMap', () => {
         onSelectRouteId={onSelectRouteId}
         onClose={vi.fn()}
         onApply={onApply}
+        selectedRouteDetails={<p>Staðfest mörk veðurmats</p>}
         routes={[
           { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: true },
           { id: 'teskeid', label: 'Teskeiðarleið', provider: 'teskeid', points: POINTS, selected: false },
@@ -142,6 +143,7 @@ describe('RouteComparisonFullscreenMap', () => {
     })
 
     expect(dialog).toHaveAccessibleName('Veldu leið á korti')
+    expect(screen.getByText('Staðfest mörk veðurmats')).toBeInTheDocument()
     expect(scrollRegion).toHaveClass('overflow-y-auto')
     expect(scrollRegion).not.toContainElement(applyAction)
     expect(actionFooter).toContainElement(applyAction)

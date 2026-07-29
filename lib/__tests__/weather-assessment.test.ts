@@ -12,6 +12,7 @@ import {
   assessDrivingConditions,
   getForecastHoursNearEta,
   assessRouteLeg,
+  routePointEtaFraction,
   type RouteLegInput,
 } from '../weather/assessment'
 import type { HourPoint, TravelPointForecast, ResolvedTravelThresholds } from '../weather/types'
@@ -309,6 +310,72 @@ describe('assessRouteLeg — ETA weighting', () => {
     }))
     // Point near origin on return leg is reached near arrival → late hours trigger rautt
     expect(result.status).toBe('rautt')
+  })
+
+  it('uses explicit elapsed trip time instead of resetting clipped coverage by local distance', () => {
+    const hours = [
+      makeHour('2026-07-10T08:00:00.000Z', 5, 8, 0),
+      makeHour('2026-07-10T12:00:00.000Z', 25, 28, 0),
+    ]
+    const clippedPoint = {
+      ...makeForecastPoint(0, 10_000, hours),
+      elapsedFromTripOriginS: 4 * 3_600,
+    }
+
+    const legacyDistanceResult = assessRouteLeg(makeBaseInput({
+      pointForecasts: [makeForecastPoint(0, 10_000, hours)],
+    }))
+    const explicitElapsedResult = assessRouteLeg(makeBaseInput({
+      pointForecasts: [clippedPoint],
+    }))
+
+    expect(legacyDistanceResult.status).toBe('graent')
+    expect(explicitElapsedResult.status).toBe('rautt')
+    expect(explicitElapsedResult.worstWind?.timeIso).toBe('2026-07-10T12:00:00.000Z')
+  })
+})
+
+describe('routePointEtaFraction', () => {
+  it('prefers explicit elapsed trip time over distance proportion', () => {
+    expect(routePointEtaFraction(
+      { distanceFromOriginM: 10_000, elapsedFromTripOriginS: 1_800 },
+      100_000,
+      3_600,
+      'outbound',
+    )).toBe(0.5)
+  })
+
+  it('inverts explicit elapsed trip time for the return leg', () => {
+    expect(routePointEtaFraction(
+      { distanceFromOriginM: 90_000, elapsedFromTripOriginS: 900 },
+      100_000,
+      3_600,
+      'return',
+    )).toBe(0.75)
+  })
+
+  it('keeps the distance-proportional fallback for legacy route points', () => {
+    expect(routePointEtaFraction(
+      { distanceFromOriginM: 25_000 },
+      100_000,
+      3_600,
+      'outbound',
+    )).toBe(0.25)
+  })
+
+  it('bounds malformed explicit elapsed values to the trip interval', () => {
+    expect(routePointEtaFraction(
+      { distanceFromOriginM: 50_000, elapsedFromTripOriginS: 7_200 },
+      100_000,
+      3_600,
+      'outbound',
+    )).toBe(1)
+    expect(routePointEtaFraction(
+      { distanceFromOriginM: 50_000, elapsedFromTripOriginS: -60 },
+      100_000,
+      3_600,
+      'outbound',
+    )).toBe(0)
   })
 })
 

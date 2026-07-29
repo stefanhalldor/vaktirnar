@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { OFFICIAL_PLACE_DIRECTORY_RETRIEVED_DATE } from '@/lib/places/officialPlaceAttribution.generated'
 
 const { getLocationFromCoordinatesMock, mapInstances, markerInstances } = vi.hoisted(() => ({
   getLocationFromCoordinatesMock: vi.fn(),
@@ -159,7 +160,9 @@ describe('PlaceMapPicker', () => {
       'Hella, Address, 611 Grímsey · Akureyrarbær',
     )
     expect(screen.getByRole('link', { name: 'Settlements: Statistics Iceland' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'IS 50V: National Land Survey of Iceland, retrieved 2026-07-27' })).toBeInTheDocument()
+    expect(screen.getByRole('link', {
+      name: `IS 50V: National Land Survey of Iceland, retrieved ${OFFICIAL_PLACE_DIRECTORY_RETRIEVED_DATE}`,
+    })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Based on information from the HMS Address Register.' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Byggt á gögnum frá Byggðastofnun.' })).toBeInTheDocument()
 
