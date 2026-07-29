@@ -24,6 +24,7 @@ import {
   type RouteOptionEnvelopeV1,
 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 import { routeMemoryVariantIdentity } from '@/lib/iceland-routes/routeMemoryVariant'
+import { resolveRouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope.server'
 
 export async function POST(request: Request) {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
@@ -74,11 +75,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_destination' }, { status: 400 })
   }
 
-  const provider = getWeatherMapProvider()
-  if (!provider) {
-    return NextResponse.json({ error: 'provider_not_configured' }, { status: 422 })
-  }
-
   const origin = body.origin as ConfirmedLocationInput
   const destination = body.destination as ConfirmedLocationInput
 
@@ -89,10 +85,31 @@ export async function POST(request: Request) {
     })
   }
 
-  const originCandidate: PlaceCandidate = toWeatherPlaceCandidate(origin)
-  const destCandidate: PlaceCandidate = toWeatherPlaceCandidate(destination)
+  const resolveAssessmentScope = body.resolveAssessmentScope === true
+  const assessmentScope = resolveAssessmentScope
+    ? await resolveRouteAssessmentScope(origin, destination)
+    : null
+  if (assessmentScope && assessmentScope.status !== 'ready') {
+    return NextResponse.json({
+      assessmentScope,
+      routes: [],
+      ...(body.includeRouteEnvelopes === true ? { routeEnvelopes: [] } : {}),
+    }, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
+  }
 
-  const routePairHash = routePairFingerprint(origin, destination)
+  const routeOrigin = assessmentScope?.status === 'ready' ? assessmentScope.origin : origin
+  const routeDestination = assessmentScope?.status === 'ready' ? assessmentScope.destination : destination
+  const originCandidate: PlaceCandidate = toWeatherPlaceCandidate(routeOrigin)
+  const destCandidate: PlaceCandidate = toWeatherPlaceCandidate(routeDestination)
+
+  const provider = getWeatherMapProvider()
+  if (!provider) {
+    return NextResponse.json({ error: 'provider_not_configured' }, { status: 422 })
+  }
+
+  const routePairHash = routePairFingerprint(routeOrigin, routeDestination)
   const hashMeta = routePairHash !== null ? { routePairHash } : {}
 
   let routes
@@ -179,6 +196,7 @@ export async function POST(request: Request) {
   })
 
   return NextResponse.json({
+    ...(assessmentScope ? { assessmentScope } : {}),
     ...(!compactRouteEnvelopes ? { routes: responseRoutes } : {}),
     ...(includeRouteEnvelopes ? { routeEnvelopes } : {}),
   })

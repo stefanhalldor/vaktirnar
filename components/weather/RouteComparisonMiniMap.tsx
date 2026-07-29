@@ -168,9 +168,10 @@ export function RouteComparisonCompactCard({
           ref={cautionTriggerRef}
           type="button"
           onClick={onOpenCaution}
+          disabled={disabled}
           aria-expanded={cautionExpanded}
           aria-haspopup="dialog"
-          className="flex min-h-10 w-full items-center border-t border-amber-200 bg-amber-50/70 px-2.5 py-2 text-left text-[10px] font-semibold text-amber-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
+          className="flex min-h-10 w-full items-center border-t border-amber-200 bg-amber-50/70 px-2.5 py-2 text-left text-[10px] font-semibold text-amber-950 disabled:cursor-default disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
         >
             <span className="flex-1">{route.cautionDrawerLabel}</span>
             <span aria-hidden="true" className="ml-2 text-xs">›</span>
@@ -282,6 +283,7 @@ export function RouteComparisonFullscreenMap({
   selectedRouteId,
   title,
   applyLabel,
+  applyPending = false,
   routeCountLabel,
   findMoreLabel,
   findingMoreLabel,
@@ -304,6 +306,7 @@ export function RouteComparisonFullscreenMap({
   selectedRouteId: string | null
   title: string
   applyLabel: string
+  applyPending?: boolean
   routeCountLabel: string
   findMoreLabel?: string
   findingMoreLabel?: string
@@ -341,6 +344,7 @@ export function RouteComparisonFullscreenMap({
   }, [expandedCautionRouteId])
 
   const openCautionDrawer = (routeId: string) => {
+    if (applyPending) return
     setExpandedCautionRouteId(routeId)
   }
 
@@ -350,6 +354,7 @@ export function RouteComparisonFullscreenMap({
   }, [expandedCautionRouteId])
 
   const handleMapRouteSelect = (routeId: string) => {
+    if (applyPending) return
     onSelectRouteId(routeId)
     window.requestAnimationFrame(() => {
       const card = routeCardRefs.current.get(routeId)
@@ -393,20 +398,21 @@ export function RouteComparisonFullscreenMap({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (expandedCautionRouteId) closeCautionDrawer()
-      else onClose()
+      else if (!applyPending) onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       document.body.style.overflow = previousOverflow
     }
-  }, [closeCautionDrawer, expandedCautionRouteId, onClose])
+  }, [applyPending, closeCautionDrawer, expandedCautionRouteId, onClose])
 
   return (
     <div
       className="fixed inset-0 z-[300] flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-background"
       role="dialog"
       aria-modal="true"
+      aria-busy={applyPending || undefined}
       aria-labelledby="route-comparison-title"
     >
       <header className="flex min-h-14 shrink-0 items-center border-b border-border bg-background px-3 pt-[env(safe-area-inset-top,0px)]">
@@ -416,7 +422,7 @@ export function RouteComparisonFullscreenMap({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <DriveRouteMap
           routes={mapRoutes}
-          onSelectRoute={handleMapRouteSelect}
+          onSelectRoute={applyPending ? undefined : handleMapRouteSelect}
           ariaLabel={title}
           className="h-full w-full"
         />
@@ -433,7 +439,7 @@ export function RouteComparisonFullscreenMap({
             <button
               type="button"
               onClick={onFindMore}
-              disabled={alternativesStatus === 'loading' || alternativesStatus === 'ready'}
+              disabled={applyPending || alternativesStatus === 'loading' || alternativesStatus === 'ready'}
               className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-orange-300 bg-background px-3 py-2 text-xs font-semibold text-orange-900 disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-orange-700 dark:text-orange-100"
             >
               {alternativesStatus === 'loading' && (
@@ -460,7 +466,7 @@ export function RouteComparisonFullscreenMap({
                 key={mode}
                 type="button"
                 onClick={() => setSortMode(mode)}
-                disabled={mode === 'weather' && !weatherSortingAvailable}
+                disabled={applyPending || (mode === 'weather' && !weatherSortingAvailable)}
                 aria-pressed={sortMode === mode}
                 className={`min-h-10 rounded px-2 py-1.5 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   sortMode === mode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
@@ -495,6 +501,7 @@ export function RouteComparisonFullscreenMap({
                 <RouteComparisonCompactCard
                   route={route}
                   selected={selected}
+                  disabled={applyPending}
                   onSelect={() => onSelectRouteId(route.id)}
                   className="w-full min-w-0"
                   cautionExpanded={expandedCautionRouteId === route.id}
@@ -521,7 +528,8 @@ export function RouteComparisonFullscreenMap({
           <button
             type="button"
             onClick={onApply}
-            disabled={!selectedRouteId}
+            disabled={!selectedRouteId || applyPending}
+            aria-busy={applyPending || undefined}
             className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {applyLabel}

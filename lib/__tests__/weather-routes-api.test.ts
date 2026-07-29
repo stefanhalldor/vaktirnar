@@ -11,12 +11,32 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const { mockGetUser, mockAfter } = vi.hoisted(() => ({ mockGetUser: vi.fn(), mockAfter: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
-const { mockGetRouteOptions } = vi.hoisted(() => ({ mockGetRouteOptions: vi.fn() }))
-const { mockRecordTeskeidUsageEvent } = vi.hoisted(() => ({ mockRecordTeskeidUsageEvent: vi.fn() }))
+const { mockGetRouteOptions, mockGetWeatherMapProvider } = vi.hoisted(() => ({
+  mockGetRouteOptions: vi.fn(),
+  mockGetWeatherMapProvider: vi.fn(),
+}))
+const { mockRecordTeskeidUsageEvent, mockRoutePairFingerprint } = vi.hoisted(() => ({
+  mockRecordTeskeidUsageEvent: vi.fn(),
+  mockRoutePairFingerprint: vi.fn(),
+}))
 const { mockCheckWeatherGuestRateLimit } = vi.hoisted(() => ({ mockCheckWeatherGuestRateLimit: vi.fn() }))
 const { mockGetTeskeidRouteCandidate } = vi.hoisted(() => ({ mockGetTeskeidRouteCandidate: vi.fn() }))
 const { mockIsTeskeidRouteCandidateEnabled } = vi.hoisted(() => ({
   mockIsTeskeidRouteCandidateEnabled: vi.fn(),
+}))
+const { mockResolveRouteAssessmentScope } = vi.hoisted(() => ({
+  mockResolveRouteAssessmentScope: vi.fn(),
+}))
+const {
+  mockNormalizePlaceForMemory,
+  mockBuildRouteMemoryKey,
+  mockRecordRouteMemory,
+  mockReadVegagerdinCurrentWithHistoryFallback,
+} = vi.hoisted(() => ({
+  mockNormalizePlaceForMemory: vi.fn(),
+  mockBuildRouteMemoryKey: vi.fn(),
+  mockRecordRouteMemory: vi.fn(),
+  mockReadVegagerdinCurrentWithHistoryFallback: vi.fn(),
 }))
 
 vi.mock('next/server', async importOriginal => {
@@ -35,14 +55,12 @@ vi.mock('@/lib/loans/guard', () => ({
 }))
 
 vi.mock('@/lib/weather/provider.server', () => ({
-  getWeatherMapProvider: vi.fn(() => ({
-    getRouteOptions: mockGetRouteOptions,
-  })),
+  getWeatherMapProvider: mockGetWeatherMapProvider,
 }))
 
 vi.mock('@/lib/teskeid/usage.server', () => ({
   recordTeskeidUsageEvent: mockRecordTeskeidUsageEvent,
-  routePairFingerprint: vi.fn(() => 'testhash'),
+  routePairFingerprint: mockRoutePairFingerprint,
 }))
 
 vi.mock('@/lib/weather/ip-rate-limit.server', () => ({
@@ -54,12 +72,60 @@ vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
   isTeskeidRouteCandidateEnabled: mockIsTeskeidRouteCandidateEnabled,
 }))
 
+vi.mock('@/lib/iceland-routes/routeAssessmentScope.server', () => ({
+  resolveRouteAssessmentScope: mockResolveRouteAssessmentScope,
+}))
+
+vi.mock('@/lib/iceland-routes/routePlaceNormalization', () => ({
+  normalizePlaceForMemory: mockNormalizePlaceForMemory,
+  buildRouteMemoryKey: mockBuildRouteMemoryKey,
+}))
+
+vi.mock('@/lib/iceland-routes/routeMemory.server', () => ({
+  recordRouteMemory: mockRecordRouteMemory,
+}))
+
+vi.mock('@/lib/weather/providers/vegagerdinCurrent.server', () => ({
+  readVegagerdinCurrentWithHistoryFallback: mockReadVegagerdinCurrentWithHistoryFallback,
+}))
+
 import { POST } from '@/app/api/teskeid/weather/travel/routes/route'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const VALID_ORIGIN = { name: 'Reykjavík', lat: 64.135, lon: -21.895 }
 const VALID_DEST   = { name: 'Selfoss',   lat: 63.933, lon: -21.0 }
+
+const ASSESSMENT_ORIGIN = {
+  name: 'Garðabær',
+  formattedAddress: 'Garðabær',
+  lat: 64.075,
+  lon: -21.9,
+  source: 'official' as const,
+  sourceId: 'hagstofa:1300',
+  placeType: 'settlement' as const,
+  postalCode: '210',
+  postalLocality: 'Garðabær',
+}
+
+const ASSESSMENT_DESTINATION = {
+  name: 'Hella',
+  formattedAddress: 'Hella',
+  lat: 63.84,
+  lon: -20.4,
+  source: 'official' as const,
+  sourceId: 'hagstofa:1120',
+  placeType: 'settlement' as const,
+  postalCode: '850',
+  postalLocality: 'Hella',
+}
+
+const READY_ASSESSMENT_SCOPE = {
+  status: 'ready' as const,
+  scopeId: 'hagstofa:1300:gar-gateway:hagstofa:1120:hella-gateway',
+  origin: ASSESSMENT_ORIGIN,
+  destination: ASSESSMENT_DESTINATION,
+}
 
 function makeRequest(body: unknown) {
   return new Request('http://localhost/api/teskeid/weather/travel/routes', {
@@ -111,6 +177,21 @@ beforeEach(() => {
   delete process.env.WEATHER_PUBLIC_ENABLED
   mockGetTeskeidRouteCandidate.mockResolvedValue(null)
   mockIsTeskeidRouteCandidateEnabled.mockReturnValue(true)
+  mockGetWeatherMapProvider.mockReturnValue({ getRouteOptions: mockGetRouteOptions })
+  mockRoutePairFingerprint.mockReturnValue('testhash')
+  mockResolveRouteAssessmentScope.mockResolvedValue(READY_ASSESSMENT_SCOPE)
+  mockNormalizePlaceForMemory.mockImplementation((name: string) => ({
+    key: name.toLocaleLowerCase('is').replace(/[^a-záðéíóúýþæö0-9]+/gi, ''),
+    label: name,
+  }))
+  mockBuildRouteMemoryKey.mockImplementation((from: string, to: string, variant = 'default') => (
+    `${from}--${to}--${variant}`
+  ))
+  mockRecordRouteMemory.mockResolvedValue(undefined)
+  mockReadVegagerdinCurrentWithHistoryFallback.mockResolvedValue({
+    status: 'unavailable',
+    reason: 'test_unavailable',
+  })
   mockAfter.mockImplementation((callback: () => unknown) => callback())
 })
 
@@ -155,6 +236,174 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toBe('invalid_destination')
+  })
+
+  it('keeps the legacy/default contract exact and never resolves assessment scope', async () => {
+    authedUser()
+    const exactOrigin = {
+      ...VALID_ORIGIN,
+      formattedAddress: 'Laugavegur 1, Reykjavík',
+      source: 'google',
+      placeId: 'google-origin',
+    }
+    const exactDestination = {
+      ...VALID_DEST,
+      formattedAddress: 'Austurvegur 2, Selfoss',
+      source: 'google',
+      placeId: 'google-destination',
+    }
+    mockGetRouteOptions.mockResolvedValue([
+      makeRouteOption('google-0', 0, 3600, 80000, true),
+    ])
+
+    const res = await POST(makeRequest({
+      origin: exactOrigin,
+      destination: exactDestination,
+    }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.assessmentScope).toBeUndefined()
+    expect(mockResolveRouteAssessmentScope).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        displayName: exactOrigin.name,
+        formattedAddress: exactOrigin.formattedAddress,
+        lat: exactOrigin.lat,
+        lon: exactOrigin.lon,
+        placeId: 'google-origin',
+      }),
+      expect.objectContaining({
+        displayName: exactDestination.name,
+        formattedAddress: exactDestination.formattedAddress,
+        lat: exactDestination.lat,
+        lon: exactDestination.lon,
+        placeId: 'google-destination',
+      }),
+    )
+    expect(mockRoutePairFingerprint).toHaveBeenCalledWith(exactOrigin, exactDestination)
+    expect(mockNormalizePlaceForMemory).toHaveBeenCalledWith(
+      exactOrigin.name,
+      exactOrigin.formattedAddress,
+    )
+    expect(mockNormalizePlaceForMemory).toHaveBeenCalledWith(
+      exactDestination.name,
+      exactDestination.formattedAddress,
+    )
+  })
+
+  it('uses ready assessment endpoints for providers, envelopes, fingerprint and route memory', async () => {
+    authedUser()
+    mockAfter.mockImplementation(() => undefined)
+    mockGetRouteOptions.mockResolvedValue([{
+      ...makeRouteOption('google-assessment', 0, 3600, 80000, true),
+      points: [
+        { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
+        { lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon },
+      ],
+    }])
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      resolveAssessmentScope: true,
+      includeRouteEnvelopes: true,
+    }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockResolveRouteAssessmentScope).toHaveBeenCalledWith(VALID_ORIGIN, VALID_DEST)
+    expect(body.assessmentScope).toEqual(READY_ASSESSMENT_SCOPE)
+    expect(mockGetRouteOptions).toHaveBeenCalledWith(
+      {
+        placeId: 'confirmed',
+        displayName: ASSESSMENT_ORIGIN.name,
+        formattedAddress: ASSESSMENT_ORIGIN.formattedAddress,
+        lat: ASSESSMENT_ORIGIN.lat,
+        lon: ASSESSMENT_ORIGIN.lon,
+      },
+      {
+        placeId: 'confirmed',
+        displayName: ASSESSMENT_DESTINATION.name,
+        formattedAddress: ASSESSMENT_DESTINATION.formattedAddress,
+        lat: ASSESSMENT_DESTINATION.lat,
+        lon: ASSESSMENT_DESTINATION.lon,
+      },
+    )
+    expect(mockGetTeskeidRouteCandidate).toHaveBeenCalledWith(
+      { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
+      { lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon },
+    )
+    expect(mockRoutePairFingerprint).toHaveBeenCalledWith(
+      ASSESSMENT_ORIGIN,
+      ASSESSMENT_DESTINATION,
+    )
+    expect(mockRoutePairFingerprint).not.toHaveBeenCalledWith(VALID_ORIGIN, VALID_DEST)
+    expect(body.routeEnvelopes).toHaveLength(1)
+    expect(body.routeEnvelopes[0]).toMatchObject({
+      origin: { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
+      destination: {
+        lat: ASSESSMENT_DESTINATION.lat,
+        lon: ASSESSMENT_DESTINATION.lon,
+      },
+      route: { id: 'google-assessment' },
+    })
+    expect(mockNormalizePlaceForMemory).toHaveBeenNthCalledWith(
+      1,
+      ASSESSMENT_ORIGIN.name,
+      ASSESSMENT_ORIGIN.formattedAddress,
+    )
+    expect(mockNormalizePlaceForMemory).toHaveBeenNthCalledWith(
+      2,
+      ASSESSMENT_DESTINATION.name,
+      ASSESSMENT_DESTINATION.formattedAddress,
+    )
+
+    expect(mockAfter).toHaveBeenCalledOnce()
+    const afterCallback = mockAfter.mock.calls[0]?.[0] as (() => Promise<void>) | undefined
+    expect(afterCallback).toBeTypeOf('function')
+    await afterCallback?.()
+
+    expect(mockRecordRouteMemory).toHaveBeenCalledWith(expect.objectContaining({
+      fromPlaceLabel: ASSESSMENT_ORIGIN.name,
+      toPlaceLabel: ASSESSMENT_DESTINATION.name,
+    }))
+  })
+
+  it.each([
+    {
+      status: 'same_area' as const,
+      settlementId: 'hagstofa:1120',
+      settlementName: 'Hella',
+    },
+    {
+      status: 'unavailable' as const,
+      reason: 'road_graph_unavailable' as const,
+    },
+  ])('returns a handoff-only $status scope without calling any route provider', async assessmentScope => {
+    authedUser()
+    mockResolveRouteAssessmentScope.mockResolvedValue(assessmentScope)
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      resolveAssessmentScope: true,
+      includeRouteEnvelopes: true,
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      assessmentScope,
+      routes: [],
+      routeEnvelopes: [],
+    })
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    expect(mockGetWeatherMapProvider).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockGetTeskeidRouteCandidate).not.toHaveBeenCalled()
+    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
+    expect(mockNormalizePlaceForMemory).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
   })
 
   it('returns 422 when provider returns no routes', async () => {

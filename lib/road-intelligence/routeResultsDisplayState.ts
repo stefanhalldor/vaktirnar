@@ -18,6 +18,7 @@ export type RouteResultsDisplayState =
   | 'route-switching'
   | 'route-loading'
   | 'comparison-opening'
+  | 'handoff-only'
   | 'summary'
   | 'form'
 
@@ -28,6 +29,7 @@ export function resolveRouteResultsDisplayState({
   safetySearchPending,
   switchingChoiceId,
   comparisonOpening,
+  hasHandoffOnly = false,
 }: {
   bridgeStatus: RouteBridgeDisplayStatus
   hasSummary: boolean
@@ -35,12 +37,14 @@ export function resolveRouteResultsDisplayState({
   safetySearchPending: boolean
   switchingChoiceId: string | null
   comparisonOpening: boolean
+  hasHandoffOnly?: boolean
 }): RouteResultsDisplayState {
   if (safetySearchPending) return 'safety-search'
   if (switchingChoiceId !== null) return 'route-switching'
   if (bridgeStatus === 'loading') return 'route-loading'
   if (comparisonOpening) return 'comparison-opening'
   if (bridgeStatus === 'success') {
+    if (hasHandoffOnly) return 'handoff-only'
     return hasSummary && hasTravelResult ? 'summary' : 'route-loading'
   }
   return 'form'

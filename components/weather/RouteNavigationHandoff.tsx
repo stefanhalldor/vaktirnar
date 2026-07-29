@@ -1,10 +1,7 @@
 import { clsx } from 'clsx'
 import { ExternalLink } from 'lucide-react'
 
-import type {
-  RouteWeatherCoverage,
-  RouteWeatherCoverageBoundary,
-} from '@/lib/iceland-routes/trustedRouteCoverage'
+import type { RouteWeatherCoverageBoundary } from '@/lib/iceland-routes/trustedRouteCoverage'
 import {
   buildGoogleMapsDirectionsUrl,
   type GoogleMapsDirectionsPoint,
@@ -12,7 +9,6 @@ import {
 
 export type RouteNavigationHandoffLabels = Readonly<{
   assessmentTitle: string
-  routeTitle: string
   navigationTitle: string
   boundaryFallback: string
   settlementBoundary: string
@@ -20,14 +16,21 @@ export type RouteNavigationHandoffLabels = Readonly<{
   openDirections: string
 }>
 
-export type RouteNavigationHandoffProps = Readonly<{
-  coverage: RouteWeatherCoverage
+export type RouteNavigationHandoffAssessment = Readonly<{
+  originName: string
+  destinationName: string
+}>
+
+export type RouteNavigationHandoffNavigation = Readonly<{
   origin: GoogleMapsDirectionsPoint
   destination: GoogleMapsDirectionsPoint
   originName: string
   destinationName: string
-  originAreaName: string
-  destinationAreaName: string
+}>
+
+export type RouteNavigationHandoffProps = Readonly<{
+  assessment?: RouteNavigationHandoffAssessment | null
+  navigation: RouteNavigationHandoffNavigation
   labels: RouteNavigationHandoffLabels
   className?: string
 }>
@@ -89,36 +92,24 @@ function ExternalDirectionsLink({ link }: { link: NavigationLink }) {
 }
 
 export function RouteNavigationHandoff({
-  coverage,
-  origin,
-  destination,
-  originName,
-  destinationName,
-  originAreaName,
-  destinationAreaName,
+  assessment,
+  navigation,
   labels,
   className,
 }: RouteNavigationHandoffProps) {
-  if (coverage.status === 'full') return null
-
-  const fullTripLink = directionsLink(origin, destination, labels.openDirections)
+  const fullTripLink = directionsLink(
+    navigation.origin,
+    navigation.destination,
+    labels.openDirections,
+  )
   if (!fullTripLink) return null
-  const preciseOrigin = originName.trim() || originAreaName.trim()
-  const preciseDestination = destinationName.trim() || destinationAreaName.trim()
-  const fallbackOriginArea = originAreaName.trim() || preciseOrigin
-  const fallbackDestinationArea = destinationAreaName.trim() || preciseDestination
-  const assessmentOrigin = coverage.status === 'partial'
-    ? coverage.start.label.trim() || fallbackOriginArea
-    : coverage.status === 'same_urban_area'
-      ? coverage.settlementName
-      : fallbackOriginArea
-  const assessmentDestination = coverage.status === 'partial'
-    ? coverage.end.label.trim() || fallbackDestinationArea
-    : coverage.status === 'same_urban_area'
-      ? coverage.settlementName
-      : fallbackDestinationArea
+  const preciseOrigin = navigation.originName.trim()
+  const preciseDestination = navigation.destinationName.trim()
+  if (!preciseOrigin || !preciseDestination) return null
 
-  if (!preciseOrigin || !preciseDestination || !assessmentOrigin || !assessmentDestination) return null
+  const assessmentOrigin = assessment?.originName.trim() ?? ''
+  const assessmentDestination = assessment?.destinationName.trim() ?? ''
+  const hasAssessmentLabels = Boolean(assessmentOrigin && assessmentDestination)
 
   return (
     <section
@@ -129,16 +120,16 @@ export function RouteNavigationHandoff({
       )}
     >
       <dl className="grid min-w-0 gap-3">
-        <div className="min-w-0">
-          <dt className="leading-snug text-muted-foreground">
-            {coverage.status === 'partial' ? labels.assessmentTitle : labels.routeTitle}
-          </dt>
-          <dd className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 font-medium">
-            <span className="min-w-0 break-words">{assessmentOrigin}</span>
-            <span aria-hidden="true" className="text-muted-foreground">→</span>
-            <span className="min-w-0 break-words text-right">{assessmentDestination}</span>
-          </dd>
-        </div>
+        {hasAssessmentLabels && (
+          <div className="min-w-0">
+            <dt className="leading-snug text-muted-foreground">{labels.assessmentTitle}</dt>
+            <dd className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 font-medium">
+              <span className="min-w-0 break-words">{assessmentOrigin}</span>
+              <span aria-hidden="true" className="text-muted-foreground">→</span>
+              <span className="min-w-0 break-words text-right">{assessmentDestination}</span>
+            </dd>
+          </div>
+        )}
         <div className="min-w-0">
           <dt className="leading-snug text-muted-foreground">{labels.navigationTitle}</dt>
           <dd className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 font-medium">

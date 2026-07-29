@@ -178,6 +178,8 @@ describe('official place directory runtime', () => {
     expect(getOfficialPostalLocality('611')).toEqual({
       name: 'Grímsey',
       classification: 'Þéttbýli',
+      sourceId: 'e2600959-99b2-81a4-16c0-57880419bacc',
+      correctedAt: null,
     })
     expect(getOfficialPostalLocality('850')?.name).toBe('Hella')
     expect(getOfficialPostalLocality('999')).toBeNull()

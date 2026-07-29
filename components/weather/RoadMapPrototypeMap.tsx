@@ -15,6 +15,10 @@ import {
   type FirstReadyDiscovery,
 } from '@/lib/iceland-routes/firstReadyDiscovery'
 import type { RouteOptionEnvelopeV1 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
+import {
+  parseRouteAssessmentScope,
+  type RouteAssessmentScope,
+} from '@/lib/iceland-routes/routeAssessmentScope'
 import type { RouteWeatherCoverage } from '@/lib/iceland-routes/trustedRouteCoverage'
 import type { RouteOption } from '@/lib/weather/provider.types'
 import type { DeterministicResult, ForecastDrawerRow, ResolvedTravelThresholds, TravelCandidate, WeatherStatus } from '@/lib/weather/types'
@@ -407,6 +411,10 @@ type RouteBridgeSummary = {
   origin: { lat: number; lon: number }
   destination: { lat: number; lon: number }
   weatherCoverage: RouteWeatherCoverage
+  navigationOrigin: RoadIntelligencePlaceResult
+  navigationDestination: RoadIntelligencePlaceResult
+  navigationOriginName: string
+  navigationDestinationName: string
 }
 
 function routeAssessmentAreaName(place: RoadIntelligencePlaceResult): string {
@@ -468,9 +476,33 @@ type RouteLabelPlacement = {
   offset: [number, number]
 }
 
+type ReadyRouteAssessmentScope = Extract<RouteAssessmentScope, { status: 'ready' }>
+
 type ResolvedRoutePlaces = {
-  origin: RoadIntelligencePlaceResult
-  destination: RoadIntelligencePlaceResult
+  navigationOrigin: RoadIntelligencePlaceResult
+  navigationDestination: RoadIntelligencePlaceResult
+  navigationOriginName: string
+  navigationDestinationName: string
+  assessmentOrigin: RoadIntelligencePlaceResult
+  assessmentDestination: RoadIntelligencePlaceResult
+  assessmentScope: ReadyRouteAssessmentScope
+}
+
+type RouteHandoffOnlySummary = {
+  navigationOrigin: RoadIntelligencePlaceResult
+  navigationDestination: RoadIntelligencePlaceResult
+  navigationOriginName: string
+  navigationDestinationName: string
+  assessment: {
+    originName: string
+    destinationName: string
+  } | null
+  reason: 'assessment_unavailable' | 'same_area' | 'weather_unavailable'
+}
+
+type RouteSurfaceChoiceResult = {
+  assessmentScope: RouteAssessmentScope
+  choices: RouteSurfaceChoice[]
 }
 
 type VegagerdinCurrentApiData =
@@ -1676,6 +1708,7 @@ export function RoadMapPrototypeMap({
   const [routePlaceFallbackSuggestion, setRoutePlaceFallbackSuggestion] =
     useState<RoutePlaceFallbackSuggestion | null>(null)
   const [routeBridgeSummary, setRouteBridgeSummary] = useState<RouteBridgeSummary | null>(null)
+  const [routeHandoffOnlySummary, setRouteHandoffOnlySummary] = useState<RouteHandoffOnlySummary | null>(null)
   const [routeTravelResult, setRouteTravelResult] = useState<DeterministicResult | null>(null)
   const [routeVedurstofanLayer, setRouteVedurstofanLayer] = useState<VedurstofanTravelLayer | null>(null)
   const [fromSuggestions, setFromSuggestions] = useState<RoadIntelligencePlaceResult[]>([])
@@ -1733,7 +1766,9 @@ export function RoadMapPrototypeMap({
   const [teskeidAlternativesStatus, setTeskeidAlternativesStatus] = useState<TeskeidAlternativesStatus>('idle')
   const [routeComparisonFullscreen, setRouteComparisonFullscreen] = useState(false)
   const [routeComparisonOpening, setRouteComparisonOpening] = useState(false)
+  const [routeComparisonApplyPending, setRouteComparisonApplyPending] = useState(false)
   const [routeSafetySearchPending, setRouteSafetySearchPending] = useState(false)
+  const routeComparisonApplyPendingRef = useRef(false)
   const routeComparisonAutoOpenedRunIdRef = useRef<number | null>(null)
   const routeSafetyAutoApplyChoiceRef = useRef<string | null>(null)
 
@@ -2024,6 +2059,9 @@ export function RoadMapPrototypeMap({
   const teskeidClientCandidateCacheRef = useRef(new Map<string, TeskeidClientCandidateCacheEntry>())
   const routeBridgeRunIdRef = useRef(0)
   const formRef = useRef<HTMLFormElement | null>(null)
+  const routePanelScrollRef = useRef<HTMLDivElement | null>(null)
+  const weatherResultsRef = useRef<HTMLDivElement | null>(null)
+  const pendingWeatherResultsFocusRunIdRef = useRef<number | null>(null)
   const resolvedRoutePlacesRef = useRef<ResolvedRoutePlaces | null>(null)
   const stopRouteLiveLocation = useCallback((resetState = true) => {
     routeLiveLocationStopRef.current?.()
@@ -4811,6 +4849,7 @@ export function RoadMapPrototypeMap({
     setRoutePlaceFallbackSuggestion(null)
     setRouteThresholdError(null)
     setRouteBridgeSummary(null)
+    setRouteHandoffOnlySummary(null)
     setRouteTravelResult(null)
     setRouteVedurstofanLayer(null)
     setRouteFrom('')
@@ -4836,7 +4875,10 @@ export function RoadMapPrototypeMap({
     setTeskeidAlternativesStatus('idle')
     setRouteComparisonFullscreen(false)
     setRouteComparisonOpening(false)
+    routeComparisonApplyPendingRef.current = false
+    setRouteComparisonApplyPending(false)
     setRouteSafetySearchPending(false)
+    pendingWeatherResultsFocusRunIdRef.current = null
     routeComparisonAutoOpenedRunIdRef.current = null
     routeSafetyAutoApplyChoiceRef.current = null
     setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
@@ -4878,16 +4920,25 @@ export function RoadMapPrototypeMap({
 
   function handleEditRoute() {
     const resolvedPlaces = resolvedRoutePlacesRef.current
-    const preservedFrom = routeFrom.trim() || routeBridgeSummary?.fromName || ''
-    const preservedTo = routeTo.trim() || routeBridgeSummary?.toName || ''
+    const navigationOrigin = resolvedPlaces?.navigationOrigin ?? routeHandoffOnlySummary?.navigationOrigin ?? null
+    const navigationDestination = resolvedPlaces?.navigationDestination ?? routeHandoffOnlySummary?.navigationDestination ?? null
+    const preservedFrom = routeFrom.trim()
+      || resolvedPlaces?.navigationOriginName
+      || routeHandoffOnlySummary?.navigationOriginName
+      || ''
+    const preservedTo = routeTo.trim()
+      || resolvedPlaces?.navigationDestinationName
+      || routeHandoffOnlySummary?.navigationDestinationName
+      || ''
 
     handleClearRoute()
 
     setRouteFrom(preservedFrom)
     setRouteTo(preservedTo)
-    setFromResolved(resolvedPlaces?.origin ?? null)
-    setToResolved(resolvedPlaces?.destination ?? null)
-    resolvedRoutePlacesRef.current = resolvedPlaces
+    setFromResolved(navigationOrigin)
+    setToResolved(navigationDestination)
+    // Assessment scope is derived again on submit; never restore a stale binding.
+    resolvedRoutePlacesRef.current = null
     setActiveRouteFieldState('from')
     setIsPanelOpen(true)
   }
@@ -5301,8 +5352,8 @@ export function RoadMapPrototypeMap({
         updatedAt: Date.now(),
         from: routeFrom,
         to: routeTo,
-        origin: resolvedPlaces?.origin ?? null,
-        destination: resolvedPlaces?.destination ?? null,
+        origin: resolvedPlaces?.navigationOrigin ?? routeHandoffOnlySummary?.navigationOrigin ?? null,
+        destination: resolvedPlaces?.navigationDestination ?? routeHandoffOnlySummary?.navigationDestination ?? null,
         cautionWind: routeCautionWind,
         redWind: routeRedWind,
         view,
@@ -6400,7 +6451,8 @@ export function RoadMapPrototypeMap({
     origin: RoadIntelligencePlaceResult,
     destination: RoadIntelligencePlaceResult,
     signal: AbortSignal,
-  ): Promise<RouteSurfaceChoice[]> {
+    expectedScopeId?: string,
+  ): Promise<RouteSurfaceChoiceResult> {
     const res = await fetch('/api/teskeid/weather/travel/routes', {
       method: 'POST',
       credentials: 'same-origin',
@@ -6413,6 +6465,7 @@ export function RoadMapPrototypeMap({
         includeTeskeidCandidate: false,
         includeRouteEnvelopes: true,
         compactRouteEnvelopes: true,
+        resolveAssessmentScope: true,
       }),
     })
     if (res.status === 401) throw new Error('auth')
@@ -6420,6 +6473,14 @@ export function RoadMapPrototypeMap({
     if (!res.ok) throw new Error('route_unavailable')
 
     const payload = await res.json().catch(() => null)
+    const assessmentScope = parseRouteAssessmentScope(payload?.assessmentScope)
+    if (!assessmentScope) throw new Error('assessment_scope_invalid')
+    if (
+      expectedScopeId
+      && (assessmentScope.status !== 'ready' || assessmentScope.scopeId !== expectedScopeId)
+    ) {
+      throw new Error('assessment_scope_mismatch')
+    }
     const envelopes = parseRouteEnvelopes(payload)
     const routes = envelopes.length > 0
       ? envelopes.map(envelope => envelope.route)
@@ -6427,7 +6488,7 @@ export function RoadMapPrototypeMap({
         ? payload.routes as RouteOption[]
         : []
     const envelopesByRouteId = new Map(envelopes.map(envelope => [envelope.route.id, envelope]))
-    return routes
+    const choices = routes
       .slice(0, 6)
       .map((route, index) => routeOptionToSurfaceChoice(
         route,
@@ -6435,6 +6496,7 @@ export function RoadMapPrototypeMap({
         envelopesByRouteId.get(route.id) ?? null,
       ))
       .filter(choice => choice.routeEnvelope !== null)
+    return { assessmentScope, choices }
   }
 
   async function fetchTeskeidCandidate(
@@ -6571,6 +6633,7 @@ export function RoadMapPrototypeMap({
     origin: RoadIntelligencePlaceResult,
     destination: RoadIntelligencePlaceResult,
     signal: AbortSignal,
+    expectedScopeId: string,
   ): Promise<RouteOptionEnvelopeV1 | null> {
     if (isAuthenticated) return null
     const current = publicTeskeidAccessEnvelope()
@@ -6579,7 +6642,13 @@ export function RoadMapPrototypeMap({
     // Public candidate access is intentionally chained to a fresh, rate-limited
     // Google route-options response. Refreshing an expired grant must go through
     // that same endpoint rather than silently bypassing the public trip budget.
-    const refreshedChoices = await fetchRouteSurfaceChoices(origin, destination, signal)
+    const refreshedResult = await fetchRouteSurfaceChoices(
+      origin,
+      destination,
+      signal,
+      expectedScopeId,
+    )
+    const refreshedChoices = refreshedResult.choices
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
     setRouteSurfaceChoices(existing => mergeProviderRouteChoices(
       existing,
@@ -6596,6 +6665,7 @@ export function RoadMapPrototypeMap({
     origin: RoadIntelligencePlaceResult,
     destination: RoadIntelligencePlaceResult,
     signal: AbortSignal,
+    expectedScopeId: string,
     force = false,
   ): Promise<RouteSurfaceChoice> {
     const expiresAtMs = choice.routeEnvelope
@@ -6611,6 +6681,7 @@ export function RoadMapPrototypeMap({
         origin,
         destination,
         signal,
+        expectedScopeId,
       )
       if (!isAuthenticated && !accessRouteEnvelope) throw new Error('route_unavailable')
       setTeskeidCandidateStatus('loading')
@@ -6629,7 +6700,9 @@ export function RoadMapPrototypeMap({
         setTeskeidCandidateStatus(result.status)
       }
     } else {
-      refreshedChoices = await fetchRouteSurfaceChoices(origin, destination, signal)
+      refreshedChoices = (
+        await fetchRouteSurfaceChoices(origin, destination, signal, expectedScopeId)
+      ).choices
     }
     if (signal.aborted || refreshedChoices.length === 0) {
       throw new Error('route_unavailable')
@@ -6652,16 +6725,17 @@ export function RoadMapPrototypeMap({
     const signal = routeDiscoveryRequestRef.current?.signal
     if (!places || !signal || signal.aborted || teskeidCandidateStatus === 'loading' || teskeidCandidateStatus === 'pending') return
     const accessRouteEnvelope = await resolvePublicTeskeidAccessEnvelope(
-      places.origin,
-      places.destination,
+      places.assessmentOrigin,
+      places.assessmentDestination,
       signal,
+      places.assessmentScope.scopeId,
     ).catch(() => null)
     if (!isAuthenticated && !accessRouteEnvelope) return
     setTeskeidCandidateStatus('loading')
     try {
       const result = await fetchTeskeidCandidateWithRetry(
-        places.origin,
-        places.destination,
+        places.assessmentOrigin,
+        places.assessmentDestination,
         signal,
         false,
         () => setTeskeidCandidateStatus('pending'),
@@ -6695,17 +6769,18 @@ export function RoadMapPrototypeMap({
     setTeskeidAlternativesStatus('loading')
     try {
       const accessRouteEnvelope = await resolvePublicTeskeidAccessEnvelope(
-        places.origin,
-        places.destination,
+        places.assessmentOrigin,
+        places.assessmentDestination,
         controller.signal,
+        places.assessmentScope.scopeId,
       )
       if (!isAuthenticated && !accessRouteEnvelope) {
         setTeskeidAlternativesStatus('unavailable')
         return
       }
       const result = await fetchTeskeidCandidateWithRetry(
-        places.origin,
-        places.destination,
+        places.assessmentOrigin,
+        places.assessmentDestination,
         controller.signal,
         true,
         undefined,
@@ -6941,25 +7016,92 @@ export function RoadMapPrototypeMap({
     })
   }
 
+  function showRouteHandoffOnly(summary: RouteHandoffOnlySummary) {
+    routeDiscoveryRequestRef.current?.abort()
+    routeAlternativesRequestRef.current?.abort()
+    routeActiveRef.current = false
+    setRouteActive(false)
+    setRouteBridgeSummary(null)
+    setRouteTravelResult(null)
+    setRouteVedurstofanLayer(null)
+    setRouteCandidates(null)
+    setRouteSlotStatusOverrides(null)
+    setRouteNowStatusCounts(null)
+    setRouteNowMeasuredAtIso(null)
+    setRouteNowMeasurementFreshness(null)
+    setRouteWindArrowCount(0)
+    setRouteVegagerdinLastRefreshIso(null)
+    setRouteVisibleStatusCounts(null)
+    resetRouteDepartureForecastState()
+    setRouteSurfaceChoices([])
+    setRouteSurfaceChoicesStatus('idle')
+    setRouteSwitchingChoiceId(null)
+    setTeskeidCandidateStatus('idle')
+    setTeskeidAlternativesStatus('idle')
+    setPreviewRouteChoiceId(null)
+    setRouteComparisonFullscreen(false)
+    setRouteComparisonOpening(false)
+    routeComparisonApplyPendingRef.current = false
+    setRouteComparisonApplyPending(false)
+    setRouteSafetySearchPending(false)
+    pendingWeatherResultsFocusRunIdRef.current = null
+    routeComparisonAutoOpenedRunIdRef.current = null
+    routeSafetyAutoApplyChoiceRef.current = null
+    stopRouteLiveLocation()
+    vedurstofanLayerRef.current = undefined
+    routeAuditPolylinePointsRef.current = []
+    routeVegagerdinCacheStatusRef.current = null
+    resolvedRoutePlacesRef.current = null
+    clearRouteVedurstofanLabelMarkers()
+    clearRouteVegagerdinLabelMarkers()
+    setRouteHandoffOnlySummary(summary)
+    setRouteCalculationPlaceNames({
+      from: summary.navigationOriginName,
+      to: summary.navigationDestinationName,
+    })
+    clearRouteEndpointMarkers()
+    const map = mapRef.current
+    for (const sourceId of [
+      VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
+      VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID,
+      VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
+      TRAVEL_METNO_LAYER_ID,
+      'travel-bridge-route',
+    ] as const) {
+      const source = map?.getSource(sourceId)
+      if (source) {
+        ;(source as import('maplibre-gl').GeoJSONSource).setData(
+          EMPTY_FEATURE_COLLECTION as never,
+        )
+      }
+    }
+    updateOverviewLayerVisibility(overviewActiveModeRef.current, false)
+    reconcilePlaceMarkerVisibility()
+    setRouteBridgeStatus('success')
+  }
+
   async function calculateResolvedRoute({
-    origin,
-    destination,
+    places,
     thresholds,
     signal,
     selectedRouteId,
     routeEnvelope,
     openComparisonOnSuccess = false,
   }: {
-    origin: RoadIntelligencePlaceResult
-    destination: RoadIntelligencePlaceResult
+    places: ResolvedRoutePlaces
     thresholds: ResolvedTravelThresholds
     signal: AbortSignal
     selectedRouteId?: string | null
     routeEnvelope?: RouteOptionEnvelopeV1 | null
     openComparisonOnSuccess?: boolean
-  }) {
+  }): Promise<boolean> {
+    const origin = places.assessmentOrigin
+    const destination = places.assessmentDestination
     const effectiveSelectedRouteId = routeEnvelope?.route.id ?? selectedRouteId ?? null
-    console.log('[RoadMap] route fetch:', origin.name, '→', destination.name, effectiveSelectedRouteId ? `routeId=${effectiveSelectedRouteId}` : '(default)')
+    logRoadMapDiagnostic('route fetch', {
+      selectedRouteId: effectiveSelectedRouteId,
+      assessmentScopeId: places.assessmentScope.scopeId,
+    })
     const t0 = performance.now()
     const mapReadyPromise = waitForMapReady(20_000, signal)
       .then(() => null)
@@ -6998,12 +7140,7 @@ export function RoadMapPrototypeMap({
       }
       throw new Error(typeof data?.error === 'string' ? data.error : 'travel_failed')
     }
-    if (signal.aborted) return
-
-    console.log('[RoadMap] route API:', Math.round(performance.now() - t0), 'ms, status:', res.status)
-    const mapReadyError = await mapReadyPromise
-    if (mapReadyError) throw mapReadyError
-    if (signal.aborted) return
+    if (signal.aborted) return false
 
     const travelResult = data as DeterministicResult
     const weatherCoverage = travelResult.travelPlan?.route.weatherCoverage ?? {
@@ -7012,6 +7149,25 @@ export function RoadMapPrototypeMap({
     }
     const hasAssessedWeatherCoverage =
       weatherCoverage.status === 'full' || weatherCoverage.status === 'partial'
+    if (!hasAssessedWeatherCoverage) {
+      showRouteHandoffOnly({
+        navigationOrigin: places.navigationOrigin,
+        navigationDestination: places.navigationDestination,
+        navigationOriginName: places.navigationOriginName,
+        navigationDestinationName: places.navigationDestinationName,
+        assessment: {
+          originName: places.assessmentOrigin.name,
+          destinationName: places.assessmentDestination.name,
+        },
+        reason: 'weather_unavailable',
+      })
+      return false
+    }
+    console.log('[RoadMap] route API:', Math.round(performance.now() - t0), 'ms, status:', res.status)
+    const mapReadyError = await mapReadyPromise
+    if (mapReadyError) throw mapReadyError
+    if (signal.aborted) return false
+
     const extra = data as Record<string, unknown>
     if (extra['roadIntelligenceDebug'] && typeof extra['roadIntelligenceDebug'] === 'object') {
       logRoadMapDiagnostic('route api debug payload', extra['roadIntelligenceDebug'] as Record<string, unknown>)
@@ -7037,7 +7193,7 @@ export function RoadMapPrototypeMap({
       !hasAssessedWeatherCoverage || (serverVegagerdinLayer && serverVegagerdinLayer.points.length > 0)
         ? null
         : await fetchVegagerdinCurrentForRoute(signal)
-    if (signal.aborted) return
+    if (signal.aborted) return false
     const vegagerdinLayer =
       !hasAssessedWeatherCoverage
         ? undefined
@@ -7097,8 +7253,8 @@ export function RoadMapPrototypeMap({
     renderRouteEndpointLabels(
       origin,
       destination,
-      routeFrom.trim() || origin.name,
-      routeTo.trim() || destination.name,
+      origin.name,
+      destination.name,
       weatherCoverage,
     )
 
@@ -7108,6 +7264,7 @@ export function RoadMapPrototypeMap({
       setRouteComparisonFullscreen(true)
       setRouteComparisonOpening(false)
     }
+    setRouteHandoffOnlySummary(null)
     setRouteBridgeSummary({
       fromName: origin.name,
       toName: destination.name,
@@ -7127,6 +7284,10 @@ export function RoadMapPrototypeMap({
       origin: { lat: origin.lat, lon: origin.lon },
       destination: { lat: destination.lat, lon: destination.lon },
       weatherCoverage,
+      navigationOrigin: places.navigationOrigin,
+      navigationDestination: places.navigationDestination,
+      navigationOriginName: places.navigationOriginName,
+      navigationDestinationName: places.navigationDestinationName,
     })
     setRouteTravelResult(travelResult)
     setRouteVedurstofanLayer(vedurstofanLayer ?? null)
@@ -7160,6 +7321,7 @@ export function RoadMapPrototypeMap({
     setRouteForecastBuildStatus('idle')
     // Auto-build departure forecast so DriveJourneyPanel scrubber is ready
     handleRouteDepartureForecastOptIn()
+    return true
   }
 
   async function handleRouteBridgeSubmit(event: FormEvent<HTMLFormElement>) {
@@ -7181,7 +7343,6 @@ export function RoadMapPrototypeMap({
       return
     }
 
-    console.log('[RoadMap] route submit:', fromQuery, '→', toQuery)
     routeBridgeRequestRef.current?.abort()
     routeDiscoveryRequestRef.current?.abort()
     routeAlternativesRequestRef.current?.abort()
@@ -7196,6 +7357,7 @@ export function RoadMapPrototypeMap({
     setRoutePlaceFallbackSuggestion(null)
     clearRouteEndpointMarkers()
     setRouteBridgeSummary(null)
+    setRouteHandoffOnlySummary(null)
     setRouteTravelResult(null)
     setRouteVedurstofanLayer(null)
     setRouteCandidates(null)
@@ -7212,7 +7374,10 @@ export function RoadMapPrototypeMap({
     setTeskeidAlternativesStatus('idle')
     setRouteComparisonFullscreen(false)
     setRouteComparisonOpening(true)
+    routeComparisonApplyPendingRef.current = false
+    setRouteComparisonApplyPending(false)
     setRouteSafetySearchPending(false)
+    pendingWeatherResultsFocusRunIdRef.current = null
     routeSafetyAutoApplyChoiceRef.current = null
     setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
     setRouteCalculationPlaceNames({ from: fromQuery, to: toQuery })
@@ -7233,10 +7398,49 @@ export function RoadMapPrototypeMap({
       if (controller.signal.aborted) return
       attemptedOrigin = origin
       attemptedDestination = destination
-      resolvedRoutePlacesRef.current = { origin, destination }
-      setRouteCalculationPlaceNames({ from: origin.name, to: destination.name })
       void savePlaceBestEffort(origin)
       void savePlaceBestEffort(destination)
+
+      setRouteSurfaceChoicesStatus('loading')
+      const scopedGoogleResult = await fetchRouteSurfaceChoices(
+        origin,
+        destination,
+        discoveryController.signal,
+      )
+      if (
+        controller.signal.aborted
+        || discoveryController.signal.aborted
+        || routeBridgeRunIdRef.current !== runId
+      ) return
+      if (scopedGoogleResult.assessmentScope.status !== 'ready') {
+        resolvedRoutePlacesRef.current = null
+        showRouteHandoffOnly({
+          navigationOrigin: origin,
+          navigationDestination: destination,
+          navigationOriginName: fromQuery,
+          navigationDestinationName: toQuery,
+          assessment: null,
+          reason: scopedGoogleResult.assessmentScope.status === 'same_area'
+            ? 'same_area'
+            : 'assessment_unavailable',
+        })
+        return
+      }
+
+      const places: ResolvedRoutePlaces = {
+        navigationOrigin: origin,
+        navigationDestination: destination,
+        navigationOriginName: fromQuery,
+        navigationDestinationName: toQuery,
+        assessmentOrigin: scopedGoogleResult.assessmentScope.origin,
+        assessmentDestination: scopedGoogleResult.assessmentScope.destination,
+        assessmentScope: scopedGoogleResult.assessmentScope,
+      }
+      resolvedRoutePlacesRef.current = places
+      setRouteCalculationPlaceNames({
+        from: places.assessmentOrigin.name,
+        to: places.assessmentDestination.name,
+      })
 
       // Discover independent providers in parallel. The first provider with a
       // valid, server-attested route wins this run; slower providers continue
@@ -7308,12 +7512,7 @@ export function RoadMapPrototypeMap({
         rejectFirstChoice(new Error('aborted'))
       }, { once: true })
 
-      setRouteSurfaceChoicesStatus('loading')
-      const googleChoicesPromise = fetchRouteSurfaceChoices(
-        origin,
-        destination,
-        discoveryController.signal,
-      )
+      const googleChoicesPromise = Promise.resolve(scopedGoogleResult.choices)
       const discoveries: FirstReadyDiscovery<FirstReadyRouteProvider, RouteSurfaceChoice>[] = [{
         provider: 'google',
         discover: async () => {
@@ -7343,8 +7542,8 @@ export function RoadMapPrototypeMap({
                 return { status: 'failed', reason: 'route_access_unavailable' }
               }
               const result = await fetchTeskeidCandidateWithRetry(
-                origin,
-                destination,
+                places.assessmentOrigin,
+                places.assessmentDestination,
                 discoveryController.signal,
                 false,
                 () => {
@@ -7385,8 +7584,7 @@ export function RoadMapPrototypeMap({
       setPreviewRouteChoiceId(firstChoice.routeId)
       previewSurfaceRouteChoice(firstChoice)
       await calculateResolvedRoute({
-        origin,
-        destination,
+        places,
         thresholds,
         signal: controller.signal,
         selectedRouteId: firstChoice.routeId,
@@ -7397,6 +7595,21 @@ export function RoadMapPrototypeMap({
       if (controller.signal.aborted) return
       const code = err instanceof Error ? err.message : 'unknown'
       console.error('[RoadMap] route failed:', code, err)
+      if (
+        code === 'assessment_scope_invalid'
+        && attemptedOrigin
+        && attemptedDestination
+      ) {
+        showRouteHandoffOnly({
+          navigationOrigin: attemptedOrigin,
+          navigationDestination: attemptedDestination,
+          navigationOriginName: fromQuery,
+          navigationDestinationName: toQuery,
+          assessment: null,
+          reason: 'assessment_unavailable',
+        })
+        return
+      }
       if (
         code !== 'auth' &&
         code !== 'rate_limited' &&
@@ -7491,8 +7704,8 @@ export function RoadMapPrototypeMap({
     setRouteSwitchingChoiceId(choice.routeId)
     setRouteBridgeError(null)
     setRouteCalculationPlaceNames({
-      from: resolvedPlaces.origin.name,
-      to: resolvedPlaces.destination.name,
+      from: resolvedPlaces.assessmentOrigin.name,
+      to: resolvedPlaces.assessmentDestination.name,
     })
     setRouteContextView('information')
     setIsPanelOpen(true)
@@ -7500,9 +7713,10 @@ export function RoadMapPrototypeMap({
     try {
       let choiceToApply = await refreshRouteChoiceEnvelope(
         choice,
-        resolvedPlaces.origin,
-        resolvedPlaces.destination,
+        resolvedPlaces.assessmentOrigin,
+        resolvedPlaces.assessmentDestination,
         controller.signal,
+        resolvedPlaces.assessmentScope.scopeId,
       )
       if (controller.signal.aborted) return false
       setRouteSwitchingChoiceId(choiceToApply.routeId)
@@ -7510,32 +7724,33 @@ export function RoadMapPrototypeMap({
       previewSurfaceRouteChoice(choiceToApply, true)
 
       const applyChoice = (selectedChoice: RouteSurfaceChoice) => calculateResolvedRoute({
-        origin: resolvedPlaces.origin,
-        destination: resolvedPlaces.destination,
+        places: resolvedPlaces,
         thresholds,
         signal: controller.signal,
         selectedRouteId: selectedChoice.routeId,
         routeEnvelope: selectedChoice.routeEnvelope,
       })
+      let applied: boolean
       try {
-        await applyChoice(choiceToApply)
+        applied = await applyChoice(choiceToApply)
       } catch (error) {
         if (!(error instanceof Error) || error.message !== 'route_envelope_invalid') throw error
         choiceToApply = await refreshRouteChoiceEnvelope(
           choiceToApply,
-          resolvedPlaces.origin,
-          resolvedPlaces.destination,
+          resolvedPlaces.assessmentOrigin,
+          resolvedPlaces.assessmentDestination,
           controller.signal,
+          resolvedPlaces.assessmentScope.scopeId,
           true,
         )
         if (controller.signal.aborted) return false
         setRouteSwitchingChoiceId(choiceToApply.routeId)
         setPreviewRouteChoiceId(choiceToApply.routeId)
         previewSurfaceRouteChoice(choiceToApply, true)
-        await applyChoice(choiceToApply)
+        applied = await applyChoice(choiceToApply)
       }
       if (!controller.signal.aborted) setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
-      return !controller.signal.aborted
+      return applied && !controller.signal.aborted
     } catch (err) {
       if (controller.signal.aborted) return false
       const code = err instanceof Error ? err.message : 'unknown'
@@ -7553,6 +7768,43 @@ export function RoadMapPrototypeMap({
       return false
     } finally {
       if (!controller.signal.aborted) setRouteSwitchingChoiceId(null)
+    }
+  }
+
+  function requestWeatherResultsFocus(runId: number) {
+    if (routeBridgeRunIdRef.current !== runId) return
+    pendingWeatherResultsFocusRunIdRef.current = runId
+    setRouteContextView('information')
+    setIsPanelOpen(true)
+    setRouteComparisonFullscreen(false)
+    setRouteComparisonOpening(false)
+  }
+
+  async function handleApplyRouteComparison() {
+    if (routeComparisonApplyPendingRef.current) return
+    const choice = routeSurfaceChoices.find(route => route.routeId === selectedRouteChoiceId)
+    if (!choice) return
+    const runId = routeBridgeRunIdRef.current
+
+    if (!shouldRecalculateRouteChoice(choice.routeId, appliedRouteChoiceId)) {
+      if (routeHasAssessedWeatherCoverage && routeBridgeSummary && routeTravelResult) {
+        requestWeatherResultsFocus(runId)
+      }
+      return
+    }
+
+    routeComparisonApplyPendingRef.current = true
+    setRouteComparisonApplyPending(true)
+    try {
+      const applied = await handleSelectSurfaceRouteChoice(choice)
+      if (applied && routeBridgeRunIdRef.current === runId) {
+        requestWeatherResultsFocus(runId)
+      }
+    } finally {
+      if (routeBridgeRunIdRef.current === runId) {
+        routeComparisonApplyPendingRef.current = false
+        setRouteComparisonApplyPending(false)
+      }
     }
   }
 
@@ -8509,6 +8761,7 @@ export function RoadMapPrototypeMap({
     bridgeStatus: routeBridgeStatus,
     hasSummary: routeBridgeSummary !== null,
     hasTravelResult: routeTravelResult !== null,
+    hasHandoffOnly: routeHandoffOnlySummary !== null,
     safetySearchPending: routeSafetySearchPending,
     switchingChoiceId: routeSwitchingChoiceId,
     comparisonOpening: routeComparisonOpening,
@@ -8550,13 +8803,17 @@ export function RoadMapPrototypeMap({
     || routeWeatherCoverage?.status === 'partial'
   const routeNavigationHandoffLabels = {
     assessmentTitle: t('roadMapPrototypeCoverageAssessmentTitle'),
-    routeTitle: t('roadMapPrototypeCoverageRouteTitle'),
     navigationTitle: t('roadMapPrototypeCoverageNavigationTitle'),
     boundaryFallback: t('roadMapPrototypeCoverageBoundaryFallback'),
     settlementBoundary: t('roadMapPrototypeCoverageSettlementBoundary'),
     officialRoadBoundary: t('roadMapPrototypeCoverageOfficialRoadBoundary'),
     openDirections: t('roadMapPrototypeCoverageGoogleDirections'),
   }
+  const routeHandoffOnlyMessage = routeHandoffOnlySummary?.reason === 'same_area'
+    ? t('roadMapPrototypeAssessmentSameArea')
+    : routeHandoffOnlySummary?.reason === 'weather_unavailable'
+      ? t('roadMapPrototypeAssessmentWeatherUnavailable')
+      : t('roadMapPrototypeAssessmentUnavailable')
   const routeLiveLocationStatusLabel = routeLiveLocationStatus === 'waiting'
     ? t('roadMapPrototypeLiveLocationLoading')
     : routeLiveLocationStatus === 'active' && routeLiveLocationPoint
@@ -8680,26 +8937,7 @@ export function RoadMapPrototypeMap({
       const cautionWind = typeof parsed.cautionWind === 'string' ? parsed.cautionWind : ''
       const redWind = typeof parsed.redWind === 'string' ? parsed.redWind : ''
       const parseStoredPlace = (value: unknown): RoadIntelligencePlaceResult | null => {
-        if (!value || typeof value !== 'object') return null
-        const candidate = value as Record<string, unknown>
-        if (
-          typeof candidate.name !== 'string' ||
-          typeof candidate.lat !== 'number' ||
-          !Number.isFinite(candidate.lat) ||
-          typeof candidate.lon !== 'number' ||
-          !Number.isFinite(candidate.lon)
-        ) {
-          return null
-        }
-        return {
-          name: candidate.name,
-          formattedAddress:
-            typeof candidate.formattedAddress === 'string'
-              ? candidate.formattedAddress
-              : candidate.name,
-          lat: candidate.lat,
-          lon: candidate.lon,
-        }
+        return parsePlaceSearchResults([value])[0] ?? null
       }
       const origin = parseStoredPlace(parsed.origin)
       const destination = parseStoredPlace(parsed.destination)
@@ -8720,7 +8958,6 @@ export function RoadMapPrototypeMap({
       setRouteCautionWind(cautionWind)
       setRouteRedWind(redWind)
       if (origin && destination) {
-        resolvedRoutePlacesRef.current = { origin, destination }
         setFromResolved(origin)
         setToResolved(destination)
       }
@@ -8834,6 +9071,40 @@ export function RoadMapPrototypeMap({
     setRouteComparisonFullscreen(true)
     setRouteComparisonOpening(false)
   }, [routeBridgeSummary, routeComparisonItems.length, routeSafetySearchPending])
+
+  useEffect(() => {
+    const pendingRunId = pendingWeatherResultsFocusRunIdRef.current
+    const coverage = routeBridgeSummary?.weatherCoverage
+    if (
+      pendingRunId === null
+      || pendingRunId !== routeBridgeRunIdRef.current
+      || routeComparisonFullscreen
+      || !routeBridgeSummary
+      || !routeTravelResult
+      || (coverage?.status !== 'full' && coverage?.status !== 'partial')
+    ) {
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      if (
+        pendingWeatherResultsFocusRunIdRef.current !== pendingRunId
+        || routeBridgeRunIdRef.current !== pendingRunId
+      ) return
+      const scrollContainer = routePanelScrollRef.current
+      const target = weatherResultsRef.current
+      if (!scrollContainer || !target) return
+      pendingWeatherResultsFocusRunIdRef.current = null
+      const containerRect = scrollContainer.getBoundingClientRect()
+      const targetRect = target.getBoundingClientRect()
+      scrollContainer.scrollTo({
+        top: Math.max(0, scrollContainer.scrollTop + targetRect.top - containerRect.top),
+        behavior: 'auto',
+      })
+      target.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [routeBridgeSummary, routeComparisonFullscreen, routeTravelResult])
 
   useEffect(() => {
     if (
@@ -9463,9 +9734,14 @@ export function RoadMapPrototypeMap({
                   from: routeBridgeSummary.fromName,
                   to: routeBridgeSummary.toName,
                 })
+              : routeHandoffOnlySummary
+                ? t('roadMapPrototypeRouteSummaryPlaces', {
+                    from: routeHandoffOnlySummary.navigationOriginName,
+                    to: routeHandoffOnlySummary.navigationDestinationName,
+                  })
               : t('roadMapPrototypeRouteBridgeTitle')}
           </p>
-          {routeResultsDisplayState === 'summary' && routeBridgeSummary && (
+          {(routeResultsDisplayState === 'summary' || routeResultsDisplayState === 'handoff-only') && (
             <button
               type="button"
               onClick={handleEditRoute}
@@ -9486,18 +9762,8 @@ export function RoadMapPrototypeMap({
           )}
         </div>
 
-        {/* Route warning banner */}
-        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
-          <p className="text-[11px] leading-snug text-amber-800 dark:text-amber-300">
-            {t('roadMapPrototypeRouteWarningBanner')}
-          </p>
-          <p className="mt-1 text-[11px] font-semibold leading-snug text-amber-900 dark:text-amber-200">
-            {t('roadMapPrototypeRouteWarningBannerEmphasis')}
-          </p>
-        </div>
-
         {/* Panel body — scrollable */}
-        <div className="flex-1 overflow-y-auto">
+        <div ref={routePanelScrollRef} className="flex-1 overflow-y-auto">
           {routeResultsDisplayState === 'safety-search' ? (
             <TeskeidLoader
               ideaTitles={routeLoaderTitles}
@@ -9517,50 +9783,76 @@ export function RoadMapPrototypeMap({
                 {renderRouteSurfaceChoices()}
               </div>
               {routeHasAssessedWeatherCoverage && (
-                <DriveJourneyPanel
-                  layer={routeVedurstofanLayer}
-                  candidates={displayedRouteCandidates ?? []}
-                  selectedCandidateIdx={effectiveSelectedCandidateIdx}
-                  onSelectCandidateIdx={handleSelectCandidateIdx}
-                  slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
-                  thresholds={routeBridgeSummary.thresholdsUsed}
-                  durationMinutes={routeBridgeSummary.durationMinutes}
-                  distanceKm={routeBridgeSummary.distanceKm}
-                  originName={
-                    routeBridgeSummary.weatherCoverage.status === 'partial'
-                      ? routeBridgeSummary.weatherCoverage.start.label || routeBridgeSummary.fromName
-                      : routeBridgeSummary.fromName
-                  }
-                  destinationName={
-                    routeBridgeSummary.weatherCoverage.status === 'partial'
-                      ? routeBridgeSummary.weatherCoverage.end.label || routeBridgeSummary.toName
-                      : routeBridgeSummary.toName
-                  }
-                  onClearRoute={handleClearRoute}
-                  routePoints={routeTravelResult?.travelPlan?.route.auditPolylinePoints ?? []}
-                  hasMoreCandidates={hasMoreCandidates}
-                  onLoadMore={() => setVisibleCandidateLimit(prev => prev + 24)}
-                  onEnlargeMap={() => openRouteContext('map')}
-                  stationReturnTo={routeReturnHref('information')}
-                  routeSelectionContextKey={routeTravelResult?.id ?? 'none'}
-                />
+                <div
+                  ref={weatherResultsRef}
+                  tabIndex={-1}
+                  data-route-weather-results="true"
+                  className="scroll-mt-3 focus:outline-none"
+                >
+                  <DriveJourneyPanel
+                    layer={routeVedurstofanLayer}
+                    candidates={displayedRouteCandidates ?? []}
+                    selectedCandidateIdx={effectiveSelectedCandidateIdx}
+                    onSelectCandidateIdx={handleSelectCandidateIdx}
+                    slotStatusOverrides={displayedSlotStatusOverrides ?? undefined}
+                    thresholds={routeBridgeSummary.thresholdsUsed}
+                    durationMinutes={routeBridgeSummary.durationMinutes}
+                    distanceKm={routeBridgeSummary.distanceKm}
+                    originName={
+                      routeBridgeSummary.weatherCoverage.status === 'partial'
+                        ? routeBridgeSummary.weatherCoverage.start.label || routeBridgeSummary.fromName
+                        : routeBridgeSummary.fromName
+                    }
+                    destinationName={
+                      routeBridgeSummary.weatherCoverage.status === 'partial'
+                        ? routeBridgeSummary.weatherCoverage.end.label || routeBridgeSummary.toName
+                        : routeBridgeSummary.toName
+                    }
+                    onClearRoute={handleClearRoute}
+                    routePoints={routeTravelResult.travelPlan?.route.auditPolylinePoints ?? []}
+                    hasMoreCandidates={hasMoreCandidates}
+                    onLoadMore={() => setVisibleCandidateLimit(prev => prev + 24)}
+                    onEnlargeMap={() => openRouteContext('map')}
+                    stationReturnTo={routeReturnHref('information')}
+                    routeSelectionContextKey={routeTravelResult.id ?? 'none'}
+                  />
+                </div>
               )}
-              {selectedRouteChoiceId === routeBridgeSummary.selectedRouteId
-                && routeBridgeSummary.weatherCoverage.status !== 'full' && (
+              {selectedRouteChoiceId === routeBridgeSummary.selectedRouteId && (
                 <div className="px-3 pb-4 pt-3">
                   <RouteNavigationHandoff
-                    coverage={routeBridgeSummary.weatherCoverage}
-                    origin={routeBridgeSummary.origin}
-                    destination={routeBridgeSummary.destination}
-                    originName={routeBridgeSummary.fromName}
-                    destinationName={routeBridgeSummary.toName}
-                    originAreaName={routeBridgeSummary.fromAreaName}
-                    destinationAreaName={routeBridgeSummary.toAreaName}
+                    assessment={{
+                      originName: routeBridgeSummary.fromName,
+                      destinationName: routeBridgeSummary.toName,
+                    }}
+                    navigation={{
+                      origin: routeBridgeSummary.navigationOrigin,
+                      destination: routeBridgeSummary.navigationDestination,
+                      originName: routeBridgeSummary.navigationOriginName,
+                      destinationName: routeBridgeSummary.navigationDestinationName,
+                    }}
                     labels={routeNavigationHandoffLabels}
                   />
                 </div>
               )}
             </>
+          ) : routeResultsDisplayState === 'handoff-only' && routeHandoffOnlySummary ? (
+            <div className="px-3 pb-4 pt-4">
+              <p role="status" className="text-sm leading-relaxed text-muted-foreground">
+                {routeHandoffOnlyMessage}
+              </p>
+              <RouteNavigationHandoff
+                assessment={routeHandoffOnlySummary.assessment}
+                navigation={{
+                  origin: routeHandoffOnlySummary.navigationOrigin,
+                  destination: routeHandoffOnlySummary.navigationDestination,
+                  originName: routeHandoffOnlySummary.navigationOriginName,
+                  destinationName: routeHandoffOnlySummary.navigationDestinationName,
+                }}
+                labels={routeNavigationHandoffLabels}
+                className="mt-4"
+              />
+            </div>
           ) : routeResultsDisplayState === 'route-loading' && isRouteLoading && firstReadyRouteChoice ? (
             <>
               <p className="px-5 pt-5 text-center text-sm font-medium text-foreground">
@@ -9790,7 +10082,10 @@ export function RoadMapPrototypeMap({
           routes={routeComparisonItems}
           selectedRouteId={selectedRouteChoiceId}
           title={t('roadMapPrototypeRouteComparisonFullscreenTitle')}
-          applyLabel={t('roadMapPrototypeRouteViewConditions')}
+          applyLabel={routeComparisonApplyPending
+            ? t('roadMapPrototypeRouteConditionsLoading')
+            : t('roadMapPrototypeRouteViewConditions')}
+          applyPending={routeComparisonApplyPending}
           routeCountLabel={t('roadMapPrototypeRouteComparisonCount', { count: routeComparisonItems.length })}
           findMoreLabel={t('roadMapPrototypeTeskeidAlternativesFind')}
           findingMoreLabel={t('roadMapPrototypeTeskeidAlternativesLoading')}
@@ -9801,23 +10096,6 @@ export function RoadMapPrototypeMap({
           sortDistanceLabel={t('roadMapPrototypeRouteSortDistance')}
           sortWeatherLabel={t('roadMapPrototypeRouteSortWeather')}
           cautionCloseLabel={t('roadMapPrototypeRouteCautionClose')}
-          selectedRouteDetails={
-            selectedRouteChoiceId === routeBridgeSummary.selectedRouteId
-            && routeBridgeSummary.weatherCoverage.status !== 'full'
-              ? (
-                  <RouteNavigationHandoff
-                    coverage={routeBridgeSummary.weatherCoverage}
-                    origin={routeBridgeSummary.origin}
-                    destination={routeBridgeSummary.destination}
-                    originName={routeBridgeSummary.fromName}
-                    destinationName={routeBridgeSummary.toName}
-                    originAreaName={routeBridgeSummary.fromAreaName}
-                    destinationAreaName={routeBridgeSummary.toAreaName}
-                    labels={routeNavigationHandoffLabels}
-                  />
-                )
-              : undefined
-          }
           alternativesStatus={teskeidAlternativesStatus}
           alternativesMessage={
             teskeidAlternativesStatus === 'loading'
@@ -9828,24 +10106,22 @@ export function RoadMapPrototypeMap({
                   ? t('roadMapPrototypeTeskeidAlternativesUnavailable')
                   : undefined
           }
-          onFindMore={() => void handleFindMoreTeskeidRoutes()}
+          onFindMore={() => {
+            if (routeComparisonApplyPendingRef.current) return
+            void handleFindMoreTeskeidRoutes()
+          }}
           onSelectRouteId={(routeId) => {
+            if (routeComparisonApplyPendingRef.current) return
             const choice = routeSurfaceChoices.find(route => route.routeId === routeId)
             if (choice) previewSurfaceRouteChoice(choice)
           }}
           onClose={() => {
+            if (routeComparisonApplyPendingRef.current) return
             restoreAppliedSurfaceRoutePreview()
             setRouteComparisonFullscreen(false)
             setRouteComparisonOpening(false)
           }}
-          onApply={() => {
-            const choice = routeSurfaceChoices.find(route => route.routeId === selectedRouteChoiceId)
-            setRouteComparisonFullscreen(false)
-            setRouteComparisonOpening(false)
-            if (choice && shouldRecalculateRouteChoice(choice.routeId, appliedRouteChoiceId)) {
-              void handleSelectSurfaceRouteChoice(choice)
-            }
-          }}
+          onApply={() => void handleApplyRouteComparison()}
         />
       )}
 
@@ -9856,6 +10132,7 @@ export function RoadMapPrototypeMap({
           isPanelOpen
           || (lastMapContext === 'weather' && isWeatherChaseOpen)
           || (lastMapContext === 'route' && routeBridgeSummary && !routeHasAssessedWeatherCoverage)
+          || (lastMapContext === 'route' && routeHandoffOnlySummary)
             ? 'hidden'
             : ''
         }`}

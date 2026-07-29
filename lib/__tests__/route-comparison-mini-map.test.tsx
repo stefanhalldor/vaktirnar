@@ -172,6 +172,59 @@ describe('RouteComparisonFullscreenMap', () => {
     }))
   })
 
+  it('disables the apply action while pending and keeps the supplied pending label', () => {
+    const onApply = vi.fn()
+    const onFindMore = vi.fn()
+    const onSelectRouteId = vi.fn()
+    const { container } = render(
+      <RouteComparisonFullscreenMap
+        title="Veldu leið á korti"
+        applyLabel="Reikna veðurskilyrði…"
+        applyPending
+        cautionCloseLabel="Loka skýringu"
+        routeCountLabel="1 leið"
+        findMoreLabel="Finna fleiri leiðir"
+        sortLabel="Raða eftir"
+        sortDefaultLabel="Sjálfgefið"
+        sortDurationLabel="Aksturstíma"
+        sortDistanceLabel="Vegalengd"
+        sortWeatherLabel="Veðri núna"
+        selectedRouteId="google"
+        onSelectRouteId={onSelectRouteId}
+        onClose={vi.fn()}
+        onApply={onApply}
+        onFindMore={onFindMore}
+        routes={[
+          { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: true },
+        ]}
+      />,
+    )
+
+    const applyAction = screen.getByRole('button', { name: 'Reikna veðurskilyrði…' })
+    const findMoreAction = screen.getByRole('button', { name: 'Finna fleiri leiðir' })
+    const sortAction = screen.getByRole('button', { name: 'Sjálfgefið' })
+    const routeAction = screen.getByRole('button', { name: /Google-leið/ })
+    const actionFooter = container.querySelector<HTMLElement>(
+      '[data-route-comparison-action-footer="true"]',
+    )
+
+    expect(applyAction).toBeDisabled()
+    expect(applyAction).toHaveAttribute('aria-busy', 'true')
+    expect(findMoreAction).toBeDisabled()
+    expect(sortAction).toBeDisabled()
+    expect(routeAction).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'select map route' })).not.toBeInTheDocument()
+    expect(actionFooter).toContainElement(applyAction)
+    expect(actionFooter).toHaveClass('pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]')
+
+    fireEvent.click(applyAction)
+    fireEvent.click(findMoreAction)
+    fireEvent.click(routeAction)
+    expect(onApply).not.toHaveBeenCalled()
+    expect(onFindMore).not.toHaveBeenCalled()
+    expect(onSelectRouteId).not.toHaveBeenCalled()
+  })
+
   it('smoothly brings a route card into view when its line is selected on the map', () => {
     const scrollIntoView = vi.fn()
     HTMLElement.prototype.scrollIntoView = scrollIntoView

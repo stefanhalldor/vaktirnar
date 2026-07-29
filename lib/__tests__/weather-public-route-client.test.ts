@@ -17,7 +17,11 @@ describe('public Teskeið route client contract', () => {
   it('chains RoadMap public candidate discovery to a signed Google route grant', () => {
     const source = readWorkspaceFile('components/weather/RoadMapPrototypeMap.tsx')
 
-    expect(source).toContain('const googleChoicesPromise = fetchRouteSurfaceChoices(')
+    expect(source).toContain('const scopedGoogleResult = await fetchRouteSurfaceChoices(')
+    expect(source).toContain('const googleChoicesPromise = Promise.resolve(scopedGoogleResult.choices)')
+    expect(source).toContain('resolveAssessmentScope: true')
+    expect(source).toContain('places.assessmentOrigin')
+    expect(source).toContain('places.assessmentDestination')
     expect(source).toContain('...(accessRouteEnvelope ? { accessRouteEnvelope } : {})')
     expect(source).toContain('resolvePublicTeskeidAccessEnvelope(')
     expect(source).toContain('if (!isAuthenticated && !accessRouteEnvelope)')
@@ -49,5 +53,6 @@ describe('public Teskeið route client contract', () => {
     expect(update).toContain('postTravelWithSelectedRoute({')
     expect(source.match(/fetch\('\/api\/teskeid\/weather\/travel',/g)?.length).toBe(1)
     expect(source).toContain('restoredSelectedRouteIdRef.current = state.selectedRouteId')
+    expect(source).not.toContain('resolveAssessmentScope: true')
   })
 })

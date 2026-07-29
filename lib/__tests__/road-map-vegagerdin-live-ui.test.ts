@@ -282,7 +282,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("t('roadMapPrototypeWindArrowsExplanation')")
   })
 
-  it('uses the transient live presentation and keeps exact endpoints separate from coverage', () => {
+  it('uses the transient live presentation and keeps navigation endpoints separate from assessment', () => {
     expect(source).toContain('resolveLiveRouteMapPresentation({')
     expect(source).toContain('applyLiveRouteMapPresentation(true)')
     expect(source).toContain('applyLiveRouteMapPresentationRef.current(false)')
@@ -295,14 +295,75 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("kind: 'origin' | 'destination' | 'coverage-start' | 'coverage-end'")
     expect(source).toContain("t('roadMapPrototypeCoverageStartMarker'")
     expect(source).toContain("t('roadMapPrototypeCoverageEndMarker'")
+
+    const routeChoiceStart = source.indexOf('async function handleSelectSurfaceRouteChoice(')
+    const routeChoiceEnd = source.indexOf('\n  function requestWeatherResultsFocus(', routeChoiceStart)
+    const routeChoiceBlock = source.slice(routeChoiceStart, routeChoiceEnd)
+
+    expect(routeChoiceStart).toBeGreaterThan(-1)
+    expect(routeChoiceEnd).toBeGreaterThan(routeChoiceStart)
+    expect(routeChoiceBlock).toContain('from: resolvedPlaces.assessmentOrigin.name')
+    expect(routeChoiceBlock).toContain('to: resolvedPlaces.assessmentDestination.name')
+    expect(routeChoiceBlock).toContain('resolvedPlaces.assessmentOrigin,')
+    expect(routeChoiceBlock).toContain('resolvedPlaces.assessmentDestination,')
+    expect(routeChoiceBlock).toContain('resolvedPlaces.assessmentScope.scopeId,')
+    expect(routeChoiceBlock).not.toContain('resolvedPlaces.navigationOrigin')
+    expect(routeChoiceBlock).not.toContain('resolvedPlaces.navigationDestination')
+
+    expect(source).toContain(
+      'resolvedPlaces?.navigationOrigin ?? routeHandoffOnlySummary?.navigationOrigin ?? null',
+    )
+    expect(source).toContain(
+      'resolvedPlaces?.navigationDestination ?? routeHandoffOnlySummary?.navigationDestination ?? null',
+    )
+
+    const summaryStart = source.indexOf(
+      ") : routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult ? (",
+    )
+    const summaryEnd = source.indexOf(
+      ") : routeResultsDisplayState === 'handoff-only' && routeHandoffOnlySummary ? (",
+      summaryStart,
+    )
+    const summaryBlock = source.slice(summaryStart, summaryEnd)
+    const cardsIndex = summaryBlock.indexOf('{renderRouteSurfaceChoices()}')
+    const weatherIndex = summaryBlock.indexOf('data-route-weather-results="true"')
+    const handoffIndex = summaryBlock.indexOf('<RouteNavigationHandoff')
+
+    expect(summaryStart).toBeGreaterThan(-1)
+    expect(summaryEnd).toBeGreaterThan(summaryStart)
+    expect(cardsIndex).toBeGreaterThan(-1)
+    expect(weatherIndex).toBeGreaterThan(cardsIndex)
+    expect(handoffIndex).toBeGreaterThan(weatherIndex)
+    expect(summaryBlock).toContain('originName: routeBridgeSummary.fromName')
+    expect(summaryBlock).toContain('destinationName: routeBridgeSummary.toName')
+    expect(summaryBlock).toContain('origin: routeBridgeSummary.navigationOrigin')
+    expect(summaryBlock).toContain('destination: routeBridgeSummary.navigationDestination')
+    expect(summaryBlock).toContain('originName: routeBridgeSummary.navigationOriginName')
+    expect(summaryBlock).toContain('destinationName: routeBridgeSummary.navigationDestinationName')
+
+    const handoffOnlyStart = summaryEnd
+    const handoffOnlyEnd = source.indexOf(
+      ") : routeResultsDisplayState === 'route-loading'",
+      handoffOnlyStart,
+    )
+    const handoffOnlyBlock = source.slice(handoffOnlyStart, handoffOnlyEnd)
+
+    expect(handoffOnlyEnd).toBeGreaterThan(handoffOnlyStart)
+    expect(handoffOnlyBlock).toContain('<p role="status"')
+    expect(handoffOnlyBlock).toContain('<RouteNavigationHandoff')
+    expect(handoffOnlyBlock).toContain('assessment={routeHandoffOnlySummary.assessment}')
+    expect(handoffOnlyBlock).not.toContain('renderRouteSurfaceChoices()')
+    expect(handoffOnlyBlock).not.toContain('<DriveJourneyPanel')
+    expect(handoffOnlyBlock).not.toContain('roadMapPrototypeStartDriving')
+
     expect(source.match(/<RouteNavigationHandoff/g)).toHaveLength(2)
-    expect(source.indexOf('<DriveJourneyPanel')).toBeLessThan(source.indexOf('<RouteNavigationHandoff'))
     expect(source).toContain('selectedRouteChoiceId === routeBridgeSummary.selectedRouteId')
     expect(source).toContain('routeHasAssessedWeatherCoverage && (')
-    expect(source).toContain('originName={routeBridgeSummary.fromName}')
-    expect(source).toContain('destinationName={routeBridgeSummary.toName}')
-    expect(source).toContain('originAreaName={routeBridgeSummary.fromAreaName}')
-    expect(source).toContain('destinationAreaName={routeBridgeSummary.toAreaName}')
+    expect(source).toContain(
+      "{routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult && routeHasAssessedWeatherCoverage && (",
+    )
+    expect(source).not.toContain("t('roadMapPrototypeRouteWarningBanner')")
+    expect(source).not.toContain("t('roadMapPrototypeRouteWarningBannerEmphasis')")
     expect(messagesIs).toContain('"roadMapPrototypeCoverageAssessmentTitle"')
     expect(messagesIs).toContain('"roadMapPrototypeCoverageGoogleDirections"')
     expect(messagesIs).toContain('"roadMapPrototypeCoverageSettlementBoundary"')

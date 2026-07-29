@@ -80,12 +80,26 @@ describe('isConfirmedLocationInput', () => {
     })).toBe(true)
   })
 
+  it('accepts structured assessment metadata used by the route scope resolver', () => {
+    expect(isConfirmedLocationInput({
+      ...BASE,
+      source: 'hms',
+      sourceId: 'HEINUM-123',
+      placeType: 'address',
+      postalCode: '851',
+      postalLocality: 'Hella, dreifbýli',
+    })).toBe(true)
+  })
+
   it.each([
     { ...BASE, lat: Number.NaN },
     { ...BASE, lat: 51.5, lon: -0.12 },
     { ...BASE, name: '' },
     { ...BASE, name: 'x'.repeat(161) },
     { ...BASE, sourceId: 'x'.repeat(161) },
+    { ...BASE, placeType: 'farm' },
+    { ...BASE, postalCode: '85' },
+    { ...BASE, postalLocality: 'x'.repeat(161) },
     { ...BASE, routingRef: { provider: 'hms', placeId: 'not-google' } },
   ])('rejects malformed or unbounded input %#', input => {
     expect(isConfirmedLocationInput(input)).toBe(false)

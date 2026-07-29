@@ -9,6 +9,9 @@ export type ConfirmedLocationInput = {
   formattedAddress?: string
   source?: string
   sourceId?: string
+  placeType?: 'settlement' | 'address' | 'point'
+  postalCode?: string
+  postalLocality?: string
   googlePlaceId?: string
   routingRef?: PlaceRoutingReference
   /** Transitional field accepted only for legacy or explicitly Google input. */
@@ -50,6 +53,9 @@ export function isConfirmedLocationInput(raw: unknown): raw is ConfirmedLocation
     optionalBoundedString(value.formattedAddress, 300) &&
     optionalBoundedString(value.source, 40) &&
     optionalBoundedString(value.sourceId, 160) &&
+    (value.placeType === undefined || value.placeType === 'settlement' || value.placeType === 'address' || value.placeType === 'point') &&
+    (value.postalCode === undefined || (typeof value.postalCode === 'string' && /^\d{3}$/.test(value.postalCode))) &&
+    optionalBoundedString(value.postalLocality, 160) &&
     optionalProviderIdentifier(value.googlePlaceId) &&
     optionalProviderIdentifier(value.placeId)
   )

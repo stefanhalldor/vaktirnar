@@ -5,13 +5,10 @@ import {
   formatRouteCoverageBoundaryLabel,
   RouteNavigationHandoff,
 } from '@/components/weather/RouteNavigationHandoff'
-import type { RouteWeatherCoverage } from '@/lib/iceland-routes/trustedRouteCoverage'
-
 const ORIGIN = { lat: 64.146582123456, lon: -21.942635987654 }
 const DESTINATION = { lat: 63.933008765432, lon: -20.997120123456 }
 const LABELS = {
   assessmentTitle: 'Teskeið assesses the weather conditions for the route:',
-  routeTitle: 'Route in Teskeið:',
   navigationTitle: 'Detailed directions:',
   boundaryFallback: 'Confirmed road point',
   settlementBoundary: 'Urban boundary',
@@ -19,10 +16,16 @@ const LABELS = {
   openDirections: 'Open directions in Google Maps',
 }
 const PLACE_LABELS = {
-  originName: 'Melás 8',
-  destinationName: 'Ásabraut 19',
-  originAreaName: 'Garðabær',
-  destinationAreaName: 'Akranes',
+  assessment: {
+    originName: 'Garðabær',
+    destinationName: 'Akranes',
+  },
+  navigation: {
+    origin: ORIGIN,
+    destination: DESTINATION,
+    originName: 'Melás 8',
+    destinationName: 'Ásabraut 19',
+  },
 }
 
 const START = {
@@ -50,46 +53,21 @@ function expectSafeExternalLink(link: HTMLElement) {
 }
 
 function renderHandoff(
-  coverage: RouteWeatherCoverage,
+  assessment: typeof PLACE_LABELS.assessment | null = PLACE_LABELS.assessment,
   origin = ORIGIN,
 ) {
   return render(
     <RouteNavigationHandoff
-      coverage={coverage}
-      origin={origin}
-      destination={DESTINATION}
-      {...PLACE_LABELS}
+      assessment={assessment}
+      navigation={{ ...PLACE_LABELS.navigation, origin }}
       labels={LABELS}
     />,
   )
 }
 
 describe('RouteNavigationHandoff', () => {
-  it('renders nothing when route-weather coverage is full', () => {
-    const coverage: RouteWeatherCoverage = {
-      status: 'full',
-      start: START,
-      end: END,
-      coverageDistanceM: 100_000,
-      coverageDurationS: 6_000,
-      distanceConfidence: 'reference_route',
-    }
-    const { container } = renderHandoff(coverage)
-
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('shows uninflected assessed and precise route labels with one secondary full-trip link', () => {
-    const coverage: RouteWeatherCoverage = {
-      status: 'partial',
-      start: START,
-      end: END,
-      coverageDistanceM: 80_000,
-      coverageDurationS: 4_800,
-      unassessedAfterM: 10_000,
-      distanceConfidence: 'reference_route',
-    }
-    renderHandoff(coverage)
+  it('keeps the exact handoff visible independently of completed assessment coverage', () => {
+    renderHandoff()
 
     const region = screen.getByRole('region', { name: 'Detailed directions:' })
     expect(region).toHaveTextContent('Teskeið assesses the weather conditions for the route:')
@@ -109,25 +87,29 @@ describe('RouteNavigationHandoff', () => {
     expectSafeExternalLink(link)
   })
 
-  it.each<RouteWeatherCoverage>([
-    {
-      status: 'same_urban_area',
-      settlementId: 'hagstofa:0000',
-      settlementName: 'Garðabær',
+  it.each(['same-area', 'unavailable'])(
+    'shows a neutral exact-only handoff when assessment scope is %s', () => {
+      renderHandoff(null)
+
+      const region = screen.getByRole('region', { name: 'Detailed directions:' })
+      expect(region).not.toHaveTextContent('Teskeið assesses the weather conditions for the route:')
+      expect(region).not.toHaveTextContent('Garðabær')
+      expect(region).not.toHaveTextContent('Akranes')
+      expect(region).toHaveTextContent('Detailed directions:')
+      expect(region).toHaveTextContent('Melás 8')
+      expect(region).toHaveTextContent('Ásabraut 19')
+      expect(screen.getAllByRole('link', { name: 'Open directions in Google Maps' })).toHaveLength(1)
     },
-    {
-      status: 'unavailable',
-      reason: 'road_graph_unavailable',
-    },
-  ])('uses a neutral route label rather than claiming completed weather coverage for $status', coverage => {
-    renderHandoff(coverage)
+  )
+
+  it('degrades incomplete assessment labels to the neutral exact-only handoff', () => {
+    renderHandoff({ originName: 'Garðabær', destinationName: ' ' })
 
     const region = screen.getByRole('region', { name: 'Detailed directions:' })
-    expect(region).toHaveTextContent('Route in Teskeið:')
     expect(region).not.toHaveTextContent('Teskeið assesses the weather conditions for the route:')
+    expect(region).not.toHaveTextContent('Garðabær')
     expect(region).toHaveTextContent('Melás 8')
     expect(region).toHaveTextContent('Ásabraut 19')
-    expect(screen.getAllByRole('link', { name: 'Open directions in Google Maps' })).toHaveLength(1)
   })
 
   it('keeps boundary formatting available for route-map markers', () => {
@@ -136,11 +118,10 @@ describe('RouteNavigationHandoff', () => {
   })
 
   it('fails closed without rendering a broken external link', () => {
-    const coverage: RouteWeatherCoverage = {
-      status: 'unavailable',
-      reason: 'invalid_reference_route',
-    }
-    const { container } = renderHandoff(coverage, { lat: Number.NaN, lon: ORIGIN.lon })
+    const { container } = renderHandoff(
+      PLACE_LABELS.assessment,
+      { lat: Number.NaN, lon: ORIGIN.lon },
+    )
 
     expect(container).toBeEmptyDOMElement()
   })

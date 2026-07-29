@@ -17,6 +17,7 @@ type DisplayStateCase = {
   safetySearchPending: boolean
   switchingChoiceId: string | null
   comparisonOpening: boolean
+  hasHandoffOnly?: boolean
   expected: RouteResultsDisplayState
 }
 
@@ -93,6 +94,28 @@ describe('road-map route results display state', () => {
       expected: 'summary',
     },
     {
+      label: 'trusted assessment unavailable with exact navigation handoff',
+      bridgeStatus: 'success',
+      hasSummary: false,
+      hasTravelResult: false,
+      safetySearchPending: false,
+      switchingChoiceId: null,
+      comparisonOpening: false,
+      hasHandoffOnly: true,
+      expected: 'handoff-only',
+    },
+    {
+      label: 'new request supersedes a stale handoff-only result',
+      bridgeStatus: 'loading',
+      hasSummary: false,
+      hasTravelResult: false,
+      safetySearchPending: false,
+      switchingChoiceId: null,
+      comparisonOpening: false,
+      hasHandoffOnly: true,
+      expected: 'route-loading',
+    },
+    {
       label: 'initial error',
       bridgeStatus: 'error',
       hasSummary: false,
@@ -162,11 +185,89 @@ describe('road-map route results display state', () => {
     expect(source).toContain('setRouteSafetySearchPending(false)')
     expect(source).toContain('hasSaferRouteSearchFinished({')
     expect(source).toContain(
-      'onClose={() => {\n            restoreAppliedSurfaceRoutePreview()',
+      'onClose={() => {\n            if (routeComparisonApplyPendingRef.current) return\n            restoreAppliedSurfaceRoutePreview()',
     )
     expect(source).toContain('if (!isAuthenticated || !teskeidRouteCandidateEnabled) return')
-    expect(source).toContain('const googleChoicesPromise = fetchRouteSurfaceChoices(')
+    expect(source).toContain('const scopedGoogleResult = await fetchRouteSurfaceChoices(')
+    expect(source).toContain('const googleChoicesPromise = Promise.resolve(scopedGoogleResult.choices)')
+    expect(source).toContain('launchFirstReadyDiscovery(runId, discoveries, applyProviderEvent)')
     expect(source).toContain('...(accessRouteEnvelope ? { accessRouteEnvelope } : {})')
     expect(source).toContain('if (!isAuthenticated && !accessRouteEnvelope)')
+  })
+
+  it('keeps comparison open while Apply is pending and focuses current weather results only after success', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
+      'utf8',
+    )
+    const applyStart = source.indexOf('async function handleApplyRouteComparison()')
+    const applyEnd = source.indexOf('\n  function restoreAppliedSurfaceRoutePreview()', applyStart)
+    const applyBlock = source.slice(applyStart, applyEnd)
+    const pendingStart = applyBlock.indexOf('setRouteComparisonApplyPending(true)')
+    const applyAwait = applyBlock.indexOf('await handleSelectSurfaceRouteChoice(choice)')
+
+    expect(applyStart).toBeGreaterThan(-1)
+    expect(applyEnd).toBeGreaterThan(applyStart)
+    expect(applyBlock).toContain('if (routeComparisonApplyPendingRef.current) return')
+    expect(applyBlock).toContain('const runId = routeBridgeRunIdRef.current')
+    expect(pendingStart).toBeGreaterThan(-1)
+    expect(applyAwait).toBeGreaterThan(pendingStart)
+    expect(applyBlock).toContain('if (applied && routeBridgeRunIdRef.current === runId)')
+    expect(applyBlock).toContain('requestWeatherResultsFocus(runId)')
+    expect(applyBlock).toContain(
+      'if (routeBridgeRunIdRef.current === runId) {\n        routeComparisonApplyPendingRef.current = false\n        setRouteComparisonApplyPending(false)',
+    )
+    expect(applyBlock).not.toContain('setRouteComparisonFullscreen(false)')
+
+    const focusStart = source.indexOf('function requestWeatherResultsFocus(runId: number)')
+    const focusEnd = source.indexOf('\n\n  async function handleApplyRouteComparison()', focusStart)
+    const focusBlock = source.slice(focusStart, focusEnd)
+
+    expect(focusStart).toBeGreaterThan(-1)
+    expect(focusEnd).toBeGreaterThan(focusStart)
+    expect(focusBlock).toContain('if (routeBridgeRunIdRef.current !== runId) return')
+    expect(focusBlock).toContain('pendingWeatherResultsFocusRunIdRef.current = runId')
+    expect(focusBlock).toContain('setRouteComparisonFullscreen(false)')
+
+    const fullscreenStart = source.indexOf('<RouteComparisonFullscreenMap')
+    const fullscreenEnd = source.indexOf('\n        />', fullscreenStart)
+    const fullscreenBlock = source.slice(fullscreenStart, fullscreenEnd)
+
+    expect(fullscreenStart).toBeGreaterThan(-1)
+    expect(fullscreenEnd).toBeGreaterThan(fullscreenStart)
+    expect(fullscreenBlock).toContain('applyPending={routeComparisonApplyPending}')
+    expect(fullscreenBlock).toContain("? t('roadMapPrototypeRouteConditionsLoading')")
+    expect(fullscreenBlock).toContain(
+      'onClose={() => {\n            if (routeComparisonApplyPendingRef.current) return',
+    )
+    expect(source).toContain('routeBridgeRunIdRef.current !== pendingRunId')
+    expect(source).toContain('|| routeComparisonFullscreen')
+    expect(source).toContain('const target = weatherResultsRef.current')
+    expect(source).toContain('target.focus({ preventScroll: true })')
+  })
+
+  it('clears stale weather visuals and keeps malformed assessment scope in exact handoff-only mode', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
+      'utf8',
+    )
+    const handoffStart = source.indexOf('function showRouteHandoffOnly(')
+    const handoffEnd = source.indexOf('\n\n  async function calculateResolvedRoute(', handoffStart)
+    const handoffBlock = source.slice(handoffStart, handoffEnd)
+
+    expect(handoffBlock).toContain('stopRouteLiveLocation()')
+    expect(handoffBlock).toContain('clearRouteVedurstofanLabelMarkers()')
+    expect(handoffBlock).toContain('clearRouteVegagerdinLabelMarkers()')
+    expect(handoffBlock).toContain('VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID')
+    expect(handoffBlock).toContain('VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID')
+    expect(handoffBlock).toContain("'travel-bridge-route'")
+    expect(handoffBlock).toContain('routeAuditPolylinePointsRef.current = []')
+    expect(handoffBlock).toContain('resolvedRoutePlacesRef.current = null')
+
+    expect(source).toContain("code === 'assessment_scope_invalid'")
+    expect(source).toContain("reason: 'assessment_unavailable'")
+    expect(source.indexOf("code === 'assessment_scope_invalid'")).toBeLessThan(
+      source.indexOf('findNearestKnownRoadMapPlace(candidate.place!, 30_000)'),
+    )
   })
 })

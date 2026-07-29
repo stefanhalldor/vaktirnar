@@ -32,9 +32,18 @@ export type OfficialSettlementBoundary = {
   geometry: OfficialSettlementGeometry
 }
 
+export type OfficialSettlementRecord = OfficialSettlementBoundary & {
+  lat: number
+  lon: number
+  postalCode: string | null
+  postalLocality: string | null
+}
+
 type GeneratedPostalLocality = {
   name: string
   classification: string
+  sourceId: string
+  correctedAt: string | null
 }
 
 export type OfficialPostalLocality = Readonly<GeneratedPostalLocality>
@@ -155,12 +164,16 @@ function parseDirectory(value: unknown): {
       || !isRecord(locality)
       || !isNonEmptyString(locality.name)
       || !isNonEmptyString(locality.classification)
+      || !isNonEmptyString(locality.sourceId)
+      || !isOptionalString(locality.correctedAt)
     ) {
       throw new Error('official_place_directory_invalid')
     }
     postalLocalities.set(postalCode, {
       name: locality.name,
       classification: locality.classification,
+      sourceId: locality.sourceId,
+      correctedAt: locality.correctedAt,
     })
   }
 
@@ -197,6 +210,24 @@ function indexSettlement(settlement: GeneratedSettlement): IndexedSettlement {
 
 const settlementIndex = directory.settlements.map(indexSettlement)
 const settlementById = new Map(settlementIndex.map(entry => [entry.settlement.id, entry]))
+
+export function getOfficialSettlementById(
+  settlementId: string | null | undefined,
+): OfficialSettlementRecord | null {
+  if (!settlementId) return null
+  const settlement = settlementById.get(settlementId)?.settlement
+  return settlement
+    ? {
+        id: settlement.id,
+        name: settlement.name,
+        lat: settlement.lat,
+        lon: settlement.lon,
+        postalCode: settlement.postalCode,
+        postalLocality: settlement.postalLocality,
+        geometry: settlement.geometry,
+      }
+    : null
+}
 
 function pointOnSegment(
   point: OfficialSettlementPosition,
