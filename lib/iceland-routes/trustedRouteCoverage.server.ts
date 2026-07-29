@@ -4,10 +4,22 @@ import {
   findOfficialSettlementContainingPoint,
   type OfficialSettlementBoundary,
 } from '@/lib/places/officialPlaceDirectory.server'
+import type { RouteOption } from '@/lib/weather/provider.types'
 import { findIcelandRoadGraphRoute, ICELAND_ROUTING_PROFILES } from './roadGraph'
 import { getIcelandRoadGraph } from './roadGraphRuntime.server'
 import { findRouteAssessmentRoadAnchors } from './routeAssessmentRoadAnchor.server'
-import { createRouteAssessmentScopeId } from './routeAssessmentScopeId.server'
+import {
+  createRouteAssessmentScopeId,
+  ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+} from './routeAssessmentScopeId.server'
+import {
+  resolveTeskeidAssessmentRouteEvidence,
+  teskeidAssessmentEvidenceMatchesSignedRoute,
+} from './routeAssessmentCandidateEvidence.server'
+import {
+  parseTeskeidAssessmentAlternativeRouteId,
+  TESKEID_ROUTE_CANDIDATE_ID,
+} from './routeAssessmentCandidateIdentity.server'
 import {
   resolveTrustedRouteCoverage,
   type RouteWeatherCoverage,
@@ -17,7 +29,6 @@ import {
 
 const ROAD_GRAPH_COVERAGE_TIMEOUT_MS = 5_000
 const ROAD_GRAPH_ENDPOINT_SEARCH_RADIUS_M = 25_000
-const ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M = 2
 
 type ResolveTrustedRouteCoverageInput = {
   origin: TrustedRoutePoint & { name: string }
@@ -27,6 +38,8 @@ type ResolveTrustedRouteCoverageInput = {
   routeDurationS: number
   /** Present only after the signed route-envelope assessment claim is verified. */
   assessmentScopeId?: string | null
+  /** Present only for a Teskeið route recovered from that same verified scoped envelope. */
+  selectedTeskeidRoute?: RouteOption | null
 }
 
 function toTrustedSettlement(
@@ -60,7 +73,11 @@ async function withCoverageTimeout<T>(promise: Promise<T>): Promise<T> {
 export async function resolveTrustedRouteCoverageFromRuntime(
   input: ResolveTrustedRouteCoverageInput,
 ): Promise<RouteWeatherCoverage> {
-  const { assessmentScopeId: _assessmentScopeId, ...coverageInput } = input
+  const {
+    assessmentScopeId: _assessmentScopeId,
+    selectedTeskeidRoute: _selectedTeskeidRoute,
+    ...coverageInput
+  } = input
   const hasAssessmentScopeClaim = typeof input.assessmentScopeId === 'string'
     && input.assessmentScopeId.length > 0
   const originSettlement = toTrustedSettlement(
@@ -91,16 +108,51 @@ export async function resolveTrustedRouteCoverageFromRuntime(
     if (sameUrbanResult.status === 'same_urban_area') return sameUrbanResult
   }
 
+  const alternativeDeadlineAtMs = Date.now() + ROAD_GRAPH_COVERAGE_TIMEOUT_MS - 250
   try {
     const graph = await withCoverageTimeout(getIcelandRoadGraph())
     if (hasAssessmentScopeClaim) {
+      if (input.selectedTeskeidRoute) {
+        const isPrimary = input.selectedTeskeidRoute.id === TESKEID_ROUTE_CANDIDATE_ID
+        const alternativeIdentity = parseTeskeidAssessmentAlternativeRouteId(
+          input.selectedTeskeidRoute.id,
+        )
+        if (!isPrimary && !alternativeIdentity) {
+          return { status: 'unavailable', reason: 'no_connected_official_road' }
+        }
+        const evidence = resolveTeskeidAssessmentRouteEvidence({
+          graph,
+          origin: input.origin,
+          destination: input.destination,
+          assessmentScopeId: input.assessmentScopeId!,
+          includeAlternatives: Boolean(alternativeIdentity),
+          alternativeDeadlineAtMs,
+        })
+        if (evidence.status !== 'ready') {
+          return { status: 'unavailable', reason: 'no_connected_official_road' }
+        }
+        const selectedEvidence = evidence.evidence.find(candidate => (
+          teskeidAssessmentEvidenceMatchesSignedRoute(candidate, input.selectedTeskeidRoute!)
+        ))
+        if (!selectedEvidence) {
+          return { status: 'unavailable', reason: 'no_connected_official_road' }
+        }
+        return resolveTrustedRouteCoverage({
+          ...coverageInput,
+          connectedRoadEdges: selectedEvidence.connectedRoadEdges,
+          originSnapDistanceM: evidence.originSnapDistanceM,
+          destinationSnapDistanceM: evidence.destinationSnapDistanceM,
+          originSettlement,
+          destinationSettlement,
+        })
+      }
       const anchors = findRouteAssessmentRoadAnchors(
         graph,
         { kind: 'trusted_anchor', point: input.origin },
         { kind: 'trusted_anchor', point: input.destination },
         {
-          maxOriginSnapDistanceM: ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
-          maxDestinationSnapDistanceM: ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+          maxOriginSnapDistanceM: ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+          maxDestinationSnapDistanceM: ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
         },
       )
       if (anchors.status !== 'ok') {

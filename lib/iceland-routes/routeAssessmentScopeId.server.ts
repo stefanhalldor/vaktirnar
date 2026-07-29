@@ -5,6 +5,9 @@ import type { LatLon } from './types'
 
 type AssessmentAnchorKind = 'settlement_node' | 'projected_road'
 
+/** Signed assessment anchors are graph-derived, so only tiny reconstruction drift is allowed. */
+export const ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M = 2
+
 export type RouteAssessmentScopeIdInput = Readonly<{
   originAnchorKind: AssessmentAnchorKind
   originPoint: LatLon

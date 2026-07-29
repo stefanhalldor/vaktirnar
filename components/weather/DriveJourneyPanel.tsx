@@ -5,9 +5,11 @@ import { useLocale, useTranslations } from 'next-intl'
 import type {
   ForecastDrawerRow,
   ResolvedTravelThresholds,
+  RouteWeatherPoint,
   TravelCandidate,
   WeatherStatus,
 } from '@/lib/weather/types'
+import type { RouteWeatherCoverage } from '@/lib/iceland-routes/trustedRouteCoverage'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import {
   classifyNearestForecastWindDisplayStatusAt,
@@ -24,6 +26,13 @@ import { WindStatusFilterPills } from './WindStatusFilterPills'
 
 type Station = VedurstofanTravelLayer['points'][number]
 type ForecastRow = Station['forecastRows'][number]
+
+export type AssessmentEndpointForecastRows = Readonly<{
+  originRows: ForecastDrawerRow[]
+  destinationRows: ForecastDrawerRow[]
+}>
+
+const ASSESSMENT_ENDPOINT_FRACTION_EPSILON = 0.0001
 
 const STATUS_RANK: Record<WindDisplayStatus, number> = {
   haettulegt: 6,
@@ -71,40 +80,41 @@ export function buildDriveStationAssessment(
   }
 }
 
-export function vedurstofanRowsToComparisonRows(rows: ForecastRow[]): ForecastDrawerRow[] {
-  return rows
-    .filter(row =>
-      Number.isFinite(Date.parse(row.ftimeIso)) &&
-      row.windSpeedMs !== null &&
-      row.temperatureC !== null,
-    )
-    .map(row => ({
-      timeIso: row.ftimeIso,
-      status: 'graent' as const,
-      temperature: {
-        value: row.temperatureC ?? 0,
-        direction: 'none' as const,
-        tone: 'neutral' as const,
-      },
-      wind: {
-        value: row.windSpeedMs ?? 0,
-        direction: 'none' as const,
-        tone: 'neutral' as const,
-      },
-      gust: {
-        value: row.windSpeedMs ?? 0,
-        direction: 'none' as const,
-        tone: 'neutral' as const,
-        severity: 'none' as const,
-      },
-      precipitation: {
-        value: row.precipitationMmPerHour ?? 0,
-        direction: 'none' as const,
-        tone: 'neutral' as const,
-      },
-      windDirectionText: row.windDirectionText,
-      weatherEmoji: null,
-    }))
+export function selectAssessmentEndpointForecastRows(
+  routeWeatherPoints: readonly RouteWeatherPoint[] | undefined,
+  coverage: RouteWeatherCoverage | null | undefined,
+): AssessmentEndpointForecastRows | null {
+  if (
+    !routeWeatherPoints
+    || routeWeatherPoints.length < 2
+    || (coverage?.status !== 'full' && coverage?.status !== 'partial')
+  ) return null
+
+  const usablePoints = routeWeatherPoints.filter(point => (point.forecastRows?.length ?? 0) > 0)
+  const exactBoundaryPoint = (
+    distanceFromTripOriginM: number,
+    routeFraction: number,
+  ): RouteWeatherPoint | null => {
+    const matches = usablePoints.filter(point => (
+      point.distanceFromOriginM === distanceFromTripOriginM
+      && Math.abs(point.routeFraction - routeFraction) <= ASSESSMENT_ENDPOINT_FRACTION_EPSILON
+    ))
+    return matches.length === 1 ? matches[0] : null
+  }
+  const originPoint = exactBoundaryPoint(
+    coverage.start.distanceFromTripOriginM,
+    coverage.start.routeFraction,
+  )
+  const destinationPoint = exactBoundaryPoint(
+    coverage.end.distanceFromTripOriginM,
+    coverage.end.routeFraction,
+  )
+  if (!originPoint || !destinationPoint || originPoint.id === destinationPoint.id) return null
+
+  return {
+    originRows: originPoint.forecastRows ?? [],
+    destinationRows: destinationPoint.forecastRows ?? [],
+  }
 }
 
 function statusFromWindDisplay(status: WindDisplayStatus): WeatherStatus {
@@ -124,6 +134,7 @@ export function DriveJourneyPanel({
   distanceKm,
   originName,
   destinationName,
+  endpointForecastRows,
   onClearRoute,
   routePoints,
   hasMoreCandidates,
@@ -142,6 +153,7 @@ export function DriveJourneyPanel({
   distanceKm: number
   originName: string
   destinationName: string
+  endpointForecastRows: AssessmentEndpointForecastRows | null
   onClearRoute: () => void
   routePoints: Array<{ lat: number; lon: number }>
   hasMoreCandidates?: boolean
@@ -191,10 +203,7 @@ export function DriveJourneyPanel({
     }
     return current
   }, null)
-  const originStation = stations[0] ?? null
   const destinationStation = stations[stations.length - 1] ?? null
-  const originRows = originStation ? vedurstofanRowsToComparisonRows(originStation.forecastRows) : []
-  const destinationRows = destinationStation ? vedurstofanRowsToComparisonRows(destinationStation.forecastRows) : []
   const effectiveStatus = worst ? statusFromWindDisplay(worst.status) : 'graent'
   const selectedAssessment =
     selectedStationId === null
@@ -246,10 +255,23 @@ export function DriveJourneyPanel({
     [assessments, driveMapStations, visibleStatuses],
   )
 
+  const endpointComparison = endpointForecastRows ? (
+    <WeatherWatchersComparison
+      originLabel={originName}
+      destinationLabel={destinationName}
+      originRows={endpointForecastRows.originRows}
+      destinationRows={endpointForecastRows.destinationRows}
+      thresholds={thresholds}
+    />
+  ) : null
+
   if (!layer || stations.length === 0) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">
-        {t('roadMapPrototypeDepartureOptInUnavailable')}
+      <div className="p-4">
+        <p className="text-sm text-muted-foreground">
+          {t('roadMapPrototypeDepartureOptInUnavailable')}
+        </p>
+        {endpointComparison}
       </div>
     )
   }
@@ -321,7 +343,7 @@ export function DriveJourneyPanel({
             return (
               <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
                 <p className="pt-0.5 text-[11px] font-semibold text-muted-foreground">
-                  {tf('sectionDestination')}
+                  {destinationStation.stationName}
                 </p>
                 <div className="space-y-1">
                   {destinationAssessment?.etaIso && (
@@ -348,15 +370,7 @@ export function DriveJourneyPanel({
           })()}
         </div>
 
-        {originRows.length > 0 && destinationRows.length > 0 && (
-          <WeatherWatchersComparison
-            originLabel={originName}
-            destinationLabel={destinationName}
-            originRows={originRows}
-            destinationRows={destinationRows}
-            thresholds={thresholds}
-          />
-        )}
+        {endpointComparison}
 
         <section className="mt-4 space-y-3 border-t border-border/70 pt-3">
           <WindStatusFilterPills

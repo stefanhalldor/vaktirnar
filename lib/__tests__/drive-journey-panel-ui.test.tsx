@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
-import type { TravelCandidate } from '@/lib/weather/types'
+import type { ForecastDrawerRow, TravelCandidate } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
 
 type MockMapProps = {
@@ -14,6 +14,13 @@ type MockPointCardProps = {
   station: { stationId: string; stationName: string }
   panelTitle?: string
   isManualSelection?: boolean
+}
+
+type MockWeatherWatchersComparisonProps = {
+  originLabel: string
+  destinationLabel: string
+  originRows: ForecastDrawerRow[]
+  destinationRows: ForecastDrawerRow[]
 }
 
 vi.mock('next-intl', () => ({
@@ -29,7 +36,20 @@ vi.mock('@/components/weather/DepartureHeatmap', () => ({
 }))
 
 vi.mock('@/components/weather/WeatherWatchersComparison', () => ({
-  WeatherWatchersComparison: () => <div data-testid="weather-watchers-comparison" />,
+  WeatherWatchersComparison: ({
+    originLabel,
+    destinationLabel,
+    originRows,
+    destinationRows,
+  }: MockWeatherWatchersComparisonProps) => (
+    <div
+      data-testid="weather-watchers-comparison"
+      data-origin-label={originLabel}
+      data-destination-label={destinationLabel}
+      data-origin-wind={originRows[0]?.wind.value ?? ''}
+      data-destination-wind={destinationRows[0]?.wind.value ?? ''}
+    />
+  ),
 }))
 
 vi.mock('@/components/weather/WindStatusFilterPills', () => ({
@@ -89,6 +109,19 @@ function forecastRows(earlyWindSpeedMs: number, lateWindSpeedMs = earlyWindSpeed
     windDirectionText: 'N',
     weatherText: null,
   }))
+}
+
+function endpointForecastRow(windMs: number): ForecastDrawerRow {
+  return {
+    timeIso: '2026-07-26T12:00:00.000Z',
+    status: 'graent',
+    temperature: { value: 10, direction: 'none', tone: 'neutral' },
+    wind: { value: windMs, direction: 'none', tone: 'neutral' },
+    gust: { value: windMs, direction: 'none', tone: 'neutral', severity: 'none' },
+    precipitation: { value: 0, direction: 'none', tone: 'neutral' },
+    windDirectionText: 'N',
+    weatherEmoji: null,
+  }
 }
 
 function createLayer({
@@ -153,6 +186,10 @@ const BASE_PROPS = {
   distanceKm: 100,
   originName: 'Reykjavík',
   destinationName: 'Borgarnes',
+  endpointForecastRows: {
+    originRows: [endpointForecastRow(4)],
+    destinationRows: [endpointForecastRow(7)],
+  },
   onClearRoute: vi.fn(),
   routePoints: [
     { lat: 64.1, lon: -21.9 },
@@ -171,6 +208,39 @@ function cardBelowMap(): HTMLElement {
 }
 
 describe('DriveJourneyPanel point selection', () => {
+  it('uses canonical endpoint rows and labels instead of relabelling route stations', () => {
+    render(
+      <DriveJourneyPanel
+        {...BASE_PROPS}
+        layer={createLayer()}
+        originName="Garðabær"
+        destinationName="Akranes"
+        endpointForecastRows={{
+          originRows: [endpointForecastRow(3)],
+          destinationRows: [endpointForecastRow(8)],
+        }}
+      />,
+    )
+
+    expect(screen.getByTestId('weather-watchers-comparison')).toHaveAttribute('data-origin-label', 'Garðabær')
+    expect(screen.getByTestId('weather-watchers-comparison')).toHaveAttribute('data-destination-label', 'Akranes')
+    expect(screen.getByTestId('weather-watchers-comparison')).toHaveAttribute('data-origin-wind', '3')
+    expect(screen.getByTestId('weather-watchers-comparison')).toHaveAttribute('data-destination-wind', '8')
+  })
+
+  it('hides the endpoint comparison when deterministic endpoint rows are unavailable', () => {
+    render(<DriveJourneyPanel {...BASE_PROPS} layer={createLayer()} endpointForecastRows={null} />)
+
+    expect(screen.queryByTestId('weather-watchers-comparison')).not.toBeInTheDocument()
+  })
+
+  it('keeps deterministic endpoint comparison available without a station layer', () => {
+    render(<DriveJourneyPanel {...BASE_PROPS} layer={null} />)
+
+    expect(screen.getByTestId('weather-watchers-comparison')).toHaveAttribute('data-origin-label', 'Reykjavík')
+    expect(screen.getByTestId('weather-watchers-comparison')).toHaveAttribute('data-destination-label', 'Borgarnes')
+  })
+
   it('selects and shows the worst point below the map by default', () => {
     render(<DriveJourneyPanel {...BASE_PROPS} layer={createLayer()} />)
 

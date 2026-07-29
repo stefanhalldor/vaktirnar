@@ -308,6 +308,47 @@ describe('POST /api/teskeid/weather/travel/route — assessment attestation', ()
     expect(mockRecordRouteMemory).not.toHaveBeenCalled()
   })
 
+  it('passes the exact signed Teskeið alternative into scoped coverage without primary recomputation', async () => {
+    authedUser()
+    const alternativeRoute = {
+      id: `teskeid-road-graph-v1-alt-1-${'a'.repeat(43)}`,
+      routeIndex: -2,
+      provider: 'teskeid' as const,
+      labels: ['TESKEID_EXPERIMENTAL', 'TESKEID_ALTERNATIVE'],
+      isDefault: false,
+      points: ASSESSMENT_PROVIDER_MATCHING_POINTS,
+      distanceM: 58_000,
+      durationS: 3_600,
+    }
+    const routeEnvelope = signRouteOptionEnvelope({
+      origin: ASSESSMENT_ORIGIN_POINT,
+      destination: ASSESSMENT_DESTINATION_POINT,
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      route: alternativeRoute,
+    })
+
+    const response = await POST(makeRequest({
+      origin: ASSESSMENT_ORIGIN,
+      destination: ASSESSMENT_DESTINATION,
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      selectedRouteId: alternativeRoute.id,
+      routeEnvelope,
+      trailerKind: 'none',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockResolveTrustedRouteCoverage).toHaveBeenCalledWith(expect.objectContaining({
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      selectedTeskeidRoute: alternativeRoute,
+      referenceRoute: alternativeRoute.points,
+      routeDistanceM: alternativeRoute.distanceM,
+      routeDurationS: alternativeRoute.durationS,
+    }))
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+  })
+
   it('matches every provider station against the complete signed route when trusted coverage is partial', async () => {
     authedUser()
     const stationIds = [HELLISH_ID, '6300', '6315']

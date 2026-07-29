@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockGetUser, mockAfter } = vi.hoisted(() => ({ mockGetUser: vi.fn(), mockAfter: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
-const { mockGetCandidates } = vi.hoisted(() => ({ mockGetCandidates: vi.fn() }))
+const { mockGetCandidates, mockGetAssessmentCandidates } = vi.hoisted(() => ({
+  mockGetCandidates: vi.fn(),
+  mockGetAssessmentCandidates: vi.fn(),
+}))
 const { mockGuestRateLimit } = vi.hoisted(() => ({ mockGuestRateLimit: vi.fn() }))
 const { mockGetRoadGraph, mockGetGraphCacheStatus } = vi.hoisted(() => ({
   mockGetRoadGraph: vi.fn(),
@@ -30,6 +33,7 @@ vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
   isTeskeidRouteCandidateEnabled: vi.fn(() => (
     process.env.TESKEID_ROUTE_CANDIDATE_ENABLED === 'true'
   )),
+  getTeskeidAssessmentRouteCandidatesOutcome: mockGetAssessmentCandidates,
   getTeskeidRouteCandidatesOutcome: mockGetCandidates,
 }))
 
@@ -105,6 +109,10 @@ beforeEach(() => {
     key === 'vedrid' || key === 'teskeid-routing-v1'
   ))
   mockGetCandidates.mockResolvedValue({ status: 'ready', routes: [{ id: 'teskeid-road-graph-v1' }] })
+  mockGetAssessmentCandidates.mockResolvedValue({
+    status: 'ready',
+    routes: [{ id: 'teskeid-road-graph-v1' }],
+  })
   mockGuestRateLimit.mockResolvedValue(true)
   mockAfter.mockImplementation((callback: () => unknown) => callback())
   mockGetRoadGraph.mockResolvedValue({ graph: true })
@@ -166,7 +174,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
   })
 
   it('requires a matching scoped Google grant for authenticated assessment candidate work', async () => {
-    const assessmentScopeId = 'assessment:v2:gar-vidibakki'
+    const assessmentScopeId = `assessment:v3:${'a'.repeat(43)}`
     const withoutGrant = await POST(request({
       origin: ORIGIN,
       destination: DESTINATION,
@@ -174,6 +182,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     }))
     expect(withoutGrant.status).toBe(403)
     expect(mockGetCandidates).not.toHaveBeenCalled()
+    expect(mockGetAssessmentCandidates).not.toHaveBeenCalled()
 
     const withUnscopedGrant = await POST(request({
       origin: ORIGIN,
@@ -183,40 +192,79 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     }))
     expect(withUnscopedGrant.status).toBe(403)
     expect(mockGetCandidates).not.toHaveBeenCalled()
+    expect(mockGetAssessmentCandidates).not.toHaveBeenCalled()
 
     const withStaleScopedGrant = await POST(request({
       origin: ORIGIN,
       destination: DESTINATION,
       assessmentScopeId,
-      accessRouteEnvelope: makePublicAccessEnvelope('assessment:v2:stale'),
+      accessRouteEnvelope: makePublicAccessEnvelope(`assessment:v3:${'b'.repeat(43)}`),
     }))
     expect(withStaleScopedGrant.status).toBe(403)
     expect(mockGetCandidates).not.toHaveBeenCalled()
+    expect(mockGetAssessmentCandidates).not.toHaveBeenCalled()
+  })
+
+  it('does not downgrade a scoped grant to the authenticated legacy candidate path', async () => {
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope: makePublicAccessEnvelope(`assessment:v3:${'a'.repeat(43)}`),
+    }))
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toMatchObject({
+      status: 'unavailable',
+      routes: [],
+      route: null,
+    })
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+    expect(mockGetAssessmentCandidates).not.toHaveBeenCalled()
   })
 
   it('propagates the verified assessment claim into candidate envelopes', async () => {
-    const assessmentScopeId = 'assessment:v2:gar-vidibakki'
-    mockGetCandidates.mockResolvedValue({ status: 'ready', routes: [makeCandidate()] })
+    const assessmentScopeId = `assessment:v3:${'a'.repeat(43)}`
+    const alternative = {
+      ...makeCandidate(),
+      id: `teskeid-road-graph-v1-alt-1-${'c'.repeat(43)}`,
+      routeIndex: -2,
+      labels: ['TESKEID_EXPERIMENTAL', 'TESKEID_ALTERNATIVE'],
+      points: [ORIGIN, { lat: 65, lon: -22.4 }, DESTINATION],
+    }
+    mockGetAssessmentCandidates.mockResolvedValue({
+      status: 'ready',
+      routes: [makeCandidate(), alternative],
+    })
 
     const res = await POST(request({
       origin: ORIGIN,
       destination: DESTINATION,
       assessmentScopeId,
       accessRouteEnvelope: makePublicAccessEnvelope(assessmentScopeId),
+      alternatives: true,
       includeRouteEnvelopes: true,
       compactRouteEnvelopes: true,
     }))
 
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.routeEnvelopes).toHaveLength(1)
-    expect(body.routeEnvelopes[0]).toMatchObject({
+    expect(body.routeEnvelopes).toHaveLength(2)
+    for (const envelope of body.routeEnvelopes) {
+      expect(envelope).toMatchObject({
+        assessmentScopeId,
+        origin: ORIGIN,
+        destination: DESTINATION,
+        route: { provider: 'teskeid' },
+      })
+    }
+    expect(body.routeEnvelopes[1].route.id).toBe(alternative.id)
+    expect(mockGetAssessmentCandidates).toHaveBeenCalledWith(
+      ORIGIN,
+      DESTINATION,
       assessmentScopeId,
-      origin: ORIGIN,
-      destination: DESTINATION,
-      route: { provider: 'teskeid' },
-    })
-    expect(mockGetCandidates).toHaveBeenCalledWith(ORIGIN, DESTINATION, false)
+      true,
+    )
+    expect(mockGetCandidates).not.toHaveBeenCalled()
   })
 
   it('normalizes full client place objects before signing the envelope', async () => {

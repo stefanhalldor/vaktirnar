@@ -6,12 +6,16 @@ const {
   mockFindAssessmentAnchors,
   mockGetRoadGraph,
   mockResolveCoverage,
+  mockResolveAssessmentEvidence,
+  mockEvidenceMatches,
 } = vi.hoisted(() => ({
   mockFindSettlement: vi.fn(),
   mockFindGraphRoute: vi.fn(),
   mockFindAssessmentAnchors: vi.fn(),
   mockGetRoadGraph: vi.fn(),
   mockResolveCoverage: vi.fn(),
+  mockResolveAssessmentEvidence: vi.fn(),
+  mockEvidenceMatches: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
@@ -30,6 +34,11 @@ vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
 
 vi.mock('@/lib/iceland-routes/routeAssessmentRoadAnchor.server', () => ({
   findRouteAssessmentRoadAnchors: mockFindAssessmentAnchors,
+}))
+
+vi.mock('@/lib/iceland-routes/routeAssessmentCandidateEvidence.server', () => ({
+  resolveTeskeidAssessmentRouteEvidence: mockResolveAssessmentEvidence,
+  teskeidAssessmentEvidenceMatchesSignedRoute: mockEvidenceMatches,
 }))
 
 vi.mock('@/lib/iceland-routes/trustedRouteCoverage', () => ({
@@ -63,6 +72,38 @@ const EDGE = {
   isFRoad: false,
   isMountainRoad: false,
   isSeasonal: false,
+}
+
+const ALTERNATIVE_EDGE = {
+  ...EDGE,
+  id: 'edge:alternative',
+  segmentId: 'segment:alternative',
+  fromNodeId: 'alt-a',
+  toNodeId: 'alt-b',
+  geometry: [{ lat: 64, lon: -20.05 }, { lat: 64.01, lon: -20 }, { lat: 64, lon: -19.95 }],
+  lengthM: 5_500,
+  travelTimeS: 330,
+}
+
+const PRIMARY_ROUTE = {
+  id: 'teskeid-road-graph-v1',
+  routeIndex: -1,
+  provider: 'teskeid' as const,
+  labels: ['TESKEID_EXPERIMENTAL'],
+  isDefault: false,
+  points: EDGE.geometry,
+  distanceM: EDGE.lengthM,
+  durationS: EDGE.travelTimeS,
+}
+
+const ALTERNATIVE_ROUTE = {
+  ...PRIMARY_ROUTE,
+  id: `teskeid-road-graph-v1-alt-1-${'a'.repeat(43)}`,
+  routeIndex: -2,
+  labels: ['TESKEID_EXPERIMENTAL', 'TESKEID_ALTERNATIVE'],
+  points: ALTERNATIVE_EDGE.geometry,
+  distanceM: ALTERNATIVE_EDGE.lengthM,
+  durationS: ALTERNATIVE_EDGE.travelTimeS,
 }
 
 const INPUT = {
@@ -112,6 +153,22 @@ beforeEach(() => {
     destinationSnapDistanceM: 20,
   })
   mockFindAssessmentAnchors.mockReturnValue(ASSESSMENT_ANCHORS)
+  mockResolveAssessmentEvidence.mockReturnValue({
+    status: 'ready',
+    evidence: [{
+      route: PRIMARY_ROUTE,
+      connectedRoadEdges: [EDGE],
+      routeProvenanceFingerprint: 'primary-provenance',
+    }],
+    originSnapDistanceM: 0,
+    destinationSnapDistanceM: 0,
+  })
+  mockEvidenceMatches.mockImplementation((evidence, signedRoute) => (
+    evidence.route.id === signedRoute.id
+    && evidence.route.distanceM === signedRoute.distanceM
+    && evidence.route.durationS === signedRoute.durationS
+    && JSON.stringify(evidence.route.points) === JSON.stringify(signedRoute.points)
+  ))
 })
 
 describe('resolveTrustedRouteCoverageFromRuntime — same-settlement orchestration', () => {
@@ -187,6 +244,127 @@ describe('resolveTrustedRouteCoverageFromRuntime — signed assessment attestati
       destinationSnapDistanceM: 0,
     }))
     expect(mockResolveCoverage.mock.calls[0][0]).not.toHaveProperty('assessmentScopeId')
+  })
+
+  it('recomputes a selected primary Teskeið route without running alternative search', async () => {
+    const full = {
+      status: 'full' as const,
+      start: {},
+      end: {},
+      coverageDistanceM: 5_000,
+      coverageDurationS: 300,
+      distanceConfidence: 'reference_route' as const,
+    }
+    mockFindSettlement.mockReturnValue(null)
+    mockResolveCoverage.mockReturnValue(full)
+
+    await expect(resolveTrustedRouteCoverageFromRuntime({
+      ...INPUT,
+      assessmentScopeId: assessmentScopeIdFor(),
+      selectedTeskeidRoute: PRIMARY_ROUTE,
+    })).resolves.toEqual(full)
+
+    expect(mockResolveAssessmentEvidence).toHaveBeenCalledWith(expect.objectContaining({
+      includeAlternatives: false,
+      alternativeDeadlineAtMs: expect.any(Number),
+    }))
+    expect(mockFindAssessmentAnchors).not.toHaveBeenCalled()
+    expect(mockResolveCoverage).toHaveBeenCalledWith(expect.objectContaining({
+      connectedRoadEdges: [EDGE],
+    }))
+  })
+
+  it('uses the exact regenerated edge evidence for a selected Teskeið alternative', async () => {
+    const full = {
+      status: 'full' as const,
+      start: {},
+      end: {},
+      coverageDistanceM: 5_500,
+      coverageDurationS: 330,
+      distanceConfidence: 'reference_route' as const,
+    }
+    mockFindSettlement.mockReturnValue(null)
+    mockResolveCoverage.mockReturnValue(full)
+    mockResolveAssessmentEvidence.mockReturnValue({
+      status: 'ready',
+      evidence: [{
+        route: ALTERNATIVE_ROUTE,
+        connectedRoadEdges: [ALTERNATIVE_EDGE],
+        routeProvenanceFingerprint: 'alternative-provenance',
+      }],
+      originSnapDistanceM: 0,
+      destinationSnapDistanceM: 0,
+    })
+
+    await expect(resolveTrustedRouteCoverageFromRuntime({
+      ...INPUT,
+      referenceRoute: ALTERNATIVE_ROUTE.points,
+      routeDistanceM: ALTERNATIVE_ROUTE.distanceM,
+      routeDurationS: ALTERNATIVE_ROUTE.durationS,
+      assessmentScopeId: assessmentScopeIdFor(),
+      selectedTeskeidRoute: ALTERNATIVE_ROUTE,
+    })).resolves.toEqual(full)
+
+    expect(mockResolveAssessmentEvidence).toHaveBeenCalledWith(expect.objectContaining({
+      includeAlternatives: true,
+      alternativeDeadlineAtMs: expect.any(Number),
+    }))
+    expect(mockResolveCoverage).toHaveBeenCalledWith(expect.objectContaining({
+      connectedRoadEdges: [ALTERNATIVE_EDGE],
+      referenceRoute: ALTERNATIVE_ROUTE.points,
+    }))
+  })
+
+  it('fails closed when signed alternative geometry or metrics do not match regenerated evidence', async () => {
+    mockFindSettlement.mockReturnValue(null)
+    mockResolveAssessmentEvidence.mockReturnValue({
+      status: 'ready',
+      evidence: [{
+        route: ALTERNATIVE_ROUTE,
+        connectedRoadEdges: [ALTERNATIVE_EDGE],
+        routeProvenanceFingerprint: 'alternative-provenance',
+      }],
+      originSnapDistanceM: 0,
+      destinationSnapDistanceM: 0,
+    })
+    const alteredRoute = {
+      ...ALTERNATIVE_ROUTE,
+      points: [ALTERNATIVE_ROUTE.points[0], { lat: 65, lon: -18 }, ALTERNATIVE_ROUTE.points.at(-1)!],
+      distanceM: ALTERNATIVE_ROUTE.distanceM + 1,
+    }
+
+    await expect(resolveTrustedRouteCoverageFromRuntime({
+      ...INPUT,
+      referenceRoute: alteredRoute.points,
+      routeDistanceM: alteredRoute.distanceM,
+      routeDurationS: alteredRoute.durationS,
+      assessmentScopeId: assessmentScopeIdFor(),
+      selectedTeskeidRoute: alteredRoute,
+    })).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'no_connected_official_road',
+    })
+    expect(mockResolveCoverage).not.toHaveBeenCalled()
+    expect(mockFindAssessmentAnchors).not.toHaveBeenCalled()
+  })
+
+  it('fails closed instead of using partial evidence when alternative recomputation times out', async () => {
+    mockFindSettlement.mockReturnValue(null)
+    mockResolveAssessmentEvidence.mockReturnValue({ status: 'incomplete', evidence: [] })
+
+    await expect(resolveTrustedRouteCoverageFromRuntime({
+      ...INPUT,
+      referenceRoute: ALTERNATIVE_ROUTE.points,
+      routeDistanceM: ALTERNATIVE_ROUTE.distanceM,
+      routeDurationS: ALTERNATIVE_ROUTE.durationS,
+      assessmentScopeId: assessmentScopeIdFor(),
+      selectedTeskeidRoute: ALTERNATIVE_ROUTE,
+    })).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'no_connected_official_road',
+    })
+    expect(mockResolveCoverage).not.toHaveBeenCalled()
+    expect(mockFindAssessmentAnchors).not.toHaveBeenCalled()
   })
 
   it.each([

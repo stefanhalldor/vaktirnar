@@ -73,13 +73,25 @@ describe('shouldShowRouteEndpointMarker', () => {
       livePuckVisible: true,
       kind: 'destination',
     })).toBe(true)
-    expect(shouldShowRouteEndpointMarker({
-      routeContextVisible: true,
-      endpointMarkersCurrent: true,
-      livePuckVisible: true,
-      kind: 'coverage-end',
-    })).toBe(true)
   })
+
+  it.each(['coverage-start', 'coverage-end'] as const)(
+    'keeps internal %s markers off both normal and live route maps',
+    kind => {
+      expect(shouldShowRouteEndpointMarker({
+        routeContextVisible: true,
+        endpointMarkersCurrent: true,
+        livePuckVisible: false,
+        kind,
+      })).toBe(false)
+      expect(shouldShowRouteEndpointMarker({
+        routeContextVisible: true,
+        endpointMarkersCurrent: true,
+        livePuckVisible: true,
+        kind,
+      })).toBe(false)
+    },
+  )
 
   it('fails closed for stale markers or a non-route context', () => {
     expect(shouldShowRouteEndpointMarker({

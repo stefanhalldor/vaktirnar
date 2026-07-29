@@ -333,7 +333,10 @@ function emptySurfaceBreakdown(): IcelandRoadSurfaceBreakdown {
   return { pavedM: 0, gravelM: 0, mixedM: 0, unknownM: 0 }
 }
 
-function buildRoute(edges: readonly IcelandRoadGraphEdge[]): IcelandRoadGraphRoute {
+/** Builds the canonical route aggregate from an already direction-ordered edge path. */
+export function buildIcelandRoadGraphRouteFromEdges(
+  edges: readonly IcelandRoadGraphEdge[],
+): IcelandRoadGraphRoute {
   const geometry: LatLon[] = []
   const nodeIds: string[] = []
   const surface = emptySurfaceBreakdown()
@@ -525,7 +528,7 @@ export function findIcelandRoadGraphRoute(
 
   return {
     status: 'ok',
-    route: buildRoute(routeEdges),
+    route: buildIcelandRoadGraphRouteFromEdges(routeEdges),
     snappedOriginNodeId: startId,
     snappedDestinationNodeId: destinationId,
     originSnapDistanceM: Math.round(originMatch.distanceM),

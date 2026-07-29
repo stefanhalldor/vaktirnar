@@ -100,7 +100,10 @@ import { routeOptionLabelMessageKey } from '@/lib/weather/routeOptionLabels'
 import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
-import { DriveJourneyPanel } from './DriveJourneyPanel'
+import {
+  DriveJourneyPanel,
+  selectAssessmentEndpointForecastRows,
+} from './DriveJourneyPanel'
 import {
   formatRouteCoverageBoundaryLabel,
   RouteNavigationHandoff,
@@ -491,12 +494,15 @@ type ResolvedRoutePlaces = ReadyRouteAssessmentClientPlaces<
   ReadyRouteAssessmentScope
 >
 
-function canRequestTeskeidCandidate(_places: ResolvedRoutePlaces): boolean {
-  // Assessment scopes may contain a server-attested mid-edge anchor, while the
-  // current Teskeið candidate engine snaps endpoints back to graph nodes. Until
-  // that engine is edge-aware, suppress it for every assessment scope rather
-  // than infer anchor semantics from the opaque scope ID.
-  return false
+function canRequestTeskeidCandidate(places: ResolvedRoutePlaces): boolean {
+  const { assessmentScope, assessmentOrigin, assessmentDestination } = places
+  return assessmentScope.scopeId.length > 0
+    && assessmentOrigin.source === 'official'
+    && assessmentDestination.source === 'official'
+    && assessmentOrigin.lat === assessmentScope.origin.lat
+    && assessmentOrigin.lon === assessmentScope.origin.lon
+    && assessmentDestination.lat === assessmentScope.destination.lat
+    && assessmentDestination.lon === assessmentScope.destination.lon
 }
 
 type RouteHandoffOnlySummary = {
@@ -6736,9 +6742,15 @@ export function RoadMapPrototypeMap({
       throw new Error('route_unavailable')
     }
 
-    const refreshedChoice = refreshedChoices.find(candidate => candidate.routeId === choice.routeId)
-      ?? refreshedChoices.find(candidate => candidate.route.routeIndex === choice.route.routeIndex)
-      ?? refreshedChoices[0]
+    const exactRefreshedChoice = refreshedChoices.find(candidate => (
+      candidate.routeId === choice.routeId
+    ))
+    const refreshedChoice = choice.route.provider === 'teskeid'
+      ? exactRefreshedChoice
+      : exactRefreshedChoice
+        ?? refreshedChoices.find(candidate => candidate.route.routeIndex === choice.route.routeIndex)
+        ?? refreshedChoices[0]
+    if (!refreshedChoice) throw new Error('route_unavailable')
     const provider = choice.route.provider === 'teskeid' ? 'teskeid' : 'google'
     setRouteSurfaceChoices(current => mergeProviderRouteChoices(
       current,
@@ -6813,6 +6825,10 @@ export function RoadMapPrototypeMap({
         accessRouteEnvelope,
       )
       if (!isCurrentRun()) return
+      if (result.status === 'no_route') {
+        setTeskeidAlternativesStatus('none')
+        return
+      }
       if (result.status !== 'ready') {
         setTeskeidAlternativesStatus('unavailable')
         return
@@ -8822,8 +8838,16 @@ export function RoadMapPrototypeMap({
         : null
   const hasUsableRouteNowMeasurements = countUsableWindStatuses(routeNowStatusCounts ?? {}) > 0
   const routeWeatherCoverage = routeBridgeSummary?.weatherCoverage ?? null
+  const routeEndpointForecastRows = selectAssessmentEndpointForecastRows(
+    routeTravelResult?.travelPlan?.routeWeatherPoints,
+    routeWeatherCoverage,
+  )
   const routeHasAssessedWeatherCoverage = routeWeatherCoverage?.status === 'full'
     || routeWeatherCoverage?.status === 'partial'
+  const teskeidAlternativesCanRun = teskeidRouteCandidateEnabled
+    && teskeidCandidateStatus === 'ready'
+    && resolvedRoutePlacesRef.current !== null
+    && canRequestTeskeidCandidate(resolvedRoutePlacesRef.current)
   const routeResultsVisibility = resolveRouteResultsVisibility({
     displayState: routeResultsDisplayState,
     hasSummary: routeBridgeSummary !== null,
@@ -9828,16 +9852,9 @@ export function RoadMapPrototypeMap({
                     thresholds={routeBridgeSummary.thresholdsUsed}
                     durationMinutes={routeBridgeSummary.durationMinutes}
                     distanceKm={routeBridgeSummary.distanceKm}
-                    originName={
-                      routeBridgeSummary.weatherCoverage.status === 'partial'
-                        ? routeBridgeSummary.weatherCoverage.start.label || routeBridgeSummary.fromName
-                        : routeBridgeSummary.fromName
-                    }
-                    destinationName={
-                      routeBridgeSummary.weatherCoverage.status === 'partial'
-                        ? routeBridgeSummary.weatherCoverage.end.label || routeBridgeSummary.toName
-                        : routeBridgeSummary.toName
-                    }
+                    originName={routeBridgeSummary.fromName}
+                    destinationName={routeBridgeSummary.toName}
+                    endpointForecastRows={routeEndpointForecastRows}
                     onClearRoute={handleClearRoute}
                     routePoints={routeTravelResult.travelPlan?.route.auditPolylinePoints ?? []}
                     hasMoreCandidates={hasMoreCandidates}
@@ -10136,10 +10153,12 @@ export function RoadMapPrototypeMap({
                   ? t('roadMapPrototypeTeskeidAlternativesUnavailable')
                   : undefined
           }
-          onFindMore={() => {
-            if (routeComparisonApplyPendingRef.current) return
-            void handleFindMoreTeskeidRoutes()
-          }}
+          onFindMore={teskeidAlternativesCanRun
+            ? () => {
+                if (routeComparisonApplyPendingRef.current) return
+                void handleFindMoreTeskeidRoutes()
+              }
+            : undefined}
           onSelectRouteId={(routeId) => {
             if (routeComparisonApplyPendingRef.current) return
             const choice = routeSurfaceChoices.find(route => route.routeId === routeId)

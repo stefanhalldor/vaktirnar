@@ -225,10 +225,19 @@ function matchOfficialEdge(
   const edgeStart = samples[0]
   const edgeEnd = samples[samples.length - 1]
   const edgeLengthM = haversineDistanceM(edgeStart, edgeEnd)
+  // At a shared route vertex the projection tie belongs to the preceding
+  // reference segment, which can make a valid sharp turn look wrong-way.
+  // Interior samples retain the same strict distance/direction evidence while
+  // avoiding that endpoint-only bearing ambiguity.
+  const headingProjections = projections.length > 2
+    ? projections.slice(1, -1)
+    : projections
+  const closestHeadingDifference = Math.min(...headingProjections.map(projection => (
+    angularDifference(bearingDegrees(edgeStart, edgeEnd), projection.routeBearingDeg)
+  )))
   if (
     edgeLengthM >= 100
-    && angularDifference(bearingDegrees(edgeStart, edgeEnd), first.routeBearingDeg)
-      > MAX_EDGE_HEADING_DIFFERENCE_DEG
+    && closestHeadingDifference > MAX_EDGE_HEADING_DIFFERENCE_DEG
   ) {
     return null
   }

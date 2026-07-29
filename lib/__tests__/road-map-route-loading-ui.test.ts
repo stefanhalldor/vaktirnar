@@ -337,6 +337,9 @@ describe('road-map route results display state', () => {
     expect(refreshBlock).toMatch(
       /fetchRouteSurfaceChoices\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*signal,\s*places\.assessmentScope\.scopeId,\s*\)/,
     )
+    expect(refreshBlock).toContain("choice.route.provider === 'teskeid'")
+    expect(refreshBlock).toContain('? exactRefreshedChoice')
+    expect(refreshBlock).toContain("if (!refreshedChoice) throw new Error('route_unavailable')")
 
     const retryBlock = functionBlock(
       'async function handleRetryTeskeidCandidate()',
@@ -361,6 +364,8 @@ describe('road-map route results display state', () => {
       /fetchTeskeidCandidateWithRetry\(\s*places\.assessmentOrigin,\s*places\.assessmentDestination,\s*places\.assessmentScope\.scopeId,\s*controller\.signal,/,
     )
     expect(alternativesBlock).toContain('!canRequestTeskeidCandidate(places)')
+    expect(alternativesBlock).toContain("if (result.status === 'no_route')")
+    expect(source).toContain('onFindMore={teskeidAlternativesCanRun')
 
     const submitBlock = functionBlock(
       'async function handleRouteBridgeSubmit(',
@@ -376,12 +381,13 @@ describe('road-map route results display state', () => {
     )
     expect(submitBlock).toContain('if (teskeidCandidateAllowed) {')
     const candidatePolicyStart = source.indexOf(
-      'function canRequestTeskeidCandidate(_places: ResolvedRoutePlaces)',
+      'function canRequestTeskeidCandidate(places: ResolvedRoutePlaces)',
     )
     const candidatePolicyEnd = source.indexOf('\n}\n', candidatePolicyStart)
     const candidatePolicyBlock = source.slice(candidatePolicyStart, candidatePolicyEnd)
-    expect(candidatePolicyBlock).toContain('return false')
-    expect(candidatePolicyBlock).not.toContain('scopeId')
+    expect(candidatePolicyBlock).toContain('assessmentScope.scopeId.length > 0')
+    expect(candidatePolicyBlock).toContain("assessmentOrigin.source === 'official'")
+    expect(candidatePolicyBlock).not.toContain('return false')
     const nonReadyStart = submitBlock.indexOf(
       "if (scopedGoogleResult.assessmentScope.status !== 'ready')",
     )

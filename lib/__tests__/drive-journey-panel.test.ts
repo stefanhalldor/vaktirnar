@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   buildDriveStationAssessment,
   projectDriveMiniMapPoints,
-  vedurstofanRowsToComparisonRows,
+  selectAssessmentEndpointForecastRows,
 } from '@/components/weather/DriveJourneyPanel'
+import type { RouteWeatherCoverage } from '@/lib/iceland-routes/trustedRouteCoverage'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
+import type { ForecastDrawerRow, RouteWeatherPoint } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
 
 type Station = VedurstofanTravelLayer['points'][number]
@@ -46,6 +48,60 @@ function station(overrides: Partial<Station> = {}): Station {
   }
 }
 
+function endpointForecastRow(windMs: number): ForecastDrawerRow {
+  return {
+    timeIso: '2026-07-24T18:00:00.000Z',
+    status: 'graent',
+    temperature: { value: 12, direction: 'none', tone: 'neutral' },
+    wind: { value: windMs, direction: 'none', tone: 'neutral' },
+    gust: { value: windMs, direction: 'none', tone: 'neutral', severity: 'none' },
+    precipitation: { value: 0, direction: 'none', tone: 'neutral' },
+    windDirectionText: 'N',
+    weatherEmoji: null,
+  }
+}
+
+function routeWeatherPoint(id: string, routeFraction: number, windMs: number): RouteWeatherPoint {
+  return {
+    id,
+    routeIndex: Math.round(routeFraction * 100),
+    totalRouteWeatherPoints: 3,
+    lat: 64 + routeFraction,
+    lon: -22 + routeFraction,
+    forecastLat: 64 + routeFraction,
+    forecastLon: -22 + routeFraction,
+    distanceFromOriginM: Math.round(routeFraction * 100_000),
+    routeFraction,
+    googleMapsUrl: 'https://maps.example.test',
+    metnoUrl: 'https://met.example.test',
+    yrnoUrl: 'https://yr.example.test',
+    forecastRows: [endpointForecastRow(windMs)],
+  }
+}
+
+const PARTIAL_COVERAGE: RouteWeatherCoverage = {
+  status: 'partial',
+  start: {
+    kind: 'official_road_anchor',
+    label: 'Staðfestur vegpunktur',
+    point: { lat: 64.1, lon: -21.9 },
+    routeFraction: 0.1,
+    distanceFromTripOriginM: 10_000,
+    elapsedFromTripOriginS: 600,
+  },
+  end: {
+    kind: 'official_road_anchor',
+    label: 'Staðfestur vegpunktur',
+    point: { lat: 64.9, lon: -21.1 },
+    routeFraction: 0.9,
+    distanceFromTripOriginM: 90_000,
+    elapsedFromTripOriginS: 5_400,
+  },
+  coverageDistanceM: 80_000,
+  coverageDurationS: 4_800,
+  distanceConfidence: 'reference_route',
+}
+
 describe('DriveJourneyPanel Veðurstofan view model', () => {
   it('matches a station forecast to ETA along the route', () => {
     const assessment = buildDriveStationAssessment(
@@ -65,19 +121,35 @@ describe('DriveJourneyPanel Veðurstofan view model', () => {
     expect(assessment.status).toBe('innan-marka')
   })
 
-  it('converts Veðurstofan rows for the canonical comparison table without met.no links', () => {
-    const rows = vedurstofanRowsToComparisonRows(station().forecastRows)
+  it('selects only deterministic forecasts at the attested assessment boundaries', () => {
+    const rows = selectAssessmentEndpointForecastRows([
+      routeWeatherPoint('interior-station', 0.5, 20),
+      routeWeatherPoint('assessment-destination', 0.9, 8),
+      routeWeatherPoint('assessment-origin', 0.1, 3),
+    ], PARTIAL_COVERAGE)
 
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toMatchObject({
-      timeIso: '2026-07-24T18:00:00.000Z',
-      temperature: { value: 12 },
-      wind: { value: 8 },
-      precipitation: { value: 0 },
-      windDirectionText: 'N',
-    })
-    expect(rows[0]).not.toHaveProperty('yrnoUrl')
-    expect(rows[0]).not.toHaveProperty('metnoUrl')
+    expect(rows?.originRows[0]?.wind.value).toBe(3)
+    expect(rows?.destinationRows[0]?.wind.value).toBe(8)
+  })
+
+  it('fails closed instead of relabelling interior forecasts as route endpoints', () => {
+    const rows = selectAssessmentEndpointForecastRows([
+      routeWeatherPoint('near-origin', 0.11, 3),
+      routeWeatherPoint('interior-station', 0.5, 20),
+      routeWeatherPoint('assessment-destination', 0.9, 8),
+    ], PARTIAL_COVERAGE)
+
+    expect(rows).toBeNull()
+  })
+
+  it('fails closed when a boundary identity is duplicated', () => {
+    const rows = selectAssessmentEndpointForecastRows([
+      routeWeatherPoint('assessment-origin-a', 0.1, 3),
+      routeWeatherPoint('assessment-origin-b', 0.1, 4),
+      routeWeatherPoint('assessment-destination', 0.9, 8),
+    ], PARTIAL_COVERAGE)
+
+    expect(rows).toBeNull()
   })
 
   it('projects route coordinates into the mini-map bounds', () => {

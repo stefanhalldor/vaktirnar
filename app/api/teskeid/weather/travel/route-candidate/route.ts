@@ -4,6 +4,7 @@ import { validateIcelandicCoords } from '@/lib/weather/coords'
 import { resolveWeatherBaseAccess, getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import { checkWeatherGuestRateLimit } from '@/lib/weather/ip-rate-limit.server'
 import {
+  getTeskeidAssessmentRouteCandidatesOutcome,
   getTeskeidRouteCandidatesOutcome,
   isTeskeidRouteCandidateEnabled,
 } from '@/lib/iceland-routes/roadGraphCandidate.server'
@@ -142,7 +143,10 @@ export async function POST(request: Request) {
     // expectation and is not an independent trust source.
     origin = accessRouteEnvelope.origin
     destination = accessRouteEnvelope.destination
-  } else if (access.mode === 'public' && !hasAuthenticatedIdentity) {
+  } else if (
+    (access.mode === 'public' && !hasAuthenticatedIdentity)
+    || body.accessRouteEnvelope !== undefined
+  ) {
     const accessRouteEnvelope = verifyRouteOptionEnvelope(body.accessRouteEnvelope, {
       origin,
       destination,
@@ -180,7 +184,14 @@ export async function POST(request: Request) {
   const includeAlternatives = body?.alternatives === true
   const graphCache = getIcelandRoadGraphCacheStatus()
   const candidateStartedAt = performance.now()
-  const outcome = await getTeskeidRouteCandidatesOutcome(origin, destination, includeAlternatives)
+  const outcome = assessmentScopeId !== null
+    ? await getTeskeidAssessmentRouteCandidatesOutcome(
+        origin,
+        destination,
+        assessmentScopeId,
+        includeAlternatives,
+      )
+    : await getTeskeidRouteCandidatesOutcome(origin, destination, includeAlternatives)
   const candidateMs = performance.now() - candidateStartedAt
   if (outcome.status === 'pending') {
     // The request budget protects latency, but the shared graph warm-up must be

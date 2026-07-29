@@ -293,6 +293,104 @@ describe('route assessment official-road anchors', () => {
     expect(drifted.routeProvenanceFingerprint).not.toBe(first.routeProvenanceFingerprint)
   })
 
+  it('finds a real one-way detour while preserving both projected partial endpoints', () => {
+    const roadStart = { lat: 64, lon: -20.7 }
+    const startGateway = { lat: 64, lon: -20.6 }
+    const primaryMid = { lat: 64, lon: -20.4 }
+    const endGateway = { lat: 64, lon: -20.2 }
+    const roadEnd = { lat: 64, lon: -20.1 }
+    const detourMid = { lat: 63.9, lon: -20.4 }
+    const graph = buildIcelandRoadGraph([
+      segment('origin-edge', [roadStart, startGateway], { direction: 'forward' }),
+      segment('primary-a', [startGateway, primaryMid], { direction: 'forward' }),
+      segment('primary-b', [primaryMid, endGateway], { direction: 'forward' }),
+      segment('detour-a', [startGateway, detourMid], { direction: 'forward' }),
+      segment('detour-b', [detourMid, endGateway], { direction: 'forward' }),
+      segment('destination-edge', [endGateway, roadEnd], { direction: 'forward' }),
+    ], { nodeSnapToleranceM: 2 })
+
+    const result = findRouteAssessmentRoadAnchors(
+      graph,
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.65 } },
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.15 } },
+      {
+        maxOriginSnapDistanceM: 500,
+        maxDestinationSnapDistanceM: 500,
+        maxAlternatives: 4,
+        maxAlternativeOverlap: 0.94,
+      },
+    )
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.alternativesComplete).toBe(true)
+    expect(result.alternativeSearchAttempts).toBeGreaterThan(0)
+    expect(result.alternativeSearchAttempts).toBeLessThanOrEqual(40)
+    expect(result.alternatives).toHaveLength(1)
+    const alternative = result.alternatives[0]
+    expect(alternative.routeProvenanceFingerprint).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(alternative.connectedRoadEdges[0].geometry[0]).toEqual(result.origin.point)
+    expect(alternative.connectedRoadEdges.at(-1)?.geometry.at(-1)).toEqual(result.destination.point)
+    expect(alternative.connectedRoadEdges.map(edge => edge.segmentId)).toEqual([
+      'origin-edge',
+      'detour-a',
+      'detour-b',
+      'destination-edge',
+    ])
+  })
+
+  it('marks a bounded alternative search incomplete when its synchronous deadline is exhausted', () => {
+    const start = { lat: 64, lon: -20.6 }
+    const middle = { lat: 64, lon: -20.4 }
+    const end = { lat: 64, lon: -20.2 }
+    const result = findRouteAssessmentRoadAnchors(
+      buildIcelandRoadGraph([
+        segment('primary-a', [start, middle]),
+        segment('primary-b', [middle, end]),
+      ]),
+      { kind: 'trusted_anchor', point: start },
+      { kind: 'trusted_anchor', point: end },
+      {
+        maxOriginSnapDistanceM: 2,
+        maxDestinationSnapDistanceM: 2,
+        maxAlternatives: 4,
+        alternativeDeadlineAtMs: Date.now() - 1,
+      },
+    )
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.alternativesComplete).toBe(false)
+    expect(result.alternativeSearchAttempts).toBe(0)
+    expect(result.alternatives).toEqual([])
+  })
+
+  it('caps single-segment alternative spur searches at forty attempts', () => {
+    const points = Array.from({ length: 82 }, (_, index) => ({
+      lat: 64,
+      lon: -21 + index * 0.001,
+    }))
+    const result = findRouteAssessmentRoadAnchors(
+      buildIcelandRoadGraph(points.slice(0, -1).map((point, index) => (
+        segment(`chain-${index}`, [point, points[index + 1]], { direction: 'forward' })
+      ))),
+      { kind: 'trusted_anchor', point: points[0] },
+      { kind: 'trusted_anchor', point: points.at(-1)! },
+      {
+        maxOriginSnapDistanceM: 2,
+        maxDestinationSnapDistanceM: 2,
+        maxAlternatives: 4,
+      },
+    )
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.alternativesComplete).toBe(true)
+    expect(result.alternativeSearchAttempts).toBeGreaterThan(0)
+    expect(result.alternativeSearchAttempts).toBeLessThanOrEqual(40)
+    expect(result.alternatives).toEqual([])
+  })
+
   it('re-derives the same opaque scope attestation from returned safe anchors', () => {
     const junction = { lat: 64, lon: -20.5 }
     const graph = buildIcelandRoadGraph([

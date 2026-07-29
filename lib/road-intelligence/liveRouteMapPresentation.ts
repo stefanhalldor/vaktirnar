@@ -31,6 +31,7 @@ export function shouldShowRouteEndpointMarker(input: {
   kind: RouteEndpointMarkerKind
 }): boolean {
   if (!input.routeContextVisible || !input.endpointMarkersCurrent) return false
+  if (input.kind === 'coverage-start' || input.kind === 'coverage-end') return false
   return !(input.livePuckVisible && input.kind === 'origin')
 }
 

@@ -508,6 +508,10 @@ export async function POST(request: Request) {
     // Only the claim recovered from the verified envelope may activate the
     // tighter assessment-anchor coverage path. Never trust the body value.
     assessmentScopeId: verifiedRouteEnvelope?.assessmentScopeId ?? null,
+    selectedTeskeidRoute: verifiedRouteEnvelope?.assessmentScopeId
+      && verifiedRouteEnvelope.route.provider === 'teskeid'
+      ? verifiedRouteEnvelope.route
+      : null,
   })
 
   // Schedule shadow run via after() so it outlives the response flush in serverless.

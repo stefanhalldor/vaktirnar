@@ -1,21 +1,34 @@
+import 'server-only'
+
 import type { RouteOption } from '@/lib/weather/provider.types'
-import { matchRouteCautions } from '@/lib/weather/routeCautions'
-import { findIcelandRoadGraphAlternatives, findIcelandRoadGraphRoute, ICELAND_ROUTING_PROFILES } from './roadGraph'
-import type { IcelandRoadGraph, IcelandRoadGraphRoute } from './roadGraphTypes'
+import {
+  findIcelandRoadGraphAlternatives,
+  findIcelandRoadGraphRoute,
+  ICELAND_ROUTING_PROFILES,
+} from './roadGraph'
+import type { IcelandRoadGraph } from './roadGraphTypes'
 import { getIcelandRoadGraph } from './roadGraphRuntime.server'
-import { rdpSimplifyToMaxPoints } from '@/lib/weather/providerRouteMatching'
+import {
+  TESKEID_ROUTE_CANDIDATE_ID,
+  TESKEID_ROUTE_CANDIDATE_ID_PREFIX,
+} from './routeAssessmentCandidateIdentity.server'
+import {
+  resolveTeskeidAssessmentRouteEvidence,
+  roadGraphRouteToTeskeidOption,
+} from './routeAssessmentCandidateEvidence.server'
 
 export const TESKEID_ROUTE_CANDIDATE_FLAG = 'TESKEID_ROUTE_CANDIDATE_ENABLED'
-export const TESKEID_ROUTE_CANDIDATE_ID = 'teskeid-road-graph-v1'
-export const TESKEID_ROUTE_CANDIDATE_ID_PREFIX = `${TESKEID_ROUTE_CANDIDATE_ID}-alt-`
+export {
+  TESKEID_ROUTE_CANDIDATE_ID,
+  TESKEID_ROUTE_CANDIDATE_ID_PREFIX,
+} from './routeAssessmentCandidateIdentity.server'
 
 const PRODUCTION_CANDIDATE_BUDGET_MS = 8_000
 const DEVELOPMENT_CANDIDATE_BUDGET_MS = 30_000
 const MAX_SNAP_DISTANCE_M = 25_000
-const TESKEID_TRANSPORT_RDP_EPSILON_M = 3
-const TESKEID_TRANSPORT_MAX_POINTS = 1_000
 const CANDIDATE_CACHE_TTL_MS = 30 * 60 * 1_000
 const CANDIDATE_CACHE_MAX_ENTRIES_PER_GRAPH = 128
+const CURRENT_ASSESSMENT_SCOPE_ID_PATTERN = /^assessment:v3:[A-Za-z0-9_-]{43}$/
 
 type Point = { lat: number; lon: number }
 
@@ -59,6 +72,24 @@ function candidateCacheBucket(graph: IcelandRoadGraph): CandidateCacheBucket {
 
 function candidateCacheKey(origin: Point, destination: Point, includeAlternatives: boolean): string {
   return JSON.stringify([
+    'legacy-node-route',
+    origin.lat,
+    origin.lon,
+    destination.lat,
+    destination.lon,
+    includeAlternatives,
+  ])
+}
+
+function assessmentCandidateCacheKey(
+  origin: Point,
+  destination: Point,
+  assessmentScopeId: string,
+  includeAlternatives: boolean,
+): string {
+  return JSON.stringify([
+    'assessment-edge-route',
+    assessmentScopeId,
     origin.lat,
     origin.lon,
     destination.lat,
@@ -95,6 +126,28 @@ function writeCachedCandidate(
     const oldest = bucket.completed.keys().next().value as string | undefined
     if (oldest === undefined) break
     bucket.completed.delete(oldest)
+  }
+}
+
+async function readOrComputeCandidate(
+  graph: IcelandRoadGraph,
+  key: string,
+  compute: () => TeskeidRouteCandidatesOutcome,
+): Promise<TeskeidRouteCandidatesOutcome> {
+  const bucket = candidateCacheBucket(graph)
+  const cached = readCachedCandidate(bucket, key)
+  if (cached) return cached
+  const inFlight = bucket.pending.get(key)
+  if (inFlight) return await inFlight
+
+  const computation = Promise.resolve().then(compute)
+  bucket.pending.set(key, computation)
+  try {
+    const outcome = await computation
+    writeCachedCandidate(bucket, key, outcome)
+    return outcome
+  } finally {
+    if (bucket.pending.get(key) === computation) bucket.pending.delete(key)
   }
 }
 
@@ -135,60 +188,6 @@ export type TeskeidRouteCandidatesOutcome =
   | { status: 'ready'; routes: RouteOption[] }
   | { status: 'disabled' | 'pending' | 'no_route' | 'unavailable'; routes: [] }
 
-function toRouteOption(
-  route: IcelandRoadGraphRoute,
-  origin: Point,
-  destination: Point,
-  index: number,
-  originSnapDistanceM: number,
-  destinationSnapDistanceM: number,
-): RouteOption {
-  const labels = ['TESKEID_EXPERIMENTAL', 'TESKEID_DERIVED_DURATION']
-  if (index > 0) labels.push('TESKEID_ALTERNATIVE')
-  if (route.surface.gravelM > 0) labels.push('TESKEID_GRAVEL')
-  if (route.surface.mixedM > 0) labels.push('TESKEID_MIXED_SURFACE')
-  if (route.surface.unknownM > 0) labels.push('TESKEID_UNKNOWN_SURFACE')
-  if (originSnapDistanceM > 1_000 || destinationSnapDistanceM > 1_000) labels.push('TESKEID_LONG_SNAP')
-  // The validated road graph can contain tens of thousands of dense vertices.
-  // Keep one bounded, shape-preserving geometry for display, weather sampling,
-  // and provider matching instead of sending the same raw geometry twice.
-  const transportPoints = rdpSimplifyToMaxPoints(
-    route.geometry,
-    TESKEID_TRANSPORT_RDP_EPSILON_M,
-    TESKEID_TRANSPORT_MAX_POINTS,
-  )
-  // Caution corridors use radii of at least 1.5 km. The shape-preserving route
-  // is within metres of the raw geometry and avoids rescanning tens of thousands
-  // of duplicate vertices for every caution rule.
-  const cautions = matchRouteCautions(
-    transportPoints,
-    { placeId: 'origin', displayName: 'origin', formattedAddress: 'origin', ...origin },
-    { placeId: 'destination', displayName: 'destination', formattedAddress: 'destination', ...destination },
-    // Teskeið road-graph routes must use the same station-grade evidence as
-    // curated avoidance routes. The old 10 km approximate Öxi corridor can
-    // overlap Route 1 through the fjords and create a false caution.
-    { evidencePointsOnly: true },
-  )
-  return {
-    id: index === 0 ? TESKEID_ROUTE_CANDIDATE_ID : `${TESKEID_ROUTE_CANDIDATE_ID_PREFIX}${index}`,
-    routeIndex: -(index + 1),
-    provider: 'teskeid',
-    labels,
-    isDefault: false,
-    points: transportPoints,
-    distanceM: route.distanceM,
-    durationS: route.durationS,
-    cautions,
-    experimental: {
-      derivedDuration: true,
-      surface: route.surface,
-      ...(route.fRoadDistanceM > 0
-        ? { fRoad: { distanceM: route.fRoadDistanceM, roadNumbers: [...route.fRoadNumbers] } }
-        : {}),
-    },
-  }
-}
-
 export async function getTeskeidRouteCandidatesOutcome(
   origin: Point,
   destination: Point,
@@ -198,14 +197,8 @@ export async function getTeskeidRouteCandidatesOutcome(
   return withCandidateTimeout((async (): Promise<TeskeidRouteCandidatesOutcome> => {
     try {
       const graph = await getIcelandRoadGraph()
-      const bucket = candidateCacheBucket(graph)
       const key = candidateCacheKey(origin, destination, includeAlternatives)
-      const cached = readCachedCandidate(bucket, key)
-      if (cached) return cached
-      const inFlight = bucket.pending.get(key)
-      if (inFlight) return await inFlight
-
-      const computation = Promise.resolve().then((): TeskeidRouteCandidatesOutcome => {
+      return await readOrComputeCandidate(graph, key, (): TeskeidRouteCandidatesOutcome => {
         const primary = findIcelandRoadGraphRoute(graph, origin, destination, {
           profile: ICELAND_ROUTING_PROFILES.fastestCar,
           maxSnapDistanceM: MAX_SNAP_DISTANCE_M,
@@ -229,7 +222,7 @@ export async function getTeskeidRouteCandidatesOutcome(
         ]
         return {
           status: 'ready',
-          routes: candidates.map((candidate, index) => toRouteOption(
+          routes: candidates.map((candidate, index) => roadGraphRouteToTeskeidOption(
             candidate.route,
             origin,
             destination,
@@ -239,18 +232,58 @@ export async function getTeskeidRouteCandidatesOutcome(
           )),
         }
       })
-      bucket.pending.set(key, computation)
-      try {
-        const outcome = await computation
-        writeCachedCandidate(bucket, key, outcome)
-        return outcome
-      } finally {
-        if (bucket.pending.get(key) === computation) bucket.pending.delete(key)
-      }
     } catch {
       return { status: 'unavailable', routes: [] }
     }
   })(), { status: 'pending', routes: [] }, candidateBudgetMs())
+}
+
+/**
+ * Builds one edge-aware candidate from server-signed assessment endpoints.
+ * The tiny trusted-anchor reconstruction and exact scope re-attestation happen
+ * before any route is returned, so a projected endpoint can never fall back to
+ * the legacy nearest-node router. Optional alternatives keep the exact same
+ * selected anchor pair and mandatory partial endpoint edges as the primary.
+ */
+export async function getTeskeidAssessmentRouteCandidatesOutcome(
+  origin: Point,
+  destination: Point,
+  assessmentScopeId: string,
+  includeAlternatives = false,
+): Promise<TeskeidRouteCandidatesOutcome> {
+  if (!isTeskeidRouteCandidateEnabled()) return { status: 'disabled', routes: [] }
+  if (!CURRENT_ASSESSMENT_SCOPE_ID_PATTERN.test(assessmentScopeId)) {
+    return { status: 'unavailable', routes: [] }
+  }
+
+  const budgetMs = candidateBudgetMs()
+  const alternativeDeadlineAtMs = Date.now() + Math.max(0, budgetMs - 250)
+  return withCandidateTimeout((async (): Promise<TeskeidRouteCandidatesOutcome> => {
+    try {
+      const graph = await getIcelandRoadGraph()
+      const key = assessmentCandidateCacheKey(
+        origin,
+        destination,
+        assessmentScopeId,
+        includeAlternatives,
+      )
+      return await readOrComputeCandidate(graph, key, (): TeskeidRouteCandidatesOutcome => {
+        const evidence = resolveTeskeidAssessmentRouteEvidence({
+          graph,
+          origin,
+          destination,
+          assessmentScopeId,
+          includeAlternatives,
+          alternativeDeadlineAtMs,
+        })
+        if (evidence.status === 'incomplete') return { status: 'pending', routes: [] }
+        if (evidence.status !== 'ready') return { status: 'unavailable', routes: [] }
+        return { status: 'ready', routes: evidence.evidence.map(candidate => candidate.route) }
+      })
+    } catch {
+      return { status: 'unavailable', routes: [] }
+    }
+  })(), { status: 'pending', routes: [] }, budgetMs)
 }
 
 export async function getTeskeidRouteCandidateOutcome(

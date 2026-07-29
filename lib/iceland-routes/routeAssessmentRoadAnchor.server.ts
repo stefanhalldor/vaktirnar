@@ -35,6 +35,9 @@ export type RouteAssessmentRoadAnchorsResult =
       origin: ResolvedRouteAssessmentAnchor
       destination: ResolvedRouteAssessmentAnchor
       connectedRoadEdges: readonly IcelandRoadGraphEdge[]
+      alternatives: readonly RouteAssessmentRoadAlternative[]
+      alternativesComplete: boolean
+      alternativeSearchAttempts: number
       routeProvenanceFingerprint: string
     }>
   | Readonly<{
@@ -44,6 +47,15 @@ export type RouteAssessmentRoadAnchorsResult =
 export type FindRouteAssessmentRoadAnchorsOptions = Readonly<{
   maxOriginSnapDistanceM: number
   maxDestinationSnapDistanceM: number
+  maxAlternatives?: number
+  maxAlternativeOverlap?: number
+  alternativeDeadlineAtMs?: number
+}>
+
+export type RouteAssessmentRoadAlternative = Readonly<{
+  connectedRoadEdges: readonly IcelandRoadGraphEdge[]
+  overlapWithPrimary: number
+  routeProvenanceFingerprint: string
 }>
 
 type NodeCandidate = Readonly<{
@@ -535,6 +547,7 @@ function graphRoute(
   graph: IcelandRoadGraph,
   origins: readonly AnchorCandidate[],
   destinations: readonly AnchorCandidate[],
+  excludedSegmentIds?: ReadonlySet<string>,
 ): SelectedRoute | null {
   const distanceByNode = new Map<string, number>()
   const projectedSnapByNode = new Map<string, number>()
@@ -649,7 +662,11 @@ function graphRoute(
     }
 
     const outgoing = [...(graph.outgoing.get(current.nodeId) ?? [])]
-      .filter(edge => isIcelandRoadGraphEdgeAllowed(edge, FASTEST_CAR_PROFILE))
+      .filter(edge => isIcelandRoadGraphEdgeAllowed(
+        edge,
+        FASTEST_CAR_PROFILE,
+        excludedSegmentIds,
+      ))
       .sort((a, b) => a.id.localeCompare(b.id))
     for (const edge of outgoing) {
       if (!graph.nodes.has(edge.toNodeId) || visited.has(edge.toNodeId)) continue
@@ -686,6 +703,100 @@ function graphRoute(
     }
   }
   return selected
+}
+
+function routeEdgeKey(route: SelectedRoute): string {
+  return route.connectedRoadEdges.map(edge => edge.id).join('|')
+}
+
+function routeSegmentIds(route: SelectedRoute): string[] {
+  return [...new Set(route.connectedRoadEdges.map(edge => edge.segmentId))]
+}
+
+/**
+ * Searches a bounded set of real graph detours while keeping the exact anchor
+ * candidates selected for the attested primary. Projected prefix/suffix edge
+ * slices are therefore mandatory and identical for every returned path.
+ */
+function assessmentRoadAlternatives(
+  graph: IcelandRoadGraph,
+  primary: SelectedRoute,
+  rawMaxAlternatives: number | undefined,
+  rawMaxOverlap: number | undefined,
+  deadlineAtMs: number | undefined,
+): { alternatives: RouteAssessmentRoadAlternative[]; complete: boolean; attempts: number } {
+  const maxAlternatives = Number.isFinite(rawMaxAlternatives)
+    ? Math.max(0, Math.min(4, Math.floor(rawMaxAlternatives!)))
+    : 0
+  if (maxAlternatives === 0) return { alternatives: [], complete: true, attempts: 0 }
+  const maxOverlap = Number.isFinite(rawMaxOverlap)
+    ? Math.max(0, Math.min(1, rawMaxOverlap!))
+    : 0.94
+
+  // A projected endpoint's physical segment is required to reach the signed
+  // point. Excluding it would claim to avoid a road that the mandatory partial
+  // edge still uses, so only internal primary segments are detour spurs.
+  const endpointSegmentIds = new Set<string>()
+  if (primary.origin.kind === 'projected_road') {
+    endpointSegmentIds.add(primary.origin.edge.segmentId)
+  }
+  if (primary.destination.kind === 'projected_road') {
+    endpointSegmentIds.add(primary.destination.edge.segmentId)
+  }
+  const eligibleSegmentIds = routeSegmentIds(primary).filter(segmentId => (
+    !endpointSegmentIds.has(segmentId)
+  ))
+  if (eligibleSegmentIds.length === 0) {
+    return { alternatives: [], complete: true, attempts: 0 }
+  }
+
+  const primarySegmentIds = new Set(routeSegmentIds(primary))
+  const primaryKey = routeEdgeKey(primary)
+  const candidates = new Map<string, { route: SelectedRoute; overlapWithPrimary: number }>()
+  const stride = Math.max(1, Math.ceil(eligibleSegmentIds.length / 40))
+  let complete = true
+  let attempts = 0
+  for (let index = 0; index < eligibleSegmentIds.length; index += stride) {
+    if (deadlineAtMs !== undefined && Date.now() >= deadlineAtMs) {
+      complete = false
+      break
+    }
+    attempts += 1
+    const route = graphRoute(
+      graph,
+      [primary.origin],
+      [primary.destination],
+      new Set([eligibleSegmentIds[index]]),
+    )
+    if (deadlineAtMs !== undefined && Date.now() >= deadlineAtMs) {
+      complete = false
+      break
+    }
+    if (!route) continue
+    const key = routeEdgeKey(route)
+    if (key === primaryKey || candidates.has(key)) continue
+    const candidateSegmentIds = new Set(routeSegmentIds(route))
+    const sharedCount = [...candidateSegmentIds]
+      .filter(segmentId => primarySegmentIds.has(segmentId))
+      .length
+    const overlapWithPrimary = sharedCount / Math.max(
+      primarySegmentIds.size,
+      candidateSegmentIds.size,
+      1,
+    )
+    if (overlapWithPrimary > maxOverlap) continue
+    candidates.set(key, { route, overlapWithPrimary })
+  }
+
+  const alternatives = [...candidates.values()]
+    .sort((a, b) => a.route.cost - b.route.cost || routeEdgeKey(a.route).localeCompare(routeEdgeKey(b.route)))
+    .slice(0, maxAlternatives)
+    .map(candidate => ({
+      connectedRoadEdges: candidate.route.connectedRoadEdges,
+      overlapWithPrimary: candidate.overlapWithPrimary,
+      routeProvenanceFingerprint: routeProvenanceFingerprint(candidate.route),
+    }))
+  return { alternatives, complete, attempts }
 }
 
 function publicAnchor(candidate: AnchorCandidate): ResolvedRouteAssessmentAnchor {
@@ -770,11 +881,21 @@ export function findRouteAssessmentRoadAnchors(
   const selected = direct && (!routed || betterRoute(direct, routed)) ? direct : routed
   if (!selected) return { status: 'no_route' }
 
+  const alternatives = assessmentRoadAlternatives(
+    graph,
+    selected,
+    options.maxAlternatives,
+    options.maxAlternativeOverlap,
+    options.alternativeDeadlineAtMs,
+  )
   return {
     status: 'ok',
     origin: publicAnchor(selected.origin),
     destination: publicAnchor(selected.destination),
     connectedRoadEdges: selected.connectedRoadEdges,
+    alternatives: alternatives.alternatives,
+    alternativesComplete: alternatives.complete,
+    alternativeSearchAttempts: alternatives.attempts,
     routeProvenanceFingerprint: routeProvenanceFingerprint(selected),
   }
 }
