@@ -228,24 +228,6 @@ function buildUnassessedRouteResult(input: {
   }
 }
 
-function withAbsoluteRouteProgress<T extends ProviderRoutePoint>(
-  matches: ProviderRouteMatch<T>[],
-  startFraction: number,
-  endFraction: number,
-  routeDistanceM: number,
-): ProviderRouteMatch<T>[] {
-  const span = Math.max(0, endFraction - startFraction)
-  return matches.map(match => {
-    const routeFraction = Math.max(0, Math.min(1, startFraction + match.routeFraction * span))
-    return {
-      ...match,
-      routeFraction,
-      distanceFromOriginM: Math.round(routeFraction * routeDistanceM),
-    }
-  })
-}
-
-
 function isValidDateString(value: unknown): value is string {
   if (typeof value !== 'string' || !value) return false
   return isFinite(new Date(value).getTime())
@@ -629,16 +611,19 @@ export async function POST(request: Request) {
         : Promise.resolve(false),
   ])
 
-  // Match Veðurstofan stations directly against the selected route geometry.
-  // Station selection is based on actual road proximity, not on sampled MET/Yr forecast points.
+  // Station membership covers the complete selected route between the
+  // server-verified assessment anchors. The narrower trusted-coverage slice is
+  // for forecast assessment only; using it here silently drops legitimate
+  // stations from otherwise valid route segments. Exact navigation coordinates
+  // are not present in this signed/server-generated route geometry.
   const vedurstofanMatches = layerEnabled
-    ? withAbsoluteRouteProgress(matchProviderPointsToRoute({
+    ? matchProviderPointsToRoute({
         points: VEDURSTOFAN_STATIONS_REGISTRY
           .filter(s => s.stationId !== null && s.lat !== null && s.lon !== null)
           .map(s => ({ id: s.stationId!, name: s.name, lat: s.lat!, lon: s.lon! })),
-        routePolyline: assessmentRoutePolyline,
+        routePolyline,
         maxDistanceM: DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M,
-      }), assessmentStartFraction, assessmentEndFraction, routeGeometry.distanceM)
+      })
     : []
   const vedurstofanStationIds = vedurstofanMatches.map(m => m.point.id)
   const stationMatchById = new Map(vedurstofanMatches.map(m => [m.point.id, m]))
@@ -818,7 +803,7 @@ export async function POST(request: Request) {
       measurementCount: vegagerdinAvailable ? vegagerdinResult.payload.measurements.length : 0,
       reason: vegagerdinResult.status === 'unavailable' ? vegagerdinResult.reason : null,
       vegagerdinLayerEnabled,
-      routePolylineCount: assessmentRoutePolyline.length,
+      routePolylineCount: routePolyline.length,
     })
 
     if (vegagerdinAvailable) {
@@ -828,18 +813,18 @@ export async function POST(request: Request) {
       logRoadMapApiDiagnostic('vegagerdin match input', {
         measurementCount: vegagerdinResult.payload.measurements.length,
         matchableCount: vegagerdinMatchable.length,
-        routePolylineCount: assessmentRoutePolyline.length,
+        routePolylineCount: routePolyline.length,
       })
 
-      vegagerdinRouteMatches = withAbsoluteRouteProgress(matchVegagerdinPointsToRoute({
+      vegagerdinRouteMatches = matchVegagerdinPointsToRoute({
         points: vegagerdinMatchable.map(m => ({
           id: m.stationId,
           name: m.stationName,
           lat: m.lat,
           lon: m.lon,
         })),
-        routePolyline: assessmentRoutePolyline,
-      }), assessmentStartFraction, assessmentEndFraction, routeGeometry.distanceM)
+        routePolyline,
+      })
 
       if (vegagerdinLayerEnabled) {
         const measurementByStationId = new Map(

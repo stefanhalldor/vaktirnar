@@ -126,6 +126,11 @@ const ASSESSMENT_DESTINATION_POINT = {
   lat: ASSESSMENT_DESTINATION.lat,
   lon: ASSESSMENT_DESTINATION.lon,
 }
+const ASSESSMENT_PROVIDER_MATCHING_POINTS = [
+  ASSESSMENT_ORIGIN_POINT,
+  { lat: 64.04, lon: -20.9 },
+  ASSESSMENT_DESTINATION_POINT,
+]
 
 function makeRequest(body: unknown) {
   return new Request('http://localhost/api/teskeid/weather/travel/route', {
@@ -261,11 +266,7 @@ describe('POST /api/teskeid/weather/travel/route — assessment attestation', ()
           { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
           { lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon },
         ],
-        providerMatchingPoints: [
-          { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
-          { lat: 64.04, lon: -20.9 },
-          { lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon },
-        ],
+        providerMatchingPoints: ASSESSMENT_PROVIDER_MATCHING_POINTS,
       },
     })
   }
@@ -305,6 +306,74 @@ describe('POST /api/teskeid/weather/travel/route — assessment attestation', ()
     expect(mockGetRouteOptions).not.toHaveBeenCalled()
     expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
     expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+  })
+
+  it('matches every provider station against the complete signed route when trusted coverage is partial', async () => {
+    authedUser()
+    const stationIds = [HELLISH_ID, '6300', '6315']
+    mockResolveTrustedRouteCoverage.mockResolvedValueOnce({
+      status: 'partial',
+      start: {
+        kind: 'official_road_anchor',
+        label: 'Suðurlandsvegur',
+        point: ASSESSMENT_PROVIDER_MATCHING_POINTS[0],
+        routeFraction: 0.25,
+        distanceFromTripOriginM: 14_000,
+        elapsedFromTripOriginS: 855,
+      },
+      end: {
+        kind: 'official_road_anchor',
+        label: 'Suðurlandsvegur',
+        point: ASSESSMENT_PROVIDER_MATCHING_POINTS.at(-1),
+        routeFraction: 0.75,
+        distanceFromTripOriginM: 42_000,
+        elapsedFromTripOriginS: 2_565,
+      },
+      coverageDistanceM: 28_000,
+      coverageDurationS: 1_710,
+      unassessedBeforeM: 14_000,
+      unassessedAfterM: 14_000,
+      distanceConfidence: 'reference_route',
+    })
+    mockMatchProviderPoints.mockImplementation(({ points, routePolyline }) => {
+      const coversCompleteRoute =
+        routePolyline[0]?.lat === ASSESSMENT_ORIGIN_POINT.lat
+        && routePolyline[0]?.lon === ASSESSMENT_ORIGIN_POINT.lon
+        && routePolyline.at(-1)?.lat === ASSESSMENT_DESTINATION_POINT.lat
+        && routePolyline.at(-1)?.lon === ASSESSMENT_DESTINATION_POINT.lon
+      if (!coversCompleteRoute) return [makeStationMatch(HELLISH_ID)]
+      if (points.length < 10) return [makeStationMatch(points[0]?.id ?? HELLISH_ID)]
+      return stationIds.map((stationId, index) => makeStationMatch(stationId, 8_000 + index * 16_000))
+    })
+    mockFetchVedurstofan.mockResolvedValue(new Map(stationIds.map(stationId => [
+      stationId,
+      {
+        status: 'ok',
+        payload: {
+          ...makeVedurstofanPayload(),
+          stationId,
+        },
+      },
+    ])))
+    mockReadVegagerdinCurrent.mockResolvedValue(makeVegagerdinCurrentResult())
+
+    const response = await POST(makeRequest({
+      origin: ASSESSMENT_ORIGIN,
+      destination: ASSESSMENT_DESTINATION,
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      routeEnvelope: makeAssessmentEnvelope(),
+      trailerKind: 'none',
+    }))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.vedurstofanLayer.points).toHaveLength(3)
+    expect(body.vedurstofanLayer.points.map((point: { stationId: string }) => point.stationId))
+      .toEqual(stationIds)
+    expect(mockMatchProviderPoints).toHaveBeenCalledTimes(2)
+    for (const [{ routePolyline }] of mockMatchProviderPoints.mock.calls) {
+      expect(routePolyline).toEqual(ASSESSMENT_PROVIDER_MATCHING_POINTS)
+    }
   })
 
   it.each([
