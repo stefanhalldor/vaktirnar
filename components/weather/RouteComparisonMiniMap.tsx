@@ -476,8 +476,11 @@ export function RouteComparisonFullscreenMap({
             {alternativesMessage}
           </p>
         )}
-        {selectedRouteDetails && <div className="mb-2">{selectedRouteDetails}</div>}
-        <div ref={routeCardsScrollRef} className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1">
+        <div
+          ref={routeCardsScrollRef}
+          data-route-comparison-cards="true"
+          className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1"
+        >
           {sortedRoutes.map(route => {
             const selected = route.id === selectedRouteId
             return (
@@ -505,6 +508,11 @@ export function RouteComparisonFullscreenMap({
             )
           })}
         </div>
+        {selectedRouteDetails && (
+          <div data-route-comparison-selected-details="true" className="mt-3">
+            {selectedRouteDetails}
+          </div>
+        )}
         </div>
         <footer
           data-route-comparison-action-footer="true"

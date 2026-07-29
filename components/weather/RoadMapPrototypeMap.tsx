@@ -391,6 +391,8 @@ const TRAVEL_POINT_COLOR_EXPRESSION = [
 type RouteBridgeSummary = {
   fromName: string
   toName: string
+  fromAreaName: string
+  toAreaName: string
   selectedRouteId: string | null
   status: DeterministicResult['stada']
   distanceKm: number
@@ -405,6 +407,12 @@ type RouteBridgeSummary = {
   origin: { lat: number; lon: number }
   destination: { lat: number; lon: number }
   weatherCoverage: RouteWeatherCoverage
+}
+
+function routeAssessmentAreaName(place: RoadIntelligencePlaceResult): string {
+  return place.postalLocality?.trim()
+    || place.municipality?.trim()
+    || place.name.trim()
 }
 
 type RouteSurfaceChoice = {
@@ -7103,6 +7111,8 @@ export function RoadMapPrototypeMap({
     setRouteBridgeSummary({
       fromName: origin.name,
       toName: destination.name,
+      fromAreaName: routeAssessmentAreaName(origin),
+      toAreaName: routeAssessmentAreaName(destination),
       selectedRouteId: effectiveSelectedRouteId,
       status: providerStatus,
       distanceKm: mapData.distanceKm,
@@ -8539,35 +8549,13 @@ export function RoadMapPrototypeMap({
   const routeHasAssessedWeatherCoverage = routeWeatherCoverage?.status === 'full'
     || routeWeatherCoverage?.status === 'partial'
   const routeNavigationHandoffLabels = {
-    partialTitle: t('roadMapPrototypeCoveragePartialTitle'),
-    sameUrbanTitle: t('roadMapPrototypeCoverageSameUrban', {
-      place: routeWeatherCoverage?.status === 'same_urban_area'
-        ? routeWeatherCoverage.settlementName
-        : '',
-    }),
-    unavailableTitle: t('roadMapPrototypeCoverageUnavailable'),
-    coverageStart: t('roadMapPrototypeCoverageStart'),
-    coverageEnd: t('roadMapPrototypeCoverageEnd'),
+    assessmentTitle: t('roadMapPrototypeCoverageAssessmentTitle'),
+    routeTitle: t('roadMapPrototypeCoverageRouteTitle'),
+    navigationTitle: t('roadMapPrototypeCoverageNavigationTitle'),
     boundaryFallback: t('roadMapPrototypeCoverageBoundaryFallback'),
     settlementBoundary: t('roadMapPrototypeCoverageSettlementBoundary'),
     officialRoadBoundary: t('roadMapPrototypeCoverageOfficialRoadBoundary'),
-    beforeCoverageAction: t('roadMapPrototypeCoverageGoogleFirst', {
-      distance: formatNum(
-        routeWeatherCoverage?.status === 'partial'
-          ? (routeWeatherCoverage.unassessedBeforeM ?? 0) / 1000
-          : 0,
-        locale,
-      ),
-    }),
-    afterCoverageAction: t('roadMapPrototypeCoverageGoogleLast', {
-      distance: formatNum(
-        routeWeatherCoverage?.status === 'partial'
-          ? (routeWeatherCoverage.unassessedAfterM ?? 0) / 1000
-          : 0,
-        locale,
-      ),
-    }),
-    fullTripAction: t('roadMapPrototypeCoverageGoogleWholeTrip'),
+    openDirections: t('roadMapPrototypeCoverageGoogleDirections'),
   }
   const routeLiveLocationStatusLabel = routeLiveLocationStatus === 'waiting'
     ? t('roadMapPrototypeLiveLocationLoading')
@@ -9527,15 +9515,6 @@ export function RoadMapPrototypeMap({
                   </p>
                 )}
                 {renderRouteSurfaceChoices()}
-                {selectedRouteChoiceId === routeBridgeSummary.selectedRouteId && (
-                  <RouteNavigationHandoff
-                    coverage={routeBridgeSummary.weatherCoverage}
-                    origin={routeBridgeSummary.origin}
-                    destination={routeBridgeSummary.destination}
-                    labels={routeNavigationHandoffLabels}
-                    className="mt-3"
-                  />
-                )}
               </div>
               {routeHasAssessedWeatherCoverage && (
                 <DriveJourneyPanel
@@ -9565,6 +9544,21 @@ export function RoadMapPrototypeMap({
                   stationReturnTo={routeReturnHref('information')}
                   routeSelectionContextKey={routeTravelResult?.id ?? 'none'}
                 />
+              )}
+              {selectedRouteChoiceId === routeBridgeSummary.selectedRouteId
+                && routeBridgeSummary.weatherCoverage.status !== 'full' && (
+                <div className="px-3 pb-4 pt-3">
+                  <RouteNavigationHandoff
+                    coverage={routeBridgeSummary.weatherCoverage}
+                    origin={routeBridgeSummary.origin}
+                    destination={routeBridgeSummary.destination}
+                    originName={routeBridgeSummary.fromName}
+                    destinationName={routeBridgeSummary.toName}
+                    originAreaName={routeBridgeSummary.fromAreaName}
+                    destinationAreaName={routeBridgeSummary.toAreaName}
+                    labels={routeNavigationHandoffLabels}
+                  />
+                </div>
               )}
             </>
           ) : routeResultsDisplayState === 'route-loading' && isRouteLoading && firstReadyRouteChoice ? (
@@ -9809,21 +9803,18 @@ export function RoadMapPrototypeMap({
           cautionCloseLabel={t('roadMapPrototypeRouteCautionClose')}
           selectedRouteDetails={
             selectedRouteChoiceId === routeBridgeSummary.selectedRouteId
+            && routeBridgeSummary.weatherCoverage.status !== 'full'
               ? (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-foreground">
-                      {t('roadMapPrototypeRouteSummaryPlaces', {
-                        from: routeBridgeSummary.fromName,
-                        to: routeBridgeSummary.toName,
-                      })}
-                    </p>
-                    <RouteNavigationHandoff
-                      coverage={routeBridgeSummary.weatherCoverage}
-                      origin={routeBridgeSummary.origin}
-                      destination={routeBridgeSummary.destination}
-                      labels={routeNavigationHandoffLabels}
-                    />
-                  </div>
+                  <RouteNavigationHandoff
+                    coverage={routeBridgeSummary.weatherCoverage}
+                    origin={routeBridgeSummary.origin}
+                    destination={routeBridgeSummary.destination}
+                    originName={routeBridgeSummary.fromName}
+                    destinationName={routeBridgeSummary.toName}
+                    originAreaName={routeBridgeSummary.fromAreaName}
+                    destinationAreaName={routeBridgeSummary.toAreaName}
+                    labels={routeNavigationHandoffLabels}
+                  />
                 )
               : undefined
           }
@@ -9862,21 +9853,16 @@ export function RoadMapPrototypeMap({
       <div
         data-weather-card-obstacle="true"
         className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-[max(1.25rem,env(safe-area-inset-bottom))] ${
-          isPanelOpen || (lastMapContext === 'weather' && isWeatherChaseOpen) ? 'hidden' : ''
+          isPanelOpen
+          || (lastMapContext === 'weather' && isWeatherChaseOpen)
+          || (lastMapContext === 'route' && routeBridgeSummary && !routeHasAssessedWeatherCoverage)
+            ? 'hidden'
+            : ''
         }`}
       >
         {routeBridgeStatus === 'loading' ? (
           <div className="px-3 py-3 text-xs text-muted-foreground">
             {t('roadMapPrototypeScrubberCalculatingHourly')}
-          </div>
-        ) : lastMapContext === 'route' && routeBridgeSummary && !routeHasAssessedWeatherCoverage ? (
-          <div className="px-3 py-2">
-            <RouteNavigationHandoff
-              coverage={routeBridgeSummary.weatherCoverage}
-              origin={routeBridgeSummary.origin}
-              destination={routeBridgeSummary.destination}
-              labels={routeNavigationHandoffLabels}
-            />
           </div>
         ) : lastMapContext === 'route' && routeBridgeSummary ? (
           <div className="px-3 pb-2 pt-2 space-y-1.5">

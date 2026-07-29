@@ -138,6 +138,12 @@ describe('RouteComparisonFullscreenMap', () => {
     const actionFooter = container.querySelector<HTMLElement>(
       '[data-route-comparison-action-footer="true"]',
     )
+    const routeCards = container.querySelector<HTMLElement>(
+      '[data-route-comparison-cards="true"]',
+    )
+    const selectedRouteDetails = container.querySelector<HTMLElement>(
+      '[data-route-comparison-selected-details="true"]',
+    )
     const applyAction = screen.getByRole('button', {
       name: 'Skoða veðurskilyrði fyrir þessa leið',
     })
@@ -145,6 +151,10 @@ describe('RouteComparisonFullscreenMap', () => {
     expect(dialog).toHaveAccessibleName('Veldu leið á korti')
     expect(screen.getByText('Staðfest mörk veðurmats')).toBeInTheDocument()
     expect(scrollRegion).toHaveClass('overflow-y-auto')
+    expect(scrollRegion).toContainElement(routeCards)
+    expect(scrollRegion).toContainElement(selectedRouteDetails)
+    expect(routeCards?.compareDocumentPosition(selectedRouteDetails!))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(scrollRegion).not.toContainElement(applyAction)
     expect(actionFooter).toContainElement(applyAction)
     expect(actionFooter).toHaveClass('shrink-0')
