@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { getAdmin } from '@/lib/supabase/admin'
+import { haversineDistanceM } from '@/lib/weather/nearestStations'
 import { normalizePlaceSearchText } from './normalize'
 import { getOfficialPostalLocality } from './officialPlaceDirectory.server'
 import type {
@@ -32,6 +33,17 @@ type ActiveDatasetRow = {
   canonical_place_count: number | string
   promoted_at: string
 }
+
+export const ASSESSMENT_HMS_QUERY_MAX_DISTANCE_M = 50
+const ASSESSMENT_HMS_QUERY_MAX_ROWS = 64
+
+export type HmsPostalIdentityCandidate = Readonly<{
+  sourceId: string
+  postalCode: string
+  postalLocality: string
+  postalLocalitySourceId: string
+  distanceM: number
+}>
 
 function finiteNumber(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value)
@@ -121,6 +133,115 @@ export async function reverseHmsPlace(
   return location && distanceM !== null && distanceM >= 0 && distanceM <= safeMaxDistanceM
     ? { location, distanceM }
     : null
+}
+
+/**
+ * Reads a bounded first-party candidate set for assessment identity. Exact
+ * coordinates remain transient query/distance inputs; returned values contain
+ * only structured HMS/official identities and distance.
+ */
+export async function readHmsPostalIdentityCandidates(
+  point: { lat: number; lon: number },
+  options: { maxDistanceM: number; sourceId?: string },
+): Promise<HmsPostalIdentityCandidate[] | null> {
+  if (
+    !Number.isFinite(point.lat)
+    || !Number.isFinite(point.lon)
+    || point.lat < 63 || point.lat > 67
+    || point.lon < -25 || point.lon > -12
+  ) {
+    return []
+  }
+  const maxDistanceM = Math.min(
+    Math.max(Math.round(options.maxDistanceM), 1),
+    ASSESSMENT_HMS_QUERY_MAX_DISTANCE_M,
+  )
+  const expectedSourceId = options.sourceId?.trim()
+  if (
+    options.sourceId !== undefined
+    && (!expectedSourceId || expectedSourceId.length > 160)
+  ) return []
+
+  const { data: activeDataset, error: datasetError } = await getAdmin()
+    .from(DATASET_TABLE)
+    .select('id')
+    .eq('status', 'active')
+    .maybeSingle()
+  if (datasetError) throw new Error('hms_assessment_exact_lookup_failed')
+  if (!activeDataset?.id) return []
+
+  const columns = [
+    'source_id',
+    'coordinate_id',
+    'display_name',
+    'formatted_address',
+    'postal_code',
+    'municipality_code',
+    'municipality_name',
+    'lat',
+    'lon',
+    'accuracy_m',
+  ].join(', ')
+  const places = getAdmin().from('hms_places')
+  const latitudeDelta = maxDistanceM / 111_320
+  const longitudeDelta = maxDistanceM
+    / (111_320 * Math.max(0.1, Math.cos(point.lat * Math.PI / 180)))
+  const { data, error } = expectedSourceId
+    ? await places
+        .select(columns)
+        .eq('dataset_version_id', activeDataset.id)
+        .eq('source_id', expectedSourceId)
+        .order('source_id', { ascending: true })
+        .limit(2)
+    : await places
+        .select(columns)
+        .eq('dataset_version_id', activeDataset.id)
+        .gte('lat', point.lat - latitudeDelta)
+        .lte('lat', point.lat + latitudeDelta)
+        .gte('lon', point.lon - longitudeDelta)
+        .lte('lon', point.lon + longitudeDelta)
+        .order('source_id', { ascending: true })
+        .limit(ASSESSMENT_HMS_QUERY_MAX_ROWS + 1)
+  if (error) throw new Error('hms_assessment_exact_lookup_failed')
+  if (!Array.isArray(data)) return []
+  if (
+    data.length > ASSESSMENT_HMS_QUERY_MAX_ROWS
+    || (expectedSourceId && data.length !== 1)
+  ) return null
+
+  const candidates: HmsPostalIdentityCandidate[] = []
+  for (const raw of data) {
+    const row = raw as unknown as HmsPlaceRpcRow
+    const rawLat = finiteNumber(row.lat)
+    const rawLon = finiteNumber(row.lon)
+    if (rawLat === null || rawLon === null) return null
+    const distanceM = haversineDistanceM(point, { lat: rawLat, lon: rawLon })
+    if (!Number.isFinite(distanceM)) return null
+    if (distanceM > maxDistanceM) continue
+
+    const location = toSelectedLocation(row)
+    if (
+      !location
+      || location.source !== 'hms'
+      || location.placeType !== 'address'
+      || !location.sourceId
+      || (expectedSourceId && location.sourceId !== expectedSourceId)
+      || !location.postalCode
+      || !location.postalLocality
+    ) return null
+    const officialPostalLocality = getOfficialPostalLocality(location.postalCode)
+    if (!officialPostalLocality || officialPostalLocality.name !== location.postalLocality) return null
+    candidates.push({
+      sourceId: location.sourceId,
+      postalCode: location.postalCode,
+      postalLocality: officialPostalLocality.name,
+      postalLocalitySourceId: officialPostalLocality.sourceId,
+      distanceM,
+    })
+  }
+  return candidates.sort((a, b) => (
+    a.distanceM - b.distanceM || a.sourceId.localeCompare(b.sourceId, 'is')
+  ))
 }
 
 export async function readActiveHmsDataset(): Promise<ActiveHmsDataset | null> {

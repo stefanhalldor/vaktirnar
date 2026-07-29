@@ -46,8 +46,14 @@ import {
 import {
   hasSaferRouteSearchFinished,
   resolveRouteResultsDisplayState,
+  resolveRouteResultsVisibility,
   shouldRecalculateRouteChoice,
 } from '@/lib/road-intelligence/routeResultsDisplayState'
+import {
+  buildAssessmentTravelRequest,
+  resolveAssessmentClientEndpoints,
+  type ReadyRouteAssessmentClientPlaces,
+} from '@/lib/road-intelligence/routeAssessmentClientFlow'
 import {
   ROAD_MAP_PLACES,
   findRoadMapPlaceSuggestions,
@@ -457,9 +463,11 @@ const TESKEID_CLIENT_CANDIDATE_CACHE_MIN_TTL_MS = 60_000
 function teskeidClientCandidateCacheKey(
   origin: RoadIntelligencePlaceResult,
   destination: RoadIntelligencePlaceResult,
+  assessmentScopeId: string,
   alternatives: boolean,
 ): string {
   return [
+    assessmentScopeId,
     origin.lat.toFixed(6),
     origin.lon.toFixed(6),
     destination.lat.toFixed(6),
@@ -478,14 +486,17 @@ type RouteLabelPlacement = {
 
 type ReadyRouteAssessmentScope = Extract<RouteAssessmentScope, { status: 'ready' }>
 
-type ResolvedRoutePlaces = {
-  navigationOrigin: RoadIntelligencePlaceResult
-  navigationDestination: RoadIntelligencePlaceResult
-  navigationOriginName: string
-  navigationDestinationName: string
-  assessmentOrigin: RoadIntelligencePlaceResult
-  assessmentDestination: RoadIntelligencePlaceResult
-  assessmentScope: ReadyRouteAssessmentScope
+type ResolvedRoutePlaces = ReadyRouteAssessmentClientPlaces<
+  RoadIntelligencePlaceResult,
+  ReadyRouteAssessmentScope
+>
+
+function canRequestTeskeidCandidate(_places: ResolvedRoutePlaces): boolean {
+  // Assessment scopes may contain a server-attested mid-edge anchor, while the
+  // current Teskeið candidate engine snaps endpoints back to graph nodes. Until
+  // that engine is edge-aware, suppress it for every assessment scope rather
+  // than infer anchor semantics from the opaque scope ID.
+  return false
 }
 
 type RouteHandoffOnlySummary = {
@@ -6466,10 +6477,12 @@ export function RoadMapPrototypeMap({
         includeRouteEnvelopes: true,
         compactRouteEnvelopes: true,
         resolveAssessmentScope: true,
+        ...(expectedScopeId ? { expectedAssessmentScopeId: expectedScopeId } : {}),
       }),
     })
     if (res.status === 401) throw new Error('auth')
     if (res.status === 429) throw new Error('rate_limited')
+    if (res.status === 409) throw new Error('assessment_scope_mismatch')
     if (!res.ok) throw new Error('route_unavailable')
 
     const payload = await res.json().catch(() => null)
@@ -6481,7 +6494,10 @@ export function RoadMapPrototypeMap({
     ) {
       throw new Error('assessment_scope_mismatch')
     }
-    const envelopes = parseRouteEnvelopes(payload)
+    const envelopes = parseRouteEnvelopes(payload).filter(envelope => (
+      assessmentScope.status !== 'ready'
+      || envelope.assessmentScopeId === assessmentScope.scopeId
+    ))
     const routes = envelopes.length > 0
       ? envelopes.map(envelope => envelope.route)
       : Array.isArray(payload?.routes)
@@ -6502,13 +6518,19 @@ export function RoadMapPrototypeMap({
   async function fetchTeskeidCandidate(
     origin: RoadIntelligencePlaceResult,
     destination: RoadIntelligencePlaceResult,
+    assessmentScopeId: string,
     signal: AbortSignal,
     alternatives = false,
     accessRouteEnvelope: RouteOptionEnvelopeV1 | null = null,
   ): Promise<TeskeidCandidateResult> {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
 
-    const cacheKey = teskeidClientCandidateCacheKey(origin, destination, alternatives)
+    const cacheKey = teskeidClientCandidateCacheKey(
+      origin,
+      destination,
+      assessmentScopeId,
+      alternatives,
+    )
     const cached = teskeidClientCandidateCacheRef.current.get(cacheKey)
     if (cached && cached.expiresAtMs > Date.now() + TESKEID_CLIENT_CANDIDATE_CACHE_MIN_TTL_MS) {
       // Refresh insertion order so the bounded Map behaves as an LRU cache.
@@ -6537,6 +6559,7 @@ export function RoadMapPrototypeMap({
       body: JSON.stringify({
         origin,
         destination,
+        assessmentScopeId,
         alternatives,
         includeRouteEnvelopes: true,
         compactRouteEnvelopes: true,
@@ -6557,7 +6580,9 @@ export function RoadMapPrototypeMap({
       payload?.status === 'ready' || payload?.status === 'pending' || payload?.status === 'no_route'
         ? payload.status
         : 'unavailable'
-    const envelopes = parseRouteEnvelopes(payload)
+    const envelopes = parseRouteEnvelopes(payload).filter(envelope => (
+      envelope.assessmentScopeId === assessmentScopeId
+    ))
     const routes = envelopes.length > 0
       ? envelopes.map(envelope => envelope.route)
       : Array.isArray(payload?.routes)
@@ -6595,6 +6620,7 @@ export function RoadMapPrototypeMap({
   async function fetchTeskeidCandidateWithRetry(
     origin: RoadIntelligencePlaceResult,
     destination: RoadIntelligencePlaceResult,
+    assessmentScopeId: string,
     signal: AbortSignal,
     alternatives = false,
     onPending?: () => void,
@@ -6604,6 +6630,7 @@ export function RoadMapPrototypeMap({
       const result = await fetchTeskeidCandidate(
         origin,
         destination,
+        assessmentScopeId,
         signal,
         alternatives,
         accessRouteEnvelope,
@@ -6617,10 +6644,10 @@ export function RoadMapPrototypeMap({
     return { status: 'unavailable', choices: [] }
   }
 
-  function publicTeskeidAccessEnvelope(): RouteOptionEnvelopeV1 | null {
-    if (isAuthenticated) return null
+  function teskeidAccessEnvelope(assessmentScopeId: string): RouteOptionEnvelopeV1 | null {
     const envelope = routeSurfaceChoices.find(
-      choice => choice.route.provider === 'google' && choice.routeEnvelope !== null,
+      choice => choice.route.provider === 'google'
+        && choice.routeEnvelope?.assessmentScopeId === assessmentScopeId,
     )?.routeEnvelope ?? null
     if (!envelope) return null
     const expiresAtMs = Date.parse(envelope.expiresAt)
@@ -6629,24 +6656,21 @@ export function RoadMapPrototypeMap({
       : null
   }
 
-  async function resolvePublicTeskeidAccessEnvelope(
-    origin: RoadIntelligencePlaceResult,
-    destination: RoadIntelligencePlaceResult,
+  async function resolveTeskeidAccessEnvelope(
+    places: ResolvedRoutePlaces,
     signal: AbortSignal,
-    expectedScopeId: string,
   ): Promise<RouteOptionEnvelopeV1 | null> {
-    if (isAuthenticated) return null
-    const current = publicTeskeidAccessEnvelope()
+    const current = teskeidAccessEnvelope(places.assessmentScope.scopeId)
     if (current) return current
 
     // Public candidate access is intentionally chained to a fresh, rate-limited
     // Google route-options response. Refreshing an expired grant must go through
     // that same endpoint rather than silently bypassing the public trip budget.
     const refreshedResult = await fetchRouteSurfaceChoices(
-      origin,
-      destination,
+      places.navigationOrigin,
+      places.navigationDestination,
       signal,
-      expectedScopeId,
+      places.assessmentScope.scopeId,
     )
     const refreshedChoices = refreshedResult.choices
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -6656,16 +6680,15 @@ export function RoadMapPrototypeMap({
       refreshedChoices,
     ))
     return refreshedChoices.find(
-      choice => choice.route.provider === 'google' && choice.routeEnvelope !== null,
+      choice => choice.route.provider === 'google'
+        && choice.routeEnvelope?.assessmentScopeId === places.assessmentScope.scopeId,
     )?.routeEnvelope ?? null
   }
 
   async function refreshRouteChoiceEnvelope(
     choice: RouteSurfaceChoice,
-    origin: RoadIntelligencePlaceResult,
-    destination: RoadIntelligencePlaceResult,
+    places: ResolvedRoutePlaces,
     signal: AbortSignal,
-    expectedScopeId: string,
     force = false,
   ): Promise<RouteSurfaceChoice> {
     const expiresAtMs = choice.routeEnvelope
@@ -6677,17 +6700,17 @@ export function RoadMapPrototypeMap({
 
     let refreshedChoices: RouteSurfaceChoice[] = []
     if (choice.route.provider === 'teskeid') {
-      const accessRouteEnvelope = await resolvePublicTeskeidAccessEnvelope(
-        origin,
-        destination,
+      if (!canRequestTeskeidCandidate(places)) throw new Error('route_unavailable')
+      const accessRouteEnvelope = await resolveTeskeidAccessEnvelope(
+        places,
         signal,
-        expectedScopeId,
       )
-      if (!isAuthenticated && !accessRouteEnvelope) throw new Error('route_unavailable')
+      if (!accessRouteEnvelope) throw new Error('route_unavailable')
       setTeskeidCandidateStatus('loading')
       const result = await fetchTeskeidCandidateWithRetry(
-        origin,
-        destination,
+        places.assessmentOrigin,
+        places.assessmentDestination,
+        places.assessmentScope.scopeId,
         signal,
         true,
         () => setTeskeidCandidateStatus('pending'),
@@ -6701,7 +6724,12 @@ export function RoadMapPrototypeMap({
       }
     } else {
       refreshedChoices = (
-        await fetchRouteSurfaceChoices(origin, destination, signal, expectedScopeId)
+        await fetchRouteSurfaceChoices(
+          places.navigationOrigin,
+          places.navigationDestination,
+          signal,
+          places.assessmentScope.scopeId,
+        )
       ).choices
     }
     if (signal.aborted || refreshedChoices.length === 0) {
@@ -6723,19 +6751,18 @@ export function RoadMapPrototypeMap({
   async function handleRetryTeskeidCandidate() {
     const places = resolvedRoutePlacesRef.current
     const signal = routeDiscoveryRequestRef.current?.signal
-    if (!places || !signal || signal.aborted || teskeidCandidateStatus === 'loading' || teskeidCandidateStatus === 'pending') return
-    const accessRouteEnvelope = await resolvePublicTeskeidAccessEnvelope(
-      places.assessmentOrigin,
-      places.assessmentDestination,
+    if (!places || !canRequestTeskeidCandidate(places) || !signal || signal.aborted || teskeidCandidateStatus === 'loading' || teskeidCandidateStatus === 'pending') return
+    const accessRouteEnvelope = await resolveTeskeidAccessEnvelope(
+      places,
       signal,
-      places.assessmentScope.scopeId,
     ).catch(() => null)
-    if (!isAuthenticated && !accessRouteEnvelope) return
+    if (!accessRouteEnvelope) return
     setTeskeidCandidateStatus('loading')
     try {
       const result = await fetchTeskeidCandidateWithRetry(
         places.assessmentOrigin,
         places.assessmentDestination,
+        places.assessmentScope.scopeId,
         signal,
         false,
         () => setTeskeidCandidateStatus('pending'),
@@ -6757,7 +6784,7 @@ export function RoadMapPrototypeMap({
 
   async function handleFindMoreTeskeidRoutes() {
     const places = resolvedRoutePlacesRef.current
-    if (!teskeidRouteCandidateEnabled || !places || teskeidAlternativesStatus === 'loading') return
+    if (!teskeidRouteCandidateEnabled || !places || !canRequestTeskeidCandidate(places) || teskeidAlternativesStatus === 'loading') return
     routeAlternativesRequestRef.current?.abort()
     const controller = new AbortController()
     routeAlternativesRequestRef.current = controller
@@ -6768,19 +6795,18 @@ export function RoadMapPrototypeMap({
     )
     setTeskeidAlternativesStatus('loading')
     try {
-      const accessRouteEnvelope = await resolvePublicTeskeidAccessEnvelope(
-        places.assessmentOrigin,
-        places.assessmentDestination,
+      const accessRouteEnvelope = await resolveTeskeidAccessEnvelope(
+        places,
         controller.signal,
-        places.assessmentScope.scopeId,
       )
-      if (!isAuthenticated && !accessRouteEnvelope) {
+      if (!accessRouteEnvelope) {
         setTeskeidAlternativesStatus('unavailable')
         return
       }
       const result = await fetchTeskeidCandidateWithRetry(
         places.assessmentOrigin,
         places.assessmentDestination,
+        places.assessmentScope.scopeId,
         controller.signal,
         true,
         undefined,
@@ -7095,8 +7121,9 @@ export function RoadMapPrototypeMap({
     routeEnvelope?: RouteOptionEnvelopeV1 | null
     openComparisonOnSuccess?: boolean
   }): Promise<boolean> {
-    const origin = places.assessmentOrigin
-    const destination = places.assessmentDestination
+    const endpoints = resolveAssessmentClientEndpoints(places)
+    const origin = endpoints.assessment.origin
+    const destination = endpoints.assessment.destination
     const effectiveSelectedRouteId = routeEnvelope?.route.id ?? selectedRouteId ?? null
     logRoadMapDiagnostic('route fetch', {
       selectedRouteId: effectiveSelectedRouteId,
@@ -7111,9 +7138,7 @@ export function RoadMapPrototypeMap({
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       signal,
-      body: JSON.stringify({
-        origin,
-        destination,
+      body: JSON.stringify(buildAssessmentTravelRequest(places, {
         trailerKind: 'none',
         thresholdOverrides: {
           cautionWindMs: thresholds.cautionWindMs,
@@ -7124,7 +7149,7 @@ export function RoadMapPrototypeMap({
           : effectiveSelectedRouteId
             ? { selectedRouteId: effectiveSelectedRouteId }
             : {}),
-      }),
+      })),
     })
 
     const contentType = res.headers.get('content-type') ?? ''
@@ -7151,10 +7176,10 @@ export function RoadMapPrototypeMap({
       weatherCoverage.status === 'full' || weatherCoverage.status === 'partial'
     if (!hasAssessedWeatherCoverage) {
       showRouteHandoffOnly({
-        navigationOrigin: places.navigationOrigin,
-        navigationDestination: places.navigationDestination,
-        navigationOriginName: places.navigationOriginName,
-        navigationDestinationName: places.navigationDestinationName,
+        navigationOrigin: endpoints.navigation.origin,
+        navigationDestination: endpoints.navigation.destination,
+        navigationOriginName: endpoints.navigation.originName,
+        navigationDestinationName: endpoints.navigation.destinationName,
         assessment: {
           originName: places.assessmentOrigin.name,
           destinationName: places.assessmentDestination.name,
@@ -7284,10 +7309,10 @@ export function RoadMapPrototypeMap({
       origin: { lat: origin.lat, lon: origin.lon },
       destination: { lat: destination.lat, lon: destination.lon },
       weatherCoverage,
-      navigationOrigin: places.navigationOrigin,
-      navigationDestination: places.navigationDestination,
-      navigationOriginName: places.navigationOriginName,
-      navigationDestinationName: places.navigationDestinationName,
+      navigationOrigin: endpoints.navigation.origin,
+      navigationDestination: endpoints.navigation.destination,
+      navigationOriginName: endpoints.navigation.originName,
+      navigationDestinationName: endpoints.navigation.destinationName,
     })
     setRouteTravelResult(travelResult)
     setRouteVedurstofanLayer(vedurstofanLayer ?? null)
@@ -7445,7 +7470,9 @@ export function RoadMapPrototypeMap({
       // Discover independent providers in parallel. The first provider with a
       // valid, server-attested route wins this run; slower providers continue
       // and merge into the comparison without changing the applied selection.
-      const providers: FirstReadyRouteProvider[] = teskeidRouteCandidateEnabled
+      const teskeidCandidateAllowed = teskeidRouteCandidateEnabled
+        && canRequestTeskeidCandidate(places)
+      const providers: FirstReadyRouteProvider[] = teskeidCandidateAllowed
         ? ['google', 'teskeid']
         : ['google']
       let coordinator = createFirstReadyCoordinator<FirstReadyRouteProvider, RouteSurfaceChoice>(
@@ -7526,24 +7553,24 @@ export function RoadMapPrototypeMap({
             : { status: 'no_route' as const }
         },
       }]
-      if (teskeidRouteCandidateEnabled) {
+      if (teskeidCandidateAllowed) {
         setTeskeidCandidateStatus('loading')
         discoveries.push({
           provider: 'teskeid',
           discover: async () => {
             try {
-              const accessRouteEnvelope = isAuthenticated
-                ? null
-                : (await googleChoicesPromise).find(
-                    choice => choice.route.provider === 'google' && choice.routeEnvelope !== null,
-                  )?.routeEnvelope ?? null
-              if (!isAuthenticated && !accessRouteEnvelope) {
+              const accessRouteEnvelope = (await googleChoicesPromise).find(
+                choice => choice.route.provider === 'google'
+                  && choice.routeEnvelope?.assessmentScopeId === places.assessmentScope.scopeId,
+              )?.routeEnvelope ?? null
+              if (!accessRouteEnvelope) {
                 setTeskeidCandidateStatus('unavailable')
                 return { status: 'failed', reason: 'route_access_unavailable' }
               }
               const result = await fetchTeskeidCandidateWithRetry(
                 places.assessmentOrigin,
                 places.assessmentDestination,
+                places.assessmentScope.scopeId,
                 discoveryController.signal,
                 false,
                 () => {
@@ -7713,10 +7740,8 @@ export function RoadMapPrototypeMap({
     try {
       let choiceToApply = await refreshRouteChoiceEnvelope(
         choice,
-        resolvedPlaces.assessmentOrigin,
-        resolvedPlaces.assessmentDestination,
+        resolvedPlaces,
         controller.signal,
-        resolvedPlaces.assessmentScope.scopeId,
       )
       if (controller.signal.aborted) return false
       setRouteSwitchingChoiceId(choiceToApply.routeId)
@@ -7737,10 +7762,8 @@ export function RoadMapPrototypeMap({
         if (!(error instanceof Error) || error.message !== 'route_envelope_invalid') throw error
         choiceToApply = await refreshRouteChoiceEnvelope(
           choiceToApply,
-          resolvedPlaces.assessmentOrigin,
-          resolvedPlaces.assessmentDestination,
+          resolvedPlaces,
           controller.signal,
-          resolvedPlaces.assessmentScope.scopeId,
           true,
         )
         if (controller.signal.aborted) return false
@@ -8801,6 +8824,13 @@ export function RoadMapPrototypeMap({
   const routeWeatherCoverage = routeBridgeSummary?.weatherCoverage ?? null
   const routeHasAssessedWeatherCoverage = routeWeatherCoverage?.status === 'full'
     || routeWeatherCoverage?.status === 'partial'
+  const routeResultsVisibility = resolveRouteResultsVisibility({
+    displayState: routeResultsDisplayState,
+    hasSummary: routeBridgeSummary !== null,
+    hasTravelResult: routeTravelResult !== null,
+    hasAssessedWeatherCoverage: routeHasAssessedWeatherCoverage,
+    routeChoiceCount: routeSurfaceChoices.length,
+  })
   const routeNavigationHandoffLabels = {
     assessmentTitle: t('roadMapPrototypeCoverageAssessmentTitle'),
     navigationTitle: t('roadMapPrototypeCoverageNavigationTitle'),
@@ -9752,7 +9782,7 @@ export function RoadMapPrototypeMap({
               <Pencil size={16} aria-hidden />
             </button>
           )}
-          {routeResultsDisplayState === 'summary' && routeBridgeSummary && routeHasAssessedWeatherCoverage && (
+          {routeResultsVisibility.showWeather && routeBridgeSummary && (
             <span
               className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
               style={{ backgroundColor: routeStatusColor(displayedRouteStatus) }}
@@ -9772,7 +9802,7 @@ export function RoadMapPrototypeMap({
               intervalMs={1800}
               className="min-h-[320px] px-5 py-10"
             />
-          ) : routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult ? (
+          ) : routeResultsVisibility.showSummary && routeBridgeSummary && routeTravelResult ? (
             <>
               <div className="px-3 pt-3">
                 {routeBridgeError && (
@@ -9780,9 +9810,9 @@ export function RoadMapPrototypeMap({
                     {routeBridgeError}
                   </p>
                 )}
-                {renderRouteSurfaceChoices()}
+                {routeResultsVisibility.showRouteCards && renderRouteSurfaceChoices()}
               </div>
-              {routeHasAssessedWeatherCoverage && (
+              {routeResultsVisibility.showWeather && (
                 <div
                   ref={weatherResultsRef}
                   tabIndex={-1}
@@ -10050,7 +10080,7 @@ export function RoadMapPrototypeMap({
           )}
         </div>
 
-        {routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult && routeHasAssessedWeatherCoverage && (
+        {routeResultsVisibility.showWeather && routeBridgeSummary && routeTravelResult && (
           <div className="shrink-0 border-t border-border/70 bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
             {isAuthenticated ? (
               <button

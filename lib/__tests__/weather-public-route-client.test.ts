@@ -14,7 +14,7 @@ describe('public Teskeið route client contract', () => {
     expect(source).toContain('teskeidRouteCandidateEnabled={isTeskeidRouteCandidateEnabled()}')
   })
 
-  it('chains RoadMap public candidate discovery to a signed Google route grant', () => {
+  it('resolves RoadMap assessment first and suppresses node-only candidates for every scoped route', () => {
     const source = readWorkspaceFile('components/weather/RoadMapPrototypeMap.tsx')
 
     expect(source).toContain('const scopedGoogleResult = await fetchRouteSurfaceChoices(')
@@ -23,9 +23,14 @@ describe('public Teskeið route client contract', () => {
     expect(source).toContain('places.assessmentOrigin')
     expect(source).toContain('places.assessmentDestination')
     expect(source).toContain('...(accessRouteEnvelope ? { accessRouteEnvelope } : {})')
-    expect(source).toContain('resolvePublicTeskeidAccessEnvelope(')
-    expect(source).toContain('if (!isAuthenticated && !accessRouteEnvelope)')
-    expect(source).toContain('if (!isAuthenticated || !teskeidRouteCandidateEnabled) return')
+    expect(source).toContain('includeTeskeidCandidate: false')
+    expect(source).toContain('function canRequestTeskeidCandidate(_places: ResolvedRoutePlaces)')
+    expect(source).toContain('const teskeidCandidateAllowed = teskeidRouteCandidateEnabled')
+    const candidatePolicyStart = source.indexOf(
+      'function canRequestTeskeidCandidate(_places: ResolvedRoutePlaces)',
+    )
+    const candidatePolicyEnd = source.indexOf('\n}', candidatePolicyStart)
+    expect(source.slice(candidatePolicyStart, candidatePolicyEnd)).toContain('return false')
   })
 
   it('keeps signed envelopes with legacy public route choices and final submits', () => {

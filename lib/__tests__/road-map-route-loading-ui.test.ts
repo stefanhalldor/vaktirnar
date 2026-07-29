@@ -4,10 +4,16 @@ import { describe, expect, it } from 'vitest'
 import {
   hasSaferRouteSearchFinished,
   resolveRouteResultsDisplayState,
+  resolveRouteResultsVisibility,
   shouldRecalculateRouteChoice,
   type RouteBridgeDisplayStatus,
   type RouteResultsDisplayState,
 } from '@/lib/road-intelligence/routeResultsDisplayState'
+import {
+  buildAssessmentTravelRequest,
+  resolveAssessmentClientEndpoints,
+} from '@/lib/road-intelligence/routeAssessmentClientFlow'
+import { buildGoogleMapsDirectionsUrl } from '@/lib/iceland-routes/googleMapsDirectionsUrl'
 
 type DisplayStateCase = {
   label: string
@@ -129,6 +135,86 @@ describe('road-map route results display state', () => {
     expect(resolveRouteResultsDisplayState(input)).toBe(expected)
   })
 
+  it('keeps Garðabær → Víðibakki ready with route cards and weather while only navigation handoff gets exact points', () => {
+    const navigationOrigin = {
+      name: 'Núverandi staðsetning',
+      lat: 64.083771,
+      lon: -21.929006,
+    }
+    const navigationDestination = {
+      name: 'Víðibakki',
+      lat: 63.901234,
+      lon: -20.201234,
+    }
+    const assessmentOrigin = { name: 'Garðabær', lat: 64.075, lon: -21.9 }
+    const assessmentDestination = { name: 'Hella', lat: 63.9, lon: -20.203 }
+    const places = {
+      navigationOrigin,
+      navigationDestination,
+      navigationOriginName: navigationOrigin.name,
+      navigationDestinationName: navigationDestination.name,
+      assessmentOrigin,
+      assessmentDestination,
+      assessmentScope: { status: 'ready' as const, scopeId: 'assessment:v3:server-attested' },
+    }
+
+    const travelRequest = buildAssessmentTravelRequest(places, {
+      trailerKind: 'none',
+      // Even accidental caller fields cannot override the attested authority.
+      origin: navigationOrigin,
+      destination: navigationDestination,
+      assessmentScopeId: 'client-forged-scope',
+    })
+    expect(travelRequest).toMatchObject({
+      origin: assessmentOrigin,
+      destination: assessmentDestination,
+      assessmentScopeId: places.assessmentScope.scopeId,
+    })
+    const serializedTravel = JSON.stringify(travelRequest)
+    expect(serializedTravel).not.toContain(`${navigationOrigin.lat}`)
+    expect(serializedTravel).not.toContain(`${navigationOrigin.lon}`)
+    expect(serializedTravel).not.toContain(`${navigationDestination.lat}`)
+    expect(serializedTravel).not.toContain(`${navigationDestination.lon}`)
+
+    const endpoints = resolveAssessmentClientEndpoints(places)
+    const googleMapsUrl = buildGoogleMapsDirectionsUrl(endpoints.navigation)
+    expect(googleMapsUrl).not.toBeNull()
+    const parsedGoogleMapsUrl = new URL(googleMapsUrl!)
+    expect(parsedGoogleMapsUrl.searchParams.get('origin')).toBe(
+      `${navigationOrigin.lat},${navigationOrigin.lon}`,
+    )
+    expect(parsedGoogleMapsUrl.searchParams.get('destination')).toBe(
+      `${navigationDestination.lat},${navigationDestination.lon}`,
+    )
+    expect(parsedGoogleMapsUrl.searchParams.get('origin')).not.toBe(
+      `${assessmentOrigin.lat},${assessmentOrigin.lon}`,
+    )
+    expect(parsedGoogleMapsUrl.searchParams.get('destination')).not.toBe(
+      `${assessmentDestination.lat},${assessmentDestination.lon}`,
+    )
+
+    const displayState = resolveRouteResultsDisplayState({
+      bridgeStatus: 'success',
+      hasSummary: true,
+      hasTravelResult: true,
+      safetySearchPending: false,
+      switchingChoiceId: null,
+      comparisonOpening: false,
+    })
+    expect(resolveRouteResultsVisibility({
+      displayState,
+      hasSummary: true,
+      hasTravelResult: true,
+      hasAssessedWeatherCoverage: true,
+      routeChoiceCount: 2,
+    })).toEqual({
+      showSummary: true,
+      showRouteCards: true,
+      showWeather: true,
+      showHandoffOnly: false,
+    })
+  })
+
   it('reuses the already-applied route and recalculates only a different selection', () => {
     expect(shouldRecalculateRouteChoice('route-a', 'route-a')).toBe(false)
     expect(shouldRecalculateRouteChoice('route-b', 'route-a')).toBe(true)
@@ -192,7 +278,142 @@ describe('road-map route results display state', () => {
     expect(source).toContain('const googleChoicesPromise = Promise.resolve(scopedGoogleResult.choices)')
     expect(source).toContain('launchFirstReadyDiscovery(runId, discoveries, applyProviderEvent)')
     expect(source).toContain('...(accessRouteEnvelope ? { accessRouteEnvelope } : {})')
-    expect(source).toContain('if (!isAuthenticated && !accessRouteEnvelope)')
+    expect(source).toContain('if (!accessRouteEnvelope)')
+    expect(source).toContain('assessmentScopeId,\n        alternatives,')
+  })
+
+  it('rederives scoped refreshes from navigation and suppresses node-only candidates for assessment', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
+      'utf8',
+    )
+    const functionBlock = (startMarker: string, endMarker: string) => {
+      const start = source.indexOf(startMarker)
+      const end = source.indexOf(endMarker, start)
+      expect(start).toBeGreaterThan(-1)
+      expect(end).toBeGreaterThan(start)
+      return source.slice(start, end)
+    }
+
+    const fetchChoicesBlock = functionBlock(
+      'async function fetchRouteSurfaceChoices(',
+      'async function fetchTeskeidCandidate(',
+    )
+    expect(fetchChoicesBlock).toContain(
+      '...(expectedScopeId ? { expectedAssessmentScopeId: expectedScopeId } : {})',
+    )
+    expect(fetchChoicesBlock).toContain(
+      "if (res.status === 409) throw new Error('assessment_scope_mismatch')",
+    )
+    expect(fetchChoicesBlock).toContain('assessmentScope.scopeId !== expectedScopeId')
+    expect(fetchChoicesBlock).toContain(
+      'envelope.assessmentScopeId === assessmentScope.scopeId',
+    )
+
+    const accessBlock = functionBlock(
+      'async function resolveTeskeidAccessEnvelope(',
+      'async function refreshRouteChoiceEnvelope(',
+    )
+    expect(accessBlock).toMatch(
+      /fetchRouteSurfaceChoices\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*signal,\s*places\.assessmentScope\.scopeId,\s*\)/,
+    )
+    expect(accessBlock).toContain(
+      'choice.routeEnvelope?.assessmentScopeId === places.assessmentScope.scopeId',
+    )
+    expect(accessBlock).not.toContain('places.assessmentOrigin')
+    expect(accessBlock).not.toContain('places.assessmentDestination')
+
+    const refreshBlock = functionBlock(
+      'async function refreshRouteChoiceEnvelope(',
+      'async function handleRetryTeskeidCandidate()',
+    )
+    expect(refreshBlock).toMatch(
+      /resolveTeskeidAccessEnvelope\(\s*places,\s*signal,\s*\)/,
+    )
+    expect(refreshBlock).toMatch(
+      /fetchTeskeidCandidateWithRetry\(\s*places\.assessmentOrigin,\s*places\.assessmentDestination,\s*places\.assessmentScope\.scopeId,\s*signal,/,
+    )
+    expect(refreshBlock).toContain('if (!canRequestTeskeidCandidate(places))')
+    expect(refreshBlock).toMatch(
+      /fetchRouteSurfaceChoices\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*signal,\s*places\.assessmentScope\.scopeId,\s*\)/,
+    )
+
+    const retryBlock = functionBlock(
+      'async function handleRetryTeskeidCandidate()',
+      'async function handleFindMoreTeskeidRoutes()',
+    )
+    expect(retryBlock).toMatch(
+      /resolveTeskeidAccessEnvelope\(\s*places,\s*signal,\s*\)/,
+    )
+    expect(retryBlock).toMatch(
+      /fetchTeskeidCandidateWithRetry\(\s*places\.assessmentOrigin,\s*places\.assessmentDestination,\s*places\.assessmentScope\.scopeId,\s*signal,/,
+    )
+    expect(retryBlock).toContain('!canRequestTeskeidCandidate(places)')
+
+    const alternativesBlock = functionBlock(
+      'async function handleFindMoreTeskeidRoutes()',
+      'async function hydrateRouteSurfaceChoiceSummaries(',
+    )
+    expect(alternativesBlock).toMatch(
+      /resolveTeskeidAccessEnvelope\(\s*places,\s*controller\.signal,\s*\)/,
+    )
+    expect(alternativesBlock).toMatch(
+      /fetchTeskeidCandidateWithRetry\(\s*places\.assessmentOrigin,\s*places\.assessmentDestination,\s*places\.assessmentScope\.scopeId,\s*controller\.signal,/,
+    )
+    expect(alternativesBlock).toContain('!canRequestTeskeidCandidate(places)')
+
+    const submitBlock = functionBlock(
+      'async function handleRouteBridgeSubmit(',
+      'async function handleSelectSurfaceRouteChoice(',
+    )
+    expect(submitBlock).toMatch(
+      /fetchRouteSurfaceChoices\(\s*origin,\s*destination,\s*discoveryController\.signal,\s*\)/,
+    )
+    expect(submitBlock).toContain('navigationOrigin: origin')
+    expect(submitBlock).toContain('navigationDestination: destination')
+    expect(submitBlock).toContain(
+      'const teskeidCandidateAllowed = teskeidRouteCandidateEnabled\n        && canRequestTeskeidCandidate(places)',
+    )
+    expect(submitBlock).toContain('if (teskeidCandidateAllowed) {')
+    const candidatePolicyStart = source.indexOf(
+      'function canRequestTeskeidCandidate(_places: ResolvedRoutePlaces)',
+    )
+    const candidatePolicyEnd = source.indexOf('\n}\n', candidatePolicyStart)
+    const candidatePolicyBlock = source.slice(candidatePolicyStart, candidatePolicyEnd)
+    expect(candidatePolicyBlock).toContain('return false')
+    expect(candidatePolicyBlock).not.toContain('scopeId')
+    const nonReadyStart = submitBlock.indexOf(
+      "if (scopedGoogleResult.assessmentScope.status !== 'ready')",
+    )
+    const readyPlacesStart = submitBlock.indexOf('const places: ResolvedRoutePlaces', nonReadyStart)
+    const nonReadyBlock = submitBlock.slice(nonReadyStart, readyPlacesStart)
+    expect(nonReadyStart).toBeGreaterThan(-1)
+    expect(readyPlacesStart).toBeGreaterThan(nonReadyStart)
+    expect(nonReadyBlock).toContain('showRouteHandoffOnly({')
+    expect(nonReadyBlock).toContain("reason: scopedGoogleResult.assessmentScope.status === 'same_area'")
+    expect(nonReadyBlock).toContain('return')
+
+    const switchBlock = functionBlock(
+      'async function handleSelectSurfaceRouteChoice(',
+      'function requestWeatherResultsFocus(',
+    )
+    expect(switchBlock.match(/refreshRouteChoiceEnvelope\(/g)).toHaveLength(2)
+    expect(switchBlock).toMatch(
+      /refreshRouteChoiceEnvelope\(\s*choice,\s*resolvedPlaces,\s*controller\.signal,\s*\)/,
+    )
+    expect(switchBlock).toMatch(
+      /refreshRouteChoiceEnvelope\(\s*choiceToApply,\s*resolvedPlaces,\s*controller\.signal,\s*true,\s*\)/,
+    )
+    expect(switchBlock).toContain('places: resolvedPlaces')
+
+    const travelBlock = functionBlock(
+      'async function calculateResolvedRoute({',
+      'async function handleRouteBridgeSubmit(',
+    )
+    expect(travelBlock).toContain('const endpoints = resolveAssessmentClientEndpoints(places)')
+    expect(travelBlock).toContain('const origin = endpoints.assessment.origin')
+    expect(travelBlock).toContain('const destination = endpoints.assessment.destination')
+    expect(travelBlock).toContain('JSON.stringify(buildAssessmentTravelRequest(places, {')
   })
 
   it('keeps comparison open while Apply is pending and focuses current weather results only after success', () => {

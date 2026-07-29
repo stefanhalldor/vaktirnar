@@ -330,10 +330,10 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
         lon: ASSESSMENT_DESTINATION.lon,
       },
     )
-    expect(mockGetTeskeidRouteCandidate).toHaveBeenCalledWith(
-      { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
-      { lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon },
-    )
+    // Assessment endpoints can be projected into the middle of an official
+    // road edge. The node-snapping Teskeið candidate must therefore remain
+    // server-side disabled even when the caller omits its opt-out flag.
+    expect(mockGetTeskeidRouteCandidate).not.toHaveBeenCalled()
     expect(mockRoutePairFingerprint).toHaveBeenCalledWith(
       ASSESSMENT_ORIGIN,
       ASSESSMENT_DESTINATION,
@@ -341,6 +341,7 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(mockRoutePairFingerprint).not.toHaveBeenCalledWith(VALID_ORIGIN, VALID_DEST)
     expect(body.routeEnvelopes).toHaveLength(1)
     expect(body.routeEnvelopes[0]).toMatchObject({
+      assessmentScopeId: READY_ASSESSMENT_SCOPE.scopeId,
       origin: { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
       destination: {
         lat: ASSESSMENT_DESTINATION.lat,
@@ -368,6 +369,131 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
       fromPlaceLabel: ASSESSMENT_ORIGIN.name,
       toPlaceLabel: ASSESSMENT_DESTINATION.name,
     }))
+  })
+
+  it('accepts a matching expected assessment scope before calling route providers', async () => {
+    authedUser()
+    mockGetRouteOptions.mockResolvedValue([
+      makeRouteOption('google-matching-scope', 0, 3600, 80000, true),
+    ])
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      resolveAssessmentScope: true,
+      expectedAssessmentScopeId: READY_ASSESSMENT_SCOPE.scopeId,
+      includeRouteEnvelopes: true,
+    }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.assessmentScope).toEqual(READY_ASSESSMENT_SCOPE)
+    expect(mockResolveRouteAssessmentScope).toHaveBeenCalledWith(VALID_ORIGIN, VALID_DEST)
+    expect(mockGetRouteOptions).toHaveBeenCalledOnce()
+    expect(mockRoutePairFingerprint).toHaveBeenCalledWith(
+      ASSESSMENT_ORIGIN,
+      ASSESSMENT_DESTINATION,
+    )
+  })
+
+  it('fails a stale expected assessment scope closed before providers or write helpers', async () => {
+    authedUser()
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      resolveAssessmentScope: true,
+      expectedAssessmentScopeId: 'stale-scope-id',
+      includeRouteEnvelopes: true,
+    }))
+
+    expect(res.status).toBe(409)
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    await expect(res.json()).resolves.toEqual({ error: 'assessment_scope_mismatch' })
+    expect(mockResolveRouteAssessmentScope).toHaveBeenCalledWith(VALID_ORIGIN, VALID_DEST)
+    expect(mockGetWeatherMapProvider).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockGetTeskeidRouteCandidate).not.toHaveBeenCalled()
+    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
+    expect(mockNormalizePlaceForMemory).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
+    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+    expect(mockRecordTeskeidUsageEvent).not.toHaveBeenCalled()
+  })
+
+  it('treats a non-ready refreshed scope as an expected-scope mismatch', async () => {
+    authedUser()
+    mockResolveRouteAssessmentScope.mockResolvedValue({
+      status: 'same_area',
+      settlementId: 'hagstofa:1120',
+      settlementName: 'Hella',
+    })
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      resolveAssessmentScope: true,
+      expectedAssessmentScopeId: READY_ASSESSMENT_SCOPE.scopeId,
+      includeRouteEnvelopes: true,
+    }))
+
+    expect(res.status).toBe(409)
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    await expect(res.json()).resolves.toEqual({ error: 'assessment_scope_mismatch' })
+    expect(mockGetWeatherMapProvider).not.toHaveBeenCalled()
+    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    null,
+    123,
+    true,
+    {},
+    [],
+    '',
+    '   ',
+    'x'.repeat(501),
+  ])('rejects malformed expected assessment scope ID %# before resolution', async expectedAssessmentScopeId => {
+    authedUser()
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      resolveAssessmentScope: true,
+      expectedAssessmentScopeId,
+    }))
+
+    expect(res.status).toBe(400)
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_expected_assessment_scope_id',
+    })
+    expect(mockResolveRouteAssessmentScope).not.toHaveBeenCalled()
+    expect(mockGetWeatherMapProvider).not.toHaveBeenCalled()
+    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
+    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+    expect(mockRecordTeskeidUsageEvent).not.toHaveBeenCalled()
+  })
+
+  it('rejects an expected scope guard when assessment resolution is not requested', async () => {
+    authedUser()
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      expectedAssessmentScopeId: READY_ASSESSMENT_SCOPE.scopeId,
+    }))
+
+    expect(res.status).toBe(400)
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    await expect(res.json()).resolves.toEqual({
+      error: 'invalid_expected_assessment_scope_id',
+    })
+    expect(mockResolveRouteAssessmentScope).not.toHaveBeenCalled()
+    expect(mockGetWeatherMapProvider).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -459,6 +585,9 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
       .toEqual(['google-0', 'google-1'])
     expect(body.routeEnvelopes.every((envelope: { signature: string }) => envelope.signature.length === 64))
       .toBe(true)
+    expect(body.routeEnvelopes.every((envelope: { assessmentScopeId?: string }) => (
+      envelope.assessmentScopeId === undefined
+    ))).toBe(true)
     expect(mockGetTeskeidRouteCandidate).not.toHaveBeenCalled()
   })
 

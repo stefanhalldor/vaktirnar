@@ -26,6 +26,9 @@ import {
 import { routeMemoryVariantIdentity } from '@/lib/iceland-routes/routeMemoryVariant'
 import { resolveRouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope.server'
 
+const MAX_EXPECTED_ASSESSMENT_SCOPE_ID_LENGTH = 500
+const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' } as const
+
 export async function POST(request: Request) {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -86,16 +89,45 @@ export async function POST(request: Request) {
   }
 
   const resolveAssessmentScope = body.resolveAssessmentScope === true
+  const rawExpectedAssessmentScopeId = body.expectedAssessmentScopeId
+  let expectedAssessmentScopeId: string | null = null
+  if (rawExpectedAssessmentScopeId !== undefined) {
+    if (
+      !resolveAssessmentScope
+      || typeof rawExpectedAssessmentScopeId !== 'string'
+      || rawExpectedAssessmentScopeId.trim().length === 0
+      || rawExpectedAssessmentScopeId.length > MAX_EXPECTED_ASSESSMENT_SCOPE_ID_LENGTH
+    ) {
+      return NextResponse.json(
+        { error: 'invalid_expected_assessment_scope_id' },
+        { status: 400, headers: NO_STORE_HEADERS },
+      )
+    }
+    expectedAssessmentScopeId = rawExpectedAssessmentScopeId.trim()
+  }
+
   const assessmentScope = resolveAssessmentScope
     ? await resolveRouteAssessmentScope(origin, destination)
     : null
+  if (
+    expectedAssessmentScopeId !== null
+    && (
+      assessmentScope?.status !== 'ready'
+      || assessmentScope.scopeId !== expectedAssessmentScopeId
+    )
+  ) {
+    return NextResponse.json(
+      { error: 'assessment_scope_mismatch' },
+      { status: 409, headers: NO_STORE_HEADERS },
+    )
+  }
   if (assessmentScope && assessmentScope.status !== 'ready') {
     return NextResponse.json({
       assessmentScope,
       routes: [],
       ...(body.includeRouteEnvelopes === true ? { routeEnvelopes: [] } : {}),
     }, {
-      headers: { 'Cache-Control': 'no-store' },
+      headers: NO_STORE_HEADERS,
     })
   }
 
@@ -142,7 +174,12 @@ export async function POST(request: Request) {
   // the global server flag remains the emergency switch.
   const sorted = [...routes].sort((a, b) => a.durationS - b.durationS)
   const includeTeskeidCandidate = body.includeTeskeidCandidate !== false
-  const hasTeskeidRouting = includeTeskeidCandidate && isTeskeidRouteCandidateEnabled()
+  // Assessment anchors may land inside an official-road edge. The current
+  // Teskeið candidate engine re-snaps to graph nodes, so fail closed for every
+  // assessment scope until that engine preserves edge projections itself.
+  const hasTeskeidRouting = assessmentScope?.status === 'ready'
+    ? false
+    : includeTeskeidCandidate && isTeskeidRouteCandidateEnabled()
   const teskeidCandidate = hasTeskeidRouting
     ? await getTeskeidRouteCandidate(
         { lat: originCandidate.lat, lon: originCandidate.lon },
@@ -160,6 +197,9 @@ export async function POST(request: Request) {
         origin: { lat: originCandidate.lat, lon: originCandidate.lon },
         destination: { lat: destCandidate.lat, lon: destCandidate.lon },
         route,
+        ...(assessmentScope?.status === 'ready'
+          ? { assessmentScopeId: assessmentScope.scopeId }
+          : {}),
       }))
     } catch {
       return NextResponse.json({ error: 'route_envelope_unavailable' }, { status: 503 })

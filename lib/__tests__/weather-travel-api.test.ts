@@ -30,6 +30,10 @@ const { mockRecordRouteMemory } = vi.hoisted(() => ({ mockRecordRouteMemory: vi.
 const { mockResolveTrustedRouteCoverage } = vi.hoisted(() => ({
   mockResolveTrustedRouteCoverage: vi.fn(),
 }))
+const { mockRecordTeskeidUsageEvent, mockRoutePairFingerprint } = vi.hoisted(() => ({
+  mockRecordTeskeidUsageEvent: vi.fn(),
+  mockRoutePairFingerprint: vi.fn(),
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -99,6 +103,11 @@ vi.mock('@/lib/iceland-routes/trustedRouteCoverage.server', () => ({
   resolveTrustedRouteCoverageFromRuntime: mockResolveTrustedRouteCoverage,
 }))
 
+vi.mock('@/lib/teskeid/usage.server', () => ({
+  recordTeskeidUsageEvent: mockRecordTeskeidUsageEvent,
+  routePairFingerprint: mockRoutePairFingerprint,
+}))
+
 import { POST } from '@/app/api/teskeid/weather/travel/route'
 import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 
@@ -109,6 +118,14 @@ const GARDABAER = { name: 'Garðabær', lat: 64.09, lon: -21.93 }
 const THORLAKSHOFN = { name: 'Þorlákshöfn', lat: 63.849, lon: -21.365 }
 const GARDABAER_POINT = { lat: GARDABAER.lat, lon: GARDABAER.lon }
 const THORLAKSHOFN_POINT = { lat: THORLAKSHOFN.lat, lon: THORLAKSHOFN.lon }
+const ASSESSMENT_SCOPE_ID = 'assessment:v2:server-attested-gardabaer-vidibakki'
+const ASSESSMENT_ORIGIN = { name: 'Garðabær', lat: 64.0912, lon: -21.9123 }
+const ASSESSMENT_DESTINATION = { name: 'Víðibakki', lat: 63.9942, lon: -20.1321 }
+const ASSESSMENT_ORIGIN_POINT = { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon }
+const ASSESSMENT_DESTINATION_POINT = {
+  lat: ASSESSMENT_DESTINATION.lat,
+  lon: ASSESSMENT_DESTINATION.lon,
+}
 
 function makeRequest(body: unknown) {
   return new Request('http://localhost/api/teskeid/weather/travel/route', {
@@ -169,6 +186,8 @@ beforeEach(() => {
   mockGetTeskeidRouteCandidateById.mockResolvedValue(null)
   mockIsTeskeidRouteCandidateEnabled.mockReturnValue(true)
   mockRecordRouteMemory.mockResolvedValue(undefined)
+  mockRecordTeskeidUsageEvent.mockResolvedValue(undefined)
+  mockRoutePairFingerprint.mockReturnValue('server-anchor-fingerprint')
   mockResolveTrustedRouteCoverage.mockResolvedValue({
     status: 'full',
     start: {
@@ -229,6 +248,141 @@ beforeEach(() => {
 })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe('POST /api/teskeid/weather/travel/route — assessment attestation', () => {
+  function makeAssessmentEnvelope(scopeId = ASSESSMENT_SCOPE_ID) {
+    return signRouteOptionEnvelope({
+      origin: ASSESSMENT_ORIGIN_POINT,
+      destination: ASSESSMENT_DESTINATION_POINT,
+      assessmentScopeId: scopeId,
+      route: {
+        ...makeRouteOption('google-assessment-ready', ['DEFAULT_ROUTE']),
+        points: [
+          { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
+          { lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon },
+        ],
+        providerMatchingPoints: [
+          { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
+          { lat: 64.04, lon: -20.9 },
+          { lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon },
+        ],
+      },
+    })
+  }
+
+  it('uses only signed assessment anchors for fingerprint, coverage and weather, without route-memory', async () => {
+    authedUser()
+    const routeEnvelope = makeAssessmentEnvelope()
+
+    const response = await POST(makeRequest({
+      origin: ASSESSMENT_ORIGIN,
+      destination: ASSESSMENT_DESTINATION,
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      routeEnvelope,
+      trailerKind: 'none',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockRoutePairFingerprint).toHaveBeenCalledWith(
+      expect.objectContaining({ lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon }),
+      expect.objectContaining({ lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon }),
+    )
+    expect(mockResolveTrustedRouteCoverage).toHaveBeenCalledWith(expect.objectContaining({
+      origin: expect.objectContaining({ lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon }),
+      destination: expect.objectContaining({
+        lat: ASSESSMENT_DESTINATION.lat,
+        lon: ASSESSMENT_DESTINATION.lon,
+      }),
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+    }))
+    const sampledRoute = mockSampleRouteWeatherPoints.mock.calls[0]?.[0] as Array<{
+      lat: number
+      lon: number
+    }>
+    expect(sampledRoute[0]).toEqual(ASSESSMENT_ORIGIN_POINT)
+    expect(sampledRoute.at(-1)).toEqual(ASSESSMENT_DESTINATION_POINT)
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an unscoped envelope', () => signRouteOptionEnvelope({
+      origin: ASSESSMENT_ORIGIN_POINT,
+      destination: ASSESSMENT_DESTINATION_POINT,
+      route: makeRouteOption('google-unscoped', ['DEFAULT_ROUTE']),
+    })],
+    ['a mismatched scope claim', () => makeAssessmentEnvelope('assessment:v2:stale-scope')],
+  ])('rejects %s before fingerprint, provider, coverage, forecast or persistence', async (_label, envelopeFactory) => {
+    authedUser()
+
+    const response = await POST(makeRequest({
+      origin: ASSESSMENT_ORIGIN,
+      destination: ASSESSMENT_DESTINATION,
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      routeEnvelope: envelopeFactory(),
+      trailerKind: 'none',
+    }))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
+    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockGetRouteOptions).not.toHaveBeenCalled()
+    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
+    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
+    expect(mockFetchForecast).not.toHaveBeenCalled()
+    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+  })
+
+  it('does not let a scoped envelope fall back into legacy mode when the body omits its claim', async () => {
+    authedUser()
+
+    const response = await POST(makeRequest({
+      origin: ASSESSMENT_ORIGIN,
+      destination: ASSESSMENT_DESTINATION,
+      routeEnvelope: makeAssessmentEnvelope(),
+      trailerKind: 'none',
+    }))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
+    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
+    expect(mockFetchForecast).not.toHaveBeenCalled()
+    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+  })
+
+  it('requires a signed envelope and validates the bounded scope id before route work', async () => {
+    authedUser()
+
+    const missingEnvelope = await POST(makeRequest({
+      origin: ASSESSMENT_ORIGIN,
+      destination: ASSESSMENT_DESTINATION,
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      trailerKind: 'none',
+    }))
+    expect(missingEnvelope.status).toBe(422)
+    await expect(missingEnvelope.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
+
+    const malformedScope = await POST(makeRequest({
+      origin: ASSESSMENT_ORIGIN,
+      destination: ASSESSMENT_DESTINATION,
+      assessmentScopeId: ' scope-with-whitespace ',
+      routeEnvelope: makeAssessmentEnvelope(),
+      trailerKind: 'none',
+    }))
+    expect(malformedScope.status).toBe(400)
+    await expect(malformedScope.json()).resolves.toEqual({ error: 'invalid_assessment_scope_id' })
+    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
+    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
+    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
+    expect(mockFetchForecast).not.toHaveBeenCalled()
+    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+  })
+})
 
 describe('POST /api/teskeid/weather/travel/route — auth / public access', () => {
   it('uses the default provider route when selectedRouteId is omitted', async () => {

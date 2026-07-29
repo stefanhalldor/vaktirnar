@@ -9,6 +9,7 @@ const SECRET = 'route-envelope-test-secret-that-is-at-least-32-bytes'
 const NOW = new Date('2026-07-26T22:30:00.000Z')
 const ORIGIN = { lat: 64.1466, lon: -21.9426 }
 const DESTINATION = { lat: 65.6885, lon: -18.1262 }
+const ASSESSMENT_SCOPE_ID = 'assessment:v2:server-attested-scope'
 
 const ROUTE: RouteOption = {
   id: 'teskeid-road-graph-v1',
@@ -87,6 +88,62 @@ describe('route option envelope', () => {
     )).toBeNull()
   })
 
+  it('cryptographically binds an optional assessment scope and enforces it on demand', () => {
+    const scoped = signRouteOptionEnvelope(
+      {
+        origin: ORIGIN,
+        destination: DESTINATION,
+        route: ROUTE,
+        assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      },
+      { now: NOW },
+    )
+    const unscoped = signRouteOptionEnvelope(
+      { origin: ORIGIN, destination: DESTINATION, route: ROUTE },
+      { now: NOW },
+    )
+
+    expect(scoped.assessmentScopeId).toBe(ASSESSMENT_SCOPE_ID)
+    expect(verifyRouteOptionEnvelope(
+      scoped,
+      { origin: ORIGIN, destination: DESTINATION, assessmentScopeId: ASSESSMENT_SCOPE_ID },
+      { now: NOW },
+    )).toEqual(scoped)
+    expect(verifyRouteOptionEnvelope(
+      scoped,
+      { origin: ORIGIN, destination: DESTINATION, assessmentScopeId: 'assessment:v2:stale' },
+      { now: NOW },
+    )).toBeNull()
+    expect(verifyRouteOptionEnvelope(
+      unscoped,
+      { origin: ORIGIN, destination: DESTINATION, assessmentScopeId: ASSESSMENT_SCOPE_ID },
+      { now: NOW },
+    )).toBeNull()
+
+    expect(verifyRouteOptionEnvelope(
+      { ...scoped, assessmentScopeId: 'assessment:v2:tampered' },
+      { origin: ORIGIN, destination: DESTINATION },
+      { now: NOW },
+    )).toBeNull()
+    // Callers that omit the expectation remain backwards-compatible, while
+    // callers that explicitly require legacy mode reject a scoped envelope.
+    expect(verifyRouteOptionEnvelope(
+      scoped,
+      { origin: ORIGIN, destination: DESTINATION },
+      { now: NOW },
+    )).toEqual(scoped)
+    expect(verifyRouteOptionEnvelope(
+      scoped,
+      { origin: ORIGIN, destination: DESTINATION, assessmentScopeId: null },
+      { now: NOW },
+    )).toBeNull()
+    expect(verifyRouteOptionEnvelope(
+      unscoped,
+      { origin: ORIGIN, destination: DESTINATION, assessmentScopeId: null },
+      { now: NOW },
+    )).toEqual(unscoped)
+  })
+
   it('rejects expired, future-issued, and malformed envelopes', () => {
     const expired = signRouteOptionEnvelope(
       { origin: ORIGIN, destination: DESTINATION, route: ROUTE },
@@ -133,6 +190,15 @@ describe('route option envelope', () => {
       destination: DESTINATION,
       route: ROUTE,
     }, { now: NOW, ttlMs: 15 * 60 * 1_000 + 1 })).toThrow('15 minutes')
+
+    for (const assessmentScopeId of ['', ' scope', 'scope ', 'x'.repeat(501)]) {
+      expect(() => signRouteOptionEnvelope({
+        origin: ORIGIN,
+        destination: DESTINATION,
+        route: ROUTE,
+        assessmentScopeId,
+      }, { now: NOW })).toThrow('Invalid route option envelope input')
+    }
   })
 
   it('fails closed without a secret and refuses a short signing secret', () => {

@@ -16,6 +16,7 @@ const MAX_ROUTE_CAUTIONS = 64
 const MAX_ROUTE_DISTANCE_M = 5_000_000
 const MAX_ROUTE_DURATION_S = 7 * 24 * 60 * 60
 const MAX_CANONICAL_PAYLOAD_BYTES = 4 * 1024 * 1024
+const MAX_ASSESSMENT_SCOPE_ID_LENGTH = 500
 
 export type RouteEnvelopeEndpoint = {
   lat: number
@@ -26,6 +27,8 @@ export type RouteOptionEnvelopeV1 = {
   version: typeof ENVELOPE_VERSION
   issuedAt: string
   expiresAt: string
+  /** Opaque server-issued assessment attestation; never contains navigation coordinates. */
+  assessmentScopeId?: string
   origin: RouteEnvelopeEndpoint
   destination: RouteEnvelopeEndpoint
   route: RouteOption
@@ -38,11 +41,17 @@ type SignRouteOptionEnvelopeInput = {
   origin: RouteEnvelopeEndpoint
   destination: RouteEnvelopeEndpoint
   route: RouteOption
+  assessmentScopeId?: string
 }
 
 type ExpectedRouteEnvelopeEndpoints = {
   origin: RouteEnvelopeEndpoint
   destination: RouteEnvelopeEndpoint
+  /**
+   * String requires an exact scope claim; null requires a legacy/unscoped
+   * envelope; undefined keeps compatibility for callers that do not care.
+   */
+  assessmentScopeId?: string | null
 }
 
 type SignRouteOptionEnvelopeOptions = {
@@ -69,6 +78,11 @@ function isBoundedString(value: unknown, maxLength: number, allowEmpty = false):
   return typeof value === 'string'
     && value.length <= maxLength
     && (allowEmpty || value.length > 0)
+}
+
+function isAssessmentScopeId(value: unknown): value is string {
+  return isBoundedString(value, MAX_ASSESSMENT_SCOPE_ID_LENGTH)
+    && value.trim() === value
 }
 
 function isBoundedNumber(value: unknown, minimum: number, maximum: number): value is number {
@@ -217,6 +231,7 @@ function isEnvelope(value: unknown): value is RouteOptionEnvelopeV1 {
       'version',
       'issuedAt',
       'expiresAt',
+      'assessmentScopeId',
       'origin',
       'destination',
       'route',
@@ -225,6 +240,7 @@ function isEnvelope(value: unknown): value is RouteOptionEnvelopeV1 {
     && value.version === ENVELOPE_VERSION
     && isCanonicalIsoDate(value.issuedAt)
     && isCanonicalIsoDate(value.expiresAt)
+    && (value.assessmentScopeId === undefined || isAssessmentScopeId(value.assessmentScopeId))
     && isEndpoint(value.origin)
     && isEndpoint(value.destination)
     && isRouteOption(value.route)
@@ -246,7 +262,12 @@ export function signRouteOptionEnvelope(
   input: SignRouteOptionEnvelopeInput,
   options: SignRouteOptionEnvelopeOptions = {},
 ): RouteOptionEnvelopeV1 {
-  if (!isEndpoint(input.origin) || !isEndpoint(input.destination) || !isRouteOption(input.route)) {
+  if (
+    !isEndpoint(input.origin)
+    || !isEndpoint(input.destination)
+    || !isRouteOption(input.route)
+    || (input.assessmentScopeId !== undefined && !isAssessmentScopeId(input.assessmentScopeId))
+  ) {
     throw new Error('Invalid route option envelope input')
   }
 
@@ -260,6 +281,7 @@ export function signRouteOptionEnvelope(
     version: ENVELOPE_VERSION,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+    ...(input.assessmentScopeId ? { assessmentScopeId: input.assessmentScopeId } : {}),
     origin: { lat: input.origin.lat, lon: input.origin.lon },
     destination: { lat: input.destination.lat, lon: input.destination.lon },
     route: input.route,
@@ -275,6 +297,14 @@ export function verifyRouteOptionEnvelope(
 ): RouteOptionEnvelopeV1 | null {
   try {
     if (!isEnvelope(value) || !isEndpoint(expected.origin) || !isEndpoint(expected.destination)) return null
+    if (expected.assessmentScopeId === null && value.assessmentScopeId !== undefined) return null
+    if (
+      typeof expected.assessmentScopeId === 'string'
+      && (
+        !isAssessmentScopeId(expected.assessmentScopeId)
+        || value.assessmentScopeId !== expected.assessmentScopeId
+      )
+    ) return null
     if (!endpointsMatch(value.origin, expected.origin)) return null
     if (!endpointsMatch(value.destination, expected.destination)) return null
 

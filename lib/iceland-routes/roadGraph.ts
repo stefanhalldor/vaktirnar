@@ -245,7 +245,11 @@ export function analyzeIcelandRoadGraph(graph: IcelandRoadGraph): IcelandRoadGra
   }
 }
 
-function edgeAllowed(edge: IcelandRoadGraphEdge, profile: IcelandRoadRoutingProfile, excludedSegmentIds?: ReadonlySet<string>): boolean {
+export function isIcelandRoadGraphEdgeAllowed(
+  edge: IcelandRoadGraphEdge,
+  profile: IcelandRoadRoutingProfile,
+  excludedSegmentIds?: ReadonlySet<string>,
+): boolean {
   if (excludedSegmentIds?.has(edge.segmentId)) return false
   if (profile.requirePaved && edge.surface !== 'paved') return false
   if (profile.avoidFRoads && edge.isFRoad) return false
@@ -487,7 +491,10 @@ export function findIcelandRoadGraphRoute(
     }
 
     for (const edge of graph.outgoing.get(currentId) ?? []) {
-      if (visited.has(edge.toNodeId) || !edgeAllowed(edge, options.profile, options.excludedSegmentIds)) continue
+      if (
+        visited.has(edge.toNodeId)
+        || !isIcelandRoadGraphEdgeAllowed(edge, options.profile, options.excludedSegmentIds)
+      ) continue
       const candidate = currentDistance + edgeCost(edge, options.profile)
       if (candidate < (distances.get(edge.toNodeId) ?? Number.POSITIVE_INFINITY)) {
         distances.set(edge.toNodeId, candidate)

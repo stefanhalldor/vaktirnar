@@ -304,11 +304,13 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(routeChoiceEnd).toBeGreaterThan(routeChoiceStart)
     expect(routeChoiceBlock).toContain('from: resolvedPlaces.assessmentOrigin.name')
     expect(routeChoiceBlock).toContain('to: resolvedPlaces.assessmentDestination.name')
-    expect(routeChoiceBlock).toContain('resolvedPlaces.assessmentOrigin,')
-    expect(routeChoiceBlock).toContain('resolvedPlaces.assessmentDestination,')
-    expect(routeChoiceBlock).toContain('resolvedPlaces.assessmentScope.scopeId,')
-    expect(routeChoiceBlock).not.toContain('resolvedPlaces.navigationOrigin')
-    expect(routeChoiceBlock).not.toContain('resolvedPlaces.navigationDestination')
+    expect(routeChoiceBlock).toMatch(
+      /refreshRouteChoiceEnvelope\(\s*choice,\s*resolvedPlaces,\s*controller\.signal,\s*\)/,
+    )
+    expect(routeChoiceBlock).toMatch(
+      /refreshRouteChoiceEnvelope\(\s*choiceToApply,\s*resolvedPlaces,\s*controller\.signal,\s*true,\s*\)/,
+    )
+    expect(routeChoiceBlock).toContain('places: resolvedPlaces')
 
     expect(source).toContain(
       'resolvedPlaces?.navigationOrigin ?? routeHandoffOnlySummary?.navigationOrigin ?? null',
@@ -318,14 +320,14 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     )
 
     const summaryStart = source.indexOf(
-      ") : routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult ? (",
+      ') : routeResultsVisibility.showSummary && routeBridgeSummary && routeTravelResult ? (',
     )
     const summaryEnd = source.indexOf(
       ") : routeResultsDisplayState === 'handoff-only' && routeHandoffOnlySummary ? (",
       summaryStart,
     )
     const summaryBlock = source.slice(summaryStart, summaryEnd)
-    const cardsIndex = summaryBlock.indexOf('{renderRouteSurfaceChoices()}')
+    const cardsIndex = summaryBlock.indexOf('renderRouteSurfaceChoices()')
     const weatherIndex = summaryBlock.indexOf('data-route-weather-results="true"')
     const handoffIndex = summaryBlock.indexOf('<RouteNavigationHandoff')
 
@@ -358,9 +360,9 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
 
     expect(source.match(/<RouteNavigationHandoff/g)).toHaveLength(2)
     expect(source).toContain('selectedRouteChoiceId === routeBridgeSummary.selectedRouteId')
-    expect(source).toContain('routeHasAssessedWeatherCoverage && (')
+    expect(source).toContain('routeResultsVisibility.showWeather && (')
     expect(source).toContain(
-      "{routeResultsDisplayState === 'summary' && routeBridgeSummary && routeTravelResult && routeHasAssessedWeatherCoverage && (",
+      '{routeResultsVisibility.showWeather && routeBridgeSummary && routeTravelResult && (',
     )
     expect(source).not.toContain("t('roadMapPrototypeRouteWarningBanner')")
     expect(source).not.toContain("t('roadMapPrototypeRouteWarningBannerEmphasis')")

@@ -57,6 +57,7 @@ import {
 const VALID_TRAILER_KINDS = new Set([
   'none', 'generic_trailer', 'tent_trailer', 'folding_camper', 'caravan', 'horse_trailer',
 ])
+const MAX_ASSESSMENT_SCOPE_ID_LENGTH = 500
 
 /** Max time to wait for the Veðurstofan product-table read before falling back to baseline only. */
 const VEDURSTOFAN_LAYER_BUDGET_MS = 1500
@@ -333,23 +334,52 @@ export async function POST(request: Request) {
 
   const origin = body.origin as ConfirmedLocationInput
   const destination = body.destination as ConfirmedLocationInput
-
-  const originCandidate: PlaceCandidate = toWeatherPlaceCandidate(origin)
-  const destCandidate: PlaceCandidate = toWeatherPlaceCandidate(destination)
+  const rawAssessmentScopeId = body.assessmentScopeId
+  const assessmentScopeId = rawAssessmentScopeId === undefined
+    ? null
+    : typeof rawAssessmentScopeId === 'string'
+      && rawAssessmentScopeId.trim() === rawAssessmentScopeId
+      && rawAssessmentScopeId.length > 0
+      && rawAssessmentScopeId.length <= MAX_ASSESSMENT_SCOPE_ID_LENGTH
+      ? rawAssessmentScopeId
+      : undefined
+  if (assessmentScopeId === undefined) {
+    return NextResponse.json({ error: 'invalid_assessment_scope_id' }, { status: 400 })
+  }
 
   // Get route geometry — use selected route if provided, otherwise first available
   const { actor, userId } = access
 
   const hasRouteEnvelope = body.routeEnvelope !== undefined
+  if (assessmentScopeId !== null && !hasRouteEnvelope) {
+    return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
+  }
   const verifiedRouteEnvelope = hasRouteEnvelope
     ? verifyRouteOptionEnvelope(body.routeEnvelope, {
-        origin: { lat: originCandidate.lat, lon: originCandidate.lon },
-        destination: { lat: destCandidate.lat, lon: destCandidate.lon },
+        origin: { lat: origin.lat, lon: origin.lon },
+        destination: { lat: destination.lat, lon: destination.lon },
+        assessmentScopeId,
       })
     : null
   if (hasRouteEnvelope && !verifiedRouteEnvelope) {
     return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
   }
+
+  // In assessment mode, coordinates authenticated by the envelope are the
+  // sole downstream authority. Client metadata remains display-only and can
+  // never replace the server-issued road anchors.
+  const trustedOrigin: ConfirmedLocationInput = assessmentScopeId !== null && verifiedRouteEnvelope
+    ? { ...origin, lat: verifiedRouteEnvelope.origin.lat, lon: verifiedRouteEnvelope.origin.lon }
+    : origin
+  const trustedDestination: ConfirmedLocationInput = assessmentScopeId !== null && verifiedRouteEnvelope
+    ? {
+        ...destination,
+        lat: verifiedRouteEnvelope.destination.lat,
+        lon: verifiedRouteEnvelope.destination.lon,
+      }
+    : destination
+  const originCandidate: PlaceCandidate = toWeatherPlaceCandidate(trustedOrigin)
+  const destCandidate: PlaceCandidate = toWeatherPlaceCandidate(trustedDestination)
 
   const requestedRouteId = typeof body.selectedRouteId === 'string' ? body.selectedRouteId : null
   if (
@@ -370,7 +400,7 @@ export async function POST(request: Request) {
   if (!verifiedRouteEnvelope && !provider) {
     return NextResponse.json({ error: 'provider_not_configured' }, { status: 422 })
   }
-  const routePairHash = routePairFingerprint(origin, destination)
+  const routePairHash = routePairFingerprint(trustedOrigin, trustedDestination)
   const hashMeta = routePairHash !== null ? { routePairHash } : {}
 
   if (selectedTeskeidRouteId) {
@@ -487,6 +517,9 @@ export async function POST(request: Request) {
     referenceRoute: routePolyline,
     routeDistanceM: routeGeometry.distanceM,
     routeDurationS: routeGeometry.durationS,
+    // Only the claim recovered from the verified envelope may activate the
+    // tighter assessment-anchor coverage path. Never trust the body value.
+    assessmentScopeId: verifiedRouteEnvelope?.assessmentScopeId ?? null,
   })
 
   // Schedule shadow run via after() so it outlives the response flush in serverless.
@@ -900,60 +933,62 @@ export async function POST(request: Request) {
   // without any corridor/radius approximation on subsequent visits.
   // Privacy: only normalized place keys/labels + station IDs stored. No user ID,
   // no raw addresses, no raw Google route content.
-  try {
-    const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
-    const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
+  if (assessmentScopeId === null) {
+    try {
+      const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
+      const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
 
-    if (fromNorm && toNorm) {
-      const routeKey = buildRouteMemoryKey(
-        fromNorm.key,
-        toNorm.key,
-        routeMemoryVariant?.key,
-      )
+      if (fromNorm && toNorm) {
+        const routeKey = buildRouteMemoryKey(
+          fromNorm.key,
+          toNorm.key,
+          routeMemoryVariant?.key,
+        )
 
-      const stations: RouteMemoryStation[] = [
-        ...vedurstofanMatches.map((m, i) => ({
-          provider: 'vedurstofan' as const,
-          stationId: m.point.id,
-          stationName: m.point.name ?? null,
-          routeOrder: i,
-          distanceFromOriginM: Math.round(m.distanceFromOriginM),
-          distanceFromRouteM: Math.round(m.distanceM),
-          routeFraction: m.routeFraction,
-        })),
-        ...vegagerdinRouteMatches.map((m, i) => ({
-          provider: 'vegagerdin' as const,
-          stationId: m.point.id,
-          stationName: m.point.name ?? null,
-          routeOrder: i,
-          distanceFromOriginM: Math.round(m.distanceFromOriginM),
-          distanceFromRouteM: Math.round(m.distanceM),
-          routeFraction: m.routeFraction,
-        })),
-      ]
+        const stations: RouteMemoryStation[] = [
+          ...vedurstofanMatches.map((m, i) => ({
+            provider: 'vedurstofan' as const,
+            stationId: m.point.id,
+            stationName: m.point.name ?? null,
+            routeOrder: i,
+            distanceFromOriginM: Math.round(m.distanceFromOriginM),
+            distanceFromRouteM: Math.round(m.distanceM),
+            routeFraction: m.routeFraction,
+          })),
+          ...vegagerdinRouteMatches.map((m, i) => ({
+            provider: 'vegagerdin' as const,
+            stationId: m.point.id,
+            stationName: m.point.name ?? null,
+            routeOrder: i,
+            distanceFromOriginM: Math.round(m.distanceFromOriginM),
+            distanceFromRouteM: Math.round(m.distanceM),
+            routeFraction: m.routeFraction,
+          })),
+        ]
 
-      const providersEvaluated: Array<'vedurstofan' | 'vegagerdin'> = []
-      if (layerEnabled) providersEvaluated.push('vedurstofan')
-      if (vegagerdinProviderEvaluated) providersEvaluated.push('vegagerdin')
+        const providersEvaluated: Array<'vedurstofan' | 'vegagerdin'> = []
+        if (layerEnabled) providersEvaluated.push('vedurstofan')
+        if (vegagerdinProviderEvaluated) providersEvaluated.push('vegagerdin')
 
-      await recordRouteMemory({
-        routeKey,
-        fromPlaceKey: fromNorm.key,
-        fromPlaceLabel: fromNorm.label,
-        toPlaceKey: toNorm.key,
-        toPlaceLabel: toNorm.label,
-        routeVariantKey: routeMemoryVariant?.key,
-        routeVariantLabel: routeMemoryVariant?.label,
-        routeCautionIds: (routeGeometry as Partial<RouteOption>).cautions?.map(caution => caution.id) ?? [],
-        stations,
-        // Only include providers that were actually evaluated. If a provider was gated
-        // off or its cache was unavailable, leave existing station rows untouched.
-        providersEvaluated,
-      })
+        await recordRouteMemory({
+          routeKey,
+          fromPlaceKey: fromNorm.key,
+          fromPlaceLabel: fromNorm.label,
+          toPlaceKey: toNorm.key,
+          toPlaceLabel: toNorm.label,
+          routeVariantKey: routeMemoryVariant?.key,
+          routeVariantLabel: routeMemoryVariant?.label,
+          routeCautionIds: (routeGeometry as Partial<RouteOption>).cautions?.map(caution => caution.id) ?? [],
+          stations,
+          // Only include providers that were actually evaluated. If a provider was gated
+          // off or its cache was unavailable, leave existing station rows untouched.
+          providersEvaluated,
+        })
+      }
+    } catch (err) {
+      // Best-effort: swallow all errors, log static code only (no raw content)
+      console.error('[route-memory] write failed in travel route')
     }
-  } catch (err) {
-    // Best-effort: swallow all errors, log static code only (no raw content)
-    console.error('[route-memory] write failed in travel route')
   }
 
   await recordTeskeidUsageEvent({

@@ -62,7 +62,7 @@ function makeCandidate() {
   }
 }
 
-function makePublicAccessEnvelope() {
+function makePublicAccessEnvelope(assessmentScopeId?: string) {
   return signRouteOptionEnvelope({
     origin: ORIGIN,
     destination: DESTINATION,
@@ -77,6 +77,7 @@ function makePublicAccessEnvelope() {
       distanceM: 460_000,
       durationS: 18_000,
     },
+    ...(assessmentScopeId ? { assessmentScopeId } : {}),
   })
 }
 
@@ -164,6 +165,60 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     expect(body.routeEnvelopes[0].signature).toMatch(/^[a-f0-9]{64}$/)
   })
 
+  it('requires a matching scoped Google grant for authenticated assessment candidate work', async () => {
+    const assessmentScopeId = 'assessment:v2:gar-vidibakki'
+    const withoutGrant = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      assessmentScopeId,
+    }))
+    expect(withoutGrant.status).toBe(403)
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+
+    const withUnscopedGrant = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      assessmentScopeId,
+      accessRouteEnvelope: makePublicAccessEnvelope(),
+    }))
+    expect(withUnscopedGrant.status).toBe(403)
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+
+    const withStaleScopedGrant = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      assessmentScopeId,
+      accessRouteEnvelope: makePublicAccessEnvelope('assessment:v2:stale'),
+    }))
+    expect(withStaleScopedGrant.status).toBe(403)
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+  })
+
+  it('propagates the verified assessment claim into candidate envelopes', async () => {
+    const assessmentScopeId = 'assessment:v2:gar-vidibakki'
+    mockGetCandidates.mockResolvedValue({ status: 'ready', routes: [makeCandidate()] })
+
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      assessmentScopeId,
+      accessRouteEnvelope: makePublicAccessEnvelope(assessmentScopeId),
+      includeRouteEnvelopes: true,
+      compactRouteEnvelopes: true,
+    }))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.routeEnvelopes).toHaveLength(1)
+    expect(body.routeEnvelopes[0]).toMatchObject({
+      assessmentScopeId,
+      origin: ORIGIN,
+      destination: DESTINATION,
+      route: { provider: 'teskeid' },
+    })
+    expect(mockGetCandidates).toHaveBeenCalledWith(ORIGIN, DESTINATION, false)
+  })
+
   it('normalizes full client place objects before signing the envelope', async () => {
     const candidate = makeCandidate()
     mockGetCandidates.mockResolvedValue({ status: 'ready', routes: [candidate] })
@@ -243,6 +298,21 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     expect(res.status).toBe(200)
     expect(mockGetCandidates).toHaveBeenCalledOnce()
     expect(mockGuestRateLimit).toHaveBeenCalledWith('203.0.113.41', 'teskeid-candidate')
+  })
+
+  it('does not launder a scoped public grant into legacy candidate mode when scope is omitted', async () => {
+    process.env.WEATHER_ENABLED = 'All'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      accessRouteEnvelope: makePublicAccessEnvelope('assessment:v3:server-attested'),
+    }))
+
+    expect(res.status).toBe(403)
+    expect(mockGetCandidates).not.toHaveBeenCalled()
+    expect(mockGuestRateLimit).not.toHaveBeenCalled()
   })
 
   it('treats an email-less Supabase identity as anonymous public traffic', async () => {

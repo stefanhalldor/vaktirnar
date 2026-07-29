@@ -22,6 +22,13 @@ export type RouteResultsDisplayState =
   | 'summary'
   | 'form'
 
+export type RouteResultsVisibility = Readonly<{
+  showSummary: boolean
+  showRouteCards: boolean
+  showWeather: boolean
+  showHandoffOnly: boolean
+}>
+
 export function resolveRouteResultsDisplayState({
   bridgeStatus,
   hasSummary,
@@ -48,6 +55,33 @@ export function resolveRouteResultsDisplayState({
     return hasSummary && hasTravelResult ? 'summary' : 'route-loading'
   }
   return 'form'
+}
+
+/**
+ * Centralizes the user-visible result contract so a successful assessment
+ * cannot silently render a blank summary. Route choices and assessed weather
+ * remain separate, explicit parts of the ready state.
+ */
+export function resolveRouteResultsVisibility({
+  displayState,
+  hasSummary,
+  hasTravelResult,
+  hasAssessedWeatherCoverage,
+  routeChoiceCount,
+}: {
+  displayState: RouteResultsDisplayState
+  hasSummary: boolean
+  hasTravelResult: boolean
+  hasAssessedWeatherCoverage: boolean
+  routeChoiceCount: number
+}): RouteResultsVisibility {
+  const showSummary = displayState === 'summary' && hasSummary && hasTravelResult
+  return {
+    showSummary,
+    showRouteCards: showSummary && Number.isInteger(routeChoiceCount) && routeChoiceCount > 0,
+    showWeather: showSummary && hasAssessedWeatherCoverage,
+    showHandoffOnly: displayState === 'handoff-only',
+  }
 }
 
 export function shouldRecalculateRouteChoice(

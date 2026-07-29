@@ -25,6 +25,7 @@ function validPoint(value: unknown): value is { lat: number; lon: number } {
 }
 
 const WARM_BUDGET_MS = process.env.NODE_ENV === 'production' ? 7_500 : 30_000
+const MAX_ASSESSMENT_SCOPE_ID_LENGTH = 500
 
 async function warmRoadGraph(): Promise<'ready' | 'pending' | 'unavailable'> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -98,13 +99,54 @@ export async function POST(request: Request) {
   // The client sends full place objects, but signed envelopes intentionally
   // bind only canonical coordinates. Do not pass display names, place IDs, or
   // any future client-only metadata into the strict envelope contract.
-  const origin = { lat: body.origin.lat, lon: body.origin.lon }
-  const destination = { lat: body.destination.lat, lon: body.destination.lon }
+  let origin = { lat: body.origin.lat, lon: body.origin.lon }
+  let destination = { lat: body.destination.lat, lon: body.destination.lon }
+  const rawAssessmentScopeId = body?.assessmentScopeId
+  const assessmentScopeId = typeof rawAssessmentScopeId === 'string'
+    ? rawAssessmentScopeId.trim()
+    : null
+  if (
+    rawAssessmentScopeId !== undefined
+    && (
+      typeof rawAssessmentScopeId !== 'string'
+      || assessmentScopeId === null
+      || assessmentScopeId.length === 0
+      || rawAssessmentScopeId !== assessmentScopeId
+      || assessmentScopeId.length > MAX_ASSESSMENT_SCOPE_ID_LENGTH
+    )
+  ) {
+    return NextResponse.json(
+      { status: 'unavailable', routes: [], route: null },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } },
+    )
+  }
 
-  if (access.mode === 'public' && !hasAuthenticatedIdentity) {
+  if (assessmentScopeId !== null) {
     const accessRouteEnvelope = verifyRouteOptionEnvelope(body.accessRouteEnvelope, {
       origin,
       destination,
+      assessmentScopeId,
+    })
+    if (!accessRouteEnvelope || accessRouteEnvelope.route.provider !== 'google') {
+      return NextResponse.json({
+        status: 'unavailable',
+        routes: [],
+        route: null,
+      }, {
+        status: 403,
+        headers: { 'Cache-Control': 'no-store' },
+      })
+    }
+    // Candidate work derives its endpoints only from the server-signed scoped
+    // Google grant. The body pair was used solely as an exact verification
+    // expectation and is not an independent trust source.
+    origin = accessRouteEnvelope.origin
+    destination = accessRouteEnvelope.destination
+  } else if (access.mode === 'public' && !hasAuthenticatedIdentity) {
+    const accessRouteEnvelope = verifyRouteOptionEnvelope(body.accessRouteEnvelope, {
+      origin,
+      destination,
+      assessmentScopeId: null,
     })
     if (!accessRouteEnvelope || accessRouteEnvelope.route.provider !== 'google') {
       return NextResponse.json({
@@ -163,6 +205,7 @@ export async function POST(request: Request) {
         origin,
         destination,
         route,
+        ...(assessmentScopeId ? { assessmentScopeId } : {}),
       }))
       signMs = performance.now() - signStartedAt
     } catch {

@@ -3,15 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   mockFindSettlement,
   mockFindGraphRoute,
+  mockFindAssessmentAnchors,
   mockGetRoadGraph,
   mockResolveCoverage,
 } = vi.hoisted(() => ({
   mockFindSettlement: vi.fn(),
   mockFindGraphRoute: vi.fn(),
+  mockFindAssessmentAnchors: vi.fn(),
   mockGetRoadGraph: vi.fn(),
   mockResolveCoverage: vi.fn(),
 }))
 
+vi.mock('server-only', () => ({}))
 vi.mock('@/lib/places/officialPlaceDirectory.server', () => ({
   findOfficialSettlementContainingPoint: mockFindSettlement,
 }))
@@ -25,11 +28,16 @@ vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
   getIcelandRoadGraph: mockGetRoadGraph,
 }))
 
+vi.mock('@/lib/iceland-routes/routeAssessmentRoadAnchor.server', () => ({
+  findRouteAssessmentRoadAnchors: mockFindAssessmentAnchors,
+}))
+
 vi.mock('@/lib/iceland-routes/trustedRouteCoverage', () => ({
   resolveTrustedRouteCoverage: mockResolveCoverage,
 }))
 
 import { resolveTrustedRouteCoverageFromRuntime } from '../iceland-routes/trustedRouteCoverage.server'
+import { createRouteAssessmentScopeId } from '../iceland-routes/routeAssessmentScopeId.server'
 
 const SETTLEMENT = {
   id: 'urban:1',
@@ -65,6 +73,34 @@ const INPUT = {
   routeDurationS: 300,
 }
 
+const ASSESSMENT_ANCHORS = {
+  status: 'ok' as const,
+  origin: {
+    kind: 'settlement_node' as const,
+    point: { lat: INPUT.origin.lat, lon: INPUT.origin.lon },
+    snapDistanceM: 0,
+  },
+  destination: {
+    kind: 'projected_road' as const,
+    point: { lat: INPUT.destination.lat, lon: INPUT.destination.lon },
+    snapDistanceM: 0,
+  },
+  connectedRoadEdges: [EDGE],
+  routeProvenanceFingerprint: 'route-provenance-v1',
+}
+
+function assessmentScopeIdFor(
+  anchors: typeof ASSESSMENT_ANCHORS = ASSESSMENT_ANCHORS,
+): string {
+  return createRouteAssessmentScopeId({
+    originAnchorKind: anchors.origin.kind,
+    originPoint: anchors.origin.point,
+    destinationAnchorKind: anchors.destination.kind,
+    destinationPoint: anchors.destination.point,
+    routeProvenanceFingerprint: anchors.routeProvenanceFingerprint,
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockFindSettlement.mockReturnValue(SETTLEMENT)
@@ -75,6 +111,7 @@ beforeEach(() => {
     originSnapDistanceM: 10,
     destinationSnapDistanceM: 20,
   })
+  mockFindAssessmentAnchors.mockReturnValue(ASSESSMENT_ANCHORS)
 })
 
 describe('resolveTrustedRouteCoverageFromRuntime — same-settlement orchestration', () => {
@@ -116,5 +153,95 @@ describe('resolveTrustedRouteCoverageFromRuntime — same-settlement orchestrati
       originSettlement: SETTLEMENT,
       destinationSettlement: SETTLEMENT,
     })
+  })
+})
+
+describe('resolveTrustedRouteCoverageFromRuntime — signed assessment attestation', () => {
+  it('uses two-metre edge-aware anchors only after exact scope re-attestation', async () => {
+    const full = {
+      status: 'full' as const,
+      start: {},
+      end: {},
+      coverageDistanceM: 5_000,
+      coverageDurationS: 300,
+      distanceConfidence: 'reference_route' as const,
+    }
+    mockFindSettlement.mockReturnValue(null)
+    mockResolveCoverage.mockReturnValue(full)
+
+    await expect(resolveTrustedRouteCoverageFromRuntime({
+      ...INPUT,
+      assessmentScopeId: assessmentScopeIdFor(),
+    })).resolves.toEqual(full)
+
+    expect(mockFindAssessmentAnchors).toHaveBeenCalledWith(
+      { edges: [EDGE] },
+      { kind: 'trusted_anchor', point: INPUT.origin },
+      { kind: 'trusted_anchor', point: INPUT.destination },
+      { maxOriginSnapDistanceM: 2, maxDestinationSnapDistanceM: 2 },
+    )
+    expect(mockFindGraphRoute).not.toHaveBeenCalled()
+    expect(mockResolveCoverage).toHaveBeenCalledWith(expect.objectContaining({
+      connectedRoadEdges: [EDGE],
+      originSnapDistanceM: 0,
+      destinationSnapDistanceM: 0,
+    }))
+    expect(mockResolveCoverage.mock.calls[0][0]).not.toHaveProperty('assessmentScopeId')
+  })
+
+  it.each([
+    'malformed',
+    'assessment:v3:stale-scope',
+  ])('fails closed for malformed or stale signed claim %s', async assessmentScopeId => {
+    mockFindSettlement.mockReturnValue(null)
+
+    await expect(resolveTrustedRouteCoverageFromRuntime({
+      ...INPUT,
+      assessmentScopeId,
+    })).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'no_connected_official_road',
+    })
+    expect(mockResolveCoverage).not.toHaveBeenCalled()
+    expect(mockFindGraphRoute).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when route provenance drifts after the scope was signed', async () => {
+    mockFindSettlement.mockReturnValue(null)
+    const originalScopeId = assessmentScopeIdFor()
+    mockFindAssessmentAnchors.mockReturnValue({
+      ...ASSESSMENT_ANCHORS,
+      routeProvenanceFingerprint: 'route-provenance-after-graph-drift',
+    })
+
+    await expect(resolveTrustedRouteCoverageFromRuntime({
+      ...INPUT,
+      assessmentScopeId: originalScopeId,
+    })).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'no_connected_official_road',
+    })
+    expect(mockResolveCoverage).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when scoped graph loading exceeds the coverage budget', async () => {
+    mockFindSettlement.mockReturnValue(null)
+    vi.useFakeTimers()
+    try {
+      mockGetRoadGraph.mockReturnValueOnce(new Promise(() => {}))
+      const pending = resolveTrustedRouteCoverageFromRuntime({
+        ...INPUT,
+        assessmentScopeId: assessmentScopeIdFor(),
+      })
+      await vi.advanceTimersByTimeAsync(5_001)
+      await expect(pending).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'road_graph_unavailable',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(mockFindAssessmentAnchors).not.toHaveBeenCalled()
+    expect(mockResolveCoverage).not.toHaveBeenCalled()
   })
 })

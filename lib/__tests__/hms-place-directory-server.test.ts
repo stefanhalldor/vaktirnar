@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mocks.getAdmin }))
 
 import {
+  readHmsPostalIdentityCandidates,
   readActiveHmsDataset,
   reverseHmsPlace,
   searchHmsPlaces,
@@ -223,6 +224,158 @@ describe('HMS directory reverse lookup repository', () => {
 
     mocks.rpc.mockResolvedValue({ data: null, error: { message: 'internal database detail' } })
     await expect(reverseHmsPlace(64.145, -21.93)).rejects.toThrow('hms_reverse_place_failed')
+  })
+
+  it('returns only structured identities within the local assessment cutoff', async () => {
+    const activeMaybeSingle = vi.fn().mockResolvedValue({
+      data: { id: 'active-dataset' },
+      error: null,
+    })
+    const activeEq = vi.fn(() => ({ maybeSingle: activeMaybeSingle }))
+    const activeSelect = vi.fn(() => ({ eq: activeEq }))
+    const point = { lat: 64.145, lon: -21.93 }
+    const placesLimit = vi.fn().mockResolvedValue({
+      data: [
+        hmsRow({
+          source_id: 'inside-cutoff',
+          postal_code: '210',
+          lat: point.lat + 20 / 111_320,
+          lon: point.lon,
+        }),
+        hmsRow({
+          source_id: 'outside-cutoff',
+          postal_code: '210',
+          lat: point.lat + 30 / 111_320,
+          lon: point.lon,
+        }),
+      ],
+      error: null,
+    })
+    const placesOrder = vi.fn(() => ({ limit: placesLimit }))
+    const lteLon = vi.fn(() => ({ order: placesOrder }))
+    const gteLon = vi.fn(() => ({ lte: lteLon }))
+    const lteLat = vi.fn(() => ({ gte: gteLon }))
+    const gteLat = vi.fn(() => ({ lte: lteLat }))
+    const eqDataset = vi.fn(() => ({ gte: gteLat }))
+    const placesSelect = vi.fn(() => ({ eq: eqDataset }))
+    mocks.from.mockImplementation((table: string) => (
+      table === 'hms_place_dataset_versions'
+        ? { select: activeSelect }
+        : { select: placesSelect }
+    ))
+
+    const identities = await readHmsPostalIdentityCandidates(point, { maxDistanceM: 25 })
+
+    expect(identities).toHaveLength(1)
+    expect(identities?.[0]).toMatchObject({
+      sourceId: 'inside-cutoff',
+      postalCode: '210',
+      postalLocality: 'Garðabær',
+      postalLocalitySourceId: 'e6b4bdfc-9fab-1237-49c4-15a90b99565f',
+    })
+    expect(identities?.[0].distanceM).toBeGreaterThan(19)
+    expect(identities?.[0].distanceM).toBeLessThan(21)
+    expect(identities?.[0]).not.toHaveProperty('lat')
+    expect(identities?.[0]).not.toHaveProperty('lon')
+    expect(mocks.rpc).not.toHaveBeenCalled()
+    expect(placesLimit).toHaveBeenCalledWith(65)
+  })
+
+  it('binds an HMS selection to one exact source row before applying the local cutoff', async () => {
+    const activeMaybeSingle = vi.fn().mockResolvedValue({
+      data: { id: 'active-dataset' },
+      error: null,
+    })
+    const activeEq = vi.fn(() => ({ maybeSingle: activeMaybeSingle }))
+    const activeSelect = vi.fn(() => ({ eq: activeEq }))
+    const point = { lat: 64.145, lon: -21.93 }
+    const placesLimit = vi.fn().mockResolvedValue({
+      data: [hmsRow({
+        source_id: 'selected-hms-address',
+        postal_code: '210',
+        lat: point.lat + 30 / 111_320,
+        lon: point.lon,
+      })],
+      error: null,
+    })
+    const placesOrder = vi.fn(() => ({ limit: placesLimit }))
+    const eqSource = vi.fn(() => ({ order: placesOrder }))
+    const eqDataset = vi.fn(() => ({ eq: eqSource }))
+    const placesSelect = vi.fn(() => ({ eq: eqDataset }))
+    mocks.from.mockImplementation((table: string) => (
+      table === 'hms_place_dataset_versions'
+        ? { select: activeSelect }
+        : { select: placesSelect }
+    ))
+
+    await expect(readHmsPostalIdentityCandidates(
+      point,
+      { maxDistanceM: 25, sourceId: 'selected-hms-address' },
+    )).resolves.toEqual([])
+
+    expect(eqDataset).toHaveBeenCalledWith('dataset_version_id', 'active-dataset')
+    expect(eqSource).toHaveBeenCalledWith('source_id', 'selected-hms-address')
+    expect(placesLimit).toHaveBeenCalledWith(2)
+  })
+
+  it('fails closed when the bounded HMS candidate set overflows', async () => {
+    const activeMaybeSingle = vi.fn().mockResolvedValue({
+      data: { id: 'active-dataset' },
+      error: null,
+    })
+    const activeEq = vi.fn(() => ({ maybeSingle: activeMaybeSingle }))
+    const activeSelect = vi.fn(() => ({ eq: activeEq }))
+    const placesLimit = vi.fn().mockResolvedValue({
+      data: Array.from({ length: 65 }, (_, index) => hmsRow({ source_id: `row-${index}` })),
+      error: null,
+    })
+    const placesOrder = vi.fn(() => ({ limit: placesLimit }))
+    const lteLon = vi.fn(() => ({ order: placesOrder }))
+    const gteLon = vi.fn(() => ({ lte: lteLon }))
+    const lteLat = vi.fn(() => ({ gte: gteLon }))
+    const gteLat = vi.fn(() => ({ lte: lteLat }))
+    const eqDataset = vi.fn(() => ({ gte: gteLat }))
+    const placesSelect = vi.fn(() => ({ eq: eqDataset }))
+    mocks.from.mockImplementation((table: string) => (
+      table === 'hms_place_dataset_versions'
+        ? { select: activeSelect }
+        : { select: placesSelect }
+    ))
+
+    await expect(readHmsPostalIdentityCandidates(
+      { lat: 64.145, lon: -21.93 },
+      { maxDistanceM: 25 },
+    )).resolves.toBeNull()
+  })
+
+  it('fails closed when an in-radius HMS row lacks official postal provenance', async () => {
+    const activeMaybeSingle = vi.fn().mockResolvedValue({
+      data: { id: 'active-dataset' },
+      error: null,
+    })
+    const activeEq = vi.fn(() => ({ maybeSingle: activeMaybeSingle }))
+    const activeSelect = vi.fn(() => ({ eq: activeEq }))
+    const placesLimit = vi.fn().mockResolvedValue({
+      data: [hmsRow({ postal_code: '999' })],
+      error: null,
+    })
+    const placesOrder = vi.fn(() => ({ limit: placesLimit }))
+    const lteLon = vi.fn(() => ({ order: placesOrder }))
+    const gteLon = vi.fn(() => ({ lte: lteLon }))
+    const lteLat = vi.fn(() => ({ gte: gteLon }))
+    const gteLat = vi.fn(() => ({ lte: lteLat }))
+    const eqDataset = vi.fn(() => ({ gte: gteLat }))
+    const placesSelect = vi.fn(() => ({ eq: eqDataset }))
+    mocks.from.mockImplementation((table: string) => (
+      table === 'hms_place_dataset_versions'
+        ? { select: activeSelect }
+        : { select: placesSelect }
+    ))
+
+    await expect(readHmsPostalIdentityCandidates(
+      { lat: 64.145, lon: -21.93 },
+      { maxDistanceM: 25 },
+    )).resolves.toBeNull()
   })
 })
 
