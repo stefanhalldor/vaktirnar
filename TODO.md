@@ -73,6 +73,7 @@ tilvísanir og verkefnasaga rofni ekki.
 | 41  | **#91 Veður: basemap refresh og kortapússun**               | **Afmarkað 2–3 daga UI sprint fyrir Road OS.** Bera saman tilbúna MapLibre-basemap stíla, velja einn og pússa route, weather overlay og markera án eigin tile server eða sérhannaðs kortastíls. |
 | 42  | **#92 Veður: notendaskilgreindir met.no spápunktar**         | **Product/data discovery, sérstaklega fyrir bændur.** Meta hvort notandi geti sett pinna eða hnit á sinn bæ/tún/vinnusvæði, nefnt punktinn og fengið þar eigin met.no spá án þess að rugla honum saman við mælistöð. |
 | 43  | **#93 Veður: HMS staðaleit og autocomplete**                 | **Innleiðing tilbúin til localhost- og rollout-staðfestingar.** HMS-first staðaleit, provider-hlutlaust staðacontract og „Nota núverandi staðsetningu“ eru útfærð; migration/import bíða handvirkrar keyrslu eftir staðfestingu á endurnýtingarskilmálum HMS. |
+| 44  | **#94 Veður: heiðarlegt loading-state fyrir full stöðvagögn** | **Reliability follow-up eftir 20 sek. hotfix.** Endurhanna Veðurstofulestrið þannig að hægagangur sé sýndur skýrt og aldrei sé birt takmarkað stöðvasafn sem fullgild niðurstaða. |
 
 ## Vinnupakkar
 
@@ -102,7 +103,7 @@ OAuth provider. #60 er kominn fyrsti afmarkaði spjall-áfangi inni í sögu
 hlutarins; #54 bíður sem stærri framtíðarútvíkkun ef spjallið á að verða
 fullkomnara.
 
-**Pakki F — Veðrið / Ferðalagið:** #85, #81, #82, #83, #67, #70, #71, #72, #73, #74, #75, #79, #80, #88, #89, #90, #91, #92, #93 og áframhaldandi `todo-067` handoff.
+**Pakki F — Veðrið / Ferðalagið:** #85, #81, #82, #83, #67, #70, #71, #72, #73, #74, #75, #79, #80, #88, #89, #90, #91, #92, #93, #94 og áframhaldandi `todo-067` handoff.
 Þetta er product- og UX-vinna fyrir ferðaveðurmatið: deterministic veðurmat,
 traust kort, skýrir spápunktar og notendastillingar sem hafa áhrif á hvaða
 brottfarar- eða heimferðartíma kerfið mælir með.
@@ -3764,3 +3765,51 @@ Staðfangaskrá HMS sem aðalheimild og skila:
     niðurstaða er ekki valin óvart.
 11. Staðfesta að engin nákvæm leit, heimilisfang eða hnit leki í console eða
     analytics og að engin RLS/auth-regression verði.
+
+#94
+## Veður: heiðarlegt loading-state fyrir full stöðvagögn
+
+**Staða:** Bíður
+
+**Stofnað:** 2026-07-29
+
+**Vandamál:** Route-endapunkturinn les öll pöruð Veðurstofugögn undir einum
+tímamörkum. Ef lesturinn klárast ekki getur fail-open svarið sleppt
+Veðurstofulaginu, þótt núverandi Vegagerðargögn séu tiltæk. Notandi má ekki fá
+takmarkað stöðvasafn eða niðurstöðu sem lítur út fyrir að vera fullgild þegar
+full stöðvagögn hafa ekki skilað sér.
+
+**Bráðabirgðalausn:** Production-hotfix 2026-07-29 hækkar biðgluggann í 20
+sekúndur. Það er öryggisventill, ekki endanleg hönnun.
+
+**Ósk:** Hanna sérstakt pending-/slow-state fyrir brottfararspána og bæta
+gagnalestrið þannig að annaðhvort birtist staðfest heilt stöðvasafn eða skýr
+tilkynning um að enn sé beðið. Aldrei merkja hlutasvar sem fullnaðarniðurstöðu.
+
+**Við framtíðarútfærslu:**
+
+- Aðgreina núverandi Vegagerðarmælingar frá pending Veðurstofu-brottfararspá.
+- Skilgreina complete/partial/unavailable contract og provenance fyrir
+  stöðvasafnið; clientinn má aðeins sýna fullnaðarspá þegar complete er
+  staðfest server-side.
+- Sýna rólegt hægagangs-/loading-feedback eftir eðlilegan þröskuld og bjóða
+  öruggt retry án þess að tvítelja eða blanda saman svörum úr ólíkum leiðum.
+- Meta latest-first lestur, bounded history-viðbót, caching og cancellation svo
+  ekki þurfi að treysta á einn langan 20 sekúndna timeout.
+- Varðveita scope ID, route envelope og valda leið yfir retry/refresh.
+- Ekki senda nákvæm navigation-hnit í provider-útreikninga, logs eða
+  persistence.
+- Fylgja `Design.md` fyrir mobile loading, focus, overflow, touch targets og
+  safe-area.
+
+**Localhost checks for Stebbi eftir framtíðarbreytingu:**
+
+1. Prófa kalt fyrsta kall með „Núverandi staðsetning“ → Akranes og sama
+   assessment Garðabær → Akranes með handvali.
+2. Vænt: sama heila stöðvasafn og sama brottfararspá birtist í báðum flæðum.
+3. Herma eftir hægu Veðurstofukalli og staðfesta að skýrt pending-/slow-state
+   birtist án þess að takmarkað stöðvasafn sé sýnt sem sannleikur.
+4. Láta kall mistakast og prófa retry; eldri eða röng route-niðurstaða má ekki
+   birtast.
+5. Prófa mobile 360, 390 og 460 px: ekkert zoom, overflow, overlap eða tap á
+   scroll/focus á meðan beðið er.

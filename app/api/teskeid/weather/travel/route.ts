@@ -59,8 +59,14 @@ const VALID_TRAILER_KINDS = new Set([
 ])
 const MAX_ASSESSMENT_SCOPE_ID_LENGTH = 500
 
-/** Max time to wait for the Veðurstofan product-table read before falling back to baseline only. */
-const VEDURSTOFAN_LAYER_BUDGET_MS = 1500
+/**
+ * Max time to wait for the Veðurstofan product-table read before falling back
+ * to baseline only. The read includes every matched route station and an
+ * optional history window, so a cold serverless/database path can legitimately
+ * exceed the old 1.5 s budget. Keep a finite fail-open bound, but prefer
+ * waiting over presenting a partial station set as a complete route result.
+ */
+const VEDURSTOFAN_LAYER_BUDGET_MS = 20_000
 
 function withLayerTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
   let timer: ReturnType<typeof setTimeout>

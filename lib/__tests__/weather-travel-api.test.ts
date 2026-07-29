@@ -1246,7 +1246,7 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     mockFetchVedurstofan.mockReturnValue(new Promise(() => {})) // never resolves
 
     const resPromise = POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    await vi.advanceTimersByTimeAsync(2000)
+    await vi.advanceTimersByTimeAsync(20_500)
     const res = await resPromise
     vi.useRealTimers()
 
@@ -1254,6 +1254,35 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     const body = await res.json()
     expect(body.stada).toBeDefined()
     expect(body.vedurstofanLayer).toBeUndefined()
+  })
+
+  it('keeps every matched station when a valid cold product-table read completes within the 20 s budget', async () => {
+    vi.useFakeTimers()
+    authedUser()
+    setupLayerEnabled()
+    const stationIds = [HELLISH_ID, '6300', '6315']
+    mockMatchProviderPoints.mockReturnValue(
+      stationIds.map((stationId, index) => makeStationMatch(stationId, 8_000 + index * 12_000)),
+    )
+    mockFetchVedurstofan.mockImplementation(() => new Promise(resolve => {
+      setTimeout(() => resolve(new Map(stationIds.map(stationId => [
+        stationId,
+        {
+          status: 'ok' as const,
+          payload: { ...makeVedurstofanPayload(), stationId },
+        },
+      ]))), 10_000)
+    }))
+
+    const resPromise = POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    await vi.advanceTimersByTimeAsync(10_500)
+    const res = await resPromise
+    vi.useRealTimers()
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.vedurstofanLayer.points.map((point: { stationId: string }) => point.stationId))
+      .toEqual(stationIds)
   })
 
   it('builds one layer point per unique station, matched directly from route geometry', async () => {
