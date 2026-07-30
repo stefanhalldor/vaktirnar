@@ -317,6 +317,8 @@ describe('road-map route results display state', () => {
     expect(fetchChoicesBlock).toContain(
       'envelope.assessmentScopeId === assessmentScope.scopeId',
     )
+    expect(fetchChoicesBlock).toContain("assessmentScope.reason === 'road_graph_unavailable'")
+    expect(fetchChoicesBlock).toContain('await waitForAbortableBrowser(delay, signal)')
 
     const accessBlock = functionBlock(
       'async function resolveTeskeidAccessEnvelope(',
@@ -406,6 +408,9 @@ describe('road-map route results display state', () => {
     expect(nonReadyBlock).toContain('showRouteHandoffOnly({')
     expect(nonReadyBlock).toContain("reason: scopedGoogleResult.assessmentScope.status === 'same_area'")
     expect(nonReadyBlock).toContain('return')
+    expect(source).toContain('function handleRetryUnavailableRoute()')
+    expect(source).toContain("t('roadMapPrototypeRouteRetry')")
+    expect(source).toContain("teskeidCandidateStatus === 'no_route'")
 
     const switchBlock = functionBlock(
       'async function handleSelectSurfaceRouteChoice(',

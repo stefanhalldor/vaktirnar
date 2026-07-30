@@ -1394,6 +1394,7 @@
         "roadMapPrototypeRouteAuthError": "Innskráning rann út. Skráðu þig inn aftur.",
         "roadMapPrototypeRouteRateLimited": "Of margar fyrirspurnir í einu. Prófaðu aftur eftir smá stund.",
         "roadMapPrototypeRouteError": "Náði ekki að reikna leiðina núna.",
+        "roadMapPrototypeRouteRetry": "Leita aftur",
         "roadMapPrototypeNearbyKnownPlaceSuggestion": "Leiðin fannst ekki með {original} sem valinn stað. Þú getur prófað þekkta staðinn {nearby}, um {distance} km frá.",
         "roadMapPrototypeUseNearbyKnownPlace": "Nota {place} í staðinn",
         "roadMapPrototypeRouteClear": "Hreinsa",

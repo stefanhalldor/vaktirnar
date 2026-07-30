@@ -461,6 +461,41 @@ describe('resolveRouteAssessmentScope', () => {
     expect(scope.destination.accessDistanceM).toBe(0)
   })
 
+  it('falls back from an unroutable exact endpoint to its verified settlement level', async () => {
+    const exactOrigin = {
+      name: 'Nákvæmur staður',
+      formattedAddress: 'Nákvæmur staður í Garðabæ',
+      source: 'official',
+      sourceId: gardabaer.id,
+      placeType: 'settlement' as const,
+      lat: gardabaer.lat + 0.1,
+      lon: gardabaer.lon - 0.25,
+    }
+    mockGetIcelandRoadGraph.mockResolvedValueOnce(buildIcelandRoadGraph([
+      segment('urban-approach', [
+        { lat: gardabaer.lat, lon: gardabaer.lon },
+        graphJunction,
+      ]),
+      segment('rural-access', [graphJunction, graphDestinationEnd], {
+        roadNumber: '51',
+        roadName: 'Source-attested fixture road',
+      }),
+      segment('isolated-exact-origin', [
+        { lat: exactOrigin.lat, lon: exactOrigin.lon - 0.005 },
+        { lat: exactOrigin.lat, lon: exactOrigin.lon + 0.005 },
+      ]),
+    ], { nodeSnapToleranceM: 2 }))
+
+    const scope = await resolveRouteAssessmentScope(exactOrigin, ruralNavigationDestination)
+
+    expect(scope.status).toBe('ready')
+    if (scope.status !== 'ready') return
+    expect(scope.origin.name).toBe(gardabaer.name)
+    expect(scope.origin.lat).toBeCloseTo(gardabaer.lat, 6)
+    expect(scope.origin.lon).toBeCloseTo(gardabaer.lon, 6)
+    expect(scope.origin.accessDistanceM).toBeGreaterThan(10_000)
+  })
+
   it('fails closed for unavailable identity and official-artifact provenance drift', async () => {
     mockResolveVerifiedHmsPostalIdentity
       .mockResolvedValueOnce(verified210)

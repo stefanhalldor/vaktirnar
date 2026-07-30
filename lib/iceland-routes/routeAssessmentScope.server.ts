@@ -9,7 +9,7 @@ import {
   type OfficialSettlementRecord,
 } from '@/lib/places/officialPlaceDirectory.server'
 import type { ConfirmedLocationInput } from '@/lib/places/providerCandidate'
-import { isIcelandRoadGraphEdgeAssessmentEligible } from './roadGraph'
+import { haversineDistanceM, isIcelandRoadGraphEdgeAssessmentEligible } from './roadGraph'
 import { getIcelandRoadGraph } from './roadGraphRuntime.server'
 import {
   resolveVerifiedHmsPostalIdentity,
@@ -257,6 +257,63 @@ function anchorRequest(
   }
 }
 
+function broaderPlaceAnchorRequest(
+  resolution: ReadyAssessmentResolution,
+  navigationLocation: ConfirmedLocationInput,
+): RouteAssessmentAnchorRequest | null {
+  if (resolution.identityKind !== 'urban_settlement') return null
+  const point = {
+    lat: resolution.settlement.lat,
+    lon: resolution.settlement.lon,
+  }
+  return haversineDistanceM(point, navigationLocation) < 1
+    ? null
+    : { kind: 'projected_road', point }
+}
+
+function resolveRoadAnchorsWithPlaceFallback(
+  graph: Awaited<ReturnType<typeof getIcelandRoadGraph>>,
+  originResolution: ReadyAssessmentResolution,
+  destinationResolution: ReadyAssessmentResolution,
+  navigationOrigin: ConfirmedLocationInput,
+  navigationDestination: ConfirmedLocationInput,
+  deadlineAtMs: number,
+) {
+  const exactOrigin = anchorRequest(originResolution, navigationOrigin)
+  const exactDestination = anchorRequest(destinationResolution, navigationDestination)
+  const broaderOrigin = broaderPlaceAnchorRequest(originResolution, navigationOrigin)
+  const broaderDestination = broaderPlaceAnchorRequest(destinationResolution, navigationDestination)
+  const attempts: ReadonlyArray<Readonly<{
+    origin: RouteAssessmentAnchorRequest
+    destination: RouteAssessmentAnchorRequest
+  }>> = [
+    { origin: exactOrigin, destination: exactDestination },
+    ...(broaderOrigin ? [{ origin: broaderOrigin, destination: exactDestination }] : []),
+    ...(broaderDestination ? [{ origin: exactOrigin, destination: broaderDestination }] : []),
+    ...(broaderOrigin && broaderDestination
+      ? [{ origin: broaderOrigin, destination: broaderDestination }]
+      : []),
+  ]
+
+  for (const attempt of attempts) {
+    const result = findRouteAssessmentRoadAnchors(
+      graph,
+      attempt.origin,
+      attempt.destination,
+      {
+        maxOriginSnapDistanceM: ASSESSMENT_GRAPH_MAX_SNAP_DISTANCE_M,
+        maxDestinationSnapDistanceM: ASSESSMENT_GRAPH_MAX_SNAP_DISTANCE_M,
+        deadlineAtMs,
+      },
+    )
+    // A deadline is transient. Never replace exact user coordinates with a
+    // broader place merely because the graph was still loading or calculating.
+    if (result.status === 'incomplete' || result.status === 'ok') return result
+  }
+
+  return { status: 'no_route' as const }
+}
+
 function selectedEndpointEdge(
   resolution: ReadyAssessmentResolution,
   connectedRoadEdges: readonly IcelandRoadGraphEdge[],
@@ -312,15 +369,13 @@ export async function resolveRouteAssessmentScope(
   try {
     const deadlineAtMs = Date.now() + ASSESSMENT_GRAPH_TIMEOUT_MS
     const graph = await withAssessmentTimeout(getIcelandRoadGraph())
-    const anchors = findRouteAssessmentRoadAnchors(
+    const anchors = resolveRoadAnchorsWithPlaceFallback(
       graph,
-      anchorRequest(originResolution, navigationOrigin),
-      anchorRequest(destinationResolution, navigationDestination),
-      {
-        maxOriginSnapDistanceM: ASSESSMENT_GRAPH_MAX_SNAP_DISTANCE_M,
-        maxDestinationSnapDistanceM: ASSESSMENT_GRAPH_MAX_SNAP_DISTANCE_M,
-        deadlineAtMs,
-      },
+      originResolution,
+      destinationResolution,
+      navigationOrigin,
+      navigationDestination,
+      deadlineAtMs,
     )
     if (anchors.status === 'incomplete') {
       return { status: 'unavailable', reason: 'road_graph_unavailable' }
@@ -332,13 +387,13 @@ export async function resolveRouteAssessmentScope(
     const origin = endpoint(
       originResolution,
       anchors.origin.point,
-      anchors.origin.snapDistanceM,
+      haversineDistanceM(navigationOrigin, anchors.origin.point),
       selectedEndpointEdge(originResolution, anchors.connectedRoadEdges, 'origin'),
     )
     const destination = endpoint(
       destinationResolution,
       anchors.destination.point,
-      anchors.destination.snapDistanceM,
+      haversineDistanceM(navigationDestination, anchors.destination.point),
       selectedEndpointEdge(destinationResolution, anchors.connectedRoadEdges, 'destination'),
     )
     if (!origin || !destination) {

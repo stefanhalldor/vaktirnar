@@ -27,6 +27,9 @@ const { mockIsTeskeidRouteCandidateEnabled } = vi.hoisted(() => ({
 const { mockResolveRouteAssessmentScope } = vi.hoisted(() => ({
   mockResolveRouteAssessmentScope: vi.fn(),
 }))
+const { mockGetIcelandRoadGraph } = vi.hoisted(() => ({
+  mockGetIcelandRoadGraph: vi.fn(),
+}))
 const {
   mockNormalizePlaceForMemory,
   mockBuildRouteMemoryKey,
@@ -74,6 +77,10 @@ vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
 
 vi.mock('@/lib/iceland-routes/routeAssessmentScope.server', () => ({
   resolveRouteAssessmentScope: mockResolveRouteAssessmentScope,
+}))
+
+vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
+  getIcelandRoadGraph: mockGetIcelandRoadGraph,
 }))
 
 vi.mock('@/lib/iceland-routes/routePlaceNormalization', () => ({
@@ -183,6 +190,7 @@ beforeEach(() => {
   mockGetWeatherMapProvider.mockReturnValue({ getRouteOptions: mockGetRouteOptions })
   mockRoutePairFingerprint.mockReturnValue('testhash')
   mockResolveRouteAssessmentScope.mockResolvedValue(READY_ASSESSMENT_SCOPE)
+  mockGetIcelandRoadGraph.mockResolvedValue({})
   mockNormalizePlaceForMemory.mockImplementation((name: string) => ({
     key: name.toLocaleLowerCase('is').replace(/[^a-záðéíóúýþæö0-9]+/gi, ''),
     label: name,
@@ -448,6 +456,33 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(mockAfter).not.toHaveBeenCalled()
   })
 
+  it('keeps a cold road graph retryable when an expected scope is supplied', async () => {
+    authedUser()
+    const coldScope = {
+      status: 'unavailable' as const,
+      reason: 'road_graph_unavailable' as const,
+    }
+    mockResolveRouteAssessmentScope.mockResolvedValue(coldScope)
+
+    const res = await POST(makeRequest({
+      origin: VALID_ORIGIN,
+      destination: VALID_DEST,
+      resolveAssessmentScope: true,
+      expectedAssessmentScopeId: READY_ASSESSMENT_SCOPE.scopeId,
+      includeRouteEnvelopes: true,
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      assessmentScope: coldScope,
+      routes: [],
+      routeEnvelopes: [],
+    })
+    expect(mockAfter).toHaveBeenCalledOnce()
+    expect(mockGetIcelandRoadGraph).toHaveBeenCalledOnce()
+    expect(mockGetWeatherMapProvider).not.toHaveBeenCalled()
+  })
+
   it.each([
     null,
     123,
@@ -532,7 +567,13 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(mockGetTeskeidRouteCandidate).not.toHaveBeenCalled()
     expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
     expect(mockNormalizePlaceForMemory).not.toHaveBeenCalled()
-    expect(mockAfter).not.toHaveBeenCalled()
+    if (assessmentScope.status === 'unavailable') {
+      expect(mockAfter).toHaveBeenCalledOnce()
+      expect(mockGetIcelandRoadGraph).toHaveBeenCalledOnce()
+    } else {
+      expect(mockAfter).not.toHaveBeenCalled()
+      expect(mockGetIcelandRoadGraph).not.toHaveBeenCalled()
+    }
   })
 
   it('returns 422 when provider returns no routes', async () => {

@@ -519,7 +519,8 @@ type RouteSectionsCacheEntry = {
   response: RouteSectionsReadyResponseV1
 }
 
-const TESKEID_CANDIDATE_RETRY_DELAYS_MS = [250, 750, 1_500] as const
+const ROUTE_SCOPE_RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000] as const
+const TESKEID_CANDIDATE_RETRY_DELAYS_MS = [250, 750, 1_500, 3_000, 5_000] as const
 const TESKEID_CLIENT_CANDIDATE_CACHE_MAX_ENTRIES = 16
 const TESKEID_CLIENT_CANDIDATE_CACHE_MIN_TTL_MS = 60_000
 const ROUTE_SECTIONS_CLIENT_CACHE_MAX_ENTRIES = 8
@@ -6777,55 +6778,67 @@ export function RoadMapPrototypeMap({
     signal: AbortSignal,
     expectedScopeId?: string,
   ): Promise<RouteSurfaceChoiceResult> {
-    const res = await fetch('/api/teskeid/weather/travel/routes', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      signal,
-      body: JSON.stringify({
-        origin,
-        destination,
-        trailerKind: 'none',
-        includeTeskeidCandidate: false,
-        includeRouteEnvelopes: true,
-        compactRouteEnvelopes: true,
-        resolveAssessmentScope: true,
-        ...(expectedScopeId ? { expectedAssessmentScopeId: expectedScopeId } : {}),
-      }),
-    })
-    if (res.status === 401) throw new Error('auth')
-    if (res.status === 429) throw new Error('rate_limited')
-    if (res.status === 409) throw new Error('assessment_scope_mismatch')
-    if (!res.ok) throw new Error('route_unavailable')
+    for (let attempt = 0; attempt <= ROUTE_SCOPE_RETRY_DELAYS_MS.length; attempt += 1) {
+      const res = await fetch('/api/teskeid/weather/travel/routes', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+        body: JSON.stringify({
+          origin,
+          destination,
+          trailerKind: 'none',
+          includeTeskeidCandidate: false,
+          includeRouteEnvelopes: true,
+          compactRouteEnvelopes: true,
+          resolveAssessmentScope: true,
+          ...(expectedScopeId ? { expectedAssessmentScopeId: expectedScopeId } : {}),
+        }),
+      })
+      if (res.status === 401) throw new Error('auth')
+      if (res.status === 429) throw new Error('rate_limited')
+      if (res.status === 409) throw new Error('assessment_scope_mismatch')
+      if (!res.ok) throw new Error('route_unavailable')
 
-    const payload = await res.json().catch(() => null)
-    const assessmentScope = parseRouteAssessmentScope(payload?.assessmentScope)
-    if (!assessmentScope) throw new Error('assessment_scope_invalid')
-    if (
-      expectedScopeId
-      && (assessmentScope.status !== 'ready' || assessmentScope.scopeId !== expectedScopeId)
-    ) {
-      throw new Error('assessment_scope_mismatch')
-    }
-    const envelopes = parseRouteEnvelopes(payload).filter(envelope => (
-      assessmentScope.status !== 'ready'
-      || envelope.assessmentScopeId === assessmentScope.scopeId
-    ))
-    const routes = envelopes.length > 0
-      ? envelopes.map(envelope => envelope.route)
-      : Array.isArray(payload?.routes)
-        ? payload.routes as RouteOption[]
-        : []
-    const envelopesByRouteId = new Map(envelopes.map(envelope => [envelope.route.id, envelope]))
-    const choices = routes
-      .slice(0, 6)
-      .map((route, index) => routeOptionToSurfaceChoice(
-        route,
-        index,
-        envelopesByRouteId.get(route.id) ?? null,
+      const payload = await res.json().catch(() => null)
+      const assessmentScope = parseRouteAssessmentScope(payload?.assessmentScope)
+      if (!assessmentScope) throw new Error('assessment_scope_invalid')
+      if (
+        assessmentScope.status === 'unavailable'
+        && assessmentScope.reason === 'road_graph_unavailable'
+      ) {
+        const delay = ROUTE_SCOPE_RETRY_DELAYS_MS[attempt]
+        if (delay === undefined) return { assessmentScope, choices: [] }
+        await waitForAbortableBrowser(delay, signal)
+        continue
+      }
+      if (
+        expectedScopeId
+        && (assessmentScope.status !== 'ready' || assessmentScope.scopeId !== expectedScopeId)
+      ) {
+        throw new Error('assessment_scope_mismatch')
+      }
+      const envelopes = parseRouteEnvelopes(payload).filter(envelope => (
+        assessmentScope.status !== 'ready'
+        || envelope.assessmentScopeId === assessmentScope.scopeId
       ))
-      .filter(choice => choice.routeEnvelope !== null)
-    return { assessmentScope, choices }
+      const routes = envelopes.length > 0
+        ? envelopes.map(envelope => envelope.route)
+        : Array.isArray(payload?.routes)
+          ? payload.routes as RouteOption[]
+          : []
+      const envelopesByRouteId = new Map(envelopes.map(envelope => [envelope.route.id, envelope]))
+      const choices = routes
+        .slice(0, 6)
+        .map((route, index) => routeOptionToSurfaceChoice(
+          route,
+          index,
+          envelopesByRouteId.get(route.id) ?? null,
+        ))
+        .filter(choice => choice.routeEnvelope !== null)
+      return { assessmentScope, choices }
+    }
+    throw new Error('route_unavailable')
   }
 
   async function fetchTeskeidCandidate(
@@ -7734,6 +7747,20 @@ export function RoadMapPrototypeMap({
       if (!controller.signal.aborted) setRouteForecastRetryPending(false)
       if (routeBridgeRequestRef.current === controller) routeBridgeRequestRef.current = null
     }
+  }
+
+  function handleRetryUnavailableRoute() {
+    const summary = routeHandoffOnlySummary
+    if (!summary || summary.reason === 'same_area' || routeBridgeStatus === 'loading') return
+    setRouteFrom(summary.navigationOriginName)
+    setRouteTo(summary.navigationDestinationName)
+    setFromResolved(summary.navigationOrigin)
+    setToResolved(summary.navigationDestination)
+    setRouteBridgeError(null)
+    setRouteHandoffOnlySummary(null)
+    setRouteBridgeStatus('idle')
+    setIsPanelOpen(true)
+    pendingRouteRestoreSubmitRef.current = true
   }
 
   async function handleRouteBridgeSubmit(event: FormEvent<HTMLFormElement>) {
@@ -9069,7 +9096,7 @@ export function RoadMapPrototypeMap({
                       ? t('roadMapPrototypeTeskeidCandidateCardNoRoute')
                       : t('roadMapPrototypeTeskeidCandidateCardUnavailable')}
               </span>
-              {(teskeidCandidateStatus === 'slow' || teskeidCandidateStatus === 'unavailable') && (
+              {(teskeidCandidateStatus === 'slow' || teskeidCandidateStatus === 'unavailable' || teskeidCandidateStatus === 'no_route') && (
                 <button
                   type="button"
                   onClick={() => void handleRetryTeskeidCandidate()}
@@ -9729,7 +9756,7 @@ export function RoadMapPrototypeMap({
     }
     pendingRouteRestoreSubmitRef.current = false
     formRef.current?.requestSubmit()
-  }, [routeFrom, routeTo, fromResolved, toResolved])
+  }, [routeFrom, routeTo, fromResolved, toResolved, routeHandoffOnlySummary])
 
   useEffect(() => {
     if (routeBridgeStatus !== 'success' || !pendingRouteRestoreViewRef.current) return
@@ -10471,6 +10498,15 @@ export function RoadMapPrototypeMap({
                 <p role="alert" className="mt-2 text-xs text-destructive">
                   {routeBridgeError}
                 </p>
+              )}
+              {routeHandoffOnlySummary.reason === 'assessment_unavailable' && (
+                <button
+                  type="button"
+                  onClick={handleRetryUnavailableRoute}
+                  className="mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-md border border-primary bg-background px-4 py-2 text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {t('roadMapPrototypeRouteRetry')}
+                </button>
               )}
               {routeHandoffOnlySummary.reason === 'weather_unavailable' && (
                 <button

@@ -25,6 +25,7 @@ import {
 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 import { routeMemoryVariantIdentity } from '@/lib/iceland-routes/routeMemoryVariant'
 import { resolveRouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope.server'
+import { getIcelandRoadGraph } from '@/lib/iceland-routes/roadGraphRuntime.server'
 
 const MAX_EXPECTED_ASSESSMENT_SCOPE_ID_LENGTH = 500
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' } as const
@@ -111,6 +112,8 @@ export async function POST(request: Request) {
     : null
   if (
     expectedAssessmentScopeId !== null
+    && !(assessmentScope?.status === 'unavailable'
+      && assessmentScope.reason === 'road_graph_unavailable')
     && (
       assessmentScope?.status !== 'ready'
       || assessmentScope.scopeId !== expectedAssessmentScopeId
@@ -122,6 +125,17 @@ export async function POST(request: Request) {
     )
   }
   if (assessmentScope && assessmentScope.status !== 'ready') {
+    if (
+      assessmentScope.status === 'unavailable'
+      && assessmentScope.reason === 'road_graph_unavailable'
+    ) {
+      // The first request may hit a cold serverless instance. Keep the shared
+      // graph materialisation alive after this retryable response so the exact
+      // same endpoints can succeed on a following client attempt.
+      after(async () => {
+        await getIcelandRoadGraph().catch(() => undefined)
+      })
+    }
     return NextResponse.json({
       assessmentScope,
       routes: [],

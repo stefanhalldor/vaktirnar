@@ -1388,6 +1388,7 @@
         "roadMapPrototypeRouteAuthError": "Your session expired. Sign in again.",
         "roadMapPrototypeRouteRateLimited": "Too many requests at once. Try again in a little while.",
         "roadMapPrototypeRouteError": "Could not calculate the route right now.",
+        "roadMapPrototypeRouteRetry": "Search again",
         "roadMapPrototypeNearbyKnownPlaceSuggestion": "No route was found with {original} as the selected place. You can try the known place {nearby}, about {distance} km away.",
         "roadMapPrototypeUseNearbyKnownPlace": "Use {place} instead",
         "roadMapPrototypeRouteClear": "Clear",
