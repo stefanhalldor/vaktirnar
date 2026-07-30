@@ -9,7 +9,15 @@ import {
 } from '@/lib/iceland-routes/roadGraph'
 import { auditIcelandGoldenRoutes } from '@/lib/iceland-routes/goldenRoutes'
 import { auditExactVertexV2VidibakkiRoute } from '@/lib/iceland-routes/roadGraphExactVertexV2Regression.server'
+import {
+  resolveTeskeidAssessmentRouteEvidence,
+  teskeidAssessmentRouteEdgesHaveIntegrity,
+} from '@/lib/iceland-routes/routeAssessmentCandidateEvidence.server'
 import { findRouteAssessmentRoadAnchors } from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
+import {
+  createRouteAssessmentScopeId,
+  ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+} from '@/lib/iceland-routes/routeAssessmentScopeId.server'
 import {
   normalizeVegagerdinRoadGraphSegmentsWithReport,
   type ArcGisGeoJsonFeatureCollection,
@@ -163,6 +171,48 @@ describeRealArtifact('Garðabær to Akranes official-artifact topology regressio
       )
       expect(result.status).toBe('ok')
       if (result.status !== 'ok') continue
+      const assessmentScopeId = createRouteAssessmentScopeId({
+        originAnchorKind: result.origin.kind,
+        originPoint: result.origin.point,
+        destinationAnchorKind: result.destination.kind,
+        destinationPoint: result.destination.point,
+        routeProvenanceFingerprint: result.routeProvenanceFingerprint,
+      })
+      const trustedAnchors = findRouteAssessmentRoadAnchors(
+        graph,
+        { kind: 'trusted_anchor', point: result.origin.point },
+        { kind: 'trusted_anchor', point: result.destination.point },
+        {
+          maxOriginSnapDistanceM: ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+          maxDestinationSnapDistanceM: ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+          maxAlternatives: 0,
+          deadlineAtMs: Date.now() + 30_000,
+        },
+      )
+      expect(trustedAnchors.status).toBe('ok')
+      if (trustedAnchors.status !== 'ok') continue
+      const trustedScopeId = createRouteAssessmentScopeId({
+        originAnchorKind: trustedAnchors.origin.kind,
+        originPoint: trustedAnchors.origin.point,
+        destinationAnchorKind: trustedAnchors.destination.kind,
+        destinationPoint: trustedAnchors.destination.point,
+        routeProvenanceFingerprint: trustedAnchors.routeProvenanceFingerprint,
+      })
+      expect(trustedScopeId).toBe(assessmentScopeId)
+      expect(teskeidAssessmentRouteEdgesHaveIntegrity({
+        connectedRoadEdges: trustedAnchors.connectedRoadEdges,
+        origin: trustedAnchors.origin.point,
+        destination: trustedAnchors.destination.point,
+      })).toBe(true)
+      const liveCandidateEvidence = resolveTeskeidAssessmentRouteEvidence({
+        graph,
+        origin: result.origin.point,
+        destination: result.destination.point,
+        assessmentScopeId,
+        includeAlternatives: false,
+        deadlineAtMs: Date.now() + 30_000,
+      })
+      expect(liveCandidateEvidence.status).toBe('ready')
       const distanceM = result.connectedRoadEdges.reduce((sum, edge) => sum + edge.lengthM, 0)
       const geometryDistanceM = result.connectedRoadEdges.reduce(
         (sum, edge) => sum + geometryLengthM(edge.geometry),

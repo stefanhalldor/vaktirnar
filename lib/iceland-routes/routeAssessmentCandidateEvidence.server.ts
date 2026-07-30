@@ -29,6 +29,7 @@ const TESKEID_TRANSPORT_RDP_EPSILON_M = 3
 const TESKEID_TRANSPORT_MAX_POINTS = 1_000
 const TESKEID_ROUTE_ENDPOINT_TOLERANCE_M = 1
 const TESKEID_ROUTE_MAX_CONNECTED_GEOMETRY_GAP_M = 50
+const TESKEID_ROUTE_EXACT_TOPOLOGY_CONNECTOR_TOLERANCE_M = 0.001
 const TESKEID_ROUTE_METRIC_TOLERANCE = 0.500001
 const TESKEID_ROUTE_COST_TOLERANCE = 1e-6
 
@@ -109,6 +110,41 @@ function routeEdgeCost(edges: readonly IcelandRoadGraphEdge[]): number {
 }
 
 /**
+ * Exact official T-junctions deliberately use two distinct graph nodes at the
+ * same physical point and join them with a zero-cost topology edge. Accept
+ * that edge only when every graph-builder receipt marker is present and the
+ * geometry is still exact; ordinary zero-length road edges remain invalid.
+ */
+function isAttestedExactTopologyConnector(edge: IcelandRoadGraphEdge): boolean {
+  const start = edge.geometry[0]
+  const end = edge.geometry[1]
+  return edge.geometry.length === 2
+    && Boolean(start && end)
+    && edge.fromNodeId !== edge.toNodeId
+    && edge.lengthM === 0
+    && edge.travelTimeS === 0
+    && edge.graphRole === 'topology_connector'
+    && edge.assessmentEligible === false
+    && edge.topologyDirectionAttested === true
+    && typeof edge.topologyReceiptId === 'string'
+    && edge.topologyReceiptId.length > 0
+    && edge.segmentId === `${edge.topologyReceiptId}:connector`
+    && typeof edge.topologyProvenanceKey === 'string'
+    && edge.topologyProvenanceKey.length > 0
+    && edge.id.startsWith(
+      `${edge.segmentId}:${encodeURIComponent(edge.topologyProvenanceKey)}:`,
+    )
+    && edge.speedSource === 'derived'
+    && edge.roadClass === 'other'
+    && edge.surface === 'unknown'
+    && edge.official === undefined
+    && edge.sourceNetworkRole === undefined
+    && edge.networkRole === undefined
+    && haversineDistanceM(start, end)
+      <= TESKEID_ROUTE_EXACT_TOPOLOGY_CONNECTOR_TOLERANCE_M
+}
+
+/**
  * Rejects a route before publication if its ordered graph evidence no longer
  * describes one continuous path between the signed assessment anchors.
  */
@@ -130,9 +166,11 @@ export function teskeidAssessmentRouteEdgesHaveIntegrity(input: {
       || !end
       || edge.geometry.length < 2
       || !Number.isFinite(edge.lengthM)
-      || edge.lengthM <= 0
       || !Number.isFinite(edge.travelTimeS)
-      || edge.travelTimeS <= 0
+      || (
+        (edge.lengthM <= 0 || edge.travelTimeS <= 0)
+        && !isAttestedExactTopologyConnector(edge)
+      )
       || edgeIds.has(edge.id)
     ) return false
     edgeIds.add(edge.id)
