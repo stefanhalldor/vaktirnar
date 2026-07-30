@@ -38,6 +38,24 @@ describe('sampleRouteWeatherPoints', () => {
     expect(last.distanceFromOriginM).toBeCloseTo(cum[cum.length - 1], -2)
   })
 
+  it('keeps distinct route boundaries for a positive route inside one forecast cell', () => {
+    const pts = makePts([
+      [64.000, -22.000],
+      [64.001, -22.001],
+    ])
+    const cum = makeCumDist(pts)
+    const { weatherPoints, diagnostics } = sampleRouteWeatherPoints(pts, cum)
+
+    expect(cum[1]).toBeGreaterThan(0)
+    expect(diagnostics.uniqueForecastPointCount).toBe(1)
+    expect(weatherPoints).toHaveLength(2)
+    expect(weatherPoints[0]).toMatchObject({ ...pts[0], distanceFromOriginM: 0 })
+    expect(weatherPoints[1]).toMatchObject({
+      ...pts[1],
+      distanceFromOriginM: cum[1],
+    })
+  })
+
   it('uses all_unique_forecast_points mode when unique cells are under cap', () => {
     // 10 points spread over ~100km — well under 120 unique cells
     const pts = makePts([

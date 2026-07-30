@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockGetIcelandRoadGraph, mockResolveVerifiedHmsPostalIdentity } = vi.hoisted(() => ({
+const {
+  mockGetIcelandRoadGraph,
+  mockResolveVerifiedHmsPostalIdentity,
+  mockResolveVerifiedHmsSourceIdentity,
+} = vi.hoisted(() => ({
   mockGetIcelandRoadGraph: vi.fn(),
   mockResolveVerifiedHmsPostalIdentity: vi.fn(),
+  mockResolveVerifiedHmsSourceIdentity: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
@@ -11,63 +16,64 @@ vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
 }))
 vi.mock('@/lib/iceland-routes/routeAssessmentHmsIdentity.server', () => ({
   resolveVerifiedHmsPostalIdentity: mockResolveVerifiedHmsPostalIdentity,
+  resolveVerifiedHmsSourceIdentity: mockResolveVerifiedHmsSourceIdentity,
 }))
 
 import { buildIcelandRoadGraph } from '@/lib/iceland-routes/roadGraph'
 import type { IcelandRoadGraphSegmentInput } from '@/lib/iceland-routes/roadGraphTypes'
-import {
-  getRuralPostalAssessmentMapping,
-  getUrbanPostalAssessmentMapping,
-  RURAL_POSTAL_ASSESSMENT_MAPPINGS,
-  URBAN_POSTAL_ASSESSMENT_MAPPINGS,
-  type PostalAssessmentMapping,
-} from '@/lib/iceland-routes/routeAssessmentMapping'
 import { resolveRouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope.server'
 import {
   parseRouteAssessmentScope,
-  type RouteAssessmentEndpoint,
+  type OfficialRoadAnchorAssessmentEndpoint,
+  type RuralPostalAreaAssessmentEndpoint,
+  type UrbanSettlementAssessmentEndpoint,
 } from '@/lib/iceland-routes/routeAssessmentScope'
 import type { LatLon } from '@/lib/iceland-routes/types'
 import {
   findOfficialSettlementContainingPoint,
+  getOfficialPostalAssessmentIdentity,
   getOfficialPostalLocality,
   getOfficialSettlementById,
 } from '@/lib/places/officialPlaceDirectory.server'
 
-const GARDABAER_ID = 'is50v:1407fdee-3621-5c85-686f-8bd6a4316272'
-const HELLA_ID = 'hagstofa:1120'
-const POSTAL_210_SOURCE_ID = 'e6b4bdfc-9fab-1237-49c4-15a90b99565f'
-const POSTAL_225_SOURCE_ID = 'b57a92df-8ed9-4603-6ab3-d0b5778be777'
-const POSTAL_851_SOURCE_ID = '453b1695-1c60-4a6e-3a69-fd9620c3adb0'
-
-const gardabaer = getOfficialSettlementById(GARDABAER_ID)!
-const hella = getOfficialSettlementById(HELLA_ID)!
+const urban210Identity = getOfficialPostalAssessmentIdentity('210')
+if (!urban210Identity || urban210Identity.kind !== 'urban_settlement') {
+  throw new Error('missing urban 210 test identity')
+}
+const rural301Identity = getOfficialPostalAssessmentIdentity('301')
+if (!rural301Identity || rural301Identity.kind !== 'rural_postal_area') {
+  throw new Error('missing rural 301 test identity')
+}
+const rural301PostalAreaId = rural301Identity.postalAreaId
+const postal210 = getOfficialPostalLocality('210')!
+const postal301 = getOfficialPostalLocality('301')!
+const gardabaer = getOfficialSettlementById(urban210Identity.settlementId)!
 
 const navigationOrigin = {
   name: 'Núverandi staðsetning',
-  formattedAddress: 'Nálægt Melás 8, 210 Garðabær',
+  formattedAddress: 'Opaque navigation origin',
   source: 'device',
   placeType: 'point' as const,
-  postalCode: '210',
-  postalLocality: 'Garðabær',
+  postalCode: '999',
+  postalLocality: 'Forged client locality',
   lat: 64.083771,
   lon: -21.929006,
 }
 
 const ruralNavigationDestination = {
-  name: 'Víðibakki',
-  formattedAddress: 'Víðibakki, 851 Hella, dreifbýli',
+  name: 'Litla-Fellsöxl',
+  formattedAddress: 'Opaque navigation destination',
   source: 'hms',
-  sourceId: 'hms-vidibakki',
+  sourceId: '1042531',
   placeType: 'address' as const,
-  postalCode: '851',
-  postalLocality: 'Hella, dreifbýli',
-  lat: 63.901234,
-  lon: -20.201234,
+  postalCode: '999',
+  postalLocality: 'Forged client locality',
+  lat: 64.32,
+  lon: -21.94,
 }
 
-const graphJunction = { lat: 63.9, lon: -20.5 }
-const graphDestinationEnd = { lat: 63.9, lon: -20.1 }
+const graphJunction = { lat: 64.25, lon: -21.95 }
+const graphDestinationEnd = { lat: 64.4, lon: -21.93 }
 
 function segment(
   id: string,
@@ -88,43 +94,74 @@ function segment(
 
 function readyGraph(extraTargetPoint = false) {
   return buildIcelandRoadGraph([
-    segment('gardabaer-approach', [
+    segment('urban-approach', [
       { lat: gardabaer.lat, lon: gardabaer.lon },
       graphJunction,
     ]),
-    segment('vidibakki-road', extraTargetPoint
-      ? [graphJunction, { lat: 63.9, lon: -20.3 }, graphDestinationEnd]
-      : [graphJunction, graphDestinationEnd]),
+    segment('rural-access', extraTargetPoint
+      ? [graphJunction, { lat: 64.325, lon: -21.94 }, graphDestinationEnd]
+      : [graphJunction, graphDestinationEnd], {
+      roadNumber: '51',
+      roadName: 'Source-attested fixture road',
+    }),
   ], { nodeSnapToleranceM: 2 })
 }
 
-function verified(mapping: PostalAssessmentMapping) {
+function verified(postalCode: '210' | '301', sourceId: string) {
+  const postalLocality = getOfficialPostalLocality(postalCode)!
+  const assessmentIdentity = getOfficialPostalAssessmentIdentity(postalCode)
+  if (!assessmentIdentity || assessmentIdentity.kind === 'unresolved') {
+    throw new Error(`missing verified identity ${postalCode}`)
+  }
   return {
-    sourceId: mapping.postalCode === '851' ? 'hms-vidibakki' : `hms-${mapping.postalCode}`,
-    postalCode: mapping.postalCode,
-    postalLocality: mapping.expectedPostalLocalityName,
-    postalLocalitySourceId: mapping.postalLocalitySourceId,
+    sourceId,
+    postalCode,
+    postalLocality: postalLocality.name,
+    postalLocalitySourceId: postalLocality.sourceId,
     distanceM: 0,
-    mapping,
-    anchorKind: mapping.postalCode === '851' ? 'projected_road' : 'settlement_nodes',
-  } as const
+    assessmentIdentity,
+    anchorKind: assessmentIdentity.kind === 'urban_settlement'
+      ? 'settlement_nodes' as const
+      : 'projected_road' as const,
+  }
 }
 
-const verified210 = verified(getUrbanPostalAssessmentMapping('210')!)
-const verified225 = verified(getUrbanPostalAssessmentMapping('225')!)
-const verified851 = verified(getRuralPostalAssessmentMapping('851')!)
+const verified210 = verified('210', 'origin-hms')
+const verified301 = verified('301', '1042531')
 
-function validEndpoint(overrides: Partial<RouteAssessmentEndpoint> = {}): RouteAssessmentEndpoint {
+function validUrbanEndpoint(
+  overrides: Partial<UrbanSettlementAssessmentEndpoint> = {},
+): UrbanSettlementAssessmentEndpoint {
   return {
-    name: 'Garðabær',
-    formattedAddress: 'Garðabær',
+    name: gardabaer.name,
+    formattedAddress: gardabaer.name,
     lat: gardabaer.lat,
     lon: gardabaer.lon,
     source: 'official',
     sourceId: gardabaer.id,
+    identityKind: 'urban_settlement',
     placeType: 'settlement',
     postalCode: '210',
-    postalLocality: 'Garðabær',
+    postalLocality: postal210.name,
+    ...overrides,
+  }
+}
+
+function validRuralEndpoint(
+  overrides: Partial<RuralPostalAreaAssessmentEndpoint> = {},
+): RuralPostalAreaAssessmentEndpoint {
+  return {
+    name: postal301.name,
+    formattedAddress: `301 ${postal301.name}`,
+    lat: 64.32,
+    lon: -21.9407,
+    source: 'official',
+    sourceId: rural301PostalAreaId,
+    identityKind: 'rural_postal_area',
+    placeType: 'point',
+    postalCode: '301',
+    postalLocality: postal301.name,
+    postalLocalitySourceId: postal301.sourceId,
     ...overrides,
   }
 }
@@ -132,239 +169,325 @@ function validEndpoint(overrides: Partial<RouteAssessmentEndpoint> = {}): RouteA
 beforeEach(() => {
   vi.clearAllMocks()
   mockGetIcelandRoadGraph.mockResolvedValue(readyGraph())
+  mockResolveVerifiedHmsSourceIdentity.mockResolvedValue(null)
   mockResolveVerifiedHmsPostalIdentity.mockImplementation(async location => (
-    location.lat === navigationOrigin.lat && location.lon === navigationOrigin.lon
-      ? verified210
-      : verified851
+    location.sourceId === ruralNavigationDestination.sourceId
+      || location.lat === ruralNavigationDestination.lat
+      ? verified301
+      : verified210
   ))
 })
 
-describe('curated structured postal assessment mappings', () => {
-  it('matches the checked-in official identities for 210/225 → Garðabær', () => {
-    expect(URBAN_POSTAL_ASSESSMENT_MAPPINGS).toEqual([
-      {
-        postalCode: '210',
-        postalLocalitySourceId: POSTAL_210_SOURCE_ID,
-        expectedPostalLocalityName: 'Garðabær',
-        expectedPostalLocalityClassification: 'Þéttbýli',
-        assessmentSettlementId: GARDABAER_ID,
-        expectedSettlementName: 'Garðabær',
-        provenance: 'stebbi_product_decision_2026_07_29',
-      },
-      {
-        postalCode: '225',
-        postalLocalitySourceId: POSTAL_225_SOURCE_ID,
-        expectedPostalLocalityName: 'Garðabær',
-        expectedPostalLocalityClassification: 'Þéttbýli',
-        assessmentSettlementId: GARDABAER_ID,
-        expectedSettlementName: 'Garðabær',
-        provenance: 'stebbi_product_decision_2026_07_29',
-      },
-    ])
-    expect(getOfficialPostalLocality('210')).toMatchObject({
-      name: 'Garðabær', classification: 'Þéttbýli', sourceId: POSTAL_210_SOURCE_ID,
-    })
-    expect(getOfficialPostalLocality('225')).toMatchObject({
-      name: 'Garðabær', classification: 'Þéttbýli', sourceId: POSTAL_225_SOURCE_ID,
-    })
-    expect(gardabaer).toMatchObject({ id: GARDABAER_ID, name: 'Garðabær' })
-  })
-
-  it('keeps exactly the approved 851 → Hella rural identity', () => {
-    expect(RURAL_POSTAL_ASSESSMENT_MAPPINGS).toEqual([{
-      postalCode: '851',
-      postalLocalitySourceId: POSTAL_851_SOURCE_ID,
-      expectedPostalLocalityName: 'Hella, dreifbýli',
-      expectedPostalLocalityClassification: 'Dreifbýli',
-      assessmentSettlementId: HELLA_ID,
-      expectedSettlementName: 'Hella',
-      provenance: 'stebbi_product_decision_2026_07_29',
-    }])
-    expect(getOfficialPostalLocality('851')).toMatchObject({
-      name: 'Hella, dreifbýli', classification: 'Dreifbýli', sourceId: POSTAL_851_SOURCE_ID,
-    })
-    expect(hella).toMatchObject({ id: HELLA_ID, name: 'Hella' })
-  })
-
-  it('uses exact configured codes without trimming, name parsing or postcode arithmetic', () => {
-    expect(getUrbanPostalAssessmentMapping('210')?.assessmentSettlementId).toBe(GARDABAER_ID)
-    expect(getUrbanPostalAssessmentMapping('225')?.assessmentSettlementId).toBe(GARDABAER_ID)
-    expect(getUrbanPostalAssessmentMapping(' 210')).toBeNull()
-    expect(getUrbanPostalAssessmentMapping('211')).toBeNull()
-    expect(getRuralPostalAssessmentMapping('851')?.assessmentSettlementId).toBe(HELLA_ID)
-    expect(getRuralPostalAssessmentMapping('850')).toBeNull()
-    expect(getRuralPostalAssessmentMapping('852')).toBeNull()
-  })
-
-  it('proves both acceptance coordinates are outside every settlement polygon', () => {
+describe('resolveRouteAssessmentScope', () => {
+  it('derives urban and rural identities and projects the rural endpoint onto the connected road', async () => {
     expect(findOfficialSettlementContainingPoint(navigationOrigin.lat, navigationOrigin.lon)).toBeNull()
     expect(findOfficialSettlementContainingPoint(
       ruralNavigationDestination.lat,
       ruralNavigationDestination.lon,
     )).toBeNull()
-  })
-})
 
-describe('resolveRouteAssessmentScope', () => {
-  it('uses verified HMS identities and a mid-edge Víðibakki anchor while retaining area labels', async () => {
-    const scope = await resolveRouteAssessmentScope(navigationOrigin, {
-      ...ruralNavigationDestination,
-      formattedAddress: 'Opaque address label',
-      postalLocality: 'Display-only label that must not be parsed',
-    })
+    const scope = await resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination)
 
     expect(scope.status).toBe('ready')
     if (scope.status !== 'ready') return
     expect(scope.scopeId).toMatch(/^assessment:v3:[A-Za-z0-9_-]{43}$/)
     expect(scope.origin).toMatchObject({
-      name: 'Garðabær', sourceId: GARDABAER_ID, lat: gardabaer.lat, lon: gardabaer.lon,
+      identityKind: 'urban_settlement',
+      sourceId: gardabaer.id,
+      name: gardabaer.name,
+      lat: gardabaer.lat,
+      lon: gardabaer.lon,
+      accessDistanceM: expect.any(Number),
     })
     expect(scope.destination).toMatchObject({
-      name: 'Hella', sourceId: HELLA_ID, lat: graphJunction.lat, lon: ruralNavigationDestination.lon,
+      identityKind: 'rural_postal_area',
+      sourceId: rural301PostalAreaId,
+      name: postal301.name,
+      postalCode: '301',
+      postalLocalitySourceId: postal301.sourceId,
+      placeType: 'point',
+      accessDistanceM: expect.any(Number),
     })
-    expect(scope.destination).not.toEqual(expect.objectContaining({
+    expect(scope.destination).not.toMatchObject({
       lat: ruralNavigationDestination.lat,
       lon: ruralNavigationDestination.lon,
-    }))
+    })
+    expect(scope.origin.accessDistanceM).toBeGreaterThan(0)
+    expect(scope.destination.accessDistanceM).toBeGreaterThan(0)
+    expect(scope.destination).not.toMatchObject(graphJunction)
+    expect(scope.destination).not.toMatchObject(graphDestinationEnd)
+    expect(scope.destination.sourceId).not.toBe(ruralNavigationDestination.sourceId)
     expect(mockResolveVerifiedHmsPostalIdentity).toHaveBeenCalledWith(navigationOrigin)
-    expect(mockResolveVerifiedHmsPostalIdentity).toHaveBeenCalledWith(expect.objectContaining({
-      sourceId: 'hms-vidibakki',
-    }))
-
-    const repeated = await resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination)
-    expect(repeated.status).toBe('ready')
-    if (repeated.status === 'ready') expect(repeated.scopeId).toBe(scope.scopeId)
+    expect(mockResolveVerifiedHmsPostalIdentity).toHaveBeenCalledWith(ruralNavigationDestination)
   })
 
-  it('uses only verified identity even when client postcode/locality fields are forged', async () => {
-    const scope = await resolveRouteAssessmentScope({
-      ...navigationOrigin,
-      postalCode: '851',
-      postalLocality: 'Forged rural locality',
-    }, {
-      ...ruralNavigationDestination,
-      postalCode: '210',
-      postalLocality: 'Forged urban locality',
-    })
-
+  it('ignores forged client labels/postal metadata and keeps navigation input separate', async () => {
+    const scope = await resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination)
     expect(scope.status).toBe('ready')
     if (scope.status !== 'ready') return
-    expect(scope.origin.sourceId).toBe(GARDABAER_ID)
-    expect(scope.destination.sourceId).toBe(HELLA_ID)
+
+    expect(scope.origin.name).toBe(gardabaer.name)
+    expect(scope.origin.identityKind).toBe('urban_settlement')
+    if (scope.origin.identityKind !== 'urban_settlement') return
+    expect(scope.origin.postalCode).toBe(gardabaer.postalCode)
+    expect(scope.destination.name).toBe(postal301.name)
+    expect(scope.destination.formattedAddress).toBe(`301 ${postal301.name}`)
+    expect(JSON.stringify(scope)).not.toContain('Forged client locality')
+    expect(JSON.stringify(scope)).not.toContain('Opaque navigation destination')
   })
 
-  it('supports the second verified Garðabær identity without parsing labels', async () => {
-    mockResolveVerifiedHmsPostalIdentity
-      .mockResolvedValueOnce(verified225)
-      .mockResolvedValueOnce(verified851)
-    const scope = await resolveRouteAssessmentScope({
-      ...navigationOrigin,
-      name: 'Opaque current point',
-      formattedAddress: 'Opaque nearby label',
-    }, ruralNavigationDestination)
-
-    expect(scope.status).toBe('ready')
-    if (scope.status !== 'ready') return
-    expect(scope.origin).toMatchObject({ sourceId: GARDABAER_ID, name: 'Garðabær' })
-  })
-
-  it('rehydrates metadata-light saved coordinates through the verifier', async () => {
-    const savedDestination = {
-      name: 'Víðibakki',
-      formattedAddress: 'Víðibakki',
-      source: 'saved',
-      placeType: 'address' as const,
-      lat: ruralNavigationDestination.lat,
-      lon: ruralNavigationDestination.lon,
+  it('rehydrates metadata-light map, saved, recent and device coordinates through one verifier', async () => {
+    for (const source of ['map', 'saved', 'recent', 'device'] as const) {
+      const destination = {
+        name: 'Opaque point',
+        formattedAddress: 'Opaque point',
+        source,
+        placeType: 'point' as const,
+        lat: ruralNavigationDestination.lat,
+        lon: ruralNavigationDestination.lon,
+      }
+      const scope = await resolveRouteAssessmentScope(navigationOrigin, destination)
+      expect(scope.status).toBe('ready')
+      expect(mockResolveVerifiedHmsPostalIdentity).toHaveBeenCalledWith(destination)
     }
-    const scope = await resolveRouteAssessmentScope(navigationOrigin, savedDestination)
-
-    expect(scope.status).toBe('ready')
-    expect(mockResolveVerifiedHmsPostalIdentity).toHaveBeenCalledWith(savedDestination)
   })
 
-  it('supports the reverse rural direction and slices the exact origin road', async () => {
-    const scope = await resolveRouteAssessmentScope(ruralNavigationDestination, navigationOrigin)
+  it('falls back generically from map, device, saved, recent and legacy points to graph evidence', async () => {
+    mockResolveVerifiedHmsPostalIdentity.mockImplementation(async location => (
+      location.lat === navigationOrigin.lat && location.lon === navigationOrigin.lon
+        ? verified210
+        : null
+    ))
+    const allowedSources = ['map', 'device', 'saved', 'recent', undefined] as const
+
+    for (const source of allowedSources) {
+      const destination = {
+        name: 'Forged client road label',
+        formattedAddress: 'Forged client address',
+        ...(source === undefined ? {} : { source }),
+        sourceId: 'client-controlled-id',
+        placeType: 'point' as const,
+        postalCode: '210',
+        postalLocality: 'Forged client locality',
+        lat: ruralNavigationDestination.lat,
+        lon: ruralNavigationDestination.lon,
+      }
+
+      const scope = await resolveRouteAssessmentScope(navigationOrigin, destination)
+
+      expect(scope.status).toBe('ready')
+      if (scope.status !== 'ready') continue
+      expect(scope.destination).toEqual(expect.objectContaining({
+        identityKind: 'official_road_anchor',
+        source: 'official',
+        sourceId: 'official-road:rural-access',
+        name: '51 · Source-attested fixture road',
+        formattedAddress: '51 · Source-attested fixture road',
+        placeType: 'point',
+      }))
+      expect(scope.destination).not.toMatchObject({
+        lat: destination.lat,
+        lon: destination.lon,
+      })
+      expect(JSON.stringify(scope.destination)).not.toContain('Forged')
+      expect(JSON.stringify(scope.destination)).not.toContain('client-controlled-id')
+    }
+    expect(mockResolveVerifiedHmsSourceIdentity).not.toHaveBeenCalled()
+  })
+
+  it('derives both generic endpoint identities from their selected graph edges', async () => {
+    mockResolveVerifiedHmsPostalIdentity.mockResolvedValue(null)
+    const scope = await resolveRouteAssessmentScope(navigationOrigin, {
+      ...ruralNavigationDestination,
+      source: 'map',
+      sourceId: 'client-map-id',
+    })
 
     expect(scope.status).toBe('ready')
     if (scope.status !== 'ready') return
     expect(scope.origin).toMatchObject({
-      sourceId: HELLA_ID,
-      lat: graphJunction.lat,
-      lon: ruralNavigationDestination.lon,
+      identityKind: 'official_road_anchor',
+      sourceId: 'official-road:urban-approach',
+      name: 'urban-approach',
     })
     expect(scope.destination).toMatchObject({
-      sourceId: GARDABAER_ID,
-      lat: gardabaer.lat,
-      lon: gardabaer.lon,
+      identityKind: 'official_road_anchor',
+      sourceId: 'official-road:rural-access',
+      name: '51 · Source-attested fixture road',
+    })
+    expect(scope.origin).not.toMatchObject({
+      lat: navigationOrigin.lat,
+      lon: navigationOrigin.lon,
+    })
+    expect(scope.destination).not.toMatchObject({
+      lat: ruralNavigationDestination.lat,
+      lon: ruralNavigationDestination.lon,
     })
   })
 
-  it('does not collapse two rural anchors in the same assessment settlement to same_area', async () => {
-    mockResolveVerifiedHmsPostalIdentity.mockResolvedValue(verified851)
+  it('allows an identity-light HMS row to use a road anchor only after exact source re-attestation', async () => {
+    mockResolveVerifiedHmsPostalIdentity.mockImplementation(async location => (
+      location.lat === navigationOrigin.lat && location.lon === navigationOrigin.lon
+        ? verified210
+        : null
+    ))
+    mockResolveVerifiedHmsSourceIdentity.mockResolvedValue({
+      sourceId: ruralNavigationDestination.sourceId,
+      distanceM: 0,
+    })
+
+    const scope = await resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination)
+
+    expect(scope.status).toBe('ready')
+    if (scope.status !== 'ready') return
+    expect(mockResolveVerifiedHmsSourceIdentity).toHaveBeenCalledWith(ruralNavigationDestination)
+    expect(scope.destination).toMatchObject({
+      identityKind: 'official_road_anchor',
+      sourceId: 'official-road:rural-access',
+      name: '51 · Source-attested fixture road',
+    })
+    expect(scope.destination.sourceId).not.toContain(ruralNavigationDestination.sourceId)
+    expect(scope.destination).not.toMatchObject({
+      lat: ruralNavigationDestination.lat,
+      lon: ruralNavigationDestination.lon,
+    })
+  })
+
+  it('keeps stale or forged HMS source identity terminal instead of downgrading', async () => {
+    mockResolveVerifiedHmsPostalIdentity.mockImplementation(async location => (
+      location.lat === navigationOrigin.lat && location.lon === navigationOrigin.lon
+        ? verified210
+        : null
+    ))
+    mockResolveVerifiedHmsSourceIdentity.mockResolvedValue({
+      sourceId: 'different-source-id',
+      distanceM: 0,
+    })
+
+    await expect(resolveRouteAssessmentScope(
+      navigationOrigin,
+      ruralNavigationDestination,
+    )).resolves.toEqual({ status: 'unavailable', reason: 'assessment_area_unavailable' })
+    expect(mockResolveVerifiedHmsSourceIdentity).toHaveBeenCalledWith(ruralNavigationDestination)
+    expect(mockGetIcelandRoadGraph).not.toHaveBeenCalled()
+  })
+
+  it('revalidates exact HMS source identity before settlement containment', async () => {
+    mockResolveVerifiedHmsPostalIdentity.mockResolvedValueOnce(null)
+    const forgedHmsAtSettlementCenter = {
+      name: 'Forged HMS row',
+      formattedAddress: 'Forged HMS row',
+      source: 'hms',
+      sourceId: 'stale-source-id',
+      placeType: 'address' as const,
+      lat: gardabaer.lat,
+      lon: gardabaer.lon,
+    }
+
+    await expect(resolveRouteAssessmentScope(
+      forgedHmsAtSettlementCenter,
+      ruralNavigationDestination,
+    )).resolves.toEqual({ status: 'unavailable', reason: 'assessment_area_unavailable' })
+    expect(mockGetIcelandRoadGraph).not.toHaveBeenCalled()
+  })
+
+  it('never collapses two rural points to same_area even within one postal identity', async () => {
+    mockResolveVerifiedHmsPostalIdentity.mockResolvedValue(verified301)
     const scope = await resolveRouteAssessmentScope({
       ...ruralNavigationDestination,
       sourceId: 'rural-origin',
-      lat: 63.901,
-      lon: -20.4,
+      lat: 64.28,
+      lon: -21.946,
     }, {
       ...ruralNavigationDestination,
       sourceId: 'rural-destination',
-      lat: 63.901,
-      lon: -20.2,
+      lat: 64.36,
+      lon: -21.935,
     })
 
     expect(scope.status).toBe('ready')
     if (scope.status !== 'ready') return
-    expect(scope.origin.sourceId).toBe(HELLA_ID)
-    expect(scope.destination.sourceId).toBe(HELLA_ID)
+    expect(scope.origin.identityKind).toBe('rural_postal_area')
+    expect(scope.destination.identityKind).toBe('rural_postal_area')
   })
 
-  it('returns same_area before graph/HMS reads for two explicit official selections', async () => {
-    const officialHella = {
-      name: 'Hella',
-      formattedAddress: 'Hella',
+  it('returns same_area only for two identical verified urban settlements', async () => {
+    const officialGarðabær = {
+      name: gardabaer.name,
+      formattedAddress: gardabaer.name,
       source: 'official',
-      sourceId: HELLA_ID,
+      sourceId: gardabaer.id,
       placeType: 'settlement' as const,
-      lat: hella.lat,
-      lon: hella.lon,
+      lat: gardabaer.lat,
+      lon: gardabaer.lon,
     }
-    await expect(resolveRouteAssessmentScope(officialHella, officialHella)).resolves.toEqual({
-      status: 'same_area', settlementId: HELLA_ID, settlementName: 'Hella',
+    await expect(resolveRouteAssessmentScope(officialGarðabær, officialGarðabær)).resolves.toEqual({
+      status: 'same_area',
+      settlementId: gardabaer.id,
+      settlementName: gardabaer.name,
     })
     expect(mockResolveVerifiedHmsPostalIdentity).not.toHaveBeenCalled()
     expect(mockGetIcelandRoadGraph).not.toHaveBeenCalled()
   })
 
-  it('fails closed when HMS has no unique configured identity or lookup throws', async () => {
+  it('routes between two distinct exact points in the same verified settlement', async () => {
+    const first = {
+      name: gardabaer.name,
+      formattedAddress: 'Fyrri nákvæmi staðurinn',
+      source: 'official',
+      sourceId: gardabaer.id,
+      placeType: 'settlement' as const,
+      lat: gardabaer.lat,
+      lon: gardabaer.lon,
+    }
+    const second = {
+      ...first,
+      formattedAddress: 'Seinni nákvæmi staðurinn',
+      lat: graphJunction.lat,
+      lon: graphJunction.lon,
+    }
+
+    const scope = await resolveRouteAssessmentScope(first, second)
+
+    expect(scope.status).toBe('ready')
+    if (scope.status !== 'ready') return
+    expect(scope.origin.identityKind).toBe('urban_settlement')
+    expect(scope.destination.identityKind).toBe('urban_settlement')
+    expect(scope.origin.lat).toBeCloseTo(first.lat, 6)
+    expect(scope.origin.lon).toBeCloseTo(first.lon, 6)
+    expect(scope.destination.lat).toBeCloseTo(second.lat, 6)
+    expect(scope.destination.lon).toBeCloseTo(second.lon, 6)
+    expect(scope.origin.accessDistanceM).toBe(0)
+    expect(scope.destination.accessDistanceM).toBe(0)
+  })
+
+  it('fails closed for unavailable identity and official-artifact provenance drift', async () => {
     mockResolveVerifiedHmsPostalIdentity
       .mockResolvedValueOnce(verified210)
       .mockResolvedValueOnce(null)
-    await expect(
-      resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination),
-    ).resolves.toEqual({ status: 'unavailable', reason: 'assessment_area_unavailable' })
+    await expect(resolveRouteAssessmentScope(
+      navigationOrigin,
+      ruralNavigationDestination,
+    )).resolves.toEqual({ status: 'unavailable', reason: 'assessment_area_unavailable' })
     expect(mockGetIcelandRoadGraph).not.toHaveBeenCalled()
 
-    mockResolveVerifiedHmsPostalIdentity.mockRejectedValueOnce(new Error('hms_identity_lookup_failed'))
-    await expect(
-      resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination),
-    ).resolves.toEqual({ status: 'unavailable', reason: 'assessment_area_unavailable' })
-    expect(mockGetIcelandRoadGraph).not.toHaveBeenCalled()
-  })
-
-  it('fails closed when verified mapping provenance no longer matches the official artifact', async () => {
+    mockResolveVerifiedHmsSourceIdentity.mockClear()
     mockResolveVerifiedHmsPostalIdentity.mockResolvedValueOnce({
       ...verified210,
-      mapping: { ...verified210.mapping, expectedSettlementName: 'Wrong settlement' },
+      assessmentIdentity: {
+        ...urban210Identity,
+        settlementId: 'official:forged-settlement',
+      },
     })
-    await expect(
-      resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination),
-    ).resolves.toEqual({ status: 'unavailable', reason: 'assessment_mapping_invalid' })
+    await expect(resolveRouteAssessmentScope(
+      navigationOrigin,
+      ruralNavigationDestination,
+    )).resolves.toEqual({ status: 'unavailable', reason: 'assessment_mapping_invalid' })
+    expect(mockResolveVerifiedHmsSourceIdentity).not.toHaveBeenCalled()
     expect(mockGetIcelandRoadGraph).not.toHaveBeenCalled()
   })
 
-  it('binds scope identity to selected route provenance while remaining stable on one graph', async () => {
+  it('keeps one scope ID stable and changes it only with selected-route provenance', async () => {
     const first = await resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination)
     const repeated = await resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination)
     mockGetIcelandRoadGraph.mockResolvedValueOnce(readyGraph(true))
@@ -375,15 +498,32 @@ describe('resolveRouteAssessmentScope', () => {
     expect(drifted.status).toBe('ready')
     if (first.status !== 'ready' || repeated.status !== 'ready' || drifted.status !== 'ready') return
     expect(repeated.scopeId).toBe(first.scopeId)
-    expect(drifted.destination).toEqual(first.destination)
     expect(drifted.scopeId).not.toBe(first.scopeId)
+  })
+
+  it('fails closed when projected-anchor selection exhausts its graph deadline', async () => {
+    let now = 0
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    mockGetIcelandRoadGraph.mockImplementationOnce(async () => {
+      now = 1_001
+      return readyGraph()
+    })
+    try {
+      await expect(resolveRouteAssessmentScope(
+        navigationOrigin,
+        ruralNavigationDestination,
+      )).resolves.toEqual({ status: 'unavailable', reason: 'road_graph_unavailable' })
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('fails closed when graph read rejects, times out or has no connected road', async () => {
     mockGetIcelandRoadGraph.mockRejectedValueOnce(new Error('private graph unavailable'))
-    await expect(
-      resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination),
-    ).resolves.toEqual({ status: 'unavailable', reason: 'road_graph_unavailable' })
+    await expect(resolveRouteAssessmentScope(
+      navigationOrigin,
+      ruralNavigationDestination,
+    )).resolves.toEqual({ status: 'unavailable', reason: 'road_graph_unavailable' })
 
     vi.useFakeTimers()
     try {
@@ -403,60 +543,91 @@ describe('resolveRouteAssessmentScope', () => {
         { lat: gardabaer.lat + 0.01, lon: gardabaer.lon },
       ]),
     ]))
-    await expect(
-      resolveRouteAssessmentScope(navigationOrigin, ruralNavigationDestination),
-    ).resolves.toEqual({ status: 'unavailable', reason: 'no_connected_official_road' })
+    await expect(resolveRouteAssessmentScope(
+      navigationOrigin,
+      ruralNavigationDestination,
+    )).resolves.toEqual({ status: 'unavailable', reason: 'no_connected_official_road' })
   })
 })
 
 describe('parseRouteAssessmentScope', () => {
-  const readyPayload = {
-    status: 'ready',
-    scopeId: 'assessment:v3:test',
-    origin: validEndpoint(),
-    destination: validEndpoint({
-      name: 'Hella',
-      formattedAddress: 'Hella',
-      lat: graphJunction.lat,
-      lon: ruralNavigationDestination.lon,
-      sourceId: hella.id,
-      postalCode: '850',
-      postalLocality: 'Hella',
-    }),
+  const roadEndpoint: OfficialRoadAnchorAssessmentEndpoint = {
+    name: 'Official road anchor',
+    formattedAddress: 'Official road anchor',
+    lat: 64.1,
+    lon: -21.8,
+    source: 'official',
+    sourceId: 'official-road:test-anchor',
+    identityKind: 'official_road_anchor',
+    placeType: 'point',
   }
 
-  it('accepts and normalizes the exact ready, same_area and unavailable contracts', () => {
-    expect(parseRouteAssessmentScope(readyPayload)).toEqual(readyPayload)
+  it('accepts all three exact endpoint discriminants and keeps assessment:v3 opaque', () => {
+    for (const [origin, destination] of [
+      [validUrbanEndpoint(), validRuralEndpoint()],
+      [validRuralEndpoint(), roadEndpoint],
+    ]) {
+      const payload = {
+        status: 'ready' as const,
+        scopeId: 'assessment:v3:test',
+        origin,
+        destination,
+      }
+      expect(parseRouteAssessmentScope(payload)).toEqual(payload)
+    }
+  })
+
+  it('accepts bounded integer access distances and rejects untrusted distance claims', () => {
+    const payload = {
+      status: 'ready' as const,
+      scopeId: 'assessment:v3:test',
+      origin: validUrbanEndpoint({ accessDistanceM: 42 }),
+      destination: validRuralEndpoint({ accessDistanceM: 566 }),
+    }
+    expect(parseRouteAssessmentScope(payload)).toEqual(payload)
+    for (const accessDistanceM of [-1, 1.5, 25_001, Number.NaN, '566']) {
+      expect(parseRouteAssessmentScope({
+        ...payload,
+        destination: { ...payload.destination, accessDistanceM },
+      })).toBeNull()
+    }
+  })
+
+  it('accepts and normalizes same_area and unavailable contracts', () => {
     expect(parseRouteAssessmentScope({
-      status: 'same_area', settlementId: hella.id, settlementName: ' Hella ',
-    })).toEqual({ status: 'same_area', settlementId: hella.id, settlementName: 'Hella' })
+      status: 'same_area', settlementId: gardabaer.id, settlementName: ` ${gardabaer.name} `,
+    })).toEqual({
+      status: 'same_area', settlementId: gardabaer.id, settlementName: gardabaer.name,
+    })
     expect(parseRouteAssessmentScope({
       status: 'unavailable', reason: 'road_graph_unavailable',
     })).toEqual({ status: 'unavailable', reason: 'road_graph_unavailable' })
   })
 
   it.each([
-    null,
-    [],
-    {},
-    { ...readyPayload, scopeId: '   ' },
-    { ...readyPayload, origin: { ...readyPayload.origin, lat: 0 } },
-    { ...readyPayload, destination: { ...readyPayload.destination, source: 'hms' } },
-    { ...readyPayload, destination: { ...readyPayload.destination, postalCode: '85' } },
-    { status: 'same_area', settlementId: ' ', settlementName: 'Hella' },
-    { status: 'unavailable', reason: 'made_up_reason' },
-    { status: 'future_status' },
-  ])('rejects malformed or unsupported payload %#', payload => {
-    expect(parseRouteAssessmentScope(payload)).toBeNull()
+    { ...validUrbanEndpoint(), identityKind: undefined },
+    { ...validUrbanEndpoint(), placeType: 'point' },
+    { ...validUrbanEndpoint(), postalLocalitySourceId: postal210.sourceId },
+    { ...validRuralEndpoint(), placeType: 'settlement' },
+    { ...validRuralEndpoint(), sourceId: 'forged-postal-area' },
+    { ...validRuralEndpoint(), postalLocalitySourceId: '' },
+    { ...roadEndpoint, postalCode: '301' },
+    { ...roadEndpoint, identityKind: 'future_identity' },
+  ])('rejects incompatible or malformed endpoint discriminant %#', endpoint => {
+    expect(parseRouteAssessmentScope({
+      status: 'ready', scopeId: 'assessment:v3:test', origin: endpoint, destination: validUrbanEndpoint(),
+    })).toBeNull()
   })
 
   it.each([
-    { ...readyPayload, anchorKind: 'projected_road' },
-    { ...readyPayload, unexpected: true },
-    { ...readyPayload, origin: { ...readyPayload.origin, unexpected: true } },
-    { status: 'same_area', settlementId: hella.id, settlementName: 'Hella', unexpected: true },
+    null,
+    {},
+    { status: 'ready', scopeId: '', origin: validUrbanEndpoint(), destination: validRuralEndpoint() },
+    { status: 'same_area', settlementId: gardabaer.id, settlementName: '' },
+    { status: 'unavailable', reason: 'made_up_reason' },
+    { status: 'future_status' },
     { status: 'unavailable', reason: 'road_graph_unavailable', unexpected: true },
-  ])('rejects unknown fields instead of silently accepting a widened contract %#', payload => {
+  ])('rejects malformed, future or widened scope payload %#', payload => {
     expect(parseRouteAssessmentScope(payload)).toBeNull()
   })
 })

@@ -3,7 +3,10 @@ import 'server-only'
 import { analyzeIcelandRoadGraph, buildIcelandRoadGraph } from './roadGraph'
 import type { IcelandRoadGraph } from './roadGraphTypes'
 import {
+  canonicalRoadGraphSnapshotValueJson,
   parseRoadGraphSnapshotPayload,
+  parseRoadGraphRuntimeBuildContractV1,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
   ROAD_GRAPH_SNAPSHOT_SCHEMA_VERSION,
 } from './roadGraphSnapshotFormat'
 import {
@@ -12,6 +15,7 @@ import {
   readRoadGraphSnapshotPayload,
   type ActiveRoadGraphSnapshotMetadata,
 } from './roadGraphSnapshotStore.server'
+import { materializeEnhancedRoadGraphSnapshotV1 } from './roadGraphRuntimeMaterialization'
 
 const ACTIVE_VERSION_RECHECK_MS = 5 * 60 * 1000
 
@@ -22,6 +26,7 @@ type CachedRoadGraph = {
 }
 
 type RoadGraphRuntimeState = {
+  policyFingerprint: string
   cached: CachedRoadGraph | null
   pending: Promise<IcelandRoadGraph> | null
 }
@@ -35,8 +40,12 @@ function runtimeState(): RoadGraphRuntimeState {
   const runtime = globalThis as typeof globalThis & {
     [RUNTIME_STATE_KEY]?: RoadGraphRuntimeState
   }
-  if (!runtime[RUNTIME_STATE_KEY]) {
-    runtime[RUNTIME_STATE_KEY] = { cached: null, pending: null }
+  if (runtime[RUNTIME_STATE_KEY]?.policyFingerprint !== ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT) {
+    runtime[RUNTIME_STATE_KEY] = {
+      policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+      cached: null,
+      pending: null,
+    }
   }
   return runtime[RUNTIME_STATE_KEY]
 }
@@ -56,6 +65,32 @@ function verifySnapshotGraph(input: {
     || metadata.goldenRoutePassCount !== metadata.goldenRouteTotalCount
   ) {
     throw new Error('road_graph_snapshot_diagnostics_mismatch')
+  }
+}
+
+function verifyEnhancedSnapshotGraph(input: {
+  graph: IcelandRoadGraph
+  metadata: ActiveRoadGraphSnapshotMetadata
+  payloadContract: NonNullable<ReturnType<typeof parseRoadGraphRuntimeBuildContractV1>>
+}): void {
+  const metadataContract = parseRoadGraphRuntimeBuildContractV1(
+    input.metadata.validation.runtimeBuildContract,
+  )
+  if (
+    !metadataContract
+    || canonicalRoadGraphSnapshotValueJson(metadataContract)
+      !== canonicalRoadGraphSnapshotValueJson(input.payloadContract)
+  ) {
+    throw new Error('road_graph_snapshot_runtime_contract_mismatch')
+  }
+  const diagnostics = analyzeIcelandRoadGraph(input.graph)
+  if (
+    canonicalRoadGraphSnapshotValueJson(diagnostics)
+      !== canonicalRoadGraphSnapshotValueJson(input.payloadContract.diagnostics)
+    || canonicalRoadGraphSnapshotValueJson([...(input.graph.topologyReceiptIds ?? [])].sort())
+      !== canonicalRoadGraphSnapshotValueJson(input.payloadContract.topologyReceiptIds)
+  ) {
+    throw new Error('road_graph_snapshot_enhanced_diagnostics_mismatch')
   }
 }
 
@@ -86,10 +121,30 @@ async function loadActiveSnapshotGraph(forceVersionCheck: boolean): Promise<Icel
   if (hashRoadGraphSnapshotPayload(payload) !== metadata.payloadSha256) {
     throw new Error('road_graph_snapshot_hash_mismatch')
   }
-  const graph = buildIcelandRoadGraph(payload.segments, {
-    nodeSnapToleranceM: payload.nodeSnapToleranceM,
-  })
-  verifySnapshotGraph({ graph, metadata })
+  let graph: IcelandRoadGraph
+  if (payload.runtimeBuildContract) {
+    // Reconciliation is derived deterministically from structured official
+    // section metadata already inside the verified snapshot. No live source,
+    // publication flag or place-specific exception participates at runtime.
+    graph = materializeEnhancedRoadGraphSnapshotV1({
+      segments: payload.segments,
+      nodeSnapToleranceM: payload.nodeSnapToleranceM,
+      sourceContentSha256: metadata.sourceContentSha256,
+      policyFingerprint: payload.runtimeBuildContract.policyFingerprint,
+    }).graph
+    verifyEnhancedSnapshotGraph({
+      graph,
+      metadata,
+      payloadContract: payload.runtimeBuildContract,
+    })
+  } else {
+    // Exact legacy path: do not reinterpret an already active v1 snapshot with
+    // topology or provisional-direction semantics it was never validated for.
+    graph = buildIcelandRoadGraph(payload.segments, {
+      nodeSnapToleranceM: payload.nodeSnapToleranceM,
+    })
+    verifySnapshotGraph({ graph, metadata })
+  }
   state.cached = {
     graph,
     snapshotId: metadata.id,
@@ -130,7 +185,12 @@ export function getIcelandRoadGraphCacheStatus(): 'cold' | 'loading' | 'warm' {
 }
 
 export function resetIcelandRoadGraphCacheForTests(): void {
-  const state = runtimeState()
-  state.cached = null
-  state.pending = null
+  const runtime = globalThis as typeof globalThis & {
+    [RUNTIME_STATE_KEY]?: RoadGraphRuntimeState
+  }
+  runtime[RUNTIME_STATE_KEY] = {
+    policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+    cached: null,
+    pending: null,
+  }
 }

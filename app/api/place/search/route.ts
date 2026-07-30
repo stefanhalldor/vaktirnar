@@ -51,7 +51,7 @@ function isRateLimited(ip: string): boolean {
 }
 
 function isHmsSearchEnabled(): boolean {
-  return process.env.HMS_PLACE_SEARCH_ENABLED === 'true'
+  return process.env.HMS_PLACE_SEARCH_ENABLED !== 'false'
 }
 
 function staticPlaces(query: string): SelectedLocation[] {

@@ -38,6 +38,7 @@ function metadata(compressed: Buffer) {
     segmentCount: 1, nodeCount: 2, edgeCount: 2, weakComponentCount: 1,
     largestWeakComponentNodeCount: 2,
     goldenRoutePassCount: 20, goldenRouteTotalCount: 20,
+    validation: {},
     promotedAtIso: '2026-07-26T15:01:00.000Z',
   }
 }

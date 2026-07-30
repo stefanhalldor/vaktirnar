@@ -3,76 +3,47 @@ import 'server-only'
 import type { IcelandRoadGraphSegmentInput } from './roadGraphTypes'
 import {
   normalizeVegagerdinRoadGraphSegments,
+  VEGAGERDIN_ASSESSMENT_ROAD_SOURCE,
+  VEGAGERDIN_ROAD_LAYER_QUERY_URL,
+  VEGAGERDIN_SURFACE_LAYER_QUERY_URL,
+  VEGAGERDIN_SURFACE_SOURCE,
   type ArcGisGeoJsonFeatureCollection,
+  type VegagerdinArcGisSourceDescriptor,
 } from './vegagerdinRoadGraphSource'
 
-export const VEGAGERDIN_ROAD_LAYER_QUERY_URL =
-  'https://vegasja.vegagerdin.is/arcgis/rest/services/data/vegakerfi/MapServer/6/query'
-export const VEGAGERDIN_SURFACE_LAYER_QUERY_URL =
-  'https://vegasja.vegagerdin.is/arcgis/rest/services/data/slitlag/MapServer/0/query'
-
-const ROAD_FIELDS = [
-  'OBJECTID',
-  'IDKAFLI',
-  'NRVEGUR',
-  'NRKAFLI',
-  'KAFLIVEGURHEITI',
-  'KAFLILENGD',
-  'KAFLISTODUPPHAF',
-  'KAFLISTODENDIR',
-  'VEGFLOKKUR',
-  'VEGTEGUND',
-  'STEFNA',
-  'DAGSGRUNNUR',
-] as const
-
-const SURFACE_FIELDS = [
-  'OBJECTID',
-  'IDKAFLI',
-  'NRVEGUR',
-  'NRKAFLI',
-  'KAFLIVEGURHEITI',
-  'SLITLAGLENGD',
-  'UPPH_STOD',
-  'ENDA_STOD',
-  'VEGFLOKKUR',
-  'VEGTEGUND',
-  'GERD_SL',
-  'DAGSGRUNNUR',
-] as const
+export { VEGAGERDIN_ROAD_LAYER_QUERY_URL, VEGAGERDIN_SURFACE_LAYER_QUERY_URL }
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 function buildQueryUrl(
-  baseUrl: string,
-  fields: readonly string[],
+  descriptor: VegagerdinArcGisSourceDescriptor,
   resultOffset: number,
   pageSize: number,
 ): string {
-  const url = new URL(baseUrl)
-  url.searchParams.set('where', '1=1')
-  url.searchParams.set('outFields', fields.join(','))
-  url.searchParams.set('returnGeometry', 'true')
-  url.searchParams.set('outSR', '4326')
+  const url = new URL(descriptor.queryUrl)
+  url.searchParams.set('where', descriptor.query.where)
+  url.searchParams.set('outFields', descriptor.outFields.join(','))
+  url.searchParams.set('returnGeometry', String(descriptor.query.returnGeometry))
+  url.searchParams.set('returnZ', String(descriptor.query.returnZ))
+  url.searchParams.set('outSR', String(descriptor.query.outSR))
   url.searchParams.set('resultOffset', String(resultOffset))
   url.searchParams.set('resultRecordCount', String(pageSize))
-  url.searchParams.set('orderByFields', 'OBJECTID ASC')
-  url.searchParams.set('f', 'geojson')
+  url.searchParams.set('orderByFields', descriptor.query.orderByFields)
+  url.searchParams.set('f', descriptor.query.format)
   return url.toString()
 }
 
 async function fetchAllFeatures(
-  baseUrl: string,
-  fields: readonly string[],
+  descriptor: VegagerdinArcGisSourceDescriptor,
   fetchImpl: FetchLike,
   signal?: AbortSignal,
 ): Promise<ArcGisGeoJsonFeatureCollection> {
-  const pageSize = 1000
+  const pageSize = descriptor.query.pageSize
   const features: ArcGisGeoJsonFeatureCollection['features'] = []
   let offset = 0
 
   for (;;) {
-    const response = await fetchImpl(buildQueryUrl(baseUrl, fields, offset, pageSize), {
+    const response = await fetchImpl(buildQueryUrl(descriptor, offset, pageSize), {
       signal,
       headers: { accept: 'application/geo+json, application/json' },
     })
@@ -93,6 +64,8 @@ async function fetchAllFeatures(
 export interface FetchVegagerdinRoadGraphSegmentsOptions {
   fetchImpl?: FetchLike
   signal?: AbortSignal
+  /** Lets deterministic local candidate generation share its snapshot time. */
+  effectiveAtEpochMs?: number
 }
 
 /**
@@ -104,9 +77,15 @@ export async function fetchVegagerdinRoadGraphSegments(
   options: FetchVegagerdinRoadGraphSegmentsOptions = {},
 ): Promise<IcelandRoadGraphSegmentInput[]> {
   const fetchImpl = options.fetchImpl ?? fetch
+  const effectiveAtEpochMs = options.effectiveAtEpochMs ?? Date.now()
   const [roads, surfaces] = await Promise.all([
-    fetchAllFeatures(VEGAGERDIN_ROAD_LAYER_QUERY_URL, ROAD_FIELDS, fetchImpl, options.signal),
-    fetchAllFeatures(VEGAGERDIN_SURFACE_LAYER_QUERY_URL, SURFACE_FIELDS, fetchImpl, options.signal),
+    fetchAllFeatures(VEGAGERDIN_ASSESSMENT_ROAD_SOURCE, fetchImpl, options.signal),
+    fetchAllFeatures(VEGAGERDIN_SURFACE_SOURCE, fetchImpl, options.signal),
   ])
-  return normalizeVegagerdinRoadGraphSegments({ roads, surfaces })
+  return normalizeVegagerdinRoadGraphSegments({
+    roads,
+    surfaces,
+    roadLayerId: VEGAGERDIN_ASSESSMENT_ROAD_SOURCE.layerId,
+    effectiveAtEpochMs,
+  })
 }

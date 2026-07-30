@@ -1,7 +1,7 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { resolveRoadIntelligence } from '@/lib/iceland-routes'
+import { resolveRoadIntelligence } from '@/lib/iceland-routes/roadIntelligenceResolver'
 
 type Props = {
   fromPlaceKey: string

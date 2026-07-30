@@ -1,27 +1,34 @@
 {
-  "schemaVersion": 2,
-  "generatedAt": "2026-07-28T18:44:42.769Z",
+  "schemaVersion": 3,
+  "generator": {
+    "id": "scripts/generate-official-place-directory.mjs",
+    "version": 1
+  },
+  "retrievedDate": "2026-07-28",
   "sources": {
     "hagstofa": {
       "dataset": "Þéttbýlisstaðir 2020–2024",
       "metadataUrl": "https://gatt.natt.is/geonetwork/srv/api/records/95c2ff71-c776-462a-8b23-d50cdeb7cb4f",
       "dataUrl": "https://gis.is/geoserver/Hagstofan/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Hagstofan%3Athettbylisstadir&outputFormat=application%2Fjson&srsName=EPSG%3A4326",
       "featureCount": 97,
-      "contentSha256": "c617943b3acc57200e8c088247239d98b85d7924c08e34dc5a911bbc19f90d53"
+      "contentSha256": "c617943b3acc57200e8c088247239d98b85d7924c08e34dc5a911bbc19f90d53",
+      "retrievedDate": "2026-07-28"
     },
     "is50v": {
       "dataset": "IS 50V Mannvirki — þéttbýlisflákar",
       "metadataUrl": "https://www-gamli.lmi.is/landupplysingar/mannvirki/",
       "dataUrl": "https://gis.lmi.is/geoserver/IS_50V/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=IS_50V%3Amannvirki_flakar&outputFormat=application%2Fjson&srsName=EPSG%3A4326",
       "featureCount": 110,
-      "contentSha256": "04577c95fb532ad264673e55e1b4d4f5f0b3acb61fac18e7a001b4a63cf06b2a"
+      "contentSha256": "04577c95fb532ad264673e55e1b4d4f5f0b3acb61fac18e7a001b4a63cf06b2a",
+      "retrievedDate": "2026-07-28"
     },
     "postal": {
       "dataset": "Póstnúmer",
       "metadataUrl": "https://gatt.lmi.is/geonetwork/srv/resources/datasets/22e98d21-a86b-4b62-ad58-a6d17703b612",
       "dataUrl": "https://gis.lmi.is/geoserver/byggdastofnun/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=byggdastofnun%3Apostnumer&outputFormat=application%2Fjson&srsName=EPSG%3A4326",
       "featureCount": 175,
-      "contentSha256": "488034d2dc3c0ff6760dea9c00f8a6e402d948637719823893338e9f53a07f26"
+      "contentSha256": "488034d2dc3c0ff6760dea9c00f8a6e402d948637719823893338e9f53a07f26",
+      "retrievedDate": "2026-07-28"
     }
   },
   "settlements": [
@@ -35105,1045 +35112,1932 @@
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "dd59582f-4255-1fff-eaf5-f30f35077516",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:101:dd59582f-4255-1fff-eaf5-f30f35077516",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "102": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "480014f9-2256-e33f-91af-a4001488f9ba",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:102:480014f9-2256-e33f-91af-a4001488f9ba",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "103": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "7a786cfb-e9bf-33ee-b85e-1bbecaf534f1",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:103:7a786cfb-e9bf-33ee-b85e-1bbecaf534f1",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "104": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "abb4511d-b9b3-d61c-56e2-324c65b4092c",
-      "correctedAt": "2014-01-08Z"
+      "correctedAt": "2014-01-08Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:104:abb4511d-b9b3-d61c-56e2-324c65b4092c",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "105": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "9ee7f02d-033b-6b85-68d0-260186588137",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:105:9ee7f02d-033b-6b85-68d0-260186588137",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "107": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "b9ba63e6-a83e-4d00-3a2e-f5251980c96f",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:107:b9ba63e6-a83e-4d00-3a2e-f5251980c96f",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "108": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "0d8e61db-97d1-7800-dfff-aecb1a48ba3d",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:108:0d8e61db-97d1-7800-dfff-aecb1a48ba3d",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "109": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "8819dd61-9127-598e-92d7-51e36749c20d",
-      "correctedAt": "2023-10-13Z"
+      "correctedAt": "2023-10-13Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:109:8819dd61-9127-598e-92d7-51e36749c20d",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "110": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "8e1a1b5a-7556-c190-f4dd-0eb8f0b0c630",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:110:8e1a1b5a-7556-c190-f4dd-0eb8f0b0c630",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "111": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "5314e12d-2ead-2302-5d0b-829e3c41826b",
-      "correctedAt": "2016-01-25Z"
+      "correctedAt": "2016-01-25Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:111:5314e12d-2ead-2302-5d0b-829e3c41826b",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "112": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "761aec7b-1cf3-6965-9479-c24d1af526a6",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:112:761aec7b-1cf3-6965-9479-c24d1af526a6",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "113": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "5d47cac0-7782-128a-f970-af69009c5a03",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:113:5d47cac0-7782-128a-f970-af69009c5a03",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "116": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "0c465a7f-20ff-3481-b32b-7673efc7efca",
-      "correctedAt": "2016-02-03Z"
+      "correctedAt": "2016-02-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:116:0c465a7f-20ff-3481-b32b-7673efc7efca",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "161": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "578a0cb1-b33c-405c-5797-6f30f4e27123",
-      "correctedAt": "2023-10-13Z"
+      "correctedAt": "2023-10-13Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:161:578a0cb1-b33c-405c-5797-6f30f4e27123",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "162": {
       "name": "Reykjavík",
       "classification": "Þéttbýli",
       "sourceId": "ceca2d19-8ed5-2de5-2a21-c75db956af90",
-      "correctedAt": "2022-09-28Z"
+      "correctedAt": "2022-09-28Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:162:ceca2d19-8ed5-2de5-2a21-c75db956af90",
+        "settlementId": "is50v:a3143a0f-aa8a-ceb2-6a97-c657bf94606d",
+        "resolution": "unique_official_name"
+      }
     },
     "170": {
       "name": "Seltjarnarnes",
       "classification": "Þéttbýli",
       "sourceId": "26de6cae-e662-f681-0283-2f606c07e6fc",
-      "correctedAt": "2016-01-25Z"
+      "correctedAt": "2016-01-25Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:170:26de6cae-e662-f681-0283-2f606c07e6fc",
+        "settlementId": "is50v:c8e651f6-161c-66a1-53a3-e2cf4d34c4ae",
+        "resolution": "unique_official_name"
+      }
     },
     "190": {
       "name": "Vogar",
       "classification": "Þéttbýli",
       "sourceId": "1595c186-0f6c-6a65-0b2e-1ef560e97d05",
-      "correctedAt": "2023-09-19Z"
+      "correctedAt": "2023-09-19Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:190:1595c186-0f6c-6a65-0b2e-1ef560e97d05",
+        "settlementId": "hagstofa:0160",
+        "resolution": "unique_official_name"
+      }
     },
     "191": {
       "name": "Vogar, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "8f9e2ae6-550f-1275-32ad-af2fada9866c",
-      "correctedAt": "2023-09-19Z"
+      "correctedAt": "2023-09-19Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:191:8f9e2ae6-550f-1275-32ad-af2fada9866c"
+      }
     },
     "200": {
       "name": "Kópavogur",
       "classification": "Þéttbýli",
       "sourceId": "f5d0bf76-28e2-589f-bf39-0fcd02729709",
-      "correctedAt": "2023-10-13Z"
+      "correctedAt": "2023-10-13Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:200:f5d0bf76-28e2-589f-bf39-0fcd02729709",
+        "settlementId": "is50v:20eb830e-07b1-4f81-f7ac-f8139f0857f0",
+        "resolution": "unique_official_name"
+      }
     },
     "201": {
       "name": "Kópavogur",
       "classification": "Þéttbýli",
       "sourceId": "dc2bc644-e8ba-aa4f-3f41-70a19a4653f3",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:201:dc2bc644-e8ba-aa4f-3f41-70a19a4653f3",
+        "settlementId": "is50v:20eb830e-07b1-4f81-f7ac-f8139f0857f0",
+        "resolution": "unique_official_name"
+      }
     },
     "203": {
       "name": "Kópavogur",
       "classification": "Þéttbýli",
       "sourceId": "5299b441-9214-3c4d-2c3c-69f1560e9cba",
-      "correctedAt": "2016-01-25Z"
+      "correctedAt": "2016-01-25Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:203:5299b441-9214-3c4d-2c3c-69f1560e9cba",
+        "settlementId": "is50v:20eb830e-07b1-4f81-f7ac-f8139f0857f0",
+        "resolution": "unique_official_name"
+      }
     },
     "206": {
       "name": "Kópavogur",
       "classification": "Þéttbýli",
       "sourceId": "123617dc-c071-41a7-8479-d19995501104",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:206:123617dc-c071-41a7-8479-d19995501104",
+        "settlementId": "is50v:20eb830e-07b1-4f81-f7ac-f8139f0857f0",
+        "resolution": "unique_official_name"
+      }
     },
     "210": {
       "name": "Garðabær",
       "classification": "Þéttbýli",
       "sourceId": "e6b4bdfc-9fab-1237-49c4-15a90b99565f",
-      "correctedAt": "2017-11-20Z"
+      "correctedAt": "2017-11-20Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:210:e6b4bdfc-9fab-1237-49c4-15a90b99565f",
+        "settlementId": "is50v:1407fdee-3621-5c85-686f-8bd6a4316272",
+        "resolution": "unique_official_name"
+      }
     },
     "220": {
       "name": "Hafnarfjörður",
       "classification": "Þéttbýli",
       "sourceId": "203b0d7c-89ba-2870-fb18-43454359d93b",
-      "correctedAt": "2016-05-12Z"
+      "correctedAt": "2016-05-12Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:220:203b0d7c-89ba-2870-fb18-43454359d93b",
+        "settlementId": "is50v:34ac5117-b781-7aaf-1c10-f5fb2d99bf29",
+        "resolution": "unique_official_name"
+      }
     },
     "221": {
       "name": "Hafnarfjörður",
       "classification": "Þéttbýli",
       "sourceId": "fe337f36-6a57-8bdc-d74d-80eb08b462ee",
-      "correctedAt": "2017-11-20Z"
+      "correctedAt": "2017-11-20Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:221:fe337f36-6a57-8bdc-d74d-80eb08b462ee",
+        "settlementId": "is50v:34ac5117-b781-7aaf-1c10-f5fb2d99bf29",
+        "resolution": "unique_official_name"
+      }
     },
     "225": {
       "name": "Garðabær",
       "classification": "Þéttbýli",
       "sourceId": "b57a92df-8ed9-4603-6ab3-d0b5778be777",
-      "correctedAt": "2014-12-16Z"
+      "correctedAt": "2014-12-16Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:225:b57a92df-8ed9-4603-6ab3-d0b5778be777",
+        "settlementId": "is50v:1407fdee-3621-5c85-686f-8bd6a4316272",
+        "resolution": "unique_official_name"
+      }
     },
     "230": {
       "name": "Reykjanesbær",
       "classification": "Þéttbýli",
       "sourceId": "9c2a4c95-8e50-af32-cf1f-bbae1363dd1f",
-      "correctedAt": "2022-02-18Z"
+      "correctedAt": "2022-02-18Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:230:9c2a4c95-8e50-af32-cf1f-bbae1363dd1f",
+        "settlementId": "is50v:4bfbfcfd-7449-6eaa-f2ee-8c74c5796dd5",
+        "resolution": "unique_primary_postal"
+      }
     },
     "233": {
       "name": "Reykjanesbær",
       "classification": "Dreifbýli",
       "sourceId": "a744df70-6f2e-c9bd-6cf5-fa5ec306f205",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:233:a744df70-6f2e-c9bd-6cf5-fa5ec306f205"
+      }
     },
     "235": {
       "name": "Keflavíkurflugvölllur",
       "classification": "Dreifbýli",
       "sourceId": "5b2365e0-399c-229e-9b78-e8f718f31072",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:235:5b2365e0-399c-229e-9b78-e8f718f31072"
+      }
     },
     "240": {
       "name": "Grindavík",
       "classification": "Þéttbýli",
       "sourceId": "0d5ed993-c88d-4da4-f264-94be4d6f7546",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:240:0d5ed993-c88d-4da4-f264-94be4d6f7546",
+        "settlementId": "hagstofa:0110",
+        "resolution": "unique_official_name"
+      }
     },
     "241": {
       "name": "Grindavík, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "a0caf4f6-2a24-4d89-8600-3d968b3cad7c",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:241:a0caf4f6-2a24-4d89-8600-3d968b3cad7c"
+      }
     },
     "245": {
       "name": "Sandgerði",
       "classification": "Þéttbýli",
       "sourceId": "c90f03b5-b46a-407d-2eae-57de94fb1c08",
-      "correctedAt": "2021-12-17Z"
+      "correctedAt": "2021-12-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:245:c90f03b5-b46a-407d-2eae-57de94fb1c08",
+        "settlementId": "hagstofa:0120",
+        "resolution": "unique_official_name"
+      }
     },
     "246": {
       "name": "Sandgerði, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "58b8993d-e4e3-c64f-9766-6cde4f9a5dfd",
-      "correctedAt": "2021-12-17Z"
+      "correctedAt": "2021-12-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:246:58b8993d-e4e3-c64f-9766-6cde4f9a5dfd"
+      }
     },
     "250": {
       "name": "Garður",
       "classification": "Þéttbýli",
       "sourceId": "b49a9122-a421-a4c1-ffe9-c45031504d25",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:250:b49a9122-a421-a4c1-ffe9-c45031504d25",
+        "settlementId": "hagstofa:0130",
+        "resolution": "unique_official_name"
+      }
     },
     "251": {
       "name": "Garður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "d99f4f69-b9c1-7ab4-342f-ee3aa8261f41",
-      "correctedAt": "2022-02-18Z"
+      "correctedAt": "2022-02-18Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:251:d99f4f69-b9c1-7ab4-342f-ee3aa8261f41"
+      }
     },
     "260": {
       "name": "Reykjanesbær",
       "classification": "Þéttbýli",
       "sourceId": "9ef38c4e-7dda-b027-6c02-44872fb96145",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:260:9ef38c4e-7dda-b027-6c02-44872fb96145",
+        "settlementId": "is50v:4b60170b-35ce-06c4-bc6f-9736c25bcc74",
+        "resolution": "unique_primary_postal"
+      }
     },
     "262": {
       "name": "Reykjanesbær",
       "classification": "Þéttbýli",
       "sourceId": "1f9deb93-00b7-a087-15b4-0c37d7d91d10",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:262:1f9deb93-00b7-a087-15b4-0c37d7d91d10",
+        "settlementId": "is50v:047c1b9a-726a-1a43-9453-4f10fe954079",
+        "resolution": "unique_primary_postal"
+      }
     },
     "270": {
       "name": "Mosfellsbær",
       "classification": "Þéttbýli",
       "sourceId": "3082bcfd-6c0b-acc4-5eaa-76d50f7d3a3f",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:270:3082bcfd-6c0b-acc4-5eaa-76d50f7d3a3f",
+        "settlementId": "is50v:284a1ecb-9924-022d-21d7-85bb7a45245c",
+        "resolution": "unique_official_name"
+      }
     },
     "271": {
       "name": "Mosfellsbær, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "133aa4b2-cf2c-8f3b-3302-e441b3c05222",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:271:133aa4b2-cf2c-8f3b-3302-e441b3c05222"
+      }
     },
     "276": {
       "name": "Kjós",
       "classification": "Dreifbýli",
       "sourceId": "a69681c4-f2d2-8c15-6369-d600677d2935",
-      "correctedAt": "2024-03-20Z"
+      "correctedAt": "2024-03-20Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:276:a69681c4-f2d2-8c15-6369-d600677d2935"
+      }
     },
     "300": {
       "name": "Akranes",
       "classification": "Þéttbýli",
       "sourceId": "7ccd7161-27ec-4c4b-9db0-08cc66aea592",
-      "correctedAt": "2024-03-20Z"
+      "correctedAt": "2024-03-20Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:300:7ccd7161-27ec-4c4b-9db0-08cc66aea592",
+        "settlementId": "is50v:7c958ef5-5f21-d2f9-62a2-0f58cd080973",
+        "resolution": "unique_official_name"
+      }
     },
     "301": {
       "name": "Akranes, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "8bd88772-0d1d-d85e-9395-f9fc7f392ca8",
-      "correctedAt": "2024-03-20Z"
+      "correctedAt": "2024-03-20Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:301:8bd88772-0d1d-d85e-9395-f9fc7f392ca8"
+      }
     },
     "310": {
       "name": "Borgarnes",
       "classification": "Þéttbýli",
       "sourceId": "7eac0fae-fc8c-1bb9-e8fb-cb18b6d9426f",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:310:7eac0fae-fc8c-1bb9-e8fb-cb18b6d9426f",
+        "settlementId": "hagstofa:0200",
+        "resolution": "unique_official_name"
+      }
     },
     "311": {
       "name": "Borgarnes, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "7b4bb161-0588-945b-97c6-708b4d86fb11",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:311:7b4bb161-0588-945b-97c6-708b4d86fb11"
+      }
     },
     "320": {
       "name": "Reykholt",
       "classification": "Þéttbýli",
       "sourceId": "87975cf3-c7f5-178d-056f-cd265cf797e7",
-      "correctedAt": "2014-01-07Z"
+      "correctedAt": "2014-01-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:320:87975cf3-c7f5-178d-056f-cd265cf797e7",
+        "settlementId": "is50v:836802d2-312e-ca25-26e3-1d6c6ba09382",
+        "resolution": "unique_official_name_and_primary_postal"
+      }
     },
     "340": {
       "name": "Stykkishólmur",
       "classification": "Þéttbýli",
       "sourceId": "892716ee-88c2-2023-4d98-6e9094775fca",
-      "correctedAt": "2022-02-17Z"
+      "correctedAt": "2022-02-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:340:892716ee-88c2-2023-4d98-6e9094775fca",
+        "settlementId": "hagstofa:0240",
+        "resolution": "unique_official_name"
+      }
     },
     "341": {
       "name": "Stykkishólmur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "6b5a6635-456e-0977-5a0e-b5f2aad20c6a",
-      "correctedAt": "2022-02-17Z"
+      "correctedAt": "2022-02-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:341:6b5a6635-456e-0977-5a0e-b5f2aad20c6a"
+      }
     },
     "342": {
       "name": "Stykkishólmur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "275497bd-f64c-2fd4-d0d6-913c3e236eca",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:342:275497bd-f64c-2fd4-d0d6-913c3e236eca"
+      }
     },
     "345": {
       "name": "Flatey á Breiðafirði",
       "classification": "Þéttbýli",
       "sourceId": "57257051-3f9b-ceb0-9370-0e1527329267",
-      "correctedAt": "2014-10-20Z"
+      "correctedAt": "2014-10-20Z",
+      "assessmentIdentity": {
+        "kind": "unresolved",
+        "reason": "no_unique_official_settlement"
+      }
     },
     "350": {
       "name": "Grundarfjörður",
       "classification": "Þéttbýli",
       "sourceId": "a69d71a2-1a43-a7a9-a128-ab915fa9c781",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:350:a69d71a2-1a43-a7a9-a128-ab915fa9c781",
+        "settlementId": "hagstofa:0230",
+        "resolution": "unique_official_name"
+      }
     },
     "351": {
       "name": "Grundarfjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "d675782c-1aed-6194-5bfc-e866d515a81a",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:351:d675782c-1aed-6194-5bfc-e866d515a81a"
+      }
     },
     "355": {
       "name": "Ólafsvík",
       "classification": "Þéttbýli",
       "sourceId": "5a3c2141-39b2-1a73-9368-5bf62357d325",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:355:5a3c2141-39b2-1a73-9368-5bf62357d325",
+        "settlementId": "hagstofa:0220",
+        "resolution": "unique_official_name"
+      }
     },
     "356": {
       "name": "Snæfellsbær",
       "classification": "Dreifbýli",
       "sourceId": "33ef879a-eb80-aaa2-1985-5ce8ae6e3f7c",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:356:33ef879a-eb80-aaa2-1985-5ce8ae6e3f7c"
+      }
     },
     "360": {
       "name": "Hellissandur",
       "classification": "Þéttbýli",
       "sourceId": "b7b41008-442e-a4bb-ed54-73aa0f081d71",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:360:b7b41008-442e-a4bb-ed54-73aa0f081d71",
+        "settlementId": "hagstofa:0210",
+        "resolution": "unique_official_name"
+      }
     },
     "370": {
       "name": "Búðardalur",
       "classification": "Þéttbýli",
       "sourceId": "290866c1-7377-18bf-174c-372f1fdc9bf8",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:370:290866c1-7377-18bf-174c-372f1fdc9bf8",
+        "settlementId": "hagstofa:0250",
+        "resolution": "unique_official_name"
+      }
     },
     "371": {
       "name": "Búðardalur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "06394104-3c21-63cb-bb14-9ca229019a0b",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:371:06394104-3c21-63cb-bb14-9ca229019a0b"
+      }
     },
     "380": {
       "name": "Reykhólahreppur",
       "classification": "Þéttbýli",
       "sourceId": "6a647425-1fa7-76ed-3a14-f0443a1ce61b",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:380:6a647425-1fa7-76ed-3a14-f0443a1ce61b",
+        "settlementId": "hagstofa:0339",
+        "resolution": "unique_primary_postal"
+      }
     },
     "381": {
       "name": "Reykhólahreppur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "60c4be59-40c8-baca-3c98-4d04d508f726",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:381:60c4be59-40c8-baca-3c98-4d04d508f726"
+      }
     },
     "400": {
       "name": "Ísafjörður",
       "classification": "Þéttbýli",
       "sourceId": "299ef1b6-625e-b999-f061-dd4e15d35de6",
-      "correctedAt": "2021-12-17Z"
+      "correctedAt": "2021-12-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:400:299ef1b6-625e-b999-f061-dd4e15d35de6",
+        "settlementId": "hagstofa:0410",
+        "resolution": "unique_official_name"
+      }
     },
     "401": {
       "name": "Ísafjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "8fe495e0-9aca-b0ba-f72e-6ba3750e4bd7",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:401:8fe495e0-9aca-b0ba-f72e-6ba3750e4bd7"
+      }
     },
     "410": {
       "name": "Hnífsdalur",
       "classification": "Þéttbýli",
       "sourceId": "2c609512-a77c-6f8c-2a7c-5758c95e5301",
-      "correctedAt": "2021-12-17Z"
+      "correctedAt": "2021-12-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:410:2c609512-a77c-6f8c-2a7c-5758c95e5301",
+        "settlementId": "hagstofa:0420",
+        "resolution": "unique_official_name"
+      }
     },
     "415": {
       "name": "Bolungarvík",
       "classification": "Þéttbýli",
       "sourceId": "f21c859a-ce85-1056-4153-9f84fefdea0c",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:415:f21c859a-ce85-1056-4153-9f84fefdea0c",
+        "settlementId": "hagstofa:0400",
+        "resolution": "unique_official_name"
+      }
     },
     "416": {
       "name": "Bolungarvík, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "5cf01ac1-2530-8043-4f32-37ce294b3ec3",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:416:5cf01ac1-2530-8043-4f32-37ce294b3ec3"
+      }
     },
     "420": {
       "name": "Súðavík",
       "classification": "Þéttbýli",
       "sourceId": "1e25a98b-8f4d-6343-82d8-9fed8ace1c65",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:420:1e25a98b-8f4d-6343-82d8-9fed8ace1c65",
+        "settlementId": "hagstofa:0430",
+        "resolution": "unique_official_name"
+      }
     },
     "421": {
       "name": "Súðavík, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "0035ef4b-0867-4a15-ea1b-81d79e9c7a44",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:421:0035ef4b-0867-4a15-ea1b-81d79e9c7a44"
+      }
     },
     "425": {
       "name": "Flateyri",
       "classification": "Þéttbýli",
       "sourceId": "6c0e177c-40e7-d242-729a-6a06e3df74c5",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:425:6c0e177c-40e7-d242-729a-6a06e3df74c5",
+        "settlementId": "hagstofa:0380",
+        "resolution": "unique_official_name"
+      }
     },
     "426": {
       "name": "Flateyri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "d0589666-3f7f-3e99-7edf-aba2374bdbe4",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:426:d0589666-3f7f-3e99-7edf-aba2374bdbe4"
+      }
     },
     "430": {
       "name": "Suðureyri",
       "classification": "Þéttbýli",
       "sourceId": "f0d95de0-b778-701d-b302-59e8a57b7485",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:430:f0d95de0-b778-701d-b302-59e8a57b7485",
+        "settlementId": "hagstofa:0390",
+        "resolution": "unique_official_name"
+      }
     },
     "431": {
       "name": "Suðureyri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "1b2193eb-3d01-f87a-2993-d4f15d393e37",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:431:1b2193eb-3d01-f87a-2993-d4f15d393e37"
+      }
     },
     "450": {
       "name": "Patreksfjörður",
       "classification": "Þéttbýli",
       "sourceId": "7735f6d6-c7ec-eb9b-8d44-4746d1a9d3d0",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:450:7735f6d6-c7ec-eb9b-8d44-4746d1a9d3d0",
+        "settlementId": "hagstofa:0340",
+        "resolution": "unique_official_name"
+      }
     },
     "451": {
       "name": "Patreksfjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "26a0822c-76e8-a591-a922-163c8afd9285",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:451:26a0822c-76e8-a591-a922-163c8afd9285"
+      }
     },
     "460": {
       "name": "Tálknafjörður",
       "classification": "Þéttbýli",
       "sourceId": "3aacdfae-7644-9508-91fa-c7ea820e6dcd",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:460:3aacdfae-7644-9508-91fa-c7ea820e6dcd",
+        "settlementId": "hagstofa:0350",
+        "resolution": "unique_official_name"
+      }
     },
     "461": {
       "name": "Tálknafjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "a7d90ad7-b55e-3ead-aa59-46692ca2c37a",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:461:a7d90ad7-b55e-3ead-aa59-46692ca2c37a"
+      }
     },
     "465": {
       "name": "Bíldudalur",
       "classification": "Þéttbýli",
       "sourceId": "f47b3fe0-7095-e26c-4200-2834c5e7807f",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:465:f47b3fe0-7095-e26c-4200-2834c5e7807f",
+        "settlementId": "hagstofa:0360",
+        "resolution": "unique_official_name"
+      }
     },
     "466": {
       "name": "Bíldudalur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "710f8f4a-115a-fb36-a767-d68c4280f142",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:466:710f8f4a-115a-fb36-a767-d68c4280f142"
+      }
     },
     "470": {
       "name": "Þingeyri",
       "classification": "Þéttbýli",
       "sourceId": "1aafd288-5512-acbe-d757-a0dbfd4dee3d",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:470:1aafd288-5512-acbe-d757-a0dbfd4dee3d",
+        "settlementId": "hagstofa:0370",
+        "resolution": "unique_official_name"
+      }
     },
     "471": {
       "name": "Þingeyri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "bc9fccb7-ef7b-d1ce-fd69-33701455b3a6",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:471:bc9fccb7-ef7b-d1ce-fd69-33701455b3a6"
+      }
     },
     "500": {
       "name": "Staður",
       "classification": "Dreifbýli",
       "sourceId": "5c98da8c-3ae6-0639-fba1-ef44bbfecbdc",
-      "correctedAt": "2017-03-01Z"
+      "correctedAt": "2017-03-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:500:5c98da8c-3ae6-0639-fba1-ef44bbfecbdc"
+      }
     },
     "510": {
       "name": "Hólmavík",
       "classification": "Þéttbýli",
       "sourceId": "9eb617e4-86de-2bc9-7c44-652f2734f580",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:510:9eb617e4-86de-2bc9-7c44-652f2734f580",
+        "settlementId": "hagstofa:0440",
+        "resolution": "unique_official_name"
+      }
     },
     "512": {
       "name": "Hólmavík",
       "classification": "Dreifbýli",
       "sourceId": "1829c51a-230e-1a62-a55e-5db597b8dde9",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:512:1829c51a-230e-1a62-a55e-5db597b8dde9"
+      }
     },
     "520": {
       "name": "Drangsnes",
       "classification": "Þéttbýli",
       "sourceId": "00c86555-0e02-0eb3-8622-0d11aa55c124",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:520:00c86555-0e02-0eb3-8622-0d11aa55c124",
+        "settlementId": "hagstofa:0431",
+        "resolution": "unique_official_name"
+      }
     },
     "524": {
       "name": "Árneshreppur",
       "classification": "Dreifbýli",
       "sourceId": "e44d2373-81f3-6525-0fb5-b482582bac39",
-      "correctedAt": "2010-03-16Z"
+      "correctedAt": "2010-03-16Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:524:e44d2373-81f3-6525-0fb5-b482582bac39"
+      }
     },
     "530": {
       "name": "Hvammstangi",
       "classification": "Þéttbýli",
       "sourceId": "3a88180d-2818-3e5b-a033-a49e5d7553f5",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:530:3a88180d-2818-3e5b-a033-a49e5d7553f5",
+        "settlementId": "hagstofa:0530",
+        "resolution": "unique_official_name"
+      }
     },
     "531": {
       "name": "Hvammstangi, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "b1c90fb0-18b1-f99d-64b9-d113b3352cc1",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:531:b1c90fb0-18b1-f99d-64b9-d113b3352cc1"
+      }
     },
     "540": {
       "name": "Blönduós",
       "classification": "Þéttbýli",
       "sourceId": "4fe7184e-d1d8-0069-1549-8462742d3f4e",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:540:4fe7184e-d1d8-0069-1549-8462742d3f4e",
+        "settlementId": "hagstofa:0540",
+        "resolution": "unique_official_name"
+      }
     },
     "541": {
       "name": "Blönduós, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "4611b9a2-65f4-647f-7e33-bc8f89cad0df",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:541:4611b9a2-65f4-647f-7e33-bc8f89cad0df"
+      }
     },
     "545": {
       "name": "Skagaströnd",
       "classification": "Þéttbýli",
       "sourceId": "421c5471-07de-b599-a069-868e01c15fef",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:545:421c5471-07de-b599-a069-868e01c15fef",
+        "settlementId": "hagstofa:0550",
+        "resolution": "unique_official_name"
+      }
     },
     "546": {
       "name": "Skagaströnd, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "1df36d67-6204-b68a-3c87-c75703c1e951",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:546:1df36d67-6204-b68a-3c87-c75703c1e951"
+      }
     },
     "550": {
       "name": "Sauðárkrókur",
       "classification": "Þéttbýli",
       "sourceId": "ba822b77-6205-5d95-5d55-9d0366ef6595",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:550:ba822b77-6205-5d95-5d55-9d0366ef6595",
+        "settlementId": "hagstofa:0560",
+        "resolution": "unique_official_name"
+      }
     },
     "551": {
       "name": "Sauðárkrókur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "c1f1b974-e3c1-d350-6dd3-2735df075aae",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:551:c1f1b974-e3c1-d350-6dd3-2735df075aae"
+      }
     },
     "560": {
       "name": "Varmahlíð",
       "classification": "Þéttbýli",
       "sourceId": "5e9d74b8-9b6b-d09f-d199-63bd78196e76",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:560:5e9d74b8-9b6b-d09f-d199-63bd78196e76",
+        "settlementId": "hagstofa:0561",
+        "resolution": "unique_official_name"
+      }
     },
     "561": {
       "name": "Varmahlíð, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "550380dc-4591-9b0e-39cf-9065087f6c46",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:561:550380dc-4591-9b0e-39cf-9065087f6c46"
+      }
     },
     "565": {
       "name": "Hofsós",
       "classification": "Þéttbýli",
       "sourceId": "d6462f40-edcc-536c-de2a-2d13eb0b772e",
-      "correctedAt": "2014-01-09Z"
+      "correctedAt": "2014-01-09Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:565:d6462f40-edcc-536c-de2a-2d13eb0b772e",
+        "settlementId": "hagstofa:0570",
+        "resolution": "unique_official_name"
+      }
     },
     "566": {
       "name": "Hofsós, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "790866c4-03ca-f4dd-f05e-3c885fd62f1c",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:566:790866c4-03ca-f4dd-f05e-3c885fd62f1c"
+      }
     },
     "570": {
       "name": "Fljót",
       "classification": "Dreifbýli",
       "sourceId": "b171d4cc-1758-6305-f7a1-6f5c9e17e038",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:570:b171d4cc-1758-6305-f7a1-6f5c9e17e038"
+      }
     },
     "580": {
       "name": "Siglufjörður",
       "classification": "Þéttbýli",
       "sourceId": "0f4c828a-6ed2-81a1-0455-a43ad70ecdf4",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:580:0f4c828a-6ed2-81a1-0455-a43ad70ecdf4",
+        "settlementId": "hagstofa:0580",
+        "resolution": "unique_official_name"
+      }
     },
     "581": {
       "name": "Siglufjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "2ea623c3-8323-cd09-2a0b-717f15d15345",
-      "correctedAt": "2025-01-17Z"
+      "correctedAt": "2025-01-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:581:2ea623c3-8323-cd09-2a0b-717f15d15345"
+      }
     },
     "600": {
       "name": "Akureyri",
       "classification": "Þéttbýli",
       "sourceId": "dfe1293f-0389-d6a5-a71f-64b189b034b7",
-      "correctedAt": "2019-10-04Z"
+      "correctedAt": "2019-10-04Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:600:dfe1293f-0389-d6a5-a71f-64b189b034b7",
+        "settlementId": "is50v:158f6b1d-1fa3-c4f9-75f2-c659a02cdca3",
+        "resolution": "unique_official_name"
+      }
     },
     "601": {
       "name": "Akureyri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "2eb7a4b9-5952-2a22-e80c-ad913ca707f0",
-      "correctedAt": "2019-10-04Z"
+      "correctedAt": "2019-10-04Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:601:2eb7a4b9-5952-2a22-e80c-ad913ca707f0"
+      }
     },
     "603": {
       "name": "Akureyri, utan Glerár",
       "classification": "Þéttbýli",
       "sourceId": "dbed0c11-4d47-a43c-3e56-63de994f602a",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "unresolved",
+        "reason": "no_unique_official_settlement"
+      }
     },
     "604": {
       "name": "Akureyri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "b73b444c-be5b-0429-385f-ca9188d45435",
-      "correctedAt": "2023-03-09Z"
+      "correctedAt": "2023-03-09Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:604:b73b444c-be5b-0429-385f-ca9188d45435"
+      }
     },
     "605": {
       "name": "Akureyri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "1b81e59c-402d-9165-9160-c0440bb950cb",
-      "correctedAt": "2019-10-04Z"
+      "correctedAt": "2019-10-04Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:605:1b81e59c-402d-9165-9160-c0440bb950cb"
+      }
     },
     "606": {
       "name": "Akureyri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "b27e1c16-53bd-bc8f-90e2-7abdb436119d",
-      "correctedAt": "2019-10-04Z"
+      "correctedAt": "2019-10-04Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:606:b27e1c16-53bd-bc8f-90e2-7abdb436119d"
+      }
     },
     "607": {
       "name": "Akureyri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "9f9a7887-9b95-02d7-80ae-7d1a650483ec",
-      "correctedAt": "2019-10-04Z"
+      "correctedAt": "2019-10-04Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:607:9f9a7887-9b95-02d7-80ae-7d1a650483ec"
+      }
     },
     "610": {
       "name": "Grenivík",
       "classification": "Þéttbýli",
       "sourceId": "ddb74609-ee6f-1ddc-99d1-60132d15e827",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:610:ddb74609-ee6f-1ddc-99d1-60132d15e827",
+        "settlementId": "hagstofa:0690",
+        "resolution": "unique_official_name"
+      }
     },
     "611": {
       "name": "Grímsey",
       "classification": "Þéttbýli",
       "sourceId": "e2600959-99b2-81a4-16c0-57880419bacc",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:611:e2600959-99b2-81a4-16c0-57880419bacc",
+        "settlementId": "hagstofa:0649",
+        "resolution": "unique_official_name"
+      }
     },
     "616": {
       "name": "Grenivík, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "7d735401-8e76-392d-2989-71cdc37d27d9",
-      "correctedAt": "2019-10-04Z"
+      "correctedAt": "2019-10-04Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:616:7d735401-8e76-392d-2989-71cdc37d27d9"
+      }
     },
     "620": {
       "name": "Dalvík",
       "classification": "Þéttbýli",
       "sourceId": "946b5e8e-2168-ede9-345f-c7debaf3b4c7",
-      "correctedAt": "2014-10-17Z"
+      "correctedAt": "2014-10-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:620:946b5e8e-2168-ede9-345f-c7debaf3b4c7",
+        "settlementId": "hagstofa:0660",
+        "resolution": "unique_official_name"
+      }
     },
     "621": {
       "name": "Dalvík, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "46433433-e50f-6438-78be-e456aee304d0",
-      "correctedAt": "2023-03-09Z"
+      "correctedAt": "2023-03-09Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:621:46433433-e50f-6438-78be-e456aee304d0"
+      }
     },
     "625": {
       "name": "Ólafsfjörður",
       "classification": "Þéttbýli",
       "sourceId": "386ddc4d-4149-97a8-43a4-e5cabb65437e",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:625:386ddc4d-4149-97a8-43a4-e5cabb65437e",
+        "settlementId": "hagstofa:0650",
+        "resolution": "unique_official_name"
+      }
     },
     "626": {
       "name": "Ólafsfjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "16501dc6-d5b6-51e5-b561-ab5cfe8a9344",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:626:16501dc6-d5b6-51e5-b561-ab5cfe8a9344"
+      }
     },
     "630": {
       "name": "Hrísey",
       "classification": "Þéttbýli",
       "sourceId": "24477c9f-0f95-b075-18f8-184e1fde33a2",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:630:24477c9f-0f95-b075-18f8-184e1fde33a2",
+        "settlementId": "hagstofa:0670",
+        "resolution": "unique_official_name"
+      }
     },
     "640": {
       "name": "Húsavík",
       "classification": "Þéttbýli",
       "sourceId": "4d22019f-843d-6fbe-ab36-59ac7c4e4766",
-      "correctedAt": "2016-06-15Z"
+      "correctedAt": "2016-06-15Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:640:4d22019f-843d-6fbe-ab36-59ac7c4e4766",
+        "settlementId": "hagstofa:0710",
+        "resolution": "unique_official_name"
+      }
     },
     "641": {
       "name": "Húsavík, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "ca5f3a27-c48a-6bb9-72e4-9851b06d411f",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:641:ca5f3a27-c48a-6bb9-72e4-9851b06d411f"
+      }
     },
     "645": {
       "name": "Fosshóll",
       "classification": "Dreifbýli",
       "sourceId": "990d3083-821c-44d4-f7cd-c2b2a6d8a98f",
-      "correctedAt": "2014-01-07Z"
+      "correctedAt": "2014-01-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:645:990d3083-821c-44d4-f7cd-c2b2a6d8a98f"
+      }
     },
     "650": {
       "name": "Laugar",
       "classification": "Þéttbýli",
       "sourceId": "d3741832-a1f6-b8d6-7d02-c4592103e320",
-      "correctedAt": "2013-09-23Z"
+      "correctedAt": "2013-09-23Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:650:d3741832-a1f6-b8d6-7d02-c4592103e320",
+        "settlementId": "hagstofa:0701",
+        "resolution": "unique_official_name"
+      }
     },
     "660": {
       "name": "Mývatn",
       "classification": "Dreifbýli",
       "sourceId": "ba0d1fb4-d46d-322f-ce93-e685d8322db1",
-      "correctedAt": "2017-03-01Z"
+      "correctedAt": "2017-03-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:660:ba0d1fb4-d46d-322f-ce93-e685d8322db1"
+      }
     },
     "670": {
       "name": "Kópasker",
       "classification": "Þéttbýli",
       "sourceId": "975c658f-b011-7996-ce41-044fb8ce7a8f",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:670:975c658f-b011-7996-ce41-044fb8ce7a8f",
+        "settlementId": "hagstofa:0711",
+        "resolution": "unique_official_name"
+      }
     },
     "671": {
       "name": "Kópasker, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "df37f788-af9c-e6c6-8c30-11e23741c92c",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:671:df37f788-af9c-e6c6-8c30-11e23741c92c"
+      }
     },
     "675": {
       "name": "Raufarhöfn",
       "classification": "Þéttbýli",
       "sourceId": "f76f6659-f43e-d8e6-2601-f09ca80081ad",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:675:f76f6659-f43e-d8e6-2601-f09ca80081ad",
+        "settlementId": "hagstofa:0720",
+        "resolution": "unique_official_name"
+      }
     },
     "676": {
       "name": "Raufarhöfn, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "a036ea16-dce0-4cda-a2fc-082a8b8d0f52",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:676:a036ea16-dce0-4cda-a2fc-082a8b8d0f52"
+      }
     },
     "680": {
       "name": "Þórshöfn",
       "classification": "Þéttbýli",
       "sourceId": "c4250d6d-51ed-8199-35f9-8f63983ca08e",
-      "correctedAt": "2023-09-19Z"
+      "correctedAt": "2023-09-19Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:680:c4250d6d-51ed-8199-35f9-8f63983ca08e",
+        "settlementId": "hagstofa:0730",
+        "resolution": "unique_official_name"
+      }
     },
     "681": {
       "name": "Þórshöfn, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "3fd9890b-2730-c9c8-711b-ce67b9e181be",
-      "correctedAt": "2023-09-19Z"
+      "correctedAt": "2023-09-19Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:681:3fd9890b-2730-c9c8-711b-ce67b9e181be"
+      }
     },
     "685": {
       "name": "Bakkafjörður",
       "classification": "Þéttbýli",
       "sourceId": "17aa4999-34d5-b345-e004-d0e02366f41e",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:685:17aa4999-34d5-b345-e004-d0e02366f41e",
+        "settlementId": "hagstofa:0869",
+        "resolution": "unique_official_name"
+      }
     },
     "686": {
       "name": "Bakkafjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "9deaf79f-3896-ba5a-ac2e-6349223936c2",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:686:9deaf79f-3896-ba5a-ac2e-6349223936c2"
+      }
     },
     "690": {
       "name": "Vopnafjörður",
       "classification": "Þéttbýli",
       "sourceId": "c36ea0d8-f26d-b5a2-2735-afb63529e0b5",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:690:c36ea0d8-f26d-b5a2-2735-afb63529e0b5",
+        "settlementId": "hagstofa:0870",
+        "resolution": "unique_official_name"
+      }
     },
     "691": {
       "name": "Vopnafjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "d52e74ca-39ee-769d-c5d5-fcb82b238ec1",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:691:d52e74ca-39ee-769d-c5d5-fcb82b238ec1"
+      }
     },
     "700": {
       "name": "Egilsstaðir",
       "classification": "Þéttbýli",
       "sourceId": "1a28f5a5-b80f-0188-c8ff-8803e1d8a0ac",
-      "correctedAt": "2014-01-07Z"
+      "correctedAt": "2014-01-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:700:1a28f5a5-b80f-0188-c8ff-8803e1d8a0ac",
+        "settlementId": "hagstofa:0902",
+        "resolution": "unique_official_name"
+      }
     },
     "701": {
       "name": "Egilsstaðir, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "948f28e6-da20-d77a-4a46-6a1fff6d19d4",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:701:948f28e6-da20-d77a-4a46-6a1fff6d19d4"
+      }
     },
     "710": {
       "name": "Seyðisfjörður",
       "classification": "Þéttbýli",
       "sourceId": "6aed85ff-3c13-721f-3580-9552bf4dc317",
-      "correctedAt": "2019-10-04Z"
+      "correctedAt": "2019-10-04Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:710:6aed85ff-3c13-721f-3580-9552bf4dc317",
+        "settlementId": "hagstofa:0900",
+        "resolution": "unique_official_name"
+      }
     },
     "711": {
       "name": "Seyðisfjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "25e792bd-5daa-98cf-f25f-262c8b185f4d",
-      "correctedAt": "2019-10-04Z"
+      "correctedAt": "2019-10-04Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:711:25e792bd-5daa-98cf-f25f-262c8b185f4d"
+      }
     },
     "715": {
       "name": "Mjóifjörður",
       "classification": "Dreifbýli",
       "sourceId": "ac507f0f-eeba-cd59-43fa-6bff043dcd67",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:715:ac507f0f-eeba-cd59-43fa-6bff043dcd67"
+      }
     },
     "720": {
       "name": "Borgarfjörður eystri",
       "classification": "Þéttbýli",
       "sourceId": "1d7a4a9f-52b5-17dc-e1b7-f2b4824a23ce",
-      "correctedAt": "2022-11-02Z"
+      "correctedAt": "2022-11-02Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:720:1d7a4a9f-52b5-17dc-e1b7-f2b4824a23ce",
+        "settlementId": "is50v:10a454dc-acbe-f9f7-0276-fb315bb6e744",
+        "resolution": "unique_primary_postal"
+      }
     },
     "721": {
       "name": "Borgarfjörður eystri, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "0e950cbb-04f4-acb4-ee8e-903a4e71ec2c",
-      "correctedAt": "2022-11-02Z"
+      "correctedAt": "2022-11-02Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:721:0e950cbb-04f4-acb4-ee8e-903a4e71ec2c"
+      }
     },
     "730": {
       "name": "Reyðarfjörður",
       "classification": "Þéttbýli",
       "sourceId": "b71c74ea-7db1-4fa5-aa28-1d7cb8904310",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:730:b71c74ea-7db1-4fa5-aa28-1d7cb8904310",
+        "settlementId": "hagstofa:0930",
+        "resolution": "unique_official_name"
+      }
     },
     "731": {
       "name": "Reyðarfjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "fd20757e-4a8b-f383-8b63-09061306bbec",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:731:fd20757e-4a8b-f383-8b63-09061306bbec"
+      }
     },
     "735": {
       "name": "Eskifjörður",
       "classification": "Þéttbýli",
       "sourceId": "e02ef0b2-afaa-d923-8130-633b1ea4d452",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:735:e02ef0b2-afaa-d923-8130-633b1ea4d452",
+        "settlementId": "hagstofa:0920",
+        "resolution": "unique_official_name"
+      }
     },
     "736": {
       "name": "Eskifjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "da5dac42-3c51-1028-7357-caf8df6a1820",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:736:da5dac42-3c51-1028-7357-caf8df6a1820"
+      }
     },
     "740": {
       "name": "Neskaupsstaður",
       "classification": "Þéttbýli",
       "sourceId": "b2660f87-c712-547d-4c6d-0eea376bf738",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:740:b2660f87-c712-547d-4c6d-0eea376bf738",
+        "settlementId": "hagstofa:0910",
+        "resolution": "unique_primary_postal"
+      }
     },
     "741": {
       "name": "Neskaupsstaður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "95bbb6dd-0469-2da0-bc46-71c7db92a0cd",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:741:95bbb6dd-0469-2da0-bc46-71c7db92a0cd"
+      }
     },
     "750": {
       "name": "Fáskrúðsfjörður",
       "classification": "Þéttbýli",
       "sourceId": "34c5c5b4-d8c0-0166-8b6a-7efd89886b54",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:750:34c5c5b4-d8c0-0166-8b6a-7efd89886b54",
+        "settlementId": "hagstofa:0940",
+        "resolution": "unique_official_name"
+      }
     },
     "751": {
       "name": "Fáskrúðsfjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "de4ad8e7-e454-2cd4-7e12-85eee81ee837",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:751:de4ad8e7-e454-2cd4-7e12-85eee81ee837"
+      }
     },
     "755": {
       "name": "Stöðvarfjörður",
       "classification": "Þéttbýli",
       "sourceId": "250a7924-1739-aadc-370b-fbcb53e582a5",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:755:250a7924-1739-aadc-370b-fbcb53e582a5",
+        "settlementId": "hagstofa:0950",
+        "resolution": "unique_official_name"
+      }
     },
     "756": {
       "name": "Stöðvarfjörður, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "8da3ea8f-6dd7-2f6d-2d69-6ed313608190",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:756:8da3ea8f-6dd7-2f6d-2d69-6ed313608190"
+      }
     },
     "760": {
       "name": "Breiðdalsvík",
       "classification": "Þéttbýli",
       "sourceId": "03b7a389-9896-5dab-f33a-ad35bb6b9a76",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:760:03b7a389-9896-5dab-f33a-ad35bb6b9a76",
+        "settlementId": "hagstofa:0960",
+        "resolution": "unique_official_name"
+      }
     },
     "761": {
       "name": "Breiðdalsvík, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "aac2169d-c952-e0e5-66b3-0856c8ab69ff",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:761:aac2169d-c952-e0e5-66b3-0856c8ab69ff"
+      }
     },
     "765": {
       "name": "Djúpivogur",
       "classification": "Þéttbýli",
       "sourceId": "831791c5-14b2-0732-fb3e-539d1a889235",
-      "correctedAt": "2023-09-19Z"
+      "correctedAt": "2023-09-19Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:765:831791c5-14b2-0732-fb3e-539d1a889235",
+        "settlementId": "hagstofa:0970",
+        "resolution": "unique_official_name"
+      }
     },
     "766": {
       "name": "Djúpivogur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "0fc97453-3d93-27f2-7581-3d44b684ab11",
-      "correctedAt": "2023-09-19Z"
+      "correctedAt": "2023-09-19Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:766:0fc97453-3d93-27f2-7581-3d44b684ab11"
+      }
     },
     "780": {
       "name": "Höfn í Hornafirði",
       "classification": "Þéttbýli",
       "sourceId": "31edda1d-a8c4-d752-fd90-579816fa7f15",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:780:31edda1d-a8c4-d752-fd90-579816fa7f15",
+        "settlementId": "is50v:d31a2350-f5d3-b54e-4b5e-9dbb571ea059",
+        "resolution": "unique_primary_postal"
+      }
     },
     "781": {
       "name": "Höfn í Hornafirði, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "bea2ce01-90d8-90d5-92dd-41e2f20b2753",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:781:bea2ce01-90d8-90d5-92dd-41e2f20b2753"
+      }
     },
     "785": {
       "name": "Fagurhólsmýri",
       "classification": "Dreifbýli",
       "sourceId": "9cbc9474-8e19-3cca-194d-40d5044f3077",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:785:9cbc9474-8e19-3cca-194d-40d5044f3077"
+      }
     },
     "800": {
       "name": "Selfoss",
       "classification": "Þéttbýli",
       "sourceId": "02f53609-7aca-ffc3-dbb1-df3c7fef9bcd",
-      "correctedAt": "2024-03-20Z"
+      "correctedAt": "2024-03-20Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:800:02f53609-7aca-ffc3-dbb1-df3c7fef9bcd",
+        "settlementId": "is50v:06b9a03a-c426-0878-722c-3a0a202a12b3",
+        "resolution": "unique_official_name"
+      }
     },
     "801": {
       "name": "Selfoss, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "fa254133-c915-8882-3b52-73e00894932b",
-      "correctedAt": "2024-03-20Z"
+      "correctedAt": "2024-03-20Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:801:fa254133-c915-8882-3b52-73e00894932b"
+      }
     },
     "803": {
       "name": "Selfoss, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "8611087e-0540-ec44-175b-5e118849b6fb",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:803:8611087e-0540-ec44-175b-5e118849b6fb"
+      }
     },
     "804": {
       "name": "Selfoss, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "eaa78875-4989-b710-cc64-c13593154228",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:804:eaa78875-4989-b710-cc64-c13593154228"
+      }
     },
     "805": {
       "name": "Selfoss, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "459d265a-f803-ea36-d4ad-466768c83735",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:805:459d265a-f803-ea36-d4ad-466768c83735"
+      }
     },
     "806": {
       "name": "Selfoss, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "ce199ade-2823-f623-5cc4-edde109915ee",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:806:ce199ade-2823-f623-5cc4-edde109915ee"
+      }
     },
     "810": {
       "name": "Hveragerði",
       "classification": "Þéttbýli",
       "sourceId": "b6475a4c-317c-4aad-8435-07309ac6284c",
-      "correctedAt": "2018-08-23Z"
+      "correctedAt": "2018-08-23Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:810:b6475a4c-317c-4aad-8435-07309ac6284c",
+        "settlementId": "is50v:35b0292b-5ed6-5bff-05ce-da76fc0ad823",
+        "resolution": "unique_official_name"
+      }
     },
     "815": {
       "name": "Ölfus",
       "classification": "Dreifbýli",
       "sourceId": "e0634d8e-0103-57c4-f404-f647a0779541",
-      "correctedAt": "2022-02-17Z"
+      "correctedAt": "2022-02-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:815:e0634d8e-0103-57c4-f404-f647a0779541"
+      }
     },
     "816": {
       "name": "Ölfus",
       "classification": "Dreifbýli",
       "sourceId": "e0634d8e-0103-57c4-f404-f647a0779541",
-      "correctedAt": "2022-02-17Z"
+      "correctedAt": "2022-02-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:816:e0634d8e-0103-57c4-f404-f647a0779541"
+      }
     },
     "820": {
       "name": "Eyrarbakki",
       "classification": "Þéttbýli",
       "sourceId": "8f96461d-bde6-3f19-93ea-019a5308f09b",
-      "correctedAt": "2014-10-20Z"
+      "correctedAt": "2014-10-20Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:820:8f96461d-bde6-3f19-93ea-019a5308f09b",
+        "settlementId": "hagstofa:1140",
+        "resolution": "unique_official_name"
+      }
     },
     "825": {
       "name": "Stokkseyri",
       "classification": "Þéttbýli",
       "sourceId": "f9b0e12d-c8c5-1193-db52-b7adb3db67ec",
-      "correctedAt": "2014-10-20Z"
+      "correctedAt": "2014-10-20Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:825:f9b0e12d-c8c5-1193-db52-b7adb3db67ec",
+        "settlementId": "hagstofa:1130",
+        "resolution": "unique_official_name"
+      }
     },
     "840": {
       "name": "Laugarvatn",
       "classification": "Þéttbýli",
       "sourceId": "6d1d3429-bb75-1b51-26de-38a320e6ce90",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:840:6d1d3429-bb75-1b51-26de-38a320e6ce90",
+        "settlementId": "hagstofa:1163",
+        "resolution": "unique_official_name"
+      }
     },
     "845": {
       "name": "Flúðir",
       "classification": "Þéttbýli",
       "sourceId": "ec1c538a-8423-bcdd-5173-a210db867679",
-      "correctedAt": "2017-12-01Z"
+      "correctedAt": "2017-12-01Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:845:ec1c538a-8423-bcdd-5173-a210db867679",
+        "settlementId": "hagstofa:1160",
+        "resolution": "unique_official_name"
+      }
     },
     "846": {
       "name": "Flúðir, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "de2bfb1f-d8f7-1a26-e195-66e1d5c5324e",
-      "correctedAt": "2019-10-03Z"
+      "correctedAt": "2019-10-03Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:846:de2bfb1f-d8f7-1a26-e195-66e1d5c5324e"
+      }
     },
     "850": {
       "name": "Hella",
       "classification": "Þéttbýli",
       "sourceId": "cb00e87d-0e15-a0fd-d318-1d39d1b02d23",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:850:cb00e87d-0e15-a0fd-d318-1d39d1b02d23",
+        "settlementId": "hagstofa:1120",
+        "resolution": "unique_official_name"
+      }
     },
     "851": {
       "name": "Hella, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "453b1695-1c60-4a6e-3a69-fd9620c3adb0",
-      "correctedAt": "2021-01-14Z"
+      "correctedAt": "2021-01-14Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:851:453b1695-1c60-4a6e-3a69-fd9620c3adb0"
+      }
     },
     "860": {
       "name": "Hvolsvöllur",
       "classification": "Þéttbýli",
       "sourceId": "06e42e32-3c88-1be5-c0c0-e8dffd05b449",
-      "correctedAt": "2021-12-17Z"
+      "correctedAt": "2021-12-17Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:860:06e42e32-3c88-1be5-c0c0-e8dffd05b449",
+        "settlementId": "hagstofa:1110",
+        "resolution": "unique_official_name"
+      }
     },
     "861": {
       "name": "Hvolsvöllur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "2442c901-1bff-96af-226c-4ee77b84bb49",
-      "correctedAt": "2021-12-17Z"
+      "correctedAt": "2021-12-17Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:861:2442c901-1bff-96af-226c-4ee77b84bb49"
+      }
     },
     "870": {
       "name": "Vík",
       "classification": "Þéttbýli",
       "sourceId": "6b889aeb-c9b7-f199-8e62-c30696b82a25",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:870:6b889aeb-c9b7-f199-8e62-c30696b82a25",
+        "settlementId": "is50v:489790d3-90c0-2985-8e05-c31f2951655c",
+        "resolution": "unique_official_name"
+      }
     },
     "871": {
       "name": "Vík, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "f30c9806-2515-92b9-6b90-29f79518d467",
-      "correctedAt": "2017-11-29Z"
+      "correctedAt": "2017-11-29Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:871:f30c9806-2515-92b9-6b90-29f79518d467"
+      }
     },
     "880": {
       "name": "Kirkjubæjarklaustur",
       "classification": "Þéttbýli",
       "sourceId": "fc01f9bc-62a0-3f90-3b4e-7f802653de18",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:880:fc01f9bc-62a0-3f90-3b4e-7f802653de18",
+        "settlementId": "hagstofa:1089",
+        "resolution": "unique_official_name"
+      }
     },
     "881": {
       "name": "Kirkjubæjarklaustur, dreifbýli",
       "classification": "Dreifbýli",
       "sourceId": "e01578cf-e040-6840-3669-c4fe1fce7b85",
-      "correctedAt": "2019-10-07Z"
+      "correctedAt": "2019-10-07Z",
+      "assessmentIdentity": {
+        "kind": "rural_postal_area",
+        "postalAreaId": "postal:881:e01578cf-e040-6840-3669-c4fe1fce7b85"
+      }
     },
     "900": {
       "name": "Vestmannaeyjar",
       "classification": "Þéttbýli",
       "sourceId": "1fbc53b5-8933-429e-5b06-00bb76cfdb3d",
-      "correctedAt": null
+      "correctedAt": null,
+      "assessmentIdentity": {
+        "kind": "urban_settlement",
+        "postalAreaId": "postal:900:1fbc53b5-8933-429e-5b06-00bb76cfdb3d",
+        "settlementId": "hagstofa:1100",
+        "resolution": "unique_official_name"
+      }
     }
-  }
+  },
+  "contentSha256": "031fe206d54bf83b7b54aa00e27c2d4fd3ea7a85bd8738a95f9553c15eb2138c"
 }

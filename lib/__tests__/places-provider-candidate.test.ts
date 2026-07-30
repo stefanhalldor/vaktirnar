@@ -61,6 +61,26 @@ describe('toWeatherPlaceCandidate', () => {
     expect(candidate.placeId).toBe('confirmed')
   })
 
+  it('routes an official rural assessment point by its server-verified anchor', () => {
+    const candidate = toWeatherPlaceCandidate({
+      ...BASE,
+      name: 'Hella, dreifbýli',
+      formattedAddress: '851 Hella, dreifbýli',
+      source: 'official',
+      sourceId: 'postal:851:official-source',
+      placeType: 'point',
+      postalCode: '851',
+      postalLocality: 'Hella, dreifbýli',
+    })
+
+    expect(candidate).toMatchObject({
+      placeId: 'confirmed',
+      lat: BASE.lat,
+      lon: BASE.lon,
+      displayName: 'Hella, dreifbýli',
+    })
+  })
+
   it('keeps legacy source-less Google place IDs working during migration', () => {
     const candidate = toWeatherPlaceCandidate({
       ...BASE,

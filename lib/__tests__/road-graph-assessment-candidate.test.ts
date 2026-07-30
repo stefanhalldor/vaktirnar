@@ -9,7 +9,9 @@ vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
   getIcelandRoadGraph: mockGetIcelandRoadGraph,
 }))
 
-import { buildIcelandRoadGraph } from '@/lib/iceland-routes/roadGraph'
+import {
+  buildIcelandRoadGraph,
+} from '@/lib/iceland-routes/roadGraph'
 import {
   getTeskeidAssessmentRouteCandidatesOutcome,
   resetTeskeidRouteCandidateCacheForTests,
@@ -18,8 +20,10 @@ import {
 import { findRouteAssessmentRoadAnchors } from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
 import {
   resolveTeskeidAssessmentRouteEvidence,
+  teskeidAssessmentRouteEdgesHaveIntegrity,
   teskeidAssessmentEvidenceMatchesSignedRoute,
 } from '@/lib/iceland-routes/routeAssessmentCandidateEvidence.server'
+import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 import { createRouteAssessmentScopeId } from '@/lib/iceland-routes/routeAssessmentScopeId.server'
 import type { IcelandRoadGraph, IcelandRoadGraphSegmentInput } from '@/lib/iceland-routes/roadGraphTypes'
 import type { LatLon } from '@/lib/iceland-routes/types'
@@ -126,6 +130,49 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(outcome.routes[0].points.at(-1)).not.toEqual(ROAD_END)
     expect(outcome.routes[0].distanceM).toBeLessThan(20_000)
     expect(JSON.stringify(outcome)).not.toContain(JSON.stringify(exactNavigationDestination))
+  })
+
+  it('strips internal elevation metadata before signing a Teskeið route envelope', async () => {
+    const elevatedGeometry = [
+      { ...ROAD_START, elevationM: 10 },
+      { lat: 64, lon: -20.3, elevationM: 20 },
+      { ...ROAD_END, elevationM: 30 },
+    ]
+    const activeGraph = buildIcelandRoadGraph([
+      segment('elevated-assessment-road', elevatedGeometry),
+    ], { nodeSnapToleranceM: 2 })
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: ROAD_START },
+      { kind: 'canonical_node', point: ROAD_END },
+    )
+    mockGetIcelandRoadGraph.mockResolvedValue(activeGraph)
+
+    const outcome = await getTeskeidAssessmentRouteCandidatesOutcome(
+      scope.origin,
+      scope.destination,
+      scope.assessmentScopeId,
+    )
+
+    expect(outcome.status).toBe('ready')
+    if (outcome.status !== 'ready') return
+    expect(outcome.routes[0].points.every(point => (
+      Object.keys(point).sort().join(',') === 'lat,lon'
+    ))).toBe(true)
+
+    const savedSecret = process.env.AUTH_CODE_SECRET
+    process.env.AUTH_CODE_SECRET = 'test-route-envelope-secret-at-least-32-bytes-long'
+    try {
+      expect(() => signRouteOptionEnvelope({
+        origin: { lat: scope.origin.lat, lon: scope.origin.lon },
+        destination: { lat: scope.destination.lat, lon: scope.destination.lon },
+        assessmentScopeId: scope.assessmentScopeId,
+        route: outcome.routes[0],
+      })).not.toThrow()
+    } finally {
+      if (savedSecret === undefined) delete process.env.AUTH_CODE_SECRET
+      else process.env.AUTH_CODE_SECRET = savedSecret
+    }
   })
 
   it('preserves a projected mid-edge origin in the reverse direction', async () => {
@@ -241,7 +288,7 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(outcome.routes[1].points).toContainEqual({ lat: 63.9, lon: -20.4 })
   })
 
-  it('returns pending instead of caching a partial alternative search as ready', async () => {
+  it('propagates the absolute deadline to primary reconstruction without caching pending', async () => {
     const activeGraph = graphWithAlternative()
     const scope = signedScopeInput(
       activeGraph,
@@ -263,6 +310,33 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     } finally {
       now.mockRestore()
     }
+
+    const recovered = await getTeskeidAssessmentRouteCandidatesOutcome(
+      scope.origin,
+      scope.destination,
+      scope.assessmentScopeId,
+      true,
+    )
+    expect(recovered.status).toBe('ready')
+    expect(mockGetIcelandRoadGraph).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns explicit incomplete evidence when the primary deadline is already exhausted', () => {
+    const activeGraph = graph()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: ROAD_START },
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.3 } },
+    )
+
+    expect(resolveTeskeidAssessmentRouteEvidence({
+      graph: activeGraph,
+      origin: scope.origin,
+      destination: scope.destination,
+      assessmentScopeId: scope.assessmentScopeId,
+      includeAlternatives: false,
+      deadlineAtMs: Date.now() - 1,
+    })).toEqual({ status: 'incomplete', evidence: [] })
   })
 
   it('binds alternative evidence to exact signed geometry, distance and duration', () => {
@@ -300,6 +374,52 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(teskeidAssessmentEvidenceMatchesSignedRoute(alternative, {
       ...alternative.route,
       distanceM: alternative.route.distanceM + 1,
+    })).toBe(false)
+  })
+
+  it('rejects discontinuous, duplicate and wrong-scope edge evidence before publication', () => {
+    const activeGraph = graphWithAlternative()
+    const anchors = findRouteAssessmentRoadAnchors(
+      activeGraph,
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.65 } },
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.15 } },
+      { maxOriginSnapDistanceM: 500, maxDestinationSnapDistanceM: 500 },
+    )
+    expect(anchors.status).toBe('ok')
+    if (anchors.status !== 'ok') return
+
+    const validInput = {
+      connectedRoadEdges: anchors.connectedRoadEdges,
+      origin: anchors.origin.point,
+      destination: anchors.destination.point,
+    }
+    expect(teskeidAssessmentRouteEdgesHaveIntegrity(validInput)).toBe(true)
+    expect(teskeidAssessmentRouteEdgesHaveIntegrity({
+      ...validInput,
+      origin: { lat: anchors.origin.point.lat + 0.01, lon: anchors.origin.point.lon },
+    })).toBe(false)
+    expect(teskeidAssessmentRouteEdgesHaveIntegrity({
+      ...validInput,
+      connectedRoadEdges: [
+        anchors.connectedRoadEdges[0],
+        anchors.connectedRoadEdges[0],
+      ],
+    })).toBe(false)
+
+    const disconnected = anchors.connectedRoadEdges.map((edge, index) => (
+      index === 1
+        ? {
+            ...edge,
+            geometry: [
+              { lat: edge.geometry[0].lat + 0.01, lon: edge.geometry[0].lon },
+              ...edge.geometry.slice(1),
+            ],
+          }
+        : edge
+    ))
+    expect(teskeidAssessmentRouteEdgesHaveIntegrity({
+      ...validInput,
+      connectedRoadEdges: disconnected,
     })).toBe(false)
   })
 
@@ -385,6 +505,37 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(replacement.status).toBe('ready')
     expect(replacement).not.toBe(first)
     expect(mockGetIcelandRoadGraph).toHaveBeenCalledTimes(4)
+  })
+
+  it('drops Fast Refresh candidate state created by an older routing policy', async () => {
+    const activeGraph = graph()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: ROAD_START },
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.3 } },
+    )
+    mockGetIcelandRoadGraph.mockResolvedValue(activeGraph)
+    const first = await getTeskeidAssessmentRouteCandidatesOutcome(
+      scope.origin,
+      scope.destination,
+      scope.assessmentScopeId,
+    )
+    expect(first.status).toBe('ready')
+
+    const runtime = globalThis as typeof globalThis & {
+      __teskeidRouteCandidateCacheV3__?: { policyFingerprint: string }
+    }
+    expect(runtime.__teskeidRouteCandidateCacheV3__).toBeDefined()
+    runtime.__teskeidRouteCandidateCacheV3__!.policyFingerprint = 'stale-routing-policy'
+
+    const recomputed = await getTeskeidAssessmentRouteCandidatesOutcome(
+      scope.origin,
+      scope.destination,
+      scope.assessmentScopeId,
+    )
+    expect(recomputed.status).toBe('ready')
+    expect(recomputed).not.toBe(first)
+    expect(mockGetIcelandRoadGraph).toHaveBeenCalledTimes(2)
   })
 
   it('does not load the graph while the candidate flag is disabled', async () => {

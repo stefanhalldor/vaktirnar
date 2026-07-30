@@ -4,7 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { driveRouteMapSpy } = vi.hoisted(() => ({ driveRouteMapSpy: vi.fn() }))
 
 vi.mock('@/components/weather/DriveRouteMap', () => ({
-  DriveRouteMap: (props: { onSelectRoute?: (routeId: string) => void }) => {
+  DriveRouteMap: (props: {
+    onSelectRoute?: (routeId: string) => void
+    annotations?: Array<{
+      id: string
+      point: { lat: number; lon: number }
+      focusPoints: Array<{ lat: number; lon: number }>
+      distanceKm: number
+      showLabel?: boolean
+    }>
+  }) => {
     driveRouteMapSpy(props)
     return (
       <div data-testid="drive-route-map">
@@ -102,17 +111,110 @@ describe('RouteComparisonMiniMap', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Stækka kort' }))
     expect(onEnlarge).toHaveBeenCalledOnce()
   })
+
+  it('draws verified road sections with non-colour line patterns and a text legend', () => {
+    render(
+      <RouteComparisonMiniMap
+        ariaLabel="Leiðasamanburður"
+        routes={[
+          {
+            id: 'teskeid',
+            label: 'Teskeiðarleið',
+            provider: 'teskeid',
+            points: POINTS,
+            selected: true,
+            sectionOverlays: [{
+              id: 'gravel-0',
+              kind: 'gravel',
+              label: 'Malarvegur',
+              points: POINTS,
+            }],
+          },
+          { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: false },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Malarvegur')).toBeInTheDocument()
+    expect(driveRouteMapSpy).toHaveBeenCalledWith(expect.objectContaining({
+      annotations: [expect.objectContaining({
+        id: 'teskeid:annotation:gravel-0',
+        showLabel: true,
+      })],
+      routes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'teskeid:section:gravel-0',
+          selectRouteId: 'teskeid',
+          dashArray: [1.2, 1.5],
+        }),
+      ]),
+    }))
+  })
+
+  it('places persistent gravel markers at geometry midpoints and labels only the longest section', () => {
+    const longGravel = [
+      { lat: 64, lon: -21.8 },
+      { lat: 64, lon: -21.72 },
+      { lat: 64, lon: -21.64 },
+    ]
+    const shortGravel = [
+      { lat: 65.2, lon: -20.2 },
+      { lat: 65.2, lon: -20.16 },
+    ]
+    render(
+      <RouteComparisonMiniMap
+        ariaLabel="Leiðasamanburður"
+        routes={[
+          {
+            id: 'teskeid',
+            label: 'Teskeiðarleið',
+            provider: 'teskeid',
+            points: POINTS,
+            selected: true,
+            sectionOverlays: [
+              { id: 'long', kind: 'gravel', label: 'Malarvegur', points: longGravel },
+              { id: 'short', kind: 'gravel', label: 'Malarvegur', points: shortGravel },
+            ],
+          },
+          { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: false },
+        ]}
+      />,
+    )
+
+    const props = driveRouteMapSpy.mock.calls[driveRouteMapSpy.mock.calls.length - 1]?.[0] as {
+      annotations?: Array<{
+        id: string
+        point: { lat: number; lon: number }
+        focusPoints: Array<{ lat: number; lon: number }>
+        distanceKm: number
+        showLabel?: boolean
+      }>
+    }
+    expect(props.annotations).toHaveLength(2)
+    const longMarker = props.annotations?.find(annotation => annotation.id.endsWith(':long'))
+    const shortMarker = props.annotations?.find(annotation => annotation.id.endsWith(':short'))
+    expect(longMarker?.distanceKm).toBeGreaterThan(7)
+    expect(longMarker?.distanceKm).toBeLessThan(9)
+    expect(longMarker?.point.lon).toBeCloseTo(-21.72, 2)
+    expect(longMarker?.point).not.toEqual(longGravel[0])
+    expect(longMarker?.point).not.toEqual(longGravel[longGravel.length - 1])
+    expect(longMarker?.focusPoints).toEqual(longGravel)
+    expect(longMarker?.showLabel).toBe(true)
+    expect(shortMarker?.showLabel).toBe(false)
+  })
 })
 
 describe('RouteComparisonFullscreenMap', () => {
   it('selects from both the map and cards and exposes one explicit apply action', () => {
     const onSelectRouteId = vi.fn()
     const onApply = vi.fn()
+    const onClose = vi.fn()
     const { container } = render(
       <RouteComparisonFullscreenMap
         title="Veldu leið á korti"
         applyLabel="Skoða veðurskilyrði fyrir þessa leið"
         cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
         routeCountLabel="2 leiðir"
         sortLabel="Raða eftir"
         sortDefaultLabel="Sjálfgefið"
@@ -121,7 +223,7 @@ describe('RouteComparisonFullscreenMap', () => {
         sortWeatherLabel="Veðri núna"
         selectedRouteId="google"
         onSelectRouteId={onSelectRouteId}
-        onClose={vi.fn()}
+        onClose={onClose}
         onApply={onApply}
         selectedRouteDetails={<p>Staðfest mörk veðurmats</p>}
         routes={[
@@ -164,12 +266,58 @@ describe('RouteComparisonFullscreenMap', () => {
     fireEvent.click(screen.getByRole('button', { name: 'select map route' }))
     fireEvent.click(screen.getByRole('button', { name: /Teskeiðarleið/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Skoða veðurskilyrði fyrir þessa leið' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Loka leiðakorti' }))
 
     expect(onSelectRouteId).toHaveBeenCalledWith('teskeid')
     expect(onApply).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledOnce()
     expect(driveRouteMapSpy).toHaveBeenLastCalledWith(expect.objectContaining({
       onSelectRoute: expect.any(Function),
     }))
+  })
+
+  it('moves focus into the dialog, traps Tab, and restores the opener on unmount', () => {
+    const opener = document.createElement('button')
+    opener.textContent = 'Opna leiðakort'
+    document.body.appendChild(opener)
+    opener.focus()
+
+    const { unmount } = render(
+      <RouteComparisonFullscreenMap
+        title="Veldu leið á korti"
+        applyLabel="Skoða veðurskilyrði"
+        cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
+        routeCountLabel="1 leið"
+        sortLabel="Raða eftir"
+        sortDefaultLabel="Sjálfgefið"
+        sortDurationLabel="Aksturstíma"
+        sortDistanceLabel="Vegalengd"
+        sortWeatherLabel="Veðri núna"
+        selectedRouteId="google"
+        onSelectRouteId={vi.fn()}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+        routes={[
+          { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: true },
+        ]}
+      />,
+    )
+
+    const close = screen.getByRole('button', { name: 'Loka leiðakorti' })
+    const apply = screen.getByRole('button', { name: 'Skoða veðurskilyrði' })
+    expect(close).toHaveFocus()
+
+    apply.focus()
+    fireEvent.keyDown(window, { key: 'Tab' })
+    expect(close).toHaveFocus()
+
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true })
+    expect(apply).toHaveFocus()
+
+    unmount()
+    expect(opener).toHaveFocus()
+    opener.remove()
   })
 
   it('disables the apply action while pending and keeps the supplied pending label', () => {
@@ -182,6 +330,7 @@ describe('RouteComparisonFullscreenMap', () => {
         applyLabel="Reikna veðurskilyrði…"
         applyPending
         cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
         routeCountLabel="1 leið"
         findMoreLabel="Finna fleiri leiðir"
         sortLabel="Raða eftir"
@@ -233,6 +382,7 @@ describe('RouteComparisonFullscreenMap', () => {
         title="Veldu leið á korti"
         applyLabel="Skoða veðurskilyrði fyrir þessa leið"
         cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
         routeCountLabel="2 leiðir"
         sortLabel="Raða eftir"
         sortDefaultLabel="Sjálfgefið"
@@ -261,6 +411,7 @@ describe('RouteComparisonFullscreenMap', () => {
         title="Veldu leið á korti"
         applyLabel="Skoða veðurskilyrði fyrir þessa leið"
         cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
         routeCountLabel="2 leiðir"
         sortLabel="Raða eftir"
         sortDefaultLabel="Sjálfgefið"
@@ -316,6 +467,7 @@ describe('RouteComparisonFullscreenMap', () => {
         title="Veldu leið á korti"
         applyLabel="Skoða veðurskilyrði fyrir þessa leið"
         cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
         routeCountLabel="3 leiðir"
         sortLabel="Raða eftir"
         sortDefaultLabel="Sjálfgefið"
@@ -353,6 +505,7 @@ describe('RouteComparisonFullscreenMap', () => {
         title="Veldu leið á korti"
         applyLabel="Skoða veðurskilyrði fyrir þessa leið"
         cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
         routeCountLabel="3 leiðir"
         sortLabel="Raða eftir"
         sortDefaultLabel="Sjálfgefið"
@@ -435,6 +588,7 @@ describe('sortRouteComparisonItems', () => {
         title="Veldu leið á korti"
         applyLabel="Skoða veðurskilyrði fyrir þessa leið"
         cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
         routeCountLabel="1 leið"
         sortLabel="Raða eftir"
         sortDefaultLabel="Sjálfgefið"

@@ -258,6 +258,17 @@ describe('POST /api/place/search — HMS-first privacy contract', () => {
     expect(mocks.searchHmsPlaces).not.toHaveBeenCalled()
   })
 
+  it('uses the active HMS directory by default when the legacy rollout flag is absent', async () => {
+    delete process.env.HMS_PLACE_SEARCH_ENABLED
+    mocks.searchHmsPlaces.mockResolvedValue([HMS_LOCATION])
+
+    const response = await POST_SEARCH(searchRequest('Laugavegur 10'))
+
+    expect(response.status).toBe(200)
+    expect(mocks.searchHmsPlaces).toHaveBeenCalledWith('Laugavegur 10', 8)
+    expect((await response.json()).results).toEqual([HMS_LOCATION])
+  })
+
   it('keeps Google disabled by default when local sources return no match', async () => {
     const response = await POST_SEARCH(searchRequest('Óþekktur staður'))
 

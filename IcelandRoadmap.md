@@ -422,6 +422,53 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
 - Þetta er sjónræn framsetning á punktmælingum, ekki samfelld vindspá eða ný
   öryggisfullyrðing. Engin ný leiðar- eða staðsetningargögn eru vistuð.
 
+**Framhald (v0.9.3 — nákvæmur staður á næsta reachable veg):**
+
+- Nákvæm `Frá` og `Til` hnit úr staðavali eru varðveitt sem navigation-staðir,
+  óháð því hvort HMS identity tengist þéttbýli eða dreifbýli.
+- Báðir endar Teskeiðarleiðar eru varpaðir á innri punkt næsta staðfesta,
+  akfæra og stefnurétta vegkafla sem tengist samfelldri leið. Leit víkkar í
+  litlum deterministic fjarlægðarböndum aðeins þegar nærri vegurinn er ekki
+  reachable.
+- Route scope flytur rúnnaða loftlínufjarlægð frá hvorum nákvæmum stað að
+  vegfestu. UI segir skýrt að leiðin hefjist/endi á staðfestum vegi; það fullyrðir
+  ekki að loftlínubilið sé akfært eða gangfært.
+- Staðarheiti notandans, t.d. Víðibakki, helst í navigation-samhengi og Google
+  handoff notar áfram nákvæma staðinn. Assessment identity og vegfesta breyta
+  staðnum ekki í póstsvæðisheiti.
+- Real-artifact regression skal nota nákvæmt HMS-staðfang, ekki fyrsta punkt
+  provider-veglínu, og ná yfir Víðibakki ↔ Ísafjörður í báðar áttir.
+- Engin nákvæm staðsetning eða persónuleg leið er vistuð með þessu contracti.
+
+**Framhald (v0.9.4 — source-staðfest nákvæm T-gatnamót):**
+
+- Vegagerðarvegur sem endar á einstökum, nákvæmum innri vertex í þeim opinbera
+  vegkafla sem endpoint-heitið vísar á má nú kljúfa target-kaflann þar. Reglan
+  er almenn fyrir landið og notar ekki staðarheiti, Google-leið eða sértæka
+  Víðibakka-undantekningu.
+- Einhliða tilvísun er aðeins samþykkt innan 1 mm við raunverulegan target
+  vertex. Öll non-zero 1–50 m gap-repair halda áfram að krefjast gagnkvæmrar
+  opinberrar kaflatilvísunar og núverandi geometry-varna.
+- Áreiðanlegur hæðarmunur yfir 5 m hafnar tengingu. Kafli þar sem öll Z-gildi
+  eru núll er meðhöndlaður sem vöntun á hæðargögnum, ekki sem staðfest sjávarmál.
+- Snapshot-reader styður bæði eldri reciprocal-v1 og nýja exact-vertex-v2
+  policy fingerprinta. Refresh og runtime nota sama deterministic materializer,
+  og warm graph/candidate cache ógildast þegar policy breytist.
+- Refresh writer helst á reciprocal-v1 í reader-first áfanganum. Fyrsta v2
+  promotion krefst `TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED=true`; þegar v2
+  er active má vöntun á flagginu ekki lækka snapshotið aftur í v1. Refresh ber
+  virka metadata- og payload-samninginn saman áður en writer-policy er valin og
+  stoppar fail-closed ef þeir eru ósamstæðir.
+- Rétt HMS-regression fyrir Víðibakka, 851 Hella, velur veg 271 um 442 m frá
+  staðnum, tengist Hringvegi 1-c5 og skilar um 536,1 km til Ísafjarðar í báðar
+  áttir. Gamli 583,2 km krókurinn um vegi 268 og 26 er bannaður bæði í prófinu
+  og v2 promotion-canary sem keyrir á staged grafinu áður en það má verða active.
+- Admin/cron refresh-svar skilar policy fingerprinti fyrir bæði `ok` og
+  `unchanged`, svo rekstraraðili geti staðfest v1/v2 stöðu án ágiskunar.
+- Ný policy-snapshot mega aðeins virkjast eftir reader-first rollout ef sama
+  Supabase-verkefni þjónar eldri runtime-instönsum. Refresh er áfram aðskilin,
+  skrifandi og sérstaklega samþykkt aðgerð.
+
 ### R7 - Eigið Kortalag Prototype
 
 Staða: ekki byrjað.

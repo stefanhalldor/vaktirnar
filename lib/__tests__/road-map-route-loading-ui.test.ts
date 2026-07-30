@@ -135,7 +135,7 @@ describe('road-map route results display state', () => {
     expect(resolveRouteResultsDisplayState(input)).toBe(expected)
   })
 
-  it('keeps Garðabær → Víðibakki ready with route cards and weather while only navigation handoff gets exact points', () => {
+  it('keeps exact navigation and verified assessment endpoints in separate purpose-specific contracts', () => {
     const navigationOrigin = {
       name: 'Núverandi staðsetning',
       lat: 64.083771,
@@ -170,13 +170,19 @@ describe('road-map route results display state', () => {
       destination: assessmentDestination,
       assessmentScopeId: places.assessmentScope.scopeId,
     })
-    const serializedTravel = JSON.stringify(travelRequest)
-    expect(serializedTravel).not.toContain(`${navigationOrigin.lat}`)
-    expect(serializedTravel).not.toContain(`${navigationOrigin.lon}`)
-    expect(serializedTravel).not.toContain(`${navigationDestination.lat}`)
-    expect(serializedTravel).not.toContain(`${navigationDestination.lon}`)
 
     const endpoints = resolveAssessmentClientEndpoints(places)
+    expect(endpoints.navigation).toEqual({
+      origin: navigationOrigin,
+      destination: navigationDestination,
+      originName: navigationOrigin.name,
+      destinationName: navigationDestination.name,
+    })
+    expect(endpoints.assessment).toEqual({
+      origin: assessmentOrigin,
+      destination: assessmentDestination,
+      scopeId: places.assessmentScope.scopeId,
+    })
     const googleMapsUrl = buildGoogleMapsDirectionsUrl(endpoints.navigation)
     expect(googleMapsUrl).not.toBeNull()
     const parsedGoogleMapsUrl = new URL(googleMapsUrl!)
@@ -226,6 +232,8 @@ describe('road-map route results display state', () => {
     ['completed alternatives request', true, 'ready', 'none', true, true, true],
     ['candidate provider returned no route', true, 'no_route', 'idle', false, false, true],
     ['candidate provider became unavailable', true, 'unavailable', 'idle', false, false, true],
+    ['candidate provider is slow but no longer blocks truthful Google results', true, 'slow', 'idle', false, false, true],
+    ['alternatives are slow but the completed primary search remains usable', true, 'ready', 'slow', true, true, true],
     ['candidate provider is still loading', true, 'loading', 'idle', false, false, false],
     ['ready status before choices merge', true, 'ready', 'idle', false, false, false],
     ['automatic alternatives request is expected', true, 'ready', 'idle', true, true, false],
@@ -408,7 +416,7 @@ describe('road-map route results display state', () => {
       /refreshRouteChoiceEnvelope\(\s*choice,\s*resolvedPlaces,\s*controller\.signal,\s*\)/,
     )
     expect(switchBlock).toMatch(
-      /refreshRouteChoiceEnvelope\(\s*choiceToApply,\s*resolvedPlaces,\s*controller\.signal,\s*true,\s*\)/,
+      /refreshRouteChoiceEnvelope\(\s*choiceToApply,\s*resolvedPlaces,\s*controller\.signal,\s*\)/,
     )
     expect(switchBlock).toContain('places: resolvedPlaces')
 
@@ -496,5 +504,69 @@ describe('road-map route results display state', () => {
     expect(source.indexOf("code === 'assessment_scope_invalid'")).toBeLessThan(
       source.indexOf('findNearestKnownRoadMapPlace(candidate.place!, 30_000)'),
     )
+  })
+
+  it('keeps display-only station layers out of route-wide departure truth', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
+      'utf8',
+    )
+
+    expect(source).not.toContain('buildDepartureForecastSlotStatusOverrides')
+    expect(source).not.toContain('setRouteSlotStatusOverrides')
+    expect(source).not.toContain('slotStatusOverrides={')
+    expect(source).toContain("reason: 'provider-layers-display-only'")
+    expect(source).toContain('const providerStatus = travelResult.stada')
+    expect(source).toContain('const providerAnswer = travelResult.svar')
+  })
+
+  it('keeps the selected route and offers retry after a structured forecast failure', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
+      'utf8',
+    )
+
+    expect(source).toContain("res.status === 503 && data?.error === 'forecast_unavailable'")
+    expect(source).toContain("reason: 'weather_unavailable'")
+    expect(source).toContain('routeForecastRetryContextRef.current = {')
+    expect(source).toContain('async function handleRetryRouteForecast()')
+    expect(source).toContain("t('roadMapPrototypeAssessmentWeatherRetry')")
+    expect(source).toContain('{renderRouteSurfaceChoices()}')
+    const forecastFailureStart = source.indexOf("if (res.status === 503 && data?.error === 'forecast_unavailable')")
+    const forecastFailureEnd = source.indexOf('\n    if (!res.ok || !data)', forecastFailureStart)
+    expect(source.slice(forecastFailureStart, forecastFailureEnd)).not.toContain('showRouteHandoffOnly(')
+    expect(source).toContain('const expiresAtMs = Date.parse(envelope.expiresAt)')
+    expect(source).toContain('routeSectionsCacheRef.current.delete(routeIdentity)')
+    expect(source).toContain('await routeSectionsPresentationHashMatches(parsed)')
+    expect(source).toContain('async function handleRetryRouteSections(choice: RouteSurfaceChoice)')
+    expect(source).toMatch(
+      /refreshRouteChoiceEnvelope\(\s*choice,\s*places,\s*controller\.signal,\s*\)/,
+    )
+
+    const accessStart = source.indexOf('async function resolveTeskeidAccessEnvelope(')
+    const accessEnd = source.indexOf('async function refreshRouteChoiceEnvelope(', accessStart)
+    const accessBlock = source.slice(accessStart, accessEnd)
+    expect(accessBlock).toContain('fetchRouteSurfaceChoices(')
+    expect(accessBlock).not.toContain('teskeidAccessEnvelope(')
+  })
+
+  it('keeps stable server route ids scope-local in React and async hydration', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
+      'utf8',
+    )
+    const choiceStart = source.indexOf('function routeOptionToSurfaceChoice(')
+    const choiceEnd = source.indexOf('\n  function mergeProviderRouteChoices(', choiceStart)
+    const choiceBlock = source.slice(choiceStart, choiceEnd)
+    const hydrationStart = source.indexOf('async function hydrateRouteSurfaceChoiceSummaries(')
+    const hydrationEnd = source.indexOf('\n  function scheduleRouteSurfaceChoiceSummaries(', hydrationStart)
+    const hydrationBlock = source.slice(hydrationStart, hydrationEnd)
+
+    expect(choiceBlock).toContain('identity: routeEnvelope?.signature')
+    expect(choiceBlock).toContain('`${route.id}:${route.routeIndex}:${route.distanceM}:${route.durationS}`')
+    expect(hydrationBlock).toContain('route.identity === choice.identity')
+    expect(source).toContain('key={choice.identity}')
+    expect(source).toContain('routeBridgeRunIdRef.current !== runId')
+    expect(source).toContain('assessmentScopeId,\n    origin.lat.toFixed(6)')
   })
 })

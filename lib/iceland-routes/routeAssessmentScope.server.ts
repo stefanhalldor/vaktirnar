@@ -2,58 +2,153 @@ import 'server-only'
 
 import {
   findOfficialSettlementContainingPoint,
+  getOfficialPostalAssessmentIdentity,
   getOfficialPostalLocality,
   getOfficialSettlementById,
+  type OfficialPostalLocality,
   type OfficialSettlementRecord,
 } from '@/lib/places/officialPlaceDirectory.server'
 import type { ConfirmedLocationInput } from '@/lib/places/providerCandidate'
+import { isIcelandRoadGraphEdgeAssessmentEligible } from './roadGraph'
 import { getIcelandRoadGraph } from './roadGraphRuntime.server'
-import { resolveVerifiedHmsPostalIdentity } from './routeAssessmentHmsIdentity.server'
-import type { PostalAssessmentMapping } from './routeAssessmentMapping'
+import {
+  resolveVerifiedHmsPostalIdentity,
+  resolveVerifiedHmsSourceIdentity,
+  type VerifiedHmsPostalIdentity,
+} from './routeAssessmentHmsIdentity.server'
 import {
   findRouteAssessmentRoadAnchors,
   type RouteAssessmentAnchorRequest,
 } from './routeAssessmentRoadAnchor.server'
-import type { RouteAssessmentEndpoint, RouteAssessmentScope } from './routeAssessmentScope'
+import type { IcelandRoadGraphEdge } from './roadGraphTypes'
+import type {
+  RouteAssessmentEndpoint,
+  RouteAssessmentScope,
+} from './routeAssessmentScope'
 import { createRouteAssessmentScopeId } from './routeAssessmentScopeId.server'
 
 const ASSESSMENT_GRAPH_MAX_SNAP_DISTANCE_M = 5_000
 const ASSESSMENT_GRAPH_TIMEOUT_MS = process.env.NODE_ENV === 'test' ? 1_000 : 8_000
 
-type SettlementResolution =
-  | {
-      status: 'ready'
-      settlement: OfficialSettlementRecord
-      anchorKind: 'settlement_nodes' | 'projected_road'
-    }
-  | { status: 'unavailable'; reason: 'assessment_area_unavailable' | 'assessment_mapping_invalid' }
+type ReadyUrbanResolution = Readonly<{
+  status: 'ready'
+  identityKind: 'urban_settlement'
+  settlement: OfficialSettlementRecord
+}>
 
-function resolveMappedSettlement(
-  mapping: PostalAssessmentMapping,
-  anchorKind: 'settlement_nodes' | 'projected_road',
-): SettlementResolution {
-  const postalLocality = getOfficialPostalLocality(mapping.postalCode)
-  const settlement = getOfficialSettlementById(mapping.assessmentSettlementId)
+type ReadyRuralResolution = Readonly<{
+  status: 'ready'
+  identityKind: 'rural_postal_area'
+  postalCode: string
+  postalLocality: OfficialPostalLocality
+  postalAreaId: string
+}>
+
+type ReadyRoadAnchorResolution = Readonly<{
+  status: 'ready'
+  identityKind: 'official_road_anchor'
+}>
+
+type ReadyAssessmentResolution =
+  | ReadyUrbanResolution
+  | ReadyRuralResolution
+  | ReadyRoadAnchorResolution
+
+type AssessmentResolution =
+  | ReadyAssessmentResolution
+  | Readonly<{
+      status: 'unavailable'
+      reason: 'assessment_area_unavailable' | 'assessment_mapping_invalid'
+    }>
+
+function urbanResolution(settlement: OfficialSettlementRecord): ReadyUrbanResolution {
+  return { status: 'ready', identityKind: 'urban_settlement', settlement }
+}
+
+function roadAnchorResolution(): ReadyRoadAnchorResolution {
+  return { status: 'ready', identityKind: 'official_road_anchor' }
+}
+
+function mayUseGenericRoadAnchor(location: ConfirmedLocationInput): boolean {
+  const source = location.source?.trim()
+  return source === undefined
+    || source === ''
+    || source === 'map'
+    || source === 'device'
+    || source === 'saved'
+    || source === 'recent'
+}
+
+function resolveVerifiedPostalIdentity(
+  verified: VerifiedHmsPostalIdentity,
+): AssessmentResolution {
+  const officialPostalLocality = getOfficialPostalLocality(verified.postalCode)
+  const currentIdentity = getOfficialPostalAssessmentIdentity(verified.postalCode)
   if (
-    !postalLocality
-    || postalLocality.sourceId !== mapping.postalLocalitySourceId
-    || postalLocality.name !== mapping.expectedPostalLocalityName
-    || postalLocality.classification !== mapping.expectedPostalLocalityClassification
-    || !settlement
-    || settlement.name !== mapping.expectedSettlementName
+    !officialPostalLocality
+    || officialPostalLocality.sourceId !== verified.postalLocalitySourceId
+    || officialPostalLocality.name !== verified.postalLocality
+    || !currentIdentity
+    || currentIdentity.kind === 'unresolved'
+    || currentIdentity.kind !== verified.assessmentIdentity.kind
   ) {
     return { status: 'unavailable', reason: 'assessment_mapping_invalid' }
   }
-  return { status: 'ready', settlement, anchorKind }
+
+  if (currentIdentity.kind === 'urban_settlement') {
+    if (
+      verified.assessmentIdentity.kind !== 'urban_settlement'
+      || currentIdentity.settlementId !== verified.assessmentIdentity.settlementId
+    ) {
+      return { status: 'unavailable', reason: 'assessment_mapping_invalid' }
+    }
+    const settlement = getOfficialSettlementById(currentIdentity.settlementId)
+    return settlement
+      ? urbanResolution(settlement)
+      : { status: 'unavailable', reason: 'assessment_mapping_invalid' }
+  }
+
+  if (
+    verified.assessmentIdentity.kind !== 'rural_postal_area'
+    || officialPostalLocality.classification !== 'Dreifbýli'
+    || currentIdentity.postalAreaId !== verified.assessmentIdentity.postalAreaId
+  ) {
+    return { status: 'unavailable', reason: 'assessment_mapping_invalid' }
+  }
+  return {
+    status: 'ready',
+    identityKind: 'rural_postal_area',
+    postalCode: verified.postalCode,
+    postalLocality: officialPostalLocality,
+    postalAreaId: currentIdentity.postalAreaId,
+  }
 }
 
-async function resolveAssessmentSettlement(
+async function resolveAssessmentIdentity(
   location: ConfirmedLocationInput,
-): Promise<SettlementResolution> {
-  if (location.source === 'official' && location.placeType === 'settlement' && location.sourceId) {
+): Promise<AssessmentResolution> {
+  const source = location.source?.trim()
+  if (source === 'official' && location.placeType === 'settlement' && location.sourceId) {
     const officialSelection = getOfficialSettlementById(location.sourceId)
     return officialSelection
-      ? { status: 'ready', settlement: officialSelection, anchorKind: 'settlement_nodes' }
+      ? urbanResolution(officialSelection)
+      : { status: 'unavailable', reason: 'assessment_area_unavailable' }
+  }
+
+  // A selected HMS row carries an exact first-party identity. It must always
+  // be revalidated before polygon containment so a stale/forged source ID
+  // cannot inherit a settlement merely from its client-provided coordinates.
+  if (source === 'hms') {
+    const verified = await resolveVerifiedHmsPostalIdentity(location)
+    if (verified) return resolveVerifiedPostalIdentity(verified)
+
+    // A real HMS row without a configured postal/settlement identity may use
+    // the generic road fallback, but only after its exact source ID has been
+    // re-attested. A stale or forged selection remains terminal.
+    const verifiedSource = await resolveVerifiedHmsSourceIdentity(location)
+    const expectedSourceId = location.sourceId?.trim()
+    return verifiedSource && expectedSourceId && verifiedSource.sourceId === expectedSourceId
+      ? roadAnchorResolution()
       : { status: 'unavailable', reason: 'assessment_area_unavailable' }
   }
 
@@ -61,32 +156,79 @@ async function resolveAssessmentSettlement(
   if (containing) {
     const settlement = getOfficialSettlementById(containing.id)
     return settlement
-      ? { status: 'ready', settlement, anchorKind: 'settlement_nodes' }
+      ? urbanResolution(settlement)
       : { status: 'unavailable', reason: 'assessment_mapping_invalid' }
   }
 
-  // Client postcode, locality and display labels are untrusted. Only a bounded
-  // first-party HMS lookup may select one of the explicit assessment mappings.
+  if (!mayUseGenericRoadAnchor(location)) {
+    return { status: 'unavailable', reason: 'assessment_area_unavailable' }
+  }
+
+  // Client postcode, locality, municipality and labels are untrusted. Bounded
+  // first-party lookup rehydrates map/device/saved/recent coordinate evidence.
   const verified = await resolveVerifiedHmsPostalIdentity(location)
   return verified
-    ? resolveMappedSettlement(verified.mapping, verified.anchorKind)
-    : { status: 'unavailable', reason: 'assessment_area_unavailable' }
+    ? resolveVerifiedPostalIdentity(verified)
+    : roadAnchorResolution()
 }
 
 function endpoint(
-  settlement: OfficialSettlementRecord,
+  resolution: ReadyAssessmentResolution,
   point: { lat: number; lon: number },
-): RouteAssessmentEndpoint {
+  accessDistanceM: number,
+  selectedRoadEdge?: IcelandRoadGraphEdge,
+): RouteAssessmentEndpoint | null {
+  if (resolution.identityKind === 'urban_settlement') {
+    const settlement = resolution.settlement
+    return {
+      name: settlement.name,
+      formattedAddress: settlement.name,
+      lat: point.lat,
+      lon: point.lon,
+      source: 'official',
+      sourceId: settlement.id,
+      accessDistanceM,
+      identityKind: 'urban_settlement',
+      placeType: 'settlement',
+      ...(settlement.postalCode ? { postalCode: settlement.postalCode } : {}),
+      ...(settlement.postalLocality ? { postalLocality: settlement.postalLocality } : {}),
+    }
+  }
+  if (resolution.identityKind === 'rural_postal_area') {
+    const formattedAddress = `${resolution.postalCode} ${resolution.postalLocality.name}`
+    return {
+      name: resolution.postalLocality.name,
+      formattedAddress,
+      lat: point.lat,
+      lon: point.lon,
+      source: 'official',
+      sourceId: resolution.postalAreaId,
+      accessDistanceM,
+      identityKind: 'rural_postal_area',
+      placeType: 'point',
+      postalCode: resolution.postalCode,
+      postalLocality: resolution.postalLocality.name,
+      postalLocalitySourceId: resolution.postalLocality.sourceId,
+    }
+  }
+
+  if (!selectedRoadEdge || !isIcelandRoadGraphEdgeAssessmentEligible(selectedRoadEdge)) return null
+  const segmentId = selectedRoadEdge.segmentId.trim()
+  if (!segmentId) return null
+  const roadNumber = selectedRoadEdge.roadNumber?.trim()
+  const roadName = selectedRoadEdge.roadName?.trim()
+  const graphLabel = [roadNumber, roadName].filter(Boolean).join(' · ')
+    || segmentId
   return {
-    name: settlement.name,
-    formattedAddress: settlement.name,
+    name: graphLabel,
+    formattedAddress: graphLabel,
     lat: point.lat,
     lon: point.lon,
     source: 'official',
-    sourceId: settlement.id,
-    placeType: 'settlement',
-    ...(settlement.postalCode ? { postalCode: settlement.postalCode } : {}),
-    ...(settlement.postalLocality ? { postalLocality: settlement.postalLocality } : {}),
+    sourceId: `official-road:${segmentId}`,
+    accessDistanceM,
+    identityKind: 'official_road_anchor',
+    placeType: 'point',
   }
 }
 
@@ -103,36 +245,43 @@ async function withAssessmentTimeout<T>(promise: Promise<T>): Promise<T> {
 }
 
 function anchorRequest(
-  resolution: Extract<SettlementResolution, { status: 'ready' }>,
+  _resolution: ReadyAssessmentResolution,
   navigationLocation: ConfirmedLocationInput,
 ): RouteAssessmentAnchorRequest {
-  return resolution.anchorKind === 'settlement_nodes'
-    ? {
-        kind: 'canonical_node',
-        point: { lat: resolution.settlement.lat, lon: resolution.settlement.lon },
-      }
-    : {
-        kind: 'projected_road',
-        point: { lat: navigationLocation.lat, lon: navigationLocation.lon },
-      }
+  // The place chosen in step 1 remains the physical endpoint for every place
+  // type. Settlement identity is still used for naming/attestation, but must
+  // never move an exact address or map point to the settlement centre.
+  return {
+    kind: 'projected_road',
+    point: { lat: navigationLocation.lat, lon: navigationLocation.lon },
+  }
+}
+
+function selectedEndpointEdge(
+  resolution: ReadyAssessmentResolution,
+  connectedRoadEdges: readonly IcelandRoadGraphEdge[],
+  side: 'origin' | 'destination',
+): IcelandRoadGraphEdge | undefined {
+  if (resolution.identityKind !== 'official_road_anchor') return undefined
+  return side === 'origin' ? connectedRoadEdges[0] : connectedRoadEdges.at(-1)
 }
 
 /**
- * Resolves canonical settlement road anchors before any routing-provider call.
- * Exact navigation coordinates are used only for bounded HMS classification
- * and ephemeral public-road projection. They are never returned, logged, or
- * persisted by this resolver.
+ * Resolves official identities and connected road anchors before an
+ * assessment-road claim is made. Exact navigation endpoints remain separate:
+ * they are legitimate inputs for identity, access and later full-route weather
+ * work, while this returned scope contains only verified assessment anchors.
  */
 export async function resolveRouteAssessmentScope(
   navigationOrigin: ConfirmedLocationInput,
   navigationDestination: ConfirmedLocationInput,
 ): Promise<RouteAssessmentScope> {
-  let originResolution: SettlementResolution
-  let destinationResolution: SettlementResolution
+  let originResolution: AssessmentResolution
+  let destinationResolution: AssessmentResolution
   try {
     const resolutions = await Promise.all([
-      resolveAssessmentSettlement(navigationOrigin),
-      resolveAssessmentSettlement(navigationDestination),
+      resolveAssessmentIdentity(navigationOrigin),
+      resolveAssessmentIdentity(navigationDestination),
     ])
     originResolution = resolutions[0]
     destinationResolution = resolutions[1]
@@ -146,21 +295,22 @@ export async function resolveRouteAssessmentScope(
     return { status: 'unavailable', reason: destinationResolution.reason }
   }
 
-  const originSettlement = originResolution.settlement
-  const destinationSettlement = destinationResolution.settlement
   if (
-    originResolution.anchorKind === 'settlement_nodes'
-    && destinationResolution.anchorKind === 'settlement_nodes'
-    && originSettlement.id === destinationSettlement.id
+    originResolution.identityKind === 'urban_settlement'
+    && destinationResolution.identityKind === 'urban_settlement'
+    && originResolution.settlement.id === destinationResolution.settlement.id
+    && navigationOrigin.lat === navigationDestination.lat
+    && navigationOrigin.lon === navigationDestination.lon
   ) {
     return {
       status: 'same_area',
-      settlementId: originSettlement.id,
-      settlementName: originSettlement.name,
+      settlementId: originResolution.settlement.id,
+      settlementName: originResolution.settlement.name,
     }
   }
 
   try {
+    const deadlineAtMs = Date.now() + ASSESSMENT_GRAPH_TIMEOUT_MS
     const graph = await withAssessmentTimeout(getIcelandRoadGraph())
     const anchors = findRouteAssessmentRoadAnchors(
       graph,
@@ -169,9 +319,29 @@ export async function resolveRouteAssessmentScope(
       {
         maxOriginSnapDistanceM: ASSESSMENT_GRAPH_MAX_SNAP_DISTANCE_M,
         maxDestinationSnapDistanceM: ASSESSMENT_GRAPH_MAX_SNAP_DISTANCE_M,
+        deadlineAtMs,
       },
     )
+    if (anchors.status === 'incomplete') {
+      return { status: 'unavailable', reason: 'road_graph_unavailable' }
+    }
     if (anchors.status !== 'ok') {
+      return { status: 'unavailable', reason: 'no_connected_official_road' }
+    }
+
+    const origin = endpoint(
+      originResolution,
+      anchors.origin.point,
+      anchors.origin.snapDistanceM,
+      selectedEndpointEdge(originResolution, anchors.connectedRoadEdges, 'origin'),
+    )
+    const destination = endpoint(
+      destinationResolution,
+      anchors.destination.point,
+      anchors.destination.snapDistanceM,
+      selectedEndpointEdge(destinationResolution, anchors.connectedRoadEdges, 'destination'),
+    )
+    if (!origin || !destination) {
       return { status: 'unavailable', reason: 'no_connected_official_road' }
     }
 
@@ -184,8 +354,8 @@ export async function resolveRouteAssessmentScope(
         destinationPoint: anchors.destination.point,
         routeProvenanceFingerprint: anchors.routeProvenanceFingerprint,
       }),
-      origin: endpoint(originSettlement, anchors.origin.point),
-      destination: endpoint(destinationSettlement, anchors.destination.point),
+      origin,
+      destination,
     }
   } catch {
     return { status: 'unavailable', reason: 'road_graph_unavailable' }

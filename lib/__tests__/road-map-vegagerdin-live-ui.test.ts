@@ -308,7 +308,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
       /refreshRouteChoiceEnvelope\(\s*choice,\s*resolvedPlaces,\s*controller\.signal,\s*\)/,
     )
     expect(routeChoiceBlock).toMatch(
-      /refreshRouteChoiceEnvelope\(\s*choiceToApply,\s*resolvedPlaces,\s*controller\.signal,\s*true,\s*\)/,
+      /refreshRouteChoiceEnvelope\(\s*choiceToApply,\s*resolvedPlaces,\s*controller\.signal,\s*\)/,
     )
     expect(routeChoiceBlock).toContain('places: resolvedPlaces')
 
@@ -354,7 +354,11 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(handoffOnlyBlock).toContain('<p role="status"')
     expect(handoffOnlyBlock).toContain('<RouteNavigationHandoff')
     expect(handoffOnlyBlock).toContain('assessment={routeHandoffOnlySummary.assessment}')
-    expect(handoffOnlyBlock).not.toContain('renderRouteSurfaceChoices()')
+    expect(handoffOnlyBlock).toContain(
+      "routeHandoffOnlySummary.reason === 'weather_unavailable'",
+    )
+    expect(handoffOnlyBlock).toContain('renderRouteSurfaceChoices()')
+    expect(handoffOnlyBlock).toContain('handleRetryRouteForecast')
     expect(handoffOnlyBlock).not.toContain('<DriveJourneyPanel')
     expect(handoffOnlyBlock).not.toContain('roadMapPrototypeStartDriving')
 

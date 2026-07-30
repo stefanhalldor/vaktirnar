@@ -4,11 +4,13 @@ import generatedDirectory from '@/lib/places/officialPlaceDirectory.generated.js
 import { OFFICIAL_PLACE_DIRECTORY_RETRIEVED_DATE } from '@/lib/places/officialPlaceAttribution.generated'
 import {
   findOfficialSettlementContainingPoint,
+  getOfficialPostalAssessmentIdentity,
   getOfficialPostalLocality,
   officialSettlementGeometryContains,
   officialPlaceHasAlias,
   officialPlaceSearchScore,
   searchOfficialPlaces,
+  validateOfficialPlaceDirectorySnapshot,
   type OfficialSettlementGeometry,
 } from '@/lib/places/officialPlaceDirectory.server'
 
@@ -16,7 +18,13 @@ describe('official place directory runtime', () => {
   it('ships a validated last-known-good snapshot without unverified population claims', () => {
     const sourceIds = generatedDirectory.settlements.flatMap(place => place.is50vIds)
 
-    expect(generatedDirectory.schemaVersion).toBe(2)
+    expect(generatedDirectory.schemaVersion).toBe(3)
+    expect(generatedDirectory.generator).toEqual({
+      id: 'scripts/generate-official-place-directory.mjs',
+      version: 1,
+    })
+    expect(generatedDirectory.retrievedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(generatedDirectory.contentSha256).toMatch(/^[a-f0-9]{64}$/)
     expect(generatedDirectory.settlements.length).toBeGreaterThanOrEqual(100)
     expect(Object.keys(generatedDirectory.postalLocalities).length).toBeGreaterThanOrEqual(170)
     expect(new Set(sourceIds).size).toBe(sourceIds.length)
@@ -41,12 +49,71 @@ describe('official place directory runtime', () => {
       ))
     ))).toBe(true)
     expect(OFFICIAL_PLACE_DIRECTORY_RETRIEVED_DATE).toBe(
-      generatedDirectory.generatedAt.slice(0, 10),
+      generatedDirectory.retrievedDate,
     )
     expect(generatedDirectory.postalLocalities['310']).toMatchObject({
       name: 'Borgarnes',
       correctedAt: '2025-01-17Z',
     })
+  })
+
+  it('derives nationwide postal assessment identities without manual mappings', () => {
+    const entries = Object.entries(generatedDirectory.postalLocalities)
+    const urban = entries.filter(([, locality]) => locality.classification === 'Þéttbýli')
+    const rural = entries.filter(([, locality]) => locality.classification === 'Dreifbýli')
+    const urbanResolved = urban.filter(([, locality]) => (
+      locality.assessmentIdentity.kind === 'urban_settlement'
+    ))
+    const unresolved = urban.filter(([, locality]) => locality.assessmentIdentity.kind === 'unresolved')
+
+    expect(urban).toHaveLength(97)
+    expect(urbanResolved).toHaveLength(95)
+    expect(unresolved.map(([postalCode]) => postalCode)).toEqual(['345', '603'])
+    expect(rural).toHaveLength(77)
+    expect(rural.every(([, locality]) => (
+      locality.assessmentIdentity.kind === 'rural_postal_area'
+    ))).toBe(true)
+    expect(new Set(entries.flatMap(([, locality]) => (
+      'postalAreaId' in locality.assessmentIdentity
+        ? [locality.assessmentIdentity.postalAreaId]
+        : []
+    ))).size).toBe(172)
+  })
+
+  it('derives canonical urban settlements and distinct rural composite identities', () => {
+    const postal210 = getOfficialPostalAssessmentIdentity('210')
+    const postal225 = getOfficialPostalAssessmentIdentity('225')
+    const postal301 = getOfficialPostalAssessmentIdentity('301')
+    const postal815 = getOfficialPostalAssessmentIdentity('815')
+    const postal816 = getOfficialPostalAssessmentIdentity('816')
+    const postal851 = getOfficialPostalAssessmentIdentity('851')
+
+    expect(postal210).toMatchObject({
+      kind: 'urban_settlement',
+      settlementId: 'is50v:1407fdee-3621-5c85-686f-8bd6a4316272',
+      resolution: 'unique_official_name',
+    })
+    expect(postal225).toMatchObject({
+      kind: 'urban_settlement',
+      settlementId: 'is50v:1407fdee-3621-5c85-686f-8bd6a4316272',
+      resolution: 'unique_official_name',
+    })
+    expect(postal301).toMatchObject({ kind: 'rural_postal_area' })
+    expect(postal851).toMatchObject({ kind: 'rural_postal_area' })
+    expect(postal815).toMatchObject({ kind: 'rural_postal_area' })
+    expect(postal816).toMatchObject({ kind: 'rural_postal_area' })
+    if (
+      postal815?.kind !== 'rural_postal_area'
+      || postal816?.kind !== 'rural_postal_area'
+    ) return
+    expect(postal815.postalAreaId).not.toBe(postal816.postalAreaId)
+  })
+
+  it('fails closed when checked-in artifact provenance drifts', () => {
+    expect(() => validateOfficialPlaceDirectorySnapshot({
+      ...generatedDirectory,
+      contentSha256: '0'.repeat(64),
+    })).toThrow('official_place_directory_invalid')
   })
 
   it.each(['Hella', 'Hella 850', '850 Hella'])(

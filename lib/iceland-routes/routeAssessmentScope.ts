@@ -1,16 +1,41 @@
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 
-export type RouteAssessmentEndpoint = Readonly<{
+type RouteAssessmentEndpointBase = Readonly<{
   name: string
   formattedAddress: string
   lat: number
   lon: number
   source: 'official'
   sourceId: string
+  /** Straight-line distance from the exact selected place to this road anchor. */
+  accessDistanceM?: number
+}>
+
+export type UrbanSettlementAssessmentEndpoint = RouteAssessmentEndpointBase & Readonly<{
+  identityKind: 'urban_settlement'
   placeType: 'settlement'
   postalCode?: string
   postalLocality?: string
 }>
+
+export type RuralPostalAreaAssessmentEndpoint = RouteAssessmentEndpointBase & Readonly<{
+  identityKind: 'rural_postal_area'
+  placeType: 'point'
+  postalCode: string
+  postalLocality: string
+  postalLocalitySourceId: string
+}>
+
+/** Reserved for the source-attested road-anchor fallback introduced in Phase 2. */
+export type OfficialRoadAnchorAssessmentEndpoint = RouteAssessmentEndpointBase & Readonly<{
+  identityKind: 'official_road_anchor'
+  placeType: 'point'
+}>
+
+export type RouteAssessmentEndpoint =
+  | UrbanSettlementAssessmentEndpoint
+  | RuralPostalAreaAssessmentEndpoint
+  | OfficialRoadAnchorAssessmentEndpoint
 
 export type RouteAssessmentScopeUnavailableReason =
   | 'assessment_area_unavailable'
@@ -44,6 +69,14 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): b
   return Object.keys(value).every(key => allowed.has(key))
 }
 
+function optionalPostalCode(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === 'string' && /^\d{3}$/.test(value))
+}
+
+function optionalNonEmptyString(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === 'string' && value.trim().length > 0)
+}
+
 function parseEndpoint(value: unknown): RouteAssessmentEndpoint | null {
   if (!isRecord(value)) return null
   if (
@@ -54,36 +87,88 @@ function parseEndpoint(value: unknown): RouteAssessmentEndpoint | null {
       'lon',
       'source',
       'sourceId',
+      'identityKind',
       'placeType',
       'postalCode',
       'postalLocality',
+      'postalLocalitySourceId',
+      'accessDistanceM',
     ])
-    ||
-    typeof value.name !== 'string' || !value.name.trim()
+    || typeof value.name !== 'string' || !value.name.trim()
     || typeof value.formattedAddress !== 'string' || !value.formattedAddress.trim()
     || typeof value.lat !== 'number' || typeof value.lon !== 'number'
     || !validateIcelandicCoords(value.lat, value.lon)
     || value.source !== 'official'
     || typeof value.sourceId !== 'string' || !value.sourceId.trim()
-    || value.placeType !== 'settlement'
-    || (value.postalCode !== undefined && (typeof value.postalCode !== 'string' || !/^\d{3}$/.test(value.postalCode)))
-    || (value.postalLocality !== undefined && typeof value.postalLocality !== 'string')
+    || (
+      value.accessDistanceM !== undefined
+      && (
+        typeof value.accessDistanceM !== 'number'
+        || !Number.isSafeInteger(value.accessDistanceM)
+        || value.accessDistanceM < 0
+        || value.accessDistanceM > 25_000
+      )
+    )
+    || !optionalPostalCode(value.postalCode)
+    || !optionalNonEmptyString(value.postalLocality)
   ) {
     return null
   }
-  return {
+
+  const common = {
     name: value.name.trim(),
     formattedAddress: value.formattedAddress.trim(),
     lat: value.lat,
     lon: value.lon,
-    source: 'official',
+    source: 'official' as const,
     sourceId: value.sourceId.trim(),
-    placeType: 'settlement',
-    ...(typeof value.postalCode === 'string' ? { postalCode: value.postalCode } : {}),
-    ...(typeof value.postalLocality === 'string' && value.postalLocality.trim()
-      ? { postalLocality: value.postalLocality.trim() }
+    ...(typeof value.accessDistanceM === 'number'
+      ? { accessDistanceM: value.accessDistanceM }
       : {}),
   }
+  if (value.identityKind === 'urban_settlement') {
+    if (value.placeType !== 'settlement' || value.postalLocalitySourceId !== undefined) return null
+    return {
+      ...common,
+      identityKind: 'urban_settlement',
+      placeType: 'settlement',
+      ...(typeof value.postalCode === 'string' ? { postalCode: value.postalCode } : {}),
+      ...(typeof value.postalLocality === 'string'
+        ? { postalLocality: value.postalLocality.trim() }
+        : {}),
+    }
+  }
+  if (value.identityKind === 'rural_postal_area') {
+    if (
+      value.placeType !== 'point'
+      || typeof value.postalCode !== 'string'
+      || typeof value.postalLocality !== 'string' || !value.postalLocality.trim()
+      || typeof value.postalLocalitySourceId !== 'string' || !value.postalLocalitySourceId.trim()
+      || value.sourceId.trim() !== `postal:${value.postalCode}:${value.postalLocalitySourceId.trim()}`
+    ) return null
+    return {
+      ...common,
+      identityKind: 'rural_postal_area',
+      placeType: 'point',
+      postalCode: value.postalCode,
+      postalLocality: value.postalLocality.trim(),
+      postalLocalitySourceId: value.postalLocalitySourceId.trim(),
+    }
+  }
+  if (value.identityKind === 'official_road_anchor') {
+    if (
+      value.placeType !== 'point'
+      || value.postalCode !== undefined
+      || value.postalLocality !== undefined
+      || value.postalLocalitySourceId !== undefined
+    ) return null
+    return {
+      ...common,
+      identityKind: 'official_road_anchor',
+      placeType: 'point',
+    }
+  }
+  return null
 }
 
 export function parseRouteAssessmentScope(value: unknown): RouteAssessmentScope | null {

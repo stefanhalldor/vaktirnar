@@ -13,6 +13,7 @@ import { ProviderStationPreviewCard } from './ProviderStationPreviewCard'
 import { VedurstofanPulseInline } from './VedurstofanPulseInline'
 import { ForecastRowLine, selectUpcomingRows } from './VedurstofanForecastRows'
 import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
+import { resolveLegacySafeRouteSelection } from '@/lib/road-intelligence/legacyRouteSelectionSafety'
 
 export type RoutePlace = {
   id?: PlaceResult['id']
@@ -107,6 +108,19 @@ export function RouteSelectionStep({
   vedurstofanStationsLoading,
 }: RouteSelectionStepProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
+  // The legacy Google-map selector does not yet carry the scoped partial-
+  // coverage and road-section contracts used by the mobile road-map flow.
+  // Fail closed by keeping Teskeið candidates out of this surface until the
+  // two selectors have presentation parity.
+  const safeSelection = resolveLegacySafeRouteSelection(routeOptions, selectedRouteId)
+  const safeRouteOptions = safeSelection.routeOptions
+  const safeSelectedRouteId = safeSelection.selectedRouteId
+
+  useEffect(() => {
+    if (safeSelection.replacementRouteId) {
+      onRouteSelected(safeSelection.replacementRouteId)
+    }
+  }, [onRouteSelected, safeSelection.replacementRouteId])
 
   // Filter saved places so the already-selected opposite place doesn't appear in the list.
   // Uses the same coordinate key as the server to compare places.
@@ -227,7 +241,7 @@ export function RouteSelectionStep({
   }, [destination?.lat, destination?.lon, ferryPortId, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Effect 4a: Draw all route polylines (or fallback straight line) and fit bounds.
-  // Does NOT depend on selectedRouteId — initial styles use selectedRouteId at closure time,
+  // Does NOT depend on safeSelectedRouteId — initial styles use it at closure time,
   // and Effect 4b handles style updates when selection changes without refitting the map.
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return
@@ -247,10 +261,10 @@ export function RouteSelectionStep({
 
       const bounds = new coreLib.LatLngBounds()
 
-      if (routeOptions && routeOptions.length > 0) {
+      if (safeRouteOptions && safeRouteOptions.length > 0) {
         // Draw all returned route polylines simultaneously
-        routeOptions.forEach((ro, idx) => {
-          const isSelected = ro.id === selectedRouteId
+        safeRouteOptions.forEach((ro, idx) => {
+          const isSelected = ro.id === safeSelectedRouteId
           const path = ro.points.map(p => ({ lat: p.lat, lng: p.lon }))
           const line = new mapsLib.Polyline({
             path,
@@ -297,15 +311,15 @@ export function RouteSelectionStep({
 
     updateLines()
     return () => { cancelled = true }
-  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, ferryPortId, routeOptions, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, ferryPortId, safeRouteOptions, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Effect 4b: Update polyline styles when selection changes — no refit, no redraw.
   useEffect(() => {
-    if (!mapLoaded || !routeOptions || routeLinesRef.current.length === 0) return
-    routeOptions.forEach((ro, idx) => {
+    if (!mapLoaded || !safeRouteOptions || routeLinesRef.current.length === 0) return
+    safeRouteOptions.forEach((ro, idx) => {
       const line = routeLinesRef.current[idx]
       if (!line) return
-      const isSelected = ro.id === selectedRouteId
+      const isSelected = ro.id === safeSelectedRouteId
       line.setOptions({
         strokeColor: isSelected ? '#4A90E2' : '#9CA3AF',
         strokeOpacity: isSelected ? 0.9 : 0.45,
@@ -313,7 +327,7 @@ export function RouteSelectionStep({
         zIndex: isSelected ? 2 : 1,
       })
     })
-  }, [selectedRouteId, routeOptions, mapLoaded])
+  }, [safeSelectedRouteId, safeRouteOptions, mapLoaded])
 
   // Effect 5: Draw/clear Veðurstofan station markers.
   // Clears markers whenever vedurstofanStations changes (including when undefined = layer off).
@@ -572,8 +586,8 @@ export function RouteSelectionStep({
             <p className="text-xs text-muted-foreground py-1">{tf('routeOptionsFallbackNote')}</p>
           )}
 
-          {routeOptions && routeOptions.map((ro, idx) => {
-            const isSelected = ro.id === selectedRouteId
+          {safeRouteOptions && safeRouteOptions.map((ro, idx) => {
+            const isSelected = ro.id === safeSelectedRouteId
             const label = ro.labels.includes('CURATED_RING_ROAD')
               ? tf('routeOptionRingRoad')
               : ro.labels.includes('CURATED_VIA_HELLISHEIDI')
@@ -637,8 +651,11 @@ export function RouteSelectionStep({
       {origin && destination && (!isVestmannaeyjar || ferryPortId) && (
         <button
           type="button"
-          onClick={onConfirm}
-          disabled={confirmDisabled}
+          onClick={() => {
+            if (!safeSelection.canConfirm) return
+            onConfirm()
+          }}
+          disabled={confirmDisabled || !safeSelection.canConfirm}
           className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm cursor-pointer hover:shadow-md hover:opacity-95 active:opacity-90 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed"
         >
           {confirmLabel}

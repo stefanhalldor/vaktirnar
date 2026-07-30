@@ -4,12 +4,15 @@ import { createHash } from 'node:crypto'
 import {
   haversineDistanceM,
   ICELAND_ROUTING_PROFILES,
+  icelandRoadGraphEdgeCost,
+  isIcelandRoadGraphEdgeAssessmentEligible,
   isIcelandRoadGraphEdgeAllowed,
 } from './roadGraph'
 import type {
   IcelandRoadGraph,
   IcelandRoadGraphEdge,
   IcelandRoadGraphNode,
+  IcelandRoadRoutingProfile,
 } from './roadGraphTypes'
 import type { LatLon } from './types'
 
@@ -17,6 +20,11 @@ const MAX_CANONICAL_NODE_CANDIDATES = 64
 const TRUSTED_ANCHOR_EQUIVALENCE_M = 0.5
 const COST_EPSILON = 1e-9
 const FRACTION_EPSILON = 1e-10
+// Start at the geometrically nearest eligible road. Widen only when that road
+// cannot participate in a direction-correct connected route. Fine early bands
+// prevent route cost from moving a selected place hundreds of metres merely
+// to obtain a cheaper through-route.
+const NEAREST_REACHABLE_SEARCH_BANDS_M = [0, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 25_000] as const
 
 export type RouteAssessmentAnchorRequest = Readonly<{
   kind: 'canonical_node' | 'projected_road' | 'trusted_anchor'
@@ -41,7 +49,12 @@ export type RouteAssessmentRoadAnchorsResult =
       routeProvenanceFingerprint: string
     }>
   | Readonly<{
-      status: 'no_origin_anchor' | 'no_destination_anchor' | 'ambiguous_trusted_anchor' | 'no_route'
+      status:
+        | 'no_origin_anchor'
+        | 'no_destination_anchor'
+        | 'ambiguous_trusted_anchor'
+        | 'no_route'
+        | 'incomplete'
     }>
 
 export type FindRouteAssessmentRoadAnchorsOptions = Readonly<{
@@ -49,7 +62,10 @@ export type FindRouteAssessmentRoadAnchorsOptions = Readonly<{
   maxDestinationSnapDistanceM: number
   maxAlternatives?: number
   maxAlternativeOverlap?: number
+  /** Hard synchronous budget for endpoint projection and primary route selection. */
+  deadlineAtMs?: number
   alternativeDeadlineAtMs?: number
+  profile?: IcelandRoadRoutingProfile
 }>
 
 export type RouteAssessmentRoadAlternative = Readonly<{
@@ -63,8 +79,6 @@ type NodeCandidate = Readonly<{
   node: IcelandRoadGraphNode
   point: LatLon
   distanceM: number
-  /** Preserves nearest-road selection priority after a sub-metre edge endpoint normalizes to its node. */
-  projectedRequest?: true
 }>
 
 type EdgeCandidate = Readonly<{
@@ -85,23 +99,27 @@ type EdgeProjection = Readonly<{
 
 type CandidateResolution =
   | Readonly<{ status: 'ok'; candidates: readonly AnchorCandidate[] }>
-  | Readonly<{ status: 'none' | 'ambiguous' }>
+  | Readonly<{ status: 'none' | 'ambiguous' | 'incomplete' }>
 
 type QueueEntry = Readonly<{
   nodeId: string
-  projectedSnapDistanceM: number
   cost: number
+  snapDistanceM: number
   key: string
 }>
 
 type SelectedRoute = Readonly<{
-  projectedSnapDistanceM: number
   cost: number
+  snapDistanceM: number
   key: string
   origin: AnchorCandidate
   destination: AnchorCandidate
   connectedRoadEdges: readonly IcelandRoadGraphEdge[]
 }>
+
+type RouteSearchResult =
+  | Readonly<{ status: 'ok'; route: SelectedRoute | null }>
+  | Readonly<{ status: 'incomplete' }>
 
 const FASTEST_CAR_PROFILE = ICELAND_ROUTING_PROFILES.fastestCar
 
@@ -113,12 +131,26 @@ function validMaxDistance(value: number): boolean {
   return Number.isFinite(value) && value >= 0
 }
 
-function snapCost(distanceM: number): number {
-  return (distanceM / 1_000 / 50) * 3_600
+function deadlineExceeded(deadlineAtMs: number | undefined): boolean {
+  return deadlineAtMs !== undefined
+    && Number.isFinite(deadlineAtMs)
+    && Date.now() >= deadlineAtMs
 }
 
-function edgeCost(edge: IcelandRoadGraphEdge, fraction = 1): number {
-  return edge.travelTimeS * Math.max(0, Math.min(1, fraction))
+function earliestDeadline(
+  first: number | undefined,
+  second: number | undefined,
+): number | undefined {
+  const values = [first, second].filter((value): value is number => (
+    value !== undefined && Number.isFinite(value)
+  ))
+  return values.length > 0 ? Math.min(...values) : undefined
+}
+
+function accessCost(distanceM: number, profile: IcelandRoadRoutingProfile): number {
+  return profile.objective === 'fastest'
+    ? (distanceM / 1_000 / 50) * 3_600
+    : distanceM
 }
 
 function candidateKey(candidate: AnchorCandidate): string {
@@ -127,51 +159,58 @@ function candidateKey(candidate: AnchorCandidate): string {
     : `edge:${candidate.edge.segmentId}:${candidate.edge.id}:${candidate.fraction.toFixed(12)}`
 }
 
-function projectedPriorityDistanceM(candidate: AnchorCandidate): number {
-  return candidate.kind === 'projected_road' || candidate.projectedRequest
-    ? candidate.distanceM
-    : 0
-}
-
 function sortedNodeCandidates(
   graph: IcelandRoadGraph,
   point: LatLon,
   maxDistanceM: number,
-): NodeCandidate[] {
+  deadlineAtMs?: number,
+): NodeCandidate[] | null {
   if (!finitePoint(point) || !validMaxDistance(maxDistanceM)) return []
   const candidates: NodeCandidate[] = []
   for (const node of graph.nodes.values()) {
+    if (deadlineExceeded(deadlineAtMs)) return null
     const distanceM = haversineDistanceM(point, node.point)
     if (distanceM <= maxDistanceM) {
       candidates.push({ kind: 'settlement_node', node, point: node.point, distanceM })
     }
   }
-  return candidates
+  candidates
     .sort((a, b) => a.distanceM - b.distanceM || a.node.id.localeCompare(b.node.id))
-    .slice(0, MAX_CANONICAL_NODE_CANDIDATES)
+  if (deadlineExceeded(deadlineAtMs)) return null
+  return candidates.slice(0, MAX_CANONICAL_NODE_CANDIDATES)
 }
 
-function edgeGeometryDistances(edge: IcelandRoadGraphEdge): number[] | null {
+function edgeGeometryDistances(
+  edge: IcelandRoadGraphEdge,
+  deadlineAtMs?: number,
+): number[] | null {
   if (edge.geometry.length < 2) return null
   const cumulative = [0]
   for (let index = 1; index < edge.geometry.length; index += 1) {
+    if (deadlineExceeded(deadlineAtMs)) return null
     const previous = edge.geometry[index - 1]
     const current = edge.geometry[index]
     if (!finitePoint(previous) || !finitePoint(current)) return null
     cumulative.push(cumulative[index - 1] + haversineDistanceM(previous, current))
   }
+  if (deadlineExceeded(deadlineAtMs)) return null
   const totalDistanceM = cumulative[cumulative.length - 1] ?? 0
   return Number.isFinite(totalDistanceM) && totalDistanceM > 0 ? cumulative : null
 }
 
-function projectPointToEdge(point: LatLon, edge: IcelandRoadGraphEdge): EdgeProjection | null {
-  if (!finitePoint(point)) return null
-  const cumulative = edgeGeometryDistances(edge)
+function projectPointToEdge(
+  point: LatLon,
+  edge: IcelandRoadGraphEdge,
+  deadlineAtMs?: number,
+): EdgeProjection | null {
+  if (!finitePoint(point) || deadlineExceeded(deadlineAtMs)) return null
+  const cumulative = edgeGeometryDistances(edge, deadlineAtMs)
   if (!cumulative) return null
   const totalDistanceM = cumulative[cumulative.length - 1]
   let best: { point: LatLon; distanceM: number; distanceAlongEdgeM: number } | null = null
 
   for (let index = 0; index + 1 < edge.geometry.length; index += 1) {
+    if (deadlineExceeded(deadlineAtMs)) return null
     const a = edge.geometry[index]
     const b = edge.geometry[index + 1]
     const metresPerDegreeLat = 111_320
@@ -204,6 +243,7 @@ function projectPointToEdge(point: LatLon, edge: IcelandRoadGraphEdge): EdgeProj
     }
   }
 
+  if (deadlineExceeded(deadlineAtMs)) return null
   return best
     ? {
         point: best.point,
@@ -217,12 +257,21 @@ function sortedEdgeCandidates(
   graph: IcelandRoadGraph,
   point: LatLon,
   maxDistanceM: number,
-): EdgeCandidate[] {
-  if (!finitePoint(point) || !validMaxDistance(maxDistanceM)) return []
+  profile: IcelandRoadRoutingProfile,
+  deadlineAtMs: number | undefined,
+): Readonly<{ status: 'ok'; candidates: EdgeCandidate[] }> | Readonly<{ status: 'incomplete' }> {
+  if (!finitePoint(point) || !validMaxDistance(maxDistanceM)) {
+    return { status: 'ok', candidates: [] }
+  }
   const candidates: EdgeCandidate[] = []
   for (const edge of graph.edges) {
-    if (!isIcelandRoadGraphEdgeAllowed(edge, FASTEST_CAR_PROFILE)) continue
-    const projection = projectPointToEdge(point, edge)
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+    if (
+      !isIcelandRoadGraphEdgeAssessmentEligible(edge)
+      || !isIcelandRoadGraphEdgeAllowed(edge, profile)
+    ) continue
+    const projection = projectPointToEdge(point, edge, deadlineAtMs)
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
     if (projection && projection.distanceM <= maxDistanceM) {
       candidates.push({
         kind: 'projected_road',
@@ -233,22 +282,28 @@ function sortedEdgeCandidates(
       })
     }
   }
-  return candidates.sort((a, b) => (
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+  candidates.sort((a, b) => (
     a.distanceM - b.distanceM
     || a.edge.segmentId.localeCompare(b.edge.segmentId)
     || a.edge.id.localeCompare(b.edge.id)
     || a.fraction - b.fraction
   ))
+  return deadlineExceeded(deadlineAtMs)
+    ? { status: 'incomplete' }
+    : { status: 'ok', candidates }
 }
 
 function normalizeProjectedEndpointCandidates(
   graph: IcelandRoadGraph,
   requestPoint: LatLon,
   candidates: readonly EdgeCandidate[],
-): AnchorCandidate[] {
+  deadlineAtMs: number | undefined,
+): AnchorCandidate[] | null {
   const normalized: AnchorCandidate[] = []
   const normalizedNodeIds = new Set<string>()
   for (const candidate of candidates) {
+    if (deadlineExceeded(deadlineAtMs)) return null
     const endpointNodes = [
       graph.nodes.get(candidate.edge.fromNodeId),
       graph.nodes.get(candidate.edge.toNodeId),
@@ -271,13 +326,13 @@ function normalizeProjectedEndpointCandidates(
       node,
       point: node.point,
       distanceM: haversineDistanceM(requestPoint, node.point),
-      projectedRequest: true,
     })
   }
-  return normalized.sort((a, b) => (
-    projectedPriorityDistanceM(a) - projectedPriorityDistanceM(b)
+  normalized.sort((a, b) => (
+    a.distanceM - b.distanceM
     || candidateKey(a).localeCompare(candidateKey(b))
   ))
+  return deadlineExceeded(deadlineAtMs) ? null : normalized
 }
 
 function equivalentPoints(a: LatLon, b: LatLon): boolean {
@@ -293,8 +348,12 @@ function resolveTrustedCandidates(
   graph: IcelandRoadGraph,
   point: LatLon,
   maxDistanceM: number,
+  profile: IcelandRoadRoutingProfile,
+  deadlineAtMs: number | undefined,
 ): CandidateResolution {
-  const nodes = sortedNodeCandidates(graph, point, maxDistanceM)
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+  const nodes = sortedNodeCandidates(graph, point, maxDistanceM, deadlineAtMs)
+  if (!nodes) return { status: 'incomplete' }
   const equivalentNodes = nodes.filter(candidate => (
     candidate.distanceM <= TRUSTED_ANCHOR_EQUIVALENCE_M
   ))
@@ -311,7 +370,9 @@ function resolveTrustedCandidates(
     }
   }
 
-  const edges = sortedEdgeCandidates(graph, point, maxDistanceM)
+  const edgeResolution = sortedEdgeCandidates(graph, point, maxDistanceM, profile, deadlineAtMs)
+  if (edgeResolution.status !== 'ok') return edgeResolution
+  const edges = edgeResolution.candidates
   if (edges.length === 0) return { status: 'none' }
   const representative = edges[0]
   const samePhysicalProjection = edges.filter(candidate => (
@@ -326,31 +387,43 @@ function resolveCandidates(
   graph: IcelandRoadGraph,
   request: RouteAssessmentAnchorRequest,
   maxDistanceM: number,
+  profile: IcelandRoadRoutingProfile,
+  deadlineAtMs: number | undefined,
 ): CandidateResolution {
-  if (request.kind === 'canonical_node') {
-    const candidates = sortedNodeCandidates(graph, request.point, maxDistanceM)
-    return candidates.length > 0 ? { status: 'ok', candidates } : { status: 'none' }
-  }
-  if (request.kind === 'projected_road') {
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+  if (request.kind === 'canonical_node' || request.kind === 'projected_road') {
+    const edgeResolution = sortedEdgeCandidates(
+      graph,
+      request.point,
+      maxDistanceM,
+      profile,
+      deadlineAtMs,
+    )
+    if (edgeResolution.status !== 'ok') return edgeResolution
     const candidates = normalizeProjectedEndpointCandidates(
       graph,
       request.point,
-      sortedEdgeCandidates(graph, request.point, maxDistanceM),
+      edgeResolution.candidates,
+      deadlineAtMs,
     )
+    if (!candidates || deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
     return candidates.length > 0 ? { status: 'ok', candidates } : { status: 'none' }
   }
-  return resolveTrustedCandidates(graph, request.point, maxDistanceM)
+  return resolveTrustedCandidates(graph, request.point, maxDistanceM, profile, deadlineAtMs)
 }
 
 function pointAtGeometryFraction(
   geometry: readonly LatLon[],
   cumulative: readonly number[],
   fraction: number,
-): LatLon {
+  deadlineAtMs?: number,
+): LatLon | null {
+  if (deadlineExceeded(deadlineAtMs)) return null
   const clamped = Math.max(0, Math.min(1, fraction))
   const totalDistanceM = cumulative[cumulative.length - 1]
   const targetDistanceM = totalDistanceM * clamped
   for (let index = 0; index + 1 < cumulative.length; index += 1) {
+    if (deadlineExceeded(deadlineAtMs)) return null
     if (targetDistanceM > cumulative[index + 1]) continue
     const segmentDistanceM = cumulative[index + 1] - cumulative[index]
     const segmentFraction = segmentDistanceM <= 0
@@ -363,31 +436,47 @@ function pointAtGeometryFraction(
       lon: a.lon + segmentFraction * (b.lon - a.lon),
     }
   }
-  return geometry[geometry.length - 1]
+  return deadlineExceeded(deadlineAtMs) ? null : geometry[geometry.length - 1]
 }
 
 function sliceEdge(
   edge: IcelandRoadGraphEdge,
   rawStartFraction: number,
   rawEndFraction: number,
+  deadlineAtMs?: number,
 ): IcelandRoadGraphEdge | null {
+  if (deadlineExceeded(deadlineAtMs)) return null
   const startFraction = Math.max(0, Math.min(1, rawStartFraction))
   const endFraction = Math.max(0, Math.min(1, rawEndFraction))
   if (endFraction - startFraction <= FRACTION_EPSILON) return null
   if (startFraction <= FRACTION_EPSILON && endFraction >= 1 - FRACTION_EPSILON) return edge
 
-  const cumulative = edgeGeometryDistances(edge)
+  const cumulative = edgeGeometryDistances(edge, deadlineAtMs)
   if (!cumulative) return null
   const totalDistanceM = cumulative[cumulative.length - 1]
   const startDistanceM = totalDistanceM * startFraction
   const endDistanceM = totalDistanceM * endFraction
-  const geometry: LatLon[] = [pointAtGeometryFraction(edge.geometry, cumulative, startFraction)]
+  const startPoint = pointAtGeometryFraction(
+    edge.geometry,
+    cumulative,
+    startFraction,
+    deadlineAtMs,
+  )
+  if (!startPoint) return null
+  const geometry: LatLon[] = [startPoint]
   for (let index = 1; index + 1 < edge.geometry.length; index += 1) {
+    if (deadlineExceeded(deadlineAtMs)) return null
     if (cumulative[index] > startDistanceM && cumulative[index] < endDistanceM) {
       geometry.push(edge.geometry[index])
     }
   }
-  const endPoint = pointAtGeometryFraction(edge.geometry, cumulative, endFraction)
+  const endPoint = pointAtGeometryFraction(
+    edge.geometry,
+    cumulative,
+    endFraction,
+    deadlineAtMs,
+  )
+  if (!endPoint || deadlineExceeded(deadlineAtMs)) return null
   const previous = geometry[geometry.length - 1]
   if (previous.lat !== endPoint.lat || previous.lon !== endPoint.lon) geometry.push(endPoint)
   if (geometry.length < 2) return null
@@ -409,34 +498,48 @@ function sliceEdge(
   }
 }
 
-function originStart(candidate: AnchorCandidate): {
+function originStart(
+  candidate: AnchorCandidate,
+  profile: IcelandRoadRoutingProfile,
+  deadlineAtMs?: number,
+): {
   nodeId: string
   cost: number
   prefix: readonly IcelandRoadGraphEdge[]
-} {
+} | null {
+  if (deadlineExceeded(deadlineAtMs)) return null
   if (candidate.kind === 'settlement_node') {
-    return { nodeId: candidate.node.id, cost: snapCost(candidate.distanceM), prefix: [] }
+    return { nodeId: candidate.node.id, cost: accessCost(candidate.distanceM, profile), prefix: [] }
   }
-  const prefix = sliceEdge(candidate.edge, candidate.fraction, 1)
+  const prefix = sliceEdge(candidate.edge, candidate.fraction, 1, deadlineAtMs)
+  if (deadlineExceeded(deadlineAtMs)) return null
   return {
     nodeId: candidate.edge.toNodeId,
-    cost: snapCost(candidate.distanceM) + edgeCost(candidate.edge, 1 - candidate.fraction),
+    cost: accessCost(candidate.distanceM, profile)
+      + icelandRoadGraphEdgeCost(candidate.edge, profile, 1 - candidate.fraction),
     prefix: prefix ? [prefix] : [],
   }
 }
 
-function destinationEnd(candidate: AnchorCandidate): {
+function destinationEnd(
+  candidate: AnchorCandidate,
+  profile: IcelandRoadRoutingProfile,
+  deadlineAtMs?: number,
+): {
   nodeId: string
   cost: number
   suffix: readonly IcelandRoadGraphEdge[]
-} {
+} | null {
+  if (deadlineExceeded(deadlineAtMs)) return null
   if (candidate.kind === 'settlement_node') {
-    return { nodeId: candidate.node.id, cost: snapCost(candidate.distanceM), suffix: [] }
+    return { nodeId: candidate.node.id, cost: accessCost(candidate.distanceM, profile), suffix: [] }
   }
-  const suffix = sliceEdge(candidate.edge, 0, candidate.fraction)
+  const suffix = sliceEdge(candidate.edge, 0, candidate.fraction, deadlineAtMs)
+  if (deadlineExceeded(deadlineAtMs)) return null
   return {
     nodeId: candidate.edge.fromNodeId,
-    cost: snapCost(candidate.distanceM) + edgeCost(candidate.edge, candidate.fraction),
+    cost: accessCost(candidate.distanceM, profile)
+      + icelandRoadGraphEdgeCost(candidate.edge, profile, candidate.fraction),
     suffix: suffix ? [suffix] : [],
   }
 }
@@ -449,12 +552,15 @@ class MinPriorityQueue {
   }
 
   private before(a: QueueEntry, b: QueueEntry): boolean {
-    return a.projectedSnapDistanceM < b.projectedSnapDistanceM - COST_EPSILON
+    return a.cost < b.cost - COST_EPSILON
       || (
-        Math.abs(a.projectedSnapDistanceM - b.projectedSnapDistanceM) <= COST_EPSILON
+        Math.abs(a.cost - b.cost) <= COST_EPSILON
         && (
-          a.cost < b.cost - COST_EPSILON
-          || (Math.abs(a.cost - b.cost) <= COST_EPSILON && a.key < b.key)
+          a.snapDistanceM < b.snapDistanceM - COST_EPSILON
+          || (
+            Math.abs(a.snapDistanceM - b.snapDistanceM) <= COST_EPSILON
+            && a.key < b.key
+          )
         )
       )
   }
@@ -495,43 +601,56 @@ class MinPriorityQueue {
 
 function betterRoute(candidate: SelectedRoute, current: SelectedRoute | null): boolean {
   return !current
-    || candidate.projectedSnapDistanceM < current.projectedSnapDistanceM - COST_EPSILON
+    || candidate.cost < current.cost - COST_EPSILON
     || (
-      Math.abs(candidate.projectedSnapDistanceM - current.projectedSnapDistanceM) <= COST_EPSILON
+      Math.abs(candidate.cost - current.cost) <= COST_EPSILON
       && (
-        candidate.cost < current.cost - COST_EPSILON
-        || (Math.abs(candidate.cost - current.cost) <= COST_EPSILON && candidate.key < current.key)
+        candidate.snapDistanceM < current.snapDistanceM - COST_EPSILON
+        || (
+          Math.abs(candidate.snapDistanceM - current.snapDistanceM) <= COST_EPSILON
+          && candidate.key < current.key
+        )
       )
     )
 }
 
-function projectedSnapDistanceM(
+function routeSnapDistanceM(
   origin: AnchorCandidate,
   destination: AnchorCandidate,
 ): number {
-  return projectedPriorityDistanceM(origin) + projectedPriorityDistanceM(destination)
+  return origin.distanceM + destination.distanceM
 }
 
 function directProjectedRoute(
   origins: readonly AnchorCandidate[],
   destinations: readonly AnchorCandidate[],
-): SelectedRoute | null {
+  profile: IcelandRoadRoutingProfile,
+  deadlineAtMs: number | undefined,
+): RouteSearchResult {
   let selected: SelectedRoute | null = null
   for (const origin of origins) {
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
     if (origin.kind !== 'projected_road') continue
     for (const destination of destinations) {
+      if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
       if (
         destination.kind !== 'projected_road'
         || destination.edge.id !== origin.edge.id
         || destination.fraction - origin.fraction <= FRACTION_EPSILON
       ) continue
-      const partial = sliceEdge(origin.edge, origin.fraction, destination.fraction)
+      const partial = sliceEdge(
+        origin.edge,
+        origin.fraction,
+        destination.fraction,
+        deadlineAtMs,
+      )
+      if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
       if (!partial) continue
       const candidate: SelectedRoute = {
-        projectedSnapDistanceM: projectedSnapDistanceM(origin, destination),
-        cost: snapCost(origin.distanceM)
-          + edgeCost(origin.edge, destination.fraction - origin.fraction)
-          + snapCost(destination.distanceM),
+        cost: accessCost(origin.distanceM, profile)
+          + icelandRoadGraphEdgeCost(origin.edge, profile, destination.fraction - origin.fraction)
+          + accessCost(destination.distanceM, profile),
+        snapDistanceM: routeSnapDistanceM(origin, destination),
         key: `${candidateKey(origin)}>${candidateKey(destination)}`,
         origin,
         destination,
@@ -540,17 +659,21 @@ function directProjectedRoute(
       if (betterRoute(candidate, selected)) selected = candidate
     }
   }
-  return selected
+  return deadlineExceeded(deadlineAtMs)
+    ? { status: 'incomplete' }
+    : { status: 'ok', route: selected }
 }
 
 function graphRoute(
   graph: IcelandRoadGraph,
   origins: readonly AnchorCandidate[],
   destinations: readonly AnchorCandidate[],
+  profile: IcelandRoadRoutingProfile,
   excludedSegmentIds?: ReadonlySet<string>,
-): SelectedRoute | null {
+  deadlineAtMs?: number,
+): RouteSearchResult {
   const distanceByNode = new Map<string, number>()
-  const projectedSnapByNode = new Map<string, number>()
+  const snapByNode = new Map<string, number>()
   const keyByNode = new Map<string, string>()
   const sourceByNode = new Map<string, {
     candidate: AnchorCandidate
@@ -561,29 +684,34 @@ function graphRoute(
   const queue = new MinPriorityQueue()
 
   for (const candidate of origins) {
-    const start = originStart(candidate)
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+    const start = originStart(candidate, profile, deadlineAtMs)
+    if (!start) {
+      if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+      continue
+    }
     if (!graph.nodes.has(start.nodeId)) continue
     const key = candidateKey(candidate)
-    const projectedSnap = projectedPriorityDistanceM(candidate)
-    const previousProjectedSnap = projectedSnapByNode.get(start.nodeId) ?? Number.POSITIVE_INFINITY
+    const snapDistanceM = candidate.distanceM
+    const previousSnap = snapByNode.get(start.nodeId) ?? Number.POSITIVE_INFINITY
     const previousCost = distanceByNode.get(start.nodeId) ?? Number.POSITIVE_INFINITY
     const previousKey = keyByNode.get(start.nodeId)
     if (
-      projectedSnap > previousProjectedSnap + COST_EPSILON
+      start.cost > previousCost + COST_EPSILON
       || (
-        Math.abs(projectedSnap - previousProjectedSnap) <= COST_EPSILON
+        Math.abs(start.cost - previousCost) <= COST_EPSILON
         && (
-          start.cost > previousCost + COST_EPSILON
+          snapDistanceM > previousSnap + COST_EPSILON
           || (
-            Math.abs(start.cost - previousCost) <= COST_EPSILON
+            Math.abs(snapDistanceM - previousSnap) <= COST_EPSILON
             && previousKey !== undefined
             && key >= previousKey
           )
         )
       )
     ) continue
-    projectedSnapByNode.set(start.nodeId, projectedSnap)
     distanceByNode.set(start.nodeId, start.cost)
+    snapByNode.set(start.nodeId, snapDistanceM)
     keyByNode.set(start.nodeId, key)
     sourceByNode.set(start.nodeId, {
       candidate,
@@ -593,8 +721,8 @@ function graphRoute(
     previousByNode.delete(start.nodeId)
     queue.push({
       nodeId: start.nodeId,
-      projectedSnapDistanceM: projectedSnap,
       cost: start.cost,
+      snapDistanceM,
       key,
     })
   }
@@ -605,28 +733,33 @@ function graphRoute(
     suffix: readonly IcelandRoadGraphEdge[]
   }>>()
   for (const candidate of destinations) {
-    const end = destinationEnd(candidate)
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+    const end = destinationEnd(candidate, profile, deadlineAtMs)
+    if (!end) {
+      if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+      continue
+    }
     if (!graph.nodes.has(end.nodeId)) continue
     const values = destinationByNode.get(end.nodeId) ?? []
     values.push({ candidate, cost: end.cost, suffix: end.suffix })
     destinationByNode.set(end.nodeId, values)
   }
   for (const values of destinationByNode.values()) {
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
     values.sort((a, b) => candidateKey(a.candidate).localeCompare(candidateKey(b.candidate)))
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
   }
 
   let selected: SelectedRoute | null = null
   const visited = new Set<string>()
   while (queue.size > 0) {
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
     const current = queue.pop()
     if (!current || visited.has(current.nodeId)) continue
+    if (selected && current.cost > selected.cost + COST_EPSILON) break
     if (
-      Math.abs(
-        (projectedSnapByNode.get(current.nodeId) ?? Number.POSITIVE_INFINITY)
-          - current.projectedSnapDistanceM,
-      ) > COST_EPSILON
-      ||
       Math.abs((distanceByNode.get(current.nodeId) ?? Number.POSITIVE_INFINITY) - current.cost) > COST_EPSILON
+      || Math.abs((snapByNode.get(current.nodeId) ?? Number.POSITIVE_INFINITY) - current.snapDistanceM) > COST_EPSILON
       || keyByNode.get(current.nodeId) !== current.key
     ) continue
     visited.add(current.nodeId)
@@ -634,10 +767,12 @@ function graphRoute(
     const source = sourceByNode.get(current.nodeId)
     if (!source) continue
     for (const destination of destinationByNode.get(current.nodeId) ?? []) {
+      if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
       const path: IcelandRoadGraphEdge[] = []
       let pathComplete = true
       let cursor = current.nodeId
       while (cursor !== source.startNodeId) {
+        if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
         const edge = previousByNode.get(cursor)
         if (!edge) {
           pathComplete = false
@@ -651,8 +786,8 @@ function graphRoute(
       const connectedRoadEdges = [...source.prefix, ...path, ...destination.suffix]
       if (connectedRoadEdges.length === 0) continue
       const candidate: SelectedRoute = {
-        projectedSnapDistanceM: projectedSnapDistanceM(source.candidate, destination.candidate),
         cost: current.cost + destination.cost,
+        snapDistanceM: routeSnapDistanceM(source.candidate, destination.candidate),
         key: `${current.key}>${candidateKey(destination.candidate)}`,
         origin: source.candidate,
         destination: destination.candidate,
@@ -661,48 +796,53 @@ function graphRoute(
       if (betterRoute(candidate, selected)) selected = candidate
     }
 
-    const outgoing = [...(graph.outgoing.get(current.nodeId) ?? [])]
-      .filter(edge => isIcelandRoadGraphEdgeAllowed(
-        edge,
-        FASTEST_CAR_PROFILE,
-        excludedSegmentIds,
-      ))
-      .sort((a, b) => a.id.localeCompare(b.id))
+    const outgoing: IcelandRoadGraphEdge[] = []
+    for (const edge of graph.outgoing.get(current.nodeId) ?? []) {
+      if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
+      if (isIcelandRoadGraphEdgeAllowed(edge, profile, excludedSegmentIds)) {
+        outgoing.push(edge)
+      }
+    }
+    outgoing.sort((a, b) => a.id.localeCompare(b.id))
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
     for (const edge of outgoing) {
+      if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
       if (!graph.nodes.has(edge.toNodeId) || visited.has(edge.toNodeId)) continue
-      const candidateCost = current.cost + edgeCost(edge)
+      const candidateCost = current.cost + icelandRoadGraphEdgeCost(edge, profile)
       const candidateKeyValue = `${current.key}>${edge.id}`
-      const previousProjectedSnap = projectedSnapByNode.get(edge.toNodeId) ?? Number.POSITIVE_INFINITY
+      const previousSnap = snapByNode.get(edge.toNodeId) ?? Number.POSITIVE_INFINITY
       const previousCost = distanceByNode.get(edge.toNodeId) ?? Number.POSITIVE_INFINITY
       const previousKey = keyByNode.get(edge.toNodeId)
       if (
-        current.projectedSnapDistanceM > previousProjectedSnap + COST_EPSILON
+        candidateCost > previousCost + COST_EPSILON
         || (
-          Math.abs(current.projectedSnapDistanceM - previousProjectedSnap) <= COST_EPSILON
+          Math.abs(candidateCost - previousCost) <= COST_EPSILON
           && (
-            candidateCost > previousCost + COST_EPSILON
+            current.snapDistanceM > previousSnap + COST_EPSILON
             || (
-              Math.abs(candidateCost - previousCost) <= COST_EPSILON
+              Math.abs(current.snapDistanceM - previousSnap) <= COST_EPSILON
               && previousKey !== undefined
               && candidateKeyValue >= previousKey
             )
           )
         )
       ) continue
-      projectedSnapByNode.set(edge.toNodeId, current.projectedSnapDistanceM)
       distanceByNode.set(edge.toNodeId, candidateCost)
+      snapByNode.set(edge.toNodeId, current.snapDistanceM)
       keyByNode.set(edge.toNodeId, candidateKeyValue)
       sourceByNode.set(edge.toNodeId, source)
       previousByNode.set(edge.toNodeId, edge)
       queue.push({
         nodeId: edge.toNodeId,
-        projectedSnapDistanceM: current.projectedSnapDistanceM,
         cost: candidateCost,
+        snapDistanceM: current.snapDistanceM,
         key: candidateKeyValue,
       })
     }
   }
-  return selected
+  return deadlineExceeded(deadlineAtMs)
+    ? { status: 'incomplete' }
+    : { status: 'ok', route: selected }
 }
 
 function routeEdgeKey(route: SelectedRoute): string {
@@ -721,6 +861,7 @@ function routeSegmentIds(route: SelectedRoute): string[] {
 function assessmentRoadAlternatives(
   graph: IcelandRoadGraph,
   primary: SelectedRoute,
+  profile: IcelandRoadRoutingProfile,
   rawMaxAlternatives: number | undefined,
   rawMaxOverlap: number | undefined,
   deadlineAtMs: number | undefined,
@@ -732,6 +873,9 @@ function assessmentRoadAlternatives(
   const maxOverlap = Number.isFinite(rawMaxOverlap)
     ? Math.max(0, Math.min(1, rawMaxOverlap!))
     : 0.94
+  if (deadlineExceeded(deadlineAtMs)) {
+    return { alternatives: [], complete: false, attempts: 0 }
+  }
 
   // A projected endpoint's physical segment is required to reach the signed
   // point. Excluding it would claim to avoid a road that the mandatory partial
@@ -746,6 +890,9 @@ function assessmentRoadAlternatives(
   const eligibleSegmentIds = routeSegmentIds(primary).filter(segmentId => (
     !endpointSegmentIds.has(segmentId)
   ))
+  if (deadlineExceeded(deadlineAtMs)) {
+    return { alternatives: [], complete: false, attempts: 0 }
+  }
   if (eligibleSegmentIds.length === 0) {
     return { alternatives: [], complete: true, attempts: 0 }
   }
@@ -757,21 +904,28 @@ function assessmentRoadAlternatives(
   let complete = true
   let attempts = 0
   for (let index = 0; index < eligibleSegmentIds.length; index += stride) {
-    if (deadlineAtMs !== undefined && Date.now() >= deadlineAtMs) {
+    if (deadlineExceeded(deadlineAtMs)) {
       complete = false
       break
     }
     attempts += 1
-    const route = graphRoute(
+    const routeResult = graphRoute(
       graph,
       [primary.origin],
       [primary.destination],
+      profile,
       new Set([eligibleSegmentIds[index]]),
+      deadlineAtMs,
     )
-    if (deadlineAtMs !== undefined && Date.now() >= deadlineAtMs) {
+    if (routeResult.status === 'incomplete') {
       complete = false
       break
     }
+    if (deadlineExceeded(deadlineAtMs)) {
+      complete = false
+      break
+    }
+    const route = routeResult.route
     if (!route) continue
     const key = routeEdgeKey(route)
     if (key === primaryKey || candidates.has(key)) continue
@@ -788,14 +942,29 @@ function assessmentRoadAlternatives(
     candidates.set(key, { route, overlapWithPrimary })
   }
 
-  const alternatives = [...candidates.values()]
-    .sort((a, b) => a.route.cost - b.route.cost || routeEdgeKey(a.route).localeCompare(routeEdgeKey(b.route)))
-    .slice(0, maxAlternatives)
-    .map(candidate => ({
+  const sortedCandidates = [...candidates.values()]
+  sortedCandidates.sort((a, b) => (
+    a.route.cost - b.route.cost
+    || routeEdgeKey(a.route).localeCompare(routeEdgeKey(b.route))
+  ))
+  if (deadlineExceeded(deadlineAtMs)) complete = false
+  const alternatives: RouteAssessmentRoadAlternative[] = []
+  for (const candidate of sortedCandidates.slice(0, maxAlternatives)) {
+    if (deadlineExceeded(deadlineAtMs)) {
+      complete = false
+      break
+    }
+    const routeFingerprint = routeProvenanceFingerprint(candidate.route)
+    if (deadlineExceeded(deadlineAtMs)) {
+      complete = false
+      break
+    }
+    alternatives.push({
       connectedRoadEdges: candidate.route.connectedRoadEdges,
       overlapWithPrimary: candidate.overlapWithPrimary,
-      routeProvenanceFingerprint: routeProvenanceFingerprint(candidate.route),
-    }))
+      routeProvenanceFingerprint: routeFingerprint,
+    })
+  }
   return { alternatives, complete, attempts }
 }
 
@@ -825,6 +994,80 @@ function routeProvenanceFingerprint(route: SelectedRoute): string {
     isFRoad: edge.isFRoad,
     isMountainRoad: edge.isMountainRoad,
     isSeasonal: edge.isSeasonal,
+    networkRole: edge.networkRole ?? null,
+    ...(edge.directionBasis
+      ? {
+          directionEvidence: {
+            basis: edge.directionBasis,
+            status: edge.directionStatus ?? null,
+            inference: edge.directionInference
+              ? {
+                  schemaVersion: edge.directionInference.schemaVersion,
+                  kind: edge.directionInference.kind,
+                  attestationId: edge.directionInference.attestationId,
+                  contentSha256: edge.directionInference.contentSha256,
+                  segmentSourceId: edge.directionInference.segmentSourceId,
+                  sourceProvenanceKey: edge.directionInference.sourceProvenanceKey,
+                  policyId: edge.directionInference.policyId,
+                  policyVersion: edge.directionInference.policyVersion,
+                  generatorId: edge.directionInference.generatorId,
+                  generatorVersion: edge.directionInference.generatorVersion,
+                  evidenceArtifactId: edge.directionInference.evidenceArtifactId,
+                  evidenceContentSha256: edge.directionInference.evidenceContentSha256,
+                  confidenceBps: edge.directionInference.confidenceBps,
+                  validFromIso: edge.directionInference.validFromIso,
+                  expiresAtIso: edge.directionInference.expiresAtIso,
+                }
+              : null,
+            policy: edge.directionInferencePolicy
+              ? {
+                  schemaVersion: edge.directionInferencePolicy.schemaVersion,
+                  policyId: edge.directionInferencePolicy.policyId,
+                  policyVersion: edge.directionInferencePolicy.policyVersion,
+                  generatorId: edge.directionInferencePolicy.generatorId,
+                  generatorVersion: edge.directionInferencePolicy.generatorVersion,
+                  minimumConfidenceBps: edge.directionInferencePolicy.minimumConfidenceBps,
+                }
+              : null,
+            evidenceArtifact: edge.directionEvidenceArtifact
+              ? {
+                  schemaVersion: edge.directionEvidenceArtifact.schemaVersion,
+                  artifactId: edge.directionEvidenceArtifact.artifactId,
+                  datasetId: edge.directionEvidenceArtifact.datasetId,
+                  datasetVersion: edge.directionEvidenceArtifact.datasetVersion,
+                  sourceUrl: edge.directionEvidenceArtifact.sourceUrl,
+                  effectiveAtIso: edge.directionEvidenceArtifact.effectiveAtIso,
+                  contentSha256: edge.directionEvidenceArtifact.contentSha256,
+                  policyId: edge.directionEvidenceArtifact.policyId,
+                  policyVersion: edge.directionEvidenceArtifact.policyVersion,
+                  generatorId: edge.directionEvidenceArtifact.generatorId,
+                  generatorVersion: edge.directionEvidenceArtifact.generatorVersion,
+                  licenseReviewId: edge.directionEvidenceArtifact.licenseReviewId,
+                }
+              : null,
+          },
+        }
+      : {}),
+    official: edge.official
+      ? {
+          provider: edge.official.provider,
+          sourceLayerId: edge.official.sourceLayerId,
+          sourceObjectId: edge.official.sourceObjectId,
+          sectionId: edge.official.sectionId,
+          sectionNumber: edge.official.sectionNumber ?? null,
+          roadPartCode: edge.official.roadPartCode,
+          roadPartNumber: edge.official.roadPartNumber ?? null,
+          ownerCode: edge.official.ownerCode,
+          roadClassCode: edge.official.roadClassCode,
+          directionCode: edge.official.directionCode,
+          ...(edge.official.directionFieldState
+            ? { directionFieldState: edge.official.directionFieldState }
+            : {}),
+          inUseFromEpochMs: edge.official.inUseFromEpochMs,
+          outOfUseAtEpochMs: edge.official.outOfUseAtEpochMs,
+          sourceUpdatedAtEpochMs: edge.official.sourceUpdatedAtEpochMs ?? null,
+        }
+      : null,
   }))
   return createHash('sha256')
     .update(JSON.stringify({
@@ -843,9 +1086,10 @@ function routeProvenanceFingerprint(route: SelectedRoute): string {
 }
 
 /**
- * Resolves canonical settlement nodes and/or ephemeral navigation-road
- * projections into one direction-correct fastest-car path. Exact navigation
- * inputs are used only while projecting and are never present in the result.
+ * Resolves canonical and ephemeral navigation endpoints by projecting them to
+ * eligible road-segment geometry, then selects one direction-correct route for
+ * the requested profile. Exact inputs are used only during projection; the
+ * returned anchors are graph-derived points.
  */
 export function findRouteAssessmentRoadAnchors(
   graph: IcelandRoadGraph,
@@ -853,11 +1097,16 @@ export function findRouteAssessmentRoadAnchors(
   destinationRequest: RouteAssessmentAnchorRequest,
   options: FindRouteAssessmentRoadAnchorsOptions,
 ): RouteAssessmentRoadAnchorsResult {
+  const profile = options.profile ?? FASTEST_CAR_PROFILE
+  if (deadlineExceeded(options.deadlineAtMs)) return { status: 'incomplete' }
   const originResolution = resolveCandidates(
     graph,
     originRequest,
     options.maxOriginSnapDistanceM,
+    profile,
+    options.deadlineAtMs,
   )
+  if (originResolution.status === 'incomplete') return { status: 'incomplete' }
   if (originResolution.status === 'ambiguous') return { status: 'ambiguous_trusted_anchor' }
   if (originResolution.status !== 'ok') return { status: 'no_origin_anchor' }
 
@@ -865,29 +1114,67 @@ export function findRouteAssessmentRoadAnchors(
     graph,
     destinationRequest,
     options.maxDestinationSnapDistanceM,
+    profile,
+    options.deadlineAtMs,
   )
+  if (destinationResolution.status === 'incomplete') return { status: 'incomplete' }
   if (destinationResolution.status === 'ambiguous') return { status: 'ambiguous_trusted_anchor' }
   if (destinationResolution.status !== 'ok') return { status: 'no_destination_anchor' }
 
-  const direct = directProjectedRoute(
-    originResolution.candidates,
-    destinationResolution.candidates,
+  const nearestOriginDistanceM = originResolution.candidates[0]?.distanceM ?? 0
+  const nearestDestinationDistanceM = destinationResolution.candidates[0]?.distanceM ?? 0
+  const maximumRequestedSnapDistanceM = Math.max(
+    options.maxOriginSnapDistanceM,
+    options.maxDestinationSnapDistanceM,
   )
-  const routed = graphRoute(
-    graph,
-    originResolution.candidates,
-    destinationResolution.candidates,
-  )
-  const selected = direct && (!routed || betterRoute(direct, routed)) ? direct : routed
+  const searchBands = [
+    ...NEAREST_REACHABLE_SEARCH_BANDS_M.filter(band => band < maximumRequestedSnapDistanceM),
+    maximumRequestedSnapDistanceM,
+  ]
+  let selected: SelectedRoute | null = null
+  for (const bandM of searchBands) {
+    if (deadlineExceeded(options.deadlineAtMs)) return { status: 'incomplete' }
+    const originCandidates = originResolution.candidates.filter(candidate => (
+      candidate.distanceM <= nearestOriginDistanceM + bandM
+    ))
+    const destinationCandidates = destinationResolution.candidates.filter(candidate => (
+      candidate.distanceM <= nearestDestinationDistanceM + bandM
+    ))
+    const directResult = directProjectedRoute(
+      originCandidates,
+      destinationCandidates,
+      profile,
+      options.deadlineAtMs,
+    )
+    if (directResult.status === 'incomplete') return { status: 'incomplete' }
+    const routedResult = graphRoute(
+      graph,
+      originCandidates,
+      destinationCandidates,
+      profile,
+      undefined,
+      options.deadlineAtMs,
+    )
+    if (routedResult.status === 'incomplete') return { status: 'incomplete' }
+    const direct = directResult.route
+    const routed = routedResult.route
+    selected = direct && (!routed || betterRoute(direct, routed)) ? direct : routed
+    if (selected) break
+  }
   if (!selected) return { status: 'no_route' }
+  if (deadlineExceeded(options.deadlineAtMs)) return { status: 'incomplete' }
 
   const alternatives = assessmentRoadAlternatives(
     graph,
     selected,
+    profile,
     options.maxAlternatives,
     options.maxAlternativeOverlap,
-    options.alternativeDeadlineAtMs,
+    earliestDeadline(options.deadlineAtMs, options.alternativeDeadlineAtMs),
   )
+  if (deadlineExceeded(options.deadlineAtMs)) return { status: 'incomplete' }
+  const primaryRouteProvenanceFingerprint = routeProvenanceFingerprint(selected)
+  if (deadlineExceeded(options.deadlineAtMs)) return { status: 'incomplete' }
   return {
     status: 'ok',
     origin: publicAnchor(selected.origin),
@@ -896,6 +1183,6 @@ export function findRouteAssessmentRoadAnchors(
     alternatives: alternatives.alternatives,
     alternativesComplete: alternatives.complete,
     alternativeSearchAttempts: alternatives.attempts,
-    routeProvenanceFingerprint: routeProvenanceFingerprint(selected),
+    routeProvenanceFingerprint: primaryRouteProvenanceFingerprint,
   }
 }

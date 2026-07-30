@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { createHash } from 'node:crypto'
 import generatedDirectory from './officialPlaceDirectory.generated.json'
 import { normalizePlaceSearchText } from './normalize'
 import type { SelectedLocation } from './types'
@@ -15,6 +16,9 @@ type GeneratedSettlement = {
   postalCodes: string[]
   placeType: 'settlement'
   population2024: null
+  hagstofaId: string | null
+  is50vIds: string[]
+  sourceUpdatedAt: string | null
   searchTextNormalized: string
   geometry: OfficialSettlementGeometry
 }
@@ -39,14 +43,37 @@ export type OfficialSettlementRecord = OfficialSettlementBoundary & {
   postalLocality: string | null
 }
 
+export type OfficialPostalClassification = 'Þéttbýli' | 'Dreifbýli'
+
+export type OfficialPostalAssessmentIdentity = Readonly<
+  | {
+      kind: 'urban_settlement'
+      postalAreaId: string
+      settlementId: string
+      resolution:
+        | 'unique_official_name'
+        | 'unique_official_name_and_primary_postal'
+        | 'unique_primary_postal'
+    }
+  | {
+      kind: 'rural_postal_area'
+      postalAreaId: string
+    }
+  | {
+      kind: 'unresolved'
+      reason: 'no_unique_official_settlement' | 'ambiguous_official_settlement'
+    }
+>
+
 type GeneratedPostalLocality = {
   name: string
-  classification: string
+  classification: OfficialPostalClassification
   sourceId: string
   correctedAt: string | null
+  assessmentIdentity: OfficialPostalAssessmentIdentity
 }
 
-export type OfficialPostalLocality = Readonly<GeneratedPostalLocality>
+export type OfficialPostalLocality = Readonly<Omit<GeneratedPostalLocality, 'assessmentIdentity'>>
 
 type IndexedSettlement = {
   settlement: GeneratedSettlement
@@ -66,6 +93,61 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isOptionalString(value: unknown): value is string | null {
   return value === null || typeof value === 'string'
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const allowed = new Set(keys)
+  return Object.keys(value).every(key => allowed.has(key))
+}
+
+function contentSha256(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
+
+function validHttpsUrl(value: unknown): value is string {
+  if (!isNonEmptyString(value)) return false
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function validDateOnly(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00.000Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+function parseSourceProvenance(value: unknown, retrievedDate: string): void {
+  if (!isRecord(value) || !hasOnlyKeys(value, ['hagstofa', 'is50v', 'postal'])) {
+    throw new Error('official_place_directory_invalid')
+  }
+  for (const sourceKey of ['hagstofa', 'is50v', 'postal']) {
+    const source = value[sourceKey]
+    if (
+      !isRecord(source)
+      || !hasOnlyKeys(source, [
+        'dataset',
+        'metadataUrl',
+        'dataUrl',
+        'featureCount',
+        'contentSha256',
+        'retrievedDate',
+      ])
+      || !isNonEmptyString(source.dataset)
+      || !validHttpsUrl(source.metadataUrl)
+      || !validHttpsUrl(source.dataUrl)
+      || typeof source.featureCount !== 'number'
+      || !Number.isInteger(source.featureCount)
+      || source.featureCount <= 0
+      || typeof source.contentSha256 !== 'string'
+      || !/^[a-f0-9]{64}$/.test(source.contentSha256)
+      || source.retrievedDate !== retrievedDate
+    ) {
+      throw new Error('official_place_directory_invalid')
+    }
+  }
 }
 
 function parseSettlementPosition(value: unknown): OfficialSettlementPosition {
@@ -115,8 +197,26 @@ function parseSettlement(value: unknown): GeneratedSettlement {
   if (!isRecord(value)) throw new Error('official_place_directory_invalid')
   const aliases = value.aliases
   const postalCodes = value.postalCodes
+  const is50vIds = value.is50vIds
   if (
-    !isNonEmptyString(value.id)
+    !hasOnlyKeys(value, [
+      'id',
+      'name',
+      'aliases',
+      'lat',
+      'lon',
+      'postalCode',
+      'postalLocality',
+      'postalCodes',
+      'placeType',
+      'population2024',
+      'hagstofaId',
+      'is50vIds',
+      'sourceUpdatedAt',
+      'searchTextNormalized',
+      'geometry',
+    ])
+    || !isNonEmptyString(value.id)
     || !isNonEmptyString(value.name)
     || !Array.isArray(aliases)
     || aliases.length === 0
@@ -133,8 +233,12 @@ function parseSettlement(value: unknown): GeneratedSettlement {
     || !isOptionalString(value.postalLocality)
     || !Array.isArray(postalCodes)
     || !postalCodes.every(code => typeof code === 'string' && /^\d{3}$/.test(code))
+    || !Array.isArray(is50vIds)
+    || !is50vIds.every(isNonEmptyString)
     || value.placeType !== 'settlement'
     || value.population2024 !== null
+    || !isOptionalString(value.hagstofaId)
+    || !isOptionalString(value.sourceUpdatedAt)
     || typeof value.searchTextNormalized !== 'string'
   ) {
     throw new Error('official_place_directory_invalid')
@@ -142,45 +246,187 @@ function parseSettlement(value: unknown): GeneratedSettlement {
   if (value.postalCode !== null && !/^\d{3}$/.test(value.postalCode)) {
     throw new Error('official_place_directory_invalid')
   }
+  if (
+    new Set(aliases).size !== aliases.length
+    || new Set(postalCodes).size !== postalCodes.length
+    || new Set(is50vIds).size !== is50vIds.length
+  ) throw new Error('official_place_directory_invalid')
   return {
-    ...(value as Omit<GeneratedSettlement, 'geometry'>),
+    id: value.id,
+    name: value.name,
+    aliases,
+    lat: value.lat,
+    lon: value.lon,
+    postalCode: value.postalCode,
+    postalLocality: value.postalLocality,
+    postalCodes,
+    placeType: 'settlement',
+    population2024: null,
+    hagstofaId: value.hagstofaId,
+    is50vIds,
+    sourceUpdatedAt: value.sourceUpdatedAt,
+    searchTextNormalized: value.searchTextNormalized,
     geometry: parseSettlementGeometry(value.geometry),
   }
 }
 
+function parsePostalAssessmentIdentity(
+  value: unknown,
+  input: {
+    postalCode: string
+    sourceId: string
+    classification: OfficialPostalClassification
+    settlementIds: ReadonlySet<string>
+  },
+): OfficialPostalAssessmentIdentity {
+  if (!isRecord(value) || !isNonEmptyString(value.kind)) {
+    throw new Error('official_place_directory_invalid')
+  }
+  if (value.kind === 'unresolved') {
+    if (
+      input.classification !== 'Þéttbýli'
+      || !hasOnlyKeys(value, ['kind', 'reason'])
+      || !['no_unique_official_settlement', 'ambiguous_official_settlement'].includes(
+        String(value.reason),
+      )
+    ) throw new Error('official_place_directory_invalid')
+    return {
+      kind: 'unresolved',
+      reason: value.reason as 'no_unique_official_settlement' | 'ambiguous_official_settlement',
+    }
+  }
+
+  const expectedPostalAreaId = `postal:${input.postalCode}:${input.sourceId}`
+  if (!isNonEmptyString(value.postalAreaId) || value.postalAreaId !== expectedPostalAreaId) {
+    throw new Error('official_place_directory_invalid')
+  }
+  if (value.kind === 'rural_postal_area') {
+    if (
+      input.classification !== 'Dreifbýli'
+      || !hasOnlyKeys(value, ['kind', 'postalAreaId'])
+    ) throw new Error('official_place_directory_invalid')
+    return { kind: 'rural_postal_area', postalAreaId: value.postalAreaId }
+  }
+  if (value.kind === 'urban_settlement') {
+    if (
+      input.classification !== 'Þéttbýli'
+      || !hasOnlyKeys(value, ['kind', 'postalAreaId', 'settlementId', 'resolution'])
+      || !isNonEmptyString(value.settlementId)
+      || !input.settlementIds.has(value.settlementId)
+      || ![
+        'unique_official_name',
+        'unique_official_name_and_primary_postal',
+        'unique_primary_postal',
+      ].includes(String(value.resolution))
+    ) throw new Error('official_place_directory_invalid')
+    return {
+      kind: 'urban_settlement',
+      postalAreaId: value.postalAreaId,
+      settlementId: value.settlementId,
+      resolution: value.resolution as Extract<
+        OfficialPostalAssessmentIdentity,
+        { kind: 'urban_settlement' }
+      >['resolution'],
+    }
+  }
+  throw new Error('official_place_directory_invalid')
+}
+
 function parseDirectory(value: unknown): {
   settlements: GeneratedSettlement[]
-  postalLocalities: Map<string, OfficialPostalLocality>
+  postalLocalities: Map<string, GeneratedPostalLocality>
 } {
-  if (!isRecord(value) || value.schemaVersion !== 2 || !Array.isArray(value.settlements)) {
+  if (
+    !isRecord(value)
+    || !hasOnlyKeys(value, [
+      'schemaVersion',
+      'generator',
+      'retrievedDate',
+      'sources',
+      'settlements',
+      'postalLocalities',
+      'contentSha256',
+    ])
+    || value.schemaVersion !== 3
+    || !isRecord(value.generator)
+    || !hasOnlyKeys(value.generator, ['id', 'version'])
+    || value.generator.id !== 'scripts/generate-official-place-directory.mjs'
+    || value.generator.version !== 1
+    || !validDateOnly(value.retrievedDate)
+    || !Array.isArray(value.settlements)
+    || typeof value.contentSha256 !== 'string'
+    || !/^[a-f0-9]{64}$/.test(value.contentSha256)
+  ) {
     throw new Error('official_place_directory_invalid')
   }
   if (!isRecord(value.postalLocalities)) throw new Error('official_place_directory_invalid')
+  parseSourceProvenance(value.sources, value.retrievedDate)
+  const hashPayload = {
+    schemaVersion: value.schemaVersion,
+    generator: value.generator,
+    retrievedDate: value.retrievedDate,
+    sources: value.sources,
+    settlements: value.settlements,
+    postalLocalities: value.postalLocalities,
+  }
+  if (contentSha256(hashPayload) !== value.contentSha256) {
+    throw new Error('official_place_directory_invalid')
+  }
 
-  const postalLocalities = new Map<string, OfficialPostalLocality>()
+  const settlements = value.settlements.map(parseSettlement)
+  const settlementIds = new Set(settlements.map(settlement => settlement.id))
+  if (settlementIds.size !== settlements.length) throw new Error('official_place_directory_invalid')
+
+  const postalLocalities = new Map<string, GeneratedPostalLocality>()
+  const postalAreaIds = new Set<string>()
   for (const [postalCode, locality] of Object.entries(value.postalLocalities)) {
     if (
       !/^\d{3}$/.test(postalCode)
       || !isRecord(locality)
+      || !hasOnlyKeys(locality, [
+        'name',
+        'classification',
+        'sourceId',
+        'correctedAt',
+        'assessmentIdentity',
+      ])
       || !isNonEmptyString(locality.name)
-      || !isNonEmptyString(locality.classification)
+      || !['Þéttbýli', 'Dreifbýli'].includes(String(locality.classification))
       || !isNonEmptyString(locality.sourceId)
       || !isOptionalString(locality.correctedAt)
     ) {
       throw new Error('official_place_directory_invalid')
     }
+    const classification = locality.classification as OfficialPostalClassification
+    const assessmentIdentity = parsePostalAssessmentIdentity(locality.assessmentIdentity, {
+      postalCode,
+      sourceId: locality.sourceId,
+      classification,
+      settlementIds,
+    })
+    if (assessmentIdentity.kind !== 'unresolved') {
+      if (postalAreaIds.has(assessmentIdentity.postalAreaId)) {
+        throw new Error('official_place_directory_invalid')
+      }
+      postalAreaIds.add(assessmentIdentity.postalAreaId)
+    }
     postalLocalities.set(postalCode, {
       name: locality.name,
-      classification: locality.classification,
+      classification,
       sourceId: locality.sourceId,
       correctedAt: locality.correctedAt,
+      assessmentIdentity,
     })
   }
 
   return {
-    settlements: value.settlements.map(parseSettlement),
+    settlements,
     postalLocalities,
   }
+}
+
+export function validateOfficialPlaceDirectorySnapshot(value: unknown): void {
+  parseDirectory(value)
 }
 
 const directory = parseDirectory(generatedDirectory)
@@ -358,5 +604,20 @@ export function getOfficialPostalLocality(
   postalCode: string | null | undefined,
 ): OfficialPostalLocality | null {
   if (!postalCode || !/^\d{3}$/.test(postalCode)) return null
-  return directory.postalLocalities.get(postalCode) ?? null
+  const locality = directory.postalLocalities.get(postalCode)
+  return locality
+    ? {
+        name: locality.name,
+        classification: locality.classification,
+        sourceId: locality.sourceId,
+        correctedAt: locality.correctedAt,
+      }
+    : null
+}
+
+export function getOfficialPostalAssessmentIdentity(
+  postalCode: string | null | undefined,
+): OfficialPostalAssessmentIdentity | null {
+  if (!postalCode || !/^\d{3}$/.test(postalCode)) return null
+  return directory.postalLocalities.get(postalCode)?.assessmentIdentity ?? null
 }

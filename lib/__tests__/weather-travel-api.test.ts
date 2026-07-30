@@ -216,22 +216,36 @@ beforeEach(() => {
     distanceConfidence: 'reference_route',
   })
 
-  mockSampleRouteWeatherPoints.mockImplementation((points, cumulativeDistances) => ({
-    weatherPoints: [{
-      lat: points[0].lat,
-      lon: points[0].lon,
-      forecastLat: points[0].lat,
-      forecastLon: points[0].lon,
-      routeIndex: 0,
-      distanceFromOriginM: cumulativeDistances[0],
-    }],
-    diagnostics: {
-      mode: 'all_unique_forecast_points',
-      rawRoutePointCount: points.length,
-      uniqueForecastPointCount: 1,
-      selectedWeatherPointCount: 1,
-    },
-  }))
+  mockSampleRouteWeatherPoints.mockImplementation((points, cumulativeDistances) => {
+    const lastIndex = points.length - 1
+    const boundaryPoints = [
+      {
+        lat: points[0].lat,
+        lon: points[0].lon,
+        forecastLat: points[0].lat,
+        forecastLon: points[0].lon,
+        routeIndex: 0,
+        distanceFromOriginM: cumulativeDistances[0],
+      },
+      {
+        lat: points[lastIndex].lat,
+        lon: points[lastIndex].lon,
+        forecastLat: points[lastIndex].lat,
+        forecastLon: points[lastIndex].lon,
+        routeIndex: 1,
+        distanceFromOriginM: cumulativeDistances[lastIndex],
+      },
+    ]
+    return {
+      weatherPoints: boundaryPoints,
+      diagnostics: {
+        mode: 'all_unique_forecast_points',
+        rawRoutePointCount: points.length,
+        uniqueForecastPointCount: 2,
+        selectedWeatherPointCount: 2,
+      },
+    }
+  })
 
   mockFetchForecast.mockResolvedValue([
     makeHour('2026-07-10T08:00:00Z'),
@@ -271,7 +285,7 @@ describe('POST /api/teskeid/weather/travel/route — assessment attestation', ()
     })
   }
 
-  it('uses only signed assessment anchors for fingerprint, coverage and weather, without route-memory', async () => {
+  it('uses only the signed selected route for fingerprint and route-wide weather, without route-memory', async () => {
     authedUser()
     const routeEnvelope = makeAssessmentEnvelope()
 
@@ -288,27 +302,28 @@ describe('POST /api/teskeid/weather/travel/route — assessment attestation', ()
       expect.objectContaining({ lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon }),
       expect.objectContaining({ lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon }),
     )
-    expect(mockResolveTrustedRouteCoverage).toHaveBeenCalledWith(expect.objectContaining({
-      origin: expect.objectContaining({ lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon }),
-      destination: expect.objectContaining({
-        lat: ASSESSMENT_DESTINATION.lat,
-        lon: ASSESSMENT_DESTINATION.lon,
-      }),
-      assessmentScopeId: ASSESSMENT_SCOPE_ID,
-    }))
+    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
     const sampledRoute = mockSampleRouteWeatherPoints.mock.calls[0]?.[0] as Array<{
       lat: number
       lon: number
     }>
     expect(sampledRoute[0]).toEqual(ASSESSMENT_ORIGIN_POINT)
     expect(sampledRoute.at(-1)).toEqual(ASSESSMENT_DESTINATION_POINT)
+    const body = await response.json()
+    expect(body.travelPlan.route.weatherCoverage).toMatchObject({
+      status: 'full',
+      start: { point: ASSESSMENT_ORIGIN_POINT, routeFraction: 0 },
+      end: { point: ASSESSMENT_DESTINATION_POINT, routeFraction: 1 },
+      unassessedBeforeM: 0,
+      unassessedAfterM: 0,
+    })
     expect(mockGetRouteGeometry).not.toHaveBeenCalled()
     expect(mockGetRouteOptions).not.toHaveBeenCalled()
     expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
     expect(mockRecordRouteMemory).not.toHaveBeenCalled()
   })
 
-  it('passes the exact signed Teskeið alternative into scoped coverage without primary recomputation', async () => {
+  it('uses the exact signed Teskeið alternative for route-wide weather without primary recomputation', async () => {
     authedUser()
     const alternativeRoute = {
       id: `teskeid-road-graph-v1-alt-1-${'a'.repeat(43)}`,
@@ -337,45 +352,22 @@ describe('POST /api/teskeid/weather/travel/route — assessment attestation', ()
     }))
 
     expect(response.status).toBe(200)
-    expect(mockResolveTrustedRouteCoverage).toHaveBeenCalledWith(expect.objectContaining({
-      assessmentScopeId: ASSESSMENT_SCOPE_ID,
-      selectedTeskeidRoute: alternativeRoute,
-      referenceRoute: alternativeRoute.points,
-      routeDistanceM: alternativeRoute.distanceM,
-      routeDurationS: alternativeRoute.durationS,
-    }))
+    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
+    expect(mockSampleRouteWeatherPoints.mock.calls[0]?.[0]).toEqual(alternativeRoute.points)
+    const body = await response.json()
+    expect(body.travelPlan.route.weatherCoverage).toMatchObject({
+      status: 'full',
+      coverageDistanceM: alternativeRoute.distanceM,
+      coverageDurationS: alternativeRoute.durationS,
+    })
     expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
     expect(mockGetRouteGeometry).not.toHaveBeenCalled()
     expect(mockGetRouteOptions).not.toHaveBeenCalled()
   })
 
-  it('matches every provider station against the complete signed route when trusted coverage is partial', async () => {
+  it('matches every provider station against the complete signed route', async () => {
     authedUser()
     const stationIds = [HELLISH_ID, '6300', '6315']
-    mockResolveTrustedRouteCoverage.mockResolvedValueOnce({
-      status: 'partial',
-      start: {
-        kind: 'official_road_anchor',
-        label: 'Suðurlandsvegur',
-        point: ASSESSMENT_PROVIDER_MATCHING_POINTS[0],
-        routeFraction: 0.25,
-        distanceFromTripOriginM: 14_000,
-        elapsedFromTripOriginS: 855,
-      },
-      end: {
-        kind: 'official_road_anchor',
-        label: 'Suðurlandsvegur',
-        point: ASSESSMENT_PROVIDER_MATCHING_POINTS.at(-1),
-        routeFraction: 0.75,
-        distanceFromTripOriginM: 42_000,
-        elapsedFromTripOriginS: 2_565,
-      },
-      coverageDistanceM: 28_000,
-      coverageDurationS: 1_710,
-      unassessedBeforeM: 14_000,
-      unassessedAfterM: 14_000,
-      distanceConfidence: 'reference_route',
-    })
     mockMatchProviderPoints.mockImplementation(({ points, routePolyline }) => {
       const coversCompleteRoute =
         routePolyline[0]?.lat === ASSESSMENT_ORIGIN_POINT.lat
@@ -411,6 +403,7 @@ describe('POST /api/teskeid/weather/travel/route — assessment attestation', ()
     expect(body.vedurstofanLayer.points).toHaveLength(3)
     expect(body.vedurstofanLayer.points.map((point: { stationId: string }) => point.stationId))
       .toEqual(stationIds)
+    expect(body.travelPlan.route.weatherCoverage.status).toBe('full')
     expect(mockMatchProviderPoints).toHaveBeenCalledTimes(2)
     for (const [{ routePolyline }] of mockMatchProviderPoints.mock.calls) {
       expect(routePolyline).toEqual(ASSESSMENT_PROVIDER_MATCHING_POINTS)
@@ -544,6 +537,11 @@ describe('POST /api/teskeid/weather/travel/route — auth / public access', () =
     expect(mockFetchVedurstofan).not.toHaveBeenCalled()
     const body = await res.json()
     expect(body.vedurstofanLayer).toBeUndefined()
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
+      status: 'not_applicable',
+      requestedPointCount: 0,
+      reason: 'no_matching_points',
+    })
   })
 
   it('includes vedurstofanLayer for signed-in public-tier user with weather-provider-vedurstofan access (WEATHER_ENABLED=All)', async () => {
@@ -593,7 +591,7 @@ describe('POST /api/teskeid/weather/travel/route — signed first-ready route', 
     expect(mockGetRouteGeometry).not.toHaveBeenCalled()
     expect(mockGetRouteOptions).not.toHaveBeenCalled()
     expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockSampleRouteWeatherPoints.mock.calls[0]?.[0]).toEqual(route.points)
+    expect(mockSampleRouteWeatherPoints.mock.calls[0]?.[0]).toEqual(route.providerMatchingPoints)
     expect(mockRecordRouteMemory).toHaveBeenCalledWith(expect.objectContaining({
       routeVariantKey: 'google:0',
       routeVariantLabel: null,
@@ -791,8 +789,8 @@ describe('POST /api/teskeid/weather/travel/route — signed first-ready route', 
   })
 })
 
-describe('POST /api/teskeid/weather/travel/route — trusted weather coverage', () => {
-  it('clips weather work to the confirmed section while preserving full-trip progress', async () => {
+describe('POST /api/teskeid/weather/travel/route — selected-route weather coverage', () => {
+  it('keeps weather on the full selected route instead of clipping it to graph overlap', async () => {
     authedUser()
     mockResolveTrustedRouteCoverage.mockResolvedValueOnce({
       status: 'partial',
@@ -829,46 +827,51 @@ describe('POST /api/teskeid/weather/travel/route — trusted weather coverage', 
 
     expect(response.status).toBe(200)
     expect(body.travelPlan.route.weatherCoverage).toMatchObject({
-      status: 'partial',
-      unassessedAfterM: 14_000,
+      status: 'full',
+      start: {
+        point: GARDABAER_POINT,
+        routeFraction: 0,
+        distanceFromTripOriginM: 0,
+      },
+      end: {
+        point: THORLAKSHOFN_POINT,
+        routeFraction: 1,
+        distanceFromTripOriginM: 56_000,
+      },
+      coverageDistanceM: 56_000,
+      unassessedBeforeM: 0,
+      unassessedAfterM: 0,
     })
-    expect(mockSampleRouteWeatherPoints).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ lat: expect.any(Number), lon: expect.any(Number) }),
-      ]),
-      expect.arrayContaining([expect.any(Number)]),
-    )
+    expect(body.travelPlan.route.assessmentCompleteness).toMatchObject({
+      status: 'complete',
+      assessedStartDistanceM: 0,
+      assessedEndDistanceM: 56_000,
+      assessedDistanceM: 56_000,
+      unassessedBeforeM: 0,
+      unassessedAfterM: 0,
+      forecast: { status: 'complete' },
+    })
+    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
+    expect(mockSampleRouteWeatherPoints.mock.calls[0]?.[0]).toEqual([
+      GARDABAER_POINT,
+      THORLAKSHOFN_POINT,
+    ])
     const sampledCumulative = mockSampleRouteWeatherPoints.mock.calls[0][1] as number[]
-    expect(sampledCumulative[0]).toBeGreaterThan(0)
-    expect(body.travelPlan.routeWeatherPoints[0].distanceFromOriginM).toBeCloseTo(14_000, -2)
-    expect(body.travelPlan.routeWeatherPoints[0].elapsedFromTripOriginS).toBeCloseTo(855, -1)
-    expect(body.travelPlan.routeWeatherPoints[0].isOrigin).toBe(false)
-    expect(body.travelPlan.routeWeatherPoints[0].isDestinationClosest).toBe(false)
-    expect(mockFetchForecast).toHaveBeenCalledTimes(1)
+    expect(sampledCumulative[0]).toBe(0)
+    expect(sampledCumulative.at(-1)).toBeGreaterThan(0)
+    expect(body.travelPlan.routeWeatherPoints[0].distanceFromOriginM).toBe(0)
+    expect(body.travelPlan.routeWeatherPoints.at(-1).distanceFromOriginM).toBe(56_000)
+    expect(body.travelPlan.samplingDiagnostics.selectedWeatherPointCount)
+      .toBe(body.travelPlan.route.assessmentCompleteness.forecast.requestedPointCount)
+    expect(mockFetchForecast).toHaveBeenCalledTimes(3)
   })
 
-  it.each([
-    {
-      coverage: {
-        status: 'same_urban_area',
-        settlementId: 'hagstofa:hella',
-        settlementName: 'Hella',
-      },
-      reasonCode: 'same_urban_area',
-    },
-    {
-      coverage: {
-        status: 'unavailable',
-        reason: 'reference_route_mismatch',
-      },
-      reasonCode: 'trusted_route_unavailable',
-    },
-  ])('returns the exact route without inventing weather for $coverage.status', async ({
-    coverage,
-    reasonCode,
-  }) => {
+  it('does not let an unavailable legacy graph-overlap result suppress route weather', async () => {
     authedUser()
-    mockResolveTrustedRouteCoverage.mockResolvedValueOnce(coverage)
+    mockResolveTrustedRouteCoverage.mockResolvedValueOnce({
+      status: 'unavailable',
+      reason: 'reference_route_mismatch',
+    })
 
     const response = await POST(makeRequest({
       origin: GARDABAER,
@@ -878,18 +881,179 @@ describe('POST /api/teskeid/weather/travel/route — trusted weather coverage', 
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(body.reasonCode).toBe(reasonCode)
-    expect(body.travelPlan.route.weatherCoverage).toEqual(coverage)
+    expect(body.travelPlan.route.weatherCoverage.status).toBe('full')
     expect(body.travelPlan.route.auditPolylinePoints).toEqual([
       GARDABAER_POINT,
       THORLAKSHOFN_POINT,
     ])
-    expect(body.travelPlan.routeWeatherPoints).toEqual([])
-    expect(mockSampleRouteWeatherPoints).not.toHaveBeenCalled()
-    expect(mockFetchForecast).not.toHaveBeenCalled()
-    expect(mockMatchProviderPoints).not.toHaveBeenCalled()
-    expect(mockReadVegagerdinCurrent).not.toHaveBeenCalled()
-    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
+    expect(body.travelPlan.routeWeatherPoints).toHaveLength(2)
+    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
+    expect(mockSampleRouteWeatherPoints).toHaveBeenCalledOnce()
+    expect(mockFetchForecast).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('POST /api/teskeid/weather/travel/route — forecast completeness', () => {
+  const calmForecast = () => [
+    makeHour('2026-07-10T08:00:00Z'),
+    makeHour('2026-07-10T09:00:00Z'),
+    makeHour('2026-07-10T10:00:00Z'),
+  ]
+
+  function useFourPointForecastPlan() {
+    mockSampleRouteWeatherPoints.mockReturnValue({
+      weatherPoints: [
+        { lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 },
+        { lat: 64.03, lon: -21.75, forecastLat: 64.03, forecastLon: -21.75, routeIndex: 1, distanceFromOriginM: 20_000 },
+        { lat: 63.94, lon: -21.55, forecastLat: 63.94, forecastLon: -21.55, routeIndex: 2, distanceFromOriginM: 40_000 },
+        { lat: 63.849, lon: -21.365, forecastLat: 63.849, forecastLon: -21.365, routeIndex: 3, distanceFromOriginM: 56_000 },
+      ],
+      diagnostics: {
+        mode: 'all_unique_forecast_points',
+        rawRoutePointCount: 4,
+        uniqueForecastPointCount: 4,
+        selectedWeatherPointCount: 4,
+      },
+    })
+  }
+
+  it('returns a complete contract when every planned route forecast succeeds', async () => {
+    authedUser()
+    useFourPointForecastPlan()
+    mockFetchForecast.mockReset()
+    for (let index = 0; index < 5; index++) {
+      mockFetchForecast.mockResolvedValueOnce(calmForecast())
+    }
+
+    const response = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      earliestDepartureAt: '2026-07-10T08:00:00Z',
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.travelPlan.route.assessmentCompleteness).toMatchObject({
+      status: 'complete',
+      assessedStartDistanceM: 0,
+      assessedEndDistanceM: 56_000,
+      unassessedAfterM: 0,
+      forecast: {
+        status: 'complete',
+        requestedPointCount: 4,
+        succeededPointCount: 4,
+        failedPointCount: 0,
+        assessedPointCount: 4,
+      },
+    })
+    expect(body.travelPlan.routeWeatherPoints).toHaveLength(4)
+    expect(body.travelPlan.samplingDiagnostics.selectedWeatherPointCount)
+      .toBe(body.travelPlan.route.assessmentCompleteness.forecast.requestedPointCount)
+  })
+
+  it('returns a retryable failure instead of publishing a contiguous prefix as the route result', async () => {
+    authedUser()
+    useFourPointForecastPlan()
+    mockFetchForecast.mockReset()
+      .mockResolvedValueOnce(calmForecast())
+      .mockResolvedValueOnce(calmForecast())
+      .mockRejectedValueOnce(new Error('upstream point failed'))
+      .mockResolvedValueOnce(calmForecast())
+      .mockResolvedValueOnce(calmForecast()) // destination-only forecast must not bridge the gap
+
+    const response = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      earliestDepartureAt: '2026-07-10T08:00:00Z',
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body.error).toBe('forecast_unavailable')
+    expect(body).not.toHaveProperty('travelPlan')
+    expect(body.assessmentCompleteness).toMatchObject({
+      status: 'partial',
+      reason: 'forecast_gap',
+      forecast: {
+        requestedPointCount: 4,
+        succeededPointCount: 3,
+        failedPointCount: 1,
+        assessedPointCount: 2,
+        excludedSucceededPointCount: 1,
+      },
+    })
+  })
+
+  it('returns truthful unavailable when only the first point survives', async () => {
+    authedUser()
+    useFourPointForecastPlan()
+    mockFetchForecast.mockReset()
+      .mockResolvedValueOnce(calmForecast())
+      .mockRejectedValueOnce(new Error('second point failed'))
+      .mockRejectedValueOnce(new Error('third point failed'))
+      .mockRejectedValueOnce(new Error('fourth point failed'))
+      .mockResolvedValueOnce(calmForecast()) // destination must not rescue the route
+
+    const response = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      earliestDepartureAt: '2026-07-10T08:00:00Z',
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body.error).toBe('forecast_unavailable')
+    expect(body.assessmentCompleteness).toMatchObject({
+      status: 'unavailable',
+      reason: 'forecast_unavailable',
+      assessedDistanceM: 0,
+      forecast: {
+        requestedPointCount: 4,
+        succeededPointCount: 1,
+        failedPointCount: 3,
+        assessedPointCount: 0,
+      },
+    })
+    const serializedCompleteness = JSON.stringify(body.assessmentCompleteness)
+    expect(serializedCompleteness).not.toContain('64.09')
+    expect(serializedCompleteness).not.toContain('-21.93')
+    expect(serializedCompleteness).not.toContain('second point failed')
+  })
+
+  it('treats a fulfilled empty forecast as a retryable route-wide failure', async () => {
+    authedUser()
+    useFourPointForecastPlan()
+    mockFetchForecast.mockReset()
+      .mockResolvedValueOnce(calmForecast())
+      .mockResolvedValueOnce(calmForecast())
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(calmForecast())
+      .mockResolvedValueOnce(calmForecast())
+
+    const response = await POST(makeRequest({
+      origin: GARDABAER,
+      destination: THORLAKSHOFN,
+      trailerKind: 'none',
+      earliestDepartureAt: '2026-07-10T08:00:00Z',
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body.error).toBe('forecast_unavailable')
+    expect(body).not.toHaveProperty('travelPlan')
+    expect(body.assessmentCompleteness).toMatchObject({
+      status: 'partial',
+      reason: 'forecast_gap',
+      forecast: {
+      status: 'partial',
+      failedPointCount: 1,
+      assessedPointCount: 2,
+      excludedSucceededPointCount: 1,
+      },
+    })
   })
 })
 
@@ -1118,6 +1282,11 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     const body = await res.json()
     expect(mockFetchVedurstofan).not.toHaveBeenCalled()
     expect(body.vedurstofanLayer).toBeUndefined()
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
+      status: 'not_applicable',
+      requestedPointCount: 0,
+      reason: 'no_matching_points',
+    })
   })
 
   it('includes vedurstofanLayer with points when layer is enabled', async () => {
@@ -1138,6 +1307,43 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     expect(body.vedurstofanLayer.points).toHaveLength(1)
     expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
     expect(body.vedurstofanLayer.points[0].forecastRows).toHaveLength(2)
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
+      status: 'complete',
+      requestedPointCount: 1,
+      succeededPointCount: 1,
+      failedPointCount: 0,
+    })
+  })
+
+  it('counts omitted requested stations as partial provider evidence', async () => {
+    authedUser()
+    setupLayerEnabled()
+    const stationIds = [HELLISH_ID, '6300', '6315']
+    mockMatchProviderPoints.mockReturnValue(
+      stationIds.map((stationId, index) => makeStationMatch(stationId, 8_000 + index * 12_000)),
+    )
+    mockFetchVedurstofan.mockResolvedValue(new Map([
+      [HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }],
+    ]))
+
+    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(body.vedurstofanLayer).toMatchObject({
+      status: 'partial',
+      mappedPointCount: 3,
+      availablePointCount: 1,
+      unavailablePointCount: 2,
+    })
+    expect(body.vedurstofanLayer.points.map((point: { stationId: string }) => point.stationId))
+      .toEqual([HELLISH_ID])
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
+      status: 'partial',
+      requestedPointCount: 3,
+      succeededPointCount: 1,
+      failedPointCount: 2,
+    })
   })
 
   it('includes vegagerdinLayer with gust-based status when current stations match the route', async () => {
@@ -1263,6 +1469,11 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     expect(mockFetchVedurstofan).not.toHaveBeenCalled()
     const body = await res.json()
     expect(body.vedurstofanLayer).toBeUndefined()
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
+      status: 'not_applicable',
+      requestedPointCount: 0,
+      reason: 'no_matching_points',
+    })
   })
 
   it('does not read product table or return vedurstofanLayer when user lacks weather-provider-vedurstofan access', async () => {
@@ -1277,6 +1488,11 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     expect(mockFetchVedurstofan).not.toHaveBeenCalled()
     const body = await res.json()
     expect(body.vedurstofanLayer).toBeUndefined()
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
+      status: 'not_requested',
+      requestedPointCount: 0,
+      reason: 'feature_disabled',
+    })
   })
 
   it('returns baseline result when product-table read times out', async () => {
@@ -1295,6 +1511,13 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     const body = await res.json()
     expect(body.stada).toBeDefined()
     expect(body.vedurstofanLayer).toBeUndefined()
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
+      status: 'unavailable',
+      requestedPointCount: 1,
+      succeededPointCount: 0,
+      failedPointCount: 1,
+      reason: 'provider_unavailable',
+    })
   })
 
   it('keeps every matched station when a valid cold product-table read completes within the 20 s budget', async () => {
@@ -1334,9 +1557,14 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
     mockSampleRouteWeatherPoints.mockReturnValue({
       weatherPoints: [
         { lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 },
-        { lat: 64.00, lon: -21.80, forecastLat: 64.00, forecastLon: -21.80, routeIndex: 1, distanceFromOriginM: 10_000 },
+        { lat: 63.849, lon: -21.365, forecastLat: 63.849, forecastLon: -21.365, routeIndex: 1, distanceFromOriginM: 56_000 },
       ],
-      diagnostics: { strategy: 'exhaustive', totalCells: 2, sampledCells: 2 },
+      diagnostics: {
+        mode: 'all_unique_forecast_points',
+        rawRoutePointCount: 2,
+        uniqueForecastPointCount: 2,
+        selectedWeatherPointCount: 2,
+      },
     })
     mockMatchProviderPoints.mockReturnValue([makeStationMatch(HELLISH_ID)])
     mockFetchVedurstofan.mockResolvedValue(
@@ -1368,14 +1596,17 @@ describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => 
   it('selects a station via route geometry even when sampleRouteWeatherPoints does not cover its location', async () => {
     authedUser()
     setupLayerEnabled()
-    // Sampled MET/Yr point: Garðabær (64.09, -21.93) — far from Hellisheiði (~64.04, -21.37).
+    // Sampled MET/Yr boundaries are both away from Hellisheiði (~64.04, -21.37).
     // Old code: getUniqueStationIdsForRoute(weatherPoints) would check each sampled point → miss Hellisheiði.
     // New code: matchProviderPointsToRoute uses routeGeometry.points directly → finds Hellisheiði.
     // This test proves the API uses the route-geometry matcher; the spatial correctness of
     // the matcher itself is proven in providerRouteMatching.test.ts test 1.
     mockSampleRouteWeatherPoints.mockReturnValue({
-      weatherPoints: [{ lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 }],
-      diagnostics: { strategy: 'exhaustive', totalCells: 1, sampledCells: 1 },
+      weatherPoints: [
+        { lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 },
+        { lat: 63.849, lon: -21.365, forecastLat: 63.849, forecastLon: -21.365, routeIndex: 1, distanceFromOriginM: 56_000 },
+      ],
+      diagnostics: { strategy: 'exhaustive', totalCells: 2, sampledCells: 2 },
     })
     mockMatchProviderPoints.mockReturnValue([makeStationMatch(HELLISH_ID, 8_000)])
     mockFetchVedurstofan.mockResolvedValue(

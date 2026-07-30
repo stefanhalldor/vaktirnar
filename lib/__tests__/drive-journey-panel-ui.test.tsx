@@ -5,6 +5,12 @@ import type { ForecastDrawerRow, TravelCandidate } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
 
 type MockMapProps = {
+  routePoints?: Array<{ lat: number; lon: number }>
+  routes?: Array<{
+    id: string
+    points: Array<{ lat: number; lon: number }>
+    dashArray?: number[]
+  }>
   stations?: Array<{ id: string; name: string }>
   selectedStationId?: string | null
   onSelectStation?: (stationId: string) => void
@@ -70,8 +76,22 @@ vi.mock('@/components/weather/VedurstofanPointCard', () => ({
 }))
 
 vi.mock('@/components/weather/DriveRouteMap', () => ({
-  DriveRouteMap: ({ stations = [], selectedStationId, onSelectStation }: MockMapProps) => (
-    <div data-testid="drive-route-map" data-selected-station-id={selectedStationId ?? ''}>
+  DRIVE_MAP_ROUTE_COLOR: '#14532d',
+  DriveRouteMap: ({
+    routePoints = [],
+    routes = [],
+    stations = [],
+    selectedStationId,
+    onSelectStation,
+  }: MockMapProps) => (
+    <div
+      data-testid="drive-route-map"
+      data-selected-station-id={selectedStationId ?? ''}
+      data-primary-route-point-count={routePoints.length}
+      data-route-styles={routes
+        .map(route => `${route.id}:${route.dashArray ? 'dashed' : 'solid'}`)
+        .join('|')}
+    >
       {stations.map(station => (
         <button
           key={station.id}
@@ -208,6 +228,105 @@ function cardBelowMap(): HTMLElement {
 }
 
 describe('DriveJourneyPanel point selection', () => {
+  it('keeps all matched route stations and the full route visible when legacy partial metadata arrives', () => {
+    const layer = createLayer()
+    layer.points.push({
+      ...layer.points[0],
+      routePointId: 'vedurstofan_unknown_fraction',
+      stationId: 'unknown-fraction',
+      stationName: 'Óstaðfest stöð',
+      routeFraction: null,
+      lat: 64.3,
+      lon: -21.6,
+    })
+
+    render(
+      <DriveJourneyPanel
+        {...BASE_PROPS}
+        layer={layer}
+        assessmentCompleteness={{
+          status: 'partial',
+          reason: 'forecast_gap',
+          assessedStartRouteFraction: 0,
+          assessedEndRouteFraction: 0.6,
+          assessedStartDistanceM: 0,
+          assessedEndDistanceM: 60_000,
+          assessedDistanceM: 60_000,
+          unassessedBeforeM: 0,
+          unassessedAfterM: 40_000,
+          distanceConfidence: 'reference_route',
+          forecast: {
+            provider: 'metno',
+            status: 'partial',
+            requestedPointCount: 5,
+            succeededPointCount: 4,
+            failedPointCount: 1,
+            assessedPointCount: 3,
+            excludedSucceededPointCount: 1,
+          },
+        }}
+        weatherCoverage={{
+          status: 'partial',
+          start: {
+            kind: 'official_road_anchor',
+            label: 'Garðabær',
+            point: { lat: 64.08, lon: -21.9 },
+            routeFraction: 0,
+            distanceFromTripOriginM: 0,
+            elapsedFromTripOriginS: 0,
+          },
+          end: {
+            kind: 'official_road_anchor',
+            label: 'Metinn endi',
+            point: { lat: 64.4, lon: -21.5 },
+            routeFraction: 0.6,
+            distanceFromTripOriginM: 60_000,
+            elapsedFromTripOriginS: 3_600,
+          },
+          coverageDistanceM: 60_000,
+          coverageDurationS: 3_600,
+          unassessedAfterM: 40_000,
+          distanceConfidence: 'reference_route',
+        }}
+      />,
+    )
+
+    expect(screen.queryByText('partialAssessmentTitle')).not.toBeInTheDocument()
+    expect(screen.queryByText('partialAssessmentBody')).not.toBeInTheDocument()
+    expect(screen.getByText('allRouteForecastPointsDrawer')).toBeInTheDocument()
+    expect(screen.queryByText('availableRouteForecastPointsDrawer')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'select Lygn stöð' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'select Vindasöm stöð' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'select Óstaðfest stöð' })).toBeInTheDocument()
+
+    const map = screen.getByTestId('drive-route-map')
+    expect(map).toHaveAttribute('data-primary-route-point-count', '3')
+    expect(map).toHaveAttribute('data-route-styles', '')
+    expect(screen.queryByText('partialAssessmentMapAssessedLegend')).not.toBeInTheDocument()
+    expect(screen.queryByText('partialAssessmentMapUnassessedLegend')).not.toBeInTheDocument()
+    expect(screen.queryByText('partialAssessmentMapEnd')).not.toBeInTheDocument()
+  })
+
+  it('does not expose engineering sampling diagnostics in the journey UI', () => {
+    render(
+      <DriveJourneyPanel
+        {...BASE_PROPS}
+        layer={createLayer()}
+        samplingDiagnostics={{
+          mode: 'distance_capped',
+          rawRoutePointCount: 1_000,
+          uniqueForecastPointCount: 300,
+          selectedWeatherPointCount: 80,
+          targetSpacingM: 10_000,
+          cap: 120,
+        }}
+      />,
+    )
+
+    expect(screen.queryByText('sampledAssessmentTitle')).not.toBeInTheDocument()
+    expect(screen.queryByText('sampledAssessmentBody')).not.toBeInTheDocument()
+  })
+
   it('uses canonical endpoint rows and labels instead of relabelling route stations', () => {
     render(
       <DriveJourneyPanel

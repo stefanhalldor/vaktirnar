@@ -10,6 +10,7 @@ vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mocks.getAdmin }))
 
 import {
   readHmsPostalIdentityCandidates,
+  readHmsSourceIdentityCandidate,
   readActiveHmsDataset,
   reverseHmsPlace,
   searchHmsPlaces,
@@ -376,6 +377,41 @@ describe('HMS directory reverse lookup repository', () => {
       { lat: 64.145, lon: -21.93 },
       { maxDistanceM: 25 },
     )).resolves.toBeNull()
+  })
+
+  it('re-attests one exact named HMS source without postcode metadata', async () => {
+    const activeMaybeSingle = vi.fn().mockResolvedValue({
+      data: { id: 'active-dataset' },
+      error: null,
+    })
+    const activeEq = vi.fn(() => ({ maybeSingle: activeMaybeSingle }))
+    const activeSelect = vi.fn(() => ({ eq: activeEq }))
+    const point = { lat: 64.145, lon: -21.93 }
+    const placesLimit = vi.fn().mockResolvedValue({
+      data: [{
+        source_id: 'named-place',
+        lat: point.lat,
+        lon: point.lon,
+      }],
+      error: null,
+    })
+    const placesOrder = vi.fn(() => ({ limit: placesLimit }))
+    const eqSource = vi.fn(() => ({ order: placesOrder }))
+    const eqDataset = vi.fn(() => ({ eq: eqSource }))
+    const placesSelect = vi.fn(() => ({ eq: eqDataset }))
+    mocks.from.mockImplementation((table: string) => (
+      table === 'hms_place_dataset_versions'
+        ? { select: activeSelect }
+        : { select: placesSelect }
+    ))
+
+    await expect(readHmsSourceIdentityCandidate(point, {
+      maxDistanceM: 25,
+      sourceId: 'named-place',
+    })).resolves.toEqual({ sourceId: 'named-place', distanceM: 0 })
+    expect(eqDataset).toHaveBeenCalledWith('dataset_version_id', 'active-dataset')
+    expect(eqSource).toHaveBeenCalledWith('source_id', 'named-place')
+    expect(placesLimit).toHaveBeenCalledWith(2)
   })
 })
 

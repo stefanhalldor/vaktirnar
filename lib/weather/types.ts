@@ -251,6 +251,59 @@ export type RouteWeatherSamplingDiagnostics = {
   cap?: number
 }
 
+export type WeatherProviderCompleteness = {
+  provider: 'vedurstofan' | 'vegagerdin'
+  /** Matched station reads are supporting evidence, never route-wide truth on their own. */
+  assessmentRole: 'display_only'
+  status: 'complete' | 'partial' | 'unavailable' | 'not_requested' | 'not_applicable'
+  requestedPointCount: number
+  succeededPointCount: number
+  failedPointCount: number
+  reason?: 'feature_disabled' | 'no_matching_points' | 'provider_unavailable'
+}
+
+export type RouteForecastCompleteness = {
+  provider: 'metno'
+  status: 'complete' | 'partial' | 'unavailable'
+  requestedPointCount: number
+  succeededPointCount: number
+  failedPointCount: number
+  /** Forecast points in the uninterrupted assessed prefix. */
+  assessedPointCount: number
+  /** Successful points after the first gap. They are never used in the assessment. */
+  excludedSucceededPointCount: number
+}
+
+/**
+ * Truth boundary for a route-weather result.
+ *
+ * This is deliberately separate from `weatherCoverage`: trusted road geometry
+ * and successful forecast acquisition are independent concerns. All distances
+ * and fractions are derived from the server-attested assessment route; exact
+ * navigation endpoints must never be added to this contract.
+ */
+export type RouteAssessmentCompleteness = {
+  status: 'complete' | 'partial' | 'unavailable'
+  reason?:
+    | 'route_scope_partial'
+    | 'forecast_incomplete'
+    | 'forecast_gap'
+    | 'forecast_unavailable'
+  assessedStartRouteFraction: number
+  assessedEndRouteFraction: number
+  assessedStartDistanceM: number
+  assessedEndDistanceM: number
+  assessedDistanceM: number
+  unassessedBeforeM: number
+  unassessedAfterM: number
+  distanceConfidence: 'reference_route'
+  forecast: RouteForecastCompleteness
+  providers?: {
+    vedurstofan?: WeatherProviderCompleteness
+    vegagerdin?: WeatherProviderCompleteness
+  }
+}
+
 export type TravelPlan = {
   route: {
     originName: string
@@ -259,6 +312,8 @@ export type TravelPlan = {
     durationMinutes: number
     /** Exact trip endpoints remain unchanged; this describes only the assessed road interval. */
     weatherCoverage?: RouteWeatherCoverage
+    /** Explicit truth boundary for route scope plus acquired forecast evidence. */
+    assessmentCompleteness?: RouteAssessmentCompleteness
     /** Sampled route polyline points for audit map rendering (max 80). */
     auditPolylinePoints?: Array<{ lat: number; lon: number }>
     /** Google Static Maps URL showing route line + weather point markers. */

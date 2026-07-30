@@ -45,6 +45,11 @@ export type HmsPostalIdentityCandidate = Readonly<{
   distanceM: number
 }>
 
+export type HmsSourceIdentityCandidate = Readonly<{
+  sourceId: string
+  distanceM: number
+}>
+
 function finiteNumber(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : null
@@ -242,6 +247,63 @@ export async function readHmsPostalIdentityCandidates(
   return candidates.sort((a, b) => (
     a.distanceM - b.distanceM || a.sourceId.localeCompare(b.sourceId, 'is')
   ))
+}
+
+/**
+ * Re-attests one explicitly selected HMS row against the active first-party
+ * dataset. Unlike postal identity resolution, this only proves source identity
+ * and coordinate proximity, so named places without usable postcode metadata
+ * can still be projected onto the connected official-road graph.
+ */
+export async function readHmsSourceIdentityCandidate(
+  point: { lat: number; lon: number },
+  options: { maxDistanceM: number; sourceId: string },
+): Promise<HmsSourceIdentityCandidate | null> {
+  if (
+    !Number.isFinite(point.lat)
+    || !Number.isFinite(point.lon)
+    || point.lat < 63 || point.lat > 67
+    || point.lon < -25 || point.lon > -12
+  ) return null
+
+  const sourceId = options.sourceId.trim()
+  if (!sourceId || sourceId.length > 160) return null
+  const maxDistanceM = Math.min(
+    Math.max(Math.round(options.maxDistanceM), 1),
+    ASSESSMENT_HMS_QUERY_MAX_DISTANCE_M,
+  )
+
+  const { data: activeDataset, error: datasetError } = await getAdmin()
+    .from(DATASET_TABLE)
+    .select('id')
+    .eq('status', 'active')
+    .maybeSingle()
+  if (datasetError) throw new Error('hms_assessment_exact_lookup_failed')
+  if (!activeDataset?.id) return null
+
+  const { data, error } = await getAdmin()
+    .from('hms_places')
+    .select('source_id, lat, lon')
+    .eq('dataset_version_id', activeDataset.id)
+    .eq('source_id', sourceId)
+    .order('source_id', { ascending: true })
+    .limit(2)
+  if (error) throw new Error('hms_assessment_exact_lookup_failed')
+  if (!Array.isArray(data) || data.length !== 1) return null
+
+  const row = data[0] as Pick<HmsPlaceRpcRow, 'source_id' | 'lat' | 'lon'>
+  const lat = finiteNumber(row.lat)
+  const lon = finiteNumber(row.lon)
+  if (
+    row.source_id !== sourceId
+    || lat === null || lon === null
+    || lat < 63 || lat > 67
+    || lon < -25 || lon > -12
+  ) return null
+  const distanceM = haversineDistanceM(point, { lat, lon })
+  return Number.isFinite(distanceM) && distanceM <= maxDistanceM
+    ? { sourceId, distanceM }
+    : null
 }
 
 export async function readActiveHmsDataset(): Promise<ActiveHmsDataset | null> {

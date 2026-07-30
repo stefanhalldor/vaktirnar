@@ -34,6 +34,7 @@ export interface ActiveRoadGraphSnapshotMetadata {
   largestWeakComponentNodeCount: number
   goldenRoutePassCount: number
   goldenRouteTotalCount: number
+  validation: Record<string, unknown>
   promotedAtIso: string
 }
 
@@ -54,6 +55,7 @@ type SnapshotRow = {
   largest_weak_component_node_count: number
   golden_route_pass_count: number
   golden_route_total_count: number
+  validation: Record<string, unknown>
   promoted_at: string
 }
 
@@ -75,6 +77,7 @@ function toMetadata(row: SnapshotRow): ActiveRoadGraphSnapshotMetadata {
     largestWeakComponentNodeCount: row.largest_weak_component_node_count,
     goldenRoutePassCount: row.golden_route_pass_count,
     goldenRouteTotalCount: row.golden_route_total_count,
+    validation: row.validation,
     promotedAtIso: row.promoted_at,
   }
 }
@@ -84,7 +87,7 @@ const METADATA_COLUMNS = [
   'source_content_sha256', 'payload_bytes', 'compressed_bytes', 'source_fetched_at',
   'segment_count', 'node_count', 'edge_count', 'weak_component_count',
   'largest_weak_component_node_count', 'golden_route_pass_count',
-  'golden_route_total_count', 'promoted_at',
+  'golden_route_total_count', 'validation', 'promoted_at',
 ].join(', ')
 
 export function hashRoadGraphSnapshotPayload(payload: RoadGraphSnapshotPayloadV1): string {

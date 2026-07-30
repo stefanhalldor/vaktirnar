@@ -44,6 +44,20 @@ export type DriveRouteMapRoute = {
   offset?: number
   opacity?: number
   width?: number
+  dashArray?: number[]
+  /** Overlay lines can select their owning route without exposing an internal overlay id. */
+  selectRouteId?: string
+}
+
+export type DriveRouteMapAnnotation = {
+  id: string
+  kind: 'gravel'
+  label: string
+  point: { lat: number; lon: number }
+  focusPoints: Array<{ lat: number; lon: number }>
+  distanceKm: number
+  /** Only one callout is shown at a time so nearby short sections cannot overlap. */
+  showLabel?: boolean
 }
 
 type DriveRouteMapStationMarkerVisual = {
@@ -75,6 +89,18 @@ function applyStationMarkerSelection(
 const EMPTY_ROUTE_POINTS: Array<{ lat: number; lon: number }> = []
 const EMPTY_ROUTES: DriveRouteMapRoute[] = []
 const EMPTY_STATIONS: DriveRouteMapStation[] = []
+const EMPTY_ANNOTATIONS: DriveRouteMapAnnotation[] = []
+
+export function driveRouteMapAnnotationLabel(
+  annotation: Pick<DriveRouteMapAnnotation, 'distanceKm' | 'label'>,
+  locale = 'is-IS',
+) {
+  const formattedDistance = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: annotation.distanceKm < 10 ? 1 : 0,
+    maximumFractionDigits: 1,
+  }).format(annotation.distanceKm)
+  return `${formattedDistance} km · ${annotation.label}`
+}
 
 function routeGeoJson(points: Array<{ lat: number; lon: number }>) {
   return {
@@ -96,6 +122,7 @@ export function DriveRouteMap({
   routePoints = EMPTY_ROUTE_POINTS,
   routes = EMPTY_ROUTES,
   stations = EMPTY_STATIONS,
+  annotations = EMPTY_ANNOTATIONS,
   selectedStationId = null,
   onSelectStation,
   onSelectRoute,
@@ -107,6 +134,7 @@ export function DriveRouteMap({
   routePoints?: Array<{ lat: number; lon: number }>
   routes?: DriveRouteMapRoute[]
   stations?: DriveRouteMapStation[]
+  annotations?: DriveRouteMapAnnotation[]
   selectedStationId?: string | null
   onSelectStation?: (stationId: string) => void
   onSelectRoute?: (routeId: string) => void
@@ -128,14 +156,21 @@ export function DriveRouteMap({
         ? [{ id: 'primary', points: routePoints, color: DRIVE_MAP_ROUTE_COLOR }]
         : []
   ), [routePoints, routes])
-  const routeStructureKey = currentDrawableRoutes.map(route => route.id).join('\u0000')
+  const routeStructureKey = currentDrawableRoutes.map(route => (
+    `${route.id}:${route.selectRouteId ?? ''}:${route.dashArray?.join(',') ?? ''}`
+  )).join('\u0000')
   const stationStructureKey = stations.map(station => (
     `${station.id}:${station.lat}:${station.lon}:${station.color}:${station.driveTimeLabel ?? ''}`
   )).join('\u0000')
+  const annotationStructureKey = annotations.map(annotation => (
+    `${annotation.id}:${annotation.point.lat}:${annotation.point.lon}:${annotation.distanceKm}:${annotation.label}:${annotation.showLabel ? 1 : 0}:${annotation.focusPoints.map(point => `${point.lat},${point.lon}`).join('|')}`
+  )).join('\u0000')
   const drawableRoutesRef = useRef(currentDrawableRoutes)
   const stationsRef = useRef(stations)
+  const annotationsRef = useRef(annotations)
   drawableRoutesRef.current = currentDrawableRoutes
   stationsRef.current = stations
+  annotationsRef.current = annotations
   selectedStationIdRef.current = selectedStationId
 
   useEffect(() => {
@@ -153,6 +188,7 @@ export function DriveRouteMap({
   useEffect(() => {
     const drawableRoutes = drawableRoutesRef.current
     const initialStations = stationsRef.current
+    const initialAnnotations = annotationsRef.current
     if (externalContainer || !localContainerRef.current || drawableRoutes.length === 0) return
     let cancelled = false
     let resizeObserver: ResizeObserver | null = null
@@ -211,6 +247,7 @@ export function DriveRouteMap({
               'line-width': route.width ?? 4,
               'line-opacity': route.opacity ?? 0.88,
               'line-offset': route.offset ?? 0,
+              ...(route.dashArray ? { 'line-dasharray': route.dashArray } : {}),
             },
           })
           const hitLayerId = `drive-route-hit-${index}`
@@ -226,7 +263,9 @@ export function DriveRouteMap({
               'line-offset': route.offset ?? 0,
             },
           })
-          map!.on('click', hitLayerId, () => onSelectRouteRef.current?.(route.id))
+          map!.on('click', hitLayerId, () => (
+            onSelectRouteRef.current?.(route.selectRouteId ?? route.id)
+          ))
           map!.on('mouseenter', hitLayerId, () => {
             if (map) map.getCanvas().style.cursor = 'pointer'
           })
@@ -293,11 +332,147 @@ export function DriveRouteMap({
         }
         stationMarkerVisualsRef.current = stationMarkerVisuals
 
+        const annotationCallouts = new Map<string, HTMLSpanElement>()
+        const showAnnotationCallout = (annotationId: string) => {
+          for (const [id, callout] of annotationCallouts) {
+            callout.style.display = id === annotationId ? 'block' : 'none'
+          }
+        }
+        const routeLatitudes = drawableRoutes.flatMap(route => route.points.map(point => point.lat))
+        const routeLongitudes = drawableRoutes.flatMap(route => route.points.map(point => point.lon))
+        const routeCenter = {
+          lat: (Math.min(...routeLatitudes) + Math.max(...routeLatitudes)) / 2,
+          lon: (Math.min(...routeLongitudes) + Math.max(...routeLongitudes)) / 2,
+        }
+
+        for (const annotation of initialAnnotations) {
+          if (annotation.focusPoints.length < 2) continue
+          const label = driveRouteMapAnnotationLabel(
+            annotation,
+            document.documentElement.lang || 'is-IS',
+          )
+          const element = document.createElement('button')
+          element.type = 'button'
+          element.title = label
+          element.setAttribute('aria-label', label)
+          Object.assign(element.style, {
+            display: 'block',
+            width: '40px',
+            height: '40px',
+            border: '0',
+            padding: '0',
+            background: 'transparent',
+            position: 'relative',
+            overflow: 'visible',
+            cursor: 'pointer',
+            borderRadius: '999px',
+          })
+
+          const stonePattern = document.createElement('span')
+          stonePattern.setAttribute('aria-hidden', 'true')
+          Object.assign(stonePattern.style, {
+            position: 'absolute',
+            left: '8px',
+            top: '9px',
+            width: '24px',
+            height: '22px',
+            border: '2px solid white',
+            borderRadius: '8px',
+            background: '#fef3c7',
+            boxShadow: '0 0 0 1px #92400e,0 2px 5px rgba(15,23,42,0.3)',
+          })
+          for (const [left, top, size] of [[4, 8, 6], [10, 4, 7], [16, 10, 5]] as const) {
+            const stone = document.createElement('span')
+            Object.assign(stone.style, {
+              position: 'absolute',
+              left: `${left}px`,
+              top: `${top}px`,
+              width: `${size}px`,
+              height: `${Math.max(4, size - 1)}px`,
+              border: '1px solid #78350f',
+              borderRadius: '45% 55% 50% 45%',
+              background: '#d97706',
+              transform: `rotate(${left * 7}deg)`,
+            })
+            stonePattern.appendChild(stone)
+          }
+          element.appendChild(stonePattern)
+
+          const callout = document.createElement('span')
+          callout.textContent = label
+          const placeRight = annotation.point.lon <= routeCenter.lon
+          const placeBelow = annotation.point.lat >= routeCenter.lat
+          Object.assign(callout.style, {
+            position: 'absolute',
+            ...(placeRight ? { left: '30px' } : { right: '30px' }),
+            ...(placeBelow ? { top: '27px' } : { bottom: '27px' }),
+            display: 'none',
+            maxWidth: '150px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            border: '1px solid #92400e',
+            borderRadius: '999px',
+            background: 'rgba(255,255,255,0.97)',
+            color: '#451a03',
+            boxShadow: '0 2px 6px rgba(15,23,42,0.2)',
+            padding: '4px 8px',
+            font: '700 11px/1.2 Inter,system-ui,sans-serif',
+            pointerEvents: 'none',
+          })
+          const leader = document.createElement('span')
+          leader.setAttribute('aria-hidden', 'true')
+          Object.assign(leader.style, {
+            position: 'absolute',
+            ...(placeRight ? { left: '-13px' } : { right: '-13px' }),
+            ...(placeBelow ? { top: '-3px' } : { bottom: '-3px' }),
+            width: '14px',
+            height: '2px',
+            background: '#92400e',
+            transformOrigin: 'center',
+            transform: `rotate(${placeRight === placeBelow ? 24 : -24}deg)`,
+          })
+          callout.appendChild(leader)
+          element.appendChild(callout)
+          annotationCallouts.set(annotation.id, callout)
+
+          const focusSection = () => {
+            if (!map) return
+            showAnnotationCallout(annotation.id)
+            const sectionBounds = new maplibregl.LngLatBounds()
+            annotation.focusPoints.forEach(point => sectionBounds.extend([point.lon, point.lat]))
+            map.fitBounds(sectionBounds, { padding: 48, duration: 280, maxZoom: 13 })
+          }
+          element.addEventListener('focus', () => {
+            element.style.outline = '2px solid #14532d'
+            element.style.outlineOffset = '2px'
+            focusSection()
+          })
+          element.addEventListener('blur', () => {
+            element.style.outline = 'none'
+          })
+          element.addEventListener('click', event => {
+            event.stopPropagation()
+            focusSection()
+          })
+          markers.push(
+            new maplibregl.Marker({ element, anchor: 'center' })
+              .setLngLat([annotation.point.lon, annotation.point.lat])
+              .addTo(map),
+          )
+        }
+        const initialCallout = initialAnnotations.find(annotation => annotation.showLabel)
+        if (initialCallout) showAnnotationCallout(initialCallout.id)
+
         const bounds = new maplibregl.LngLatBounds()
         drawableRoutes.forEach(route => {
           route.points.forEach(point => bounds.extend([point.lon, point.lat]))
         })
-        map.fitBounds(bounds, { padding: 18, duration: 0, maxZoom: 9 })
+        map.fitBounds(bounds, {
+          padding: initialAnnotations.length > 0 ? 40 : 18,
+          duration: 0,
+          maxZoom: 9,
+        })
       })
 
       resizeObserver = new ResizeObserver(() => map?.resize())
@@ -314,7 +489,7 @@ export function DriveRouteMap({
       map?.remove()
       if (mapRef.current === map) mapRef.current = null
     }
-  }, [externalContainer, interactive, routeStructureKey, stationStructureKey])
+  }, [annotationStructureKey, externalContainer, interactive, routeStructureKey, stationStructureKey])
 
   // Selection/style changes update existing layers in place. This keeps route
   // switching instant instead of destroying and rebuilding MapLibre.
@@ -333,6 +508,7 @@ export function DriveRouteMap({
           map.setPaintProperty(lineId, 'line-width', route.width ?? 4)
           map.setPaintProperty(lineId, 'line-opacity', route.opacity ?? 0.88)
           map.setPaintProperty(lineId, 'line-offset', route.offset ?? 0)
+          map.setPaintProperty(lineId, 'line-dasharray', route.dashArray ?? null)
         }
         if (map.getLayer(hitId)) {
           map.setPaintProperty(hitId, 'line-width', Math.max(16, (route.width ?? 4) + 10))

@@ -9,6 +9,7 @@ import {
 } from '@/lib/iceland-routes/roadGraph'
 import { findRouteAssessmentRoadAnchors } from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
 import { createRouteAssessmentScopeId } from '@/lib/iceland-routes/routeAssessmentScopeId.server'
+import { createIcelandRoadDirectionInferenceAttestation } from '@/lib/iceland-routes/roadGraphDirectionInference'
 import type { IcelandRoadGraphSegmentInput } from '@/lib/iceland-routes/roadGraphTypes'
 import type { LatLon } from '@/lib/iceland-routes/types'
 
@@ -49,6 +50,39 @@ function findAnchors(
 }
 
 describe('route assessment official-road anchors', () => {
+  it.each([
+    ['topology connector', {
+      graphRole: 'topology_connector' as const,
+      assessmentEligible: false,
+      topologyReceiptId: 'receipt:test',
+      topologyDirectionAttested: true as const,
+    }],
+    ['explicitly unassessed edge', { assessmentEligible: false }],
+    ['access source edge', {
+      sourceNetworkRole: 'access_connector' as const,
+      networkRole: 'access_connector' as const,
+    }],
+  ])('never selects a %s as an assessment anchor', (_case, edgeOverrides) => {
+    const start = { lat: 64, lon: -20.6 }
+    const end = { lat: 64, lon: -20.2 }
+    const base = buildIcelandRoadGraph([
+      segment('candidate', [start, end], { networkRole: 'assessment_public' }),
+    ])
+    const edges = base.edges.map(edge => ({ ...edge, ...edgeOverrides }))
+    const outgoing = new Map<string, typeof edges>()
+    for (const edge of edges) {
+      outgoing.set(edge.fromNodeId, [...(outgoing.get(edge.fromNodeId) ?? []), edge])
+    }
+    const result = findRouteAssessmentRoadAnchors(
+      { ...base, edges, outgoing },
+      { kind: 'canonical_node', point: start },
+      { kind: 'projected_road', point: end },
+      { maxOriginSnapDistanceM: 2, maxDestinationSnapDistanceM: 2 },
+    )
+
+    expect(result).toEqual({ status: 'no_origin_anchor' })
+  })
+
   it('ends on a direction-correct partial edge at the mid-road destination', () => {
     const junction = { lat: 64, lon: -20.5 }
     const edgeEnd = { lat: 64, lon: -20.1 }
@@ -187,6 +221,85 @@ describe('route assessment official-road anchors', () => {
     expect(result.connectedRoadEdges[0].geometry.at(-1)?.lon).toBeCloseTo(-20.2, 6)
   })
 
+  it('projects canonical endpoints to the middle of long segments instead of graph endpoints', () => {
+    const result = findAnchors([
+      segment('long-road', [
+        { lat: 64, lon: -21 },
+        { lat: 64, lon: -19 },
+      ], { direction: 'forward' }),
+    ], {
+      kind: 'canonical_node',
+      point: { lat: 64.001, lon: -20.8 },
+    }, {
+      kind: 'canonical_node',
+      point: { lat: 64.001, lon: -19.2 },
+    }, 200)
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.origin.kind).toBe('projected_road')
+    expect(result.destination.kind).toBe('projected_road')
+    expect(result.origin.point.lon).toBeCloseTo(-20.8, 6)
+    expect(result.destination.point.lon).toBeCloseTo(-19.2, 6)
+    expect(result.connectedRoadEdges).toHaveLength(1)
+    expect(result.connectedRoadEdges[0].geometry[0]).toEqual(result.origin.point)
+    expect(result.connectedRoadEdges[0].geometry.at(-1)).toEqual(result.destination.point)
+  })
+
+  it('uses the nearest reachable road even when a farther road has a cheaper through-route', () => {
+    const origin = { lat: 64, lon: -20.2 }
+    const destination = { lat: 64, lon: -20 }
+    const simpleStart = { lat: 64.000225, lon: -20.01 }
+    const detourTop = { lat: 64.45, lon: -20.2 }
+    const nearestStart = { lat: 64.000045, lon: -20.001 }
+    const result = findAnchors([
+      segment('simple-approach', [origin, simpleStart], { direction: 'forward' }),
+      segment('simple-target', [
+        simpleStart,
+        { lat: 64.000225, lon: -19.99 },
+      ], { direction: 'forward' }),
+      segment('detour-a', [origin, detourTop], { direction: 'forward' }),
+      segment('detour-b', [detourTop, nearestStart], { direction: 'forward' }),
+      segment('nearest-target', [
+        nearestStart,
+        { lat: 64.000045, lon: -19.999 },
+      ], { direction: 'forward' }),
+    ], {
+      kind: 'canonical_node',
+      point: origin,
+    }, {
+      kind: 'projected_road',
+      point: destination,
+    }, 100)
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.connectedRoadEdges.map(edge => edge.segmentId)).toEqual([
+      'detour-a',
+      'detour-b',
+      'nearest-target',
+    ])
+    expect(result.destination.snapDistanceM).toBeGreaterThan(4)
+    expect(result.destination.snapDistanceM).toBeLessThan(6)
+  })
+
+  it('rejects reverse travel between projected anchors on a forward-only edge', () => {
+    const result = findAnchors([
+      segment('one-way', [
+        { lat: 64, lon: -20.5 },
+        { lat: 64, lon: -20.1 },
+      ], { direction: 'forward' }),
+    ], {
+      kind: 'projected_road',
+      point: { lat: 64.001, lon: -20.2 },
+    }, {
+      kind: 'projected_road',
+      point: { lat: 64.001, lon: -20.4 },
+    })
+
+    expect(result).toEqual({ status: 'no_route' })
+  })
+
   it('uses the shared profile eligibility and excludes seasonal roads', () => {
     const graph = buildIcelandRoadGraph([
       segment('gravel', [ORIGIN, { lat: 64.08, lon: -21.8 }], { surface: 'gravel' }),
@@ -198,6 +311,49 @@ describe('route assessment official-road anchors', () => {
     expect(isIcelandRoadGraphEdgeAllowed(gravel, ICELAND_ROUTING_PROFILES.fastestCar)).toBe(true)
     expect(isIcelandRoadGraphEdgeAllowed(gravel, ICELAND_ROUTING_PROFILES.shortestPaved)).toBe(false)
     expect(isIcelandRoadGraphEdgeAllowed(seasonal, ICELAND_ROUTING_PROFILES.fastestCar)).toBe(false)
+  })
+
+  it('uses the requested route profile for candidate and path eligibility', () => {
+    const origin = { lat: 64, lon: -20.2 }
+    const destination = { lat: 64, lon: -20 }
+    const pavedStart = { lat: 64.000225, lon: -20.01 }
+    const gravelStart = { lat: 64.000045, lon: -20.001 }
+    const graph = buildIcelandRoadGraph([
+      segment('paved-approach', [origin, pavedStart], { direction: 'forward' }),
+      segment('paved-target', [
+        pavedStart,
+        { lat: 64.000225, lon: -19.99 },
+      ], { direction: 'forward' }),
+      segment('gravel-approach', [origin, gravelStart], {
+        direction: 'forward',
+        surface: 'gravel',
+      }),
+      segment('gravel-target', [
+        gravelStart,
+        { lat: 64.000045, lon: -19.999 },
+      ], {
+        direction: 'forward',
+        surface: 'gravel',
+      }),
+    ], { nodeSnapToleranceM: 2 })
+    const result = findRouteAssessmentRoadAnchors(
+      graph,
+      { kind: 'canonical_node', point: origin },
+      { kind: 'projected_road', point: destination },
+      {
+        maxOriginSnapDistanceM: 100,
+        maxDestinationSnapDistanceM: 100,
+        profile: ICELAND_ROUTING_PROFILES.shortestPaved,
+      },
+    )
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.connectedRoadEdges.map(edge => edge.segmentId)).toEqual([
+      'paved-approach',
+      'paved-target',
+    ])
+    expect(result.connectedRoadEdges.every(edge => edge.surface === 'paved')).toBe(true)
   })
 
   it('fails closed when a trusted anchor is ambiguous across physical roads', () => {
@@ -293,6 +449,112 @@ describe('route assessment official-road anchors', () => {
     expect(drifted.routeProvenanceFingerprint).not.toBe(first.routeProvenanceFingerprint)
   })
 
+  it('changes provenance when structural inference policy, artifact, or expiry metadata changes', () => {
+    const sourceId = 'vegagerdin:layer-6:section-10:road-part-1:road-part-number-1'
+    const start = { lat: 64, lon: -20.5 }
+    const end = { lat: 64, lon: -20.1 }
+    const sourceProvenanceKey = `assessment_public_roads=${'a'.repeat(64)}|road_surfaces=${'b'.repeat(64)}`
+    const policy = {
+      schemaVersion: 1 as const,
+      policyId: 'direction-policy',
+      policyVersion: '1.0.0',
+      generatorId: 'direction-generator',
+      generatorVersion: '1.0.0',
+      minimumConfidenceBps: 9_000,
+    }
+    const evidenceArtifact = {
+      schemaVersion: 1 as const,
+      artifactId: 'direction-evidence',
+      datasetId: 'independent-direction-dataset',
+      datasetVersion: '2026-07',
+      sourceUrl: 'https://example.test/direction-evidence.json',
+      effectiveAtIso: '2026-07-01T00:00:00.000Z',
+      contentSha256: 'c'.repeat(64),
+      policyId: policy.policyId,
+      policyVersion: policy.policyVersion,
+      generatorId: policy.generatorId,
+      generatorVersion: policy.generatorVersion,
+      licenseReviewId: 'license-review-1',
+    }
+    const source = segment(`${sourceId}:geometry-0`, [start, end], {
+      source: 'vegagerdin',
+      sourceId,
+      direction: 'unknown',
+      directionStatus: 'unknown_missing',
+      networkRole: 'assessment_public',
+      official: {
+        provider: 'vegagerdin',
+        sourceLayerId: 6,
+        sourceObjectId: 1,
+        sectionId: 10,
+        roadPartCode: 1,
+        roadPartNumber: '1',
+        ownerCode: 0,
+        roadClassCode: 1,
+        directionCode: null,
+        directionFieldState: 'null',
+        inUseFromEpochMs: 0,
+        outOfUseAtEpochMs: 253_402_214_400_000,
+      },
+    })
+    const resolve = (
+      expiresAtIso: string,
+      minimumConfidenceBps = policy.minimumConfidenceBps,
+      datasetVersion = evidenceArtifact.datasetVersion,
+    ) => {
+      const resolvedPolicy = { ...policy, minimumConfidenceBps }
+      const resolvedEvidenceArtifact = { ...evidenceArtifact, datasetVersion }
+      const attestation = createIcelandRoadDirectionInferenceAttestation({
+        schemaVersion: 1,
+        kind: 'inferred_both',
+        segmentSourceId: sourceId,
+        sourceProvenanceKey,
+        policyId: policy.policyId,
+        policyVersion: policy.policyVersion,
+        generatorId: policy.generatorId,
+        generatorVersion: policy.generatorVersion,
+        evidenceArtifactId: resolvedEvidenceArtifact.artifactId,
+        evidenceContentSha256: resolvedEvidenceArtifact.contentSha256,
+        confidenceBps: 9_500,
+        validFromIso: '2026-07-01T00:00:00.000Z',
+        expiresAtIso,
+      })
+      const graph = buildIcelandRoadGraph([source], {
+        nodeSnapToleranceM: 2,
+        directionInference: {
+          policy: resolvedPolicy,
+          evidenceArtifacts: [resolvedEvidenceArtifact],
+          attestations: [attestation],
+          sourceProvenanceKey,
+          evaluatedAtIso: '2026-07-02T00:00:00.000Z',
+        },
+      })
+      return findRouteAssessmentRoadAnchors(
+        graph,
+        { kind: 'canonical_node', point: start },
+        { kind: 'canonical_node', point: end },
+        { maxOriginSnapDistanceM: 2, maxDestinationSnapDistanceM: 2 },
+      )
+    }
+    const first = resolve('2026-08-01T00:00:00.000Z')
+    const changedExpiry = resolve('2026-09-01T00:00:00.000Z')
+    const changedPolicy = resolve('2026-08-01T00:00:00.000Z', 9_100)
+    const changedArtifact = resolve('2026-08-01T00:00:00.000Z', 9_000, '2026-07-rev2')
+    expect(first.status).toBe('ok')
+    expect(changedExpiry.status).toBe('ok')
+    expect(changedPolicy.status).toBe('ok')
+    expect(changedArtifact.status).toBe('ok')
+    if (
+      first.status !== 'ok'
+      || changedExpiry.status !== 'ok'
+      || changedPolicy.status !== 'ok'
+      || changedArtifact.status !== 'ok'
+    ) return
+    expect(changedExpiry.routeProvenanceFingerprint).not.toBe(first.routeProvenanceFingerprint)
+    expect(changedPolicy.routeProvenanceFingerprint).not.toBe(first.routeProvenanceFingerprint)
+    expect(changedArtifact.routeProvenanceFingerprint).not.toBe(first.routeProvenanceFingerprint)
+  })
+
   it('finds a real one-way detour while preserving both projected partial endpoints', () => {
     const roadStart = { lat: 64, lon: -20.7 }
     const startGateway = { lat: 64, lon: -20.6 }
@@ -363,6 +625,56 @@ describe('route assessment official-road anchors', () => {
     expect(result.alternativesComplete).toBe(false)
     expect(result.alternativeSearchAttempts).toBe(0)
     expect(result.alternatives).toEqual([])
+  })
+
+  it('fails closed instead of returning a partial primary route after its deadline', () => {
+    const start = { lat: 64, lon: -20.6 }
+    const end = { lat: 64, lon: -20.2 }
+    const result = findRouteAssessmentRoadAnchors(
+      buildIcelandRoadGraph([
+        segment('road', [start, end]),
+      ]),
+      { kind: 'canonical_node', point: start },
+      { kind: 'canonical_node', point: end },
+      {
+        maxOriginSnapDistanceM: 2,
+        maxDestinationSnapDistanceM: 2,
+        deadlineAtMs: Date.now() - 1,
+      },
+    )
+
+    expect(result).toEqual({ status: 'incomplete' })
+  })
+
+  it('fails closed when the absolute deadline expires during segment-geometry projection', () => {
+    const geometry = Array.from({ length: 128 }, (_, index) => ({
+      lat: 64,
+      lon: -20.6 + index * 0.003,
+    }))
+    const activeGraph = buildIcelandRoadGraph([
+      segment('long-geometry', geometry),
+    ])
+    let nowCalls = 0
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (
+      nowCalls++ < 5 ? 0 : 1_000
+    ))
+    try {
+      const result = findRouteAssessmentRoadAnchors(
+        activeGraph,
+        { kind: 'canonical_node', point: geometry[0] },
+        { kind: 'canonical_node', point: geometry.at(-1)! },
+        {
+          maxOriginSnapDistanceM: 2,
+          maxDestinationSnapDistanceM: 2,
+          deadlineAtMs: 500,
+        },
+      )
+
+      expect(result).toEqual({ status: 'incomplete' })
+      expect(nowCalls).toBeGreaterThan(5)
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('caps single-segment alternative spur searches at forty attempts', () => {

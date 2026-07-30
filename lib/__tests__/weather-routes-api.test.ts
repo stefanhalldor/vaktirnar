@@ -102,27 +102,30 @@ const ASSESSMENT_ORIGIN = {
   lat: 64.075,
   lon: -21.9,
   source: 'official' as const,
-  sourceId: 'hagstofa:1300',
+  sourceId: 'is50v:1407fdee-3621-5c85-686f-8bd6a4316272',
+  identityKind: 'urban_settlement' as const,
   placeType: 'settlement' as const,
   postalCode: '210',
   postalLocality: 'Garðabær',
 }
 
 const ASSESSMENT_DESTINATION = {
-  name: 'Hella',
-  formattedAddress: 'Hella',
+  name: 'Hella, dreifbýli',
+  formattedAddress: '851 Hella, dreifbýli',
   lat: 63.84,
   lon: -20.4,
   source: 'official' as const,
-  sourceId: 'hagstofa:1120',
-  placeType: 'settlement' as const,
-  postalCode: '850',
-  postalLocality: 'Hella',
+  sourceId: 'postal:851:453b1695-1c60-4a6e-3a69-fd9620c3adb0',
+  identityKind: 'rural_postal_area' as const,
+  placeType: 'point' as const,
+  postalCode: '851',
+  postalLocality: 'Hella, dreifbýli',
+  postalLocalitySourceId: '453b1695-1c60-4a6e-3a69-fd9620c3adb0',
 }
 
 const READY_ASSESSMENT_SCOPE = {
   status: 'ready' as const,
-  scopeId: 'hagstofa:1300:gar-gateway:hagstofa:1120:hella-gateway',
+  scopeId: `assessment:v3:${'a'.repeat(43)}`,
   origin: ASSESSMENT_ORIGIN,
   destination: ASSESSMENT_DESTINATION,
 }

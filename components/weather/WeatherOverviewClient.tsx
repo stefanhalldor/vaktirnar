@@ -41,7 +41,7 @@ import { vegagerdinHasNoUsableLayer } from '@/lib/weather/vegagerdinFallback'
 import {
   writeOverviewRouteDraft,
   clearOverviewRouteDraft,
-} from '@/lib/iceland-routes'
+} from '@/lib/iceland-routes/routeDraft'
 import { getCanonicalPlace } from '@/lib/iceland-routes/routePlaces'
 import { WindStatusFilterPills, type WindStatusFilterMode } from '@/components/weather/WindStatusFilterPills'
 import { cn } from '@/lib/utils'

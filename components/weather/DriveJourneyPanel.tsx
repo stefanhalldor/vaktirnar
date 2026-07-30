@@ -5,6 +5,8 @@ import { useLocale, useTranslations } from 'next-intl'
 import type {
   ForecastDrawerRow,
   ResolvedTravelThresholds,
+  RouteAssessmentCompleteness,
+  RouteWeatherSamplingDiagnostics,
   RouteWeatherPoint,
   TravelCandidate,
   WeatherStatus,
@@ -21,7 +23,10 @@ import { DepartureHeatmap } from './DepartureHeatmap'
 import { VedurstofanPointCard } from './VedurstofanPointCard'
 import { WeatherWatchersComparison } from './WeatherWatchersComparison'
 import { formatCompactDateTime, formatNum } from './travelAuditMap.helpers'
-import { DriveRouteMap, type DriveRouteMapStation } from './DriveRouteMap'
+import {
+  DriveRouteMap,
+  type DriveRouteMapStation,
+} from './DriveRouteMap'
 import { WindStatusFilterPills } from './WindStatusFilterPills'
 
 type Station = VedurstofanTravelLayer['points'][number]
@@ -161,6 +166,12 @@ export function DriveJourneyPanel({
   onEnlargeMap?: () => void
   stationReturnTo: string
   routeSelectionContextKey: string
+  /** Legacy metadata is accepted but intentionally does not narrow the visible route or stations. */
+  assessmentCompleteness?: RouteAssessmentCompleteness
+  /** Legacy coverage metadata is only used by the exported endpoint-row helper, not journey filtering. */
+  weatherCoverage?: RouteWeatherCoverage
+  /** Engineering sampling diagnostics are intentionally not rendered in the journey UI. */
+  samplingDiagnostics?: RouteWeatherSamplingDiagnostics
 }) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const t = useTranslations('teskeid.vedrid.overview')
@@ -177,6 +188,7 @@ export function DriveJourneyPanel({
   const selectedStationId = manualSelection?.contextKey === selectionContextKey
     ? manualSelection.stationId
     : null
+  const providerLayerIsIncomplete = layer?.status === 'partial'
 
   useEffect(() => {
     setManualSelection(null)
@@ -254,7 +266,6 @@ export function DriveJourneyPanel({
     }),
     [assessments, driveMapStations, visibleStatuses],
   )
-
   const endpointComparison = endpointForecastRows ? (
     <WeatherWatchersComparison
       originLabel={originName}
@@ -264,6 +275,33 @@ export function DriveJourneyPanel({
       thresholds={thresholds}
     />
   ) : null
+  const routeMapContent = (
+    <div className="relative">
+      <DriveRouteMap
+        routePoints={routePoints}
+        stations={visibleDriveMapStations}
+        selectedStationId={visibleDisplayedAssessment?.station.stationId ?? null}
+        onSelectStation={(stationId) => setManualSelection({
+          contextKey: selectionContextKey,
+          stationId,
+        })}
+        ariaLabel={tf('auditMapAlt', {
+          origin: originName,
+          destination: destinationName,
+        })}
+        className="h-[190px] w-full overflow-hidden rounded-xl border border-border"
+      />
+      {onEnlargeMap && (
+        <button
+          type="button"
+          onClick={onEnlargeMap}
+          className="absolute right-2 top-2 z-10 flex min-h-10 items-center rounded-full border border-border bg-background/95 px-3 py-2 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {tf('enlargeMap')}
+        </button>
+      )}
+    </div>
+  )
 
   if (!layer || stations.length === 0) {
     return (
@@ -381,31 +419,7 @@ export function DriveJourneyPanel({
             alwaysShowWithinLimits
             mode="detailed"
           />
-          <div className="relative">
-            <DriveRouteMap
-              routePoints={routePoints}
-              stations={visibleDriveMapStations}
-              selectedStationId={visibleDisplayedAssessment?.station.stationId ?? null}
-              onSelectStation={(stationId) => setManualSelection({
-                contextKey: selectionContextKey,
-                stationId,
-              })}
-              ariaLabel={tf('auditMapAlt', {
-                origin: originName,
-                destination: destinationName,
-              })}
-              className="h-[190px] w-full overflow-hidden rounded-xl border border-border"
-            />
-            {onEnlargeMap && (
-              <button
-                type="button"
-                onClick={onEnlargeMap}
-                className="absolute right-2 top-2 z-10 flex min-h-10 items-center rounded-full border border-border bg-background/95 px-3 py-2 text-xs font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {tf('enlargeMap')}
-              </button>
-            )}
-          </div>
+          {routeMapContent}
 
           {visibleDisplayedAssessment && (
             <VedurstofanPointCard
@@ -434,7 +448,11 @@ export function DriveJourneyPanel({
 
           <details className="group rounded-xl border border-border bg-card">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-              <span>{tf('allRouteForecastPointsDrawer')}</span>
+              <span>
+                {providerLayerIsIncomplete
+                  ? tf('availableRouteForecastPointsDrawer')
+                  : tf('allRouteForecastPointsDrawer')}
+              </span>
               <span className="text-[10px] font-medium text-muted-foreground">
                 {t('roadMapPrototypeVedurstofanStationCount', { count: stations.length })}
               </span>

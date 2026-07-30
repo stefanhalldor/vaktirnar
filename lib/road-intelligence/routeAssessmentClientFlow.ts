@@ -19,8 +19,10 @@ export type ReadyRouteAssessmentClientPlaces<
 
 /**
  * Keeps exact navigation endpoints and server-attested assessment endpoints in
- * separate named contracts. Callers use `assessment` for weather work and
- * `navigation` only for the external directions handoff.
+ * separate named contracts. Navigation/access and full-route weather may use
+ * exact endpoints; official-road, surface and safety claims use `assessment`.
+ * Keeping both named prevents one coordinate-shaped value from silently
+ * acquiring the other purpose's provenance.
  */
 export function resolveAssessmentClientEndpoints<
   TPlace extends AssessmentClientPoint,
@@ -42,8 +44,10 @@ export function resolveAssessmentClientEndpoints<
 }
 
 /**
- * Builds the final weather request with non-overridable assessment authority.
- * The payload cannot replace endpoints or the server-issued scope claim.
+ * Builds the current assessment request with non-overridable official-road
+ * authority. The payload cannot replace assessment endpoints or the
+ * server-issued scope claim. Exact navigation endpoints remain available on
+ * `places` for a separately typed access/full-route-weather contract.
  */
 export function buildAssessmentTravelRequest<
   TPlace extends AssessmentClientPoint,

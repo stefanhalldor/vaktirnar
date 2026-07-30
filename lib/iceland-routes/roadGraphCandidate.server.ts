@@ -8,6 +8,7 @@ import {
 } from './roadGraph'
 import type { IcelandRoadGraph } from './roadGraphTypes'
 import { getIcelandRoadGraph } from './roadGraphRuntime.server'
+import { ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT } from './roadGraphSnapshotFormat'
 import {
   TESKEID_ROUTE_CANDIDATE_ID,
   TESKEID_ROUTE_CANDIDATE_ID_PREFIX,
@@ -29,6 +30,9 @@ const MAX_SNAP_DISTANCE_M = 25_000
 const CANDIDATE_CACHE_TTL_MS = 30 * 60 * 1_000
 const CANDIDATE_CACHE_MAX_ENTRIES_PER_GRAPH = 128
 const CURRENT_ASSESSMENT_SCOPE_ID_PATTERN = /^assessment:v3:[A-Za-z0-9_-]{43}$/
+const ROUTE_CANDIDATE_POLICY_VERSION = 'nearest-reachable-road-v1'
+const ROUTE_CANDIDATE_CACHE_POLICY_FINGERPRINT =
+  `${ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT}:${ROUTE_CANDIDATE_POLICY_VERSION}`
 
 type Point = { lat: number; lon: number }
 
@@ -43,17 +47,26 @@ type CandidateCacheBucket = {
 }
 
 type CandidateCacheState = {
+  policyFingerprint: string
   byGraph: WeakMap<IcelandRoadGraph, CandidateCacheBucket>
 }
 
-const CANDIDATE_CACHE_STATE_KEY = '__teskeidRouteCandidateCacheV2__' as const
+// Bump this global key whenever a routing-policy change must invalidate state
+// retained across Next.js Fast Refresh/module replacement.
+const CANDIDATE_CACHE_STATE_KEY = '__teskeidRouteCandidateCacheV3__' as const
 
 function candidateCacheState(): CandidateCacheState {
   const runtime = globalThis as typeof globalThis & {
     [CANDIDATE_CACHE_STATE_KEY]?: CandidateCacheState
   }
-  if (!runtime[CANDIDATE_CACHE_STATE_KEY]) {
-    runtime[CANDIDATE_CACHE_STATE_KEY] = { byGraph: new WeakMap() }
+  if (
+    runtime[CANDIDATE_CACHE_STATE_KEY]?.policyFingerprint
+      !== ROUTE_CANDIDATE_CACHE_POLICY_FINGERPRINT
+  ) {
+    runtime[CANDIDATE_CACHE_STATE_KEY] = {
+      policyFingerprint: ROUTE_CANDIDATE_CACHE_POLICY_FINGERPRINT,
+      byGraph: new WeakMap(),
+    }
   }
   return runtime[CANDIDATE_CACHE_STATE_KEY]
 }
@@ -73,6 +86,7 @@ function candidateCacheBucket(graph: IcelandRoadGraph): CandidateCacheBucket {
 function candidateCacheKey(origin: Point, destination: Point, includeAlternatives: boolean): string {
   return JSON.stringify([
     'legacy-node-route',
+    ROUTE_CANDIDATE_POLICY_VERSION,
     origin.lat,
     origin.lon,
     destination.lat,
@@ -89,6 +103,7 @@ function assessmentCandidateCacheKey(
 ): string {
   return JSON.stringify([
     'assessment-edge-route',
+    ROUTE_CANDIDATE_POLICY_VERSION,
     assessmentScopeId,
     origin.lat,
     origin.lon,
@@ -155,7 +170,10 @@ export function resetTeskeidRouteCandidateCacheForTests(): void {
   const runtime = globalThis as typeof globalThis & {
     [CANDIDATE_CACHE_STATE_KEY]?: CandidateCacheState
   }
-  runtime[CANDIDATE_CACHE_STATE_KEY] = { byGraph: new WeakMap() }
+  runtime[CANDIDATE_CACHE_STATE_KEY] = {
+    policyFingerprint: ROUTE_CANDIDATE_CACHE_POLICY_FINGERPRINT,
+    byGraph: new WeakMap(),
+  }
 }
 
 export function isTeskeidRouteCandidateEnabled(
@@ -257,7 +275,11 @@ export async function getTeskeidAssessmentRouteCandidatesOutcome(
   }
 
   const budgetMs = candidateBudgetMs()
-  const alternativeDeadlineAtMs = Date.now() + Math.max(0, budgetMs - 250)
+  // The same absolute budget follows the work after graph warm-up and into
+  // every synchronous primary/alternative traversal. Promise.race alone
+  // cannot pre-empt CPU-bound graph work on the event loop.
+  const deadlineAtMs = Date.now() + budgetMs
+  const alternativeDeadlineAtMs = deadlineAtMs - Math.min(250, budgetMs)
   return withCandidateTimeout((async (): Promise<TeskeidRouteCandidatesOutcome> => {
     try {
       const graph = await getIcelandRoadGraph()
@@ -274,6 +296,7 @@ export async function getTeskeidAssessmentRouteCandidatesOutcome(
           destination,
           assessmentScopeId,
           includeAlternatives,
+          deadlineAtMs,
           alternativeDeadlineAtMs,
         })
         if (evidence.status === 'incomplete') return { status: 'pending', routes: [] }

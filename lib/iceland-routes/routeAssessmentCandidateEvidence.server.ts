@@ -3,7 +3,12 @@ import 'server-only'
 import type { RouteOption } from '@/lib/weather/provider.types'
 import { rdpSimplifyToMaxPoints } from '@/lib/weather/providerRouteMatching'
 import { matchRouteCautions } from '@/lib/weather/routeCautions'
-import { buildIcelandRoadGraphRouteFromEdges } from './roadGraph'
+import {
+  buildIcelandRoadGraphRouteFromEdges,
+  haversineDistanceM,
+  ICELAND_ROUTING_PROFILES,
+  icelandRoadGraphEdgeCost,
+} from './roadGraph'
 import type {
   IcelandRoadGraph,
   IcelandRoadGraphEdge,
@@ -22,6 +27,10 @@ import {
 
 const TESKEID_TRANSPORT_RDP_EPSILON_M = 3
 const TESKEID_TRANSPORT_MAX_POINTS = 1_000
+const TESKEID_ROUTE_ENDPOINT_TOLERANCE_M = 1
+const TESKEID_ROUTE_MAX_CONNECTED_GEOMETRY_GAP_M = 50
+const TESKEID_ROUTE_METRIC_TOLERANCE = 0.500001
+const TESKEID_ROUTE_COST_TOLERANCE = 1e-6
 
 type Point = { lat: number; lon: number }
 
@@ -61,7 +70,7 @@ export function roadGraphRouteToTeskeidOption(
     route.geometry,
     TESKEID_TRANSPORT_RDP_EPSILON_M,
     TESKEID_TRANSPORT_MAX_POINTS,
-  )
+  ).map(point => ({ lat: point.lat, lon: point.lon }))
   const cautions = matchRouteCautions(
     transportPoints,
     { placeId: 'origin', displayName: 'origin', formattedAddress: 'origin', ...origin },
@@ -93,14 +102,87 @@ function validRoute(route: IcelandRoadGraphRoute): boolean {
   return route.geometry.length >= 2 && route.distanceM > 0 && route.durationS > 0
 }
 
+function routeEdgeCost(edges: readonly IcelandRoadGraphEdge[]): number {
+  return edges.reduce((sum, edge) => (
+    sum + icelandRoadGraphEdgeCost(edge, ICELAND_ROUTING_PROFILES.fastestCar)
+  ), 0)
+}
+
+/**
+ * Rejects a route before publication if its ordered graph evidence no longer
+ * describes one continuous path between the signed assessment anchors.
+ */
+export function teskeidAssessmentRouteEdgesHaveIntegrity(input: {
+  connectedRoadEdges: readonly IcelandRoadGraphEdge[]
+  origin: Point
+  destination: Point
+}): boolean {
+  const { connectedRoadEdges, origin, destination } = input
+  if (connectedRoadEdges.length === 0) return false
+  const edgeIds = new Set<string>()
+  let distanceM = 0
+  let durationS = 0
+  for (const [index, edge] of connectedRoadEdges.entries()) {
+    const start = edge.geometry[0]
+    const end = edge.geometry.at(-1)
+    if (
+      !start
+      || !end
+      || edge.geometry.length < 2
+      || !Number.isFinite(edge.lengthM)
+      || edge.lengthM <= 0
+      || !Number.isFinite(edge.travelTimeS)
+      || edge.travelTimeS <= 0
+      || edgeIds.has(edge.id)
+    ) return false
+    edgeIds.add(edge.id)
+    distanceM += edge.lengthM
+    durationS += edge.travelTimeS
+    if (index > 0) {
+      const previous = connectedRoadEdges[index - 1]
+      const previousEnd = previous.geometry.at(-1)
+      if (
+        !previousEnd
+        || previous.toNodeId !== edge.fromNodeId
+        || haversineDistanceM(previousEnd, start) > TESKEID_ROUTE_MAX_CONNECTED_GEOMETRY_GAP_M
+      ) return false
+    }
+  }
+  const first = connectedRoadEdges[0].geometry[0]
+  const last = connectedRoadEdges.at(-1)?.geometry.at(-1)
+  if (
+    !last
+    || haversineDistanceM(first, origin) > TESKEID_ROUTE_ENDPOINT_TOLERANCE_M
+    || haversineDistanceM(last, destination) > TESKEID_ROUTE_ENDPOINT_TOLERANCE_M
+  ) return false
+
+  const rebuilt = buildIcelandRoadGraphRouteFromEdges(connectedRoadEdges)
+  return validRoute(rebuilt)
+    && Math.abs(rebuilt.distanceM - distanceM) <= TESKEID_ROUTE_METRIC_TOLERANCE
+    && Math.abs(rebuilt.durationS - durationS) <= TESKEID_ROUTE_METRIC_TOLERANCE
+}
+
+function deadlineExceeded(deadlineAtMs: number | undefined): boolean {
+  return deadlineAtMs !== undefined
+    && Number.isFinite(deadlineAtMs)
+    && Date.now() >= deadlineAtMs
+}
+
 export function resolveTeskeidAssessmentRouteEvidence(input: {
   graph: IcelandRoadGraph
   origin: Point
   destination: Point
   assessmentScopeId: string
   includeAlternatives: boolean
+  /** Absolute deadline shared by primary reconstruction and evidence conversion. */
+  deadlineAtMs?: number
   alternativeDeadlineAtMs?: number
 }): TeskeidAssessmentRouteEvidenceOutcome {
+  // Callers that predate the explicit overall deadline already pass the
+  // alternative deadline. Treat it as the fail-closed overall bound too, so
+  // primary reconstruction can never run unbounded on those paths.
+  const deadlineAtMs = input.deadlineAtMs ?? input.alternativeDeadlineAtMs
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
   const anchors = findRouteAssessmentRoadAnchors(
     input.graph,
     { kind: 'trusted_anchor', point: input.origin },
@@ -110,10 +192,13 @@ export function resolveTeskeidAssessmentRouteEvidence(input: {
       maxDestinationSnapDistanceM: ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
       maxAlternatives: input.includeAlternatives ? 4 : 0,
       maxAlternativeOverlap: 0.94,
+      deadlineAtMs,
       alternativeDeadlineAtMs: input.alternativeDeadlineAtMs,
     },
   )
+  if (anchors.status === 'incomplete') return { status: 'incomplete', evidence: [] }
   if (anchors.status !== 'ok') return { status: 'unavailable', evidence: [] }
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
 
   const rederivedScopeId = createRouteAssessmentScopeId({
     originAnchorKind: anchors.origin.kind,
@@ -129,42 +214,74 @@ export function resolveTeskeidAssessmentRouteEvidence(input: {
     return { status: 'incomplete', evidence: [] }
   }
 
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
+  if (!teskeidAssessmentRouteEdgesHaveIntegrity({
+    connectedRoadEdges: anchors.connectedRoadEdges,
+    origin: anchors.origin.point,
+    destination: anchors.destination.point,
+  })) return { status: 'unavailable', evidence: [] }
   const primaryRoute = buildIcelandRoadGraphRouteFromEdges(anchors.connectedRoadEdges)
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
   if (!validRoute(primaryRoute)) return { status: 'unavailable', evidence: [] }
+  const primaryOption = roadGraphRouteToTeskeidOption(
+    primaryRoute,
+    anchors.origin.point,
+    anchors.destination.point,
+    0,
+    anchors.origin.snapDistanceM,
+    anchors.destination.snapDistanceM,
+    TESKEID_ROUTE_CANDIDATE_ID,
+  )
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
   const evidence: TeskeidAssessmentRouteEvidence[] = [{
-    route: roadGraphRouteToTeskeidOption(
-      primaryRoute,
-      anchors.origin.point,
-      anchors.destination.point,
-      0,
-      anchors.origin.snapDistanceM,
-      anchors.destination.snapDistanceM,
-      TESKEID_ROUTE_CANDIDATE_ID,
-    ),
+    route: primaryOption,
     connectedRoadEdges: anchors.connectedRoadEdges,
     routeProvenanceFingerprint: anchors.routeProvenanceFingerprint,
   }]
+  const primaryCost = routeEdgeCost(anchors.connectedRoadEdges)
+  const routeFingerprints = new Set([anchors.routeProvenanceFingerprint])
+  const routeEdgeKeys = new Set([
+    anchors.connectedRoadEdges.map(edge => edge.id).join('|'),
+  ])
 
   for (const [alternativeIndex, alternative] of anchors.alternatives.entries()) {
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
+    const edgeKey = alternative.connectedRoadEdges.map(edge => edge.id).join('|')
+    if (
+      routeFingerprints.has(alternative.routeProvenanceFingerprint)
+      || routeEdgeKeys.has(edgeKey)
+      || !teskeidAssessmentRouteEdgesHaveIntegrity({
+        connectedRoadEdges: alternative.connectedRoadEdges,
+        origin: anchors.origin.point,
+        destination: anchors.destination.point,
+      })
+      || routeEdgeCost(alternative.connectedRoadEdges) < primaryCost - TESKEID_ROUTE_COST_TOLERANCE
+    ) return { status: 'unavailable', evidence: [] }
+    routeFingerprints.add(alternative.routeProvenanceFingerprint)
+    routeEdgeKeys.add(edgeKey)
     const route = buildIcelandRoadGraphRouteFromEdges(alternative.connectedRoadEdges)
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
     if (!validRoute(route)) return { status: 'unavailable', evidence: [] }
-    evidence.push({
-      route: roadGraphRouteToTeskeidOption(
-        route,
-        anchors.origin.point,
-        anchors.destination.point,
+    const option = roadGraphRouteToTeskeidOption(
+      route,
+      anchors.origin.point,
+      anchors.destination.point,
+      alternativeIndex + 1,
+      anchors.origin.snapDistanceM,
+      anchors.destination.snapDistanceM,
+      createTeskeidAssessmentAlternativeRouteId(
         alternativeIndex + 1,
-        anchors.origin.snapDistanceM,
-        anchors.destination.snapDistanceM,
-        createTeskeidAssessmentAlternativeRouteId(
-          alternativeIndex + 1,
-          alternative.routeProvenanceFingerprint,
-        ),
+        alternative.routeProvenanceFingerprint,
       ),
+    )
+    if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
+    evidence.push({
+      route: option,
       connectedRoadEdges: alternative.connectedRoadEdges,
       routeProvenanceFingerprint: alternative.routeProvenanceFingerprint,
     })
   }
+  if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
   return {
     status: 'ready',
     evidence,

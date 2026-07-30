@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const ORIGINAL_EXACT_VERTEX_V2_FLAG =
+  process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED
 
 const mocks = vi.hoisted(() => ({
   begin: vi.fn(),
@@ -14,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   buildGraph: vi.fn(),
   analyzeGraph: vi.fn(),
   auditGolden: vi.fn(),
+  auditExactVertexV2: vi.fn(),
+  reconcileTopology: vi.fn(),
 }))
 
 vi.mock('@/lib/iceland-routes/roadGraphSnapshotStore.server', () => ({
@@ -42,15 +47,41 @@ vi.mock('@/lib/iceland-routes/goldenRoutes', () => ({
   ICELAND_GOLDEN_ROUTES: Array.from({ length: 20 }, (_, index) => ({ id: `route-${index}` })),
 }))
 
+vi.mock('@/lib/iceland-routes/roadGraphExactVertexV2Regression.server', () => ({
+  auditExactVertexV2VidibakkiRoute: mocks.auditExactVertexV2,
+}))
+
+vi.mock('@/lib/iceland-routes/vegagerdinRoadGraphTopology', () => ({
+  reconcileVegagerdinRoadGraphTopology: mocks.reconcileTopology,
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V1: 'vegagerdin-reciprocal-section-endpoints-v1',
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2: 'vegagerdin-attested-section-junctions-v2',
+}))
+
+import {
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1,
+  type RoadGraphRuntimeBuildPolicyFingerprint,
+} from '@/lib/iceland-routes/roadGraphSnapshotFormat'
+
 import {
   refreshRoadGraphSnapshot,
   validateRoadGraphSnapshot,
 } from '@/lib/iceland-routes/roadGraphRefresh.server'
 
+const SOURCE_ID = 'vegagerdin:layer-6:section-10:road-part-1:road-part-number-1'
 const SEGMENTS = [{
-  id: '1', source: 'vegagerdin', sourceId: '1',
+  id: `${SOURCE_ID}:geometry-0`, source: 'vegagerdin', sourceId: SOURCE_ID,
   geometry: [{ lat: 64, lon: -22 }, { lat: 65, lon: -21 }],
   roadClass: 'trunk', surface: 'paved', direction: 'both',
+  directionStatus: 'authoritative_both',
+  networkRole: 'assessment_public',
+  official: {
+    provider: 'vegagerdin', sourceLayerId: 6, sourceObjectId: 1, sectionId: 10,
+    sectionNumber: '01', sectionStartLabel: 'A', sectionEndLabel: 'B',
+    roadPartCode: 1, roadPartNumber: '1', ownerCode: 0, roadClassCode: 1,
+    directionCode: 2, directionFieldState: 'integer', inUseFromEpochMs: 0,
+    outOfUseAtEpochMs: Date.parse('9999-12-31T00:00:00.000Z'),
+  },
 }]
 
 function diagnostics(segmentCount = 1_226) {
@@ -63,14 +94,44 @@ function diagnostics(segmentCount = 1_226) {
     isolatedNodeCount: 0,
     surfaceEdgeCounts: { paved: 2_100, gravel: 300, mixed: 0, unknown: 0 },
     derivedSpeedEdgeCount: 2_400,
+    topologyConnectorEdgeCount: 0,
   }
 }
 
 const GOLDEN = Array.from({ length: 20 }, (_, index) => ({ id: `route-${index}`, status: 'ok' }))
 
+function runtimeBuildContract(
+  policyFingerprint: RoadGraphRuntimeBuildPolicyFingerprint =
+    ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+) {
+  return {
+    schemaVersion: 1 as const,
+    policyFingerprint,
+    diagnostics: diagnostics(),
+    goldenRoutePassCount: 20,
+    goldenRouteTotalCount: 20,
+    topologyReceiptIds: [],
+  }
+}
+
+function enhancedPayload(
+  policyFingerprint: RoadGraphRuntimeBuildPolicyFingerprint =
+    ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+) {
+  return {
+    schemaVersion: 1 as const,
+    source: 'vegagerdin' as const,
+    sourceFetchedAtIso: '2026-07-30T00:00:00.000Z',
+    nodeSnapToleranceM: 20,
+    runtimeBuildContract: runtimeBuildContract(policyFingerprint),
+    segments: SEGMENTS,
+  }
+}
+
 describe('road graph snapshot refresh', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED = 'true'
     mocks.begin.mockResolvedValue('snapshot-new')
     mocks.readActive
       .mockResolvedValueOnce(null)
@@ -87,10 +148,33 @@ describe('road graph snapshot refresh', () => {
     mocks.buildGraph.mockReturnValue({ graph: true })
     mocks.analyzeGraph.mockReturnValue(diagnostics())
     mocks.auditGolden.mockReturnValue(GOLDEN)
+    mocks.auditExactVertexV2.mockReturnValue({
+      status: 'ok',
+      receiptId: 'vidibakki-receipt',
+      forwardDistanceM: 536_146,
+      reverseDistanceM: 536_146,
+      forwardGeometryDistanceM: 534_179,
+      reverseGeometryDistanceM: 534_179,
+      vidibakkiSnapDistanceM: 442,
+      isafjordurSnapDistanceM: 202,
+    })
+    mocks.reconcileTopology.mockReturnValue({
+      policyId: 'vegagerdin-attested-section-junctions-v2',
+      candidates: [], receipts: [], bindings: [], topologySegmentCount: 1,
+    })
     mocks.stage.mockResolvedValue(undefined)
     mocks.promote.mockResolvedValue(undefined)
     mocks.prune.mockResolvedValue(undefined)
     mocks.fail.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    if (ORIGINAL_EXACT_VERTEX_V2_FLAG === undefined) {
+      delete process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED
+      return
+    }
+    process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED =
+      ORIGINAL_EXACT_VERTEX_V2_FLAG
   })
 
   it('stages and atomically promotes only after validation passes', async () => {
@@ -100,6 +184,46 @@ describe('road graph snapshot refresh', () => {
     expect(mocks.stage).toHaveBeenCalledOnce()
     expect(mocks.promote).toHaveBeenCalledWith('snapshot-new')
     expect(mocks.fail).not.toHaveBeenCalled()
+  })
+
+  it('keeps the reciprocal-v1 writer and skips the v2 canary until the flag is enabled', async () => {
+    delete process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED
+
+    await expect(refreshRoadGraphSnapshot('cron')).resolves.toMatchObject({
+      status: 'ok',
+      policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1,
+    })
+    expect(mocks.reconcileTopology).toHaveBeenCalledWith(expect.objectContaining({
+      policyId: 'vegagerdin-reciprocal-section-endpoints-v1',
+    }))
+    expect(mocks.auditExactVertexV2).not.toHaveBeenCalled()
+  })
+
+  it('stores legacy diagnostics in metadata while binding enhanced diagnostics in the payload', async () => {
+    const enhancedDiagnostics = {
+      ...diagnostics(),
+      edgeCount: 2_402,
+      topologyConnectorEdgeCount: 2,
+    }
+    const legacyDiagnostics = diagnostics()
+    mocks.analyzeGraph
+      .mockReturnValueOnce(enhancedDiagnostics)
+      .mockReturnValueOnce(legacyDiagnostics)
+
+    await expect(refreshRoadGraphSnapshot('admin')).resolves.toMatchObject({
+      status: 'ok', edgeCount: 2_402,
+    })
+
+    expect(mocks.stage).toHaveBeenCalledWith(expect.objectContaining({
+      diagnostics: legacyDiagnostics,
+      payload: expect.objectContaining({
+        runtimeBuildContract: expect.objectContaining({ diagnostics: enhancedDiagnostics }),
+      }),
+      validation: expect.objectContaining({
+        runtimeBuildContract: expect.objectContaining({ diagnostics: enhancedDiagnostics }),
+        legacyRuntimeDiagnostics: legacyDiagnostics,
+      }),
+    }))
   })
 
   it('does no source work when another refresh owns the database lease', async () => {
@@ -112,30 +236,152 @@ describe('road graph snapshot refresh', () => {
 
   it('records an unchanged run without rebuilding or promoting', async () => {
     mocks.readActive.mockReset()
-    mocks.readActive.mockResolvedValue({ id: 'snapshot-old', sourceContentSha256: 'same' })
+    const payload = enhancedPayload()
+    mocks.readActive.mockResolvedValue({
+      id: 'snapshot-old', sourceContentSha256: 'same',
+      validation: { runtimeBuildContract: payload.runtimeBuildContract },
+    })
     mocks.hashSegments.mockReturnValue('same')
+    mocks.readPayload.mockResolvedValue(payload)
 
     await expect(refreshRoadGraphSnapshot('cron')).resolves.toEqual({
       status: 'skipped', reason: 'unchanged', activeSnapshotId: 'snapshot-old',
+      policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
     })
     expect(mocks.unchanged).toHaveBeenCalledWith(expect.objectContaining({ activeSnapshotId: 'snapshot-old' }))
     expect(mocks.buildGraph).not.toHaveBeenCalled()
     expect(mocks.promote).not.toHaveBeenCalled()
   })
 
-  it('rebuilds unchanged source when the active immutable object is corrupt', async () => {
+  it('keeps reciprocal-v1 unchanged during the reader-first rollout stage', async () => {
+    delete process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED
     mocks.readActive.mockReset()
+    const payload = enhancedPayload(ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1)
+    mocks.readActive.mockResolvedValue({
+      id: 'snapshot-old', sourceContentSha256: 'same',
+      validation: { runtimeBuildContract: payload.runtimeBuildContract },
+    })
+    mocks.hashSegments.mockReturnValue('same')
+    mocks.readPayload.mockResolvedValue(payload)
+
+    await expect(refreshRoadGraphSnapshot('cron')).resolves.toEqual({
+      status: 'skipped', reason: 'unchanged', activeSnapshotId: 'snapshot-old',
+      policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1,
+    })
+    expect(mocks.buildGraph).not.toHaveBeenCalled()
+    expect(mocks.promote).not.toHaveBeenCalled()
+  })
+
+  it('never downgrades an active exact-vertex-v2 snapshot when the rollout flag is absent', async () => {
+    delete process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED
+    mocks.readActive.mockReset()
+    const payload = enhancedPayload()
+    mocks.readActive.mockResolvedValue({
+      id: 'snapshot-v2', sourceContentSha256: 'same',
+      validation: { runtimeBuildContract: payload.runtimeBuildContract },
+    })
+    mocks.hashSegments.mockReturnValue('same')
+    mocks.readPayload.mockResolvedValue(payload)
+
+    await expect(refreshRoadGraphSnapshot('cron')).resolves.toEqual({
+      status: 'skipped', reason: 'unchanged', activeSnapshotId: 'snapshot-v2',
+      policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+    })
+    expect(mocks.buildGraph).not.toHaveBeenCalled()
+    expect(mocks.promote).not.toHaveBeenCalled()
+  })
+
+  it('fails closed on same-source v2 payload metadata drift instead of selecting v1', async () => {
+    delete process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED
+    mocks.readActive.mockReset()
+    mocks.readActive.mockResolvedValue({
+      id: 'snapshot-v2', sourceContentSha256: 'same', validation: {},
+    })
+    mocks.hashSegments.mockReturnValue('same')
+    mocks.readPayload.mockResolvedValue(enhancedPayload())
+
+    await expect(refreshRoadGraphSnapshot('cron')).resolves.toEqual({
+      status: 'error', reason: 'active_snapshot_runtime_contract_mismatch',
+    })
+    expect(mocks.fetchSegments).not.toHaveBeenCalled()
+    expect(mocks.stage).not.toHaveBeenCalled()
+    expect(mocks.promote).not.toHaveBeenCalled()
+  })
+
+  it('fails closed on changed-source v2 payload metadata drift instead of downgrading', async () => {
+    delete process.env.TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED
+    mocks.readActive.mockReset()
+    mocks.readActive.mockResolvedValue({
+      id: 'snapshot-v2', sourceContentSha256: 'old-source', validation: {},
+    })
+    mocks.hashSegments.mockReturnValue('new-source')
+    mocks.readPayload.mockResolvedValue(enhancedPayload())
+
+    await expect(refreshRoadGraphSnapshot('cron')).resolves.toEqual({
+      status: 'error', reason: 'active_snapshot_runtime_contract_mismatch',
+    })
+    expect(mocks.fetchSegments).not.toHaveBeenCalled()
+    expect(mocks.stage).not.toHaveBeenCalled()
+    expect(mocks.promote).not.toHaveBeenCalled()
+  })
+
+  it('rebuilds unchanged source when the active snapshot uses reciprocal-v1 topology', async () => {
+    mocks.readActive.mockReset()
+    const payload = enhancedPayload(ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1)
     mocks.readActive
-      .mockResolvedValueOnce({ id: 'snapshot-old', sourceContentSha256: 'same' })
+      .mockResolvedValueOnce({
+        id: 'snapshot-old', sourceContentSha256: 'same',
+        validation: { runtimeBuildContract: payload.runtimeBuildContract },
+      })
       .mockResolvedValueOnce({ id: 'snapshot-new' })
     mocks.hashSegments.mockReturnValue('same')
-    mocks.readPayload.mockRejectedValue(new Error('missing object'))
+    mocks.readPayload.mockResolvedValue(payload)
+
+    await expect(refreshRoadGraphSnapshot('admin')).resolves.toMatchObject({
+      status: 'ok', snapshotId: 'snapshot-new',
+    })
+    expect(mocks.unchanged).not.toHaveBeenCalled()
+    expect(mocks.reconcileTopology).toHaveBeenCalledWith(expect.objectContaining({
+      policyId: 'vegagerdin-attested-section-junctions-v2',
+    }))
+    expect(mocks.stage).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        runtimeBuildContract: expect.objectContaining({
+          policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+        }),
+      }),
+    }))
+    expect(mocks.promote).toHaveBeenCalledWith('snapshot-new')
+  })
+
+  it('forces the first rebuild when the same-source active v1 lacks the build-policy fingerprint', async () => {
+    mocks.readActive.mockReset()
+    mocks.readActive
+      .mockResolvedValueOnce({ id: 'snapshot-old', sourceContentSha256: 'same', validation: {} })
+      .mockResolvedValueOnce({ id: 'snapshot-new' })
+    mocks.hashSegments.mockReturnValue('same')
 
     await expect(refreshRoadGraphSnapshot('cron')).resolves.toMatchObject({
       status: 'ok', snapshotId: 'snapshot-new',
     })
-    expect(mocks.buildGraph).toHaveBeenCalledOnce()
+    expect(mocks.unchanged).not.toHaveBeenCalled()
+    expect(mocks.stage).toHaveBeenCalledOnce()
     expect(mocks.promote).toHaveBeenCalledWith('snapshot-new')
+  })
+
+  it('fails closed when the active immutable object cannot be verified', async () => {
+    mocks.readActive.mockReset()
+    mocks.readActive
+      .mockResolvedValueOnce({ id: 'snapshot-old', sourceContentSha256: 'same' })
+    mocks.hashSegments.mockReturnValue('same')
+    mocks.readPayload.mockRejectedValue(new Error('missing object'))
+
+    await expect(refreshRoadGraphSnapshot('cron')).resolves.toEqual({
+      status: 'error', reason: 'active_snapshot_payload_invalid',
+    })
+    expect(mocks.fetchSegments).not.toHaveBeenCalled()
+    expect(mocks.stage).not.toHaveBeenCalled()
+    expect(mocks.promote).not.toHaveBeenCalled()
   })
 
   it('keeps the active snapshot untouched when a golden route fails', async () => {
@@ -160,6 +406,45 @@ describe('road graph snapshot refresh', () => {
         }),
       }),
     )
+  })
+
+  it('blocks exact-vertex-v2 promotion when the Víðibakki corridor regresses', async () => {
+    mocks.auditExactVertexV2.mockReturnValue({
+      status: 'corridor_mismatch',
+      receiptId: 'vidibakki-receipt',
+      forwardDistanceM: 583_184,
+      reverseDistanceM: 583_184,
+      forwardGeometryDistanceM: 581_000,
+      reverseGeometryDistanceM: 581_000,
+      vidibakkiSnapDistanceM: 2_737,
+      isafjordurSnapDistanceM: 202,
+    })
+
+    await expect(refreshRoadGraphSnapshot('admin')).resolves.toEqual({
+      status: 'error', reason: 'snapshot_validation_failed',
+    })
+    expect(mocks.stage).not.toHaveBeenCalled()
+    expect(mocks.promote).not.toHaveBeenCalled()
+    expect(mocks.fail).toHaveBeenCalledWith(
+      'snapshot-new',
+      'snapshot_validation_failed',
+      expect.objectContaining({
+        exactVertexV2Regression: expect.objectContaining({ status: 'corridor_mismatch' }),
+      }),
+    )
+  })
+
+  it('never stages or promotes when the exact v1 publication payload is not parseable', async () => {
+    mocks.fetchSegments.mockResolvedValue([{
+      ...SEGMENTS[0],
+      id: 'malformed-noncanonical-id',
+    }])
+
+    await expect(refreshRoadGraphSnapshot('admin')).resolves.toEqual({
+      status: 'error', reason: 'snapshot_publish_payload_invalid',
+    })
+    expect(mocks.stage).not.toHaveBeenCalled()
+    expect(mocks.promote).not.toHaveBeenCalled()
   })
 
   it('marks the claimed run failed when the official source fetch fails', async () => {
@@ -286,6 +571,34 @@ describe('validateRoadGraphSnapshot', () => {
     expect(result.checks.largestComponentShare).toBe(true)
     expect(result.checks.largestComponentShareStable).toBe(true)
     expect(result.ok).toBe(true)
+  })
+
+  it('accepts the measured reciprocal-v1 to strict exact-vertex-v2 topology expansion', () => {
+    const result = validateRoadGraphSnapshot({
+      diagnostics: {
+        ...diagnostics(),
+        nodeCount: 2_009,
+        edgeCount: 4_400,
+        weakComponentCount: 29,
+        largestWeakComponentNodeCount: 1_935,
+        derivedSpeedEdgeCount: 3_752,
+        topologyConnectorEdgeCount: 648,
+        surfaceEdgeCounts: { paved: 3_500, gravel: 252, mixed: 0, unknown: 0 },
+      },
+      goldenRouteStatuses: Array(20).fill('ok'),
+      previous: {
+        id: 'reciprocal-v1',
+        segmentCount: 1_226,
+        nodeCount: 1_692,
+        edgeCount: 3_132,
+        largestWeakComponentNodeCount: 1_117,
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.checks.nodeCountStable).toBe(true)
+    expect(result.checks.edgeCountStable).toBe(true)
+    expect(result.checks.largestComponentShareStable).toBe(true)
   })
 
   it('rejects a suspicious count collapse relative to the active snapshot', () => {

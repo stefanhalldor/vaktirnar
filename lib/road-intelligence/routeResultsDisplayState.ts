@@ -3,12 +3,14 @@ export type SaferRouteCandidateStatus =
   | 'idle'
   | 'loading'
   | 'pending'
+  | 'slow'
   | 'ready'
   | 'no_route'
   | 'unavailable'
 export type SaferRouteAlternativesStatus =
   | 'idle'
   | 'loading'
+  | 'slow'
   | 'ready'
   | 'none'
   | 'unavailable'
@@ -109,11 +111,16 @@ export function hasSaferRouteSearchFinished({
     alternativesStatus === 'ready'
     || alternativesStatus === 'none'
     || alternativesStatus === 'unavailable'
+    || alternativesStatus === 'slow'
   ) {
     return true
   }
   if (!routeCandidateEnabled) return true
-  if (candidateStatus === 'no_route' || candidateStatus === 'unavailable') return true
+  if (
+    candidateStatus === 'no_route'
+    || candidateStatus === 'unavailable'
+    || candidateStatus === 'slow'
+  ) return true
   return (
     candidateStatus === 'ready'
     && hasCandidateChoices

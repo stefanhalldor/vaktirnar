@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest'
 import {
   analyzeIcelandRoadGraph,
   buildIcelandRoadGraph,
+  buildIcelandRoadGraphRouteFromEdges,
   derivedRoadSpeedKmh,
   findIcelandRoadGraphRoute,
   findIcelandRoadGraphAlternatives,
   geometryLengthM,
   ICELAND_ROUTING_PROFILES,
 } from '@/lib/iceland-routes/roadGraph'
-import type { IcelandRoadGraphSegmentInput } from '@/lib/iceland-routes/roadGraphTypes'
+import type {
+  IcelandRoadGraphEdge,
+  IcelandRoadGraphSegmentInput,
+} from '@/lib/iceland-routes/roadGraphTypes'
+import { createIcelandRoadDirectionInferenceAttestation } from '@/lib/iceland-routes/roadGraphDirectionInference'
 
 const A = { lat: 64.10, lon: -21.90 }
 const B = { lat: 64.10, lon: -21.70 }
@@ -45,6 +50,29 @@ describe('Iceland road graph builder', () => {
     expect(graph.edges.filter(edge => edge.segmentId === 'b-c')).toHaveLength(1)
   })
 
+  it('chooses the best complete route across all nearby snaps in a merged component', () => {
+    const origin = { lat: 64, lon: -21 }
+    const originAlternative = { lat: 64, lon: -20.9998 }
+    const destination = { lat: 64, lon: -20.9 }
+    const destinationAlternative = { lat: 64, lon: -20.8998 }
+    const graph = buildIcelandRoadGraph([
+      segment('nearest-but-long', [origin, destination], { lengthM: 100_000 }),
+      segment('slightly-farther-short', [originAlternative, destinationAlternative], { lengthM: 100 }),
+      segment('component-bridge', [origin, originAlternative], { lengthM: 100_000 }),
+    ], { nodeSnapToleranceM: 1 })
+
+    const result = findIcelandRoadGraphRoute(graph, origin, destination, {
+      profile: { objective: 'shortest' },
+      maxSnapDistanceM: 20,
+    })
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.route.segmentIds).toEqual(['slightly-farther-short'])
+    expect(result.originSnapDistanceM).toBeGreaterThan(0)
+    expect(result.destinationSnapDistanceM).toBeGreaterThan(0)
+  })
+
   it('respects reverse-only segments', () => {
     const graph = buildIcelandRoadGraph([
       segment('reverse', [A, B], { direction: 'reverse' }),
@@ -53,6 +81,19 @@ describe('Iceland road graph builder', () => {
     expect(findIcelandRoadGraphRoute(graph, A, B, {
       profile: { objective: 'shortest' },
     }).status).toBe('no_route')
+    expect(findIcelandRoadGraphRoute(graph, B, A, {
+      profile: { objective: 'shortest' },
+    }).status).toBe('ok')
+  })
+
+  it('can ignore source direction metadata without discarding it from inputs', () => {
+    const graph = buildIcelandRoadGraph([
+      segment('reverse', [A, B], { direction: 'reverse' }),
+    ], { routingDirectionPolicy: 'bidirectional' })
+
+    expect(findIcelandRoadGraphRoute(graph, A, B, {
+      profile: { objective: 'shortest' },
+    }).status).toBe('ok')
     expect(findIcelandRoadGraphRoute(graph, B, A, {
       profile: { objective: 'shortest' },
     }).status).toBe('ok')
@@ -72,6 +113,318 @@ describe('Iceland road graph builder', () => {
       surfaceEdgeCounts: { paved: 2, gravel: 2, mixed: 0, unknown: 0 },
       derivedSpeedEdgeCount: 4,
     })
+  })
+
+  it('carries official authority evidence onto edges without routing access-only roads as shortcuts', () => {
+    const publicMetadata = {
+      provider: 'vegagerdin' as const,
+      sourceLayerId: 6 as const,
+      sourceObjectId: 1,
+      sectionId: 10,
+      roadPartCode: 1,
+      ownerCode: 0,
+      roadClassCode: 1,
+      directionCode: 2,
+      directionFieldState: 'integer' as const,
+      inUseFromEpochMs: 0,
+      outOfUseAtEpochMs: 253_402_214_400_000,
+    }
+    const graph = buildIcelandRoadGraph([
+      segment('public-a', [A, C], {
+        networkRole: 'assessment_public',
+        official: publicMetadata,
+        directionStatus: 'authoritative_both',
+      }),
+      segment('public-b', [C, B], { networkRole: 'assessment_public' }),
+      segment('access-shortcut', [A, B], {
+        networkRole: 'access_connector',
+        lengthM: 10,
+      }),
+    ])
+
+    expect(graph.edges.find(edge => edge.segmentId === 'public-a')).toMatchObject({
+      networkRole: 'assessment_public',
+      official: publicMetadata,
+    })
+    const route = findIcelandRoadGraphRoute(graph, A, B, {
+      profile: { objective: 'shortest' },
+      maxSnapDistanceM: 100,
+    })
+    expect(route.status).toBe('ok')
+    if (route.status !== 'ok') return
+    expect(route.route.segmentIds).toEqual(['public-a', 'public-b'])
+    expect(route.route.segmentIds).not.toContain('access-shortcut')
+  })
+
+  it('creates zero edges for uncorroborated official NULL and 0 direction rows', () => {
+    const official = (directionCode: number | null, directionFieldState: 'null' | 'integer') => ({
+      provider: 'vegagerdin' as const,
+      sourceLayerId: 6 as const,
+      sourceObjectId: directionCode === null ? 1 : 2,
+      sectionId: directionCode === null ? 10 : 20,
+      roadPartCode: 1,
+      ownerCode: 0,
+      roadClassCode: 1,
+      directionCode,
+      directionFieldState,
+      inUseFromEpochMs: 0,
+      outOfUseAtEpochMs: 253_402_214_400_000,
+    })
+    const graph = buildIcelandRoadGraph([
+      segment('null-direction', [A, B], {
+        source: 'vegagerdin',
+        direction: 'both',
+        directionStatus: 'unknown_missing',
+        official: official(null, 'null'),
+      }),
+      segment('zero-direction', [C, D], {
+        source: 'vegagerdin',
+        direction: 'both',
+        directionStatus: 'unknown_domain_drift',
+        official: official(0, 'integer'),
+      }),
+    ])
+    expect(graph.edges).toEqual([])
+  })
+
+  it('fails closed when official metadata has no strict v2 direction status', () => {
+    const graph = buildIcelandRoadGraph([segment('legacy-official', [A, B], {
+      source: 'vegagerdin',
+      direction: 'forward',
+      official: {
+        provider: 'vegagerdin',
+        sourceLayerId: 6,
+        sourceObjectId: 1,
+        sectionId: 10,
+        roadPartCode: 1,
+        ownerCode: 0,
+        roadClassCode: 1,
+        directionCode: null,
+        inUseFromEpochMs: 0,
+        outOfUseAtEpochMs: 253_402_214_400_000,
+      },
+    })])
+    expect(graph.edges).toEqual([])
+  })
+
+  it('models structurally marked inferred edges and exact ordered portions in a unit contract', () => {
+    const sourceId = 'vegagerdin:layer-6:section-10:road-part-1:road-part-number-1'
+    const sourceProvenanceKey = `assessment_public_roads=${'a'.repeat(64)}|road_surfaces=${'b'.repeat(64)}`
+    const policy = {
+      schemaVersion: 1 as const,
+      policyId: 'direction-policy',
+      policyVersion: '1.0.0',
+      generatorId: 'direction-generator',
+      generatorVersion: '1.0.0',
+      minimumConfidenceBps: 9_000,
+    }
+    const evidence = createIcelandRoadDirectionInferenceAttestation({
+      schemaVersion: 1,
+      kind: 'inferred_both',
+      segmentSourceId: sourceId,
+      sourceProvenanceKey,
+      policyId: policy.policyId,
+      policyVersion: policy.policyVersion,
+      generatorId: policy.generatorId,
+      generatorVersion: policy.generatorVersion,
+      evidenceArtifactId: 'direction-evidence',
+      evidenceContentSha256: 'c'.repeat(64),
+      confidenceBps: 9_500,
+      validFromIso: '2026-07-01T00:00:00.000Z',
+      expiresAtIso: '2026-08-01T00:00:00.000Z',
+    })
+    const evidenceArtifact = {
+      schemaVersion: 1 as const,
+      artifactId: 'direction-evidence',
+      datasetId: 'independent-direction-dataset',
+      datasetVersion: '2026-07',
+      sourceUrl: 'https://example.test/direction-evidence.json',
+      effectiveAtIso: '2026-07-01T00:00:00.000Z',
+      contentSha256: 'c'.repeat(64),
+      policyId: policy.policyId,
+      policyVersion: policy.policyVersion,
+      generatorId: policy.generatorId,
+      generatorVersion: policy.generatorVersion,
+      licenseReviewId: 'license-review-1',
+    }
+    const input = segment(`${sourceId}:geometry-0`, [A, B], {
+      source: 'vegagerdin',
+      sourceId,
+      lengthM: 12_345.67,
+      roadNumber: '42',
+      roadName: 'Prófunarvegur',
+      surface: 'gravel',
+      direction: 'unknown',
+      directionStatus: 'unknown_missing',
+      networkRole: 'assessment_public',
+      official: {
+        provider: 'vegagerdin',
+        sourceLayerId: 6,
+        sourceObjectId: 1,
+        sectionId: 10,
+        roadPartCode: 1,
+        roadPartNumber: '1',
+        ownerCode: 0,
+        roadClassCode: 1,
+        directionCode: null,
+        directionFieldState: 'null',
+        inUseFromEpochMs: 0,
+        outOfUseAtEpochMs: 253_402_214_400_000,
+      },
+    })
+    const graph = buildIcelandRoadGraph([input], {
+      directionInference: {
+        attestations: [evidence],
+        evidenceArtifacts: [evidenceArtifact],
+        sourceProvenanceKey,
+        evaluatedAtIso: '2026-07-02T00:00:00.000Z',
+        policy,
+      },
+    })
+    expect(graph.edges).toHaveLength(2)
+    expect(graph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        directionBasis: 'inferred',
+        directionStatus: 'unknown_missing',
+        directionInference: evidence,
+      }),
+    ]))
+    expect(graph.directionAttestationIds).toEqual([evidence.attestationId])
+
+    const result = findIcelandRoadGraphRoute(graph, A, B, {
+      profile: { objective: 'shortest' },
+      maxSnapDistanceM: 100,
+    })
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.route.inferredDirectionDistanceM).toBe(12_346)
+    expect(result.route.authoritativeDirectionDistanceM).toBe(0)
+    expect(result.route.legacyDirectionDistanceM).toBe(0)
+    expect(result.route.directionAttestationIds).toEqual([evidence.attestationId])
+    expect(result.route.inferredDirectionPortions).toEqual([{
+      edgeId: `${input.id}:forward`,
+      segmentId: input.id,
+      attestationId: evidence.attestationId,
+      startDistanceM: 0,
+      endDistanceM: 12_345.67,
+      distanceM: 12_345.67,
+      geometry: input.geometry,
+      roadNumber: '42',
+      roadName: 'Prófunarvegur',
+    }])
+    expect(result.route.gravelPortions).toEqual([{
+      edgeId: `${input.id}:forward`,
+      segmentId: input.id,
+      surface: 'gravel',
+      startDistanceM: 0,
+      endDistanceM: 12_345.67,
+      distanceM: 12_345.67,
+      geometry: input.geometry,
+      roadNumber: '42',
+      roadName: 'Prófunarvegur',
+    }])
+    expect(result.route.gravelPortions[0].edgeId)
+      .toBe(result.route.inferredDirectionPortions[0].edgeId)
+    expect(result.route.surface.gravelM).toBe(Math.round(
+      result.route.gravelPortions.reduce((total, portion) => total + portion.distanceM, 0),
+    ))
+  })
+
+  it('keeps exact ordered gravel ranges while excluding topology and access connectors', () => {
+    function edge(
+      id: string,
+      lengthM: number,
+      overrides: Partial<IcelandRoadGraphEdge> = {},
+    ): IcelandRoadGraphEdge {
+      return {
+        id,
+        segmentId: id,
+        fromNodeId: `${id}:from`,
+        toNodeId: `${id}:to`,
+        geometry: [{ lat: 64, lon: -21 }, { lat: 64.01, lon: -21.01 }],
+        lengthM,
+        travelTimeS: lengthM / 10,
+        speedKmh: 36,
+        speedSource: 'official',
+        roadClass: 'local',
+        surface: 'gravel',
+        isFRoad: false,
+        isMountainRoad: false,
+        isSeasonal: false,
+        graphRole: 'source_segment',
+        sourceNetworkRole: 'assessment_public',
+        networkRole: 'assessment_public',
+        directionBasis: 'authoritative',
+        assessmentEligible: true,
+        ...overrides,
+      }
+    }
+
+    const firstGeometry = [{ lat: 64, lon: -21 }, { lat: 64.001, lon: -21.001 }]
+    const secondGeometry = [{ lat: 64.001, lon: -21.001 }, { lat: 64.002, lon: -21.002 }]
+    const route = buildIcelandRoadGraphRouteFromEdges([
+      edge('gravel-1', 100.125, { geometry: firstGeometry, roadNumber: '1' }),
+      edge('gravel-2', 20.25, { geometry: secondGeometry, roadName: 'Annar vegur' }),
+      edge('topology-gap', 3.75, {
+        graphRole: 'topology_connector',
+        sourceNetworkRole: undefined,
+        networkRole: undefined,
+        assessmentEligible: false,
+        topologyReceiptId: 'receipt-1',
+        topologyDirectionAttested: true,
+      }),
+      edge('gravel-3', 200.375),
+      edge('access-only', 4.5, {
+        sourceNetworkRole: 'access_connector',
+        networkRole: 'access_connector',
+        assessmentEligible: false,
+      }),
+      edge('paved', 50.625, { surface: 'paved' }),
+    ])
+
+    expect(route.gravelPortions).toEqual([
+      expect.objectContaining({
+        edgeId: 'gravel-1',
+        startDistanceM: 0,
+        endDistanceM: 100.125,
+        distanceM: 100.125,
+        geometry: firstGeometry,
+        roadNumber: '1',
+      }),
+      expect.objectContaining({
+        edgeId: 'gravel-2',
+        startDistanceM: 100.125,
+        endDistanceM: 120.375,
+        distanceM: 20.25,
+        geometry: secondGeometry,
+        roadName: 'Annar vegur',
+      }),
+      expect.objectContaining({
+        edgeId: 'gravel-3',
+        startDistanceM: 124.125,
+        endDistanceM: 324.5,
+        distanceM: 200.375,
+      }),
+    ])
+    expect(route.gravelPortions.map(portion => portion.edgeId)).not.toContain('topology-gap')
+    expect(route.gravelPortions.map(portion => portion.edgeId)).not.toContain('access-only')
+    expect(route.edgeIds).not.toContain('topology-gap')
+    expect(route.edgeIds).not.toContain('access-only')
+    expect(route.topologyConnectorIds).toEqual(['receipt-1'])
+    expect(route.unassessedConnectorDistanceM).toBe(8)
+    expect(route.assessedDistanceM + route.unassessedConnectorDistanceM)
+      .toBe(route.distanceM)
+
+    const exactGravelM = route.gravelPortions.reduce(
+      (total, portion) => total + portion.distanceM,
+      0,
+    )
+    expect(exactGravelM).toBeCloseTo(320.75, 10)
+    expect(route.surface.gravelM).toBe(Math.round(exactGravelM))
+    for (const portion of route.gravelPortions) {
+      expect(portion.endDistanceM - portion.startDistanceM)
+        .toBeCloseTo(portion.distanceM, 10)
+    }
   })
 })
 

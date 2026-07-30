@@ -73,12 +73,18 @@ export function sampleRouteWeatherPoints(
     mode = 'distance_capped'
   }
 
-  // Ensure last route point is always included (destination proximity)
+  // Ensure the exact last route boundary is always included. Cell-level
+  // deduplication must not collapse a positive-length route into one planned
+  // forecast point: completeness verification needs distinct start/end
+  // evidence even when both boundaries happen to share the same ~1 km cell.
   const lastAllPt = allPts[allPts.length - 1]
   const lastDist = cumDist[cumDist.length - 1]
-  const lastCell = `${round2(lastAllPt.lat)},${round2(lastAllPt.lon)}`
-  const lastAlreadyIncluded = selectedPoints.some(p => `${round2(p.lat)},${round2(p.lon)}` === lastCell)
-  if (!lastAlreadyIncluded) {
+  const lastBoundaryAlreadyIncluded = selectedPoints.some(p => (
+    p.lat === lastAllPt.lat
+    && p.lon === lastAllPt.lon
+    && p.distanceFromOriginM === lastDist
+  ))
+  if (!lastBoundaryAlreadyIncluded) {
     const lastEntry = { lat: lastAllPt.lat, lon: lastAllPt.lon, distanceFromOriginM: lastDist }
     if (selectedPoints.length < MAX_EXHAUSTIVE_FORECAST_POINTS) {
       selectedPoints = [...selectedPoints, lastEntry]

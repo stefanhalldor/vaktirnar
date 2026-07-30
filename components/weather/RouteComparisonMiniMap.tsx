@@ -1,7 +1,11 @@
 'use client'
 
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DriveRouteMap, type DriveRouteMapRoute } from './DriveRouteMap'
+import {
+  DriveRouteMap,
+  type DriveRouteMapAnnotation,
+  type DriveRouteMapRoute,
+} from './DriveRouteMap'
 
 export type RouteComparisonMiniMapItem = {
   id: string
@@ -30,9 +34,129 @@ export type RouteComparisonMiniMapItem = {
   facts?: string[]
   surfaceSegments?: Array<{ tone: 'paved' | 'gravel' | 'unknown'; percent: number }>
   surfaceLabel?: string
+  sectionOverlays?: Array<{
+    id: string
+    kind: 'gravel' | 'inferred_direction'
+    label: string
+    points: Array<{ lat: number; lon: number }>
+  }>
 }
 
 export type RouteComparisonSortMode = 'default' | 'duration' | 'distance' | 'weather'
+
+const EARTH_RADIUS_M = 6_371_000
+
+function distanceBetweenPointsM(
+  from: { lat: number; lon: number },
+  to: { lat: number; lon: number },
+) {
+  const toRadians = (degrees: number) => degrees * Math.PI / 180
+  const fromLat = toRadians(from.lat)
+  const toLat = toRadians(to.lat)
+  const latitudeDelta = toLat - fromLat
+  const longitudeDelta = toRadians(to.lon - from.lon)
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(longitudeDelta / 2) ** 2
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(haversine))
+}
+
+function measureSectionGeometry(points: Array<{ lat: number; lon: number }>) {
+  const segmentLengths = points.slice(1).map((point, index) => (
+    distanceBetweenPointsM(points[index], point)
+  ))
+  const distanceM = segmentLengths.reduce((sum, distance) => sum + distance, 0)
+  if (distanceM <= 0) return null
+
+  const targetDistance = distanceM / 2
+  let traversed = 0
+  for (let index = 0; index < segmentLengths.length; index += 1) {
+    const segmentLength = segmentLengths[index]
+    if (traversed + segmentLength < targetDistance) {
+      traversed += segmentLength
+      continue
+    }
+    const ratio = segmentLength === 0 ? 0 : (targetDistance - traversed) / segmentLength
+    const from = points[index]
+    const to = points[index + 1]
+    return {
+      distanceKm: distanceM / 1_000,
+      midpoint: {
+        lat: from.lat + ((to.lat - from.lat) * ratio),
+        lon: from.lon + ((to.lon - from.lon) * ratio),
+      },
+    }
+  }
+
+  return { distanceKm: distanceM / 1_000, midpoint: points[points.length - 1] }
+}
+
+function comparisonMapAnnotations(
+  drawable: readonly RouteComparisonMiniMapItem[],
+  selectedRouteId: string | null,
+): DriveRouteMapAnnotation[] {
+  const annotations = drawable.flatMap(route => {
+    const selected = selectedRouteId === null ? route.selected : route.id === selectedRouteId
+    if (!selected) return []
+    return (route.sectionOverlays ?? []).flatMap((overlay): DriveRouteMapAnnotation[] => {
+      if (overlay.kind !== 'gravel' || overlay.points.length < 2) return []
+      const measured = measureSectionGeometry(overlay.points)
+      if (!measured) return []
+      return [{
+        id: `${route.id}:annotation:${overlay.id}`,
+        kind: 'gravel',
+        label: overlay.label,
+        point: measured.midpoint,
+        focusPoints: overlay.points,
+        distanceKm: measured.distanceKm,
+      }]
+    })
+  })
+  const defaultCallout = annotations.reduce<DriveRouteMapAnnotation | null>((longest, annotation) => (
+    !longest || annotation.distanceKm > longest.distanceKm ? annotation : longest
+  ), null)
+  return annotations.map(annotation => ({
+    ...annotation,
+    showLabel: annotation.id === defaultCallout?.id,
+  }))
+}
+
+function comparisonMapRoutes(
+  drawable: readonly RouteComparisonMiniMapItem[],
+  allRoutes: readonly RouteComparisonMiniMapItem[],
+  selectedRouteId: string | null,
+  selectedWidth: number,
+): DriveRouteMapRoute[] {
+  const baseRoutes: DriveRouteMapRoute[] = drawable.map((route, index) => {
+    const selected = selectedRouteId === null ? route.selected : route.id === selectedRouteId
+    return {
+      id: route.id,
+      points: route.points,
+      color: route.color ?? routeComparisonColor(allRoutes.indexOf(route)),
+      offset: index % 2 === 0 ? -1.5 : 1.5,
+      opacity: selected ? 0.98 : 0.56,
+      width: selected ? selectedWidth : 4,
+    }
+  })
+  const overlays = drawable.flatMap(route => {
+    const selected = selectedRouteId === null ? route.selected : route.id === selectedRouteId
+    if (!selected) return []
+    return (route.sectionOverlays ?? []).flatMap((overlay): DriveRouteMapRoute[] => (
+      overlay.points.length < 2
+        ? []
+        : [{
+            id: `${route.id}:section:${overlay.id}`,
+            selectRouteId: route.id,
+            points: overlay.points,
+            color: overlay.kind === 'gravel' ? '#d97706' : '#7e22ce',
+            opacity: 0.98,
+            width: overlay.kind === 'gravel' ? 7 : 5,
+            offset: overlay.kind === 'gravel' ? 0 : 1.5,
+            dashArray: overlay.kind === 'gravel' ? [1.2, 1.5] : [0.4, 1.4],
+          }]
+    ))
+  })
+  return [...baseRoutes, ...overlays]
+}
 
 export function sortRouteComparisonItems(
   routes: readonly RouteComparisonMiniMapItem[],
@@ -231,15 +355,12 @@ export function RouteComparisonMiniMap({
     [routes],
   )
   const mapRoutes = useMemo<DriveRouteMapRoute[]>(
-    () => drawable.map((route, index) => ({
-      id: route.id,
-      points: route.points,
-      color: route.color ?? routeComparisonColor(routes.indexOf(route)),
-      offset: index % 2 === 0 ? -1.5 : 1.5,
-      opacity: route.selected ? 0.98 : 0.78,
-      width: route.selected ? 5 : 4,
-    })),
+    () => comparisonMapRoutes(drawable, routes, null, 5),
     [drawable, routes],
+  )
+  const mapAnnotations = useMemo<DriveRouteMapAnnotation[]>(
+    () => comparisonMapAnnotations(drawable, null),
+    [drawable],
   )
   if (drawable.length < 2) return null
 
@@ -248,6 +369,7 @@ export function RouteComparisonMiniMap({
       <div className="relative">
         <DriveRouteMap
           routes={mapRoutes}
+          annotations={mapAnnotations}
           interactive={false}
           ariaLabel={ariaLabel}
           className="h-[120px] w-full"
@@ -271,6 +393,24 @@ export function RouteComparisonMiniMap({
               style={{ backgroundColor: route.color ?? routeComparisonColor(routes.indexOf(route)) }}
             />
             <span className="max-w-[150px] truncate">{route.label}</span>
+          </span>
+        ))}
+        {[...new Map(
+          drawable
+            .filter(route => route.selected)
+            .flatMap(route => route.sectionOverlays ?? [])
+            .map(overlay => [overlay.kind, overlay] as const),
+        ).values()].map(overlay => (
+          <span key={overlay.kind} className="inline-flex min-w-0 items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className={`w-4 shrink-0 border-t-2 ${
+                overlay.kind === 'gravel'
+                  ? 'border-dashed border-amber-600'
+                  : 'border-dotted border-purple-700'
+              }`}
+            />
+            <span>{overlay.label}</span>
           </span>
         ))}
       </figcaption>
@@ -300,6 +440,7 @@ export function RouteComparisonFullscreenMap({
   onApply,
   onFindMore,
   cautionCloseLabel,
+  closeLabel,
   selectedRouteDetails,
 }: {
   routes: RouteComparisonMiniMapItem[]
@@ -317,17 +458,20 @@ export function RouteComparisonFullscreenMap({
   sortDistanceLabel: string
   sortWeatherLabel: string
   alternativesMessage?: string
-  alternativesStatus?: 'idle' | 'loading' | 'ready' | 'none' | 'unavailable'
+  alternativesStatus?: 'idle' | 'loading' | 'slow' | 'ready' | 'none' | 'unavailable'
   onSelectRouteId: (routeId: string) => void
   onClose: () => void
   onApply: () => void
   onFindMore?: () => void
   cautionCloseLabel: string
+  closeLabel: string
   selectedRouteDetails?: ReactNode
 }) {
   const [sortMode, setSortMode] = useState<RouteComparisonSortMode>('default')
   const sortedRoutes = useMemo(() => sortRouteComparisonItems(routes, sortMode), [routes, sortMode])
   const weatherSortingAvailable = routes.some(route => route.weatherScore !== null && route.weatherScore !== undefined)
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const routeCardsScrollRef = useRef<HTMLDivElement | null>(null)
   const routeCardRefs = useRef(new Map<string, HTMLDivElement>())
   const routeCautionTriggerRefs = useRef(new Map<string, HTMLButtonElement>())
@@ -381,47 +525,94 @@ export function RouteComparisonFullscreenMap({
     [routes],
   )
   const mapRoutes = useMemo<DriveRouteMapRoute[]>(
-    () => drawable.map(route => ({
-      id: route.id,
-      points: route.points,
-      color: route.color ?? routeComparisonColor(routes.indexOf(route)),
-      offset: routes.indexOf(route) % 2 === 0 ? -1.5 : 1.5,
-      opacity: route.id === selectedRouteId ? 1 : 0.56,
-      width: route.id === selectedRouteId ? 7 : 4,
-    })),
+    () => comparisonMapRoutes(drawable, routes, selectedRouteId, 7),
     [drawable, routes, selectedRouteId],
+  )
+  const mapAnnotations = useMemo<DriveRouteMapAnnotation[]>(
+    () => comparisonMapAnnotations(drawable, selectedRouteId),
+    [drawable, selectedRouteId],
   )
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
     document.body.style.overflow = 'hidden'
+    const focusFrame = window.requestAnimationFrame(() => {
+      closeButtonRef.current?.focus({ preventScroll: true })
+    })
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.body.style.overflow = previousOverflow
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true })
+    }
+  }, [])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (expandedCautionRouteId) closeCautionDrawer()
-      else if (!applyPending) onClose()
+      if (event.key === 'Escape') {
+        if (expandedCautionRouteId) closeCautionDrawer()
+        else if (!applyPending) onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const dialog = dialogRef.current
+      if (!dialog) return
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )].filter(element => element.getAttribute('aria-hidden') !== 'true')
+      if (focusable.length === 0) {
+        event.preventDefault()
+        dialog.focus({ preventScroll: true })
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault()
+        last.focus({ preventScroll: true })
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault()
+        first.focus({ preventScroll: true })
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = previousOverflow
     }
   }, [applyPending, closeCautionDrawer, expandedCautionRouteId, onClose])
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       className="fixed inset-0 z-[300] flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-background"
       role="dialog"
       aria-modal="true"
       aria-busy={applyPending || undefined}
       aria-labelledby="route-comparison-title"
     >
-      <header className="flex min-h-14 shrink-0 items-center border-b border-border bg-background px-3 pt-[env(safe-area-inset-top,0px)]">
+      <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top,0px)]">
         <h2 id="route-comparison-title" className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{title}</h2>
+        <button
+          ref={closeButtonRef}
+          type="button"
+          onClick={onClose}
+          disabled={applyPending}
+          aria-label={closeLabel}
+          title={closeLabel}
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
       </header>
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <DriveRouteMap
           routes={mapRoutes}
+          annotations={mapAnnotations}
           onSelectRoute={applyPending ? undefined : handleMapRouteSelect}
           ariaLabel={title}
           className="h-full w-full"

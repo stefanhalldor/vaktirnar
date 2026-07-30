@@ -10,18 +10,67 @@
  * script deliberately, review the diff and ship the resulting last-known-good
  * snapshot with the application.
  *
- * Run with: node scripts/generate-official-place-directory.mjs
+ * Online refresh:
+ * node scripts/generate-official-place-directory.mjs --retrieved-date YYYY-MM-DD
+ *
+ * Deterministic offline regeneration from the checked-in snapshot:
+ * node scripts/generate-official-place-directory.mjs --offline-input lib/places/officialPlaceDirectory.generated.json
  */
 
 import { createHash } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  OFFICIAL_PLACE_DIRECTORY_GENERATOR,
+  OFFICIAL_PLACE_DIRECTORY_SCHEMA_VERSION,
+  assertConsistentOfficialPostalLocalityRecords,
+  buildDeterministicOfficialPlaceDirectory,
+  officialPlaceDirectoryContentSha256,
+  officialPlaceDirectoryPayload,
+  serializeOfficialPlaceDirectory,
+} from './official-place-directory-identity.mjs'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(SCRIPT_DIR, '..')
 const OUTPUT = join(ROOT, 'lib', 'places', 'officialPlaceDirectory.generated.json')
 const ATTRIBUTION_OUTPUT = join(ROOT, 'lib', 'places', 'officialPlaceAttribution.generated.ts')
+
+function argumentValue(args, index, name) {
+  const argument = args[index]
+  const prefix = `${name}=`
+  if (argument.startsWith(prefix)) return { value: argument.slice(prefix.length), nextIndex: index }
+  if (argument === name && typeof args[index + 1] === 'string') {
+    return { value: args[index + 1], nextIndex: index + 1 }
+  }
+  return null
+}
+
+function parseArguments(args) {
+  const parsed = {
+    offlineInput: null,
+    retrievedDate: null,
+    output: OUTPUT,
+    attributionOutput: ATTRIBUTION_OUTPUT,
+  }
+  for (let index = 0; index < args.length; index += 1) {
+    const offlineInput = argumentValue(args, index, '--offline-input')
+    const retrievedDate = argumentValue(args, index, '--retrieved-date')
+    const output = argumentValue(args, index, '--output')
+    const attributionOutput = argumentValue(args, index, '--attribution-output')
+    const match = offlineInput ?? retrievedDate ?? output ?? attributionOutput
+    if (!match?.value) throw new Error(`unknown_or_empty_argument_${args[index]}`)
+    if (offlineInput) parsed.offlineInput = resolve(ROOT, offlineInput.value)
+    if (retrievedDate) parsed.retrievedDate = retrievedDate.value
+    if (output) parsed.output = resolve(ROOT, output.value)
+    if (attributionOutput) parsed.attributionOutput = resolve(ROOT, attributionOutput.value)
+    index = match.nextIndex
+  }
+  if (!parsed.offlineInput && !parsed.retrievedDate) {
+    throw new Error('retrieved_date_required_for_online_refresh')
+  }
+  return parsed
+}
 
 const SOURCES = Object.freeze({
   hagstofa: {
@@ -440,7 +489,15 @@ function buildSettlement(input) {
 }
 
 function validateSnapshot(snapshot) {
-  if (snapshot.schemaVersion !== 2) throw new Error('snapshot_schema_invalid')
+  if (
+    snapshot.schemaVersion !== OFFICIAL_PLACE_DIRECTORY_SCHEMA_VERSION
+    || snapshot.generator?.id !== OFFICIAL_PLACE_DIRECTORY_GENERATOR.id
+    || snapshot.generator?.version !== OFFICIAL_PLACE_DIRECTORY_GENERATOR.version
+    || !/^\d{4}-\d{2}-\d{2}$/.test(snapshot.retrievedDate)
+    || snapshot.contentSha256 !== officialPlaceDirectoryContentSha256(
+      officialPlaceDirectoryPayload(snapshot),
+    )
+  ) throw new Error('snapshot_provenance_invalid')
   if (snapshot.settlements.length < 80 || snapshot.settlements.length > 250) {
     throw new Error(`snapshot_settlement_count_${snapshot.settlements.length}`)
   }
@@ -485,16 +542,69 @@ function validateSnapshot(snapshot) {
   if (settlementsWithSearchablePostalCode < Math.floor(snapshot.settlements.length * 0.8)) {
     throw new Error(`settlement_postal_coverage_${settlementsWithSearchablePostalCode}`)
   }
-  const hella = snapshot.settlements.filter(place => normalize(place.name) === 'hella')
-  if (hella.length !== 1) throw new Error(`hella_count_${hella.length}`)
-  if (hella[0].id !== 'hagstofa:1120' || !hella[0].postalCodes.includes('850')) {
-    throw new Error('hella_identity_invalid')
+  const settlementIds = new Set(snapshot.settlements.map(place => place.id))
+  const postalAreaIds = new Set()
+  for (const [postalCode, locality] of Object.entries(snapshot.postalLocalities)) {
+    if (
+      !/^\d{3}$/.test(postalCode)
+      || !locality?.name
+      || !locality?.sourceId
+      || !['Þéttbýli', 'Dreifbýli'].includes(locality.classification)
+    ) throw new Error(`postal_identity_invalid_${postalCode}`)
+    const identity = locality.assessmentIdentity
+    if (locality.classification === 'Dreifbýli') {
+      if (identity?.kind !== 'rural_postal_area') {
+        throw new Error(`rural_postal_identity_invalid_${postalCode}`)
+      }
+    } else if (!['urban_settlement', 'unresolved'].includes(identity?.kind)) {
+      throw new Error(`urban_postal_identity_invalid_${postalCode}`)
+    }
+    if (identity.kind === 'urban_settlement' && !settlementIds.has(identity.settlementId)) {
+      throw new Error(`postal_settlement_missing_${postalCode}`)
+    }
+    if (identity.kind !== 'unresolved') {
+      const expectedAreaId = `postal:${postalCode}:${locality.sourceId}`
+      if (identity.postalAreaId !== expectedAreaId || postalAreaIds.has(expectedAreaId)) {
+        throw new Error(`postal_area_identity_invalid_${postalCode}`)
+      }
+      postalAreaIds.add(expectedAreaId)
+    }
   }
-  if (snapshot.postalLocalities['611']?.name !== 'Grímsey') throw new Error('postal_611_invalid')
-  if (snapshot.postalLocalities['850']?.name !== 'Hella') throw new Error('postal_850_invalid')
+}
+
+function writeSnapshot(snapshot, options) {
+  validateSnapshot(snapshot)
+  writeFileSync(options.output, serializeOfficialPlaceDirectory(snapshot), 'utf8')
+  writeFileSync(
+    options.attributionOutput,
+    `/** Generated by scripts/generate-official-place-directory.mjs. */\nexport const OFFICIAL_PLACE_DIRECTORY_RETRIEVED_DATE = '${snapshot.retrievedDate}'\n`,
+    'utf8',
+  )
+  console.log(JSON.stringify({
+    status: 'ok',
+    mode: options.offlineInput ? 'offline' : 'online',
+    output: options.output,
+    attributionOutput: options.attributionOutput,
+    schemaVersion: snapshot.schemaVersion,
+    generatorVersion: snapshot.generator.version,
+    retrievedDate: snapshot.retrievedDate,
+    contentSha256: snapshot.contentSha256,
+    settlementCount: snapshot.settlements.length,
+    postalLocalityCount: Object.keys(snapshot.postalLocalities).length,
+  }, null, 2))
 }
 
 async function main() {
+  const options = parseArguments(process.argv.slice(2))
+  if (options.offlineInput) {
+    const input = JSON.parse(readFileSync(options.offlineInput, 'utf8'))
+    const snapshot = buildDeterministicOfficialPlaceDirectory(input, {
+      ...(options.retrievedDate ? { retrievedDate: options.retrievedDate } : {}),
+    })
+    writeSnapshot(snapshot, options)
+    return
+  }
+
   const [hagstofaSource, is50vSource, postalSource] = await Promise.all([
     fetchFeatureCollection('hagstofa'),
     fetchFeatureCollection('is50v'),
@@ -502,7 +612,12 @@ async function main() {
   ])
 
   const hagstofa = prepareHagstofa(hagstofaSource.payload.features)
+    .sort((a, b) => a.id.localeCompare(b.id, 'en'))
   const postalRecords = postalSource.payload.features.map(postalRecord).filter(Boolean)
+    .sort((a, b) => (
+      a.postalCode.localeCompare(b.postalCode, 'en')
+      || a.sourceId.localeCompare(b.sourceId, 'en')
+    ))
   if (hagstofa.length < MIN_COUNTS.hagstofa) throw new Error(`hagstofa_valid_count_${hagstofa.length}`)
   if (postalRecords.length < MIN_COUNTS.postal) throw new Error(`postal_valid_count_${postalRecords.length}`)
   const usedHagstofaIds = new Set()
@@ -524,6 +639,7 @@ async function main() {
       hagstofa: hagstofaMatch,
     })
   }
+  is50vRecords.sort((a, b) => a.id.localeCompare(b.id, 'en'))
   if (is50vRecords.length < MIN_COUNTS.is50v) throw new Error(`is50v_valid_count_${is50vRecords.length}`)
 
   const matchedGroups = new Map()
@@ -534,7 +650,8 @@ async function main() {
     matchedGroups.set(key, group)
   }
 
-  for (const records of matchedGroups.values()) {
+  for (const key of [...matchedGroups.keys()].sort((a, b) => a.localeCompare(b, 'en'))) {
+    const records = matchedGroups.get(key)
     const hagstofaMatch = records[0].hagstofa
     usedHagstofaIds.add(hagstofaMatch.id)
     settlements.push(buildSettlement({
@@ -585,8 +702,7 @@ async function main() {
     postalRecordsByCode.set(record.postalCode, records)
   }
   for (const [postalCode, records] of [...postalRecordsByCode.entries()].sort(([a], [b]) => a.localeCompare(b, 'is'))) {
-    const names = unique(records.map(record => normalize(record.name)))
-    if (names.length !== 1) throw new Error(`postal_locality_conflict_${postalCode}`)
+    assertConsistentOfficialPostalLocalityRecords(postalCode, records)
     const record = [...records].sort(comparePostalRecords)[0]
     postalLocalities[postalCode] = {
       name: record.name,
@@ -597,9 +713,7 @@ async function main() {
   }
 
   settlements.sort((a, b) => a.name.localeCompare(b.name, 'is') || a.id.localeCompare(b.id))
-  const snapshot = {
-    schemaVersion: 2,
-    generatedAt: new Date().toISOString(),
+  const inputSnapshot = {
     sources: Object.fromEntries(Object.entries(SOURCES).map(([key, source]) => [key, {
       dataset: source.dataset,
       metadataUrl: source.metadataUrl,
@@ -610,23 +724,11 @@ async function main() {
     settlements,
     postalLocalities,
   }
+  const snapshot = buildDeterministicOfficialPlaceDirectory(inputSnapshot, {
+    retrievedDate: options.retrievedDate,
+  })
 
-  validateSnapshot(snapshot)
-  writeFileSync(OUTPUT, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8')
-  const retrievedDate = snapshot.generatedAt.slice(0, 10)
-  writeFileSync(
-    ATTRIBUTION_OUTPUT,
-    `/** Generated by scripts/generate-official-place-directory.mjs. */\nexport const OFFICIAL_PLACE_DIRECTORY_RETRIEVED_DATE = '${retrievedDate}'\n`,
-    'utf8',
-  )
-  console.log(JSON.stringify({
-    status: 'ok',
-    output: OUTPUT,
-    attributionOutput: ATTRIBUTION_OUTPUT,
-    settlementCount: settlements.length,
-    postalLocalityCount: Object.keys(postalLocalities).length,
-    hella: settlements.find(place => place.id === 'hagstofa:1120'),
-  }, null, 2))
+  writeSnapshot(snapshot, options)
 }
 
 main().catch(error => {
