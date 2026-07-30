@@ -160,6 +160,21 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain('className="inline-flex h-10 w-10 items-center justify-center')
   })
 
+  it('keeps the live puck above collapsible mobile route settings', () => {
+    expect(source).toContain('ref={routeBottomStripRef}')
+    expect(source).toContain('resolveLiveLocationCameraOffset(')
+    expect(source).toContain('map.getContainer().clientHeight')
+    expect(source).toContain('offset,')
+    expect(source).toContain('isRouteMapSettingsCollapsed')
+    expect(source).toContain('aria-controls="road-map-route-settings"')
+    expect(source).toContain("t('roadMapPrototypeRouteSettingsCollapse')")
+    expect(source).toContain("t('roadMapPrototypeRouteSettingsExpand')")
+    expect(messagesIs).toContain('"roadMapPrototypeRouteSettingsCollapse": "Fela stillingar"')
+    expect(messagesIs).toContain('"roadMapPrototypeRouteSettingsExpand": "Sýna stillingar"')
+    expect(messagesEn).toContain('"roadMapPrototypeRouteSettingsCollapse": "Hide settings"')
+    expect(messagesEn).toContain('"roadMapPrototypeRouteSettingsExpand": "Show settings"')
+  })
+
   it('keeps the directional puck geographically aligned and honors reduced motion', () => {
     expect(source).toContain('point.headingDeg - map.getBearing()')
     expect(source).toContain('nearestEquivalentHeadingDegrees(')
@@ -206,7 +221,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("status => status !== 'no_data' && status !== 'no_wind_data'")
     expect(source).toContain('createDefaultRouteVisibleWindStatuses,')
     expect(source).toContain('handleRouteStatusFilterChange(createDefaultRouteVisibleWindStatuses())')
-    expect(source).toContain('combineNoWindDataStatuses\n            />')
+    expect(source).toMatch(/combineNoWindDataStatuses\s*\/>/)
     expect(source).toContain('routeStatusIsVisible(point.windDisplayStatus, statuses)')
     expect(source).toContain('applyRouteStatusFilterToMap(\n      map,\n      visibleRouteStatusesRef.current,')
 

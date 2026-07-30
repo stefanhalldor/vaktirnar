@@ -1521,6 +1521,8 @@
         "roadMapPrototypeStartDrivingPrivacy": "Kortið biður um staðsetningu til að elta þig. Hún er ekki vistuð.",
         "roadMapPrototypeDrivingNow": "Á ferðinni núna",
         "roadMapPrototypePlanRoute": "Skipuleggja",
+        "roadMapPrototypeRouteSettingsCollapse": "Fela stillingar",
+        "roadMapPrototypeRouteSettingsExpand": "Sýna stillingar",
         "roadMapPrototypeVegagerdinNowLabel": "Nústaðan hjá Vegagerðinni kl. {time}",
         "roadMapPrototypeVegagerdinNowFallback": "Nústaðan hjá Vegagerðinni",
         "roadMapPrototypeWindArrowsExplanation": "Örvar sýna hvert vindurinn blæs samkvæmt síðustu mælingu Vegagerðarinnar.",

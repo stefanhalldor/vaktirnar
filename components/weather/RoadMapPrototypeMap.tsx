@@ -3,7 +3,7 @@
 // MapLibre CSS is loaded by route layout (app/auth-mvp/vedrid/road-map-prototype/layout.tsx).
 import { type FormEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { ArrowUp, LocateFixed, Minus, Pencil, Plus } from 'lucide-react'
+import { ArrowUp, ChevronDown, ChevronUp, LocateFixed, Minus, Pencil, Plus } from 'lucide-react'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import {
   createFirstReadyCoordinator,
@@ -44,6 +44,7 @@ import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofa
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import { buildTravelBridgeMapData } from '@/lib/road-intelligence/travelBridgeMapData'
 import {
+  resolveLiveLocationCameraOffset,
   resolveLiveRouteMapPresentation,
   shouldShowRouteEndpointMarker,
 } from '@/lib/road-intelligence/liveRouteMapPresentation'
@@ -1688,6 +1689,7 @@ export function RoadMapPrototypeMap({
   const routeAuditPolylinePointsRef = useRef<Array<{ lat: number; lon: number }>>([])
   const routeEndpointMarkersRef = useRef<RouteEndpointMarker[]>([])
   const routeEndpointMarkersAreCurrentRef = useRef(false)
+  const routeBottomStripRef = useRef<HTMLDivElement | null>(null)
   const routeLiveLocationMarkerRef = useRef<import('maplibre-gl').Marker | null>(null)
   const routeLiveLocationPuckDirectionRef = useRef<HTMLDivElement | null>(null)
   const routeLiveLocationPuckVisualAngleRef = useRef<number | null>(null)
@@ -2318,6 +2320,7 @@ export function RoadMapPrototypeMap({
   const [lastMapContext, setLastMapContext] = useState<'weather' | 'route'>('weather')
   const [weatherContextView, setWeatherContextView] = useState<'information' | 'map'>('information')
   const [routeContextView, setRouteContextView] = useState<'information' | 'map'>('information')
+  const [isRouteMapSettingsCollapsed, setIsRouteMapSettingsCollapsed] = useState(false)
   const [forecastCardScaleIndex, setForecastCardScaleIndex] = useState(1)
   const [forecastCardScaleChanged, setForecastCardScaleChanged] = useState(false)
   const [forecastCardGuideOpen, setForecastCardGuideOpen] = useState(true)
@@ -3321,6 +3324,14 @@ export function RoadMapPrototypeMap({
       stopRouteLiveLocation(false)
     }
   }, [stopRouteLiveLocation])
+
+  useEffect(() => {
+    if (routeLiveLocationStatus !== 'active') return
+    const frame = window.requestAnimationFrame(() => moveRouteLiveLocationCamera())
+    return () => window.cancelAnimationFrame(frame)
+    // The camera helper intentionally reads the latest map and location refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRouteMapSettingsCollapsed, routeLiveLocationStatus])
 
   useEffect(() => {
     let cancelled = false
@@ -4911,6 +4922,11 @@ export function RoadMapPrototypeMap({
     const map = mapRef.current
     if (!map || !point || routeLiveLocationFollowModeRef.current !== 'follow') return
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const bottomOverlayHeight = routeBottomStripRef.current?.getBoundingClientRect().height ?? 0
+    const offset = resolveLiveLocationCameraOffset(
+      bottomOverlayHeight,
+      map.getContainer().clientHeight,
+    )
     const bearing = resolveLiveLocationCameraBearing(
       routeLiveLocationOrientationModeRef.current,
       point.headingDeg,
@@ -4918,6 +4934,7 @@ export function RoadMapPrototypeMap({
     map.easeTo({
       center: [point.lon, point.lat],
       zoom: routeLiveLocationFollowZoomRef.current,
+      offset,
       ...(bearing !== null ? { bearing } : {}),
       duration: reduceMotion ? 0 : 350,
     })
@@ -10764,6 +10781,7 @@ export function RoadMapPrototypeMap({
 
       {/* Bottom strip — overview source selector or route departure scrubber. */}
       <div
+        ref={routeBottomStripRef}
         data-weather-card-obstacle="true"
         className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-[max(1.25rem,env(safe-area-inset-bottom))] ${
           isPanelOpen
@@ -10780,7 +10798,21 @@ export function RoadMapPrototypeMap({
           </div>
         ) : lastMapContext === 'route' && routeBridgeSummary ? (
           <div className="px-3 pb-2 pt-2 space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2">
+            {isRouteMapSettingsCollapsed ? (
+              <button
+                type="button"
+                aria-expanded="false"
+                aria-controls="road-map-route-settings"
+                onClick={() => setIsRouteMapSettingsCollapsed(false)}
+                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-1 text-left text-xs font-semibold text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span>{t('roadMapPrototypeRouteSettingsExpand')}</span>
+                <ChevronUp className="h-4 w-4 shrink-0" aria-hidden="true" />
+              </button>
+            ) : (
+              <div id="road-map-route-settings" className="space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 aria-pressed={routeWeatherMode === 'now'}
@@ -10811,10 +10843,21 @@ export function RoadMapPrototypeMap({
               >
                 <span className="font-semibold">{t('roadMapPrototypePlanRoute')}</span>
               </button>
+                  </div>
+                  <button
+                    type="button"
+                    aria-expanded="true"
+                    aria-controls="road-map-route-settings"
+                    aria-label={t('roadMapPrototypeRouteSettingsCollapse')}
+                    title={t('roadMapPrototypeRouteSettingsCollapse')}
+                    onClick={() => setIsRouteMapSettingsCollapsed(true)}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-background/85 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
 
-            </div>
-
-            {routeWeatherMode === 'now' && (
+                {routeWeatherMode === 'now' && (
               <div className="space-y-1">
                 {hasUsableRouteNowMeasurements ? (
                   <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -10955,15 +10998,16 @@ export function RoadMapPrototypeMap({
               </div>
             )}
 
-            <WindStatusFilterPills
-              counts={activeRouteStatusCounts}
-              visibleStatuses={visibleRouteStatuses}
-              onVisibleStatusesChange={handleRouteStatusFilterChange}
-              showAllLabel=""
-              mode={routeStatusFilterMode}
-              combineNoWindDataStatuses
-            />
-
+                <WindStatusFilterPills
+                  counts={activeRouteStatusCounts}
+                  visibleStatuses={visibleRouteStatuses}
+                  onVisibleStatusesChange={handleRouteStatusFilterChange}
+                  showAllLabel=""
+                  mode={routeStatusFilterMode}
+                  combineNoWindDataStatuses
+                />
+              </div>
+            )}
           </div>
         ) : (
           /* Default overview: time selector + Einfalt/Nánar inline with pills */

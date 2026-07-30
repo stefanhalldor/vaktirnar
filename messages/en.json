@@ -1515,6 +1515,8 @@
         "roadMapPrototypeStartDrivingPrivacy": "The map asks for your location to follow you. It is not stored.",
         "roadMapPrototypeDrivingNow": "On the road now",
         "roadMapPrototypePlanRoute": "Plan",
+        "roadMapPrototypeRouteSettingsCollapse": "Hide settings",
+        "roadMapPrototypeRouteSettingsExpand": "Show settings",
         "roadMapPrototypeVegagerdinNowLabel": "Current conditions from Vegagerðin at {time}",
         "roadMapPrototypeVegagerdinNowFallback": "Current conditions from Vegagerðin",
         "roadMapPrototypeWindArrowsExplanation": "Arrows show where the wind is blowing according to the latest Vegagerðin measurement.",

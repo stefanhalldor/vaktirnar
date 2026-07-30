@@ -24,6 +24,32 @@ export type RouteEndpointMarkerKind =
   | 'coverage-start'
   | 'coverage-end'
 
+const LIVE_LOCATION_CAMERA_OFFSET_MAX_MAP_RATIO = 0.35
+
+/**
+ * Keeps the live-location puck centered in the unobscured portion of the map.
+ * MapLibre's negative Y offset places the tracked point above the visual center.
+ */
+export function resolveLiveLocationCameraOffset(
+  bottomOverlayHeightPx: number,
+  mapHeightPx: number,
+): [number, number] {
+  if (
+    !Number.isFinite(bottomOverlayHeightPx) ||
+    !Number.isFinite(mapHeightPx) ||
+    bottomOverlayHeightPx <= 0 ||
+    mapHeightPx <= 0
+  ) {
+    return [0, 0]
+  }
+
+  const boundedOverlayHeight = Math.min(
+    bottomOverlayHeightPx,
+    mapHeightPx * LIVE_LOCATION_CAMERA_OFFSET_MAX_MAP_RATIO * 2,
+  )
+  return [0, -Math.round(boundedOverlayHeight / 2)]
+}
+
 export function shouldShowRouteEndpointMarker(input: {
   routeContextVisible: boolean
   endpointMarkersCurrent: boolean
