@@ -387,13 +387,13 @@ export async function resolveRouteAssessmentScope(
     const origin = endpoint(
       originResolution,
       anchors.origin.point,
-      haversineDistanceM(navigationOrigin, anchors.origin.point),
+      Math.round(haversineDistanceM(navigationOrigin, anchors.origin.point)),
       selectedEndpointEdge(originResolution, anchors.connectedRoadEdges, 'origin'),
     )
     const destination = endpoint(
       destinationResolution,
       anchors.destination.point,
-      haversineDistanceM(navigationDestination, anchors.destination.point),
+      Math.round(haversineDistanceM(navigationDestination, anchors.destination.point)),
       selectedEndpointEdge(destinationResolution, anchors.connectedRoadEdges, 'destination'),
     )
     if (!origin || !destination) {

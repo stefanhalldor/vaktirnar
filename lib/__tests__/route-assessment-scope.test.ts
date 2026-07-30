@@ -214,6 +214,8 @@ describe('resolveRouteAssessmentScope', () => {
     })
     expect(scope.origin.accessDistanceM).toBeGreaterThan(0)
     expect(scope.destination.accessDistanceM).toBeGreaterThan(0)
+    expect(Number.isSafeInteger(scope.origin.accessDistanceM)).toBe(true)
+    expect(Number.isSafeInteger(scope.destination.accessDistanceM)).toBe(true)
     expect(scope.destination).not.toMatchObject(graphJunction)
     expect(scope.destination).not.toMatchObject(graphDestinationEnd)
     expect(scope.destination.sourceId).not.toBe(ruralNavigationDestination.sourceId)

@@ -288,6 +288,12 @@ describe('road-map route results display state', () => {
     expect(source).toContain('...(accessRouteEnvelope ? { accessRouteEnvelope } : {})')
     expect(source).toContain('if (!accessRouteEnvelope)')
     expect(source).toContain('assessmentScopeId,\n        alternatives,')
+    expect(source).toContain("const isDepartureForecastLoading = routeForecastBuildStatus === 'loading'")
+    expect(source).toContain("bridgeStatus: isRouteLoading ? 'loading' : routeBridgeStatus")
+    expect(source).toContain("? t('roadMapPrototypeRouteReady')")
+    expect(source).not.toContain('roadMapPrototypeRouteLoaderForecast')
+    expect(source).toContain('{routeComparisonApplyPending && (')
+    expect(source).toContain('className="fixed inset-0 z-[310] flex h-[100dvh]')
   })
 
   it('rederives scoped refreshes from navigation and suppresses node-only candidates for assessment', () => {
@@ -318,6 +324,8 @@ describe('road-map route results display state', () => {
       'envelope.assessmentScopeId === assessmentScope.scopeId',
     )
     expect(fetchChoicesBlock).toContain("assessmentScope.reason === 'road_graph_unavailable'")
+    expect(fetchChoicesBlock).toContain("assessmentScope.reason === 'assessment_area_unavailable'")
+    expect(fetchChoicesBlock).toContain("assessmentScope.reason === 'no_connected_official_road'")
     expect(fetchChoicesBlock).toContain('await waitForAbortableBrowser(delay, signal)')
 
     const accessBlock = functionBlock(

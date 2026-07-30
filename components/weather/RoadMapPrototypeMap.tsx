@@ -6803,12 +6803,32 @@ export function RoadMapPrototypeMap({
       const payload = await res.json().catch(() => null)
       const assessmentScope = parseRouteAssessmentScope(payload?.assessmentScope)
       if (!assessmentScope) throw new Error('assessment_scope_invalid')
+      if (process.env.NODE_ENV !== 'production' && assessmentScope.status !== 'ready') {
+        console.log(
+          '[RoadMap] route scope result:',
+          `status=${assessmentScope.status}`,
+          `reason=${assessmentScope.status === 'unavailable' ? assessmentScope.reason : 'same_area'}`,
+          `attempt=${attempt + 1}`,
+        )
+      }
       if (
         assessmentScope.status === 'unavailable'
-        && assessmentScope.reason === 'road_graph_unavailable'
+        && (
+          assessmentScope.reason === 'road_graph_unavailable'
+          || assessmentScope.reason === 'assessment_area_unavailable'
+          || assessmentScope.reason === 'no_connected_official_road'
+        )
       ) {
         const delay = ROUTE_SCOPE_RETRY_DELAYS_MS[attempt]
         if (delay === undefined) return { assessmentScope, choices: [] }
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(
+            '[RoadMap] route scope retry:',
+            `reason=${assessmentScope.reason}`,
+            `attempt=${attempt + 1}`,
+            `delay=${delay}ms`,
+          )
+        }
         await waitForAbortableBrowser(delay, signal)
         continue
       }
@@ -9350,9 +9370,10 @@ export function RoadMapPrototypeMap({
         : t('roadMapPrototypeViewingDepartureNow')
   const displayedRouteCandidates = routeCandidates ? routeCandidates.slice(0, visibleCandidateLimit) : null
   const hasMoreCandidates = routeCandidates !== null && routeCandidates.length > visibleCandidateLimit
-  const isRouteLoading = routeBridgeStatus === 'loading'
+  const isDepartureForecastLoading = routeForecastBuildStatus === 'loading'
+  const isRouteLoading = routeBridgeStatus === 'loading' || isDepartureForecastLoading
   const routeResultsDisplayState = resolveRouteResultsDisplayState({
-    bridgeStatus: routeBridgeStatus,
+    bridgeStatus: isRouteLoading ? 'loading' : routeBridgeStatus,
     hasSummary: routeBridgeSummary !== null,
     hasTravelResult: routeTravelResult !== null,
     hasHandoffOnly: routeHandoffOnlySummary !== null,
@@ -9361,20 +9382,27 @@ export function RoadMapPrototypeMap({
     comparisonOpening: routeComparisonOpening,
   })
   const routeResultsLoadingLabel = (
-    routeResultsDisplayState === 'route-switching'
-    || routeResultsDisplayState === 'comparison-opening'
+    isDepartureForecastLoading
   )
-    ? t('roadMapPrototypeRouteConditionsLoading')
-    : t('roadMapPrototypeRouteLoading')
+    ? t('roadMapPrototypeRouteLoaderNow')
+    : (
+      routeResultsDisplayState === 'route-switching'
+    || routeResultsDisplayState === 'comparison-opening'
+    )
+      ? t('roadMapPrototypeRouteConditionsLoading')
+      : t('roadMapPrototypeRouteLoading')
   const firstReadyRouteChoice = routeSurfaceChoices.find(
     choice => choice.routeId === previewRouteChoiceId,
   ) ?? routeSurfaceChoices[0] ?? null
-  const firstReadyRouteProviderLabel = firstReadyRouteChoice?.route.provider === 'teskeid'
-    ? t('roadMapPrototypeTeskeidRouteLabel')
-    : t('roadMapPrototypeGoogleRouteLabel')
-  const firstReadyRouteLoadingLabel = firstReadyRouteChoice
-    ? t('roadMapPrototypeRouteProviderReady', { provider: firstReadyRouteProviderLabel })
-    : t('roadMapPrototypeRouteLoading')
+  const firstReadyRouteLoadingLabel = isDepartureForecastLoading
+    ? t('roadMapPrototypeRouteLoaderNow')
+    : firstReadyRouteChoice?.route.provider === 'teskeid'
+      ? t('roadMapPrototypeRouteProviderReady', {
+          provider: t('roadMapPrototypeTeskeidRouteLabel'),
+        })
+      : firstReadyRouteChoice
+        ? t('roadMapPrototypeRouteReady')
+        : t('roadMapPrototypeRouteLoading')
   const activeRouteStatusCounts =
     routeWeatherMode === 'now'
       ? routeNowStatusCounts ?? {}
@@ -9491,7 +9519,6 @@ export function RoadMapPrototypeMap({
   const routeLoaderFrom = routeCalculationPlaceNames?.from ?? routeFrom.trim()
   const routeLoaderTo = routeCalculationPlaceNames?.to ?? routeTo.trim()
   const routeLoaderTitles = [
-    t('roadMapPrototypeRouteLoaderForecast'),
     t('roadMapPrototypeRouteLoaderRoadData'),
     t('roadMapPrototypeRouteLoaderDistance', {
       from: routeLoaderFrom || t('roadMapPrototypeRouteFromLabel'),
@@ -10813,6 +10840,23 @@ export function RoadMapPrototypeMap({
             ? renderRouteSectionsDisclosure(selectedRouteSectionsChoice)
             : undefined}
         />
+      )}
+
+      {routeComparisonApplyPending && (
+        <div
+          className="fixed inset-0 z-[310] flex h-[100dvh] items-center justify-center overflow-hidden bg-background px-5"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <TeskeidLoader
+            ideaTitles={routeLoaderTitles}
+            loadingLabel={t('roadMapPrototypeRouteConditionsLoading')}
+            fallbackIdeaTitle={t('roadMapPrototypeRouteLoaderNow')}
+            intervalMs={1800}
+            className="min-h-[320px] w-full max-w-sm"
+          />
+        </div>
       )}
 
       {/* Bottom strip — overview source selector or route departure scrubber. */}
