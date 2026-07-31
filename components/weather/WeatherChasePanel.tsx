@@ -181,10 +181,21 @@ export function customMetnoPreferenceItemFromPlace(
   }
 }
 
+export function addCustomMetnoPreferenceItem(
+  items: readonly WeatherChasePreferenceItem[],
+  item: WeatherChasePreferenceItem,
+  maxSelectedItems = 7,
+): WeatherChasePreferenceItem[] {
+  return [item, ...items.filter(candidate => candidate.id !== item.id)]
+    .slice(0, maxSelectedItems)
+}
+
 const CMP_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
 const CMP_IS_MONTH = ['jan', 'feb', 'mar', 'apr', 'maí', 'jún', 'júl', 'ágú', 'sep', 'okt', 'nóv', 'des']
 const CMP_EN_WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const CMP_EN_MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const COMPARISON_LABEL_COLUMN_WIDTH = '9.5rem'
+const COMPARISON_FORECAST_COLUMN_WIDTH = '4.85rem'
 const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
   minTemperatureC: null,
   maxWindMs: null,
@@ -1251,8 +1262,8 @@ export function WeatherChasePanel({
       <div className="rounded-lg border border-border/70 bg-background/75">
         <div
           data-weather-chase-date-header="true"
-          className="sticky top-0 z-30 isolate grid min-w-0 rounded-t-lg bg-background shadow-sm"
-          style={{ gridTemplateColumns: 'minmax(8.5rem, 9.75rem) minmax(0, 1fr)' }}
+          className="sticky top-0 z-30 isolate grid min-w-0 overflow-hidden rounded-t-lg bg-background shadow-sm"
+          style={{ gridTemplateColumns: `${COMPARISON_LABEL_COLUMN_WIDTH} minmax(0, 1fr)` }}
         >
           <div
             role={showHistoryControl ? 'group' : undefined}
@@ -1261,13 +1272,17 @@ export function WeatherChasePanel({
           >
             {renderHistoryControl('corner')}
           </div>
-          <div className="min-w-0 overflow-hidden border-b border-border/60">
+          <div className="min-w-0 overflow-hidden border-b border-border/60 bg-background">
             <div
               ref={comparisonHeaderTrackRef}
               className="flex w-max will-change-transform"
             >
               {cols.map(col => (
-                <div key={col.targetIso} className="w-[4.85rem] shrink-0 bg-background px-2 py-2 text-[10px] text-muted-foreground">
+                <div
+                  key={col.targetIso}
+                  className="shrink-0 bg-background px-2 py-2 text-[10px] text-muted-foreground"
+                  style={{ width: COMPARISON_FORECAST_COLUMN_WIDTH }}
+                >
                   <div className="truncate font-semibold">{col.dayLabel}</div>
                   <div className="text-muted-foreground/65">{col.timeLabel}</div>
                 </div>
@@ -1287,8 +1302,12 @@ export function WeatherChasePanel({
           }}
         >
           <div
+            data-weather-chase-table-grid="true"
             className="inline-grid min-w-full"
-            style={{ gridTemplateColumns: `minmax(8.5rem, 9.75rem) repeat(${cols.length}, 4.85rem)` }}
+            style={{
+              gridTemplateColumns:
+                `${COMPARISON_LABEL_COLUMN_WIDTH} repeat(${cols.length}, ${COMPARISON_FORECAST_COLUMN_WIDTH})`,
+            }}
           >
             {selectedItems.map((item) => (
               <div key={item.id} className="contents">

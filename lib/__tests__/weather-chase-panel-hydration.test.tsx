@@ -18,6 +18,7 @@ vi.mock('@/components/weather/PlaceMapPicker', () => ({
 }))
 
 import {
+  addCustomMetnoPreferenceItem,
   customMetnoPreferenceItemFromPlace,
   WeatherChasePanel,
   type WeatherChaseItem,
@@ -102,6 +103,24 @@ describe('WeatherChasePanel preference hydration', () => {
       id: 'metno:custom:64.100:-21.900',
       label: 'Bærinn',
     })
+  })
+
+  it('keeps a newly created Yr point inside the seven visible autosave slots', () => {
+    const existing = Array.from({ length: 7 }, (_, index): WeatherChasePreferenceItem => ({
+      id: `metno:existing:${index}`,
+      providerId: 'metno',
+      label: `Existing ${index}`,
+    }))
+    const custom = customMetnoPreferenceItemFromPlace(
+      { name: 'Bærinn', lat: 64.1234, lon: -21.9876 },
+      'Heimaspá',
+    )
+
+    const next = addCustomMetnoPreferenceItem(existing, custom)
+
+    expect(next).toHaveLength(7)
+    expect(next[0]).toEqual(custom)
+    expect(next.map(item => item.id)).not.toContain('metno:existing:6')
   })
 
   it('shows authenticated autosave failures with a retry instead of a save-places button', () => {
@@ -412,9 +431,14 @@ describe('WeatherChasePanel preference hydration', () => {
     const historyCorner = await screen.findByRole('group', { name: 'historyLabel' })
     expect(within(historyCorner).getByRole('button', { name: 'historyShowOlderLabel' })).toBeInTheDocument()
     const dateHeader = document.querySelector<HTMLElement>('[data-weather-chase-date-header="true"]')
+    const tableGrid = document.querySelector<HTMLElement>('[data-weather-chase-table-grid="true"]')
     const tableScroll = document.querySelector<HTMLElement>('[data-weather-chase-table-scroll="true"]')
     const headerTrack = dateHeader?.querySelector<HTMLElement>('.will-change-transform')
     expect(dateHeader).toHaveClass('sticky', 'top-0')
+    expect(dateHeader).toHaveClass('overflow-hidden', 'bg-background')
+    expect(dateHeader?.style.gridTemplateColumns).toContain('9.5rem')
+    expect(tableGrid?.style.gridTemplateColumns).toContain('9.5rem')
+    expect(tableGrid?.style.gridTemplateColumns).toContain('4.85rem')
     expect(tableScroll).not.toBeNull()
     expect(headerTrack).not.toBeNull()
 

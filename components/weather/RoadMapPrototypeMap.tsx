@@ -144,6 +144,7 @@ import { ConditionsFeedPreview } from './ConditionsFeedPreview'
 import { PlaceSearch } from './PlaceSearch'
 import {
   WeatherChasePanel,
+  addCustomMetnoPreferenceItem,
   preferenceItemFromWeatherChaseItem,
   type WeatherChaseCriteria,
   type WeatherChaseHistoryLoadResult,
@@ -2785,10 +2786,9 @@ export function RoadMapPrototypeMap({
     setWeatherChasePreferenceItems(previous => {
       const selected = weatherChaseSelectedItemsRef.current.map(preferenceItemFromWeatherChaseItem)
       const base = selected.length > 0 ? selected : (previous ?? [])
-      return [
-        ...base.filter(candidate => candidate.id !== item.id),
-        item,
-      ].slice(0, 24)
+      // Put the new point inside the seven visible comparison slots immediately.
+      // The selected-items callback then feeds the same list into authenticated autosave.
+      return addCustomMetnoPreferenceItem(base, item)
     })
   }, [])
 
@@ -10625,7 +10625,7 @@ export function RoadMapPrototypeMap({
 
       {isWeatherChaseOpen && (
         <div className="absolute inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-sm sm:pointer-events-none sm:inset-x-3 sm:bottom-28 sm:top-14 sm:z-[40] sm:flex-row sm:items-start sm:bg-transparent sm:backdrop-blur-none">
-          <div className="pointer-events-auto flex-1 overflow-y-auto p-3 sm:flex-none sm:max-h-[calc(100vh-9rem)] sm:w-full sm:max-w-2xl sm:rounded-xl sm:border sm:border-border/70 sm:bg-background/95 sm:shadow-xl sm:backdrop-blur-sm">
+          <div className="pointer-events-auto flex-1 overflow-y-auto p-3 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:flex-none sm:max-h-[calc(100vh-9rem)] sm:w-full sm:max-w-2xl sm:rounded-xl sm:border sm:border-border/70 sm:bg-background/95 sm:pb-3 sm:shadow-xl sm:backdrop-blur-sm">
             {!isAuthenticated && (
               <PublicWeatherMapCta
                 href={`/innskraning?next=${encodeURIComponent(signInReturnHref('weather'))}`}
