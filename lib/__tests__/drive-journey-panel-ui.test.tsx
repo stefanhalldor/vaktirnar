@@ -32,11 +32,18 @@ type MockWeatherWatchersComparisonProps = {
 }
 
 type MockWindStatusFilterPillsProps = {
+  visibleStatuses: Set<string>
   onVisibleStatusesChange: (next: Set<string>) => void
 }
 
 type MockDepartureHeatmapProps = {
   firstSlotLabel?: string
+  visibleStatuses: Set<string>
+  onVisibleStatusesChange: (next: Set<string>) => void
+}
+
+function serializedStatuses(statuses: ReadonlySet<string>): string {
+  return [...statuses].sort().join('|')
 }
 
 vi.mock('next-intl', () => ({
@@ -48,8 +55,31 @@ vi.mock('next-intl', () => ({
 }))
 
 vi.mock('@/components/weather/DepartureHeatmap', () => ({
-  DepartureHeatmap: ({ firstSlotLabel }: MockDepartureHeatmapProps) => (
-    <div data-testid="departure-heatmap" data-first-slot-label={firstSlotLabel ?? ''} />
+  DepartureHeatmap: ({
+    firstSlotLabel,
+    visibleStatuses,
+    onVisibleStatusesChange,
+  }: MockDepartureHeatmapProps) => (
+    <div
+      data-testid="departure-heatmap"
+      data-first-slot-label={firstSlotLabel ?? ''}
+      data-visible-statuses={serializedStatuses(visibleStatuses)}
+    >
+      <button
+        type="button"
+        data-testid="departure-filter-only-within-limits"
+        onClick={() => onVisibleStatusesChange(new Set(['innan-marka']))}
+      >
+        departure within limits only
+      </button>
+      <button
+        type="button"
+        data-testid="departure-filter-show-all"
+        onClick={() => onVisibleStatusesChange(new Set())}
+      >
+        departure show all
+      </button>
+    </div>
   ),
 }))
 
@@ -71,14 +101,29 @@ vi.mock('@/components/weather/WeatherWatchersComparison', () => ({
 }))
 
 vi.mock('@/components/weather/WindStatusFilterPills', () => ({
-  WindStatusFilterPills: ({ onVisibleStatusesChange }: MockWindStatusFilterPillsProps) => (
-    <button
-      type="button"
+  WindStatusFilterPills: ({
+    visibleStatuses,
+    onVisibleStatusesChange,
+  }: MockWindStatusFilterPillsProps) => (
+    <div
       data-testid="wind-status-filter-pills"
-      onClick={() => onVisibleStatusesChange(new Set())}
+      data-visible-statuses={serializedStatuses(visibleStatuses)}
     >
-      show all statuses
-    </button>
+      <button
+        type="button"
+        data-testid="route-filter-only-uncomfortable"
+        onClick={() => onVisibleStatusesChange(new Set(['othaegilegt']))}
+      >
+        route uncomfortable only
+      </button>
+      <button
+        type="button"
+        data-testid="route-filter-show-all"
+        onClick={() => onVisibleStatusesChange(new Set())}
+      >
+        route show all
+      </button>
+    </div>
   ),
 }))
 
@@ -270,6 +315,56 @@ describe('DriveJourneyPanel point selection', () => {
     render(<DriveJourneyPanel {...BASE_PROPS} layer={createLayer()} />)
 
     expect(screen.getByTestId('departure-heatmap')).toHaveAttribute('data-first-slot-label', '')
+  })
+
+  it('keeps departure and route-point filters independent in both directions', () => {
+    const onSelectCandidateIdx = vi.fn()
+    render(
+      <DriveJourneyPanel
+        {...BASE_PROPS}
+        layer={createLayer({ calmWind: [6, 6], worstWind: [13, 13] })}
+        onSelectCandidateIdx={onSelectCandidateIdx}
+      />,
+    )
+
+    const departureFilters = screen.getByTestId('departure-heatmap')
+    const routeFilters = screen.getByTestId('wind-status-filter-pills')
+    const routeMap = screen.getByTestId('drive-route-map')
+
+    expect(departureFilters).toHaveAttribute('data-visible-statuses', '')
+    expect(routeFilters).toHaveAttribute('data-visible-statuses', '')
+    expect(routeMap).toHaveAttribute(
+      'data-station-colors',
+      'calm:#2d5a27|worst:#f97316',
+    )
+
+    fireEvent.click(screen.getByTestId('route-filter-only-uncomfortable'))
+
+    expect(routeFilters).toHaveAttribute('data-visible-statuses', 'othaegilegt')
+    expect(departureFilters).toHaveAttribute('data-visible-statuses', '')
+    expect(routeMap).toHaveAttribute('data-station-colors', 'worst:#f97316')
+    expect(onSelectCandidateIdx).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('departure-filter-only-within-limits'))
+
+    expect(departureFilters).toHaveAttribute('data-visible-statuses', 'innan-marka')
+    expect(routeFilters).toHaveAttribute('data-visible-statuses', 'othaegilegt')
+    expect(routeMap).toHaveAttribute('data-station-colors', 'worst:#f97316')
+
+    fireEvent.click(screen.getByTestId('departure-filter-show-all'))
+
+    expect(departureFilters).toHaveAttribute('data-visible-statuses', '')
+    expect(routeFilters).toHaveAttribute('data-visible-statuses', 'othaegilegt')
+    expect(routeMap).toHaveAttribute('data-station-colors', 'worst:#f97316')
+
+    fireEvent.click(screen.getByTestId('route-filter-show-all'))
+
+    expect(routeFilters).toHaveAttribute('data-visible-statuses', '')
+    expect(departureFilters).toHaveAttribute('data-visible-statuses', '')
+    expect(routeMap).toHaveAttribute(
+      'data-station-colors',
+      'calm:#2d5a27|worst:#f97316',
+    )
   })
 
   it('keeps the route summary fail-closed when spatial coverage is incomplete', () => {
@@ -489,7 +584,7 @@ describe('DriveJourneyPanel point selection', () => {
   it('treats an empty status set as show-all after filters are restored', () => {
     render(<DriveJourneyPanel {...BASE_PROPS} layer={createLayer()} />)
 
-    fireEvent.click(screen.getByTestId('wind-status-filter-pills'))
+    fireEvent.click(screen.getByTestId('route-filter-show-all'))
 
     expect(screen.getByRole('button', { name: 'select Lygn stöð' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'select Vindasöm stöð' })).toBeInTheDocument()

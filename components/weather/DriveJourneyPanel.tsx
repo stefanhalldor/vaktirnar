@@ -183,7 +183,10 @@ export function DriveJourneyPanel({
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const t = useTranslations('teskeid.vedrid.overview')
   const locale = useLocale()
-  const [visibleStatuses, setVisibleStatuses] = useState<Set<WindDisplayStatus>>(
+  const [departureVisibleStatuses, setDepartureVisibleStatuses] = useState<Set<WindDisplayStatus>>(
+    () => new Set(),
+  )
+  const [routePointVisibleStatuses, setRoutePointVisibleStatuses] = useState<Set<WindDisplayStatus>>(
     () => new Set(),
   )
   const [manualSelection, setManualSelection] = useState<ManualStationSelection | null>(null)
@@ -233,7 +236,8 @@ export function DriveJourneyPanel({
   const displayedAssessment = selectedAssessment ?? worst
   const visibleDisplayedAssessment =
     displayedAssessment && (
-      visibleStatuses.size === 0 || visibleStatuses.has(displayedAssessment.status)
+      routePointVisibleStatuses.size === 0
+      || routePointVisibleStatuses.has(displayedAssessment.status)
     )
       ? displayedAssessment
       : null
@@ -269,10 +273,11 @@ export function DriveJourneyPanel({
     () => driveMapStations.filter(station => {
       const assessment = assessments.find(item => item.station.stationId === station.id)
       return assessment
-        ? visibleStatuses.size === 0 || visibleStatuses.has(assessment.status)
+        ? routePointVisibleStatuses.size === 0
+          || routePointVisibleStatuses.has(assessment.status)
         : true
     }),
-    [assessments, driveMapStations, visibleStatuses],
+    [assessments, driveMapStations, routePointVisibleStatuses],
   )
   const endpointComparison = endpointForecastRows ? (
     <WeatherWatchersComparison
@@ -356,8 +361,8 @@ export function DriveJourneyPanel({
               originName={originName}
               selectedIdx={selectedCandidateIdx}
               onSelectIdx={onSelectCandidateIdx}
-              visibleStatuses={visibleStatuses}
-              onVisibleStatusesChange={setVisibleStatuses}
+              visibleStatuses={departureVisibleStatuses}
+              onVisibleStatusesChange={setDepartureVisibleStatuses}
               thresholdsUsed={thresholds}
               showSelectedDetail={false}
               slotStatusOverrides={slotStatusOverrides}
@@ -431,8 +436,8 @@ export function DriveJourneyPanel({
         <section className="mt-4 space-y-3 border-t border-border/70 pt-3">
           <WindStatusFilterPills
             counts={driveMapStatusCounts}
-            visibleStatuses={visibleStatuses}
-            onVisibleStatusesChange={setVisibleStatuses}
+            visibleStatuses={routePointVisibleStatuses}
+            onVisibleStatusesChange={setRoutePointVisibleStatuses}
             showAllLabel=""
             alwaysShowWithinLimits
             mode="detailed"
