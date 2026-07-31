@@ -13,8 +13,9 @@ import type {
 } from '@/lib/weather/types'
 import type { RouteWeatherCoverage } from '@/lib/iceland-routes/trustedRouteCoverage'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
+import type { ProviderRouteSlotAssessment } from '@/lib/road-intelligence/routeSlotStatuses'
 import {
-  classifyNearestForecastWindDisplayStatusAt,
+  classifyPointWindDisplayStatus,
   selectNearestForecastRowAt,
   WIND_STATUS_MARKER_COLOR,
   type WindDisplayStatus,
@@ -67,16 +68,19 @@ export function buildDriveStationAssessment(
   const rowIndex = etaMs === null
     ? null
     : selectNearestForecastRowAt(station.forecastRows, etaMs)
+  const row = rowIndex === null ? null : station.forecastRows[rowIndex]
+  const hasUsableWind = typeof row?.windSpeedMs === 'number'
+    && Number.isFinite(row.windSpeedMs)
   return {
     station,
     etaIso: etaMs === null ? null : new Date(etaMs).toISOString(),
-    row: rowIndex === null ? null : station.forecastRows[rowIndex],
-    status: etaMs === null
+    row,
+    status: etaMs === null || !hasUsableWind
       ? 'no_data'
-      : classifyNearestForecastWindDisplayStatusAt(
-          station.forecastRows,
+      : classifyPointWindDisplayStatus(
+          row.windSpeedMs ?? undefined,
+          true,
           thresholds,
-          etaMs,
         ),
   }
 }
@@ -137,6 +141,7 @@ export function DriveJourneyPanel({
   selectedCandidateIdx,
   onSelectCandidateIdx,
   slotStatusOverrides,
+  slotAssessments,
   routeAssessmentStatus,
   thresholds,
   durationMinutes,
@@ -158,8 +163,10 @@ export function DriveJourneyPanel({
   selectedCandidateIdx: number | null
   onSelectCandidateIdx: (index: number | null) => void
   slotStatusOverrides?: WindDisplayStatus[]
-  /** Canonical route-wide status for the selected departure, including coverage gaps. */
+  /** Canonical hazard status shown for the selected departure. */
   routeAssessmentStatus: WindDisplayStatus
+  /** Canonical per-slot hazard and coverage facts from Veðurstofan. */
+  slotAssessments?: ProviderRouteSlotAssessment[]
   thresholds: ResolvedTravelThresholds
   durationMinutes: number
   distanceKm: number
@@ -194,15 +201,13 @@ export function DriveJourneyPanel({
     selectedCandidateIdx !== null
       ? candidates[selectedCandidateIdx] ?? candidates[0] ?? null
       : currentCandidate
+  const selectedRouteSlotAssessment = selectedCandidateIdx !== null
+    ? slotAssessments?.[selectedCandidateIdx] ?? null
+    : null
   const selectionContextKey = `${routeSelectionContextKey}\u0000${candidate?.departureIso ?? ''}`
   const selectedStationId = manualSelection?.contextKey === selectionContextKey
     ? manualSelection.stationId
     : null
-  const routeForecastCoverageIsIncomplete =
-    layer?.status !== 'available'
-    || routeAssessmentStatus === 'no_data'
-    || routeAssessmentStatus === 'no_wind_data'
-
   useEffect(() => {
     setManualSelection(null)
   }, [selectionContextKey])
@@ -366,6 +371,7 @@ export function DriveJourneyPanel({
               thresholdsUsed={thresholds}
               showSelectedDetail={false}
               slotStatusOverrides={slotStatusOverrides}
+              slotAssessments={slotAssessments}
               showBestWindowHint={false}
               hasMoreCandidates={hasMoreCandidates}
               onLoadMore={onLoadMore}
@@ -388,7 +394,7 @@ export function DriveJourneyPanel({
             <VedurstofanPointCard
               variant="compact"
               station={worst.station}
-              status={routeAssessmentStatus}
+              status={selectedRouteSlotAssessment ? worst.status : routeAssessmentStatus}
               etaIso={worst.etaIso}
               departureIso={candidate?.departureIso ?? null}
               ftimeIso={worst.row?.ftimeIso ?? null}
@@ -401,6 +407,10 @@ export function DriveJourneyPanel({
           {destinationStation && (() => {
             const destinationAssessment = assessments[assessments.length - 1]
             const row = destinationAssessment?.row
+            const destinationWindMs = typeof row?.windSpeedMs === 'number'
+              && Number.isFinite(row.windSpeedMs)
+                ? row.windSpeedMs
+                : null
             return (
               <section className="grid grid-cols-[5.25rem_1fr] gap-3 py-3">
                 <p className="pt-0.5 text-[11px] font-semibold text-muted-foreground">
@@ -412,12 +422,12 @@ export function DriveJourneyPanel({
                       {formatCompactDateTime(destinationAssessment.etaIso, locale)}
                     </p>
                   )}
-                  {row && (
+                  {row && destinationWindMs !== null && (
                     <p className="text-xs text-muted-foreground">
                       {tf('arrivalForecastAtLabel', {
                         forecastTime: formatCompactDateTime(row.ftimeIso, locale),
                       })}{' '}
-                      {tf('metricWind').toLowerCase()} {formatNum(row.windSpeedMs ?? 0, locale)} m/s
+                      {tf('metricWind').toLowerCase()} {formatNum(destinationWindMs, locale)} m/s
                       {' · '}{tf('metricPrecip').toLowerCase()} {formatNum(row.precipitationMmPerHour ?? 0, locale)} mm/klst
                       {' · '}{tf('metricTemp').toLowerCase()} {formatNum(row.temperatureC ?? 0, locale)}°C
                     </p>
@@ -471,11 +481,7 @@ export function DriveJourneyPanel({
 
           <details className="group rounded-xl border border-border bg-card">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-              <span>
-                {routeForecastCoverageIsIncomplete
-                  ? tf('availableRouteForecastPointsDrawer')
-                  : tf('allRouteForecastPointsDrawer')}
-              </span>
+              <span>{tf('allRouteForecastPointsDrawer')}</span>
               <span className="text-[10px] font-medium text-muted-foreground">
                 {t('roadMapPrototypeVedurstofanStationCount', { count: stations.length })}
               </span>

@@ -60,6 +60,8 @@ export type WindStatusFilterPillsProps = {
   neutralColors?: boolean
   /** Combine missing and unavailable wind data into one user-facing filter. */
   combineNoWindDataStatuses?: boolean
+  /** Optional contextual unit for counts, e.g. "29 departure times". */
+  formatCountLabel?: (count: number) => string
 }
 
 /**
@@ -91,6 +93,7 @@ export function WindStatusFilterPills({
   mode = 'detailed',
   neutralColors = false,
   combineNoWindDataStatuses = false,
+  formatCountLabel,
 }: WindStatusFilterPillsProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
 
@@ -174,7 +177,9 @@ export function WindStatusFilterPills({
               aria-hidden
             />
             {!neutralColors && <span aria-hidden>{meta.icon}</span>}
-            {tf(meta.labelKey as 'statusWithinLimits')} ({groupCount(group)})
+            {tf(meta.labelKey as 'statusWithinLimits')} ({formatCountLabel
+              ? formatCountLabel(groupCount(group))
+              : groupCount(group)})
           </button>
         )
       })}

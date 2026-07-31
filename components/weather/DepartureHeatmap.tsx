@@ -3,6 +3,7 @@
 import { type ReactNode, useEffect, useRef } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
 import type { TravelCandidate, TravelWindow, ResolvedTravelThresholds } from '@/lib/weather/types'
+import type { ProviderRouteSlotAssessment } from '@/lib/road-intelligence/routeSlotStatuses'
 import { deriveThreshold, resolveThresholds } from '@/lib/weather/thresholds'
 import { formatKlTime, formatNum, normalizeLocale, formatCompactDateTime } from './travelAuditMap.helpers'
 import { Check, ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
@@ -65,6 +66,8 @@ type DepartureHeatmapProps = {
    * (counts, filter, selection, slot dots). Used in Veðurstofan-only mode.
    */
   slotStatusOverrides?: WindDisplayStatus[]
+  /** Canonical hazard + coverage facts for provider-native route slots. */
+  slotAssessments?: ProviderRouteSlotAssessment[]
   /**
    * Controls whether status filter pills are grouped into simple categories or
    * shown with all fine-grained near-threshold states.
@@ -119,10 +122,13 @@ function slotStatusIsVisible(
   return visibleStatuses.has(status)
 }
 
-export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, mode = 'detailed', modeToggle, countsOverride, selectFirstSlotWhenNone = true, showBestWindowHint = true, hasMoreCandidates, onLoadMore }: DepartureHeatmapProps) {
+export function DepartureHeatmap({ candidates, bestWindow, originName, selectedIdx, onSelectIdx, title, routeDistanceM, leg, visibleStatuses, onVisibleStatusesChange, thresholdsUsed, subtitle, showSelectedDetail = true, firstSlotLabel, slotStatusOverrides, slotAssessments, mode = 'detailed', modeToggle, countsOverride, selectFirstSlotWhenNone = true, showBestWindowHint = true, hasMoreCandidates, onLoadMore }: DepartureHeatmapProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const locale = useLocale()
   const selected = selectedIdx !== null ? candidates[selectedIdx] : null
+  const selectedSlotAssessment = selectedIdx !== null
+    ? slotAssessments?.[selectedIdx] ?? null
+    : null
   const scrollRef = useRef<HTMLDivElement>(null)
   const btnRefsRef = useRef<Map<number, HTMLButtonElement>>(new Map())
 
@@ -141,6 +147,9 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
   // Single status resolver — uses provider overrides when available, else MET/Yr classification.
   // All status paths (counts, filter, selection, dots, SlotDetail) must go through this.
   function getSlotStatus(c: TravelCandidate, idx: number): WindDisplayStatus {
+    if (slotAssessments && idx < slotAssessments.length) {
+      return slotAssessments[idx].displayStatus
+    }
     if (slotStatusOverrides && idx < slotStatusOverrides.length) {
       return slotStatusOverrides[idx]
     }
@@ -217,6 +226,7 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
           showAllLabel=""
           alwaysShowWithinLimits
           mode={mode}
+          formatCountLabel={count => tf('heatmapDepartureCount', { count })}
         />
       </div>
 
@@ -257,8 +267,13 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                   <div className="flex gap-1 items-end">
                     {items.map(({ c, realIdx }) => {
                       const displayStatus = getDisplaySlotStatus(c, realIdx)
+                      const slotAssessment = slotAssessments?.[realIdx]
+                      const coverageIsIncomplete =
+                        slotAssessment?.coverage.status === 'incomplete'
                       const meta = WIND_STATUS_META[displayStatus]
-                      const best = showBestWindowHint && isBestSlot(c, bestWindow)
+                      const best = showBestWindowHint
+                        && slotAssessment?.coverage.status !== 'incomplete'
+                        && isBestSlot(c, bestWindow)
                       const isSelected = selectedIdx === realIdx ||
                         (selectedIdx === null && realIdx === 0 && Boolean(firstSlotLabel) && selectFirstSlotWhenNone)
                       return (
@@ -276,15 +291,23 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
                             }
                             onSelectIdx(realIdx === selectedIdx ? null : realIdx)
                           }}
-                          aria-label={realIdx === 0 && firstSlotLabel
+                          aria-label={`${realIdx === 0 && firstSlotLabel
                             ? `${firstSlotLabel} · ${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`
-                            : `${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`}
-                          className={`flex flex-col items-center gap-0.5 ${realIdx === 0 && firstSlotLabel ? 'min-w-[42px] px-1.5' : 'min-w-9 px-1'} py-1.5 rounded-lg border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                            : `${tf('heatmapSlotDeparture')} ${tf('heatmapSlotDateTime', { date: formatDayLabel(c.departureIso, locale), time: formatKlTime(c.departureIso) })}`} · ${tf(meta.labelKey as 'statusWithinLimits')}${coverageIsIncomplete
+                            ? ` · ${tf('heatmapCoverageIncompleteShort')}`
+                            : ''}`}
+                          className={`relative flex flex-col items-center gap-0.5 ${realIdx === 0 && firstSlotLabel ? 'min-w-[42px] px-1.5' : 'min-w-9 px-1'} py-1.5 rounded-lg border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                             isSelected
                               ? `${meta.borderClass} border-2 bg-card`
                               : `border-transparent ${best ? 'ring-1 ring-offset-1 ring-primary/50' : ''}`
                           }`}
                         >
+                          {coverageIsIncomplete && (
+                            <TriangleAlert
+                              className="absolute right-0 top-0 h-2.5 w-2.5 text-muted-foreground"
+                              aria-hidden
+                            />
+                          )}
                           <span className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${meta.dotClass}`} aria-hidden>
                             {displayStatus === 'innan-marka' && <Check className="w-2.5 h-2.5 text-white stroke-[3]" />}
                             {displayStatus === 'haettulegt' && <TriangleAlert className="w-2.5 h-2.5 text-white stroke-[3]" />}
@@ -357,6 +380,28 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
         </div>
       )}
 
+      {selectedSlotAssessment?.coverage.status === 'incomplete' && (
+        <div
+          role="status"
+          className="flex items-start gap-2 border-t border-amber-300 pt-2 text-xs leading-relaxed text-amber-900 dark:border-amber-700 dark:text-amber-200"
+        >
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>
+            {selectedSlotAssessment.hazardStatus
+              && selectedSlotAssessment.hazardStatus !== 'innan-marka'
+              ? tf('heatmapCoverageIncompleteWithHazard', {
+                  status: tf(WIND_STATUS_META[selectedSlotAssessment.hazardStatus].labelKey as 'statusWithinLimits'),
+                })
+              : tf('heatmapCoverageIncompleteDetail')}
+            {selectedSlotAssessment.coverage.totalGapKm > 0 && (
+              <>{' '}{tf('heatmapCoverageGapDistance', {
+                distance: formatNum(selectedSlotAssessment.coverage.totalGapKm, locale),
+              })}</>
+            )}
+          </p>
+        </div>
+      )}
+
       {/* Selected slot detail */}
       {showSelectedDetail && selected && (
         <SlotDetail
@@ -365,7 +410,10 @@ export function DepartureHeatmap({ candidates, bestWindow, originName, selectedI
           routeDistanceM={routeDistanceM}
           leg={leg}
           thresholdsUsed={thresholdsUsed}
-          statusOverride={selectedIdx !== null && slotStatusOverrides ? slotStatusOverrides[selectedIdx] : undefined}
+          statusOverride={selectedSlotAssessment?.displayStatus
+            ?? (selectedIdx !== null && slotStatusOverrides
+              ? slotStatusOverrides[selectedIdx]
+              : undefined)}
         />
       )}
     </div>

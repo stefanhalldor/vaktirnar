@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import type { ForecastDrawerRow, TravelCandidate } from '@/lib/weather/types'
 import { resolveThresholds } from '@/lib/weather/thresholds'
+import type { ProviderRouteSlotAssessment } from '@/lib/road-intelligence/routeSlotStatuses'
 
 type MockMapProps = {
   routePoints?: Array<{ lat: number; lon: number }>
@@ -40,6 +41,8 @@ type MockDepartureHeatmapProps = {
   firstSlotLabel?: string
   visibleStatuses: Set<string>
   onVisibleStatusesChange: (next: Set<string>) => void
+  selectedIdx: number | null
+  slotAssessments?: ProviderRouteSlotAssessment[]
 }
 
 function serializedStatuses(statuses: ReadonlySet<string>): string {
@@ -59,6 +62,8 @@ vi.mock('@/components/weather/DepartureHeatmap', () => ({
     firstSlotLabel,
     visibleStatuses,
     onVisibleStatusesChange,
+    selectedIdx,
+    slotAssessments,
   }: MockDepartureHeatmapProps) => (
     <div
       data-testid="departure-heatmap"
@@ -79,6 +84,9 @@ vi.mock('@/components/weather/DepartureHeatmap', () => ({
       >
         departure show all
       </button>
+      {selectedIdx !== null
+        && slotAssessments?.[selectedIdx]?.coverage.status === 'incomplete'
+        && <span>heatmapCoverageIncompleteDetail</span>}
     </div>
   ),
 }))
@@ -380,8 +388,47 @@ describe('DriveJourneyPanel point selection', () => {
       .find(card => card.getAttribute('data-variant') === 'compact')
 
     expect(compactSummary).toHaveAttribute('data-status', 'no_data')
-    expect(screen.getByText('availableRouteForecastPointsDrawer')).toBeInTheDocument()
-    expect(screen.queryByText('allRouteForecastPointsDrawer')).not.toBeInTheDocument()
+    expect(screen.getByText('allRouteForecastPointsDrawer')).toBeInTheDocument()
+    expect(screen.queryByText('availableRouteForecastPointsDrawer')).not.toBeInTheDocument()
+  })
+
+  it('shows known route risk and incomplete selected-slot coverage as separate facts', () => {
+    const incompleteWarning: ProviderRouteSlotAssessment = {
+      hazardStatus: 'othaegilegt',
+      displayStatus: 'othaegilegt',
+      statusCounts: { othaegilegt: 1 },
+      coverage: {
+        status: 'incomplete',
+        reason: 'spatial_gap',
+        usableStationCount: 1,
+        usableRouteFractions: [0.5],
+        measurementGaps: [
+          { startFraction: 0, endFraction: 0.25, distanceKm: 100 },
+          { startFraction: 0.75, endFraction: 1, distanceKm: 100 },
+        ],
+        largestGapKm: 100,
+        totalGapKm: 200,
+        invalidRouteFractionCount: 0,
+        temporalGapCount: 0,
+        missingWindCount: 0,
+      },
+    }
+
+    render(
+      <DriveJourneyPanel
+        {...BASE_PROPS}
+        layer={createLayer({ calmWind: [6, 6], worstWind: [13, 13] })}
+        routeAssessmentStatus="othaegilegt"
+        slotAssessments={[incompleteWarning, incompleteWarning]}
+      />,
+    )
+
+    const compactSummary = screen.getAllByTestId('point-card')
+      .find(card => card.getAttribute('data-variant') === 'compact')
+
+    expect(compactSummary).toHaveAttribute('data-status', 'othaegilegt')
+    expect(screen.getByText('heatmapCoverageIncompleteDetail')).toBeInTheDocument()
+    expect(screen.getByText('allRouteForecastPointsDrawer')).toBeInTheDocument()
   })
 
   it('keeps all matched route stations and the full route visible when legacy partial metadata arrives', () => {

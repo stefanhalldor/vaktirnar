@@ -196,7 +196,7 @@ import type {
   VegagerdinRouteLayerPoint,
 } from '@/lib/road-intelligence/vegagerdinRouteLayer'
 import {
-  buildProviderSlotStatusOverrides,
+  buildProviderSlotAssessments,
   conservativelyCombineWindDisplayStatuses,
   worstWindDisplayStatusFromCounts,
   windDisplayStatusToTravelStatus,
@@ -9629,9 +9629,9 @@ export function RoadMapPrototypeMap({
     routeWeatherMode,
   ])
 
-  const routeSlotStatusOverrides = useMemo(() => {
+  const routeSlotAssessments = useMemo(() => {
     if (!routeBridgeSummary || !routeCandidates) return null
-    return buildProviderSlotStatusOverrides({
+    return buildProviderSlotAssessments({
       candidates: routeCandidates,
       thresholds: routeBridgeSummary.thresholdsUsed,
       routeDurationMinutes: routeBridgeSummary.durationMinutes,
@@ -9644,6 +9644,10 @@ export function RoadMapPrototypeMap({
     routeCandidates,
     routeVedurstofanLayer,
   ])
+  const routeSlotStatusOverrides = useMemo(
+    () => routeSlotAssessments?.map(assessment => assessment.displayStatus) ?? null,
+    [routeSlotAssessments],
+  )
 
   // Derive the displayed route status + answer from the selected scrubber slot.
   // When the user selects slot N in the heatmap, the badge and answer update to
@@ -9655,6 +9659,10 @@ export function RoadMapPrototypeMap({
   const selectedRouteCandidate =
     effectiveSelectedCandidateIdx !== null && routeCandidates?.[effectiveSelectedCandidateIdx]
       ? routeCandidates[effectiveSelectedCandidateIdx]
+      : null
+  const selectedRouteSlotAssessment =
+    effectiveSelectedCandidateIdx !== null
+      ? routeSlotAssessments?.[effectiveSelectedCandidateIdx] ?? null
       : null
   const currentRouteCandidate = routeTravelResult
     ? getRouteCurrentCandidate(routeTravelResult)
@@ -9672,8 +9680,15 @@ export function RoadMapPrototypeMap({
     baselineNowRouteWindStatus,
     currentStationWorstStatus,
   )
+  const selectedRouteKnownWarning =
+    selectedRouteSlotAssessment?.hazardStatus
+    && selectedRouteSlotAssessment.hazardStatus !== 'innan-marka'
+      ? selectedRouteSlotAssessment.hazardStatus
+      : null
   const displayedRouteWindStatus = effectiveSelectedCandidateIdx !== null
-    ? routeSlotStatusOverrides?.[effectiveSelectedCandidateIdx] ?? 'no_data'
+    ? selectedRouteKnownWarning
+      ?? selectedRouteSlotAssessment?.displayStatus
+      ?? 'no_data'
     : nowRouteWindStatus
   const displayedRouteStatus: DeterministicResult['stada'] =
     windDisplayStatusToTravelStatus(displayedRouteWindStatus)
@@ -9781,6 +9796,8 @@ export function RoadMapPrototypeMap({
   )
   const routeAssessmentIsPartial = routeWeatherCoverage?.status === 'partial'
     || routeAssessmentCompleteness?.status === 'partial'
+  const selectedRouteSlotCoverageIsIncomplete =
+    selectedRouteSlotAssessment?.coverage.status === 'incomplete'
   const teskeidAlternativesCanRun = teskeidRouteCandidateEnabled
     && teskeidCandidateStatus === 'ready'
     && resolvedRoutePlacesRef.current !== null
@@ -10787,9 +10804,14 @@ export function RoadMapPrototypeMap({
               >
                 {tf(WIND_STATUS_META[displayedRouteWindStatus].labelKey as 'statusWithinLimits')}
               </span>
-              {routeAssessmentIsPartial && (
+              {routeAssessmentIsPartial && !selectedRouteSlotAssessment && (
                 <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
                   {t('roadMapPrototypeAssessmentPartialBadge')}
+                </span>
+              )}
+              {selectedRouteSlotCoverageIsIncomplete && selectedRouteKnownWarning && (
+                <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                  {t('roadMapPrototypeDepartureCoverageIncompleteBadge')}
                 </span>
               )}
             </span>
@@ -10840,6 +10862,7 @@ export function RoadMapPrototypeMap({
                     selectedCandidateIdx={effectiveSelectedCandidateIdx}
                     onSelectCandidateIdx={handleSelectCandidateIdx}
                     slotStatusOverrides={routeSlotStatusOverrides ?? undefined}
+                    slotAssessments={routeSlotAssessments ?? undefined}
                     routeAssessmentStatus={displayedRouteWindStatus}
                     thresholds={routeBridgeSummary.thresholdsUsed}
                     durationMinutes={routeBridgeSummary.durationMinutes}

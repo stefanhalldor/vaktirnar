@@ -128,8 +128,20 @@ describe('public Teskeið route client contract', () => {
     expect(persist).not.toContain('showMetno,')
     expect(providerTiles).toContain('onClick={() => setShowMetno(v => !v)}')
     expect(providerTiles).toContain('disabled')
-    expect(slotPolicy).toContain('buildProviderSlotStatusOverrides({')
+    expect(slotPolicy).toContain('buildProviderSlotAssessments({')
+    expect(slotPolicy).toContain('.map(assessment => assessment.displayStatus)')
     expect(slotPolicy).toContain("vedurstofanSlotStatuses[idx] ?? 'no_data'")
+    expect(source).toContain('slotAssessments={vedurstofanSlotAssessments}')
+    expect(source).toContain('const selectedVedurstofanSlotAssessment =')
+    expect(source).toContain(
+      'status={selectedVedurstofanSlotAssessment?.hazardStatus',
+    )
+    expect(source).toContain(
+      'const selectedVedurstofanSlotAssessment = selectedHeatmapIdx !== null',
+    )
+    expect(source).not.toContain('selectedHeatmapIdx ?? 0')
+    expect(source).not.toContain('?? outboundDisplayCandidates[0]?.departureIso')
+    expect(source).not.toContain('?? outboundDisplayCandidates[0]?.arrivalIso')
     expect(slotPolicy).not.toContain('classifyCandidateWindDisplayStatus(')
     expect(slotPolicy).not.toContain('worstWindDisplayStatus(')
   })

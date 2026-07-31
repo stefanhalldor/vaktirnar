@@ -18,7 +18,7 @@ import {
   selectNearestForecastRowAt,
 } from '@/lib/weather/windDisplayStatus'
 import { resolveRouteForecastEtaMs } from '@/lib/weather/routeForecastTiming'
-import { buildProviderSlotStatusOverrides } from '@/lib/road-intelligence/routeSlotStatuses'
+import { buildProviderSlotAssessments } from '@/lib/road-intelligence/routeSlotStatuses'
 import { WIND_STATUS_UI_META as WIND_STATUS_META_SHARED } from '@/components/weather/windStatusUi'
 import { TravelAuditMap, type ProviderMapPoint } from '@/components/weather/TravelAuditMap'
 import { ForecastDrawer } from '@/components/weather/ForecastDrawer'
@@ -1224,13 +1224,11 @@ export function FerdalagidClient({
     (selectedHeatmapIdx !== null
       ? outboundDisplayCandidates[selectedHeatmapIdx]?.departureIso
       : null)
-    ?? outboundDisplayCandidates[0]?.departureIso
     ?? null
   const referenceArrivalIso: string | null =
     (selectedHeatmapIdx !== null
       ? (outboundDisplayCandidates[selectedHeatmapIdx]?.arrivalIso ?? null)
       : null)
-    ?? outboundDisplayCandidates[0]?.arrivalIso
     ?? null
 
   // ETA-aware Veðurstofan assessments for the reference departure
@@ -1253,8 +1251,8 @@ export function FerdalagidClient({
   // Future whole-hour statuses are Veðurstofan-only. Candidate objects still
   // carry route timing, but their MET/Yr weather classification is never used
   // as a fallback for the departure scrubber.
-  const vedurstofanSlotStatuses: WindDisplayStatus[] = outboundDisplayCandidates.length > 0
-    ? buildProviderSlotStatusOverrides({
+  const vedurstofanSlotAssessments = outboundDisplayCandidates.length > 0
+    ? buildProviderSlotAssessments({
         candidates: outboundDisplayCandidates,
         thresholds: effectiveThresholds,
         routeDurationMinutes: result?.travelPlan?.route.durationMinutes ?? Number.NaN,
@@ -1263,6 +1261,11 @@ export function FerdalagidClient({
         vedurstofanStationCount: vedurstofanLayer?.mappedPointCount ?? 0,
       })
     : []
+  const vedurstofanSlotStatuses: WindDisplayStatus[] = vedurstofanSlotAssessments
+    .map(assessment => assessment.displayStatus)
+  const selectedVedurstofanSlotAssessment = selectedHeatmapIdx !== null
+    ? vedurstofanSlotAssessments[selectedHeatmapIdx] ?? null
+    : null
 
   const combinedSlotStatuses: WindDisplayStatus[] | null = (() => {
     if (outboundDisplayCandidates.length === 0) return null
@@ -1637,9 +1640,11 @@ export function FerdalagidClient({
                 return 'graent'
               }
               // Reflect the worst selected-provider status in the card badge (v141: selected providers aggregate)
-              const selectedSlotIdx = selectedHeatmapIdx ?? 0
-              const selectedCombinedStatus = combinedSlotStatuses && selectedSlotIdx >= 0 && selectedSlotIdx < combinedSlotStatuses.length
-                ? combinedSlotStatuses[selectedSlotIdx]
+              const selectedCombinedStatus = combinedSlotStatuses
+                && selectedHeatmapIdx !== null
+                && selectedHeatmapIdx >= 0
+                && selectedHeatmapIdx < combinedSlotStatuses.length
+                ? combinedSlotStatuses[selectedHeatmapIdx]
                 : null
               const derivedStatus: WeatherStatus | null = hasNoActiveProvider
                 ? null
@@ -1751,6 +1756,7 @@ export function FerdalagidClient({
                       thresholdsUsed={undefined}
                       showSelectedDetail={false}
                       slotStatusOverrides={combinedSlotStatuses ?? undefined}
+                      slotAssessments={vedurstofanSlotAssessments}
                     />
                   )}
 
@@ -1786,7 +1792,8 @@ export function FerdalagidClient({
                         <VedurstofanPointCard
                           variant="compact"
                           station={worstVedurstofanData.station}
-                          status={worstVedurstofanData.status}
+                          status={selectedVedurstofanSlotAssessment?.hazardStatus
+                            ?? worstVedurstofanData.status}
                           etaIso={worstVedurstofanData.etaIso}
                           departureIso={referenceDepartureIso}
                           ftimeIso={worstVedurstofanData.ftimeIso}

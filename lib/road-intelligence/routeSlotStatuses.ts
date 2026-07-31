@@ -16,13 +16,18 @@
 
 import {
   ALL_WIND_DISPLAY_STATUSES,
+  classifyPointWindDisplayStatus,
   classifyNearestForecastWindDisplayStatusAt,
+  selectNearestForecastRowAt,
   worstWindDisplayStatus,
   type WindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import { resolveThresholds } from '@/lib/weather/thresholds'
 import { resolveRouteForecastEtaMs } from '@/lib/weather/routeForecastTiming'
-import { routeMeasurementGaps } from '@/lib/weather/providerRouteMatching'
+import {
+  routeMeasurementGaps,
+  type RouteMeasurementGap,
+} from '@/lib/weather/providerRouteMatching'
 import type {
   ResolvedTravelThresholds,
   TravelCandidate,
@@ -101,6 +106,53 @@ type BuildProviderSlotStatusOverridesParams = {
   vegagerdinStationCount?: number
 }
 
+export type KnownWindDisplayStatus = Exclude<
+  WindDisplayStatus,
+  'no_data' | 'no_wind_data'
+>
+
+export type ProviderSlotCoverageReason =
+  | 'invalid_route'
+  | 'invalid_timing'
+  | 'no_usable_points'
+  | 'spatial_gap'
+  | 'temporal_gap'
+  | 'missing_wind'
+
+type ProviderSlotCoverageDiagnostics = {
+  usableStationCount: number
+  usableRouteFractions: number[]
+  measurementGaps: RouteMeasurementGap[]
+  largestGapKm: number
+  totalGapKm: number
+  invalidRouteFractionCount: number
+  temporalGapCount: number
+  missingWindCount: number
+}
+
+export type ProviderSlotCoverage =
+  | (ProviderSlotCoverageDiagnostics & {
+      status: 'complete'
+      reason: null
+    })
+  | (ProviderSlotCoverageDiagnostics & {
+      status: 'incomplete'
+      reason: ProviderSlotCoverageReason
+    })
+
+/**
+ * Keeps the known wind hazard and route coverage as separate facts.
+ * `displayStatus` is the compatibility projection used by filters and dots. It
+ * preserves a known warning, while incomplete calm evidence becomes `no_data`.
+ * Recommendation logic must additionally require complete coverage.
+ */
+export type ProviderRouteSlotAssessment = {
+  hazardStatus: KnownWindDisplayStatus | null
+  coverage: ProviderSlotCoverage
+  displayStatus: WindDisplayStatus
+  statusCounts: Partial<Record<KnownWindDisplayStatus, number>>
+}
+
 const UNKNOWN_WIND_DISPLAY_STATUSES = new Set<WindDisplayStatus>([
   'no_data',
   'no_wind_data',
@@ -160,67 +212,187 @@ export function resolveVedurstofanOnlySlotStatus(
   return worstKnown ?? 'no_data'
 }
 
+function isValidRouteFraction(value: number | null | undefined): value is number {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && value >= 0
+    && value <= 1
+}
+
+function summarizeMeasurementGaps(gaps: readonly RouteMeasurementGap[]): {
+  largestGapKm: number
+  totalGapKm: number
+} {
+  return gaps.reduce(
+    (summary, gap) => ({
+      largestGapKm: Math.max(summary.largestGapKm, gap.distanceKm),
+      totalGapKm: summary.totalGapKm + gap.distanceKm,
+    }),
+    { largestGapKm: 0, totalGapKm: 0 },
+  )
+}
+
 /**
- * Builds Veðurstofan-only per-slot WindDisplayStatus values for the departure scrubber.
+ * Builds the canonical Veðurstofan-only assessment for every departure slot.
  *
- * Always returns one override per candidate. When official forecast coverage is
- * unavailable, the corresponding slot is `no_data`; it never falls back to the
- * MET/Yr weather embedded in the route candidate.
- *
- * Vegagerðin is a current-measurement provider and must never color a future
- * departure slot. It remains a separate safety floor for the standalone Now view.
+ * Coverage is calculated from stations that are actually usable for that slot:
+ * a valid route position, resolvable ETA, a forecast row inside the existing
+ * tolerance, and a finite wind value. Raw provider health remains diagnostic
+ * metadata and does not veto a route whose usable evidence closes every gap.
  */
-export function buildProviderSlotStatusOverrides({
+export function buildProviderSlotAssessments({
   candidates,
   thresholds,
   routeDurationMinutes,
   routeDistanceKm,
   vedurstofanLayer,
-  vedurstofanStationCount,
-}: BuildProviderSlotStatusOverridesParams): WindDisplayStatus[] {
+}: BuildProviderSlotStatusOverridesParams): ProviderRouteSlotAssessment[] {
   const layerPoints = Array.isArray(vedurstofanLayer?.points)
     ? vedurstofanLayer.points
     : []
-  const expectedStationCount = Math.max(
-    0,
-    vedurstofanStationCount,
-    vedurstofanLayer?.mappedPointCount ?? 0,
-    layerPoints.length,
-  )
-  const hasCompleteLayerContract =
-    vedurstofanLayer?.status === 'available'
-    && (vedurstofanLayer.unavailablePointCount ?? 0) === 0
-    && expectedStationCount > 0
-  const routeFractions = layerPoints
+  const routeIsValid = Number.isFinite(routeDistanceKm) && routeDistanceKm > 0
+  const routeDurationMs = routeDurationMinutes * 60_000
+  const routeTimingIsValid = Number.isFinite(routeDurationMs) && routeDurationMs >= 0
+  const positionedRouteFractions = layerPoints
     .map(point => point.routeFraction)
-    .filter((fraction): fraction is number =>
-      typeof fraction === 'number'
-      && Number.isFinite(fraction)
-      && fraction >= 0
-      && fraction <= 1,
-    )
-  const hasCompleteSpatialCoverage =
-    Number.isFinite(routeDistanceKm)
-    && routeDistanceKm > 0
-    && routeMeasurementGaps(routeDistanceKm, routeFractions).length === 0
+    .filter(isValidRouteFraction)
 
   return candidates.map(candidate => {
     const departureMs = Date.parse(candidate.departureIso)
-    const vedurstofanCounts = countVedurstofanForecastStatusesAt(
-      vedurstofanLayer,
-      routeDurationMinutes,
-      thresholds,
-      departureMs,
-    )
-    const status = resolveVedurstofanOnlySlotStatus(
-      vedurstofanCounts,
-      expectedStationCount,
-    )
-    return (!hasCompleteLayerContract || !hasCompleteSpatialCoverage)
-      && status === 'innan-marka'
-      ? 'no_data'
-      : status
+    const timingIsValid = routeTimingIsValid && Number.isFinite(departureMs)
+    const usableRouteFractions: number[] = []
+    const statusCounts: Partial<Record<KnownWindDisplayStatus, number>> = {}
+    let invalidRouteFractionCount = 0
+    let temporalGapCount = 0
+    let missingWindCount = 0
+
+    for (const point of layerPoints) {
+      if (!isValidRouteFraction(point.routeFraction)) {
+        invalidRouteFractionCount += 1
+        continue
+      }
+
+      const etaMs = timingIsValid
+        ? resolveRouteForecastEtaMs(
+            departureMs,
+            routeDurationMs,
+            point.routeFraction,
+          )
+        : null
+      if (etaMs === null) {
+        temporalGapCount += 1
+        continue
+      }
+
+      const rowIndex = selectNearestForecastRowAt(point.forecastRows, etaMs)
+      if (rowIndex === null) {
+        temporalGapCount += 1
+        continue
+      }
+
+      const windSpeedMs = point.forecastRows[rowIndex]?.windSpeedMs
+      if (typeof windSpeedMs !== 'number' || !Number.isFinite(windSpeedMs)) {
+        missingWindCount += 1
+        continue
+      }
+
+      const status = classifyPointWindDisplayStatus(
+        windSpeedMs,
+        true,
+        thresholds,
+      )
+      if (UNKNOWN_WIND_DISPLAY_STATUSES.has(status)) {
+        missingWindCount += 1
+        continue
+      }
+
+      const knownStatus = status as KnownWindDisplayStatus
+      usableRouteFractions.push(point.routeFraction)
+      statusCounts[knownStatus] = (statusCounts[knownStatus] ?? 0) + 1
+    }
+
+    const hazardStatus = worstWindDisplayStatusFromCounts(statusCounts) as
+      | KnownWindDisplayStatus
+      | null
+    const measurementGaps = routeIsValid
+      ? routeMeasurementGaps(routeDistanceKm, usableRouteFractions)
+      : []
+    const { largestGapKm, totalGapKm } = summarizeMeasurementGaps(measurementGaps)
+    const diagnostics: ProviderSlotCoverageDiagnostics = {
+      usableStationCount: usableRouteFractions.length,
+      usableRouteFractions,
+      measurementGaps,
+      largestGapKm,
+      totalGapKm,
+      invalidRouteFractionCount,
+      temporalGapCount,
+      missingWindCount,
+    }
+
+    let coverage: ProviderSlotCoverage
+    if (!routeIsValid) {
+      coverage = { ...diagnostics, status: 'incomplete', reason: 'invalid_route' }
+    } else if (!timingIsValid) {
+      coverage = { ...diagnostics, status: 'incomplete', reason: 'invalid_timing' }
+    } else if (usableRouteFractions.length === 0) {
+      const reason: ProviderSlotCoverageReason =
+        temporalGapCount > 0 && missingWindCount === 0
+          ? 'temporal_gap'
+          : missingWindCount > 0 && temporalGapCount === 0
+            ? 'missing_wind'
+            : 'no_usable_points'
+      coverage = { ...diagnostics, status: 'incomplete', reason }
+    } else if (measurementGaps.length > 0) {
+      const positionedGaps = routeMeasurementGaps(
+        routeDistanceKm,
+        positionedRouteFractions,
+      )
+      coverage = {
+        ...diagnostics,
+        status: 'incomplete',
+        reason: positionedGaps.length > 0
+          ? 'spatial_gap'
+          : temporalGapCount > 0
+            ? 'temporal_gap'
+            : missingWindCount > 0
+              ? 'missing_wind'
+              : 'spatial_gap',
+      }
+    } else {
+      coverage = { ...diagnostics, status: 'complete', reason: null }
+    }
+
+    const displayStatus = hazardStatus && hazardStatus !== 'innan-marka'
+      ? hazardStatus
+      : coverage.status === 'complete'
+        ? hazardStatus ?? 'no_data'
+        : 'no_data'
+
+    return {
+      hazardStatus,
+      coverage,
+      displayStatus,
+      statusCounts,
+    }
   })
+}
+
+/**
+ * Builds Veðurstofan-only per-slot WindDisplayStatus values for the departure scrubber.
+ *
+ * Always returns one override per candidate. Incomplete calm evidence becomes
+ * `no_data`; a known warning is preserved and consumers of this compatibility
+ * API must show coverage separately. It never falls back to MET/Yr weather from
+ * the route candidate.
+ *
+ * Vegagerðin is a current-measurement provider and must never color a future
+ * departure slot. It remains a separate safety floor for the standalone Now view.
+ */
+export function buildProviderSlotStatusOverrides(
+  params: BuildProviderSlotStatusOverridesParams,
+): WindDisplayStatus[] {
+  return buildProviderSlotAssessments(params)
+    .map(assessment => assessment.displayStatus)
 }
 
 export function windDisplayStatusToTravelStatus(status: WindDisplayStatus): WeatherStatus {
@@ -273,11 +445,10 @@ export function buildProviderSlotWindows(
       ? rawStatus
       : undefined
 
-    if (status === cur.status) {
+    if (status === cur.status && reasonCode === cur.reasonCode) {
       cur = {
         ...cur,
         toIso: candidate.departureIso,
-        reasonCode: reasonCode === cur.reasonCode ? cur.reasonCode : undefined,
       }
     } else {
       windows.push(cur)
@@ -296,11 +467,18 @@ export function buildProviderSlotWindows(
 
 export function buildProviderBestWindow(
   candidates: TravelCandidate[],
-  slotStatusOverrides: WindDisplayStatus[],
+  slotStatusesOrAssessments: WindDisplayStatus[] | ProviderRouteSlotAssessment[],
 ): TravelWindow | undefined {
+  const slotStatusOverrides = slotStatusesOrAssessments.map(item =>
+    typeof item === 'string'
+      ? item
+      : item.coverage.status === 'complete'
+        ? item.displayStatus
+        : 'no_data',
+  )
   const windows = buildProviderSlotWindows(candidates, slotStatusOverrides)
   return windows.find((window) => window.status === 'graent') ??
-    windows.find((window) => window.status === 'gult')
+    windows.find((window) => window.status === 'gult' && !window.reasonCode)
 }
 
 // Default thresholds (no trailer, no overrides) — for tests and callers that need a baseline.

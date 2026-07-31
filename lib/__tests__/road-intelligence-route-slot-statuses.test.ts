@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   worstWindDisplayStatusFromCounts,
   countVedurstofanForecastStatusesAt,
+  buildProviderSlotAssessments,
   buildProviderSlotStatusOverrides,
   resolveVedurstofanOnlySlotStatus,
   conservativelyCombineWindDisplayStatuses,
@@ -270,6 +271,31 @@ function makeVedurstofanLayer(
   }
 }
 
+function makeVedurstofanPoint(
+  stationId: string,
+  routeFraction: number | null,
+  ftimeIso: string,
+  windSpeedMs: number | null,
+  overrides: Partial<VedurstofanTravelLayer['points'][number]> = {},
+): VedurstofanTravelLayer['points'][number] {
+  const base = makeVedurstofanLayer([{
+    ftimeIso,
+    windSpeedMs,
+    precipitationMmPerHour: 0,
+    temperatureC: 8,
+    windDirectionText: null,
+    weatherText: null,
+  }], routeFraction).points[0]
+  return {
+    ...base,
+    routePointId: `v_${stationId}`,
+    stationId,
+    stationName: stationId,
+    routeFraction,
+    ...overrides,
+  }
+}
+
 describe('buildProviderSlotStatusOverrides', () => {
   it('returns explicit no-data slots when Veðurstofan data is unavailable', () => {
     const result = buildProviderSlotStatusOverrides({
@@ -413,7 +439,7 @@ describe('buildProviderSlotStatusOverrides', () => {
     })).toEqual(['no_data'])
   })
 
-  it('keeps a known warning even when route station coverage has gaps', () => {
+  it('preserves a known warning in the compatibility status while typed coverage stays separate', () => {
     const candidates = makeCandidates(1)
     const layer = makeVedurstofanLayer([{
       ftimeIso: candidates[0].departureIso,
@@ -434,7 +460,7 @@ describe('buildProviderSlotStatusOverrides', () => {
     })).toEqual(['othaegilegt'])
   })
 
-  it('does not mark a calm partial Veðurstofan layer safe', () => {
+  it('does not let raw partial provider health veto complete calm coverage', () => {
     const candidates = makeCandidates(1)
     const layer = makeVedurstofanLayer([{
       ftimeIso: candidates[0].departureIso,
@@ -445,6 +471,8 @@ describe('buildProviderSlotStatusOverrides', () => {
       weatherText: null,
     }])
     layer.status = 'partial'
+    layer.mappedPointCount = 2
+    layer.unavailablePointCount = 1
 
     expect(buildProviderSlotStatusOverrides({
       candidates,
@@ -453,7 +481,7 @@ describe('buildProviderSlotStatusOverrides', () => {
       routeDistanceKm: 40,
       vedurstofanLayer: layer,
       vedurstofanStationCount: 1,
-    })).toEqual(['no_data'])
+    })).toEqual(['innan-marka'])
   })
 
   it('lets Veðurstofan forecasts change status by departure slot', () => {
@@ -536,6 +564,423 @@ describe('buildProviderSlotStatusOverrides', () => {
       vegagerdinStatusCounts: {},
       vegagerdinStationCount: 0,
     })).toEqual(['othaegilegt'])
+  })
+})
+
+describe('buildProviderSlotAssessments', () => {
+  it('accepts full usable coverage when a redundant matched station is unavailable', () => {
+    const candidates = makeCandidates(1)
+    const ftimeIso = candidates[0].departureIso
+    const layer = makeVedurstofanLayer([], 0)
+    layer.status = 'partial'
+    layer.mappedPointCount = 3
+    layer.availablePointCount = 2
+    layer.unavailablePointCount = 1
+    layer.points = [
+      makeVedurstofanPoint('west', 0.25, ftimeIso, 2),
+      makeVedurstofanPoint('east', 0.75, ftimeIso, 3),
+    ]
+
+    const [assessment] = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 200,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 3,
+    })
+
+    expect(layer.status).toBe('partial')
+    expect(assessment.coverage).toMatchObject({
+      status: 'complete',
+      reason: null,
+      usableStationCount: 2,
+      measurementGaps: [],
+    })
+    expect(assessment.hazardStatus).toBe('innan-marka')
+    expect(assessment.displayStatus).toBe('innan-marka')
+  })
+
+  it('fails closed when many clustered points leave a real route gap', () => {
+    const candidates = makeCandidates(1)
+    const ftimeIso = candidates[0].departureIso
+    const layer = makeVedurstofanLayer([], 0)
+    layer.points = [0.1, 0.15, 0.2].map((fraction, index) =>
+      makeVedurstofanPoint(`cluster-${index}`, fraction, ftimeIso, 2),
+    )
+
+    const [assessment] = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 400,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 3,
+    })
+
+    expect(assessment.coverage.status).toBe('incomplete')
+    expect(assessment.coverage.reason).toBe('spatial_gap')
+    expect(assessment.coverage.measurementGaps.length).toBeGreaterThan(0)
+    expect(assessment.coverage.totalGapKm).toBeGreaterThan(0)
+    expect(assessment.hazardStatus).toBe('innan-marka')
+    expect(assessment.displayStatus).toBe('no_data')
+  })
+
+  it('excludes invalid fractions, unmatched rows, null wind, and non-finite wind', () => {
+    const candidates = makeCandidates(1)
+    const ftimeIso = candidates[0].departureIso
+    const outsideToleranceIso = new Date(Date.parse(ftimeIso) + 90 * 60_000 + 1).toISOString()
+    const layer = makeVedurstofanLayer([], 0)
+    layer.points = [
+      makeVedurstofanPoint('usable', 0.5, ftimeIso, 2),
+      makeVedurstofanPoint('too-late', 0.5, outsideToleranceIso, 20),
+      makeVedurstofanPoint('null-wind', 0.5, ftimeIso, null),
+      makeVedurstofanPoint('nan-wind', 0.5, ftimeIso, Number.NaN),
+      makeVedurstofanPoint('invalid-fraction', 1.2, ftimeIso, 20),
+      makeVedurstofanPoint('negative-fraction', -0.1, ftimeIso, 20),
+      makeVedurstofanPoint('null-fraction', null, ftimeIso, 20),
+      makeVedurstofanPoint('nan-fraction', Number.NaN, ftimeIso, 20),
+    ]
+
+    const [assessment] = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 100,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 5,
+    })
+
+    expect(assessment.coverage).toMatchObject({
+      status: 'complete',
+      usableStationCount: 1,
+      usableRouteFractions: [0.5],
+      invalidRouteFractionCount: 4,
+      temporalGapCount: 1,
+      missingWindCount: 2,
+    })
+    expect(assessment.hazardStatus).toBe('innan-marka')
+    expect(assessment.displayStatus).toBe('innan-marka')
+  })
+
+  it('reports a temporal gap when positioned stations cover the route but ETA rows do not', () => {
+    const candidates = makeCandidates(1)
+    const ftimeIso = candidates[0].departureIso
+    const outsideToleranceIso = new Date(Date.parse(ftimeIso) + 90 * 60_000 + 1).toISOString()
+    const layer = makeVedurstofanLayer([], 0)
+    layer.points = [
+      makeVedurstofanPoint('start', 0, ftimeIso, 2),
+      makeVedurstofanPoint('middle-missing', 0.5, outsideToleranceIso, 2),
+      makeVedurstofanPoint('end', 1, ftimeIso, 2),
+    ]
+
+    const [assessment] = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 200,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 3,
+    })
+
+    expect(assessment.coverage.status).toBe('incomplete')
+    expect(assessment.coverage.reason).toBe('temporal_gap')
+    expect(assessment.coverage.temporalGapCount).toBe(1)
+    expect(assessment.displayStatus).toBe('no_data')
+  })
+
+  it('keeps the exact 50 km coverage boundary and fails just beyond it', () => {
+    const candidates = makeCandidates(1)
+    const ftimeIso = candidates[0].departureIso
+    const layer = makeVedurstofanLayer([], 0)
+    layer.points = [
+      makeVedurstofanPoint('start', 0, ftimeIso, 2),
+      makeVedurstofanPoint('end', 1, ftimeIso, 2),
+    ]
+    const params = {
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 2,
+    }
+
+    expect(buildProviderSlotAssessments({
+      ...params,
+      routeDistanceKm: 100,
+    })[0].coverage.status).toBe('complete')
+    expect(buildProviderSlotAssessments({
+      ...params,
+      routeDistanceKm: 100.1,
+    })[0].coverage.status).toBe('incomplete')
+
+    const widerGap = buildProviderSlotAssessments({
+      ...params,
+      routeDistanceKm: 120,
+    })[0]
+    expect(widerGap.coverage.status).toBe('incomplete')
+    expect(widerGap.coverage.measurementGaps).toHaveLength(1)
+    expect(widerGap.coverage.measurementGaps[0].distanceKm).toBeCloseTo(20)
+  })
+
+  it('preserves a known warning separately while incomplete coverage stays fail-closed', () => {
+    const candidates = makeCandidates(1)
+    const layer = makeVedurstofanLayer([
+      {
+        ftimeIso: candidates[0].departureIso,
+        windSpeedMs: DEFAULT_SLOT_THRESHOLDS.cautionWindMs,
+        precipitationMmPerHour: 0,
+        temperatureC: 8,
+        windDirectionText: null,
+        weatherText: null,
+      },
+    ], 0.5)
+
+    const [assessment] = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 400,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+    })
+
+    expect(assessment.hazardStatus).toBe('othaegilegt')
+    expect(assessment.coverage.status).toBe('incomplete')
+    expect(assessment.coverage.reason).toBe('spatial_gap')
+    expect(assessment.displayStatus).toBe('othaegilegt')
+  })
+
+  it('reports missing wind when positioned coverage fails only because wind is absent', () => {
+    const candidates = makeCandidates(1)
+    const ftimeIso = candidates[0].departureIso
+    const layer = makeVedurstofanLayer([], 0)
+    layer.points = [
+      makeVedurstofanPoint('start', 0, ftimeIso, 2),
+      makeVedurstofanPoint('middle-missing-wind', 0.5, ftimeIso, null),
+      makeVedurstofanPoint('end', 1, ftimeIso, 2),
+    ]
+
+    const [assessment] = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 200,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 3,
+    })
+
+    expect(assessment.coverage.status).toBe('incomplete')
+    expect(assessment.coverage.reason).toBe('missing_wind')
+    expect(assessment.coverage.missingWindCount).toBe(1)
+    expect(assessment.displayStatus).toBe('no_data')
+  })
+
+  it('assesses shorter and longer routes independently from their own distance', () => {
+    const candidates = makeCandidates(1)
+    const ftimeIso = candidates[0].departureIso
+    const layer = makeVedurstofanLayer([], 0)
+    layer.points = [0, 0.5, 1].map((fraction, index) =>
+      makeVedurstofanPoint(`shared-${index}`, fraction, ftimeIso, 2),
+    )
+    const sharedParams = {
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 3,
+    }
+
+    const shortRoute = buildProviderSlotAssessments({
+      ...sharedParams,
+      routeDistanceKm: 200,
+    })[0]
+    const longRoute = buildProviderSlotAssessments({
+      ...sharedParams,
+      routeDistanceKm: 400,
+    })[0]
+
+    expect(shortRoute.coverage.status).toBe('complete')
+    expect(shortRoute.displayStatus).toBe('innan-marka')
+    expect(longRoute.coverage.status).toBe('incomplete')
+    expect(longRoute.displayStatus).toBe('no_data')
+  })
+
+  it('assesses shared route evidence independently from each route duration and ETA', () => {
+    const candidates = makeCandidates(1)
+    const departureMs = Date.parse(candidates[0].departureIso)
+    const shortEtaIso = new Date(departureMs + 30 * 60_000).toISOString()
+    const longEtaIso = new Date(departureMs + 90 * 60_000).toISOString()
+    const point = makeVedurstofanPoint('shared-duration', 0.5, shortEtaIso, 2)
+    point.forecastRows = [
+      {
+        ...point.forecastRows[0],
+        ftimeIso: shortEtaIso,
+        windSpeedMs: 2,
+      },
+      {
+        ...point.forecastRows[0],
+        ftimeIso: longEtaIso,
+        windSpeedMs: DEFAULT_SLOT_THRESHOLDS.redWindMs,
+      },
+    ]
+    const layer = makeVedurstofanLayer([], 0)
+    layer.points = [point]
+    const sharedParams = {
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDistanceKm: 100,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+    }
+
+    const shortRoute = buildProviderSlotAssessments({
+      ...sharedParams,
+      routeDurationMinutes: 60,
+    })[0]
+    const longRoute = buildProviderSlotAssessments({
+      ...sharedParams,
+      routeDurationMinutes: 180,
+    })[0]
+
+    expect(shortRoute.coverage.status).toBe('complete')
+    expect(shortRoute.hazardStatus).toBe('innan-marka')
+    expect(longRoute.coverage.status).toBe('complete')
+    expect(longRoute.hazardStatus).toBe('haettulegt')
+  })
+
+  it('treats a stale usable forecast as evidence and ignores a co-located bad duplicate', () => {
+    const candidates = makeCandidates(1)
+    const ftimeIso = candidates[0].departureIso
+    const layer = makeVedurstofanLayer([], 0)
+    layer.status = 'partial'
+    layer.points = [
+      makeVedurstofanPoint('same-station', 0.5, ftimeIso, 2, { status: 'stale' }),
+      makeVedurstofanPoint('same-station', 0.5, ftimeIso, null),
+    ]
+
+    const [assessment] = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 100,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 2,
+    })
+
+    expect(assessment.coverage.status).toBe('complete')
+    expect(assessment.coverage.usableStationCount).toBe(1)
+    expect(assessment.coverage.missingWindCount).toBe(1)
+    expect(assessment.displayStatus).toBe('innan-marka')
+  })
+
+  it('accepts a forecast row exactly at the existing 90-minute ETA tolerance', () => {
+    const candidates = makeCandidates(1)
+    const atToleranceIso = new Date(
+      Date.parse(candidates[0].departureIso) + 90 * 60_000,
+    ).toISOString()
+    const layer = makeVedurstofanLayer([], 0)
+    layer.points = [
+      makeVedurstofanPoint('boundary', 0.5, atToleranceIso, 2),
+    ]
+
+    const [assessment] = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 100,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+    })
+
+    expect(assessment.coverage.status).toBe('complete')
+    expect(assessment.coverage.usableStationCount).toBe(1)
+    expect(assessment.displayStatus).toBe('innan-marka')
+  })
+
+  it('preserves the negative 90-minute ETA boundary and rejects one millisecond beyond it', () => {
+    const candidates = makeCandidates(1)
+    const departureMs = Date.parse(candidates[0].departureIso)
+    const atToleranceIso = new Date(departureMs - 90 * 60_000).toISOString()
+    const outsideToleranceIso = new Date(departureMs - 90 * 60_000 - 1).toISOString()
+    const sharedParams = {
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 100,
+      vedurstofanStationCount: 1,
+    }
+
+    const accepted = buildProviderSlotAssessments({
+      ...sharedParams,
+      vedurstofanLayer: makeVedurstofanLayer([{
+        ftimeIso: atToleranceIso,
+        windSpeedMs: 2,
+        precipitationMmPerHour: 0,
+        temperatureC: 8,
+        windDirectionText: null,
+        weatherText: null,
+      }], 0.5),
+    })[0]
+    const rejected = buildProviderSlotAssessments({
+      ...sharedParams,
+      vedurstofanLayer: makeVedurstofanLayer([{
+        ftimeIso: outsideToleranceIso,
+        windSpeedMs: 2,
+        precipitationMmPerHour: 0,
+        temperatureC: 8,
+        windDirectionText: null,
+        weatherText: null,
+      }], 0.5),
+    })[0]
+
+    expect(accepted.coverage.status).toBe('complete')
+    expect(rejected.coverage).toMatchObject({
+      status: 'incomplete',
+      reason: 'temporal_gap',
+    })
+  })
+
+  it('fails closed for invalid route distance and invalid route timing', () => {
+    const candidates = makeCandidates(1)
+    const layer = makeVedurstofanLayer([
+      {
+        ftimeIso: candidates[0].departureIso,
+        windSpeedMs: 2,
+        precipitationMmPerHour: 0,
+        temperatureC: 8,
+        windDirectionText: null,
+        weatherText: null,
+      },
+    ], 0.5)
+    const sharedParams = {
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+    }
+
+    const invalidRoute = buildProviderSlotAssessments({
+      ...sharedParams,
+      routeDurationMinutes: 0,
+      routeDistanceKm: Number.NaN,
+    })[0]
+    const invalidTiming = buildProviderSlotAssessments({
+      ...sharedParams,
+      routeDurationMinutes: Number.NaN,
+      routeDistanceKm: 100,
+    })[0]
+
+    expect(invalidRoute.coverage).toMatchObject({
+      status: 'incomplete',
+      reason: 'invalid_route',
+    })
+    expect(invalidRoute.displayStatus).toBe('no_data')
+    expect(invalidTiming.coverage).toMatchObject({
+      status: 'incomplete',
+      reason: 'invalid_timing',
+    })
+    expect(invalidTiming.displayStatus).toBe('no_data')
   })
 })
 
@@ -677,5 +1122,38 @@ describe('buildProviderBestWindow', () => {
 
   it('returns undefined when all provider slots are red', () => {
     expect(buildProviderBestWindow(makeCandidates(2), ['haettulegt', 'haettulegt'])).toBeUndefined()
+  })
+
+  it('never recommends missing-data windows', () => {
+    expect(buildProviderBestWindow(
+      makeCandidates(2),
+      ['no_data', 'no_wind_data'],
+    )).toBeUndefined()
+  })
+
+  it('never recommends an incomplete typed slot even when it has a known warning', () => {
+    const candidates = makeCandidates(1)
+    const layer = makeVedurstofanLayer([
+      {
+        ftimeIso: candidates[0].departureIso,
+        windSpeedMs: DEFAULT_SLOT_THRESHOLDS.cautionWindMs,
+        precipitationMmPerHour: 0,
+        temperatureC: 8,
+        windDirectionText: null,
+        weatherText: null,
+      },
+    ], 0.5)
+    const assessments = buildProviderSlotAssessments({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 400,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+    })
+
+    expect(assessments[0].hazardStatus).toBe('othaegilegt')
+    expect(assessments[0].coverage.status).toBe('incomplete')
+    expect(buildProviderBestWindow(candidates, assessments)).toBeUndefined()
   })
 })

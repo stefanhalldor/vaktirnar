@@ -528,8 +528,10 @@ describe('road-map route results display state', () => {
 
     expect(source).not.toContain('buildDepartureForecastSlotStatusOverrides')
     expect(source).not.toContain('setRouteSlotStatusOverrides')
-    expect(source).toContain('buildProviderSlotStatusOverrides({')
+    expect(source).toContain('buildProviderSlotAssessments({')
+    expect(source).toContain('.map(assessment => assessment.displayStatus)')
     expect(source).toContain('slotStatusOverrides={routeSlotStatusOverrides ?? undefined}')
+    expect(source).toContain('slotAssessments={routeSlotAssessments ?? undefined}')
     expect(source).toContain('routeAssessmentStatus={displayedRouteWindStatus}')
     expect(source).toContain("reason: 'vedurstofan-only-future-slots'")
     expect(source).toContain('function getRouteCurrentCandidate(')
@@ -541,7 +543,11 @@ describe('road-map route results display state', () => {
     expect(source).toContain('WIND_STATUS_META[displayedRouteWindStatus]')
     expect(source).toContain('WIND_STATUS_MARKER_COLOR[nowRouteWindStatus]')
     expect(source).toContain('currentCandidate={currentRouteCandidate}')
-    expect(source).toContain('{routeAssessmentIsPartial && (')
+    expect(source).toContain('{routeAssessmentIsPartial && !selectedRouteSlotAssessment && (')
+    expect(source).toContain(
+      '{selectedRouteSlotCoverageIsIncomplete && selectedRouteKnownWarning && (',
+    )
+    expect(source).toContain("t('roadMapPrototypeDepartureCoverageIncompleteBadge')")
     expect(source).toContain("const ROUTE_WIND_STATUS_FILTER_MODE: WindStatusFilterMode = 'detailed'")
     expect(source).toContain('WIND_STATUS_MARKER_COLOR[entry.windDisplayStatus]')
     expect(source).toContain('WIND_STATUS_MARKER_COLOR[point.windDisplayStatus]')
