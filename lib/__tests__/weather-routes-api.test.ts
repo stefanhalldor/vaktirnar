@@ -172,7 +172,7 @@ function guestUser() {
 }
 
 function publicAuthedUser() {
-  // Signed-in user without vedrid — treated as public/base weather path
+  // Signed-in user without private vedrid — still authenticated for base weather APIs.
   mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
   mockCheckFeatureAccess.mockResolvedValue(false)
   mockCheckWeatherGuestRateLimit.mockResolvedValue(true)
@@ -813,11 +813,12 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(call[0].placeId).toBe('confirmed')
   })
 
-  it('signed-in user without vedrid uses public path and returns 200 when WEATHER_PUBLIC_ENABLED=true', async () => {
+  it('signed-in user without vedrid keeps authenticated base access in public mode', async () => {
     publicAuthedUser()
     mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
     const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
     expect(res.status).toBe(200)
+    expect(mockCheckWeatherGuestRateLimit).not.toHaveBeenCalled()
   })
 
   it('signed-in user without vedrid gets 404 when WEATHER_ENABLED is off', async () => {
@@ -828,13 +829,15 @@ describe('POST /api/teskeid/weather/travel/routes', () => {
     expect(res.status).toBe(404)
   })
 
-  it('signed-in user without vedrid is rate-limited on public path', async () => {
+  it('signed-in user without vedrid bypasses the guest IP quota', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
     mockCheckFeatureAccess.mockResolvedValue(false)
     mockCheckWeatherGuestRateLimit.mockResolvedValue(false)
     process.env.WEATHER_PUBLIC_ENABLED = 'true'
+    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', 0, 3600, 80000, true)])
     const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
-    expect(res.status).toBe(429)
+    expect(res.status).toBe(200)
+    expect(mockCheckWeatherGuestRateLimit).not.toHaveBeenCalled()
   })
 })
 
@@ -906,6 +909,7 @@ describe('POST /api/teskeid/weather/travel/routes — usage events', () => {
     process.env.WEATHER_PUBLIC_ENABLED = 'true'
     const res = await POST(makeRequest({ origin: VALID_ORIGIN, destination: VALID_DEST }))
     expect(res.status).toBe(429)
+    await expect(res.json()).resolves.toEqual({ error: 'rate_limited_guest' })
     expect(mockRecordTeskeidUsageEvent).toHaveBeenCalledWith(expect.objectContaining({
       userId: null,
       eventName: 'weather_route_options_rate_limited',

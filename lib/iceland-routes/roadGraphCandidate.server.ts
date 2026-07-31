@@ -25,16 +25,18 @@ export {
 } from './routeAssessmentCandidateIdentity.server'
 
 const PRODUCTION_CANDIDATE_BUDGET_MS = 8_000
+const PRODUCTION_EXTENDED_CANDIDATE_BUDGET_MS = 20_000
 const DEVELOPMENT_CANDIDATE_BUDGET_MS = 30_000
 const MAX_SNAP_DISTANCE_M = 25_000
 const CANDIDATE_CACHE_TTL_MS = 30 * 60 * 1_000
 const CANDIDATE_CACHE_MAX_ENTRIES_PER_GRAPH = 128
 const CURRENT_ASSESSMENT_SCOPE_ID_PATTERN = /^assessment:v3:[A-Za-z0-9_-]{43}$/
-const ROUTE_CANDIDATE_POLICY_VERSION = 'nearest-reachable-road-v1'
+const ROUTE_CANDIDATE_POLICY_VERSION = 'nearest-reachable-road-v2'
 const ROUTE_CANDIDATE_CACHE_POLICY_FINGERPRINT =
   `${ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT}:${ROUTE_CANDIDATE_POLICY_VERSION}`
 
 type Point = { lat: number; lon: number }
+export type TeskeidCandidateSearchMode = 'quick' | 'extended'
 
 type CachedCandidate = {
   expiresAt: number
@@ -83,7 +85,12 @@ function candidateCacheBucket(graph: IcelandRoadGraph): CandidateCacheBucket {
   return created
 }
 
-function candidateCacheKey(origin: Point, destination: Point, includeAlternatives: boolean): string {
+function candidateCacheKey(
+  origin: Point,
+  destination: Point,
+  includeAlternatives: boolean,
+  searchMode: TeskeidCandidateSearchMode,
+): string {
   return JSON.stringify([
     'legacy-node-route',
     ROUTE_CANDIDATE_POLICY_VERSION,
@@ -92,6 +99,7 @@ function candidateCacheKey(origin: Point, destination: Point, includeAlternative
     destination.lat,
     destination.lon,
     includeAlternatives,
+    searchMode,
   ])
 }
 
@@ -100,6 +108,7 @@ function assessmentCandidateCacheKey(
   destination: Point,
   assessmentScopeId: string,
   includeAlternatives: boolean,
+  searchMode: TeskeidCandidateSearchMode,
 ): string {
   return JSON.stringify([
     'assessment-edge-route',
@@ -110,6 +119,7 @@ function assessmentCandidateCacheKey(
     destination.lat,
     destination.lon,
     includeAlternatives,
+    searchMode,
   ])
 }
 
@@ -184,7 +194,10 @@ export function isTeskeidRouteCandidateEnabled(
   return env[TESKEID_ROUTE_CANDIDATE_FLAG] === 'true'
 }
 
-function candidateBudgetMs(): number {
+function candidateBudgetMs(searchMode: TeskeidCandidateSearchMode = 'quick'): number {
+  if (searchMode === 'extended' && process.env.NODE_ENV === 'production') {
+    return PRODUCTION_EXTENDED_CANDIDATE_BUDGET_MS
+  }
   return process.env.NODE_ENV === 'production'
     ? PRODUCTION_CANDIDATE_BUDGET_MS
     : DEVELOPMENT_CANDIDATE_BUDGET_MS
@@ -210,12 +223,13 @@ export async function getTeskeidRouteCandidatesOutcome(
   origin: Point,
   destination: Point,
   includeAlternatives = false,
+  searchMode: TeskeidCandidateSearchMode = 'quick',
 ): Promise<TeskeidRouteCandidatesOutcome> {
   if (!isTeskeidRouteCandidateEnabled()) return { status: 'disabled', routes: [] }
   return withCandidateTimeout((async (): Promise<TeskeidRouteCandidatesOutcome> => {
     try {
       const graph = await getIcelandRoadGraph()
-      const key = candidateCacheKey(origin, destination, includeAlternatives)
+      const key = candidateCacheKey(origin, destination, includeAlternatives, searchMode)
       return await readOrComputeCandidate(graph, key, (): TeskeidRouteCandidatesOutcome => {
         const primary = findIcelandRoadGraphRoute(graph, origin, destination, {
           profile: ICELAND_ROUTING_PROFILES.fastestCar,
@@ -253,7 +267,7 @@ export async function getTeskeidRouteCandidatesOutcome(
     } catch {
       return { status: 'unavailable', routes: [] }
     }
-  })(), { status: 'pending', routes: [] }, candidateBudgetMs())
+  })(), { status: 'pending', routes: [] }, candidateBudgetMs(searchMode))
 }
 
 /**
@@ -268,13 +282,14 @@ export async function getTeskeidAssessmentRouteCandidatesOutcome(
   destination: Point,
   assessmentScopeId: string,
   includeAlternatives = false,
+  searchMode: TeskeidCandidateSearchMode = 'quick',
 ): Promise<TeskeidRouteCandidatesOutcome> {
   if (!isTeskeidRouteCandidateEnabled()) return { status: 'disabled', routes: [] }
   if (!CURRENT_ASSESSMENT_SCOPE_ID_PATTERN.test(assessmentScopeId)) {
     return { status: 'unavailable', routes: [] }
   }
 
-  const budgetMs = candidateBudgetMs()
+  const budgetMs = candidateBudgetMs(searchMode)
   // The same absolute budget follows the work after graph warm-up and into
   // every synchronous primary/alternative traversal. Promise.race alone
   // cannot pre-empt CPU-bound graph work on the event loop.
@@ -288,6 +303,7 @@ export async function getTeskeidAssessmentRouteCandidatesOutcome(
         destination,
         assessmentScopeId,
         includeAlternatives,
+        searchMode,
       )
       return await readOrComputeCandidate(graph, key, (): TeskeidRouteCandidatesOutcome => {
         const evidence = resolveTeskeidAssessmentRouteEvidence({

@@ -43,7 +43,7 @@ useful across providers, screens, or future Teskeid products.
   a pending state: graph materialisation from the active snapshot continues with
   `after()`. Live source refresh is separate, protected by admin/cron auth and a
   database lease, and promotes only snapshots that pass structural checks plus
-  all 20 golden routes. Source failure, no route, or flag-off never fail the Google result. The same helper
+  all 21 golden routes. Source failure, no route, or flag-off never fail the Google result. The same helper
   recalculates a selected candidate for final travel-weather sampling so preview
   and submit cannot use different rules.
 
@@ -71,7 +71,7 @@ useful across providers, screens, or future Teskeid products.
   in its largest weak component because the layer includes many small detached
   road stubs. Bootstrap therefore requires at least 60%, while later refreshes
   must also retain at least 90% of the active snapshot's component share. All
-  20 golden routes remain mandatory and the 20 m topology tolerance is fixed.
+  21 golden routes remain mandatory and the 20 m topology tolerance is fixed.
 - Topology policy v2 also recognizes a unique source-attested endpoint that is
   horizontally coincident within 1 mm with an interior vertex of the uniquely
   named official target section. This splits a real T-junction; it does not

@@ -1,7 +1,24 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/components/weather/PlaceMapPicker', () => ({
+  PlaceMapPicker: ({
+    onSelect,
+  }: {
+    onSelect: (place: { name: string; lat: number; lon: number }) => void
+  }) => (
+    <button
+      type="button"
+      onClick={() => onSelect({ name: 'Víðibakki', lat: 63.90234, lon: -20.41234 })}
+    >
+      Velja eigin Yr punkt
+    </button>
+  ),
+}))
+
 import {
+  customMetnoPreferenceItemFromPlace,
   WeatherChasePanel,
   type WeatherChaseItem,
   type WeatherChasePreferenceItem,
@@ -43,6 +60,75 @@ const items: WeatherChaseItem[] = [
 ]
 
 describe('WeatherChasePanel preference hydration', () => {
+  it('creates and selects a stable custom Yr point from the map picker', () => {
+    const onAddCustomMetnoPlace = vi.fn()
+    render(
+      <WeatherChasePanel
+        items={items}
+        initialSelectedIds={[items[0].id]}
+        labels={labelsWith({
+          addCustomMetnoLabel: 'Bæta við eigin Yr stað',
+          customMetnoNameTitle: 'Gefðu Yr staðnum nafn',
+          customMetnoNameLabel: 'Nafn',
+          customMetnoNameSave: 'Vista Yr stað',
+        })}
+        locale="is"
+        defaultSettingsOpen
+        onAddCustomMetnoPlace={onAddCustomMetnoPlace}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við eigin Yr stað' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Velja eigin Yr punkt' }))
+    expect(onAddCustomMetnoPlace).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Gefðu Yr staðnum nafn' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nafn' }), {
+      target: { value: 'Suðurhagi' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Vista Yr stað' }))
+
+    expect(onAddCustomMetnoPlace).toHaveBeenCalledWith({
+      id: 'metno:custom:63.902:-20.412',
+      providerId: 'metno',
+      label: 'Suðurhagi',
+      lat: 63.902,
+      lon: -20.412,
+    })
+    expect(customMetnoPreferenceItemFromPlace({
+      name: '  Bærinn  ',
+      lat: 64.10049,
+      lon: -21.90049,
+    })).toMatchObject({
+      id: 'metno:custom:64.100:-21.900',
+      label: 'Bærinn',
+    })
+  })
+
+  it('shows authenticated autosave failures with a retry instead of a save-places button', () => {
+    const onRetrySave = vi.fn()
+    render(
+      <WeatherChasePanel
+        items={items}
+        initialSelectedIds={[items[0].id]}
+        labels={labelsWith({
+          autoSaveFailedLabel: 'Tókst ekki að vista breytingarnar sjálfkrafa.',
+          autoSaveRetryLabel: 'Reyna aftur',
+        })}
+        locale="is"
+        defaultSettingsOpen
+        saveStatus="error"
+        onRetrySave={onRetrySave}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Tókst ekki að vista breytingarnar sjálfkrafa.',
+    )
+    expect(screen.queryByRole('button', { name: 'savePlacesLabel' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reyna aftur' }))
+    expect(onRetrySave).toHaveBeenCalledTimes(1)
+  })
+
   it('labels missing past and future values explicitly', async () => {
     const today = new Date().toISOString().slice(0, 10)
     const yesterdayDate = new Date(`${today}T00:00:00.000Z`)
@@ -325,6 +411,19 @@ describe('WeatherChasePanel preference hydration', () => {
 
     const historyCorner = await screen.findByRole('group', { name: 'historyLabel' })
     expect(within(historyCorner).getByRole('button', { name: 'historyShowOlderLabel' })).toBeInTheDocument()
+    const dateHeader = document.querySelector<HTMLElement>('[data-weather-chase-date-header="true"]')
+    const tableScroll = document.querySelector<HTMLElement>('[data-weather-chase-table-scroll="true"]')
+    const headerTrack = dateHeader?.querySelector<HTMLElement>('.will-change-transform')
+    expect(dateHeader).toHaveClass('sticky', 'top-0')
+    expect(tableScroll).not.toBeNull()
+    expect(headerTrack).not.toBeNull()
+
+    Object.defineProperty(tableScroll as HTMLElement, 'scrollLeft', {
+      configurable: true,
+      value: 73,
+    })
+    fireEvent.scroll(tableScroll as HTMLElement)
+    expect(headerTrack).toHaveStyle({ transform: 'translate3d(-73px, 0, 0)' })
   })
 
   it('keeps the current met.no loader stable while history is still in flight', async () => {

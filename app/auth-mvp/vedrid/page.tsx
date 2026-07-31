@@ -22,6 +22,7 @@ export default async function VedridPage() {
     <main className="h-screen bg-background overflow-hidden">
       <RoadMapPrototypeMap
         isAuthenticated
+        preferenceOwnerId={user.id}
         hasRoadIntelligence={hasRoadIntelligence}
         teskeidRouteCandidateEnabled={hasTeskeidRouting}
         navigation={{ canonicalPath: '/auth-mvp/vedrid', authenticatedPath: '/auth-mvp/vedrid' }}

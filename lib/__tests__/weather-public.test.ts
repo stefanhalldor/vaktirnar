@@ -317,14 +317,15 @@ describe('resolveWeatherBaseAccess', () => {
     process.env.WEATHER_ENABLED = 'Authenticated'
     const result = await resolveWeatherBaseAccess({ id: 'u1', email: 'user@example.com' })
     expect(result.mode).toBe('authenticated')
-    expect(mockCheckFeatureAccess).toHaveBeenCalledWith('u1', 'user@example.com', 'vedrid')
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
   })
 
-  it('signed-in without vedrid + All → public (userId: null)', async () => {
+  it('signed-in without vedrid + All → authenticated', async () => {
     process.env.WEATHER_ENABLED = 'All'
     const result = await resolveWeatherBaseAccess({ id: 'u1', email: 'user@example.com' })
-    expect(result.mode).toBe('public')
-    if (result.mode === 'public') expect(result.userId).toBeNull()
+    expect(result.mode).toBe('authenticated')
+    if (result.mode === 'authenticated') expect(result.userId).toBe('u1')
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
   })
 
   it('signed-in with vedrid + All → authenticated', async () => {
@@ -353,11 +354,13 @@ describe('weather rate limit contract', () => {
     expect(travelEndpointIncrementsRateLimit).toBe(false)
   })
 
-  it('rate limit applies to public-mode users (WEATHER_ENABLED=All, signed-out or without vedrid)', () => {
-    // In All mode: signed-in users without vedrid get { mode: 'public' } → rate-limited on /routes.
-    // Tested directly in resolveWeatherBaseAccess suite above.
-    const publicModeUsersAreRateLimited = true
-    expect(publicModeUsersAreRateLimited).toBe(true)
+  it('rate limit applies only to signed-out public-mode users', () => {
+    // In All mode signed-out users get { mode: 'public' }, while signed-in users
+    // keep { mode: 'authenticated' } and bypass the guest IP quota.
+    const signedOutPublicUsersAreRateLimited = true
+    const signedInUsersAreRateLimitedAsGuests = false
+    expect(signedOutPublicUsersAreRateLimited).toBe(true)
+    expect(signedInUsersAreRateLimitedAsGuests).toBe(false)
   })
 
   it('rate limit does not apply in Authenticated mode (signed-in users get authenticated mode)', () => {

@@ -1,5 +1,6 @@
 'use client'
 
+import * as Dialog from '@radix-ui/react-dialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ForecastDrawerRow, ResolvedTravelThresholds } from '@/lib/weather/types'
 import {
@@ -11,6 +12,8 @@ import {
 import { formatNum } from '@/components/weather/travelAuditMap.helpers'
 import { cn } from '@/lib/utils'
 import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
+import { PlaceMapPicker } from './PlaceMapPicker'
+import type { PlaceResult } from './PlaceSearch'
 
 export type WeatherChaseProviderId = 'vedurstofan' | 'metno' | 'vegagerdin'
 
@@ -26,6 +29,7 @@ export type WeatherChaseItem = {
   needsRowLoad?: boolean
   nearbyDistanceM?: number
   nearbyDistanceFromProviderId?: 'vedurstofan' | 'metno'
+  supportsHistory?: boolean
 }
 
 export type WeatherChaseCriteria = {
@@ -112,6 +116,16 @@ type WeatherChaseLabels = {
   historyLoadingLabel: string
   historyLoadFailedLabel: string
   historyRetryLabel: string
+  addCustomMetnoLabel: string
+  customMetnoNameTitle: string
+  customMetnoNameLabel: string
+  customMetnoNamePlaceholder: string
+  customMetnoNameCancel: string
+  customMetnoNameSave: string
+  autoSaveSavingLabel: string
+  autoSaveSavedLabel: string
+  autoSaveFailedLabel: string
+  autoSaveRetryLabel: string
 }
 
 type Props = {
@@ -148,6 +162,23 @@ type Props = {
   onShowMedalsChange?: (v: boolean) => void
   defaultSettingsOpen?: boolean
   hideSettingsToggle?: boolean
+  onAddCustomMetnoPlace?: (item: WeatherChasePreferenceItem) => void
+  onRetrySave?: () => void
+}
+
+export function customMetnoPreferenceItemFromPlace(
+  place: Pick<PlaceResult, 'name' | 'lat' | 'lon'>,
+  customLabel = place.name,
+): WeatherChasePreferenceItem {
+  const lat = Math.round(place.lat * 1_000) / 1_000
+  const lon = Math.round(place.lon * 1_000) / 1_000
+  return {
+    id: `metno:custom:${lat.toFixed(3)}:${lon.toFixed(3)}`,
+    providerId: 'metno',
+    label: customLabel.trim().slice(0, 120),
+    lat,
+    lon,
+  }
 }
 
 const CMP_IS_WEEKDAY = ['sun', 'mán', 'þri', 'mið', 'fim', 'fös', 'lau']
@@ -490,6 +521,8 @@ export function WeatherChasePanel({
   onShowMedalsChange,
   defaultSettingsOpen = false,
   hideSettingsToggle = false,
+  onAddCustomMetnoPlace,
+  onRetrySave,
 }: Props) {
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
@@ -509,12 +542,16 @@ export function WeatherChasePanel({
   const [windowStartDay, setWindowStartDay] = useState(() => utcDayKey())
   const [loadingRowIds, setLoadingRowIds] = useState<Set<string>>(new Set())
   const [failedRowIds, setFailedRowIds] = useState<Set<string>>(new Set())
+  const [customMetnoPickerOpen, setCustomMetnoPickerOpen] = useState(false)
+  const [pendingCustomMetnoPlace, setPendingCustomMetnoPlace] = useState<PlaceResult | null>(null)
+  const [customMetnoNameDraft, setCustomMetnoNameDraft] = useState('')
   const visibleHours = normalizeWeatherChaseVisibleHours(visibleHoursInput)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchBlurTimerRef = useRef<number | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const panelBottomRef = useRef<HTMLDivElement | null>(null)
   const comparisonScrollRef = useRef<HTMLDivElement | null>(null)
+  const comparisonHeaderTrackRef = useRef<HTMLDivElement | null>(null)
   const comparisonRegionRef = useRef<HTMLDivElement | null>(null)
   const shouldScrollToAddedPlaceRef = useRef(false)
   const shouldJumpToHistoryStartRef = useRef(false)
@@ -654,7 +691,8 @@ export function WeatherChasePanel({
     () => selectedIds
       .map(id => items.find(item => item.id === id))
       .filter((item): item is WeatherChaseItem & { providerId: 'vedurstofan' | 'metno' } => (
-        item?.providerId === 'vedurstofan' || item?.providerId === 'metno'
+        item?.supportsHistory !== false
+        && (item?.providerId === 'vedurstofan' || item?.providerId === 'metno')
       )),
     [items, selectedIds],
   )
@@ -888,6 +926,9 @@ export function WeatherChasePanel({
     ) return
     shouldJumpToHistoryStartRef.current = false
     if (comparisonScrollRef.current) comparisonScrollRef.current.scrollLeft = 0
+    if (comparisonHeaderTrackRef.current) {
+      comparisonHeaderTrackRef.current.style.transform = 'translate3d(0, 0, 0)'
+    }
     comparisonRegionRef.current?.focus({ preventScroll: true })
   }, [compactCols, historyLoadedStartDay, todayDay, windowStartDay])
 
@@ -1207,54 +1248,79 @@ export function WeatherChasePanel({
     }
 
     return (
-      <div ref={comparisonScrollRef} className="overflow-x-auto rounded-lg border border-border/70 bg-background/75">
+      <div className="rounded-lg border border-border/70 bg-background/75">
         <div
-          className="inline-grid min-w-full"
-          style={{ gridTemplateColumns: `minmax(8.5rem, 9.75rem) repeat(${cols.length}, 4.85rem)` }}
+          data-weather-chase-date-header="true"
+          className="sticky top-0 z-30 isolate grid min-w-0 rounded-t-lg bg-background shadow-sm"
+          style={{ gridTemplateColumns: 'minmax(8.5rem, 9.75rem) minmax(0, 1fr)' }}
         >
           <div
             role={showHistoryControl ? 'group' : undefined}
             aria-label={showHistoryControl ? labels.historyLabel : undefined}
-            className="sticky left-0 top-0 z-30 isolate border-b border-r border-border/60 bg-background shadow-[4px_0_8px_rgba(15,23,42,0.06)]"
+            className="z-10 border-b border-r border-border/60 bg-background shadow-[4px_0_8px_rgba(15,23,42,0.06)]"
           >
             {renderHistoryControl('corner')}
           </div>
-          {cols.map(col => (
-            <div key={col.targetIso} className="sticky top-0 z-20 isolate border-b border-border/60 bg-background px-2 py-2 text-[10px] text-muted-foreground shadow-sm">
-              <div className="truncate font-semibold">{col.dayLabel}</div>
-              <div className="text-muted-foreground/65">{col.timeLabel}</div>
-            </div>
-          ))}
-          {selectedItems.map((item) => (
-            <div key={item.id} className="contents">
-              <div className="sticky left-0 z-10 min-w-0 border-r border-border/60 bg-background/95 p-2 shadow-[4px_0_8px_rgba(15,23,42,0.06)]">
-                <p className="truncate text-[11px] font-semibold text-foreground">{item.label}</p>
-                <div className="mt-1">
-                  <ProviderBadge item={item} />
+          <div className="min-w-0 overflow-hidden border-b border-border/60">
+            <div
+              ref={comparisonHeaderTrackRef}
+              className="flex w-max will-change-transform"
+            >
+              {cols.map(col => (
+                <div key={col.targetIso} className="w-[4.85rem] shrink-0 bg-background px-2 py-2 text-[10px] text-muted-foreground">
+                  <div className="truncate font-semibold">{col.dayLabel}</div>
+                  <div className="text-muted-foreground/65">{col.timeLabel}</div>
                 </div>
-                {renderItemLoadState(item)}
-              </div>
-              {cols.map(col => {
-                const row = col.rowsByItemId.get(item.id) ?? null
-                const peers = findPeers(selectedItems, col, item.id)
-                return (
-                  <div key={`${item.id}:${col.targetIso}`} className="border-b border-border/40 px-2 py-2">
-                    <MetricStack
-                      row={row}
-                      targetIso={col.targetIso}
-                      pending={itemForecastPending(item)}
-                      peerRows={peers}
-                      thresholds={thresholds}
-                      locale={locale}
-                      criteria={activeCriteria}
-                      labels={labels}
-                      showMedals={showMedals}
-                    />
-                  </div>
-                )
-              })}
+              ))}
             </div>
-          ))}
+          </div>
+        </div>
+        <div
+          ref={comparisonScrollRef}
+          data-weather-chase-table-scroll="true"
+          className="overflow-x-auto"
+          onScroll={(event) => {
+            if (comparisonHeaderTrackRef.current) {
+              comparisonHeaderTrackRef.current.style.transform =
+                `translate3d(${-event.currentTarget.scrollLeft}px, 0, 0)`
+            }
+          }}
+        >
+          <div
+            className="inline-grid min-w-full"
+            style={{ gridTemplateColumns: `minmax(8.5rem, 9.75rem) repeat(${cols.length}, 4.85rem)` }}
+          >
+            {selectedItems.map((item) => (
+              <div key={item.id} className="contents">
+                <div className="sticky left-0 z-10 min-w-0 border-r border-border/60 bg-background/95 p-2 shadow-[4px_0_8px_rgba(15,23,42,0.06)]">
+                  <p className="truncate text-[11px] font-semibold text-foreground">{item.label}</p>
+                  <div className="mt-1">
+                    <ProviderBadge item={item} />
+                  </div>
+                  {renderItemLoadState(item)}
+                </div>
+                {cols.map(col => {
+                  const row = col.rowsByItemId.get(item.id) ?? null
+                  const peers = findPeers(selectedItems, col, item.id)
+                  return (
+                    <div key={`${item.id}:${col.targetIso}`} className="border-b border-border/40 px-2 py-2">
+                      <MetricStack
+                        row={row}
+                        targetIso={col.targetIso}
+                        pending={itemForecastPending(item)}
+                        peerRows={peers}
+                        thresholds={thresholds}
+                        locale={locale}
+                        criteria={activeCriteria}
+                        labels={labels}
+                        showMedals={showMedals}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     )
@@ -1515,7 +1581,44 @@ export function WeatherChasePanel({
                   </div>
                 )}
               </div>
+              {onAddCustomMetnoPlace && (
+                <button
+                  type="button"
+                  onClick={() => setCustomMetnoPickerOpen(true)}
+                  className="mb-3 flex min-h-11 w-full items-center justify-center rounded-lg border border-primary/35 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {labels.addCustomMetnoLabel}
+                </button>
+              )}
               {renderReorderList()}
+              {!onSaveDefault && saveStatus !== 'idle' && (
+                <div
+                  role={saveStatus === 'error' ? 'alert' : 'status'}
+                  className={cn(
+                    'mt-3 flex min-h-10 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs',
+                    saveStatus === 'error'
+                      ? 'border-destructive/35 bg-destructive/5 text-destructive'
+                      : 'border-border/70 bg-muted/35 text-muted-foreground',
+                  )}
+                >
+                  <span>
+                    {saveStatus === 'saving'
+                      ? labels.autoSaveSavingLabel
+                      : saveStatus === 'saved'
+                        ? labels.autoSaveSavedLabel
+                        : labels.autoSaveFailedLabel}
+                  </span>
+                  {saveStatus === 'error' && onRetrySave && (
+                    <button
+                      type="button"
+                      onClick={onRetrySave}
+                      className="min-h-9 shrink-0 rounded-full border border-destructive/40 bg-background px-3 py-1.5 font-semibold text-destructive transition-colors hover:bg-destructive/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {labels.autoSaveRetryLabel}
+                    </button>
+                  )}
+                </div>
+              )}
               {onSaveDefault && placesChanged && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
@@ -1539,6 +1642,78 @@ export function WeatherChasePanel({
           </div>
         )}
       </section>
+      {customMetnoPickerOpen && (
+        <PlaceMapPicker
+          places={[]}
+          onClose={() => setCustomMetnoPickerOpen(false)}
+          onSelect={place => {
+            setPendingCustomMetnoPlace(place)
+            setCustomMetnoNameDraft(place.name.trim())
+            setCustomMetnoPickerOpen(false)
+          }}
+        />
+      )}
+      <Dialog.Root
+        open={pendingCustomMetnoPlace !== null}
+        onOpenChange={open => {
+          if (!open) {
+            setPendingCustomMetnoPlace(null)
+            setCustomMetnoNameDraft('')
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[359] bg-black/45" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[360] w-[calc(100%-1.5rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-background p-4 shadow-xl outline-none">
+            <Dialog.Title className="text-base font-semibold text-foreground">
+              {labels.customMetnoNameTitle}
+            </Dialog.Title>
+            <form
+              className="mt-4 space-y-4"
+              onSubmit={event => {
+                event.preventDefault()
+                const label = customMetnoNameDraft.trim()
+                if (!pendingCustomMetnoPlace || !label) return
+                onAddCustomMetnoPlace?.(
+                  customMetnoPreferenceItemFromPlace(pendingCustomMetnoPlace, label),
+                )
+                setPlacesChanged(true)
+                setPendingCustomMetnoPlace(null)
+                setCustomMetnoNameDraft('')
+              }}
+            >
+              <label className="block space-y-1.5 text-sm font-medium text-foreground">
+                <span>{labels.customMetnoNameLabel}</span>
+                <input
+                  type="text"
+                  value={customMetnoNameDraft}
+                  onChange={event => setCustomMetnoNameDraft(event.target.value)}
+                  placeholder={labels.customMetnoNamePlaceholder}
+                  maxLength={120}
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="min-h-11 rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {labels.customMetnoNameCancel}
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="submit"
+                  disabled={!customMetnoNameDraft.trim()}
+                  className="min-h-11 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {labels.customMetnoNameSave}
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </>
   )
 }

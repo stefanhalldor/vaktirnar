@@ -11,6 +11,9 @@ const { mockGetRoadGraph, mockGetGraphCacheStatus } = vi.hoisted(() => ({
   mockGetRoadGraph: vi.fn(),
   mockGetGraphCacheStatus: vi.fn(),
 }))
+const { mockResolveAssessmentScope } = vi.hoisted(() => ({
+  mockResolveAssessmentScope: vi.fn(),
+}))
 
 vi.mock('next/server', async importOriginal => {
   const actual = await importOriginal<typeof import('next/server')>()
@@ -40,6 +43,10 @@ vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
 vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
   getIcelandRoadGraph: mockGetRoadGraph,
   getIcelandRoadGraphCacheStatus: mockGetGraphCacheStatus,
+}))
+
+vi.mock('@/lib/iceland-routes/routeAssessmentScope.server', () => ({
+  resolveRouteAssessmentScope: mockResolveAssessmentScope,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route-candidate/route'
@@ -117,6 +124,28 @@ beforeEach(() => {
   mockAfter.mockImplementation((callback: () => unknown) => callback())
   mockGetRoadGraph.mockResolvedValue({ graph: true })
   mockGetGraphCacheStatus.mockReturnValue('warm')
+  mockResolveAssessmentScope.mockResolvedValue({
+    status: 'ready',
+    scopeId: `assessment:v3:${'a'.repeat(43)}`,
+    origin: {
+      ...ORIGIN,
+      name: 'Reykjavík',
+      formattedAddress: 'Reykjavík',
+      source: 'official',
+      sourceId: 'settlement:reykjavik',
+      identityKind: 'urban_settlement',
+      placeType: 'settlement',
+    },
+    destination: {
+      ...DESTINATION,
+      name: 'Ísafjörður',
+      formattedAddress: 'Ísafjörður',
+      source: 'official',
+      sourceId: 'settlement:isafjordur',
+      identityKind: 'urban_settlement',
+      placeType: 'settlement',
+    },
+  })
 })
 
 describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout', () => {
@@ -317,6 +346,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     expect(res.status).toBe(503)
     await expect(res.json()).resolves.toEqual({
       status: 'unavailable',
+      error: 'route_envelope_unavailable',
       routes: [],
       route: null,
     })
@@ -391,11 +421,57 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
 
     expect(res.status).toBe(429)
     await expect(res.json()).resolves.toEqual({
-      status: 'unavailable',
+      status: 'rate_limited',
       routes: [],
       route: null,
     })
     expect(mockGetCandidates).not.toHaveBeenCalled()
+  })
+
+  it('uses the bounded extended assessment search only when explicitly requested', async () => {
+    const assessmentScopeId = `assessment:v3:${'a'.repeat(43)}`
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      assessmentScopeId,
+      accessRouteEnvelope: makePublicAccessEnvelope(assessmentScopeId),
+      searchMode: 'extended',
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockGetAssessmentCandidates).toHaveBeenCalledWith(
+      ORIGIN,
+      DESTINATION,
+      assessmentScopeId,
+      false,
+      'extended',
+    )
+  })
+
+  it('derives a provider-neutral assessment scope without waiting for a Google grant', async () => {
+    const assessmentScopeId = `assessment:v3:${'a'.repeat(43)}`
+    mockGetAssessmentCandidates.mockResolvedValue({ status: 'ready', routes: [makeCandidate()] })
+    const res = await POST(request({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      resolveAssessmentScope: true,
+      includeRouteEnvelopes: true,
+      compactRouteEnvelopes: true,
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      status: 'ready',
+      assessmentScope: { status: 'ready', scopeId: assessmentScopeId },
+      routeEnvelopes: expect.any(Array),
+    })
+    expect(mockResolveAssessmentScope).toHaveBeenCalledWith(ORIGIN, DESTINATION)
+    expect(mockGetAssessmentCandidates).toHaveBeenCalledWith(
+      ORIGIN,
+      DESTINATION,
+      assessmentScopeId,
+      false,
+    )
   })
 
   it('rejects anonymous candidate work without a signed Google route grant', async () => {

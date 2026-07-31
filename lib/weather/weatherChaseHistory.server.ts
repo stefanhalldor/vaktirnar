@@ -140,7 +140,7 @@ function metnoHistoryRow(row: MetnoDbRow): WeatherChaseHistoryRow | null {
 }
 
 export async function fetchRoadMapPlaceMetnoForecast(
-  place: RoadMapPlace,
+  place: Pick<RoadMapPlace, 'lat' | 'lon'>,
 ): Promise<HourPoint[]> {
   const snapshot = await fetchForecastSnapshot(place.lat, place.lon)
   return snapshot.forecasts

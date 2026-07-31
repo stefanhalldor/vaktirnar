@@ -32,6 +32,7 @@ export const ICELAND_GOLDEN_ROUTES: readonly IcelandGoldenRoute[] = [
   { id: 'rvk-borg', from: 'reykjavik', to: 'borgarnes', minKm: 60, maxKm: 95 },
   { id: 'rvk-ak', from: 'reykjavik', to: 'akureyri', minKm: 360, maxKm: 430 },
   { id: 'rvk-isaf', from: 'reykjavik', to: 'isafjordur', minKm: 420, maxKm: 500 },
+  { id: 'rvk-egils', from: 'reykjavik', to: 'egilsstadir', minKm: 600, maxKm: 680 },
   { id: 'rvk-hofn', from: 'reykjavik', to: 'hofn', minKm: 430, maxKm: 500 },
   { id: 'borg-stykk', from: 'borgarnes', to: 'stykkisholmur', minKm: 130, maxKm: 165 },
   { id: 'borg-holm', from: 'borgarnes', to: 'holmavik', minKm: 145, maxKm: 180 },

@@ -44,7 +44,7 @@ vi.mock('@/lib/iceland-routes/roadGraph', () => ({
 
 vi.mock('@/lib/iceland-routes/goldenRoutes', () => ({
   auditIcelandGoldenRoutes: mocks.auditGolden,
-  ICELAND_GOLDEN_ROUTES: Array.from({ length: 20 }, (_, index) => ({ id: `route-${index}` })),
+  ICELAND_GOLDEN_ROUTES: Array.from({ length: 21 }, (_, index) => ({ id: `route-${index}` })),
 }))
 
 vi.mock('@/lib/iceland-routes/roadGraphExactVertexV2Regression.server', () => ({
@@ -98,7 +98,7 @@ function diagnostics(segmentCount = 1_226) {
   }
 }
 
-const GOLDEN = Array.from({ length: 20 }, (_, index) => ({ id: `route-${index}`, status: 'ok' }))
+const GOLDEN = Array.from({ length: 21 }, (_, index) => ({ id: `route-${index}`, status: 'ok' }))
 
 function runtimeBuildContract(
   policyFingerprint: RoadGraphRuntimeBuildPolicyFingerprint =
@@ -108,8 +108,8 @@ function runtimeBuildContract(
     schemaVersion: 1 as const,
     policyFingerprint,
     diagnostics: diagnostics(),
-    goldenRoutePassCount: 20,
-    goldenRouteTotalCount: 20,
+    goldenRoutePassCount: 21,
+    goldenRouteTotalCount: 21,
     topologyReceiptIds: [],
   }
 }
@@ -180,7 +180,7 @@ describe('road graph snapshot refresh', () => {
   it('stages and atomically promotes only after validation passes', async () => {
     const result = await refreshRoadGraphSnapshot('admin')
 
-    expect(result).toMatchObject({ status: 'ok', snapshotId: 'snapshot-new', goldenRoutePassCount: 20 })
+    expect(result).toMatchObject({ status: 'ok', snapshotId: 'snapshot-new', goldenRoutePassCount: 21 })
     expect(mocks.stage).toHaveBeenCalledOnce()
     expect(mocks.promote).toHaveBeenCalledWith('snapshot-new')
     expect(mocks.fail).not.toHaveBeenCalled()
@@ -460,7 +460,7 @@ describe('validateRoadGraphSnapshot', () => {
   it('accepts healthy diagnostics and all golden routes', () => {
     expect(validateRoadGraphSnapshot({
       diagnostics: diagnostics(),
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
     }).ok).toBe(true)
   })
 
@@ -473,7 +473,7 @@ describe('validateRoadGraphSnapshot', () => {
         weakComponentCount: 199,
         largestWeakComponentNodeCount: 854,
       },
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
     })
 
     expect(result.ok).toBe(true)
@@ -485,7 +485,7 @@ describe('validateRoadGraphSnapshot', () => {
   it('rejects a bootstrap below the absolute connectivity floor', () => {
     const result = validateRoadGraphSnapshot({
       diagnostics: { ...diagnostics(), largestWeakComponentNodeCount: 817 },
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
     })
 
     expect(result.ok).toBe(false)
@@ -500,7 +500,7 @@ describe('validateRoadGraphSnapshot', () => {
         nodeCount: 1_000,
         largestWeakComponentNodeCount: 600,
       },
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
     })
 
     expect(result.largestComponentShare).toBe(0.60)
@@ -508,10 +508,10 @@ describe('validateRoadGraphSnapshot', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('requires all 20 golden-route results even when every supplied result passes', () => {
+  it('requires all 21 golden-route results even when every supplied result passes', () => {
     const result = validateRoadGraphSnapshot({
       diagnostics: diagnostics(),
-      goldenRouteStatuses: Array(19).fill('ok'),
+      goldenRouteStatuses: Array(20).fill('ok'),
     })
 
     expect(result.ok).toBe(false)
@@ -524,7 +524,7 @@ describe('validateRoadGraphSnapshot', () => {
         ...diagnostics(),
         surfaceEdgeCounts: { paved: 2_398, gravel: 0, mixed: 1, unknown: 1 },
       },
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
     })
 
     expect(result.ok).toBe(false)
@@ -540,7 +540,7 @@ describe('validateRoadGraphSnapshot', () => {
         nodeCount: 1_600,
         largestWeakComponentNodeCount: 1_000,
       },
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
       previous: {
         id: 'old', segmentCount: 1_226, nodeCount: 1_200, edgeCount: 2_400,
         largestWeakComponentNodeCount: 900,
@@ -561,7 +561,7 @@ describe('validateRoadGraphSnapshot', () => {
         nodeCount: 1_300,
         largestWeakComponentNodeCount: 850,
       },
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
       previous: {
         id: 'old', segmentCount: 1_226, nodeCount: 1_500, edgeCount: 2_400,
         largestWeakComponentNodeCount: 1_000,
@@ -585,7 +585,7 @@ describe('validateRoadGraphSnapshot', () => {
         topologyConnectorEdgeCount: 648,
         surfaceEdgeCounts: { paved: 3_500, gravel: 252, mixed: 0, unknown: 0 },
       },
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
       previous: {
         id: 'reciprocal-v1',
         segmentCount: 1_226,
@@ -604,7 +604,7 @@ describe('validateRoadGraphSnapshot', () => {
   it('rejects a suspicious count collapse relative to the active snapshot', () => {
     const result = validateRoadGraphSnapshot({
       diagnostics: diagnostics(1_050),
-      goldenRouteStatuses: Array(20).fill('ok'),
+      goldenRouteStatuses: Array(21).fill('ok'),
       previous: {
         id: 'old', segmentCount: 2_000, nodeCount: 1_363, edgeCount: 2_400,
         largestWeakComponentNodeCount: 1_300,

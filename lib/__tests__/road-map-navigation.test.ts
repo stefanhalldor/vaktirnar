@@ -3,6 +3,7 @@ import {
   ROAD_MAP_PROTOTYPE_NAVIGATION,
   buildRoadMapLiveLocationSignInReturnHref,
   buildRoadMapRouteReturnHref,
+  buildRoadMapRouteSignInReturnHref,
   buildRoadMapSignInReturnHref,
   buildRoadMapStationReturnHref,
   type RoadMapNavigation,
@@ -38,6 +39,12 @@ describe('road map navigation', () => {
   it('restores the route directly into the map after live-location sign-in', () => {
     expect(buildRoadMapLiveLocationSignInReturnHref(promotedPublicNavigation)).toBe(
       '/auth-mvp/vedrid?context=route&view=map&restoreRoute=1',
+    )
+  })
+
+  it('restores the route form and calculation after guest quota sign-in', () => {
+    expect(buildRoadMapRouteSignInReturnHref(promotedPublicNavigation)).toBe(
+      '/auth-mvp/vedrid?context=route&view=information&restoreRoute=1',
     )
   })
 

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildIcelandRoadGraph,
   geometryLengthM,
+  haversineDistanceM,
   ICELAND_ROUTING_PROFILES,
 } from '@/lib/iceland-routes/roadGraph'
 import { auditIcelandGoldenRoutes } from '@/lib/iceland-routes/goldenRoutes'
@@ -18,6 +19,7 @@ import {
   createRouteAssessmentScopeId,
   ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
 } from '@/lib/iceland-routes/routeAssessmentScopeId.server'
+import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 import {
   normalizeVegagerdinRoadGraphSegmentsWithReport,
   type ArcGisGeoJsonFeatureCollection,
@@ -262,4 +264,140 @@ describeRealArtifact('Garðabær to Akranes official-artifact topology regressio
     expect(directionDistancesM).toHaveLength(2)
     expect(Math.abs(directionDistancesM[0] - directionDistancesM[1])).toBeLessThan(1)
   }, 60_000)
+
+  it('finds a strict Reykjavík to Egilsstaðir assessment route in both directions within the extended budget', () => {
+    const bytes = readFileSync(artifactPath)
+    const raw = JSON.parse(bytes.toString('utf8')) as LocalOfficialArtifact
+    const normalized = normalizeVegagerdinRoadGraphSegmentsWithReport({
+      roads: raw.assessment_public_roads,
+      surfaces: raw.road_surfaces,
+      roadLayerId: 6,
+      effectiveAtEpochMs: Date.parse('2026-07-30T00:00:00.000Z'),
+    })
+    const topology = reconcileVegagerdinRoadGraphTopology({
+      segments: normalized.segments,
+      nodeSnapToleranceM: 20,
+      artifact: {
+        artifactId: 'local-official-road-source',
+        contentSha256: createHash('sha256').update(bytes).digest('hex'),
+        validationReportId: 'reykjavik-egilsstadir-real-artifact-regression',
+      },
+    })
+    const graph = buildIcelandRoadGraph(normalized.segments, {
+      nodeSnapToleranceM: 20,
+      routingDirectionPolicy: 'bidirectional',
+      missingDirectionPolicy: 'provisional_bidirectional',
+      topologyReconciliation: {
+        bindings: topology.bindings,
+        invalidBindingBehavior: 'throw',
+      },
+    })
+    // Exercise the exact settlement selections observed in the RoadMap UI,
+    // not only the nearby golden-route audit coordinates.
+    const reykjavik = { lat: 64.1355, lon: -21.8906 }
+    const egilsstadir = { lat: 65.2609, lon: -14.3993 }
+    const directionDistancesM: number[] = []
+
+    for (const [origin, destination] of [
+      [reykjavik, egilsstadir],
+      [egilsstadir, reykjavik],
+    ] as const) {
+      const startedAtMs = Date.now()
+      const anchors = findRouteAssessmentRoadAnchors(
+        graph,
+        { kind: 'projected_road', point: origin },
+        { kind: 'projected_road', point: destination },
+        {
+          profile: ICELAND_ROUTING_PROFILES.fastestCar,
+          maxOriginSnapDistanceM: 2_500,
+          maxDestinationSnapDistanceM: 2_500,
+          maxAlternatives: 0,
+          deadlineAtMs: startedAtMs + 30_000,
+        },
+      )
+      expect(anchors.status).toBe('ok')
+      if (anchors.status !== 'ok') continue
+
+      const assessmentScopeId = createRouteAssessmentScopeId({
+        originAnchorKind: anchors.origin.kind,
+        originPoint: anchors.origin.point,
+        destinationAnchorKind: anchors.destination.kind,
+        destinationPoint: anchors.destination.point,
+        routeProvenanceFingerprint: anchors.routeProvenanceFingerprint,
+      })
+      const trustedAnchors = findRouteAssessmentRoadAnchors(
+        graph,
+        { kind: 'trusted_anchor', point: anchors.origin.point },
+        { kind: 'trusted_anchor', point: anchors.destination.point },
+        {
+          maxOriginSnapDistanceM: ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+          maxDestinationSnapDistanceM: ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+          maxAlternatives: 0,
+          deadlineAtMs: startedAtMs + 30_000,
+        },
+      )
+      expect(trustedAnchors.status).toBe('ok')
+      if (trustedAnchors.status !== 'ok') continue
+      const trustedScopeId = createRouteAssessmentScopeId({
+        originAnchorKind: trustedAnchors.origin.kind,
+        originPoint: trustedAnchors.origin.point,
+        destinationAnchorKind: trustedAnchors.destination.kind,
+        destinationPoint: trustedAnchors.destination.point,
+        routeProvenanceFingerprint: trustedAnchors.routeProvenanceFingerprint,
+      })
+      expect(trustedAnchors.origin.kind).toBe(anchors.origin.kind)
+      expect(trustedAnchors.destination.kind).toBe(anchors.destination.kind)
+      expect(haversineDistanceM(trustedAnchors.origin.point, anchors.origin.point)).toBeLessThan(0.001)
+      expect(haversineDistanceM(trustedAnchors.destination.point, anchors.destination.point)).toBeLessThan(0.001)
+      expect(trustedAnchors.connectedRoadEdges.map(edge => edge.id)).toEqual(
+        anchors.connectedRoadEdges.map(edge => edge.id),
+      )
+      expect(trustedScopeId).toBe(assessmentScopeId)
+      expect(teskeidAssessmentRouteEdgesHaveIntegrity({
+        connectedRoadEdges: trustedAnchors.connectedRoadEdges,
+        origin: trustedAnchors.origin.point,
+        destination: trustedAnchors.destination.point,
+      })).toBe(true)
+      for (let edgeIndex = 0; edgeIndex + 1 < trustedAnchors.connectedRoadEdges.length; edgeIndex += 1) {
+        expect(trustedAnchors.connectedRoadEdges[edgeIndex].toNodeId)
+          .toBe(trustedAnchors.connectedRoadEdges[edgeIndex + 1].fromNodeId)
+      }
+
+      const evidence = resolveTeskeidAssessmentRouteEvidence({
+        graph,
+        origin: anchors.origin.point,
+        destination: anchors.destination.point,
+        assessmentScopeId,
+        includeAlternatives: false,
+        deadlineAtMs: startedAtMs + 30_000,
+      })
+      expect(evidence.status).toBe('ready')
+      if (evidence.status !== 'ready') continue
+      const route = evidence.evidence[0].route
+      const previousAuthCodeSecret = process.env.AUTH_CODE_SECRET
+      process.env.AUTH_CODE_SECRET = 'real-artifact-route-envelope-test-secret'
+      try {
+        expect(() => signRouteOptionEnvelope({
+          origin: anchors.origin.point,
+          destination: anchors.destination.point,
+          route,
+          assessmentScopeId,
+        })).not.toThrow()
+      } finally {
+        if (previousAuthCodeSecret === undefined) {
+          delete process.env.AUTH_CODE_SECRET
+        } else {
+          process.env.AUTH_CODE_SECRET = previousAuthCodeSecret
+        }
+      }
+      const distanceM = route.distanceM
+      directionDistancesM.push(distanceM)
+      expect(distanceM / 1_000).toBeGreaterThanOrEqual(600)
+      expect(distanceM / 1_000).toBeLessThanOrEqual(680)
+      expect(Date.now() - startedAtMs).toBeLessThan(30_000)
+    }
+
+    expect(directionDistancesM).toHaveLength(2)
+    expect(Math.abs(directionDistancesM[0] - directionDistancesM[1])).toBeLessThan(1)
+  }, 90_000)
 })

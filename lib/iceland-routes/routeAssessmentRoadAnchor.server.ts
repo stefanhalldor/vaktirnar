@@ -20,6 +20,10 @@ const MAX_CANONICAL_NODE_CANDIDATES = 64
 const TRUSTED_ANCHOR_EQUIVALENCE_M = 0.5
 const COST_EPSILON = 1e-9
 const FRACTION_EPSILON = 1e-10
+// A projected point is re-derived from its signed coordinates later in the
+// route flow. Normalizing the along-edge fraction prevents sub-millimetre
+// floating-point drift from changing partial-edge IDs and route provenance.
+const ASSESSMENT_FRACTION_DECIMAL_PLACES = 10
 // Start at the geometrically nearest eligible road. Widen only when that road
 // cannot participate in a direction-correct connected route. Fine early bands
 // prevent route cost from moving a selected place hundreds of metres merely
@@ -127,6 +131,21 @@ function finitePoint(point: LatLon): boolean {
   return Number.isFinite(point.lat) && Number.isFinite(point.lon)
 }
 
+function canonicalAssessmentFraction(value: number): number {
+  const clamped = Math.max(0, Math.min(1, value))
+  return Number(clamped.toFixed(ASSESSMENT_FRACTION_DECIMAL_PLACES))
+}
+
+function geometryUsesCanonicalDirection(geometry: readonly LatLon[]): boolean {
+  for (let offset = 0; offset < geometry.length; offset += 1) {
+    const fromStart = geometry[offset]
+    const fromEnd = geometry[geometry.length - 1 - offset]
+    if (fromStart.lat !== fromEnd.lat) return fromStart.lat < fromEnd.lat
+    if (fromStart.lon !== fromEnd.lon) return fromStart.lon < fromEnd.lon
+  }
+  return true
+}
+
 function validMaxDistance(value: number): boolean {
   return Number.isFinite(value) && value >= 0
 }
@@ -183,13 +202,14 @@ function sortedNodeCandidates(
 function edgeGeometryDistances(
   edge: IcelandRoadGraphEdge,
   deadlineAtMs?: number,
+  reverse = false,
 ): number[] | null {
   if (edge.geometry.length < 2) return null
   const cumulative = [0]
   for (let index = 1; index < edge.geometry.length; index += 1) {
     if (deadlineExceeded(deadlineAtMs)) return null
-    const previous = edge.geometry[index - 1]
-    const current = edge.geometry[index]
+    const previous = edge.geometry[reverse ? edge.geometry.length - index : index - 1]
+    const current = edge.geometry[reverse ? edge.geometry.length - 1 - index : index]
     if (!finitePoint(previous) || !finitePoint(current)) return null
     cumulative.push(cumulative[index - 1] + haversineDistanceM(previous, current))
   }
@@ -204,15 +224,17 @@ function projectPointToEdge(
   deadlineAtMs?: number,
 ): EdgeProjection | null {
   if (!finitePoint(point) || deadlineExceeded(deadlineAtMs)) return null
-  const cumulative = edgeGeometryDistances(edge, deadlineAtMs)
+  const usesCanonicalDirection = geometryUsesCanonicalDirection(edge.geometry)
+  const reverseGeometry = !usesCanonicalDirection
+  const cumulative = edgeGeometryDistances(edge, deadlineAtMs, reverseGeometry)
   if (!cumulative) return null
   const totalDistanceM = cumulative[cumulative.length - 1]
   let best: { point: LatLon; distanceM: number; distanceAlongEdgeM: number } | null = null
 
   for (let index = 0; index + 1 < edge.geometry.length; index += 1) {
     if (deadlineExceeded(deadlineAtMs)) return null
-    const a = edge.geometry[index]
-    const b = edge.geometry[index + 1]
+    const a = edge.geometry[reverseGeometry ? edge.geometry.length - 1 - index : index]
+    const b = edge.geometry[reverseGeometry ? edge.geometry.length - 2 - index : index + 1]
     const metresPerDegreeLat = 111_320
     const metresPerDegreeLon = metresPerDegreeLat
       * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180)
@@ -244,13 +266,22 @@ function projectPointToEdge(
   }
 
   if (deadlineExceeded(deadlineAtMs)) return null
-  return best
-    ? {
-        point: best.point,
-        distanceM: best.distanceM,
-        fraction: Math.max(0, Math.min(1, best.distanceAlongEdgeM / totalDistanceM)),
-      }
-    : null
+  if (!best) return null
+  const canonicalFraction = canonicalAssessmentFraction(best.distanceAlongEdgeM / totalDistanceM)
+  const fraction = usesCanonicalDirection ? canonicalFraction : 1 - canonicalFraction
+  const projectedPoint = pointAtGeometryFraction(
+    edge.geometry,
+    cumulative,
+    canonicalFraction,
+    deadlineAtMs,
+    reverseGeometry,
+  )
+  if (!projectedPoint) return null
+  return {
+    point: projectedPoint,
+    distanceM: haversineDistanceM(point, projectedPoint),
+    fraction,
+  }
 }
 
 function sortedEdgeCandidates(
@@ -417,6 +448,7 @@ function pointAtGeometryFraction(
   cumulative: readonly number[],
   fraction: number,
   deadlineAtMs?: number,
+  reverse = false,
 ): LatLon | null {
   if (deadlineExceeded(deadlineAtMs)) return null
   const clamped = Math.max(0, Math.min(1, fraction))
@@ -429,14 +461,16 @@ function pointAtGeometryFraction(
     const segmentFraction = segmentDistanceM <= 0
       ? 0
       : (targetDistanceM - cumulative[index]) / segmentDistanceM
-    const a = geometry[index]
-    const b = geometry[index + 1]
+    const a = geometry[reverse ? geometry.length - 1 - index : index]
+    const b = geometry[reverse ? geometry.length - 2 - index : index + 1]
     return {
       lat: a.lat + segmentFraction * (b.lat - a.lat),
       lon: a.lon + segmentFraction * (b.lon - a.lon),
     }
   }
-  return deadlineExceeded(deadlineAtMs) ? null : geometry[geometry.length - 1]
+  return deadlineExceeded(deadlineAtMs)
+    ? null
+    : geometry[reverse ? 0 : geometry.length - 1]
 }
 
 function sliceEdge(

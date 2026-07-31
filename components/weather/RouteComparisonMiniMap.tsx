@@ -1,11 +1,65 @@
 'use client'
 
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DriveRouteMap,
   type DriveRouteMapAnnotation,
   type DriveRouteMapRoute,
 } from './DriveRouteMap'
+
+export const ROUTE_MAP_LABEL_SCALE_STORAGE_KEY = 'teskeid:route-map-label-scale'
+
+const ROUTE_MAP_LABEL_SCALE_EVENT = 'teskeid:route-map-label-scale-change'
+const ROUTE_MAP_LABEL_SCALES = [0.85, 1, 1.25, 1.5] as const
+type RouteMapLabelScale = (typeof ROUTE_MAP_LABEL_SCALES)[number]
+
+function parseRouteMapLabelScale(value: string | null): RouteMapLabelScale {
+  const parsed = Number(value)
+  return ROUTE_MAP_LABEL_SCALES.find(scale => scale === parsed) ?? 1
+}
+
+function useRouteMapLabelScale() {
+  const [scale, setScale] = useState<RouteMapLabelScale>(1)
+
+  useEffect(() => {
+    const applyStoredScale = () => {
+      try {
+        setScale(parseRouteMapLabelScale(window.localStorage.getItem(ROUTE_MAP_LABEL_SCALE_STORAGE_KEY)))
+      } catch {
+        setScale(1)
+      }
+    }
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === ROUTE_MAP_LABEL_SCALE_STORAGE_KEY) {
+        setScale(parseRouteMapLabelScale(event.newValue))
+      }
+    }
+    const handleLocalChange = (event: Event) => {
+      const nextScale = (event as CustomEvent<number>).detail
+      setScale(parseRouteMapLabelScale(String(nextScale)))
+    }
+
+    applyStoredScale()
+    window.addEventListener('storage', handleStorage)
+    window.addEventListener(ROUTE_MAP_LABEL_SCALE_EVENT, handleLocalChange)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      window.removeEventListener(ROUTE_MAP_LABEL_SCALE_EVENT, handleLocalChange)
+    }
+  }, [])
+
+  const saveScale = useCallback((nextScale: RouteMapLabelScale) => {
+    setScale(nextScale)
+    try {
+      window.localStorage.setItem(ROUTE_MAP_LABEL_SCALE_STORAGE_KEY, String(nextScale))
+    } catch {
+      // The visual preference still applies for this session when storage is unavailable.
+    }
+    window.dispatchEvent(new CustomEvent(ROUTE_MAP_LABEL_SCALE_EVENT, { detail: nextScale }))
+  }, [])
+
+  return { scale, saveScale }
+}
 
 export type RouteComparisonMiniMapItem = {
   id: string
@@ -36,9 +90,10 @@ export type RouteComparisonMiniMapItem = {
   surfaceLabel?: string
   sectionOverlays?: Array<{
     id: string
-    kind: 'gravel' | 'inferred_direction'
+    kind: 'gravel' | 'inferred_direction' | 'weather_coverage_gap'
     label: string
     points: Array<{ lat: number; lon: number }>
+    distanceKm?: number
   }>
 }
 
@@ -94,30 +149,26 @@ function comparisonMapAnnotations(
   drawable: readonly RouteComparisonMiniMapItem[],
   selectedRouteId: string | null,
 ): DriveRouteMapAnnotation[] {
-  const annotations = drawable.flatMap(route => {
+  return drawable.flatMap(route => {
     const selected = selectedRouteId === null ? route.selected : route.id === selectedRouteId
     if (!selected) return []
     return (route.sectionOverlays ?? []).flatMap((overlay): DriveRouteMapAnnotation[] => {
-      if (overlay.kind !== 'gravel' || overlay.points.length < 2) return []
+      if (
+        (overlay.kind !== 'gravel' && overlay.kind !== 'weather_coverage_gap')
+        || overlay.points.length < 2
+      ) return []
       const measured = measureSectionGeometry(overlay.points)
       if (!measured) return []
       return [{
         id: `${route.id}:annotation:${overlay.id}`,
-        kind: 'gravel',
+        kind: overlay.kind,
         label: overlay.label,
         point: measured.midpoint,
         focusPoints: overlay.points,
-        distanceKm: measured.distanceKm,
+        distanceKm: overlay.distanceKm ?? measured.distanceKm,
       }]
     })
   })
-  const defaultCallout = annotations.reduce<DriveRouteMapAnnotation | null>((longest, annotation) => (
-    !longest || annotation.distanceKm > longest.distanceKm ? annotation : longest
-  ), null)
-  return annotations.map(annotation => ({
-    ...annotation,
-    showLabel: annotation.id === defaultCallout?.id,
-  }))
 }
 
 function comparisonMapRoutes(
@@ -140,20 +191,24 @@ function comparisonMapRoutes(
   const overlays = drawable.flatMap(route => {
     const selected = selectedRouteId === null ? route.selected : route.id === selectedRouteId
     if (!selected) return []
-    return (route.sectionOverlays ?? []).flatMap((overlay): DriveRouteMapRoute[] => (
-      overlay.points.length < 2
-        ? []
-        : [{
-            id: `${route.id}:section:${overlay.id}`,
-            selectRouteId: route.id,
-            points: overlay.points,
-            color: overlay.kind === 'gravel' ? '#d97706' : '#7e22ce',
-            opacity: 0.98,
-            width: overlay.kind === 'gravel' ? 7 : 5,
-            offset: overlay.kind === 'gravel' ? 0 : 1.5,
-            dashArray: overlay.kind === 'gravel' ? [1.2, 1.5] : [0.4, 1.4],
-          }]
-    ))
+    return (route.sectionOverlays ?? []).flatMap((overlay): DriveRouteMapRoute[] => {
+      if (overlay.points.length < 2) return []
+      const style = overlay.kind === 'gravel'
+        ? { color: '#d97706', width: 7, offset: 0, dashArray: [1.2, 1.5] }
+        : overlay.kind === 'weather_coverage_gap'
+          ? { color: '#475569', width: 7, offset: 0, dashArray: [0.5, 1.4] }
+          : { color: '#7e22ce', width: 5, offset: 1.5, dashArray: [0.4, 1.4] }
+      return [{
+        id: `${route.id}:section:${overlay.id}`,
+        selectRouteId: route.id,
+        points: overlay.points,
+        color: style.color,
+        opacity: 0.98,
+        width: style.width,
+        offset: style.offset,
+        dashArray: style.dashArray,
+      }]
+    })
   })
   return [...baseRoutes, ...overlays]
 }
@@ -350,6 +405,7 @@ export function RouteComparisonMiniMap({
   onEnlarge?: () => void
   enlargeLabel?: string
 }) {
+  const { scale: mapLabelScale } = useRouteMapLabelScale()
   const drawable = useMemo(
     () => routes.filter(route => route.points.length >= 2),
     [routes],
@@ -370,6 +426,7 @@ export function RouteComparisonMiniMap({
         <DriveRouteMap
           routes={mapRoutes}
           annotations={mapAnnotations}
+          annotationScale={mapLabelScale}
           interactive={false}
           ariaLabel={ariaLabel}
           className="h-[120px] w-full"
@@ -407,7 +464,9 @@ export function RouteComparisonMiniMap({
               className={`w-4 shrink-0 border-t-2 ${
                 overlay.kind === 'gravel'
                   ? 'border-dashed border-amber-600'
-                  : 'border-dotted border-purple-700'
+                  : overlay.kind === 'weather_coverage_gap'
+                    ? 'border-dashed border-slate-600'
+                    : 'border-dotted border-purple-700'
               }`}
             />
             <span>{overlay.label}</span>
@@ -428,6 +487,7 @@ export function RouteComparisonFullscreenMap({
   findMoreLabel,
   findingMoreLabel,
   findMoreCompleteLabel,
+  findMoreProminent = false,
   sortLabel,
   sortDefaultLabel,
   sortDurationLabel,
@@ -441,7 +501,10 @@ export function RouteComparisonFullscreenMap({
   onFindMore,
   cautionCloseLabel,
   closeLabel,
-  selectedRouteDetails,
+  mapLabelScaleGroupLabel,
+  mapLabelScaleDecreaseLabel,
+  mapLabelScaleResetLabel,
+  mapLabelScaleIncreaseLabel,
 }: {
   routes: RouteComparisonMiniMapItem[]
   selectedRouteId: string | null
@@ -452,6 +515,7 @@ export function RouteComparisonFullscreenMap({
   findMoreLabel?: string
   findingMoreLabel?: string
   findMoreCompleteLabel?: string
+  findMoreProminent?: boolean
   sortLabel: string
   sortDefaultLabel: string
   sortDurationLabel: string
@@ -465,9 +529,14 @@ export function RouteComparisonFullscreenMap({
   onFindMore?: () => void
   cautionCloseLabel: string
   closeLabel: string
-  selectedRouteDetails?: ReactNode
+  mapLabelScaleGroupLabel?: string
+  mapLabelScaleDecreaseLabel?: string
+  mapLabelScaleResetLabel?: string
+  mapLabelScaleIncreaseLabel?: string
 }) {
   const [sortMode, setSortMode] = useState<RouteComparisonSortMode>('default')
+  const { scale: mapLabelScale, saveScale: saveMapLabelScale } = useRouteMapLabelScale()
+  const mapLabelScaleIndex = ROUTE_MAP_LABEL_SCALES.indexOf(mapLabelScale)
   const sortedRoutes = useMemo(() => sortRouteComparisonItems(routes, sortMode), [routes, sortMode])
   const weatherSortingAvailable = routes.some(route => route.weatherScore !== null && route.weatherScore !== undefined)
   const dialogRef = useRef<HTMLDivElement | null>(null)
@@ -613,10 +682,56 @@ export function RouteComparisonFullscreenMap({
         <DriveRouteMap
           routes={mapRoutes}
           annotations={mapAnnotations}
+          annotationScale={mapLabelScale}
           onSelectRoute={applyPending ? undefined : handleMapRouteSelect}
           ariaLabel={title}
           className="h-full w-full"
         />
+        {mapLabelScaleGroupLabel
+          && mapLabelScaleDecreaseLabel
+          && mapLabelScaleResetLabel
+          && mapLabelScaleIncreaseLabel && (
+            <div
+              role="group"
+              aria-label={mapLabelScaleGroupLabel}
+              className="absolute right-3 top-3 z-20 flex overflow-hidden rounded-full border border-border bg-background/95 shadow-md backdrop-blur-sm"
+            >
+              <button
+                type="button"
+                onClick={() => saveMapLabelScale(
+                  ROUTE_MAP_LABEL_SCALES[mapLabelScaleIndex - 1] ?? mapLabelScale,
+                )}
+                disabled={mapLabelScaleIndex <= 0}
+                aria-label={mapLabelScaleDecreaseLabel}
+                title={mapLabelScaleDecreaseLabel}
+                className="inline-flex h-10 min-h-10 w-10 min-w-10 items-center justify-center border-r border-border text-sm font-semibold text-foreground disabled:opacity-35 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              >
+                <span aria-hidden="true">A−</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => saveMapLabelScale(1)}
+                disabled={mapLabelScale === 1}
+                aria-label={mapLabelScaleResetLabel}
+                title={mapLabelScaleResetLabel}
+                className="inline-flex h-10 min-h-10 w-10 min-w-10 items-center justify-center border-r border-border text-base font-semibold text-foreground disabled:opacity-35 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              >
+                <span aria-hidden="true">A</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => saveMapLabelScale(
+                  ROUTE_MAP_LABEL_SCALES[mapLabelScaleIndex + 1] ?? mapLabelScale,
+                )}
+                disabled={mapLabelScaleIndex >= ROUTE_MAP_LABEL_SCALES.length - 1}
+                aria-label={mapLabelScaleIncreaseLabel}
+                title={mapLabelScaleIncreaseLabel}
+                className="inline-flex h-10 min-h-10 w-10 min-w-10 items-center justify-center text-lg font-semibold text-foreground disabled:opacity-35 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              >
+                <span aria-hidden="true">A+</span>
+              </button>
+            </div>
+          )}
       </div>
 
       <section className="flex min-h-0 max-h-[48dvh] shrink-0 flex-col overflow-hidden border-t border-border bg-background/98 shadow-[0_-8px_24px_rgba(15,23,42,0.10)]">
@@ -626,7 +741,7 @@ export function RouteComparisonFullscreenMap({
         >
         <div className="mb-2 flex items-center justify-between gap-3">
           <p className="text-xs font-medium text-muted-foreground">{routeCountLabel}</p>
-          {onFindMore && findMoreLabel && (
+          {!findMoreProminent && onFindMore && findMoreLabel && (
             <button
               type="button"
               onClick={onFindMore}
@@ -644,6 +759,23 @@ export function RouteComparisonFullscreenMap({
             </button>
           )}
         </div>
+        {findMoreProminent && onFindMore && findMoreLabel && (
+          <button
+            type="button"
+            onClick={onFindMore}
+            disabled={applyPending || alternativesStatus === 'loading' || alternativesStatus === 'ready'}
+            className="mb-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-orange-400 bg-background px-4 py-2 text-sm font-semibold text-orange-900 disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-orange-700 dark:text-orange-100"
+          >
+            {alternativesStatus === 'loading' && (
+              <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />
+            )}
+            {alternativesStatus === 'loading' && findingMoreLabel
+              ? findingMoreLabel
+              : alternativesStatus === 'ready' && findMoreCompleteLabel
+                ? findMoreCompleteLabel
+                : findMoreLabel}
+          </button>
+        )}
         <div className="mb-2" aria-label={sortLabel}>
           <p className="mb-1 text-[10px] font-medium text-muted-foreground">{sortLabel}</p>
           <div className="grid grid-cols-2 rounded-md border border-border bg-muted/40 p-0.5 min-[420px]:grid-cols-4">
@@ -706,11 +838,6 @@ export function RouteComparisonFullscreenMap({
             )
           })}
         </div>
-        {selectedRouteDetails && (
-          <div data-route-comparison-selected-details="true" className="mt-3">
-            {selectedRouteDetails}
-          </div>
-        )}
         </div>
         <footer
           data-route-comparison-action-footer="true"

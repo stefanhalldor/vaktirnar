@@ -85,8 +85,8 @@ beforeEach(() => {
   markerElements.length = 0
 })
 
-describe('DriveRouteMap gravel annotations', () => {
-  it('keeps a non-colour marker and one compact callout visible, then focuses the exact section', async () => {
+describe('DriveRouteMap section annotations', () => {
+  it('keeps compact section distances inside distinct markers and focuses the exact section', async () => {
     const longSection = [
       { lat: 64.1, lon: -21.9 },
       { lat: 64.12, lon: -21.75 },
@@ -99,6 +99,7 @@ describe('DriveRouteMap gravel annotations', () => {
     const { unmount } = render(
       <DriveRouteMap
         ariaLabel="Leiðakort"
+        annotationScale={1.5}
         routes={[{
           id: 'route',
           color: '#14532d',
@@ -112,7 +113,6 @@ describe('DriveRouteMap gravel annotations', () => {
             point: longSection[1],
             focusPoints: longSection,
             distanceKm: 8.3,
-            showLabel: true,
           },
           {
             id: 'short-gravel',
@@ -122,24 +122,43 @@ describe('DriveRouteMap gravel annotations', () => {
             focusPoints: shortSection,
             distanceKm: 1.2,
           },
+          {
+            id: 'wind-coverage-gap',
+            kind: 'weather_coverage_gap',
+            label: 'Takmörkuð vindgögn',
+            point: longSection[0],
+            focusPoints: longSection,
+            distanceKm: 63.4,
+          },
         ]}
       />,
     )
 
     const longMarker = await screen.findByRole('button', { name: '8,3 km · Malarvegur' })
     const shortMarker = screen.getByRole('button', { name: '1,2 km · Malarvegur' })
-    const longCallout = screen.getByText('8,3 km · Malarvegur')
-    const shortCallout = screen.getByText('1,2 km · Malarvegur')
+    const windGapMarker = screen.getByRole('button', {
+      name: '63,4 km · Takmörkuð vindgögn',
+    })
 
-    expect(longMarker.style.width).toBe('40px')
-    expect(longMarker.style.height).toBe('40px')
-    expect(longMarker.querySelectorAll('span').length).toBeGreaterThanOrEqual(5)
-    expect(longCallout).toHaveStyle({ display: 'block' })
-    expect(shortCallout).toHaveStyle({ display: 'none' })
+    expect(longMarker.style.width).toBe('50px')
+    expect(longMarker.style.height).toBe('50px')
+    expect(longMarker.style.position).toBe('absolute')
+    expect(shortMarker.style.position).toBe('absolute')
+    expect(longMarker).toHaveTextContent('8,3')
+    expect(shortMarker).toHaveTextContent('1,2')
+    expect(windGapMarker).toHaveTextContent('63,4')
+    expect(windGapMarker).toHaveAttribute('data-route-annotation-kind', 'weather_coverage_gap')
+    const markerBadge = longMarker.firstElementChild as HTMLElement
+    const markerDistance = markerBadge.lastElementChild as HTMLElement
+    expect(markerBadge.style.transform).toBe('scale(var(--teskeid-map-annotation-scale, 1))')
+    expect(markerDistance.style.font).toContain('11px')
+    expect(screen.getByRole('group', { name: 'Leiðakort' }).style.getPropertyValue(
+      '--teskeid-map-annotation-scale',
+    )).toBe('1.5')
+    expect(screen.queryByText('8,3 km · Malarvegur')).not.toBeInTheDocument()
+    expect(screen.queryByText('1,2 km · Malarvegur')).not.toBeInTheDocument()
 
     fireEvent.focus(shortMarker)
-    expect(shortCallout).toHaveStyle({ display: 'block' })
-    expect(longCallout).toHaveStyle({ display: 'none' })
     await waitFor(() => {
       expect(mapInstances[0].fitBounds).toHaveBeenLastCalledWith(
         expect.objectContaining({ coordinates: shortSection.map(point => [point.lon, point.lat]) }),

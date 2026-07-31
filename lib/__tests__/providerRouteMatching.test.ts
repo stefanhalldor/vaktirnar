@@ -6,6 +6,8 @@ import {
   rdpSimplifyToMaxPoints,
   pointToPolylineDistanceM,
   maximumRouteDistanceToMatchedStationKm,
+  routeMeasurementGaps,
+  sliceRoutePolylineByFractions,
 } from '@/lib/weather/providerRouteMatching'
 
 // Simple east-west route across Iceland (lat=64.0, lon from -22.0 to -21.0)
@@ -277,6 +279,43 @@ describe('maximumRouteDistanceToMatchedStationKm', () => {
     expect(maximumRouteDistanceToMatchedStationKm(400, [])).toBeNull()
     expect(maximumRouteDistanceToMatchedStationKm(0, [0.5])).toBeNull()
     expect(maximumRouteDistanceToMatchedStationKm(Number.NaN, [0.5])).toBeNull()
+  })
+})
+
+describe('routeMeasurementGaps', () => {
+  it('returns only the exact route portions farther than 50 km from every station', () => {
+    const gaps = routeMeasurementGaps(400, [0.1, 0.4, 0.9])
+    expect(gaps).toHaveLength(2)
+    expect(gaps[0].startFraction).toBeCloseTo(0.225)
+    expect(gaps[0].endFraction).toBeCloseTo(0.275)
+    expect(gaps[0].distanceKm).toBeCloseTo(20)
+    expect(gaps[1].startFraction).toBeCloseTo(0.525)
+    expect(gaps[1].endFraction).toBeCloseTo(0.775)
+    expect(gaps[1].distanceKm).toBeCloseTo(100)
+  })
+
+  it('does not create a gap when adjacent 50 km station coverage just meets', () => {
+    expect(routeMeasurementGaps(200, [0.25, 0.75])).toEqual([])
+  })
+
+  it('marks the whole route when no usable station exists', () => {
+    expect(routeMeasurementGaps(80, [])).toEqual([
+      { startFraction: 0, endFraction: 1, distanceKm: 80 },
+    ])
+  })
+})
+
+describe('sliceRoutePolylineByFractions', () => {
+  it('interpolates exact boundaries and preserves intermediate route points', () => {
+    expect(sliceRoutePolylineByFractions([
+      { lat: 64, lon: -22 },
+      { lat: 64, lon: -21 },
+      { lat: 64, lon: -20 },
+    ], 0.25, 0.75)).toEqual([
+      { lat: 64, lon: -21.5 },
+      { lat: 64, lon: -21 },
+      { lat: 64, lon: -20.5 },
+    ])
   })
 })
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { driveRouteMapSpy } = vi.hoisted(() => ({ driveRouteMapSpy: vi.fn() }))
@@ -8,10 +8,10 @@ vi.mock('@/components/weather/DriveRouteMap', () => ({
     onSelectRoute?: (routeId: string) => void
     annotations?: Array<{
       id: string
+      kind: 'gravel' | 'weather_coverage_gap'
       point: { lat: number; lon: number }
       focusPoints: Array<{ lat: number; lon: number }>
       distanceKm: number
-      showLabel?: boolean
     }>
   }) => {
     driveRouteMapSpy(props)
@@ -28,6 +28,7 @@ vi.mock('@/components/weather/DriveRouteMap', () => ({
 import {
   RouteComparisonMiniMap,
   RouteComparisonFullscreenMap,
+  ROUTE_MAP_LABEL_SCALE_STORAGE_KEY,
   routeComparisonColor,
   selectBestWeatherRouteIds,
   sortRouteComparisonItems,
@@ -40,6 +41,7 @@ const POINTS = [
 
 beforeEach(() => {
   driveRouteMapSpy.mockClear()
+  window.localStorage.clear()
   window.requestAnimationFrame = callback => {
     callback(0)
     return 1
@@ -139,7 +141,6 @@ describe('RouteComparisonMiniMap', () => {
     expect(driveRouteMapSpy).toHaveBeenCalledWith(expect.objectContaining({
       annotations: [expect.objectContaining({
         id: 'teskeid:annotation:gravel-0',
-        showLabel: true,
       })],
       routes: expect.arrayContaining([
         expect.objectContaining({
@@ -151,7 +152,7 @@ describe('RouteComparisonMiniMap', () => {
     }))
   })
 
-  it('places persistent gravel markers at geometry midpoints and labels only the longest section', () => {
+  it('places persistent gravel markers at every geometry midpoint', () => {
     const longGravel = [
       { lat: 64, lon: -21.8 },
       { lat: 64, lon: -21.72 },
@@ -187,7 +188,6 @@ describe('RouteComparisonMiniMap', () => {
         point: { lat: number; lon: number }
         focusPoints: Array<{ lat: number; lon: number }>
         distanceKm: number
-        showLabel?: boolean
       }>
     }
     expect(props.annotations).toHaveLength(2)
@@ -199,12 +199,105 @@ describe('RouteComparisonMiniMap', () => {
     expect(longMarker?.point).not.toEqual(longGravel[0])
     expect(longMarker?.point).not.toEqual(longGravel[longGravel.length - 1])
     expect(longMarker?.focusPoints).toEqual(longGravel)
-    expect(longMarker?.showLabel).toBe(true)
-    expect(shortMarker?.showLabel).toBe(false)
+    expect(shortMarker?.distanceKm).toBeGreaterThan(1)
+  })
+
+  it('draws limited-wind-data gaps with their exact distance and a distinct neutral pattern', () => {
+    render(
+      <RouteComparisonMiniMap
+        ariaLabel="Leiðasamanburður"
+        routes={[
+          {
+            id: 'teskeid',
+            label: 'Teskeiðarleið',
+            provider: 'teskeid',
+            points: POINTS,
+            selected: true,
+            sectionOverlays: [{
+              id: 'weather-coverage-gap-0',
+              kind: 'weather_coverage_gap',
+              label: 'Takmörkuð vindgögn',
+              points: POINTS,
+              distanceKm: 63.4,
+            }],
+          },
+          { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: false },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Takmörkuð vindgögn')).toBeInTheDocument()
+    expect(driveRouteMapSpy).toHaveBeenCalledWith(expect.objectContaining({
+      annotations: [expect.objectContaining({
+        id: 'teskeid:annotation:weather-coverage-gap-0',
+        kind: 'weather_coverage_gap',
+        distanceKm: 63.4,
+      })],
+      routes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'teskeid:section:weather-coverage-gap-0',
+          color: '#475569',
+          dashArray: [0.5, 1.4],
+        }),
+      ]),
+    }))
   })
 })
 
 describe('RouteComparisonFullscreenMap', () => {
+  it('resizes map annotation text and restores the saved preference', async () => {
+    const labels = {
+      mapLabelScaleGroupLabel: 'Textastærð merkja á korti',
+      mapLabelScaleDecreaseLabel: 'Minnka texta merkja á korti',
+      mapLabelScaleResetLabel: 'Venjuleg textastærð merkja á korti',
+      mapLabelScaleIncreaseLabel: 'Stækka texta merkja á korti',
+    }
+    const renderMap = () => render(
+      <RouteComparisonFullscreenMap
+        title="Veldu leið á korti"
+        applyLabel="Skoða veðurskilyrði"
+        cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
+        routeCountLabel="1 leið"
+        sortLabel="Raða eftir"
+        sortDefaultLabel="Sjálfgefið"
+        sortDurationLabel="Aksturstíma"
+        sortDistanceLabel="Vegalengd"
+        sortWeatherLabel="Veðri núna"
+        selectedRouteId="teskeid"
+        onSelectRouteId={vi.fn()}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+        routes={[{
+          id: 'teskeid',
+          label: 'Teskeiðarleið',
+          provider: 'teskeid',
+          points: POINTS,
+          selected: true,
+        }]}
+        {...labels}
+      />,
+    )
+
+    const first = renderMap()
+    expect(screen.getByRole('group', { name: labels.mapLabelScaleGroupLabel })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: labels.mapLabelScaleIncreaseLabel }))
+
+    expect(window.localStorage.getItem(ROUTE_MAP_LABEL_SCALE_STORAGE_KEY)).toBe('1.25')
+    expect(driveRouteMapSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      annotationScale: 1.25,
+    }))
+
+    first.unmount()
+    driveRouteMapSpy.mockClear()
+    renderMap()
+    await waitFor(() => {
+      expect(driveRouteMapSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+        annotationScale: 1.25,
+      }))
+    })
+  })
+
   it('selects from both the map and cards and exposes one explicit apply action', () => {
     const onSelectRouteId = vi.fn()
     const onApply = vi.fn()
@@ -225,7 +318,6 @@ describe('RouteComparisonFullscreenMap', () => {
         onSelectRouteId={onSelectRouteId}
         onClose={onClose}
         onApply={onApply}
-        selectedRouteDetails={<p>Staðfest mörk veðurmats</p>}
         routes={[
           { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: true },
           { id: 'teskeid', label: 'Teskeiðarleið', provider: 'teskeid', points: POINTS, selected: false },
@@ -243,20 +335,14 @@ describe('RouteComparisonFullscreenMap', () => {
     const routeCards = container.querySelector<HTMLElement>(
       '[data-route-comparison-cards="true"]',
     )
-    const selectedRouteDetails = container.querySelector<HTMLElement>(
-      '[data-route-comparison-selected-details="true"]',
-    )
     const applyAction = screen.getByRole('button', {
       name: 'Skoða veðurskilyrði fyrir þessa leið',
     })
 
     expect(dialog).toHaveAccessibleName('Veldu leið á korti')
-    expect(screen.getByText('Staðfest mörk veðurmats')).toBeInTheDocument()
     expect(scrollRegion).toHaveClass('overflow-y-auto')
     expect(scrollRegion).toContainElement(routeCards)
-    expect(scrollRegion).toContainElement(selectedRouteDetails)
-    expect(routeCards?.compareDocumentPosition(selectedRouteDetails!))
-      .toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(container.querySelector('[data-route-comparison-selected-details="true"]')).toBeNull()
     expect(scrollRegion).not.toContainElement(applyAction)
     expect(actionFooter).toContainElement(applyAction)
     expect(actionFooter).toHaveClass('shrink-0')

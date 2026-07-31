@@ -12,11 +12,15 @@ import {
   getIcelandRoadGraph,
   getIcelandRoadGraphCacheStatus,
 } from '@/lib/iceland-routes/roadGraphRuntime.server'
+import { resolveRouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope.server'
+import type { RouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope'
 import {
   signRouteOptionEnvelope,
   type RouteOptionEnvelopeV1,
   verifyRouteOptionEnvelope,
 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
+
+export const maxDuration = 30
 
 function validPoint(value: unknown): value is { lat: number; lon: number } {
   if (!value || typeof value !== 'object') return false
@@ -96,14 +100,29 @@ export async function POST(request: Request) {
   if (!validPoint(body?.origin) || !validPoint(body?.destination)) {
     return NextResponse.json({ status: 'unavailable', route: null }, { status: 400 })
   }
+  const searchMode = body?.searchMode ?? 'quick'
+  if (searchMode !== 'quick' && searchMode !== 'extended') {
+    return NextResponse.json(
+      { status: 'unavailable', routes: [], route: null },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } },
+    )
+  }
+  const retryAttempt = body?.retryAttempt ?? 0
+  if (!Number.isSafeInteger(retryAttempt) || retryAttempt < 0 || retryAttempt > 10) {
+    return NextResponse.json(
+      { status: 'unavailable', routes: [], route: null },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } },
+    )
+  }
 
   // The client sends full place objects, but signed envelopes intentionally
   // bind only canonical coordinates. Do not pass display names, place IDs, or
   // any future client-only metadata into the strict envelope contract.
   let origin = { lat: body.origin.lat, lon: body.origin.lon }
   let destination = { lat: body.destination.lat, lon: body.destination.lon }
+  const resolveAssessmentScope = body?.resolveAssessmentScope === true
   const rawAssessmentScopeId = body?.assessmentScopeId
-  const assessmentScopeId = typeof rawAssessmentScopeId === 'string'
+  let assessmentScopeId = typeof rawAssessmentScopeId === 'string'
     ? rawAssessmentScopeId.trim()
     : null
   if (
@@ -122,7 +141,96 @@ export async function POST(request: Request) {
     )
   }
 
-  if (assessmentScopeId !== null) {
+  const rawExpectedAssessmentScopeId = body?.expectedAssessmentScopeId
+  const expectedAssessmentScopeId = typeof rawExpectedAssessmentScopeId === 'string'
+    ? rawExpectedAssessmentScopeId.trim()
+    : null
+  if (
+    rawExpectedAssessmentScopeId !== undefined
+    && (
+      !resolveAssessmentScope
+      || typeof rawExpectedAssessmentScopeId !== 'string'
+      || expectedAssessmentScopeId === null
+      || expectedAssessmentScopeId.length === 0
+      || rawExpectedAssessmentScopeId !== expectedAssessmentScopeId
+      || expectedAssessmentScopeId.length > MAX_ASSESSMENT_SCOPE_ID_LENGTH
+    )
+  ) {
+    return NextResponse.json(
+      { status: 'unavailable', routes: [], route: null },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } },
+    )
+  }
+
+  const isAnonymousPublic = access.mode === 'public' && !hasAuthenticatedIdentity
+  let guestRateLimitChecked = false
+  const checkGuestCandidateLimit = async () => {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      ?? request.headers.get('x-real-ip')?.trim()
+      ?? ''
+    guestRateLimitChecked = true
+    return await checkWeatherGuestRateLimit(ip, 'teskeid-candidate')
+  }
+  const rateLimitedResponse = () => NextResponse.json({
+    status: 'rate_limited',
+    routes: [],
+    route: null,
+  }, {
+    status: 429,
+    headers: { 'Cache-Control': 'no-store' },
+  })
+
+  if (resolveAssessmentScope && isAnonymousPublic && !(await checkGuestCandidateLimit())) {
+    return rateLimitedResponse()
+  }
+
+  let assessmentScope: RouteAssessmentScope | null = null
+  if (resolveAssessmentScope) {
+    assessmentScope = await resolveRouteAssessmentScope(body.origin, body.destination)
+    if (
+      expectedAssessmentScopeId !== null
+      && !(assessmentScope.status === 'unavailable'
+        && assessmentScope.reason === 'road_graph_unavailable')
+      && (
+        assessmentScope.status !== 'ready'
+        || assessmentScope.scopeId !== expectedAssessmentScopeId
+      )
+    ) {
+      return NextResponse.json(
+        { status: 'unavailable', routes: [], route: null },
+        { status: 409, headers: { 'Cache-Control': 'no-store' } },
+      )
+    }
+    if (assessmentScope.status !== 'ready') {
+      if (
+        assessmentScope.status === 'unavailable'
+        && assessmentScope.reason === 'road_graph_unavailable'
+      ) {
+        after(async () => {
+          await getIcelandRoadGraph().catch(() => undefined)
+        })
+      }
+      return NextResponse.json({
+        status: assessmentScope.status === 'unavailable'
+          && assessmentScope.reason === 'road_graph_unavailable'
+          ? 'pending'
+          : assessmentScope.status === 'same_area'
+            ? 'no_route'
+            : 'unavailable',
+        assessmentScope,
+        routes: [],
+        route: null,
+      }, { headers: { 'Cache-Control': 'no-store' } })
+    }
+    // Route envelopes deliberately accept coordinates only. The assessment
+    // endpoints also contain display/source metadata, which must never leak
+    // into or invalidate the strict signed payload.
+    origin = { lat: assessmentScope.origin.lat, lon: assessmentScope.origin.lon }
+    destination = { lat: assessmentScope.destination.lat, lon: assessmentScope.destination.lon }
+    assessmentScopeId = assessmentScope.scopeId
+  }
+
+  if (!resolveAssessmentScope && assessmentScopeId !== null) {
     const accessRouteEnvelope = verifyRouteOptionEnvelope(body.accessRouteEnvelope, {
       origin,
       destination,
@@ -138,15 +246,15 @@ export async function POST(request: Request) {
         headers: { 'Cache-Control': 'no-store' },
       })
     }
-    // Candidate work derives its endpoints only from the server-signed scoped
-    // Google grant. The body pair was used solely as an exact verification
-    // expectation and is not an independent trust source.
+    // Backward-compatible legacy path for clients that still carry a scoped
+    // provider route envelope. The active RoadMap client uses the
+    // provider-neutral resolveAssessmentScope path above instead.
     origin = accessRouteEnvelope.origin
     destination = accessRouteEnvelope.destination
-  } else if (
+  } else if (!resolveAssessmentScope && (
     (access.mode === 'public' && !hasAuthenticatedIdentity)
     || body.accessRouteEnvelope !== undefined
-  ) {
+  )) {
     const accessRouteEnvelope = verifyRouteOptionEnvelope(body.accessRouteEnvelope, {
       origin,
       destination,
@@ -164,20 +272,10 @@ export async function POST(request: Request) {
     }
   }
 
-  if (access.mode === 'public' && !hasAuthenticatedIdentity) {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-      ?? request.headers.get('x-real-ip')?.trim()
-      ?? ''
-    const withinLimit = await checkWeatherGuestRateLimit(ip, 'teskeid-candidate')
+  if (isAnonymousPublic && !guestRateLimitChecked) {
+    const withinLimit = await checkGuestCandidateLimit()
     if (!withinLimit) {
-      return NextResponse.json({
-        status: 'unavailable',
-        routes: [],
-        route: null,
-      }, {
-        status: 429,
-        headers: { 'Cache-Control': 'no-store' },
-      })
+      return rateLimitedResponse()
     }
   }
 
@@ -185,14 +283,32 @@ export async function POST(request: Request) {
   const graphCache = getIcelandRoadGraphCacheStatus()
   const candidateStartedAt = performance.now()
   const outcome = assessmentScopeId !== null
-    ? await getTeskeidAssessmentRouteCandidatesOutcome(
-        origin,
-        destination,
-        assessmentScopeId,
-        includeAlternatives,
-      )
-    : await getTeskeidRouteCandidatesOutcome(origin, destination, includeAlternatives)
+    ? searchMode === 'extended'
+      ? await getTeskeidAssessmentRouteCandidatesOutcome(
+          origin,
+          destination,
+          assessmentScopeId,
+          includeAlternatives,
+          'extended',
+        )
+      : await getTeskeidAssessmentRouteCandidatesOutcome(
+          origin,
+          destination,
+          assessmentScopeId,
+          includeAlternatives,
+        )
+    : searchMode === 'extended'
+      ? await getTeskeidRouteCandidatesOutcome(origin, destination, includeAlternatives, 'extended')
+      : await getTeskeidRouteCandidatesOutcome(origin, destination, includeAlternatives)
   const candidateMs = performance.now() - candidateStartedAt
+  console.info('[route-candidate] search outcome', {
+    status: outcome.status,
+    graphCache,
+    searchMode,
+    alternatives: includeAlternatives,
+    candidateMs: Math.round(candidateMs),
+    retryCount: retryAttempt,
+  })
   if (outcome.status === 'pending') {
     // The request budget protects latency, but the shared graph warm-up must be
     // allowed to finish after the response in serverless. A later client retry
@@ -223,6 +339,7 @@ export async function POST(request: Request) {
       console.error('[route-candidate] envelope signing failed')
       return NextResponse.json({
         status: 'unavailable',
+        error: 'route_envelope_unavailable',
         routes: [],
         route: null,
       }, {
@@ -233,6 +350,7 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({
     status: outcome.status,
+    ...(assessmentScope ? { assessmentScope } : {}),
     ...(!compactRouteEnvelopes ? {
       routes: outcome.routes,
       route: outcome.status === 'ready' ? outcome.routes[0] ?? null : null,

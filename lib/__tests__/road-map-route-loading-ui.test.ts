@@ -232,6 +232,7 @@ describe('road-map route results display state', () => {
     ['completed alternatives request', true, 'ready', 'none', true, true, true],
     ['candidate provider returned no route', true, 'no_route', 'idle', false, false, true],
     ['candidate provider became unavailable', true, 'unavailable', 'idle', false, false, true],
+    ['candidate provider reached its search limit', true, 'rate_limited', 'idle', false, false, true],
     ['candidate provider is slow but no longer blocks truthful Google results', true, 'slow', 'idle', false, false, true],
     ['alternatives are slow but the completed primary search remains usable', true, 'ready', 'slow', true, true, true],
     ['candidate provider is still loading', true, 'loading', 'idle', false, false, false],
@@ -282,12 +283,11 @@ describe('road-map route results display state', () => {
       'onClose={() => {\n            if (routeComparisonApplyPendingRef.current) return\n            restoreAppliedSurfaceRoutePreview()',
     )
     expect(source).toContain('if (!isAuthenticated || !teskeidRouteCandidateEnabled) return')
-    expect(source).toContain('const scopedGoogleResult = await fetchRouteSurfaceChoices(')
-    expect(source).toContain('const googleChoicesPromise = Promise.resolve(scopedGoogleResult.choices)')
+    expect(source).toContain('const scopedGoogleResult = await googleResultPromise')
+    expect(source).toContain('const googleChoicesPromise = googleResultPromise.then(result => result.choices)')
     expect(source).toContain('launchFirstReadyDiscovery(runId, discoveries, applyProviderEvent)')
-    expect(source).toContain('...(accessRouteEnvelope ? { accessRouteEnvelope } : {})')
-    expect(source).toContain('if (!accessRouteEnvelope)')
-    expect(source).toContain('assessmentScopeId,\n        alternatives,')
+    expect(source).toContain('resolveAssessmentScope: true')
+    expect(source).toContain('...(expectedAssessmentScopeId')
     expect(source).toContain("const isDepartureForecastLoading = routeForecastBuildStatus === 'loading'")
     expect(source).toContain("bridgeStatus: isRouteLoading ? 'loading' : routeBridgeStatus")
     expect(source).toContain("? t('roadMapPrototypeRouteReady')")
@@ -296,7 +296,7 @@ describe('road-map route results display state', () => {
     expect(source).toContain('className="fixed inset-0 z-[310] flex h-[100dvh]')
   })
 
-  it('rederives scoped refreshes from navigation and suppresses node-only candidates for assessment', () => {
+  it('derives provider-neutral scopes and suppresses node-only candidates for assessment', () => {
     const source = readFileSync(
       join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
       'utf8',
@@ -328,28 +328,20 @@ describe('road-map route results display state', () => {
     expect(fetchChoicesBlock).toContain("assessmentScope.reason === 'no_connected_official_road'")
     expect(fetchChoicesBlock).toContain('await waitForAbortableBrowser(delay, signal)')
 
-    const accessBlock = functionBlock(
-      'async function resolveTeskeidAccessEnvelope(',
-      'async function refreshRouteChoiceEnvelope(',
+    const candidateBlock = functionBlock(
+      'async function fetchTeskeidCandidate(',
+      'async function fetchTeskeidCandidateWithRetry(',
     )
-    expect(accessBlock).toMatch(
-      /fetchRouteSurfaceChoices\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*signal,\s*places\.assessmentScope\.scopeId,\s*\)/,
-    )
-    expect(accessBlock).toContain(
-      'choice.routeEnvelope?.assessmentScopeId === places.assessmentScope.scopeId',
-    )
-    expect(accessBlock).not.toContain('places.assessmentOrigin')
-    expect(accessBlock).not.toContain('places.assessmentDestination')
+    expect(candidateBlock).toContain('resolveAssessmentScope: true')
+    expect(candidateBlock).toContain('{ expectedAssessmentScopeId }')
+    expect(candidateBlock).not.toContain('accessRouteEnvelope')
 
     const refreshBlock = functionBlock(
       'async function refreshRouteChoiceEnvelope(',
       'async function handleRetryTeskeidCandidate()',
     )
     expect(refreshBlock).toMatch(
-      /resolveTeskeidAccessEnvelope\(\s*places,\s*signal,\s*\)/,
-    )
-    expect(refreshBlock).toMatch(
-      /fetchTeskeidCandidateWithRetry\(\s*places\.assessmentOrigin,\s*places\.assessmentDestination,\s*places\.assessmentScope\.scopeId,\s*signal,/,
+      /fetchTeskeidCandidateWithRetry\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*signal,/,
     )
     expect(refreshBlock).toContain('if (!canRequestTeskeidCandidate(places))')
     expect(refreshBlock).toMatch(
@@ -364,11 +356,11 @@ describe('road-map route results display state', () => {
       'async function handleFindMoreTeskeidRoutes()',
     )
     expect(retryBlock).toMatch(
-      /resolveTeskeidAccessEnvelope\(\s*places,\s*signal,\s*\)/,
+      /fetchTeskeidCandidate\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*controller\.signal,\s*false,\s*'extended',/,
     )
-    expect(retryBlock).toMatch(
-      /fetchTeskeidCandidateWithRetry\(\s*places\.assessmentOrigin,\s*places\.assessmentDestination,\s*places\.assessmentScope\.scopeId,\s*signal,/,
-    )
+    expect(retryBlock).not.toContain('fetchTeskeidCandidateWithRetry(')
+    expect(retryBlock).toContain('routeExtendedCandidateRequestRef.current')
+    expect(retryBlock).toContain("result.status === 'pending' ? 'slow' : result.status")
     expect(retryBlock).toContain('!canRequestTeskeidCandidate(places)')
 
     const alternativesBlock = functionBlock(
@@ -376,14 +368,13 @@ describe('road-map route results display state', () => {
       'async function hydrateRouteSurfaceChoiceSummaries(',
     )
     expect(alternativesBlock).toMatch(
-      /resolveTeskeidAccessEnvelope\(\s*places,\s*controller\.signal,\s*\)/,
-    )
-    expect(alternativesBlock).toMatch(
-      /fetchTeskeidCandidateWithRetry\(\s*places\.assessmentOrigin,\s*places\.assessmentDestination,\s*places\.assessmentScope\.scopeId,\s*controller\.signal,/,
+      /fetchTeskeidCandidateWithRetry\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*controller\.signal,/,
     )
     expect(alternativesBlock).toContain('!canRequestTeskeidCandidate(places)')
     expect(alternativesBlock).toContain("if (result.status === 'no_route')")
-    expect(source).toContain('onFindMore={teskeidAlternativesCanRun')
+    expect(source).toContain('onFindMore={fullscreenTeskeidInitialSearchVisible')
+    expect(source).toContain('findMoreProminent={fullscreenTeskeidInitialSearchVisible}')
+    expect(source).toContain('void handleRetryTeskeidCandidate()')
 
     const submitBlock = functionBlock(
       'async function handleRouteBridgeSubmit(',
@@ -392,6 +383,12 @@ describe('road-map route results display state', () => {
     expect(submitBlock).toMatch(
       /fetchRouteSurfaceChoices\(\s*origin,\s*destination,\s*discoveryController\.signal,\s*\)/,
     )
+    expect(submitBlock).toContain('const initialTeskeidResultPromise = teskeidRouteCandidateEnabled')
+    expect(submitBlock.indexOf('fetchTeskeidCandidate(')).toBeLessThan(
+      submitBlock.indexOf('const scopedGoogleResult = await googleResultPromise'),
+    )
+    expect(submitBlock).toContain("result.status === 'pending'")
+    expect(submitBlock).toContain("? { ...result, status: 'slow' }")
     expect(submitBlock).toContain('navigationOrigin: origin')
     expect(submitBlock).toContain('navigationDestination: destination')
     expect(submitBlock).toContain(
@@ -419,6 +416,10 @@ describe('road-map route results display state', () => {
     expect(source).toContain('function handleRetryUnavailableRoute()')
     expect(source).toContain("t('roadMapPrototypeRouteRetry')")
     expect(source).toContain("teskeidCandidateStatus === 'no_route'")
+    expect(source).toContain("t('roadMapPrototypeTeskeidCandidateSearch')")
+    expect(source).toContain('className="mt-2 inline-flex min-h-11 w-full')
+    expect(source).toContain("payload?.error === 'rate_limited_guest'")
+    expect(source).toContain("t('roadMapPrototypeRouteGuestQuotaSignIn')")
 
     const switchBlock = functionBlock(
       'async function handleSelectSurfaceRouteChoice(',
@@ -556,11 +557,11 @@ describe('road-map route results display state', () => {
       /refreshRouteChoiceEnvelope\(\s*choice,\s*places,\s*controller\.signal,\s*\)/,
     )
 
-    const accessStart = source.indexOf('async function resolveTeskeidAccessEnvelope(')
-    const accessEnd = source.indexOf('async function refreshRouteChoiceEnvelope(', accessStart)
-    const accessBlock = source.slice(accessStart, accessEnd)
-    expect(accessBlock).toContain('fetchRouteSurfaceChoices(')
-    expect(accessBlock).not.toContain('teskeidAccessEnvelope(')
+    const candidateStart = source.indexOf('async function fetchTeskeidCandidate(')
+    const candidateEnd = source.indexOf('async function fetchTeskeidCandidateWithRetry(', candidateStart)
+    const candidateBlock = source.slice(candidateStart, candidateEnd)
+    expect(candidateBlock).toContain('resolveAssessmentScope: true')
+    expect(candidateBlock).not.toContain('accessRouteEnvelope')
   })
 
   it('keeps stable server route ids scope-local in React and async hydration', () => {
@@ -580,6 +581,6 @@ describe('road-map route results display state', () => {
     expect(hydrationBlock).toContain('route.identity === choice.identity')
     expect(source).toContain('key={choice.identity}')
     expect(source).toContain('routeBridgeRunIdRef.current !== runId')
-    expect(source).toContain('assessmentScopeId,\n    origin.lat.toFixed(6)')
+    expect(source).toContain("assessmentScopeId ?? 'resolve-scope',\n    origin.lat.toFixed(6)")
   })
 })

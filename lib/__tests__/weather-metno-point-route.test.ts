@@ -28,9 +28,33 @@ describe('public met.no point route', () => {
     }))
   })
 
-  it('rejects arbitrary coordinates and unknown place ids', async () => {
+  it('fetches a forecast for validated Icelandic coordinates', async () => {
+    fetchForecast.mockResolvedValueOnce([{ time: '2026-07-25T12:00:00Z' }])
+
     const response = await GET(new Request(
       'https://teskeid.is/api/teskeid/weather/metno/point?lat=64.1&lon=-21.9',
+    ))
+
+    expect(response.status).toBe(200)
+    expect(fetchForecast).toHaveBeenCalledWith({ lat: 64.1, lon: -21.9 })
+  })
+
+  it('rejects coordinates outside Iceland and unknown place ids', async () => {
+    const outsideResponse = await GET(new Request(
+      'https://teskeid.is/api/teskeid/weather/metno/point?lat=52.5&lon=13.4',
+    ))
+    const unknownResponse = await GET(new Request(
+      'https://teskeid.is/api/teskeid/weather/metno/point?placeId=unknown&lat=64.1&lon=-21.9',
+    ))
+
+    expect(outsideResponse.status).toBe(400)
+    expect(unknownResponse.status).toBe(400)
+    expect(fetchForecast).not.toHaveBeenCalled()
+  })
+
+  it('rejects incomplete coordinate pairs', async () => {
+    const response = await GET(new Request(
+      'https://teskeid.is/api/teskeid/weather/metno/point?lat=64.1',
     ))
 
     expect(response.status).toBe(400)

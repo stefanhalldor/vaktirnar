@@ -14,14 +14,11 @@ export type WeatherBaseAccess =
  * Resolves base MET/Yr weather API access for a request.
  *
  * Used by public-capable API routes (travel, routes, place search).
- * In All mode, signed-in users without private vedrid get userId: null to keep
- * analytics/rate-limit semantics consistent with unauthenticated guests.
+ * Signed-in users keep their identity for base route/weather APIs in every
+ * enabled mode. Private provider access remains a separate feature gate.
  *
  * - WEATHER_ENABLED=off (or missing/unknown) → blocked for everyone.
- * - Signed-in user with private `vedrid`, any enabled mode → authenticated.
- * - Signed-in user without `vedrid`, WEATHER_ENABLED=Authenticated → authenticated
- *   (all signed-in users get base weather; vedrid is not required).
- * - Signed-in user without `vedrid`, WEATHER_ENABLED=All → public (userId: null).
+ * - Signed-in user, any enabled mode → authenticated.
  * - Signed-out user, WEATHER_ENABLED=All → public (userId: null).
  * - Signed-out user, WEATHER_ENABLED=Authenticated → blocked.
  *
@@ -33,10 +30,7 @@ export async function resolveWeatherBaseAccess(
   const mode = getWeatherEnabledMode()
   if (mode === 'off') return { mode: 'blocked' }
   if (user?.email) {
-    const hasVedrid = await checkFeatureAccess(user.id, user.email, 'vedrid').catch(() => false)
-    if (hasVedrid || mode === 'authenticated') {
-      return { mode: 'authenticated', userId: user.id, actor: 'authenticated' }
-    }
+    return { mode: 'authenticated', userId: user.id, actor: 'authenticated' }
   }
   if (mode === 'all') return { mode: 'public', userId: null, actor: 'public' }
   return { mode: 'blocked' }

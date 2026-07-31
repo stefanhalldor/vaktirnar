@@ -248,6 +248,24 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(refreshBlock).not.toContain('setVisibleRouteStatuses(')
   })
 
+  it('uses the mapped wind-gap length in the route detail explanation', () => {
+    expect(source).toContain('const weatherCoverageGapKm = weatherEvidence?.measurementGaps.reduce(')
+    expect(source).toContain('distance: formatNum(weatherCoverageGapKm, locale)')
+  })
+
+  it('updates Vegagerðin station cards in place during live refreshes', () => {
+    const renderStart = source.indexOf('function renderVegagerdinStations(')
+    const renderEnd = source.indexOf('\n  function routeSurfaceChoiceLabel(', renderStart)
+    const renderBlock = source.slice(renderStart, renderEnd)
+
+    expect(renderStart).toBeGreaterThan(-1)
+    expect(renderEnd).toBeGreaterThan(renderStart)
+    expect(renderBlock).toContain('currentMarkersByStationId')
+    expect(renderBlock).toContain('updateVegagerdinRouteLabelInPlace(current.element, nextElement)')
+    expect(renderBlock).toContain('current.point = point')
+    expect(renderBlock).not.toContain('clearRouteVegagerdinLabelMarkers()')
+  })
+
   it('renders chosen route endpoints as confirmed places instead of searching their labels again', () => {
     expect(source).toContain('selectedPlace={fromResolved}')
     expect(source).toContain('selectedPlace={toResolved}')

@@ -14,15 +14,43 @@ describe('public Teskeið route client contract', () => {
     expect(source).toContain('teskeidRouteCandidateEnabled={isTeskeidRouteCandidateEnabled()}')
   })
 
+  it('keeps the mobile top navigation below the device status area', () => {
+    const source = readWorkspaceFile('components/weather/RoadMapPrototypeMap.tsx')
+
+    expect(source).toContain(
+      'pt-[calc(env(safe-area-inset-top,0px)+1rem)] sm:pt-2',
+    )
+  })
+
+  it('makes authenticated weather-place autosave recoverable across navigation and transient failures', () => {
+    const source = readWorkspaceFile('components/weather/RoadMapPrototypeMap.tsx')
+    const authenticatedPage = readWorkspaceFile('app/auth-mvp/vedrid/page.tsx')
+
+    expect(authenticatedPage).toContain('preferenceOwnerId={user.id}')
+    expect(source).toContain('WEATHER_CHASE_AUTH_PENDING_STORAGE_PREFIX')
+    expect(source).toContain('persistAuthenticatedWeatherChasePending(payload)')
+    expect(source).toContain('window.localStorage.setItem(')
+    expect(source).toContain('weatherChaseAutoSaveQueuedRef.current = payload')
+    expect(source).toContain("window.addEventListener('pagehide', flushPendingOnExit)")
+    expect(source).toContain("document.addEventListener('visibilitychange', flushWhenHidden)")
+    expect(source).toContain('keepalive: options.keepalive === true')
+    expect(source).toContain('flushWeatherChaseAutoSaveRef.current()')
+    expect(source).toContain('retryDelayMs')
+    expect(source).toContain('onRetrySave={isAuthenticated ? retryWeatherChaseAutoSave : undefined}')
+    expect(source).toContain('onSaveDefault={isAuthenticated ? undefined : handleSaveWeatherChaseDefault}')
+  })
+
   it('resolves RoadMap assessment first and enables only attested scoped candidates', () => {
     const source = readWorkspaceFile('components/weather/RoadMapPrototypeMap.tsx')
 
-    expect(source).toContain('const scopedGoogleResult = await fetchRouteSurfaceChoices(')
-    expect(source).toContain('const googleChoicesPromise = Promise.resolve(scopedGoogleResult.choices)')
+    expect(source).toContain('const scopedGoogleResult = await googleResultPromise')
+    expect(source).toContain('const googleChoicesPromise = googleResultPromise.then(result => result.choices)')
     expect(source).toContain('resolveAssessmentScope: true')
     expect(source).toContain('places.assessmentOrigin')
     expect(source).toContain('places.assessmentDestination')
-    expect(source).toContain('...(accessRouteEnvelope ? { accessRouteEnvelope } : {})')
+    expect(source).toContain('resolveAssessmentScope: true')
+    expect(source).toContain('const initialTeskeidResultPromise = teskeidRouteCandidateEnabled')
+    expect(source).not.toContain('async function resolveTeskeidAccessEnvelope(')
     expect(source).toContain('includeTeskeidCandidate: false')
     expect(source).toContain('function canRequestTeskeidCandidate(places: ResolvedRoutePlaces)')
     expect(source).toContain('const teskeidCandidateAllowed = teskeidRouteCandidateEnabled')

@@ -176,6 +176,142 @@ export function maximumRouteDistanceToMatchedStationKm(
   return maximumFraction * routeDistanceKm
 }
 
+export type RouteMeasurementGap = {
+  startFraction: number
+  endFraction: number
+  distanceKm: number
+}
+
+/**
+ * Returns the exact portions of a route that are farther than `maximumDistanceKm`
+ * along the route from every usable matched station.
+ *
+ * Station positions are provider-neutral route fractions. Each station covers
+ * the interval `±maximumDistanceKm`; the returned gaps are the complement of
+ * the merged coverage intervals. With no usable stations the whole route is a
+ * measurement gap, matching the existing limited-confidence policy.
+ */
+export function routeMeasurementGaps(
+  routeDistanceKm: number,
+  routeFractions: readonly number[],
+  maximumDistanceKm = ROUTE_WEATHER_STATION_CONFIDENCE_DISTANCE_KM,
+): RouteMeasurementGap[] {
+  if (
+    !Number.isFinite(routeDistanceKm)
+    || routeDistanceKm <= 0
+    || !Number.isFinite(maximumDistanceKm)
+    || maximumDistanceKm < 0
+  ) return []
+
+  const positions = [...new Set(routeFractions
+    .filter(fraction => Number.isFinite(fraction))
+    .map(fraction => Math.max(0, Math.min(1, fraction))))]
+    .sort((a, b) => a - b)
+
+  if (positions.length === 0) {
+    return [{ startFraction: 0, endFraction: 1, distanceKm: routeDistanceKm }]
+  }
+
+  const coverageFraction = maximumDistanceKm / routeDistanceKm
+  const coverageIntervals = positions.map(position => ({
+    start: Math.max(0, position - coverageFraction),
+    end: Math.min(1, position + coverageFraction),
+  }))
+  const mergedCoverage: Array<{ start: number; end: number }> = []
+  for (const interval of coverageIntervals) {
+    const previous = mergedCoverage[mergedCoverage.length - 1]
+    if (!previous || interval.start > previous.end) {
+      mergedCoverage.push({ ...interval })
+    } else {
+      previous.end = Math.max(previous.end, interval.end)
+    }
+  }
+
+  const gaps: RouteMeasurementGap[] = []
+  let coveredUntil = 0
+  for (const interval of mergedCoverage) {
+    if (interval.start > coveredUntil) {
+      gaps.push({
+        startFraction: coveredUntil,
+        endFraction: interval.start,
+        distanceKm: (interval.start - coveredUntil) * routeDistanceKm,
+      })
+    }
+    coveredUntil = Math.max(coveredUntil, interval.end)
+  }
+  if (coveredUntil < 1) {
+    gaps.push({
+      startFraction: coveredUntil,
+      endFraction: 1,
+      distanceKm: (1 - coveredUntil) * routeDistanceKm,
+    })
+  }
+  return gaps
+}
+
+/**
+ * Extracts a route geometry between two along-route fractions. Boundary points
+ * are interpolated on their containing segments so the rendered gap begins and
+ * ends at the same 50 km policy boundary used by `routeMeasurementGaps`.
+ */
+export function sliceRoutePolylineByFractions(
+  points: ReadonlyArray<{ lat: number; lon: number }>,
+  startFraction: number,
+  endFraction: number,
+): Array<{ lat: number; lon: number }> {
+  if (
+    points.length < 2
+    || !Number.isFinite(startFraction)
+    || !Number.isFinite(endFraction)
+  ) return []
+
+  const start = Math.max(0, Math.min(1, Math.min(startFraction, endFraction)))
+  const end = Math.max(0, Math.min(1, Math.max(startFraction, endFraction)))
+  if (end <= start) return []
+
+  const segmentLengths = points.slice(1).map((point, index) => (
+    haversineM(points[index].lat, points[index].lon, point.lat, point.lon)
+  ))
+  const totalDistanceM = segmentLengths.reduce((sum, distance) => sum + distance, 0)
+  if (totalDistanceM <= 0) return []
+
+  const startDistanceM = start * totalDistanceM
+  const endDistanceM = end * totalDistanceM
+  const result: Array<{ lat: number; lon: number }> = []
+  const appendPoint = (point: { lat: number; lon: number }) => {
+    const previous = result[result.length - 1]
+    if (previous && previous.lat === point.lat && previous.lon === point.lon) return
+    result.push(point)
+  }
+
+  let traversedM = 0
+  for (let index = 0; index < segmentLengths.length; index += 1) {
+    const segmentLengthM = segmentLengths[index]
+    const segmentStartM = traversedM
+    const segmentEndM = traversedM + segmentLengthM
+    traversedM = segmentEndM
+    if (segmentLengthM <= 0 || segmentEndM < startDistanceM) continue
+    if (segmentStartM > endDistanceM) break
+
+    const overlapStartM = Math.max(startDistanceM, segmentStartM)
+    const overlapEndM = Math.min(endDistanceM, segmentEndM)
+    if (overlapEndM < overlapStartM) continue
+    const from = points[index]
+    const to = points[index + 1]
+    const interpolate = (distanceM: number) => {
+      const ratio = (distanceM - segmentStartM) / segmentLengthM
+      return {
+        lat: from.lat + ((to.lat - from.lat) * ratio),
+        lon: from.lon + ((to.lon - from.lon) * ratio),
+      }
+    }
+    appendPoint(interpolate(overlapStartM))
+    appendPoint(interpolate(overlapEndM))
+  }
+
+  return result.length >= 2 ? result : []
+}
+
 type BoundedRdpSegment = {
   startIndex: number
   endIndex: number

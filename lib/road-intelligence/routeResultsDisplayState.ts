@@ -7,6 +7,8 @@ export type SaferRouteCandidateStatus =
   | 'ready'
   | 'no_route'
   | 'unavailable'
+  | 'envelope_unavailable'
+  | 'rate_limited'
 export type SaferRouteAlternativesStatus =
   | 'idle'
   | 'loading'
@@ -119,7 +121,9 @@ export function hasSaferRouteSearchFinished({
   if (
     candidateStatus === 'no_route'
     || candidateStatus === 'unavailable'
+    || candidateStatus === 'envelope_unavailable'
     || candidateStatus === 'slow'
+    || candidateStatus === 'rate_limited'
   ) return true
   return (
     candidateStatus === 'ready'

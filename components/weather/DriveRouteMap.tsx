@@ -51,13 +51,11 @@ export type DriveRouteMapRoute = {
 
 export type DriveRouteMapAnnotation = {
   id: string
-  kind: 'gravel'
+  kind: 'gravel' | 'weather_coverage_gap'
   label: string
   point: { lat: number; lon: number }
   focusPoints: Array<{ lat: number; lon: number }>
   distanceKm: number
-  /** Only one callout is shown at a time so nearby short sections cannot overlap. */
-  showLabel?: boolean
 }
 
 type DriveRouteMapStationMarkerVisual = {
@@ -95,11 +93,18 @@ export function driveRouteMapAnnotationLabel(
   annotation: Pick<DriveRouteMapAnnotation, 'distanceKm' | 'label'>,
   locale = 'is-IS',
 ) {
-  const formattedDistance = new Intl.NumberFormat(locale, {
-    minimumFractionDigits: annotation.distanceKm < 10 ? 1 : 0,
-    maximumFractionDigits: 1,
-  }).format(annotation.distanceKm)
+  const formattedDistance = driveRouteMapAnnotationDistanceLabel(annotation.distanceKm, locale)
   return `${formattedDistance} km · ${annotation.label}`
+}
+
+export function driveRouteMapAnnotationDistanceLabel(
+  distanceKm: number,
+  locale = 'is-IS',
+) {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: distanceKm < 10 ? 1 : 0,
+    maximumFractionDigits: 1,
+  }).format(distanceKm)
 }
 
 function routeGeoJson(points: Array<{ lat: number; lon: number }>) {
@@ -130,6 +135,7 @@ export function DriveRouteMap({
   className = 'h-[190px] w-full',
   externalContainer,
   interactive = true,
+  annotationScale = 1,
 }: {
   routePoints?: Array<{ lat: number; lon: number }>
   routes?: DriveRouteMapRoute[]
@@ -142,6 +148,7 @@ export function DriveRouteMap({
   className?: string
   externalContainer?: (node: HTMLDivElement | null) => void
   interactive?: boolean
+  annotationScale?: number
 }) {
   const localContainerRef = useRef<HTMLDivElement | null>(null)
   const onSelectStationRef = useRef(onSelectStation)
@@ -163,7 +170,7 @@ export function DriveRouteMap({
     `${station.id}:${station.lat}:${station.lon}:${station.color}:${station.driveTimeLabel ?? ''}`
   )).join('\u0000')
   const annotationStructureKey = annotations.map(annotation => (
-    `${annotation.id}:${annotation.point.lat}:${annotation.point.lon}:${annotation.distanceKm}:${annotation.label}:${annotation.showLabel ? 1 : 0}:${annotation.focusPoints.map(point => `${point.lat},${point.lon}`).join('|')}`
+    `${annotation.id}:${annotation.kind}:${annotation.point.lat}:${annotation.point.lon}:${annotation.distanceKm}:${annotation.label}:${annotation.focusPoints.map(point => `${point.lat},${point.lon}`).join('|')}`
   )).join('\u0000')
   const drawableRoutesRef = useRef(currentDrawableRoutes)
   const stationsRef = useRef(stations)
@@ -172,6 +179,13 @@ export function DriveRouteMap({
   stationsRef.current = stations
   annotationsRef.current = annotations
   selectedStationIdRef.current = selectedStationId
+
+  useEffect(() => {
+    localContainerRef.current?.style.setProperty(
+      '--teskeid-map-annotation-scale',
+      String(annotationScale),
+    )
+  }, [annotationScale])
 
   useEffect(() => {
     onSelectStationRef.current = onSelectStation
@@ -332,37 +346,30 @@ export function DriveRouteMap({
         }
         stationMarkerVisualsRef.current = stationMarkerVisuals
 
-        const annotationCallouts = new Map<string, HTMLSpanElement>()
-        const showAnnotationCallout = (annotationId: string) => {
-          for (const [id, callout] of annotationCallouts) {
-            callout.style.display = id === annotationId ? 'block' : 'none'
-          }
-        }
-        const routeLatitudes = drawableRoutes.flatMap(route => route.points.map(point => point.lat))
-        const routeLongitudes = drawableRoutes.flatMap(route => route.points.map(point => point.lon))
-        const routeCenter = {
-          lat: (Math.min(...routeLatitudes) + Math.max(...routeLatitudes)) / 2,
-          lon: (Math.min(...routeLongitudes) + Math.max(...routeLongitudes)) / 2,
-        }
-
         for (const annotation of initialAnnotations) {
           if (annotation.focusPoints.length < 2) continue
+          const locale = document.documentElement.lang || 'is-IS'
           const label = driveRouteMapAnnotationLabel(
             annotation,
-            document.documentElement.lang || 'is-IS',
+            locale,
           )
+          const distanceLabel = driveRouteMapAnnotationDistanceLabel(annotation.distanceKm, locale)
           const element = document.createElement('button')
           element.type = 'button'
           element.title = label
           element.setAttribute('aria-label', label)
+          element.dataset.routeAnnotationKind = annotation.kind
           Object.assign(element.style, {
             display: 'block',
-            width: '40px',
-            height: '40px',
+            width: '50px',
+            height: '50px',
             border: '0',
             padding: '0',
             background: 'transparent',
-            position: 'relative',
+            // MapLibre positions marker elements with transforms from an
+            // absolute origin. A relative marker element participates in DOM
+            // flow, so every following gravel marker drifts by another row.
+            position: 'absolute',
             overflow: 'visible',
             cursor: 'pointer',
             borderRadius: '999px',
@@ -372,73 +379,90 @@ export function DriveRouteMap({
           stonePattern.setAttribute('aria-hidden', 'true')
           Object.assign(stonePattern.style, {
             position: 'absolute',
-            left: '8px',
-            top: '9px',
-            width: '24px',
-            height: '22px',
+            left: '1px',
+            top: '12px',
+            width: '48px',
+            height: '26px',
             border: '2px solid white',
             borderRadius: '8px',
-            background: '#fef3c7',
-            boxShadow: '0 0 0 1px #92400e,0 2px 5px rgba(15,23,42,0.3)',
+            background: annotation.kind === 'gravel' ? '#fef3c7' : '#f8fafc',
+            boxShadow: annotation.kind === 'gravel'
+              ? '0 0 0 1px #92400e,0 2px 5px rgba(15,23,42,0.3)'
+              : '0 0 0 1px #475569,0 2px 5px rgba(15,23,42,0.3)',
+            transform: 'scale(var(--teskeid-map-annotation-scale, 1))',
+            transformOrigin: 'center',
           })
-          for (const [left, top, size] of [[4, 8, 6], [10, 4, 7], [16, 10, 5]] as const) {
-            const stone = document.createElement('span')
-            Object.assign(stone.style, {
+          if (annotation.kind === 'gravel') {
+            for (const [left, top, size] of [[3, 9, 5], [8, 4, 6]] as const) {
+              const stone = document.createElement('span')
+              Object.assign(stone.style, {
+                position: 'absolute',
+                left: `${left}px`,
+                top: `${top}px`,
+                width: `${size}px`,
+                height: `${Math.max(4, size - 1)}px`,
+                border: '1px solid #78350f',
+                borderRadius: '45% 55% 50% 45%',
+                background: '#d97706',
+                transform: `rotate(${left * 7}deg)`,
+              })
+              stonePattern.appendChild(stone)
+            }
+          } else {
+            const windGapIcon = document.createElement('span')
+            Object.assign(windGapIcon.style, {
               position: 'absolute',
-              left: `${left}px`,
-              top: `${top}px`,
-              width: `${size}px`,
-              height: `${Math.max(4, size - 1)}px`,
-              border: '1px solid #78350f',
-              borderRadius: '45% 55% 50% 45%',
-              background: '#d97706',
-              transform: `rotate(${left * 7}deg)`,
+              left: '3px',
+              top: '4px',
+              width: '10px',
+              height: '14px',
             })
-            stonePattern.appendChild(stone)
+            for (const [top, width] of [[2, 9], [6, 7], [10, 10]] as const) {
+              const windLine = document.createElement('span')
+              Object.assign(windLine.style, {
+                position: 'absolute',
+                left: '0',
+                top: `${top}px`,
+                width: `${width}px`,
+                borderTop: '1.5px solid #475569',
+                borderRadius: '999px',
+              })
+              windGapIcon.appendChild(windLine)
+            }
+            const slash = document.createElement('span')
+            Object.assign(slash.style, {
+              position: 'absolute',
+              left: '5px',
+              top: '0',
+              width: '1.5px',
+              height: '14px',
+              borderRadius: '999px',
+              background: '#b45309',
+              transform: 'rotate(-34deg)',
+            })
+            windGapIcon.appendChild(slash)
+            stonePattern.appendChild(windGapIcon)
           }
-          element.appendChild(stonePattern)
-
-          const callout = document.createElement('span')
-          callout.textContent = label
-          const placeRight = annotation.point.lon <= routeCenter.lon
-          const placeBelow = annotation.point.lat >= routeCenter.lat
-          Object.assign(callout.style, {
+          const distance = document.createElement('span')
+          distance.textContent = distanceLabel
+          Object.assign(distance.style, {
             position: 'absolute',
-            ...(placeRight ? { left: '30px' } : { right: '30px' }),
-            ...(placeBelow ? { top: '27px' } : { bottom: '27px' }),
-            display: 'none',
-            maxWidth: '150px',
+            left: '14px',
+            right: '2px',
+            top: '5px',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            border: '1px solid #92400e',
-            borderRadius: '999px',
-            background: 'rgba(255,255,255,0.97)',
-            color: '#451a03',
-            boxShadow: '0 2px 6px rgba(15,23,42,0.2)',
-            padding: '4px 8px',
-            font: '700 11px/1.2 Inter,system-ui,sans-serif',
-            pointerEvents: 'none',
+            textAlign: 'center',
+            color: annotation.kind === 'gravel' ? '#451a03' : '#334155',
+            font: '800 11px/1.2 Inter,system-ui,sans-serif',
+            fontVariantNumeric: 'tabular-nums',
           })
-          const leader = document.createElement('span')
-          leader.setAttribute('aria-hidden', 'true')
-          Object.assign(leader.style, {
-            position: 'absolute',
-            ...(placeRight ? { left: '-13px' } : { right: '-13px' }),
-            ...(placeBelow ? { top: '-3px' } : { bottom: '-3px' }),
-            width: '14px',
-            height: '2px',
-            background: '#92400e',
-            transformOrigin: 'center',
-            transform: `rotate(${placeRight === placeBelow ? 24 : -24}deg)`,
-          })
-          callout.appendChild(leader)
-          element.appendChild(callout)
-          annotationCallouts.set(annotation.id, callout)
+          stonePattern.appendChild(distance)
+          element.appendChild(stonePattern)
 
           const focusSection = () => {
             if (!map) return
-            showAnnotationCallout(annotation.id)
             const sectionBounds = new maplibregl.LngLatBounds()
             annotation.focusPoints.forEach(point => sectionBounds.extend([point.lon, point.lat]))
             map.fitBounds(sectionBounds, { padding: 48, duration: 280, maxZoom: 13 })
@@ -461,8 +485,6 @@ export function DriveRouteMap({
               .addTo(map),
           )
         }
-        const initialCallout = initialAnnotations.find(annotation => annotation.showLabel)
-        if (initialCallout) showAnnotationCallout(initialCallout.id)
 
         const bounds = new maplibregl.LngLatBounds()
         drawableRoutes.forEach(route => {
