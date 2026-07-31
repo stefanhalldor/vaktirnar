@@ -1,13 +1,43 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
 import { WindStatusFilterPills } from '@/components/weather/WindStatusFilterPills'
-import type { WindDisplayStatus } from '@/lib/weather/windDisplayStatus'
+import {
+  ALL_WIND_DISPLAY_STATUSES,
+  type WindDisplayStatus,
+} from '@/lib/weather/windDisplayStatus'
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
 
 describe('WindStatusFilterPills', () => {
+  it('restores the canonical show-all state after a status is disabled and enabled again', () => {
+    function Harness() {
+      const [visible, setVisible] = useState(
+        () => new Set<WindDisplayStatus>(ALL_WIND_DISPLAY_STATUSES),
+      )
+      return (
+        <WindStatusFilterPills
+          counts={{ 'innan-marka': 1, 'nalgast-othaegindi': 1 }}
+          visibleStatuses={visible}
+          onVisibleStatusesChange={setVisible}
+          showAllLabel=""
+          mode="detailed"
+        />
+      )
+    }
+
+    render(<Harness />)
+    const within = screen.getByRole('button', { name: /statusWithinLimits \(1\)/ })
+    fireEvent.click(within)
+    expect(within).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(within)
+    expect(within).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /statusNearDiscomfort \(1\)/ }))
+      .toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('uses the same grouped count as simple-mode route markers', () => {
     render(
       <WindStatusFilterPills
@@ -19,10 +49,12 @@ describe('WindStatusFilterPills', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: /statusWithinLimits \(5\)/ })).toHaveAttribute(
+    const button = screen.getByRole('button', { name: /statusWithinLimits \(5\)/ })
+    expect(button).toHaveAttribute(
       'aria-pressed',
       'true',
     )
+    expect(button).not.toHaveClass('text-muted-foreground/30')
   })
 
   it('does not force a misleading within-limits pill when the count is zero', () => {

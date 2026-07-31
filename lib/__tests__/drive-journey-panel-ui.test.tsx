@@ -11,13 +11,15 @@ type MockMapProps = {
     points: Array<{ lat: number; lon: number }>
     dashArray?: number[]
   }>
-  stations?: Array<{ id: string; name: string }>
+  stations?: Array<{ id: string; name: string; color: string }>
   selectedStationId?: string | null
   onSelectStation?: (stationId: string) => void
 }
 
 type MockPointCardProps = {
   station: { stationId: string; stationName: string }
+  status: string
+  variant?: string
   panelTitle?: string
   isManualSelection?: boolean
 }
@@ -29,6 +31,14 @@ type MockWeatherWatchersComparisonProps = {
   destinationRows: ForecastDrawerRow[]
 }
 
+type MockWindStatusFilterPillsProps = {
+  onVisibleStatusesChange: (next: Set<string>) => void
+}
+
+type MockDepartureHeatmapProps = {
+  firstSlotLabel?: string
+}
+
 vi.mock('next-intl', () => ({
   useLocale: () => 'is',
   useTranslations: () => Object.assign(
@@ -38,7 +48,9 @@ vi.mock('next-intl', () => ({
 }))
 
 vi.mock('@/components/weather/DepartureHeatmap', () => ({
-  DepartureHeatmap: () => <div data-testid="departure-heatmap" />,
+  DepartureHeatmap: ({ firstSlotLabel }: MockDepartureHeatmapProps) => (
+    <div data-testid="departure-heatmap" data-first-slot-label={firstSlotLabel ?? ''} />
+  ),
 }))
 
 vi.mock('@/components/weather/WeatherWatchersComparison', () => ({
@@ -59,14 +71,30 @@ vi.mock('@/components/weather/WeatherWatchersComparison', () => ({
 }))
 
 vi.mock('@/components/weather/WindStatusFilterPills', () => ({
-  WindStatusFilterPills: () => <div data-testid="wind-status-filter-pills" />,
+  WindStatusFilterPills: ({ onVisibleStatusesChange }: MockWindStatusFilterPillsProps) => (
+    <button
+      type="button"
+      data-testid="wind-status-filter-pills"
+      onClick={() => onVisibleStatusesChange(new Set())}
+    >
+      show all statuses
+    </button>
+  ),
 }))
 
 vi.mock('@/components/weather/VedurstofanPointCard', () => ({
-  VedurstofanPointCard: ({ station, panelTitle, isManualSelection }: MockPointCardProps) => (
+  VedurstofanPointCard: ({
+    station,
+    status,
+    variant,
+    panelTitle,
+    isManualSelection,
+  }: MockPointCardProps) => (
     <div
       data-testid="point-card"
       data-station-id={station.stationId}
+      data-status={status}
+      data-variant={variant ?? 'full'}
       data-panel-title={panelTitle ?? ''}
       data-manual-selection={String(Boolean(isManualSelection))}
     >
@@ -91,6 +119,7 @@ vi.mock('@/components/weather/DriveRouteMap', () => ({
       data-route-styles={routes
         .map(route => `${route.id}:${route.dashArray ? 'dashed' : 'solid'}`)
         .join('|')}
+      data-station-colors={stations.map(station => `${station.id}:${station.color}`).join('|')}
     >
       {stations.map(station => (
         <button
@@ -199,8 +228,10 @@ function createLayer({
 
 const BASE_PROPS = {
   candidates: CANDIDATES,
+  currentCandidate: CANDIDATES[0],
   selectedCandidateIdx: 0,
   onSelectCandidateIdx: vi.fn(),
+  routeAssessmentStatus: 'othaegilegt' as const,
   thresholds: resolveThresholds('none', { cautionWindMs: 10, redWindMs: 15 }),
   durationMinutes: 120,
   distanceKm: 100,
@@ -228,6 +259,36 @@ function cardBelowMap(): HTMLElement {
 }
 
 describe('DriveJourneyPanel point selection', () => {
+  it('shows the temporary departure-forecast tuning notice', () => {
+    render(<DriveJourneyPanel {...BASE_PROPS} layer={createLayer()} />)
+
+    expect(screen.getByText('roadMapPrototypeDepartureForecastTuningNotice'))
+      .toBeInTheDocument()
+  })
+
+  it('shows the first future slot without a special Now label', () => {
+    render(<DriveJourneyPanel {...BASE_PROPS} layer={createLayer()} />)
+
+    expect(screen.getByTestId('departure-heatmap')).toHaveAttribute('data-first-slot-label', '')
+  })
+
+  it('keeps the route summary fail-closed when spatial coverage is incomplete', () => {
+    render(
+      <DriveJourneyPanel
+        {...BASE_PROPS}
+        layer={createLayer({ calmWind: [6, 6], worstWind: [6, 6] })}
+        routeAssessmentStatus="no_data"
+      />,
+    )
+
+    const compactSummary = screen.getAllByTestId('point-card')
+      .find(card => card.getAttribute('data-variant') === 'compact')
+
+    expect(compactSummary).toHaveAttribute('data-status', 'no_data')
+    expect(screen.getByText('availableRouteForecastPointsDrawer')).toBeInTheDocument()
+    expect(screen.queryByText('allRouteForecastPointsDrawer')).not.toBeInTheDocument()
+  })
+
   it('keeps all matched route stations and the full route visible when legacy partial metadata arrives', () => {
     const layer = createLayer()
     layer.points.push({
@@ -423,5 +484,29 @@ describe('DriveJourneyPanel point selection', () => {
     rerender(<DriveJourneyPanel {...BASE_PROPS} layer={layer} selectedCandidateIdx={0} />)
     expect(cardBelowMap()).toHaveAttribute('data-station-id', 'worst')
     expect(cardBelowMap()).toHaveAttribute('data-panel-title', 'decisivePointLabel')
+  })
+
+  it('treats an empty status set as show-all after filters are restored', () => {
+    render(<DriveJourneyPanel {...BASE_PROPS} layer={createLayer()} />)
+
+    fireEvent.click(screen.getByTestId('wind-status-filter-pills'))
+
+    expect(screen.getByRole('button', { name: 'select Lygn stöð' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'select Vindasöm stöð' })).toBeInTheDocument()
+    expect(cardBelowMap()).toHaveAttribute('data-station-id', 'worst')
+  })
+
+  it('uses canonical amber and orange marker colors for near and uncomfortable wind', () => {
+    render(
+      <DriveJourneyPanel
+        {...BASE_PROPS}
+        layer={createLayer({ calmWind: [9, 9], worstWind: [13, 13] })}
+      />,
+    )
+
+    expect(screen.getByTestId('drive-route-map')).toHaveAttribute(
+      'data-station-colors',
+      'calm:#f59e0b|worst:#f97316',
+    )
   })
 })

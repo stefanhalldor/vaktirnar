@@ -121,6 +121,87 @@ describe('DriveJourneyPanel Veðurstofan view model', () => {
     expect(assessment.status).toBe('innan-marka')
   })
 
+  it('uses inclusive 10/15 m/s route marker thresholds', () => {
+    const thresholds = resolveThresholds('none', { cautionWindMs: 10, redWindMs: 15 })
+    const candidate = {
+      departureIso: '2026-07-24T18:00:00.000Z',
+      arrivalIso: '2026-07-24T19:00:00.000Z',
+      status: 'graent' as const,
+    }
+    const atThreshold = (windSpeedMs: number) => station({
+      routeFraction: 0,
+      forecastRows: [{
+        ftimeIso: '2026-07-24T18:00:00.000Z',
+        windSpeedMs,
+        precipitationMmPerHour: 0,
+        temperatureC: 12,
+        windDirectionText: 'N',
+        weatherText: null,
+      }],
+    })
+
+    expect(buildDriveStationAssessment(atThreshold(10), candidate, 60, thresholds).status)
+      .toBe('othaegilegt')
+    expect(buildDriveStationAssessment(atThreshold(15), candidate, 60, thresholds).status)
+      .toBe('haettulegt')
+  })
+
+  it('fails closed when a station has no route fraction', () => {
+    const candidate = {
+      departureIso: '2026-07-24T18:00:00.000Z',
+      arrivalIso: '2026-07-24T19:00:00.000Z',
+      status: 'graent' as const,
+    }
+    const assessment = buildDriveStationAssessment(
+      station({
+        routeFraction: null,
+        forecastRows: [{
+          ftimeIso: candidate.departureIso,
+          windSpeedMs: 2,
+          precipitationMmPerHour: 0,
+          temperatureC: 12,
+          windDirectionText: 'N',
+          weatherText: null,
+        }],
+      }),
+      candidate,
+      60,
+      resolveThresholds('none'),
+    )
+
+    expect(assessment.etaIso).toBeNull()
+    expect(assessment.row).toBeNull()
+    expect(assessment.status).toBe('no_data')
+  })
+
+  it('fails closed when the nearest forecast is outside the ETA horizon', () => {
+    const candidate = {
+      departureIso: '2026-07-24T15:00:00.000Z',
+      arrivalIso: '2026-07-24T23:00:00.000Z',
+      status: 'graent' as const,
+    }
+    const assessment = buildDriveStationAssessment(
+      station({
+        routeFraction: 0.5,
+        forecastRows: [{
+          ftimeIso: '2026-07-24T20:30:00.001Z',
+          windSpeedMs: 2,
+          precipitationMmPerHour: 0,
+          temperatureC: 12,
+          windDirectionText: 'N',
+          weatherText: null,
+        }],
+      }),
+      candidate,
+      480,
+      resolveThresholds('none'),
+    )
+
+    expect(assessment.etaIso).toBe('2026-07-24T19:00:00.000Z')
+    expect(assessment.row).toBeNull()
+    expect(assessment.status).toBe('no_data')
+  })
+
   it('selects only deterministic forecasts at the attested assessment boundaries', () => {
     const rows = selectAssessmentEndpointForecastRows([
       routeWeatherPoint('interior-station', 0.5, 20),

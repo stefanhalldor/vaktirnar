@@ -363,9 +363,10 @@ function nextWholeUtcHourAfter(ms: number): number {
 }
 
 /**
- * Builds the single-departure hourly timeline from departure to the full forecast coverage limit.
- * Returns all candidates (first = current departure) and derives nextCaution from the first
- * non-green non-no_data candidate after the current departure.
+ * Builds the single-departure hourly forecast timeline from the next whole hour
+ * to the full forecast coverage limit. The exact current departure remains in
+ * `outbound.leavingAt`; it is intentionally not a forecast slot.
+ * Derives nextCaution from the first non-green non-no_data future candidate.
  * Skips no_data as a caution trigger — data absence alone is not a meaningful forward caution.
  */
 function buildSingleDepartureTimeline(
@@ -392,10 +393,8 @@ function buildSingleDepartureTimeline(
   const scannedHours = Math.max(0, Math.round((endMs - startMs) / 3_600_000))
 
   const timelineCandidates: TravelCandidate[] = []
-  // First slot: exact departure ("leave now")
-  const firstDepIso = new Date(startMs).toISOString()
-  timelineCandidates.push(assessRouteLeg({ departureIso: firstDepIso, arrivalIso: addSeconds(firstDepIso, durationS), pointForecasts, thresholds, totalDistanceM, trailerKind, leg: 'outbound' }))
-  // Remaining slots: aligned to whole UTC hours
+  // Forecast slots are strictly future whole UTC hours. Iceland uses UTC
+  // year-round, so these are also whole local hours.
   let t = nextWholeUtcHourAfter(startMs)
   while (t <= endMs) {
     const depIso = new Date(t).toISOString()
@@ -403,9 +402,9 @@ function buildSingleDepartureTimeline(
     t += NEXT_CAUTION_STEP_S * 1000
   }
 
-  // Derive nextCaution from first non-green non-no_data candidate after the current departure (i > 0)
+  // Derive nextCaution from the first non-green non-no_data future candidate.
   let nextCaution: NextCaution = { scannedHours }
-  for (let i = 1; i < timelineCandidates.length; i++) {
+  for (let i = 0; i < timelineCandidates.length; i++) {
     const cand = timelineCandidates[i]
     if (cand.status !== 'graent' && cand.reasonCode !== 'no_data') {
       const issue = buildHighlightedIssue(cand, undefined, thresholds)
@@ -646,7 +645,7 @@ export function checkTravelWeather(input: TravelWeatherInput): DeterministicResu
   }
 
   // --- Single-departure timeline (always in single-departure mode) ---
-  // timelineCandidates: hourly from departure to the full forecast coverage limit, used for the timeline scrubber.
+  // timelineCandidates: strictly future whole-hour slots to the full forecast coverage limit.
   // nextCaution: only set when current outbound is green (derived from timelineCandidates).
   let nextCaution: NextCaution | undefined
   let timelineCandidates: TravelCandidate[] | undefined

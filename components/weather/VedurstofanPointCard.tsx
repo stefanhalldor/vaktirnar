@@ -2,7 +2,10 @@
 
 import { useTranslations, useLocale } from 'next-intl'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
-import type { WindDisplayStatus } from '@/lib/weather/windDisplayStatus'
+import {
+  selectNearestForecastRowAt,
+  type WindDisplayStatus,
+} from '@/lib/weather/windDisplayStatus'
 import { WindStatusBadge } from '@/components/weather/WindStatusBadge'
 import { formatKlTime, formatCompactDateTime, formatNum, getOriginDisplay } from './travelAuditMap.helpers'
 import { VedurstofanPulseInline } from './VedurstofanPulseInline'
@@ -18,25 +21,10 @@ function selectPrevUsedNext(
 ): { prev: ForecastRow | null; used: ForecastRow | null; next: ForecastRow | null } {
   if (rows.length === 0) return { prev: null, used: null, next: null }
   const sorted = [...rows].sort((a, b) => Date.parse(a.ftimeIso) - Date.parse(b.ftimeIso))
-  if (!etaIso) {
-    // No ETA: pick row with highest wind as "used"
-    let usedIdx = 0
-    for (let i = 1; i < sorted.length; i++) {
-      if ((sorted[i].windSpeedMs ?? 0) > (sorted[usedIdx].windSpeedMs ?? 0)) usedIdx = i
-    }
-    return {
-      prev: usedIdx > 0 ? sorted[usedIdx - 1] : null,
-      used: sorted[usedIdx],
-      next: usedIdx < sorted.length - 1 ? sorted[usedIdx + 1] : null,
-    }
-  }
+  if (!etaIso) return { prev: null, used: null, next: null }
   const etaMs = Date.parse(etaIso)
-  let usedIdx = 0
-  let minDiff = Infinity
-  for (let i = 0; i < sorted.length; i++) {
-    const diff = Math.abs(Date.parse(sorted[i].ftimeIso) - etaMs)
-    if (diff < minDiff) { minDiff = diff; usedIdx = i }
-  }
+  const usedIdx = selectNearestForecastRowAt(sorted, etaMs)
+  if (usedIdx === null) return { prev: null, used: null, next: null }
   return {
     prev: usedIdx > 0 ? sorted[usedIdx - 1] : null,
     used: sorted[usedIdx],

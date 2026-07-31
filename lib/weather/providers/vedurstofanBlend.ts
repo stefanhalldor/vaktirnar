@@ -1,4 +1,5 @@
 import type { HourPoint } from '@/lib/weather/types'
+import { VEDURSTOFAN_FORECAST_MATCH_TOLERANCE_MS } from '@/lib/weather/routeForecastTiming'
 
 /** Forecast row fields used for max-blending. Structurally compatible with VedurstofanStationForecastCache.forecasts. */
 type ForecastRow = {
@@ -6,9 +7,6 @@ type ForecastRow = {
   windSpeedMs: number | null
   precipitationMmPerHour: number | null
 }
-
-/** ±1.5h window for matching a MET/Yr hour to the nearest Veðurstofan 3h forecast row. */
-const MAX_BLEND_OFFSET_MS = 90 * 60 * 1000
 
 /**
  * Returns augmented HourPoints where wind and precipitation are max(MET/Yr, Veðurstofan).
@@ -31,7 +29,7 @@ export function blendHoursWithVedurstofan(
     let minOffset = Infinity
     for (const row of forecasts) {
       const offset = Math.abs(new Date(row.ftimeIso).getTime() - hourMs)
-      if (offset <= MAX_BLEND_OFFSET_MS && offset < minOffset) {
+      if (offset <= VEDURSTOFAN_FORECAST_MATCH_TOLERANCE_MS && offset < minOffset) {
         nearest = row
         minOffset = offset
       }

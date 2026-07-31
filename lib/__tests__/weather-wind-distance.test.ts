@@ -13,6 +13,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { classifyWindDistance } from '../weather/assessment'
+import { classifyCandidateWindDisplayStatus } from '../weather/windDisplayStatus'
+import { resolveThresholds } from '../weather/thresholds'
+import type { TravelCandidate } from '../weather/types'
 
 const U = 15  // uncomfortableWindMs
 const D = 25  // dangerousWindMs
@@ -52,5 +55,41 @@ describe('classifyWindDistance', () => {
 
   it('wind well above dangerous threshold -> haettulegt', () => {
     expect(classifyWindDistance(35, U, D)).toBe('haettulegt')
+  })
+})
+
+describe('classifyCandidateWindDisplayStatus safety floor', () => {
+  const thresholds = resolveThresholds('none', { cautionWindMs: 10, redWindMs: 15 })
+  const candidate = (
+    status: TravelCandidate['status'],
+    worstWind?: number,
+    reasonCode?: string,
+  ): TravelCandidate => ({
+    departureIso: '2026-07-31T12:00:00.000Z',
+    arrivalIso: '2026-07-31T13:00:00.000Z',
+    status,
+    reasonCode,
+    worstWind: worstWind === undefined
+      ? undefined
+      : { value: worstWind, timeIso: '2026-07-31T12:30:00.000Z' },
+  })
+
+  it('uses inclusive user thresholds at exactly 10 and 15 m/s', () => {
+    expect(classifyCandidateWindDisplayStatus(candidate('gult', 10), thresholds))
+      .toBe('othaegilegt')
+    expect(classifyCandidateWindDisplayStatus(candidate('rautt', 15), thresholds))
+      .toBe('haettulegt')
+  })
+
+  it('preserves route-wide gust or precipitation risk when sustained wind is calm', () => {
+    expect(classifyCandidateWindDisplayStatus(candidate('gult', 3), thresholds))
+      .toBe('othaegilegt')
+    expect(classifyCandidateWindDisplayStatus(candidate('rautt', 3), thresholds))
+      .toBe('haettulegt')
+  })
+
+  it('preserves a genuine missing route assessment', () => {
+    expect(classifyCandidateWindDisplayStatus(candidate('gult', undefined, 'no_data'), thresholds))
+      .toBe('no_data')
   })
 })

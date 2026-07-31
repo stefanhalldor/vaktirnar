@@ -8,8 +8,11 @@
  * Use classifyPointWindDisplayStatus() for RouteWeatherPoint map points.
  */
 
-import type { TravelCandidate, ResolvedTravelThresholds } from './types'
+import type { TravelCandidate, ResolvedTravelThresholds, WeatherStatus } from './types'
 import { classifyWindDistance, type WindDistanceLabel } from './assessment'
+import { VEDURSTOFAN_FORECAST_MATCH_TOLERANCE_MS } from './routeForecastTiming'
+
+export { VEDURSTOFAN_FORECAST_MATCH_TOLERANCE_MS } from './routeForecastTiming'
 
 export type WindDisplayStatus = WindDistanceLabel | 'no_data' | 'no_wind_data'
 
@@ -80,8 +83,20 @@ export const WIND_STATUS_MARKER_COLOR: Record<WindDisplayStatus, string> = {
 }
 
 /**
+ * Minimum fine-grained display severity implied by the route-wide assessment.
+ * A route can be yellow/red because of gusts or precipitation even when its
+ * sustained-wind value is low, so the display must preserve that risk floor.
+ */
+export function weatherStatusToWindDisplayStatus(status: WeatherStatus): WindDisplayStatus {
+  if (status === 'rautt') return 'haettulegt'
+  if (status === 'gult') return 'othaegilegt'
+  return 'innan-marka'
+}
+
+/**
  * Classifies a TravelCandidate into a fine-grained wind display status.
- * Uses worstWind.value for classification; falls back to 0 for green candidates.
+ * Uses worstWind.value for fine classification and preserves the route-wide
+ * candidate status as a minimum severity for gust/precipitation-driven risk.
  */
 export function classifyCandidateWindDisplayStatus(
   candidate: TravelCandidate,
@@ -89,7 +104,15 @@ export function classifyCandidateWindDisplayStatus(
 ): WindDisplayStatus {
   if (candidate.reasonCode === 'no_data') return 'no_data'
   const wind = candidate.worstWind?.value ?? 0
-  return classifyWindDistance(wind, thresholds.cautionWindMs, thresholds.redWindMs)
+  const windStatus = classifyWindDistance(
+    wind,
+    thresholds.cautionWindMs,
+    thresholds.redWindMs,
+  )
+  return worstWindDisplayStatus(
+    windStatus,
+    weatherStatusToWindDisplayStatus(candidate.status),
+  )
 }
 
 /**
@@ -178,24 +201,28 @@ export function selectForecastRowAt(
 export function selectNearestForecastRowAt(
   forecasts: ReadonlyArray<{ ftimeIso: string }>,
   anchorMs: number,
+  maxOffsetMs = VEDURSTOFAN_FORECAST_MATCH_TOLERANCE_MS,
 ): number | null {
   if (forecasts.length === 0) return null
 
-  const effectiveAnchorMs = Number.isFinite(anchorMs) ? anchorMs : Date.now()
+  if (!Number.isFinite(anchorMs)) return null
+  const effectiveMaxOffsetMs = Number.isFinite(maxOffsetMs)
+    ? Math.max(0, maxOffsetMs)
+    : VEDURSTOFAN_FORECAST_MATCH_TOLERANCE_MS
   let usedIdx = -1
   let bestDiff = Infinity
 
   for (let i = 0; i < forecasts.length; i++) {
     const t = Date.parse(forecasts[i].ftimeIso)
     if (!Number.isFinite(t)) continue
-    const diff = Math.abs(t - effectiveAnchorMs)
+    const diff = Math.abs(t - anchorMs)
     if (diff < bestDiff) {
       bestDiff = diff
       usedIdx = i
     }
   }
 
-  return usedIdx !== -1 ? usedIdx : null
+  return usedIdx !== -1 && bestDiff <= effectiveMaxOffsetMs ? usedIdx : null
 }
 
 /**

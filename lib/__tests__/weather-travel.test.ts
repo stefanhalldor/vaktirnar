@@ -696,14 +696,18 @@ describe('checkTravelWeather', () => {
       expect(timeline!.length).toBeGreaterThan(1)
     })
 
-    it('timelineCandidates[0] matches the current departure candidate (leavingAt)', () => {
+    it('keeps leavingAt exact while the forecast timeline starts at the next whole hour', () => {
       const forecast = makeForecast('2026-07-10T08:00:00Z', 24, 5, 7, 0)
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [forecast] })
       const timeline = result.travelPlan?.outbound.timelineCandidates
       const leavingAt = result.travelPlan?.outbound.leavingAt
-      // Compare departure times semantically (ISO string format may differ by ms suffix)
-      expect(new Date(timeline![0].departureIso).getTime()).toBe(new Date(leavingAt!.departureIso).getTime())
-      expect(timeline![0].status).toBe(leavingAt!.status)
+      const leavingAtMs = new Date(leavingAt!.departureIso).getTime()
+      const firstForecast = new Date(timeline![0].departureIso)
+      expect(leavingAtMs).toBe(Date.parse('2026-07-10T08:00:00Z'))
+      expect(firstForecast.getTime()).toBe(Date.parse('2026-07-10T09:00:00Z'))
+      expect(firstForecast.getTime()).toBeGreaterThan(leavingAtMs)
+      expect(firstForecast.getUTCMinutes()).toBe(0)
+      expect(firstForecast.getUTCSeconds()).toBe(0)
     })
 
     it('generates timelineCandidates even when current departure is not green', () => {
@@ -714,6 +718,26 @@ describe('checkTravelWeather', () => {
       const timeline = result.travelPlan?.outbound.timelineCandidates
       expect(timeline).toBeDefined()
       expect(timeline!.length).toBeGreaterThan(1)
+    })
+
+    it('keeps one valid future whole-hour slot instead of treating it as unavailable', () => {
+      // Five-hour trip, forecasts through 14:00 => latest departure is 09:00.
+      const forecast = makeForecast('2026-07-10T08:00:00Z', 7, 5, 7, 0)
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [forecast] })
+      const timeline = result.travelPlan?.outbound.timelineCandidates
+
+      expect(timeline).toHaveLength(1)
+      expect(timeline?.[0].departureIso).toBe('2026-07-10T09:00:00.000Z')
+    })
+
+    it('does not synthesize a forecast slot when no future whole hour is covered', () => {
+      // Five-hour trip, forecasts only through 13:00 => current 08:00 is the
+      // coverage cap and there is no assessed future departure.
+      const forecast = makeForecast('2026-07-10T08:00:00Z', 6, 5, 7, 0)
+      const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [forecast] })
+
+      expect(result.travelPlan?.outbound.leavingAt).toBeDefined()
+      expect(result.travelPlan?.outbound.timelineCandidates).toBeUndefined()
     })
 
     it('nextCaution is derived from timelineCandidates when outbound is green', () => {
@@ -760,7 +784,7 @@ describe('checkTravelWeather', () => {
       expect(result.travelPlan?.outbound.timelineCandidates).toBeUndefined()
     })
 
-    it('whole-hour alignment: non-whole-hour start 23:37 gives first=23:37 then 00:00, 01:00', () => {
+    it('whole-hour alignment: non-whole-hour start 23:37 gives 00:00, 01:00', () => {
       const forecast = makeForecast('2026-07-10T23:00:00Z', 10, 5, 7, 0)
       const result = checkTravelWeather({
         ...BASE_INPUT,
@@ -769,23 +793,18 @@ describe('checkTravelWeather', () => {
       })
       const tl = result.travelPlan?.outbound.timelineCandidates
       expect(tl).toBeDefined()
-      expect(new Date(tl![0].departureIso).getUTCHours()).toBe(23)
-      expect(new Date(tl![0].departureIso).getUTCMinutes()).toBe(37)
-      // Second slot must be 00:00 (next whole UTC hour)
-      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(0)
+      expect(new Date(tl![0].departureIso).getUTCHours()).toBe(0)
+      expect(new Date(tl![0].departureIso).getUTCMinutes()).toBe(0)
+      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(1)
       expect(new Date(tl![1].departureIso).getUTCMinutes()).toBe(0)
-      // Third slot must be 01:00
-      expect(new Date(tl![2].departureIso).getUTCHours()).toBe(1)
-      expect(new Date(tl![2].departureIso).getUTCMinutes()).toBe(0)
-      // No 00:37 slot
-      const has0037 = tl!.some(c => {
+      const hasNonWholeHour = tl!.some(c => {
         const d = new Date(c.departureIso)
-        return d.getUTCHours() === 0 && d.getUTCMinutes() === 37
+        return d.getUTCMinutes() !== 0 || d.getUTCSeconds() !== 0
       })
-      expect(has0037).toBe(false)
+      expect(hasNonWholeHour).toBe(false)
     })
 
-    it('whole-hour alignment: exact whole-hour start 23:00 gives first=23:00 then 00:00, no duplicate', () => {
+    it('whole-hour alignment: exact whole-hour start 23:00 starts strictly later at 00:00', () => {
       const forecast = makeForecast('2026-07-10T23:00:00Z', 10, 5, 7, 0)
       const result = checkTravelWeather({
         ...BASE_INPUT,
@@ -794,20 +813,18 @@ describe('checkTravelWeather', () => {
       })
       const tl = result.travelPlan?.outbound.timelineCandidates
       expect(tl).toBeDefined()
-      expect(new Date(tl![0].departureIso).getUTCHours()).toBe(23)
+      expect(new Date(tl![0].departureIso).getUTCHours()).toBe(0)
       expect(new Date(tl![0].departureIso).getUTCMinutes()).toBe(0)
-      // Second slot must be 00:00 (not a duplicate 23:00)
-      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(0)
+      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(1)
       expect(new Date(tl![1].departureIso).getUTCMinutes()).toBe(0)
-      // No duplicate first hour
       const count2300 = tl!.filter(c => {
         const d = new Date(c.departureIso)
         return d.getUTCHours() === 23 && d.getUTCMinutes() === 0
       }).length
-      expect(count2300).toBe(1)
+      expect(count2300).toBe(0)
     })
 
-    it('whole-hour alignment: 23:56 start gives first=23:56 then 00:00', () => {
+    it('whole-hour alignment: 23:56 start gives first=00:00', () => {
       const forecast = makeForecast('2026-07-10T23:00:00Z', 10, 5, 7, 0)
       const result = checkTravelWeather({
         ...BASE_INPUT,
@@ -816,9 +833,9 @@ describe('checkTravelWeather', () => {
       })
       const tl = result.travelPlan?.outbound.timelineCandidates
       expect(tl).toBeDefined()
-      expect(new Date(tl![0].departureIso).getUTCMinutes()).toBe(56)
-      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(0)
-      expect(new Date(tl![1].departureIso).getUTCMinutes()).toBe(0)
+      expect(new Date(tl![0].departureIso).getUTCHours()).toBe(0)
+      expect(new Date(tl![0].departureIso).getUTCMinutes()).toBe(0)
+      expect(new Date(tl![1].departureIso).getUTCHours()).toBe(1)
     })
 
     it('timeline extends beyond 48h when forecast data covers more than 48h', () => {
@@ -1136,7 +1153,7 @@ describe('checkTravelWeather', () => {
       expect(leavingAt?.arrivalWeather?.forecastTimeIso).toBe('2026-07-10T13:00:00.000Z')
     })
 
-    it('timelineCandidates[0] also gets arrivalWeather in single-departure mode', () => {
+    it('first future timeline candidate gets arrivalWeather in single-departure mode', () => {
       const destHours = makeDestHours('2026-07-10T10:00:00Z', 8, 6, 8, 0.2)
       const result = checkTravelWeather({ ...BASE_INPUT, pointForecasts: [pf], destinationForecast: { hours: destHours } })
       const tl0 = result.travelPlan?.outbound.timelineCandidates?.[0]

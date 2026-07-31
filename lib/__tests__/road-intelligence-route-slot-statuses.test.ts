@@ -3,6 +3,8 @@ import {
   worstWindDisplayStatusFromCounts,
   countVedurstofanForecastStatusesAt,
   buildProviderSlotStatusOverrides,
+  resolveVedurstofanOnlySlotStatus,
+  conservativelyCombineWindDisplayStatuses,
   windDisplayStatusToTravelStatus,
   buildProviderSlotWindows,
   buildProviderBestWindow,
@@ -181,6 +183,44 @@ describe('countVedurstofanForecastStatusesAt', () => {
     expect(result.othaegilegt ?? 0).toBe(0)
     expect(result.haettulegt ?? 0).toBe(0)
   })
+
+  it('counts a station with no route fraction as no data', () => {
+    const departureMs = Date.parse('2026-07-22T18:00:00.000Z')
+    const layer = makeVedurstofanLayer([{
+      ftimeIso: new Date(departureMs).toISOString(),
+      windSpeedMs: 3,
+      precipitationMmPerHour: 0,
+      temperatureC: 8,
+      windDirectionText: null,
+      weatherText: null,
+    }], null)
+
+    expect(countVedurstofanForecastStatusesAt(
+      layer,
+      60,
+      DEFAULT_SLOT_THRESHOLDS,
+      departureMs,
+    )).toEqual({ no_data: 1 })
+  })
+
+  it('counts a forecast outside the accepted ETA horizon as no data', () => {
+    const departureMs = Date.parse('2026-07-22T18:00:00.000Z')
+    const layer = makeVedurstofanLayer([{
+      ftimeIso: '2026-07-22T20:30:00.001Z',
+      windSpeedMs: 3,
+      precipitationMmPerHour: 0,
+      temperatureC: 8,
+      windDirectionText: null,
+      weatherText: null,
+    }], 0)
+
+    expect(countVedurstofanForecastStatusesAt(
+      layer,
+      60,
+      DEFAULT_SLOT_THRESHOLDS,
+      departureMs,
+    )).toEqual({ no_data: 1 })
+  })
 })
 
 // ─── buildProviderSlotStatusOverrides ───────────────────────────────────────
@@ -198,7 +238,7 @@ function makeCandidates(count: number, baseIso = '2026-07-21T12:00:00Z'): Travel
 
 function makeVedurstofanLayer(
   forecastRows: VedurstofanTravelLayer['points'][number]['forecastRows'],
-  routeFraction = 0,
+  routeFraction: number | null = 0,
 ): VedurstofanTravelLayer {
   return {
     experimental: true,
@@ -231,45 +271,47 @@ function makeVedurstofanLayer(
 }
 
 describe('buildProviderSlotStatusOverrides', () => {
-  it('returns null when no provider data', () => {
+  it('returns explicit no-data slots when Veðurstofan data is unavailable', () => {
     const result = buildProviderSlotStatusOverrides({
       candidates: makeCandidates(3),
       thresholds: DEFAULT_SLOT_THRESHOLDS,
       routeDurationMinutes: 60,
+      routeDistanceKm: 40,
       vedurstofanLayer: undefined,
       vedurstofanStationCount: 0,
       vegagerdinStatusCounts: {},
       vegagerdinStationCount: 0,
     })
-    expect(result).toBeNull()
+    expect(result).toEqual(['no_data', 'no_data', 'no_data'])
   })
 
-  it('returns null when vegagerdin count is 0 and no vedurstofan', () => {
+  it('does not use current Vegagerðin data as a future forecast', () => {
     const result = buildProviderSlotStatusOverrides({
       candidates: makeCandidates(2),
       thresholds: DEFAULT_SLOT_THRESHOLDS,
       routeDurationMinutes: 60,
+      routeDistanceKm: 40,
       vedurstofanLayer: undefined,
       vedurstofanStationCount: 0,
-      vegagerdinStatusCounts: { haettulegt: 1 }, // counts present but stationCount = 0
-      vegagerdinStationCount: 0,
+      vegagerdinStatusCounts: { haettulegt: 1 },
+      vegagerdinStationCount: 1,
     })
-    expect(result).toBeNull()
+    expect(result).toEqual(['no_data', 'no_data'])
   })
 
-  it('uses Vegagerðin worst only for the Now slot when no Veðurstofan forecast exists', () => {
+  it('never turns current Vegagerðin observations into future-slot overrides', () => {
     const candidates = makeCandidates(4)
     const result = buildProviderSlotStatusOverrides({
       candidates,
       thresholds: DEFAULT_SLOT_THRESHOLDS,
       routeDurationMinutes: 60,
+      routeDistanceKm: 40,
       vedurstofanLayer: undefined,
       vedurstofanStationCount: 0,
       vegagerdinStatusCounts: { othaegilegt: 1, 'innan-marka': 2 },
       vegagerdinStationCount: 3,
     })
-    expect(result).not.toBeNull()
-    expect(result).toEqual(['othaegilegt', 'innan-marka', 'innan-marka', 'innan-marka'])
+    expect(result).toEqual(['no_data', 'no_data', 'no_data', 'no_data'])
   })
 
   it('returns array with same length as candidates', () => {
@@ -278,12 +320,12 @@ describe('buildProviderSlotStatusOverrides', () => {
       candidates,
       thresholds: DEFAULT_SLOT_THRESHOLDS,
       routeDurationMinutes: 90,
-      vedurstofanLayer: undefined,
-      vedurstofanStationCount: 0,
-      vegagerdinStatusCounts: { 'innan-marka': 1 },
-      vegagerdinStationCount: 1,
+      routeDistanceKm: 40,
+      vedurstofanLayer: makeVedurstofanLayer([]),
+      vedurstofanStationCount: 1,
     })
     expect(result).toHaveLength(10)
+    expect(result).toEqual(Array(10).fill('no_data'))
   })
 
   it('accepts empty candidate list', () => {
@@ -291,16 +333,16 @@ describe('buildProviderSlotStatusOverrides', () => {
       candidates: [],
       thresholds: DEFAULT_SLOT_THRESHOLDS,
       routeDurationMinutes: 60,
-      vedurstofanLayer: undefined,
-      vedurstofanStationCount: 0,
-      vegagerdinStatusCounts: { haettulegt: 1 },
-      vegagerdinStationCount: 1,
+      routeDistanceKm: 40,
+      vedurstofanLayer: makeVedurstofanLayer([]),
+      vedurstofanStationCount: 1,
     })
     expect(result).toEqual([])
   })
 
   it('does not let dangerous Vegagerðin current values color future calm Veðurstofan slots', () => {
-    const nowIso = new Date().toISOString()
+    const candidates = makeCandidates(3)
+    const nowIso = candidates[0].departureIso
     const layer: VedurstofanTravelLayer = {
       experimental: true,
       status: 'available',
@@ -325,24 +367,93 @@ describe('buildProviderSlotStatusOverrides', () => {
           lat: 64.9,
           lon: -18.9,
           sourceUrl: null,
-          forecastRows: [
-            { ftimeIso: nowIso, windSpeedMs: 2, precipitationMmPerHour: 0, temperatureC: 10, windDirectionText: null, weatherText: null },
-          ],
+          forecastRows: candidates.map(candidate => ({
+            ftimeIso: new Date(Date.parse(candidate.departureIso) + 30 * 60_000).toISOString(),
+            windSpeedMs: 2,
+            precipitationMmPerHour: 0,
+            temperatureC: 10,
+            windDirectionText: null,
+            weatherText: null,
+          })),
         },
       ],
     }
-    const candidates = makeCandidates(3)
     const result = buildProviderSlotStatusOverrides({
       candidates,
       thresholds: DEFAULT_SLOT_THRESHOLDS,
       routeDurationMinutes: 60,
+      routeDistanceKm: 40,
       vedurstofanLayer: layer,
       vedurstofanStationCount: 1,
       vegagerdinStatusCounts: { haettulegt: 1 },
       vegagerdinStationCount: 1,
     })
     expect(result).not.toBeNull()
-    expect(result).toEqual(['haettulegt', 'innan-marka', 'innan-marka'])
+    expect(result).toEqual(['innan-marka', 'innan-marka', 'innan-marka'])
+  })
+
+  it('does not mark a long route safe when matched stations leave 50 km coverage gaps', () => {
+    const candidates = makeCandidates(1)
+    const layer = makeVedurstofanLayer([{
+      ftimeIso: candidates[0].departureIso,
+      windSpeedMs: 2,
+      precipitationMmPerHour: 0,
+      temperatureC: 10,
+      windDirectionText: null,
+      weatherText: null,
+    }], 0.5)
+
+    expect(buildProviderSlotStatusOverrides({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 400,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+    })).toEqual(['no_data'])
+  })
+
+  it('keeps a known warning even when route station coverage has gaps', () => {
+    const candidates = makeCandidates(1)
+    const layer = makeVedurstofanLayer([{
+      ftimeIso: candidates[0].departureIso,
+      windSpeedMs: DEFAULT_SLOT_THRESHOLDS.cautionWindMs,
+      precipitationMmPerHour: 0,
+      temperatureC: 10,
+      windDirectionText: null,
+      weatherText: null,
+    }], 0.5)
+
+    expect(buildProviderSlotStatusOverrides({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 400,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+    })).toEqual(['othaegilegt'])
+  })
+
+  it('does not mark a calm partial Veðurstofan layer safe', () => {
+    const candidates = makeCandidates(1)
+    const layer = makeVedurstofanLayer([{
+      ftimeIso: candidates[0].departureIso,
+      windSpeedMs: 2,
+      precipitationMmPerHour: 0,
+      temperatureC: 10,
+      windDirectionText: null,
+      weatherText: null,
+    }])
+    layer.status = 'partial'
+
+    expect(buildProviderSlotStatusOverrides({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 40,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+    })).toEqual(['no_data'])
   })
 
   it('lets Veðurstofan forecasts change status by departure slot', () => {
@@ -370,6 +481,7 @@ describe('buildProviderSlotStatusOverrides', () => {
       candidates,
       thresholds: DEFAULT_SLOT_THRESHOLDS,
       routeDurationMinutes: 0,
+      routeDistanceKm: 40,
       vedurstofanLayer: layer,
       vedurstofanStationCount: 1,
       vegagerdinStatusCounts: {},
@@ -378,12 +490,101 @@ describe('buildProviderSlotStatusOverrides', () => {
 
     expect(result).toEqual(['innan-marka', 'haettulegt'])
   })
+
+  it('uses calm Veðurstofan data even when the MET/Yr route candidate is dangerous', () => {
+    const candidates = makeCandidates(1)
+    candidates[0] = { ...candidates[0], status: 'rautt' }
+    const layer = makeVedurstofanLayer([{
+      ftimeIso: candidates[0].departureIso,
+      windSpeedMs: 2,
+      precipitationMmPerHour: 0,
+      temperatureC: 10,
+      windDirectionText: null,
+      weatherText: null,
+    }])
+
+    expect(buildProviderSlotStatusOverrides({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 40,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+      vegagerdinStatusCounts: {},
+      vegagerdinStationCount: 0,
+    })).toEqual(['innan-marka'])
+  })
+
+  it('raises a route slot when a station reaches discomfort', () => {
+    const candidates = makeCandidates(1)
+    const layer = makeVedurstofanLayer([{
+      ftimeIso: candidates[0].departureIso,
+      windSpeedMs: DEFAULT_SLOT_THRESHOLDS.cautionWindMs,
+      precipitationMmPerHour: 0,
+      temperatureC: 10,
+      windDirectionText: null,
+      weatherText: null,
+    }])
+
+    expect(buildProviderSlotStatusOverrides({
+      candidates,
+      thresholds: DEFAULT_SLOT_THRESHOLDS,
+      routeDurationMinutes: 0,
+      routeDistanceKm: 40,
+      vedurstofanLayer: layer,
+      vedurstofanStationCount: 1,
+      vegagerdinStatusCounts: {},
+      vegagerdinStationCount: 0,
+    })).toEqual(['othaegilegt'])
+  })
+})
+
+describe('resolveVedurstofanOnlySlotStatus', () => {
+  it('marks calm partial coverage as no data instead of safe', () => {
+    expect(resolveVedurstofanOnlySlotStatus(
+      { 'innan-marka': 1 },
+      2,
+    )).toBe('no_data')
+  })
+
+  it('keeps a known warning when another station is missing', () => {
+    expect(resolveVedurstofanOnlySlotStatus(
+      { othaegilegt: 1, no_data: 1 },
+      2,
+    )).toBe('othaegilegt')
+  })
+
+  it('marks complete calm Veðurstofan coverage as within limits', () => {
+    expect(resolveVedurstofanOnlySlotStatus(
+      { 'innan-marka': 2 },
+      2,
+    )).toBe('innan-marka')
+  })
+})
+
+describe('conservativelyCombineWindDisplayStatuses', () => {
+  it('never downgrades known route risk', () => {
+    expect(conservativelyCombineWindDisplayStatuses('haettulegt', 'innan-marka'))
+      .toBe('haettulegt')
+    expect(conservativelyCombineWindDisplayStatuses('othaegilegt', 'nalgast-othaegindi'))
+      .toBe('othaegilegt')
+  })
+
+  it('does not claim a missing route assessment is safe from one calm station', () => {
+    expect(conservativelyCombineWindDisplayStatuses('no_data', 'innan-marka'))
+      .toBe('no_data')
+  })
+
+  it('surfaces a known station warning on an otherwise unassessed route', () => {
+    expect(conservativelyCombineWindDisplayStatuses('no_data', 'nalgast-othaegindi'))
+      .toBe('nalgast-othaegindi')
+  })
 })
 
 describe('windDisplayStatusToTravelStatus', () => {
   it('maps display statuses to coarse travel statuses', () => {
     expect(windDisplayStatusToTravelStatus('innan-marka')).toBe('graent')
-    expect(windDisplayStatusToTravelStatus('nalgast-othaegindi')).toBe('graent')
+    expect(windDisplayStatusToTravelStatus('nalgast-othaegindi')).toBe('gult')
     expect(windDisplayStatusToTravelStatus('othaegilegt')).toBe('gult')
     expect(windDisplayStatusToTravelStatus('nalgast-haettumork')).toBe('gult')
     expect(windDisplayStatusToTravelStatus('haettulegt')).toBe('rautt')
@@ -406,12 +607,12 @@ describe('buildProviderSlotWindows', () => {
     expect(windows).toEqual([
       {
         fromIso: candidates[0].departureIso,
-        toIso: candidates[1].departureIso,
+        toIso: candidates[0].departureIso,
         status: 'graent',
         reasonCode: undefined,
       },
       {
-        fromIso: candidates[2].departureIso,
+        fromIso: candidates[1].departureIso,
         toIso: candidates[3].departureIso,
         status: 'gult',
         reasonCode: undefined,

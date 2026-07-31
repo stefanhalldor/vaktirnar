@@ -151,6 +151,7 @@ export function WindStatusFilterPills({
     <div className="flex flex-wrap gap-1.5">
       {visibleList.map(group => {
         const isActive = groupIsActive(group)
+        const isVisuallyActive = noFilter || isActive
         const meta = WIND_STATUS_UI_META[group.metaStatus]
         const activeClass = neutralColors
           ? 'border-primary/40 bg-primary/5 text-primary'
@@ -163,15 +164,13 @@ export function WindStatusFilterPills({
             aria-pressed={noFilter || isActive}
             onClick={() => handleToggle(group)}
             className={`flex min-h-10 items-center gap-1 rounded-full border px-3 py-1 text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-              isActive
+              isVisuallyActive
                 ? activeClass
-                : noFilter
-                  ? 'border-border bg-transparent text-muted-foreground'
-                  : 'border-border bg-transparent text-muted-foreground/30'
+                : 'border-border bg-transparent text-muted-foreground/30'
             }`}
           >
             <span
-              className={`w-2 h-2 rounded-full shrink-0 ${!isActive && !noFilter ? 'opacity-30' : ''} ${dotClass}`}
+              className={`w-2 h-2 rounded-full shrink-0 ${!isVisuallyActive ? 'opacity-30' : ''} ${dotClass}`}
               aria-hidden
             />
             {!neutralColors && <span aria-hidden>{meta.icon}</span>}

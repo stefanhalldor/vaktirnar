@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { TriangleAlert } from 'lucide-react'
 import type {
   ForecastDrawerRow,
   ResolvedTravelThresholds,
@@ -9,16 +10,16 @@ import type {
   RouteWeatherSamplingDiagnostics,
   RouteWeatherPoint,
   TravelCandidate,
-  WeatherStatus,
 } from '@/lib/weather/types'
 import type { RouteWeatherCoverage } from '@/lib/iceland-routes/trustedRouteCoverage'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import {
   classifyNearestForecastWindDisplayStatusAt,
   selectNearestForecastRowAt,
-  ALL_WIND_DISPLAY_STATUSES,
+  WIND_STATUS_MARKER_COLOR,
   type WindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
+import { resolveRouteForecastEtaMs } from '@/lib/weather/routeForecastTiming'
 import { DepartureHeatmap } from './DepartureHeatmap'
 import { VedurstofanPointCard } from './VedurstofanPointCard'
 import { WeatherWatchersComparison } from './WeatherWatchersComparison'
@@ -39,16 +40,6 @@ export type AssessmentEndpointForecastRows = Readonly<{
 
 const ASSESSMENT_ENDPOINT_FRACTION_EPSILON = 0.0001
 
-const STATUS_RANK: Record<WindDisplayStatus, number> = {
-  haettulegt: 6,
-  'nalgast-haettumork': 5,
-  othaegilegt: 4,
-  'nalgast-othaegindi': 3,
-  no_data: 2,
-  no_wind_data: 1,
-  'innan-marka': 0,
-}
-
 type StationAssessment = {
   station: Station
   etaIso: string | null
@@ -68,20 +59,37 @@ export function buildDriveStationAssessment(
   thresholds: ResolvedTravelThresholds,
 ): StationAssessment {
   const departureMs = candidate ? Date.parse(candidate.departureIso) : Date.now()
-  const etaMs =
-    Number.isFinite(departureMs) && station.routeFraction !== null
-      ? departureMs + station.routeFraction * Math.max(0, durationMinutes) * 60_000
-      : departureMs
-  const rowIndex = selectNearestForecastRowAt(station.forecastRows, etaMs)
+  const etaMs = resolveRouteForecastEtaMs(
+    departureMs,
+    durationMinutes * 60_000,
+    station.routeFraction,
+  )
+  const rowIndex = etaMs === null
+    ? null
+    : selectNearestForecastRowAt(station.forecastRows, etaMs)
   return {
     station,
-    etaIso: Number.isFinite(etaMs) ? new Date(etaMs).toISOString() : null,
+    etaIso: etaMs === null ? null : new Date(etaMs).toISOString(),
     row: rowIndex === null ? null : station.forecastRows[rowIndex],
-    status: classifyNearestForecastWindDisplayStatusAt(
-      station.forecastRows,
-      thresholds,
-      etaMs,
-    ),
+    status: etaMs === null
+      ? 'no_data'
+      : classifyNearestForecastWindDisplayStatusAt(
+          station.forecastRows,
+          thresholds,
+          etaMs,
+        ),
+  }
+}
+
+function stationAssessmentSafetyRank(status: WindDisplayStatus): number {
+  switch (status) {
+    case 'haettulegt': return 7
+    case 'nalgast-haettumork': return 6
+    case 'othaegilegt': return 5
+    case 'nalgast-othaegindi': return 4
+    case 'no_data': return 3
+    case 'no_wind_data': return 2
+    default: return 1
   }
 }
 
@@ -122,18 +130,14 @@ export function selectAssessmentEndpointForecastRows(
   }
 }
 
-function statusFromWindDisplay(status: WindDisplayStatus): WeatherStatus {
-  if (status === 'haettulegt' || status === 'nalgast-haettumork') return 'rautt'
-  if (status === 'othaegilegt' || status === 'nalgast-othaegindi') return 'gult'
-  return 'graent'
-}
-
 export function DriveJourneyPanel({
   layer,
   candidates,
+  currentCandidate,
   selectedCandidateIdx,
   onSelectCandidateIdx,
   slotStatusOverrides,
+  routeAssessmentStatus,
   thresholds,
   durationMinutes,
   distanceKm,
@@ -150,9 +154,12 @@ export function DriveJourneyPanel({
 }: {
   layer: VedurstofanTravelLayer | null
   candidates: TravelCandidate[]
+  currentCandidate: TravelCandidate | null
   selectedCandidateIdx: number | null
   onSelectCandidateIdx: (index: number | null) => void
   slotStatusOverrides?: WindDisplayStatus[]
+  /** Canonical route-wide status for the selected departure, including coverage gaps. */
+  routeAssessmentStatus: WindDisplayStatus
   thresholds: ResolvedTravelThresholds
   durationMinutes: number
   distanceKm: number
@@ -177,27 +184,29 @@ export function DriveJourneyPanel({
   const t = useTranslations('teskeid.vedrid.overview')
   const locale = useLocale()
   const [visibleStatuses, setVisibleStatuses] = useState<Set<WindDisplayStatus>>(
-    () => new Set(ALL_WIND_DISPLAY_STATUSES),
+    () => new Set(),
   )
   const [manualSelection, setManualSelection] = useState<ManualStationSelection | null>(null)
   const candidate =
     selectedCandidateIdx !== null
       ? candidates[selectedCandidateIdx] ?? candidates[0] ?? null
-      : candidates[0] ?? null
+      : currentCandidate
   const selectionContextKey = `${routeSelectionContextKey}\u0000${candidate?.departureIso ?? ''}`
   const selectedStationId = manualSelection?.contextKey === selectionContextKey
     ? manualSelection.stationId
     : null
-  const providerLayerIsIncomplete = layer?.status === 'partial'
+  const routeForecastCoverageIsIncomplete =
+    layer?.status !== 'available'
+    || routeAssessmentStatus === 'no_data'
+    || routeAssessmentStatus === 'no_wind_data'
 
   useEffect(() => {
     setManualSelection(null)
   }, [selectionContextKey])
 
   const stations = useMemo(
-    () => layer?.points
-      .filter(station => station.forecastRows.length > 0)
-      .sort((a, b) => (a.routeFraction ?? 0) - (b.routeFraction ?? 0)) ?? [],
+    () => [...(layer?.points ?? [])]
+      .sort((a, b) => (a.routeFraction ?? 0) - (b.routeFraction ?? 0)),
     [layer],
   )
   const assessments = useMemo(
@@ -208,22 +217,24 @@ export function DriveJourneyPanel({
   )
   const worst = assessments.reduce<StationAssessment | null>((current, assessment) => {
     if (!current) return assessment
-    const rankDelta = STATUS_RANK[assessment.status] - STATUS_RANK[current.status]
-    if (rankDelta > 0) return assessment
-    if (rankDelta === 0 && (assessment.row?.windSpeedMs ?? -1) > (current.row?.windSpeedMs ?? -1)) {
+    const currentRank = stationAssessmentSafetyRank(current.status)
+    const assessmentRank = stationAssessmentSafetyRank(assessment.status)
+    if (assessmentRank > currentRank) return assessment
+    if (assessment.status === current.status && (assessment.row?.windSpeedMs ?? -1) > (current.row?.windSpeedMs ?? -1)) {
       return assessment
     }
     return current
   }, null)
   const destinationStation = stations[stations.length - 1] ?? null
-  const effectiveStatus = worst ? statusFromWindDisplay(worst.status) : 'graent'
   const selectedAssessment =
     selectedStationId === null
       ? null
       : assessments.find(assessment => assessment.station.stationId === selectedStationId) ?? null
   const displayedAssessment = selectedAssessment ?? worst
   const visibleDisplayedAssessment =
-    displayedAssessment && visibleStatuses.has(displayedAssessment.status)
+    displayedAssessment && (
+      visibleStatuses.size === 0 || visibleStatuses.has(displayedAssessment.status)
+    )
       ? displayedAssessment
       : null
   const displayedAssessmentIsWorst =
@@ -243,12 +254,7 @@ export function DriveJourneyPanel({
               hour12: false,
             }).format(new Date(assessment.etaIso))
           : null,
-        color:
-          assessment.status === 'haettulegt' || assessment.status === 'nalgast-haettumork'
-            ? '#dc2626'
-            : assessment.status === 'othaegilegt' || assessment.status === 'nalgast-othaegindi'
-              ? '#f59e0b'
-              : '#2d5a27',
+        color: WIND_STATUS_MARKER_COLOR[assessment.status],
       })),
     [assessments, locale],
   )
@@ -262,7 +268,9 @@ export function DriveJourneyPanel({
   const visibleDriveMapStations = useMemo(
     () => driveMapStations.filter(station => {
       const assessment = assessments.find(item => item.station.stationId === station.id)
-      return assessment ? visibleStatuses.has(assessment.status) : true
+      return assessment
+        ? visibleStatuses.size === 0 || visibleStatuses.has(assessment.status)
+        : true
     }),
     [assessments, driveMapStations, visibleStatuses],
   )
@@ -275,6 +283,15 @@ export function DriveJourneyPanel({
       thresholds={thresholds}
     />
   ) : null
+  const tuningNotice = (
+    <div
+      role="status"
+      className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+    >
+      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <p>{t('roadMapPrototypeDepartureForecastTuningNotice')}</p>
+    </div>
+  )
   const routeMapContent = (
     <div className="relative">
       <DriveRouteMap
@@ -306,6 +323,7 @@ export function DriveJourneyPanel({
   if (!layer || stations.length === 0) {
     return (
       <div className="p-4">
+        {tuningNotice}
         <p className="text-sm text-muted-foreground">
           {t('roadMapPrototypeDepartureOptInUnavailable')}
         </p>
@@ -317,6 +335,7 @@ export function DriveJourneyPanel({
   return (
     <div className="p-3">
       <div className="rounded-xl border border-border bg-card p-4">
+        {tuningNotice}
         <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 dark:border-blue-800 dark:bg-blue-950/30">
           <p className="text-[10px] font-semibold text-blue-900 dark:text-blue-200">
             {tf('thresholdBoxTitle')}
@@ -329,7 +348,7 @@ export function DriveJourneyPanel({
           </p>
         </div>
 
-        {candidates.length > 1 && (
+        {candidates.length > 0 && (
           <div className="mt-3">
             <DepartureHeatmap
               candidates={candidates}
@@ -342,7 +361,6 @@ export function DriveJourneyPanel({
               thresholdsUsed={thresholds}
               showSelectedDetail={false}
               slotStatusOverrides={slotStatusOverrides}
-              firstSlotLabel={t('roadMapPrototypeScrubberNow')}
               showBestWindowHint={false}
               hasMoreCandidates={hasMoreCandidates}
               onLoadMore={onLoadMore}
@@ -365,7 +383,7 @@ export function DriveJourneyPanel({
             <VedurstofanPointCard
               variant="compact"
               station={worst.station}
-              status={worst.status}
+              status={routeAssessmentStatus}
               etaIso={worst.etaIso}
               departureIso={candidate?.departureIso ?? null}
               ftimeIso={worst.row?.ftimeIso ?? null}
@@ -449,7 +467,7 @@ export function DriveJourneyPanel({
           <details className="group rounded-xl border border-border bg-card">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
               <span>
-                {providerLayerIsIncomplete
+                {routeForecastCoverageIsIncomplete
                   ? tf('availableRouteForecastPointsDrawer')
                   : tf('allRouteForecastPointsDrawer')}
               </span>

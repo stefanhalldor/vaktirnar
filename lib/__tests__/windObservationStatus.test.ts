@@ -331,6 +331,34 @@ describe('selectNearestForecastRowAt', () => {
     ]
     expect(selectNearestForecastRowAt(forecasts, anchorMs)).toBe(1)
   })
+
+  it('accepts the exact 90-minute Veðurstofan cadence boundary', () => {
+    const forecasts = [{ ftimeIso: '2026-07-22T21:00:00.000Z' }]
+    expect(selectNearestForecastRowAt(
+      forecasts,
+      Date.parse('2026-07-22T22:30:00.000Z'),
+    )).toBe(0)
+  })
+
+  it('rejects a row outside the Veðurstofan cadence window', () => {
+    const forecasts = [{ ftimeIso: '2026-07-22T21:00:00.000Z' }]
+    expect(selectNearestForecastRowAt(
+      forecasts,
+      Date.parse('2026-07-22T22:30:00.001Z'),
+    )).toBeNull()
+  })
+
+  it('rejects invalid anchors and ignores invalid row timestamps', () => {
+    const forecasts = [
+      { ftimeIso: 'not-a-date' },
+      { ftimeIso: '2026-07-22T21:00:00.000Z' },
+    ]
+    expect(selectNearestForecastRowAt(forecasts, Number.NaN)).toBeNull()
+    expect(selectNearestForecastRowAt(
+      forecasts,
+      Date.parse('2026-07-22T21:00:00.000Z'),
+    )).toBe(1)
+  })
 })
 
 describe('classifyNearestForecastWindDisplayStatusAt', () => {
@@ -341,6 +369,17 @@ describe('classifyNearestForecastWindDisplayStatusAt', () => {
       { ftimeIso: '2026-07-22T21:00:00.000Z', windSpeedMs: 5 },
     ]
     expect(classifyNearestForecastWindDisplayStatusAt(forecasts, wideThresholds, anchorMs)).toBe('innan-marka')
+  })
+
+  it('returns no data outside the accepted forecast horizon', () => {
+    const forecasts = [
+      { ftimeIso: '2026-07-22T21:00:00.000Z', windSpeedMs: 5 },
+    ]
+    expect(classifyNearestForecastWindDisplayStatusAt(
+      forecasts,
+      wideThresholds,
+      Date.parse('2026-07-22T22:30:00.001Z'),
+    )).toBe('no_data')
   })
 })
 

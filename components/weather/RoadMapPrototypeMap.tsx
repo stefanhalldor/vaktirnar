@@ -101,6 +101,7 @@ import {
   ALL_WIND_DISPLAY_STATUSES,
   DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES,
   WIND_STATUS_META,
+  classifyCandidateWindDisplayStatus,
   classifyForecastWindDisplayStatusAt,
   classifyNearestForecastWindDisplayStatusAt,
   classifyObservationWindDisplayStatus,
@@ -109,9 +110,11 @@ import {
   selectNearestForecastRowAt,
   toSimpleWindDisplayStatus,
   worstWindDisplayStatus,
+  weatherStatusToWindDisplayStatus,
   WIND_STATUS_MARKER_COLOR,
   type WindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
+import { resolveRouteForecastEtaMs } from '@/lib/weather/routeForecastTiming'
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
 import { routeOptionLabelMessageKey } from '@/lib/weather/routeOptionLabels'
 import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
@@ -193,6 +196,8 @@ import type {
   VegagerdinRouteLayerPoint,
 } from '@/lib/road-intelligence/vegagerdinRouteLayer'
 import {
+  buildProviderSlotStatusOverrides,
+  conservativelyCombineWindDisplayStatuses,
   worstWindDisplayStatusFromCounts,
   windDisplayStatusToTravelStatus,
 } from '@/lib/road-intelligence/routeSlotStatuses'
@@ -640,8 +645,7 @@ type RouteSlotStatusSource = 'providers' | 'vegagerdin' | 'vedurstofan' | 'fallb
 type RouteWeatherMode = 'now' | 'forecast'
 type RouteForecastBuildStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'error'
 const ROUTE_TIMELINE_INITIAL_SLOT_COUNT = 8
-const ROUTE_TIMELINE_TOTAL_SLOT_COUNT = 25
-const ROUTE_TIMELINE_INITIAL_HOURLY_SLOT_COUNT = 6
+const ROUTE_WIND_STATUS_FILTER_MODE: WindStatusFilterMode = 'detailed'
 const VEGAGERDIN_ROUTE_REFRESH_INTERVAL_MS = 60_000
 const LIVE_ROUTE_TEMPERATURE_MAX_C = 2
 
@@ -652,9 +656,6 @@ type RouteForecastBuildContext = {
   routeDurationMinutes: number
   vedurstofanLayer: VedurstofanTravelLayer | undefined
   vedurstofanStationCount: number
-  vegagerdinStatusCounts: Partial<Record<WindDisplayStatus, number>>
-  vegagerdinStationCount: number
-  nowWorstStatus: WindDisplayStatus
   signal: AbortSignal
 }
 
@@ -714,11 +715,9 @@ function getRouteDepartureCandidates(result: DeterministicResult): TravelCandida
   return candidates.length > 0 ? candidates : null
 }
 
-function nextWholeUtcHourAfter(ms: number): number {
-  const d = new Date(ms)
-  d.setUTCMinutes(0, 0, 0)
-  const wholeHourMs = d.getTime()
-  return wholeHourMs <= ms ? wholeHourMs + 3_600_000 : wholeHourMs
+function getRouteCurrentCandidate(result: DeterministicResult): TravelCandidate | null {
+  const outbound = result.travelPlan?.outbound
+  return outbound?.leavingAt ?? outbound?.candidates[0] ?? null
 }
 
 function readStationMarkerFiniteNumber(value: unknown): number | null {
@@ -729,77 +728,24 @@ function readStationMarkerString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
-function cloneRouteCandidateForDeparture(
-  seed: TravelCandidate,
-  departureMs: number,
-  durationMinutes: number,
-): TravelCandidate {
-  const departureIso = new Date(departureMs).toISOString()
-  const durationMs = Math.max(0, durationMinutes) * 60_000
-  return {
-    ...seed,
-    departureIso,
-    arrivalIso: new Date(departureMs + durationMs).toISOString(),
-    status: 'graent',
-    reasonCode: undefined,
-    worstWind: undefined,
-    worstGust: undefined,
-    worstPrecip: undefined,
-    pointStatuses: undefined,
-    displayPoint: undefined,
-    arrivalWeather: undefined,
-  }
-}
-
 function buildRouteTimelineCandidates(
   result: DeterministicResult,
-  durationMinutes: number,
+  _durationMinutes: number,
 ): TravelCandidate[] | null {
-  const existing = getRouteDepartureCandidates(result)
-  const outbound = result.travelPlan?.outbound
-  const seed =
-    existing?.[0] ??
-    outbound?.leavingAt ??
-    outbound?.candidates?.[0] ??
-    null
-  if (!seed) return existing
+  const candidates = getRouteDepartureCandidates(result)
+  const currentCandidate = getRouteCurrentCandidate(result)
+  if (!candidates || !currentCandidate) return null
 
-  const seedDepartureMs = Date.parse(seed.departureIso)
-  if (!Number.isFinite(seedDepartureMs)) return existing
-
-  const candidates: TravelCandidate[] = [seed]
-  let nextDepartureMs = nextWholeUtcHourAfter(seedDepartureMs)
-  while (candidates.length < ROUTE_TIMELINE_INITIAL_HOURLY_SLOT_COUNT + 1) {
-    candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
-    nextDepartureMs += 3_600_000
-  }
-
-  while (candidates.length < ROUTE_TIMELINE_TOTAL_SLOT_COUNT) {
-    candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
-    nextDepartureMs += 3_600_000
-  }
-
-  return candidates
-}
-
-function buildSyntheticRouteTimelineCandidates(
-  durationMinutes: number,
-  nowStatus: WindDisplayStatus,
-): TravelCandidate[] {
-  const departureMs = Date.now()
-  const seed: TravelCandidate = {
-    departureIso: new Date(departureMs).toISOString(),
-    arrivalIso: new Date(departureMs + Math.max(0, durationMinutes) * 60_000).toISOString(),
-    status: windDisplayStatusToTravelStatus(nowStatus),
-  }
-  const candidates: TravelCandidate[] = [seed]
-  let nextDepartureMs = nextWholeUtcHourAfter(departureMs)
-  while (candidates.length < ROUTE_TIMELINE_TOTAL_SLOT_COUNT) {
-    candidates.push(cloneRouteCandidateForDeparture(seed, nextDepartureMs, durationMinutes))
-    nextDepartureMs += 3_600_000
-  }
-
-  return candidates
+  const currentDepartureMs = Date.parse(currentCandidate.departureIso)
+  const futureWholeHours = candidates.filter(candidate => {
+    const departureMs = Date.parse(candidate.departureIso)
+    if (!Number.isFinite(departureMs) || departureMs <= currentDepartureMs) return false
+    const departure = new Date(departureMs)
+    return departure.getUTCMinutes() === 0
+      && departure.getUTCSeconds() === 0
+      && departure.getUTCMilliseconds() === 0
+  })
+  return futureWholeHours.length > 0 ? futureWholeHours : null
 }
 
 function countStatusesTotal(counts: Partial<Record<WindDisplayStatus, number>>): number {
@@ -3892,17 +3838,6 @@ export function RoadMapPrototypeMap({
     weatherChaseVedurstofanItems,
   ])
 
-  function routeStatusLabel(status: DeterministicResult['stada']): string {
-    switch (status) {
-      case 'rautt':
-        return t('roadMapPrototypeTravelStatusRed')
-      case 'gult':
-        return t('roadMapPrototypeTravelStatusYellow')
-      default:
-        return t('roadMapPrototypeTravelStatusGreen')
-    }
-  }
-
   function routeStatusColor(status: DeterministicResult['stada']): string {
     switch (status) {
       case 'rautt':
@@ -3914,8 +3849,11 @@ export function RoadMapPrototypeMap({
     }
   }
 
-  function providerRouteAnswer(status: DeterministicResult['stada']): string {
-    switch (status) {
+  function providerRouteAnswer(status: WindDisplayStatus): string {
+    if (status === 'no_data' || status === 'no_wind_data') {
+      return t('roadMapPrototypeProviderRouteAnswerUnavailable')
+    }
+    switch (windDisplayStatusToTravelStatus(status)) {
       case 'rautt':
         return t('roadMapPrototypeProviderRouteAnswerRed')
       case 'gult':
@@ -3948,14 +3886,8 @@ export function RoadMapPrototypeMap({
     }
   }
 
-  function displayWindStatus(status: WindDisplayStatus): WindDisplayStatus {
-    return routeStatusFilterModeRef.current === 'simple'
-      ? toSimpleWindDisplayStatus(status)
-      : status
-  }
-
   function routeStatusIsVisible(status: WindDisplayStatus, statuses = visibleRouteStatusesRef.current): boolean {
-    return statusIsVisibleInFilter(status, statuses, routeStatusFilterModeRef.current)
+    return statusIsVisibleInFilter(status, statuses, ROUTE_WIND_STATUS_FILTER_MODE)
   }
 
   function removeOverviewMapLayerArtifacts(map: import('maplibre-gl').Map) {
@@ -4823,7 +4755,7 @@ export function RoadMapPrototypeMap({
   ) {
     for (const { element, point } of routeVegagerdinLabelMarkersRef.current) {
       const visible = mode === 'now' && routeStatusIsVisible(point.windDisplayStatus, statuses)
-      const color = WIND_STATUS_MARKER_COLOR[displayWindStatus(point.windDisplayStatus)]
+      const color = WIND_STATUS_MARKER_COLOR[point.windDisplayStatus]
       element.style.display = visible ? 'block' : 'none'
       updateRouteWindLabelColor(element, color)
     }
@@ -4835,7 +4767,7 @@ export function RoadMapPrototypeMap({
   ) {
     for (const { element, entry } of routeVedurstofanLabelMarkersRef.current) {
       const visible = mode === 'forecast' && routeStatusIsVisible(entry.windDisplayStatus, statuses)
-      const color = WIND_STATUS_MARKER_COLOR[displayWindStatus(entry.windDisplayStatus)]
+      const color = WIND_STATUS_MARKER_COLOR[entry.windDisplayStatus]
       element.style.display = visible ? 'block' : 'none'
       updateRouteWindLabelColor(element, color)
     }
@@ -4844,7 +4776,6 @@ export function RoadMapPrototypeMap({
   function handleRouteStatusFilterModeChange(mode: WindStatusFilterMode) {
     routeStatusFilterModeRef.current = mode
     setRouteStatusFilterMode(mode)
-    applyRouteStatusFilterToMap(mapRef.current, visibleRouteStatusesRef.current, mode)
     updateRouteWeatherLayerVisibility()
     updateOverviewMarkerVisibility()
   }
@@ -4856,7 +4787,7 @@ export function RoadMapPrototypeMap({
   function handleRouteStatusFilterChange(next: Set<WindDisplayStatus>) {
     visibleRouteStatusesRef.current = next
     setVisibleRouteStatuses(next)
-    applyRouteStatusFilterToMap(mapRef.current, next, routeStatusFilterModeRef.current)
+    applyRouteStatusFilterToMap(mapRef.current, next, ROUTE_WIND_STATUS_FILTER_MODE)
     updateRouteWeatherLayerVisibility(routeWeatherModeRef.current, next)
   }
 
@@ -4913,24 +4844,28 @@ export function RoadMapPrototypeMap({
       return
     }
 
-    setSelectedCandidateIdx(idx)
     const layer = vedurstofanLayerRef.current
     const candidates = routeCandidates
     const candidate = candidates ? candidates[idx] : null
 
-    if (!layer || !candidate) {
+    if (!candidate) {
       handleSelectRouteNow()
       return
     }
-    const newDepartureMs = candidate ? Date.parse(candidate.departureIso) : Date.now()
-    const render = renderVedurstofanStations(
-      layer,
-      routeDurationMinutesRef.current,
-      routeThresholdsRef.current,
-      newDepartureMs,
-    )
+    setSelectedCandidateIdx(idx)
+    if (layer) {
+      const newDepartureMs = Date.parse(candidate.departureIso)
+      const render = renderVedurstofanStations(
+        layer,
+        routeDurationMinutesRef.current,
+        routeThresholdsRef.current,
+        newDepartureMs,
+      )
+      setRouteVisibleStatusCounts(render.statusCounts)
+    } else {
+      setRouteVisibleStatusCounts({})
+    }
     setRouteWeatherModeState('forecast')
-    setRouteVisibleStatusCounts(render.statusCounts)
     updateRouteWeatherLayerVisibility('forecast')
   }
 
@@ -5863,7 +5798,7 @@ export function RoadMapPrototypeMap({
     applyRouteStatusFilterToMap(
       map,
       visibleRouteStatusesRef.current,
-      routeStatusFilterModeRef.current,
+      ROUTE_WIND_STATUS_FILTER_MODE,
     )
 
     const [west, south, east, north] = mapData.bbox
@@ -6370,7 +6305,7 @@ export function RoadMapPrototypeMap({
     const precipitationText = entry.selectedRow?.precipitationMmPerHour != null
       ? formatNum(entry.selectedRow.precipitationMmPerHour, locale)
       : null
-    const color = WIND_STATUS_MARKER_COLOR[displayWindStatus(entry.windDisplayStatus)]
+    const color = WIND_STATUS_MARKER_COLOR[entry.windDisplayStatus]
     return createRouteWeatherPointMarkerElement({
       stationName: entry.point.stationName,
       windText,
@@ -6402,22 +6337,28 @@ export function RoadMapPrototypeMap({
         typeof p.lat === 'number' && typeof p.lon === 'number',
     )
     const departureMs = departureMsOverride ?? Date.now()
-    const routeDurationMs = Math.max(0, routeDurationMinutes) * 60_000
+    const routeDurationMs = routeDurationMinutes * 60_000
     const statusEntries = validPoints.map((p) => {
-      const anchorMs = Number.isFinite(departureMs)
-        ? departureMs + (p.routeFraction ?? 0) * routeDurationMs
-        : Date.now()
-      const windDisplayStatus = classifyNearestForecastWindDisplayStatusAt(
-        p.forecastRows,
-        thresholds,
-        anchorMs,
+      const anchorMs = resolveRouteForecastEtaMs(
+        departureMs,
+        routeDurationMs,
+        p.routeFraction,
       )
-      const selectedRowIdx = selectNearestForecastRowAt(p.forecastRows, anchorMs)
+      const windDisplayStatus = anchorMs === null
+        ? 'no_data'
+        : classifyNearestForecastWindDisplayStatusAt(
+            p.forecastRows,
+            thresholds,
+            anchorMs,
+          )
+      const selectedRowIdx = anchorMs === null
+        ? null
+        : selectNearestForecastRowAt(p.forecastRows, anchorMs)
       return {
         point: p,
         windDisplayStatus,
         selectedRow: selectedRowIdx !== null ? p.forecastRows[selectedRowIdx] : null,
-        etaIso: Number.isFinite(anchorMs) ? new Date(anchorMs).toISOString() : null,
+        etaIso: anchorMs === null ? null : new Date(anchorMs).toISOString(),
       }
     })
     const statusCounts = countWindDisplayStatuses(statusEntries)
@@ -6526,7 +6467,7 @@ export function RoadMapPrototypeMap({
     applyRouteStatusFilterToMap(
       map,
       visibleRouteStatusesRef.current,
-      routeStatusFilterModeRef.current,
+      ROUTE_WIND_STATUS_FILTER_MODE,
     )
     updateRouteWeatherLayerVisibility()
 
@@ -6572,7 +6513,7 @@ export function RoadMapPrototypeMap({
     const roadTemperatureText = point.roadTemperatureC != null
       ? `${formatNum(point.roadTemperatureC, locale)}°`
       : null
-    const color = WIND_STATUS_MARKER_COLOR[displayWindStatus(point.windDisplayStatus)]
+    const color = WIND_STATUS_MARKER_COLOR[point.windDisplayStatus]
     const element = createRouteWeatherPointMarkerElement({
       stationName: point.stationName,
       windText,
@@ -6954,7 +6895,7 @@ export function RoadMapPrototypeMap({
     applyRouteStatusFilterToMap(
       map,
       visibleRouteStatusesRef.current,
-      routeStatusFilterModeRef.current,
+      ROUTE_WIND_STATUS_FILTER_MODE,
     )
     updateRouteWeatherLayerVisibility()
     return { count: validPoints.length, statusCounts }
@@ -7575,27 +7516,25 @@ export function RoadMapPrototypeMap({
     setRouteDepartureForecastExpanded(true)
 
     let context = routeForecastBuildContextRef.current
-    if (!context && routeBridgeSummary) {
-      const nowCounts = routeNowStatusCounts ?? routeBridgeSummary.statusCounts ?? {}
-      const nowWorstStatus = worstWindDisplayStatusFromCounts(nowCounts) ?? 'no_data'
-      context = {
-        timelineCandidates: buildSyntheticRouteTimelineCandidates(
-          routeBridgeSummary.durationMinutes,
-          nowWorstStatus,
-        ),
-        thresholds: routeBridgeSummary.thresholdsUsed,
-        routeDurationMinutes: routeBridgeSummary.durationMinutes,
-        vedurstofanLayer: vedurstofanLayerRef.current,
-        vedurstofanStationCount: routeBridgeSummary.vedurstofanStationCount,
-        vegagerdinStatusCounts: nowCounts,
-        vegagerdinStationCount: countStatusesTotal(nowCounts),
-        nowWorstStatus,
-        signal: routeBridgeRequestRef.current?.signal ?? new AbortController().signal,
+    if (!context && routeBridgeSummary && routeTravelResult) {
+      const timelineCandidates = buildRouteTimelineCandidates(
+        routeTravelResult,
+        routeBridgeSummary.durationMinutes,
+      )
+      if (timelineCandidates) {
+        context = {
+          timelineCandidates,
+          thresholds: routeBridgeSummary.thresholdsUsed,
+          routeDurationMinutes: routeBridgeSummary.durationMinutes,
+          vedurstofanLayer: vedurstofanLayerRef.current,
+          vedurstofanStationCount: routeBridgeSummary.vedurstofanStationCount,
+          signal: routeBridgeRequestRef.current?.signal ?? new AbortController().signal,
+        }
+        routeForecastBuildContextRef.current = context
       }
-      routeForecastBuildContextRef.current = context
     }
 
-    if (!context || context.timelineCandidates.length <= 1) {
+    if (!context || context.timelineCandidates.length === 0) {
       setRouteForecastBuildStatus('unavailable')
       return
     }
@@ -7616,15 +7555,12 @@ export function RoadMapPrototypeMap({
           context.vedurstofanStationCount,
           'stations',
         )
-        // Met.no's server-assessed route candidates remain the only source of
-        // departure-slot truth. Veðurstofan/Vegagerðin station layers are
-        // display-only supporting evidence and must never override the route
-        // timeline from a limited station set.
-        logRoadMapDiagnostic('forecast slots using native route timeline', {
-          reason: 'provider-layers-display-only',
+        // Candidate timestamps remain the route-timing carrier. Future slot
+        // safety is classified later from ETA-matched Veðurstofan forecasts.
+        logRoadMapDiagnostic('forecast slots using Veðurstofan-only future status', {
+          reason: 'vedurstofan-only-future-slots',
           timelineCandidateCount: context.timelineCandidates.length,
           vedurstofanStationCount: context.vedurstofanStationCount,
-          vegagerdinStationCount: context.vegagerdinStationCount,
         })
         setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
         setRouteCandidates(context.timelineCandidates)
@@ -7637,11 +7573,13 @@ export function RoadMapPrototypeMap({
             context.thresholds,
             firstDepartureMs,
           )
-          setSelectedCandidateIdx(0)
-          setRouteWeatherModeState('forecast')
           setRouteVisibleStatusCounts(render.statusCounts)
-          updateRouteWeatherLayerVisibility('forecast')
+        } else {
+          setRouteVisibleStatusCounts({})
         }
+        setSelectedCandidateIdx(0)
+        setRouteWeatherModeState('forecast')
+        updateRouteWeatherLayerVisibility('forecast')
         builtRouteForecastContextRef.current = context
         setRouteForecastBuildStatus('ready')
       } catch (e) {
@@ -7939,7 +7877,6 @@ export function RoadMapPrototypeMap({
     const nowMeasuredAtIso =
       vegagerdinLayer?.measuredAtIso ??
       newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
-    const nowWorstStatus = worstWindDisplayStatusFromCounts(nowStatusCounts) ?? 'no_data'
     // Station providers are display-only evidence. Even a complete station
     // read does not prove complete spatial coverage and must never override
     // the route-wide forecast assessment.
@@ -8019,16 +7956,13 @@ export function RoadMapPrototypeMap({
     console.log('[RoadMap] route success — initial candidates:', initialRouteCandidates?.length ?? 0, '| selectedCandidateIdx: null | nowCounts:', nowStatusCounts, '| nowMeasuredAtIso:', nowMeasuredAtIso)
 
     routeForecastBuildContextRef.current =
-      timelineCandidates && timelineCandidates.length > 1
+      timelineCandidates && timelineCandidates.length > 0
         ? {
             timelineCandidates,
             thresholds,
             routeDurationMinutes: mapData.durationMinutes,
             vedurstofanLayer,
             vedurstofanStationCount: vedurstofanRender.count,
-            vegagerdinStatusCounts: nowStatusCounts,
-            vegagerdinStationCount: vegagerdinRender.count,
-            nowWorstStatus,
             signal,
           }
         : null
@@ -9565,7 +9499,6 @@ export function RoadMapPrototypeMap({
     )
     const render = renderVegagerdinStations(layer)
     const nowStatusCounts = render.statusCounts
-    const nowWorstStatus = worstWindDisplayStatusFromCounts(nowStatusCounts) ?? 'no_data'
     const nowMeasuredAtIso =
       layer?.measuredAtIso ?? newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
 
@@ -9588,16 +9521,6 @@ export function RoadMapPrototypeMap({
       }
     })
 
-    const forecastContext = routeForecastBuildContextRef.current
-    if (forecastContext) {
-      routeForecastBuildContextRef.current = {
-        ...forecastContext,
-        vegagerdinStatusCounts: nowStatusCounts,
-        vegagerdinStationCount: render.count,
-        nowWorstStatus,
-      }
-      builtRouteForecastContextRef.current = null
-    }
     updateRouteWeatherLayerVisibility('now')
   }
 
@@ -9706,9 +9629,25 @@ export function RoadMapPrototypeMap({
     routeWeatherMode,
   ])
 
+  const routeSlotStatusOverrides = useMemo(() => {
+    if (!routeBridgeSummary || !routeCandidates) return null
+    return buildProviderSlotStatusOverrides({
+      candidates: routeCandidates,
+      thresholds: routeBridgeSummary.thresholdsUsed,
+      routeDurationMinutes: routeBridgeSummary.durationMinutes,
+      routeDistanceKm: routeBridgeSummary.distanceKm,
+      vedurstofanLayer: routeVedurstofanLayer ?? undefined,
+      vedurstofanStationCount: routeBridgeSummary.vedurstofanStationCount,
+    })
+  }, [
+    routeBridgeSummary,
+    routeCandidates,
+    routeVedurstofanLayer,
+  ])
+
   // Derive the displayed route status + answer from the selected scrubber slot.
   // When the user selects slot N in the heatmap, the badge and answer update to
-  // reflect that slot's provider status rather than the initial "Núna" status.
+  // reflect that future whole-hour slot's provider status.
   const effectiveSelectedCandidateIdx =
     routeBridgeSummary && routeWeatherMode === 'forecast'
       ? selectedCandidateIdx
@@ -9717,14 +9656,32 @@ export function RoadMapPrototypeMap({
     effectiveSelectedCandidateIdx !== null && routeCandidates?.[effectiveSelectedCandidateIdx]
       ? routeCandidates[effectiveSelectedCandidateIdx]
       : null
-  const displayedRouteStatus: DeterministicResult['stada'] = selectedRouteCandidate?.status
-    ?? routeBridgeSummary?.status
-    ?? 'graent'
+  const currentRouteCandidate = routeTravelResult
+    ? getRouteCurrentCandidate(routeTravelResult)
+    : null
+  const baselineNowRouteWindStatus = currentRouteCandidate && routeBridgeSummary
+    ? classifyCandidateWindDisplayStatus(
+        currentRouteCandidate,
+        routeBridgeSummary.thresholdsUsed,
+      )
+    : weatherStatusToWindDisplayStatus(routeBridgeSummary?.status ?? 'graent')
+  const currentStationWorstStatus = worstWindDisplayStatusFromCounts(
+    routeNowStatusCounts ?? {},
+  )
+  const nowRouteWindStatus = conservativelyCombineWindDisplayStatuses(
+    baselineNowRouteWindStatus,
+    currentStationWorstStatus,
+  )
+  const displayedRouteWindStatus = effectiveSelectedCandidateIdx !== null
+    ? routeSlotStatusOverrides?.[effectiveSelectedCandidateIdx] ?? 'no_data'
+    : nowRouteWindStatus
+  const displayedRouteStatus: DeterministicResult['stada'] =
+    windDisplayStatusToTravelStatus(displayedRouteWindStatus)
   const displayedRouteAnswer: string =
     routeBridgeSummary == null
       ? ''
       : selectedRouteCandidate
-        ? providerRouteAnswer(displayedRouteStatus)
+        ? providerRouteAnswer(displayedRouteWindStatus)
         : routeBridgeSummary.answer
   const displayedRouteSlotLabel =
     routeBridgeSummary == null
@@ -10823,19 +10780,18 @@ export function RoadMapPrototypeMap({
             </button>
           )}
           {routeResultsVisibility.showWeather && routeBridgeSummary && (
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                routeAssessmentIsPartial
-                  ? 'border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100'
-                  : 'text-white'
-              }`}
-              style={routeAssessmentIsPartial
-                ? undefined
-                : { backgroundColor: routeStatusColor(displayedRouteStatus) }}
-            >
-              {routeAssessmentIsPartial
-                ? t('roadMapPrototypeAssessmentPartialBadge')
-                : routeStatusLabel(displayedRouteStatus)}
+            <span className="flex shrink-0 flex-col items-end gap-0.5">
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                style={{ backgroundColor: WIND_STATUS_MARKER_COLOR[displayedRouteWindStatus] }}
+              >
+                {tf(WIND_STATUS_META[displayedRouteWindStatus].labelKey as 'statusWithinLimits')}
+              </span>
+              {routeAssessmentIsPartial && (
+                <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[9px] font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                  {t('roadMapPrototypeAssessmentPartialBadge')}
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -10880,8 +10836,11 @@ export function RoadMapPrototypeMap({
                   <DriveJourneyPanel
                     layer={routeVedurstofanLayer}
                     candidates={displayedRouteCandidates ?? []}
+                    currentCandidate={currentRouteCandidate}
                     selectedCandidateIdx={effectiveSelectedCandidateIdx}
                     onSelectCandidateIdx={handleSelectCandidateIdx}
+                    slotStatusOverrides={routeSlotStatusOverrides ?? undefined}
+                    routeAssessmentStatus={displayedRouteWindStatus}
                     thresholds={routeBridgeSummary.thresholdsUsed}
                     durationMinutes={routeBridgeSummary.durationMinutes}
                     distanceKm={routeBridgeSummary.distanceKm}
@@ -11356,9 +11315,7 @@ export function RoadMapPrototypeMap({
                   <span
                     className="h-2.5 w-2.5 rounded-full"
                     style={{
-                      backgroundColor: hasUsableRouteNowMeasurements
-                        ? routeStatusColor(routeBridgeSummary.status)
-                        : WIND_STATUS_MARKER_COLOR.no_data,
+                      backgroundColor: WIND_STATUS_MARKER_COLOR[nowRouteWindStatus],
                     }}
                   />
                   {t('roadMapPrototypeDrivingNow')}
@@ -11532,7 +11489,7 @@ export function RoadMapPrototypeMap({
                   visibleStatuses={visibleRouteStatuses}
                   onVisibleStatusesChange={handleRouteStatusFilterChange}
                   showAllLabel=""
-                  mode={routeStatusFilterMode}
+                  mode={ROUTE_WIND_STATUS_FILTER_MODE}
                   combineNoWindDataStatuses
                 />
               </div>

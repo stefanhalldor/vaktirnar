@@ -330,7 +330,7 @@ export type TravelPlan = {
     leavingAt?: TravelCandidate
     windowMode: boolean
     nextCaution?: NextCaution
-    /** Hourly timeline for single-departure mode (from departure to the full forecast coverage limit). */
+    /** Strictly future whole-hour timeline for single-departure mode. Exact current departure is `leavingAt`. */
     timelineCandidates?: TravelCandidate[]
   }
   return?: {

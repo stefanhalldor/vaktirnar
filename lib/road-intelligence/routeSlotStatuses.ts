@@ -1,28 +1,28 @@
 /**
  * Provider-aware departure slot status helpers for the Road Intelligence route scrubber.
  *
- * These helpers derive per-slot WindDisplayStatus values from Icelandic provider data
- * (Vegagerðin current observations + Veðurstofan ETA-matched forecasts), replacing the
- * default MET/Yr candidate classification when provider data is available.
+ * These helpers derive future departure-slot statuses exclusively from
+ * Veðurstofan ETA-matched forecasts.
  *
  * Design contract:
- * - Vegagerðin current observations are RAUNGILDI (current measured values). They apply
- *   only to the "Núna" slot and must not color future departure slots.
+ * - Vegagerðin current observations are RAUNGILDI and belong only to the separate
+ *   current/live view. They must not color future departure slots.
  * - Veðurstofan forecast rows CAN vary per slot — ETA at each station is computed as:
  *     anchorMs = departureMs + routeFraction * routeDurationMs
- * - Future departure slots are driven by Veðurstofan ETA-matched forecasts when present.
- * - When neither provider has route station data, returns null so the caller can fall back
- *   to MET/Yr native candidate classification.
+ * - Future departure slots are driven only by Veðurstofan ETA-matched forecasts.
+ * - MET/Yr candidate weather must never become a silent fallback for these slots.
+ * - Missing or partial Veðurstofan coverage must never be displayed as safe.
  */
 
 import {
   ALL_WIND_DISPLAY_STATUSES,
-  classifyCandidateWindDisplayStatus,
   classifyNearestForecastWindDisplayStatusAt,
   worstWindDisplayStatus,
   type WindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 import { resolveThresholds } from '@/lib/weather/thresholds'
+import { resolveRouteForecastEtaMs } from '@/lib/weather/routeForecastTiming'
+import { routeMeasurementGaps } from '@/lib/weather/providerRouteMatching'
 import type {
   ResolvedTravelThresholds,
   TravelCandidate,
@@ -67,16 +67,21 @@ export function countVedurstofanForecastStatusesAt(
     (p): p is typeof p & { lat: number; lon: number } =>
       typeof p.lat === 'number' && typeof p.lon === 'number',
   )
-  const routeDurationMs = Math.max(0, routeDurationMinutes) * 60_000
-  const effectiveDepartureMs = Number.isFinite(departureMs) ? departureMs : Date.now()
+  const routeDurationMs = routeDurationMinutes * 60_000
 
   for (const point of validPoints) {
-    const anchorMs = effectiveDepartureMs + (point.routeFraction ?? 0) * routeDurationMs
-    const status = classifyNearestForecastWindDisplayStatusAt(
-      point.forecastRows,
-      thresholds,
-      anchorMs,
+    const anchorMs = resolveRouteForecastEtaMs(
+      departureMs,
+      routeDurationMs,
+      point.routeFraction,
     )
+    const status = anchorMs !== null
+      ? classifyNearestForecastWindDisplayStatusAt(
+          point.forecastRows,
+          thresholds,
+          anchorMs,
+        )
+      : 'no_data'
     counts[status] = (counts[status] ?? 0) + 1
   }
 
@@ -87,66 +92,134 @@ type BuildProviderSlotStatusOverridesParams = {
   candidates: TravelCandidate[]
   thresholds: ResolvedTravelThresholds
   routeDurationMinutes: number
+  routeDistanceKm: number
   vedurstofanLayer: VedurstofanTravelLayer | undefined
   vedurstofanStationCount: number
-  vegagerdinStatusCounts: Partial<Record<WindDisplayStatus, number>>
-  vegagerdinStationCount: number
+  /** @deprecated Current observations are intentionally ignored for future slots. */
+  vegagerdinStatusCounts?: Partial<Record<WindDisplayStatus, number>>
+  /** @deprecated Current observations are intentionally ignored for future slots. */
+  vegagerdinStationCount?: number
+}
+
+const UNKNOWN_WIND_DISPLAY_STATUSES = new Set<WindDisplayStatus>([
+  'no_data',
+  'no_wind_data',
+])
+
+/**
+ * Keeps the complete route assessment as the baseline while allowing known
+ * station evidence to make the displayed verdict more cautious. Supporting
+ * evidence can never downgrade a known route warning. Calm data from one
+ * station is also not enough to turn an unassessed route into a safe route.
+ */
+export function conservativelyCombineWindDisplayStatuses(
+  routeStatus: WindDisplayStatus,
+  supportingStatus: WindDisplayStatus | null,
+): WindDisplayStatus {
+  if (!supportingStatus) return routeStatus
+  const routeIsUnknown = UNKNOWN_WIND_DISPLAY_STATUSES.has(routeStatus)
+  const supportingIsUnknown = UNKNOWN_WIND_DISPLAY_STATUSES.has(supportingStatus)
+  if (supportingIsUnknown) return routeStatus
+  if (routeIsUnknown && supportingStatus === 'innan-marka') return routeStatus
+  return worstWindDisplayStatus(routeStatus, supportingStatus)
 }
 
 /**
- * Builds per-slot WindDisplayStatus overrides for the DepartureHeatmap scrubber.
+ * Resolves a future departure slot from Veðurstofan evidence only.
  *
- * Returns null when no Icelandic provider data is available, allowing the caller to
- * fall back to MET/Yr native candidate classification in DepartureHeatmap.
+ * A known warning is still useful when another station is missing, so the worst
+ * known warning wins. A calm result is only safe when every expected station has
+ * a usable forecast value; otherwise the slot is explicitly unassessed.
+ */
+export function resolveVedurstofanOnlySlotStatus(
+  counts: Partial<Record<WindDisplayStatus, number>>,
+  expectedStationCount: number,
+): WindDisplayStatus {
+  let observedCount = 0
+  let unknownCount = 0
+  let worstKnown: WindDisplayStatus | null = null
+
+  for (const status of ALL_WIND_DISPLAY_STATUSES) {
+    const count = Math.max(0, counts[status] ?? 0)
+    if (count === 0) continue
+    observedCount += count
+    if (UNKNOWN_WIND_DISPLAY_STATUSES.has(status)) {
+      unknownCount += count
+      continue
+    }
+    worstKnown = worstKnown ? worstWindDisplayStatus(worstKnown, status) : status
+  }
+
+  if (worstKnown && worstKnown !== 'innan-marka') return worstKnown
+
+  const expectedCount = Math.max(0, expectedStationCount)
+  const hasMissingCoverage =
+    expectedCount === 0 || observedCount < expectedCount || unknownCount > 0
+
+  if (hasMissingCoverage) return 'no_data'
+  return worstKnown ?? 'no_data'
+}
+
+/**
+ * Builds Veðurstofan-only per-slot WindDisplayStatus values for the departure scrubber.
  *
- * When overrides are returned:
- * - slot 0 ("Núna") uses Vegagerðin current observed worst when available
- * - future slots use Veðurstofan ETA-matched forecast worst when available
- * - slots without a relevant provider status fall back to MET/Yr native classification
+ * Always returns one override per candidate. When official forecast coverage is
+ * unavailable, the corresponding slot is `no_data`; it never falls back to the
+ * MET/Yr weather embedded in the route candidate.
  *
- * Note: do not apply Vegagerðin as a constant floor across the scrubber. It is a
- * current-measurement provider, while future departure slots are planning/forecast UI.
+ * Vegagerðin is a current-measurement provider and must never color a future
+ * departure slot. It remains a separate safety floor for the standalone Now view.
  */
 export function buildProviderSlotStatusOverrides({
   candidates,
   thresholds,
   routeDurationMinutes,
+  routeDistanceKm,
   vedurstofanLayer,
   vedurstofanStationCount,
-  vegagerdinStatusCounts,
-  vegagerdinStationCount,
-}: BuildProviderSlotStatusOverridesParams): WindDisplayStatus[] | null {
-  const vegagerdinWorst =
-    vegagerdinStationCount > 0
-      ? worstWindDisplayStatusFromCounts(vegagerdinStatusCounts)
-      : null
-  const hasVedurstofan = vedurstofanStationCount > 0 && Array.isArray(vedurstofanLayer?.points)
+}: BuildProviderSlotStatusOverridesParams): WindDisplayStatus[] {
+  const layerPoints = Array.isArray(vedurstofanLayer?.points)
+    ? vedurstofanLayer.points
+    : []
+  const expectedStationCount = Math.max(
+    0,
+    vedurstofanStationCount,
+    vedurstofanLayer?.mappedPointCount ?? 0,
+    layerPoints.length,
+  )
+  const hasCompleteLayerContract =
+    vedurstofanLayer?.status === 'available'
+    && (vedurstofanLayer.unavailablePointCount ?? 0) === 0
+    && expectedStationCount > 0
+  const routeFractions = layerPoints
+    .map(point => point.routeFraction)
+    .filter((fraction): fraction is number =>
+      typeof fraction === 'number'
+      && Number.isFinite(fraction)
+      && fraction >= 0
+      && fraction <= 1,
+    )
+  const hasCompleteSpatialCoverage =
+    Number.isFinite(routeDistanceKm)
+    && routeDistanceKm > 0
+    && routeMeasurementGaps(routeDistanceKm, routeFractions).length === 0
 
-  if (!vegagerdinWorst && !hasVedurstofan) return null
-
-  return candidates.map((candidate, index) => {
-    let providerStatus = index === 0 ? vegagerdinWorst : null
-    if (hasVedurstofan) {
-      const departureMs = Date.parse(candidate.departureIso)
-      const vedurstofanCounts = countVedurstofanForecastStatusesAt(
-        vedurstofanLayer,
-        routeDurationMinutes,
-        thresholds,
-        departureMs,
-      )
-      const vedurstofanWorst = worstWindDisplayStatusFromCounts(vedurstofanCounts)
-      if (vedurstofanWorst) {
-        providerStatus = providerStatus
-          ? worstWindDisplayStatus(providerStatus, vedurstofanWorst)
-          : vedurstofanWorst
-      }
-    }
-
-    // When official Icelandic provider data exists, it owns the displayed slot status.
-    // MET/Yr still provides candidate timestamps until the route engine becomes
-    // fully provider-native, so we fall back to MET/Yr classification only when
-    // no provider status could be computed (shouldn't happen given the guard above).
-    return providerStatus ?? classifyCandidateWindDisplayStatus(candidate, thresholds)
+  return candidates.map(candidate => {
+    const departureMs = Date.parse(candidate.departureIso)
+    const vedurstofanCounts = countVedurstofanForecastStatusesAt(
+      vedurstofanLayer,
+      routeDurationMinutes,
+      thresholds,
+      departureMs,
+    )
+    const status = resolveVedurstofanOnlySlotStatus(
+      vedurstofanCounts,
+      expectedStationCount,
+    )
+    return (!hasCompleteLayerContract || !hasCompleteSpatialCoverage)
+      && status === 'innan-marka'
+      ? 'no_data'
+      : status
   })
 }
 
@@ -156,6 +229,7 @@ export function windDisplayStatusToTravelStatus(status: WindDisplayStatus): Weat
       return 'rautt'
     case 'othaegilegt':
     case 'nalgast-haettumork':
+    case 'nalgast-othaegindi':
     case 'no_data':
     case 'no_wind_data':
       return 'gult'

@@ -520,7 +520,7 @@ describe('road-map route results display state', () => {
     )
   })
 
-  it('keeps display-only station layers out of route-wide departure truth', () => {
+  it('separates current conditions from future whole-hour departure assessments', () => {
     const source = readFileSync(
       join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
       'utf8',
@@ -528,8 +528,25 @@ describe('road-map route results display state', () => {
 
     expect(source).not.toContain('buildDepartureForecastSlotStatusOverrides')
     expect(source).not.toContain('setRouteSlotStatusOverrides')
-    expect(source).not.toContain('slotStatusOverrides={')
-    expect(source).toContain("reason: 'provider-layers-display-only'")
+    expect(source).toContain('buildProviderSlotStatusOverrides({')
+    expect(source).toContain('slotStatusOverrides={routeSlotStatusOverrides ?? undefined}')
+    expect(source).toContain('routeAssessmentStatus={displayedRouteWindStatus}')
+    expect(source).toContain("reason: 'vedurstofan-only-future-slots'")
+    expect(source).toContain('function getRouteCurrentCandidate(')
+    expect(source).toContain('departureMs <= currentDepartureMs')
+    expect(source).toContain('departure.getUTCMinutes() === 0')
+    expect(source).not.toContain('buildSyntheticRouteTimelineCandidates')
+    expect(source).not.toContain('cloneRouteCandidateForDeparture')
+    expect(source).toContain('WIND_STATUS_MARKER_COLOR[displayedRouteWindStatus]')
+    expect(source).toContain('WIND_STATUS_META[displayedRouteWindStatus]')
+    expect(source).toContain('WIND_STATUS_MARKER_COLOR[nowRouteWindStatus]')
+    expect(source).toContain('currentCandidate={currentRouteCandidate}')
+    expect(source).toContain('{routeAssessmentIsPartial && (')
+    expect(source).toContain("const ROUTE_WIND_STATUS_FILTER_MODE: WindStatusFilterMode = 'detailed'")
+    expect(source).toContain('WIND_STATUS_MARKER_COLOR[entry.windDisplayStatus]')
+    expect(source).toContain('WIND_STATUS_MARKER_COLOR[point.windDisplayStatus]')
+    expect(source).not.toContain('function displayWindStatus(')
+    expect(source).not.toContain('if (!layer || !candidate)')
     expect(source).toContain('const providerStatus = travelResult.stada')
     expect(source).toContain('const providerAnswer = travelResult.svar')
   })

@@ -69,7 +69,7 @@ describe('public Teskeið route client contract', () => {
     const source = readWorkspaceFile('app/auth-mvp/vedrid/FerdalagidClient.tsx')
     const submit = source.slice(
       source.indexOf('async function handleSubmit('),
-      source.indexOf('function toggleVedurstofan('),
+      source.indexOf('async function handleRefreshVedurstofan('),
     )
     const refresh = source.slice(
       source.indexOf('async function handleRefreshVedurstofan('),
@@ -91,5 +91,46 @@ describe('public Teskeið route client contract', () => {
     expect(source.match(/fetch\('\/api\/teskeid\/weather\/travel',/g)?.length).toBe(1)
     expect(source).toContain('restoredSelectedRouteIdRef.current = state.selectedRouteId')
     expect(source).not.toContain('resolveAssessmentScope: true')
+  })
+
+  it('locks legacy departure slots to Veðurstofan-only status and rejects old restore state', () => {
+    const source = readWorkspaceFile('app/auth-mvp/vedrid/FerdalagidClient.tsx')
+    const submit = source.slice(
+      source.indexOf('async function handleSubmit('),
+      source.indexOf('async function handleRefreshVedurstofan('),
+    )
+    const restore = source.slice(
+      source.indexOf('// 1. Try to restore a full route result'),
+      source.indexOf('if (sessionRestored) return'),
+    )
+    const persist = source.slice(
+      source.indexOf('// Persist route-result context'),
+      source.indexOf('// Fetch saved places once on mount'),
+    )
+    const providerTiles = source.slice(
+      source.indexOf('{/* met.no tile */}'),
+      source.indexOf('{/* Vegagerðin tile'),
+    )
+    const slotPolicy = source.slice(
+      source.indexOf('// Future whole-hour statuses are Veðurstofan-only.'),
+      source.indexOf('// Keep ref in sync'),
+    )
+
+    expect(source).toContain('const ROUTE_RESTORE_SCHEMA_VERSION = 2')
+    expect(source).toContain('const [showVedurstofan, setShowVedurstofan] = useState(true)')
+    expect(source).toContain('const [showMetno, setShowMetno] = useState(false)')
+    expect(source).toContain('d.schemaVersion !== ROUTE_RESTORE_SCHEMA_VERSION')
+    expect(submit).toContain('setShowVedurstofan(true)')
+    expect(submit).toContain('setShowMetno(false)')
+    expect(restore).not.toContain('state.showVedurstofan')
+    expect(restore).not.toContain('state.showMetno')
+    expect(persist).not.toContain('showVedurstofan,')
+    expect(persist).not.toContain('showMetno,')
+    expect(providerTiles).toContain('onClick={() => setShowMetno(v => !v)}')
+    expect(providerTiles).toContain('disabled')
+    expect(slotPolicy).toContain('buildProviderSlotStatusOverrides({')
+    expect(slotPolicy).toContain("vedurstofanSlotStatuses[idx] ?? 'no_data'")
+    expect(slotPolicy).not.toContain('classifyCandidateWindDisplayStatus(')
+    expect(slotPolicy).not.toContain('worstWindDisplayStatus(')
   })
 })
