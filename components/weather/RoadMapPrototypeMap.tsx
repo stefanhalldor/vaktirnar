@@ -4372,6 +4372,27 @@ export function RoadMapPrototypeMap({
     statuses = visibleRouteStatusesRef.current,
   ) {
     const map = mapRef.current
+    if (liveDriveModeRef.current === 'free-drive') {
+      if (canUseMapStyle(map)) {
+        setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, false)
+        setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID, false)
+        setRouteLayerLayoutVisibility(map, VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID, false)
+        setRouteLayerLayoutVisibility(map, TRAVEL_METNO_LAYER_ID, false)
+      }
+      for (const { element } of [
+        ...routeVegagerdinLabelMarkersRef.current,
+        ...routeVedurstofanLabelMarkersRef.current,
+        ...routeEndpointMarkersRef.current,
+      ]) {
+        element.style.display = 'none'
+      }
+      updateOverviewMarkerVisibility(
+        freeDriveVisibleStatusesRef.current,
+        'now',
+        false,
+      )
+      return
+    }
     if (routeActiveRef.current) {
       hideOverviewStationMarkers()
     }
@@ -5091,6 +5112,15 @@ export function RoadMapPrototypeMap({
     activeRouteFieldRef.current = field
   }
 
+  function invalidateRouteRequests() {
+    routeBridgeRunIdRef.current += 1
+    abortControllerRef(routeBridgeRequestRef)
+    abortControllerRef(routeDiscoveryRequestRef)
+    abortControllerRef(routeAlternativesRequestRef)
+    abortControllerRef(routeExtendedCandidateRequestRef)
+    abortControllerRef(routeSectionsRefreshRequestRef)
+  }
+
   function openRoutePlanningDestination() {
     setFreeDriveSetupOpen(false)
     setRouteBridgeError(null)
@@ -5108,25 +5138,43 @@ export function RoadMapPrototypeMap({
     setActiveRouteFieldState('to')
   }
 
-  function handleRoutePlanningContinue() {
-    if (routePlanningStep === 'destination') {
-      if (!toResolved) {
-        setRouteBridgeError(t('roadMapPrototypeRouteDestinationMissing'))
-        return
-      }
+  function goToRoutePlanningStep(target: Exclude<RoutePlanningStep, 'idle'>) {
+    if (target === routePlanningStep) return
+    if (target === 'destination') {
       setRouteBridgeError(null)
+      setRoutePlaceFallbackSuggestion(null)
+      setRoutePlanningStep('destination')
+      setActiveRouteFieldState('to')
+      return
+    }
+    if (!toResolved) {
+      setRouteBridgeError(t('roadMapPrototypeRouteDestinationMissing'))
+      return
+    }
+    if (target === 'origin') {
+      setRouteBridgeError(null)
+      setRoutePlaceFallbackSuggestion(null)
       setRoutePlanningStep('origin')
       setActiveRouteFieldState('from')
       return
     }
+    if (!fromResolved) {
+      setRouteBridgeError(t('roadMapPrototypeRouteOriginMissing'))
+      return
+    }
+    setRouteBridgeError(null)
+    setRoutePlaceFallbackSuggestion(null)
+    setRoutePlanningStep('thresholds')
+    setActiveRouteFieldState('from')
+  }
+
+  function handleRoutePlanningContinue() {
+    if (routePlanningStep === 'destination') {
+      goToRoutePlanningStep('origin')
+      return
+    }
     if (routePlanningStep === 'origin') {
-      if (!fromResolved) {
-        setRouteBridgeError(t('roadMapPrototypeRouteOriginMissing'))
-        return
-      }
-      setRouteBridgeError(null)
-      setRoutePlanningStep('thresholds')
-      setActiveRouteFieldState('from')
+      goToRoutePlanningStep('thresholds')
     }
   }
 
@@ -5399,6 +5447,102 @@ export function RoadMapPrototypeMap({
     routeEndpointMarkersRef.current.forEach(({ marker }) => marker.remove())
     routeEndpointMarkersRef.current = []
     routeEndpointMarkersAreCurrentRef.current = false
+  }
+
+  function clearRouteOwnedMapPresentation() {
+    clearRouteVedurstofanLabelMarkers()
+    clearRouteVegagerdinLabelMarkers()
+    clearRouteEndpointMarkers()
+    const map = mapRef.current
+    if (!map) return
+    for (const sourceId of [
+      VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
+      VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID,
+      VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
+      TRAVEL_METNO_LAYER_ID,
+      'travel-bridge-route',
+      ROUTE_GRAVEL_SECTIONS_SOURCE_ID,
+      ROUTE_DIRECTION_SECTIONS_SOURCE_ID,
+    ] as const) {
+      const source = map.getSource(sourceId)
+      if (source) {
+        ;(source as import('maplibre-gl').GeoJSONSource).setData(
+          EMPTY_FEATURE_COLLECTION as never,
+        )
+      }
+    }
+    for (const layerId of [
+      VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
+      VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID,
+      VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
+      TRAVEL_METNO_LAYER_ID,
+      'travel-bridge-route',
+      ROUTE_GRAVEL_SECTIONS_LAYER_ID,
+      ROUTE_DIRECTION_SECTIONS_LAYER_ID,
+    ] as const) {
+      setRouteLayerLayoutVisibility(map, layerId, false)
+    }
+  }
+
+  function resetRouteOwnedState() {
+    routeActiveRef.current = false
+    setRouteActive(false)
+    setRouteBridgeStatus('idle')
+    setRouteBridgeError(null)
+    setRoutePlaceFallbackSuggestion(null)
+    setRouteThresholdError(null)
+    setRouteBridgeSummary(null)
+    setRouteHandoffOnlySummary(null)
+    routeForecastRetryContextRef.current = null
+    setRouteForecastRetryPending(false)
+    setRouteTravelResult(null)
+    setRouteVedurstofanLayer(null)
+    setRouteFrom('')
+    setRouteTo('')
+    setRoutePlanningCautionWind('')
+    setRoutePlanningRedWind('')
+    setFromResolved(null)
+    setToResolved(null)
+    setFromSuggestions([])
+    setToSuggestions([])
+    setRouteCandidates(null)
+    setRouteNowStatusCounts(null)
+    setRouteNowMeasuredAtIso(null)
+    setRouteNowMeasurementFreshness(null)
+    setRouteWindArrowCount(0)
+    setRouteVegagerdinLastRefreshIso(null)
+    setRouteVisibleStatusCounts(null)
+    resetRouteDepartureForecastState()
+    setRouteSurfaceChoices([])
+    setRouteSurfaceChoicesStatus('idle')
+    setRouteSwitchingChoiceId(null)
+    setTeskeidCandidateStatus('idle')
+    setTeskeidExtendedSearchPending(false)
+    setTeskeidAlternativesStatus('idle')
+    setRouteGuestQuotaReached(false)
+    setRouteQuotaSignInPending(false)
+    setPreviewRouteChoiceId(null)
+    setRouteSectionsState({ status: 'idle', routeIdentity: null, response: null })
+    setRouteSectionHighlight(null)
+    setRouteComparisonFullscreen(false)
+    setRouteComparisonOpening(false)
+    routeComparisonApplyPendingRef.current = false
+    setRouteComparisonApplyPending(false)
+    setRouteSafetySearchPending(false)
+    pendingWeatherResultsFocusRunIdRef.current = null
+    routeComparisonAutoOpenedRunIdRef.current = null
+    routeSafetyAutoApplyChoiceRef.current = null
+    setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
+    setRouteCalculationPlaceNames(null)
+    setSelectedCandidateIdx(null)
+    setRouteWeatherModeState('now')
+    setRoutePlanningStep('idle')
+    setActiveRouteFieldState('to')
+    vedurstofanLayerRef.current = undefined
+    routeAuditPolylinePointsRef.current = []
+    routeVegagerdinCacheStatusRef.current = null
+    routeDurationMinutesRef.current = 0
+    resolvedRoutePlacesRef.current = null
   }
 
   function updateViewportWindDirectionMarkers() {
@@ -5680,91 +5824,14 @@ export function RoadMapPrototypeMap({
   }
 
   function handleClearRoute() {
-    routeBridgeRunIdRef.current += 1
-    routeBridgeRequestRef.current?.abort()
-    routeDiscoveryRequestRef.current?.abort()
-    routeAlternativesRequestRef.current?.abort()
-    routeExtendedCandidateRequestRef.current?.abort()
-    routeSectionsRefreshRequestRef.current?.abort()
-    setRouteBridgeStatus('idle')
-    setRouteBridgeError(null)
-    setRoutePlaceFallbackSuggestion(null)
-    setRouteThresholdError(null)
-    setRouteBridgeSummary(null)
-    setRouteHandoffOnlySummary(null)
-    routeForecastRetryContextRef.current = null
-    setRouteForecastRetryPending(false)
-    setRouteTravelResult(null)
-    setRouteVedurstofanLayer(null)
-    setRouteFrom('')
-    setRouteTo('')
-    setRoutePlanningCautionWind('')
-    setRoutePlanningRedWind('')
-    setFromResolved(null)
-    setToResolved(null)
-    setFromSuggestions([])
-    setToSuggestions([])
-    setRouteCandidates(null)
-    setRouteNowStatusCounts(null)
-    setRouteNowMeasuredAtIso(null)
-    setRouteNowMeasurementFreshness(null)
-    setRouteWindArrowCount(0)
-    setRouteVegagerdinLastRefreshIso(null)
-    setRouteVisibleStatusCounts(null)
-    resetRouteDepartureForecastState()
-    setRouteSurfaceChoices([])
-    setRouteSurfaceChoicesStatus('idle')
-    setRouteSwitchingChoiceId(null)
-    setTeskeidCandidateStatus('idle')
-    setTeskeidExtendedSearchPending(false)
-    setRouteGuestQuotaReached(false)
-    setRouteQuotaSignInPending(false)
-    setPreviewRouteChoiceId(null)
-    setTeskeidAlternativesStatus('idle')
-    setRouteComparisonFullscreen(false)
-    setRouteComparisonOpening(false)
-    routeComparisonApplyPendingRef.current = false
-    setRouteComparisonApplyPending(false)
-    setRouteSafetySearchPending(false)
-    pendingWeatherResultsFocusRunIdRef.current = null
-    routeComparisonAutoOpenedRunIdRef.current = null
-    routeSafetyAutoApplyChoiceRef.current = null
-    setVisibleCandidateLimit(ROUTE_TIMELINE_INITIAL_SLOT_COUNT)
-    setRouteCalculationPlaceNames(null)
-    setSelectedCandidateIdx(null)
-    setRouteWeatherModeState('now')
+    invalidateRouteRequests()
+    resetRouteOwnedState()
     stopRouteLiveLocation()
     setLiveDriveModeState('off')
-    routeActiveRef.current = false
-    setRouteActive(false)
-    vedurstofanLayerRef.current = undefined
-    routeAuditPolylinePointsRef.current = []
-    routeVegagerdinCacheStatusRef.current = null
-    resolvedRoutePlacesRef.current = null
     handleRouteStatusFilterChange(createDefaultRouteVisibleWindStatuses())
-    setRoutePlanningStep('idle')
-    setActiveRouteFieldState('to')
-    clearRouteVedurstofanLabelMarkers()
-    clearRouteVegagerdinLabelMarkers()
-    clearRouteEndpointMarkers()
+    clearRouteOwnedMapPresentation()
     const map = mapRef.current
     if (!map) return
-    for (const sourceId of [
-      VEGAGERDIN_ROUTE_STATIONS_LAYER_ID,
-      VEGAGERDIN_ROUTE_WIND_ARROWS_SOURCE_ID,
-      VEDURSTOFAN_ROUTE_STATIONS_LAYER_ID,
-      TRAVEL_METNO_LAYER_ID,
-      'travel-bridge-route',
-      ROUTE_GRAVEL_SECTIONS_SOURCE_ID,
-      ROUTE_DIRECTION_SECTIONS_SOURCE_ID,
-    ] as const) {
-      const source = map.getSource(sourceId)
-      if (source) {
-        ;(source as import('maplibre-gl').GeoJSONSource).setData(
-          EMPTY_FEATURE_COLLECTION as never,
-        )
-      }
-    }
     updateOverviewLayerVisibility(overviewActiveModeRef.current, false)
     reconcilePlaceMarkerVisibility()
     map.flyTo({ center: ICELAND_CENTER, zoom: ICELAND_ZOOM, duration: 600 })
@@ -10467,19 +10534,15 @@ export function RoadMapPrototypeMap({
 
   function beginFreeDrive() {
     if (!isAuthenticated) return
-    routeBridgeRunIdRef.current += 1
-    routeBridgeRequestRef.current?.abort()
-    routeDiscoveryRequestRef.current?.abort()
-    routeAlternativesRequestRef.current?.abort()
-    routeExtendedCandidateRequestRef.current?.abort()
-    routeSectionsRefreshRequestRef.current?.abort()
+    invalidateRouteRequests()
+    resetRouteOwnedState()
+    clearRouteOwnedMapPresentation()
     setLiveDriveModeState('free-drive')
     setFreeDrivePaused(false)
     setFreeDriveWithoutLocation(false)
     setFreeDriveStationFeedError(false)
     freeDriveVisibleStatusesRef.current = new Set()
     setFreeDriveVisibleStatuses(new Set())
-    setRouteWeatherModeState('now')
     overviewActiveModeRef.current = 'now'
     setOverviewActiveMode('now')
     openRouteContext('map')
@@ -11721,23 +11784,37 @@ export function RoadMapPrototypeMap({
                       aria-label={t('roadMapPrototypeRoutePlanningStepsLabel')}
                       className="grid grid-cols-3 gap-1"
                     >
-                      <li
-                        aria-current={routePlanningStep === 'destination' ? 'step' : undefined}
-                        className={`rounded-full px-2 py-1.5 text-center text-xs font-medium ${routePlanningStep === 'destination' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-                      >
-                        {t('roadMapPrototypeRoutePlanningDestinationStep')}
+                      <li>
+                        <button
+                          type="button"
+                          aria-current={routePlanningStep === 'destination' ? 'step' : undefined}
+                          onClick={() => goToRoutePlanningStep('destination')}
+                          className={`min-h-10 w-full rounded-full px-2 py-1.5 text-center text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${routePlanningStep === 'destination' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/80'}`}
+                        >
+                          {t('roadMapPrototypeRoutePlanningDestinationStep')}
+                        </button>
                       </li>
-                      <li
-                        aria-current={routePlanningStep === 'origin' ? 'step' : undefined}
-                        className={`rounded-full px-2 py-1.5 text-center text-xs font-medium ${routePlanningStep === 'origin' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-                      >
-                        {t('roadMapPrototypeRoutePlanningOriginStep')}
+                      <li>
+                        <button
+                          type="button"
+                          aria-current={routePlanningStep === 'origin' ? 'step' : undefined}
+                          disabled={!toResolved}
+                          onClick={() => goToRoutePlanningStep('origin')}
+                          className={`min-h-10 w-full rounded-full px-2 py-1.5 text-center text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted/60 disabled:text-muted-foreground/50 disabled:opacity-70 ${routePlanningStep === 'origin' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground enabled:hover:bg-muted/80'}`}
+                        >
+                          {t('roadMapPrototypeRoutePlanningOriginStep')}
+                        </button>
                       </li>
-                      <li
-                        aria-current={routePlanningStep === 'thresholds' ? 'step' : undefined}
-                        className={`rounded-full px-2 py-1.5 text-center text-xs font-medium ${routePlanningStep === 'thresholds' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-                      >
-                        {t('roadMapPrototypeRoutePlanningThresholdsStep')}
+                      <li>
+                        <button
+                          type="button"
+                          aria-current={routePlanningStep === 'thresholds' ? 'step' : undefined}
+                          disabled={!toResolved || !fromResolved}
+                          onClick={() => goToRoutePlanningStep('thresholds')}
+                          className={`min-h-10 w-full rounded-full px-2 py-1.5 text-center text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted/60 disabled:text-muted-foreground/50 disabled:opacity-70 ${routePlanningStep === 'thresholds' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground enabled:hover:bg-muted/80'}`}
+                        >
+                          {t('roadMapPrototypeRoutePlanningThresholdsStep')}
+                        </button>
                       </li>
                     </ol>
 

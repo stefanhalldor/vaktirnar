@@ -18,6 +18,10 @@ const liveStationSource = readFileSync(
   join(process.cwd(), 'lib/weather/liveVegagerdinStation.ts'),
   'utf8',
 )
+const navigationSource = readFileSync(
+  join(process.cwd(), 'lib/weather/roadMapNavigation.ts'),
+  'utf8',
+)
 const messagesIs = readFileSync(join(process.cwd(), 'messages/is.json'), 'utf8')
 const messagesEn = readFileSync(join(process.cwd(), 'messages/en.json'), 'utf8')
 
@@ -42,8 +46,12 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     const startHandlerStart = source.indexOf('function beginFreeDrive()')
     const startHandlerEnd = source.indexOf('\n  function handleStartFreeDrive()', startHandlerStart)
     const startHandler = source.slice(startHandlerStart, startHandlerEnd)
-    expect(startHandler).toContain('routeBridgeRequestRef.current?.abort()')
-    expect(startHandler).toContain('routeDiscoveryRequestRef.current?.abort()')
+    const invalidationStart = source.indexOf('function invalidateRouteRequests()')
+    const invalidationEnd = source.indexOf('\n  function openRoutePlanningDestination()', invalidationStart)
+    const invalidation = source.slice(invalidationStart, invalidationEnd)
+    expect(startHandler).toContain('invalidateRouteRequests()')
+    expect(invalidation).toContain('abortControllerRef(routeBridgeRequestRef)')
+    expect(invalidation).toContain('abortControllerRef(routeDiscoveryRequestRef)')
     expect(startHandler).not.toContain('handleRouteBridgeSubmit')
   })
 
@@ -75,6 +83,39 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(messagesIs).toContain('"roadMapPrototypeRoutePlanningDestinationTitle": "Hvert ertu að fara?"')
     expect(messagesIs).toContain('"roadMapPrototypeRoutePlanningLoadingTitle": "Finn leiðir og skoða veðurspárgildi"')
     expect(messagesEn).toContain('"roadMapPrototypeRoutePlanningDestinationTitle": "Where are you going?"')
+  })
+
+  it('lets resolved planning steps navigate through one guarded transition path', () => {
+    const transitionStart = source.indexOf('function goToRoutePlanningStep(')
+    const transitionEnd = source.indexOf('\n  function handleRoutePlanningContinue()', transitionStart)
+    const transition = source.slice(transitionStart, transitionEnd)
+    const continueStart = transitionEnd
+    const continueEnd = source.indexOf('\n  function handleRoutePlanningBack()', continueStart)
+    const continueHandler = source.slice(continueStart, continueEnd)
+    const stepsStart = source.indexOf("aria-label={t('roadMapPrototypeRoutePlanningStepsLabel')}")
+    const stepsEnd = source.indexOf('\n\n                    {routePlanningStep === \'destination\'', stepsStart)
+    const steps = source.slice(stepsStart, stepsEnd)
+
+    expect(transitionStart).toBeGreaterThan(-1)
+    expect(transitionEnd).toBeGreaterThan(transitionStart)
+    expect(transition).toContain("if (target === routePlanningStep) return")
+    expect(transition).toContain("if (target === 'destination')")
+    expect(transition).toContain('if (!toResolved)')
+    expect(transition).toContain("if (target === 'origin')")
+    expect(transition).toContain('if (!fromResolved)')
+    expect(continueHandler).toContain("goToRoutePlanningStep('origin')")
+    expect(continueHandler).toContain("goToRoutePlanningStep('thresholds')")
+
+    expect(steps).toContain('type="button"')
+    expect(steps).toContain("onClick={() => goToRoutePlanningStep('destination')}")
+    expect(steps).toContain("onClick={() => goToRoutePlanningStep('origin')}")
+    expect(steps).toContain("onClick={() => goToRoutePlanningStep('thresholds')}")
+    expect(steps).toContain('disabled={!toResolved}')
+    expect(steps).toContain('disabled={!toResolved || !fromResolved}')
+    expect(steps).toContain('aria-current={routePlanningStep === \'destination\' ? \'step\' : undefined}')
+    expect(steps).toContain('min-h-10')
+    expect(steps).toContain('focus-visible:ring-2')
+    expect(steps).toContain('disabled:cursor-not-allowed')
   })
 
   it('shows the route-loading title before the wind-limit planning title', () => {
@@ -136,6 +177,8 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(hydrationBlock).not.toContain("setLiveDriveModeState('free-drive')")
     expect(hydrationBlock).not.toContain('startRouteLiveLocation(')
 
+    expect(navigationSource).toContain("view: 'information'")
+    expect(navigationSource).toContain("drive: '1'")
     const publicStart = source.indexOf('buildRoadMapFreeDriveSignInReturnHref(navigation)')
     const publicEnd = source.indexOf("t('roadMapPrototypeFreeDrivePrivacySafety')", publicStart)
     const publicBlock = source.slice(publicStart, publicEnd)
@@ -155,6 +198,49 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(branch).toContain('setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, false)')
     expect(branch).toContain('updateOverviewMarkerVisibility(')
     expect(source).toContain("if (mode === 'route') applyLiveRouteMapPresentation(true)")
+  })
+
+  it('clears an existing route before free-drive and rejects stale route visibility updates', () => {
+    const beginStart = source.indexOf('function beginFreeDrive()')
+    const beginEnd = source.indexOf('\n  function handleStartFreeDrive()', beginStart)
+    const begin = source.slice(beginStart, beginEnd)
+    const clearStart = source.indexOf('function resetRouteOwnedState()')
+    const clearEnd = source.indexOf('\n  function updateViewportWindDirectionMarkers()', clearStart)
+    const clear = source.slice(clearStart, clearEnd)
+    const visibilityStart = source.indexOf('function updateRouteWeatherLayerVisibility(')
+    const routeActiveCheck = source.indexOf('\n    if (routeActiveRef.current) {', visibilityStart)
+    const freeDriveGuard = source.slice(visibilityStart, routeActiveCheck)
+
+    expect(beginStart).toBeGreaterThan(-1)
+    expect(begin.indexOf('invalidateRouteRequests()')).toBeLessThan(
+      begin.indexOf('resetRouteOwnedState()'),
+    )
+    expect(begin.indexOf('resetRouteOwnedState()')).toBeLessThan(
+      begin.indexOf('clearRouteOwnedMapPresentation()'),
+    )
+    expect(begin.indexOf('clearRouteOwnedMapPresentation()')).toBeLessThan(
+      begin.indexOf("setLiveDriveModeState('free-drive')"),
+    )
+    expect(begin).not.toContain('stopRouteLiveLocation()')
+
+    expect(clear).toContain('routeActiveRef.current = false')
+    expect(clear).toContain('setRouteActive(false)')
+    expect(clear).toContain('setRouteBridgeSummary(null)')
+    expect(clear).toContain('setRouteHandoffOnlySummary(null)')
+    expect(clear).toContain('setRouteTravelResult(null)')
+    expect(clear).toContain('setRouteSurfaceChoices([])')
+    expect(clear).toContain("setRoutePlanningStep('idle')")
+    expect(begin).toContain('clearRouteOwnedMapPresentation()')
+    expect(clear).not.toContain('setRouteCautionWind(')
+    expect(clear).not.toContain('setRouteRedWind(')
+
+    expect(freeDriveGuard).toContain("if (liveDriveModeRef.current === 'free-drive')")
+    expect(freeDriveGuard).toContain('setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_STATIONS_LAYER_ID, false)')
+    expect(freeDriveGuard).toContain('setRouteLayerLayoutVisibility(map, VEGAGERDIN_ROUTE_WIND_ARROWS_LAYER_ID, false)')
+    expect(freeDriveGuard).toContain('updateOverviewMarkerVisibility(')
+    expect(freeDriveGuard).toContain('freeDriveVisibleStatusesRef.current')
+    expect(freeDriveGuard).toContain('return')
+    expect(freeDriveGuard).not.toContain('hideOverviewStationMarkers()')
   })
 
   it('keeps station refresh visible-only, single-flight and independent of GPS callbacks', () => {

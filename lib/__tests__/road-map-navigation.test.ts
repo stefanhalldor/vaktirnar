@@ -43,9 +43,9 @@ describe('road map navigation', () => {
     )
   })
 
-  it('returns to free-drive without inventing or restoring a route', () => {
+  it('returns a pending free-drive sign-in to threshold setup instead of the map', () => {
     expect(buildRoadMapFreeDriveSignInReturnHref(promotedPublicNavigation)).toBe(
-      '/auth-mvp/vedrid?context=route&view=map&drive=1',
+      '/auth-mvp/vedrid?context=route&view=information&drive=1',
     )
   })
 

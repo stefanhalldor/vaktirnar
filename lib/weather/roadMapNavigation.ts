@@ -64,7 +64,7 @@ export function buildRoadMapFreeDriveSignInReturnHref(
 ): string {
   const params = new URLSearchParams({
     context: 'route',
-    view: 'map',
+    view: 'information',
     drive: '1',
   })
   return `${navigation.authenticatedPath}?${params.toString()}`
