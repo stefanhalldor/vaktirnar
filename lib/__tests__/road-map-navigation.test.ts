@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROAD_MAP_PROTOTYPE_NAVIGATION,
+  buildRoadMapFreeDriveSignInReturnHref,
   buildRoadMapLiveLocationSignInReturnHref,
   buildRoadMapRouteReturnHref,
   buildRoadMapRouteSignInReturnHref,
@@ -39,6 +40,12 @@ describe('road map navigation', () => {
   it('restores the route directly into the map after live-location sign-in', () => {
     expect(buildRoadMapLiveLocationSignInReturnHref(promotedPublicNavigation)).toBe(
       '/auth-mvp/vedrid?context=route&view=map&restoreRoute=1',
+    )
+  })
+
+  it('returns to free-drive without inventing or restoring a route', () => {
+    expect(buildRoadMapFreeDriveSignInReturnHref(promotedPublicNavigation)).toBe(
+      '/auth-mvp/vedrid?context=route&view=map&drive=1',
     )
   })
 

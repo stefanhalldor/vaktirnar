@@ -59,6 +59,17 @@ export function buildRoadMapLiveLocationSignInReturnHref(
   return `${navigation.authenticatedPath}?${params.toString()}`
 }
 
+export function buildRoadMapFreeDriveSignInReturnHref(
+  navigation: RoadMapNavigation,
+): string {
+  const params = new URLSearchParams({
+    context: 'route',
+    view: 'map',
+    drive: '1',
+  })
+  return `${navigation.authenticatedPath}?${params.toString()}`
+}
+
 export function buildRoadMapRouteSignInReturnHref(
   navigation: RoadMapNavigation,
 ): string {

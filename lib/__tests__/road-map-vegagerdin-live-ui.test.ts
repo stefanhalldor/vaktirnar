@@ -6,17 +6,22 @@ const source = readFileSync(
   join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
   'utf8',
 )
+const liveLocationControlsSource = readFileSync(
+  join(process.cwd(), 'components/weather/LiveLocationControls.tsx'),
+  'utf8',
+)
 const messagesIs = readFileSync(join(process.cwd(), 'messages/is.json'), 'utf8')
 const messagesEn = readFileSync(join(process.cwd(), 'messages/en.json'), 'utf8')
 
 describe('RoadMap Vegagerðin live-mode contracts', () => {
-  it('keeps live location opt-in, authenticated and limited to the current route mode', () => {
+  it('keeps live location opt-in, authenticated and limited to a current drive mode', () => {
     expect(source).toContain('!isAuthenticated ||')
     expect(source).toContain('!routeActiveRef.current ||')
     expect(source).toContain("routeWeatherModeRef.current !== 'now' ||")
     expect(source).toContain("lastMapContextRef.current !== 'route'")
     expect(source).toContain("routeContextViewRef.current !== 'map'")
-    expect(source).toContain("if (document.visibilityState === 'hidden') stopRouteLiveLocation()")
+    expect(source).toContain("if (document.visibilityState !== 'hidden') return")
+    expect(source).toContain("liveDriveModeRef.current === 'free-drive'")
     expect(source).toContain("routeLiveLocationStopRef.current?.()")
     expect(source).toContain('{isAuthenticated ? (')
     expect(source).toContain('{isAuthenticated &&\n            routeWeatherMode === \'now\' &&')
@@ -64,7 +69,8 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(startHandlerEnd).toBeGreaterThan(startHandlerStart)
     expect(startHandler).toContain('handleSelectRouteNow()')
     expect(startHandler).toContain("openRouteContext('map')")
-    expect(startHandler).toContain('startRouteLiveLocation()')
+    expect(startHandler).toContain("setLiveDriveModeState('route')")
+    expect(startHandler).toContain("startRouteLiveLocation('route')")
     expect(source).toContain("t('roadMapPrototypeStartDriving')")
     expect(source).toContain("t('roadMapPrototypeStartDrivingPrivacy')")
     expect(source).toContain("onClick={handleStartDrivingWithTeskeid}")
@@ -157,7 +163,10 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).not.toMatch(/localStorage\.setItem\([^\n]*orientation/i)
     expect(source).toContain("'zoom_changed',")
     expect(source).toContain('if (decision.moveCamera) moveRouteLiveLocationCamera()')
-    expect(source).toContain('className="inline-flex h-10 w-10 items-center justify-center')
+    expect(source.match(/<LiveLocationControls/g)).toHaveLength(2)
+    expect(liveLocationControlsSource).toContain(
+      'className="inline-flex h-10 w-10 items-center justify-center',
+    )
   })
 
   it('keeps the live puck above collapsible mobile route settings', () => {

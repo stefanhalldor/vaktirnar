@@ -6,6 +6,7 @@ import {
   nearestEquivalentHeadingDegrees,
   reduceLiveLocationFollowMode,
   resolveLiveLocationCameraBearing,
+  shouldPresentLiveLocationPoint,
   stabilizeHeadingDegrees,
   watchLiveLocation,
 } from '@/lib/places/liveLocation.client'
@@ -353,6 +354,34 @@ describe('watchLiveLocation', () => {
 })
 
 describe('live-location heading and zoom guards', () => {
+  it('coalesces stationary GPS jitter while allowing movement and periodic refresh', () => {
+    const previous = {
+      lat: 64.1,
+      lon: -21.9,
+      accuracyM: 20,
+      timestamp: 10_000,
+      headingDeg: null,
+      headingSource: null,
+      speedMps: null,
+    } as const
+
+    expect(shouldPresentLiveLocationPoint(null, previous)).toBe(true)
+    expect(shouldPresentLiveLocationPoint(previous, {
+      ...previous,
+      lat: 64.100001,
+      timestamp: 10_100,
+    })).toBe(false)
+    expect(shouldPresentLiveLocationPoint(previous, {
+      ...previous,
+      lat: 64.1001,
+      timestamp: 10_500,
+    })).toBe(true)
+    expect(shouldPresentLiveLocationPoint(previous, {
+      ...previous,
+      timestamp: 11_500,
+    })).toBe(true)
+  })
+
   it('keeps north-up explicit even without a device heading', () => {
     expect(resolveLiveLocationCameraBearing('north-up', 147)).toBe(0)
     expect(resolveLiveLocationCameraBearing('north-up', null)).toBe(0)

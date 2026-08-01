@@ -57,6 +57,9 @@ const HEADING_SMOOTHING_FACTOR = 0.45
 const DEVICE_DERIVED_AGREEMENT_DEG = 35
 const DEVICE_OUTLIER_CONFIRMATION_DEG = 30
 const DEVICE_OUTLIER_MAX_AGE_MS = 4_000
+const LIVE_LOCATION_PRESENTATION_MIN_INTERVAL_MS = 250
+const LIVE_LOCATION_PRESENTATION_MAX_INTERVAL_MS = 1_500
+const LIVE_LOCATION_PRESENTATION_MIN_DISTANCE_M = 3
 
 type HeadingSample = {
   lat: number
@@ -149,6 +152,32 @@ function distanceBetweenSamplesM(from: HeadingSample, to: HeadingSample): number
     Math.sqrt(boundedHaversine),
     Math.sqrt(1 - boundedHaversine),
   )
+}
+
+/**
+ * Bounds UI/map updates without slowing the native GPS watcher. Meaningful
+ * movement can update promptly, while stationary accuracy jitter is coalesced
+ * and the UI still refreshes at least every 1.5 seconds.
+ */
+export function shouldPresentLiveLocationPoint(
+  previous: LiveLocationPoint | null,
+  next: LiveLocationPoint,
+): boolean {
+  if (!previous) return true
+  const elapsedMs = next.timestamp - previous.timestamp
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return false
+  if (elapsedMs >= LIVE_LOCATION_PRESENTATION_MAX_INTERVAL_MS) return true
+  if (elapsedMs < LIVE_LOCATION_PRESENTATION_MIN_INTERVAL_MS) return false
+
+  const distanceM = distanceBetweenSamplesM(
+    { ...previous, accuracyM: previous.accuracyM ?? Number.POSITIVE_INFINITY },
+    { ...next, accuracyM: next.accuracyM ?? Number.POSITIVE_INFINITY },
+  )
+  const accuracyNoiseFloorM = Math.max(
+    LIVE_LOCATION_PRESENTATION_MIN_DISTANCE_M,
+    Math.min(15, Math.max(previous.accuracyM ?? 0, next.accuracyM ?? 0) * 0.25),
+  )
+  return Number.isFinite(distanceM) && distanceM >= accuracyNoiseFloorM
 }
 
 function bearingBetweenSamplesDeg(from: HeadingSample, to: HeadingSample): number {

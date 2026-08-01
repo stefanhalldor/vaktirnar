@@ -282,7 +282,8 @@ describe('road-map route results display state', () => {
     expect(source).toContain(
       'onClose={() => {\n            if (routeComparisonApplyPendingRef.current) return\n            restoreAppliedSurfaceRoutePreview()',
     )
-    expect(source).toContain('if (!isAuthenticated || !teskeidRouteCandidateEnabled) return')
+    expect(source).toContain('!isAuthenticated ||\n      !teskeidRouteCandidateEnabled ||')
+    expect(source).toContain("liveDriveModeRef.current === 'free-drive'")
     expect(source).toContain('const scopedGoogleResult = await googleResultPromise')
     expect(source).toContain('const googleChoicesPromise = googleResultPromise.then(result => result.choices)')
     expect(source).toContain('launchFirstReadyDiscovery(runId, discoveries, applyProviderEvent)')
