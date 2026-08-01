@@ -1,8 +1,11 @@
 import type { VegagerdinRouteLayerPoint } from '@/lib/road-intelligence/vegagerdinRouteLayer'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import type { ResolvedTravelThresholds } from '@/lib/weather/types'
-import type { WindDisplayStatus } from '@/lib/weather/windDisplayStatus'
-import { classifyFreeDriveStationWindStatus, freeDriveStationFreshness } from './freeDrive'
+import {
+  classifyObservationWindDisplayStatus,
+  type WindDisplayStatus,
+} from '@/lib/weather/windDisplayStatus'
+import { freeDriveStationFreshness } from './freeDrive'
 
 /**
  * Provider-current presentation model shared by route-bound and route-less
@@ -35,8 +38,26 @@ export function liveDriveTemperatureValue(value: number | null): number | null {
     : null
 }
 
+/**
+ * Canonical current-observation classification for Vegagerðin stations in
+ * both route-bound and route-less live driving. Measurement age is presented
+ * separately and must not replace a real wind reading with a missing-data
+ * status.
+ */
+export function classifyLiveVegagerdinStationWindStatus(
+  station: Pick<VegagerdinCurrentStationDto, 'meanWindMs' | 'gustLast10MinMs'>,
+  thresholds: ResolvedTravelThresholds,
+): WindDisplayStatus {
+  const status = classifyObservationWindDisplayStatus({
+    meanWindMs: station.meanWindMs,
+    gustLast10MinMs: station.gustLast10MinMs,
+  }, thresholds)
+  return status === 'no_data' ? 'no_wind_data' : status
+}
+
 export function liveVegagerdinStationFromRoutePoint(
   point: VegagerdinRouteLayerPoint,
+  thresholds: ResolvedTravelThresholds,
 ): LiveVegagerdinStation {
   return {
     provider: 'vegagerdin',
@@ -53,7 +74,7 @@ export function liveVegagerdinStationFromRoutePoint(
     airTemperatureC: point.airTemperatureC,
     roadTemperatureC: point.roadTemperatureC,
     dataQuality: point.dataQuality,
-    displayStatus: point.windDisplayStatus,
+    displayStatus: classifyLiveVegagerdinStationWindStatus(point, thresholds),
     freshness: freeDriveStationFreshness(point.measuredAtIso),
   }
 }
@@ -66,7 +87,7 @@ export function liveVegagerdinStationFromCurrent(
   return {
     ...station,
     provider: 'vegagerdin',
-    displayStatus: classifyFreeDriveStationWindStatus(station, thresholds, nowMs),
+    displayStatus: classifyLiveVegagerdinStationWindStatus(station, thresholds),
     freshness: freeDriveStationFreshness(station.measuredAtIso, nowMs),
   }
 }

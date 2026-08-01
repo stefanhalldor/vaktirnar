@@ -30,7 +30,7 @@ import {
 import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usage.server'
 import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
 import type { VegagerdinRouteLayer } from '@/lib/road-intelligence/vegagerdinRouteLayer'
-import { classifyObservationWindDisplayStatus } from '@/lib/weather/windDisplayStatus'
+import { classifyLiveVegagerdinStationWindStatus } from '@/lib/weather/liveVegagerdinStation'
 import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
 import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
 import { scheduleTeskeidShadowRun } from '@/lib/iceland-routes/routingScheduler.server'
@@ -911,7 +911,7 @@ export async function POST(request: Request) {
               airTemperatureC: measurement.airTemperatureC,
               roadTemperatureC: measurement.roadTemperatureC,
               dataQuality: measurement.dataQuality,
-              windDisplayStatus: classifyObservationWindDisplayStatus(measurement, resolvedThresholds),
+              windDisplayStatus: classifyLiveVegagerdinStationWindStatus(measurement, resolvedThresholds),
               statusWindMs,
             }
           })

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { resolveThresholds } from '@/lib/weather/thresholds'
 import {
+  classifyLiveVegagerdinStationWindStatus,
   liveDriveTemperatureValue,
   liveVegagerdinStationFromCurrent,
   liveVegagerdinStationFromRoutePoint,
@@ -41,7 +42,7 @@ describe('live Vegagerðin station presentation', () => {
       windDisplayStatus: fromCurrent.displayStatus,
       statusWindMs: 13,
     }
-    const fromRoute = liveVegagerdinStationFromRoutePoint(routePoint)
+    const fromRoute = liveVegagerdinStationFromRoutePoint(routePoint, thresholds)
 
     expect(fromCurrent.displayStatus).toBe('othaegilegt')
     expect(fromRoute).toMatchObject({
@@ -56,7 +57,7 @@ describe('live Vegagerðin station presentation', () => {
     expect(fromRoute).not.toHaveProperty('distanceFromOriginM')
   })
 
-  it('fails stale and future route-less measurements closed', () => {
+  it('keeps freshness separate from threshold-based wind status', () => {
     const thresholds = resolveThresholds('none', { cautionWindMs: 10, redWindMs: 15 })
     const stale = liveVegagerdinStationFromCurrent(
       currentStation,
@@ -68,11 +69,35 @@ describe('live Vegagerðin station presentation', () => {
       thresholds,
       Date.parse('2026-08-01T13:00:00.000Z'),
     )
+    const unknown = liveVegagerdinStationFromCurrent(
+      { ...currentStation, measuredAtIso: 'not-a-time' },
+      thresholds,
+      Date.parse('2026-08-01T13:00:00.000Z'),
+    )
 
-    expect(stale.displayStatus).toBe('no_data')
+    expect(stale.displayStatus).toBe('othaegilegt')
     expect(stale.freshness).toBe('stale')
-    expect(future.displayStatus).toBe('no_data')
+    expect(future.displayStatus).toBe('othaegilegt')
     expect(future.freshness).toBe('unknown')
+    expect(unknown.displayStatus).toBe('othaegilegt')
+    expect(unknown.freshness).toBe('unknown')
+  })
+
+  it('uses gust first, falls back to mean wind and reserves no-wind for missing values', () => {
+    const thresholds = resolveThresholds('none', { cautionWindMs: 10, redWindMs: 15 })
+
+    expect(classifyLiveVegagerdinStationWindStatus({
+      meanWindMs: 4,
+      gustLast10MinMs: 16,
+    }, thresholds)).toBe('haettulegt')
+    expect(classifyLiveVegagerdinStationWindStatus({
+      meanWindMs: 12,
+      gustLast10MinMs: null,
+    }, thresholds)).toBe('othaegilegt')
+    expect(classifyLiveVegagerdinStationWindStatus({
+      meanWindMs: null,
+      gustLast10MinMs: null,
+    }, thresholds)).toBe('no_wind_data')
   })
 
   it('uses one live temperature boundary for both drive modes', () => {

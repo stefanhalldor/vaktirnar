@@ -104,7 +104,6 @@ import {
   classifyCandidateWindDisplayStatus,
   classifyForecastWindDisplayStatusAt,
   classifyNearestForecastWindDisplayStatusAt,
-  classifyObservationWindDisplayStatus,
   classifyPointWindDisplayStatus,
   selectForecastRowAt,
   selectNearestForecastRowAt,
@@ -167,12 +166,12 @@ import { useConditionsFeedPreview } from '@/lib/weather/useConditionsFeedPreview
 import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTarget'
 import { haversineDistanceM } from '@/lib/weather/nearestStations'
 import {
-  classifyFreeDriveStationWindStatus,
   freeDriveStationFreshness,
   type LiveDriveMode,
 } from '@/lib/weather/freeDrive'
 import {
   LIVE_DRIVE_TEMPERATURE_MAX_C,
+  classifyLiveVegagerdinStationWindStatus,
   liveVegagerdinStationFromCurrent,
   liveVegagerdinStationFromRoutePoint,
   type LiveVegagerdinStation,
@@ -1188,17 +1187,6 @@ function isWindDisplayStatus(value: unknown): value is WindDisplayStatus {
   return typeof value === 'string' && WIND_DISPLAY_STATUS_SET.has(value)
 }
 
-function classifyVegagerdinObservationStationWindStatus(
-  station: Pick<VegagerdinCurrentStationDto, 'meanWindMs' | 'gustLast10MinMs'>,
-  thresholds: ResolvedTravelThresholds,
-): WindDisplayStatus {
-  const status = classifyObservationWindDisplayStatus({
-    meanWindMs: station.meanWindMs,
-    gustLast10MinMs: station.gustLast10MinMs,
-  }, thresholds)
-  return status === 'no_data' ? 'no_wind_data' : status
-}
-
 function normalizeVegagerdinRoutePointForRender(
   point: VegagerdinRouteLayerPoint,
 ): VegagerdinRouteLayerPoint | null {
@@ -2134,7 +2122,7 @@ export function RoadMapPrototypeMap({
       const usableMatches = matches
         .map(match => ({
           match,
-          status: classifyObservationWindDisplayStatus(match.point.station, thresholds),
+          status: classifyLiveVegagerdinStationWindStatus(match.point.station, thresholds),
         }))
         .filter(({ status }) => status !== 'no_data' && status !== 'no_wind_data')
       const values = usableMatches.map(({ status }) => severity[status])
@@ -3485,7 +3473,7 @@ export function RoadMapPrototypeMap({
     for (const station of overviewVegagerdinData.stations) {
       worst = worstWindDisplayStatus(
         worst,
-        classifyVegagerdinObservationStationWindStatus(station, overviewThresholds),
+        classifyLiveVegagerdinStationWindStatus(station, overviewThresholds),
       )
     }
     return worst
@@ -3499,7 +3487,7 @@ export function RoadMapPrototypeMap({
     if (overviewActiveMode === 'now') {
       if (overviewVegagerdinData?.status === 'ok') {
         for (const station of overviewVegagerdinData.stations) {
-          tally(classifyVegagerdinObservationStationWindStatus(station, overviewThresholds))
+          tally(classifyLiveVegagerdinStationWindStatus(station, overviewThresholds))
         }
       }
     } else if (overviewVedurstofanData) {
@@ -3698,7 +3686,7 @@ export function RoadMapPrototypeMap({
       const lon = toFiniteCoordinate(station.lon)
       if (lat === null || lon === null) continue
 
-      const status = classifyVegagerdinObservationStationWindStatus(station, overviewThresholds)
+      const status = classifyLiveVegagerdinStationWindStatus(station, overviewThresholds)
       const liveStation = liveVegagerdinStationFromCurrent(station, overviewThresholds)
       const freeDriveStatus = liveStation.displayStatus
       const coords: [number, number] = [lon, lat]
@@ -4979,9 +4967,7 @@ export function RoadMapPrototypeMap({
     const measuredAtLabel = Number.isFinite(Date.parse(station.measuredAtIso))
       ? formatCompactDateTime(station.measuredAtIso, locale)
       : t('roadMapPrototypeFreeDriveUnknownAge')
-    const status = popupIsFreeDrive
-      ? classifyFreeDriveStationWindStatus(station, overviewThresholds)
-      : classifyVegagerdinObservationStationWindStatus(station, overviewThresholds)
+    const status = classifyLiveVegagerdinStationWindStatus(station, overviewThresholds)
     const statusLabel = tf(WIND_STATUS_META[status].labelKey as 'statusWithinLimits')
     const freshnessLabel = freshness === 'fresh'
       ? t('roadMapPrototypeFreeDriveFresh')
@@ -6018,7 +6004,7 @@ export function RoadMapPrototypeMap({
           airTemperatureC: station.airTemperatureC,
           roadTemperatureC: station.roadTemperatureC,
           dataQuality: station.dataQuality,
-          windDisplayStatus: classifyObservationWindDisplayStatus(station, thresholds),
+          windDisplayStatus: classifyLiveVegagerdinStationWindStatus(station, thresholds),
           statusWindMs,
         }
       })
@@ -6897,7 +6883,7 @@ export function RoadMapPrototypeMap({
     placement?: RouteLabelPlacement,
   ): HTMLButtonElement {
     return createLiveVegagerdinStationLabel(
-      liveVegagerdinStationFromRoutePoint(point),
+      liveVegagerdinStationFromRoutePoint(point, routeThresholdsRef.current),
       {
         placement,
         liveTrackingActive: routeLiveMapPresentationActiveRef.current,

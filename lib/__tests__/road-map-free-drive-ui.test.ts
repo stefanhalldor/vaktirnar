@@ -103,8 +103,8 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(liveLocationControlsSource).toContain('onZoomChange: (delta: -1 | 1) => void')
   })
 
-  it('fails stale station status closed and lets the worst station represent a cluster', () => {
-    expect(liveStationSource).toContain('classifyFreeDriveStationWindStatus(station, thresholds, nowMs)')
+  it('separates station freshness from shared wind status and lets the worst station represent a cluster', () => {
+    expect(liveStationSource).toContain('classifyLiveVegagerdinStationWindStatus(station, thresholds)')
     expect(source).toContain('overviewMarkerStatus(selected, freeDrive)')
     expect(source).toContain('overviewMarkerStatus(entry, freeDrive)')
     expect(source).toContain('if (freeDrive) return String(entries.length)')
@@ -116,7 +116,7 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
   it('uses the route station-card renderer on the map and removes the bespoke nearby drawer', () => {
     expect(source).toContain('function createLiveVegagerdinStationLabel(')
     expect(source).toContain('liveVegagerdinStationFromCurrent(station, overviewThresholds)')
-    expect(source).toContain('liveVegagerdinStationFromRoutePoint(point)')
+    expect(source).toContain('liveVegagerdinStationFromRoutePoint(point, routeThresholdsRef.current)')
     expect(source).toContain("const useLivePresentation = liveDriveMode === 'free-drive'")
     expect(source).toContain('? createLiveVegagerdinStationLabel(liveStation, {')
     expect(source).toContain('updateLiveVegagerdinStationLabelInPlace(current.element, element)')

@@ -230,7 +230,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
 
   it('uses station names in integrated cards and the same simple filter mode as the map', () => {
     expect(source).toContain('providerLabel: station.stationName')
-    expect(source).toContain('liveVegagerdinStationFromRoutePoint(point)')
+    expect(source).toContain('liveVegagerdinStationFromRoutePoint(point, routeThresholdsRef.current)')
     expect(source).toContain('showNameLabel: false')
     expect(source).toContain('mode={routeStatusFilterMode}')
     expect(source).not.toContain('alwaysShowWithinLimits\n              mode={routeStatusFilterMode}')
