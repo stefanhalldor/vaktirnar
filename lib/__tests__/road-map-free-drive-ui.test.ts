@@ -31,7 +31,8 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).toContain("setLiveDriveModeState('free-drive')")
     expect(source).toContain("startRouteLiveLocation('free-drive')")
     expect(source).toContain("t('roadMapPrototypeFreeDrivePlanInstead')")
-    expect(source).toContain('<h2 className="mb-3 text-sm font-semibold text-foreground">')
+    expect(source).toContain('onClick={openRoutePlanningDestination}')
+    expect(source).toContain("type RoutePlanningStep = 'idle' | 'destination' | 'origin' | 'thresholds'")
     expect(messagesIs).toContain(
       '"roadMapPrototypeFreeDrivePlanInstead": "Eða skipuleggja ferð"',
     )
@@ -44,6 +45,84 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(startHandler).toContain('routeBridgeRequestRef.current?.abort()')
     expect(startHandler).toContain('routeDiscoveryRequestRef.current?.abort()')
     expect(startHandler).not.toContain('handleRouteBridgeSubmit')
+  })
+
+  it('uses a destination-first planning wizard while preserving the existing route submit', () => {
+    expect(source).toContain("const [routePlanningStep, setRoutePlanningStep] = useState<RoutePlanningStep>('idle')")
+    expect(source).toContain("setRoutePlanningStep('destination')")
+    expect(source).toContain("setActiveRouteFieldState('to')")
+    expect(source).toContain("setRoutePlanningStep('origin')")
+    expect(source).toContain("setRoutePlanningStep('thresholds')")
+    expect(source).toContain("setActiveRouteFieldState('from')")
+    expect(source).toContain("routePlanningStep === 'destination'")
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningDestinationTitle')")
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningOriginTitle')")
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningThresholdsTitle')")
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningLoadingTitle')")
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningDestinationStep')")
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningOriginStep')")
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningThresholdsStep')")
+    expect(source).toContain("aria-current={routePlanningStep === 'destination' ? 'step' : undefined}")
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningContinue')")
+    expect(source).toContain('onSubmit={handleRouteBridgeSubmit}')
+    const originStepStart = source.indexOf("{routePlanningStep === 'origin' && (")
+    const originStepEnd = source.indexOf("{routePlanningStep === 'thresholds' && (", originStepStart)
+    const originStep = source.slice(originStepStart, originStepEnd)
+    expect(originStep).toContain('allowCurrentLocation')
+    expect(originStep).toContain('showCurrentLocationOnAllViewports')
+    expect(source).toContain("setActiveRouteFieldState(routePlanningStep === 'origin' ? 'from' : 'to')")
+    expect(source).toContain("if (routePlanningStep !== 'origin' && !toResolved)")
+    expect(messagesIs).toContain('"roadMapPrototypeRoutePlanningDestinationTitle": "Hvert ertu að fara?"')
+    expect(messagesIs).toContain('"roadMapPrototypeRoutePlanningLoadingTitle": "Finn leiðir og skoða veðurspárgildi"')
+    expect(messagesEn).toContain('"roadMapPrototypeRoutePlanningDestinationTitle": "Where are you going?"')
+  })
+
+  it('shows the route-loading title before the wind-limit planning title', () => {
+    const panelHeaderStart = source.indexOf('{/* Panel header */}')
+    const headerStart = source.indexOf('{routeBridgeSummary', panelHeaderStart)
+    const headerEnd = source.indexOf('</p>', headerStart)
+    const header = source.slice(headerStart, headerEnd)
+    const loadingTitle = header.indexOf("t('roadMapPrototypeRoutePlanningLoadingTitle')")
+    const thresholdsTitle = header.indexOf("t('roadMapPrototypeRoutePlanningThresholdsTitle')")
+
+    expect(loadingTitle).toBeGreaterThan(-1)
+    expect(thresholdsTitle).toBeGreaterThan(loadingTitle)
+  })
+
+  it('keeps fresh planning thresholds explicit and separate from saved live-drive values', () => {
+    const openerStart = source.indexOf('function openRoutePlanningDestination()')
+    const openerEnd = source.indexOf('\n  function handleRoutePlanningContinue()', openerStart)
+    const opener = source.slice(openerStart, openerEnd)
+    expect(opener).toContain("setRoutePlanningCautionWind('')")
+    expect(opener).toContain("setRoutePlanningRedWind('')")
+    expect(opener).not.toContain('savedRouteThresholds')
+
+    expect(source).toContain("const [routePlanningCautionWind, setRoutePlanningCautionWind] = useState('')")
+    expect(source).toContain("const [routePlanningRedWind, setRoutePlanningRedWind] = useState('')")
+    expect(source).toContain('cautionValue={routePlanningCautionWind}')
+    expect(source).toContain('dangerValue={routePlanningRedWind}')
+    expect(source).toContain("t('roadMapPrototypeRoutePlanningUseSavedThresholds'")
+    expect(source).toContain("const isPlanningSubmission = routePlanningStep === 'thresholds'")
+  })
+
+  it('hides the free-drive card throughout the active planning wizard', () => {
+    const formStart = source.indexOf('<form ref={formRef}')
+    const freeDriveSectionStart = source.lastIndexOf("{routePlanningStep === 'idle' && (", formStart)
+    expect(freeDriveSectionStart).toBeGreaterThan(-1)
+    expect(freeDriveSectionStart).toBeLessThan(formStart)
+    expect(source).toContain("disabled={!toResolved}")
+    expect(source).toContain("disabled={!fromResolved}")
+  })
+
+  it('stops free-drive tracking before opening the destination planning step', () => {
+    const handlerStart = source.indexOf('function handlePlanRoute()')
+    const handlerEnd = source.indexOf('\n  function handleOpenFreeDriveSetup()', handlerStart)
+    const handler = source.slice(handlerStart, handlerEnd)
+    expect(handler).toContain('stopRouteLiveLocation()')
+    expect(handler).toContain("setLiveDriveModeState('off')")
+    expect(handler).toContain('handleEditRoute()')
+    expect(handler).toContain('openRoutePlanningDestination()')
+    expect(handler).toContain("openRouteContext('information')")
   })
 
   it('returns authenticated users to threshold setup and never starts GPS on mount', () => {
@@ -143,7 +222,7 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(confirmBlock).toContain("'/api/teskeid/weather/preferences/thresholds'")
     expect(source).toContain('<LiveDriveThresholdFields')
     expect(source).toContain('idPrefix="free-drive"')
-    expect(source).toContain('idPrefix="route"')
+    expect(source).toContain('idPrefix="route-planning"')
   })
 
   it('stops tracking in the background and requires an explicit resume gesture', () => {

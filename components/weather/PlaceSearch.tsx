@@ -88,6 +88,8 @@ export type PlaceSearchProps = {
   /** Places hidden from both live and saved results, e.g. the opposite route endpoint. */
   excludePlaces?: readonly PlaceExclusion[]
   allowCurrentLocation?: boolean
+  /** Keep the explicit current-location action visible above the mobile breakpoint. */
+  showCurrentLocationOnAllViewports?: boolean
   onResultsChange?: (results: PlaceResult[]) => void
   variant?: 'default' | 'compact'
   /** Optional focus handoff for route forms that keep both fields mounted. */
@@ -299,6 +301,7 @@ export function PlaceSearch({
   onValueChange,
   excludePlaces = EMPTY_PLACE_EXCLUSIONS,
   allowCurrentLocation = false,
+  showCurrentLocationOnAllViewports = false,
   onResultsChange,
   variant = 'default',
   inputRef,
@@ -642,7 +645,7 @@ export function PlaceSearch({
           disabled={locationLoading}
           aria-busy={locationLoading}
           aria-describedby={locationError ? errorId : undefined}
-          className={`inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60 sm:hidden ${compact ? 'text-xs' : ''}`}
+          className={`inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60 ${showCurrentLocationOnAllViewports ? '' : 'sm:hidden'} ${compact ? 'text-xs' : ''}`}
         >
           {locationLoading ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden />

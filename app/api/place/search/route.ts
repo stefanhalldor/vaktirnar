@@ -103,12 +103,15 @@ function dedupeAndRank(
   primary: readonly SelectedLocation[],
   secondary: readonly SelectedLocation[],
 ): SelectedLocation[] {
-  const merged = mergePlaceSuggestions(primary, secondary, MAX_RESULTS * 2) as SelectedLocation[]
-  return merged
+  const ranked = [...primary, ...secondary]
     .map((place, index) => ({ place, index, score: relevanceScore(query, place) }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, MAX_RESULTS)
     .map(item => item.place)
+  // Rank before coordinate/name deduplication so the canonical result for the
+  // user's intent survives even when two directories describe the same place.
+  // Exact settlements therefore beat POIs for locality queries, while an
+  // exact HMS address still beats a settlement prefix for address queries.
+  return mergePlaceSuggestions(ranked, [], MAX_RESULTS) as SelectedLocation[]
 }
 
 type GoogleFallbackFailureCategory =

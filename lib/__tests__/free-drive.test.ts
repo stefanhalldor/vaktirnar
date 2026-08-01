@@ -33,8 +33,10 @@ describe('free-drive station safety presentation', () => {
   })
 
   it('reports freshness independently from the wind values', () => {
-    expect(freeDriveStationFreshness('2026-08-01T11:45:00.000Z', NOW)).toBe('fresh')
+    expect(freeDriveStationFreshness('2026-08-01T11:45:01.000Z', NOW)).toBe('fresh')
+    expect(freeDriveStationFreshness('2026-08-01T11:45:00.000Z', NOW)).toBe('stale')
     expect(freeDriveStationFreshness('2026-08-01T11:00:00.000Z', NOW)).toBe('stale')
     expect(freeDriveStationFreshness(null, NOW)).toBe('unknown')
+    expect(freeDriveStationFreshness('not-a-date', NOW)).toBe('unknown')
   })
 })

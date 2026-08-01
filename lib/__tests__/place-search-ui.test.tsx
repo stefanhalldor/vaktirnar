@@ -511,6 +511,20 @@ describe('PlaceSearch', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('can keep the explicit current-location action visible on wider planning layouts', () => {
+    render(
+      <PlaceSearch
+        autoFocus={false}
+        allowCurrentLocation
+        showCurrentLocationOnAllViewports
+        onPlaceSelected={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Use current location' })).not.toHaveClass('sm:hidden')
+    expect(getCurrentLocationMock).not.toHaveBeenCalled()
+  })
+
   it('toggles recovery guidance between Icelandic and English and retries after denial', async () => {
     const onPlaceSelected = vi.fn()
     getCurrentLocationMock

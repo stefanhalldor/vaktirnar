@@ -917,6 +917,7 @@ type RoadMapPrototypeLabels = {
 }
 
 type RouteBridgeField = 'from' | 'to'
+type RoutePlanningStep = 'idle' | 'destination' | 'origin' | 'thresholds'
 
 function readFiniteNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -1768,7 +1769,7 @@ export function RoadMapPrototypeMap({
   const routeThresholdsRef = useRef<ResolvedTravelThresholds>(DEFAULT_ROUTE_THRESHOLDS)
   const routeForecastBuildContextRef = useRef<RouteForecastBuildContext | null>(null)
   const builtRouteForecastContextRef = useRef<RouteForecastBuildContext | null>(null)
-  const activeRouteFieldRef = useRef<RouteBridgeField>('from')
+  const activeRouteFieldRef = useRef<RouteBridgeField>('to')
   const routeFromInputRef = useRef<HTMLInputElement | null>(null)
   const routeToInputRef = useRef<HTMLInputElement | null>(null)
   const selectRoutePlaceRef = useRef<
@@ -1780,6 +1781,7 @@ export function RoadMapPrototypeMap({
   const [mapError, setMapError] = useState<string | null>(null)
   const [routeFrom, setRouteFrom] = useState('')
   const [routeTo, setRouteTo] = useState('')
+  const [routePlanningStep, setRoutePlanningStep] = useState<RoutePlanningStep>('idle')
   const [routeBridgeStatus, setRouteBridgeStatus] = useState<
     'idle' | 'loading' | 'success' | 'error'
   >('idle')
@@ -1797,6 +1799,8 @@ export function RoadMapPrototypeMap({
   const [savedPlaces, setSavedPlaces] = useState<SavedWeatherPlace[]>([])
   const [routeCautionWind, setRouteCautionWind] = useState('')
   const [routeRedWind, setRouteRedWind] = useState('')
+  const [routePlanningCautionWind, setRoutePlanningCautionWind] = useState('')
+  const [routePlanningRedWind, setRoutePlanningRedWind] = useState('')
   const [savedRouteThresholds, setSavedRouteThresholds] = useState<{ cautionWindMs: number; redWindMs: number } | null>(null)
   const [routeThresholdPreferencesLoaded, setRouteThresholdPreferencesLoaded] = useState(false)
   const [routeThresholdError, setRouteThresholdError] = useState<string | null>(null)
@@ -5087,6 +5091,62 @@ export function RoadMapPrototypeMap({
     activeRouteFieldRef.current = field
   }
 
+  function openRoutePlanningDestination() {
+    setFreeDriveSetupOpen(false)
+    setRouteBridgeError(null)
+    setRouteThresholdError(null)
+    setRoutePlaceFallbackSuggestion(null)
+    setRouteFrom('')
+    setRouteTo('')
+    setFromResolved(null)
+    setToResolved(null)
+    setFromSuggestions([])
+    setToSuggestions([])
+    setRoutePlanningCautionWind('')
+    setRoutePlanningRedWind('')
+    setRoutePlanningStep('destination')
+    setActiveRouteFieldState('to')
+  }
+
+  function handleRoutePlanningContinue() {
+    if (routePlanningStep === 'destination') {
+      if (!toResolved) {
+        setRouteBridgeError(t('roadMapPrototypeRouteDestinationMissing'))
+        return
+      }
+      setRouteBridgeError(null)
+      setRoutePlanningStep('origin')
+      setActiveRouteFieldState('from')
+      return
+    }
+    if (routePlanningStep === 'origin') {
+      if (!fromResolved) {
+        setRouteBridgeError(t('roadMapPrototypeRouteOriginMissing'))
+        return
+      }
+      setRouteBridgeError(null)
+      setRoutePlanningStep('thresholds')
+      setActiveRouteFieldState('from')
+    }
+  }
+
+  function handleRoutePlanningBack() {
+    setRouteBridgeError(null)
+    setRoutePlaceFallbackSuggestion(null)
+    if (routePlanningStep === 'thresholds') {
+      setRoutePlanningStep('origin')
+      setActiveRouteFieldState('from')
+      return
+    }
+    if (routePlanningStep === 'origin') {
+      setRoutePlanningStep('destination')
+      setActiveRouteFieldState('to')
+      return
+    }
+    setRoutePlanningStep('idle')
+    setActiveRouteFieldState('to')
+  }
+
   function handleRouteStatusFilterChange(next: Set<WindDisplayStatus>) {
     visibleRouteStatusesRef.current = next
     setVisibleRouteStatuses(next)
@@ -5182,8 +5242,11 @@ export function RoadMapPrototypeMap({
     updateRouteWeatherLayerVisibility('forecast')
   }
 
-  function resolveRouteThresholdInputs(): ResolvedTravelThresholds | null {
-    const validation = validateRouteThresholdInputs(routeCautionWind, routeRedWind)
+  function resolveRouteThresholdInputs(
+    cautionValue = routeCautionWind,
+    redValue = routeRedWind,
+  ): ResolvedTravelThresholds | null {
+    const validation = validateRouteThresholdInputs(cautionValue, redValue)
     if (validation.error === 'value') {
       setRouteThresholdError(t('roadMapPrototypeThresholdError'))
       return null
@@ -5287,9 +5350,9 @@ export function RoadMapPrototypeMap({
       setRouteFrom(place.name)
       setFromResolved(place)
       setFromSuggestions([])
-      setActiveRouteFieldState('to')
+      setActiveRouteFieldState(routePlanningStep === 'origin' ? 'from' : 'to')
       void savePlaceBestEffort(place)
-      if (!toResolved) {
+      if (routePlanningStep !== 'origin' && !toResolved) {
         requestAnimationFrame(() => routeToInputRef.current?.focus())
       }
       return
@@ -5635,6 +5698,8 @@ export function RoadMapPrototypeMap({
     setRouteVedurstofanLayer(null)
     setRouteFrom('')
     setRouteTo('')
+    setRoutePlanningCautionWind('')
+    setRoutePlanningRedWind('')
     setFromResolved(null)
     setToResolved(null)
     setFromSuggestions([])
@@ -5677,7 +5742,8 @@ export function RoadMapPrototypeMap({
     routeVegagerdinCacheStatusRef.current = null
     resolvedRoutePlacesRef.current = null
     handleRouteStatusFilterChange(createDefaultRouteVisibleWindStatuses())
-    setActiveRouteFieldState('from')
+    setRoutePlanningStep('idle')
+    setActiveRouteFieldState('to')
     clearRouteVedurstofanLabelMarkers()
     clearRouteVegagerdinLabelMarkers()
     clearRouteEndpointMarkers()
@@ -5708,6 +5774,7 @@ export function RoadMapPrototypeMap({
     const resolvedPlaces = resolvedRoutePlacesRef.current
     const navigationOrigin = resolvedPlaces?.navigationOrigin ?? routeHandoffOnlySummary?.navigationOrigin ?? null
     const navigationDestination = resolvedPlaces?.navigationDestination ?? routeHandoffOnlySummary?.navigationDestination ?? null
+    const preservedThresholds = routeBridgeSummary?.thresholdsUsed ?? routeThresholdsRef.current
     const preservedFrom = routeFrom.trim()
       || resolvedPlaces?.navigationOriginName
       || routeHandoffOnlySummary?.navigationOriginName
@@ -5723,9 +5790,12 @@ export function RoadMapPrototypeMap({
     setRouteTo(preservedTo)
     setFromResolved(navigationOrigin)
     setToResolved(navigationDestination)
+    setRoutePlanningCautionWind(String(preservedThresholds.cautionWindMs))
+    setRoutePlanningRedWind(String(preservedThresholds.redWindMs))
     // Assessment scope is derived again on submit; never restore a stale binding.
     resolvedRoutePlacesRef.current = null
-    setActiveRouteFieldState('from')
+    setRoutePlanningStep('destination')
+    setActiveRouteFieldState('to')
     setIsPanelOpen(true)
   }
 
@@ -8404,11 +8474,19 @@ export function RoadMapPrototypeMap({
       return
     }
 
-    const thresholds = resolveRouteThresholdInputs()
+    const isPlanningSubmission = routePlanningStep === 'thresholds'
+    const thresholds = resolveRouteThresholdInputs(
+      isPlanningSubmission ? routePlanningCautionWind : routeCautionWind,
+      isPlanningSubmission ? routePlanningRedWind : routeRedWind,
+    )
     if (!thresholds) {
       setRouteBridgeStatus('error')
       setRouteBridgeError(null)
       return
+    }
+    if (isPlanningSubmission) {
+      setRouteCautionWind(routePlanningCautionWind)
+      setRouteRedWind(routePlanningRedWind)
     }
 
     routeBridgeRequestRef.current?.abort()
@@ -10367,9 +10445,17 @@ export function RoadMapPrototypeMap({
   }
 
   function handlePlanRoute() {
+    const hasExistingRoute = routeBridgeSummary !== null || routeHandoffOnlySummary !== null
     stopRouteLiveLocation()
     setLiveDriveModeState('off')
     setFreeDriveSetupOpen(false)
+    setFreeDrivePaused(false)
+    setFreeDriveWithoutLocation(false)
+    if (hasExistingRoute) {
+      handleEditRoute()
+    } else {
+      openRoutePlanningDestination()
+    }
     openRouteContext('information')
   }
 
@@ -11318,7 +11404,15 @@ export function RoadMapPrototypeMap({
                     from: routeHandoffOnlySummary.navigationOriginName,
                     to: routeHandoffOnlySummary.navigationDestinationName,
                   })
-              : t('roadMapPrototypeRouteBridgeTitle')}
+              : isRouteLoading
+                ? t('roadMapPrototypeRoutePlanningLoadingTitle')
+              : routePlanningStep === 'destination'
+                ? t('roadMapPrototypeRoutePlanningDestinationTitle')
+                : routePlanningStep === 'origin'
+                  ? t('roadMapPrototypeRoutePlanningOriginTitle')
+                  : routePlanningStep === 'thresholds'
+                    ? t('roadMapPrototypeRoutePlanningThresholdsTitle')
+                    : t('roadMapPrototypeRouteBridgeTitle')}
           </p>
           {(routeResultsDisplayState === 'summary' || routeResultsDisplayState === 'handoff-only') && (
             <button
@@ -11506,10 +11600,11 @@ export function RoadMapPrototypeMap({
           ) : (
             /* No route: route form */
             <div className="p-3">
-              <section
-                aria-labelledby="road-map-free-drive-title"
-                className="mb-4 rounded-xl border border-primary/25 bg-primary/5 p-3"
-              >
+              {routePlanningStep === 'idle' && (
+                <section
+                  aria-labelledby="road-map-free-drive-title"
+                  className="mb-4 rounded-xl border border-primary/25 bg-primary/5 p-3"
+                >
                 <h2 id="road-map-free-drive-title" className="text-sm font-semibold text-foreground">
                   {freeDriveSetupOpen
                     ? t('roadMapPrototypeFreeDriveThresholdTitle')
@@ -11598,121 +11693,198 @@ export function RoadMapPrototypeMap({
                 >
                   {t('roadMapPrototypeFreeDrivePrivacySafety')}
                 </p>
-              </section>
+                </section>
+              )}
 
               {!freeDriveSetupOpen && (<>
-              <h2 className="mb-3 text-sm font-semibold text-foreground">
-                {t('roadMapPrototypeFreeDrivePlanInstead')}
-              </h2>
-              <form ref={formRef} className="space-y-2" onSubmit={handleRouteBridgeSubmit}>
-                <div className="grid grid-cols-1 gap-2">
-                  <div
-                    className="min-w-0"
-                    onFocusCapture={() => setActiveRouteFieldState('from')}
-                  >
-                    <span className="sr-only">{t('roadMapPrototypeRouteFromLabel')}</span>
-                    <PlaceSearch
-                      inputRef={routeFromInputRef}
-                      value={routeFrom}
-                      onValueChange={(nextValue) => {
-                          setRouteFrom(nextValue)
-                          setFromResolved(null)
-                          setRoutePlaceFallbackSuggestion(null)
-                          setActiveRouteFieldState('from')
-                      }}
-                      onPlaceSelected={(place) => selectRoutePlace(place, 'from')}
-                      onResultsChange={setFromSuggestions}
-                      selectedPlace={fromResolved}
-                      onClearSelectedPlace={() => {
-                        setRouteFrom('')
-                        setFromResolved(null)
-                        setFromSuggestions([])
-                        setRoutePlaceFallbackSuggestion(null)
-                        setActiveRouteFieldState('from')
-                      }}
-                      savedPlaces={savedPlaces}
-                      onDeleteSavedPlace={deleteSavedPlace}
-                      excludePlaces={toResolved ? [toResolved] : []}
-                      allowCurrentLocation
-                      autoFocus={false}
-                      ariaLabel={t('roadMapPrototypeRouteFromLabel')}
-                      placeholder={t('roadMapPrototypeRouteFromPlaceholder')}
-                      variant="compact"
-                    />
-                  </div>
-                  <div
-                    className="min-w-0"
-                    onFocusCapture={() => setActiveRouteFieldState('to')}
-                  >
-                    <span className="sr-only">{t('roadMapPrototypeRouteToLabel')}</span>
-                    <PlaceSearch
-                      inputRef={routeToInputRef}
-                      value={routeTo}
-                      onValueChange={(nextValue) => {
-                          setRouteTo(nextValue)
-                          setToResolved(null)
-                          setRoutePlaceFallbackSuggestion(null)
-                          setActiveRouteFieldState('to')
-                      }}
-                      onPlaceSelected={(place) => selectRoutePlace(place, 'to')}
-                      onResultsChange={setToSuggestions}
-                      selectedPlace={toResolved}
-                      onClearSelectedPlace={() => {
-                        setRouteTo('')
-                        setToResolved(null)
-                        setToSuggestions([])
-                        setRoutePlaceFallbackSuggestion(null)
-                        setActiveRouteFieldState('to')
-                      }}
-                      savedPlaces={savedPlaces}
-                      onDeleteSavedPlace={deleteSavedPlace}
-                      excludePlaces={fromResolved ? [fromResolved] : []}
-                      allowCurrentLocation={false}
-                      autoFocus={false}
-                      ariaLabel={t('roadMapPrototypeRouteToLabel')}
-                      placeholder={t('roadMapPrototypeRouteToPlaceholder')}
-                      variant="compact"
-                    />
-                  </div>
-                </div>
-
-                <LiveDriveThresholdFields
-                  idPrefix="route"
-                  cautionLabel={t('thresholdBarCautionLabel')}
-                  dangerLabel={t('thresholdBarDangerLabel')}
-                  unitLabel={t('thresholdBarUnit')}
-                  cautionValue={routeCautionWind}
-                  dangerValue={routeRedWind}
-                  onCautionChange={(value) => {
-                    setRouteCautionWind(value)
-                    setRouteThresholdError(null)
-                  }}
-                  onDangerChange={(value) => {
-                    setRouteRedWind(value)
-                    setRouteThresholdError(null)
-                  }}
-                />
-
-                {isAuthenticated && savedRouteThresholds && (routeCautionWind === '' || routeRedWind === '') && (
+              <form ref={formRef} className="space-y-3" onSubmit={handleRouteBridgeSubmit}>
+                {routePlanningStep === 'idle' ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      setRouteCautionWind(String(savedRouteThresholds.cautionWindMs))
-                      setRouteRedWind(String(savedRouteThresholds.redWindMs))
-                      setRouteThresholdError(null)
-                    }}
-                    className="text-xs text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+                    onClick={openRoutePlanningDestination}
+                    className="flex min-h-11 w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-left text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {t('thresholdBarUseSaved')} ({savedRouteThresholds.cautionWindMs}/{savedRouteThresholds.redWindMs} m/s)
+                    <span>{t('roadMapPrototypeFreeDrivePlanInstead')}</span>
+                    <span aria-hidden="true">›</span>
                   </button>
-                )}
+                ) : (
+                  <div className="space-y-4">
+                    <button
+                      type="button"
+                      onClick={handleRoutePlanningBack}
+                      className="inline-flex min-h-10 items-center rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {t('roadMapPrototypeRoutePlanningBack')}
+                    </button>
 
-                <button
-                  type="submit"
-                  className="h-10 w-full rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-opacity"
-                >
-                  {t('roadMapPrototypeRouteSubmit')}
-                </button>
+                    <ol
+                      aria-label={t('roadMapPrototypeRoutePlanningStepsLabel')}
+                      className="grid grid-cols-3 gap-1"
+                    >
+                      <li
+                        aria-current={routePlanningStep === 'destination' ? 'step' : undefined}
+                        className={`rounded-full px-2 py-1.5 text-center text-xs font-medium ${routePlanningStep === 'destination' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                      >
+                        {t('roadMapPrototypeRoutePlanningDestinationStep')}
+                      </li>
+                      <li
+                        aria-current={routePlanningStep === 'origin' ? 'step' : undefined}
+                        className={`rounded-full px-2 py-1.5 text-center text-xs font-medium ${routePlanningStep === 'origin' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                      >
+                        {t('roadMapPrototypeRoutePlanningOriginStep')}
+                      </li>
+                      <li
+                        aria-current={routePlanningStep === 'thresholds' ? 'step' : undefined}
+                        className={`rounded-full px-2 py-1.5 text-center text-xs font-medium ${routePlanningStep === 'thresholds' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                      >
+                        {t('roadMapPrototypeRoutePlanningThresholdsStep')}
+                      </li>
+                    </ol>
+
+                    {routePlanningStep === 'destination' && (
+                      <>
+                        <div
+                          className="min-w-0"
+                          onFocusCapture={() => setActiveRouteFieldState('to')}
+                        >
+                          <span className="sr-only">{t('roadMapPrototypeRouteToLabel')}</span>
+                          <PlaceSearch
+                            inputRef={routeToInputRef}
+                            value={routeTo}
+                            onValueChange={(nextValue) => {
+                              setRouteTo(nextValue)
+                              setToResolved(null)
+                              setRoutePlaceFallbackSuggestion(null)
+                              setActiveRouteFieldState('to')
+                            }}
+                            onPlaceSelected={(place) => selectRoutePlace(place, 'to')}
+                            onResultsChange={setToSuggestions}
+                            selectedPlace={toResolved}
+                            onClearSelectedPlace={() => {
+                              setRouteTo('')
+                              setToResolved(null)
+                              setToSuggestions([])
+                              setRoutePlaceFallbackSuggestion(null)
+                              setActiveRouteFieldState('to')
+                            }}
+                            savedPlaces={savedPlaces}
+                            onDeleteSavedPlace={deleteSavedPlace}
+                            excludePlaces={fromResolved ? [fromResolved] : []}
+                            allowCurrentLocation={false}
+                            autoFocus={false}
+                            ariaLabel={t('roadMapPrototypeRouteToLabel')}
+                            placeholder={t('roadMapPrototypeRouteToPlaceholder')}
+                            variant="compact"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!toResolved}
+                          onClick={handleRoutePlanningContinue}
+                          className="min-h-11 w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          {t('roadMapPrototypeRoutePlanningContinue')}
+                        </button>
+                      </>
+                    )}
+
+                    {routePlanningStep === 'origin' && (
+                      <>
+                        <div
+                          className="min-w-0"
+                          onFocusCapture={() => setActiveRouteFieldState('from')}
+                        >
+                          <span className="sr-only">{t('roadMapPrototypeRouteFromLabel')}</span>
+                          <PlaceSearch
+                            inputRef={routeFromInputRef}
+                            value={routeFrom}
+                            onValueChange={(nextValue) => {
+                              setRouteFrom(nextValue)
+                              setFromResolved(null)
+                              setRoutePlaceFallbackSuggestion(null)
+                              setActiveRouteFieldState('from')
+                            }}
+                            onPlaceSelected={(place) => selectRoutePlace(place, 'from')}
+                            onResultsChange={setFromSuggestions}
+                            selectedPlace={fromResolved}
+                            onClearSelectedPlace={() => {
+                              setRouteFrom('')
+                              setFromResolved(null)
+                              setFromSuggestions([])
+                              setRoutePlaceFallbackSuggestion(null)
+                              setActiveRouteFieldState('from')
+                            }}
+                            savedPlaces={savedPlaces}
+                            onDeleteSavedPlace={deleteSavedPlace}
+                            excludePlaces={toResolved ? [toResolved] : []}
+                            allowCurrentLocation
+                            showCurrentLocationOnAllViewports
+                            autoFocus={false}
+                            ariaLabel={t('roadMapPrototypeRouteFromLabel')}
+                            placeholder={t('roadMapPrototypeRouteFromPlaceholder')}
+                            variant="compact"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!fromResolved}
+                          onClick={handleRoutePlanningContinue}
+                          className="min-h-11 w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          {t('roadMapPrototypeRoutePlanningContinue')}
+                        </button>
+                      </>
+                    )}
+
+                    {routePlanningStep === 'thresholds' && (
+                      <>
+                        <LiveDriveThresholdFields
+                          idPrefix="route-planning"
+                          cautionLabel={t('thresholdBarCautionLabel')}
+                          dangerLabel={t('thresholdBarDangerLabel')}
+                          unitLabel={t('thresholdBarUnit')}
+                          cautionValue={routePlanningCautionWind}
+                          dangerValue={routePlanningRedWind}
+                          onCautionChange={(value) => {
+                            setRoutePlanningCautionWind(value)
+                            setRouteThresholdError(null)
+                          }}
+                          onDangerChange={(value) => {
+                            setRoutePlanningRedWind(value)
+                            setRouteThresholdError(null)
+                          }}
+                        />
+
+                        {isAuthenticated && savedRouteThresholds && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRoutePlanningCautionWind(String(savedRouteThresholds.cautionWindMs))
+                              setRoutePlanningRedWind(String(savedRouteThresholds.redWindMs))
+                              setRouteThresholdError(null)
+                            }}
+                            className="inline-flex min-h-10 items-center text-left text-xs font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {t('roadMapPrototypeRoutePlanningUseSavedThresholds', {
+                              caution: savedRouteThresholds.cautionWindMs,
+                              danger: savedRouteThresholds.redWindMs,
+                            })}
+                          </button>
+                        )}
+
+                        <button
+                          type="submit"
+                          disabled={routeBridgeStatus === 'loading'}
+                          className="min-h-11 w-full rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-opacity disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          {routeBridgeStatus === 'loading'
+                            ? t('roadMapPrototypeRouteLoading')
+                            : t('roadMapPrototypeRouteSubmit')}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
               </form>
 
               {routeThresholdError && (
