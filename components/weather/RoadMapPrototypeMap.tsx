@@ -3,7 +3,7 @@
 // MapLibre CSS is loaded by route layout (app/auth-mvp/vedrid/road-map-prototype/layout.tsx).
 import { type FormEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { ArrowUp, ChevronDown, ChevronUp, LocateFixed, Pencil } from 'lucide-react'
+import { ArrowUp, LocateFixed, Pencil } from 'lucide-react'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import {
   createFirstReadyCoordinator,
@@ -142,8 +142,9 @@ import {
   DRIVE_MAP_SEGMENT_COLOR_EXPRESSION,
   DRIVE_MAP_SEGMENT_WIDTH_EXPRESSION,
 } from './DriveRouteMap'
-import { WindStatusBadge } from './WindStatusBadge'
 import { LiveLocationControls } from './LiveLocationControls'
+import { LiveDriveMapControls } from './LiveDriveMapControls'
+import { LiveDriveThresholdFields } from './LiveDriveThresholdFields'
 import { ConditionsFeedPreview } from './ConditionsFeedPreview'
 import { PlaceSearch } from './PlaceSearch'
 import {
@@ -170,6 +171,12 @@ import {
   freeDriveStationFreshness,
   type LiveDriveMode,
 } from '@/lib/weather/freeDrive'
+import {
+  LIVE_DRIVE_TEMPERATURE_MAX_C,
+  liveVegagerdinStationFromCurrent,
+  liveVegagerdinStationFromRoutePoint,
+  type LiveVegagerdinStation,
+} from '@/lib/weather/liveVegagerdinStation'
 import { makeWeatherPlaceKey, type SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 import {
   clampLiveLocationFollowZoom,
@@ -225,6 +232,32 @@ const STAMEN_TERRAIN_ATTRIBUTION =
 const ICELAND_CENTER: [number, number] = [-18.9, 64.9]
 const ICELAND_ZOOM = 6
 const DEFAULT_ROUTE_THRESHOLDS = resolveThresholds('none')
+
+function validateRouteThresholdInputs(
+  cautionInput: string,
+  redInput: string,
+): { thresholds: ResolvedTravelThresholds | null; error: 'value' | 'ordering' | null } {
+  const caution = Number(cautionInput)
+  const red = Number(redInput)
+  if (
+    !Number.isFinite(caution) ||
+    !Number.isFinite(red) ||
+    caution <= 0 ||
+    red <= 0 ||
+    caution > 40 ||
+    red > 40
+  ) {
+    return { thresholds: null, error: 'value' }
+  }
+  const thresholds = resolveThresholds('none', {
+    cautionWindMs: caution,
+    redWindMs: red,
+  })
+  return validateResolvedThresholdOrdering(thresholds)
+    ? { thresholds: null, error: 'ordering' }
+    : { thresholds, error: null }
+}
+
 const WIND_DISPLAY_STATUS_SET = new Set<string>(ALL_WIND_DISPLAY_STATUSES)
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_DISTANCE_M = 12_000
 const VEGAGERDIN_ROUTE_FALLBACK_MAX_POINTS = 40
@@ -655,7 +688,6 @@ type RouteForecastBuildStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | '
 const ROUTE_TIMELINE_INITIAL_SLOT_COUNT = 8
 const ROUTE_WIND_STATUS_FILTER_MODE: WindStatusFilterMode = 'detailed'
 const VEGAGERDIN_ROUTE_REFRESH_INTERVAL_MS = 60_000
-const LIVE_ROUTE_TEMPERATURE_MAX_C = 2
 
 type RouteLiveLocationStatus = 'idle' | 'waiting' | 'active' | 'error'
 type RouteForecastBuildContext = {
@@ -1476,6 +1508,7 @@ type RouteEndpointMarker = {
 type OverviewStationMarker = {
   marker: import('maplibre-gl').Marker
   element: HTMLButtonElement
+  stationId?: string
   provider: 'vegagerdin' | 'vedurstofan'
   status: WindDisplayStatus
   freeDriveStatus?: WindDisplayStatus
@@ -1777,7 +1810,28 @@ export function RoadMapPrototypeMap({
   const [routeCautionWind, setRouteCautionWind] = useState('')
   const [routeRedWind, setRouteRedWind] = useState('')
   const [savedRouteThresholds, setSavedRouteThresholds] = useState<{ cautionWindMs: number; redWindMs: number } | null>(null)
+  const [routeThresholdPreferencesLoaded, setRouteThresholdPreferencesLoaded] = useState(false)
   const [routeThresholdError, setRouteThresholdError] = useState<string | null>(null)
+  const [freeDriveSetupOpen, setFreeDriveSetupOpen] = useState(false)
+  const [freeDriveThresholdSaveStatus, setFreeDriveThresholdSaveStatus] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle')
+  const freeDriveThresholdValidation = validateRouteThresholdInputs(
+    routeCautionWind,
+    routeRedWind,
+  )
+  const freeDriveThresholdInputsValid = freeDriveThresholdValidation.thresholds !== null
+  const freeDriveThresholdValidationMessage = routeThresholdError ?? (
+    routeThresholdPreferencesLoaded
+    && (routeCautionWind !== '' || routeRedWind !== '')
+    && freeDriveThresholdValidation.error === 'ordering'
+      ? t('thresholdBarOrderingError')
+      : routeThresholdPreferencesLoaded
+        && (routeCautionWind !== '' || routeRedWind !== '')
+        && freeDriveThresholdValidation.error === 'value'
+        ? t('roadMapPrototypeThresholdError')
+        : null
+  )
   const [routeStatusFilterMode, setRouteStatusFilterMode] = useState<WindStatusFilterMode>('simple')
   const [visibleRouteStatuses, setVisibleRouteStatuses] = useState<Set<WindDisplayStatus>>(
     createDefaultRouteVisibleWindStatuses,
@@ -3165,20 +3219,48 @@ export function RoadMapPrototypeMap({
   ])
 
   useEffect(() => {
-    if (!isAuthenticated) return
+    if (!isAuthenticated) {
+      setRouteThresholdPreferencesLoaded(true)
+      return
+    }
+    setRouteThresholdPreferencesLoaded(false)
+    let cancelled = false
     void fetch('/api/teskeid/weather/preferences/thresholds', { credentials: 'same-origin' })
       .then(async res => {
         if (!res.ok) return
         const data = await res.json() as Record<string, unknown>
+        if (cancelled) return
         if (data.hasPreferences !== true) return
         const c = Number(data.cautionWindMs)
         const r = Number(data.redWindMs)
         if (Number.isFinite(c) && Number.isFinite(r) && c > 0 && r > 0 && c < r) {
           setSavedRouteThresholds({ cautionWindMs: c, redWindMs: r })
+          setRouteCautionWind(current => current || String(c))
+          setRouteRedWind(current => current || String(r))
+        }
+        if (data.statusFilterMode === 'simple' || data.statusFilterMode === 'detailed') {
+          routeStatusFilterModeRef.current = data.statusFilterMode
+          setRouteStatusFilterMode(data.statusFilterMode)
         }
       })
       .catch(() => { /* no-op */ })
+      .finally(() => {
+        if (!cancelled) setRouteThresholdPreferencesLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [isAuthenticated])
+
+  useEffect(() => {
+    if (!freeDriveSetupOpen || !routeThresholdPreferencesLoaded) return
+    setRouteCautionWind(current => current || String(
+      savedRouteThresholds?.cautionWindMs ?? DEFAULT_ROUTE_THRESHOLDS.cautionWindMs,
+    ))
+    setRouteRedWind(current => current || String(
+      savedRouteThresholds?.redWindMs ?? DEFAULT_ROUTE_THRESHOLDS.redWindMs,
+    ))
+  }, [freeDriveSetupOpen, routeThresholdPreferencesLoaded, savedRouteThresholds])
 
   useEffect(() => {
     if (!isAuthenticated || !weatherChasePreferencesHydrated || !weatherChaseSelectionInitialized) return
@@ -3444,37 +3526,25 @@ export function RoadMapPrototypeMap({
     if (liveDriveMode !== 'free-drive') return counts
     if (overviewVegagerdinData?.status !== 'ok') return counts
     for (const station of overviewVegagerdinData.stations) {
-      const status = classifyFreeDriveStationWindStatus(station, overviewThresholds)
+      const status = liveVegagerdinStationFromCurrent(station, overviewThresholds).displayStatus
       counts[status] = (counts[status] ?? 0) + 1
     }
     return counts
   }, [liveDriveMode, overviewThresholds, overviewVegagerdinData])
-
-  const freeDriveNearbyStations = useMemo(() => {
-    if (
-      liveDriveMode !== 'free-drive' ||
-      !routeLiveLocationPoint ||
-      overviewVegagerdinData?.status !== 'ok'
-    ) return []
-    return overviewVegagerdinData.stations
-      .map(station => ({
-        station,
-        distanceM: haversineDistanceM(
-          { lat: routeLiveLocationPoint.lat, lon: routeLiveLocationPoint.lon },
-          { lat: station.lat, lon: station.lon },
-        ),
-        status: classifyFreeDriveStationWindStatus(station, overviewThresholds),
-        freshness: freeDriveStationFreshness(station.measuredAtIso),
-      }))
-      .filter(entry => Number.isFinite(entry.distanceM))
-      .sort((a, b) => a.distanceM - b.distanceM)
-      .slice(0, 3)
-  }, [
-    liveDriveMode,
-    overviewThresholds,
-    overviewVegagerdinData,
-    routeLiveLocationPoint,
-  ])
+  const freeDriveWorstStatus = worstWindDisplayStatusFromCounts(freeDriveStatusCounts) ?? 'no_data'
+  const freeDriveNewestFreshness = overviewVegagerdinNewestMeasuredAtIso
+    ? freeDriveStationFreshness(overviewVegagerdinNewestMeasuredAtIso)
+    : 'unknown'
+  const freeDriveMeasuredLabel = overviewVegagerdinNewestMeasuredAtIso
+    ? t('roadMapPrototypeVegagerdinNowLabel', {
+        time: formatKlTime(overviewVegagerdinNewestMeasuredAtIso),
+      })
+    : t('roadMapPrototypeVegagerdinNowFallback')
+  const freeDriveFreshnessLabel = freeDriveNewestFreshness === 'fresh'
+    ? t('vegagerdinFreshnessFresh')
+    : freeDriveNewestFreshness === 'stale'
+      ? t('roadMapPrototypeVegagerdinDataStale')
+      : null
 
   useEffect(() => {
     let cancelled = false
@@ -3603,7 +3673,17 @@ export function RoadMapPrototypeMap({
     if (!mapReady) return
     const map = mapRef.current
     const Marker = markerConstructorRef.current
-    clearOverviewMarkerSet(overviewVegagerdinMarkersRef)
+    const useLivePresentation = liveDriveMode === 'free-drive'
+    const canReconcileLiveMarkers = useLivePresentation && overviewVegagerdinMarkersRef.current.every(
+      entry => Boolean(entry.stationId && entry.element.dataset.liveVegagerdinStation === 'true'),
+    )
+    if (!canReconcileLiveMarkers) clearOverviewMarkerSet(overviewVegagerdinMarkersRef)
+    const currentMarkersByStationId = new Map(
+      overviewVegagerdinMarkersRef.current.flatMap(entry => (
+        entry.stationId ? [[entry.stationId, entry] as const] : []
+      )),
+    )
+    const nextMarkers: OverviewStationMarker[] = []
 
     const stations = overviewVegagerdinData?.status === 'ok'
       ? overviewVegagerdinData.stations
@@ -3619,45 +3699,68 @@ export function RoadMapPrototypeMap({
       if (lat === null || lon === null) continue
 
       const status = classifyVegagerdinObservationStationWindStatus(station, overviewThresholds)
-      const freeDriveStatus = classifyFreeDriveStationWindStatus(station, overviewThresholds)
-      const suppressLiveTemperature = liveDriveMode === 'free-drive'
+      const liveStation = liveVegagerdinStationFromCurrent(station, overviewThresholds)
+      const freeDriveStatus = liveStation.displayStatus
       const coords: [number, number] = [lon, lat]
       const stationName = station.stationName ?? 'Stöð'
       const windText = station.meanWindMs != null ? formatNum(station.meanWindMs, locale) : '–'
       const gustText = station.gustLast10MinMs != null ? formatNum(station.gustLast10MinMs, locale) : null
       const overviewLabel = windText === '–' ? stationName : `${windText} m/s`
-      const element = createOverviewStationDotElement({
-        stationName,
-        windText,
-        gustText,
-        directionText: station.windDirectionText,
-        directionDegrees: station.windDirectionDeg,
-        temperatureText: station.airTemperatureC != null && (
-          !suppressLiveTemperature || station.airTemperatureC <= LIVE_ROUTE_TEMPERATURE_MAX_C
-        )
-          ? formatNum(station.airTemperatureC, locale)
-          : null,
-        secondaryMetricText: station.roadTemperatureC != null && (
-          !suppressLiveTemperature || station.roadTemperatureC <= LIVE_ROUTE_TEMPERATURE_MAX_C
-        )
-          ? `${formatNum(station.roadTemperatureC, locale)}°`
-          : null,
-        secondaryMetricTitle: labelsRef.current.routeMarkerRoadTemperatureTitle,
-        secondaryMetricAriaText: station.roadTemperatureC != null && (
-          !suppressLiveTemperature || station.roadTemperatureC <= LIVE_ROUTE_TEMPERATURE_MAX_C
-        )
-          ? labelsRef.current.routeMarkerRoadTemperature(formatNum(station.roadTemperatureC, locale))
-          : null,
-        weatherEmoji: null,
-        overviewLabel,
-        onClick: () => openOverviewVegagerdinPopup(station, coords),
-      })
+      const element = useLivePresentation
+        ? createLiveVegagerdinStationLabel(liveStation, {
+            liveTrackingActive: true,
+            onClick: () => openOverviewVegagerdinPopup(station, coords),
+          })
+        : createOverviewStationDotElement({
+            stationName,
+            windText,
+            gustText,
+            directionText: station.windDirectionText,
+            directionDegrees: station.windDirectionDeg,
+            temperatureText: station.airTemperatureC != null
+              ? formatNum(station.airTemperatureC, locale)
+              : null,
+            secondaryMetricText: station.roadTemperatureC != null
+              ? `${formatNum(station.roadTemperatureC, locale)}°`
+              : null,
+            secondaryMetricTitle: labelsRef.current.routeMarkerRoadTemperatureTitle,
+            secondaryMetricAriaText: station.roadTemperatureC != null
+              ? labelsRef.current.routeMarkerRoadTemperature(formatNum(station.roadTemperatureC, locale))
+              : null,
+            weatherEmoji: null,
+            overviewLabel,
+            onClick: () => openOverviewVegagerdinPopup(station, coords),
+          })
+      if (useLivePresentation) {
+        appendOverviewAggregate(element, overviewLabel)
+      }
+      const current = canReconcileLiveMarkers
+        ? currentMarkersByStationId.get(station.stationId)
+        : undefined
+      if (current) {
+        updateLiveVegagerdinStationLabelInPlace(current.element, element)
+        currentMarkersByStationId.delete(station.stationId)
+        nextMarkers.push({
+          ...current,
+          stationId: station.stationId,
+          status,
+          freeDriveStatus,
+          lat,
+          lon,
+          stationName,
+          overviewLabel,
+          ariaLabel: current.element.getAttribute('aria-label') ?? stationName,
+          windMs: station.meanWindMs,
+        })
+        continue
+      }
       const marker = new Marker({ element, anchor: 'center' })
         .setLngLat(coords)
         .addTo(map)
-      overviewVegagerdinMarkersRef.current.push({
+      nextMarkers.push({
         marker,
         element,
+        stationId: station.stationId,
         provider: 'vegagerdin',
         status,
         freeDriveStatus,
@@ -3670,6 +3773,8 @@ export function RoadMapPrototypeMap({
         clusterEmoji: null,
       })
     }
+    currentMarkersByStationId.forEach(({ marker }) => marker.remove())
+    overviewVegagerdinMarkersRef.current = nextMarkers
 
     updateOverviewLayerVisibility()
   }, [
@@ -4400,7 +4505,7 @@ export function RoadMapPrototypeMap({
       }
     }
     for (const { element } of routeVegagerdinLabelMarkersRef.current) {
-      updateLiveRouteTemperaturePresentation(element, active)
+      updateLiveDriveTemperaturePresentation(element, active)
     }
     updateRouteEndpointMarkerVisibility()
   }
@@ -4556,7 +4661,15 @@ export function RoadMapPrototypeMap({
       onClick,
     })
     element.dataset.overviewWeatherMarker = 'true'
+    appendOverviewAggregate(element, overviewLabel)
+    return element
+  }
 
+  function appendOverviewAggregate(
+    element: HTMLButtonElement,
+    overviewLabel: string,
+  ) {
+    element.dataset.overviewWeatherMarker = 'true'
     const aggregate = document.createElement('span')
     aggregate.dataset.overviewWeatherAggregate = 'true'
     aggregate.textContent = overviewLabel
@@ -4579,8 +4692,6 @@ export function RoadMapPrototypeMap({
       'transform:translateX(-50%)',
     ].join(';')
     element.appendChild(aggregate)
-
-    return element
   }
 
   function selectWeatherChaseMarkerRow(item: WeatherChaseItem, targetTimeMs: number | null): ForecastDrawerRow | null {
@@ -4859,7 +4970,7 @@ export function RoadMapPrototypeMap({
     const popupIsFreeDrive = liveDriveModeRef.current === 'free-drive'
     const temp = station.airTemperatureC != null && (
       !popupIsFreeDrive ||
-      station.airTemperatureC <= LIVE_ROUTE_TEMPERATURE_MAX_C
+      station.airTemperatureC <= LIVE_DRIVE_TEMPERATURE_MAX_C
     )
       ? `${formatNum(station.airTemperatureC, locale)} °C`
       : null
@@ -5086,31 +5197,17 @@ export function RoadMapPrototypeMap({
   }
 
   function resolveRouteThresholdInputs(): ResolvedTravelThresholds | null {
-    const caution = Number(routeCautionWind)
-    const red = Number(routeRedWind)
-    if (
-      !Number.isFinite(caution) ||
-      !Number.isFinite(red) ||
-      caution <= 0 ||
-      red <= 0 ||
-      caution > 40 ||
-      red > 40
-    ) {
+    const validation = validateRouteThresholdInputs(routeCautionWind, routeRedWind)
+    if (validation.error === 'value') {
       setRouteThresholdError(t('roadMapPrototypeThresholdError'))
       return null
     }
-
-    const resolved = resolveThresholds('none', {
-      cautionWindMs: caution,
-      redWindMs: red,
-    })
-    if (validateResolvedThresholdOrdering(resolved)) {
+    if (validation.error === 'ordering') {
       setRouteThresholdError(t('thresholdBarOrderingError'))
       return null
     }
-
     setRouteThresholdError(null)
-    return resolved
+    return validation.thresholds
   }
 
   async function savePlaceBestEffort(place: RoadIntelligencePlaceResult) {
@@ -6147,6 +6244,7 @@ export function RoadMapPrototypeMap({
     weatherEmoji,
     etaText,
     providerLabel,
+    additionalAriaParts = [],
     color,
     compact = false,
     showNameLabel = true,
@@ -6170,6 +6268,7 @@ export function RoadMapPrototypeMap({
     weatherEmoji?: string | null
     etaText?: string | null
     providerLabel?: string | null
+    additionalAriaParts?: ReadonlyArray<string | null>
     color: string
     compact?: boolean
     showNameLabel?: boolean
@@ -6191,6 +6290,7 @@ export function RoadMapPrototypeMap({
       secondaryMetricAriaText ??
         (precipitationText ? labelsRef.current.routeMarkerPrecipitation(precipitationText) : null),
       etaText ? labelsRef.current.routeMarkerEta(etaText) : null,
+      ...additionalAriaParts,
     ].filter(Boolean)
     const element = document.createElement('button')
     element.type = 'button'
@@ -6455,16 +6555,16 @@ export function RoadMapPrototypeMap({
 
     element.appendChild(stack)
 
-    element.addEventListener('click', (event) => {
+    element.onclick = (event) => {
       event.preventDefault()
       event.stopPropagation()
       onClick()
-    })
+    }
 
     return element
   }
 
-  function updateLiveRouteTemperaturePresentation(
+  function updateLiveDriveTemperaturePresentation(
     element: HTMLElement,
     liveTrackingActive: boolean,
   ) {
@@ -6476,7 +6576,7 @@ export function RoadMapPrototypeMap({
       const valueC = Number(metric.dataset.liveRouteTemperatureC)
       const suppressed = liveTrackingActive
         && Number.isFinite(valueC)
-        && valueC > LIVE_ROUTE_TEMPERATURE_MAX_C
+        && valueC > LIVE_DRIVE_TEMPERATURE_MAX_C
       metric.textContent = suppressed
         ? '–'
         : metric.dataset.liveRouteTemperatureText ?? '–'
@@ -6722,53 +6822,91 @@ export function RoadMapPrototypeMap({
     window.location.href = vegagerdinPulseHref(point.stationId, returnHref)
   }
 
-  function createVegagerdinRouteLabel(
-    point: VegagerdinRouteLayerPoint,
-    placement?: RouteLabelPlacement,
+  function createLiveVegagerdinStationLabel(
+    station: LiveVegagerdinStation,
+    {
+      placement,
+      liveTrackingActive,
+      onClick,
+    }: {
+      placement?: RouteLabelPlacement
+      liveTrackingActive: boolean
+      onClick: () => void
+    },
   ): HTMLButtonElement {
-    const windText = point.meanWindMs != null
-      ? formatNum(point.meanWindMs, locale)
+    const windText = station.meanWindMs != null
+      ? formatNum(station.meanWindMs, locale)
       : '–'
-    const gustText = point.gustLast10MinMs != null
-      ? formatNum(point.gustLast10MinMs, locale)
+    const gustText = station.gustLast10MinMs != null
+      ? formatNum(station.gustLast10MinMs, locale)
       : null
-    const temperatureText = point.airTemperatureC != null
-      ? formatNum(point.airTemperatureC, locale)
+    const temperatureText = station.airTemperatureC != null
+      ? formatNum(station.airTemperatureC, locale)
       : null
-    const roadTemperatureText = point.roadTemperatureC != null
-      ? `${formatNum(point.roadTemperatureC, locale)}°`
+    const roadTemperatureText = station.roadTemperatureC != null
+      ? `${formatNum(station.roadTemperatureC, locale)}°`
       : null
-    const color = WIND_STATUS_MARKER_COLOR[point.windDisplayStatus]
+    const measuredAtLabel = Number.isFinite(Date.parse(station.measuredAtIso))
+      ? formatCompactDateTime(station.measuredAtIso, locale)
+      : t('roadMapPrototypeFreeDriveUnknownAge')
+    const freshnessLabel = station.freshness === 'fresh'
+      ? t('roadMapPrototypeFreeDriveFresh')
+      : station.freshness === 'stale'
+        ? t('roadMapPrototypeFreeDriveStale')
+        : t('roadMapPrototypeFreeDriveUnknownAge')
+    const color = WIND_STATUS_MARKER_COLOR[station.displayStatus]
     const element = createRouteWeatherPointMarkerElement({
-      stationName: point.stationName,
+      stationName: station.stationName,
       windText,
       gustText,
-      directionText: point.windDirectionText,
-      directionDegrees: point.windDirectionDeg,
+      directionText: station.windDirectionText,
+      directionDegrees: station.windDirectionDeg,
       temperatureText,
-      temperatureValueC: point.airTemperatureC,
+      temperatureValueC: station.airTemperatureC,
       secondaryMetricText: roadTemperatureText,
-      secondaryMetricTemperatureValueC: point.roadTemperatureC,
+      secondaryMetricTemperatureValueC: station.roadTemperatureC,
       secondaryMetricTitle: labelsRef.current.routeMarkerRoadTemperatureTitle,
-      secondaryMetricAriaText: point.roadTemperatureC != null
-        ? labelsRef.current.routeMarkerRoadTemperature(formatNum(point.roadTemperatureC, locale))
+      secondaryMetricAriaText: station.roadTemperatureC != null
+        ? labelsRef.current.routeMarkerRoadTemperature(formatNum(station.roadTemperatureC, locale))
         : null,
       weatherEmoji: null,
-      providerLabel: point.stationName,
+      providerLabel: station.stationName,
+      additionalAriaParts: [
+        t('roadMapPrototypeFreeDriveProvider'),
+        t('roadMapPrototypeFreeDriveMeasured', {
+          time: measuredAtLabel,
+          freshness: freshnessLabel,
+        }),
+      ],
       color,
       showWeatherCard: true,
       showNameLabel: false,
       placement,
-      onClick: () => openVegagerdinRouteStationPage(point),
+      onClick,
     })
-    updateLiveRouteTemperaturePresentation(
+    element.dataset.liveVegagerdinStation = 'true'
+    updateLiveDriveTemperaturePresentation(
       element,
-      routeLiveMapPresentationActiveRef.current,
+      liveTrackingActive,
     )
     return element
   }
 
-  function updateVegagerdinRouteLabelInPlace(
+  function createVegagerdinRouteLabel(
+    point: VegagerdinRouteLayerPoint,
+    placement?: RouteLabelPlacement,
+  ): HTMLButtonElement {
+    return createLiveVegagerdinStationLabel(
+      liveVegagerdinStationFromRoutePoint(point),
+      {
+        placement,
+        liveTrackingActive: routeLiveMapPresentationActiveRef.current,
+        onClick: () => openVegagerdinRouteStationPage(point),
+      },
+    )
+  }
+
+  function updateLiveVegagerdinStationLabelInPlace(
     current: HTMLButtonElement,
     next: HTMLButtonElement,
   ) {
@@ -6782,6 +6920,7 @@ export function RoadMapPrototypeMap({
     } else {
       delete current.dataset.routeWeatherAriaParts
     }
+    current.onclick = next.onclick
     current.replaceChildren(...Array.from(next.childNodes))
   }
 
@@ -7097,7 +7236,7 @@ export function RoadMapPrototypeMap({
           // measurements refresh. Replacing only its children avoids a visible
           // blink and prevents small provider-coordinate changes from moving
           // the station card while the user is following live location.
-          updateVegagerdinRouteLabelInPlace(current.element, nextElement)
+          updateLiveVegagerdinStationLabelInPlace(current.element, nextElement)
           current.point = point
           nextMarkers.push(current)
           currentMarkersByStationId.delete(point.stationId)
@@ -10244,10 +10383,17 @@ export function RoadMapPrototypeMap({
   function handlePlanRoute() {
     stopRouteLiveLocation()
     setLiveDriveModeState('off')
+    setFreeDriveSetupOpen(false)
     openRouteContext('information')
   }
 
-  function handleStartFreeDrive() {
+  function handleOpenFreeDriveSetup() {
+    if (!isAuthenticated) return
+    setRouteThresholdError(null)
+    setFreeDriveSetupOpen(true)
+  }
+
+  function beginFreeDrive() {
     if (!isAuthenticated) return
     routeBridgeRunIdRef.current += 1
     routeBridgeRequestRef.current?.abort()
@@ -10268,6 +10414,35 @@ export function RoadMapPrototypeMap({
     startRouteLiveLocation('free-drive')
   }
 
+  function handleStartFreeDrive() {
+    const thresholds = resolveRouteThresholdInputs()
+    if (!thresholds || !isAuthenticated) return
+
+    setFreeDriveSetupOpen(false)
+    setFreeDriveThresholdSaveStatus('saving')
+    beginFreeDrive()
+
+    void fetch('/api/teskeid/weather/preferences/thresholds', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cautionWindMs: thresholds.cautionWindMs,
+        redWindMs: thresholds.redWindMs,
+        statusFilterMode: routeStatusFilterMode,
+      }),
+    })
+      .then(response => {
+        if (!response.ok) throw new Error('threshold-save-failed')
+        setSavedRouteThresholds({
+          cautionWindMs: thresholds.cautionWindMs,
+          redWindMs: thresholds.redWindMs,
+        })
+        setFreeDriveThresholdSaveStatus('saved')
+      })
+      .catch(() => setFreeDriveThresholdSaveStatus('error'))
+  }
+
   function handleResumeFreeDrive() {
     if (liveDriveModeRef.current !== 'free-drive') return
     setFreeDrivePaused(false)
@@ -10282,24 +10457,14 @@ export function RoadMapPrototypeMap({
     applyMapContextVisibility('route')
   }
 
-  function handleFocusFreeDriveStation(station: VegagerdinCurrentStationDto) {
-    const map = mapRef.current
-    if (map) {
-      map.easeTo({
-        center: [station.lon, station.lat],
-        zoom: Math.max(map.getZoom(), 9),
-        duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 300,
-      })
-    }
-    openOverviewVegagerdinPopup(station, [station.lon, station.lat])
-  }
-
   function handleStopFreeDrive() {
     stopRouteLiveLocation()
     setLiveDriveModeState('off')
     setFreeDrivePaused(false)
     setFreeDriveWithoutLocation(false)
     setFreeDriveStationFeedError(false)
+    setFreeDriveThresholdSaveStatus('idle')
+    setFreeDriveSetupOpen(false)
     openRouteContext('information')
   }
 
@@ -10322,13 +10487,8 @@ export function RoadMapPrototypeMap({
         '',
         `${window.location.pathname}${remainingQuery ? `?${remainingQuery}` : ''}${window.location.hash}`,
       )
-      setLiveDriveModeState('free-drive')
-      setFreeDrivePaused(true)
-      setFreeDriveWithoutLocation(false)
-      setRouteWeatherModeState('now')
-      overviewActiveModeRef.current = 'now'
-      setOverviewActiveMode('now')
-      openRouteContext('map')
+      setFreeDriveSetupOpen(true)
+      openRouteContext('information')
       return
     }
     if (params.get('restoreRoute') !== '1') {
@@ -11365,19 +11525,72 @@ export function RoadMapPrototypeMap({
                 className="mb-4 rounded-xl border border-primary/25 bg-primary/5 p-3"
               >
                 <h2 id="road-map-free-drive-title" className="text-sm font-semibold text-foreground">
-                  {t('roadMapPrototypeFreeDriveTitle')}
+                  {freeDriveSetupOpen
+                    ? t('roadMapPrototypeFreeDriveThresholdTitle')
+                    : t('roadMapPrototypeFreeDriveTitle')}
                 </h2>
                 <p
                   id="road-map-free-drive-description"
                   className="mt-1 text-xs leading-relaxed text-muted-foreground"
                 >
-                  {t('roadMapPrototypeFreeDriveDescription')}
+                  {freeDriveSetupOpen
+                    ? t('roadMapPrototypeFreeDriveThresholdDescription')
+                    : t('roadMapPrototypeFreeDriveDescription')}
                 </p>
-                {isAuthenticated ? (
+                {isAuthenticated && freeDriveSetupOpen ? (
+                  <div className="mt-3 space-y-3">
+                    <LiveDriveThresholdFields
+                      idPrefix="free-drive"
+                      cautionLabel={t('thresholdBarCautionLabel')}
+                      dangerLabel={t('thresholdBarDangerLabel')}
+                      unitLabel={t('thresholdBarUnit')}
+                      cautionValue={routeCautionWind}
+                      dangerValue={routeRedWind}
+                      disabled={!routeThresholdPreferencesLoaded}
+                      onCautionChange={(value) => {
+                        setRouteCautionWind(value)
+                        setRouteThresholdError(null)
+                      }}
+                      onDangerChange={(value) => {
+                        setRouteRedWind(value)
+                        setRouteThresholdError(null)
+                      }}
+                    />
+                    {freeDriveThresholdValidationMessage && (
+                      <p id="free-drive-threshold-error" role="alert" className="text-xs text-destructive">
+                        {freeDriveThresholdValidationMessage}
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFreeDriveSetupOpen(false)
+                          setRouteThresholdError(null)
+                        }}
+                        className="min-h-11 rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {t('roadMapPrototypeFreeDriveThresholdBack')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!routeThresholdPreferencesLoaded || !freeDriveThresholdInputsValid}
+                        aria-describedby="road-map-free-drive-description road-map-free-drive-safety free-drive-threshold-error"
+                        onClick={handleStartFreeDrive}
+                        className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <LocateFixed className="h-4 w-4" aria-hidden="true" />
+                        {routeThresholdPreferencesLoaded
+                          ? t('roadMapPrototypeFreeDriveThresholdStart')
+                          : t('roadMapPrototypeFreeDriveThresholdLoading')}
+                      </button>
+                    </div>
+                  </div>
+                ) : isAuthenticated ? (
                   <button
                     type="button"
                     aria-describedby="road-map-free-drive-description road-map-free-drive-safety"
-                    onClick={handleStartFreeDrive}
+                    onClick={handleOpenFreeDriveSetup}
                     className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     <LocateFixed className="h-4 w-4" aria-hidden="true" />
@@ -11401,6 +11614,7 @@ export function RoadMapPrototypeMap({
                 </p>
               </section>
 
+              {!freeDriveSetupOpen && (<>
               <h2 className="mb-3 text-sm font-semibold text-foreground">
                 {t('roadMapPrototypeFreeDrivePlanInstead')}
               </h2>
@@ -11476,54 +11690,22 @@ export function RoadMapPrototypeMap({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="min-w-0">
-                    <span className="mb-0.5 block text-[10px] text-muted-foreground">
-                      {t('thresholdBarCautionLabel')}
-                    </span>
-                    <span className="flex h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0.1"
-                        max="40"
-                        step="0.1"
-                        value={routeCautionWind}
-                        onChange={(event) => {
-                          setRouteCautionWind(event.target.value)
-                          setRouteThresholdError(null)
-                        }}
-                        className="min-w-0 flex-1 bg-transparent px-2 text-base text-foreground outline-none"
-                      />
-                      <span className="shrink-0 pr-2 text-[11px] text-muted-foreground">
-                        {t('thresholdBarUnit')}
-                      </span>
-                    </span>
-                  </label>
-                  <label className="min-w-0">
-                    <span className="mb-0.5 block text-[10px] text-muted-foreground">
-                      {t('thresholdBarDangerLabel')}
-                    </span>
-                    <span className="flex h-10 items-center rounded-md border border-border bg-background focus-within:border-primary">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0.1"
-                        max="40"
-                        step="0.1"
-                        value={routeRedWind}
-                        onChange={(event) => {
-                          setRouteRedWind(event.target.value)
-                          setRouteThresholdError(null)
-                        }}
-                        className="min-w-0 flex-1 bg-transparent px-2 text-base text-foreground outline-none"
-                      />
-                      <span className="shrink-0 pr-2 text-[11px] text-muted-foreground">
-                        {t('thresholdBarUnit')}
-                      </span>
-                    </span>
-                  </label>
-                </div>
+                <LiveDriveThresholdFields
+                  idPrefix="route"
+                  cautionLabel={t('thresholdBarCautionLabel')}
+                  dangerLabel={t('thresholdBarDangerLabel')}
+                  unitLabel={t('thresholdBarUnit')}
+                  cautionValue={routeCautionWind}
+                  dangerValue={routeRedWind}
+                  onCautionChange={(value) => {
+                    setRouteCautionWind(value)
+                    setRouteThresholdError(null)
+                  }}
+                  onDangerChange={(value) => {
+                    setRouteRedWind(value)
+                    setRouteThresholdError(null)
+                  }}
+                />
 
                 {isAuthenticated && savedRouteThresholds && (routeCautionWind === '' || routeRedWind === '') && (
                   <button
@@ -11593,6 +11775,7 @@ export function RoadMapPrototypeMap({
                   </button>
                 </div>
               )}
+              </>)}
             </div>
           )}
         </div>
@@ -11741,21 +11924,27 @@ export function RoadMapPrototypeMap({
             {t('roadMapPrototypeScrubberCalculatingHourly')}
           </div>
         ) : lastMapContext === 'route' && liveDriveMode === 'free-drive' ? (
-          <div className="max-h-[48dvh] space-y-2 overflow-y-auto px-3 pb-2 pt-2">
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 bg-background pb-2">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-foreground">
-                  {t('roadMapPrototypeFreeDriveActiveTitle')}
-                </p>
-              </div>
+          <LiveDriveMapControls
+            collapsed={isRouteMapSettingsCollapsed}
+            onCollapsedChange={setIsRouteMapSettingsCollapsed}
+            expandLabel={t('roadMapPrototypeRouteSettingsExpand')}
+            collapseLabel={t('roadMapPrototypeRouteSettingsCollapse')}
+            currentLabel={t('roadMapPrototypeDrivingNow')}
+            currentColor={WIND_STATUS_MARKER_COLOR[freeDriveWorstStatus]}
+            currentActive
+            onSelectCurrent={() => {}}
+            planLabel={t('roadMapPrototypePlanRoute')}
+            onPlan={handlePlanRoute}
+            footer={(
               <button
                 type="button"
                 onClick={handleStopFreeDrive}
-                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-destructive/60 bg-background px-4 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-destructive/60 bg-background px-4 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {t('roadMapPrototypeFreeDriveStop')}
               </button>
-            </div>
+            )}
+          >
 
             {(freeDrivePaused || routeLiveLocationStatus === 'error') && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -11793,6 +11982,15 @@ export function RoadMapPrototypeMap({
               onZoomChange={handleRouteLiveLocationZoomChange}
             />
 
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span>{freeDriveMeasuredLabel}</span>
+              {freeDriveFreshnessLabel && (
+                <span className="rounded-full border border-border bg-background/80 px-2 py-0.5 font-medium">
+                  {freeDriveFreshnessLabel}
+                </span>
+              )}
+            </div>
+
             <span className="block text-[10px] text-muted-foreground">
               {overviewVegagerdinData?.status === 'ok'
                 ? t('roadMapPrototypeFreeDriveStationCount', {
@@ -11820,124 +12018,28 @@ export function RoadMapPrototypeMap({
               combineNoWindDataStatuses
             />
 
-            {freeDriveNearbyStations.length > 0 && (
-              <section aria-labelledby="free-drive-nearby-stations" className="space-y-1.5">
-                <h2 id="free-drive-nearby-stations" className="text-[11px] font-semibold text-foreground">
-                  {t('roadMapPrototypeFreeDriveNearbyStations')}
-                </h2>
-                <ul className="grid gap-1.5">
-                  {freeDriveNearbyStations.map(({ station, distanceM, status, freshness }) => (
-                    <li key={station.stationId}>
-                      <button
-                        type="button"
-                        onClick={() => handleFocusFreeDriveStation(station)}
-                        className="min-h-11 w-full rounded-lg border border-border bg-background/85 px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <span className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-foreground">{station.stationName}</span>
-                          <WindStatusBadge status={status} variant="badge" />
-                        </span>
-                        <span className="mt-1 block text-[10px] leading-snug text-muted-foreground">
-                          {t('roadMapPrototypeFreeDriveDistance', {
-                            distance: formatNum(distanceM / 1_000, locale),
-                          })}
-                          {' · '}
-                          {t('roadMapPrototypeFreeDriveWind', {
-                            value: station.meanWindMs === null
-                              ? '–'
-                              : `${formatNum(station.meanWindMs, locale)} m/s`,
-                          })}
-                          {' · '}
-                          {t('roadMapPrototypeFreeDriveGust', {
-                            value: station.gustLast10MinMs === null
-                              ? '–'
-                              : `${formatNum(station.gustLast10MinMs, locale)} m/s`,
-                          })}
-                        </span>
-                        <span className="mt-0.5 block text-[10px] text-muted-foreground">
-                          {t('roadMapPrototypeFreeDriveProvider')}
-                          {' · '}
-                          {t('roadMapPrototypeFreeDriveMeasured', {
-                            time: Number.isFinite(Date.parse(station.measuredAtIso))
-                              ? formatCompactDateTime(station.measuredAtIso, locale)
-                              : t('roadMapPrototypeFreeDriveUnknownAge'),
-                            freshness: freshness === 'fresh'
-                              ? t('roadMapPrototypeFreeDriveFresh')
-                              : freshness === 'stale'
-                                ? t('roadMapPrototypeFreeDriveStale')
-                                : t('roadMapPrototypeFreeDriveUnknownAge'),
-                          })}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
             <p className="text-[10px] leading-snug text-muted-foreground">
               {t('roadMapPrototypeFreeDriveSafety')}
             </p>
-          </div>
+            {freeDriveThresholdSaveStatus === 'error' && (
+              <p role="status" className="text-[10px] leading-snug text-amber-800 dark:text-amber-200">
+                {t('roadMapPrototypeFreeDriveThresholdSaveError')}
+              </p>
+            )}
+          </LiveDriveMapControls>
         ) : lastMapContext === 'route' && routeBridgeSummary ? (
-          <div className="px-3 pb-2 pt-2 space-y-1.5">
-            {isRouteMapSettingsCollapsed ? (
-              <button
-                type="button"
-                aria-expanded="false"
-                aria-controls="road-map-route-settings"
-                onClick={() => setIsRouteMapSettingsCollapsed(false)}
-                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-1 text-left text-xs font-semibold text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span>{t('roadMapPrototypeRouteSettingsExpand')}</span>
-                <ChevronUp className="h-4 w-4 shrink-0" aria-hidden="true" />
-              </button>
-            ) : (
-              <div id="road-map-route-settings" className="space-y-1.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                aria-pressed={routeWeatherMode === 'now'}
-                onClick={handleSelectRouteNow}
-                className={`min-h-10 rounded-lg border px-3 py-1.5 text-left text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                  routeWeatherMode === 'now'
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-background/85 text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <span className="flex items-center gap-1.5 font-semibold">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{
-                      backgroundColor: WIND_STATUS_MARKER_COLOR[nowRouteWindStatus],
-                    }}
-                  />
-                  {t('roadMapPrototypeDrivingNow')}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handlePlanRoute}
-                className="min-h-10 rounded-full border border-border bg-background/85 px-3 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <span className="font-semibold">{t('roadMapPrototypePlanRoute')}</span>
-              </button>
-                  </div>
-                  <button
-                    type="button"
-                    aria-expanded="true"
-                    aria-controls="road-map-route-settings"
-                    aria-label={t('roadMapPrototypeRouteSettingsCollapse')}
-                    title={t('roadMapPrototypeRouteSettingsCollapse')}
-                    onClick={() => setIsRouteMapSettingsCollapsed(true)}
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-background/85 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                </div>
-
+          <LiveDriveMapControls
+            collapsed={isRouteMapSettingsCollapsed}
+            onCollapsedChange={setIsRouteMapSettingsCollapsed}
+            expandLabel={t('roadMapPrototypeRouteSettingsExpand')}
+            collapseLabel={t('roadMapPrototypeRouteSettingsCollapse')}
+            currentLabel={t('roadMapPrototypeDrivingNow')}
+            currentColor={WIND_STATUS_MARKER_COLOR[nowRouteWindStatus]}
+            currentActive={routeWeatherMode === 'now'}
+            onSelectCurrent={handleSelectRouteNow}
+            planLabel={t('roadMapPrototypePlanRoute')}
+            onPlan={handlePlanRoute}
+          >
                 {routeWeatherMode === 'now' && (
               <div className="space-y-1">
                 {hasUsableRouteNowMeasurements ? (
@@ -12038,9 +12140,7 @@ export function RoadMapPrototypeMap({
                   mode={ROUTE_WIND_STATUS_FILTER_MODE}
                   combineNoWindDataStatuses
                 />
-              </div>
-            )}
-          </div>
+          </LiveDriveMapControls>
         ) : (
           /* Default overview: time selector + Einfalt/Nánar inline with pills */
           <div className="flex flex-col gap-2 px-3 pb-1 pt-2">

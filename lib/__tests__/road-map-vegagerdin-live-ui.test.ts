@@ -10,6 +10,14 @@ const liveLocationControlsSource = readFileSync(
   join(process.cwd(), 'components/weather/LiveLocationControls.tsx'),
   'utf8',
 )
+const liveDriveControlsSource = readFileSync(
+  join(process.cwd(), 'components/weather/LiveDriveMapControls.tsx'),
+  'utf8',
+)
+const liveStationSource = readFileSync(
+  join(process.cwd(), 'lib/weather/liveVegagerdinStation.ts'),
+  'utf8',
+)
 const messagesIs = readFileSync(join(process.cwd(), 'messages/is.json'), 'utf8')
 const messagesEn = readFileSync(join(process.cwd(), 'messages/en.json'), 'utf8')
 
@@ -76,7 +84,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("onClick={handleStartDrivingWithTeskeid}")
     expect(source).toContain("onClick={() => persistRouteReturnSnapshot('map')}")
     expect(source).toContain("t('roadMapPrototypeDrivingNow')")
-    expect(source).toContain('onClick={handlePlanRoute}')
+    expect(source).toContain('onPlan={handlePlanRoute}')
     expect(source).toContain("t('roadMapPrototypePlanRoute')")
     const planHandlerStart = source.indexOf('function handlePlanRoute()')
     const planHandlerEnd = source.indexOf('\n  useEffect(() => {', planHandlerStart)
@@ -175,7 +183,8 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain('map.getContainer().clientHeight')
     expect(source).toContain('offset,')
     expect(source).toContain('isRouteMapSettingsCollapsed')
-    expect(source).toContain('aria-controls="road-map-route-settings"')
+    expect(source.match(/<LiveDriveMapControls/g)).toHaveLength(2)
+    expect(liveDriveControlsSource).toContain('aria-controls="road-map-live-drive-settings"')
     expect(source).toContain("t('roadMapPrototypeRouteSettingsCollapse')")
     expect(source).toContain("t('roadMapPrototypeRouteSettingsExpand')")
     expect(messagesIs).toContain('"roadMapPrototypeRouteSettingsCollapse": "Fela stillingar"')
@@ -220,7 +229,8 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
   })
 
   it('uses station names in integrated cards and the same simple filter mode as the map', () => {
-    expect(source).toContain('providerLabel: point.stationName')
+    expect(source).toContain('providerLabel: station.stationName')
+    expect(source).toContain('liveVegagerdinStationFromRoutePoint(point)')
     expect(source).toContain('showNameLabel: false')
     expect(source).toContain('mode={routeStatusFilterMode}')
     expect(source).not.toContain('alwaysShowWithinLimits\n              mode={routeStatusFilterMode}')
@@ -270,7 +280,7 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(renderStart).toBeGreaterThan(-1)
     expect(renderEnd).toBeGreaterThan(renderStart)
     expect(renderBlock).toContain('currentMarkersByStationId')
-    expect(renderBlock).toContain('updateVegagerdinRouteLabelInPlace(current.element, nextElement)')
+    expect(renderBlock).toContain('updateLiveVegagerdinStationLabelInPlace(current.element, nextElement)')
     expect(renderBlock).toContain('current.point = point')
     expect(renderBlock).not.toContain('clearRouteVegagerdinLabelMarkers()')
   })
@@ -307,8 +317,8 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain("querySelectorAll<HTMLElement>('[data-wind-toward-bearing]')")
     expect(source).toContain('windTowardBearing - mapBearing')
     expect(source).toContain("map.on('rotate', updateViewportWindDirectionMarkers)")
-    expect(source).toContain('directionDegrees: point.windDirectionDeg')
     expect(source).toContain('directionDegrees: station.windDirectionDeg')
+    expect(liveStationSource).toContain('windDirectionDeg: point.windDirectionDeg')
   })
 
   it('keeps wind-arrow lifecycle tied to route filters, current mode, refresh and clear', () => {

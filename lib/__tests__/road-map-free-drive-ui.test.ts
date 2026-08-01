@@ -10,6 +10,14 @@ const liveLocationControlsSource = readFileSync(
   join(process.cwd(), 'components/weather/LiveLocationControls.tsx'),
   'utf8',
 )
+const liveDriveControlsSource = readFileSync(
+  join(process.cwd(), 'components/weather/LiveDriveMapControls.tsx'),
+  'utf8',
+)
+const liveStationSource = readFileSync(
+  join(process.cwd(), 'lib/weather/liveVegagerdinStation.ts'),
+  'utf8',
+)
 const messagesIs = readFileSync(join(process.cwd(), 'messages/is.json'), 'utf8')
 const messagesEn = readFileSync(join(process.cwd(), 'messages/en.json'), 'utf8')
 
@@ -30,22 +38,23 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(messagesEn).toContain(
       '"roadMapPrototypeFreeDrivePlanInstead": "Or plan a trip"',
     )
-    const startHandlerStart = source.indexOf('function handleStartFreeDrive()')
-    const startHandlerEnd = source.indexOf('\n  function handleResumeFreeDrive()', startHandlerStart)
+    const startHandlerStart = source.indexOf('function beginFreeDrive()')
+    const startHandlerEnd = source.indexOf('\n  function handleStartFreeDrive()', startHandlerStart)
     const startHandler = source.slice(startHandlerStart, startHandlerEnd)
     expect(startHandler).toContain('routeBridgeRequestRef.current?.abort()')
     expect(startHandler).toContain('routeDiscoveryRequestRef.current?.abort()')
     expect(startHandler).not.toContain('handleRouteBridgeSubmit')
   })
 
-  it('returns authenticated users to a paused intent and never starts GPS on mount', () => {
+  it('returns authenticated users to threshold setup and never starts GPS on mount', () => {
     const hydrationStart = source.indexOf("if (params.get('drive') === '1')")
     const hydrationEnd = source.indexOf("if (params.get('restoreRoute')", hydrationStart)
     const hydrationBlock = source.slice(hydrationStart, hydrationEnd)
     expect(hydrationStart).toBeGreaterThan(-1)
     expect(hydrationEnd).toBeGreaterThan(hydrationStart)
-    expect(hydrationBlock).toContain("setLiveDriveModeState('free-drive')")
-    expect(hydrationBlock).toContain('setFreeDrivePaused(true)')
+    expect(hydrationBlock).toContain('setFreeDriveSetupOpen(true)')
+    expect(hydrationBlock).toContain("openRouteContext('information')")
+    expect(hydrationBlock).not.toContain("setLiveDriveModeState('free-drive')")
     expect(hydrationBlock).not.toContain('startRouteLiveLocation(')
 
     const publicStart = source.indexOf('buildRoadMapFreeDriveSignInReturnHref(navigation)')
@@ -84,16 +93,18 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source.slice(gpsStart, gpsEnd)).not.toContain('/api/teskeid/weather/vegagerdin/current')
   })
 
-  it('shares one live-location controller and one control component across both drive modes', () => {
+  it('shares one live-location controller and the same live presentation across both drive modes', () => {
     expect(source.match(/watchLiveLocation\(/g)).toHaveLength(1)
     expect(source).toContain("mode: Exclude<LiveDriveMode, 'off'>")
     expect(source.match(/<LiveLocationControls/g)).toHaveLength(2)
+    expect(source.match(/<LiveDriveMapControls/g)).toHaveLength(2)
     expect(liveLocationControlsSource).toContain('export function LiveLocationControls(')
+    expect(liveDriveControlsSource).toContain('export function LiveDriveMapControls(')
     expect(liveLocationControlsSource).toContain('onZoomChange: (delta: -1 | 1) => void')
   })
 
   it('fails stale station status closed and lets the worst station represent a cluster', () => {
-    expect(source).toContain('classifyFreeDriveStationWindStatus(station, overviewThresholds)')
+    expect(liveStationSource).toContain('classifyFreeDriveStationWindStatus(station, thresholds, nowMs)')
     expect(source).toContain('overviewMarkerStatus(selected, freeDrive)')
     expect(source).toContain('overviewMarkerStatus(entry, freeDrive)')
     expect(source).toContain('if (freeDrive) return String(entries.length)')
@@ -102,12 +113,37 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).not.toContain('if (freeDrive) return `${formatNum(averageOverviewWindMs')
   })
 
-  it('suppresses warm temperature values and presents stations outside the map', () => {
-    expect(source).toContain("liveDriveMode === 'free-drive'")
-    expect(source).toContain('station.airTemperatureC <= LIVE_ROUTE_TEMPERATURE_MAX_C')
-    expect(source).toContain('station.roadTemperatureC <= LIVE_ROUTE_TEMPERATURE_MAX_C')
-    expect(source).toContain('freeDriveNearbyStations.map(')
-    expect(source).toContain('<WindStatusBadge status={status} variant="badge" />')
+  it('uses the route station-card renderer on the map and removes the bespoke nearby drawer', () => {
+    expect(source).toContain('function createLiveVegagerdinStationLabel(')
+    expect(source).toContain('liveVegagerdinStationFromCurrent(station, overviewThresholds)')
+    expect(source).toContain('liveVegagerdinStationFromRoutePoint(point)')
+    expect(source).toContain("const useLivePresentation = liveDriveMode === 'free-drive'")
+    expect(source).toContain('? createLiveVegagerdinStationLabel(liveStation, {')
+    expect(source).toContain('updateLiveVegagerdinStationLabelInPlace(current.element, element)')
+    expect(source).toContain('updateLiveVegagerdinStationLabelInPlace(current.element, nextElement)')
+    expect(source).toContain("element.dataset.liveVegagerdinStation = 'true'")
+    expect(source).toContain('additionalAriaParts: [')
+    expect(source).toContain('LIVE_DRIVE_TEMPERATURE_MAX_C')
+    expect(source).not.toContain('freeDriveNearbyStations')
+    expect(source).not.toContain('free-drive-nearby-stations')
+  })
+
+  it('requires valid shared thresholds before the explicit GPS gesture and autosaves them', () => {
+    const openSetup = source.indexOf('function handleOpenFreeDriveSetup()')
+    const beginDrive = source.indexOf('function beginFreeDrive()')
+    const confirmDrive = source.indexOf('function handleStartFreeDrive()')
+    expect(openSetup).toBeGreaterThan(-1)
+    expect(beginDrive).toBeGreaterThan(openSetup)
+    expect(confirmDrive).toBeGreaterThan(beginDrive)
+    expect(source.slice(openSetup, beginDrive)).not.toContain('startRouteLiveLocation(')
+    const confirmBlock = source.slice(confirmDrive, source.indexOf('\n  function handleResumeFreeDrive()', confirmDrive))
+    expect(confirmBlock).toContain('resolveRouteThresholdInputs()')
+    expect(confirmBlock).toContain('beginFreeDrive()')
+    expect(confirmBlock).toContain("method: 'PUT'")
+    expect(confirmBlock).toContain("'/api/teskeid/weather/preferences/thresholds'")
+    expect(source).toContain('<LiveDriveThresholdFields')
+    expect(source).toContain('idPrefix="free-drive"')
+    expect(source).toContain('idPrefix="route"')
   })
 
   it('stops tracking in the background and requires an explicit resume gesture', () => {
@@ -115,7 +151,7 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).toContain('onClick={handleResumeFreeDrive}')
     expect(source).toContain('onClick={handleStopFreeDrive}')
     expect(source).toContain('onClick={handleFreeDriveWithoutLocation}')
-    expect(source).toContain('className="sticky top-0 z-10')
+    expect(source).toContain('footer={(')
   })
 
   it('ships concise Icelandic and English privacy and safety copy', () => {
