@@ -323,15 +323,17 @@ export function PlaceSearch({
   const [loading, setLoading] = useState(false)
   const [searchComplete, setSearchComplete] = useState(false)
   const [fetchError, setFetchError] = useState<'generic' | 'rate_limited' | null>(null)
-  const [focused, setFocused] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [resultsMaxHeightPx, setResultsMaxHeightPx] = useState<number | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
   const [locationError, setLocationError] = useState<CurrentLocationErrorCode | null>(null)
   const [showEnglishPermissionHelp, setShowEnglishPermissionHelp] = useState(false)
   const [mapPickerOpen, setMapPickerOpen] = useState(false)
   const [mapPickerPlaces, setMapPickerPlaces] = useState<PlaceResult[]>([])
   const localInputRef = useRef<HTMLInputElement | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const resultsListRef = useRef<HTMLUListElement | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchAbortRef = useRef<AbortController | null>(null)
   const locationAbortRef = useRef<AbortController | null>(null)
@@ -351,7 +353,7 @@ export function PlaceSearch({
   )
 
   const trimmedQuery = selectedPlace ? '' : query.trim()
-  const resultsOpen = focused && !dismissed && visibleResults.length > 0
+  const resultsOpen = !dismissed && visibleResults.length > 0
   const noResults = searchComplete && !loading && !fetchError && visibleResults.length === 0
   const interfaceUsesEnglish = locale.toLowerCase().startsWith('en')
   const permissionHelpUsesEnglish = interfaceUsesEnglish || showEnglishPermissionHelp
@@ -429,6 +431,44 @@ export function PlaceSearch({
     if (!resultsOpen || activeIndex < 0) return
     document.getElementById(`${listboxId}-option-${activeIndex}`)?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex, listboxId, resultsOpen])
+
+  useEffect(() => {
+    const handleOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node) || rootRef.current?.contains(target)) return
+      setDismissed(true)
+      setActiveIndex(-1)
+    }
+    document.addEventListener('pointerdown', handleOutsidePointer)
+    return () => document.removeEventListener('pointerdown', handleOutsidePointer)
+  }, [])
+
+  useEffect(() => {
+    if (!resultsOpen) {
+      setResultsMaxHeightPx(null)
+      return
+    }
+    const updateResultsMaxHeight = () => {
+      const list = resultsListRef.current
+      if (!list) return
+      const viewport = window.visualViewport
+      const viewportBottom = viewport
+        ? viewport.offsetTop + viewport.height
+        : window.innerHeight
+      const availableHeight = Math.floor(viewportBottom - list.getBoundingClientRect().top - 12)
+      setResultsMaxHeightPx(Math.max(64, Math.min(256, availableHeight)))
+    }
+    updateResultsMaxHeight()
+    const viewport = window.visualViewport
+    viewport?.addEventListener('resize', updateResultsMaxHeight)
+    viewport?.addEventListener('scroll', updateResultsMaxHeight)
+    window.addEventListener('resize', updateResultsMaxHeight)
+    return () => {
+      viewport?.removeEventListener('resize', updateResultsMaxHeight)
+      viewport?.removeEventListener('scroll', updateResultsMaxHeight)
+      window.removeEventListener('resize', updateResultsMaxHeight)
+    }
+  }, [resultsOpen])
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -590,11 +630,12 @@ export function PlaceSearch({
 
   return (
     <div
+      ref={rootRef}
       className={`flex flex-col ${compact ? 'gap-1.5' : 'gap-2'}`}
-      onFocus={() => setFocused(true)}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setFocused(false)
+        const nextTarget = event.relatedTarget
+        if (nextTarget instanceof Node && !event.currentTarget.contains(nextTarget)) {
+          setDismissed(true)
           setActiveIndex(-1)
         }
       }}
@@ -776,10 +817,16 @@ export function PlaceSearch({
       {resultsOpen && (
         <div className="flex min-w-0 flex-col gap-1">
           <ul
+            ref={resultsListRef}
             id={listboxId}
             role="listbox"
             aria-label={ariaLabel ?? t('ariaLabel')}
             className={`max-h-64 overflow-y-auto overscroll-contain border border-border bg-card shadow-sm ${compact ? 'rounded-md' : 'rounded-xl'}`}
+            style={{
+              maxHeight: resultsMaxHeightPx ?? undefined,
+              WebkitOverflowScrolling: 'touch',
+              touchAction: 'pan-y',
+            }}
           >
             {visibleResults.map((place, index) => {
               const selected = index === activeIndex

@@ -505,6 +505,8 @@ export function RouteComparisonFullscreenMap({
   mapLabelScaleDecreaseLabel,
   mapLabelScaleResetLabel,
   mapLabelScaleIncreaseLabel,
+  googleSectionAnalysisOnlyLabel,
+  gravelGeometryUnavailableLabel,
 }: {
   routes: RouteComparisonMiniMapItem[]
   selectedRouteId: string | null
@@ -533,6 +535,8 @@ export function RouteComparisonFullscreenMap({
   mapLabelScaleDecreaseLabel?: string
   mapLabelScaleResetLabel?: string
   mapLabelScaleIncreaseLabel?: string
+  googleSectionAnalysisOnlyLabel?: string
+  gravelGeometryUnavailableLabel?: string
 }) {
   const [sortMode, setSortMode] = useState<RouteComparisonSortMode>('default')
   const { scale: mapLabelScale, saveScale: saveMapLabelScale } = useRouteMapLabelScale()
@@ -601,6 +605,17 @@ export function RouteComparisonFullscreenMap({
     () => comparisonMapAnnotations(drawable, selectedRouteId),
     [drawable, selectedRouteId],
   )
+  const selectedMapRoute = routes.find(route => (
+    selectedRouteId === null ? route.selected : route.id === selectedRouteId
+  )) ?? null
+  const selectedHasGravelGeometry = mapAnnotations.some(annotation => annotation.kind === 'gravel')
+  const mapScopeNotice = selectedMapRoute?.provider === 'google'
+    ? googleSectionAnalysisOnlyLabel
+    : selectedMapRoute?.provider === 'teskeid'
+      && (selectedMapRoute.gravelKm ?? 0) > 0
+      && !selectedHasGravelGeometry
+      ? gravelGeometryUnavailableLabel
+      : undefined
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -687,9 +702,12 @@ export function RouteComparisonFullscreenMap({
           ariaLabel={title}
           className="h-full w-full"
         />
-        {mapAnnotations.length > 0 && (
+        {(mapAnnotations.length > 0 || mapScopeNotice) && (
           <div
-            aria-label={mapAnnotations.map(annotation => annotation.label).join(', ')}
+            aria-label={[
+              ...mapAnnotations.map(annotation => annotation.label),
+              mapScopeNotice,
+            ].filter(Boolean).join(', ')}
             className="pointer-events-none absolute left-3 top-3 z-20 flex max-w-[calc(100%-10.5rem)] flex-wrap gap-1.5"
           >
             {[...new Map(
@@ -714,6 +732,14 @@ export function RouteComparisonFullscreenMap({
                 <span>{annotation.label}</span>
               </span>
             ))}
+            {mapScopeNotice && (
+              <span
+                role="status"
+                className="inline-flex min-h-8 items-center rounded-full border border-border bg-background/95 px-2.5 py-1 text-[11px] font-medium leading-snug text-muted-foreground shadow-sm backdrop-blur-sm"
+              >
+                {mapScopeNotice}
+              </span>
+            )}
           </div>
         )}
         {mapLabelScaleGroupLabel

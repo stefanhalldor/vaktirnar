@@ -439,6 +439,60 @@ describe('PlaceSearch', () => {
     })).not.toBeInTheDocument()
   })
 
+  it('keeps results open when iOS dismisses the keyboard and closes them on an outside pointer', async () => {
+    const originalVisualViewport = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+    const visualViewport = {
+      height: 500,
+      offsetTop: 0,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as VisualViewport
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: visualViewport,
+    })
+    fetchMock.mockResolvedValue(searchResponse([
+      {
+        id: 'official:reykholt',
+        source: 'official',
+        sourceId: 'reykholt',
+        name: 'Reykholt',
+        formattedAddress: '320 Reykholt',
+        lat: 64.66,
+        lon: -21.41,
+      },
+    ]))
+
+    try {
+      render(<PlaceSearch autoFocus={false} onPlaceSelected={vi.fn()} />)
+      const input = screen.getByRole('combobox', { name: 'Search for a place' })
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: 'Reykholt' } })
+      await advanceSearchDebounce()
+
+      const listbox = screen.getByRole('listbox')
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(listbox.style.maxHeight).toBe('256px')
+      expect(listbox.style.getPropertyValue('touch-action')).toBe('pan-y')
+
+      fireEvent.blur(input, { relatedTarget: null })
+      expect(screen.getByRole('listbox')).toBeInTheDocument()
+      expect(input).toHaveAttribute('aria-expanded', 'true')
+
+      fireEvent.pointerDown(document.body)
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+      expect(input).toHaveAttribute('aria-expanded', 'false')
+    } finally {
+      if (originalVisualViewport) {
+        Object.defineProperty(window, 'visualViewport', originalVisualViewport)
+      } else {
+        Reflect.deleteProperty(window, 'visualViewport')
+      }
+    }
+  })
+
   it('shows the localized rate-limit message for a 429 response', async () => {
     fetchMock.mockResolvedValue(searchResponse([], 429))
 

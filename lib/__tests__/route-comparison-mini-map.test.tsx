@@ -245,6 +245,84 @@ describe('RouteComparisonMiniMap', () => {
 })
 
 describe('RouteComparisonFullscreenMap', () => {
+  it('explains provider scope and missing gravel geometry without inventing sections', () => {
+    const commonProps = {
+      title: 'Veldu leið á korti',
+      applyLabel: 'Skoða veðurskilyrði',
+      cautionCloseLabel: 'Loka skýringu',
+      closeLabel: 'Loka leiðakorti',
+      routeCountLabel: '1 leið',
+      sortLabel: 'Raða eftir',
+      sortDefaultLabel: 'Sjálfgefið',
+      sortDurationLabel: 'Aksturstíma',
+      sortDistanceLabel: 'Vegalengd',
+      sortWeatherLabel: 'Veðri núna',
+      onSelectRouteId: vi.fn(),
+      onClose: vi.fn(),
+      onApply: vi.fn(),
+      googleSectionAnalysisOnlyLabel: 'Vegkaflagreining birtist aðeins á Teskeiðarleiðum.',
+      gravelGeometryUnavailableLabel: 'Möl er á leiðinni en nákvæm staðsetning er ekki tiltæk.',
+    }
+
+    const googleView = render(
+      <RouteComparisonFullscreenMap
+        {...commonProps}
+        selectedRouteId="google"
+        routes={[{
+          id: 'google',
+          label: 'Google-leið',
+          provider: 'google',
+          points: POINTS,
+          selected: true,
+        }]}
+      />,
+    )
+    expect(screen.getByText(commonProps.googleSectionAnalysisOnlyLabel)).toBeInTheDocument()
+    expect(screen.queryByText(commonProps.gravelGeometryUnavailableLabel)).not.toBeInTheDocument()
+    googleView.unmount()
+
+    const missingGeometryView = render(
+      <RouteComparisonFullscreenMap
+        {...commonProps}
+        selectedRouteId="teskeid"
+        routes={[{
+          id: 'teskeid',
+          label: 'Teskeiðarleið',
+          provider: 'teskeid',
+          points: POINTS,
+          selected: true,
+          gravelKm: 12.3,
+        }]}
+      />,
+    )
+    expect(screen.getByText(commonProps.gravelGeometryUnavailableLabel)).toBeInTheDocument()
+    expect(screen.queryByText(commonProps.googleSectionAnalysisOnlyLabel)).not.toBeInTheDocument()
+    missingGeometryView.unmount()
+
+    render(
+      <RouteComparisonFullscreenMap
+        {...commonProps}
+        selectedRouteId="teskeid"
+        routes={[{
+          id: 'teskeid',
+          label: 'Teskeiðarleið',
+          provider: 'teskeid',
+          points: POINTS,
+          selected: true,
+          gravelKm: 12.3,
+          sectionOverlays: [{
+            id: 'gravel',
+            kind: 'gravel',
+            label: 'Malarvegur',
+            points: POINTS,
+          }],
+        }]}
+      />,
+    )
+    expect(screen.getByText('Malarvegur')).toBeInTheDocument()
+    expect(screen.queryByText(commonProps.gravelGeometryUnavailableLabel)).not.toBeInTheDocument()
+  })
+
   it('shows a compact in-map legend only for annotation kinds on the selected route', () => {
     render(
       <RouteComparisonFullscreenMap

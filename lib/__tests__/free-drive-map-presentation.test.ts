@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   FREE_DRIVE_AGGREGATE_MARKER_OFFSETS,
+  createDefaultFreeDriveVisibleWindStatuses,
+  freeDriveAggregateStationCountLabel,
   freeDriveAggregateStatus,
   overviewStationClusterKey,
   routeOriginFromLiveLocation,
@@ -20,6 +22,21 @@ describe('free-drive map presentation', () => {
     )
     expect(freeDriveAggregateStatus('no_data')).toBe('no_wind_data')
     expect(freeDriveAggregateStatus('haettulegt')).toBe('haettulegt')
+    expect(freeDriveAggregateStationCountLabel(1)).toBe('1')
+    expect(freeDriveAggregateStationCountLabel(11)).toBe('11')
+  })
+
+  it('starts free-drive with measured wind statuses visible and missing wind hidden', () => {
+    const statuses = createDefaultFreeDriveVisibleWindStatuses()
+    expect([...statuses]).toEqual([
+      'innan-marka',
+      'nalgast-othaegindi',
+      'othaegilegt',
+      'nalgast-haettumork',
+      'haettulegt',
+    ])
+    expect(statuses.has('no_data')).toBe(false)
+    expect(statuses.has('no_wind_data')).toBe(false)
   })
 
   it('turns the last trusted free-drive point into an exact device origin', () => {

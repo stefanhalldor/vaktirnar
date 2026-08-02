@@ -1,7 +1,10 @@
 import type { LiveLocationPoint } from '@/lib/places/liveLocation.client'
 import type { RoadIntelligencePlaceResult } from '@/lib/road-intelligence/placeSearchBridge'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
-import type { WindDisplayStatus } from '@/lib/weather/windDisplayStatus'
+import {
+  ALL_WIND_DISPLAY_STATUSES,
+  type WindDisplayStatus,
+} from '@/lib/weather/windDisplayStatus'
 
 export const FREE_DRIVE_AGGREGATE_MARKER_OFFSETS: Record<WindDisplayStatus, [number, number]> = {
   'innan-marka': [-28, -18],
@@ -23,6 +26,18 @@ export function overviewStationClusterKey(
 
 export function freeDriveAggregateStatus(status: WindDisplayStatus): WindDisplayStatus {
   return status === 'no_data' ? 'no_wind_data' : status
+}
+
+export function createDefaultFreeDriveVisibleWindStatuses(): Set<WindDisplayStatus> {
+  return new Set(
+    ALL_WIND_DISPLAY_STATUSES.filter(
+      status => status !== 'no_data' && status !== 'no_wind_data',
+    ),
+  )
+}
+
+export function freeDriveAggregateStationCountLabel(stationCount: number): string {
+  return String(Math.max(0, Math.trunc(stationCount)))
 }
 
 export function routeOriginFromLiveLocation(

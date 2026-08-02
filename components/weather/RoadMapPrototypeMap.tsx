@@ -171,6 +171,8 @@ import {
 } from '@/lib/weather/freeDrive'
 import {
   FREE_DRIVE_AGGREGATE_MARKER_OFFSETS,
+  createDefaultFreeDriveVisibleWindStatuses,
+  freeDriveAggregateStationCountLabel,
   freeDriveAggregateStatus,
   overviewStationClusterKey,
   routeOriginFromLiveLocation,
@@ -1769,7 +1771,9 @@ export function RoadMapPrototypeMap({
   const overviewVisibleStatusesRef = useRef<Set<WindDisplayStatus>>(
     new Set(DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES),
   )
-  const freeDriveVisibleStatusesRef = useRef<Set<WindDisplayStatus>>(new Set())
+  const freeDriveVisibleStatusesRef = useRef<Set<WindDisplayStatus>>(
+    createDefaultFreeDriveVisibleWindStatuses(),
+  )
   const weatherChaseBoundsKeyRef = useRef<string | null>(null)
   const vedurstofanLayerRef = useRef<VedurstofanTravelLayer | undefined>(undefined)
   const routeDurationMinutesRef = useRef<number>(0)
@@ -1851,7 +1855,7 @@ export function RoadMapPrototypeMap({
     new Set(DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES),
   )
   const [freeDriveVisibleStatuses, setFreeDriveVisibleStatuses] = useState<Set<WindDisplayStatus>>(
-    new Set(),
+    createDefaultFreeDriveVisibleWindStatuses,
   )
   const [overviewActiveMode, setOverviewActiveMode] = useState<'now' | number>('now')
   const [mapVisibleHours, setMapVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
@@ -4144,8 +4148,8 @@ export function RoadMapPrototypeMap({
     entries: OverviewStationMarker[],
     freeDrive = false,
   ): string {
+    if (freeDrive) return freeDriveAggregateStationCountLabel(entries.length)
     if (entries.length <= 1) return entries[0]?.overviewLabel ?? ''
-    if (freeDrive) return String(entries.length)
     const emoji = dominantOverviewEmoji(entries)
     if (emoji) return emoji
     const averageWind = averageOverviewWindMs(entries)
@@ -10572,7 +10576,7 @@ export function RoadMapPrototypeMap({
       && routeLiveLocationPointRef.current
       ? routeOriginFromLiveLocation(
           routeLiveLocationPointRef.current,
-          t('currentLocationName'),
+          t('placeSearch.currentLocationName'),
         )
       : null
     stopRouteLiveLocation()
@@ -10609,8 +10613,9 @@ export function RoadMapPrototypeMap({
     setFreeDrivePaused(false)
     setFreeDriveWithoutLocation(false)
     setFreeDriveStationFeedError(false)
-    freeDriveVisibleStatusesRef.current = new Set()
-    setFreeDriveVisibleStatuses(new Set())
+    const defaultVisibleStatuses = createDefaultFreeDriveVisibleWindStatuses()
+    freeDriveVisibleStatusesRef.current = defaultVisibleStatuses
+    setFreeDriveVisibleStatuses(defaultVisibleStatuses)
     overviewActiveModeRef.current = 'now'
     setOverviewActiveMode('now')
     openRouteContext('map')
@@ -12168,6 +12173,8 @@ export function RoadMapPrototypeMap({
           mapLabelScaleDecreaseLabel={t('roadMapPrototypeRouteMapLabelScaleDecrease')}
           mapLabelScaleResetLabel={t('roadMapPrototypeRouteMapLabelScaleReset')}
           mapLabelScaleIncreaseLabel={t('roadMapPrototypeRouteMapLabelScaleIncrease')}
+          googleSectionAnalysisOnlyLabel={t('roadMapPrototypeGoogleSectionAnalysisOnly')}
+          gravelGeometryUnavailableLabel={t('roadMapPrototypeGravelGeometryUnavailable')}
           alternativesStatus={fullscreenTeskeidSearchStatus}
           alternativesMessage={
             fullscreenTeskeidInitialSearchVisible

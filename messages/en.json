@@ -1539,6 +1539,8 @@
         "roadMapPrototypeRouteMapLabelScaleDecrease": "Decrease map marker text size",
         "roadMapPrototypeRouteMapLabelScaleReset": "Use the default map marker text size",
         "roadMapPrototypeRouteMapLabelScaleIncrease": "Increase map marker text size",
+        "roadMapPrototypeGoogleSectionAnalysisOnly": "Road-section analysis for gravel and wind-data gaps is only shown for Teskeið routes.",
+        "roadMapPrototypeGravelGeometryUnavailable": "The route includes gravel, but exact gravel-section locations are unavailable.",
         "roadMapPrototypeTeskeidAlternativesCautionSearch": "The Teskeið route is marked with a caution. Looking for more options without hiding the current route.",
         "roadMapPrototypeRoutePointTitle": "Weather point {index}/{total}",
         "roadMapPrototypeRoutePointDistance": "{value} km from start",

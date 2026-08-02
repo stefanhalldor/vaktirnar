@@ -1545,6 +1545,8 @@
         "roadMapPrototypeRouteMapLabelScaleDecrease": "Minnka texta merkja á korti",
         "roadMapPrototypeRouteMapLabelScaleReset": "Nota venjulega textastærð merkja á korti",
         "roadMapPrototypeRouteMapLabelScaleIncrease": "Stækka texta merkja á korti",
+        "roadMapPrototypeGoogleSectionAnalysisOnly": "Vegkaflagreining fyrir möl og vindgagnagöt birtist aðeins á Teskeiðarleiðum.",
+        "roadMapPrototypeGravelGeometryUnavailable": "Möl er á leiðinni en nákvæm staðsetning malarkafla er ekki tiltæk.",
         "roadMapPrototypeTeskeidAlternativesCautionSearch": "Teskeiðarleiðin er merkt varasöm. Leitað er að fleiri valkostum án þess að fela núverandi leið.",
         "roadMapPrototypeRoutePointTitle": "Veðurpunktur {index}/{total}",
         "roadMapPrototypeRoutePointDistance": "{value} km frá upphafi",
