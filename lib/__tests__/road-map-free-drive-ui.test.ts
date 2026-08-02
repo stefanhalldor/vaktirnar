@@ -168,8 +168,12 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
       handler.indexOf('stopRouteLiveLocation()'),
     )
     expect(handler).toContain('routeOriginFromLiveLocation(')
-    expect(handler).toContain("t('placeSearch.currentLocationName')")
+    expect(source).toContain(
+      "const tPlaceSearch = useTranslations('teskeid.vedrid.placeSearch')",
+    )
+    expect(handler).toContain("tPlaceSearch('currentLocationName')")
     expect(handler).not.toContain("t('currentLocationName')")
+    expect(handler).not.toContain("t('placeSearch.currentLocationName')")
     expect(handler).toContain('stopRouteLiveLocation()')
     expect(handler).toContain("setLiveDriveModeState('off')")
     expect(handler).toContain('handleEditRoute()')
@@ -330,6 +334,13 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).toContain("element.dataset.liveVegagerdinStation = 'true'")
     expect(source).toContain('additionalAriaParts: [')
     expect(source).toContain('LIVE_DRIVE_TEMPERATURE_MAX_C')
+    expect(source).toContain('liveTemperatureMetrics: true')
+    expect(source).toContain("'[data-live-route-temperature-metric=\"true\"]'")
+    expect(source).toContain("'[data-live-route-temperature-row=\"true\"]'")
+    expect(source).toContain("metric.style.display = suppressed ? 'none' : 'flex'")
+    expect(source).toContain("temperatureRow.style.display = 'none'")
+    expect(source).toContain('`repeat(${visibleMetrics.length}, minmax(0, 1fr))`')
+    expect(source).toContain("metric.textContent = suppressed\n        ? ''")
     expect(source).not.toContain('freeDriveNearbyStations')
     expect(source).not.toContain('free-drive-nearby-stations')
   })

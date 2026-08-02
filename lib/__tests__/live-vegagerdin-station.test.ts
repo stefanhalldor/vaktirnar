@@ -104,6 +104,7 @@ describe('live Vegagerðin station presentation', () => {
     expect(liveDriveTemperatureValue(-4)).toBe(-4)
     expect(liveDriveTemperatureValue(2)).toBe(2)
     expect(liveDriveTemperatureValue(2.1)).toBeNull()
+    expect(liveDriveTemperatureValue(Number.NaN)).toBeNull()
     expect(liveDriveTemperatureValue(null)).toBeNull()
   })
 })

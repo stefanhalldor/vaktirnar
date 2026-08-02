@@ -285,6 +285,42 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(renderBlock).not.toContain('clearRouteVegagerdinLabelMarkers()')
   })
 
+  it('compacts live temperature metrics without changing generic forecast cards', () => {
+    const sharedLabelStart = source.indexOf('function createLiveVegagerdinStationLabel(')
+    const sharedLabelEnd = source.indexOf('\n  function createVegagerdinRouteLabel(', sharedLabelStart)
+    const sharedLabelBlock = source.slice(sharedLabelStart, sharedLabelEnd)
+    const updateStart = source.indexOf('function updateLiveDriveTemperaturePresentation(')
+    const updateEnd = source.indexOf('\n  function updateRouteWindLabelColor(', updateStart)
+    const updateBlock = source.slice(updateStart, updateEnd)
+
+    expect(sharedLabelStart).toBeGreaterThan(-1)
+    expect(sharedLabelEnd).toBeGreaterThan(sharedLabelStart)
+    expect(sharedLabelBlock).toContain('liveTemperatureMetrics: true')
+    expect(updateBlock).toContain('liveDriveTemperatureValue(valueC) === null')
+    expect(updateBlock).toContain("metric.style.display = suppressed ? 'none' : 'flex'")
+    expect(updateBlock).toContain("metric.textContent = suppressed\n        ? ''")
+    expect(updateBlock).toContain('visibleMetrics.length === 0')
+    expect(updateBlock).toContain("temperatureRow.style.display = 'none'")
+    expect(updateBlock).toContain('repeat(${visibleMetrics.length}, minmax(0, 1fr))')
+    expect(updateBlock).toContain("metric.setAttribute('aria-hidden', suppressed ? 'true' : 'false')")
+    expect(source).toContain('liveTemperatureMetrics = false')
+    expect(source).toContain('updateLiveVegagerdinStationLabelInPlace(current.element, nextElement)')
+  })
+
+  it('ages the displayed live-route measurement only after its own 15-minute boundary', () => {
+    expect(source).toContain(
+      'const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)',
+    )
+    expect(source).toContain('setRouteNowMeasurementFreshness(nowMeasurementFreshness)')
+    expect(source).toContain(
+      'freeDriveStationFreshness(routeMeasuredAtIso)',
+    )
+    expect(source).not.toContain(
+      'setRouteNowMeasurementFreshness(layer?.measurementFreshness ?? payload.measurementFreshness)',
+    )
+    expect(source).not.toContain('setRouteNowMeasurementFreshness(payload.measurementFreshness)')
+  })
+
   it('renders chosen route endpoints as confirmed places instead of searching their labels again', () => {
     expect(source).toContain('selectedPlace={fromResolved}')
     expect(source).toContain('selectedPlace={toResolved}')

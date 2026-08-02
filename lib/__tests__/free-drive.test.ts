@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { freeDriveStationFreshness } from '@/lib/weather/freeDrive'
+import {
+  FREE_DRIVE_STATION_STALE_AFTER_MS,
+  freeDriveStationFreshness,
+} from '@/lib/weather/freeDrive'
 import { classifyLiveVegagerdinStationWindStatus } from '@/lib/weather/liveVegagerdinStation'
 import { resolveThresholds } from '@/lib/weather/thresholds'
 
@@ -33,6 +36,8 @@ describe('free-drive station safety presentation', () => {
   })
 
   it('reports freshness independently from the wind values', () => {
+    expect(FREE_DRIVE_STATION_STALE_AFTER_MS).toBe(15 * 60 * 1_000)
+    expect(freeDriveStationFreshness('2026-08-01T11:45:00.001Z', NOW)).toBe('fresh')
     expect(freeDriveStationFreshness('2026-08-01T11:45:01.000Z', NOW)).toBe('fresh')
     expect(freeDriveStationFreshness('2026-08-01T11:45:00.000Z', NOW)).toBe('stale')
     expect(freeDriveStationFreshness('2026-08-01T11:00:00.000Z', NOW)).toBe('stale')

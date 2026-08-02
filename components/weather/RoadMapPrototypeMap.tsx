@@ -180,6 +180,7 @@ import {
 import {
   LIVE_DRIVE_TEMPERATURE_MAX_C,
   classifyLiveVegagerdinStationWindStatus,
+  liveDriveTemperatureValue,
   liveVegagerdinStationFromCurrent,
   liveVegagerdinStationFromRoutePoint,
   type LiveVegagerdinStation,
@@ -1667,6 +1668,7 @@ export function RoadMapPrototypeMap({
   navigation?: RoadMapNavigation
 }) {
   const t = useTranslations('teskeid.vedrid.overview')
+  const tPlaceSearch = useTranslations('teskeid.vedrid.placeSearch')
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
   const tPulse = useTranslations('teskeid.vedrid.eltaVedrid')
   const formatDurationMinutes = useCallback((minutes: number): string => {
@@ -6427,6 +6429,7 @@ export function RoadMapPrototypeMap({
     showNameLabel = true,
     showWeatherCard = false,
     showConnectorLine = false,
+    liveTemperatureMetrics = false,
     placement = { layout: 'vertical', anchor: 'bottom', offset: [0, -8] },
     onClick,
   }: {
@@ -6451,6 +6454,7 @@ export function RoadMapPrototypeMap({
     showNameLabel?: boolean
     showWeatherCard?: boolean
     showConnectorLine?: boolean
+    liveTemperatureMetrics?: boolean
     placement?: RouteLabelPlacement
     onClick: () => void
   }): HTMLButtonElement {
@@ -6653,6 +6657,9 @@ export function RoadMapPrototypeMap({
 
       const bottomRow = document.createElement('span')
       bottomRow.dataset.routeWeatherBottom = 'true'
+      if (liveTemperatureMetrics) {
+        bottomRow.dataset.liveRouteTemperatureRow = 'true'
+      }
       bottomRow.style.cssText = [
         'display:grid',
         'grid-template-columns:1fr 1fr',
@@ -6663,6 +6670,9 @@ export function RoadMapPrototypeMap({
       const temperature = document.createElement('span')
       temperature.textContent = temperatureText ? `${temperatureText}°` : '–'
       temperature.title = labelsRef.current.routeMarkerTemperatureTitle
+      if (liveTemperatureMetrics) {
+        temperature.dataset.liveRouteTemperatureMetric = 'true'
+      }
       if (temperatureValueC != null && Number.isFinite(temperatureValueC)) {
         temperature.dataset.liveRouteTemperatureC = String(temperatureValueC)
         temperature.dataset.liveRouteTemperatureText = temperature.textContent
@@ -6684,6 +6694,9 @@ export function RoadMapPrototypeMap({
       const secondaryMetric = document.createElement('span')
       secondaryMetric.textContent = rightMetricText ?? '–'
       secondaryMetric.title = rightMetricTitle
+      if (liveTemperatureMetrics) {
+        secondaryMetric.dataset.liveRouteTemperatureMetric = 'true'
+      }
       if (
         secondaryMetricTemperatureValueC != null
         && Number.isFinite(secondaryMetricTemperatureValueC)
@@ -6747,21 +6760,43 @@ export function RoadMapPrototypeMap({
   ) {
     const suppressedAriaParts = new Set<string>()
     const temperatureMetrics = element.querySelectorAll<HTMLElement>(
-      '[data-live-route-temperature-c]',
+      '[data-live-route-temperature-metric="true"]',
     )
+    const visibleMetrics: HTMLElement[] = []
     for (const metric of temperatureMetrics) {
-      const valueC = Number(metric.dataset.liveRouteTemperatureC)
-      const suppressed = liveTrackingActive
-        && Number.isFinite(valueC)
-        && valueC > LIVE_DRIVE_TEMPERATURE_MAX_C
+      const rawValueC = metric.dataset.liveRouteTemperatureC
+      const valueC = rawValueC === undefined ? null : Number(rawValueC)
+      const suppressed = liveTrackingActive && liveDriveTemperatureValue(valueC) === null
+      metric.style.display = suppressed ? 'none' : 'flex'
       metric.textContent = suppressed
-        ? '–'
-        : metric.dataset.liveRouteTemperatureText ?? '–'
-      metric.title = suppressed
         ? ''
-        : metric.dataset.liveRouteTemperatureTitle ?? ''
+        : metric.dataset.liveRouteTemperatureText ?? '–'
+      metric.title = suppressed ? '' : metric.dataset.liveRouteTemperatureTitle ?? ''
+      metric.setAttribute('aria-hidden', suppressed ? 'true' : 'false')
+      metric.style.borderRight = 'none'
+      if (!suppressed) visibleMetrics.push(metric)
       const ariaPart = metric.dataset.liveRouteTemperatureAria
       if (suppressed && ariaPart) suppressedAriaParts.add(ariaPart)
+    }
+
+    const temperatureRow = element.querySelector<HTMLElement>(
+      '[data-live-route-temperature-row="true"]',
+    )
+    if (temperatureRow) {
+      if (liveTrackingActive && visibleMetrics.length === 0) {
+        temperatureRow.style.display = 'none'
+      } else {
+        temperatureRow.style.display = 'grid'
+        temperatureRow.style.gridTemplateColumns = liveTrackingActive
+          ? `repeat(${visibleMetrics.length}, minmax(0, 1fr))`
+          : '1fr 1fr'
+        const borderedMetrics = liveTrackingActive
+          ? visibleMetrics.slice(0, -1)
+          : Array.from(temperatureMetrics).slice(0, -1)
+        for (const metric of borderedMetrics) {
+          metric.style.borderRight = '1px solid rgba(15,23,42,0.12)'
+        }
+      }
     }
 
     const rawAriaParts = element.dataset.routeWeatherAriaParts
@@ -7058,6 +7093,7 @@ export function RoadMapPrototypeMap({
       color,
       showWeatherCard: true,
       showNameLabel: false,
+      liveTemperatureMetrics: true,
       placement,
       onClick,
     })
@@ -8419,6 +8455,7 @@ export function RoadMapPrototypeMap({
     const nowMeasuredAtIso =
       vegagerdinLayer?.measuredAtIso ??
       newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
+    const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)
     // Station providers are display-only evidence. Even a complete station
     // read does not prove complete spatial coverage and must never override
     // the route-wide forecast assessment.
@@ -8488,7 +8525,7 @@ export function RoadMapPrototypeMap({
     setRouteVedurstofanLayer(vedurstofanLayer ?? null)
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteNowMeasuredAtIso(nowMeasuredAtIso)
-    setRouteNowMeasurementFreshness(vegagerdinLayer?.measurementFreshness ?? null)
+    setRouteNowMeasurementFreshness(nowMeasurementFreshness)
     setRouteVisibleStatusCounts(nowStatusCounts)
     setRouteCandidates(initialRouteCandidates)
     setSelectedCandidateIdx(null)
@@ -10056,11 +10093,12 @@ export function RoadMapPrototypeMap({
     const nowStatusCounts = render.statusCounts
     const nowMeasuredAtIso =
       layer?.measuredAtIso ?? newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
+    const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)
 
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteVisibleStatusCounts(nowStatusCounts)
     setRouteNowMeasuredAtIso(nowMeasuredAtIso)
-    setRouteNowMeasurementFreshness(layer?.measurementFreshness ?? payload.measurementFreshness)
+    setRouteNowMeasurementFreshness(nowMeasurementFreshness)
     setRouteVegagerdinLastRefreshIso(payload.fetchedAtIso)
     setRouteBridgeSummary(current => {
       if (!current || !routeActiveRef.current) return current
@@ -10191,13 +10229,19 @@ export function RoadMapPrototypeMap({
         const current = overviewVegagerdinDataRef.current
         if (current?.status === 'ok') {
           if (current.fetchedAtIso === payload.fetchedAtIso) {
+            const routeMeasuredAtIso = newestVegagerdinRouteMeasuredAtIso(
+              routeVegagerdinPointsRef.current,
+            )
+            setRouteNowMeasuredAtIso(routeMeasuredAtIso)
+            setRouteNowMeasurementFreshness(
+              freeDriveStationFreshness(routeMeasuredAtIso),
+            )
             if (
               current.measurementFreshness !== payload.measurementFreshness ||
               current.cacheStatus !== payload.cacheStatus
             ) {
               overviewVegagerdinDataRef.current = payload
               setOverviewVegagerdinData(payload)
-              setRouteNowMeasurementFreshness(payload.measurementFreshness)
             }
             return
           }
@@ -10576,7 +10620,7 @@ export function RoadMapPrototypeMap({
       && routeLiveLocationPointRef.current
       ? routeOriginFromLiveLocation(
           routeLiveLocationPointRef.current,
-          t('placeSearch.currentLocationName'),
+          tPlaceSearch('currentLocationName'),
         )
       : null
     stopRouteLiveLocation()
