@@ -687,6 +687,35 @@ export function RouteComparisonFullscreenMap({
           ariaLabel={title}
           className="h-full w-full"
         />
+        {mapAnnotations.length > 0 && (
+          <div
+            aria-label={mapAnnotations.map(annotation => annotation.label).join(', ')}
+            className="pointer-events-none absolute left-3 top-3 z-20 flex max-w-[calc(100%-10.5rem)] flex-wrap gap-1.5"
+          >
+            {[...new Map(
+              mapAnnotations.map(annotation => [annotation.kind, annotation] as const),
+            ).values()].map(annotation => (
+              <span
+                key={annotation.kind}
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-border bg-background/95 px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-sm backdrop-blur-sm"
+              >
+                {annotation.kind === 'gravel' ? (
+                  <span
+                    aria-hidden="true"
+                    data-route-annotation-legend-icon="gravel"
+                    className="relative h-4 w-5 shrink-0"
+                  >
+                    <span className="absolute left-0.5 top-1.5 h-2 w-2 -rotate-12 rounded-[45%_55%_50%_45%] border border-amber-900 bg-amber-600" />
+                    <span className="absolute left-2.5 top-0.5 h-2.5 w-2.5 rotate-12 rounded-[55%_45%_45%_55%] border border-amber-900 bg-amber-600" />
+                  </span>
+                ) : (
+                  <span aria-hidden="true" className="text-slate-600">≋̸</span>
+                )}
+                <span>{annotation.label}</span>
+              </span>
+            ))}
+          </div>
+        )}
         {mapLabelScaleGroupLabel
           && mapLabelScaleDecreaseLabel
           && mapLabelScaleResetLabel

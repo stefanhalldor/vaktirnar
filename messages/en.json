@@ -1571,6 +1571,7 @@
         "roadMapPrototypeFreeDriveSignIn": "Sign in and set off",
         "roadMapPrototypeFreeDrivePrivacySafety": "Your location is used only on this device to move the map and is not stored. Do not adjust the map while driving.",
         "roadMapPrototypeFreeDrivePlanInstead": "Or plan a trip",
+        "roadMapPrototypeFreeDrivePlanStart": "Plan a trip",
         "roadMapPrototypeFreeDriveActiveTitle": "On the road",
         "roadMapPrototypeFreeDriveStop": "Stop",
         "roadMapPrototypeFreeDrivePaused": "Location stopped when the app went into the background. Continue with an explicit tap.",

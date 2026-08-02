@@ -170,6 +170,12 @@ import {
   type LiveDriveMode,
 } from '@/lib/weather/freeDrive'
 import {
+  FREE_DRIVE_AGGREGATE_MARKER_OFFSETS,
+  freeDriveAggregateStatus,
+  overviewStationClusterKey,
+  routeOriginFromLiveLocation,
+} from '@/lib/weather/freeDriveMapPresentation'
+import {
   LIVE_DRIVE_TEMPERATURE_MAX_C,
   classifyLiveVegagerdinStationWindStatus,
   liveVegagerdinStationFromCurrent,
@@ -1731,6 +1737,7 @@ export function RoadMapPrototypeMap({
   const routeLiveMapPresentationActiveRef = useRef(false)
   const applyLiveRouteMapPresentationRef = useRef<(active: boolean) => void>(() => {})
   const overviewDensityFrameRef = useRef<number | null>(null)
+  const overviewMarkerReconcileFrameRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const showOverlayRef = useRef(hasRoadIntelligence)
   const showSegmentsRef = useRef(hasRoadIntelligence)
@@ -1860,6 +1867,7 @@ export function RoadMapPrototypeMap({
   const [overviewVedurstofanLoading, setOverviewVedurstofanLoading] = useState(true)
   const [overviewVedurstofanRestricted, setOverviewVedurstofanRestricted] = useState(false)
   const [mapReady, setMapReady] = useState(false)
+  const [overviewMarkerReconcileVersion, setOverviewMarkerReconcileVersion] = useState(0)
   overviewVegagerdinDataRef.current = overviewVegagerdinData
   const [routeCandidates, setRouteCandidates] = useState<TravelCandidate[] | null>(null)
   const [routeForecastBuildStatus, setRouteForecastBuildStatus] = useState<RouteForecastBuildStatus>('idle')
@@ -3227,8 +3235,6 @@ export function RoadMapPrototypeMap({
         const r = Number(data.redWindMs)
         if (Number.isFinite(c) && Number.isFinite(r) && c > 0 && r > 0 && c < r) {
           setSavedRouteThresholds({ cautionWindMs: c, redWindMs: r })
-          setRouteCautionWind(current => current || String(c))
-          setRouteRedWind(current => current || String(r))
         }
         if (data.statusFilterMode === 'simple' || data.statusFilterMode === 'detailed') {
           routeStatusFilterModeRef.current = data.statusFilterMode
@@ -3243,16 +3249,6 @@ export function RoadMapPrototypeMap({
       cancelled = true
     }
   }, [isAuthenticated])
-
-  useEffect(() => {
-    if (!freeDriveSetupOpen || !routeThresholdPreferencesLoaded) return
-    setRouteCautionWind(current => current || String(
-      savedRouteThresholds?.cautionWindMs ?? DEFAULT_ROUTE_THRESHOLDS.cautionWindMs,
-    ))
-    setRouteRedWind(current => current || String(
-      savedRouteThresholds?.redWindMs ?? DEFAULT_ROUTE_THRESHOLDS.redWindMs,
-    ))
-  }, [freeDriveSetupOpen, routeThresholdPreferencesLoaded, savedRouteThresholds])
 
   useEffect(() => {
     if (!isAuthenticated || !weatherChasePreferencesHydrated || !weatherChaseSelectionInitialized) return
@@ -3666,6 +3662,26 @@ export function RoadMapPrototypeMap({
     const map = mapRef.current
     const Marker = markerConstructorRef.current
     const useLivePresentation = liveDriveMode === 'free-drive'
+    const stations = overviewVegagerdinData?.status === 'ok'
+      ? overviewVegagerdinData.stations
+      : []
+    if (!map?.isStyleLoaded() || !Marker) {
+      if (useLivePresentation && stations.length > 0) {
+        const retryWhenReady = () => scheduleOverviewMarkerReconciliation()
+        map?.once('idle', retryWhenReady)
+        updateOverviewLayerVisibility()
+        return () => {
+          map?.off('idle', retryWhenReady)
+        }
+      }
+      updateOverviewLayerVisibility()
+      return
+    }
+    if (stations.length === 0) {
+      clearOverviewMarkerSet(overviewVegagerdinMarkersRef)
+      updateOverviewLayerVisibility()
+      return
+    }
     const canReconcileLiveMarkers = useLivePresentation && overviewVegagerdinMarkersRef.current.every(
       entry => Boolean(entry.stationId && entry.element.dataset.liveVegagerdinStation === 'true'),
     )
@@ -3676,14 +3692,6 @@ export function RoadMapPrototypeMap({
       )),
     )
     const nextMarkers: OverviewStationMarker[] = []
-
-    const stations = overviewVegagerdinData?.status === 'ok'
-      ? overviewVegagerdinData.stations
-      : []
-    if (!map?.isStyleLoaded() || !Marker || stations.length === 0) {
-      updateOverviewLayerVisibility()
-      return
-    }
 
     for (const station of stations) {
       const lat = toFiniteCoordinate(station.lat)
@@ -3772,6 +3780,7 @@ export function RoadMapPrototypeMap({
   }, [
     mapReady,
     liveDriveMode,
+    overviewMarkerReconcileVersion,
     overviewThresholds,
     overviewVegagerdinData,
     routeStatusFilterMode,
@@ -4147,17 +4156,16 @@ export function RoadMapPrototypeMap({
     entries: OverviewStationMarker[],
     region?: OverviewAggregateRegion,
     freeDrive = false,
+    aggregateStatus?: WindDisplayStatus,
   ): string {
     const averageWind = freeDrive ? null : averageOverviewWindMs(entries)
     const averageText = averageWind === null ? null : `${formatNum(averageWind, locale)} m/s`
     const stationText = t('roadMapPrototypeStationCount', { count: entries.length })
     const freeDriveStatusText = freeDrive
-      ? tf(WIND_STATUS_META[
-          entries.reduce<WindDisplayStatus>(
-            (worst, entry) => worstWindDisplayStatus(worst, overviewMarkerStatus(entry, true)),
-            'no_data',
-          )
-        ].labelKey as 'statusWithinLimits')
+      ? tf(WIND_STATUS_META[aggregateStatus ?? entries.reduce<WindDisplayStatus>(
+          (worst, entry) => worstWindDisplayStatus(worst, overviewMarkerStatus(entry, true)),
+          'no_data',
+        )].labelKey as 'statusWithinLimits')
       : null
     return [region?.name, stationText, freeDriveStatusText, averageText].filter(Boolean).join(' · ')
   }
@@ -4287,17 +4295,24 @@ export function RoadMapPrototypeMap({
     if (showOverview && map) {
       const level = overviewDensityLevelForZoom(map.getZoom())
       const cellSize = overviewDensityCellPxForLevel(level)
-      const cells = new Map<string, { region?: OverviewAggregateRegion; entries: OverviewStationMarker[] }>()
+      const cells = new Map<string, {
+        region?: OverviewAggregateRegion
+        status?: WindDisplayStatus
+        entries: OverviewStationMarker[]
+      }>()
 
       for (const entry of eligibleEntries) {
         const region = level === 'aggregate' ? findNearestOverviewRegion(entry, map) : undefined
         const point = region ? map.project([region.lon, region.lat]) : map.project([entry.lon, entry.lat])
-        const key = region?.id ?? `${Math.floor(point.x / cellSize)}:${Math.floor(point.y / cellSize)}`
+        const spatialKey = region?.id ?? `${Math.floor(point.x / cellSize)}:${Math.floor(point.y / cellSize)}`
+        const rawStatus = overviewMarkerStatus(entry, freeDrive)
+        const status = freeDrive ? freeDriveAggregateStatus(rawStatus) : rawStatus
+        const key = overviewStationClusterKey(spatialKey, status, freeDrive)
         const group = cells.get(key)
         if (group) {
           group.entries.push(entry)
         } else {
-          cells.set(key, { region, entries: [entry] })
+          cells.set(key, { region, status: freeDrive ? status : undefined, entries: [entry] })
         }
       }
 
@@ -4306,15 +4321,21 @@ export function RoadMapPrototypeMap({
         if (!representative) continue
         if (level === 'aggregate' && group.region) {
           representative.marker.setLngLat([group.region.lon, group.region.lat])
+          representative.marker.setOffset(
+            freeDrive && group.status
+              ? FREE_DRIVE_AGGREGATE_MARKER_OFFSETS[group.status]
+              : [0, 0],
+          )
         } else {
           representative.marker.setLngLat([representative.lon, representative.lat])
+          representative.marker.setOffset([0, 0])
         }
         representative.element.style.display = 'block'
         applyOverviewMarkerDensityPresentation(
           representative,
           level,
           buildOverviewAggregateLabel(group.entries, freeDrive),
-          buildOverviewAggregateTitle(group.entries, group.region, freeDrive),
+          buildOverviewAggregateTitle(group.entries, group.region, freeDrive, group.status),
           freeDrive ? overviewMarkerStatus(representative, true) : undefined,
         )
       }
@@ -4330,7 +4351,31 @@ export function RoadMapPrototypeMap({
     })
   }
 
+  function scheduleOverviewMarkerReconciliation() {
+    if (overviewMarkerReconcileFrameRef.current !== null) return
+    overviewMarkerReconcileFrameRef.current = window.requestAnimationFrame(() => {
+      overviewMarkerReconcileFrameRef.current = null
+      if (liveDriveModeRef.current !== 'free-drive') return
+      const liveMarkersAreReady = overviewVegagerdinMarkersRef.current.some(
+        entry => Boolean(entry.stationId && entry.element.dataset.liveVegagerdinStation === 'true'),
+      )
+      if (liveMarkersAreReady) {
+        updateOverviewMarkerVisibility(
+          freeDriveVisibleStatusesRef.current,
+          'now',
+          false,
+        )
+        return
+      }
+      setOverviewMarkerReconcileVersion(current => current + 1)
+    })
+  }
+
   function hideOverviewStationMarkers() {
+    if (liveDriveModeRef.current === 'free-drive') {
+      scheduleOverviewMarkerReconciliation()
+      return
+    }
     for (const entry of [
       ...overviewVegagerdinMarkersRef.current,
       ...overviewVedurstofanMarkersRef.current,
@@ -5808,11 +5853,16 @@ export function RoadMapPrototypeMap({
       return
     }
     const zoom = mapRef.current?.getZoom() ?? 6
+    const freeDriveCountryOverview =
+      liveDriveModeRef.current === 'free-drive' &&
+      overviewDensityLevelForZoom(zoom) === 'aggregate'
     for (const { element, place } of placeMarkersRef.current) {
       const isVisible =
-        place.importance === 3 ||
-        (place.importance === 2 && zoom >= 5.8) ||
-        zoom >= 7.2
+        !freeDriveCountryOverview && (
+          place.importance === 3 ||
+          (place.importance === 2 && zoom >= 5.8) ||
+          zoom >= 7.2
+        )
       element.style.display = isVisible ? 'block' : 'none'
     }
   }
@@ -9436,6 +9486,7 @@ export function RoadMapPrototypeMap({
           map.on('zoomend', scheduleRouteLabelCollisionUpdate)
           map.on('rotate', updateViewportWindDirectionMarkers)
           map.on('rotate', updateRouteMapCompassDirection)
+          map.on('idle', scheduleOverviewMarkerReconciliation)
 
           removeOverviewMapLayerArtifacts(map)
 
@@ -9463,6 +9514,10 @@ export function RoadMapPrototypeMap({
       if (overviewDensityFrameRef.current !== null) {
         window.cancelAnimationFrame(overviewDensityFrameRef.current)
         overviewDensityFrameRef.current = null
+      }
+      if (overviewMarkerReconcileFrameRef.current !== null) {
+        window.cancelAnimationFrame(overviewMarkerReconcileFrameRef.current)
+        overviewMarkerReconcileFrameRef.current = null
       }
       abortControllerRef(segmentRequestRef)
       abortControllerRef(routeBridgeRequestRef)
@@ -10513,6 +10568,13 @@ export function RoadMapPrototypeMap({
 
   function handlePlanRoute() {
     const hasExistingRoute = routeBridgeSummary !== null || routeHandoffOnlySummary !== null
+    const freeDriveOrigin = liveDriveModeRef.current === 'free-drive'
+      && routeLiveLocationPointRef.current
+      ? routeOriginFromLiveLocation(
+          routeLiveLocationPointRef.current,
+          t('currentLocationName'),
+        )
+      : null
     stopRouteLiveLocation()
     setLiveDriveModeState('off')
     setFreeDriveSetupOpen(false)
@@ -10522,12 +10584,18 @@ export function RoadMapPrototypeMap({
       handleEditRoute()
     } else {
       openRoutePlanningDestination()
+      if (freeDriveOrigin) {
+        setRouteFrom(freeDriveOrigin.name)
+        setFromResolved(freeDriveOrigin)
+      }
     }
     openRouteContext('information')
   }
 
   function handleOpenFreeDriveSetup() {
     if (!isAuthenticated) return
+    setRouteCautionWind('')
+    setRouteRedWind('')
     setRouteThresholdError(null)
     setFreeDriveSetupOpen(true)
   }
@@ -10546,6 +10614,8 @@ export function RoadMapPrototypeMap({
     overviewActiveModeRef.current = 'now'
     setOverviewActiveMode('now')
     openRouteContext('map')
+    reconcilePlaceMarkerVisibility()
+    scheduleOverviewMarkerReconciliation()
     startRouteLiveLocation('free-drive')
   }
 
@@ -10622,6 +10692,8 @@ export function RoadMapPrototypeMap({
         '',
         `${window.location.pathname}${remainingQuery ? `?${remainingQuery}` : ''}${window.location.hash}`,
       )
+      setRouteCautionWind('')
+      setRouteRedWind('')
       setFreeDriveSetupOpen(true)
       openRouteContext('information')
       return
@@ -11700,6 +11772,22 @@ export function RoadMapPrototypeMap({
                         setRouteThresholdError(null)
                       }}
                     />
+                    {savedRouteThresholds && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRouteCautionWind(String(savedRouteThresholds.cautionWindMs))
+                          setRouteRedWind(String(savedRouteThresholds.redWindMs))
+                          setRouteThresholdError(null)
+                        }}
+                        className="inline-flex min-h-10 items-center text-left text-xs font-medium text-primary underline underline-offset-2 transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {t('roadMapPrototypeRoutePlanningUseSavedThresholds', {
+                          caution: savedRouteThresholds.cautionWindMs,
+                          danger: savedRouteThresholds.redWindMs,
+                        })}
+                      </button>
+                    )}
                     {freeDriveThresholdValidationMessage && (
                       <p id="free-drive-threshold-error" role="alert" className="text-xs text-destructive">
                         {freeDriveThresholdValidationMessage}
@@ -11762,14 +11850,21 @@ export function RoadMapPrototypeMap({
               {!freeDriveSetupOpen && (<>
               <form ref={formRef} className="space-y-3" onSubmit={handleRouteBridgeSubmit}>
                 {routePlanningStep === 'idle' ? (
-                  <button
-                    type="button"
-                    onClick={openRoutePlanningDestination}
-                    className="flex min-h-11 w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-left text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  <section
+                    aria-labelledby="road-map-plan-trip-title"
+                    className="mb-4 rounded-xl border border-primary/25 bg-primary/5 p-3"
                   >
-                    <span>{t('roadMapPrototypeFreeDrivePlanInstead')}</span>
-                    <span aria-hidden="true">›</span>
-                  </button>
+                    <h2 id="road-map-plan-trip-title" className="text-sm font-semibold text-foreground">
+                      {t('roadMapPrototypeFreeDrivePlanInstead')}
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={openRoutePlanningDestination}
+                      className="mt-3 flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      {t('roadMapPrototypeFreeDrivePlanStart')}
+                    </button>
+                  </section>
                 ) : (
                   <div className="space-y-4">
                     <button

@@ -43,6 +43,11 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(messagesEn).toContain(
       '"roadMapPrototypeFreeDrivePlanInstead": "Or plan a trip"',
     )
+    expect(source).toContain('id="road-map-plan-trip-title"')
+    expect(source).toContain("t('roadMapPrototypeFreeDrivePlanStart')")
+    expect(messagesIs).toContain(
+      '"roadMapPrototypeFreeDrivePlanStart": "Skipuleggja ferð"',
+    )
     const startHandlerStart = source.indexOf('function beginFreeDrive()')
     const startHandlerEnd = source.indexOf('\n  function handleStartFreeDrive()', startHandlerStart)
     const startHandler = source.slice(startHandlerStart, startHandlerEnd)
@@ -159,10 +164,15 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     const handlerStart = source.indexOf('function handlePlanRoute()')
     const handlerEnd = source.indexOf('\n  function handleOpenFreeDriveSetup()', handlerStart)
     const handler = source.slice(handlerStart, handlerEnd)
+    expect(handler.indexOf('routeLiveLocationPointRef.current')).toBeLessThan(
+      handler.indexOf('stopRouteLiveLocation()'),
+    )
+    expect(handler).toContain('routeOriginFromLiveLocation(')
     expect(handler).toContain('stopRouteLiveLocation()')
     expect(handler).toContain("setLiveDriveModeState('off')")
     expect(handler).toContain('handleEditRoute()')
     expect(handler).toContain('openRoutePlanningDestination()')
+    expect(handler).toContain('setFromResolved(freeDriveOrigin)')
     expect(handler).toContain("openRouteContext('information')")
   })
 
@@ -268,14 +278,42 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(liveLocationControlsSource).toContain('onZoomChange: (delta: -1 | 1) => void')
   })
 
-  it('separates station freshness from shared wind status and lets the worst station represent a cluster', () => {
+  it('separates station freshness and keeps aggregate counts inside one wind status', () => {
     expect(liveStationSource).toContain('classifyLiveVegagerdinStationWindStatus(station, thresholds)')
-    expect(source).toContain('overviewMarkerStatus(selected, freeDrive)')
-    expect(source).toContain('overviewMarkerStatus(entry, freeDrive)')
+    expect(source).toContain('freeDriveAggregateStatus(rawStatus)')
+    expect(source).toContain('overviewStationClusterKey(spatialKey, status, freeDrive)')
+    expect(source).toContain('FREE_DRIVE_AGGREGATE_MARKER_OFFSETS[group.status]')
     expect(source).toContain('if (freeDrive) return String(entries.length)')
     expect(source).toContain('const freeDriveVisibleStatusesRef = useRef<Set<WindDisplayStatus>>(new Set())')
     expect(source).toContain('const effectiveStatuses = freeDrive ? freeDriveVisibleStatusesRef.current : statuses')
     expect(source).not.toContain('if (freeDrive) return `${formatNum(averageOverviewWindMs')
+  })
+
+  it('self-heals free-drive station markers and never clears them before map readiness', () => {
+    const markerEffectStart = source.indexOf("const useLivePresentation = liveDriveMode === 'free-drive'")
+    const markerEffectEnd = source.indexOf('\n  useEffect(() => {', markerEffectStart + 1)
+    const markerEffect = source.slice(markerEffectStart, markerEffectEnd)
+    expect(markerEffect.indexOf("if (!map?.isStyleLoaded() || !Marker)")).toBeLessThan(
+      markerEffect.indexOf('clearOverviewMarkerSet(overviewVegagerdinMarkersRef)'),
+    )
+    expect(markerEffect).toContain("map?.once('idle', retryWhenReady)")
+    expect(markerEffect).toContain('overviewMarkerReconcileVersion')
+
+    const hideStart = source.indexOf('function hideOverviewStationMarkers()')
+    const hideEnd = source.indexOf('\n  function setRouteLayerLayoutVisibility(', hideStart)
+    const hide = source.slice(hideStart, hideEnd)
+    expect(hide).toContain("if (liveDriveModeRef.current === 'free-drive')")
+    expect(hide).toContain('scheduleOverviewMarkerReconciliation()')
+    expect(source).toContain("map.on('idle', scheduleOverviewMarkerReconciliation)")
+  })
+
+  it('hides place names only at the free-drive country overview', () => {
+    const visibilityStart = source.indexOf('function reconcilePlaceMarkerVisibility()')
+    const visibilityEnd = source.indexOf('\n  function clearWeatherChaseMapMarkers()', visibilityStart)
+    const visibility = source.slice(visibilityStart, visibilityEnd)
+    expect(visibility).toContain("liveDriveModeRef.current === 'free-drive'")
+    expect(visibility).toContain("overviewDensityLevelForZoom(zoom) === 'aggregate'")
+    expect(visibility).toContain('!freeDriveCountryOverview')
   })
 
   it('uses the route station-card renderer on the map and removes the bespoke nearby drawer', () => {
@@ -309,6 +347,15 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).toContain('<LiveDriveThresholdFields')
     expect(source).toContain('idPrefix="free-drive"')
     expect(source).toContain('idPrefix="route-planning"')
+    const preferencesStart = source.indexOf("fetch('/api/teskeid/weather/preferences/thresholds'")
+    const preferencesEnd = source.indexOf('\n  useEffect(() => {', preferencesStart + 1)
+    const preferences = source.slice(preferencesStart, preferencesEnd)
+    expect(preferences).toContain('setSavedRouteThresholds')
+    expect(preferences).not.toContain('setRouteCautionWind(')
+    expect(preferences).not.toContain('setRouteRedWind(')
+    expect(source.slice(openSetup, beginDrive)).toContain("setRouteCautionWind('')")
+    expect(source.slice(openSetup, beginDrive)).toContain("setRouteRedWind('')")
+    expect(source.match(/roadMapPrototypeRoutePlanningUseSavedThresholds/g)?.length).toBeGreaterThanOrEqual(2)
   })
 
   it('stops tracking in the background and requires an explicit resume gesture', () => {

@@ -65,7 +65,10 @@ vi.mock('maplibre-gl', () => {
   }
 })
 
-import { DriveRouteMap } from '@/components/weather/DriveRouteMap'
+import {
+  DriveRouteMap,
+  driveRouteMapAnnotationDistanceLabel,
+} from '@/components/weather/DriveRouteMap'
 
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class {
@@ -86,6 +89,13 @@ beforeEach(() => {
 })
 
 describe('DriveRouteMap section annotations', () => {
+  it('keeps short non-zero sections visibly non-zero', () => {
+    expect(driveRouteMapAnnotationDistanceLabel(0.04, 'is-IS')).toBe('0,04')
+    expect(driveRouteMapAnnotationDistanceLabel(0.004, 'is-IS')).toBe('0,004')
+    expect(driveRouteMapAnnotationDistanceLabel(6.7, 'is-IS')).toBe('6,7')
+    expect(driveRouteMapAnnotationDistanceLabel(38.7, 'is-IS')).toBe('38,7')
+  })
+
   it('keeps compact section distances inside distinct markers and focuses the exact section', async () => {
     const longSection = [
       { lat: 64.1, lon: -21.9 },

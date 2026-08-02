@@ -245,6 +245,51 @@ describe('RouteComparisonMiniMap', () => {
 })
 
 describe('RouteComparisonFullscreenMap', () => {
+  it('shows a compact in-map legend only for annotation kinds on the selected route', () => {
+    render(
+      <RouteComparisonFullscreenMap
+        title="Veldu leið á korti"
+        applyLabel="Skoða veðurskilyrði"
+        cautionCloseLabel="Loka skýringu"
+        closeLabel="Loka leiðakorti"
+        routeCountLabel="2 leiðir"
+        sortLabel="Raða eftir"
+        sortDefaultLabel="Sjálfgefið"
+        sortDurationLabel="Aksturstíma"
+        sortDistanceLabel="Vegalengd"
+        sortWeatherLabel="Veðri núna"
+        selectedRouteId="teskeid"
+        onSelectRouteId={vi.fn()}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+        routes={[
+          {
+            id: 'teskeid',
+            label: 'Teskeiðarleið',
+            provider: 'teskeid',
+            points: POINTS,
+            selected: true,
+            sectionOverlays: [
+              { id: 'gravel', kind: 'gravel', label: 'Malarvegur', points: POINTS },
+              {
+                id: 'wind-gap',
+                kind: 'weather_coverage_gap',
+                label: 'Takmörkuð vindgögn',
+                points: POINTS,
+              },
+            ],
+          },
+          { id: 'google', label: 'Google-leið', provider: 'google', points: POINTS, selected: false },
+        ]}
+      />,
+    )
+
+    expect(screen.getByLabelText('Malarvegur, Takmörkuð vindgögn')).toBeInTheDocument()
+    expect(screen.getByText('Malarvegur')).toBeInTheDocument()
+    expect(screen.getByText('Takmörkuð vindgögn')).toBeInTheDocument()
+    expect(document.querySelector('[data-route-annotation-legend-icon="gravel"]')).toBeInTheDocument()
+  })
+
   it('resizes map annotation text and restores the saved preference', async () => {
     const labels = {
       mapLabelScaleGroupLabel: 'Textastærð merkja á korti',

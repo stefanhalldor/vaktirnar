@@ -1577,6 +1577,7 @@
         "roadMapPrototypeFreeDriveSignIn": "Skrá inn og fara af stað",
         "roadMapPrototypeFreeDrivePrivacySafety": "Staðsetningin er aðeins notuð í tækinu til að færa kortið og er ekki vistuð. Ekki stilla kortið á ferð.",
         "roadMapPrototypeFreeDrivePlanInstead": "Eða skipuleggja ferð",
+        "roadMapPrototypeFreeDrivePlanStart": "Skipuleggja ferð",
         "roadMapPrototypeFreeDriveActiveTitle": "Á ferðinni",
         "roadMapPrototypeFreeDriveStop": "Stöðva",
         "roadMapPrototypeFreeDrivePaused": "Staðsetning var stöðvuð þegar appið fór í bakgrunn. Haltu áfram með beinum smelli.",

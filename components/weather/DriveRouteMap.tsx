@@ -101,9 +101,15 @@ export function driveRouteMapAnnotationDistanceLabel(
   distanceKm: number,
   locale = 'is-IS',
 ) {
+  const maximumFractionDigits = distanceKm > 0 && distanceKm < 0.01
+    ? 3
+    : distanceKm < 0.1
+      ? 2
+      : 1
+  const minimumFractionDigits = distanceKm < 10 ? maximumFractionDigits : 0
   return new Intl.NumberFormat(locale, {
-    minimumFractionDigits: distanceKm < 10 ? 1 : 0,
-    maximumFractionDigits: 1,
+    minimumFractionDigits,
+    maximumFractionDigits,
   }).format(distanceKm)
 }
 
