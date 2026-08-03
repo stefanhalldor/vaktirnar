@@ -37,6 +37,7 @@ vi.mock('next-intl/server', () => ({
         featuresTitle:        'Teskeiðar',
         readyTeskeidarTitle:  'Tilbúnar Teskeiðar',
         readyTeskeidOpen:     'Opna',
+        weatherCardDescription: 'Þitt veðurkort ásamt akstri með tilliti til færðar',
         homeIdeasDrawerOpen:  'Skoða hugmyndir',
         homeIdeasDrawerClose: 'Fela hugmyndir',
         loansTitle:           'Lánað og skilað',
@@ -1233,6 +1234,7 @@ describe('HeimPage — Veðrið card access', () => {
     setupGuard(true, false, false) // vedridAccess=false
     render(await HeimPage())
     expect(screen.getByText('Veðrið')).toBeDefined()
+    expect(screen.getByText('Þitt veðurkort ásamt akstri með tilliti til færðar')).toBeDefined()
     const link = screen.getByText('Veðrið').closest('a') ?? screen.getAllByRole('link').find(l => l.getAttribute('href') === '/auth-mvp/vedrid')
     expect(link?.getAttribute('href')).toBe('/auth-mvp/vedrid')
   })

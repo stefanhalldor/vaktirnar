@@ -39,6 +39,10 @@ function markerTitle(label: string, statusLabel?: string): string {
   return statusLabel ? `${label} (${statusLabel})` : label
 }
 
+function markerLabel(text?: string): google.maps.MarkerLabel | undefined {
+  return text ? { text, color: '#ffffff', fontSize: '11px', fontWeight: '700' } : undefined
+}
+
 interface IcelandOverviewMapProps {
   layers: ProviderMapLayer[]
   selected: SelectedProviderMarker | null
@@ -173,6 +177,7 @@ export function IcelandOverviewMap({
           position: { lat: m.lat, lng: m.lon },
           map,
           icon: makeMarkerIcon(m.tone, isSelected, m.markerColor),
+          label: markerLabel(m.markerLabel),
           title: markerTitle(m.label, m.statusLabel),
           visible: m.visible !== false,
           zIndex: isSelected ? 20 : TONE_ZINDEX[m.tone],
@@ -214,6 +219,7 @@ export function IcelandOverviewMap({
         const isSelected = selected?.layerId === layer.layerId && selected?.markerId === m.id
         marker.setVisible(m.visible !== false)
         marker.setIcon(makeMarkerIcon(m.tone, isSelected, m.markerColor))
+        marker.setLabel(markerLabel(m.markerLabel) ?? null)
         marker.setZIndex(isSelected ? 20 : TONE_ZINDEX[m.tone])
         marker.setTitle(markerTitle(m.label, m.statusLabel))
       }

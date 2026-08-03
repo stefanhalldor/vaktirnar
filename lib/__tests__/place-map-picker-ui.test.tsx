@@ -169,7 +169,9 @@ describe('PlaceMapPicker', () => {
     const address = screen.getByText('611 Grímsey · Akureyrarbær')
     fireEvent.click(address.closest('button')!)
     expect(mapInstances[0].lastEaseTo?.center).toEqual([-18.0053, 66.5362])
-    fireEvent.click(screen.getByRole('button', { name: 'Use this place' }))
+    const confirmButton = screen.getByRole('button', { name: 'Use this place' })
+    expect(confirmButton.closest('.overflow-y-auto')).toBeNull()
+    fireEvent.click(confirmButton)
 
     expect(onSelect).toHaveBeenCalledOnce()
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({

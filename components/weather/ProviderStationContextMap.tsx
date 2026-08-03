@@ -1,7 +1,7 @@
 'use client'
 
 import { IcelandOverviewMap } from '@/components/weather/IcelandOverviewMap'
-import type { ProviderMapLayer, ProviderMapMarkerTone } from '@/lib/weather/types'
+import type { ProviderMapLayer, ProviderMapMarkerTone, SelectedProviderMarker } from '@/lib/weather/types'
 
 // ── Public contract ─────────────────────────────────────────────────────────
 
@@ -17,6 +17,8 @@ export type StationContextMarker = {
   tone: ProviderMapMarkerTone
   /** Optional short descriptor appended to name in legend, e.g. distance '18.3 km'. */
   meta?: string
+  /** Optional short text rendered inside the map marker. */
+  markerLabel?: string
 }
 
 interface ProviderStationContextMapProps {
@@ -28,6 +30,8 @@ interface ProviderStationContextMapProps {
   errorLabel: string
   /** Tailwind classes for the map container div. */
   className?: string
+  selected?: SelectedProviderMarker | null
+  onSelect?: (selected: SelectedProviderMarker | null) => void
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -48,6 +52,8 @@ export function ProviderStationContextMap({
   loadingLabel,
   errorLabel,
   className = 'h-[160px] sm:h-[200px] w-full',
+  selected = null,
+  onSelect = () => {},
 }: ProviderStationContextMapProps) {
   // Group related markers by providerId to build per-provider map layers.
   const relatedGroups = new Map<string, StationContextMarker[]>()
@@ -66,6 +72,7 @@ export function ProviderStationContextMap({
         lon: primary.lon,
         label: primary.label,
         tone: primary.tone,
+        markerLabel: primary.markerLabel,
         visible: true,
       }],
     },
@@ -78,6 +85,7 @@ export function ProviderStationContextMap({
         lon: s.lon,
         label: s.label,
         tone: s.tone,
+        markerLabel: s.markerLabel,
         visible: true,
       })),
     })),
@@ -86,8 +94,8 @@ export function ProviderStationContextMap({
   return (
     <IcelandOverviewMap
       layers={layers}
-      selected={null}
-      onSelect={() => {}}
+      selected={selected}
+      onSelect={onSelect}
       loadingLabel={loadingLabel}
       errorLabel={errorLabel}
       className={className}

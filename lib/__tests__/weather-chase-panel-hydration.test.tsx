@@ -2,18 +2,39 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/components/weather/PlaceMapPicker', () => ({
-  PlaceMapPicker: ({
-    onSelect,
-  }: {
-    onSelect: (place: { name: string; lat: number; lon: number }) => void
+vi.mock('@/components/weather/PlaceSearch', () => ({
+  PlaceSearch: ({ onPlaceSelected }: {
+    onPlaceSelected: (place: { name: string; lat: number; lon: number }) => void
   }) => (
     <button
       type="button"
-      onClick={() => onSelect({ name: 'Víðibakki', lat: 63.90234, lon: -20.41234 })}
+      onClick={() => onPlaceSelected({ name: 'Víðibakki', lat: 63.90234, lon: -20.41234 })}
     >
-      Velja eigin Yr punkt
+      Velja stað úr leit
     </button>
+  ),
+}))
+
+vi.mock('@/components/weather/ProviderStationContextMap', () => ({
+  ProviderStationContextMap: ({ related, selected, onSelect }: {
+    related: Array<{ id: string; providerId: string; markerLabel?: string }>
+    selected?: { markerId: string } | null
+    onSelect?: (selected: { layerId: string; markerId: string }) => void
+  }) => (
+    <div data-testid="provider-context-map" data-selected-marker={selected?.markerId ?? ''}>
+      {related.map(marker => (
+        <button
+          key={marker.id}
+          type="button"
+          onClick={() => onSelect?.({
+            layerId: `${marker.providerId}-nearby`,
+            markerId: marker.id,
+          })}
+        >
+          Kortapunktur {marker.markerLabel}
+        </button>
+      ))}
+    </div>
   ),
 }))
 
@@ -24,12 +45,13 @@ import {
   type WeatherChaseItem,
   type WeatherChasePreferenceItem,
 } from '@/components/weather/WeatherChasePanel'
+import { nearestWeatherChaseContextItems } from '@/components/weather/WeatherChasePlaceFlow'
 
 const labels = new Proxy({}, {
   get: (_target, property) => String(property),
 }) as ComponentProps<typeof WeatherChasePanel>['labels']
 
-const labelsWith = (overrides: Record<string, string>) => new Proxy(overrides, {
+const labelsWith = (overrides: Record<string, unknown>) => new Proxy(overrides, {
   get: (target, property) => (
     Reflect.has(target, property)
       ? Reflect.get(target, property)
@@ -61,17 +83,77 @@ const items: WeatherChaseItem[] = [
 ]
 
 describe('WeatherChasePanel preference hydration', () => {
-  it('creates and selects a stable custom Yr point from the map picker', () => {
+  it('sorts and caps nearby provider context independently at three items', () => {
+    const providerItems: WeatherChaseItem[] = [
+      ...Array.from({ length: 4 }, (_, index): WeatherChaseItem => ({
+        id: `vedurstofan:${index}`,
+        label: `Veðurstofa ${index}`,
+        providerId: 'vedurstofan',
+        providerLabel: 'Veðurstofa Íslands',
+        rows: index === 3 ? [] : [{} as never],
+        lat: 64 + index * 0.1,
+        lon: -21,
+      })),
+      ...Array.from({ length: 4 }, (_, index): WeatherChaseItem => ({
+        id: `metno:canonical-${index}`,
+        label: `Yr ${index}`,
+        providerId: 'metno',
+        providerLabel: 'Yr / met.no',
+        rows: [],
+        lat: 64 + index * 0.1,
+        lon: -20,
+      })),
+      {
+        id: 'metno:custom:64.000:-20.000',
+        label: 'Eigin punktur',
+        providerId: 'metno',
+        providerLabel: 'Yr / met.no',
+        rows: [],
+        lat: 64,
+        lon: -20,
+      },
+    ]
+
+    const reference = { lat: 64, lon: -21, name: 'Valinn staður' } as never
+    const vedurstofan = nearestWeatherChaseContextItems(reference, providerItems, 'vedurstofan')
+    const metno = nearestWeatherChaseContextItems(reference, providerItems, 'metno')
+
+    expect(vedurstofan.map(item => item.id)).toEqual([
+      'vedurstofan:0',
+      'vedurstofan:1',
+      'vedurstofan:2',
+    ])
+    expect(metno).toHaveLength(3)
+    expect(metno.map(item => item.id)).not.toContain('metno:custom:64.000:-20.000')
+  })
+
+  it('creates and selects a stable custom Yr point from canonical place search', () => {
     const onAddCustomMetnoPlace = vi.fn()
     render(
       <WeatherChasePanel
         items={items}
         initialSelectedIds={[items[0].id]}
         labels={labelsWith({
-          addCustomMetnoLabel: 'Bæta við eigin Yr stað',
-          customMetnoNameTitle: 'Gefðu Yr staðnum nafn',
-          customMetnoNameLabel: 'Nafn',
-          customMetnoNameSave: 'Vista Yr stað',
+          addCustomMetnoLabel: 'Bæta við spástöð',
+          placeFlow: {
+            chooseTitle: 'Veldu stað',
+            chooseHint: 'Leitaðu að stað.',
+            searchPlaceholder: 'Leita',
+            confirmTitle: 'Spástöðvar nálægt staðnum',
+            selectedPointLabel: 'Valinn Yr spápunktur',
+            nearbyTitle: 'Nálægt',
+            distanceLabel: 'Fjarlægð',
+            noVedurstofanLabel: 'Engar stöðvar',
+            backLabel: 'Velja annan stað',
+            cancelLabel: 'Hætta við',
+            saveLabel: 'Vista sem eigin Yr spápunkt',
+            mapLoadingLabel: 'Hleð korti',
+            mapErrorLabel: 'Kortvilla',
+            metnoProviderLabel: 'Yr / met.no',
+            addNearbyPrompt: (place: string) => `Viltu bæta ${place} við þínar veðurstöðvar?`,
+            addNearbyCancelLabel: 'Hætta við',
+            addNearbyConfirmLabel: 'Bæta við',
+          },
         })}
         locale="is"
         defaultSettingsOpen
@@ -79,19 +161,17 @@ describe('WeatherChasePanel preference hydration', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Bæta við eigin Yr stað' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Velja eigin Yr punkt' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við spástöð' }))
+    expect(screen.getByText('Veldu stað')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Velja stað úr leit' }))
     expect(onAddCustomMetnoPlace).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog', { name: 'Gefðu Yr staðnum nafn' })).toBeInTheDocument()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Nafn' }), {
-      target: { value: 'Suðurhagi' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Vista Yr stað' }))
+    expect(screen.getByTestId('provider-context-map')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Vista sem eigin Yr spápunkt' }))
 
     expect(onAddCustomMetnoPlace).toHaveBeenCalledWith({
       id: 'metno:custom:63.902:-20.412',
       providerId: 'metno',
-      label: 'Suðurhagi',
+      label: 'Víðibakki',
       lat: 63.902,
       lon: -20.412,
     })
@@ -103,6 +183,118 @@ describe('WeatherChasePanel preference hydration', () => {
       id: 'metno:custom:64.100:-21.900',
       label: 'Bærinn',
     })
+  })
+
+  it('shows ten numbered nearby points and lets the list select the matching map marker', () => {
+    const nearbyItems = Array.from({ length: 12 }, (_, index): WeatherChaseItem => ({
+      id: `metno:nearby-${index}`,
+      label: `Yr punktur ${index + 1}`,
+      providerId: 'metno',
+      providerLabel: 'Yr / met.no',
+      rows: [],
+      lat: 63.90234 + index * 0.01,
+      lon: -20.41234,
+    }))
+
+    render(
+      <WeatherChasePanel
+        items={nearbyItems}
+        initialSelectedIds={[]}
+        labels={labelsWith({
+          addCustomMetnoLabel: 'Bæta við spástöð',
+          placeFlow: {
+            chooseTitle: 'Veldu stað',
+            chooseHint: 'Leitaðu að stað.',
+            searchPlaceholder: 'Leita',
+            confirmTitle: 'Spástöðvar nálægt staðnum',
+            selectedPointLabel: 'Valinn Yr spápunktur',
+            nearbyTitle: 'Nálægt',
+            distanceLabel: 'Fjarlægð',
+            noVedurstofanLabel: 'Engar stöðvar',
+            backLabel: 'Velja annan stað',
+            cancelLabel: 'Hætta við',
+            saveLabel: 'Vista sem eigin Yr spápunkt',
+            mapLoadingLabel: 'Hleð korti',
+            mapErrorLabel: 'Kortvilla',
+            metnoProviderLabel: 'Yr / met.no',
+            addNearbyPrompt: (place: string) => `Viltu bæta ${place} við þínar veðurstöðvar?`,
+            addNearbyCancelLabel: 'Hætta við',
+            addNearbyConfirmLabel: 'Bæta við',
+          },
+        })}
+        locale="is"
+        defaultSettingsOpen
+        onAddCustomMetnoPlace={vi.fn()}
+        onSelectedItemsChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við spástöð' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Velja stað úr leit' }))
+
+    const nearbyList = screen.getByTestId('nearby-weather-points')
+    const listButtons = within(nearbyList).getAllByRole('button', { name: /Yr punktur \d+/ })
+    expect(listButtons).toHaveLength(10)
+    expect(within(listButtons[0]).getByText('1')).toBeInTheDocument()
+    expect(within(listButtons[9]).getByText('10')).toBeInTheDocument()
+
+    fireEvent.click(listButtons[4])
+    expect(listButtons[4]).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Viltu bæta Yr punktur 5 við þínar veðurstöðvar?',
+    )
+    expect(screen.getByTestId('provider-context-map')).toHaveAttribute(
+      'data-selected-marker',
+      'metno:nearby-4',
+    )
+
+    const map = screen.getByTestId('provider-context-map')
+    const save = screen.getByRole('button', { name: 'Vista sem eigin Yr spápunkt' })
+    expect(map.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('adds the confirmed nearby station to the selected weather stations', async () => {
+    const onSelectedItemsChange = vi.fn()
+    const nearby = {
+      id: 'metno:husavik',
+      label: 'Húsavík',
+      providerId: 'metno' as const,
+      providerLabel: 'Yr / met.no',
+      rows: [],
+      lat: 66.0449,
+      lon: -17.3389,
+    }
+    render(
+      <WeatherChasePanel
+        items={[nearby]}
+        initialSelectedIds={[]}
+        labels={labelsWith({
+          addCustomMetnoLabel: 'Bæta við spástöð',
+          placeFlow: {
+            chooseTitle: 'Veldu stað', chooseHint: 'Leitaðu.', searchPlaceholder: 'Leita',
+            confirmTitle: 'Nálægt', selectedPointLabel: 'Valinn punktur', nearbyTitle: 'Nálægt',
+            distanceLabel: 'Fjarlægð', noVedurstofanLabel: 'Engar stöðvar',
+            backLabel: 'Til baka', cancelLabel: 'Hætta við',
+            saveLabel: 'Vista sem eigin Yr spápunkt', mapLoadingLabel: 'Hleð',
+            mapErrorLabel: 'Villa', metnoProviderLabel: 'Yr / met.no',
+            addNearbyPrompt: (place: string) => `Viltu bæta ${place} við þínar veðurstöðvar?`,
+            addNearbyCancelLabel: 'Hætta við', addNearbyConfirmLabel: 'Bæta við',
+          },
+        })}
+        locale="is"
+        defaultSettingsOpen
+        onAddCustomMetnoPlace={vi.fn()}
+        onSelectedItemsChange={onSelectedItemsChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við spástöð' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Velja stað úr leit' }))
+    fireEvent.click(within(screen.getByTestId('nearby-weather-points')).getByRole('button', { name: /Húsavík/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við' }))
+
+    await waitFor(() => expect(onSelectedItemsChange).toHaveBeenLastCalledWith([nearby]))
+    expect(screen.queryByText('Viltu bæta Húsavík við þínar veðurstöðvar?')).not.toBeInTheDocument()
   })
 
   it('keeps a newly created Yr point inside the seven visible autosave slots', () => {
@@ -191,6 +383,47 @@ describe('WeatherChasePanel preference hydration', () => {
 
     expect(await screen.findAllByText('Sögugildi vantar')).not.toHaveLength(0)
     expect(screen.getAllByText('Spá vantar')).not.toHaveLength(0)
+  })
+
+  it('uses the custom-point history explanation only for custom points', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const tomorrowDate = new Date(`${today}T00:00:00.000Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+    const row = {
+      timeIso: `${tomorrow}T00:00:00.000Z`,
+      status: 'graent' as const,
+      temperature: { value: 10, direction: 'none' as const, tone: 'neutral' as const },
+      wind: { value: 3, direction: 'none' as const, tone: 'neutral' as const },
+      gust: { value: 3, direction: 'none' as const, tone: 'neutral' as const, severity: 'none' as const },
+      precipitation: { value: 0, direction: 'none' as const, tone: 'neutral' as const },
+    }
+    const custom: WeatherChaseItem = {
+      id: 'metno:custom:64.100:-21.900',
+      label: 'Eigin punktur',
+      providerId: 'metno',
+      providerLabel: 'Yr / met.no',
+      rows: [row],
+      lat: 64.1,
+      lon: -21.9,
+      supportsHistory: false,
+    }
+    render(
+      <WeatherChasePanel
+        items={[custom]}
+        initialSelectedIds={[custom.id]}
+        labels={labelsWith({
+          missingHistoryValue: 'Sögugildi vantar',
+          customHistoryUnavailable: 'Sögugildi ekki í boði fyrir eigin spápunkta',
+          missingForecastValue: 'Spá vantar',
+        })}
+        locale="is"
+        visibleHours={[0]}
+      />,
+    )
+
+    expect(screen.getAllByText('Sögugildi ekki í boði fyrir eigin spápunkta')).not.toHaveLength(0)
+    expect(screen.queryByText('Sögugildi vantar')).not.toBeInTheDocument()
   })
 
   it('adds a passed selected hour for today instead of starting tomorrow', async () => {
@@ -684,40 +917,6 @@ describe('WeatherChasePanel preference hydration', () => {
     expect(screen.getByText('Veðurstofustöð')).toBeInTheDocument()
     expect(screen.getAllByText('Sæki spá...')).toHaveLength(2)
     expect(screen.queryByText('… Sæki spá...')).not.toBeInTheDocument()
-  })
-
-  it('opens public settings by default and offers the secondary save action after adding a place', async () => {
-    const scrollIntoView = vi.fn()
-    Object.defineProperty(Element.prototype, 'scrollIntoView', {
-      configurable: true,
-      value: scrollIntoView,
-    })
-    const onSaveDefault = vi.fn()
-
-    render(
-      <WeatherChasePanel
-        items={items}
-        initialSelectedIds={['vedurstofan:1']}
-        labels={labels}
-        locale="is"
-        onSaveDefault={onSaveDefault}
-        defaultSettingsOpen
-        visibleHours={[12]}
-      />,
-    )
-
-    const search = screen.getByLabelText('searchLabel')
-    fireEvent.focus(search)
-    fireEvent.change(search, { target: { value: 'Önnur' } })
-    fireEvent.click(await screen.findByRole('button', { name: /Önnur stöð/ }))
-
-    const saveForecast = await screen.findByRole('button', { name: 'savePlacesLabel' })
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
-    fireEvent.click(saveForecast)
-
-    expect(onSaveDefault).toHaveBeenCalledTimes(1)
-    expect(onSaveDefault.mock.calls[0]?.[0].selectedItems.map((item: WeatherChasePreferenceItem) => item.id))
-      .toEqual(['vedurstofan:1', 'vedurstofan:2'])
   })
 
   it('applies defaults when hydration resolves from loading to no saved preferences', async () => {

@@ -1,6 +1,5 @@
 'use client'
 
-import * as Dialog from '@radix-ui/react-dialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ForecastDrawerRow, ResolvedTravelThresholds } from '@/lib/weather/types'
 import {
@@ -12,8 +11,8 @@ import {
 import { formatNum } from '@/components/weather/travelAuditMap.helpers'
 import { cn } from '@/lib/utils'
 import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
-import { PlaceMapPicker } from './PlaceMapPicker'
 import type { PlaceResult } from './PlaceSearch'
+import { WeatherChasePlaceFlow, type WeatherChasePlaceFlowLabels } from './WeatherChasePlaceFlow'
 
 export type WeatherChaseProviderId = 'vedurstofan' | 'metno' | 'vegagerdin'
 
@@ -68,6 +67,7 @@ type WeatherChaseLabels = {
   loading: string
   stillLoading: string
   missingHistoryValue: string
+  customHistoryUnavailable: string
   missingForecastValue: string
   emptyData: string
   searchLabel: string
@@ -122,6 +122,7 @@ type WeatherChaseLabels = {
   customMetnoNamePlaceholder: string
   customMetnoNameCancel: string
   customMetnoNameSave: string
+  placeFlow: WeatherChasePlaceFlowLabels
   autoSaveSavingLabel: string
   autoSaveSavedLabel: string
   autoSaveFailedLabel: string
@@ -201,14 +202,6 @@ const DEFAULT_WEATHER_CHASE_CRITERIA: WeatherChaseCriteria = {
   maxWindMs: null,
   maxPrecipitationMmPerHour: null,
 }
-function normalizeSearch(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase('is')
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-}
-
 function windMetricClass(
   value: number,
   peerValues: number[],
@@ -394,6 +387,7 @@ function MetricStack({
   criteria,
   labels,
   showMedals,
+  historyUnavailable,
 }: {
   row: ForecastDrawerRow | null
   targetIso: string
@@ -408,9 +402,11 @@ function MetricStack({
     | 'precipitationUnit'
     | 'stillLoading'
     | 'missingHistoryValue'
+    | 'customHistoryUnavailable'
     | 'missingForecastValue'
   >
   showMedals?: boolean
+  historyUnavailable?: boolean
 }) {
   if (!row) {
     if (pending) {
@@ -421,7 +417,7 @@ function MetricStack({
       )
     }
     const missingLabel = Date.parse(targetIso) < Date.now()
-      ? labels.missingHistoryValue
+      ? historyUnavailable ? labels.customHistoryUnavailable : labels.missingHistoryValue
       : labels.missingForecastValue
     return (
       <span className="block text-[10px] leading-tight text-muted-foreground/55">
@@ -535,8 +531,6 @@ export function WeatherChasePanel({
   onAddCustomMetnoPlace,
   onRetrySave,
 }: Props) {
-  const [query, setQuery] = useState('')
-  const [searchFocused, setSearchFocused] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(defaultSettingsOpen)
   const [internalPlacesChanged, setInternalPlacesChanged] = useState(false)
   const [criteriaChanged, setCriteriaChanged] = useState(false)
@@ -553,18 +547,12 @@ export function WeatherChasePanel({
   const [windowStartDay, setWindowStartDay] = useState(() => utcDayKey())
   const [loadingRowIds, setLoadingRowIds] = useState<Set<string>>(new Set())
   const [failedRowIds, setFailedRowIds] = useState<Set<string>>(new Set())
-  const [customMetnoPickerOpen, setCustomMetnoPickerOpen] = useState(false)
-  const [pendingCustomMetnoPlace, setPendingCustomMetnoPlace] = useState<PlaceResult | null>(null)
-  const [customMetnoNameDraft, setCustomMetnoNameDraft] = useState('')
+  const [customPlaceFlowOpen, setCustomPlaceFlowOpen] = useState(false)
   const visibleHours = normalizeWeatherChaseVisibleHours(visibleHoursInput)
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
-  const searchBlurTimerRef = useRef<number | null>(null)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
-  const panelBottomRef = useRef<HTMLDivElement | null>(null)
   const comparisonScrollRef = useRef<HTMLDivElement | null>(null)
   const comparisonHeaderTrackRef = useRef<HTMLDivElement | null>(null)
   const comparisonRegionRef = useRef<HTMLDivElement | null>(null)
-  const shouldScrollToAddedPlaceRef = useRef(false)
   const shouldJumpToHistoryStartRef = useRef(false)
   const skipInitialSettingsScrollRef = useRef(defaultSettingsOpen)
   const appliedDefaultsKeyRef = useRef<string | null>(null)
@@ -789,27 +777,6 @@ export function WeatherChasePanel({
     )
   }
 
-  const normalizedQuery = normalizeSearch(query)
-  const suggestions = useMemo(() => {
-    if (normalizedQuery.length === 0) return []
-    return items
-      .filter(item => {
-        if (selectedIdSet.has(item.id)) return false
-        const haystack = normalizeSearch(`${item.label} ${item.providerLabel} ${item.sourceLabel ?? ''}`)
-        return haystack.includes(normalizedQuery)
-      })
-      .sort((a, b) => {
-        const aLabel = normalizeSearch(a.label)
-        const bLabel = normalizeSearch(b.label)
-        const aStarts = aLabel.startsWith(normalizedQuery) ? 0 : 1
-        const bStarts = bLabel.startsWith(normalizedQuery) ? 0 : 1
-        return aStarts - bStarts || a.label.localeCompare(b.label, 'is') || a.providerLabel.localeCompare(b.providerLabel, 'is')
-      })
-      .slice(0, 10)
-  }, [items, normalizedQuery, selectedIdSet])
-
-  const showSuggestions = searchFocused && normalizedQuery.length > 0
-
   const todayDay = utcDayKey()
   const lastVisibleDay = useMemo(() => {
     let latest = todayDay
@@ -848,20 +815,9 @@ export function WeatherChasePanel({
     setWindowStartDay(historyAvailableFromDay)
   }
 
-  function clearSearchBlurTimer() {
-    if (searchBlurTimerRef.current) {
-      window.clearTimeout(searchBlurTimerRef.current)
-      searchBlurTimerRef.current = null
-    }
-  }
-
   function addItem(id: string) {
-    clearSearchBlurTimer()
-    setSelectedIds(prev => (prev.includes(id) ? prev : [...prev, id]))
-    setQuery('')
-    setSearchFocused(false)
+    setSelectedIds(previous => previous.includes(id) ? previous : [...previous, id])
     setPlacesChanged(true)
-    shouldScrollToAddedPlaceRef.current = true
   }
 
   function toggleVisibleHour(hour: WeatherChaseVisibleHour) {
@@ -922,14 +878,6 @@ export function WeatherChasePanel({
   }, [settingsOpen])
 
   useEffect(() => {
-    if (!shouldScrollToAddedPlaceRef.current) return
-    shouldScrollToAddedPlaceRef.current = false
-    window.setTimeout(() => {
-      panelBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }, 0)
-  }, [selectedItems])
-
-  useEffect(() => {
     if (
       !shouldJumpToHistoryStartRef.current
       || windowStartDay >= todayDay
@@ -942,10 +890,6 @@ export function WeatherChasePanel({
     }
     comparisonRegionRef.current?.focus({ preventScroll: true })
   }, [compactCols, historyLoadedStartDay, todayDay, windowStartDay])
-
-  useEffect(() => {
-    return () => clearSearchBlurTimer()
-  }, [])
 
   function updatePrecipitationCriteriaFromText(value: string) {
     const parsed = criteriaNumber(value)
@@ -1246,6 +1190,7 @@ export function WeatherChasePanel({
                           criteria={activeCriteria}
                           labels={labels}
                           showMedals={showMedals}
+                          historyUnavailable={item.supportsHistory === false}
                         />
                       </div>
                     )
@@ -1333,6 +1278,7 @@ export function WeatherChasePanel({
                         criteria={activeCriteria}
                         labels={labels}
                         showMedals={showMedals}
+                        historyUnavailable={item.supportsHistory === false}
                       />
                     </div>
                   )
@@ -1552,62 +1498,33 @@ export function WeatherChasePanel({
 
             <div className="rounded-lg border border-border/70 bg-background/75 p-3">
               <h3 className="mb-3 text-sm font-semibold text-foreground">{labels.stationsTitle}</h3>
-              <div className="relative mb-4 space-y-1">
-                <label htmlFor="weather-chase-search" className="text-xs font-medium text-foreground">
-                  {labels.searchLabel}
-                </label>
-                <input
-                  ref={searchInputRef}
-                  id="weather-chase-search"
-                  type="search"
-                  value={query}
-                  onChange={event => setQuery(event.target.value)}
-                  onFocus={() => {
-                    clearSearchBlurTimer()
-                    setSearchFocused(true)
-                  }}
-                  onBlur={() => {
-                    clearSearchBlurTimer()
-                    searchBlurTimerRef.current = window.setTimeout(() => {
-                      setSearchFocused(false)
-                      searchBlurTimerRef.current = null
-                    }, 120)
-                  }}
-                  placeholder={labels.searchPlaceholder}
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
-                />
-                {showSuggestions && (
-                  <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-background p-1 shadow-lg">
-                    {suggestions.length === 0 ? (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">{labels.noSuggestions}</p>
-                    ) : suggestions.map(item => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onMouseDown={event => event.preventDefault()}
-                        onClick={() => addItem(item.id)}
-                        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold text-foreground">{item.label}</span>
-                          {item.sourceLabel && (
-                            <span className="block truncate text-[11px] text-muted-foreground">{item.sourceLabel}</span>
-                          )}
-                        </span>
-                        <ProviderBadge item={item} />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {onAddCustomMetnoPlace && (
+              {onAddCustomMetnoPlace && !customPlaceFlowOpen && (
                 <button
                   type="button"
-                  onClick={() => setCustomMetnoPickerOpen(true)}
+                  onClick={() => setCustomPlaceFlowOpen(true)}
                   className="mb-3 flex min-h-11 w-full items-center justify-center rounded-lg border border-primary/35 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {labels.addCustomMetnoLabel}
                 </button>
+              )}
+              {onAddCustomMetnoPlace && customPlaceFlowOpen && (
+                <div className="mb-3">
+                  <WeatherChasePlaceFlow
+                    items={items}
+                    labels={labels.placeFlow}
+                    locale={locale}
+                    onCancel={() => setCustomPlaceFlowOpen(false)}
+                    onSave={place => {
+                      onAddCustomMetnoPlace(customMetnoPreferenceItemFromPlace(place))
+                      setPlacesChanged(true)
+                      setCustomPlaceFlowOpen(false)
+                    }}
+                    onAddNearbyItem={item => {
+                      addItem(item.id)
+                      setCustomPlaceFlowOpen(false)
+                    }}
+                  />
+                </div>
               )}
               {renderReorderList()}
               {!onSaveDefault && saveStatus !== 'idle' && (
@@ -1657,82 +1574,9 @@ export function WeatherChasePanel({
                 </div>
               )}
             </div>
-            <div ref={panelBottomRef} aria-hidden="true" />
           </div>
         )}
       </section>
-      {customMetnoPickerOpen && (
-        <PlaceMapPicker
-          places={[]}
-          onClose={() => setCustomMetnoPickerOpen(false)}
-          onSelect={place => {
-            setPendingCustomMetnoPlace(place)
-            setCustomMetnoNameDraft(place.name.trim())
-            setCustomMetnoPickerOpen(false)
-          }}
-        />
-      )}
-      <Dialog.Root
-        open={pendingCustomMetnoPlace !== null}
-        onOpenChange={open => {
-          if (!open) {
-            setPendingCustomMetnoPlace(null)
-            setCustomMetnoNameDraft('')
-          }
-        }}
-      >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[359] bg-black/45" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[360] w-[calc(100%-1.5rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-background p-4 shadow-xl outline-none">
-            <Dialog.Title className="text-base font-semibold text-foreground">
-              {labels.customMetnoNameTitle}
-            </Dialog.Title>
-            <form
-              className="mt-4 space-y-4"
-              onSubmit={event => {
-                event.preventDefault()
-                const label = customMetnoNameDraft.trim()
-                if (!pendingCustomMetnoPlace || !label) return
-                onAddCustomMetnoPlace?.(
-                  customMetnoPreferenceItemFromPlace(pendingCustomMetnoPlace, label),
-                )
-                setPlacesChanged(true)
-                setPendingCustomMetnoPlace(null)
-                setCustomMetnoNameDraft('')
-              }}
-            >
-              <label className="block space-y-1.5 text-sm font-medium text-foreground">
-                <span>{labels.customMetnoNameLabel}</span>
-                <input
-                  type="text"
-                  value={customMetnoNameDraft}
-                  onChange={event => setCustomMetnoNameDraft(event.target.value)}
-                  placeholder={labels.customMetnoNamePlaceholder}
-                  maxLength={120}
-                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/30"
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <Dialog.Close asChild>
-                  <button
-                    type="button"
-                    className="min-h-11 rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {labels.customMetnoNameCancel}
-                  </button>
-                </Dialog.Close>
-                <button
-                  type="submit"
-                  disabled={!customMetnoNameDraft.trim()}
-                  className="min-h-11 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {labels.customMetnoNameSave}
-                </button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
     </>
   )
 }

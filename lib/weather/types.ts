@@ -426,6 +426,8 @@ export interface ProviderMapMarker {
   lon: number
   label: string
   tone: ProviderMapMarkerTone
+  /** Optional short text rendered inside the marker, such as a list index. */
+  markerLabel?: string
   /**
    * Hex fill color override (e.g. '#f97316'). When set, takes precedence over the
    * tone-derived fill color. The tone field continues to control z-index ordering.

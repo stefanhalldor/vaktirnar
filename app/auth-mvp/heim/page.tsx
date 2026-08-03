@@ -247,6 +247,7 @@ export default async function HeimPage() {
                     openLabel={t('readyTeskeidOpen')}
                     pendingBadge={pending}
                     pendingBadgeLabel={pending !== undefined ? t('pendingBadgeLabel', { count: pending }) : undefined}
+                    descriptionOverride={idea.slug === 'vedrid' ? t('weatherCardDescription') : undefined}
                   />
                 )
               })}

@@ -54,9 +54,10 @@ interface Props {
   openLabel: string
   pendingBadge?: number
   pendingBadgeLabel?: string
+  descriptionOverride?: string
 }
 
-export function ReadyTeskeidCard({ idea, href, openLabel, pendingBadge, pendingBadgeLabel }: Props) {
+export function ReadyTeskeidCard({ idea, href, openLabel, pendingBadge, pendingBadgeLabel, descriptionOverride }: Props) {
   const Icon = SLUG_ICONS[idea.slug] ?? CATEGORY_ICONS[idea.category] ?? Lightbulb
   const colors = SLUG_COLORS[idea.slug] ?? CATEGORY_COLORS[idea.category] ?? DEFAULT_COLORS
 
@@ -81,8 +82,8 @@ export function ReadyTeskeidCard({ idea, href, openLabel, pendingBadge, pendingB
             </span>
           )}
         </div>
-        {idea.short_description && (
-          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{idea.short_description}</p>
+        {(descriptionOverride || idea.short_description) && (
+          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{descriptionOverride || idea.short_description}</p>
         )}
       </div>
       <ChevronRight size={16} className="shrink-0 text-muted-foreground/50" />

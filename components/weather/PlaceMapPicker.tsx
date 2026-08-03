@@ -309,14 +309,15 @@ export function PlaceMapPicker({ places, onSelect, onClose }: PlaceMapPickerProp
             )}
           </div>
 
-          <section className="max-h-[46dvh] shrink-0 overflow-y-auto border-t border-border bg-background px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_24px_rgba(15,23,42,0.10)]">
-            <Dialog.Description id="place-map-picker-hint" className="mb-2 text-xs text-muted-foreground">
+          <section className="flex max-h-[46dvh] min-h-0 shrink-0 flex-col border-t border-border bg-background shadow-[0_-8px_24px_rgba(15,23,42,0.10)]">
+            <div className="min-h-0 overflow-y-auto px-3 pt-3">
+              <Dialog.Description id="place-map-picker-hint" className="mb-2 text-xs text-muted-foreground">
               {places.length > 0
                 ? t('mapPickerResultsHint', { count: places.length })
                 : t('mapPickerEmptyHint')}
-            </Dialog.Description>
+              </Dialog.Description>
 
-            {places.length > 0 && (
+              {places.length > 0 && (
               <ul className="mb-3 flex max-h-32 flex-col overflow-y-auto rounded-lg border border-border">
                 {places.map((place, index) => {
                   const active = selectedKey === placeKey(place)
@@ -347,35 +348,38 @@ export function PlaceMapPicker({ places, onSelect, onClose }: PlaceMapPickerProp
                   )
                 })}
               </ul>
-            )}
+              )}
 
-            <PlaceDataAttributions
+              <PlaceDataAttributions
               places={selectedPlace ? [...places, selectedPlace] : places}
               className="mb-3"
-            />
+              />
 
-            {resolvingPoint && (
+              {resolvingPoint && (
               <p role="status" className="mb-3 text-xs text-muted-foreground">
                 {t('mapPickerResolving')}
               </p>
-            )}
-            {pointError && <p role="alert" className="mb-3 text-xs text-destructive">{pointError}</p>}
+              )}
+              {pointError && <p role="alert" className="mb-3 text-xs text-destructive">{pointError}</p>}
 
-            {selectedPlace && (
+              {selectedPlace && (
               <div className="mb-3 flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
                 <MapPin size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
                 <PlaceResultIdentity place={selectedPlace} />
               </div>
-            )}
+              )}
+            </div>
 
-            <button
-              type="button"
-              disabled={!selectedPlace || resolvingPoint}
-              onClick={() => selectedPlace && onSelect(selectedPlace)}
-              className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {t('mapPickerConfirm')}
-            </button>
+            <div className="shrink-0 border-t border-border bg-background px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
+              <button
+                type="button"
+                disabled={!selectedPlace || resolvingPoint}
+                onClick={() => selectedPlace && onSelect(selectedPlace)}
+                className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t('mapPickerConfirm')}
+              </button>
+            </div>
           </section>
         </Dialog.Content>
       </Dialog.Portal>

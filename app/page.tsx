@@ -58,6 +58,7 @@ export default async function Home() {
                 idea={idea}
                 href={publicReadyCardHref(idea.slug)}
                 openLabel={t('home.readyTeskeidOpen')}
+                descriptionOverride={idea.slug === 'vedrid' ? t('home.weatherCardDescription') : undefined}
               />
             ))}
           </div>
