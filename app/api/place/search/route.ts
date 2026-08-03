@@ -21,6 +21,7 @@ const RATE_LIMIT_MAX = 30
 const RATE_LIMIT_WINDOW_MS = 60_000
 const RATE_LIMIT_MAX_KEYS = 2_000
 const MAX_RESULTS = 8
+const TOPONYM_CANDIDATE_LIMIT = 10
 
 type RateLimitWindow = { count: number; startedAt: number }
 const rateLimits = new Map<string, RateLimitWindow>()
@@ -273,10 +274,10 @@ export async function POST(request: NextRequest) {
     && query.length >= 3
     && !hasExactOfficialSettlement(query, results)
   ) {
-    const toponymLimit = results.length === 0
-      ? MAX_RESULTS
-      : Math.max(2, MAX_RESULTS - results.length)
-    const toponyms = await searchOfficialToponyms(query, toponymLimit)
+    // Fetch a bounded candidate pool independently of the eight-slot response
+    // budget. Same-named features can otherwise be truncated upstream before
+    // Teskeið gets a chance to rank them (for example the many Langavötn).
+    const toponyms = await searchOfficialToponyms(query, TOPONYM_CANDIDATE_LIMIT)
     results = mergeToponymCandidates(
       query,
       results,

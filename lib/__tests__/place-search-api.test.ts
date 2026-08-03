@@ -118,7 +118,7 @@ describe('/api/place/search compatibility contract', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(mocks.searchOfficialToponyms).toHaveBeenCalledWith('Langavatn', 8)
+    expect(mocks.searchOfficialToponyms).toHaveBeenCalledWith('Langavatn', 10)
     expect(body.results[0]).toMatchObject({
       source: 'official',
       sourceId: 'toponym:lake-1',
@@ -155,38 +155,32 @@ describe('/api/place/search compatibility contract', () => {
       lat: 64.5 + index * 0.01,
       lon: -20.5 - index * 0.01,
     })))
-    mocks.searchOfficialToponyms.mockResolvedValue([
-      {
-        id: 'official:toponym:lake-1',
+    mocks.searchOfficialToponyms.mockResolvedValue(
+      Array.from({ length: 6 }, (_, index) => ({
+        id: `official:toponym:lake-${index + 1}`,
         source: 'official',
-        sourceId: 'toponym:lake-1',
+        sourceId: `toponym:lake-${index + 1}`,
         name: 'Langavatn',
-        formattedAddress: 'Stöðuvatn · 64.905, -20.817',
+        formattedAddress: `Stöðuvatn · ${64.905 + index * 0.1}, ${-20.817 - index * 0.1}`,
         placeType: 'point',
-        lat: 64.905,
-        lon: -20.817,
-      },
-      {
-        id: 'official:toponym:lake-2',
-        source: 'official',
-        sourceId: 'toponym:lake-2',
-        name: 'Langavatn',
-        formattedAddress: 'Stöðuvatn · 65.105, -21.117',
-        placeType: 'point',
-        lat: 65.105,
-        lon: -21.117,
-      },
-    ])
+        lat: 64.905 + index * 0.1,
+        lon: -20.817 - index * 0.1,
+      })),
+    )
 
     const response = await POST(post({ query: 'Langavatn' }))
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(mocks.searchOfficialToponyms).toHaveBeenCalledWith('Langavatn', 2)
+    expect(mocks.searchOfficialToponyms).toHaveBeenCalledWith('Langavatn', 10)
     expect(body.results).toHaveLength(8)
-    expect(body.results.slice(2, 4).map((place: { sourceId: string }) => place.sourceId)).toEqual([
+    expect(body.results.slice(2).map((place: { sourceId: string }) => place.sourceId)).toEqual([
       'toponym:lake-1',
       'toponym:lake-2',
+      'toponym:lake-3',
+      'toponym:lake-4',
+      'toponym:lake-5',
+      'toponym:lake-6',
     ])
   })
 })
