@@ -95,9 +95,13 @@ function isToponymSearchEnabled(): boolean {
   return process.env.OFFICIAL_TOPONYM_SEARCH_ENABLED !== 'false'
 }
 
-function hasExactNamedPlace(query: string, places: readonly SelectedLocation[]): boolean {
+function hasExactOfficialSettlement(query: string, places: readonly SelectedLocation[]): boolean {
   const normalizedQuery = normalizePlaceSearchText(query)
-  return places.some(place => normalizePlaceSearchText(place.name) === normalizedQuery)
+  return places.some(place => (
+    place.source === 'official'
+    && place.placeType === 'settlement'
+    && normalizePlaceSearchText(place.name) === normalizedQuery
+  ))
 }
 
 function removeCuratedOfficialDuplicates(
@@ -123,6 +127,24 @@ function dedupeAndRank(
   // Exact settlements therefore beat POIs for locality queries, while an
   // exact HMS address still beats a settlement prefix for address queries.
   return mergePlaceSuggestions(ranked, [], MAX_RESULTS) as SelectedLocation[]
+}
+
+function mergeToponymCandidates(
+  query: string,
+  existing: readonly SelectedLocation[],
+  toponyms: readonly SelectedLocation[],
+): SelectedLocation[] {
+  if (toponyms.length === 0) return [...existing]
+  const rankedToponyms = dedupeAndRank(query, toponyms, [])
+  // Keep the strongest address/locality matches first while reserving visible
+  // room for named natural features. This matters for names such as Langavatn,
+  // where many HMS addresses can otherwise fill all eight result slots.
+  const insertionIndex = Math.min(2, existing.length)
+  return mergePlaceSuggestions([
+    ...existing.slice(0, insertionIndex),
+    ...rankedToponyms,
+    ...existing.slice(insertionIndex),
+  ], [], MAX_RESULTS) as SelectedLocation[]
 }
 
 type GoogleFallbackFailureCategory =
@@ -243,19 +265,22 @@ export async function POST(request: NextRequest) {
   ])
   const curatedWithoutOfficialDuplicates = removeCuratedOfficialDuplicates(official, curated)
   let results = dedupeAndRank(query, [...official, ...hms], curatedWithoutOfficialDuplicates)
-  // Settlements and addresses stay fast and local. When they do not resolve
-  // the typed name exactly, fill the remaining result budget from the official
-  // IS 50V geographical-name layer (lakes, mountains, valleys, etc.).
+  // Exact official settlements stay fast and local. Other names also consult
+  // the official IS 50V geographical-name layer (lakes, mountains, valleys,
+  // etc.), even when same-named HMS addresses already fill the result limit.
   if (
     isToponymSearchEnabled()
-    && results.length < MAX_RESULTS
-    && !hasExactNamedPlace(query, results)
+    && query.length >= 3
+    && !hasExactOfficialSettlement(query, results)
   ) {
-    const toponyms = await searchOfficialToponyms(query, MAX_RESULTS - results.length)
-    results = dedupeAndRank(
+    const toponymLimit = results.length === 0
+      ? MAX_RESULTS
+      : Math.max(2, MAX_RESULTS - results.length)
+    const toponyms = await searchOfficialToponyms(query, toponymLimit)
+    results = mergeToponymCandidates(
       query,
-      [...official, ...hms, ...toponyms],
-      curatedWithoutOfficialDuplicates,
+      results,
+      toponyms,
     )
   }
   if (results.length === 0) {

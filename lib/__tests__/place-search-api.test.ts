@@ -144,4 +144,49 @@ describe('/api/place/search compatibility contract', () => {
     expect(response.status).toBe(200)
     expect(mocks.searchOfficialToponyms).not.toHaveBeenCalled()
   })
+
+  it('reserves result slots for exact toponyms when same-named HMS addresses fill the list', async () => {
+    mocks.searchHmsPlaces.mockResolvedValue(Array.from({ length: 8 }, (_, index) => ({
+      id: `hms:langavatn-${index}`,
+      source: 'hms',
+      sourceId: `langavatn-${index}`,
+      name: 'Langavatn',
+      formattedAddress: `${300 + index} Langavatn`,
+      lat: 64.5 + index * 0.01,
+      lon: -20.5 - index * 0.01,
+    })))
+    mocks.searchOfficialToponyms.mockResolvedValue([
+      {
+        id: 'official:toponym:lake-1',
+        source: 'official',
+        sourceId: 'toponym:lake-1',
+        name: 'Langavatn',
+        formattedAddress: 'Stöðuvatn · 64.905, -20.817',
+        placeType: 'point',
+        lat: 64.905,
+        lon: -20.817,
+      },
+      {
+        id: 'official:toponym:lake-2',
+        source: 'official',
+        sourceId: 'toponym:lake-2',
+        name: 'Langavatn',
+        formattedAddress: 'Stöðuvatn · 65.105, -21.117',
+        placeType: 'point',
+        lat: 65.105,
+        lon: -21.117,
+      },
+    ])
+
+    const response = await POST(post({ query: 'Langavatn' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mocks.searchOfficialToponyms).toHaveBeenCalledWith('Langavatn', 2)
+    expect(body.results).toHaveLength(8)
+    expect(body.results.slice(2, 4).map((place: { sourceId: string }) => place.sourceId)).toEqual([
+      'toponym:lake-1',
+      'toponym:lake-2',
+    ])
+  })
 })
