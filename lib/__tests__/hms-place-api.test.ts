@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
   weatherMode: vi.fn(),
   searchHmsPlaces: vi.fn(),
+  searchOfficialToponyms: vi.fn(),
   reverseHmsPlace: vi.fn(),
   findSuggestions: vi.fn(),
   mergeSuggestions: vi.fn(),
@@ -28,6 +29,10 @@ vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
 vi.mock('@/lib/places/hmsDirectory.server', () => ({
   searchHmsPlaces: mocks.searchHmsPlaces,
   reverseHmsPlace: mocks.reverseHmsPlace,
+}))
+
+vi.mock('@/lib/places/toponymDirectory.server', () => ({
+  searchOfficialToponyms: mocks.searchOfficialToponyms,
 }))
 
 vi.mock('@/lib/road-intelligence/roadMapPlaces', () => ({
@@ -104,6 +109,7 @@ beforeEach(() => {
   mocks.getUser.mockResolvedValue({ data: { user: null } })
   mocks.resolveAccess.mockResolvedValue({ mode: 'public', userId: null, actor: 'public' })
   mocks.searchHmsPlaces.mockResolvedValue([])
+  mocks.searchOfficialToponyms.mockResolvedValue([])
   mocks.reverseHmsPlace.mockResolvedValue(null)
   mocks.findSuggestions.mockReturnValue([])
   mocks.findNearest.mockReturnValue(null)

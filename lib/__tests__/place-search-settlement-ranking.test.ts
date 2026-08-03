@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
   weatherMode: vi.fn(),
   searchHmsPlaces: vi.fn(),
+  searchOfficialToponyms: vi.fn(),
   getWeatherMapProvider: vi.fn(),
 }))
 
@@ -22,6 +23,10 @@ vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
 
 vi.mock('@/lib/places/hmsDirectory.server', () => ({
   searchHmsPlaces: mocks.searchHmsPlaces,
+}))
+
+vi.mock('@/lib/places/toponymDirectory.server', () => ({
+  searchOfficialToponyms: mocks.searchOfficialToponyms,
 }))
 
 vi.mock('@/lib/weather/provider.server', () => ({
@@ -53,6 +58,7 @@ beforeEach(() => {
   mocks.getUser.mockResolvedValue({ data: { user: null } })
   mocks.resolveAccess.mockResolvedValue({ mode: 'public', userId: null, actor: 'public' })
   mocks.searchHmsPlaces.mockResolvedValue([])
+  mocks.searchOfficialToponyms.mockResolvedValue([])
   mocks.getWeatherMapProvider.mockReturnValue(null)
 })
 

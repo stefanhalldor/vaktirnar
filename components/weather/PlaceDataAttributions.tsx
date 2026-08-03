@@ -11,9 +11,12 @@ const HAGSTOFA_SETTLEMENT_METADATA_URL =
 const LMI_SETTLEMENT_SOURCE_URL = 'https://www-gamli.lmi.is/landupplysingar/mannvirki/'
 const POSTAL_LOCALITY_METADATA_URL =
   'https://gatt.natt.is/geonetwork/srv/api/records/22e98d21-a86b-4b62-ad58-a6d17703b612'
+const OFFICIAL_TOPONYM_METADATA_URL =
+  'https://gatt.natt.is/geonetwork/srv/api/records/635230d9-de00-4d68-ac6d-ab382e40ad94'
 
 type AttributionPlace = PlaceDisplayValue & {
   source?: PlaceSource
+  sourceId?: string
   labelSource?: PlaceSource
 }
 
@@ -30,11 +33,14 @@ export function PlaceDataAttributions({ places, className = '' }: PlaceDataAttri
   const hasOfficialSettlement = places.some(
     place => place.source === 'official' && place.placeType === 'settlement',
   )
+  const hasOfficialToponym = places.some(
+    place => place.source === 'official' && place.sourceId?.startsWith('toponym:'),
+  )
   const hasPostalLocality = hasOfficialSettlement || places.some(
     place => Boolean(place.postalLocality?.trim()),
   )
 
-  if (!hasHms && !hasOfficialSettlement && !hasPostalLocality) return null
+  if (!hasHms && !hasOfficialSettlement && !hasOfficialToponym && !hasPostalLocality) return null
 
   const linkClass =
     'rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -75,6 +81,16 @@ export function PlaceDataAttributions({ places, className = '' }: PlaceDataAttri
             })}
           </a>
         </>
+      )}
+      {hasOfficialToponym && (
+        <a
+          href={OFFICIAL_TOPONYM_METADATA_URL}
+          target="_blank"
+          rel="noreferrer"
+          className={linkClass}
+        >
+          {t('toponymAttribution')}
+        </a>
       )}
       {hasPostalLocality && (
         <a

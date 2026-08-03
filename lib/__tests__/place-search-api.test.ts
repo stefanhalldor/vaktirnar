@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
   weatherMode: vi.fn(),
   searchHmsPlaces: vi.fn(),
+  searchOfficialToponyms: vi.fn(),
   findSuggestions: vi.fn(),
   mergeSuggestions: vi.fn(),
   geocodePlace: vi.fn(),
@@ -24,6 +25,9 @@ vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
 }))
 vi.mock('@/lib/places/hmsDirectory.server', () => ({
   searchHmsPlaces: mocks.searchHmsPlaces,
+}))
+vi.mock('@/lib/places/toponymDirectory.server', () => ({
+  searchOfficialToponyms: mocks.searchOfficialToponyms,
 }))
 vi.mock('@/lib/road-intelligence/roadMapPlaces', () => ({
   findRoadMapPlaceSuggestions: mocks.findSuggestions,
@@ -55,6 +59,7 @@ beforeEach(() => {
   mocks.getUser.mockResolvedValue({ data: { user: null } })
   mocks.resolveAccess.mockResolvedValue({ mode: 'public', userId: null, actor: 'public' })
   mocks.searchHmsPlaces.mockResolvedValue([])
+  mocks.searchOfficialToponyms.mockResolvedValue([])
   mocks.findSuggestions.mockReturnValue([])
   mocks.mergeSuggestions.mockImplementation((primary, secondary, limit) => (
     [...primary, ...secondary].slice(0, limit)
@@ -95,5 +100,48 @@ describe('/api/place/search compatibility contract', () => {
     expect(response.status).toBe(200)
     expect(body.results[0]).toMatchObject({ source: 'hms', sourceId: '0002001' })
     expect(mocks.geocodePlace).not.toHaveBeenCalled()
+  })
+
+  it('fills unresolved names from official toponyms before the Google fallback', async () => {
+    mocks.searchOfficialToponyms.mockResolvedValue([{
+      id: 'official:toponym:lake-1',
+      source: 'official',
+      sourceId: 'toponym:lake-1',
+      name: 'Langavatn',
+      formattedAddress: 'Stöðuvatn · 64.905, -20.817',
+      placeType: 'point',
+      lat: 64.905,
+      lon: -20.817,
+    }])
+
+    const response = await POST(post({ query: 'Langavatn' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mocks.searchOfficialToponyms).toHaveBeenCalledWith('Langavatn', 8)
+    expect(body.results[0]).toMatchObject({
+      source: 'official',
+      sourceId: 'toponym:lake-1',
+      name: 'Langavatn',
+      placeType: 'point',
+    })
+    expect(mocks.geocodePlace).not.toHaveBeenCalled()
+  })
+
+  it('does not call the remote toponym source when a local exact name is available', async () => {
+    mocks.searchHmsPlaces.mockResolvedValue([{
+      id: 'hms:akureyri',
+      source: 'hms',
+      sourceId: 'akureyri',
+      name: 'Akureyri',
+      formattedAddress: '600 Akureyri',
+      lat: 65.683,
+      lon: -18.11,
+    }])
+
+    const response = await POST(post({ query: 'Akureyri' }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.searchOfficialToponyms).not.toHaveBeenCalled()
   })
 })

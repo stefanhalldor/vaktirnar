@@ -54,6 +54,24 @@ export function validateResolvedThresholdOrdering(resolved: ResolvedTravelThresh
 }
 
 /**
+ * Compares editable threshold inputs with the user's saved wind thresholds.
+ * Numeric comparison keeps equivalent input such as `10` and `10.0` aligned.
+ */
+export function windThresholdInputsMatchSaved(
+  cautionInput: string,
+  redInput: string,
+  savedThresholds: Pick<ResolvedTravelThresholds, 'cautionWindMs' | 'redWindMs'> | null,
+): boolean {
+  if (!savedThresholds) return false
+  const cautionWindMs = Number(cautionInput)
+  const redWindMs = Number(redInput)
+  return Number.isFinite(cautionWindMs)
+    && Number.isFinite(redWindMs)
+    && cautionWindMs === savedThresholds.cautionWindMs
+    && redWindMs === savedThresholds.redWindMs
+}
+
+/**
  * Resolves travel thresholds by merging per-trailer defaults with optional user overrides.
  * `trailerKind` is `'none'` for driving-only or any non-empty string for trailer/caravan modes.
  */

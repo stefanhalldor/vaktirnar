@@ -95,7 +95,11 @@ import {
   type RouteSurfaceSummary,
 } from '@/lib/road-intelligence/vegagerdinRoadSurface'
 import { formatCompactDateTime, formatKlTime, formatNum } from './travelAuditMap.helpers'
-import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
+import {
+  resolveThresholds,
+  validateResolvedThresholdOrdering,
+  windThresholdInputsMatchSaved,
+} from '@/lib/weather/thresholds'
 import { validateIcelandicCoords } from '@/lib/weather/coords'
 import {
   ALL_WIND_DISPLAY_STATUSES,
@@ -1825,6 +1829,16 @@ export function RoadMapPrototypeMap({
     routeCautionWind,
     routeRedWind,
   )
+  const freeDriveThresholdsMatchSaved = windThresholdInputsMatchSaved(
+    routeCautionWind,
+    routeRedWind,
+    savedRouteThresholds,
+  )
+  const routePlanningThresholdsMatchSaved = windThresholdInputsMatchSaved(
+    routePlanningCautionWind,
+    routePlanningRedWind,
+    savedRouteThresholds,
+  )
   const freeDriveThresholdInputsValid = freeDriveThresholdValidation.thresholds !== null
   const freeDriveThresholdValidationMessage = routeThresholdError ?? (
     routeThresholdPreferencesLoaded
@@ -2205,7 +2219,8 @@ export function RoadMapPrototypeMap({
         : []) ?? []
       const gravelKm = (experimentalSurface?.gravelM ?? 0) / 1000
       const unknownSurfaceKm = uncertainSurfaceM / 1000
-      const isMountainRoad = (choice.route.experimental?.fRoad?.distanceM ?? 0) > 0
+      const mountainRoadM = choice.route.experimental?.fRoad?.distanceM ?? 0
+      const isMountainRoad = mountainRoadM > 0
       const weatherEvidence = weatherEvidenceByRouteId.get(choice.routeId)
       const hasNoUsableWeatherStations = weatherEvidence?.usableStationCount === 0
       const hasWeatherCoverageConcern = weatherCoverageConcernRouteIds.has(choice.routeId)
@@ -2274,6 +2289,7 @@ export function RoadMapPrototypeMap({
         .filter(route => route.route.provider === 'teskeid')
         .filter(route => (route.route.cautions?.length ?? 0) === 0)
         .filter(route => (route.route.experimental?.surface.gravelM ?? 0) === 0)
+        .filter(route => (route.route.experimental?.fRoad?.distanceM ?? 0) === 0)
         .sort((a, b) => a.distanceKm - b.distanceKm)
       const pavedTeskeidRank = pavedTeskeidChoices.findIndex(route => route.routeId === choice.routeId)
       const teskeidDisplayLabel = choice.route.cautions?.some(caution => caution.id === 'oxi-axarvegur-939')
@@ -2359,7 +2375,12 @@ export function RoadMapPrototypeMap({
             ? [{ label: t('roadMapPrototypeRouteWeatherCoverageBadge'), tone: 'warning' as const }]
             : []),
           ...(isMountainRoad
-            ? [{ label: t('roadMapPrototypeRouteMountainRoad'), tone: 'warning' as const }]
+            ? [{
+                label: t('roadMapPrototypeRouteMountainRoadMetric', {
+                  distance: formatNum(mountainRoadM / 1000, locale),
+                }),
+                tone: 'warning' as const,
+              }]
             : []),
         ],
         surfaceSegments: experimentalSurface && surfaceTotalM > 0
@@ -10615,13 +10636,17 @@ export function RoadMapPrototypeMap({
   }
 
   function handlePlanRoute() {
+    const planningFromFreeDrive = liveDriveModeRef.current === 'free-drive'
     const hasExistingRoute = routeBridgeSummary !== null || routeHandoffOnlySummary !== null
-    const freeDriveOrigin = liveDriveModeRef.current === 'free-drive'
+    const freeDriveOrigin = planningFromFreeDrive
       && routeLiveLocationPointRef.current
       ? routeOriginFromLiveLocation(
           routeLiveLocationPointRef.current,
           tPlaceSearch('currentLocationName'),
         )
+      : null
+    const freeDriveThresholds = planningFromFreeDrive
+      ? validateRouteThresholdInputs(routeCautionWind, routeRedWind).thresholds
       : null
     stopRouteLiveLocation()
     setLiveDriveModeState('off')
@@ -10635,6 +10660,10 @@ export function RoadMapPrototypeMap({
       if (freeDriveOrigin) {
         setRouteFrom(freeDriveOrigin.name)
         setFromResolved(freeDriveOrigin)
+      }
+      if (freeDriveThresholds) {
+        setRoutePlanningCautionWind(String(freeDriveThresholds.cautionWindMs))
+        setRoutePlanningRedWind(String(freeDriveThresholds.redWindMs))
       }
     }
     openRouteContext('information')
@@ -10709,17 +10738,6 @@ export function RoadMapPrototypeMap({
     setFreeDrivePaused(false)
     setFreeDriveWithoutLocation(true)
     applyMapContextVisibility('route')
-  }
-
-  function handleStopFreeDrive() {
-    stopRouteLiveLocation()
-    setLiveDriveModeState('off')
-    setFreeDrivePaused(false)
-    setFreeDriveWithoutLocation(false)
-    setFreeDriveStationFeedError(false)
-    setFreeDriveThresholdSaveStatus('idle')
-    setFreeDriveSetupOpen(false)
-    openRouteContext('information')
   }
 
   useEffect(() => {
@@ -11821,7 +11839,7 @@ export function RoadMapPrototypeMap({
                         setRouteThresholdError(null)
                       }}
                     />
-                    {savedRouteThresholds && (
+                    {savedRouteThresholds && !freeDriveThresholdsMatchSaved && (
                       <button
                         type="button"
                         onClick={() => {
@@ -12076,7 +12094,7 @@ export function RoadMapPrototypeMap({
                           }}
                         />
 
-                        {isAuthenticated && savedRouteThresholds && (
+                        {isAuthenticated && savedRouteThresholds && !routePlanningThresholdsMatchSaved && (
                           <button
                             type="button"
                             onClick={() => {
@@ -12319,10 +12337,10 @@ export function RoadMapPrototypeMap({
             footer={(
               <button
                 type="button"
-                onClick={handleStopFreeDrive}
-                className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-destructive/60 bg-background px-4 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={handlePlanRoute}
+                className="mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
-                {t('roadMapPrototypeFreeDriveStop')}
+                {t('roadMapPrototypeFreeDriveAddDestination')}
               </button>
             )}
           >

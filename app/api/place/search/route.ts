@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { searchHmsPlaces } from '@/lib/places/hmsDirectory.server'
+import { searchOfficialToponyms } from '@/lib/places/toponymDirectory.server'
 import {
   officialPlaceHasAlias,
   officialPlaceSearchScore,
@@ -67,7 +68,7 @@ function staticPlaces(query: string): SelectedLocation[] {
 }
 
 function relevanceScore(query: string, place: SelectedLocation): number {
-  if (place.source === 'official') {
+  if (place.source === 'official' && place.placeType === 'settlement') {
     return officialPlaceSearchScore(query, place.sourceId)
   }
   const normalizedQuery = normalizePlaceSearchText(query)
@@ -86,7 +87,17 @@ function relevanceScore(query: string, place: SelectedLocation): number {
   else if (address.includes(normalizedQuery) || municipality.includes(normalizedQuery)) score = 50
 
   if (place.source === 'hms') score += 4
+  if (place.source === 'official' && place.sourceId?.startsWith('toponym:')) score += 2
   return score
+}
+
+function isToponymSearchEnabled(): boolean {
+  return process.env.OFFICIAL_TOPONYM_SEARCH_ENABLED !== 'false'
+}
+
+function hasExactNamedPlace(query: string, places: readonly SelectedLocation[]): boolean {
+  const normalizedQuery = normalizePlaceSearchText(query)
+  return places.some(place => normalizePlaceSearchText(place.name) === normalizedQuery)
 }
 
 function removeCuratedOfficialDuplicates(
@@ -232,6 +243,21 @@ export async function POST(request: NextRequest) {
   ])
   const curatedWithoutOfficialDuplicates = removeCuratedOfficialDuplicates(official, curated)
   let results = dedupeAndRank(query, [...official, ...hms], curatedWithoutOfficialDuplicates)
+  // Settlements and addresses stay fast and local. When they do not resolve
+  // the typed name exactly, fill the remaining result budget from the official
+  // IS 50V geographical-name layer (lakes, mountains, valleys, etc.).
+  if (
+    isToponymSearchEnabled()
+    && results.length < MAX_RESULTS
+    && !hasExactNamedPlace(query, results)
+  ) {
+    const toponyms = await searchOfficialToponyms(query, MAX_RESULTS - results.length)
+    results = dedupeAndRank(
+      query,
+      [...official, ...hms, ...toponyms],
+      curatedWithoutOfficialDuplicates,
+    )
+  }
   if (results.length === 0) {
     results = dedupeAndRank(query, await googleFallback(`${query} Ísland`), [])
   }

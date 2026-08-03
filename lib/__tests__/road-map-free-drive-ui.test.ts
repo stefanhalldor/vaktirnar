@@ -148,6 +148,8 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).toContain('cautionValue={routePlanningCautionWind}')
     expect(source).toContain('dangerValue={routePlanningRedWind}')
     expect(source).toContain("t('roadMapPrototypeRoutePlanningUseSavedThresholds'")
+    expect(source).toContain('savedRouteThresholds && !freeDriveThresholdsMatchSaved')
+    expect(source).toContain('savedRouteThresholds && !routePlanningThresholdsMatchSaved')
     expect(source).toContain("const isPlanningSubmission = routePlanningStep === 'thresholds'")
   })
 
@@ -179,6 +181,9 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(handler).toContain('handleEditRoute()')
     expect(handler).toContain('openRoutePlanningDestination()')
     expect(handler).toContain('setFromResolved(freeDriveOrigin)')
+    expect(handler).toContain('validateRouteThresholdInputs(routeCautionWind, routeRedWind).thresholds')
+    expect(handler).toContain('setRoutePlanningCautionWind(String(freeDriveThresholds.cautionWindMs))')
+    expect(handler).toContain('setRoutePlanningRedWind(String(freeDriveThresholds.redWindMs))')
     expect(handler).toContain("openRouteContext('information')")
   })
 
@@ -375,7 +380,9 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
   it('stops tracking in the background and requires an explicit resume gesture', () => {
     expect(source).toContain('setFreeDrivePaused(true)')
     expect(source).toContain('onClick={handleResumeFreeDrive}')
-    expect(source).toContain('onClick={handleStopFreeDrive}')
+    expect(source).toContain("t('roadMapPrototypeFreeDriveAddDestination')")
+    expect(source).toContain('onClick={handlePlanRoute}')
+    expect(source).not.toContain('handleStopFreeDrive')
     expect(source).toContain('onClick={handleFreeDriveWithoutLocation}')
     expect(source).toContain('footer={(')
   })
@@ -387,5 +394,21 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(messagesEn).toContain('"roadMapPrototypeFreeDriveStart": "Set off"')
     expect(messagesEn).toContain('"roadMapPrototypeFreeDrivePrivacySafety"')
     expect(messagesEn).toContain('"roadMapPrototypeFreeDriveSafety"')
+    expect(messagesIs).toContain(
+      '"roadMapPrototypeFreeDriveThresholdDescription": "Veldu hvenær vindur verður óþægilegur og hættulegur fyrir þig."',
+    )
+    expect(messagesIs).toContain(
+      '"roadMapPrototypeFreeDrivePrivacySafety": "Staðsetningin er aðeins notuð í tækinu til að færa kortið og er ekki vistuð."',
+    )
+    expect(messagesIs).toContain(
+      '"roadMapPrototypeFreeDriveAddDestination": "Bæta við áfangastað"',
+    )
+    expect(messagesEn).toContain(
+      '"roadMapPrototypeFreeDriveAddDestination": "Add a destination"',
+    )
+    expect(messagesIs).not.toContain('Sömu mörk gilda hér og í skipulögðum ferðum.')
+    expect(messagesIs).not.toContain('Ekki stilla kortið á ferð.')
+    expect(messagesEn).not.toContain('The same limits are used here and for planned trips.')
+    expect(messagesEn).not.toContain('Do not adjust the map while driving.')
   })
 })
