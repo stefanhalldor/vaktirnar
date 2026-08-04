@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
 import { reportExpenseRepayment } from '@/lib/expenses/actions'
 import type { ExpenseSettlementTransferView } from '@/lib/expenses/contracts'
 import { formatExpenseMinor, formatExpenseMinorForCopy } from '@/lib/expenses/input-money'
@@ -61,7 +62,7 @@ export function ExpenseRepaymentReportForm({ groupId, transfer, initialDate }: {
       <p className="text-xs leading-5 text-muted-foreground">{t('repayment.outsidePayment')}</p>
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="text-sm text-destructive">{error}</p> : null}
       <label><span className={expenseLabelClass}>{t('common.amount')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required /><span className="mt-1 block text-xs text-muted-foreground">{t('repayment.maximum', { amount: formatExpenseMinor(transfer.amountMinor, transfer.currency) })}</span></label>
-      <label><span className={expenseLabelClass}>{t('common.date')}</span><input className={expenseInputClass} type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
+      <TeskeidDateField label={t('common.date')} value={date} onChange={setDate} placeholder={t('common.datePlaceholder')} required />
       <label><span className={expenseLabelClass}>{t('common.note')} <span className="font-normal text-muted-foreground">({t('common.optional')})</span></span><textarea className={expenseTextareaClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} /></label>
       <button className={`${expensePrimaryButtonClass} w-full`} type="submit" disabled={isPending}>{isPending ? t('repayment.reporting') : t('repayment.report')}</button>
     </form>

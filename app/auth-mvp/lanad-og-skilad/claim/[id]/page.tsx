@@ -1,11 +1,12 @@
 import { notFound } from 'next/navigation'
-import { getTranslations } from 'next-intl/server'
+import { getLocale, getTranslations } from 'next-intl/server'
 import Link from 'next/link'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { ClaimForm } from '@/components/loans/ClaimForm'
 import { LoanShell } from '@/components/loans/LoanShell'
 import type { ClaimInvitationDetails } from '@/lib/loans/types'
+import { formatDateOnly } from '@/lib/date-format'
 
 export default async function ClaimPage({
   params,
@@ -14,7 +15,10 @@ export default async function ClaimPage({
 }) {
   const { id } = await params
   const { user } = await guardLoanAccess()
-  const t = await getTranslations('teskeid.loans')
+  const [t, locale] = await Promise.all([
+    getTranslations('teskeid.loans'),
+    getLocale(),
+  ])
 
   const nav = (
     <Link
@@ -68,7 +72,7 @@ export default async function ClaimPage({
             </p>
           )}
           <p className="text-xs text-[#72796e]">
-            {t('loanedAt')}: {invitation.loaned_at}
+            {t('loanedAt')}: {formatDateOnly(invitation.loaned_at, locale)}
           </p>
         </div>
 

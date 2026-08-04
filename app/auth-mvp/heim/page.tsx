@@ -17,6 +17,7 @@ import {
   expenseActivityIdFromEventKey,
   resolveExpenseRecentEventTargets,
   resolveRecentEventSourceAccess,
+  syncExpenseMemberInvitationEvents,
 } from '@/lib/recent-events/access.server'
 import {
   getDisplayLocale,
@@ -159,6 +160,9 @@ export default async function HeimPage() {
 
   if (recentEventSources.length > 0) {
     try {
+      if (expensesEnabled) {
+        await syncExpenseMemberInvitationEvents(user.id)
+      }
       const rows = await getUnreadRecentEventsForUser(user.id, recentEventSources)
       const parsedRows = rows.flatMap((row) => {
         if (!isRecentEventSource(row.source) || !recentEventSources.includes(row.source)) return []

@@ -3,11 +3,13 @@
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, X } from 'lucide-react'
-import { createExpense } from '@/lib/expenses/actions'
+import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
+import { createExpense, updateExpense } from '@/lib/expenses/actions'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
 import {
   EXPENSE_CURRENCIES,
   formatExpenseMinor,
+  formatExpenseMinorForCopy,
   parseExpenseAmountToMinor,
   parseExpensePercentageToBasisPoints,
   parseExpenseWeight,
@@ -20,7 +22,7 @@ import {
   splitMixedEqualRemainder,
   splitMixedPercentageRemainder,
 } from '@/lib/expenses/splits'
-import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
+import type { ExpenseItemView, ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type { ExpenseNewMemberInput } from '@/lib/expenses/validation'
 import type { ExpenseSplitMethod } from '@/lib/expenses/types'
 import { sumMinorAmounts } from '@/lib/expenses/money'
@@ -39,6 +41,7 @@ interface FormMember {
   key: string
   label: string
   input?: ExpenseNewMemberInput
+  newGuest?: { id: string; display_name: string }
   isSelf: boolean
   included?: boolean
 }
@@ -59,6 +62,10 @@ interface ExpenseFormProps {
   participantOptions?: ExpenseParticipantOption[]
   participantOptionsError?: boolean
   initialDate: string
+  edit?: {
+    expense: ExpenseItemView
+    expectedFinancialVersion: number
+  }
 }
 
 const SPLIT_METHODS: ExpenseSplitMethod[] = [
@@ -84,6 +91,83 @@ function equalPercentageValues(keys: string[]): Record<string, string> {
   return result
 }
 
+function percentageValuesFromShares(
+  shares: ExpenseItemView['shares'],
+  totalMinor: number,
+): Record<string, string> {
+  if (shares.length === 0 || totalMinor <= 0) return {}
+  const rows = shares.map((share) => {
+    const exactBasisPoints = (share.amountMinor / totalMinor) * 10_000
+    return {
+      key: share.memberId,
+      basisPoints: Math.floor(exactBasisPoints),
+      remainder: exactBasisPoints - Math.floor(exactBasisPoints),
+    }
+  })
+  const remaining = 10_000 - rows.reduce((sum, row) => sum + row.basisPoints, 0)
+  const ranked = [...rows].sort((left, right) => {
+    if (left.remainder === right.remainder) return left.key.localeCompare(right.key)
+    return right.remainder - left.remainder
+  })
+  for (let index = 0; index < remaining; index += 1) {
+    ranked[index % ranked.length]!.basisPoints += 1
+  }
+  return Object.fromEntries(rows.map((row) => [
+    row.key,
+    (row.basisPoints / 100).toFixed(2).replace(/\.00$/, ''),
+  ]))
+}
+
+function weightValuesFromShares(shares: ExpenseItemView['shares']): Record<string, string> {
+  const largest = Math.max(1, ...shares.map((share) => share.amountMinor))
+  const divisor = Math.max(1, Math.ceil(largest / 1_000_000))
+  return Object.fromEntries(shares.map((share) => [
+    share.memberId,
+    String(share.amountMinor === 0 ? 0 : Math.max(1, Math.round(share.amountMinor / divisor))),
+  ]))
+}
+
+function initialAllocationValues(expense?: ExpenseItemView) {
+  const amounts: Record<string, string> = {}
+  const percentages = expense
+    ? percentageValuesFromShares(expense.shares, expense.totalMinor)
+    : {}
+  const weights = expense ? weightValuesFromShares(expense.shares) : {}
+  const remainderParticipation: Record<string, boolean> = {}
+  if (!expense) return { amounts, percentages, weights, remainderParticipation }
+
+  for (const share of expense.shares) {
+    amounts[share.memberId] = formatExpenseMinorForCopy(share.amountMinor, expense.currency)
+  }
+
+  if (expense.splitMethod === 'mixed_equal_remainder') {
+    for (const share of expense.shares) {
+      const participates = share.amountMinor > 0
+      remainderParticipation[share.memberId] = participates
+      amounts[share.memberId] = formatExpenseMinorForCopy(
+        participates ? share.amountMinor - 1 : share.amountMinor,
+        expense.currency,
+      )
+    }
+  }
+
+  if (expense.splitMethod === 'mixed_percentage_remainder') {
+    const remainderMember = [...expense.shares]
+      .filter((share) => share.amountMinor > 0)
+      .sort((left, right) => left.memberId.localeCompare(right.memberId))[0]
+    for (const share of expense.shares) {
+      const receivesRemainder = share.memberId === remainderMember?.memberId
+      amounts[share.memberId] = formatExpenseMinorForCopy(
+        receivesRemainder ? share.amountMinor - 1 : share.amountMinor,
+        expense.currency,
+      )
+      percentages[share.memberId] = receivesRemainder ? '100' : '0'
+    }
+  }
+
+  return { amounts, percentages, weights, remainderParticipation }
+}
+
 export function ExpenseForm({
   mode,
   groupId,
@@ -92,6 +176,7 @@ export function ExpenseForm({
   participantOptions = [],
   participantOptionsError = false,
   initialDate,
+  edit,
 }: ExpenseFormProps) {
   const t = useExpenseTranslations()
   const router = useRouter()
@@ -101,20 +186,32 @@ export function ExpenseForm({
   const [included, setIncluded] = useState<Record<string, boolean>>(
     Object.fromEntries(initialMembers.map((member) => [member.key, member.included !== false])),
   )
-  const [title, setTitle] = useState('')
-  const [total, setTotal] = useState('')
-  const [currency, setCurrency] = useState(defaultCurrency)
-  const [incurredOn, setIncurredOn] = useState(initialDate)
-  const [category, setCategory] = useState('')
-  const [note, setNote] = useState('')
-  const [splitMethod, setSplitMethod] = useState<ExpenseSplitMethod>('equal')
-  const [payments, setPayments] = useState<Record<string, string>>(
-    Object.fromEntries(initialMembers.map((member) => [member.key, member.isSelf ? '' : ''])),
+  const [title, setTitle] = useState(edit?.expense.title ?? '')
+  const [total, setTotal] = useState(
+    edit ? formatExpenseMinorForCopy(edit.expense.totalMinor, edit.expense.currency) : '',
   )
-  const [amounts, setAmounts] = useState<Record<string, string>>({})
-  const [percentages, setPercentages] = useState<Record<string, string>>({})
-  const [weights, setWeights] = useState<Record<string, string>>({})
-  const [remainderParticipation, setRemainderParticipation] = useState<Record<string, boolean>>({})
+  const [currency, setCurrency] = useState(edit?.expense.currency ?? defaultCurrency)
+  const [incurredOn, setIncurredOn] = useState(edit?.expense.incurredOn ?? initialDate)
+  const [category, setCategory] = useState(edit?.expense.category ?? '')
+  const [note, setNote] = useState(edit?.expense.note ?? '')
+  const [splitMethod, setSplitMethod] = useState<ExpenseSplitMethod>(edit?.expense.splitMethod ?? 'equal')
+  const [payments, setPayments] = useState<Record<string, string>>(
+    Object.fromEntries(initialMembers.map((member) => {
+      const payment = edit?.expense.payments.find((row) => row.memberId === member.key)
+      return [
+        member.key,
+        payment
+          ? formatExpenseMinorForCopy(payment.amountMinor, edit?.expense.currency ?? defaultCurrency)
+          : '',
+      ]
+    })),
+  )
+  const initialAllocations = initialAllocationValues(edit?.expense)
+  const [amounts, setAmounts] = useState<Record<string, string>>(initialAllocations.amounts)
+  const [percentages, setPercentages] = useState<Record<string, string>>(initialAllocations.percentages)
+  const [weights, setWeights] = useState<Record<string, string>>(initialAllocations.weights)
+  const [remainderParticipation, setRemainderParticipation] = useState<Record<string, boolean>>(initialAllocations.remainderParticipation)
+  const [preserveShares, setPreserveShares] = useState(Boolean(edit))
   const [relationshipId, setRelationshipId] = useState('')
   const [guestName, setGuestName] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -126,14 +223,22 @@ export function ExpenseForm({
   function addMember(member: FormMember) {
     if (members.some((candidate) => candidate.key === member.key)) return
     setMembers((current) => [...current, member])
-    setIncluded((current) => ({ ...current, [member.key]: true }))
+    // During an edit, a newly named guest starts as payment-only. Merely adding
+    // a payer must not reconstruct the authoritative persisted shares. The
+    // user can explicitly include the guest below, which then unlocks editing
+    // the allocation and flips preserveShares off.
+    setIncluded((current) => ({ ...current, [member.key]: !edit }))
     setPayments((current) => ({ ...current, [member.key]: '' }))
     setWeights((current) => ({ ...current, [member.key]: '1' }))
     setAmounts((current) => ({ ...current, [member.key]: '0' }))
     setRemainderParticipation((current) => ({ ...current, [member.key]: true }))
+    if (!edit && (splitMethod === 'percentage' || splitMethod === 'mixed_percentage_remainder')) {
+      setPercentages(equalPercentageValues([...selectedKeys, member.key]))
+    }
   }
 
   function addRelationship() {
+    if (edit) return
     const option = participantOptions.find((candidate) => candidate.relationshipId === relationshipId)
     if (!option) return
     addMember({
@@ -148,14 +253,22 @@ export function ExpenseForm({
   function addGuest() {
     const label = guestName.trim()
     if (!label) return
-    const key = `guest:${createRequestId()}`
-    addMember({ key, label, input: { type: 'guest', key, display_name: label }, isSelf: false })
+    const id = createRequestId()
+    const key = edit ? id : `guest:${id}`
+    addMember({
+      key,
+      label,
+      input: edit ? undefined : { type: 'guest', key, display_name: label },
+      newGuest: edit ? { id, display_name: label } : undefined,
+      isSelf: false,
+    })
     setGuestName('')
   }
 
   function removeMember(key: string) {
     const member = members.find((candidate) => candidate.key === key)
-    if (!member || member.isSelf || mode === 'group') return
+    if (!member || member.isSelf || mode === 'group' || (edit && !member.newGuest)) return
+    if (edit && included[key] !== false) setPreserveShares(false)
     setMembers((current) => current.filter((candidate) => candidate.key !== key))
   }
 
@@ -163,6 +276,7 @@ export function ExpenseForm({
     const self = members.find((member) => member.isSelf)
     const nonEmptyPayers = Object.values(payments).filter((amount) => amount.trim() !== '')
     setTotal(value)
+    if (edit) setPreserveShares(false)
     if (self && nonEmptyPayers.length <= 1 && (!payments[self.key] || payments[self.key] === total)) {
       setPayments((current) => ({ ...current, [self.key]: value }))
     }
@@ -209,8 +323,14 @@ export function ExpenseForm({
         settlement: [],
       }
 
-      const allocations = allocationPayload()
-      const shares = splitMethod === 'equal'
+      const allocations = preserveShares ? [] : allocationPayload()
+      const shares = preserveShares && edit
+        ? edit.expense.shares.map((share) => ({
+          participantId: share.memberId,
+          amountMinor: share.amountMinor,
+          currency: edit.expense.currency,
+        }))
+        : splitMethod === 'equal'
         ? splitEqual(totalMinor, currency, allocations.map((row) => row.member_key))
         : splitMethod === 'percentage'
           ? splitByPercentage(totalMinor, currency, allocations.map((row) => ({ participantId: row.member_key, basisPoints: parseExpensePercentageToBasisPoints(row.percentage ?? '') })))
@@ -237,11 +357,19 @@ export function ExpenseForm({
 
   function chooseSplitMethod(method: ExpenseSplitMethod) {
     setSplitMethod(method)
+    if (edit) setPreserveShares(false)
     if ((method === 'percentage' || method === 'mixed_percentage_remainder') && selectedKeys.some((key) => !percentages[key])) {
-      setPercentages((current) => ({ ...equalPercentageValues(selectedKeys), ...current }))
+      setPercentages(equalPercentageValues(selectedKeys))
     }
     if (method === 'weighted') setWeights((current) => Object.fromEntries(selectedKeys.map((key) => [key, current[key] || '1'])))
-    if (method.startsWith('mixed_')) setRemainderParticipation((current) => Object.fromEntries(selectedKeys.map((key) => [key, current[key] ?? true])))
+    if (method === 'mixed_equal_remainder' && method !== splitMethod) {
+      setAmounts(Object.fromEntries(selectedKeys.map((key) => [key, '0'])))
+      setRemainderParticipation(Object.fromEntries(selectedKeys.map((key) => [key, true])))
+    }
+    if (method === 'mixed_percentage_remainder' && method !== splitMethod) {
+      setAmounts(Object.fromEntries(selectedKeys.map((key) => [key, '0'])))
+      setPercentages(equalPercentageValues(selectedKeys))
+    }
   }
 
   function submit(event: React.FormEvent) {
@@ -276,26 +404,52 @@ export function ExpenseForm({
       split_method: splitMethod,
       members: memberInputs,
       payments: paymentRows,
-      allocations: allocationPayload(),
+      allocations: edit ? [] : allocationPayload(),
     }
+    const editPayload = edit ? {
+      expense_id: edit.expense.id,
+      expected_financial_version: edit.expectedFinancialVersion,
+      title,
+      total,
+      currency,
+      incurred_on: incurredOn,
+      category: category || null,
+      note: note || null,
+      split_method: splitMethod,
+      preserve_shares: preserveShares,
+      new_members: members.flatMap((member) => (
+        member.newGuest
+          && (included[member.key] !== false || Boolean(payments[member.key]?.trim()))
+          ? [member.newGuest]
+          : []
+      )),
+      payments: paymentRows,
+      allocations: preserveShares ? [] : allocationPayload(),
+    } : null
+    const requestPayload = editPayload ?? payload
     startTransition(async () => {
-      const result = await createExpense({
-        ...payload,
-        request_id: requestIds.forPayload(payload),
-      })
+      const result = edit
+        ? await updateExpense({
+          ...editPayload!,
+          request_id: requestIds.forPayload(requestPayload),
+        })
+        : await createExpense({
+          ...payload,
+          request_id: requestIds.forPayload(requestPayload),
+        })
       if (!result.ok) {
         setError(t(`errors.${result.error}`))
         queueMicrotask(() => alertRef.current?.focus())
         return
       }
-      requestIds.succeeded(payload)
+      requestIds.succeeded(requestPayload)
       router.push(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`)
       router.refresh()
     })
   }
 
   return (
-    <form onSubmit={submit} className="space-y-8" noValidate>
+    <form onSubmit={submit} className="space-y-8" noValidate aria-busy={isPending}>
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
 
       <section className="space-y-4 border-y border-border py-5" aria-labelledby="expense-details-heading">
@@ -303,9 +457,9 @@ export function ExpenseForm({
         <label><span className={expenseLabelClass}>{t('expenseForm.title')}</span><input className={expenseInputClass} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required placeholder={t('expenseForm.titlePlaceholder')} /></label>
         <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
           <label><span className={expenseLabelClass}>{t('common.amount')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={total} onChange={(e) => changeTotal(e.target.value)} required /></label>
-          <label><span className={expenseLabelClass}>{t('common.currency')}</span><select className={expenseInputClass} value={currency} onChange={(e) => setCurrency(e.target.value)}>{EXPENSE_CURRENCIES.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span className={expenseLabelClass}>{t('common.currency')}</span><select className={expenseInputClass} value={currency} onChange={(e) => { setCurrency(e.target.value); if (edit) setPreserveShares(false) }}>{EXPENSE_CURRENCIES.map((item) => <option key={item}>{item}</option>)}</select></label>
         </div>
-        <label><span className={expenseLabelClass}>{t('common.date')}</span><input className={expenseInputClass} type="date" value={incurredOn} onChange={(e) => setIncurredOn(e.target.value)} required /></label>
+        <TeskeidDateField label={t('common.date')} value={incurredOn} onChange={setIncurredOn} placeholder={t('common.datePlaceholder')} required />
         <label><span className={expenseLabelClass}>{t('expenseForm.category')} <span className="font-normal text-muted-foreground">({t('common.optional')})</span></span><select className={expenseInputClass} value={category} onChange={(e) => setCategory(e.target.value)}><option value="">—</option>{['food','accommodation','transport','travel','home','entertainment','gifts','shopping','other'].map((item) => <option key={item} value={item}>{t(`categories.${item}`)}</option>)}</select></label>
         <label><span className={expenseLabelClass}>{t('common.note')} <span className="font-normal text-muted-foreground">({t('common.optional')})</span></span><textarea className={expenseTextareaClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} /></label>
       </section>
@@ -316,15 +470,15 @@ export function ExpenseForm({
         <div className="divide-y divide-border">
           {members.map((member) => (
             <div key={member.key} className="flex min-h-12 items-center gap-3 py-2">
-              <label className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-sm"><input type="checkbox" className="size-5" checked={included[member.key] !== false} onChange={(e) => setIncluded((current) => ({ ...current, [member.key]: e.target.checked }))} /><span className="truncate">{member.label}</span></label>
-              {!member.isSelf && mode === 'one_off' ? <button type="button" aria-label={t('expenseForm.removeParticipant', { name: member.label })} className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted" onClick={() => removeMember(member.key)}><X aria-hidden size={18} /></button> : null}
+              <label className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-sm"><input type="checkbox" className="size-5" checked={included[member.key] !== false} onChange={(e) => { setIncluded((current) => ({ ...current, [member.key]: e.target.checked })); if (edit) setPreserveShares(false) }} /><span className="truncate">{member.label}</span></label>
+              {!member.isSelf && mode === 'one_off' && (!edit || member.newGuest) ? <button type="button" aria-label={t('expenseForm.removeParticipant', { name: member.label })} className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted" onClick={() => removeMember(member.key)}><X aria-hidden size={18} /></button> : null}
             </div>
           ))}
         </div>
         {mode === 'one_off' ? (
           <div className="space-y-3 pt-2">
             {participantOptionsError ? <p role="status" className="text-sm text-amber-800">{t('expenseForm.participantLoadError')}</p> : null}
-            {participantOptions.length > 0 ? <div className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t('expenseForm.knownPeople')}</span><select className={expenseInputClass} value={relationshipId} onChange={(e) => setRelationshipId(e.target.value)}><option value="">{t('expenseForm.knownPeople')}</option>{participantOptions.filter((option) => !members.some((member) => member.key === `relationship:${option.relationshipId}`)).map((option) => <option key={option.relationshipId} value={option.relationshipId}>{option.pickerLabel}</option>)}</select></label><button type="button" className={expenseSecondaryButtonClass} disabled={!relationshipId} onClick={addRelationship}><Plus aria-hidden size={18} /></button></div> : null}
+            {!edit && participantOptions.length > 0 ? <div className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t('expenseForm.knownPeople')}</span><select className={expenseInputClass} value={relationshipId} onChange={(e) => setRelationshipId(e.target.value)}><option value="">{t('expenseForm.knownPeople')}</option>{participantOptions.filter((option) => !members.some((member) => member.key === `relationship:${option.relationshipId}`)).map((option) => <option key={option.relationshipId} value={option.relationshipId}>{option.pickerLabel}</option>)}</select></label><button type="button" className={expenseSecondaryButtonClass} disabled={!relationshipId} onClick={addRelationship}><Plus aria-hidden size={18} /></button></div> : null}
             <div className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t('expenseForm.guestName')}</span><input className={expenseInputClass} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder={t('expenseForm.guestName')} maxLength={120} /></label><button type="button" className={expenseSecondaryButtonClass} disabled={!guestName.trim()} onClick={addGuest}><Plus aria-hidden size={18} /><span className="sr-only">{t('expenseForm.addGuest')}</span></button></div>
           </div>
         ) : null}
@@ -338,14 +492,28 @@ export function ExpenseForm({
 
       <fieldset className="space-y-4 border-y border-border py-5">
         <legend className="text-sm font-semibold">{t('expenseForm.split')}</legend>
+        {edit && preserveShares ? (
+          <div className="space-y-3">
+            <p role="status" className="text-xs leading-5 text-muted-foreground">
+              {t('expenseForm.preserveSharesHint')}
+            </p>
+            <button
+              type="button"
+              className={expenseSecondaryButtonClass}
+              onClick={() => setPreserveShares(false)}
+            >
+              {t('expenseForm.changeShares')}
+            </button>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-2">
           {SPLIT_METHODS.map((method) => <label key={method} className={`flex min-h-11 items-center rounded-xl border px-3 text-sm ${splitMethod === method ? 'border-primary bg-primary/5' : 'border-border'}`}><input type="radio" name="split-method" className="mr-2" checked={splitMethod === method} onChange={() => chooseSplitMethod(method)} /><span>{t(`splitMethods.${method === 'mixed_equal_remainder' ? 'mixedEqual' : method === 'mixed_percentage_remainder' ? 'mixedPercentage' : method}`)}</span></label>)}
         </div>
-        {splitMethod !== 'equal' ? <div className="space-y-3 border-t border-border pt-4">{members.filter((member) => included[member.key]).map((member) => <div key={member.key} className="space-y-2"><p className="text-sm font-medium">{member.label}</p><div className="grid gap-2 sm:grid-cols-2">
-          {(splitMethod === 'fixed' || splitMethod.startsWith('mixed_')) ? <label><span className={expenseLabelClass}>{t('splitMethods.fixedLabel')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={amounts[member.key] ?? ''} onChange={(e) => setAmounts((current) => ({ ...current, [member.key]: e.target.value }))} /></label> : null}
-          {(splitMethod === 'percentage' || splitMethod === 'mixed_percentage_remainder') ? <label><span className={expenseLabelClass}>{t(splitMethod === 'percentage' ? 'splitMethods.percentageLabel' : 'splitMethods.remainderPercentage')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={percentages[member.key] ?? ''} onChange={(e) => setPercentages((current) => ({ ...current, [member.key]: e.target.value }))} /></label> : null}
-          {splitMethod === 'weighted' ? <label><span className={expenseLabelClass}>{t('splitMethods.weightLabel')}</span><input className={expenseInputClass} type="text" inputMode="numeric" value={weights[member.key] ?? '1'} onChange={(e) => setWeights((current) => ({ ...current, [member.key]: e.target.value }))} /></label> : null}
-          {splitMethod === 'mixed_equal_remainder' ? <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="size-5" checked={remainderParticipation[member.key] !== false} onChange={(e) => setRemainderParticipation((current) => ({ ...current, [member.key]: e.target.checked }))} />{t('splitMethods.inRemainder')}</label> : null}
+        {!preserveShares && splitMethod !== 'equal' ? <div className="space-y-3 border-t border-border pt-4">{members.filter((member) => included[member.key]).map((member) => <div key={member.key} className="space-y-2"><p className="text-sm font-medium">{member.label}</p><div className="grid gap-2 sm:grid-cols-2">
+          {(splitMethod === 'fixed' || splitMethod.startsWith('mixed_')) ? <label><span className={expenseLabelClass}>{t('splitMethods.fixedLabel')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={amounts[member.key] ?? ''} onChange={(e) => { setAmounts((current) => ({ ...current, [member.key]: e.target.value })); if (edit) setPreserveShares(false) }} /></label> : null}
+          {(splitMethod === 'percentage' || splitMethod === 'mixed_percentage_remainder') ? <label><span className={expenseLabelClass}>{t(splitMethod === 'percentage' ? 'splitMethods.percentageLabel' : 'splitMethods.remainderPercentage')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={percentages[member.key] ?? ''} onChange={(e) => { setPercentages((current) => ({ ...current, [member.key]: e.target.value })); if (edit) setPreserveShares(false) }} /></label> : null}
+          {splitMethod === 'weighted' ? <label><span className={expenseLabelClass}>{t('splitMethods.weightLabel')}</span><input className={expenseInputClass} type="text" inputMode="numeric" value={weights[member.key] ?? '1'} onChange={(e) => { setWeights((current) => ({ ...current, [member.key]: e.target.value })); if (edit) setPreserveShares(false) }} /></label> : null}
+          {splitMethod === 'mixed_equal_remainder' ? <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="size-5" checked={remainderParticipation[member.key] !== false} onChange={(e) => { setRemainderParticipation((current) => ({ ...current, [member.key]: e.target.checked })); if (edit) setPreserveShares(false) }} />{t('splitMethods.inRemainder')}</label> : null}
         </div></div>)}</div> : null}
       </fieldset>
 
@@ -361,7 +529,9 @@ export function ExpenseForm({
       </section>
 
       <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={isPending}>
-        {isPending ? t('expenseForm.creating') : t('expenseForm.create')}
+        {isPending
+          ? t(edit ? 'expenseForm.updating' : 'expenseForm.creating')
+          : t(edit ? 'expenseForm.update' : 'expenseForm.create')}
       </button>
     </form>
   )

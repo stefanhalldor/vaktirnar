@@ -91,6 +91,56 @@ export const CreateExpenseSchema = z.object({
   }
 })
 
+export const UpdateExpenseSchema = z.object({
+  request_id: requestId,
+  expense_id: uuid,
+  expected_financial_version: z.number().int().nonnegative(),
+  title: z.string().trim().min(1).max(200),
+  total: amountInput,
+  currency,
+  incurred_on: dateField,
+  category: z.enum(EXPENSE_CATEGORIES).nullable().optional().transform((v) => v ?? null),
+  note: z.string().trim().max(1000).nullable().optional().transform((v) => v || null),
+  split_method: z.enum([
+    'equal',
+    'percentage',
+    'weighted',
+    'fixed',
+    'mixed_equal_remainder',
+    'mixed_percentage_remainder',
+  ]),
+  preserve_shares: z.boolean(),
+  new_members: z.array(z.object({
+    id: uuid,
+    display_name: z.string().trim().min(1).max(120),
+  }).strict()).max(48).default([]),
+  payments: z.array(paymentInput).min(1).max(50),
+  allocations: z.array(allocationInput).max(50),
+}).superRefine((value, ctx) => {
+  if (value.preserve_shares && value.allocations.length !== 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['allocations'], message: 'must_be_empty' })
+  }
+  if (!value.preserve_shares && value.allocations.length === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['allocations'], message: 'required' })
+  }
+  if (new Set(value.new_members.map((member) => member.id)).size !== value.new_members.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['new_members'], message: 'duplicate' })
+  }
+  const referencedMemberKeys = new Set([
+    ...value.payments.map((payment) => payment.member_key),
+    ...value.allocations.map((allocation) => allocation.member_key),
+  ])
+  value.new_members.forEach((member, index) => {
+    if (!referencedMemberKeys.has(member.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['new_members', index],
+        message: 'unused',
+      })
+    }
+  })
+})
+
 export const AddExpenseGroupMemberSchema = z.object({
   group_id: uuid,
   request_id: requestId,
@@ -120,6 +170,28 @@ export const LeaveExpenseGroupSchema = z.object({
 export const CancelExpenseSchema = z.object({
   expense_id: uuid,
   request_id: requestId,
+})
+
+export const LinkExpenseGuestMemberSchema = z.object({
+  group_id: uuid,
+  member_id: uuid,
+  recipient_email: z.string().trim().email().max(320),
+  request_id: requestId,
+})
+
+export const RespondExpenseMemberInvitationSchema = z.object({
+  invitation_id: uuid,
+  action: z.enum(['accept', 'decline']),
+  request_id: requestId,
+})
+
+export const CancelExpenseMemberInvitationSchema = z.object({
+  invitation_id: uuid,
+  request_id: requestId,
+})
+
+export const ResendExpenseMemberInvitationSchema = z.object({
+  invitation_id: uuid,
 })
 
 export const SetExpenseGroupStatusSchema = z.object({
@@ -217,6 +289,7 @@ export const DeactivateExpensePaymentPreferenceSchema = z.object({
 })
 
 export type CreateExpenseInput = z.infer<typeof CreateExpenseSchema>
+export type UpdateExpenseInput = z.infer<typeof UpdateExpenseSchema>
 export type CreateExpenseGroupInput = z.infer<typeof CreateExpenseGroupSchema>
 export type ExpenseNewMemberInput = z.infer<typeof ExpenseNewMemberSchema>
 export type SaveExpensePaymentPreferenceInput = z.infer<typeof SaveExpensePaymentPreferenceSchema>

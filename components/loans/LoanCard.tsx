@@ -16,6 +16,7 @@ import {
 } from '@/lib/loans/actions'
 import { getLoanCardControls, loanedAtWeekday } from '@/lib/loans/types'
 import type { LoanItem } from '@/lib/loans/types'
+import { formatDateOnly } from '@/lib/date-format'
 
 interface Props {
   item: LoanItem
@@ -28,50 +29,26 @@ function isOverdue(item: LoanItem): boolean {
   return item.due_at < new Date().toISOString().slice(0, 10)
 }
 
-const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
-
 export function LoanCard({ item, afterDeleteHref, recipientDisplay }: Props) {
   const t = useTranslations('teskeid.loans')
   const locale = useLocale()
-  const displayLocale = LOCALE_MAP[locale] ?? locale
-
-  function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString(displayLocale, {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    })
-  }
-
-  function buildDateString(year: number, month: number, day: number): string {
-    if (locale === 'en') {
-      return new Date(year, month - 1, day).toLocaleDateString('en-US', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      })
-    }
-    return `${day}. ${t(`months.${month - 1}`)} ${year}`
-  }
 
   function formatLoanedAt(dateStr: string): string {
     const weekdayIndex = loanedAtWeekday(dateStr)
     const weekday = t(`weekdays.${weekdayIndex}`)
-    const [year, month, day] = dateStr.split('-').map(Number)
-    return t('loanedAtFull', { weekday, date: buildDateString(year, month, day) })
+    return t('loanedAtFull', { weekday, date: formatDateOnly(dateStr, locale) })
   }
 
   function formatDueAt(dateStr: string): string {
-    const [year, month, day] = dateStr.split('-').map(Number)
-    return buildDateString(year, month, day)
+    return formatDateOnly(dateStr, locale)
   }
 
   function formatReturnedAt(timestamp: string): string {
     const localDate = new Date(timestamp).toLocaleDateString('sv-SE', { timeZone: 'Atlantic/Reykjavik' })
     const [year, month, day] = localDate.split('-').map(Number)
-    const weekdayIndex = new Date(year, month - 1, day).getDay()
+    const weekdayIndex = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
     const weekday = t(`weekdays.${weekdayIndex}`)
-    return t('returnedAtFull', { weekday, date: buildDateString(year, month, day) })
+    return t('returnedAtFull', { weekday, date: formatDateOnly(localDate, locale) })
   }
 
   const router = useRouter()

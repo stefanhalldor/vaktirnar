@@ -17,6 +17,7 @@ import type {
   RecentEventRow,
   RecentEventSource,
 } from './types'
+import { formatDateOnly } from '@/lib/date-format'
 
 const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
 
@@ -25,11 +26,7 @@ export function getDisplayLocale(locale: string): string {
 }
 
 export function formatDateStr(dateStr: string | null | undefined, locale: string): string {
-  if (!dateStr) return ''
-  const [year, month, day] = dateStr.split('-').map(Number)
-  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(year, (month ?? 1) - 1, day ?? 1),
-  )
+  return formatDateOnly(dateStr, locale)
 }
 
 export function buildDetailLines(
@@ -84,6 +81,10 @@ export const EXPENSE_EVENT_TYPE_TO_KEY: Record<ExpenseRecentEventType, string> =
   expense_group_invitation_received: 'eventExpenseGroupInvitationReceived',
   expense_group_invitation_accepted: 'eventExpenseGroupInvitationAccepted',
   expense_group_invitation_declined: 'eventExpenseGroupInvitationDeclined',
+  expense_member_invitation_received: 'eventExpenseMemberInvitationReceived',
+  expense_member_invitation_accepted: 'eventExpenseMemberInvitationAccepted',
+  expense_member_invitation_declined: 'eventExpenseMemberInvitationDeclined',
+  expense_member_invitation_cancelled: 'eventExpenseMemberInvitationCancelled',
   expense_group_member_left:         'eventExpenseGroupMemberLeft',
   expense_group_settling:            'eventExpenseGroupSettling',
   expense_group_settled:             'eventExpenseGroupSettled',
@@ -102,6 +103,10 @@ const EXPENSE_EVENT_ENTITY_TYPE: Record<ExpenseRecentEventType, ExpenseRecentEve
   expense_group_invitation_received: 'expense_group_invitation',
   expense_group_invitation_accepted: 'expense_group',
   expense_group_invitation_declined: 'expense_group',
+  expense_member_invitation_received: 'expense_member_invitation',
+  expense_member_invitation_accepted: 'expense_member_invitation',
+  expense_member_invitation_declined: 'expense_member_invitation',
+  expense_member_invitation_cancelled: 'expense_member_invitation',
   expense_group_member_left:         'expense_group',
   expense_group_settling:            'expense_group',
   expense_group_settled:             'expense_group',
@@ -194,7 +199,12 @@ function sanitizeExpensePayload(
   const groupTitle = boundedTitle(value.groupTitle)
   const entityType = EXPENSE_EVENT_ENTITY_TYPE[eventType]
   if (entityType === 'expense' && !expenseTitle) return null
-  if ((entityType === 'expense_group' || entityType === 'expense_group_invitation') && !groupTitle) {
+  if (
+    (entityType === 'expense_group'
+      || entityType === 'expense_group_invitation'
+      || entityType === 'expense_member_invitation')
+    && !groupTitle
+  ) {
     return null
   }
   if (entityType === 'expense_repayment' && !expenseTitle && !groupTitle) return null

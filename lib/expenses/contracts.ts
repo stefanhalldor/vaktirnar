@@ -13,6 +13,7 @@ export type ExpenseGroupKind = 'group' | 'one_off'
 export type ExpenseGroupStatus = 'active' | 'settling' | 'settled' | 'closed'
 export type ExpenseMemberRole = 'owner' | 'admin' | 'member'
 export type ExpenseMemberStatus = 'invited' | 'active' | 'declined' | 'removed' | 'left'
+export type ExpenseMemberInvitationStatus = 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired'
 
 export type ExpenseActionErrorCode =
   | 'invalid_input'
@@ -20,6 +21,8 @@ export type ExpenseActionErrorCode =
   | 'not_found'
   | 'conflict'
   | 'feature_disabled'
+  | 'recipient_unavailable'
+  | 'delivery_failed'
   | 'save_failed'
   | 'load_failed'
 
@@ -42,6 +45,12 @@ export interface ExpenseMemberView {
   status: ExpenseMemberStatus
   isSelf: boolean
   isRegistered: boolean
+  /** Manager-only status. Recipient email is never included in shared views. */
+  identityInvitation?: {
+    id: string
+    status: ExpenseMemberInvitationStatus
+    delivery: 'not_sent' | 'reserved' | 'sent' | 'failed'
+  } | null
 }
 
 export interface ExpensePaymentView {
@@ -127,7 +136,7 @@ export interface ExpenseActivityView {
   id: string
   sequence: number
   eventType: ExpenseActivityEventType
-  entityType: 'expense' | 'expense_group' | 'expense_group_invitation' | 'expense_repayment' | 'payment_preference'
+  entityType: 'expense' | 'expense_group' | 'expense_group_invitation' | 'expense_member_invitation' | 'expense_repayment' | 'payment_preference'
   entityId: string
   summaryCode: string
   actorDisplayName: string
@@ -163,12 +172,23 @@ export interface ExpenseDashboardView {
   groups: ExpenseGroupSummaryView[]
   oneOffs: ExpenseGroupSummaryView[]
   invitations: ExpenseInvitationView[]
+  memberInvitations?: ExpenseMemberInvitationView[]
   totals: Array<{
     currency: string
     owedToYouMinor: number
     youOweMinor: number
   }>
   pendingConfirmationCount: number
+}
+
+/** Safe pre-consent snapshot. It deliberately contains no ledger fields. */
+export interface ExpenseMemberInvitationView {
+  invitationId: string
+  contextTitle: string
+  inviterDisplayName: string | null
+  status: 'pending'
+  expiresAt: string
+  invitedAt: string
 }
 
 export interface ExpenseGroupSummaryView {

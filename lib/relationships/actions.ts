@@ -1,8 +1,8 @@
 import 'server-only'
 
 import { getAdmin } from '@/lib/supabase/admin'
-import { checkFeatureAccess } from '@/lib/loans/guard'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
+import { upsertSourceRelationship } from '@/lib/relationships/upsert-source.server'
 
 export type RelationshipListItem = {
   id: string
@@ -56,116 +56,13 @@ export async function upsertLoanRelationship(
   recipientEmail: string,
   loanItemId: string,
 ): Promise<void> {
-  const allowed = await checkFeatureAccess(ownerUserId, ownerEmail, 'tengsl')
-  if (!allowed) return
-
-  const emailCanonical = normalizeEmailForAccess(recipientEmail)
-  if (!emailCanonical) return
-
-  const admin = getAdmin()
-
-  try {
-    // Best-effort lookup: is the recipient already a registered user?
-    let counterpartUserId: string | null = null
-    try {
-      // @ts-expect-error getUserByEmail removed from GoTrueAdminApi types in auth-js 2.x
-      const { data } = await admin.auth.admin.getUserByEmail(emailCanonical)
-      counterpartUserId = data?.user?.id ?? null
-    } catch {
-      // not found or unavailable — proceed with email only
-    }
-
-    let relationshipId: string | null = null
-
-    if (counterpartUserId) {
-      const { data: existing } = await admin
-        .from('relationships')
-        .select('id')
-        .eq('owner_id', ownerUserId)
-        .eq('counterpart_user_id', counterpartUserId)
-        .maybeSingle()
-
-      if (existing) {
-        relationshipId = (existing as { id: string }).id
-      } else {
-        // Check for an email-only row first — prevents a thin duplicate when
-        // the counterpart was manually added as an email contact before claiming.
-        const { data: emailRow } = await admin
-          .from('relationships')
-          .select('id')
-          .eq('owner_id', ownerUserId)
-          .eq('email_canonical', emailCanonical)
-          .is('counterpart_user_id', null)
-          .maybeSingle()
-
-        if (emailRow) {
-          await admin
-            .from('relationships')
-            .update({ counterpart_user_id: counterpartUserId })
-            .eq('id', (emailRow as { id: string }).id)
-            .eq('owner_id', ownerUserId)
-          relationshipId = (emailRow as { id: string }).id
-        } else {
-          const { data: inserted } = await admin
-            .from('relationships')
-            .insert({ owner_id: ownerUserId, counterpart_user_id: counterpartUserId, email_canonical: emailCanonical })
-            .select('id')
-            .single()
-          if (inserted) {
-            relationshipId = (inserted as { id: string }).id
-            await admin
-              .from('relationship_tags')
-              .insert({ relationship_id: relationshipId, tag: 'unclassified' })
-          }
-        }
-      }
-    } else {
-      const { data: existing } = await admin
-        .from('relationships')
-        .select('id')
-        .eq('owner_id', ownerUserId)
-        .eq('email_canonical', emailCanonical)
-        .is('counterpart_user_id', null)
-        .maybeSingle()
-
-      if (existing) {
-        relationshipId = (existing as { id: string }).id
-      } else {
-        const { data: inserted } = await admin
-          .from('relationships')
-          .insert({ owner_id: ownerUserId, email_canonical: emailCanonical })
-          .select('id')
-          .single()
-        if (inserted) {
-          relationshipId = (inserted as { id: string }).id
-          await admin
-            .from('relationship_tags')
-            .insert({ relationship_id: relationshipId, tag: 'unclassified' })
-        }
-      }
-    }
-
-    if (!relationshipId) return
-
-    // Upsert source — idempotent via UNIQUE (relationship_id, source_type, source_id)
-    const { data: existingSource } = await admin
-      .from('relationship_sources')
-      .select('id')
-      .eq('relationship_id', relationshipId)
-      .eq('source_type', 'loans')
-      .eq('source_id', loanItemId)
-      .maybeSingle()
-
-    if (!existingSource) {
-      await admin.from('relationship_sources').insert({
-        relationship_id: relationshipId,
-        source_type: 'loans',
-        source_id: loanItemId,
-      })
-    }
-  } catch {
-    console.error('[relationships] upsert failed')
-  }
+  await upsertSourceRelationship({
+    ownerUserId,
+    ownerEmail,
+    counterpart: { mode: 'lookup-by-email', email: recipientEmail },
+    sourceType: 'loans',
+    sourceId: loanItemId,
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

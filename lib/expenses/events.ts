@@ -12,6 +12,10 @@ export type ExpenseRecentEventType =
   | 'expense_group_invitation_received'
   | 'expense_group_invitation_accepted'
   | 'expense_group_invitation_declined'
+  | 'expense_member_invitation_received'
+  | 'expense_member_invitation_accepted'
+  | 'expense_member_invitation_declined'
+  | 'expense_member_invitation_cancelled'
   | 'expense_group_member_left'
   | 'expense_group_settling'
   | 'expense_group_settled'
@@ -29,6 +33,7 @@ export type ExpenseRecentEventEntityType =
   | 'expense'
   | 'expense_group'
   | 'expense_group_invitation'
+  | 'expense_member_invitation'
   | 'expense_repayment'
 
 export interface ExpenseRecentEventPayload {
@@ -74,6 +79,13 @@ const GROUP_INVITATION_EVENTS = new Set<ExpenseRecentEventType>([
   'expense_group_invitation_received',
 ])
 
+const MEMBER_INVITATION_EVENTS = new Set<ExpenseRecentEventType>([
+  'expense_member_invitation_received',
+  'expense_member_invitation_accepted',
+  'expense_member_invitation_declined',
+  'expense_member_invitation_cancelled',
+])
+
 const GROUP_STATUS_EVENTS = new Set<ExpenseRecentEventType>([
   'expense_group_settling',
   'expense_group_settled',
@@ -99,6 +111,7 @@ function boundedTitle(title: string | undefined): string | undefined {
 function entityTypeFor(eventType: ExpenseRecentEventType): ExpenseRecentEventEntityType {
   if (EXPENSE_EVENTS.has(eventType)) return 'expense'
   if (GROUP_INVITATION_EVENTS.has(eventType)) return 'expense_group_invitation'
+  if (MEMBER_INVITATION_EVENTS.has(eventType)) return 'expense_member_invitation'
   if (GROUP_MEMBERSHIP_EVENTS.has(eventType) || GROUP_STATUS_EVENTS.has(eventType)) {
     return 'expense_group'
   }
@@ -138,7 +151,12 @@ export function buildExpenseRecentEventProjections(input: {
   if (entityType === 'expense' && !expenseTitle) {
     failExpenseDomain('event_projection_invalid')
   }
-  if ((entityType === 'expense_group' || entityType === 'expense_group_invitation') && !groupTitle) {
+  if (
+    (entityType === 'expense_group'
+      || entityType === 'expense_group_invitation'
+      || entityType === 'expense_member_invitation')
+    && !groupTitle
+  ) {
     failExpenseDomain('event_projection_invalid')
   }
   if (entityType === 'expense_repayment' && !expenseTitle && !groupTitle) {
@@ -172,6 +190,8 @@ export function buildExpenseRecentEventProjections(input: {
           ? `${EXPENSES_PATH}/endurgreidslur/${input.entityId}`
           : entityType === 'expense_group_invitation'
             ? `${EXPENSES_PATH}/bod/${input.entityId}`
+            : entityType === 'expense_member_invitation'
+              ? `${EXPENSES_PATH}/bod/adili/${input.entityId}`
             : `${EXPENSES_PATH}/hopar/${input.entityId}`,
       updateOnConflict,
       initiallyRead: userId === actorUserId,

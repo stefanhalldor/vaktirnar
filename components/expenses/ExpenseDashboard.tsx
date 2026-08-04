@@ -4,6 +4,7 @@ import type { ExpenseDashboardView, ExpenseGroupSummaryView } from '@/lib/expens
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { getExpenseTranslations } from './i18n.server'
 import { ExpenseInvitationActions } from './ExpenseInvitationActions'
+import { ExpenseMemberInvitationActions } from './ExpenseMemberInvitationActions'
 import { expensePrimaryButtonClass, expenseSecondaryButtonClass } from './ui'
 
 function firstOpenBalance(group: ExpenseGroupSummaryView) {
@@ -13,6 +14,7 @@ function firstOpenBalance(group: ExpenseGroupSummaryView) {
 
 export async function ExpenseDashboard({ dashboard }: { dashboard: ExpenseDashboardView }) {
   const t = await getExpenseTranslations()
+  const memberInvitations = dashboard.memberInvitations ?? []
 
   const renderRows = (items: ExpenseGroupSummaryView[]) => (
     <div className="divide-y divide-border border-y border-border">
@@ -93,9 +95,35 @@ export async function ExpenseDashboard({ dashboard }: { dashboard: ExpenseDashbo
         </section>
       ) : null}
 
+      {memberInvitations.length > 0 ? (
+        <section aria-labelledby="expense-member-invitations-title">
+          <h2 id="expense-member-invitations-title" className="mb-3 text-sm font-semibold">
+            {t('memberInvitation.inboxTitle')}
+          </h2>
+          <div className="space-y-5 border-y border-border py-4">
+            {memberInvitations.map((invitation) => (
+              <div key={invitation.invitationId} className="space-y-3">
+                <Link
+                  href={`/auth-mvp/utlagt-og-endurgreitt/bod/adili/${invitation.invitationId}`}
+                  className="block min-h-10 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="block font-semibold">{invitation.contextTitle}</span>
+                  <span className="mt-1 block text-sm text-muted-foreground">
+                    {t('memberInvitation.inboxBody', {
+                      inviter: invitation.inviterDisplayName ?? t('memberInvitation.unknownInviter'),
+                    })}
+                  </span>
+                </Link>
+                <ExpenseMemberInvitationActions invitationId={invitation.invitationId} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {dashboard.groups.length > 0 ? <section><h2 className="mb-2 text-sm font-semibold">{t('dashboard.groups')}</h2>{renderRows(dashboard.groups)}</section> : null}
       {dashboard.oneOffs.length > 0 ? <section><h2 className="mb-2 text-sm font-semibold">{t('dashboard.oneOffs')}</h2>{renderRows(dashboard.oneOffs)}</section> : null}
-      {dashboard.groups.length === 0 && dashboard.oneOffs.length === 0 && dashboard.invitations.length === 0 ? (
+      {dashboard.groups.length === 0 && dashboard.oneOffs.length === 0 && dashboard.invitations.length === 0 && memberInvitations.length === 0 ? (
         <p className="border-y border-border py-6 text-center text-sm text-muted-foreground">{t('dashboard.empty')}</p>
       ) : null}
     </div>

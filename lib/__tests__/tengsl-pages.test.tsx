@@ -49,6 +49,7 @@ vi.mock('@/components/tengsl/RelationshipDetailsForm', () => ({
 }))
 
 vi.mock('next-intl/server', () => ({
+  getLocale: vi.fn().mockResolvedValue('is'),
   getTranslations: vi.fn().mockImplementation(async () => {
     const T: Record<string, string> = {
       title: 'Tengsl',

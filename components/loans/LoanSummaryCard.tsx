@@ -8,6 +8,7 @@ import { useTranslations, useLocale } from 'next-intl'
 import { claimInvitation, declineInvitation } from '@/lib/loans/actions'
 import { loanedAtWeekday } from '@/lib/loans/types'
 import type { LoanItem } from '@/lib/loans/types'
+import { formatDateOnly } from '@/lib/date-format'
 
 interface Props {
   item: LoanItem
@@ -42,25 +43,15 @@ export function LoanSummaryCard({ item, isHighlighted }: Props) {
     : null
   const counterpart = counterpartName ? ` · ${counterpartName}` : ''
 
-  function buildDateString(year: number, month: number, day: number): string {
-    if (locale === 'en') {
-      return new Date(year, month - 1, day).toLocaleDateString('en-US', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      })
-    }
-    return `${day}. ${t(`months.${month - 1}`)} ${year}`
-  }
-
-  const [lYear, lMonth, lDay] = item.loaned_at.split('-').map(Number)
   const loanedWeekday = t(`weekdays.${loanedAtWeekday(item.loaned_at)}`)
-  const loanedDateStr = t('loanedAtFull', { weekday: loanedWeekday, date: buildDateString(lYear, lMonth, lDay) })
+  const loanedDateStr = t('loanedAtFull', {
+    weekday: loanedWeekday,
+    date: formatDateOnly(item.loaned_at, locale),
+  })
 
   let dueDateStr: string | null = null
   if (!isReturned && item.due_at) {
-    const [dYear, dMonth, dDay] = item.due_at.split('-').map(Number)
-    dueDateStr = t('dueAtFull', { date: buildDateString(dYear, dMonth, dDay) })
+    dueDateStr = t('dueAtFull', { date: formatDateOnly(item.due_at, locale) })
   }
 
   function handleAcknowledge() {

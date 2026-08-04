@@ -43,6 +43,27 @@ export function expenseActivityIdFromEventKey(eventKey: string): string | null {
   return UUID_PATTERN.test(activityId) ? activityId : null
 }
 
+/**
+ * Best-effort guarantor for email invitations created before the recipient
+ * had a Teskeið account. The RPC is email-matched, idempotent and projects no
+ * ledger fields; failure must not make the rest of the home feed unavailable.
+ */
+export async function syncExpenseMemberInvitationEvents(actorUserId: string): Promise<boolean> {
+  try {
+    const { error } = await getAdmin().rpc('expense_sync_my_member_invitation_events', {
+      p_actor_id: actorUserId,
+    })
+    if (error) {
+      console.error('[recent-events] expense invitation sync failed')
+      return false
+    }
+    return true
+  } catch {
+    console.error('[recent-events] expense invitation sync failed')
+    return false
+  }
+}
+
 interface ExpenseRecentTargetRow {
   activity_id: string
   href: string

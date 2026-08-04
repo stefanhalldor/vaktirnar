@@ -24,6 +24,7 @@ vi.mock('@/lib/expenses/participants.server', () => ({
 }))
 vi.mock('@/lib/expenses/persistence.server', () => ({
   getActiveExpenseGroupMembersForActor: vi.fn(),
+  getExpenseEditMembersForActor: vi.fn(),
 }))
 
 import { createExpense } from '@/lib/expenses/actions'

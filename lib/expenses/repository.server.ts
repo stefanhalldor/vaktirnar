@@ -22,6 +22,7 @@ import type {
   ExpenseGroupSummaryView,
   ExpenseInvitationView,
   ExpenseItemView,
+  ExpenseMemberInvitationView,
   ExpenseMemberRole,
   ExpenseMemberView,
   ExpensePaymentPreferenceView,
@@ -122,6 +123,14 @@ interface ActivityRow {
   created_at: string
 }
 
+interface MemberInvitationRow {
+  id: string
+  group_id: string
+  member_id: string
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired'
+  attempt_status: 'reserved' | 'sent' | 'failed' | null
+}
+
 const GROUP_SELECT = 'id, kind, name, description, emoji, default_currency, default_include_creator, status, financial_version, created_at'
 const MEMBER_SELECT = 'id, group_id, user_id, display_name, role, status, created_at'
 const EXPENSE_SELECT = 'id, group_id, title, total_minor, currency, incurred_on, category, note, status, split_method, created_by, created_at'
@@ -148,20 +157,23 @@ async function loadGroupRows(groupId: string): Promise<{
   repayments: RepaymentRow[]
   allocations: AllocationRow[]
   activity: ActivityRow[]
+  memberInvitations: MemberInvitationRow[]
 }> {
   const admin = getAdmin()
-  const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult] = await Promise.all([
+  const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult] = await Promise.all([
     admin.from('expense_groups').select(GROUP_SELECT).eq('id', groupId).maybeSingle(),
     admin.from('expense_group_members').select(MEMBER_SELECT).eq('group_id', groupId).order('created_at', { ascending: true }),
     admin.from('expenses').select(EXPENSE_SELECT).eq('group_id', groupId).order('incurred_on', { ascending: false }).order('created_at', { ascending: false }),
     admin.from('expense_repayments').select('id, group_id, from_member_id, to_member_id, amount_minor, currency, occurred_on, note, status, reported_by, payment_preference_snapshot, created_at').eq('group_id', groupId).order('created_at', { ascending: false }),
     admin.from('expense_activity').select('id, sequence_no, event_type, entity_type, entity_id, summary_code, actor_display_name, expense_title, group_title, created_at').eq('group_id', groupId).order('sequence_no', { ascending: false }).limit(50),
+    admin.from('expense_member_invitations').select('id, group_id, member_id, status, attempt_status').eq('group_id', groupId).eq('status', 'pending').gt('expires_at', new Date().toISOString()),
   ])
   throwOnError(groupResult.error, 'group query')
   throwOnError(membersResult.error, 'member query')
   throwOnError(expensesResult.error, 'expense query')
   throwOnError(repaymentsResult.error, 'repayment query')
   throwOnError(activityResult.error, 'activity query')
+  throwOnError(memberInvitationsResult.error, 'member invitation query')
   if (!groupResult.data) throw new Error('expense_not_found')
 
   const expenses = (expensesResult.data ?? []) as ExpenseRow[]
@@ -196,6 +208,7 @@ async function loadGroupRows(groupId: string): Promise<{
     repayments,
     allocations: (allocationsResult.data ?? []) as AllocationRow[],
     activity: (activityResult.data ?? []) as ActivityRow[],
+    memberInvitations: (memberInvitationsResult.data ?? []) as MemberInvitationRow[],
   }
 }
 
@@ -210,14 +223,26 @@ function buildGroupView(
   const membersById = new Map(rows.members.map((member) => [member.id, member]))
   const memberName = (id: string) => membersById.get(id)?.display_name ?? '—'
 
-  const members: ExpenseMemberView[] = rows.members.map((member) => ({
-    id: member.id,
-    displayName: member.display_name,
-    role: member.role,
-    status: member.status,
-    isSelf: member.user_id === actorUserId,
-    isRegistered: member.user_id !== null,
-  }))
+  const invitationsByMember = new Map(rows.memberInvitations.map((invitation) => [
+    invitation.member_id,
+    invitation,
+  ]))
+  const members: ExpenseMemberView[] = rows.members.map((member) => {
+    const invitation = canManage ? invitationsByMember.get(member.id) : undefined
+    return {
+      id: member.id,
+      displayName: member.display_name,
+      role: member.role,
+      status: member.status,
+      isSelf: member.user_id === actorUserId,
+      isRegistered: member.user_id !== null,
+      identityInvitation: invitation ? {
+        id: invitation.id,
+        status: invitation.status,
+        delivery: invitation.attempt_status ?? 'not_sent',
+      } : null,
+    }
+  })
 
   const ledgerEntries: ExpenseLedgerEntry[] = rows.expenses.map((expense) => ({
     expenseId: expense.id,
@@ -361,7 +386,12 @@ function buildGroupView(
     }
   })
 
-  const activity: ExpenseActivityView[] = rows.activity.map((row) => ({
+  // Identity-invitation events have a recipient-specific audience. Group
+  // activity is loaded by group, so omit them here instead of exposing one
+  // member's consent lifecycle to every current member.
+  const activity: ExpenseActivityView[] = rows.activity
+    .filter((row) => !row.event_type.startsWith('expense_member_invitation_'))
+    .map((row) => ({
     id: row.id,
     sequence: safeMinor(row.sequence_no),
     eventType: row.event_type,
@@ -475,12 +505,32 @@ export async function getExpenseGroupView(
 export async function getExpenseDashboard(
   actorUserId: string,
 ): Promise<ExpenseDashboardView> {
-  const { data, error } = await getAdmin()
+  const admin = getAdmin()
+  const [{ data, error }, memberInvitationResult] = await Promise.all([
+    admin
     .from('expense_group_members')
     .select('group_id, status, created_at')
     .eq('user_id', actorUserId)
-    .in('status', ['active', 'invited'])
+    .in('status', ['active', 'invited']),
+    admin.rpc('expense_get_my_member_invitations', { p_actor_id: actorUserId }),
+  ])
   throwOnError(error, 'dashboard membership query')
+  throwOnError(memberInvitationResult.error, 'member invitation inbox query')
+  const memberInvitations: ExpenseMemberInvitationView[] = ((memberInvitationResult.data ?? []) as Array<{
+    invitation_id: string
+    context_title: string
+    inviter_display_name: string | null
+    status: 'pending'
+    expires_at: string
+    invited_at: string
+  }>).map((invitation) => ({
+    invitationId: invitation.invitation_id,
+    contextTitle: invitation.context_title,
+    inviterDisplayName: invitation.inviter_display_name,
+    status: invitation.status,
+    expiresAt: invitation.expires_at,
+    invitedAt: invitation.invited_at,
+  }))
   const membershipRows = (data ?? []) as Array<{
     group_id: string
     status: 'active' | 'invited'
@@ -543,11 +593,38 @@ export async function getExpenseDashboard(
     groups: summaries.filter((group) => group.kind === 'group'),
     oneOffs: summaries.filter((group) => group.kind === 'one_off'),
     invitations,
+    memberInvitations,
     totals: [...totalsByCurrency.entries()]
       .map(([currency, totals]) => ({ currency, ...totals }))
       .sort((left, right) => left.currency.localeCompare(right.currency)),
     pendingConfirmationCount,
   }
+}
+
+export async function getExpenseMemberInvitation(
+  actorUserId: string,
+  invitationId: string,
+): Promise<ExpenseMemberInvitationView | null> {
+  const { data, error } = await getAdmin().rpc('expense_get_my_member_invitations', {
+    p_actor_id: actorUserId,
+  })
+  throwOnError(error, 'member invitation detail query')
+  const row = ((data ?? []) as Array<{
+    invitation_id: string
+    context_title: string
+    inviter_display_name: string | null
+    status: 'pending'
+    expires_at: string
+    invited_at: string
+  }>).find((invitation) => invitation.invitation_id === invitationId)
+  return row ? {
+    invitationId: row.invitation_id,
+    contextTitle: row.context_title,
+    inviterDisplayName: row.inviter_display_name,
+    status: row.status,
+    expiresAt: row.expires_at,
+    invitedAt: row.invited_at,
+  } : null
 }
 
 export async function getExpenseInvitation(

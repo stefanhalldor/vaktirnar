@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { getTranslations } from 'next-intl/server'
+import { getLocale, getTranslations } from 'next-intl/server'
 import Link from 'next/link'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { guardFeatureAccess } from '@/lib/loans/guard'
@@ -7,12 +7,7 @@ import { getRelationship, getRelationshipLoanActivity } from '@/lib/relationship
 import { TagSelectForm } from '@/components/tengsl/TagSelectForm'
 import { RelationshipDetailsForm } from '@/components/tengsl/RelationshipDetailsForm'
 import { ALLOWED_TAGS, type RelationshipTag } from '@/lib/relationships/types'
-
-function formatDate(dateStr: string): string {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  const d = new Date(year, month - 1, day)
-  return d.toLocaleDateString('is', { day: 'numeric', month: 'long', year: 'numeric' })
-}
+import { formatDateOnly } from '@/lib/date-format'
 
 export default async function TengslDetailPage({
   params,
@@ -22,7 +17,10 @@ export default async function TengslDetailPage({
   const { id } = await params
   const { user } = await guardTeskeidSession()
   await guardFeatureAccess(user.email!, 'tengsl')
-  const t = await getTranslations('teskeid.stillingar.tengsl')
+  const [t, locale] = await Promise.all([
+    getTranslations('teskeid.stillingar.tengsl'),
+    getLocale(),
+  ])
 
   const relationship = await getRelationship(user.id, id)
   if (!relationship) notFound()
@@ -88,7 +86,7 @@ export default async function TengslDetailPage({
                 <li key={loan.id} className="rounded-xl border border-border bg-card px-4 py-3">
                   <p className="text-sm font-medium text-foreground">{loan.item_name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {t('loanedPrefix')} {formatDate(loan.loaned_at)}
+                    {t('loanedPrefix')} {formatDateOnly(loan.loaned_at, locale)}
                     {loan.returned_at && ` · ${t('loanReturned')}`}
                   </p>
                   <Link

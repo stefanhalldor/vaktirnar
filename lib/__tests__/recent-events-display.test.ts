@@ -22,6 +22,10 @@ const EXPENSE_EVENT_TYPES: ExpenseRecentEventType[] = [
   'expense_repayment_confirmed',
   'expense_repayment_rejected',
   'expense_repayment_cancelled',
+  'expense_member_invitation_received',
+  'expense_member_invitation_accepted',
+  'expense_member_invitation_declined',
+  'expense_member_invitation_cancelled',
 ]
 
 function row(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
@@ -72,6 +76,25 @@ describe('recent event source parsing', () => {
 
     expect(parsed?.source).toBe('expenses')
     expect(parsed?.payload).toEqual({ expenseTitle: 'Kvöldmatur', actorUserId: 'actor-uuid' })
+  })
+
+  it('keeps identity-invitation payloads free of guest and ledger details', () => {
+    const parsed = parseRecentEventRow(row({
+      event_type: 'expense_member_invitation_received',
+      entity_type: 'expense_member_invitation',
+      payload: {
+        groupTitle: 'Afmælisgjöf',
+        actorUserId: 'actor-uuid',
+        guestDisplayName: 'Einkanafn',
+        recipientEmail: 'recipient@example.is',
+        amountMinor: 85_000,
+      },
+    }))
+
+    expect(parsed?.payload).toEqual({
+      groupTitle: 'Afmælisgjöf',
+      actorUserId: 'actor-uuid',
+    })
   })
 
   it('keeps legacy loan payload behavior while dropping malformed change entries', () => {

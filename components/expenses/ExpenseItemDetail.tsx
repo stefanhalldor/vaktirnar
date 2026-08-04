@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import { getLocale } from 'next-intl/server'
+import { formatDateOnly } from '@/lib/date-format'
 import type { ExpenseGroupView, ExpenseItemView } from '@/lib/expenses/contracts'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { getExpenseTranslations } from './i18n.server'
@@ -11,10 +13,15 @@ export async function ExpenseItemDetail({
   group: ExpenseGroupView
   expense: ExpenseItemView
 }) {
-  const t = await getExpenseTranslations()
-  const canCancel = expense.status === 'active'
+  const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
+  const hasLockedRepayment = group.repayments.some(
+    (repayment) => repayment.status === 'reported' || repayment.status === 'confirmed',
+  )
+  const canEdit = expense.status === 'active'
     && group.status === 'active'
+    && !hasLockedRepayment
     && (expense.createdBySelf || group.canManage)
+  const canCancel = canEdit
 
   return (
     <div className="space-y-8">
@@ -22,7 +29,7 @@ export async function ExpenseItemDetail({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="truncate text-lg font-semibold">{expense.title}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{expense.incurredOn}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{formatDateOnly(expense.incurredOn, locale)}</p>
           </div>
           <strong className="shrink-0 text-lg">{formatExpenseMinor(expense.totalMinor, expense.currency)}</strong>
         </div>
@@ -72,7 +79,9 @@ export async function ExpenseItemDetail({
         {t('expense.openGroup')}
       </Link>
 
-      {canCancel ? <ExpenseItemActions expenseId={expense.id} /> : null}
+      {canEdit || canCancel ? (
+        <ExpenseItemActions expenseId={expense.id} canEdit={canEdit} canCancel={canCancel} />
+      ) : null}
     </div>
   )
 }

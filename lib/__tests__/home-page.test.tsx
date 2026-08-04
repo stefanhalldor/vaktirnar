@@ -85,6 +85,10 @@ vi.mock('next-intl/server', () => ({
         eventExpenseRepaymentConfirmed:        'Endurgreiðsla staðfest: {title}',
         eventExpenseRepaymentRejected:         'Endurgreiðslu hafnað: {title}',
         eventExpenseRepaymentCancelled:        'Endurgreiðsla afturkölluð: {title}',
+        eventExpenseMemberInvitationReceived:  'Boð um að tengjast útgjaldi: {title}',
+        eventExpenseMemberInvitationAccepted:  'Aðili tengdist útgjaldi: {title}',
+        eventExpenseMemberInvitationDeclined:  'Boði um útgjald hafnað: {title}',
+        eventExpenseMemberInvitationCancelled: 'Boð um útgjald afturkallað: {title}',
         eventDetailItemNameChanged:   'Nafni breytt: {oldName} -> {newName}',
         eventDetailReturnDateAdded:   'Skiladegi bætt við: {date}',
         eventDetailReturnDateRemoved: 'Skiladagur fjarlægður: {date}',
@@ -359,6 +363,9 @@ function setupRpcs(
 ) {
   mockRpc.mockImplementation((fn: string) => {
     if (fn === 'get_my_loans') return Promise.resolve({ data: softAckLoans, error: null })
+    if (fn === 'expense_sync_my_member_invitation_events') {
+      return Promise.resolve({ data: 0, error: null })
+    }
     if (fn === 'expense_resolve_recent_targets') {
       return Promise.resolve({ data: expenseTargets, error: null })
     }
@@ -1339,6 +1346,29 @@ describe('HeimPage — source-aware expense integration', () => {
     expect(screen.getByText('Ný færsla: Kvöldmatur')).toBeDefined()
     expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['expenses'])
     expect(mockRpc).not.toHaveBeenCalledWith('get_my_loans', expect.anything())
+  })
+
+  it('syncs a pre-signup member invitation before rendering its safe home event', async () => {
+    setupGuard(false, false, false, true)
+    setupProfile(null)
+    setupRpcs([], [{
+      activity_id: EXPENSE_ACTIVITY_ID,
+      href: '/auth-mvp/utlagt-og-endurgreitt/bod/adili/50000000-0000-4000-8000-000000000001',
+    }])
+    setupRecentEvents([makeExpenseEvent({
+      event_type: 'expense_member_invitation_received',
+      entity_type: 'expense_member_invitation',
+      entity_id: '50000000-0000-4000-8000-000000000001',
+      payload: { groupTitle: 'Afmælisgjöf', actorUserId: 'actor-uuid' },
+    })])
+
+    render(await HeimPage())
+
+    expect(mockRpc.mock.calls[0]?.[0]).toBe('expense_sync_my_member_invitation_events')
+    expect(mockRpc).toHaveBeenCalledWith('expense_sync_my_member_invitation_events', {
+      p_actor_id: TEST_USER.id,
+    })
+    expect(screen.getByText('Boð um að tengjast útgjaldi: Afmælisgjöf')).toBeDefined()
   })
 
   it('keeps loan and expense rows in the order returned by the shared query', async () => {

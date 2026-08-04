@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import { getLocale } from 'next-intl/server'
+import { formatDateOnly } from '@/lib/date-format'
 import type { ExpenseGroupView, ExpenseRepaymentView } from '@/lib/expenses/contracts'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { getExpenseTranslations } from './i18n.server'
@@ -12,7 +14,7 @@ export async function ExpenseRepaymentDetail({
   group: ExpenseGroupView
   repayment: ExpenseRepaymentView
 }) {
-  const t = await getExpenseTranslations()
+  const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const statusKey = `repayment.status${repayment.status[0]!.toUpperCase()}${repayment.status.slice(1)}`
 
   return (
@@ -25,7 +27,7 @@ export async function ExpenseRepaymentDetail({
         <strong className="block text-xl">{formatExpenseMinor(repayment.amountMinor, repayment.currency)}</strong>
         <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 text-sm">
           <dt className="text-muted-foreground">{t('common.date')}</dt>
-          <dd>{repayment.occurredOn}</dd>
+          <dd>{formatDateOnly(repayment.occurredOn, locale)}</dd>
           <dt className="text-muted-foreground">{t('common.status')}</dt>
           <dd>{t(statusKey)}</dd>
         </dl>

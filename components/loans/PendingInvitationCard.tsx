@@ -3,25 +3,15 @@
 import Link from 'next/link'
 import { useTranslations, useLocale } from 'next-intl'
 import type { PendingInvitation } from '@/lib/loans/types'
+import { formatDateOnly } from '@/lib/date-format'
 
 interface Props {
   invitation: PendingInvitation
 }
 
-const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
-
 export function PendingInvitationCard({ invitation }: Props) {
   const t = useTranslations('teskeid.loans')
   const locale = useLocale()
-  const displayLocale = LOCALE_MAP[locale] ?? locale
-
-  function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString(displayLocale, {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    })
-  }
 
   return (
     <div className="bg-[#f0f7ef] border border-[#154212]/10 rounded-2xl p-4 flex flex-col gap-3">
@@ -38,9 +28,9 @@ export function PendingInvitationCard({ invitation }: Props) {
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#72796e]">
-        <span>{t('loanedAt')}: {formatDate(invitation.loaned_at)}</span>
+        <span>{t('loanedAt')}: {formatDateOnly(invitation.loaned_at, locale)}</span>
         {invitation.due_at && (
-          <span>{formatDate(invitation.due_at)}</span>
+          <span>{formatDateOnly(invitation.due_at, locale)}</span>
         )}
       </div>
 
