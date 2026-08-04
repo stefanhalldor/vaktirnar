@@ -1,16 +1,28 @@
 import { getAdmin } from '@/lib/supabase/admin'
-import type { RecentEventRow, RecentEventType, RecentEventPayload } from './types'
+import {
+  isExpenseRecentEventType,
+  isLoanRecentEventType,
+  isRecentEventSource,
+  sanitizeRecentEventPayload,
+} from './display'
+import type {
+  ExpenseRecentEventPayload,
+  ExpenseRecentEventType,
+} from '@/lib/expenses/events'
+import type {
+  LoanRecentEventPayload,
+  LoanRecentEventType,
+  RecentEventRow,
+  RecentEventSource,
+} from './types'
 
 const TABLE = 'recent_events'
 
-export interface RecordEventArgs {
+interface RecordEventBase {
   userId: string
-  source: string
-  eventType: RecentEventType
   entityType: string
   entityId: string | null
   eventKey: string
-  payload: RecentEventPayload
   href: string
   /** When true (default), a duplicate event_key row gets updated in place,
    *  resetting ack_at and refreshing occurred_at + payload.
@@ -22,23 +34,57 @@ export interface RecordEventArgs {
   /** The user ID of the person who performed the action. Merged into payload
    *  as actorUserId so history can display "Done by {name}". */
   actorUserId?: string
+  /** Authoritative event time. Omitted by existing loan callers, which retain
+   *  write-time behavior; durable expense activity projections should pass it. */
+  occurredAt?: string
 }
+
+export type RecordEventArgs = RecordEventBase & (
+  | {
+    source: 'loans'
+    eventType: LoanRecentEventType
+    payload: Readonly<LoanRecentEventPayload>
+  }
+  | {
+    source: 'expenses'
+    eventType: ExpenseRecentEventType
+    payload: Readonly<ExpenseRecentEventPayload>
+  }
+)
 
 /**
  * Best-effort event recording. Never throws — a failure logs and is suppressed
  * so the main loan mutation is not blocked.
  */
 export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
-  if (args.href.startsWith('//')) {
-    console.error('[recent-events] recordRecentEvent: rejected protocol-relative href')
+  if (typeof args.href !== 'string' || !args.href.startsWith('/') || args.href.startsWith('//')) {
+    console.error('[recent-events] recordRecentEvent: rejected non-local href')
+    return
+  }
+  if (
+    (args.source === 'loans' && !isLoanRecentEventType(args.eventType))
+    || (args.source === 'expenses' && !isExpenseRecentEventType(args.eventType))
+  ) {
+    console.error('[recent-events] recordRecentEvent: rejected source/event pair')
+    return
+  }
+  const occurredAt = args.occurredAt ?? new Date().toISOString()
+  if (typeof occurredAt !== 'string' || Number.isNaN(Date.parse(occurredAt))) {
+    console.error('[recent-events] recordRecentEvent: rejected occurred_at')
     return
   }
   try {
     const admin = getAdmin()
-    const occurredAt = new Date().toISOString()
-    const mergedPayload = args.actorUserId
+    const inputPayload = args.actorUserId
       ? { ...args.payload, actorUserId: args.actorUserId }
       : args.payload
+    const mergedPayload = args.source === 'loans'
+      ? sanitizeRecentEventPayload('loans', args.eventType, inputPayload)
+      : sanitizeRecentEventPayload('expenses', args.eventType, inputPayload)
+    if (!mergedPayload) {
+      console.error('[recent-events] recordRecentEvent: rejected payload')
+      return
+    }
     const row = {
       user_id:     args.userId,
       source:      args.source,
@@ -72,13 +118,17 @@ export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
  */
 export async function getUnreadRecentEventsForUser(
   userId: string,
+  sources: readonly RecentEventSource[],
   limit?: number,
 ): Promise<RecentEventRow[]> {
+  const allowedSources = normalizeSources(sources)
+  if (allowedSources.length === 0) return []
   const admin = getAdmin()
   const base = admin
     .from(TABLE)
     .select('id, user_id, source, event_type, entity_type, entity_id, event_key, payload, href, occurred_at, ack_at')
     .eq('user_id', userId)
+    .in('source', allowedSources)
     .is('ack_at', null)
     .order('occurred_at', { ascending: false })
     .order('id', { ascending: false })
@@ -111,12 +161,18 @@ export async function ackRecentEventByKey(userId: string, eventKey: string): Pro
  * Sets ack_at on all unread events for userId.
  * Throws on DB error.
  */
-export async function ackAllUnreadRecentEventsForUser(userId: string): Promise<void> {
+export async function ackAllUnreadRecentEventsForUser(
+  userId: string,
+  sources: readonly RecentEventSource[],
+): Promise<void> {
+  const allowedSources = normalizeSources(sources)
+  if (allowedSources.length === 0) return
   const admin = getAdmin()
   const { error } = await admin
     .from(TABLE)
     .update({ ack_at: new Date().toISOString() })
     .eq('user_id', userId)
+    .in('source', allowedSources)
     .is('ack_at', null)
   if (error) throw error
 }
@@ -128,12 +184,20 @@ export async function ackAllUnreadRecentEventsForUser(userId: string): Promise<v
 export async function ackRecentEventsForUser(
   userId: string,
   eventIds: number[],
+  sources: readonly RecentEventSource[],
 ): Promise<void> {
+  const allowedSources = normalizeSources(sources)
+  if (allowedSources.length === 0 || eventIds.length === 0) return
   const admin = getAdmin()
   const { error } = await admin
     .from(TABLE)
     .update({ ack_at: new Date().toISOString() })
     .eq('user_id', userId)
     .in('id', eventIds)
+    .in('source', allowedSources)
   if (error) throw error
+}
+
+function normalizeSources(sources: readonly RecentEventSource[]): RecentEventSource[] {
+  return [...new Set(sources.filter((source) => isRecentEventSource(source)))]
 }

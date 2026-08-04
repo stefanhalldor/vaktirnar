@@ -12,12 +12,20 @@ import type { Idea } from '@/lib/teskeid/types'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
 import { HomeIdeasDrawer } from '@/components/teskeid/HomeIdeasDrawer'
 import { getUnreadRecentEventsForUser, recordRecentEvent } from '@/lib/recent-events/helpers.server'
-import type { RecentEventDisplay } from '@/lib/recent-events/types'
+import type { ExpenseRecentEventRow, RecentEventDisplay } from '@/lib/recent-events/types'
+import {
+  expenseActivityIdFromEventKey,
+  resolveExpenseRecentEventTargets,
+  resolveRecentEventSourceAccess,
+} from '@/lib/recent-events/access.server'
 import {
   getDisplayLocale,
   buildDetailLines,
   EVENT_TYPE_TO_KEY,
+  EXPENSE_EVENT_TYPE_TO_KEY,
   formatEventTimestamp,
+  isRecentEventSource,
+  parseRecentEventRow,
   pickLoanUpdatedLabelKey,
 } from '@/lib/recent-events/display'
 import { RecentSection, type RecentLabels } from './RecentSection'
@@ -59,10 +67,11 @@ export default async function HeimPage() {
     // createClient() failed — fall through to defaults
   }
 
-  const [loansEnabled, umonnunEnabled] = await Promise.all([
-    checkFeatureAccess(user.id, user.email!, 'lanad-og-skilad'),
+  const [recentEventAccess, umonnunEnabled] = await Promise.all([
+    resolveRecentEventSourceAccess(user),
     checkFeatureAccess(user.id, user.email!, 'umonnun'),
   ])
+  const { loansEnabled, expensesEnabled, sources: recentEventSources } = recentEventAccess
 
   // Weather card: visible to all signed-in users with base weather access.
   // Both private-vedrid and public-tier users go to /auth-mvp/vedrid to retain saved places.
@@ -73,12 +82,15 @@ export default async function HeimPage() {
 
   const READY_TESKEID_ROUTES: Record<string, { href: string; enabled: boolean }> = {
     'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', enabled: loansEnabled },
+    'utlagt-og-endurgreitt': { href: '/auth-mvp/utlagt-og-endurgreitt', enabled: expensesEnabled },
     'umonnun':         { href: '/auth-mvp/umonnun',         enabled: umonnunEnabled },
     'vedrid':          { href: '/auth-mvp/vedrid',           enabled: weatherCardEnabled },
   }
 
-  const launchedIdeas = allIdeas.filter((i) => i.status === 'launched')
-  const futureIdeas   = allIdeas.filter((i) => i.status !== 'launched')
+  const isPromotedExpense = (idea: Idea) =>
+    idea.slug === 'utlagt-og-endurgreitt' && expensesEnabled
+  const launchedIdeas = allIdeas.filter((i) => i.status === 'launched' || isPromotedExpense(i))
+  const futureIdeas   = allIdeas.filter((i) => i.status !== 'launched' && !isPromotedExpense(i))
   const readyCards    = launchedIdeas
     .filter((i) => READY_TESKEID_ROUTES[i.slug]?.enabled)
     .map((i) => ({ idea: i, href: READY_TESKEID_ROUTES[i.slug]!.href }))
@@ -142,56 +154,91 @@ export default async function HeimPage() {
         )
       }
 
-      try {
-        const rows = await getUnreadRecentEventsForUser(user.id)
-        recentEvents = rows.map((event) => {
-          const itemName = event.payload.itemName ?? ''
-          const isDeleted = event.event_type === 'loan_deleted'
-          let labelKey: string
-          if (event.event_type === 'loan_invitation_received' && event.payload.recipientRole) {
-            labelKey = event.payload.recipientRole === 'borrower'
-              ? 'eventLoanInvitationReceivedBorrower'
-              : 'eventLoanInvitationReceivedLender'
-          } else if (event.event_type === 'loan_updated') {
-            labelKey = pickLoanUpdatedLabelKey(event.payload.changes)
-          } else {
-            labelKey = EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type
-          }
-          let viewHref: string | null = null
-          if (!isDeleted && event.entity_id) {
-            if (event.entity_type === 'invitation') {
-              const matchingLoan = loans.find((l) => l.invitation_id === event.entity_id)
-              if (matchingLoan) {
-                const params = new URLSearchParams({ from: 'heim' })
-                viewHref = `/auth-mvp/lanad-og-skilad/${matchingLoan.id}?${params}`
-              } else {
-                const params = new URLSearchParams({ invitation: event.entity_id, from: 'heim' })
-                viewHref = `/auth-mvp/lanad-og-skilad?${params}`
-              }
-            } else if (event.entity_type === 'loan') {
-              const params = new URLSearchParams({ from: 'heim' })
-              viewHref = `/auth-mvp/lanad-og-skilad/${event.entity_id}?${params}`
-            }
-          }
-          const tFn = (key: string, params?: Record<string, string>) =>
-            t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])
+    }
+  }
+
+  if (recentEventSources.length > 0) {
+    try {
+      const rows = await getUnreadRecentEventsForUser(user.id, recentEventSources)
+      const parsedRows = rows.flatMap((row) => {
+        if (!isRecentEventSource(row.source) || !recentEventSources.includes(row.source)) return []
+        const parsed = parseRecentEventRow(row)
+        return parsed ? [parsed] : []
+      })
+      const expenseRows = parsedRows.filter(
+        (event): event is ExpenseRecentEventRow => event.source === 'expenses',
+      )
+      const expenseTargets = expensesEnabled
+        ? await resolveExpenseRecentEventTargets(user.id, expenseRows)
+        : new Map<string, string>()
+      const tFn = (key: string, params?: Record<string, string>) =>
+        t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])
+
+      recentEvents = parsedRows.map((event) => {
+        if (event.source === 'expenses') {
+          const title = event.payload.expenseTitle ?? event.payload.groupTitle ?? ''
+          const activityId = expenseActivityIdFromEventKey(event.event_key)
           return {
-            id:             event.id,
-            label:          t(labelKey as Parameters<typeof t>[0], { itemName }),
-            href:           event.href,
-            viewHref,
-            isDeleted,
-            detailLines:    buildDetailLines(event.payload.changes, tFn, displayLocale),
+            id: event.id,
+            label: t(
+              EXPENSE_EVENT_TYPE_TO_KEY[event.event_type] as Parameters<typeof t>[0],
+              { title },
+            ),
+            href: event.href,
+            viewHref: activityId ? expenseTargets.get(activityId) ?? null : null,
+            isDeleted: false,
+            detailLines: [],
             occurredAtLabel: formatEventTimestamp(
               event.occurred_at,
               (key) => tLoans(key as Parameters<typeof tLoans>[0]),
             ),
           }
-        })
-      } catch {
-        console.error('[heim/page] recent events query failed')
-        eventsError = true
-      }
+        }
+
+        const itemName = event.payload.itemName ?? ''
+        const isDeleted = event.event_type === 'loan_deleted'
+        let labelKey: string
+        if (event.event_type === 'loan_invitation_received' && event.payload.recipientRole) {
+          labelKey = event.payload.recipientRole === 'borrower'
+            ? 'eventLoanInvitationReceivedBorrower'
+            : 'eventLoanInvitationReceivedLender'
+        } else if (event.event_type === 'loan_updated') {
+          labelKey = pickLoanUpdatedLabelKey(event.payload.changes)
+        } else {
+          labelKey = EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type
+        }
+        let viewHref: string | null = null
+        if (!isDeleted && event.entity_id) {
+          if (event.entity_type === 'invitation') {
+            const matchingLoan = loans.find((loan) => loan.invitation_id === event.entity_id)
+            if (matchingLoan) {
+              const params = new URLSearchParams({ from: 'heim' })
+              viewHref = `/auth-mvp/lanad-og-skilad/${matchingLoan.id}?${params}`
+            } else {
+              const params = new URLSearchParams({ invitation: event.entity_id, from: 'heim' })
+              viewHref = `/auth-mvp/lanad-og-skilad?${params}`
+            }
+          } else if (event.entity_type === 'loan') {
+            const params = new URLSearchParams({ from: 'heim' })
+            viewHref = `/auth-mvp/lanad-og-skilad/${event.entity_id}?${params}`
+          }
+        }
+        return {
+          id: event.id,
+          label: t(labelKey as Parameters<typeof t>[0], { itemName }),
+          href: event.href,
+          viewHref,
+          isDeleted,
+          detailLines: buildDetailLines(event.payload.changes, tFn, displayLocale),
+          occurredAtLabel: formatEventTimestamp(
+            event.occurred_at,
+            (key) => tLoans(key as Parameters<typeof tLoans>[0]),
+          ),
+        }
+      })
+    } catch {
+      console.error('[heim/page] recent events query failed')
+      eventsError = true
     }
   }
 
@@ -219,8 +266,8 @@ export default async function HeimPage() {
           <TeskeidMenu variant="authenticated" />
         </section>
 
-        {/* ── Nýlegt — hidden when LOANS_ENABLED=false or events query failed ─ */}
-        {loansEnabled && !eventsError && (
+        {/* ── Nýlegt — shared feed for currently-authorized Teskeið sources ─ */}
+        {recentEventSources.length > 0 && !eventsError && (
           <RecentSection
             key={rowBatch}
             rows={recentEvents}

@@ -14,7 +14,7 @@ const PUBLIC_ITEMS = [
 ] as const
 
 const AUTH_ITEMS = [
-  { href: '/auth-mvp/heim', labelKey: 'teskeidar', icon: LayoutGrid, activePrefixes: ['/auth-mvp/heim', '/auth-mvp/lanad-og-skilad', '/auth-mvp/umonnun', '/auth-mvp/vedrid'] },
+  { href: '/auth-mvp/heim', labelKey: 'teskeidar', icon: LayoutGrid, activePrefixes: ['/auth-mvp/heim', '/auth-mvp/lanad-og-skilad', '/auth-mvp/utlagt-og-endurgreitt', '/auth-mvp/umonnun', '/auth-mvp/vedrid'] },
   { href: '/auth-mvp/samvinna', labelKey: 'agentCollaboration', icon: MessagesSquare, agentCollaboration: true },
   { href: '/auth-mvp/minn-profill', labelKey: 'profile', icon: UserCircle },
   { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },

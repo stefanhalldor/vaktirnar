@@ -3813,3 +3813,31 @@ tilkynning um að enn sé beðið. Aldrei merkja hlutasvar sem fullnaðarniðurs
    birtast.
 5. Prófa mobile 360, 390 og 460 px: ekkert zoom, overflow, overlap eða tap á
    scroll/focus á meðan beðið er.
+
+#95
+## Útlagt og endurgreitt — örugg private beta
+
+**Staða:** Í vinnslu — production migration bíður keyrslu Stebba
+
+**Stofnað:** 2026-08-03
+
+**Vandamál:** Teskeið vantar sameiginlegt, rekjanlegt flæði fyrir stök útgjöld
+og útgjaldahópa: hver lagði út, fyrir hvern, hvernig kostnaður skiptist og hvað
+er eftir að endurgreiða.
+
+**Ósk:** Útfæra mobile-first „Útlagt og endurgreitt“ undir fail-closed global
+flaggi og alltaf nauðsynlegum per-user aðgangi. Styðja marga greiðendur, allar
+samþykktar skiptingar, samþykkta hópaðild, stöður eftir mynt, óbreytanlegar
+skuldbindingar, tilkynningu/staðfestingu endurgreiðslu, öruggar greiðsluleiðir,
+append-only activity og hreinsaða expense-eventa í sameiginlegu „Nýlegt“.
+
+**Öryggisafmörkun:** Engin raunveruleg greiðslutenging eða kvittanaupload.
+Tengsl eru aðeins einkavalmynd; skráður notandi verður ekki virkur
+fjárhagsmeðlimur án samþykkis. Bankaupplýsingar, kennitala, sími, netföng,
+athugasemdir og upphæðir mega ekki fara í `recent_events` eða chat-samhengi.
+
+**Localhost checks for Stebbi:** SQL96 og default-deny postflight voru staðfest
+á einnota Supabase preview-branchi 2026-08-04. Production rollout fer fyrst út
+með lokað global flagg. Stebbi einn keyrir production preflight og SQL96;
+Codex keyrir aldrei SQL eða migration. Eftir postflight er flaggið opnað og
+aðgangur veittur afmarkað í admin áður en private-beta flæðið er prófað.

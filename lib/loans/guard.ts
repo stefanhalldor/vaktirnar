@@ -63,6 +63,13 @@ export async function checkFeatureAccess(
     if (process.env.TENGSL_FLAG !== 'true') return true
     return checkPerUserAccess(email, 'tengsl')
   }
+  if (featureKey === 'utlagt-og-endurgreitt') {
+    // Private beta is deliberately fail-closed at both levels. Unlike features
+    // with a graduation path, every expenses user always needs an explicit
+    // feature_access row while this contract is in place.
+    if (process.env.EXPENSES_ENABLED !== 'true') return false
+    return checkPerUserAccess(email, 'utlagt-og-endurgreitt')
+  }
   if (featureKey === 'facebook-oauth') {
     if (process.env.FACEBOOK_OAUTH_ENABLED !== 'true') return false
     if (process.env.FACEBOOK_OAUTH_FLAG !== 'true') return true

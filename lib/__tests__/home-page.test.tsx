@@ -70,6 +70,21 @@ vi.mock('next-intl/server', () => ({
         eventLoanPartyAdded:                  'Aðila bætt við: {itemName}',
         eventLoanInvitationReceivedBorrower:  'Þú varst að fá lánað: {itemName}',
         eventLoanInvitationReceivedLender:    'Þú varst að lána: {itemName}',
+        eventExpenseCreated:                   'Ný færsla: {title}',
+        eventExpenseUpdated:                   'Færslu breytt: {title}',
+        eventExpenseCancelled:                 'Færsla felld niður: {title}',
+        eventExpenseGroupMemberAdded:          'Aðila bætt við: {title}',
+        eventExpenseGroupMemberRemoved:        'Aðili fjarlægður: {title}',
+        eventExpenseGroupInvitationReceived:   'Þér var boðið í: {title}',
+        eventExpenseGroupInvitationAccepted:   'Boð samþykkt: {title}',
+        eventExpenseGroupInvitationDeclined:   'Boði hafnað: {title}',
+        eventExpenseGroupMemberLeft:           'Aðili yfirgaf: {title}',
+        eventExpenseGroupSettling:             'Uppgjör hafið: {title}',
+        eventExpenseGroupSettled:              'Uppgjöri lokið: {title}',
+        eventExpenseRepaymentReported:         'Endurgreiðsla tilkynnt: {title}',
+        eventExpenseRepaymentConfirmed:        'Endurgreiðsla staðfest: {title}',
+        eventExpenseRepaymentRejected:         'Endurgreiðslu hafnað: {title}',
+        eventExpenseRepaymentCancelled:        'Endurgreiðsla afturkölluð: {title}',
         eventDetailItemNameChanged:   'Nafni breytt: {oldName} -> {newName}',
         eventDetailReturnDateAdded:   'Skiladegi bætt við: {date}',
         eventDetailReturnDateRemoved: 'Skiladagur fjarlægður: {date}',
@@ -174,7 +189,7 @@ vi.mock('@/components/teskeid/PersonalizedIdeaGrid', () => ({
 // The helper conditionally calls .limit() — the terminal node must be thenable
 // both when .limit() is chained and when awaited directly.
 // Both paths delegate to mockAdminLimit so setupRecentEvents only needs one mock.
-const { mockRpc, mockAdminLimit, mockGetAdmin } = vi.hoisted(() => {
+const { mockRpc, mockAdminLimit, mockAdminSourceIn, mockGetAdmin } = vi.hoisted(() => {
   const mockRpc = vi.fn()
   const mockAdminLimit = vi.fn()
   const mockAdminOrder2 = vi.fn(() => {
@@ -190,11 +205,12 @@ const { mockRpc, mockAdminLimit, mockGetAdmin } = vi.hoisted(() => {
   })
   const mockAdminOrder1 = vi.fn(() => ({ order: mockAdminOrder2 }))
   const mockAdminIs = vi.fn(() => ({ order: mockAdminOrder1 }))
-  const mockAdminEq = vi.fn(() => ({ is: mockAdminIs }))
+  const mockAdminSourceIn = vi.fn(() => ({ is: mockAdminIs }))
+  const mockAdminEq = vi.fn(() => ({ in: mockAdminSourceIn }))
   const mockAdminSelect = vi.fn(() => ({ eq: mockAdminEq }))
   const mockAdminFrom = vi.fn(() => ({ select: mockAdminSelect }))
   const mockGetAdmin = vi.fn(() => ({ rpc: mockRpc, from: mockAdminFrom }))
-  return { mockRpc, mockAdminLimit, mockGetAdmin }
+  return { mockRpc, mockAdminLimit, mockAdminSourceIn, mockGetAdmin }
 })
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: mockGetAdmin,
@@ -253,6 +269,21 @@ function makeEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
   }
 }
 
+const EXPENSE_ACTIVITY_ID = '10000000-0000-4000-8000-000000000001'
+
+function makeExpenseEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
+  return makeEvent({
+    source: 'expenses',
+    event_type: 'expense_created',
+    entity_type: 'expense',
+    entity_id: '20000000-0000-4000-8000-000000000001',
+    event_key: `expenses:activity:${EXPENSE_ACTIVITY_ID}`,
+    payload: { expenseTitle: 'Kvöldmatur', actorUserId: 'actor-uuid' },
+    href: '/auth-mvp/utlagt-og-endurgreitt/utgjold/20000000-0000-4000-8000-000000000001',
+    ...overrides,
+  })
+}
+
 function makeInvitation(overrides: Partial<PendingInvitation> = {}): PendingInvitation {
   return {
     invitation_id: 'inv-1',
@@ -296,16 +327,23 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
 const LAUNCHED_LOAN_IDEA    = makeIdea({ id: 'idea-loans',   slug: 'lanad-og-skilad', title: 'Lánað og skilað', status: 'launched' })
 const LAUNCHED_UMONNUN_IDEA = makeIdea({ id: 'idea-umonnun', slug: 'umonnun',          title: 'Umönnun',         status: 'launched' })
 const LAUNCHED_VEDRID_IDEA  = makeIdea({ id: 'idea-vedrid',  slug: 'vedrid',            title: 'Veðrið',          status: 'launched' })
+const PLANNED_EXPENSE_IDEA  = makeIdea({ id: 'idea-expenses', slug: 'utlagt-og-endurgreitt', title: 'Útlagt og endurgreitt', status: 'idea' })
 
 // ── Setup helpers ────────────────────────────────────────────────────────────
 
-function setupGuard(loansAccess = true, umonnunAccess = false, vedridAccess = false) {
+function setupGuard(
+  loansAccess = true,
+  umonnunAccess = false,
+  vedridAccess = false,
+  expensesAccess = false,
+) {
   mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
   mockCheckFeatureAccess.mockImplementation(
     async (_uid: string, _email: string, featureKey: string) => {
       if (featureKey === 'lanad-og-skilad') return loansAccess
       if (featureKey === 'umonnun') return umonnunAccess
       if (featureKey === 'vedrid') return vedridAccess
+      if (featureKey === 'utlagt-og-endurgreitt') return expensesAccess
       return false
     },
   )
@@ -315,9 +353,15 @@ function setupProfile(displayName: string | null) {
   mockMaybeSingle.mockResolvedValue({ data: displayName ? { display_name: displayName } : null })
 }
 
-function setupRpcs(softAckLoans: Array<Record<string, unknown>> = []) {
+function setupRpcs(
+  softAckLoans: Array<Record<string, unknown>> = [],
+  expenseTargets: Array<{ activity_id: string; href: string }> = [],
+) {
   mockRpc.mockImplementation((fn: string) => {
     if (fn === 'get_my_loans') return Promise.resolve({ data: softAckLoans, error: null })
+    if (fn === 'expense_resolve_recent_targets') {
+      return Promise.resolve({ data: expenseTargets, error: null })
+    }
     return Promise.resolve({ data: null, error: { code: 'unknown' } })
   })
 }
@@ -1279,5 +1323,120 @@ describe('HeimPage — Veðrið card access', () => {
     setupGuard(true, false, false)
     render(await HeimPage())
     expect(screen.queryByText('Veðrið')).toBeNull()
+  })
+})
+
+describe('HeimPage — source-aware expense integration', () => {
+  it('renders the shared feed for an expenses-only entitled user', async () => {
+    setupGuard(false, false, false, true)
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeExpenseEvent()])
+
+    render(await HeimPage())
+
+    expect(screen.getByText('Ólesið')).toBeDefined()
+    expect(screen.getByText('Ný færsla: Kvöldmatur')).toBeDefined()
+    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['expenses'])
+    expect(mockRpc).not.toHaveBeenCalledWith('get_my_loans', expect.anything())
+  })
+
+  it('keeps loan and expense rows in the order returned by the shared query', async () => {
+    setupGuard(true, false, false, true)
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([
+      makeExpenseEvent({ id: 2, payload: { expenseTitle: 'Matur', actorUserId: 'actor-uuid' } }),
+      makeEvent({ id: 1, payload: { itemName: 'Bók' } }),
+    ])
+
+    const { container } = render(await HeimPage())
+    const text = container.querySelector('[data-testid="recent-list"]')?.textContent ?? ''
+    expect(text.indexOf('Ný færsla: Matur')).toBeLessThan(text.indexOf('Búinn til: Bók'))
+    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['loans', 'expenses'])
+  })
+
+  it('drops disabled and unknown sources even if a malformed backend returns them', async () => {
+    setupGuard(true, false, false, false)
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([
+      makeExpenseEvent({ id: 3 }),
+      makeEvent({ id: 2, source: 'unknown-source', payload: { itemName: 'Óþekkt' } }),
+      makeEvent({ id: 1, payload: { itemName: 'Bók' } }),
+    ])
+
+    render(await HeimPage())
+
+    expect(screen.getByText('Búinn til: Bók')).toBeDefined()
+    expect(screen.queryByText('Ný færsla: Kvöldmatur')).toBeNull()
+    expect(screen.queryByText(/Óþekkt/)).toBeNull()
+    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['loans'])
+  })
+
+  it('renders a sanitized invitation event but only links an RPC-authorized target', async () => {
+    const invitationActivityId = '30000000-0000-4000-8000-000000000001'
+    const invitationHref = '/auth-mvp/utlagt-og-endurgreitt/bod/40000000-0000-4000-8000-000000000001'
+    setupGuard(false, false, false, true)
+    setupProfile(null)
+    setupRpcs([], [{ activity_id: invitationActivityId, href: invitationHref }])
+    setupRecentEvents([makeExpenseEvent({
+      event_type: 'expense_group_invitation_received',
+      entity_type: 'expense_group_invitation',
+      entity_id: '40000000-0000-4000-8000-000000000001',
+      event_key: `expenses:activity:${invitationActivityId}`,
+      payload: {
+        groupTitle: 'Sumarferð',
+        actorUserId: 'actor-uuid',
+        amountMinor: 999999,
+        note: 'má ekki leka',
+      },
+    })])
+
+    const { container } = render(await HeimPage())
+    fireEvent.click(screen.getByText('Þér var boðið í: Sumarferð'))
+
+    expect(screen.getByRole('link', { name: 'Skoða' }).getAttribute('href')).toBe(invitationHref)
+    expect(container.textContent).not.toContain('999999')
+    expect(container.textContent).not.toContain('má ekki leka')
+  })
+
+  it('shows an expense snapshot without Skoða when current target authorization is absent', async () => {
+    setupGuard(false, false, false, true)
+    setupProfile(null)
+    setupRpcs([], [])
+    setupRecentEvents([makeExpenseEvent()])
+
+    render(await HeimPage())
+    fireEvent.click(screen.getByText('Ný færsla: Kvöldmatur'))
+
+    expect(screen.queryByRole('link', { name: 'Skoða' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Lesið' })).toBeDefined()
+  })
+
+  it('promotes the planned expense idea only for an entitled user and never duplicates it', async () => {
+    mockIdeasResult.mockResolvedValue({ data: [PLANNED_EXPENSE_IDEA], error: null })
+    setupGuard(false, false, false, true)
+    setupProfile(null)
+    setupRpcs([])
+
+    render(await HeimPage())
+
+    const expenseLinks = screen.getAllByRole('link').filter(
+      (link) => link.getAttribute('href') === '/auth-mvp/utlagt-og-endurgreitt',
+    )
+    expect(expenseLinks).toHaveLength(1)
+    expect(screen.getAllByText('Útlagt og endurgreitt')).toHaveLength(1)
+  })
+
+  it('leaves the planned expense idea in the future drawer when access is denied', async () => {
+    mockIdeasResult.mockResolvedValue({ data: [PLANNED_EXPENSE_IDEA], error: null })
+    setupGuard(false, false, false, false)
+    setupProfile(null)
+
+    render(await HeimPage())
+    expect(screen.queryByRole('link', { name: /Opna Útlagt og endurgreitt/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Hugmyndir sem verða líklega/ }))
+    expect(screen.getByText('Útlagt og endurgreitt')).toBeDefined()
   })
 })

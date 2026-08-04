@@ -429,6 +429,48 @@ describe('middleware — root / redirect for authenticated users', () => {
 
 // ── /stillingar/tengsl — TENGSL_ENABLED kill + auth guard ─────────────────
 
+describe('middleware — expenses global switch and auth boundary', () => {
+  let savedAuthMvp: string | undefined
+  let savedExpenses: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    savedExpenses = process.env.EXPENSES_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+  })
+
+  afterEach(() => {
+    if (savedAuthMvp === undefined) delete process.env.AUTH_MVP_ENABLED
+    else process.env.AUTH_MVP_ENABLED = savedAuthMvp
+    if (savedExpenses === undefined) delete process.env.EXPENSES_ENABLED
+    else process.env.EXPENSES_ENABLED = savedExpenses
+  })
+
+  it('redirects an expense deep-link when the global switch is not exactly true', async () => {
+    delete process.env.EXPENSES_ENABLED
+    const res = await middleware(makeReq('/auth-mvp/utlagt-og-endurgreitt/hopar/group-id'))
+    expect(redirectedTo(res)).toBe('/')
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+
+  it('preserves an unauthenticated expense deep-link in the login next parameter', async () => {
+    process.env.EXPENSES_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/utlagt-og-endurgreitt/hopar/group-id'))
+    const location = new URL(res.headers.get('location')!)
+    expect(location.pathname).toBe('/innskraning')
+    expect(location.searchParams.get('next')).toBe('/auth-mvp/utlagt-og-endurgreitt/hopar/group-id')
+  })
+
+  it('lets an authenticated request reach the server-side per-user guard', async () => {
+    process.env.EXPENSES_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    const res = await middleware(makeReq('/auth-mvp/utlagt-og-endurgreitt'))
+    expect(res.status).toBe(200)
+  })
+})
+
 describe('middleware — /stillingar/tengsl kill-switch and auth guard', () => {
   let savedAuthMvp: string | undefined
   let savedTengsl: string | undefined

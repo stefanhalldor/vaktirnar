@@ -161,6 +161,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
+  // Expenses private beta has an independent fail-closed global switch.
+  // The per-user entitlement is rechecked in every server page/action.
+  if (
+    pathname.startsWith('/auth-mvp/utlagt-og-endurgreitt') &&
+    process.env.EXPENSES_ENABLED !== 'true'
+  ) {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   // Feature flag: guard /stillingar/tengsl and all sub-paths.
   // TENGSL_ENABLED must be 'true'. Per-user gating is enforced in server guards.
   if (
@@ -274,7 +283,8 @@ export async function middleware(request: NextRequest) {
   if (!user && (
     pathname.startsWith('/auth-mvp/heim') ||
     pathname.startsWith('/auth-mvp/minn-profill') ||
-    pathname.startsWith('/auth-mvp/lanad-og-skilad')
+    pathname.startsWith('/auth-mvp/lanad-og-skilad') ||
+    pathname.startsWith('/auth-mvp/utlagt-og-endurgreitt')
   )) {
     return redirectToInnskraningWithNext()
   }

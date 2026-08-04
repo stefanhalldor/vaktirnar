@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import AdminPage from '@/app/(admin)/admin/page'
 
 vi.mock('@/components/teskeid/StatusBadge', () => ({
@@ -146,6 +146,91 @@ describe('AdminPage — FeatureAccessSection', () => {
       // Two sections each have a Gefa aðgang button
       expect(screen.getAllByText('Gefa aðgang').length).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  it('renders the expenses private-beta control and grants the exact feature key', async () => {
+    const featureCalls: Array<{ url: string; method: string; body?: string }> = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/admin/feature-access')) {
+        featureCalls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined })
+      }
+      if (url.includes('/api/admin/analytics')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      }
+      if (url.includes('/api/admin/teskeid-usage')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_USAGE) })
+      }
+      if (method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, email: 'beta@example.com' }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+    }))
+
+    render(<AdminPage />)
+
+    expect(await screen.findByRole('heading', { name: 'Útlagt og endurgreitt — private beta' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual(expect.objectContaining({
+        url: '/api/admin/feature-access?feature=utlagt-og-endurgreitt',
+        method: 'GET',
+      }))
+    })
+
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Netfang fyrir Útlagt og endurgreitt — private beta',
+    }), { target: { value: 'beta@example.com' } })
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Gefa aðgang að Útlagt og endurgreitt — private beta',
+    }))
+
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual({
+        url: '/api/admin/feature-access?feature=utlagt-og-endurgreitt',
+        method: 'POST',
+        body: JSON.stringify({ email: 'beta@example.com' }),
+      })
+    })
+    expect(await screen.findByText('Aðgangur veittur: beta@example.com')).toBeInTheDocument()
+  })
+
+  it('revokes expenses private-beta access through the exact feature key', async () => {
+    const featureCalls: Array<{ url: string; method: string; body?: string }> = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/admin/feature-access')) {
+        featureCalls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined })
+      }
+      if (url.includes('/api/admin/analytics')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      }
+      if (url.includes('/api/admin/teskeid-usage')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_USAGE) })
+      }
+      if (url.includes('feature=utlagt-og-endurgreitt') && method === 'GET') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{ email: 'beta@example.com', granted_at: '2026-08-04T00:00:00Z' }]),
+        })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(method === 'DELETE' ? { ok: true } : []) })
+    }))
+
+    render(<AdminPage />)
+
+    const revokeButton = await screen.findByRole('button', {
+      name: 'Fjarlægja beta@example.com úr Útlagt og endurgreitt — private beta',
+    })
+    fireEvent.click(revokeButton)
+
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual({
+        url: '/api/admin/feature-access?feature=utlagt-og-endurgreitt',
+        method: 'DELETE',
+        body: JSON.stringify({ email: 'beta@example.com' }),
+      })
+    })
+    expect(screen.queryByText('beta@example.com')).not.toBeInTheDocument()
   })
 
   it('shows load error message when feature-access API returns 500', async () => {

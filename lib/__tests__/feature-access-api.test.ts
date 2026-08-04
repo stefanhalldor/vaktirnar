@@ -113,6 +113,12 @@ describe('GET /api/admin/feature-access — auth', () => {
     expect(res.status).toBe(200)
   })
 
+  it('returns 200 for the expenses private-beta feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('utlagt-og-endurgreitt'))
+    expect(res.status).toBe(200)
+  })
+
   it('returns 400 for unknown ?feature=badkey', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
     const res = await GET(makeGetRequest('badkey'))
@@ -178,6 +184,21 @@ describe('POST /api/admin/feature-access — auth and validation', () => {
     expect(res.status).toBe(201)
   })
 
+  it('grants only the canonical expenses private-beta key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest(
+      { email: 'user@example.com' },
+      'POST',
+      'utlagt-og-endurgreitt',
+    ))
+    expect(res.status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith({
+      feature_key: 'utlagt-og-endurgreitt',
+      email: 'user@example.com',
+    })
+  })
+
   it('?feature=teskeid-routing-v1 keeps accepting the legacy routing feature key', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
     mockAdminQuery.mockResolvedValue({ error: null })
@@ -231,6 +252,28 @@ describe('DELETE /api/admin/feature-access — auth and validation', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
+  })
+
+  it('revokes the exact expenses private-beta feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await DELETE(makeRequest(
+      { email: 'user@example.com' },
+      'DELETE',
+      'utlagt-og-endurgreitt',
+    ))
+    expect(res.status).toBe(200)
+  })
+
+  it('rejects a lookalike expenses feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await DELETE(makeRequest(
+      { email: 'user@example.com' },
+      'DELETE',
+      'utlagt_endurgreitt',
+    ))
+    expect(res.status).toBe(400)
+    expect(mockAdminQuery).not.toHaveBeenCalled()
   })
 })
 

@@ -30,7 +30,7 @@ import { recordRecentEvent } from '@/lib/recent-events/helpers.server'
 
 const BASE_ARGS = {
   userId:     'user-uuid-1',
-  source:     'loans',
+  source:     'loans' as const,
   eventType:  'loan_updated' as const,
   entityType: 'loan',
   entityId:   'loan-uuid-1',
@@ -79,6 +79,15 @@ describe('recordRecentEvent — ack_at behavior', () => {
     expect(() => new Date(row.occurred_at)).not.toThrow()
     expect(new Date(row.occurred_at).toISOString()).toBe(row.occurred_at)
   })
+
+  it('preserves an authoritative occurredAt supplied by a durable activity row', async () => {
+    const occurredAt = '2026-08-04T00:01:02.345Z'
+    await recordRecentEvent({ ...BASE_ARGS, occurredAt, initiallyRead: true })
+
+    const row = mockUpsert.mock.calls[0][0]
+    expect(row.occurred_at).toBe(occurredAt)
+    expect(row.ack_at).toBe(occurredAt)
+  })
 })
 
 describe('recordRecentEvent — upsert payload', () => {
@@ -96,6 +105,32 @@ describe('recordRecentEvent — upsert payload', () => {
     expect(row.entity_id).toBe('loan-uuid-1')
     expect(row.href).toBe('/auth-mvp/lanad-og-skilad')
     expect(row.payload).toEqual({ itemName: 'Bók' })
+  })
+
+  it('whitelists expense payload fields before writing recent_events', async () => {
+    const unsafePayload = {
+      expenseTitle: 'Kvöldmatur',
+      actorUserId: 'actor-uuid',
+      amountMinor: 123_00,
+      note: 'private note',
+      paymentSnapshot: { accountNumber: '0000-00-000000' },
+    }
+    await recordRecentEvent({
+      userId: 'recipient-uuid',
+      source: 'expenses',
+      eventType: 'expense_created',
+      entityType: 'expense',
+      entityId: 'expense-uuid',
+      eventKey: 'expenses:activity:activity-uuid',
+      payload: unsafePayload,
+      href: '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-uuid',
+      updateOnConflict: false,
+    })
+
+    expect(mockUpsert.mock.calls[0][0].payload).toEqual({
+      expenseTitle: 'Kvöldmatur',
+      actorUserId: 'actor-uuid',
+    })
   })
 
   it('uses onConflict: user_id,event_key by default (updateOnConflict omitted)', async () => {
@@ -133,6 +168,12 @@ describe('recordRecentEvent — error handling', () => {
 
   it('rejects protocol-relative href without calling upsert', async () => {
     await recordRecentEvent({ ...BASE_ARGS, href: '//example.com/path' })
+
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid authoritative occurredAt without calling upsert', async () => {
+    await recordRecentEvent({ ...BASE_ARGS, occurredAt: 'not-a-date' })
 
     expect(mockUpsert).not.toHaveBeenCalled()
   })

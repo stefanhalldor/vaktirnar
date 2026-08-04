@@ -1325,3 +1325,36 @@ describe('checkFeatureAccess — teskeid-routing-v1 (graduated rollout)', () => 
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 })
+
+describe('checkFeatureAccess — utlagt-og-endurgreitt (always private beta)', () => {
+  let savedExpensesEnabled: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedExpensesEnabled = process.env.EXPENSES_ENABLED
+  })
+
+  afterEach(() => {
+    setEnv('EXPENSES_ENABLED', savedExpensesEnabled)
+  })
+
+  it('fails before the access-table lookup when the global switch is off', async () => {
+    delete process.env.EXPENSES_ENABLED
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'utlagt-og-endurgreitt')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('still requires a per-user row when globally enabled', async () => {
+    process.env.EXPENSES_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'utlagt-og-endurgreitt')).toBe(false)
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'utlagt-og-endurgreitt')).toBe(true)
+  })
+
+  it('fails closed on lookup errors', async () => {
+    process.env.EXPENSES_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'db down' } })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'utlagt-og-endurgreitt')).toBe(false)
+  })
+})

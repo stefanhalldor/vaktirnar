@@ -23,6 +23,13 @@ vi.mock('@/lib/auth/guard', () => ({
   guardTeskeidSession: vi.fn().mockResolvedValue({ user: { id: 'actor-uuid', email: 'actor@test.com' } }),
 }))
 
+const { mockResolveSourceAccess } = vi.hoisted(() => ({
+  mockResolveSourceAccess: vi.fn(),
+}))
+vi.mock('@/lib/recent-events/access.server', () => ({
+  resolveRecentEventSourceAccess: mockResolveSourceAccess,
+}))
+
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: vi.fn(() => ({ from: mockAdminFrom })),
 }))
@@ -40,6 +47,14 @@ vi.mock('@/lib/recent-events/helpers.server', () => ({
 import { ackRecentEvents, ackAllRecentEvents } from '@/app/auth-mvp/heim/actions'
 import { revalidatePath } from 'next/cache'
 import { guardTeskeidSession } from '@/lib/auth/guard'
+
+beforeEach(() => {
+  mockResolveSourceAccess.mockResolvedValue({
+    loansEnabled: true,
+    expensesEnabled: false,
+    sources: ['loans'],
+  })
+})
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
@@ -82,7 +97,7 @@ describe('ackRecentEvents — input validation', () => {
     const result = await ackRecentEvents({ event_ids: [1, 'bad', 2.5, -1, 0] })
     // Only id=1 passes (positive integer)
     expect(result.ok).toBe(true)
-    expect(mockAckHelper).toHaveBeenCalledWith('actor-uuid', [1])
+    expect(mockAckHelper).toHaveBeenCalledWith('actor-uuid', [1], ['loans'])
   })
 
   it('returns ok (no-op) when all entries are invalid', async () => {
@@ -100,7 +115,28 @@ describe('ackRecentEvents — ownership and security', () => {
 
   it('passes actor user_id from session to ackRecentEventsForUser', async () => {
     await ackRecentEvents({ event_ids: [1, 2] })
-    expect(mockAckHelper).toHaveBeenCalledWith('actor-uuid', [1, 2])
+    expect(mockAckHelper).toHaveBeenCalledWith('actor-uuid', [1, 2], ['loans'])
+  })
+
+  it('passes the current server-derived loan and expense sources to the helper', async () => {
+    mockResolveSourceAccess.mockResolvedValueOnce({
+      loansEnabled: true,
+      expensesEnabled: true,
+      sources: ['loans', 'expenses'],
+    })
+    await ackRecentEvents({ event_ids: [3] })
+    expect(mockAckHelper).toHaveBeenCalledWith('actor-uuid', [3], ['loans', 'expenses'])
+  })
+
+  it('does not ack any row when the current user has no enabled source', async () => {
+    mockResolveSourceAccess.mockResolvedValueOnce({
+      loansEnabled: false,
+      expensesEnabled: false,
+      sources: [],
+    })
+    expect(await ackRecentEvents({ event_ids: [1] })).toEqual({ ok: true })
+    expect(mockAckHelper).not.toHaveBeenCalled()
+    expect(vi.mocked(revalidatePath)).not.toHaveBeenCalled()
   })
 
   it('throws redirect when guard redirects (auth required)', async () => {
@@ -141,7 +177,17 @@ describe('ackAllRecentEvents', () => {
 
   it('calls ackAllUnreadRecentEventsForUser with actor user_id', async () => {
     await ackAllRecentEvents()
-    expect(mockAckAllHelper).toHaveBeenCalledWith('actor-uuid')
+    expect(mockAckAllHelper).toHaveBeenCalledWith('actor-uuid', ['loans'])
+  })
+
+  it('scopes ack-all to expenses when that is the only current source', async () => {
+    mockResolveSourceAccess.mockResolvedValueOnce({
+      loansEnabled: false,
+      expensesEnabled: true,
+      sources: ['expenses'],
+    })
+    await ackAllRecentEvents()
+    expect(mockAckAllHelper).toHaveBeenCalledWith('actor-uuid', ['expenses'])
   })
 
   it('revalidates /auth-mvp/heim on success', async () => {

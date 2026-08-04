@@ -36,7 +36,8 @@ ALTER TABLE public.feature_access
     'weather-provider-vegagerdin',
     'road-intelligence-v1',
     'teskeid-routing-v1',
-    'agent-collaboration-private-beta'
+    'agent-collaboration-private-beta',
+    'utlagt-og-endurgreitt'
   ));
 
 -- ---------------------------------------------------------------------------

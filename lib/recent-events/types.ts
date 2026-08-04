@@ -1,4 +1,13 @@
-export type RecentEventType =
+import type {
+  ExpenseRecentEventEntityType,
+  ExpenseRecentEventPayload,
+  ExpenseRecentEventType,
+} from '@/lib/expenses/events'
+
+export const RECENT_EVENT_SOURCES = ['loans', 'expenses'] as const
+export type RecentEventSource = (typeof RECENT_EVENT_SOURCES)[number]
+
+export type LoanRecentEventType =
   | 'loan_created'
   | 'loan_updated'
   | 'loan_returned'
@@ -11,6 +20,8 @@ export type RecentEventType =
   | 'loan_chat_message'
   | 'loan_role_switched'
 
+export type RecentEventType = LoanRecentEventType | ExpenseRecentEventType
+
 export type LoanFieldChangeType = 'changed' | 'added' | 'removed'
 
 export interface LoanFieldChange {
@@ -20,33 +31,58 @@ export interface LoanFieldChange {
   newValue?: string | null
 }
 
-export interface RecentEventPayload {
+export interface LoanRecentEventPayload {
   itemName?: string
   changes?: LoanFieldChange[]
   actorUserId?: string
   recipientRole?: 'lender' | 'borrower'
+  newRole?: 'lender' | 'borrower'
 }
 
+export type RecentEventPayload = LoanRecentEventPayload | ExpenseRecentEventPayload
+
+/**
+ * Raw service-role row. Text and JSON columns are deliberately left untrusted;
+ * callers must parse the source/event/payload tuple before rendering it.
+ */
 export interface RecentEventRow {
   id: number
   user_id: string
   source: string
-  event_type: RecentEventType
+  event_type: string
   entity_type: string
   entity_id: string | null
   event_key: string
-  payload: RecentEventPayload
+  payload: unknown
   href: string
   occurred_at: string
   ack_at: string | null
 }
+
+type KnownRecentEventRowBase = Omit<RecentEventRow, 'source' | 'event_type' | 'payload'>
+
+export interface LoanRecentEventRow extends KnownRecentEventRowBase {
+  source: 'loans'
+  event_type: LoanRecentEventType
+  payload: LoanRecentEventPayload
+}
+
+export interface ExpenseRecentEventRow extends KnownRecentEventRowBase {
+  source: 'expenses'
+  event_type: ExpenseRecentEventType
+  entity_type: ExpenseRecentEventEntityType
+  entity_id: string
+  payload: ExpenseRecentEventPayload
+}
+
+export type KnownRecentEventRow = LoanRecentEventRow | ExpenseRecentEventRow
 
 // Pre-rendered for the client component — no raw payload or event internals
 export interface RecentEventDisplay {
   id: number
   label: string
   href: string
-  /** Link to the specific item inside its teskeid. Null for deleted items. */
+  /** Link to the specific item inside its teskeid. Null when current access is absent. */
   viewHref: string | null
   isDeleted: boolean
   /** Server-computed localized detail lines for the drawer. */

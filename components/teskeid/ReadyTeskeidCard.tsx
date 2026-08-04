@@ -40,6 +40,7 @@ const SLUG_COLORS: Record<string, { bg: string; text: string }> = {
   'lanad-og-skilad': { bg: 'bg-[#e9f4e6]', text: 'text-[#2d5a27]' },
   'vedrid':          { bg: 'bg-[#eef7f7]', text: 'text-[#1f6f78]' },
   'umonnun':         { bg: 'bg-rose-50',   text: 'text-rose-700'   },
+  'utlagt-og-endurgreitt': { bg: 'bg-[#eef7ea]', text: 'text-[#2d5a27]' },
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
