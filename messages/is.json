@@ -617,8 +617,11 @@
           "failed": "Sending mistókst"
         },
         "removeParticipant": "Fjarlægja {name}",
-        "paidBy": "Hver borgaði?",
-        "paidHint": "Samanlagðar greiðslur þurfa að vera nákvæmlega heildarupphæðin.",
+        "paidBy": "Hverjir greiða?",
+        "paidHint": "Einn greiðandi er valinn sjálfkrafa. Samanlagðar greiðslur þurfa að stemma við heildarupphæðina.",
+        "payer": "Greiðandi {number}",
+        "addPayer": "Bæta við greiðanda",
+        "removePayer": "Fjarlægja {name} sem greiðanda",
         "split": "Hvernig skiptist útgjaldið?",
         "preserveSharesHint": "Núverandi skipting helst óbreytt þar til þú breytir skiptingu, heildarupphæð, gjaldmiðli eða þátttakendum.",
         "changeShares": "Breyta skiptingu",

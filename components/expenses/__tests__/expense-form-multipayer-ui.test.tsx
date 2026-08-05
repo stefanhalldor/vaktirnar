@@ -29,8 +29,11 @@ const translations: Record<string, string> = {
   'expenseForm.guestName': 'Nafn gests',
   'expenseForm.addGuest': 'Bæta við gesti',
   'expenseForm.removeParticipant': 'Fjarlægja {name}',
-  'expenseForm.paidBy': 'Hver borgaði?',
-  'expenseForm.paidHint': 'Samanlagðar greiðslur þurfa að vera nákvæmlega heildarupphæðin.',
+  'expenseForm.paidBy': 'Hverjir greiða?',
+  'expenseForm.paidHint': 'Einn greiðandi er valinn sjálfkrafa. Samanlagðar greiðslur þurfa að stemma við heildarupphæðina.',
+  'expenseForm.payer': 'Greiðandi {number}',
+  'expenseForm.addPayer': 'Bæta við greiðanda',
+  'expenseForm.removePayer': 'Fjarlægja {name} sem greiðanda',
   'expenseForm.split': 'Hvernig skiptist útgjaldið?',
   'expenseForm.preserveSharesHint': 'Núverandi skipting helst óbreytt.',
   'expenseForm.preview': 'Forskoðun',
@@ -149,6 +152,10 @@ describe('ExpenseForm split and payer controls', () => {
   it('allows multiple payers and submits both authoritative payer rows', async () => {
     renderForm()
 
+    expect(screen.getAllByRole('combobox', { name: 'Greiðandi 1' })).toHaveLength(1)
+    expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('member-self')
+    expect(screen.queryByRole('textbox', { name: 'Upphæð Anna' })).not.toBeInTheDocument()
+
     fireEvent.change(screen.getByRole('textbox', { name: 'Heiti útgjalds' }), {
       target: { value: 'Kvöldmatur' },
     })
@@ -158,6 +165,8 @@ describe('ExpenseForm split and payer controls', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð Ég' }), {
       target: { value: '6000' },
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við greiðanda' }))
+    expect(screen.getByRole('combobox', { name: 'Greiðandi 2' })).toHaveValue('member-anna')
     fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð Anna' }), {
       target: { value: '4000' },
     })
@@ -192,6 +201,52 @@ describe('ExpenseForm split and payer controls', () => {
     }))
     expect(mockPush).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1')
     expect(mockRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('moves the default full payment when the single payer is changed', () => {
+    renderForm()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð' }), {
+      target: { value: '85000' },
+    })
+    expect(screen.getByRole('textbox', { name: 'Upphæð Ég' })).toHaveValue('85000')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Greiðandi 1' }), {
+      target: { value: 'member-anna' },
+    })
+
+    expect(screen.queryByRole('textbox', { name: 'Upphæð Ég' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Upphæð Anna' })).toHaveValue('85000')
+  })
+
+  it('accepts an exact fixed total in the mixed equal remainder method', async () => {
+    renderForm()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Heiti útgjalds' }), {
+      target: { value: 'Afmælisgjöf' },
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð' }), {
+      target: { value: '85000' },
+    })
+    const splitFieldset = screen.getByRole('group', { name: 'Hvernig skiptist útgjaldið?' })
+    fireEvent.click(within(splitFieldset).getByRole('radio', { name: 'Föst upphæð og jafnar leifar' }))
+    const fixedAmounts = within(splitFieldset).getAllByRole('textbox', { name: 'Föst upphæð' })
+    fireEvent.change(fixedAmounts[0]!, { target: { value: '15000' } })
+    fireEvent.change(fixedAmounts[1]!, { target: { value: '70000' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Vista útgjald' }))
+    })
+
+    await waitFor(() => expect(mockCreateExpense).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(mockCreateExpense).toHaveBeenCalledWith(expect.objectContaining({
+      split_method: 'mixed_equal_remainder',
+      allocations: [
+        { member_key: 'member-self', amount: '15000', participates_in_remainder: true },
+        { member_key: 'member-anna', amount: '70000', participates_in_remainder: true },
+      ],
+    }))
   })
 
   it('reveals method-specific inputs for weighted and both mixed split modes', () => {
@@ -373,12 +428,9 @@ describe('ExpenseForm split and payer controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við gesti' }))
     expect(screen.getByRole('checkbox', { name: 'Bjarni' })).not.toBeChecked()
     expect(screen.getByText('Núverandi skipting helst óbreytt.')).toBeInTheDocument()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð Ég' }), {
-      target: { value: '' },
-    })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð Bjarni' }), {
-      target: { value: String(totalMinor) },
-    })
+    const payerSelect = screen.getByRole('combobox', { name: 'Greiðandi 1' })
+    const bjarniOption = within(payerSelect).getByRole('option', { name: 'Bjarni' }) as HTMLOptionElement
+    fireEvent.change(payerSelect, { target: { value: bjarniOption.value } })
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))

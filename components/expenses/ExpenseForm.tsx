@@ -168,6 +168,21 @@ function initialAllocationValues(expense?: ExpenseItemView) {
   return { amounts, percentages, weights, remainderParticipation }
 }
 
+function initialPayerKeys(
+  members: FormMember[],
+  expense?: ExpenseItemView,
+): string[] {
+  const persisted = expense?.payments
+    .map((payment) => payment.memberId)
+    .filter((memberId, index, all) => (
+      all.indexOf(memberId) === index
+      && members.some((member) => member.key === memberId)
+    )) ?? []
+  if (persisted.length > 0) return persisted
+  const fallback = members.find((member) => member.isSelf) ?? members[0]
+  return fallback ? [fallback.key] : []
+}
+
 export function ExpenseForm({
   mode,
   groupId,
@@ -206,6 +221,9 @@ export function ExpenseForm({
       ]
     })),
   )
+  const [payerKeys, setPayerKeys] = useState<string[]>(() => (
+    initialPayerKeys(initialMembers, edit?.expense)
+  ))
   const initialAllocations = initialAllocationValues(edit?.expense)
   const [amounts, setAmounts] = useState<Record<string, string>>(initialAllocations.amounts)
   const [percentages, setPercentages] = useState<Record<string, string>>(initialAllocations.percentages)
@@ -269,17 +287,56 @@ export function ExpenseForm({
     const member = members.find((candidate) => candidate.key === key)
     if (!member || member.isSelf || mode === 'group' || (edit && !member.newGuest)) return
     if (edit && included[key] !== false) setPreserveShares(false)
-    setMembers((current) => current.filter((candidate) => candidate.key !== key))
+    const remainingMembers = members.filter((candidate) => candidate.key !== key)
+    const nextPayerKeys = payerKeys.filter((payerKey) => payerKey !== key)
+    const fallbackPayer = nextPayerKeys.length === 0
+      ? (remainingMembers.find((candidate) => candidate.isSelf) ?? remainingMembers[0])
+      : null
+    const removedPayment = payments[key] ?? ''
+    setMembers(remainingMembers)
+    setPayerKeys(fallbackPayer ? [fallbackPayer.key] : nextPayerKeys)
+    setPayments((current) => ({
+      ...current,
+      [key]: '',
+      ...(fallbackPayer
+        ? { [fallbackPayer.key]: current[fallbackPayer.key]?.trim() ? current[fallbackPayer.key] : removedPayment }
+        : {}),
+    }))
   }
 
   function changeTotal(value: string) {
-    const self = members.find((member) => member.isSelf)
-    const nonEmptyPayers = Object.values(payments).filter((amount) => amount.trim() !== '')
+    const solePayerKey = payerKeys.length === 1 ? payerKeys[0] : null
     setTotal(value)
     if (edit) setPreserveShares(false)
-    if (self && nonEmptyPayers.length <= 1 && (!payments[self.key] || payments[self.key] === total)) {
-      setPayments((current) => ({ ...current, [self.key]: value }))
+    if (solePayerKey && (!payments[solePayerKey] || payments[solePayerKey] === total)) {
+      setPayments((current) => ({ ...current, [solePayerKey]: value }))
     }
+  }
+
+  function changePayer(index: number, nextKey: string) {
+    const previousKey = payerKeys[index]
+    if (!previousKey || previousKey === nextKey || payerKeys.includes(nextKey)) return
+    setPayerKeys((current) => current.map((key, payerIndex) => (
+      payerIndex === index ? nextKey : key
+    )))
+    setPayments((current) => ({
+      ...current,
+      [previousKey]: '',
+      [nextKey]: current[nextKey]?.trim() ? current[nextKey] : (current[previousKey] ?? ''),
+    }))
+  }
+
+  function addPayer() {
+    const nextPayer = members.find((member) => !payerKeys.includes(member.key))
+    if (!nextPayer) return
+    setPayerKeys((current) => [...current, nextPayer.key])
+    setPayments((current) => ({ ...current, [nextPayer.key]: '' }))
+  }
+
+  function removePayer(key: string) {
+    if (payerKeys.length <= 1) return
+    setPayerKeys((current) => current.filter((payerKey) => payerKey !== key))
+    setPayments((current) => ({ ...current, [key]: '' }))
   }
 
   function allocationPayload(): AllocationDraft[] {
@@ -303,11 +360,11 @@ export function ExpenseForm({
   const preview = (() => {
     try {
       const totalMinor = parseExpenseAmountToMinor(total, currency)
-      const payerRows = members.flatMap((member) => {
-        const value = payments[member.key]?.trim()
+      const payerRows = payerKeys.flatMap((memberKey) => {
+        const value = payments[memberKey]?.trim()
         return value ? [{
-          key: member.key,
-          payerId: member.key,
+          key: memberKey,
+          payerId: memberKey,
           amountMinor: parseExpenseAmountToMinor(value, currency),
           currency,
         }] : []
@@ -385,9 +442,9 @@ export function ExpenseForm({
       queueMicrotask(() => alertRef.current?.focus())
       return
     }
-    const paymentRows = members.flatMap((member) => {
-      const amount = payments[member.key]?.trim()
-      return amount ? [{ member_key: member.key, amount }] : []
+    const paymentRows = payerKeys.flatMap((memberKey) => {
+      const amount = payments[memberKey]?.trim()
+      return amount ? [{ member_key: memberKey, amount }] : []
     })
     const memberInputs = mode === 'one_off'
       ? members.map((member) => member.input).filter((input): input is ExpenseNewMemberInput => Boolean(input))
@@ -486,8 +543,60 @@ export function ExpenseForm({
 
       <fieldset className="space-y-3 border-y border-border py-5">
         <legend className="text-sm font-semibold">{t('expenseForm.paidBy')}</legend>
-        <p className="text-xs text-muted-foreground">{t('expenseForm.paidHint')}</p>
-        {members.map((member) => <label key={member.key} className="grid grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-3"><span className="truncate text-sm">{member.label}</span><input aria-label={`${t('common.amount')} ${member.label}`} className={expenseInputClass} type="text" inputMode="decimal" value={payments[member.key] ?? ''} onChange={(e) => setPayments((current) => ({ ...current, [member.key]: e.target.value }))} /></label>)}
+        <p className="text-xs leading-5 text-muted-foreground">{t('expenseForm.paidHint')}</p>
+        <div className="space-y-3">
+          {payerKeys.map((memberKey, index) => {
+            const member = members.find((candidate) => candidate.key === memberKey)
+            if (!member) return null
+            const canRemove = payerKeys.length > 1
+            return (
+              <div
+                key={`${memberKey}:${index}`}
+                className={`grid items-end gap-2 ${canRemove ? 'grid-cols-[minmax(0,1fr)_minmax(7rem,0.65fr)_2.75rem]' : 'grid-cols-[minmax(0,1fr)_minmax(7rem,0.65fr)]'}`}
+              >
+                <label className="min-w-0">
+                  <span className={expenseLabelClass}>{t('expenseForm.payer', { number: index + 1 })}</span>
+                  <select
+                    className={expenseInputClass}
+                    value={memberKey}
+                    onChange={(event) => changePayer(index, event.target.value)}
+                  >
+                    {members
+                      .filter((candidate) => candidate.key === memberKey || !payerKeys.includes(candidate.key))
+                      .map((candidate) => <option key={candidate.key} value={candidate.key}>{candidate.label}</option>)}
+                  </select>
+                </label>
+                <label className="min-w-0">
+                  <span className={expenseLabelClass}>{t('common.amount')}</span>
+                  <input
+                    aria-label={`${t('common.amount')} ${member.label}`}
+                    className={expenseInputClass}
+                    type="text"
+                    inputMode="decimal"
+                    value={payments[memberKey] ?? ''}
+                    onChange={(event) => setPayments((current) => ({ ...current, [memberKey]: event.target.value }))}
+                  />
+                </label>
+                {canRemove ? (
+                  <button
+                    type="button"
+                    aria-label={t('expenseForm.removePayer', { name: member.label })}
+                    className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+                    onClick={() => removePayer(memberKey)}
+                  >
+                    <X aria-hidden size={18} />
+                  </button>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+        {payerKeys.length < members.length ? (
+          <button type="button" className={`${expenseSecondaryButtonClass} w-full`} onClick={addPayer}>
+            <Plus aria-hidden size={18} />
+            {t('expenseForm.addPayer')}
+          </button>
+        ) : null}
       </fieldset>
 
       <fieldset className="space-y-4 border-y border-border py-5">

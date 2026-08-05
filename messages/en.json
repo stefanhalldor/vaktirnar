@@ -613,8 +613,11 @@
           "failed": "Delivery failed"
         },
         "removeParticipant": "Remove {name}",
-        "paidBy": "Who paid?",
-        "paidHint": "Payments must add up to the exact total.",
+        "paidBy": "Who is paying?",
+        "paidHint": "One payer is selected by default. Payments must add up to the exact total.",
+        "payer": "Payer {number}",
+        "addPayer": "Add payer",
+        "removePayer": "Remove {name} as payer",
         "split": "How should it be split?",
         "preserveSharesHint": "The current allocation stays unchanged until you change the allocation, total, currency or participants.",
         "changeShares": "Change allocation",

@@ -146,10 +146,27 @@ describe('expense split domain', () => {
     ])
   })
 
-  it('rejects mixed splits without a real remainder or remainder recipients', () => {
+  it('accepts mixed splits fully covered by fixed amounts', () => {
+    expect(splitMixedEqualRemainder(5_000, 'ISK', [
+      { participantId: 'b', fixedMinor: 2_000, participatesInRemainder: false },
+      { participantId: 'a', fixedMinor: 3_000, participatesInRemainder: false },
+    ])).toEqual([
+      { participantId: 'a', amountMinor: 3_000, currency: 'ISK' },
+      { participantId: 'b', amountMinor: 2_000, currency: 'ISK' },
+    ])
+    expect(splitMixedPercentageRemainder(5_000, 'ISK', [
+      { participantId: 'b', fixedMinor: 2_000, remainderBasisPoints: 0 },
+      { participantId: 'a', fixedMinor: 3_000, remainderBasisPoints: 0 },
+    ])).toEqual([
+      { participantId: 'a', amountMinor: 3_000, currency: 'ISK' },
+      { participantId: 'b', amountMinor: 2_000, currency: 'ISK' },
+    ])
+  })
+
+  it('rejects mixed splits that exceed the total or leave a remainder without recipients', () => {
     expectDomainError(
       () => splitMixedEqualRemainder(5_000, 'ISK', [
-        { participantId: 'a', fixedMinor: 5_000, participatesInRemainder: true },
+        { participantId: 'a', fixedMinor: 5_001, participatesInRemainder: true },
       ]),
       'fixed_total_exceeds_expense',
     )

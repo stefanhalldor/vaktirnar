@@ -164,8 +164,14 @@ export function splitMixedEqualRemainder(
     amountMinor: fixedMinor,
   }))
   const fixedTotal = validateFixedInputs(fixed)
-  if (fixedTotal >= totalMinor) {
+  if (fixedTotal > totalMinor) {
     failExpenseDomain('fixed_total_exceeds_expense', { totalMinor, fixedTotal })
+  }
+  if (fixedTotal === totalMinor) {
+    return toShares(
+      currency,
+      fixed.map(({ participantId, amountMinor }) => ({ partyId: participantId, amountMinor })),
+    )
   }
 
   const remainderParticipantIds = allocations
@@ -195,8 +201,14 @@ export function splitMixedPercentageRemainder(
     amountMinor: fixedMinor,
   }))
   const fixedTotal = validateFixedInputs(fixed)
-  if (fixedTotal >= totalMinor) {
+  if (fixedTotal > totalMinor) {
     failExpenseDomain('fixed_total_exceeds_expense', { totalMinor, fixedTotal })
+  }
+  if (fixedTotal === totalMinor) {
+    return toShares(
+      currency,
+      fixed.map(({ participantId, amountMinor }) => ({ partyId: participantId, amountMinor })),
+    )
   }
 
   const remainderMinor = totalMinor - fixedTotal
