@@ -883,6 +883,7 @@
         "entryCounts": "{sales, plural, one {# tekjufærsla} other {# tekjufærslur}} og {purchases, plural, one {# útgjaldafærsla} other {# útgjaldafærslur}}",
         "periodResultPayable": "Áætlað til greiðslu: {amount}",
         "periodResultCredit": "Áætluð inneign: {amount}"
+        ,"openLedger": "Opna færslubók"
       },
       "entityForm": {
         "title": "Upplýsingar um vinnusvæðið",
@@ -1019,6 +1020,46 @@
         "saveAndNext": "Vista og bæta við næstu",
       "saving": "Vista..."
     },
+      "ledger": {
+        "new": "Ný fyrirtækjafærsla",
+        "edit": "Breyta færslu",
+        "empty": "Engar færslur passa við þessa síu.",
+        "untitled": "Óflokkuð færsla",
+        "noDate": "Dagsetning vantar",
+        "unclassified": "Óflokkað",
+        "attachments": "Fylgiskjöl",
+        "attachment": "Fylgiskjal",
+        "history": "Breytingasaga",
+        "void": "Ógilda færslu",
+        "voidConfirm": "Viltu ógilda færsluna? Hún verður áfram í breytingasögunni.",
+        "voidReasonDefault": "Ógilt af notanda",
+        "addToVat": "Flokka og taka með í VSK-tímabil",
+        "markNotVat": "Merkja sem á ekki við VSK",
+        "reopenVatClassification": "Setja aftur í VSK-flokkun",
+        "openVatPeriod": "Opna tengt VSK-tímabil",
+        "vatDrift": "Færslunni var breytt eftir að hún var tengd við VSK. VSK-færslan breytist ekki sjálfkrafa.",
+        "filters": { "title": "Sía færslur", "all": "Allar", "unclassified": "Óflokkaðar", "inflow": "Inn", "outflow": "Út", "review": "Þarfnast skoðunar", "not_vat": "Ekki VSK", "linked": "Í VSK", "voided": "Ógildar" },
+        "directions": { "inflow": "Innhreyfing", "outflow": "Úthreyfing" },
+        "states": { "inbox": "Í innhólfi", "draft": "Drög", "reviewed": "Yfirfarin", "voided": "Ógild" },
+        "vat": { "unclassified": "Óflokkuð í VSK", "not_applicable": "Á ekki við VSK", "linked": "Tengd VSK-færslu" },
+        "counterpartyKinds": { "individual": "Einstaklingur", "company": "Fyrirtæki" },
+        "operations": { "created": "Færsla stofnuð", "updated": "Færslu breytt", "attachment_ready": "Fylgiskjal staðfest", "vat_not_applicable": "Merkt utan VSK", "vat_unclassified": "Sett aftur í VSK-flokkun", "vat_linked": "Tengd VSK-færslu", "voided": "Færsla ógild" },
+        "form": {
+          "description": "Lýsing", "descriptionPlaceholder": "Hvað gerðist?", "descriptionHint": "Lýsing er nóg til að vista handvirka færslu. Þú getur flokkað hana síðar.",
+          "direction": "Hreyfing", "state": "Vinnslustaða", "documentDate": "Dagsetning fylgiskjals", "paymentDate": "Greiðsludagur",
+          "counterparty": "Mótaðili", "counterpartyKind": "Tegund mótaðila", "amount": "Fjárhæð", "roughCategory": "Grófflokkur"
+        },
+        "upload": {
+          "title": "Henda inn fylgiskjali", "help": "JPEG, PNG, WebP eða PDF, mest 15 MB. Skráin er vistuð í lokuðu skjalageymslunni.",
+          "action": "Hlaða upp kvittun eða skjáskoti", "uploading": "Hleð upp og sannreyni...", "invalid": "Veldu gilt JPEG, PNG, WebP eða PDF sem er mest 15 MB.", "failed": "Upphleðsla mistókst. Reyndu aftur."
+        },
+        "vatLink": {
+          "title": "Taka með í VSK-tímabil", "period": "VSK-tímabil", "reviewed": "Ég hef yfirfarið þessa VSK-meðferð.",
+          "noPeriods": "Ekkert opið VSK-tímabil er til fyrir fyrirtækið.", "showPreview": "Sýna áhrif áður en vistað er", "previewing": "Reikna áhrif...",
+          "preview": "Áhrif á VSK-skýrslu", "field": "Reitur", "before": "Fyrir", "after": "Eftir", "blockers": "Athugasemdir fyrir: {before}. Eftir: {after}.",
+          "confirm": "Staðfesta og tengja", "safety": "Aðeins staðfestingin býr til VSK-færslu. Upphaflega fyrirtækjafærslan er varðveitt og síðar breyting breytir VSK-færslunni aldrei sjálfkrafa."
+        }
+      },
     "documentTypes": {
       "invoice": "Reikningur",
       "receipt": "Kvittun",

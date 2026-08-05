@@ -8,6 +8,11 @@ import {
   BOOKKEEPING_REVIEW_STATES,
   BOOKKEEPING_SPECIAL_CASE_STATES,
   BOOKKEEPING_VAT_TREATMENTS,
+  BOOKKEEPING_ATTACHMENT_MAX_BYTES,
+  BOOKKEEPING_ATTACHMENT_MIME_TYPES,
+  BOOKKEEPING_COUNTERPARTY_KINDS,
+  BOOKKEEPING_TRANSACTION_DIRECTIONS,
+  BOOKKEEPING_TRANSACTION_STATES,
 } from './constants'
 import { isValidPeriodForFilingMethod } from './readiness'
 import type { BookkeepingEntryLine } from './types'
@@ -79,6 +84,71 @@ export const CreateBookkeepingPeriodSchema = z.object({
     })
   }
 })
+
+const companyTransactionFields = {
+  state: z.enum(BOOKKEEPING_TRANSACTION_STATES).exclude(['voided']).default('inbox'),
+  direction: z.enum(BOOKKEEPING_TRANSACTION_DIRECTIONS).nullable(),
+  document_date: BookkeepingDateSchema.nullable(),
+  payment_date: BookkeepingDateSchema.nullable(),
+  counterparty: nullableTrimmed(200),
+  counterparty_kind: z.enum(BOOKKEEPING_COUNTERPARTY_KINDS).nullable(),
+  description: nullableTrimmed(500),
+  gross_minor: positiveMinor.nullable(),
+  currency: z.literal('ISK').default('ISK'),
+  rough_category: nullableTrimmed(80),
+}
+
+export const SaveBookkeepingCompanyTransactionSchema = z.object({
+  request_id: requestId,
+  entity_id: uuid,
+  transaction_id: uuid.nullable().default(null),
+  expected_version: safeInteger.positive().nullable().default(null),
+  ...companyTransactionFields,
+}).strict().superRefine((value, ctx) => {
+  if (value.transaction_id === null && value.expected_version !== null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['expected_version'], message: 'not_allowed_for_create' })
+  }
+  if (value.transaction_id !== null && value.expected_version === null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['expected_version'], message: 'required_for_update' })
+  }
+  if (value.transaction_id === null && !value.description) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['description'], message: 'manual_description_required' })
+  }
+})
+
+export const PrepareBookkeepingAttachmentSchema = z.object({
+  request_id: requestId,
+  entity_id: uuid,
+  transaction_id: uuid.nullable().default(null),
+  filename: z.string().trim().min(1).max(240),
+  mime_type: z.enum(BOOKKEEPING_ATTACHMENT_MIME_TYPES),
+  size_bytes: safeInteger.min(1).max(BOOKKEEPING_ATTACHMENT_MAX_BYTES),
+}).strict()
+
+export const FinalizeBookkeepingAttachmentSchema = z.object({
+  request_id: requestId,
+  attachment_id: uuid,
+}).strict()
+
+export const SetBookkeepingTransactionVatDispositionSchema = z.object({
+  request_id: requestId,
+  transaction_id: uuid,
+  expected_version: safeInteger.positive(),
+  vat_disposition: z.enum(['unclassified', 'not_applicable']),
+}).strict()
+
+export const VoidBookkeepingCompanyTransactionSchema = z.object({
+  request_id: requestId,
+  transaction_id: uuid,
+  expected_version: safeInteger.positive(),
+  reason: z.string().trim().min(1).max(500),
+}).strict()
+
+export const LinkBookkeepingTransactionToVatEntrySchema = z.object({
+  transaction_id: uuid,
+  expected_transaction_version: safeInteger.positive(),
+  entry: z.lazy(() => SaveBookkeepingEntrySchema),
+}).strict()
 
 const specialCasesSchema = z.object({
   foreign_service: z.enum(BOOKKEEPING_SPECIAL_CASE_STATES),

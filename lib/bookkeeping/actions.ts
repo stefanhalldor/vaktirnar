@@ -3,6 +3,11 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getAdmin } from '@/lib/supabase/admin'
+import { verifyBookkeepingAttachment } from './attachments.server'
+import { getBookkeepingCompanyTransaction, getBookkeepingPeriod } from './repository.server'
+import { evaluatePeriodReadiness } from './readiness'
+import type { BookkeepingEntry } from './types'
+import { computeVatSummary } from './vat'
 import {
   BOOKKEEPING_FILING_METHODS,
   BOOKKEEPING_PATH,
@@ -13,14 +18,20 @@ import {
   AddBookkeepingVatRegistrationSchema,
   CreateBookkeepingEntitySchema,
   CreateBookkeepingPeriodSchema,
+  FinalizeBookkeepingAttachmentSchema,
+  LinkBookkeepingTransactionToVatEntrySchema,
+  PrepareBookkeepingAttachmentSchema,
   RecordBookkeepingFilingSchema,
   RecordBookkeepingPaymentSchema,
   ReopenBookkeepingPeriodSchema,
   SaveBookkeepingEntrySchema,
+  SaveBookkeepingCompanyTransactionSchema,
+  SetBookkeepingTransactionVatDispositionSchema,
   SetBookkeepingEntryReviewStateSchema,
   SetBookkeepingEntrySettlementStateSchema,
   SetBookkeepingPeriodReadySchema,
   VoidBookkeepingEntrySchema,
+  VoidBookkeepingCompanyTransactionSchema,
 } from './validation'
 
 type JsonRecord = Record<string, unknown>
@@ -89,12 +100,16 @@ function failed<T>(error: unknown): BookkeepingActionResult<T> {
   return { ok: false, error: actionError(error) }
 }
 
-function revalidateBookkeeping(periodId?: string, entryId?: string): void {
+function revalidateBookkeeping(periodId?: string, entryId?: string, entityId?: string, transactionId?: string): void {
   revalidatePath(BOOKKEEPING_PATH)
   revalidatePath('/auth-mvp/heim')
   if (periodId) revalidatePath(`${BOOKKEEPING_PATH}/timabil/${periodId}`)
   if (entryId && periodId) {
     revalidatePath(`${BOOKKEEPING_PATH}/timabil/${periodId}/faerslur/${entryId}/breyta`)
+  }
+  if (entityId) revalidatePath(`${BOOKKEEPING_PATH}/einingar/${entityId}/faerslur`)
+  if (entityId && transactionId) {
+    revalidatePath(`${BOOKKEEPING_PATH}/einingar/${entityId}/faerslur/${transactionId}`)
   }
 }
 
@@ -234,6 +249,314 @@ function entryPayload(value: z.infer<typeof SaveBookkeepingEntrySchema>): JsonRe
       manual_vat_override_reason: line.manual_vat_override_reason,
       exempt_turnover_confirmed: line.exempt_turnover_confirmed,
     })),
+  }
+}
+
+function companyTransactionPayload(
+  value: z.infer<typeof SaveBookkeepingCompanyTransactionSchema>,
+): JsonRecord {
+  return {
+    state: value.state,
+    direction: value.direction,
+    document_date: value.document_date,
+    payment_date: value.payment_date,
+    counterparty: value.counterparty,
+    counterparty_kind: value.counterparty_kind,
+    description: value.description,
+    gross_minor: value.gross_minor,
+    currency: value.currency,
+    rough_category: value.rough_category,
+  }
+}
+
+export async function saveBookkeepingCompanyTransaction(
+  input: unknown,
+): Promise<BookkeepingActionResult<{ entityId: string; transactionId: string; version: number }>> {
+  const { user } = await guardBookkeepingAccess()
+  try {
+    const value = SaveBookkeepingCompanyTransactionSchema.parse(input)
+    const admin = getAdmin()
+    const response = value.transaction_id
+      ? await admin.rpc('bookkeeping_update_company_transaction', {
+        p_actor_id: user.id,
+        p_request_id: value.request_id,
+        p_transaction_id: value.transaction_id,
+        p_expected_version: value.expected_version,
+        p_payload: companyTransactionPayload(value),
+      })
+      : await admin.rpc('bookkeeping_create_company_transaction', {
+        p_actor_id: user.id,
+        p_request_id: value.request_id,
+        p_entity_id: value.entity_id,
+        p_payload: companyTransactionPayload(value),
+      })
+    if (response.error) rpcError(response.error)
+    const result = resultObject(response.data)
+    const entityId = requiredId(result.entity_id, 'entity')
+    const transactionId = requiredId(result.transaction_id, 'transaction')
+    const version = Number(result.version)
+    if (!Number.isSafeInteger(version) || version < 1) throw new Error('bookkeeping_version_invalid')
+    revalidateBookkeeping(undefined, undefined, entityId, transactionId)
+    return { ok: true, data: { entityId, transactionId, version } }
+  } catch (error) {
+    console.error('[bookkeeping] save company transaction failed')
+    return failed(error)
+  }
+}
+
+export async function prepareBookkeepingAttachmentUpload(
+  input: unknown,
+): Promise<BookkeepingActionResult<{
+  transactionId: string
+  attachmentId: string
+  path: string
+  token: string
+}>> {
+  const { user } = await guardBookkeepingAccess()
+  try {
+    const value = PrepareBookkeepingAttachmentSchema.parse(input)
+    const admin = getAdmin()
+    const { data, error } = await admin.rpc('bookkeeping_prepare_attachment_upload', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_entity_id: value.entity_id,
+      p_transaction_id: value.transaction_id,
+      p_original_filename: value.filename,
+      p_declared_mime_type: value.mime_type,
+      p_declared_size_bytes: value.size_bytes,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const transactionId = requiredId(result.transaction_id, 'transaction')
+    const attachmentId = requiredId(result.attachment_id, 'attachment')
+    const path = requiredId(result.object_path, 'attachment_path')
+    const bucket = requiredId(result.bucket_id, 'attachment_bucket')
+    const signed = await admin.storage.from(bucket).createSignedUploadUrl(path)
+    if (signed.error || !signed.data?.token) throw new Error('bookkeeping_attachment_sign_failed')
+    return { ok: true, data: { transactionId, attachmentId, path, token: signed.data.token } }
+  } catch (error) {
+    console.error('[bookkeeping] prepare attachment failed')
+    return failed(error)
+  }
+}
+
+export async function finalizeBookkeepingAttachmentUpload(
+  input: unknown,
+): Promise<BookkeepingActionResult<{ transactionId: string; attachmentId: string; version: number }>> {
+  const { user } = await guardBookkeepingAccess()
+  try {
+    const value = FinalizeBookkeepingAttachmentSchema.parse(input)
+    const admin = getAdmin()
+    const pending = await admin.rpc('bookkeeping_get_pending_attachment_for_finalize', {
+      p_actor_id: user.id,
+      p_attachment_id: value.attachment_id,
+    })
+    if (pending.error) rpcError(pending.error)
+    const metadata = resultObject(pending.data)
+    const bucket = requiredId(metadata.bucket_id, 'attachment_bucket')
+    const path = requiredId(metadata.object_path, 'attachment_path')
+    const declaredMime = requiredId(metadata.declared_mime_type, 'attachment_mime')
+    const declaredSize = Number(metadata.declared_size_bytes)
+    if (!Number.isSafeInteger(declaredSize)) throw new Error('bookkeeping_attachment_size_invalid')
+    const downloaded = await admin.storage.from(bucket).download(path)
+    if (downloaded.error || !downloaded.data) throw new Error('bookkeeping_attachment_download_failed')
+    const bytes = new Uint8Array(await downloaded.data.arrayBuffer())
+    let verified: ReturnType<typeof verifyBookkeepingAttachment>
+    try {
+      verified = verifyBookkeepingAttachment(bytes, declaredMime, declaredSize)
+    } catch (verificationError) {
+      await admin.storage.from(bucket).remove([path])
+      const message = verificationError instanceof Error ? verificationError.message : ''
+      const rejectionCode = message.includes('size')
+        ? 'size_mismatch'
+        : message.includes('mime') ? 'mime_mismatch' : 'invalid_content'
+      await admin.rpc('bookkeeping_reject_attachment_upload', {
+        p_actor_id: user.id,
+        p_request_id: value.request_id,
+        p_attachment_id: value.attachment_id,
+        p_rejection_code: rejectionCode,
+      })
+      throw verificationError
+    }
+    const response = await admin.rpc('bookkeeping_finalize_attachment_upload', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_attachment_id: value.attachment_id,
+      p_verified_mime_type: verified.mimeType,
+      p_verified_size_bytes: verified.sizeBytes,
+      p_sha256_hex: verified.sha256Hex,
+    })
+    if (response.error) rpcError(response.error)
+    const result = resultObject(response.data)
+    const transactionId = requiredId(result.transaction_id, 'transaction')
+    const entityId = requiredId(result.entity_id, 'entity')
+    const version = Number(result.version)
+    if (!Number.isSafeInteger(version)) throw new Error('bookkeeping_version_invalid')
+    revalidateBookkeeping(undefined, undefined, entityId, transactionId)
+    return { ok: true, data: { transactionId, attachmentId: value.attachment_id, version } }
+  } catch (error) {
+    console.error('[bookkeeping] finalize attachment failed')
+    return failed(error)
+  }
+}
+
+export async function markBookkeepingTransactionNotVat(
+  input: unknown,
+): Promise<BookkeepingActionResult<{ transactionId: string; entityId: string; version: number }>> {
+  const { user } = await guardBookkeepingAccess()
+  try {
+    const value = SetBookkeepingTransactionVatDispositionSchema.parse(input)
+    const { data, error } = await getAdmin().rpc('bookkeeping_set_transaction_vat_disposition', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_transaction_id: value.transaction_id,
+      p_expected_version: value.expected_version,
+      p_vat_disposition: value.vat_disposition,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const entityId = requiredId(result.entity_id, 'entity')
+    const version = Number(result.version)
+    if (!Number.isSafeInteger(version)) throw new Error('bookkeeping_version_invalid')
+    revalidateBookkeeping(undefined, undefined, entityId, value.transaction_id)
+    return { ok: true, data: { transactionId: value.transaction_id, entityId, version } }
+  } catch (error) {
+    console.error('[bookkeeping] classify company transaction failed')
+    return failed(error)
+  }
+}
+
+export async function voidBookkeepingCompanyTransaction(
+  input: unknown,
+): Promise<BookkeepingActionResult<{ transactionId: string; entityId: string }>> {
+  const { user } = await guardBookkeepingAccess()
+  try {
+    const value = VoidBookkeepingCompanyTransactionSchema.parse(input)
+    const { data, error } = await getAdmin().rpc('bookkeeping_void_company_transaction', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_transaction_id: value.transaction_id,
+      p_expected_version: value.expected_version,
+      p_reason: value.reason,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const entityId = requiredId(result.entity_id, 'entity')
+    revalidateBookkeeping(undefined, undefined, entityId, value.transaction_id)
+    return { ok: true, data: { transactionId: value.transaction_id, entityId } }
+  } catch (error) {
+    console.error('[bookkeeping] void company transaction failed')
+    return failed(error)
+  }
+}
+
+export async function linkBookkeepingTransactionToVatEntry(
+  input: unknown,
+): Promise<BookkeepingActionResult<{ transactionId: string; entryId: string; periodId: string }>> {
+  const { user } = await guardBookkeepingAccess()
+  try {
+    const value = LinkBookkeepingTransactionToVatEntrySchema.parse(input)
+    const { data, error } = await getAdmin().rpc('bookkeeping_link_transaction_to_vat_entry', {
+      p_actor_id: user.id,
+      p_request_id: value.entry.request_id,
+      p_transaction_id: value.transaction_id,
+      p_expected_transaction_version: value.expected_transaction_version,
+      p_period_id: value.entry.period_id,
+      p_entry: entryPayload(value.entry),
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const entryId = requiredId(result.entry_id, 'entry')
+    const periodId = requiredId(result.period_id, 'period')
+    revalidateBookkeeping(periodId, entryId, value.entry.entity_id, value.transaction_id)
+    return { ok: true, data: { transactionId: value.transaction_id, entryId, periodId } }
+  } catch (error) {
+    console.error('[bookkeeping] link company transaction to VAT failed')
+    return failed(error)
+  }
+}
+
+export async function previewBookkeepingTransactionVatLink(
+  input: unknown,
+): Promise<BookkeepingActionResult<{
+  before: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F', number>
+  after: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F', number>
+  blockerCountBefore: number
+  blockerCountAfter: number
+}>> {
+  const { user } = await guardBookkeepingAccess()
+  try {
+    const value = LinkBookkeepingTransactionToVatEntrySchema.parse(input)
+    const [transactionView, periodView] = await Promise.all([
+      getBookkeepingCompanyTransaction(user.id, value.transaction_id),
+      getBookkeepingPeriod(user.id, value.entry.period_id),
+    ])
+    if (!transactionView || !periodView) throw new Error('bookkeeping_not_found')
+    if (transactionView.transaction.entityId !== periodView.entity.id
+      || transactionView.transaction.version !== value.expected_transaction_version
+      || transactionView.transaction.vatDisposition !== 'unclassified'
+      || !['draft', 'review'].includes(periodView.period.state)) {
+      throw new Error('bookkeeping_version_conflict')
+    }
+    const entryValue = value.entry
+    const previewEntry: BookkeepingEntry = {
+      id: '00000000-0000-0000-0000-000000000000',
+      entityId: periodView.entity.id,
+      vatRegistrationId: periodView.registration.id,
+      periodId: periodView.period.id,
+      type: entryValue.type,
+      documentDate: entryValue.document_date,
+      reportingDate: entryValue.reporting_date,
+      counterparty: entryValue.counterparty,
+      description: entryValue.description,
+      documentType: entryValue.document_type,
+      documentReference: entryValue.document_reference,
+      duplicateReferenceConfirmed: entryValue.duplicate_reference_confirmed,
+      currency: 'ISK', sourceType: 'manual', sourceId: null, sourceReference: null,
+      reviewState: entryValue.review_state,
+      evidence: {
+        originalDocumentPreserved: entryValue.original_document_preserved,
+        businessPurposeConfirmed: entryValue.business_purpose_confirmed,
+        sellerVatRegistrationConfirmed: entryValue.seller_vat_registration_confirmed,
+      },
+      specialCases: {
+        foreignService: entryValue.special_cases.foreign_service,
+        import: entryValue.special_cases.import,
+        mixedUse: entryValue.special_cases.mixed_use,
+        uncertainDeductibility: entryValue.special_cases.uncertain_deductibility,
+      },
+      specialCaseResolutionNote: entryValue.special_case_resolution_note,
+      note: entryValue.note,
+      version: 1, settlementState: 'open', settlementVersion: 0, settledAt: null,
+      voidedAt: null, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+      lines: entryValue.lines.map((line, index) => ({
+        id: `00000000-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
+        entryId: '00000000-0000-0000-0000-000000000000',
+        categoryCode: line.category_code, description: line.description,
+        vatTreatment: line.vat_treatment, currency: 'ISK',
+        amountIncludesVat: line.amount_includes_vat, grossMinor: line.gross_minor,
+        netMinor: line.net_minor, vatMinor: line.vat_minor,
+        inputVatDeductibility: line.input_vat_deductibility,
+        deductibleVatMinor: line.deductible_vat_minor,
+        manualVatOverride: line.manual_vat_override,
+        manualVatOverrideReason: line.manual_vat_override_reason,
+        exemptTurnoverConfirmed: line.exempt_turnover_confirmed,
+      })),
+    }
+    const afterEntries = [...periodView.entries, previewEntry]
+    const afterSummary = computeVatSummary(afterEntries)
+    const afterReadiness = evaluatePeriodReadiness({
+      entity: periodView.entity, registration: periodView.registration,
+      period: periodView.period, entries: afterEntries, summary: afterSummary,
+    })
+    return { ok: true, data: {
+      before: { ...periodView.summary.fields }, after: { ...afterSummary.fields },
+      blockerCountBefore: periodView.readiness.blockers.length,
+      blockerCountAfter: afterReadiness.blockers.length,
+    } }
+  } catch (error) {
+    console.error('[bookkeeping] preview company transaction VAT link failed')
+    return failed(error)
   }
 }
 

@@ -85,6 +85,14 @@ export function BookkeepingDashboard({
                     </div>
                   </div>
 
+                  <Link
+                    href={`/auth-mvp/bokhaldid/einingar/${entity.id}/faerslur`}
+                    className="mt-4 flex min-h-11 items-center justify-between rounded-xl border border-border px-3 text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {t('dashboard.openLedger')}
+                    <ChevronRight aria-hidden size={18} />
+                  </Link>
+
                   {entityRegistrations.length === 0 ? (
                     <p className="mt-4 text-sm text-amber-800">{t('dashboard.noRegistrations')}</p>
                   ) : (

@@ -8,6 +8,11 @@ import type {
   BookkeepingReviewState,
   BookkeepingSpecialCaseState,
   BookkeepingVatTreatment,
+  BookkeepingAttachmentMimeType,
+  BookkeepingCounterpartyKind,
+  BookkeepingTransactionDirection,
+  BookkeepingTransactionState,
+  BookkeepingTransactionVatDisposition,
   VatReportField,
 } from './constants'
 import type { BookkeepingPeriodReadiness } from './readiness'
@@ -177,4 +182,61 @@ export interface BookkeepingFilingSnapshot {
   note: string | null
   paymentState: 'unpaid' | 'paid' | 'credit'
   paidOn: string | null
+}
+
+export interface BookkeepingAttachment {
+  id: string
+  status: 'ready'
+  filename: string | null
+  mimeType: BookkeepingAttachmentMimeType
+  sizeBytes: number
+  createdAt: string
+}
+
+export interface BookkeepingTransactionVatLink {
+  periodId: string
+  entryId: string
+  sourceTransactionVersion: number
+  linkedAt: string
+  hasDrift: boolean
+}
+
+export interface BookkeepingTransaction {
+  id: string
+  entityId: string
+  state: BookkeepingTransactionState
+  direction: BookkeepingTransactionDirection | null
+  documentDate: string | null
+  paymentDate: string | null
+  counterparty: string | null
+  counterpartyKind: BookkeepingCounterpartyKind | null
+  description: string | null
+  grossMinor: number | null
+  currency: 'ISK'
+  roughCategory: string | null
+  vatDisposition: BookkeepingTransactionVatDisposition
+  sourceType: 'manual' | 'upload'
+  version: number
+  voidedAt: string | null
+  attachments: readonly BookkeepingAttachment[]
+  vatLink: BookkeepingTransactionVatLink | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BookkeepingTransactionRevision {
+  version: number
+  operation: 'created' | 'updated' | 'attachment_ready' | 'vat_not_applicable' | 'vat_unclassified' | 'vat_linked' | 'voided'
+  capturedAt: string
+  snapshot: Readonly<Record<string, unknown>>
+}
+
+export interface BookkeepingCompanyLedgerView {
+  entity: BookkeepingEntity
+  transactions: readonly BookkeepingTransaction[]
+}
+
+export interface BookkeepingCompanyTransactionView {
+  transaction: BookkeepingTransaction
+  revisions: readonly BookkeepingTransactionRevision[]
 }

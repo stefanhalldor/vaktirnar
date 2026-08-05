@@ -879,6 +879,7 @@
         "entryCounts": "{sales, plural, one {# sales entry} other {# sales entries}} and {purchases, plural, one {# purchase entry} other {# purchase entries}}",
         "periodResultPayable": "Estimated amount payable: {amount}",
         "periodResultCredit": "Estimated credit: {amount}"
+        ,"openLedger": "Open company ledger"
       },
       "entityForm": {
         "title": "Workspace details",
@@ -1015,6 +1016,46 @@
         "saveAndNext": "Save and add another",
       "saving": "Saving..."
     },
+      "ledger": {
+        "new": "New company transaction",
+        "edit": "Edit transaction",
+        "empty": "No transactions match this filter.",
+        "untitled": "Unclassified transaction",
+        "noDate": "No date",
+        "unclassified": "Unclassified",
+        "attachments": "Source documents",
+        "attachment": "Source document",
+        "history": "Change history",
+        "void": "Void transaction",
+        "voidConfirm": "Do you want to void this transaction? It remains in the change history.",
+        "voidReasonDefault": "Voided by user",
+        "addToVat": "Classify and include in a VAT period",
+        "markNotVat": "Mark as not applicable to VAT",
+        "reopenVatClassification": "Return to VAT classification",
+        "openVatPeriod": "Open linked VAT period",
+        "vatDrift": "This transaction changed after it was linked to VAT. The VAT entry is never changed automatically.",
+        "filters": { "title": "Filter transactions", "all": "All", "unclassified": "Unclassified", "inflow": "In", "outflow": "Out", "review": "Needs review", "not_vat": "Not VAT", "linked": "In VAT", "voided": "Voided" },
+        "directions": { "inflow": "Inflow", "outflow": "Outflow" },
+        "states": { "inbox": "Inbox", "draft": "Draft", "reviewed": "Reviewed", "voided": "Voided" },
+        "vat": { "unclassified": "Unclassified for VAT", "not_applicable": "Not applicable to VAT", "linked": "Linked to VAT entry" },
+        "counterpartyKinds": { "individual": "Individual", "company": "Company" },
+        "operations": { "created": "Transaction created", "updated": "Transaction updated", "attachment_ready": "Source document verified", "vat_not_applicable": "Marked outside VAT", "vat_unclassified": "Returned to VAT classification", "vat_linked": "Linked to VAT entry", "voided": "Transaction voided" },
+        "form": {
+          "description": "Description", "descriptionPlaceholder": "What happened?", "descriptionHint": "A description is enough for a manual transaction. You can classify it later.",
+          "direction": "Movement", "state": "Workflow state", "documentDate": "Document date", "paymentDate": "Payment date",
+          "counterparty": "Counterparty", "counterpartyKind": "Counterparty type", "amount": "Amount", "roughCategory": "Rough category"
+        },
+        "upload": {
+          "title": "Drop in a source document", "help": "JPEG, PNG, WebP or PDF, up to 15 MB. The file is stored in private document storage.",
+          "action": "Upload receipt or screenshot", "uploading": "Uploading and verifying...", "invalid": "Choose a valid JPEG, PNG, WebP or PDF up to 15 MB.", "failed": "Upload failed. Try again."
+        },
+        "vatLink": {
+          "title": "Include in a VAT period", "period": "VAT period", "reviewed": "I have reviewed this VAT treatment.",
+          "noPeriods": "There is no open VAT period for this company.", "showPreview": "Preview impact before saving", "previewing": "Calculating impact...",
+          "preview": "VAT return impact", "field": "Field", "before": "Before", "after": "After", "blockers": "Review items before: {before}. After: {after}.",
+          "confirm": "Confirm and link", "safety": "Only confirmation creates a VAT entry. The original company transaction is retained, and later changes never silently change the VAT entry."
+        }
+      },
     "documentTypes": {
       "invoice": "Invoice",
       "receipt": "Receipt",

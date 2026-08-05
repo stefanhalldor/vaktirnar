@@ -8,6 +8,11 @@ import {
   BOOKKEEPING_REVIEW_STATES,
   BOOKKEEPING_SPECIAL_CASE_STATES,
   BOOKKEEPING_VAT_TREATMENTS,
+  BOOKKEEPING_ATTACHMENT_MIME_TYPES,
+  BOOKKEEPING_COUNTERPARTY_KINDS,
+  BOOKKEEPING_TRANSACTION_DIRECTIONS,
+  BOOKKEEPING_TRANSACTION_STATES,
+  BOOKKEEPING_TRANSACTION_VAT_DISPOSITIONS,
   VAT_REPORT_FIELDS,
   type BookkeepingFilingMethod,
   type BookkeepingInputVatDeductibility,
@@ -29,6 +34,11 @@ import type {
   BookkeepingPeriodView,
   BookkeepingVatRegistration,
   BookkeepingVatSummary,
+  BookkeepingAttachment,
+  BookkeepingCompanyLedgerView,
+  BookkeepingCompanyTransactionView,
+  BookkeepingTransaction,
+  BookkeepingTransactionRevision,
   VatTraceItem,
 } from './types'
 import { computeVatSummary } from './vat'
@@ -251,6 +261,73 @@ function mapEntry(rawValue: unknown, suppliedLines?: unknown[]): BookkeepingEntr
   }
 }
 
+function mapAttachment(rawValue: unknown): BookkeepingAttachment {
+  const raw = object(rawValue)
+  return {
+    id: string(raw.id),
+    status: 'ready',
+    filename: nullableString(raw.filename),
+    mimeType: enumValue(raw.mimeType ?? raw.mime_type, BOOKKEEPING_ATTACHMENT_MIME_TYPES, 'application/pdf'),
+    sizeBytes: integer(raw.sizeBytes ?? raw.size_bytes),
+    createdAt: string(raw.createdAt ?? raw.created_at, new Date(0).toISOString()),
+  }
+}
+
+function mapTransaction(rawValue: unknown): BookkeepingTransaction {
+  const raw = object(rawValue)
+  const vatLink = optionalObject(raw.vatLink ?? raw.vat_link)
+  return {
+    id: string(raw.id),
+    entityId: string(raw.entityId ?? raw.entity_id),
+    state: enumValue(raw.state, BOOKKEEPING_TRANSACTION_STATES, 'inbox'),
+    direction: raw.direction === null || raw.direction === undefined
+      ? null
+      : enumValue(raw.direction, BOOKKEEPING_TRANSACTION_DIRECTIONS, 'outflow'),
+    documentDate: nullableString(raw.documentDate ?? raw.document_date),
+    paymentDate: nullableString(raw.paymentDate ?? raw.payment_date),
+    counterparty: nullableString(raw.counterparty),
+    counterpartyKind: raw.counterpartyKind === null || raw.counterpartyKind === undefined
+      ? null
+      : enumValue(raw.counterpartyKind ?? raw.counterparty_kind, BOOKKEEPING_COUNTERPARTY_KINDS, 'company'),
+    description: nullableString(raw.description),
+    grossMinor: raw.grossMinor === null || raw.grossMinor === undefined
+      ? null
+      : integer(raw.grossMinor ?? raw.gross_minor),
+    currency: 'ISK',
+    roughCategory: nullableString(raw.roughCategory ?? raw.rough_category),
+    vatDisposition: enumValue(
+      raw.vatDisposition ?? raw.vat_disposition,
+      BOOKKEEPING_TRANSACTION_VAT_DISPOSITIONS,
+      'unclassified',
+    ),
+    sourceType: enumValue(raw.sourceType ?? raw.source_type, ['manual', 'upload'] as const, 'manual'),
+    version: integer(raw.version, 1),
+    voidedAt: nullableString(raw.voidedAt ?? raw.voided_at),
+    attachments: array(raw.attachments).map(mapAttachment),
+    vatLink: vatLink ? {
+      periodId: string(vatLink.periodId ?? vatLink.period_id),
+      entryId: string(vatLink.entryId ?? vatLink.entry_id),
+      sourceTransactionVersion: integer(vatLink.sourceTransactionVersion ?? vatLink.source_transaction_version),
+      linkedAt: string(vatLink.linkedAt ?? vatLink.linked_at),
+      hasDrift: bool(vatLink.hasDrift ?? vatLink.has_drift),
+    } : null,
+    createdAt: string(raw.createdAt ?? raw.created_at, new Date(0).toISOString()),
+    updatedAt: string(raw.updatedAt ?? raw.updated_at, string(raw.createdAt ?? raw.created_at, new Date(0).toISOString())),
+  }
+}
+
+function mapTransactionRevision(rawValue: unknown): BookkeepingTransactionRevision {
+  const raw = object(rawValue)
+  return {
+    version: integer(raw.version),
+    operation: enumValue(raw.operation, [
+      'created', 'updated', 'attachment_ready', 'vat_not_applicable', 'vat_unclassified', 'vat_linked', 'voided',
+    ] as const, 'updated'),
+    capturedAt: string(raw.capturedAt ?? raw.captured_at),
+    snapshot: object(raw.snapshot),
+  }
+}
+
 function emptyTraces(): Record<VatReportField, VatTraceItem[]> {
   return { A: [], B: [], C: [], D: [], E: [], F: [] }
 }
@@ -420,4 +497,46 @@ export async function getBookkeepingEntry(
   if (!data) return null
   const raw = resultObject(data)
   return mapEntry(raw.entry ?? raw, array(raw.lines ?? object(raw.entry ?? raw).lines))
+}
+
+export async function getBookkeepingCompanyLedger(
+  actorUserId: string,
+  entityId: string,
+): Promise<BookkeepingCompanyLedgerView | null> {
+  const { data, error } = await getAdmin().rpc('bookkeeping_get_company_ledger', {
+    p_actor_id: actorUserId,
+    p_entity_id: entityId,
+  })
+  if (error) {
+    const message = error.message?.toLowerCase() ?? ''
+    if (message.includes('not_found') || message.includes('not_allowed')) return null
+    throwOnRpcError(error, 'company ledger query')
+  }
+  if (!data) return null
+  const raw = resultObject(data)
+  return {
+    entity: mapEntity(raw.entity, actorUserId),
+    transactions: array(raw.transactions).map(mapTransaction),
+  }
+}
+
+export async function getBookkeepingCompanyTransaction(
+  actorUserId: string,
+  transactionId: string,
+): Promise<BookkeepingCompanyTransactionView | null> {
+  const { data, error } = await getAdmin().rpc('bookkeeping_get_company_transaction', {
+    p_actor_id: actorUserId,
+    p_transaction_id: transactionId,
+  })
+  if (error) {
+    const message = error.message?.toLowerCase() ?? ''
+    if (message.includes('not_found') || message.includes('not_allowed')) return null
+    throwOnRpcError(error, 'company transaction query')
+  }
+  if (!data) return null
+  const raw = resultObject(data)
+  return {
+    transaction: mapTransaction(raw.transaction),
+    revisions: array(raw.revisions).map(mapTransactionRevision),
+  }
 }

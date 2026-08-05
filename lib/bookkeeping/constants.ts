@@ -23,6 +23,28 @@ export const BOOKKEEPING_ENTRY_SETTLEMENT_STATES = ['open', 'settled'] as const
 export type BookkeepingEntrySettlementState =
   (typeof BOOKKEEPING_ENTRY_SETTLEMENT_STATES)[number]
 
+export const BOOKKEEPING_TRANSACTION_STATES = ['inbox', 'draft', 'reviewed', 'voided'] as const
+export type BookkeepingTransactionState = (typeof BOOKKEEPING_TRANSACTION_STATES)[number]
+
+export const BOOKKEEPING_TRANSACTION_DIRECTIONS = ['inflow', 'outflow'] as const
+export type BookkeepingTransactionDirection = (typeof BOOKKEEPING_TRANSACTION_DIRECTIONS)[number]
+
+export const BOOKKEEPING_COUNTERPARTY_KINDS = ['individual', 'company'] as const
+export type BookkeepingCounterpartyKind = (typeof BOOKKEEPING_COUNTERPARTY_KINDS)[number]
+
+export const BOOKKEEPING_TRANSACTION_VAT_DISPOSITIONS = [
+  'unclassified', 'not_applicable', 'linked',
+] as const
+export type BookkeepingTransactionVatDisposition =
+  (typeof BOOKKEEPING_TRANSACTION_VAT_DISPOSITIONS)[number]
+
+export const BOOKKEEPING_ATTACHMENT_MIME_TYPES = [
+  'image/jpeg', 'image/png', 'image/webp', 'application/pdf',
+] as const
+export type BookkeepingAttachmentMimeType = (typeof BOOKKEEPING_ATTACHMENT_MIME_TYPES)[number]
+
+export const BOOKKEEPING_ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024
+
 export const BOOKKEEPING_PERIOD_STATES = [
   'draft',
   'review',
