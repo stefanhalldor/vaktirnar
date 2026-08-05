@@ -68,9 +68,10 @@ export default async function HeimPage() {
     // createClient() failed — fall through to defaults
   }
 
-  const [recentEventAccess, umonnunEnabled] = await Promise.all([
+  const [recentEventAccess, umonnunEnabled, bookkeepingEnabled] = await Promise.all([
     resolveRecentEventSourceAccess(user),
     checkFeatureAccess(user.id, user.email!, 'umonnun'),
+    checkFeatureAccess(user.id, user.email!, 'bokhaldid'),
   ])
   const { loansEnabled, expensesEnabled, sources: recentEventSources } = recentEventAccess
 
@@ -84,14 +85,17 @@ export default async function HeimPage() {
   const READY_TESKEID_ROUTES: Record<string, { href: string; enabled: boolean }> = {
     'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', enabled: loansEnabled },
     'utlagt-og-endurgreitt': { href: '/auth-mvp/utlagt-og-endurgreitt', enabled: expensesEnabled },
+    'bokhaldid':       { href: '/auth-mvp/bokhaldid',       enabled: bookkeepingEnabled },
     'umonnun':         { href: '/auth-mvp/umonnun',         enabled: umonnunEnabled },
     'vedrid':          { href: '/auth-mvp/vedrid',           enabled: weatherCardEnabled },
   }
 
-  const isPromotedExpense = (idea: Idea) =>
-    idea.slug === 'utlagt-og-endurgreitt' && expensesEnabled
-  const launchedIdeas = allIdeas.filter((i) => i.status === 'launched' || isPromotedExpense(i))
-  const futureIdeas   = allIdeas.filter((i) => i.status !== 'launched' && !isPromotedExpense(i))
+  const isPromotedPrivateBeta = (idea: Idea) =>
+    (idea.slug === 'utlagt-og-endurgreitt' && expensesEnabled)
+    || (idea.slug === 'bokhaldid' && bookkeepingEnabled)
+  const visibleIdeas = allIdeas.filter((i) => i.slug !== 'bokhaldid' || bookkeepingEnabled)
+  const launchedIdeas = visibleIdeas.filter((i) => i.status === 'launched' || isPromotedPrivateBeta(i))
+  const futureIdeas   = visibleIdeas.filter((i) => i.status !== 'launched' && !isPromotedPrivateBeta(i))
   const readyCards    = launchedIdeas
     .filter((i) => READY_TESKEID_ROUTES[i.slug]?.enabled)
     .map((i) => ({ idea: i, href: READY_TESKEID_ROUTES[i.slug]!.href }))
@@ -298,7 +302,12 @@ export default async function HeimPage() {
                     openLabel={t('readyTeskeidOpen')}
                     pendingBadge={pending}
                     pendingBadgeLabel={pending !== undefined ? t('pendingBadgeLabel', { count: pending }) : undefined}
-                    descriptionOverride={idea.slug === 'vedrid' ? t('weatherCardDescription') : undefined}
+                    titleOverride={idea.slug === 'bokhaldid' ? t('bookkeepingCardTitle') : undefined}
+                    descriptionOverride={idea.slug === 'vedrid'
+                      ? t('weatherCardDescription')
+                      : idea.slug === 'bokhaldid'
+                        ? t('bookkeepingCardDescription')
+                        : undefined}
                   />
                 )
               })}

@@ -161,7 +161,7 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 type FeatureAccessEntry = { email: string; granted_at: string }
 
 interface FeatureAccessSectionProps {
-  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt'
+  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'bokhaldid'
   heading: string
   flagName: string
   enabledFlagName?: string
@@ -265,7 +265,7 @@ function FeatureAccessSection({
                 onClick={() => handleRevoke(e.email)}
                 disabled={isPending}
                 aria-label={`Fjarlægja ${e.email} úr ${heading}`}
-                className="shrink-0 px-2 py-0.5 rounded border border-gray-200 text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                className="min-h-10 shrink-0 rounded border border-gray-200 px-3 py-1 text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
               >
                 Fjarlægja
               </button>
@@ -282,14 +282,14 @@ function FeatureAccessSection({
           placeholder="netfang@dæmi.is"
           disabled={isPending}
           aria-label={`Netfang fyrir ${heading}`}
-          className="flex-1 h-8 rounded-lg border border-gray-200 px-2 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#154212] disabled:opacity-50"
+          className="min-h-10 min-w-0 flex-1 rounded-lg border border-gray-200 px-3 text-base text-gray-700 placeholder-gray-400 focus:border-[#154212] focus:outline-none disabled:opacity-50 sm:text-sm"
         />
         <button
           type="button"
           onClick={handleGrant}
           disabled={isPending}
           aria-label={`Gefa aðgang að ${heading}`}
-          className="h-8 px-3 rounded-lg bg-[#154212] text-white text-xs font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
+          className="min-h-10 shrink-0 rounded-lg bg-[#154212] px-3 text-sm font-medium text-white transition-colors hover:bg-[#2d5a27] disabled:opacity-50"
         >
           Gefa aðgang
         </button>
@@ -1675,6 +1675,11 @@ export default function AdminPage() {
             featureKey="utlagt-og-endurgreitt"
             heading="Útlagt og endurgreitt — private beta"
             flagName="EXPENSES_ENABLED"
+          />
+          <FeatureAccessSection
+            featureKey="bokhaldid"
+            heading="Bókhaldið — private beta"
+            flagName="BOOKKEEPING_ENABLED"
           />
           <FeatureAccessSection
             featureKey="vedrid"

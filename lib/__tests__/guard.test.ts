@@ -1358,3 +1358,40 @@ describe('checkFeatureAccess — utlagt-og-endurgreitt (always private beta)', (
     expect(await checkFeatureAccess('uid', 'user@example.com', 'utlagt-og-endurgreitt')).toBe(false)
   })
 })
+
+describe('checkFeatureAccess — bokhaldid (always private beta)', () => {
+  let savedBookkeepingEnabled: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedBookkeepingEnabled = process.env.BOOKKEEPING_ENABLED
+  })
+
+  afterEach(() => {
+    setEnv('BOOKKEEPING_ENABLED', savedBookkeepingEnabled)
+  })
+
+  it.each([undefined, 'false', 'TRUE', '1'])(
+    'fails before the access-table lookup when BOOKKEEPING_ENABLED=%s',
+    async (value) => {
+      setEnv('BOOKKEEPING_ENABLED', value)
+      expect(await checkFeatureAccess('uid', 'user@example.com', 'bokhaldid')).toBe(false)
+      expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+    },
+  )
+
+  it('still requires an exact per-user row when globally enabled', async () => {
+    process.env.BOOKKEEPING_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'bokhaldid')).toBe(false)
+
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'bokhaldid')).toBe(true)
+  })
+
+  it('fails closed when the per-user lookup errors', async () => {
+    process.env.BOOKKEEPING_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'db down' } })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'bokhaldid')).toBe(false)
+  })
+})

@@ -4,7 +4,7 @@ import { getAdmin } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/teskeid/admin-auth'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 
-const ALLOWED_FEATURES = ['umonnun', 'tengsl', 'facebook-oauth', 'vedrid', 'ferdalagid', 'elta-vedrid', 'weather-provider-vedurstofan', 'weather-pulse', 'weather-provider-vegagerdin', 'road-intelligence-v1', 'teskeid-routing-v1', 'agent-collaboration-private-beta', 'utlagt-og-endurgreitt'] as const
+const ALLOWED_FEATURES = ['umonnun', 'tengsl', 'facebook-oauth', 'vedrid', 'ferdalagid', 'elta-vedrid', 'weather-provider-vedurstofan', 'weather-pulse', 'weather-provider-vegagerdin', 'road-intelligence-v1', 'teskeid-routing-v1', 'agent-collaboration-private-beta', 'utlagt-og-endurgreitt', 'bokhaldid'] as const
 type FeatureKey = (typeof ALLOWED_FEATURES)[number]
 
 function resolveFeatureKey(request: NextRequest): FeatureKey | null {

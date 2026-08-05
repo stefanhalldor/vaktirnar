@@ -471,6 +471,59 @@ describe('middleware — expenses global switch and auth boundary', () => {
   })
 })
 
+describe('middleware — bookkeeping global switch and auth boundary', () => {
+  let savedAuthMvp: string | undefined
+  let savedBookkeeping: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    savedBookkeeping = process.env.BOOKKEEPING_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+  })
+
+  afterEach(() => {
+    if (savedAuthMvp === undefined) delete process.env.AUTH_MVP_ENABLED
+    else process.env.AUTH_MVP_ENABLED = savedAuthMvp
+    if (savedBookkeeping === undefined) delete process.env.BOOKKEEPING_ENABLED
+    else process.env.BOOKKEEPING_ENABLED = savedBookkeeping
+  })
+
+  it.each([undefined, 'false', 'TRUE', '1'])(
+    'redirects a bookkeeping deep-link before auth when BOOKKEEPING_ENABLED=%s',
+    async (value) => {
+      if (value === undefined) delete process.env.BOOKKEEPING_ENABLED
+      else process.env.BOOKKEEPING_ENABLED = value
+      const res = await middleware(makeReq('/auth-mvp/bokhaldid/timabil/period-id'))
+      expect(redirectedTo(res)).toBe('/')
+      expect(mockGetUser).not.toHaveBeenCalled()
+    },
+  )
+
+  it('preserves an unauthenticated deep-link in the login next parameter', async () => {
+    process.env.BOOKKEEPING_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+    const res = await middleware(makeReq('/auth-mvp/bokhaldid/timabil/period-id'))
+    const location = new URL(res.headers.get('location')!)
+    expect(location.pathname).toBe('/innskraning')
+    expect(location.searchParams.get('next')).toBe('/auth-mvp/bokhaldid/timabil/period-id')
+  })
+
+  it('lets an authenticated request reach the server-side per-user guard', async () => {
+    process.env.BOOKKEEPING_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    const res = await middleware(makeReq('/auth-mvp/bokhaldid'))
+    expect(res.status).toBe(200)
+  })
+
+  it('does not treat a lookalike sibling as the bookkeeping route segment', async () => {
+    delete process.env.BOOKKEEPING_ENABLED
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    const res = await middleware(makeReq('/auth-mvp/bokhaldid-extra'))
+    expect(res.status).toBe(200)
+  })
+})
+
 describe('middleware — /stillingar/tengsl kill-switch and auth guard', () => {
   let savedAuthMvp: string | undefined
   let savedTengsl: string | undefined

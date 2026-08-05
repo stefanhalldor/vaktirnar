@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import {
   Handshake,
+  BookOpen,
   Heart,
   Wallet,
   Baby,
@@ -18,6 +19,7 @@ const SLUG_ICONS: Record<string, LucideIcon> = {
   'lanad-og-skilad': Handshake,
   'maki-kaero': Heart,
   'utlagt-og-endurgreitt': Wallet,
+  'bokhaldid': BookOpen,
   'krakkavaktin': Baby,
   'vedrid': CloudSun,
   'umonnun': Heart,
@@ -55,17 +57,19 @@ interface Props {
   openLabel: string
   pendingBadge?: number
   pendingBadgeLabel?: string
+  titleOverride?: string
   descriptionOverride?: string
 }
 
-export function ReadyTeskeidCard({ idea, href, openLabel, pendingBadge, pendingBadgeLabel, descriptionOverride }: Props) {
+export function ReadyTeskeidCard({ idea, href, openLabel, pendingBadge, pendingBadgeLabel, titleOverride, descriptionOverride }: Props) {
   const Icon = SLUG_ICONS[idea.slug] ?? CATEGORY_ICONS[idea.category] ?? Lightbulb
   const colors = SLUG_COLORS[idea.slug] ?? CATEGORY_COLORS[idea.category] ?? DEFAULT_COLORS
+  const title = titleOverride || idea.title
 
   return (
     <Link
       href={href}
-      aria-label={`${openLabel} ${idea.title}`}
+      aria-label={`${openLabel} ${title}`}
       className="flex items-center gap-3 bg-card border border-border rounded-xl p-4 hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
     >
       <div className={`p-2.5 rounded-lg ${colors.bg} shrink-0`}>
@@ -73,7 +77,7 @@ export function ReadyTeskeidCard({ idea, href, openLabel, pendingBadge, pendingB
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">{idea.title}</span>
+          <span className="text-sm font-semibold text-foreground">{title}</span>
           {pendingBadge !== undefined && (
             <span
               className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-primary-foreground text-xs font-medium"

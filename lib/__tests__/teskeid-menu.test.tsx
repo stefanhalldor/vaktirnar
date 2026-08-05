@@ -292,6 +292,16 @@ describe('TeskeidMenu — active state', () => {
     const link = container.querySelector('a[href="/auth-mvp/samvinna"]')
     expect(link?.className).toContain('bg-[#2d5a27]')
   })
+
+  it('marks Teskeiðar as active on a deep Bókhaldið route', () => {
+    mockPathname.mockReturnValue(
+      '/auth-mvp/bokhaldid/timabil/period-id/faerslur/entry-id/breyta',
+    )
+    const { container } = render(<TeskeidMenu variant="authenticated" />)
+    fireEvent.click(screen.getByRole('button'))
+    const link = container.querySelector('a[href="/auth-mvp/heim"]')
+    expect(link?.className).toContain('bg-[#2d5a27]')
+  })
 })
 
 // ── Sign out ──────────────────────────────────────────────────────────────────

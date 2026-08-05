@@ -38,6 +38,8 @@ vi.mock('next-intl/server', () => ({
         readyTeskeidarTitle:  'Tilbúnar Teskeiðar',
         readyTeskeidOpen:     'Opna',
         weatherCardDescription: 'Þitt veðurkort ásamt akstri með tilliti til færðar',
+        bookkeepingCardTitle: 'Bókhaldið',
+        bookkeepingCardDescription: 'Handvirkar færslur og rekjanleg VSK-vinnubók fyrir reksturinn þinn.',
         homeIdeasDrawerOpen:  'Skoða hugmyndir',
         homeIdeasDrawerClose: 'Fela hugmyndir',
         loansTitle:           'Lánað og skilað',
@@ -332,6 +334,14 @@ const LAUNCHED_LOAN_IDEA    = makeIdea({ id: 'idea-loans',   slug: 'lanad-og-ski
 const LAUNCHED_UMONNUN_IDEA = makeIdea({ id: 'idea-umonnun', slug: 'umonnun',          title: 'Umönnun',         status: 'launched' })
 const LAUNCHED_VEDRID_IDEA  = makeIdea({ id: 'idea-vedrid',  slug: 'vedrid',            title: 'Veðrið',          status: 'launched' })
 const PLANNED_EXPENSE_IDEA  = makeIdea({ id: 'idea-expenses', slug: 'utlagt-og-endurgreitt', title: 'Útlagt og endurgreitt', status: 'idea' })
+const BUILDING_BOOKKEEPING_IDEA = makeIdea({
+  id: 'idea-bookkeeping',
+  slug: 'bokhaldid',
+  title: 'Bókhaldið',
+  short_description: 'VSK-vinnubók',
+  category: 'Útgjöld',
+  status: 'building',
+})
 
 // ── Setup helpers ────────────────────────────────────────────────────────────
 
@@ -340,6 +350,7 @@ function setupGuard(
   umonnunAccess = false,
   vedridAccess = false,
   expensesAccess = false,
+  bookkeepingAccess = false,
 ) {
   mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
   mockCheckFeatureAccess.mockImplementation(
@@ -348,6 +359,7 @@ function setupGuard(
       if (featureKey === 'umonnun') return umonnunAccess
       if (featureKey === 'vedrid') return vedridAccess
       if (featureKey === 'utlagt-og-endurgreitt') return expensesAccess
+      if (featureKey === 'bokhaldid') return bookkeepingAccess
       return false
     },
   )
@@ -1468,5 +1480,46 @@ describe('HeimPage — source-aware expense integration', () => {
     expect(screen.queryByRole('link', { name: /Opna Útlagt og endurgreitt/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /Hugmyndir sem verða líklega/ }))
     expect(screen.getByText('Útlagt og endurgreitt')).toBeDefined()
+  })
+})
+
+describe('HeimPage — bookkeeping private-beta card', () => {
+  it('promotes the building SQL98 seed only for an entitled user and never duplicates it', async () => {
+    mockIdeasResult.mockResolvedValue({ data: [BUILDING_BOOKKEEPING_IDEA], error: null })
+    setupGuard(false, false, false, false, true)
+    setupProfile(null)
+    setupRpcs([])
+
+    render(await HeimPage())
+
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith(
+      TEST_USER.id,
+      TEST_USER.email,
+      'bokhaldid',
+    )
+    const bookkeepingLinks = screen.getAllByRole('link').filter(
+      (link) => link.getAttribute('href') === '/auth-mvp/bokhaldid',
+    )
+    expect(bookkeepingLinks).toHaveLength(1)
+    expect(screen.getAllByText('Bókhaldið')).toHaveLength(1)
+    expect(screen.getByText(
+      'Handvirkar færslur og rekjanleg VSK-vinnubók fyrir reksturinn þinn.',
+    )).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Hugmyndir sem verða líklega/ }))
+    expect(screen.getAllByText('Bókhaldið')).toHaveLength(1)
+    expect(document.querySelector('a[href="/hugmyndir/bokhaldid"]')).toBeNull()
+  })
+
+  it('hides the private-beta seed entirely when either access gate is denied', async () => {
+    mockIdeasResult.mockResolvedValue({ data: [BUILDING_BOOKKEEPING_IDEA], error: null })
+    setupGuard(false, false, false, false, false)
+    setupProfile(null)
+
+    render(await HeimPage())
+
+    expect(screen.queryByRole('link', { name: /Opna Bókhaldið/ })).toBeNull()
+    expect(screen.queryByText('Bókhaldið')).toBeNull()
+    expect(document.querySelector('a[href="/hugmyndir/bokhaldid"]')).toBeNull()
   })
 })

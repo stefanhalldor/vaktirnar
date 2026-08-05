@@ -170,6 +170,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
+  // Bókhaldið private beta has an independent, fail-closed global switch.
+  // Its server layout/pages/actions additionally require the per-user row.
+  const isBookkeepingPath = pathname === '/auth-mvp/bokhaldid'
+    || pathname.startsWith('/auth-mvp/bokhaldid/')
+  if (isBookkeepingPath && process.env.BOOKKEEPING_ENABLED !== 'true') {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   // Feature flag: guard /stillingar/tengsl and all sub-paths.
   // TENGSL_ENABLED must be 'true'. Per-user gating is enforced in server guards.
   if (

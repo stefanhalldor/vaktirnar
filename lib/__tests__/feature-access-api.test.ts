@@ -497,3 +497,49 @@ describe('feature-access API — agent collaboration private beta', () => {
     expect(res.status).toBe(400)
   })
 })
+
+describe('feature-access API — bookkeeping private beta', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('accepts the exact bokhaldid feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await GET(makeGetRequest('bokhaldid'))
+    expect(res.status).toBe(200)
+  })
+
+  it('grants the exact bokhaldid key with a canonical email', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await POST(makeRequest(
+      { email: '  User@Example.com  ' },
+      'POST',
+      'bokhaldid',
+    ))
+    expect(res.status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith({
+      feature_key: 'bokhaldid',
+      email: 'user@example.com',
+    })
+  })
+
+  it('revokes the exact bokhaldid feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    const res = await DELETE(makeRequest(
+      { email: 'user@example.com' },
+      'DELETE',
+      'bokhaldid',
+    ))
+    expect(res.status).toBe(200)
+  })
+
+  it.each(['bokhald', 'bokhaldid-private-beta', 'bokhaldid_'])(
+    'rejects the lookalike key %s',
+    async (featureKey) => {
+      mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+      const res = await GET(makeGetRequest(featureKey))
+      expect(res.status).toBe(400)
+      expect(mockInsert).not.toHaveBeenCalled()
+    },
+  )
+})

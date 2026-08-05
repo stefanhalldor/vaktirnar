@@ -233,6 +233,53 @@ describe('AdminPage — FeatureAccessSection', () => {
     expect(screen.queryByText('beta@example.com')).not.toBeInTheDocument()
   })
 
+  it('renders the bookkeeping private-beta control and grants the exact feature key', async () => {
+    const featureCalls: Array<{ url: string; method: string; body?: string }> = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/admin/feature-access')) {
+        featureCalls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined })
+      }
+      if (url.includes('/api/admin/analytics')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      }
+      if (url.includes('/api/admin/teskeid-usage')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_USAGE) })
+      }
+      if (method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, email: 'bookkeeper@example.com' }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+    }))
+
+    render(<AdminPage />)
+
+    const heading = await screen.findByRole('heading', { name: 'Bókhaldið — private beta' })
+    expect(heading.parentElement?.textContent).toContain('BOOKKEEPING_ENABLED=true')
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual(expect.objectContaining({
+        url: '/api/admin/feature-access?feature=bokhaldid',
+        method: 'GET',
+      }))
+    })
+
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Netfang fyrir Bókhaldið — private beta',
+    }), { target: { value: 'bookkeeper@example.com' } })
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Gefa aðgang að Bókhaldið — private beta',
+    }))
+
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual({
+        url: '/api/admin/feature-access?feature=bokhaldid',
+        method: 'POST',
+        body: JSON.stringify({ email: 'bookkeeper@example.com' }),
+      })
+    })
+    expect(await screen.findByText('Aðgangur veittur: bookkeeper@example.com')).toBeInTheDocument()
+  })
+
   it('shows load error message when feature-access API returns 500', async () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => {
       if (url.includes('/api/admin/analytics')) {

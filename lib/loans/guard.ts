@@ -70,6 +70,12 @@ export async function checkFeatureAccess(
     if (process.env.EXPENSES_ENABLED !== 'true') return false
     return checkPerUserAccess(email, 'utlagt-og-endurgreitt')
   }
+  if (featureKey === 'bokhaldid') {
+    // Bókhaldið remains a strict private beta: the global emergency switch
+    // and an explicit per-user entitlement are both always required.
+    if (process.env.BOOKKEEPING_ENABLED !== 'true') return false
+    return checkPerUserAccess(email, 'bokhaldid')
+  }
   if (featureKey === 'facebook-oauth') {
     if (process.env.FACEBOOK_OAUTH_ENABLED !== 'true') return false
     if (process.env.FACEBOOK_OAUTH_FLAG !== 'true') return true
