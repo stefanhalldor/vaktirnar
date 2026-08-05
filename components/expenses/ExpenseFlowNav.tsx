@@ -5,55 +5,45 @@ import { useRouter } from 'next/navigation'
 import { TeskeidStepNav, type TeskeidStepNavItem } from '@/components/teskeid/TeskeidStepNav'
 import {
   EXPENSE_FLOW_STEPS,
-  expenseEditStepHref,
+  EXPENSE_SAVED_VIEWS,
+  expenseSavedViewHref,
+  type ExpenseSavedView,
   type ExpenseFlowStep,
 } from '@/lib/expenses/flow'
 import { useExpenseTranslations } from './i18n.client'
 
 type ExpenseFlowNavProps =
   | { context: 'entry' }
-  | { context: 'saved'; expenseId: string; canEdit: boolean }
+  | { context: 'saved'; expenseId: string; currentView?: ExpenseSavedView; canEdit?: boolean }
 
 export function ExpenseFlowNav(props: ExpenseFlowNavProps) {
   const t = useExpenseTranslations()
   const router = useRouter()
-  const [pendingStep, setPendingStep] = useState<ExpenseFlowStep | null>(null)
+  const [pendingStep, setPendingStep] = useState<ExpenseFlowStep | ExpenseSavedView | null>(null)
   const [isPending, startTransition] = useTransition()
-  const savedContext = props.context === 'saved'
-
-  const items: TeskeidStepNavItem<ExpenseFlowStep>[] = EXPENSE_FLOW_STEPS.map((step) => {
-    if (!savedContext) {
-      return {
-        id: step,
-        label: t(`expenseForm.steps.${step}`),
-        status: step === 'details' ? 'current' : 'disabled',
-        statusLabel: step === 'details' ? undefined : t('expenseForm.stepUnavailable'),
-      }
-    }
-
-    if (step === 'review') {
-      return {
-        id: step,
-        label: t(`expenseForm.steps.${step}`),
-        status: 'current',
-      }
-    }
-
-    return {
+  if (props.context === 'entry') {
+    const items: TeskeidStepNavItem<ExpenseFlowStep>[] = EXPENSE_FLOW_STEPS.map((step) => ({
       id: step,
       label: t(`expenseForm.steps.${step}`),
-      status: props.canEdit && !isPending ? 'complete' : 'disabled',
-      statusLabel: props.canEdit
-        ? t('expenseForm.stepCompleted')
-        : t('expenseForm.stepEditUnavailable'),
-    }
-  })
+      status: step === 'details' ? 'current' : 'disabled',
+      statusLabel: step === 'details' ? undefined : t('expenseForm.stepUnavailable'),
+    }))
+    return <TeskeidStepNav ariaLabel={t('expenseForm.stepNavAriaLabel')} items={items} onStepChange={() => undefined} />
+  }
 
-  function openStep(step: ExpenseFlowStep) {
-    if (!savedContext || step === 'review' || !props.canEdit || isPending) return
-    setPendingStep(step)
+  const expenseId = props.expenseId
+  const currentView = props.currentView ?? 'review'
+  const items: TeskeidStepNavItem<ExpenseSavedView>[] = EXPENSE_SAVED_VIEWS.map((view) => ({
+    id: view,
+    label: t(`expense.savedViews.${view}`),
+    status: view === currentView ? 'current' : isPending ? 'disabled' : 'available',
+  }))
+
+  function openStep(view: ExpenseSavedView) {
+    if (view === currentView || isPending) return
+    setPendingStep(view)
     startTransition(() => {
-      router.push(expenseEditStepHref(props.expenseId, step))
+      router.push(expenseSavedViewHref(expenseId, view))
     })
   }
 
@@ -66,7 +56,7 @@ export function ExpenseFlowNav(props: ExpenseFlowNavProps) {
       />
       {isPending && pendingStep ? (
         <p role="status" className="text-center text-xs text-muted-foreground">
-          {t('expenseForm.openingStep', { step: t(`expenseForm.steps.${pendingStep}`) })}
+          {t('expenseForm.openingStep', { step: t(`expense.savedViews.${pendingStep}`) })}
         </p>
       ) : null}
     </div>

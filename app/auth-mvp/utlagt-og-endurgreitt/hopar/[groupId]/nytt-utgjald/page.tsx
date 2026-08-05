@@ -3,11 +3,15 @@ import { ExpenseForm } from '@/components/expenses/ExpenseForm'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
-import { getExpenseGroupView } from '@/lib/expenses/repository.server'
+import { getExpenseGroupView, getExpensePrivateDraft } from '@/lib/expenses/repository.server'
+import { parseExpenseDraftId } from '@/lib/expenses/flow'
 
-export default async function NewGroupExpensePage({ params }: { params: Promise<{ groupId: string }> }) {
-  const [{ groupId }, { user }, t] = await Promise.all([params, guardExpenseAccess(), getExpenseTranslations()])
+export default async function NewGroupExpensePage({ params, searchParams }: { params: Promise<{ groupId: string }>; searchParams: Promise<{ draft?: string | string[] }> }) {
+  const [{ groupId }, { user }, t, query] = await Promise.all([params, guardExpenseAccess(), getExpenseTranslations(), searchParams])
   const group = await getExpenseGroupView(user.id, groupId)
   if (!group || !group.canCreateExpense) notFound()
-  return <ExpenseShell title={t('expenseForm.groupTitle')} homeLabel={t('homeLabel')} backHref={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}`} backLabel={t('back')}><ExpenseForm mode="group" groupId={group.id} defaultCurrency={group.defaultCurrency} initialDate={new Date().toISOString().slice(0, 10)} initialMembers={group.members.filter((member) => member.status === 'active').map((member) => ({ key: member.id, label: member.displayName, isSelf: member.isSelf, included: member.isSelf ? group.defaultIncludeCreator : true }))} /></ExpenseShell>
+  const draftId = parseExpenseDraftId(query.draft)
+  const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
+  const safeDraft = draft?.contextType === 'group' && draft.groupId === group.id ? draft : null
+  return <ExpenseShell title={t('expenseForm.groupTitle')} homeLabel={t('homeLabel')} backHref={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}`} backLabel={t('back')}><ExpenseForm mode="group" groupId={group.id} defaultCurrency={group.defaultCurrency} initialDate={new Date().toISOString().slice(0, 10)} initialMembers={group.members.filter((member) => member.status === 'active').map((member) => ({ key: member.id, label: member.displayName, isSelf: member.isSelf, included: member.isSelf ? group.defaultIncludeCreator : true }))} draft={safeDraft} draftBaseHref={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}/nytt-utgjald`} /></ExpenseShell>
 }

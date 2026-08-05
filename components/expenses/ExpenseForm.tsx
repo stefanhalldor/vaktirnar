@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, X } from 'lucide-react'
 import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
 import { TeskeidStepNav, type TeskeidStepNavItem } from '@/components/teskeid/TeskeidStepNav'
-import { createExpense, updateExpense } from '@/lib/expenses/actions'
+import { createExpense, saveExpenseDraft, updateExpense } from '@/lib/expenses/actions'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
 import {
   EXPENSE_CURRENCIES,
@@ -19,13 +19,11 @@ import {
   splitByFixedAmounts,
   splitByPercentage,
   splitByWeights,
-  splitEqual,
-  splitMixedEqualRemainder,
-  splitMixedPercentageRemainder,
 } from '@/lib/expenses/splits'
 import type { ExpenseItemView, ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type { ExpenseNewMemberInput } from '@/lib/expenses/validation'
 import type { ExpenseSplitMethod } from '@/lib/expenses/types'
+import type { ExpenseDraftPayload, ExpensePrivateDraftView } from '@/lib/expenses/drafts'
 import {
   EXPENSE_FLOW_STEPS,
   type ExpenseFlowStep,
@@ -56,7 +54,6 @@ interface AllocationDraft {
   amount?: string
   percentage?: string
   weight?: string
-  participates_in_remainder?: boolean
 }
 
 interface ExpenseFormProps {
@@ -69,20 +66,17 @@ interface ExpenseFormProps {
   initialDate: string
   initialStep?: ExpenseFlowStep
   reviewHref?: string
+  draft?: ExpensePrivateDraftView | null
+  draftBaseHref?: string
   edit?: {
     expense: ExpenseItemView
     expectedFinancialVersion: number
   }
 }
 
-const SPLIT_METHODS: ExpenseSplitMethod[] = [
-  'equal',
-  'percentage',
-  'weighted',
-  'fixed',
-  'mixed_equal_remainder',
-  'mixed_percentage_remainder',
-]
+type ExpenseSplitUiMethod = Extract<ExpenseSplitMethod, 'fixed' | 'percentage' | 'weighted'>
+
+const SPLIT_METHODS: ExpenseSplitUiMethod[] = ['fixed', 'percentage', 'weighted']
 
 function equalPercentageValues(keys: string[]): Record<string, string> {
   if (keys.length === 0) return {}
@@ -139,40 +133,26 @@ function initialAllocationValues(expense?: ExpenseItemView) {
   const percentages = expense
     ? percentageValuesFromShares(expense.shares, expense.totalMinor)
     : {}
-  const weights = expense ? weightValuesFromShares(expense.shares) : {}
-  const remainderParticipation: Record<string, boolean> = {}
-  if (!expense) return { amounts, percentages, weights, remainderParticipation }
+  const weights = expense
+    ? expense.splitMethod === 'equal'
+      ? Object.fromEntries(expense.shares.map((share) => [share.memberId, '1']))
+      : weightValuesFromShares(expense.shares)
+    : {}
+  if (!expense) return { amounts, percentages, weights }
 
   for (const share of expense.shares) {
     amounts[share.memberId] = formatExpenseMinorForCopy(share.amountMinor, expense.currency)
   }
 
-  if (expense.splitMethod === 'mixed_equal_remainder') {
-    for (const share of expense.shares) {
-      const participates = share.amountMinor > 0
-      remainderParticipation[share.memberId] = participates
-      amounts[share.memberId] = formatExpenseMinorForCopy(
-        participates ? share.amountMinor - 1 : share.amountMinor,
-        expense.currency,
-      )
-    }
-  }
+  return { amounts, percentages, weights }
+}
 
-  if (expense.splitMethod === 'mixed_percentage_remainder') {
-    const remainderMember = [...expense.shares]
-      .filter((share) => share.amountMinor > 0)
-      .sort((left, right) => left.memberId.localeCompare(right.memberId))[0]
-    for (const share of expense.shares) {
-      const receivesRemainder = share.memberId === remainderMember?.memberId
-      amounts[share.memberId] = formatExpenseMinorForCopy(
-        receivesRemainder ? share.amountMinor - 1 : share.amountMinor,
-        expense.currency,
-      )
-      percentages[share.memberId] = receivesRemainder ? '100' : '0'
-    }
+function initialSplitMethod(expense?: ExpenseItemView): ExpenseSplitUiMethod {
+  if (!expense) return 'weighted'
+  if (expense.splitMethod === 'percentage' || expense.splitMethod === 'weighted') {
+    return expense.splitMethod
   }
-
-  return { amounts, percentages, weights, remainderParticipation }
+  return expense.splitMethod === 'equal' ? 'weighted' : 'fixed'
 }
 
 function initialPayerKeys(
@@ -199,28 +179,36 @@ export function ExpenseForm({
   participantOptionsError = false,
   initialDate,
   initialStep = 'details',
-  reviewHref,
+  draft = null,
+  draftBaseHref = '',
   edit,
 }: ExpenseFormProps) {
   const t = useExpenseTranslations()
   const router = useRouter()
   const requestIds = useExpenseMutationRequestIds()
   const alertRef = useRef<HTMLParagraphElement>(null)
-  const [members, setMembers] = useState<FormMember[]>(initialMembers)
+  const initialDraftPayload = draft?.payload
+  const startingMembers = initialDraftPayload?.members ?? initialMembers
+  const startingStep = draft?.currentStep ?? initialStep
+  const [members, setMembers] = useState<FormMember[]>(startingMembers)
   const [included, setIncluded] = useState<Record<string, boolean>>(
-    Object.fromEntries(initialMembers.map((member) => [member.key, member.included !== false])),
+    initialDraftPayload?.included
+      ?? Object.fromEntries(startingMembers.map((member) => [member.key, member.included !== false])),
   )
-  const [title, setTitle] = useState(edit?.expense.title ?? '')
+  const [title, setTitle] = useState(initialDraftPayload?.title ?? edit?.expense.title ?? '')
   const [total, setTotal] = useState(
-    edit ? formatExpenseMinorForCopy(edit.expense.totalMinor, edit.expense.currency) : '',
+    initialDraftPayload?.total
+      ?? (edit ? formatExpenseMinorForCopy(edit.expense.totalMinor, edit.expense.currency) : ''),
   )
-  const [currency, setCurrency] = useState(edit?.expense.currency ?? defaultCurrency)
-  const [incurredOn, setIncurredOn] = useState(edit?.expense.incurredOn ?? initialDate)
-  const [category, setCategory] = useState(edit?.expense.category ?? '')
-  const [note, setNote] = useState(edit?.expense.note ?? '')
-  const [splitMethod, setSplitMethod] = useState<ExpenseSplitMethod>(edit?.expense.splitMethod ?? 'equal')
+  const [currency, setCurrency] = useState(initialDraftPayload?.currency ?? edit?.expense.currency ?? defaultCurrency)
+  const [incurredOn, setIncurredOn] = useState(initialDraftPayload?.incurredOn ?? edit?.expense.incurredOn ?? initialDate)
+  const [category, setCategory] = useState(initialDraftPayload?.category ?? edit?.expense.category ?? '')
+  const [note, setNote] = useState(initialDraftPayload?.note ?? edit?.expense.note ?? '')
+  const [splitMethod, setSplitMethod] = useState<ExpenseSplitUiMethod>(
+    initialDraftPayload?.splitMethod ?? initialSplitMethod(edit?.expense),
+  )
   const [payments, setPayments] = useState<Record<string, string>>(
-    Object.fromEntries(initialMembers.map((member) => {
+    initialDraftPayload?.payments ?? Object.fromEntries(startingMembers.map((member) => {
       const payment = edit?.expense.payments.find((row) => row.memberId === member.key)
       return [
         member.key,
@@ -231,20 +219,22 @@ export function ExpenseForm({
     })),
   )
   const [payerKeys, setPayerKeys] = useState<string[]>(() => (
-    initialPayerKeys(initialMembers, edit?.expense)
+    initialDraftPayload?.payerKeys ?? initialPayerKeys(startingMembers, edit?.expense)
   ))
   const initialAllocations = initialAllocationValues(edit?.expense)
-  const [amounts, setAmounts] = useState<Record<string, string>>(initialAllocations.amounts)
-  const [percentages, setPercentages] = useState<Record<string, string>>(initialAllocations.percentages)
-  const [weights, setWeights] = useState<Record<string, string>>(initialAllocations.weights)
-  const [remainderParticipation, setRemainderParticipation] = useState<Record<string, boolean>>(initialAllocations.remainderParticipation)
-  const [preserveShares, setPreserveShares] = useState(Boolean(edit))
+  const [amounts, setAmounts] = useState<Record<string, string>>(initialDraftPayload?.amounts ?? initialAllocations.amounts)
+  const [percentages, setPercentages] = useState<Record<string, string>>(initialDraftPayload?.percentages ?? initialAllocations.percentages)
+  const [weights, setWeights] = useState<Record<string, string>>(initialDraftPayload?.weights ?? initialAllocations.weights)
+  const [preserveShares, setPreserveShares] = useState(initialDraftPayload?.preserveShares ?? Boolean(edit))
   const [relationshipId, setRelationshipId] = useState('')
   const [guestName, setGuestName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(initialStep)
+  const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
   const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? EXPENSE_FLOW_STEPS.length - 1 : 0)
-  const [pendingNavigation, setPendingNavigation] = useState(false)
+  const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const draftIdRef = useRef(draft?.id ?? createRequestId())
+  const draftVersionRef = useRef<number | null>(draft?.version ?? null)
+  const draftSavingRef = useRef(false)
   const [isPending, startTransition] = useTransition()
 
   const draftFingerprint = JSON.stringify({
@@ -262,20 +252,76 @@ export function ExpenseForm({
     amounts,
     percentages,
     weights,
-    remainderParticipation,
     preserveShares,
     relationshipId,
     guestName,
   })
   const initialDraftFingerprint = useRef(draftFingerprint)
-  const hasUnsavedChanges = draftFingerprint !== initialDraftFingerprint.current
 
   const selectedKeys = members.filter((member) => included[member.key]).map((member) => member.key)
   const memberName = (key: string) => members.find((member) => member.key === key)?.label ?? key
 
   useEffect(() => {
-    focusStepHeading(initialStep)
-  }, [initialStep])
+    focusStepHeading(startingStep)
+  }, [startingStep])
+
+  function draftPayload(): ExpenseDraftPayload {
+    return {
+      members: members.map((member) => ({
+        key: member.key,
+        label: member.label,
+        ...(member.input ? { input: member.input } : {}),
+        ...(member.newGuest ? { newGuest: member.newGuest } : {}),
+        isSelf: member.isSelf,
+        ...(member.included === undefined ? {} : { included: member.included }),
+      })),
+      included,
+      title,
+      total,
+      currency: currency as ExpenseDraftPayload['currency'],
+      incurredOn,
+      category,
+      note,
+      splitMethod,
+      payments,
+      payerKeys,
+      amounts,
+      percentages,
+      weights,
+      preserveShares,
+    }
+  }
+
+  async function persistDraft(step: ExpenseFlowStep): Promise<boolean> {
+    if (draftSavingRef.current) return false
+    draftSavingRef.current = true
+    setDraftStatus('saving')
+    const result = await saveExpenseDraft({
+      draft_id: draftIdRef.current,
+      expected_version: draftVersionRef.current,
+      context_type: edit ? 'edit' : mode,
+      group_id: groupId ?? null,
+      expense_id: edit?.expense.id ?? null,
+      current_step: step,
+      payload: draftPayload(),
+    })
+    if (!result.ok) {
+      draftSavingRef.current = false
+      setDraftStatus('error')
+      setError(t('errors.draftSaveFailed'))
+      queueMicrotask(() => alertRef.current?.focus())
+      return false
+    }
+    draftVersionRef.current = result.data.version
+    draftSavingRef.current = false
+    initialDraftFingerprint.current = draftFingerprint
+    setDraftStatus('saved')
+    if (draftBaseHref) {
+      const separator = draftBaseHref.includes('?') ? '&' : '?'
+      router.replace(`${draftBaseHref}${separator}draft=${draftIdRef.current}`)
+    }
+    return true
+  }
 
   function addMember(member: FormMember) {
     if (members.some((candidate) => candidate.key === member.key)) return
@@ -288,8 +334,7 @@ export function ExpenseForm({
     setPayments((current) => ({ ...current, [member.key]: '' }))
     setWeights((current) => ({ ...current, [member.key]: '1' }))
     setAmounts((current) => ({ ...current, [member.key]: '0' }))
-    setRemainderParticipation((current) => ({ ...current, [member.key]: true }))
-    if (!edit && (splitMethod === 'percentage' || splitMethod === 'mixed_percentage_remainder')) {
+    if (!edit && splitMethod === 'percentage') {
       setPercentages(equalPercentageValues([...selectedKeys, member.key]))
     }
   }
@@ -380,20 +425,9 @@ export function ExpenseForm({
 
   function allocationPayload(): AllocationDraft[] {
     if (selectedKeys.length === 0) throw new Error('participant_required')
-    if (splitMethod === 'equal') return selectedKeys.map((member_key) => ({ member_key }))
     if (splitMethod === 'percentage') return selectedKeys.map((member_key) => ({ member_key, percentage: percentages[member_key] ?? '' }))
     if (splitMethod === 'weighted') return selectedKeys.map((member_key) => ({ member_key, weight: weights[member_key] ?? '1' }))
-    if (splitMethod === 'fixed') return selectedKeys.map((member_key) => ({ member_key, amount: amounts[member_key] ?? '' }))
-    if (splitMethod === 'mixed_equal_remainder') return selectedKeys.map((member_key) => ({
-      member_key,
-      amount: amounts[member_key] ?? '0',
-      participates_in_remainder: remainderParticipation[member_key] !== false,
-    }))
-    return selectedKeys.map((member_key) => ({
-      member_key,
-      amount: amounts[member_key] ?? '0',
-      percentage: percentages[member_key] ?? '',
-    }))
+    return selectedKeys.map((member_key) => ({ member_key, amount: amounts[member_key] ?? '' }))
   }
 
   const paymentState = (() => {
@@ -436,17 +470,11 @@ export function ExpenseForm({
           amountMinor: share.amountMinor,
           currency: edit.expense.currency,
         }))
-        : splitMethod === 'equal'
-        ? splitEqual(totalMinor, currency, allocations.map((row) => row.member_key))
         : splitMethod === 'percentage'
           ? splitByPercentage(totalMinor, currency, allocations.map((row) => ({ participantId: row.member_key, basisPoints: parseExpensePercentageToBasisPoints(row.percentage ?? '') })))
           : splitMethod === 'weighted'
             ? splitByWeights(totalMinor, currency, allocations.map((row) => ({ participantId: row.member_key, weight: parseExpenseWeight(row.weight ?? '') })))
-            : splitMethod === 'fixed'
-              ? splitByFixedAmounts(totalMinor, currency, allocations.map((row) => ({ participantId: row.member_key, amountMinor: parseExpenseAmountToMinor(row.amount ?? '', currency, { allowZero: true }) })))
-              : splitMethod === 'mixed_equal_remainder'
-                ? splitMixedEqualRemainder(totalMinor, currency, allocations.map((row) => ({ participantId: row.member_key, fixedMinor: parseExpenseAmountToMinor(row.amount ?? '0', currency, { allowZero: true }), participatesInRemainder: row.participates_in_remainder === true })))
-                : splitMixedPercentageRemainder(totalMinor, currency, allocations.map((row) => ({ participantId: row.member_key, fixedMinor: parseExpenseAmountToMinor(row.amount ?? '0', currency, { allowZero: true }), remainderBasisPoints: parseExpensePercentageToBasisPoints(row.percentage ?? '') })))
+            : splitByFixedAmounts(totalMinor, currency, allocations.map((row) => ({ participantId: row.member_key, amountMinor: parseExpenseAmountToMinor(row.amount ?? '', currency, { allowZero: true }) })))
       const balances = calculateExpenseBalances({
         expenseId: 'expense-preview',
         totalMinor,
@@ -461,21 +489,13 @@ export function ExpenseForm({
     }
   })()
 
-  function chooseSplitMethod(method: ExpenseSplitMethod) {
+  function chooseSplitMethod(method: ExpenseSplitUiMethod) {
     setSplitMethod(method)
     if (edit) setPreserveShares(false)
-    if ((method === 'percentage' || method === 'mixed_percentage_remainder') && selectedKeys.some((key) => !percentages[key])) {
+    if (method === 'percentage' && selectedKeys.some((key) => !percentages[key])) {
       setPercentages(equalPercentageValues(selectedKeys))
     }
     if (method === 'weighted') setWeights((current) => Object.fromEntries(selectedKeys.map((key) => [key, current[key] || '1'])))
-    if (method === 'mixed_equal_remainder' && method !== splitMethod) {
-      setAmounts(Object.fromEntries(selectedKeys.map((key) => [key, '0'])))
-      setRemainderParticipation(Object.fromEntries(selectedKeys.map((key) => [key, true])))
-    }
-    if (method === 'mixed_percentage_remainder' && method !== splitMethod) {
-      setAmounts(Object.fromEntries(selectedKeys.map((key) => [key, '0'])))
-      setPercentages(equalPercentageValues(selectedKeys))
-    }
   }
 
   function isDetailsValid() {
@@ -518,20 +538,16 @@ export function ExpenseForm({
     queueMicrotask(() => document.getElementById(`expense-${step}-heading`)?.focus())
   }
 
-  function openStep(step: ExpenseFlowStep) {
+  async function openStep(step: ExpenseFlowStep) {
     const targetIndex = EXPENSE_FLOW_STEPS.indexOf(step)
-    if (isPending || targetIndex > highestVisitedStep) return
-    if (edit && step === 'review' && reviewHref && !hasUnsavedChanges) {
-      setPendingNavigation(true)
-      startTransition(() => router.push(reviewHref))
-      return
-    }
+    if (isPending || draftStatus === 'saving' || targetIndex > highestVisitedStep) return
     setError(null)
+    if (!await persistDraft(step)) return
     setCurrentStep(step)
     focusStepHeading(step)
   }
 
-  function advanceStep() {
+  async function advanceStep() {
     const currentIndex = EXPENSE_FLOW_STEPS.indexOf(currentStep)
     if (!isStepValid(currentStep)) {
       setError(validationMessage(currentStep))
@@ -541,6 +557,7 @@ export function ExpenseForm({
     const nextStep = EXPENSE_FLOW_STEPS[currentIndex + 1]
     if (!nextStep) return
     setError(null)
+    if (!await persistDraft(nextStep)) return
     setHighestVisitedStep((current) => Math.max(current, currentIndex + 1))
     setCurrentStep(nextStep)
     focusStepHeading(nextStep)
@@ -552,12 +569,13 @@ export function ExpenseForm({
   }
 
   const currentStepIndex = EXPENSE_FLOW_STEPS.indexOf(currentStep)
+  const navigationBusy = isPending || draftStatus === 'saving'
   const stepItems: TeskeidStepNavItem<ExpenseFlowStep>[] = EXPENSE_FLOW_STEPS.map((step, index) => ({
     id: step,
     label: t(`expenseForm.steps.${step}`),
     status: currentStep === step
       ? 'current'
-      : isPending || index > highestVisitedStep
+      : navigationBusy || index > highestVisitedStep
         ? 'disabled'
         : !isStepValid(step)
           ? 'attention'
@@ -573,7 +591,7 @@ export function ExpenseForm({
     event.preventDefault()
     setError(null)
     if (currentStep !== 'review') {
-      advanceStep()
+      void advanceStep()
       return
     }
     const invalidStep = EXPENSE_FLOW_STEPS.slice(0, -1).find((step) => !isStepValid(step))
@@ -610,6 +628,7 @@ export function ExpenseForm({
       category: category || null,
       note: note || null,
       split_method: splitMethod,
+      draft_id: draftVersionRef.current ? draftIdRef.current : null,
       members: memberInputs,
       payments: paymentRows,
       allocations: edit ? [] : allocationPayload(),
@@ -623,7 +642,8 @@ export function ExpenseForm({
       incurred_on: incurredOn,
       category: category || null,
       note: note || null,
-      split_method: splitMethod,
+      split_method: preserveShares ? edit.expense.splitMethod : splitMethod,
+      draft_id: draftVersionRef.current ? draftIdRef.current : null,
       preserve_shares: preserveShares,
       new_members: members.flatMap((member) => (
         member.newGuest
@@ -657,15 +677,15 @@ export function ExpenseForm({
   }
 
   return (
-    <form onSubmit={submit} className="space-y-8" noValidate aria-busy={isPending}>
+    <form onSubmit={submit} className="space-y-8" noValidate aria-busy={navigationBusy}>
       <TeskeidStepNav
         ariaLabel={t('expenseForm.stepNavAriaLabel')}
         items={stepItems}
         onStepChange={openStep}
       />
-      {pendingNavigation ? (
+      {draftStatus === 'saving' || draftStatus === 'saved' ? (
         <p role="status" className="text-center text-xs text-muted-foreground">
-          {t('expenseForm.openingReview')}
+          {t(draftStatus === 'saving' ? 'expenseForm.draftSaving' : 'expenseForm.draftSaved')}
         </p>
       ) : null}
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
@@ -781,14 +801,16 @@ export function ExpenseForm({
             </button>
           </div>
         ) : null}
-        <div className="grid grid-cols-2 gap-2">
-          {SPLIT_METHODS.map((method) => <label key={method} className={`flex min-h-11 items-center rounded-xl border px-3 text-sm ${splitMethod === method ? 'border-primary bg-primary/5' : 'border-border'}`}><input type="radio" name="split-method" className="mr-2" checked={splitMethod === method} onChange={() => chooseSplitMethod(method)} /><span>{t(`splitMethods.${method === 'mixed_equal_remainder' ? 'mixedEqual' : method === 'mixed_percentage_remainder' ? 'mixedPercentage' : method}`)}</span></label>)}
+        <p className="text-xs leading-5 text-muted-foreground">{t('splitMethods.simpleHint')}</p>
+        <div className="grid grid-cols-3 gap-2">
+          {SPLIT_METHODS.map((method) => <label key={method} className={`flex min-h-11 items-center justify-center rounded-xl border px-2 text-center text-sm ${splitMethod === method ? 'border-primary bg-primary/5' : 'border-border'}`}><input type="radio" name="split-method" className="sr-only" checked={splitMethod === method} onChange={() => chooseSplitMethod(method)} /><span>{t(`splitMethods.${method}`)}</span></label>)}
         </div>
-        {!preserveShares && splitMethod !== 'equal' ? <div className="space-y-3 border-t border-border pt-4">{members.filter((member) => included[member.key]).map((member) => <div key={member.key} className="space-y-2"><p className="text-sm font-medium">{member.label}</p><div className="grid gap-2 sm:grid-cols-2">
-          {(splitMethod === 'fixed' || splitMethod.startsWith('mixed_')) ? <label><span className={expenseLabelClass}>{t('splitMethods.fixedLabel')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={amounts[member.key] ?? ''} onChange={(e) => { setAmounts((current) => ({ ...current, [member.key]: e.target.value })); if (edit) setPreserveShares(false) }} /></label> : null}
-          {(splitMethod === 'percentage' || splitMethod === 'mixed_percentage_remainder') ? <label><span className={expenseLabelClass}>{t(splitMethod === 'percentage' ? 'splitMethods.percentageLabel' : 'splitMethods.remainderPercentage')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={percentages[member.key] ?? ''} onChange={(e) => { setPercentages((current) => ({ ...current, [member.key]: e.target.value })); if (edit) setPreserveShares(false) }} /></label> : null}
+        {!preserveShares ? <div className="space-y-3 border-t border-border pt-4">
+          {splitMethod === 'weighted' ? <div className="flex items-center justify-between gap-3"><p className="text-xs leading-5 text-muted-foreground">{t('splitMethods.weightHint')}</p><button type="button" className="shrink-0 text-sm font-medium text-primary underline-offset-4 hover:underline" onClick={() => setWeights(Object.fromEntries(selectedKeys.map((key) => [key, '1'])))}>{t('splitMethods.resetEqual')}</button></div> : null}
+          {members.filter((member) => included[member.key]).map((member) => <div key={member.key} className="space-y-2"><p className="text-sm font-medium">{member.label}</p><div className="grid gap-2 sm:grid-cols-2">
+          {splitMethod === 'fixed' ? <label><span className={expenseLabelClass}>{t('splitMethods.fixedLabel')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={amounts[member.key] ?? ''} onChange={(e) => { setAmounts((current) => ({ ...current, [member.key]: e.target.value })); if (edit) setPreserveShares(false) }} /></label> : null}
+          {splitMethod === 'percentage' ? <label><span className={expenseLabelClass}>{t('splitMethods.percentageLabel')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={percentages[member.key] ?? ''} onChange={(e) => { setPercentages((current) => ({ ...current, [member.key]: e.target.value })); if (edit) setPreserveShares(false) }} /></label> : null}
           {splitMethod === 'weighted' ? <label><span className={expenseLabelClass}>{t('splitMethods.weightLabel')}</span><input className={expenseInputClass} type="text" inputMode="numeric" value={weights[member.key] ?? '1'} onChange={(e) => { setWeights((current) => ({ ...current, [member.key]: e.target.value })); if (edit) setPreserveShares(false) }} /></label> : null}
-          {splitMethod === 'mixed_equal_remainder' ? <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="size-5" checked={remainderParticipation[member.key] !== false} onChange={(e) => { setRemainderParticipation((current) => ({ ...current, [member.key]: e.target.checked })); if (edit) setPreserveShares(false) }} />{t('splitMethods.inRemainder')}</label> : null}
         </div></div>)}</div> : null}
       </fieldset>
       ) : null}
@@ -808,18 +830,18 @@ export function ExpenseForm({
 
       <div className={`grid gap-3 ${currentStepIndex > 0 ? 'grid-cols-2' : ''}`}>
         {currentStepIndex > 0 ? (
-          <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={isPending} onClick={previousStep}>
+          <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={navigationBusy} onClick={previousStep}>
             {t('expenseForm.previousStep')}
           </button>
         ) : null}
         {currentStep === 'review' ? (
-          <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={isPending}>
+          <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy}>
             {isPending
               ? t(edit ? 'expenseForm.updating' : 'expenseForm.creating')
               : t(edit ? 'expenseForm.update' : 'expenseForm.create')}
           </button>
         ) : (
-          <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={isPending} onClick={advanceStep}>
+          <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy} onClick={() => void advanceStep()}>
             {t(`expenseForm.nextSteps.${EXPENSE_FLOW_STEPS[currentStepIndex + 1]}`)}
           </button>
         )}

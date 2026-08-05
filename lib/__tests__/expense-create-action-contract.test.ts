@@ -88,7 +88,9 @@ describe('createExpense RPC contract', () => {
       ok: true,
       data: { groupId: persistedGroupId, expenseId: persistedExpenseId },
     })
-    const [, payload] = mockRpc.mock.calls[0]
+    const [rpcName, payload] = mockRpc.mock.calls[0]
+    expect(rpcName).toBe('expense_create_expense_with_known_members')
+    expect(payload.p_known_relationship_members).toEqual([])
     expect(payload.p_obligations).toEqual([
       {
         from_member_id: guestMemberId,
@@ -98,5 +100,29 @@ describe('createExpense RPC contract', () => {
       },
     ])
     expect(payload.p_obligations[0]).not.toHaveProperty('id')
+  })
+
+  it('atomically maps a known relationship to an invited member instead of a guest invitation', async () => {
+    const relationshipId = '60000000-0000-4000-8000-000000000001'
+    const counterpartId = '70000000-0000-4000-8000-000000000001'
+    mockResolveExpenseMembers.mockResolvedValueOnce([
+      { id: selfMemberId, key: 'self', userId: actorId, displayName: 'Stebbi', role: 'owner', status: 'active' },
+      { id: guestMemberId, key: 'berglind', userId: counterpartId, displayName: 'Berglind', role: 'member', status: 'invited', relationshipId },
+    ])
+
+    const result = await createExpense({
+      request_id: '50000000-0000-4000-8000-000000000002', group_id: null,
+      title: 'Kvöldmatur', total: '100', currency: 'ISK', incurred_on: '2026-08-04',
+      category: null, note: null, split_method: 'weighted',
+      members: [{ type: 'self', key: 'self' }, { type: 'relationship', key: 'berglind', relationship_id: relationshipId }],
+      payments: [{ member_key: 'self', amount: '100' }],
+      allocations: [{ member_key: 'self', weight: '1' }, { member_key: 'berglind', weight: '1' }],
+    })
+
+    expect(result.ok).toBe(true)
+    const [rpcName, payload] = mockRpc.mock.calls[0]
+    expect(rpcName).toBe('expense_create_expense_with_known_members')
+    expect(payload.p_one_off_members[1]).toMatchObject({ id: guestMemberId, user_id: null, status: 'active' })
+    expect(payload.p_known_relationship_members).toEqual([{ member_id: guestMemberId, relationship_id: relationshipId }])
   })
 })

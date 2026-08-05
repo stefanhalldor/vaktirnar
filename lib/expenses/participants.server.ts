@@ -22,6 +22,7 @@ export interface ResolvedExpenseMember {
   displayName: string
   role: 'owner' | 'member'
   status: 'invited' | 'active'
+  relationshipId?: string
 }
 
 async function getProfileNames(userIds: readonly string[]): Promise<Map<string, string>> {
@@ -126,6 +127,7 @@ export async function resolveExpenseMembers(input: {
       displayName: profileNames.get(relationship.counterpart_user_id) ?? 'Teskeiðarnotandi',
       role: 'member',
       status: 'invited',
+      relationshipId: member.relationship_id,
     })
   }
 

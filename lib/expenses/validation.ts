@@ -59,6 +59,7 @@ const allocationInput = z.object({
 
 export const CreateExpenseSchema = z.object({
   request_id: requestId,
+  draft_id: uuid.nullable().optional().transform((v) => v ?? null),
   group_id: uuid.nullable().optional().transform((v) => v ?? null),
   title: z.string().trim().min(1).max(200),
   total: amountInput,
@@ -93,6 +94,7 @@ export const CreateExpenseSchema = z.object({
 
 export const UpdateExpenseSchema = z.object({
   request_id: requestId,
+  draft_id: uuid.nullable().optional().transform((v) => v ?? null),
   expense_id: uuid,
   expected_financial_version: z.number().int().nonnegative(),
   title: z.string().trim().min(1).max(200),

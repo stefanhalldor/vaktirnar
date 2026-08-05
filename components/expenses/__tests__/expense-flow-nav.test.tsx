@@ -21,6 +21,10 @@ vi.mock('next-intl', () => ({
       'expenseForm.stepCompleted': 'Lokið, opna til að breyta',
       'expenseForm.stepEditUnavailable': 'Ekki er hægt að breyta þessu útgjaldi',
       'expenseForm.openingStep': 'Opna {step}...',
+      'expense.savedViews.review': 'Útlagt',
+      'expense.savedViews.people': 'Aðilar',
+      'expense.savedViews.split': 'Skipting',
+      'expense.savedViews.settlement': 'Uppgjör',
     }
     let result = translations[key] ?? key
     for (const [name, value] of Object.entries(values ?? {})) {
@@ -35,29 +39,28 @@ import { ExpenseFlowNav } from '@/components/expenses/ExpenseFlowNav'
 beforeEach(() => vi.clearAllMocks())
 
 describe('ExpenseFlowNav', () => {
-  it('marks saved review current and routes completed steps to exact edit deep links', async () => {
+  it('marks the saved summary current and routes every lifecycle tab to its read-only view', async () => {
     render(<ExpenseFlowNav context="saved" expenseId="expense-1" canEdit />)
 
     const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
-    expect(within(nav).getByRole('button', { name: 'Yfirferð' })).toHaveAttribute('aria-current', 'step')
-    expect(within(nav).getByRole('button', { name: /Útgjald.*Lokið, opna til að breyta/ })).toBeEnabled()
+    expect(within(nav).getByRole('button', { name: 'Útlagt' })).toHaveAttribute('aria-current', 'step')
+    expect(within(nav).getByRole('button', { name: 'Aðilar' })).toBeEnabled()
 
     await act(async () => {
       fireEvent.click(within(nav).getByRole('button', { name: /Skipting/ }))
     })
 
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1/breyta?step=split',
+      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1?view=split',
     )
   })
 
-  it('keeps prior steps truly disabled when the saved expense cannot be edited', () => {
+  it('keeps saved views clickable even when the expense cannot be edited', async () => {
     render(<ExpenseFlowNav context="saved" expenseId="expense-1" canEdit={false} />)
 
     const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
-    expect(within(nav).getByRole('button', { name: /Útgjald/ })).toBeDisabled()
-    expect(within(nav).getByRole('button', { name: /Aðilar/ })).toBeDisabled()
-    expect(within(nav).getByRole('button', { name: /Skipting/ })).toBeDisabled()
-    expect(mockPush).not.toHaveBeenCalled()
+    expect(within(nav).getByRole('button', { name: 'Aðilar' })).toBeEnabled()
+    await act(async () => fireEvent.click(within(nav).getByRole('button', { name: 'Uppgjör' })))
+    expect(mockPush).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1?view=settlement')
   })
 })

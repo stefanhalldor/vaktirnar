@@ -586,7 +586,7 @@
         "editTitle": "Edit expense",
         "stepNavAriaLabel": "Expense form steps",
         "steps": {
-          "details": "Expense",
+          "details": "Paid",
           "people": "People",
           "split": "Split",
           "review": "Review"
@@ -597,6 +597,9 @@
         "stepEditUnavailable": "This expense cannot be edited",
         "openingStep": "Opening {step}...",
         "openingReview": "Opening review...",
+        "draftSaving": "Saving changes...",
+        "draftSaved": "Changes saved",
+        "draftSaveFailed": "The changes could not be saved automatically.",
         "previousStep": "Back",
         "nextSteps": {
           "people": "Continue to people",
@@ -608,7 +611,7 @@
         "titlePlaceholder": "For example Dinner",
         "category": "Category",
         "participants": "Who was it for?",
-        "participantHint": "Relationships are only your private picker. For a one-off, other people are stored as named guests.",
+        "participantHint": "A known Teskeið user receives an invitation and is not stored as a guest. A named guest can be linked later.",
         "participantLoadError": "We could not load relationships. Try again later or add a guest.",
         "self": "Me",
         "knownPeople": "People you know",
@@ -663,8 +666,8 @@
       "splitMethods": {
         "equal": "Equal",
         "percentage": "Percentages",
-        "weighted": "Proportions",
-        "fixed": "Fixed amounts",
+        "weighted": "Shares",
+        "fixed": "Fixed amount",
         "mixedEqual": "Fixed amounts and equal remainder",
         "mixedPercentage": "Fixed amounts and percentage of remainder",
         "mixed_equal_remainder": "Fixed amounts and equal remainder",
@@ -673,6 +676,9 @@
         "percentageLabel": "Percentage",
         "weightLabel": "Proportion",
         "fixedLabel": "Fixed amount",
+        "simpleHint": "Choose a fixed amount, percentage or shares.",
+        "weightHint": "One share per person splits equally. Two shares are twice one share.",
+        "resetEqual": "Split equally",
         "remainderPercentage": "Percentage of remainder",
         "inRemainder": "Shares the remainder"
       },
@@ -738,7 +744,24 @@
         "cancelConfirm": "Cancel this expense? Its history will be preserved.",
         "cancelling": "Cancelling...",
         "cancelled": "Cancelled",
-        "active": "Active"
+        "active": "Active",
+        "savedViews": {
+          "review": "Paid",
+          "people": "People",
+          "split": "Split",
+          "settlement": "Settlement"
+        },
+        "summaryPaid": "{name} paid {amount}",
+        "summaryYourStatus": "Your position",
+        "summaryYouAreOwed": "You are still owed {amount}",
+        "summaryYouOwe": "You still need to pay {amount}",
+        "summaryYouAreEven": "You are all settled 😊",
+        "summaryOpen": "Still to do",
+        "summaryOwes": "{from} still needs to pay {to} {amount}",
+        "summaryMorePayments": "There are {count} more payments left.",
+        "summarySettled": "Everything is settled 😊",
+        "groupSettlementHint": "This shows this expense's contribution. The final group settlement includes all expenses and confirmed repayments.",
+        "draftSaveFailed": "The changes could not be saved automatically."
       },
       "repayment": {
         "title": "Repayment",
@@ -851,6 +874,7 @@
         "feature_disabled": "This Teskeið is not enabled for you.",
         "recipient_unavailable": "This email cannot receive an invitation yet. “Expenses and repayments” must first be enabled for the email in admin.",
         "delivery_failed": "The invitation was saved but delivery failed. Try sending it again.",
+        "draftSaveFailed": "The changes could not be saved automatically.",
         "paymentTotal": "Payments must match the total.",
         "splitTotal": "The allocation must match the total."
       }

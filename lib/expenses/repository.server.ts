@@ -29,6 +29,7 @@ import type {
   ExpenseRepaymentView,
 } from './contracts'
 import type { ExpenseActivityEventType } from './events'
+import { ExpenseDraftPayloadSchema, type ExpensePrivateDraftView } from './drafts'
 
 interface GroupRow {
   id: string
@@ -672,6 +673,41 @@ export async function getExpenseItemView(
   if (!group) return null
   const expense = group.expenses.find((item) => item.id === expenseId)
   return expense ? { group, expense } : null
+}
+
+export async function getExpensePrivateDraft(
+  actorUserId: string,
+  draftId: string,
+): Promise<ExpensePrivateDraftView | null> {
+  const { data, error } = await getAdmin().rpc('expense_get_private_draft', {
+    p_actor_id: actorUserId,
+    p_draft_id: draftId,
+  })
+  throwOnError(error, 'expense private draft query')
+  const source = Array.isArray(data) ? data[0] : data
+  if (!source || typeof source !== 'object') return null
+  const row = source as Record<string, unknown>
+  const payload = ExpenseDraftPayloadSchema.safeParse(row.payload)
+  const version = Number(row.draft_version)
+  const contextType = row.context_type
+  const currentStep = row.current_step
+  if (!payload.success
+    || !Number.isSafeInteger(version)
+    || version < 1
+    || (contextType !== 'one_off' && contextType !== 'group' && contextType !== 'edit')
+    || (currentStep !== 'details' && currentStep !== 'people' && currentStep !== 'split' && currentStep !== 'review')) {
+    return null
+  }
+  return {
+    id: String(row.draft_id),
+    contextType,
+    groupId: typeof row.group_id === 'string' ? row.group_id : null,
+    expenseId: typeof row.expense_id === 'string' ? row.expense_id : null,
+    currentStep,
+    payload: payload.data,
+    version,
+    savedAt: String(row.saved_at),
+  }
 }
 
 export async function getExpenseRepaymentView(

@@ -43,6 +43,7 @@ import {
   parseExpenseWeight,
 } from './input-money'
 import { ExpenseDomainError } from './domain-error'
+import { SaveExpenseDraftSchema } from './drafts'
 import { guardExpenseAccess } from './guard'
 import {
   getExpenseActorDisplayName,
@@ -98,6 +99,48 @@ function resultObject(data: unknown): Record<string, unknown> {
     return data[0] as Record<string, unknown>
   }
   return {}
+}
+
+async function deleteExpenseDraftAfterSave(actorUserId: string, draftId: string | null) {
+  if (!draftId) return
+  const { error } = await getAdmin().rpc('expense_delete_private_draft', {
+    p_actor_id: actorUserId,
+    p_draft_id: draftId,
+  })
+  if (error) console.error('[expenses] saved expense but draft cleanup failed')
+}
+
+export async function saveExpenseDraft(
+  input: unknown,
+): Promise<ExpenseActionResult<{ draftId: string; version: number; savedAt: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = SaveExpenseDraftSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc('expense_save_private_draft', {
+      p_actor_id: user.id,
+      p_draft_id: value.draft_id,
+      p_context_type: value.context_type,
+      p_group_id: value.group_id,
+      p_expense_id: value.expense_id,
+      p_current_step: value.current_step,
+      p_payload: value.payload,
+      p_expected_version: value.expected_version,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const draftId = String(result.draft_id ?? '')
+    const version = Number(result.draft_version)
+    const savedAt = String(result.saved_at ?? '')
+    if (!draftId || !Number.isSafeInteger(version) || version < 1 || !savedAt) {
+      throw new Error('expense_draft_save_failed')
+    }
+    return { ok: true, data: { draftId, version, savedAt } }
+  } catch (error) {
+    console.error('[expenses] save draft failed')
+    return actionError(error)
+  }
 }
 
 async function resolveInputMembers(
@@ -262,42 +305,54 @@ export async function createExpense(
       currency: transfer.currency,
     }))
 
-    const { data, error } = await getAdmin().rpc('expense_create_expense', {
-      p_actor_id: user.id,
-      p_request_id: value.request_id,
-      p_expense_id: expenseId,
-      p_group_id: value.group_id,
-      p_title: value.title,
-      p_total_minor: totalMinor,
-      p_currency: value.currency,
-      p_incurred_on: value.incurred_on,
-      p_category: value.category,
-      p_note: value.note,
-      p_split_method: value.split_method,
-      p_one_off_members: value.group_id ? [] : members.map((member) => ({
-        id: member.id,
-        // A relationship is a private picker source, not consent to share a
-        // financial record. One-offs keep non-actor parties as guest snapshots.
-        user_id: member.role === 'owner' ? member.userId : null,
-        display_name: member.displayName,
-        role: member.role,
-        status: 'active',
-      })),
-      p_payments: payments.map((payment) => ({
-        member_id: payment.payerId,
-        amount_minor: payment.amountMinor,
-      })),
-      p_shares: shares.map((share) => ({
-        member_id: share.participantId,
-        amount_minor: share.amountMinor,
-      })),
-      p_obligations: obligations,
-    })
+    const { data, error } = await getAdmin().rpc(
+      value.group_id ? 'expense_create_expense' : 'expense_create_expense_with_known_members',
+      {
+        p_actor_id: user.id,
+        p_request_id: value.request_id,
+        p_expense_id: expenseId,
+        p_group_id: value.group_id,
+        p_title: value.title,
+        p_total_minor: totalMinor,
+        p_currency: value.currency,
+        p_incurred_on: value.incurred_on,
+        p_category: value.category,
+        p_note: value.note,
+        p_split_method: value.split_method,
+        p_one_off_members: value.group_id ? [] : members.map((member) => ({
+          id: member.id,
+          // SQL96 first validates the established guest-safe shape. SQL102's
+          // wrapper then atomically promotes actor-owned registered
+          // Relationships to invited members before the transaction commits.
+          user_id: member.role === 'owner' ? member.userId : null,
+          display_name: member.displayName,
+          role: member.role,
+          status: 'active',
+        })),
+        p_payments: payments.map((payment) => ({
+          member_id: payment.payerId,
+          amount_minor: payment.amountMinor,
+        })),
+        p_shares: shares.map((share) => ({
+          member_id: share.participantId,
+          amount_minor: share.amountMinor,
+        })),
+        p_obligations: obligations,
+        ...(value.group_id ? {} : {
+          p_known_relationship_members: members.flatMap((member) => (
+            member.relationshipId
+              ? [{ member_id: member.id, relationship_id: member.relationshipId }]
+              : []
+          )),
+        }),
+      },
+    )
     if (error) rpcError(error)
     const result = resultObject(data)
     const groupId = String(result.group_id ?? value.group_id ?? '')
     const persistedExpenseId = String(result.expense_id ?? expenseId)
     if (!groupId || !persistedExpenseId) throw new Error('expense_save_failed')
+    await deleteExpenseDraftAfterSave(user.id, value.draft_id)
     revalidateExpensePaths(groupId, persistedExpenseId)
     return { ok: true, data: { groupId, expenseId: persistedExpenseId } }
   } catch (error) {
@@ -425,6 +480,7 @@ export async function updateExpense(
     if (!persistedExpenseId || !persistedGroupId || !Number.isSafeInteger(financialVersion)) {
       throw new Error('expense_save_failed')
     }
+    await deleteExpenseDraftAfterSave(user.id, value.draft_id)
     revalidateExpensePaths(persistedGroupId, persistedExpenseId)
     return {
       ok: true,

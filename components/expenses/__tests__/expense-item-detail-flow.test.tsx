@@ -19,6 +19,10 @@ const translations: Record<string, string> = {
   'expenseForm.steps.people': 'Aðilar',
   'expenseForm.steps.split': 'Skipting',
   'expenseForm.steps.review': 'Yfirferð',
+  'expense.savedViews.review': 'Útlagt',
+  'expense.savedViews.people': 'Aðilar',
+  'expense.savedViews.split': 'Skipting',
+  'expense.savedViews.settlement': 'Uppgjör',
   'expenseForm.stepCompleted': 'Lokið, opna til að breyta',
   'expenseForm.stepEditUnavailable': 'Ekki er hægt að breyta þessu útgjaldi',
   'expenseForm.previewNet': 'Nettóstaða eftir útgjaldið',
@@ -36,6 +40,15 @@ const translations: Record<string, string> = {
   'expense.openGroup': 'Opna hópinn',
   'expense.edit': 'Breyta útgjaldinu',
   'expense.cancel': 'Fella útgjald niður',
+  'expense.summaryPaid': '{name} lagði út {amount}',
+  'expense.summaryYourStatus': 'Þín staða',
+  'expense.summaryYouAreOwed': 'Þú átt eftir að fá {amount}',
+  'expense.summaryYouOwe': 'Þú átt eftir að greiða {amount}',
+  'expense.summaryYouAreEven': 'Þú ert búin/nn að greiða 😊',
+  'expense.summaryOpen': 'Eftir að gera',
+  'expense.summaryOwes': '{from} á eftir að greiða {to} {amount}',
+  'expense.summaryMorePayments': 'Fleiri greiðslur: {count}',
+  'expense.summarySettled': 'Allt er uppgert 😊',
   'splitMethods.equal': 'Jafnt',
 }
 
@@ -92,7 +105,10 @@ const group: ExpenseGroupView = {
   canLeave: false,
   canCreateExpense: true,
   createdAt: '2026-08-04T10:00:00.000Z',
-  members: [],
+  members: [
+    { id: 'self', displayName: 'Ég', role: 'owner', status: 'active', isSelf: true, isRegistered: true },
+    { id: 'anna', displayName: 'Anna', role: 'member', status: 'active', isSelf: false, isRegistered: false },
+  ],
   expenses: [expense],
   balances: [],
   settlementTransfers: [],
@@ -101,15 +117,15 @@ const group: ExpenseGroupView = {
 }
 
 describe('ExpenseItemDetail flow context', () => {
-  it('keeps review active and shows the saved expense net position and settlement', async () => {
+  it('opens on a high-level Útlagt summary with clickable lifecycle views', async () => {
     render(await ExpenseItemDetail({ group, expense }))
 
     const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
-    expect(within(nav).getByRole('button', { name: 'Yfirferð' })).toHaveAttribute('aria-current', 'step')
-    expect(within(nav).getByRole('button', { name: /Aðilar.*Lokið/ })).toBeEnabled()
-    expect(screen.getByRole('heading', { name: 'Nettóstaða eftir útgjaldið' })).toBeInTheDocument()
-    expect(screen.getByText('Ég á inni')).toBeInTheDocument()
-    expect(screen.getByText('Anna skuldar')).toBeInTheDocument()
-    expect(screen.getByText('Anna greiðir Ég')).toBeInTheDocument()
+    expect(within(nav).getByRole('button', { name: 'Útlagt' })).toHaveAttribute('aria-current', 'step')
+    expect(within(nav).getByRole('button', { name: 'Aðilar' })).toBeEnabled()
+    expect(screen.getByText(/Ég lagði út 10\.000\s*kr\./)).toBeInTheDocument()
+    expect(screen.getByText(/Þú átt eftir að fá 5\.000\s*kr\./)).toBeInTheDocument()
+    expect(screen.getByText(/Anna á eftir að greiða Ég 5\.000\s*kr\./)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Skipting' })).toHaveAttribute('href', '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1?view=split')
   })
 })

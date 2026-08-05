@@ -590,7 +590,7 @@
         "editTitle": "Breyta útgjaldi",
         "stepNavAriaLabel": "Skref við skráningu útgjalds",
         "steps": {
-          "details": "Útgjald",
+          "details": "Útlagt",
           "people": "Aðilar",
           "split": "Skipting",
           "review": "Yfirferð"
@@ -601,6 +601,9 @@
         "stepEditUnavailable": "Ekki er hægt að breyta þessu útgjaldi",
         "openingStep": "Opna {step}...",
         "openingReview": "Opna yfirferð...",
+        "draftSaving": "Vista breytingar...",
+        "draftSaved": "Breytingar vistaðar",
+        "draftSaveFailed": "Ekki tókst að vista breytingarnar sjálfkrafa.",
         "previousStep": "Til baka",
         "nextSteps": {
           "people": "Áfram í aðila",
@@ -612,7 +615,7 @@
         "titlePlaceholder": "Til dæmis Kvöldmatur",
         "category": "Flokkur",
         "participants": "Fyrir hvern?",
-        "participantHint": "Tengsl eru aðeins notuð sem þín einkavalmynd. Í stöku útgjaldi vistast aðrir sem nafngreindir gestir.",
+        "participantHint": "Þekktur Teskeiðarnotandi fær boð og verður ekki skráður sem gestur. Nafngreindur gestur má tengjast síðar.",
         "participantLoadError": "Ekki tókst að sækja tengsl. Reyndu aftur síðar eða bættu við gesti.",
         "self": "Ég",
         "knownPeople": "Þekktir aðilar",
@@ -667,8 +670,8 @@
       "splitMethods": {
         "equal": "Jafnt",
         "percentage": "Prósentur",
-        "weighted": "Hlutföll",
-        "fixed": "Fastar upphæðir",
+        "weighted": "Hlutir",
+        "fixed": "Föst upphæð",
         "mixedEqual": "Föst upphæð og jafnar leifar",
         "mixedPercentage": "Föst upphæð og prósenta af leifum",
         "mixed_equal_remainder": "Föst upphæð og jafnar leifar",
@@ -677,6 +680,9 @@
         "percentageLabel": "Prósenta",
         "weightLabel": "Hlutfall",
         "fixedLabel": "Föst upphæð",
+        "simpleHint": "Veldu fasta upphæð, prósentu eða hluti.",
+        "weightHint": "Einn hlutur á mann skiptir jafnt. Tveir hlutir eru tvöfalt á við einn.",
+        "resetEqual": "Skipta jafnt",
         "remainderPercentage": "Prósenta af leifum",
         "inRemainder": "Tekur þátt í leifum"
       },
@@ -742,7 +748,24 @@
         "cancelConfirm": "Viltu fella útgjaldið niður? Sagan verður varðveitt.",
         "cancelling": "Felli niður...",
         "cancelled": "Fellt niður",
-        "active": "Virkt"
+        "active": "Virkt",
+        "savedViews": {
+          "review": "Útlagt",
+          "people": "Aðilar",
+          "split": "Skipting",
+          "settlement": "Uppgjör"
+        },
+        "summaryPaid": "{name} lagði út {amount}",
+        "summaryYourStatus": "Þín staða",
+        "summaryYouAreOwed": "Þú átt eftir að fá {amount}",
+        "summaryYouOwe": "Þú átt eftir að greiða {amount}",
+        "summaryYouAreEven": "Þú ert búin/nn að greiða 😊",
+        "summaryOpen": "Eftir að gera",
+        "summaryOwes": "{from} á eftir að greiða {to} {amount}",
+        "summaryMorePayments": "Auk þess eru {count} greiðslur eftir.",
+        "summarySettled": "Allt er uppgert 😊",
+        "groupSettlementHint": "Þetta sýnir framlag færslunnar. Endanlegt uppgjör hópsins tekur mið af öllum færslum og staðfestum endurgreiðslum.",
+        "draftSaveFailed": "Ekki tókst að vista breytingarnar sjálfkrafa."
       },
       "repayment": {
         "title": "Endurgreiðsla",
@@ -855,6 +878,7 @@
         "feature_disabled": "Þessi Teskeið er ekki virk fyrir þig.",
         "recipient_unavailable": "Ekki er hægt að senda boð á þetta netfang enn. Virkja þarf „Útlagt og endurgreitt“ fyrir netfangið í admin fyrst.",
         "delivery_failed": "Boðið var vistað en sending tókst ekki. Reyndu að senda aftur.",
+        "draftSaveFailed": "Ekki tókst að vista breytingarnar sjálfkrafa.",
         "paymentTotal": "Greiðslurnar þurfa að stemma við heildarupphæðina.",
         "splitTotal": "Skiptingin þarf að stemma við heildarupphæðina."
       }
