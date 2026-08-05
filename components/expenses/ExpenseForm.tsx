@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, X } from 'lucide-react'
 import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
+import { TeskeidStepNav, type TeskeidStepNavItem } from '@/components/teskeid/TeskeidStepNav'
 import { createExpense, updateExpense } from '@/lib/expenses/actions'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
 import {
@@ -54,6 +55,8 @@ interface AllocationDraft {
   participates_in_remainder?: boolean
 }
 
+type ExpenseFormStep = 'details' | 'people' | 'split' | 'review'
+
 interface ExpenseFormProps {
   mode: 'one_off' | 'group'
   groupId?: string
@@ -76,6 +79,8 @@ const SPLIT_METHODS: ExpenseSplitMethod[] = [
   'mixed_equal_remainder',
   'mixed_percentage_remainder',
 ]
+
+const FORM_STEPS: ExpenseFormStep[] = ['details', 'people', 'split', 'review']
 
 function equalPercentageValues(keys: string[]): Record<string, string> {
   if (keys.length === 0) return {}
@@ -233,6 +238,8 @@ export function ExpenseForm({
   const [relationshipId, setRelationshipId] = useState('')
   const [guestName, setGuestName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [currentStep, setCurrentStep] = useState<ExpenseFormStep>('details')
+  const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? FORM_STEPS.length - 1 : 0)
   const [isPending, startTransition] = useTransition()
 
   const selectedKeys = members.filter((member) => included[member.key]).map((member) => member.key)
@@ -357,7 +364,7 @@ export function ExpenseForm({
     }))
   }
 
-  const preview = (() => {
+  const paymentState = (() => {
     try {
       const totalMinor = parseExpenseAmountToMinor(total, currency)
       const payerRows = payerKeys.flatMap((memberKey) => {
@@ -370,6 +377,16 @@ export function ExpenseForm({
         }] : []
       })
       const paidMinor = sumMinorAmounts(payerRows.map((row) => row.amountMinor))
+      return { totalMinor, paidMinor, payerRows }
+    } catch {
+      return null
+    }
+  })()
+
+  const preview = (() => {
+    try {
+      if (!paymentState) return null
+      const { totalMinor, paidMinor, payerRows } = paymentState
       if (paidMinor !== totalMinor) return {
         error: 'payment',
         totalMinor,
@@ -429,9 +446,106 @@ export function ExpenseForm({
     }
   }
 
+  function isDetailsValid() {
+    if (!title.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(incurredOn)) return false
+    try {
+      parseExpenseAmountToMinor(total, currency)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function isPeopleValid() {
+    if (mode === 'one_off' && members.length < 2) return false
+    return Boolean(paymentState && paymentState.paidMinor === paymentState.totalMinor)
+  }
+
+  function isSplitValid() {
+    return Boolean(selectedKeys.length > 0 && preview && !preview.error)
+  }
+
+  function isStepValid(step: ExpenseFormStep) {
+    if (step === 'details') return isDetailsValid()
+    if (step === 'people') return isPeopleValid()
+    if (step === 'split') return isSplitValid()
+    return isDetailsValid() && isPeopleValid() && isSplitValid()
+  }
+
+  function validationMessage(step: ExpenseFormStep) {
+    if (step === 'details') return t('errors.detailsRequired')
+    if (step === 'people') {
+      return mode === 'one_off' && members.length < 2
+        ? t('errors.participant_required')
+        : t('errors.paymentTotal')
+    }
+    return t('errors.splitTotal')
+  }
+
+  function focusStepHeading(step: ExpenseFormStep) {
+    queueMicrotask(() => document.getElementById(`expense-${step}-heading`)?.focus())
+  }
+
+  function openStep(step: ExpenseFormStep) {
+    const targetIndex = FORM_STEPS.indexOf(step)
+    if (isPending || targetIndex > highestVisitedStep) return
+    setError(null)
+    setCurrentStep(step)
+    focusStepHeading(step)
+  }
+
+  function advanceStep() {
+    const currentIndex = FORM_STEPS.indexOf(currentStep)
+    if (!isStepValid(currentStep)) {
+      setError(validationMessage(currentStep))
+      queueMicrotask(() => alertRef.current?.focus())
+      return
+    }
+    const nextStep = FORM_STEPS[currentIndex + 1]
+    if (!nextStep) return
+    setError(null)
+    setHighestVisitedStep((current) => Math.max(current, currentIndex + 1))
+    setCurrentStep(nextStep)
+    focusStepHeading(nextStep)
+  }
+
+  function previousStep() {
+    const previous = FORM_STEPS[FORM_STEPS.indexOf(currentStep) - 1]
+    if (previous) openStep(previous)
+  }
+
+  const currentStepIndex = FORM_STEPS.indexOf(currentStep)
+  const stepItems: TeskeidStepNavItem<ExpenseFormStep>[] = FORM_STEPS.map((step, index) => ({
+    id: step,
+    label: t(`expenseForm.steps.${step}`),
+    status: currentStep === step
+      ? 'current'
+      : isPending || index > highestVisitedStep
+        ? 'disabled'
+        : !isStepValid(step)
+          ? 'attention'
+          : index < currentStepIndex
+            ? 'complete'
+            : 'available',
+    statusLabel: currentStep !== step && index <= highestVisitedStep && !isStepValid(step)
+      ? t('expenseForm.stepNeedsReview')
+      : undefined,
+  }))
+
   function submit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
+    if (currentStep !== 'review') {
+      advanceStep()
+      return
+    }
+    const invalidStep = FORM_STEPS.slice(0, -1).find((step) => !isStepValid(step))
+    if (invalidStep) {
+      setCurrentStep(invalidStep)
+      setError(validationMessage(invalidStep))
+      queueMicrotask(() => alertRef.current?.focus())
+      return
+    }
     if (mode === 'one_off' && members.length < 2) {
       setError(t('errors.participant_required'))
       queueMicrotask(() => alertRef.current?.focus())
@@ -507,10 +621,16 @@ export function ExpenseForm({
 
   return (
     <form onSubmit={submit} className="space-y-8" noValidate aria-busy={isPending}>
+      <TeskeidStepNav
+        ariaLabel={t('expenseForm.stepNavAriaLabel')}
+        items={stepItems}
+        onStepChange={openStep}
+      />
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
 
+      {currentStep === 'details' ? (
       <section className="space-y-4 border-y border-border py-5" aria-labelledby="expense-details-heading">
-        <h2 id="expense-details-heading" className="text-sm font-semibold">{t('expenseForm.details')}</h2>
+        <h2 tabIndex={-1} id="expense-details-heading" className="text-sm font-semibold">{t('expenseForm.details')}</h2>
         <label><span className={expenseLabelClass}>{t('expenseForm.title')}</span><input className={expenseInputClass} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required placeholder={t('expenseForm.titlePlaceholder')} /></label>
         <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
           <label><span className={expenseLabelClass}>{t('common.amount')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={total} onChange={(e) => changeTotal(e.target.value)} required /></label>
@@ -520,9 +640,11 @@ export function ExpenseForm({
         <label><span className={expenseLabelClass}>{t('expenseForm.category')} <span className="font-normal text-muted-foreground">({t('common.optional')})</span></span><select className={expenseInputClass} value={category} onChange={(e) => setCategory(e.target.value)}><option value="">—</option>{['food','accommodation','transport','travel','home','entertainment','gifts','shopping','other'].map((item) => <option key={item} value={item}>{t(`categories.${item}`)}</option>)}</select></label>
         <label><span className={expenseLabelClass}>{t('common.note')} <span className="font-normal text-muted-foreground">({t('common.optional')})</span></span><textarea className={expenseTextareaClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} /></label>
       </section>
+      ) : null}
 
+      {currentStep === 'people' ? <>
       <fieldset className="space-y-3 border-y border-border py-5">
-        <legend className="text-sm font-semibold">{t('expenseForm.participants')}</legend>
+        <legend id="expense-people-heading" tabIndex={-1} className="text-sm font-semibold">{t('expenseForm.participants')}</legend>
         {mode === 'one_off' ? <p className="text-xs leading-5 text-muted-foreground">{t('expenseForm.participantHint')}</p> : null}
         <div className="divide-y divide-border">
           {members.map((member) => (
@@ -598,9 +720,11 @@ export function ExpenseForm({
           </button>
         ) : null}
       </fieldset>
+      </> : null}
 
+      {currentStep === 'split' ? (
       <fieldset className="space-y-4 border-y border-border py-5">
-        <legend className="text-sm font-semibold">{t('expenseForm.split')}</legend>
+        <legend id="expense-split-heading" tabIndex={-1} className="text-sm font-semibold">{t('expenseForm.split')}</legend>
         {edit && preserveShares ? (
           <div className="space-y-3">
             <p role="status" className="text-xs leading-5 text-muted-foreground">
@@ -625,9 +749,11 @@ export function ExpenseForm({
           {splitMethod === 'mixed_equal_remainder' ? <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="size-5" checked={remainderParticipation[member.key] !== false} onChange={(e) => { setRemainderParticipation((current) => ({ ...current, [member.key]: e.target.checked })); if (edit) setPreserveShares(false) }} />{t('splitMethods.inRemainder')}</label> : null}
         </div></div>)}</div> : null}
       </fieldset>
+      ) : null}
 
-      <section className="space-y-3 border-y border-border py-5" aria-labelledby="expense-preview-heading">
-        <h2 id="expense-preview-heading" className="text-sm font-semibold">{t('expenseForm.preview')}</h2>
+      {currentStep === 'review' ? (
+      <section className="space-y-3 border-y border-border py-5" aria-labelledby="expense-review-heading">
+        <h2 tabIndex={-1} id="expense-review-heading" className="text-sm font-semibold">{t('expenseForm.preview')}</h2>
         <p className="text-xs text-muted-foreground">{t('expenseForm.previewHint')}</p>
         {preview ? <div className="space-y-5 text-sm">
           <div><h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('expenseForm.previewPaidBy')}</h3><div className="divide-y divide-border">{preview.payerRows.map((payer) => <div key={payer.key} className="flex justify-between gap-4 py-2"><span className="truncate">{memberName(payer.key)}</span><strong className="shrink-0">{formatExpenseMinor(payer.amountMinor, currency)}</strong></div>)}<div className="flex justify-between gap-4 py-2"><span>{t('expenseForm.totalPaid')}</span><strong>{formatExpenseMinor(preview.paidMinor, currency)}</strong></div></div></div>
@@ -636,12 +762,26 @@ export function ExpenseForm({
           <div><h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('expenseForm.previewSettlement')}</h3>{preview.settlement.length > 0 ? <div className="divide-y divide-border">{preview.settlement.map((transfer) => <div key={`${transfer.fromPartyId}:${transfer.toPartyId}`} className="grid gap-1 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-4"><span>{t('expenseForm.previewOwes', { from: memberName(transfer.fromPartyId), to: memberName(transfer.toPartyId) })}</span><strong className="shrink-0">{formatExpenseMinor(transfer.amountMinor, currency)}</strong></div>)}</div> : <p className="py-2 text-muted-foreground">{t('expenseForm.previewSettled')}</p>}<p className="mt-1 text-xs leading-5 text-muted-foreground">{t('expenseForm.previewPaymentDetails')}</p></div>
         </div> : <p className="text-sm text-muted-foreground">{t('errors.invalid_input')}</p>}
       </section>
+      ) : null}
 
-      <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={isPending}>
-        {isPending
-          ? t(edit ? 'expenseForm.updating' : 'expenseForm.creating')
-          : t(edit ? 'expenseForm.update' : 'expenseForm.create')}
-      </button>
+      <div className={`grid gap-3 ${currentStepIndex > 0 ? 'grid-cols-2' : ''}`}>
+        {currentStepIndex > 0 ? (
+          <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={isPending} onClick={previousStep}>
+            {t('expenseForm.previousStep')}
+          </button>
+        ) : null}
+        {currentStep === 'review' ? (
+          <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={isPending}>
+            {isPending
+              ? t(edit ? 'expenseForm.updating' : 'expenseForm.creating')
+              : t(edit ? 'expenseForm.update' : 'expenseForm.create')}
+          </button>
+        ) : (
+          <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={isPending} onClick={advanceStep}>
+            {t(`expenseForm.nextSteps.${FORM_STEPS[currentStepIndex + 1]}`)}
+          </button>
+        )}
+      </div>
     </form>
   )
 }

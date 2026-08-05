@@ -584,6 +584,20 @@
         "oneOffTitle": "Add one-off expense",
         "groupTitle": "Add expense",
         "editTitle": "Edit expense",
+        "stepNavAriaLabel": "Expense form steps",
+        "steps": {
+          "details": "Expense",
+          "people": "People",
+          "split": "Split",
+          "review": "Review"
+        },
+        "stepNeedsReview": "Needs review",
+        "previousStep": "Back",
+        "nextSteps": {
+          "people": "Continue to people",
+          "split": "Continue to split",
+          "review": "Continue to review"
+        },
         "details": "Details",
         "title": "Expense title",
         "titlePlaceholder": "For example Dinner",
@@ -822,6 +836,7 @@
       },
       "errors": {
         "participant_required": "Add at least one other person.",
+        "detailsRequired": "Enter a title, amount and date before continuing.",
         "invalid_input": "Check the fields and try again.",
         "not_allowed": "You are not allowed to do that.",
         "not_found": "The record was not found.",

@@ -20,6 +20,16 @@ const translations: Record<string, string> = {
   'common.datePlaceholder': 'Veldu dag',
   'common.optional': 'Valfrjálst',
   'common.note': 'Athugasemd',
+  'expenseForm.stepNavAriaLabel': 'Skref við skráningu útgjalds',
+  'expenseForm.steps.details': 'Útgjald',
+  'expenseForm.steps.people': 'Aðilar',
+  'expenseForm.steps.split': 'Skipting',
+  'expenseForm.steps.review': 'Yfirferð',
+  'expenseForm.stepNeedsReview': 'Þarf yfirferð',
+  'expenseForm.previousStep': 'Til baka',
+  'expenseForm.nextSteps.people': 'Áfram í aðila',
+  'expenseForm.nextSteps.split': 'Áfram í skiptingu',
+  'expenseForm.nextSteps.review': 'Áfram í yfirferð',
   'expenseForm.details': 'Upplýsingar',
   'expenseForm.title': 'Heiti útgjalds',
   'expenseForm.titlePlaceholder': 'Til dæmis Kvöldmatur',
@@ -66,6 +76,8 @@ const translations: Record<string, string> = {
   'splitMethods.weightLabel': 'Hlutfall',
   'splitMethods.inRemainder': 'Tekur þátt í leifum',
   'errors.invalid_input': 'Athugaðu reitina og reyndu aftur.',
+  'errors.detailsRequired': 'Fylltu út heiti, upphæð og dagsetningu áður en þú heldur áfram.',
+  'errors.participant_required': 'Bættu við að minnsta kosti einum öðrum aðila.',
   'errors.paymentTotal': 'Greiðslurnar þurfa að stemma við heildarupphæðina.',
   'errors.splitTotal': 'Skiptingin þarf að stemma við heildarupphæðina.',
 }
@@ -120,7 +132,48 @@ function renderForm() {
   )
 }
 
+function fillDetails(title = 'Kvöldmatur', total = '10000') {
+  fireEvent.change(screen.getByRole('textbox', { name: 'Heiti útgjalds' }), {
+    target: { value: title },
+  })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð' }), {
+    target: { value: total },
+  })
+}
+
+function continueToPeople() {
+  fireEvent.click(screen.getByRole('button', { name: 'Áfram í aðila' }))
+}
+
+function continueToSplit() {
+  fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
+}
+
+function continueToReview() {
+  fireEvent.click(screen.getByRole('button', { name: 'Áfram í yfirferð' }))
+}
+
 describe('ExpenseForm split and payer controls', () => {
+  it('gates new steps, validates inline, and preserves detail values when navigating back', () => {
+    renderForm()
+
+    const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
+    expect(within(nav).getByRole('button', { name: 'Útgjald' })).toHaveAttribute('aria-current', 'step')
+    expect(within(nav).getByRole('button', { name: 'Aðilar' })).toBeDisabled()
+    expect(within(nav).getByRole('button', { name: 'Skipting' })).toBeDisabled()
+    expect(within(nav).getByRole('button', { name: 'Yfirferð' })).toBeDisabled()
+
+    continueToPeople()
+    expect(screen.getByRole('alert')).toHaveTextContent('Fylltu út heiti, upphæð og dagsetningu')
+    expect(mockCreateExpense).not.toHaveBeenCalled()
+
+    fillDetails('Ferðakvöld', '12000')
+    continueToPeople()
+    fireEvent.click(screen.getByRole('button', { name: 'Til baka' }))
+    expect(screen.getByRole('textbox', { name: 'Heiti útgjalds' })).toHaveValue('Ferðakvöld')
+    expect(screen.getByRole('textbox', { name: 'Upphæð' })).toHaveValue('12000')
+  })
+
   it('shows the shared localized date field while preserving the ISO form value', () => {
     renderForm()
 
@@ -131,6 +184,9 @@ describe('ExpenseForm split and payer controls', () => {
 
   it('exposes all six supported split modes as mutually exclusive radio controls', () => {
     renderForm()
+    fillDetails()
+    continueToPeople()
+    continueToSplit()
 
     const splitFieldset = screen.getByRole('group', { name: 'Hvernig skiptist útgjaldið?' })
     const expectedLabels = [
@@ -151,17 +207,13 @@ describe('ExpenseForm split and payer controls', () => {
 
   it('allows multiple payers and submits both authoritative payer rows', async () => {
     renderForm()
+    fillDetails()
+    expect(mockCreateExpense).not.toHaveBeenCalled()
+    continueToPeople()
 
     expect(screen.getAllByRole('combobox', { name: 'Greiðandi 1' })).toHaveLength(1)
     expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('member-self')
     expect(screen.queryByRole('textbox', { name: 'Upphæð Anna' })).not.toBeInTheDocument()
-
-    fireEvent.change(screen.getByRole('textbox', { name: 'Heiti útgjalds' }), {
-      target: { value: 'Kvöldmatur' },
-    })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð' }), {
-      target: { value: '10000' },
-    })
     fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð Ég' }), {
       target: { value: '6000' },
     })
@@ -171,9 +223,12 @@ describe('ExpenseForm split and payer controls', () => {
       target: { value: '4000' },
     })
 
+    continueToSplit()
+    continueToReview()
+
     expect(screen.getByText('Samtals greitt').nextElementSibling).toHaveTextContent('10.000')
     expect(screen.getByText('Greiðendur')).toBeInTheDocument()
-    expect(screen.getByText('Skipting')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Skipting' })).toBeInTheDocument()
     expect(screen.getByText('Nettóstaða eftir útgjaldið')).toBeInTheDocument()
     expect(screen.getByText('Hver greiðir hverjum')).toBeInTheDocument()
     expect(screen.getByText('Ég á inni')).toBeInTheDocument()
@@ -205,10 +260,8 @@ describe('ExpenseForm split and payer controls', () => {
 
   it('moves the default full payment when the single payer is changed', () => {
     renderForm()
-
-    fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð' }), {
-      target: { value: '85000' },
-    })
+    fillDetails('Afmælisgjöf', '85000')
+    continueToPeople()
     expect(screen.getByRole('textbox', { name: 'Upphæð Ég' })).toHaveValue('85000')
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Greiðandi 1' }), {
@@ -221,18 +274,15 @@ describe('ExpenseForm split and payer controls', () => {
 
   it('accepts an exact fixed total in the mixed equal remainder method', async () => {
     renderForm()
-
-    fireEvent.change(screen.getByRole('textbox', { name: 'Heiti útgjalds' }), {
-      target: { value: 'Afmælisgjöf' },
-    })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð' }), {
-      target: { value: '85000' },
-    })
+    fillDetails('Afmælisgjöf', '85000')
+    continueToPeople()
+    continueToSplit()
     const splitFieldset = screen.getByRole('group', { name: 'Hvernig skiptist útgjaldið?' })
     fireEvent.click(within(splitFieldset).getByRole('radio', { name: 'Föst upphæð og jafnar leifar' }))
     const fixedAmounts = within(splitFieldset).getAllByRole('textbox', { name: 'Föst upphæð' })
     fireEvent.change(fixedAmounts[0]!, { target: { value: '15000' } })
     fireEvent.change(fixedAmounts[1]!, { target: { value: '70000' } })
+    continueToReview()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Vista útgjald' }))
@@ -251,6 +301,9 @@ describe('ExpenseForm split and payer controls', () => {
 
   it('reveals method-specific inputs for weighted and both mixed split modes', () => {
     renderForm()
+    fillDetails()
+    continueToPeople()
+    continueToSplit()
     const splitFieldset = screen.getByRole('group', { name: 'Hvernig skiptist útgjaldið?' })
 
     fireEvent.click(within(splitFieldset).getByRole('radio', { name: 'Hlutföll' }))
@@ -304,14 +357,17 @@ describe('ExpenseForm split and payer controls', () => {
     expect(screen.getByRole('textbox', { name: 'Heiti útgjalds' })).toHaveValue('Afmælisgjöf')
     expect(screen.getByRole('textbox', { name: 'Upphæð' })).toHaveValue('10001')
     expect(screen.getByLabelText('Dagsetning')).toHaveValue('2026-08-03')
-    expect(screen.getByRole('textbox', { name: 'Upphæð Ég' })).toHaveValue('6001')
-    expect(screen.getByRole('textbox', { name: 'Upphæð Anna' })).toHaveValue('4000')
-    expect(screen.getByText('Núverandi skipting helst óbreytt.')).toBeInTheDocument()
-    expect(screen.getByText('Ég á inni').nextElementSibling).toHaveTextContent('2.667')
-
     fireEvent.change(screen.getByRole('textbox', { name: 'Heiti útgjalds' }), {
       target: { value: 'Afmælisgjöf Martine' },
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Aðilar' }))
+    expect(screen.getByRole('textbox', { name: 'Upphæð Ég' })).toHaveValue('6001')
+    expect(screen.getByRole('textbox', { name: 'Upphæð Anna' })).toHaveValue('4000')
+    fireEvent.click(screen.getByRole('button', { name: 'Skipting' }))
+    expect(screen.getByText('Núverandi skipting helst óbreytt.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Yfirferð/ }))
+    expect(screen.getByText('Ég á inni').nextElementSibling).toHaveTextContent('2.667')
+
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
     })
@@ -331,6 +387,50 @@ describe('ExpenseForm split and payer controls', () => {
       ],
     }))
     expect(mockPush).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1')
+  })
+
+  it('returns an edit to the invalid step instead of calling the server action', async () => {
+    render(
+      <ExpenseForm
+        mode="group"
+        groupId="group-1"
+        defaultCurrency="ISK"
+        initialDate="2026-08-04"
+        initialMembers={initialMembers}
+        edit={{
+          expectedFinancialVersion: 7,
+          expense: {
+            id: 'expense-1',
+            groupId: 'group-1',
+            title: 'Kvöldmatur',
+            totalMinor: 9000,
+            currency: 'ISK',
+            incurredOn: '2026-08-04',
+            category: null,
+            note: null,
+            status: 'active',
+            splitMethod: 'equal',
+            createdBySelf: true,
+            createdAt: '2026-08-04T12:00:00.000Z',
+            payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 9000 }],
+            shares: [
+              { memberId: 'member-self', displayName: 'Ég', amountMinor: 4500 },
+              { memberId: 'member-anna', displayName: 'Anna', amountMinor: 4500 },
+            ],
+          },
+        }}
+      />,
+    )
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Heiti útgjalds' }), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Yfirferð/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
+    })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Fylltu út heiti, upphæð og dagsetningu')
+    expect(screen.getByRole('textbox', { name: 'Heiti útgjalds' })).toBeInTheDocument()
+    expect(mockUpdateExpense).not.toHaveBeenCalled()
   })
 
   it('adds a stable name-only guest atomically when editing a one-off expense', async () => {
@@ -366,12 +466,15 @@ describe('ExpenseForm split and payer controls', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Aðilar' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Nafn gests' }), {
       target: { value: 'Bjarni' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við gesti' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'Bjarni' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Skipting' }))
     expect(screen.queryByText('Núverandi skipting helst óbreytt.')).not.toBeInTheDocument()
+    continueToReview()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
@@ -422,15 +525,19 @@ describe('ExpenseForm split and payer controls', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Aðilar' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Nafn gests' }), {
       target: { value: 'Bjarni' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við gesti' }))
     expect(screen.getByRole('checkbox', { name: 'Bjarni' })).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: 'Skipting' }))
     expect(screen.getByText('Núverandi skipting helst óbreytt.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Aðilar' }))
     const payerSelect = screen.getByRole('combobox', { name: 'Greiðandi 1' })
     const bjarniOption = within(payerSelect).getByRole('option', { name: 'Bjarni' }) as HTMLOptionElement
     fireEvent.change(payerSelect, { target: { value: bjarniOption.value } })
+    fireEvent.click(screen.getByRole('button', { name: 'Yfirferð' }))
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))

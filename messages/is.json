@@ -588,6 +588,20 @@
         "oneOffTitle": "Skrá stakt útgjald",
         "groupTitle": "Skrá útgjald",
         "editTitle": "Breyta útgjaldi",
+        "stepNavAriaLabel": "Skref við skráningu útgjalds",
+        "steps": {
+          "details": "Útgjald",
+          "people": "Aðilar",
+          "split": "Skipting",
+          "review": "Yfirferð"
+        },
+        "stepNeedsReview": "Þarf yfirferð",
+        "previousStep": "Til baka",
+        "nextSteps": {
+          "people": "Áfram í aðila",
+          "split": "Áfram í skiptingu",
+          "review": "Áfram í yfirferð"
+        },
         "details": "Upplýsingar",
         "title": "Heiti útgjalds",
         "titlePlaceholder": "Til dæmis Kvöldmatur",
@@ -826,6 +840,7 @@
       },
       "errors": {
         "participant_required": "Bættu við að minnsta kosti einum öðrum aðila.",
+        "detailsRequired": "Fylltu út heiti, upphæð og dagsetningu áður en þú heldur áfram.",
         "invalid_input": "Athugaðu reitina og reyndu aftur.",
         "not_allowed": "Þú hefur ekki heimild til þessarar aðgerðar.",
         "not_found": "Færslan fannst ekki.",
