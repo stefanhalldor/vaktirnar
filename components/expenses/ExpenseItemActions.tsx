@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { cancelExpense } from '@/lib/expenses/actions'
+import { expenseEditStepHref } from '@/lib/expenses/flow'
 import { useExpenseTranslations } from './i18n.client'
 import { useExpenseMutationRequestIds } from './request-id'
 import { expenseDangerButtonClass, expenseSecondaryButtonClass } from './ui'
@@ -47,7 +48,7 @@ export function ExpenseItemActions({
   function edit() {
     setPendingKind('edit')
     startTransition(() => {
-      router.push(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${expenseId}/breyta`)
+      router.push(expenseEditStepHref(expenseId, 'details'))
     })
   }
 

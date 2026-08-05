@@ -5,6 +5,7 @@ import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { getExpenseTranslations } from './i18n.server'
 import { ExpenseInvitationActions } from './ExpenseInvitationActions'
 import { ExpenseMemberInvitationActions } from './ExpenseMemberInvitationActions'
+import { ExpenseFlowNav } from './ExpenseFlowNav'
 import { expensePrimaryButtonClass, expenseSecondaryButtonClass } from './ui'
 
 function firstOpenBalance(group: ExpenseGroupSummaryView) {
@@ -46,6 +47,7 @@ export async function ExpenseDashboard({ dashboard }: { dashboard: ExpenseDashbo
 
   return (
     <div className="space-y-8">
+      <ExpenseFlowNav context="entry" />
       <p className="text-sm leading-6 text-muted-foreground">{t('dashboard.intro')}</p>
 
       <div className="grid gap-2 sm:grid-cols-2">

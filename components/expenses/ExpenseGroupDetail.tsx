@@ -9,6 +9,7 @@ import { ExpenseRepaymentReportForm } from './ExpenseRepaymentReportForm'
 import { ExpenseGroupActions } from './ExpenseGroupActions'
 import { ExpenseMemberManager } from './ExpenseMemberManager'
 import { ExpensePaymentDetails } from './ExpensePaymentDetails'
+import { ExpenseFlowNav } from './ExpenseFlowNav'
 import { expensePrimaryButtonClass } from './ui'
 
 export async function ExpenseGroupDetail({ group, initialDate, participantOptions, participantOptionsError }: {
@@ -21,6 +22,7 @@ export async function ExpenseGroupDetail({ group, initialDate, participantOption
   const statusKey = group.status === 'active' ? 'statusActive' : group.status === 'settling' ? 'statusSettling' : group.status === 'settled' ? 'statusSettled' : 'statusClosed'
   return (
     <div className="space-y-8">
+      <ExpenseFlowNav context="entry" />
       <div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{t(`group.${statusKey}`)}</p>{group.canCreateExpense ? <Link href={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}/nytt-utgjald`} className={expensePrimaryButtonClass}><Plus aria-hidden size={17} className="mr-1.5" />{t('group.newExpense')}</Link> : null}</div>
 
       <section><h2 className="mb-2 text-sm font-semibold">{t('group.balances')}</h2><div className="divide-y divide-border border-y border-border">{group.balances.map((balance) => <div key={`${balance.memberId}:${balance.currency}`} className="flex justify-between gap-4 py-2.5 text-sm"><span className="truncate">{balance.displayName}</span><strong className={balance.amountMinor < 0 ? 'text-destructive' : 'text-primary'}>{formatExpenseMinor(balance.amountMinor, balance.currency)}</strong></div>)}</div></section>

@@ -26,6 +26,7 @@ const translations: Record<string, string> = {
   'expenseForm.steps.split': 'Skipting',
   'expenseForm.steps.review': 'Yfirferð',
   'expenseForm.stepNeedsReview': 'Þarf yfirferð',
+  'expenseForm.openingReview': 'Opna yfirferð...',
   'expenseForm.previousStep': 'Til baka',
   'expenseForm.nextSteps.people': 'Áfram í aðila',
   'expenseForm.nextSteps.split': 'Áfram í skiptingu',
@@ -154,6 +155,53 @@ function continueToReview() {
 }
 
 describe('ExpenseForm split and payer controls', () => {
+  it('opens a whitelisted edit deep link at the requested step and returns unchanged review to detail', async () => {
+    render(
+      <ExpenseForm
+        mode="group"
+        groupId="group-1"
+        defaultCurrency="ISK"
+        initialDate="2026-08-04"
+        initialStep="people"
+        reviewHref="/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1"
+        initialMembers={initialMembers}
+        edit={{
+          expectedFinancialVersion: 7,
+          expense: {
+            id: 'expense-1',
+            groupId: 'group-1',
+            title: 'Kvöldmatur',
+            totalMinor: 9000,
+            currency: 'ISK',
+            incurredOn: '2026-08-04',
+            category: null,
+            note: null,
+            status: 'active',
+            splitMethod: 'equal',
+            createdBySelf: true,
+            createdAt: '2026-08-04T12:00:00.000Z',
+            payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 9000 }],
+            shares: [
+              { memberId: 'member-self', displayName: 'Ég', amountMinor: 4500 },
+              { memberId: 'member-anna', displayName: 'Anna', amountMinor: 4500 },
+            ],
+          },
+        }}
+      />,
+    )
+
+    const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
+    expect(within(nav).getByRole('button', { name: 'Aðilar' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('group', { name: 'Fyrir hvern?' })).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(within(nav).getByRole('button', { name: 'Yfirferð' }))
+    })
+
+    expect(mockUpdateExpense).not.toHaveBeenCalled()
+    expect(mockPush).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1')
+  })
+
   it('gates new steps, validates inline, and preserves detail values when navigating back', () => {
     renderForm()
 

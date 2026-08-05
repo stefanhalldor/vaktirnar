@@ -1,17 +1,21 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
+import { expenseDetailHref, parseExpenseFlowStep } from '@/lib/expenses/flow'
 import { getExpenseItemView } from '@/lib/expenses/repository.server'
 
 export default async function EditExpensePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ expenseId: string }>
+  searchParams: Promise<{ step?: string | string[] }>
 }) {
-  const [{ expenseId }, { user }, t] = await Promise.all([
+  const [{ expenseId }, query, { user }, t] = await Promise.all([
     params,
+    searchParams,
     guardExpenseAccess(),
     getExpenseTranslations(),
   ])
@@ -27,6 +31,9 @@ export default async function EditExpensePage({
     && !hasLockedRepayment
     && (expense.createdBySelf || group.canManage)
   if (!canEdit) notFound()
+
+  const initialStep = parseExpenseFlowStep(query.step)
+  if (initialStep === 'review') redirect(expenseDetailHref(expense.id))
 
   const referencedMemberIds = new Set([
     ...expense.payments.map((payment) => payment.memberId),
@@ -46,6 +53,8 @@ export default async function EditExpensePage({
         groupId={group.id}
         defaultCurrency={expense.currency}
         initialDate={expense.incurredOn}
+        initialStep={initialStep}
+        reviewHref={expenseDetailHref(expense.id)}
         initialMembers={group.members
           .filter((member) => member.status === 'active' || referencedMemberIds.has(member.id))
           .map((member) => ({

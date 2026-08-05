@@ -592,6 +592,11 @@
           "review": "Review"
         },
         "stepNeedsReview": "Needs review",
+        "stepUnavailable": "Select or create an expense first",
+        "stepCompleted": "Completed, open to edit",
+        "stepEditUnavailable": "This expense cannot be edited",
+        "openingStep": "Opening {step}...",
+        "openingReview": "Opening review...",
         "previousStep": "Back",
         "nextSteps": {
           "people": "Continue to people",

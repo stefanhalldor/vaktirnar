@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ExpenseDashboardView,
@@ -43,6 +43,12 @@ const translations: Record<string, string> = {
   'dashboard.oneOffs': 'Stök útgjöld',
   'dashboard.empty': 'Engin útgjöld hafa verið skráð enn.',
   'dashboard.expenseCount': '{count} útgjöld',
+  'expenseForm.stepNavAriaLabel': 'Skref við skráningu útgjalds',
+  'expenseForm.steps.details': 'Útgjald',
+  'expenseForm.steps.people': 'Aðilar',
+  'expenseForm.steps.split': 'Skipting',
+  'expenseForm.steps.review': 'Yfirferð',
+  'expenseForm.stepUnavailable': 'Veldu eða stofnaðu útgjald fyrst',
   'invitation.body': 'Viltu taka þátt í {name}? Þú sérð ekki fjárhagsupplýsingar hópsins fyrr en þú samþykkir.',
   'invitation.accept': 'Samþykkja boð',
   'invitation.decline': 'Hafna boði',
@@ -127,6 +133,17 @@ beforeEach(() => {
 })
 
 describe('ExpenseDashboard compact and privacy-safe projection', () => {
+  it('shows the complete expense flow immediately and disables later steps without an active expense', async () => {
+    render(await ExpenseDashboard({ dashboard: dashboard() }))
+
+    const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
+    expect(within(nav).getByRole('button', { name: 'Útgjald' })).toHaveAttribute('aria-current', 'step')
+    expect(within(nav).getByRole('button', { name: /Aðilar/ })).toBeDisabled()
+    expect(within(nav).getByRole('button', { name: /Skipting/ })).toBeDisabled()
+    expect(within(nav).getByRole('button', { name: /Yfirferð/ })).toBeDisabled()
+    expect(within(nav).getByRole('button', { name: /Aðilar.*Veldu eða stofnaðu útgjald fyrst/ })).toBeDisabled()
+  })
+
   it('renders only compact group aggregates and never arbitrary private detail fields', async () => {
     const privateNote = 'LEYNILEG ATHUGASEMD SEM MÁ EKKI BIRTAST'
     const privatePaymentDetails = '0159-26-123456 / 010180-9999'

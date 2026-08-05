@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, X } from 'lucide-react'
 import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
@@ -26,6 +26,10 @@ import {
 import type { ExpenseItemView, ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type { ExpenseNewMemberInput } from '@/lib/expenses/validation'
 import type { ExpenseSplitMethod } from '@/lib/expenses/types'
+import {
+  EXPENSE_FLOW_STEPS,
+  type ExpenseFlowStep,
+} from '@/lib/expenses/flow'
 import { sumMinorAmounts } from '@/lib/expenses/money'
 import { useExpenseTranslations } from './i18n.client'
 import { useExpenseMutationRequestIds } from './request-id'
@@ -55,8 +59,6 @@ interface AllocationDraft {
   participates_in_remainder?: boolean
 }
 
-type ExpenseFormStep = 'details' | 'people' | 'split' | 'review'
-
 interface ExpenseFormProps {
   mode: 'one_off' | 'group'
   groupId?: string
@@ -65,6 +67,8 @@ interface ExpenseFormProps {
   participantOptions?: ExpenseParticipantOption[]
   participantOptionsError?: boolean
   initialDate: string
+  initialStep?: ExpenseFlowStep
+  reviewHref?: string
   edit?: {
     expense: ExpenseItemView
     expectedFinancialVersion: number
@@ -79,8 +83,6 @@ const SPLIT_METHODS: ExpenseSplitMethod[] = [
   'mixed_equal_remainder',
   'mixed_percentage_remainder',
 ]
-
-const FORM_STEPS: ExpenseFormStep[] = ['details', 'people', 'split', 'review']
 
 function equalPercentageValues(keys: string[]): Record<string, string> {
   if (keys.length === 0) return {}
@@ -196,6 +198,8 @@ export function ExpenseForm({
   participantOptions = [],
   participantOptionsError = false,
   initialDate,
+  initialStep = 'details',
+  reviewHref,
   edit,
 }: ExpenseFormProps) {
   const t = useExpenseTranslations()
@@ -238,12 +242,40 @@ export function ExpenseForm({
   const [relationshipId, setRelationshipId] = useState('')
   const [guestName, setGuestName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [currentStep, setCurrentStep] = useState<ExpenseFormStep>('details')
-  const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? FORM_STEPS.length - 1 : 0)
+  const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(initialStep)
+  const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? EXPENSE_FLOW_STEPS.length - 1 : 0)
+  const [pendingNavigation, setPendingNavigation] = useState(false)
   const [isPending, startTransition] = useTransition()
+
+  const draftFingerprint = JSON.stringify({
+    members,
+    included,
+    title,
+    total,
+    currency,
+    incurredOn,
+    category,
+    note,
+    splitMethod,
+    payments,
+    payerKeys,
+    amounts,
+    percentages,
+    weights,
+    remainderParticipation,
+    preserveShares,
+    relationshipId,
+    guestName,
+  })
+  const initialDraftFingerprint = useRef(draftFingerprint)
+  const hasUnsavedChanges = draftFingerprint !== initialDraftFingerprint.current
 
   const selectedKeys = members.filter((member) => included[member.key]).map((member) => member.key)
   const memberName = (key: string) => members.find((member) => member.key === key)?.label ?? key
+
+  useEffect(() => {
+    focusStepHeading(initialStep)
+  }, [initialStep])
 
   function addMember(member: FormMember) {
     if (members.some((candidate) => candidate.key === member.key)) return
@@ -465,14 +497,14 @@ export function ExpenseForm({
     return Boolean(selectedKeys.length > 0 && preview && !preview.error)
   }
 
-  function isStepValid(step: ExpenseFormStep) {
+  function isStepValid(step: ExpenseFlowStep) {
     if (step === 'details') return isDetailsValid()
     if (step === 'people') return isPeopleValid()
     if (step === 'split') return isSplitValid()
     return isDetailsValid() && isPeopleValid() && isSplitValid()
   }
 
-  function validationMessage(step: ExpenseFormStep) {
+  function validationMessage(step: ExpenseFlowStep) {
     if (step === 'details') return t('errors.detailsRequired')
     if (step === 'people') {
       return mode === 'one_off' && members.length < 2
@@ -482,26 +514,31 @@ export function ExpenseForm({
     return t('errors.splitTotal')
   }
 
-  function focusStepHeading(step: ExpenseFormStep) {
+  function focusStepHeading(step: ExpenseFlowStep) {
     queueMicrotask(() => document.getElementById(`expense-${step}-heading`)?.focus())
   }
 
-  function openStep(step: ExpenseFormStep) {
-    const targetIndex = FORM_STEPS.indexOf(step)
+  function openStep(step: ExpenseFlowStep) {
+    const targetIndex = EXPENSE_FLOW_STEPS.indexOf(step)
     if (isPending || targetIndex > highestVisitedStep) return
+    if (edit && step === 'review' && reviewHref && !hasUnsavedChanges) {
+      setPendingNavigation(true)
+      startTransition(() => router.push(reviewHref))
+      return
+    }
     setError(null)
     setCurrentStep(step)
     focusStepHeading(step)
   }
 
   function advanceStep() {
-    const currentIndex = FORM_STEPS.indexOf(currentStep)
+    const currentIndex = EXPENSE_FLOW_STEPS.indexOf(currentStep)
     if (!isStepValid(currentStep)) {
       setError(validationMessage(currentStep))
       queueMicrotask(() => alertRef.current?.focus())
       return
     }
-    const nextStep = FORM_STEPS[currentIndex + 1]
+    const nextStep = EXPENSE_FLOW_STEPS[currentIndex + 1]
     if (!nextStep) return
     setError(null)
     setHighestVisitedStep((current) => Math.max(current, currentIndex + 1))
@@ -510,12 +547,12 @@ export function ExpenseForm({
   }
 
   function previousStep() {
-    const previous = FORM_STEPS[FORM_STEPS.indexOf(currentStep) - 1]
+    const previous = EXPENSE_FLOW_STEPS[EXPENSE_FLOW_STEPS.indexOf(currentStep) - 1]
     if (previous) openStep(previous)
   }
 
-  const currentStepIndex = FORM_STEPS.indexOf(currentStep)
-  const stepItems: TeskeidStepNavItem<ExpenseFormStep>[] = FORM_STEPS.map((step, index) => ({
+  const currentStepIndex = EXPENSE_FLOW_STEPS.indexOf(currentStep)
+  const stepItems: TeskeidStepNavItem<ExpenseFlowStep>[] = EXPENSE_FLOW_STEPS.map((step, index) => ({
     id: step,
     label: t(`expenseForm.steps.${step}`),
     status: currentStep === step
@@ -539,7 +576,7 @@ export function ExpenseForm({
       advanceStep()
       return
     }
-    const invalidStep = FORM_STEPS.slice(0, -1).find((step) => !isStepValid(step))
+    const invalidStep = EXPENSE_FLOW_STEPS.slice(0, -1).find((step) => !isStepValid(step))
     if (invalidStep) {
       setCurrentStep(invalidStep)
       setError(validationMessage(invalidStep))
@@ -626,6 +663,11 @@ export function ExpenseForm({
         items={stepItems}
         onStepChange={openStep}
       />
+      {pendingNavigation ? (
+        <p role="status" className="text-center text-xs text-muted-foreground">
+          {t('expenseForm.openingReview')}
+        </p>
+      ) : null}
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
 
       {currentStep === 'details' ? (
@@ -778,7 +820,7 @@ export function ExpenseForm({
           </button>
         ) : (
           <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={isPending} onClick={advanceStep}>
-            {t(`expenseForm.nextSteps.${FORM_STEPS[currentStepIndex + 1]}`)}
+            {t(`expenseForm.nextSteps.${EXPENSE_FLOW_STEPS[currentStepIndex + 1]}`)}
           </button>
         )}
       </div>

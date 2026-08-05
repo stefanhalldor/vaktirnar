@@ -44,7 +44,7 @@ describe('ExpenseItemActions', () => {
     })
 
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1/breyta',
+      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1/breyta?step=details',
     )
     expect(screen.queryByRole('button', { name: 'Fella útgjald niður' })).not.toBeInTheDocument()
   })

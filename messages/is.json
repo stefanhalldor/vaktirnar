@@ -596,6 +596,11 @@
           "review": "Yfirferð"
         },
         "stepNeedsReview": "Þarf yfirferð",
+        "stepUnavailable": "Veldu eða stofnaðu útgjald fyrst",
+        "stepCompleted": "Lokið, opna til að breyta",
+        "stepEditUnavailable": "Ekki er hægt að breyta þessu útgjaldi",
+        "openingStep": "Opna {step}...",
+        "openingReview": "Opna yfirferð...",
         "previousStep": "Til baka",
         "nextSteps": {
           "people": "Áfram í aðila",
