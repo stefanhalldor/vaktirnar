@@ -20,6 +20,7 @@ export default function AuthMvpProfilePage() {
   const [error, setError] = useState('')
   const [facebookAllowed, setFacebookAllowed] = useState(false)
   const [facebookConnected, setFacebookConnected] = useState(false)
+  const [tengslAllowed, setTengslAllowed] = useState(false)
   const [facebookStatus, setFacebookStatus] = useState<'idle' | 'linking' | 'unlinking'>('idle')
   const [facebookError, setFacebookError] = useState('')
 
@@ -36,6 +37,7 @@ export default function AuthMvpProfilePage() {
         setEmail(data.email ?? '')
         setFacebookAllowed(data.facebook_oauth_allowed ?? false)
         setFacebookConnected(data.facebook_connected ?? false)
+        setTengslAllowed(data.tengsl_allowed ?? false)
       } else {
         setError(tCommon('error'))
       }
@@ -169,6 +171,23 @@ export default function AuthMvpProfilePage() {
                 {saving ? t('saving') : t('save')}
               </button>
             </form>
+
+            {tengslAllowed && (
+              <div className="border-t border-gray-100 pt-3">
+                <Link
+                  href="/stillingar/tengsl"
+                  className="flex min-h-11 items-center justify-between gap-3 rounded-xl px-3 text-sm font-medium text-[#154212] transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-2"
+                >
+                  <span>
+                    <span className="block">{t('relationships.title')}</span>
+                    <span className="mt-0.5 block text-xs font-normal text-[#72796e]">
+                      {t('relationships.description')}
+                    </span>
+                  </span>
+                  <span aria-hidden="true" className="text-lg text-[#72796e]">›</span>
+                </Link>
+              </div>
+            )}
 
             {/* ── Facebook section ──────────────────────────────── */}
             {facebookAllowed && (

@@ -32,7 +32,7 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [agentCollaborationAvailable, setAgentCollaborationAvailable] = useState(false)
   const [agentUnreadCount, setAgentUnreadCount] = useState(0)
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLDetailsElement>(null)
 
   const items = variant === 'public'
     ? PUBLIC_ITEMS
@@ -95,10 +95,16 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
   useEffect(() => {
     if (!open) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape' && ref.current) {
+        ref.current.open = false
+        setOpen(false)
+      }
     }
     function onOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        ref.current.open = false
+        setOpen(false)
+      }
     }
     document.addEventListener('keydown', onKey)
     document.addEventListener('mousedown', onOutside)
@@ -108,8 +114,13 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
     }
   }, [open])
 
-  async function handleSignOut() {
+  function closeMenu() {
+    if (ref.current) ref.current.open = false
     setOpen(false)
+  }
+
+  async function handleSignOut() {
+    closeMenu()
     await createClient().auth.signOut()
     router.push('/innskraning')
   }
@@ -120,19 +131,27 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
     && !pathname.startsWith('/auth-mvp/samvinna')
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
+    <details
+      ref={ref}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="group relative z-[60]"
+    >
+      <summary
+        role="button"
+        onClick={(event) => {
+          const details = event.currentTarget.parentElement as HTMLDetailsElement
+          setOpen(!details.open)
+        }}
         aria-label={open
           ? t('closeMenu')
           : showAgentMenuUnread
             ? `${t('menu')} · ${t('agentUnread', { count: agentUnreadCount })}`
             : t('menu')}
         aria-expanded={open}
-        className="relative flex items-center justify-center w-11 h-11 rounded-full text-[#42493e] hover:text-[#154212] hover:bg-black/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-1"
+        className="relative flex h-11 w-11 cursor-pointer touch-manipulation list-none items-center justify-center rounded-full text-[#42493e] transition-colors hover:bg-black/5 hover:text-[#154212] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-1 [&::-webkit-details-marker]:hidden"
       >
-        {open ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
+        <Menu size={20} aria-hidden className="group-open:hidden" />
+        <X size={20} aria-hidden className="hidden group-open:block" />
         {showAgentMenuUnread && (
           <span
             data-testid="agent-unread-indicator"
@@ -140,10 +159,12 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
             className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-[#fbf9f4] bg-red-600"
           />
         )}
-      </button>
+      </summary>
 
-      {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 bg-[#fbf9f4] border border-black/10 rounded-xl shadow-lg z-50 overflow-hidden">
+      <div
+        aria-hidden={!open}
+        className="absolute right-0 top-full z-50 mt-1 hidden w-56 overflow-hidden rounded-xl border border-black/10 bg-[#fbf9f4] shadow-lg group-open:block"
+      >
           {variant === 'authenticated' && userEmail && (
             <>
               <div className="px-4 py-2.5 border-b border-black/5">
@@ -164,7 +185,7 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
               <Link
                 key={href}
                 href={href}
-                onClick={() => setOpen(false)}
+                onClick={closeMenu}
                 className={`flex items-center gap-3 px-4 py-3 text-sm transition-colors min-h-[44px] ${
                   active
                     ? 'bg-[#2d5a27] text-[#9dd090] font-medium'
@@ -194,8 +215,7 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
               </button>
             </div>
           )}
-        </div>
-      )}
-    </div>
+      </div>
+    </details>
   )
 }

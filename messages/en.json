@@ -397,6 +397,10 @@
       "saving": "Saving...",
       "logout": "Sign out",
       "homeLink": "Home",
+      "relationships": {
+        "title": "Relationships",
+        "description": "Organize your contacts and manage relationship circles."
+      },
       "errors": {
         "saveFailed": "Save failed. Please try again."
       },

@@ -11,7 +11,12 @@ import { NextRequest } from 'next/server'
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
+const { mockGetUser, mockCheckFeatureAccess } = vi.hoisted(() => ({
+  mockGetUser: vi.fn(),
+  mockCheckFeatureAccess: vi.fn(async (_userId: string, _email: string, featureKey: string) => (
+    featureKey === 'facebook-oauth' && process.env.FACEBOOK_OAUTH_ENABLED === 'true'
+  )),
+}))
 const { mockFrom, mockSelect, mockEq, mockSingle, mockUpsert } = vi.hoisted(() => {
   const mockSingle = vi.fn()
   const mockEq = vi.fn(() => ({ single: mockSingle }))
@@ -26,6 +31,10 @@ vi.mock('@/lib/supabase/server', () => ({
     auth: { getUser: mockGetUser },
     from: mockFrom,
   })),
+}))
+
+vi.mock('@/lib/loans/guard', () => ({
+  checkFeatureAccess: mockCheckFeatureAccess,
 }))
 
 import { GET, PATCH } from '@/app/api/teskeid/profile/route'
@@ -106,6 +115,19 @@ describe('GET /api/teskeid/profile — feature flag', () => {
     const body = await res.json()
     expect(body.display_name).toBe('Jón')
     expect(body.email).toBe('user@example.com')
+    expect(body.tengsl_allowed).toBe(false)
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith('u1', 'user@example.com', 'tengsl')
+  })
+
+  it('returns Tengsl access from the canonical per-user feature gate', async () => {
+    process.env.AUTH_MVP_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com' } } })
+    mockSingle.mockResolvedValue({ data: { display_name: 'Jón' } })
+    mockCheckFeatureAccess.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+    const res = await GET()
+    expect(res.status).toBe(200)
+    expect((await res.json()).tengsl_allowed).toBe(true)
   })
 })
 

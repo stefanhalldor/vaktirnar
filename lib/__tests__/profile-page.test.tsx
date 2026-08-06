@@ -32,6 +32,8 @@ vi.mock('next-intl', () => ({
         saving: 'Vistandi...',
         saved: 'Vistað!',
         logout: 'Útskrá',
+        'relationships.title': 'Tengsl',
+        'relationships.description': 'Flokkaðu tengda aðila og haltu utan um tengslahringi.',
         'errors.saveFailed': 'Vistun mistókst.',
       },
       'common': {
@@ -181,6 +183,33 @@ describe('AuthMvpProfilePage — DOM order', () => {
 })
 
 // ── Logout redirect ────────────────────────────────────────────────────────
+
+describe('AuthMvpProfilePage — Tengsl entry point', () => {
+  it('does not reveal Tengsl when the per-user feature is unavailable', async () => {
+    render(React.createElement(AuthMvpProfilePage))
+    await screen.findByText('Vista')
+    expect(screen.queryByRole('link', { name: /Tengsl/ })).toBeNull()
+  })
+
+  it('links to Tengsl when the profile API grants access', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        display_name: 'Jón',
+        email: 'jon@example.com',
+        tengsl_allowed: true,
+      }),
+    }))
+
+    render(React.createElement(AuthMvpProfilePage))
+
+    expect(await screen.findByRole('link', { name: /Tengsl/ })).toHaveAttribute(
+      'href',
+      '/stillingar/tengsl',
+    )
+  })
+})
 
 describe('AuthMvpProfilePage — logout redirect', () => {
   it('clicking logout signs out and pushes to /innskraning', async () => {

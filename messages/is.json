@@ -401,6 +401,10 @@
       "saving": "Vista...",
       "logout": "Skrá út",
       "homeLink": "Heim",
+      "relationships": {
+        "title": "Tengsl",
+        "description": "Flokkaðu tengda aðila og haltu utan um tengslahringi."
+      },
       "errors": {
         "saveFailed": "Vistun tókst ekki. Reyndu aftur."
       },

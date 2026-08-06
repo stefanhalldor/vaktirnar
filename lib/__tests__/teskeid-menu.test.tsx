@@ -190,7 +190,7 @@ describe('TeskeidMenu — authenticated variant items', () => {
 describe('TeskeidMenu — open and close', () => {
   it('items are not visible before opening', () => {
     render(<TeskeidMenu variant="public" />)
-    expect(screen.queryByText('Hugmyndabankinn')).toBeNull()
+    expect(screen.getByRole('group')).not.toHaveAttribute('open')
   })
 
   it('closes on second button click', () => {
@@ -198,7 +198,7 @@ describe('TeskeidMenu — open and close', () => {
     fireEvent.click(screen.getByRole('button'))
     expect(screen.getByText('Hugmyndabankinn')).toBeDefined()
     fireEvent.click(screen.getByRole('button'))
-    expect(screen.queryByText('Hugmyndabankinn')).toBeNull()
+    expect(screen.getByRole('group')).not.toHaveAttribute('open')
   })
 
   it('closes when Escape is pressed', () => {
@@ -206,14 +206,14 @@ describe('TeskeidMenu — open and close', () => {
     fireEvent.click(screen.getByRole('button'))
     expect(screen.getByText('Hugmyndabankinn')).toBeDefined()
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByText('Hugmyndabankinn')).toBeNull()
+    expect(screen.getByRole('group')).not.toHaveAttribute('open')
   })
 
   it('closes when a menu item is clicked', () => {
     render(<TeskeidMenu variant="public" />)
     fireEvent.click(screen.getByRole('button'))
     fireEvent.click(screen.getByText('Nýskráning / innskráning'))
-    expect(screen.queryByText('Hugmyndabankinn')).toBeNull()
+    expect(screen.getByRole('group')).not.toHaveAttribute('open')
   })
 })
 
@@ -332,7 +332,7 @@ describe('TeskeidMenu — sign out', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
     expect(screen.getByText('Teskeiðar')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Útskrá' }))
-    expect(screen.queryByText('Teskeiðar')).toBeNull()
+    expect(screen.getByRole('group')).not.toHaveAttribute('open')
   })
 })
 

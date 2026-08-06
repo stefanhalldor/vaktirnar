@@ -26,7 +26,10 @@ export async function GET() {
     .eq('id', user.id)
     .single()
 
-  const facebookAllowed = await checkFeatureAccess('', user.email, 'facebook-oauth')
+  const [facebookAllowed, tengslAllowed] = await Promise.all([
+    checkFeatureAccess(user.id, user.email, 'facebook-oauth'),
+    checkFeatureAccess(user.id, user.email, 'tengsl'),
+  ])
   const facebookConnected = facebookAllowed
     ? (user.identities?.some((i) => i.provider === 'facebook') ?? false)
     : false
@@ -36,6 +39,7 @@ export async function GET() {
     email: user.email,
     facebook_oauth_allowed: facebookAllowed,
     facebook_connected: facebookConnected,
+    tengsl_allowed: tengslAllowed,
   })
 }
 
