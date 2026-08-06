@@ -9,14 +9,11 @@ import { useExpenseTranslations } from './i18n.client'
 
 type DashboardView = 'active' | 'all'
 
-function firstOpenBalance(group: ExpenseGroupSummaryView) {
-  return group.selfBalances.find((item) => item.amountMinor !== 0) ?? null
-}
-
 function isActive(group: ExpenseGroupSummaryView) {
-  return group.status !== 'settled'
-    || group.pendingConfirmationCount > 0
+  return !group.cancelled && (
+    group.pendingConfirmationCount > 0
     || group.selfBalances.some((balance) => balance.amountMinor !== 0)
+  )
 }
 
 function toggleValue(values: string[], value: string) {
@@ -27,8 +24,10 @@ function toggleValue(values: string[], value: string) {
 
 export function ExpenseDashboardDirectory({
   items,
+  locale,
 }: {
   items: ExpenseGroupSummaryView[]
+  locale: string
 }) {
   const t = useExpenseTranslations()
   const [view, setView] = useState<DashboardView>('active')
@@ -117,16 +116,31 @@ export function ExpenseDashboardDirectory({
       {visibleItems.length > 0 ? (
         <div className="divide-y divide-border border-y border-border">
           {visibleItems.map((group) => {
-            const balance = firstOpenBalance(group)
+            const balanceLabels = group.selfBalances
+              .filter((balance) => balance.amountMinor !== 0)
+              .map((balance) => t(
+                balance.amountMinor > 0 ? 'dashboard.groupOwedToYou' : 'dashboard.groupYouOwe',
+                { amount: formatExpenseMinor(Math.abs(balance.amountMinor), balance.currency, locale) },
+              ))
+            const statusLabels = [
+              ...(group.cancelled
+                ? [t('dashboard.cancelled')]
+                : balanceLabels.length > 0
+                  ? balanceLabels
+                  : group.pendingConfirmationCount === 0
+                    ? [t('dashboard.settled')]
+                    : []),
+              ...(group.pendingConfirmationCount > 0
+                ? [t('dashboard.pendingCount', { count: group.pendingConfirmationCount })]
+                : []),
+            ]
             return (
               <Link key={group.id} href={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}`} className="flex min-h-14 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
                 <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#eef7ea] text-lg">{group.emoji || '🧾'}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{group.name}</span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {t('dashboard.expenseCount', { count: group.expenseCount })}
-                    {balance ? ` · ${t(balance.amountMinor > 0 ? 'dashboard.groupOwedToYou' : 'dashboard.groupYouOwe', { amount: formatExpenseMinor(Math.abs(balance.amountMinor), balance.currency) })}` : ''}
-                    {group.pendingConfirmationCount > 0 ? ` · ${t('dashboard.pendingCount', { count: group.pendingConfirmationCount })}` : ''}
+                    {statusLabels.join(' · ')}
                   </span>
                   {(group.relationshipCircles ?? []).length > 0 ? <span className="mt-1 block truncate text-xs text-muted-foreground">{group.relationshipCircles!.map((circle) => circle.name).join(' · ')}</span> : null}
                 </span>

@@ -8,6 +8,7 @@ import {
   simplifySettlement,
 } from './balances'
 import { addMinorAmounts } from './money'
+import { parseExpenseAmountToMinor } from './input-money'
 import { paymentSnapshotForViewer } from './payment-snapshot-visibility'
 import {
   decryptExpensePaymentProfile,
@@ -760,17 +761,23 @@ export async function getExpenseDashboard(
       const contextType = row.context_type
       const attention = payload.success ? getExpenseDraftAttention(payload.data) : null
       if (!payload.success
-        || !attention
         || (contextType !== 'one_off' && contextType !== 'group' && contextType !== 'edit')) return []
+      let totalMinor: number
+      try {
+        totalMinor = parseExpenseAmountToMinor(payload.data.total, payload.data.currency)
+      } catch {
+        return []
+      }
       return [{
         id: String(row.draft_id),
         contextType,
         groupId: typeof row.group_id === 'string' ? row.group_id : null,
         expenseId: typeof row.expense_id === 'string' ? row.expense_id : null,
         title: payload.data.title.trim(),
-        totalMinor: attention.totalMinor,
+        totalMinor: attention?.totalMinor ?? totalMinor,
         currency: payload.data.currency,
-        differenceMinor: attention.differenceMinor,
+        differenceMinor: attention?.differenceMinor ?? null,
+        needsAttention: Boolean(attention),
         savedAt: String(row.saved_at),
       }]
     })
@@ -852,6 +859,8 @@ export async function getExpenseDashboard(
     selfBalances: group.balances.filter((entry) => entry.isSelf),
     expenseCount: group.expenses.length,
     pendingConfirmationCount: group.repayments.filter((repayment) => repayment.canConfirm).length,
+    cancelled: group.expenses.length > 0
+      && group.expenses.every((expense) => expense.status === 'cancelled'),
     createdAt: group.createdAt,
     counterparties: group.members
       .filter((member) => member.status === 'active' && !member.isSelf)

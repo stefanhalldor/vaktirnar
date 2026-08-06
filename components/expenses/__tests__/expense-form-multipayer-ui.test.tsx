@@ -41,6 +41,15 @@ const translations: Record<string, string> = {
   'expenseForm.splitNeedsAttention': 'Skipting þarf lagfæringu áður en hægt er að hefja uppgjör.',
   'expenseForm.saveDraftOnly': 'Vista færslu',
   'expenseForm.addParticipant': 'Bæta við þátttakanda',
+  'expenseForm.addParticipantDescription': 'Veldu aðila.',
+  'expenseForm.closeParticipantPicker': 'Loka',
+  'expenseForm.participantSource': 'Leið',
+  'expenseForm.knownParticipant': 'Þekktur aðili',
+  'expenseForm.nameOrEmail': 'Nafn eða netfang',
+  'expenseForm.nameOrEmailPlaceholder': 'Nafn eða netfang',
+  'expenseForm.nameOrEmailHint': 'Netfang sendir boð.',
+  'expenseForm.participantNameInvalid': 'Sláðu inn nafn.',
+  'expenseForm.participantEmailInvalid': 'Sláðu inn gilt netfang.',
   'expenseForm.changeShares': 'Breyta skiptingu', 'expenseForm.preview': 'Forskoðun',
   'expenseForm.previewHint': 'Forskoðun.', 'expenseForm.previewPaidBy': 'Greiðendur',
   'expenseForm.previewShares': 'Skipting', 'expenseForm.previewNet': 'Nettóstaða',
@@ -62,6 +71,7 @@ const translations: Record<string, string> = {
   'errors.detailsRequired': 'Fylltu út upplýsingar.', 'errors.participant_required': 'Bættu við aðila.',
   'errors.paymentTotal': 'Greiðslur stemma ekki.', 'errors.splitTotal': 'Skipting stemmir ekki.',
   'errors.invalid_input': 'Ógilt.', 'errors.draftSaveFailed': 'Vistun mistókst.',
+  'errors.save_failed': 'Ekki tókst að vista.',
 }
 
 function translate(rawKey: string, values?: Record<string, string | number>): string {
@@ -126,6 +136,7 @@ describe('ExpenseForm simplified split and autosave', () => {
       payload: expect.objectContaining({ title: 'Kvöldmatur', splitMethod: 'weighted' }),
     }))
     expect(mocks.replace).toHaveBeenCalledWith(expect.stringMatching(/^\/draft\?draft=/))
+    expect(screen.queryByText('Breytingar vistaðar')).not.toBeInTheDocument()
   })
 
   it('shows localized thousands separators and keeps category hidden in the UI', () => {
@@ -142,6 +153,31 @@ describe('ExpenseForm simplified split and autosave', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Vistun mistókst')
     expect(screen.getByRole('textbox', { name: 'Heiti útgjalds' })).toBeInTheDocument()
+  })
+
+  it('keeps the user on the current step when autosave throws', async () => {
+    mocks.saveDraft.mockRejectedValueOnce(new Error('network unavailable'))
+    renderForm()
+    fillDetails()
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Vistun mistókst')
+    expect(screen.getByRole('textbox', { name: 'Heiti útgjalds' })).toBeInTheDocument()
+    expect(mocks.push).not.toHaveBeenCalled()
+  })
+
+  it('uses equal-height payer controls and can add a payer through the shared picker', async () => {
+    renderForm({
+      mode: 'one_off',
+      initialStep: 'split',
+      initialMembers: [{ key: 'member-self', label: 'Ég', isSelf: true }],
+    })
+
+    const payers = screen.getByRole('group', { name: 'Hver borgaði?' })
+    expect(within(payers).getByRole('combobox', { name: 'Greiðandi 1' })).toHaveClass('h-11')
+    expect(within(payers).getByRole('textbox', { name: 'Upphæð Ég' })).toHaveClass('h-11')
+
+    fireEvent.click(within(payers).getByRole('button', { name: 'Fleiri' }))
+    expect(screen.getByRole('dialog', { name: 'Bæta við þátttakanda' })).toBeInTheDocument()
   })
 
   it('supports multiple payers and submits the simplified weighted allocation', async () => {
@@ -296,6 +332,17 @@ describe('ExpenseForm simplified split and autosave', () => {
     await waitFor(() => expect(mocks.update).toHaveBeenCalled())
     expect(confirm).not.toHaveBeenCalled()
     confirm.mockRestore()
+  })
+
+  it('shows an accessible error and does not navigate when final create throws', async () => {
+    mocks.create.mockRejectedValueOnce(new Error('network unavailable'))
+    renderForm()
+    fillDetails()
+    await next('Áfram í skiptingu')
+    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að vista.')
+    expect(mocks.push).not.toHaveBeenCalled()
   })
 
   it('saves an underallocated fixed split as a recoverable draft instead of creating ledger state', async () => {

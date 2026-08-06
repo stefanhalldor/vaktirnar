@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { AlertTriangle, ChevronRight, Plus, CreditCard } from 'lucide-react'
+import { getLocale } from 'next-intl/server'
+import { AlertTriangle, ChevronRight, FilePenLine, Plus, CreditCard } from 'lucide-react'
 import type {
   ExpenseDashboardView,
   ExpenseIncompleteDraftSummaryView,
@@ -30,12 +31,43 @@ export async function ExpenseDashboard({
   dashboard: ExpenseDashboardView
   paymentProfile: ExpensePaymentProfileV2View
 }) {
-  const t = await getExpenseTranslations()
+  const [t, locale] = await Promise.all([
+    getExpenseTranslations(),
+    getLocale(),
+  ])
   const memberInvitations = dashboard.memberInvitations ?? []
   const allItems = [...dashboard.groups, ...dashboard.oneOffs]
   const paymentDetails = paymentProfile.details
   const bankAccount = paymentDetails ? formatExpenseBankAccount(paymentDetails) : null
   const incompleteDrafts = dashboard.incompleteDrafts ?? []
+  const drafts = incompleteDrafts.filter((draft) => !draft.needsAttention)
+  const draftsNeedingAttention = incompleteDrafts.filter((draft) => draft.needsAttention)
+  const renderDraftRows = (items: typeof incompleteDrafts) => (
+    <div className="divide-y divide-border border-y border-border">
+      {items.map((draft) => (
+        <Link key={draft.id} href={incompleteDraftHref(draft)} className="flex min-h-16 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+          <span aria-hidden className={`flex size-10 shrink-0 items-center justify-center rounded-full ${draft.needsAttention ? 'bg-amber-100 text-amber-800' : 'bg-muted text-muted-foreground'}`}>
+            {draft.needsAttention ? <AlertTriangle size={18} /> : <FilePenLine size={18} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">{draft.title || t('dashboard.untitledDraft')}</span>
+            <span className={`mt-0.5 block text-xs ${draft.needsAttention ? 'text-amber-800' : 'text-muted-foreground'}`}>
+              {t(draft.needsAttention ? 'dashboard.splitNeedsAttention' : 'dashboard.draftContinue')}
+            </span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {formatExpenseMinor(draft.totalMinor, draft.currency, locale)}
+              {draft.differenceMinor !== null && draft.differenceMinor > 0
+                ? ` · ${t('dashboard.unallocated', { amount: formatExpenseMinor(draft.differenceMinor, draft.currency, locale) })}`
+                : draft.differenceMinor !== null && draft.differenceMinor < 0
+                  ? ` · ${t('dashboard.overallocated', { amount: formatExpenseMinor(Math.abs(draft.differenceMinor), draft.currency, locale) })}`
+                  : ''}
+            </span>
+          </span>
+          <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" />
+        </Link>
+      ))}
+    </div>
+  )
 
   return (
     <div className="space-y-8">
@@ -60,8 +92,8 @@ export async function ExpenseDashboard({
           <div className="divide-y divide-border border-y border-border">
             {dashboard.totals.map((total) => (
               <div key={total.currency} className="grid grid-cols-2 gap-4 py-3 text-sm">
-                <div><span className="block text-xs text-muted-foreground">{t('dashboard.owedToYou')}</span><strong>{formatExpenseMinor(total.owedToYouMinor, total.currency)}</strong></div>
-                <div><span className="block text-xs text-muted-foreground">{t('dashboard.youOwe')}</span><strong>{formatExpenseMinor(total.youOweMinor, total.currency)}</strong></div>
+                <div><span className="block text-xs text-muted-foreground">{t('dashboard.owedToYou')}</span><strong>{formatExpenseMinor(total.owedToYouMinor, total.currency, locale)}</strong></div>
+                <div><span className="block text-xs text-muted-foreground">{t('dashboard.youOwe')}</span><strong>{formatExpenseMinor(total.youOweMinor, total.currency, locale)}</strong></div>
               </div>
             ))}
           </div>
@@ -108,37 +140,25 @@ export async function ExpenseDashboard({
         </section>
       ) : null}
 
-      {incompleteDrafts.length > 0 ? (
+      {drafts.length > 0 ? (
+        <section aria-labelledby="expense-drafts-title" className="space-y-3">
+          <h2 id="expense-drafts-title" className="text-sm font-semibold">
+            {t('dashboard.drafts')}
+          </h2>
+          {renderDraftRows(drafts)}
+        </section>
+      ) : null}
+
+      {draftsNeedingAttention.length > 0 ? (
         <section aria-labelledby="expense-incomplete-drafts-title" className="space-y-3">
           <h2 id="expense-incomplete-drafts-title" className="text-sm font-semibold">
             {t('dashboard.needsAttention')}
           </h2>
-          <div className="divide-y divide-border border-y border-border">
-            {incompleteDrafts.map((draft) => (
-              <Link key={draft.id} href={incompleteDraftHref(draft)} className="flex min-h-16 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800">
-                  <AlertTriangle size={18} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{draft.title || t('dashboard.untitledDraft')}</span>
-                  <span className="mt-0.5 block text-xs text-amber-800">{t('dashboard.splitNeedsAttention')}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {formatExpenseMinor(draft.totalMinor, draft.currency)}
-                    {draft.differenceMinor !== null && draft.differenceMinor > 0
-                      ? ` · ${t('dashboard.unallocated', { amount: formatExpenseMinor(draft.differenceMinor, draft.currency) })}`
-                      : draft.differenceMinor !== null && draft.differenceMinor < 0
-                        ? ` · ${t('dashboard.overallocated', { amount: formatExpenseMinor(Math.abs(draft.differenceMinor), draft.currency) })}`
-                        : ''}
-                  </span>
-                </span>
-                <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" />
-              </Link>
-            ))}
-          </div>
+          {renderDraftRows(draftsNeedingAttention)}
         </section>
       ) : null}
 
-      {allItems.length > 0 ? <ExpenseDashboardDirectory items={allItems} /> : null}
+      {allItems.length > 0 ? <ExpenseDashboardDirectory items={allItems} locale={locale} /> : null}
       {allItems.length === 0 && dashboard.invitations.length === 0 && memberInvitations.length === 0 && incompleteDrafts.length === 0 ? (
         <p className="border-y border-border py-6 text-center text-sm text-muted-foreground">{t('dashboard.empty')}</p>
       ) : null}

@@ -49,6 +49,8 @@ const translations: Record<string, string> = {
   'dashboard.noActive': 'Engar virkar færslur.',
   'dashboard.noFilterResults': 'Engar færslur passa við síurnar.',
   'dashboard.needsAttention': 'Þarfnast lagfæringar',
+  'dashboard.drafts': 'Drög',
+  'dashboard.draftContinue': 'Halda áfram',
   'dashboard.splitNeedsAttention': 'Skipting þarf lagfæringu',
   'dashboard.untitledDraft': 'Ónefnd færsla',
   'dashboard.unallocated': 'Óúthlutað {amount}',
@@ -62,6 +64,11 @@ const translations: Record<string, string> = {
   'dashboard.oneOffs': 'Stök útgjöld',
   'dashboard.empty': 'Engin útgjöld hafa verið skráð enn.',
   'dashboard.expenseCount': '{count} útgjöld',
+  'dashboard.groupOwedToYou': 'Þú átt inni {amount}',
+  'dashboard.groupYouOwe': 'Þú átt eftir að greiða {amount}',
+  'dashboard.settled': 'Uppgert',
+  'dashboard.cancelled': 'Fellt niður',
+  'dashboard.pendingCount': '{count} greiðsla bíður staðfestingar',
   'expenseForm.stepNavAriaLabel': 'Skref við skráningu útgjalds',
   'expenseForm.steps.details': 'Útgjald',
   'expenseForm.steps.people': 'Aðilar',
@@ -91,6 +98,7 @@ vi.mock('next-intl', () => ({
 
 vi.mock('next-intl/server', () => ({
   getTranslations: vi.fn().mockResolvedValue(translate),
+  getLocale: vi.fn().mockResolvedValue('is'),
 }))
 
 vi.mock('@/lib/expenses/actions', () => ({
@@ -119,6 +127,7 @@ function groupSummary(overrides: Partial<ExpenseGroupSummaryView> = {}): Expense
     ],
     expenseCount: 3,
     pendingConfirmationCount: 0,
+    cancelled: false,
     createdAt: '2026-08-04T09:00:00.000Z',
     ...overrides,
   }
@@ -192,7 +201,8 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
     const { container } = render(await ExpenseDashboard({ dashboard: unsafeDashboard, paymentProfile: emptyPaymentProfile() }))
 
     expect(screen.getByText('Sumarferð')).toBeInTheDocument()
-    expect(screen.getByText('3 útgjöld', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText(/Þú átt eftir að greiða 12\.500/)).toBeInTheDocument()
+    expect(screen.queryByText(/3 útgjöld/)).not.toBeInTheDocument()
     expect(screen.getByText('Staðan þín')).toBeInTheDocument()
     expect(container.textContent).not.toContain(privateNote)
     expect(container.textContent).not.toContain(privatePaymentDetails)
@@ -213,6 +223,7 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
           totalMinor: 100_000,
           currency: 'ISK',
           differenceMinor: 80_000,
+          needsAttention: true,
           savedAt: '2026-08-06T10:00:00.000Z',
         }],
       }),
@@ -225,6 +236,70 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
       'href',
       '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=11111111-1111-4111-8111-111111111111',
     )
+  })
+
+  it('keeps a mathematically valid but unfinished private draft recoverable', async () => {
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [],
+        totals: [],
+        incompleteDrafts: [{
+          id: '22222222-2222-4222-8222-222222222222',
+          contextType: 'one_off',
+          groupId: null,
+          expenseId: null,
+          title: 'Ólokið kvöldverðaruppkast',
+          totalMinor: 85_000,
+          currency: 'ISK',
+          differenceMinor: null,
+          needsAttention: false,
+          savedAt: '2026-08-06T10:00:00.000Z',
+        }],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByText('Drög')).toBeInTheDocument()
+    expect(screen.getByText('Halda áfram')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Ólokið kvöldverðaruppkast/ })).toHaveAttribute(
+      'href',
+      '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=22222222-2222-4222-8222-222222222222',
+    )
+  })
+
+  it('filters Active by the signed-in user state and marks cancelled history in All', async () => {
+    const globallyOpenButPersonallySettled = groupSummary({
+      id: 'personally-settled',
+      name: 'Uppgert fyrir mig',
+      status: 'active',
+      selfBalances: [],
+      pendingConfirmationCount: 0,
+    })
+    const cancelled = groupSummary({
+      id: 'cancelled-one-off',
+      kind: 'one_off',
+      name: 'Martine 30 ára',
+      selfBalances: [],
+      cancelled: true,
+    })
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [groupSummary()],
+        oneOffs: [globallyOpenButPersonallySettled, cancelled],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByText('Sumarferð')).toBeInTheDocument()
+    expect(screen.queryByText('Uppgert fyrir mig')).not.toBeInTheDocument()
+    expect(screen.queryByText('Martine 30 ára')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Allt' }))
+
+    expect(screen.getByText('Uppgert fyrir mig')).toBeInTheDocument()
+    expect(screen.getByText('Martine 30 ára')).toBeInTheDocument()
+    expect(screen.getByText('Fellt niður')).toBeInTheDocument()
+    expect(screen.getByText('Uppgert')).toBeInTheDocument()
   })
 
   it('shows an invitation as a consent decision without a pre-acceptance group link', async () => {

@@ -238,6 +238,7 @@ export interface ExpenseIncompleteDraftSummaryView {
   totalMinor: number
   currency: string
   differenceMinor: number | null
+  needsAttention: boolean
   savedAt: string
 }
 
@@ -261,6 +262,7 @@ export interface ExpenseGroupSummaryView {
   selfBalances: ExpenseBalanceView[]
   expenseCount: number
   pendingConfirmationCount: number
+  cancelled: boolean
   createdAt: string
   /** Shared participant labels used only to filter the signed-in user's dashboard. */
   counterparties?: Array<{ key: string; label: string }>

@@ -35,6 +35,7 @@ export function ExpenseParticipantPicker({
   optionsError = false,
   circles = [],
   disabled = false,
+  triggerLabel,
   onAddKnown,
   onAddManual,
   onSelectCircle,
@@ -44,6 +45,7 @@ export function ExpenseParticipantPicker({
   optionsError?: boolean
   circles?: RelationshipCircleOption[]
   disabled?: boolean
+  triggerLabel?: string
   onAddKnown: (option: ExpenseParticipantOption) => boolean
   onAddManual: (participant: ManualExpenseParticipant) => boolean
   onSelectCircle?: (circle: RelationshipCircleOption) => boolean
@@ -104,7 +106,7 @@ export function ExpenseParticipantPicker({
       <Dialog.Trigger asChild>
         <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={disabled}>
           <Plus aria-hidden size={18} />
-          {t('expenseForm.addParticipant')}
+          {triggerLabel ?? t('expenseForm.addParticipant')}
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>

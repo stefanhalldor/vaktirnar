@@ -77,7 +77,7 @@ export function formatExpenseMinor(
   if (!Number.isSafeInteger(amountMinor)) failExpenseDomain('invalid_amount')
   const normalized = normalizeCurrency(currency)
   const digits = expenseCurrencyMinorDigits(normalized)
-  return new Intl.NumberFormat(locale, {
+  return new Intl.NumberFormat(normalizeDisplayLocale(locale), {
     style: 'currency',
     currency: normalized,
     minimumFractionDigits: digits,

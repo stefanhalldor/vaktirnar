@@ -258,7 +258,7 @@ export function ExpenseForm({
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const draftIdRef = useRef(draft?.id ?? createRequestId())
   const draftVersionRef = useRef<number | null>(draft?.version ?? null)
-  const draftSavingRef = useRef(false)
+  const draftSavingRef = useRef<Promise<boolean> | null>(null)
   const [isPending, startTransition] = useTransition()
   const draftFingerprint = JSON.stringify({
     members,
@@ -329,44 +329,50 @@ export function ExpenseForm({
       setDraftStatus('idle')
       return true
     }
-    if (draftSavingRef.current) return false
-    draftSavingRef.current = true
+    if (draftSavingRef.current) return draftSavingRef.current
     setDraftStatus('saving')
-    const result = await saveExpenseDraft({
-      draft_id: draftIdRef.current,
-      expected_version: draftVersionRef.current,
-      context_type: edit ? 'edit' : mode,
-      group_id: groupId ?? null,
-      expense_id: edit?.expense.id ?? null,
-      current_step: step,
-      payload: draftPayload(),
-    })
-    if (!result.ok) {
-      draftSavingRef.current = false
-      setDraftStatus('error')
-      setError(t('errors.draftSaveFailed'))
-      queueMicrotask(() => alertRef.current?.focus())
-      return false
-    }
-    draftVersionRef.current = result.data.version
-    draftSavingRef.current = false
-    initialDraftFingerprint.current = draftFingerprint
-    setDraftStatus('saved')
-    if (draftBaseHref) {
-      const separator = draftBaseHref.includes('?') ? '&' : '?'
-      router.replace(`${draftBaseHref}${separator}draft=${draftIdRef.current}`)
-    }
-    return true
+    const savePromise = (async () => {
+      try {
+        const result = await saveExpenseDraft({
+          draft_id: draftIdRef.current,
+          expected_version: draftVersionRef.current,
+          context_type: edit ? 'edit' : mode,
+          group_id: groupId ?? null,
+          expense_id: edit?.expense.id ?? null,
+          current_step: step,
+          payload: draftPayload(),
+        })
+        if (!result.ok) throw new Error('draft_save_failed')
+        draftIdRef.current = result.data.draftId
+        draftVersionRef.current = result.data.version
+        initialDraftFingerprint.current = draftFingerprint
+        setDraftStatus('saved')
+        if (draftBaseHref) {
+          const separator = draftBaseHref.includes('?') ? '&' : '?'
+          router.replace(`${draftBaseHref}${separator}draft=${result.data.draftId}`)
+        }
+        return true
+      } catch {
+        setDraftStatus('error')
+        setError(t('errors.draftSaveFailed'))
+        queueMicrotask(() => alertRef.current?.focus())
+        return false
+      } finally {
+        draftSavingRef.current = null
+      }
+    })()
+    draftSavingRef.current = savePromise
+    return savePromise
   }
 
-  function addMember(member: FormMember) {
+  function addMember(member: FormMember, includeInCost = !edit) {
     if (members.some((candidate) => candidate.key === member.key)) return
     setMembers((current) => [...current, member])
     // During an edit, a newly named guest starts as payment-only. Merely adding
     // a payer must not reconstruct the authoritative persisted shares. The
     // user can explicitly include the guest below, which then unlocks editing
     // the allocation and flips preserveShares off.
-    setIncluded((current) => ({ ...current, [member.key]: !edit }))
+    setIncluded((current) => ({ ...current, [member.key]: includeInCost }))
     setPayments((current) => ({ ...current, [member.key]: '' }))
     setWeights((current) => ({ ...current, [member.key]: '1' }))
     setAmounts((current) => ({ ...current, [member.key]: '0' }))
@@ -375,12 +381,12 @@ export function ExpenseForm({
     }
   }
 
-  function addKnownParticipant(option: ExpenseParticipantOption): boolean {
+  function addKnownMember(option: ExpenseParticipantOption, includeInCost: boolean): string | null {
     const id = edit ? createRequestId() : `relationship:${option.relationshipId}`
     if (members.some((member) => (
       member.key === `relationship:${option.relationshipId}`
       || member.newGuest?.relationship_id === option.relationshipId
-    ))) return false
+    ))) return null
     addMember({
       key: id,
       label: option.pickerLabel,
@@ -395,11 +401,15 @@ export function ExpenseForm({
         relationship_id: option.relationshipId,
       } : undefined,
       isSelf: false,
-    })
-    return true
+    }, includeInCost)
+    return id
   }
 
-  function addManualParticipant(participant: ManualExpenseParticipant): boolean {
+  function addKnownParticipant(option: ExpenseParticipantOption): boolean {
+    return Boolean(addKnownMember(option, !edit))
+  }
+
+  function addManualMember(participant: ManualExpenseParticipant, includeInCost: boolean): string | null {
     const id = createRequestId()
     const key = edit ? id : `guest:${id}`
     const isEmail = participant.kind === 'email'
@@ -410,7 +420,7 @@ export function ExpenseForm({
       member.input?.type === 'email'
         ? member.input.recipient_email === participant.recipientEmail
         : member.newGuest?.recipient_email === participant.recipientEmail
-    ))) return false
+    ))) return null
     addMember({
       key,
       label: isEmail ? participant.recipientEmail : sharedLabel,
@@ -428,7 +438,25 @@ export function ExpenseForm({
         ...(isEmail ? { recipient_email: participant.recipientEmail } : {}),
       } : undefined,
       isSelf: false,
-    })
+    }, includeInCost)
+    return key
+  }
+
+  function addManualParticipant(participant: ManualExpenseParticipant): boolean {
+    return Boolean(addManualMember(participant, !edit))
+  }
+
+  function addKnownPayer(option: ExpenseParticipantOption): boolean {
+    const key = addKnownMember(option, false)
+    if (!key) return false
+    setPayerKeys((current) => [...current, key])
+    return true
+  }
+
+  function addManualPayer(participant: ManualExpenseParticipant): boolean {
+    const key = addManualMember(participant, false)
+    if (!key) return false
+    setPayerKeys((current) => [...current, key])
     return true
   }
 
@@ -802,23 +830,28 @@ export function ExpenseForm({
     } : null
     const requestPayload = editPayload ?? payload
     startTransition(async () => {
-      const result = edit
-        ? await updateExpense({
-          ...editPayload!,
-          request_id: requestIds.forPayload(requestPayload),
-        })
-        : await createExpense({
-          ...payload,
-          request_id: requestIds.forPayload(requestPayload),
-        })
-      if (!result.ok) {
-        setError(t(`errors.${result.error}`))
+      try {
+        const result = edit
+          ? await updateExpense({
+            ...editPayload!,
+            request_id: requestIds.forPayload(requestPayload),
+          })
+          : await createExpense({
+            ...payload,
+            request_id: requestIds.forPayload(requestPayload),
+          })
+        if (!result.ok) {
+          setError(t(`errors.${result.error}`))
+          queueMicrotask(() => alertRef.current?.focus())
+          return
+        }
+        requestIds.succeeded(requestPayload)
+        router.push(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`)
+        router.refresh()
+      } catch {
+        setError(t('errors.save_failed'))
         queueMicrotask(() => alertRef.current?.focus())
-        return
       }
-      requestIds.succeeded(requestPayload)
-      router.push(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`)
-      router.refresh()
     })
   }
 
@@ -845,9 +878,9 @@ export function ExpenseForm({
         items={stepItems}
         onStepChange={openStep}
       />
-      {draftStatus === 'saving' || draftStatus === 'saved' ? (
+      {draftStatus === 'saving' ? (
         <p role="status" className="text-center text-xs text-muted-foreground">
-          {t(draftStatus === 'saving' ? 'expenseForm.draftSaving' : 'expenseForm.draftSaved')}
+          {t('expenseForm.draftSaving')}
         </p>
       ) : null}
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
@@ -885,7 +918,7 @@ export function ExpenseForm({
                 <label className="min-w-0">
                   <span className={expenseLabelClass}>{t('expenseForm.payer', { number: index + 1 })}</span>
                   <select
-                    className={expenseInputClass}
+                    className={`${expenseInputClass} h-11 py-0`}
                     value={memberKey}
                     onChange={(event) => changePayer(index, event.target.value)}
                   >
@@ -898,7 +931,7 @@ export function ExpenseForm({
                   <span className={expenseLabelClass}>{t('common.amount')}</span>
                   <input
                     aria-label={`${t('common.amount')} ${member.label}`}
-                    className={expenseInputClass}
+                    className={`${expenseInputClass} h-11 py-0`}
                     type="text"
                     inputMode="decimal"
                     value={localizedAmount(payments[memberKey] ?? '')}
@@ -924,6 +957,19 @@ export function ExpenseForm({
             <Plus aria-hidden size={18} />
             {t('expenseForm.addPayer')}
           </button>
+        ) : mode === 'one_off' ? (
+          <ExpenseParticipantPicker
+            options={participantOptions}
+            optionsError={participantOptionsError}
+            disabled={navigationBusy}
+            triggerLabel={t('expenseForm.addPayer')}
+            excludedRelationshipIds={members.flatMap((member) => {
+              if (member.input?.type === 'relationship') return [member.input.relationship_id]
+              return member.newGuest?.relationship_id ? [member.newGuest.relationship_id] : []
+            })}
+            onAddKnown={addKnownPayer}
+            onAddManual={addManualPayer}
+          />
         ) : null}
       </fieldset>
 
