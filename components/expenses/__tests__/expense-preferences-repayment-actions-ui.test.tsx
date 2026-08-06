@@ -1,22 +1,22 @@
 import React from 'react'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
-  ExpensePaymentPreferenceView,
+  ExpensePaymentProfileV2View,
   ExpenseRepaymentView,
 } from '@/lib/expenses/contracts'
 
 const {
-  mockDeactivatePreference,
   mockPush,
   mockRefresh,
-  mockSavePreference,
+  mockSaveProfile,
+  mockClearProfile,
   mockTransitionRepayment,
 } = vi.hoisted(() => ({
-  mockDeactivatePreference: vi.fn(),
   mockPush: vi.fn(),
   mockRefresh: vi.fn(),
-  mockSavePreference: vi.fn(),
+  mockSaveProfile: vi.fn(),
+  mockClearProfile: vi.fn(),
   mockTransitionRepayment: vi.fn(),
 }))
 
@@ -28,6 +28,27 @@ const translations: Record<string, string> = {
   'common.optional': 'Valfrjálst',
   'common.amount': 'Upphæð',
   'preferences.intro': 'Skráðu hvernig þú vilt fá endurgreitt.',
+  'preferences.simpleIntro': 'Skráðu eina greiðsluleið.',
+  'preferences.bankAccount': 'Bankareikningur',
+  'preferences.bank': 'Banki',
+  'preferences.ledger': 'Höfuðbók',
+  'preferences.account': 'Reikningsnúmer',
+  'preferences.accountFormat': '0000-00-000000',
+  'preferences.nationalIdFormat': '000000-0000',
+  'preferences.other': 'Annað',
+  'preferences.otherHint': 'Leiðbeiningar.',
+  'preferences.debtorsCanSee': 'Þeir sem skulda þér fá að sjá upplýsingarnar.',
+  'preferences.encryptedAtRest': 'Greiðsluupplýsingarnar eru dulkóðaðar við vistun.',
+  'preferences.savedSimple': 'Greiðsluleiðin var vistuð.',
+  'preferences.storageUnavailable': 'SQL107 vantar.',
+  'preferences.cryptoUnavailable': 'Lykil vantar.',
+  'preferences.decryptFailed': 'Afkóðun mistókst.',
+  'preferences.legacyTitle': 'Eldri greiðsluleiðir',
+  'preferences.legacyMultiple': 'Fleiri en ein eldri leið.',
+  'preferences.legacyReenter': 'Endurvistaðu leiðina.',
+  'preferences.invalidProfile': 'Ógild greiðsluleið.',
+  'preferences.clear': 'Hreinsa greiðsluleið',
+  'preferences.clearConfirm': 'Hreinsa?',
   'preferences.new': 'Ný greiðsluleið',
   'preferences.edit': 'Breyta greiðsluleið',
   'preferences.name': 'Heiti',
@@ -90,8 +111,8 @@ vi.mock('next-intl', () => ({
 }))
 
 vi.mock('@/lib/expenses/actions', () => ({
-  deactivateExpensePaymentPreference: mockDeactivatePreference,
-  saveExpensePaymentPreference: mockSavePreference,
+  saveExpensePaymentProfileV2: mockSaveProfile,
+  clearExpensePaymentProfileV2: mockClearProfile,
   transitionExpenseRepayment: mockTransitionRepayment,
 }))
 
@@ -99,26 +120,19 @@ import { ExpensePaymentPreferences } from '@/components/expenses/ExpensePaymentP
 import { ExpensePaymentDetails } from '@/components/expenses/ExpensePaymentDetails'
 import { ExpenseRepaymentActions } from '@/components/expenses/ExpenseRepaymentActions'
 
-function paymentPreference(
-  overrides: Partial<ExpensePaymentPreferenceView> = {},
-): ExpensePaymentPreferenceView {
+function paymentProfile(
+  overrides: Partial<ExpensePaymentProfileV2View> = {},
+): ExpensePaymentProfileV2View {
   return {
-    id: 'preference-owner-1',
-    title: 'Aðalreikningur',
-    kind: 'bank_account',
-    supportedCurrencies: ['ISK', 'EUR'],
-    details: {
-      accountNumber: '0159-26-123456',
-      nationalId: '010180-9999',
-      instructions: 'Setja Kvittun í skýringu',
-      defaultReference: 'Kvittun',
-      // Deliberately stale/irrelevant for this kind. It must not be re-saved.
-      phoneNumber: '+354 555 0101',
-    },
-    visibility: 'private',
+    id: '11111111-1111-4111-8111-111111111111',
     version: 7,
-    active: true,
-    assignments: [{ scopeType: 'currency', currency: 'ISK', groupId: null }],
+    details: { bank: '0159', ledger: '26', account: '123456', nationalId: '0101809999', other: 'Kvittun' },
+    storageReady: true,
+    cryptoReady: true,
+    decryptFailed: false,
+    legacyActiveCount: 0,
+    legacySnapshotCount: 0,
+    legacyNeedsChoice: false,
     ...overrides,
   }
 }
@@ -149,11 +163,8 @@ function repayment(overrides: Partial<ExpenseRepaymentView> = {}): ExpenseRepaym
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockSavePreference.mockResolvedValue({
-    ok: true,
-    data: { preferenceId: 'preference-owner-1' },
-  })
-  mockDeactivatePreference.mockResolvedValue({ ok: true })
+  mockSaveProfile.mockResolvedValue({ ok: true, data: { profileId: '11111111-1111-4111-8111-111111111111', version: 8 } })
+  mockClearProfile.mockResolvedValue({ ok: true })
   mockTransitionRepayment.mockResolvedValue({ ok: true })
   vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
   vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -192,70 +203,25 @@ describe('ExpensePaymentDetails before outside payment', () => {
   })
 })
 
-describe('ExpensePaymentPreferences owner-only detail handling', () => {
-  it('keeps saved detail values masked until the owner explicitly opens edit', () => {
-    const preference = paymentPreference()
-    const { container } = render(
-      <ExpensePaymentPreferences preferences={[preference]} groups={[]} />,
-    )
-
-    expect(screen.getByText('Aðalreikningur')).toBeInTheDocument()
-    expect(screen.getByText('Nákvæmar upplýsingar birtast aðeins eigandanum við breytingu og í heimiluðu uppgjörssamhengi.')).toBeInTheDocument()
-    expect(screen.queryByDisplayValue('0159-26-123456')).toBeNull()
-    expect(screen.queryByDisplayValue('010180-9999')).toBeNull()
-    expect(container.textContent).not.toContain('0159-26-123456')
-    expect(container.textContent).not.toContain('010180-9999')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Breyta greiðsluleið' }))
-
-    expect(screen.getByRole('textbox', { name: 'Reikningsnúmer' })).toHaveValue('0159-26-123456')
-    expect(screen.getByRole('textbox', { name: /Kennitala/ })).toHaveValue('010180-9999')
+describe('ExpensePaymentPreferences encrypted profile', () => {
+  it('shows the single profile and formats bank and national ID previews', () => {
+    render(<ExpensePaymentPreferences profile={paymentProfile()} />)
+    expect(screen.getByText('0159-26-123456')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('010180-9999')).toBeInTheDocument()
+    expect(screen.getByText('Greiðsluupplýsingarnar eru dulkóðaðar við vistun.')).toBeInTheDocument()
   })
 
-  it('offers only private and debt-context visibility choices', () => {
-    render(<ExpensePaymentPreferences preferences={[]} groups={[]} />)
-
-    const visibility = screen.getByRole('combobox', { name: 'Hver má sjá upplýsingarnar?' })
-    const options = within(visibility).getAllByRole('option')
-    expect(options).toHaveLength(2)
-    expect(options.map((option) => option.getAttribute('value'))).toEqual(['private', 'debt_context'])
-    expect(within(visibility).getByRole('option', { name: 'Aðeins ég' })).toBeInTheDocument()
-    expect(within(visibility).getByRole('option', { name: 'Sá sem skuldar mér í þessu uppgjöri' })).toBeInTheDocument()
-  })
-
-  it('submits owner edits with the preference id, expected-version CAS and kind-safe details', async () => {
-    render(<ExpensePaymentPreferences preferences={[paymentPreference()]} groups={[]} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Breyta greiðsluleið' }))
-
-    fireEvent.change(screen.getByRole('textbox', { name: 'Heiti' }), {
-      target: { value: 'Uppfærður reikningur' },
-    })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Hver má sjá upplýsingarnar?' }), {
-      target: { value: 'debt_context' },
-    })
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Vista greiðsluleið' }))
-    })
-
-    await waitFor(() => expect(mockSavePreference).toHaveBeenCalledTimes(1))
-    expect(mockSavePreference).toHaveBeenCalledWith({
-      preference_id: 'preference-owner-1',
+  it('submits normalized profile fields with CAS', async () => {
+    render(<ExpensePaymentPreferences profile={paymentProfile()} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Vista greiðsluleið' })) })
+    await waitFor(() => expect(mockSaveProfile).toHaveBeenCalledTimes(1))
+    expect(mockSaveProfile).toHaveBeenCalledWith(expect.objectContaining({
+      profile_id: '11111111-1111-4111-8111-111111111111',
       expected_version: 7,
+      bank: '0159', ledger: '26', account: '123456', national_id: '0101809999', other: 'Kvittun',
       request_id: expect.any(String),
-      title: 'Uppfærður reikningur',
-      kind: 'bank_account',
-      supported_currencies: ['ISK', 'EUR'],
-      details: {
-        accountNumber: '0159-26-123456',
-        nationalId: '010180-9999',
-        instructions: 'Setja Kvittun í skýringu',
-        defaultReference: 'Kvittun',
-      },
-      visibility: 'debt_context',
-      assignment: { scope_type: 'currency', currency: 'ISK' },
-    })
-    expect(mockRefresh).toHaveBeenCalledTimes(1)
+    }))
+    expect(mockPush).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt')
   })
 })
 

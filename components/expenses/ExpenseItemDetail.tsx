@@ -106,8 +106,8 @@ export async function ExpenseItemDetail({
     }
     return rows
   }, new Map<string, ExpenseGroupView['repayments'][number]>())
-  const reportTransferByMember = new Map(oneOffSettlementTransfers
-    .filter((transfer) => transfer.canReport)
+  const actionTransferByMember = new Map(oneOffSettlementTransfers
+    .filter((transfer) => transfer.canReport || transfer.canRecordReceived)
     .map((transfer) => [transfer.fromMemberId, transfer] as const))
   const settlementParticipantRows: ExpenseSettlementParticipantRow[] = effectiveBalances.map((balance) => {
     const amountMinor = group.kind === 'one_off'
@@ -131,7 +131,8 @@ export async function ExpenseItemDetail({
       category,
       repaymentStatus,
       repaymentId: latestRepaymentByMember.get(balance.partyId)?.id ?? null,
-      reportTransfer: reportTransferByMember.get(balance.partyId) ?? null,
+      remainingAmountMinor: Math.max(-balance.amountMinor, 0),
+      actionTransfer: actionTransferByMember.get(balance.partyId) ?? null,
     }
   })
   // The headline must reflect the actionable settlement, which already

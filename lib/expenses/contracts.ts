@@ -36,6 +36,7 @@ export interface ExpenseParticipantOption {
   pickerLabel: string
   /** Public/profile label that will be snapshotted into the shared group. */
   sharedLabel: string
+  customLabels?: Array<{ id: string; name: string }>
 }
 
 export interface ExpenseMemberView {
@@ -141,6 +142,8 @@ export interface ExpenseSettlementTransferView {
   currency: string
   expectedFinancialVersion: number
   canReport: boolean
+  /** The recipient (or an authorized guest manager) may record cash received. */
+  canRecordReceived?: boolean
   /** Current, server-authorized details shown before an outside payment. */
   paymentInstruction: ExpensePaymentSnapshotView | null
 }
@@ -246,6 +249,10 @@ export interface ExpenseGroupSummaryView {
   expenseCount: number
   pendingConfirmationCount: number
   createdAt: string
+  /** Shared participant labels used only to filter the signed-in user's dashboard. */
+  counterparties?: Array<{ key: string; label: string }>
+  /** Reusable relationship circles explicitly attached to this expense context. */
+  relationshipCircles?: Array<{ id: string; name: string }>
 }
 
 export interface ExpenseInvitationView {
@@ -270,4 +277,22 @@ export interface ExpensePaymentPreferenceView {
     currency: string | null
     groupId: string | null
   }>
+}
+
+export interface ExpensePaymentProfileV2View {
+  id: string | null
+  version: number | null
+  details: {
+    bank: string | null
+    ledger: string | null
+    account: string | null
+    nationalId: string | null
+    other: string | null
+  } | null
+  storageReady: boolean
+  cryptoReady: boolean
+  decryptFailed: boolean
+  legacyActiveCount: number
+  legacySnapshotCount: number
+  legacyNeedsChoice: boolean
 }

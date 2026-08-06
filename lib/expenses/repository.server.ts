@@ -9,6 +9,14 @@ import {
 } from './balances'
 import { addMinorAmounts } from './money'
 import { paymentSnapshotForViewer } from './payment-snapshot-visibility'
+import {
+  decryptExpensePaymentProfile,
+  expensePaymentCryptoConfigured,
+} from './payment-crypto.server'
+import {
+  formatExpenseBankAccount,
+  formatExpenseNationalId,
+} from './payment-profile'
 import { canLeaveExpenseGroup } from './member-exit'
 import { canActAsExpenseMember, canManageExpenseMemberOnBehalf } from './policy'
 import type {
@@ -29,6 +37,7 @@ import type {
   ExpenseMemberRole,
   ExpenseMemberView,
   ExpensePaymentPreferenceView,
+  ExpensePaymentProfileV2View,
   ExpenseRepaymentView,
   ExpenseRevisionSnapshot,
   ExpenseRevisionView,
@@ -428,6 +437,7 @@ function buildGroupView(
   const availableBalances = applySettlementTransfers(domainBalances, reportedReservations)
   const transfers = simplifySettlement(availableBalances).map((transfer) => {
     const from = membersById.get(transfer.fromPartyId)
+    const to = membersById.get(transfer.toPartyId)
     const viewerIsFrom = from ? canActAsExpenseMember({
       actorUserId,
       memberStatus: from.status,
@@ -437,6 +447,16 @@ function buildGroupView(
       canManage,
       memberStatus: from?.status,
       memberUserId: from?.user_id,
+    })
+    const viewerIsTo = to ? canActAsExpenseMember({
+      actorUserId,
+      memberStatus: to.status,
+      memberUserId: to.user_id,
+    }) : false
+    const managedCreditor = canManageExpenseMemberOnBehalf({
+      canManage,
+      memberStatus: to?.status,
+      memberUserId: to?.user_id,
     })
     return {
       fromMemberId: transfer.fromPartyId,
@@ -448,6 +468,8 @@ function buildGroupView(
       expectedFinancialVersion: rows.group.financial_version,
       canReport: !settlementRequiresReview
         && (viewerIsFrom || managedDebtor),
+      canRecordReceived: !settlementRequiresReview
+        && (viewerIsTo || managedCreditor),
       paymentInstruction: null,
     }
   })
@@ -605,6 +627,46 @@ async function attachCurrentPaymentInstructions(
     ) return transfer
 
     try {
+      const { data: encryptedData, error: encryptedError } = await admin.rpc(
+        'expense_resolve_payment_profile_v2',
+        {
+          p_actor_id: actorUserId,
+          p_group_id: group.id,
+          p_from_member_id: transfer.fromMemberId,
+          p_to_member_id: transfer.toMemberId,
+          p_currency: transfer.currency,
+        },
+      )
+      if (!encryptedError && encryptedData && typeof encryptedData === 'object' && !Array.isArray(encryptedData)) {
+        const encrypted = encryptedData as Record<string, unknown>
+        const profileId = typeof encrypted.profile_id === 'string' ? encrypted.profile_id : ''
+        const encryptedOwnerId = typeof encrypted.owner_user_id === 'string' ? encrypted.owner_user_id : ''
+        if (profileId && encryptedOwnerId === ownerUserId) {
+          const details = decryptExpensePaymentProfile({
+            ownerUserId,
+            profileId,
+            envelope: encrypted.envelope,
+          })
+          const accountNumber = formatExpenseBankAccount(details)
+          const nationalId = formatExpenseNationalId(details.nationalId)
+          return {
+            ...transfer,
+            paymentInstruction: {
+              title: 'payment_profile_v2',
+              kind: accountNumber ? 'bank_account' as const : 'other' as const,
+              currency: transfer.currency,
+              details: {
+                ...(accountNumber ? { accountNumber } : {}),
+                ...(nationalId ? { nationalId } : {}),
+                ...(details.other ? { instructions: details.other } : {}),
+              },
+              visibility: 'debt_context' as const,
+              capturedAt: new Date().toISOString(),
+            },
+          }
+        }
+      }
+
       const { data, error } = await admin.rpc('expense_resolve_payment_instruction', {
         p_actor_id: actorUserId,
         p_group_id: group.id,
@@ -695,6 +757,28 @@ export async function getExpenseDashboard(
   const groupIds = [...new Set(activeMemberships.map((row) => row.group_id))]
   const loaded = await Promise.all(groupIds.map((groupId) => getExpenseGroupView(actorUserId, groupId)))
   const groups = loaded.filter((group): group is ExpenseGroupView => group !== null)
+  const circleContextsByGroup = new Map<string, Array<{ id: string; name: string }>>()
+  if (groupIds.length > 0) {
+    try {
+      const { data: contextRows, error: contextError } = await admin
+        .from('relationship_circle_expense_contexts')
+        .select('group_id, circle_id, circle_name_snapshot')
+        .in('group_id', groupIds)
+      if (!contextError) {
+        for (const row of (contextRows ?? []) as Array<{
+          group_id: string
+          circle_id: string
+          circle_name_snapshot: string
+        }>) {
+          const contexts = circleContextsByGroup.get(row.group_id) ?? []
+          contexts.push({ id: row.circle_id, name: row.circle_name_snapshot })
+          circleContextsByGroup.set(row.group_id, contexts)
+        }
+      }
+    } catch {
+      // SQL108 is independently gated. UL remains usable before its context table exists.
+    }
+  }
   let invitations: ExpenseInvitationView[] = []
   if (invitedMemberships.length > 0) {
     const invitationIds = invitedMemberships.map((row) => row.group_id)
@@ -742,6 +826,13 @@ export async function getExpenseDashboard(
     expenseCount: group.expenses.length,
     pendingConfirmationCount: group.repayments.filter((repayment) => repayment.canConfirm).length,
     createdAt: group.createdAt,
+    counterparties: group.members
+      .filter((member) => member.status === 'active' && !member.isSelf)
+      .map((member) => ({
+        key: member.displayName.trim().toLocaleLowerCase('is'),
+        label: member.displayName,
+      })),
+    relationshipCircles: circleContextsByGroup.get(group.id) ?? [],
   }))
   return {
     groups: summaries.filter((group) => group.kind === 'group'),
@@ -917,7 +1008,50 @@ export async function getExpenseRepaymentView(
   const group = await getExpenseGroupView(actorUserId, (data as { group_id: string }).group_id)
   if (!group) return null
   const repayment = group.repayments.find((item) => item.id === repaymentId)
-  return repayment ? { group, repayment } : null
+  if (!repayment) return null
+
+  try {
+    const { data: encryptedData, error: encryptedError } = await getAdmin().rpc(
+      'expense_resolve_repayment_payment_snapshot_v2',
+      { p_actor_id: actorUserId, p_repayment_id: repaymentId },
+    )
+    if (!encryptedError && encryptedData && typeof encryptedData === 'object' && !Array.isArray(encryptedData)) {
+      const snapshot = encryptedData as Record<string, unknown>
+      const profileId = typeof snapshot.profile_id === 'string' ? snapshot.profile_id : ''
+      const ownerUserId = typeof snapshot.owner_user_id === 'string' ? snapshot.owner_user_id : ''
+      const capturedAt = typeof snapshot.captured_at === 'string' ? snapshot.captured_at : repayment.createdAt
+      if (profileId && ownerUserId) {
+        const details = decryptExpensePaymentProfile({
+          ownerUserId,
+          profileId,
+          envelope: snapshot.envelope,
+        })
+        const accountNumber = formatExpenseBankAccount(details)
+        const nationalId = formatExpenseNationalId(details.nationalId)
+        return {
+          group,
+          repayment: {
+            ...repayment,
+            paymentSnapshot: {
+              title: 'payment_profile_v2',
+              kind: accountNumber ? 'bank_account' : 'other',
+              currency: repayment.currency,
+              details: {
+                ...(accountNumber ? { accountNumber } : {}),
+                ...(nationalId ? { nationalId } : {}),
+                ...(details.other ? { instructions: details.other } : {}),
+              },
+              visibility: 'debt_context',
+              capturedAt,
+            },
+          },
+        }
+      }
+    }
+  } catch {
+    // Encrypted payment data fails closed while repayment details remain usable.
+  }
+  return { group, repayment }
 }
 
 export async function getExpensePaymentPreferences(
@@ -969,4 +1103,91 @@ export async function getExpensePaymentPreferences(
       })),
     }
   })
+}
+
+export async function getExpensePaymentProfileV2(
+  actorUserId: string,
+): Promise<ExpensePaymentProfileV2View> {
+  const admin = getAdmin()
+  const [profileResult, legacyResult, snapshotResult] = await Promise.all([
+    admin.from('expense_payment_profiles_v2')
+      .select('id, owner_user_id, encrypted_details, version')
+      .eq('owner_user_id', actorUserId)
+      .maybeSingle(),
+    admin.from('expense_payment_preferences')
+      .select('id', { count: 'exact', head: true })
+      .eq('owner_user_id', actorUserId)
+      .eq('active', true),
+    admin.from('expense_repayments')
+      .select('id', { count: 'exact', head: true })
+      .contains('payment_preference_snapshot', { owner_user_id: actorUserId }),
+  ])
+
+  const cryptoReady = expensePaymentCryptoConfigured()
+  const legacyActiveCount = legacyResult.count ?? 0
+  const legacySnapshotCount = snapshotResult.count ?? 0
+  if (profileResult.error) {
+    return {
+      id: null,
+      version: null,
+      details: null,
+      storageReady: false,
+      cryptoReady,
+      decryptFailed: false,
+      legacyActiveCount,
+      legacySnapshotCount,
+      legacyNeedsChoice: legacyActiveCount > 1,
+    }
+  }
+
+  const row = profileResult.data as {
+    id: string
+    owner_user_id: string
+    encrypted_details: unknown
+    version: number
+  } | null
+  if (!row) {
+    return {
+      id: null,
+      version: null,
+      details: null,
+      storageReady: true,
+      cryptoReady,
+      decryptFailed: false,
+      legacyActiveCount,
+      legacySnapshotCount,
+      legacyNeedsChoice: legacyActiveCount > 1,
+    }
+  }
+
+  try {
+    const details = decryptExpensePaymentProfile({
+      ownerUserId: actorUserId,
+      profileId: row.id,
+      envelope: row.encrypted_details,
+    })
+    return {
+      id: row.id,
+      version: Number(row.version),
+      details,
+      storageReady: true,
+      cryptoReady,
+      decryptFailed: false,
+      legacyActiveCount,
+      legacySnapshotCount,
+      legacyNeedsChoice: legacyActiveCount > 1,
+    }
+  } catch {
+    return {
+      id: row.id,
+      version: Number(row.version),
+      details: null,
+      storageReady: true,
+      cryptoReady,
+      decryptFailed: true,
+      legacyActiveCount,
+      legacySnapshotCount,
+      legacyNeedsChoice: legacyActiveCount > 1,
+    }
+  }
 }

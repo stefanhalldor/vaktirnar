@@ -84,6 +84,13 @@ const translations: Record<string, string> = {
   'repayment.outsidePayment': 'Greiðslan fer fram utan Teskeiðar.',
   'repayment.maximum': 'Að hámarki {amount}',
   'repayment.report': 'Tilkynna greitt',
+  'repayment.reportDialogTitle': 'Tilkynna greiðslu',
+  'repayment.reportDialogDescription': 'Skráðu upphæðina sem þú greiddir.',
+  'repayment.recordReceived': 'Merkja greiðslu móttekna',
+  'repayment.recordingReceived': 'Skrái greiðslu...',
+  'repayment.recordReceivedDialogTitle': 'Merkja greiðslu móttekna',
+  'repayment.recordReceivedDialogDescription': 'Skráðu upphæðina sem hefur borist.',
+  'repayment.close': 'Loka greiðsluglugga',
   'repayment.reviewRequiredTitle': 'Uppgjörið þarfnast yfirferðar',
   'repayment.reviewRequiredBody': 'Tilkynnt greiðsla passar ekki lengur.',
   'repayment.reviewRequiredAction': 'Fara í uppgjör',
@@ -93,6 +100,10 @@ const translations: Record<string, string> = {
   'repayment.statusConfirmed': 'Staðfest',
   'repayment.reportedAt': 'Greiðsla tilkynnt {date}',
   'repayment.confirmedReportedAt': 'Greiðsla tilkynnt {date} · staðfest',
+  'repayment.reportedAmountAt': 'Greiðsla upp á {amount} tilkynnt {date}',
+  'repayment.confirmedAmountAt': 'Greitt {amount} · staðfest {date}',
+  'repayment.partiallyPaid': 'Greitt að hluta',
+  'repayment.remainingAmount': 'Eftir að greiða {amount}',
   'history.title': 'Saga hlutarins',
   'history.empty': 'Engin saga hefur verið skráð enn.',
   'history.showChanges': 'Sýna breytingar',
@@ -146,6 +157,7 @@ vi.mock('@/lib/expenses/actions', () => ({
   linkExpenseGuestMember: vi.fn(),
   removeExpenseGroupMember: vi.fn(),
   reportExpenseRepayment: vi.fn(),
+  recordExpenseRepaymentReceived: vi.fn(),
   resendExpenseMemberInvitation: vi.fn(),
 }))
 
@@ -396,7 +408,7 @@ describe('ExpenseItemDetail flow context', () => {
     expect(screen.queryByText('Anna skuldar')).not.toBeInTheDocument()
     expect(screen.queryByText('Berglind skuldar')).not.toBeInTheDocument()
     expect(screen.queryByText('Ég á inni')).not.toBeInTheDocument()
-    expect(screen.getByText(/Greiðsla tilkynnt 5\. ágú\. 2026, 11:54/)).toBeInTheDocument()
+    expect(screen.getByText(/Greiðsla upp á 3\.334\s*kr\. tilkynnt 5\. ágú\. 2026, 11:54/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Útistandandi 2' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tilkynnt 1' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Greiðslu lokið 0' })).toBeInTheDocument()
@@ -407,10 +419,64 @@ describe('ExpenseItemDetail flow context', () => {
     const participantList = screen.getByRole('list', { name: 'Þátttakendur og staða' })
     expect(within(participantList).getByText('Anna')).toBeInTheDocument()
     expect(within(participantList).queryByText('Berglind')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Greiðsla tilkynnt/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /Greiðsla upp á .* tilkynnt/ })).toHaveAttribute(
       'href',
       '/auth-mvp/utlagt-og-endurgreitt/endurgreidslur/repayment-1',
     )
+  })
+
+  it('keeps a confirmed partial payer outstanding and offers the recipient the remainder', async () => {
+    const partialExpense: ExpenseItemView = {
+      ...expense,
+      totalMinor: 15_000_000,
+      payments: [{ memberId: 'self', displayName: 'Ég', amountMinor: 15_000_000 }],
+      shares: [
+        { memberId: 'self', displayName: 'Ég', amountMinor: 5_000_000 },
+        { memberId: 'anna', displayName: 'Anna', amountMinor: 5_000_000 },
+        { memberId: 'stebbi', displayName: 'Stebbishj', amountMinor: 5_000_000 },
+      ],
+    }
+    const confirmedPartial = {
+      id: 'repayment-partial', obligationId: 'obligation-partial', groupId: group.id,
+      fromMemberId: 'stebbi', fromDisplayName: 'Stebbishj', toMemberId: 'self', toDisplayName: 'Ég',
+      amountMinor: 3_600_000, currency: 'ISK', occurredOn: '2026-08-05', note: null,
+      status: 'confirmed' as const, createdAt: '2026-08-05T11:54:00Z',
+      canConfirm: false, canReject: false, canCancel: false, requiresReview: false,
+      paymentSnapshot: null,
+    }
+    const partialGroup: ExpenseGroupView = {
+      ...group,
+      kind: 'one_off',
+      financialVersion: 4,
+      expenses: [partialExpense],
+      members: [
+        ...group.members,
+        { id: 'stebbi', displayName: 'Stebbishj', role: 'member', status: 'active', isSelf: false, isRegistered: true },
+      ],
+      balances: [
+        { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 6_400_000, isSelf: true },
+        { memberId: 'anna', displayName: 'Anna', currency: 'ISK', amountMinor: -5_000_000, isSelf: false },
+        { memberId: 'stebbi', displayName: 'Stebbishj', currency: 'ISK', amountMinor: -1_400_000, isSelf: false },
+      ],
+      settlementTransfers: [
+        { fromMemberId: 'anna', fromDisplayName: 'Anna', toMemberId: 'self', toDisplayName: 'Ég', amountMinor: 5_000_000, currency: 'ISK', expectedFinancialVersion: 4, canReport: false, canRecordReceived: true, paymentInstruction: null },
+        { fromMemberId: 'stebbi', fromDisplayName: 'Stebbishj', toMemberId: 'self', toDisplayName: 'Ég', amountMinor: 1_400_000, currency: 'ISK', expectedFinancialVersion: 4, canReport: false, canRecordReceived: true, paymentInstruction: null },
+      ],
+      repayments: [confirmedPartial],
+    }
+
+    render(await ExpenseItemDetail({
+      group: partialGroup,
+      expense: partialExpense,
+      view: 'settlement',
+      initialDate: '2026-08-06',
+    }))
+
+    expect(screen.getByText('Greitt að hluta')).toBeInTheDocument()
+    expect(screen.getByText(/Greitt 3\.600\.000\s*kr\./)).toBeInTheDocument()
+    expect(screen.getByText(/Eftir að greiða 1\.400\.000\s*kr\./)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Útistandandi 2' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Merkja greiðslu móttekna' })).toHaveLength(2)
   })
 
   it('keeps editing available after settlement starts and explains a reported-payment conflict', async () => {

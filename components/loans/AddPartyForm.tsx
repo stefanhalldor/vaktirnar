@@ -24,8 +24,12 @@ export function AddPartyForm({ loanId, relationshipOptions }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [recipientEmail, setRecipientEmail] = useState('')
+  const [relationshipLabelId, setRelationshipLabelId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [saveEmailStatus, setSaveEmailStatus] = useState<'sent' | 'failed' | 'uncertain' | null>(null)
+  const relationshipLabels = Array.from(new Map(
+    (relationshipOptions ?? []).flatMap((option) => option.customLabels ?? []).map((label) => [label.id, label]),
+  ).values())
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -63,12 +67,13 @@ export function AddPartyForm({ loanId, relationshipOptions }: Props) {
       {relationshipOptions && relationshipOptions.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium text-[#42493e]">{t('recipientFromContacts')}</span>
+          {relationshipLabels.length > 0 && <div className="flex flex-wrap gap-2 py-1" aria-label={t('relationshipLabelFilter')}><button type="button" onClick={() => setRelationshipLabelId(null)} className={`min-h-10 rounded-full border px-3 text-sm ${relationshipLabelId === null ? 'border-[#154212] bg-[#154212] text-white' : 'border-gray-200'}`}>{t('allRelationshipLabels')}</button>{relationshipLabels.map((label) => <button key={label.id} type="button" onClick={() => setRelationshipLabelId(label.id)} className={`min-h-10 rounded-full border px-3 text-sm ${relationshipLabelId === label.id ? 'border-[#154212] bg-[#154212] text-white' : 'border-gray-200'}`}>{label.name}</button>)}</div>}
           <div
             role="listbox"
             aria-label={t('recipientFromContacts')}
             className="max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white"
           >
-            {relationshipOptions.map((opt) => (
+            {relationshipOptions.filter((option) => !relationshipLabelId || option.customLabels?.some((label) => label.id === relationshipLabelId)).map((opt) => (
               <button
                 key={opt.id}
                 type="button"

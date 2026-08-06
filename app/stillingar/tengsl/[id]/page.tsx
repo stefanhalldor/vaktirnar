@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { guardFeatureAccess } from '@/lib/loans/guard'
 import { getRelationship, getRelationshipLoanActivity } from '@/lib/relationships/actions'
-import { TagSelectForm } from '@/components/tengsl/TagSelectForm'
+import { RelationshipLabelsForm } from '@/components/tengsl/RelationshipLabelsForm'
 import { RelationshipDetailsForm } from '@/components/tengsl/RelationshipDetailsForm'
-import { ALLOWED_TAGS, type RelationshipTag } from '@/lib/relationships/types'
+import { getRelationshipLabelState } from '@/lib/relationships/repository-v2.server'
 import { formatDateOnly } from '@/lib/date-format'
 
 export default async function TengslDetailPage({
@@ -22,7 +22,10 @@ export default async function TengslDetailPage({
     getLocale(),
   ])
 
-  const relationship = await getRelationship(user.id, id)
+  const [relationship, labelState] = await Promise.all([
+    getRelationship(user.id, id),
+    getRelationshipLabelState(user.id),
+  ])
   if (!relationship) notFound()
 
   // Dynamic activity lookup — does not rely on relationship_sources
@@ -33,11 +36,6 @@ export default async function TengslDetailPage({
     relationship.counterpart_display_name ??
     relationship.email_canonical ??
     id
-
-  const currentTag =
-    (relationship.tags.find((tag) =>
-      (ALLOWED_TAGS as readonly string[]).includes(tag),
-    ) as RelationshipTag | undefined) ?? null
 
   return (
     <div className="min-h-screen bg-background">
@@ -67,7 +65,12 @@ export default async function TengslDetailPage({
           )}
         </div>
 
-        <TagSelectForm relationshipId={id} currentTag={currentTag} />
+        <RelationshipLabelsForm
+          relationshipId={id}
+          labels={labelState.labels}
+          assignedLabelIds={labelState.relationshipLabelIds[id] ?? []}
+          available={labelState.available}
+        />
 
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-medium text-foreground">{t('minarNótur')}</h2>

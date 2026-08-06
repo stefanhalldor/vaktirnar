@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { getAdmin } from '@/lib/supabase/admin'
 import type { ExpenseParticipantOption } from './contracts'
 import type { ExpenseNewMemberInput } from './validation'
+import { getRelationshipLabelState } from '@/lib/relationships/repository-v2.server'
 
 interface RelationshipRow {
   id: string
@@ -23,6 +24,14 @@ export interface ResolvedExpenseMember {
   role: 'owner' | 'member'
   status: 'invited' | 'active'
   relationshipId?: string
+  circleId?: string
+  circleMemberId?: string
+}
+
+interface CircleMemberRow {
+  id: string
+  circle_id: string
+  user_id: string
 }
 
 async function getProfileNames(userIds: readonly string[]): Promise<Map<string, string>> {
@@ -52,6 +61,7 @@ export async function getExpenseParticipantOptions(
   if (!data) return []
 
   const rows = data as RelationshipRow[]
+  const labelState = await getRelationshipLabelState(ownerUserId)
   const profileNames = await getProfileNames(
     rows.flatMap((row) => row.counterpart_user_id ? [row.counterpart_user_id] : []),
   )
@@ -63,6 +73,9 @@ export async function getExpenseParticipantOptions(
       relationshipId: row.id,
       pickerLabel: row.private_display_name?.trim() || sharedLabel,
       sharedLabel,
+      customLabels: labelState.labels
+        .filter((label) => labelState.relationshipLabelIds[row.id]?.includes(label.id))
+        .map((label) => ({ id: label.id, name: label.name })),
     }]
   })
 }
@@ -100,7 +113,36 @@ export async function resolveExpenseMembers(input: {
   const linkedUserIds = [...relationships.values()].flatMap(
     (row) => row.counterpart_user_id ? [row.counterpart_user_id] : [],
   )
-  const profileNames = await getProfileNames(linkedUserIds)
+  const circleInputs = input.members.filter(
+    (member): member is Extract<ExpenseNewMemberInput, { type: 'circle_member' }> =>
+      member.type === 'circle_member',
+  )
+  let circleMembers = new Map<string, CircleMemberRow>()
+  if (circleInputs.length > 0) {
+    const circleIds = [...new Set(circleInputs.map((member) => member.circle_id))]
+    if (circleIds.length !== 1) throw new Error('expense_circle_invalid')
+    const { data: actorMembership } = await getAdmin()
+      .from('relationship_circle_members')
+      .select('id')
+      .eq('circle_id', circleIds[0]!)
+      .eq('user_id', input.actorUserId)
+      .eq('status', 'active')
+      .maybeSingle()
+    if (!actorMembership) throw new Error('expense_circle_not_allowed')
+    const { data, error } = await getAdmin()
+      .from('relationship_circle_members')
+      .select('id, circle_id, user_id')
+      .eq('circle_id', circleIds[0]!)
+      .eq('status', 'active')
+      .in('id', circleInputs.map((member) => member.circle_member_id))
+    if (error) throw new Error('expense_circle_lookup_failed')
+    circleMembers = new Map(((data ?? []) as CircleMemberRow[]).map((row) => [row.id, row]))
+  }
+
+  const profileNames = await getProfileNames([
+    ...linkedUserIds,
+    ...Array.from(circleMembers.values(), (row) => row.user_id),
+  ])
 
   for (const member of input.members) {
     if (member.type === 'self') continue
@@ -112,6 +154,24 @@ export async function resolveExpenseMembers(input: {
         displayName: member.display_name,
         role: 'member',
         status: 'active',
+      })
+      continue
+    }
+
+    if (member.type === 'circle_member') {
+      const circleMember = circleMembers.get(member.circle_member_id)
+      if (!circleMember || circleMember.circle_id !== member.circle_id || circleMember.user_id === input.actorUserId) {
+        throw new Error('expense_circle_member_not_available')
+      }
+      resolved.push({
+        id: randomUUID(),
+        key: member.key,
+        userId: circleMember.user_id,
+        displayName: profileNames.get(circleMember.user_id) ?? 'Teskeiðarnotandi',
+        role: 'member',
+        status: 'invited',
+        circleId: member.circle_id,
+        circleMemberId: member.circle_member_id,
       })
       continue
     }

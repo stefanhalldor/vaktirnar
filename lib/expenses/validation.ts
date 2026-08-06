@@ -32,6 +32,12 @@ export const ExpenseNewMemberSchema = z.discriminatedUnion('type', [
     display_name: z.string().trim().min(1).max(120),
   }),
   z.object({ type: z.literal('relationship'), key: memberKey, relationship_id: uuid }),
+  z.object({
+    type: z.literal('circle_member'),
+    key: memberKey,
+    circle_id: uuid,
+    circle_member_id: uuid,
+  }),
 ])
 
 export const CreateExpenseGroupSchema = z.object({
@@ -61,6 +67,7 @@ export const CreateExpenseSchema = z.object({
   request_id: requestId,
   draft_id: uuid.nullable().optional().transform((v) => v ?? null),
   group_id: uuid.nullable().optional().transform((v) => v ?? null),
+  circle_id: uuid.nullable().optional().transform((v) => v ?? null),
   title: z.string().trim().min(1).max(200),
   total: amountInput,
   currency,
@@ -87,8 +94,18 @@ export const CreateExpenseSchema = z.object({
     if (value.members.length < 2) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['members'], message: 'participant_required' })
     }
+    value.members.forEach((member, index) => {
+      if (member.type === 'circle_member' && member.circle_id !== value.circle_id) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['members', index, 'circle_id'], message: 'circle_mismatch' })
+      }
+    })
+    if (value.circle_id === null && value.members.some((member) => member.type === 'circle_member')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['circle_id'], message: 'circle_required' })
+    }
   } else if (value.members.length > 0) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['members'], message: 'members_not_allowed' })
+  } else if (value.circle_id !== null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['circle_id'], message: 'circle_not_allowed' })
   }
 })
 
@@ -213,6 +230,8 @@ export const ReportExpenseRepaymentSchema = z.object({
   note: z.string().trim().max(1000).nullable().optional().transform((v) => v || null),
   request_id: requestId,
 })
+
+export const RecordExpenseRepaymentReceivedSchema = ReportExpenseRepaymentSchema
 
 export const TransitionExpenseRepaymentSchema = z.object({
   repayment_id: uuid,

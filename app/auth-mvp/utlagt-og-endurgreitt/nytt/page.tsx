@@ -6,6 +6,8 @@ import { getExpenseActorDisplayName, getExpenseParticipantOptions } from '@/lib/
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { parseExpenseDraftId } from '@/lib/expenses/flow'
 import { getExpensePrivateDraft } from '@/lib/expenses/repository.server'
+import { checkFeatureAccess } from '@/lib/loans/guard'
+import { getRelationshipCircleOptions } from '@/lib/relationships/repository-v2.server'
 
 export default async function NewOneOffExpensePage({ searchParams }: { searchParams: Promise<{ draft?: string | string[] }> }) {
   const [{ user }, t, query] = await Promise.all([guardExpenseAccess(), getExpenseTranslations(), searchParams])
@@ -13,6 +15,8 @@ export default async function NewOneOffExpensePage({ searchParams }: { searchPar
   let options: ExpenseParticipantOption[] = []
   let optionsError = false
   try { options = await getExpenseParticipantOptions(user.id) } catch { optionsError = true }
+  const canUseCircles = await checkFeatureAccess(user.id, user.email!, 'tengsl')
+  const circleOptions = canUseCircles ? await getRelationshipCircleOptions(user.id) : []
   const draftId = parseExpenseDraftId(query.draft)
   const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
   const safeDraft = draft?.contextType === 'one_off' ? draft : null
@@ -25,6 +29,7 @@ export default async function NewOneOffExpensePage({ searchParams }: { searchPar
         initialMembers={[{ key: 'self', label: actorName, input: { type: 'self', key: 'self' }, isSelf: true }]}
         participantOptions={options}
         participantOptionsError={optionsError}
+        circleOptions={circleOptions}
         draft={safeDraft}
         draftBaseHref="/auth-mvp/utlagt-og-endurgreitt/nytt"
       />

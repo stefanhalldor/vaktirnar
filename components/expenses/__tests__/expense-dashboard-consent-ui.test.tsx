@@ -1,10 +1,11 @@
 import React from 'react'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ExpenseDashboardView,
   ExpenseGroupSummaryView,
   ExpenseInvitationView,
+  ExpensePaymentProfileV2View,
 } from '@/lib/expenses/contracts'
 
 const { mockPush, mockRefresh, mockRespondInvitation } = vi.hoisted(() => ({
@@ -33,7 +34,20 @@ const translations: Record<string, string> = {
   'dashboard.intro': 'Haltu utan um hver lagði út.',
   'dashboard.addExpense': 'Skrá útgjald',
   'dashboard.newGroup': 'Nýr hópur',
+  'dashboard.relationshipCircles': 'Tengslahringir',
   'dashboard.paymentMethods': 'Greiðsluleiðir',
+  'dashboard.editPaymentMethods': 'Breyta',
+  'dashboard.paymentProfile': 'Greiðsluleiðin þín',
+  'dashboard.noPaymentProfile': 'Engin greiðsluleið hefur verið skráð.',
+  'dashboard.entries': 'Færslur',
+  'dashboard.viewAriaLabel': 'Veldu hvaða UL-færslur sjást',
+  'dashboard.views.active': 'Virkt',
+  'dashboard.views.all': 'Allt',
+  'dashboard.filterPeople': 'Mótaðilar',
+  'dashboard.filterCircles': 'Tengslahringir',
+  'dashboard.clearFilters': 'Hreinsa síur',
+  'dashboard.noActive': 'Engar virkar færslur.',
+  'dashboard.noFilterResults': 'Engar færslur passa við síurnar.',
   'dashboard.summary': 'Staðan þín',
   'dashboard.owedToYou': 'Þú átt inni',
   'dashboard.youOwe': 'Þú átt eftir að greiða',
@@ -127,19 +141,33 @@ function dashboard(overrides: Partial<ExpenseDashboardView> = {}): ExpenseDashbo
   }
 }
 
+function emptyPaymentProfile(): ExpensePaymentProfileV2View {
+  return {
+    id: null,
+    version: null,
+    details: null,
+    storageReady: true,
+    cryptoReady: true,
+    decryptFailed: false,
+    legacyActiveCount: 0,
+    legacySnapshotCount: 0,
+    legacyNeedsChoice: false,
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockRespondInvitation.mockResolvedValue({ ok: true })
 })
 
 describe('ExpenseDashboard compact and privacy-safe projection', () => {
-  it('shows the simplified expense flow and disables settlement without an active expense', async () => {
-    render(await ExpenseDashboard({ dashboard: dashboard() }))
+  it('shows Active and All dashboard views without the expense step navigation', async () => {
+    render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile(), canUseCircles: true }))
 
-    const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
-    expect(within(nav).getByRole('button', { name: 'Útgjald' })).toHaveAttribute('aria-current', 'step')
-    expect(within(nav).getByRole('button', { name: /Skipting/ })).toBeDisabled()
-    expect(within(nav).getByRole('button', { name: /Skipting.*Veldu eða stofnaðu útgjald fyrst/ })).toBeDisabled()
+    expect(screen.queryByRole('navigation', { name: 'Skref við skráningu útgjalds' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Virkt' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Allt' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Tengslahringir/ })).toHaveAttribute('href', '/stillingar/tengsl/hringir')
   })
 
   it('renders only compact group aggregates and never arbitrary private detail fields', async () => {
@@ -156,7 +184,7 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
       ],
     })
 
-    const { container } = render(await ExpenseDashboard({ dashboard: unsafeDashboard }))
+    const { container } = render(await ExpenseDashboard({ dashboard: unsafeDashboard, paymentProfile: emptyPaymentProfile(), canUseCircles: false }))
 
     expect(screen.getByText('Sumarferð')).toBeInTheDocument()
     expect(screen.getByText('3 útgjöld', { exact: false })).toBeInTheDocument()
@@ -170,6 +198,8 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
     const invited = invitation()
     const { container } = render(await ExpenseDashboard({
       dashboard: dashboard({ groups: [], invitations: [invited], totals: [] }),
+      paymentProfile: emptyPaymentProfile(),
+      canUseCircles: false,
     }))
 
     expect(screen.getByText('Boð sem bíða')).toBeInTheDocument()

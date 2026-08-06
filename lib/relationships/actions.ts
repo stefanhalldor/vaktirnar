@@ -40,6 +40,7 @@ export type RelationshipRecipientOption = {
   privateDisplayName: string | null
   note: string | null
   tags: string[]
+  customLabels?: Array<{ id: string; name: string }>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -799,6 +800,23 @@ export async function getRelationshipRecipientOptions(
     }
   }
 
+  const customLabelsByRelationship = new Map<string, Array<{ id: string; name: string }>>()
+  const [customLabelResult, customAssignmentResult] = await Promise.all([
+    admin.from('relationship_label_definitions').select('id, name').eq('owner_id', ownerUserId),
+    admin.from('relationship_label_assignments').select('relationship_id, label_id').eq('owner_id', ownerUserId),
+  ])
+  if (!customLabelResult.error && !customAssignmentResult.error) {
+    const names = new Map(((customLabelResult.data ?? []) as Array<{ id: string; name: string }>).map((label) => [label.id, label.name]))
+    for (const assignment of (customAssignmentResult.data ?? []) as Array<{ relationship_id: string; label_id: string }>) {
+      const name = names.get(assignment.label_id)
+      if (!name) continue
+      customLabelsByRelationship.set(assignment.relationship_id, [
+        ...(customLabelsByRelationship.get(assignment.relationship_id) ?? []),
+        { id: assignment.label_id, name },
+      ])
+    }
+  }
+
   return mergedRows.map((r) => ({
     id: r.id,
     email: r.email_canonical,
@@ -806,5 +824,6 @@ export async function getRelationshipRecipientOptions(
     privateDisplayName: r.private_display_name,
     note: r.note,
     tags: r.relationship_tags.map((t) => t.tag),
+    customLabels: customLabelsByRelationship.get(r.id) ?? [],
   }))
 }

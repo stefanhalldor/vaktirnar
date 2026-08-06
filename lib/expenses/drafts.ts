@@ -17,6 +17,7 @@ export const ExpenseDraftMemberSchema = z.object({
 }).strict()
 
 export const ExpenseDraftPayloadSchema = z.object({
+  circleId: z.string().uuid().nullable().default(null),
   members: z.array(ExpenseDraftMemberSchema).min(1).max(50),
   included: booleanMap,
   title: z.string().max(200),

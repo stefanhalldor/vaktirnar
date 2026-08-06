@@ -27,6 +27,7 @@ import type { ExpenseItemView, ExpenseParticipantOption, ExpenseRepaymentView } 
 import type { ExpenseNewMemberInput } from '@/lib/expenses/validation'
 import type { ExpenseSplitMethod } from '@/lib/expenses/types'
 import type { ExpenseDraftPayload, ExpensePrivateDraftView } from '@/lib/expenses/drafts'
+import type { RelationshipCircleOption } from '@/lib/relationships/types'
 import {
   EXPENSE_FLOW_STEPS,
   type ExpenseFlowStep,
@@ -68,6 +69,7 @@ interface ExpenseFormProps {
   initialMembers: FormMember[]
   participantOptions?: ExpenseParticipantOption[]
   participantOptionsError?: boolean
+  circleOptions?: RelationshipCircleOption[]
   initialDate: string
   initialStep?: ExpenseFlowStep
   reviewHref?: string
@@ -186,6 +188,7 @@ export function ExpenseForm({
   initialMembers,
   participantOptions = [],
   participantOptionsError = false,
+  circleOptions = [],
   initialDate,
   initialStep = 'details',
   draft = null,
@@ -237,7 +240,9 @@ export function ExpenseForm({
   const [weights, setWeights] = useState<Record<string, string>>(initialDraftPayload?.weights ?? initialAllocations.weights)
   const [preserveShares, setPreserveShares] = useState(initialDraftPayload?.preserveShares ?? Boolean(edit))
   const [relationshipId, setRelationshipId] = useState('')
+  const [participantLabelId, setParticipantLabelId] = useState<string | null>(null)
   const [guestName, setGuestName] = useState('')
+  const [circleId, setCircleId] = useState(initialDraftPayload?.circleId ?? '')
   const [error, setError] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
   const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? EXPENSE_FLOW_STEPS.length - 1 : 0)
@@ -246,6 +251,9 @@ export function ExpenseForm({
   const draftVersionRef = useRef<number | null>(draft?.version ?? null)
   const draftSavingRef = useRef(false)
   const [isPending, startTransition] = useTransition()
+  const participantLabels = Array.from(new Map(
+    participantOptions.flatMap((option) => option.customLabels ?? []).map((label) => [label.id, label]),
+  ).values()).sort((left, right) => left.name.localeCompare(right.name, locale))
 
   const draftFingerprint = JSON.stringify({
     members,
@@ -263,6 +271,7 @@ export function ExpenseForm({
     percentages,
     weights,
     preserveShares,
+    circleId,
     relationshipId,
     guestName,
   })
@@ -275,6 +284,7 @@ export function ExpenseForm({
 
   function draftPayload(): ExpenseDraftPayload {
     return {
+      circleId: circleId || null,
       members: members.map((member) => ({
         key: member.key,
         label: member.label,
@@ -386,6 +396,41 @@ export function ExpenseForm({
       isSelf: false,
     })
     setGuestName('')
+  }
+
+  function selectCircle(nextCircleId: string) {
+    if (edit || mode !== 'one_off') return
+    const previousCircleKeys = new Set(members.flatMap((member) => (
+      member.input?.type === 'circle_member' ? [member.key] : []
+    )))
+    const preservedMembers = members.filter((member) => !previousCircleKeys.has(member.key))
+    const option = circleOptions.find((circle) => circle.id === nextCircleId)
+    const additions: FormMember[] = option?.members.flatMap((member) => member.isSelf ? [] : [{
+      key: `circle:${member.circleMemberId}`,
+      label: member.displayName,
+      input: {
+        type: 'circle_member' as const,
+        key: `circle:${member.circleMemberId}`,
+        circle_id: option.id,
+        circle_member_id: member.circleMemberId,
+      },
+      isSelf: false,
+    }]) ?? []
+    const nextMembers = [...preservedMembers, ...additions]
+    const nextKeys = new Set(nextMembers.map((member) => member.key))
+    setCircleId(nextCircleId)
+    setMembers(nextMembers)
+    setIncluded((current) => Object.fromEntries(nextMembers.map((member) => [member.key, current[member.key] ?? true])))
+    setPayments((current) => Object.fromEntries(nextMembers.map((member) => [member.key, current[member.key] ?? ''])))
+    setAmounts((current) => Object.fromEntries(nextMembers.map((member) => [member.key, current[member.key] ?? '0'])))
+    setWeights((current) => Object.fromEntries(nextMembers.map((member) => [member.key, current[member.key] ?? '1'])))
+    setPayerKeys((current) => {
+      const kept = current.filter((key) => nextKeys.has(key))
+      return kept.length > 0 ? kept : [nextMembers.find((member) => member.isSelf)?.key ?? nextMembers[0]!.key]
+    })
+    if (splitMethod === 'percentage') {
+      setPercentages(equalPercentageValues(nextMembers.map((member) => member.key)))
+    }
   }
 
   function removeMember(key: string) {
@@ -655,6 +700,7 @@ export function ExpenseForm({
 
     const payload = {
       group_id: groupId ?? null,
+      circle_id: mode === 'one_off' && !edit ? circleId || null : null,
       title,
       total,
       currency,
@@ -798,7 +844,8 @@ export function ExpenseForm({
         {mode === 'one_off' ? (
           <div className="space-y-3 pt-2">
             {participantOptionsError ? <p role="status" className="text-sm text-amber-800">{t('expenseForm.participantLoadError')}</p> : null}
-            {!edit && participantOptions.length > 0 ? <div className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t('expenseForm.knownPeople')}</span><select className={expenseInputClass} value={relationshipId} onChange={(e) => setRelationshipId(e.target.value)}><option value="">{t('expenseForm.knownPeople')}</option>{participantOptions.filter((option) => !members.some((member) => member.key === `relationship:${option.relationshipId}`)).map((option) => <option key={option.relationshipId} value={option.relationshipId}>{option.pickerLabel}</option>)}</select></label><button type="button" className={expenseSecondaryButtonClass} disabled={!relationshipId} onClick={addRelationship}><Plus aria-hidden size={18} /></button></div> : null}
+            {!edit && circleOptions.length > 0 ? <label className="block"><span className={expenseLabelClass}>{t('expenseForm.relationshipCircle')}</span><select className={expenseInputClass} value={circleId} onChange={(event) => selectCircle(event.target.value)}><option value="">{t('expenseForm.noRelationshipCircle')}</option>{circleOptions.map((circle) => <option key={circle.id} value={circle.id}>{circle.name}</option>)}</select><span className="mt-1 block text-xs leading-5 text-muted-foreground">{t('expenseForm.relationshipCircleHint')}</span></label> : null}
+            {!edit && participantOptions.length > 0 ? <div className="space-y-2">{participantLabels.length > 0 ? <div className="flex flex-wrap gap-2" aria-label={t('expenseForm.filterKnownPeople')}><button type="button" className={`min-h-10 rounded-full border px-3 text-sm ${participantLabelId === null ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setParticipantLabelId(null)}>{t('expenseForm.allKnownPeople')}</button>{participantLabels.map((label) => <button key={label.id} type="button" className={`min-h-10 rounded-full border px-3 text-sm ${participantLabelId === label.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setParticipantLabelId(label.id)}>{label.name}</button>)}</div> : null}<div className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t('expenseForm.knownPeople')}</span><select className={expenseInputClass} value={relationshipId} onChange={(e) => setRelationshipId(e.target.value)}><option value="">{t('expenseForm.knownPeople')}</option>{participantOptions.filter((option) => (!participantLabelId || option.customLabels?.some((label) => label.id === participantLabelId)) && !members.some((member) => member.key === `relationship:${option.relationshipId}`)).map((option) => <option key={option.relationshipId} value={option.relationshipId}>{option.pickerLabel}</option>)}</select></label><button type="button" className={expenseSecondaryButtonClass} disabled={!relationshipId} onClick={addRelationship}><Plus aria-hidden size={18} /></button></div></div> : null}
             <div className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t('expenseForm.guestName')}</span><input className={expenseInputClass} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder={t('expenseForm.guestName')} maxLength={120} /></label><button type="button" className={expenseSecondaryButtonClass} disabled={!guestName.trim()} onClick={addGuest}><Plus aria-hidden size={18} /><span className="sr-only">{t('expenseForm.addGuest')}</span></button></div>
           </div>
         ) : null}

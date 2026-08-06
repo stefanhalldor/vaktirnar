@@ -5,9 +5,8 @@ import Link from 'next/link'
 import { CheckCircle2, ChevronRight } from 'lucide-react'
 import type { ExpenseSettlementTransferView } from '@/lib/expenses/contracts'
 import type { ExpenseMemberRepaymentStatus } from '@/lib/expenses/repayment-status'
-import { formatExpenseMinor, formatExpenseMinorForCopy } from '@/lib/expenses/input-money'
-import { ExpensePaymentDetails } from './ExpensePaymentDetails'
-import { ExpenseRepaymentReportForm } from './ExpenseRepaymentReportForm'
+import { formatExpenseMinor } from '@/lib/expenses/input-money'
+import { ExpenseRepaymentDialog } from './ExpenseRepaymentDialog'
 import { ExpenseRepaymentStatusLines } from './ExpenseRepaymentStatusLines'
 import { useExpenseTranslations } from './i18n.client'
 
@@ -24,7 +23,8 @@ export interface ExpenseSettlementParticipantRow {
   category: SettlementCategory
   repaymentStatus?: ExpenseMemberRepaymentStatus
   repaymentId: string | null
-  reportTransfer: ExpenseSettlementTransferView | null
+  remainingAmountMinor: number
+  actionTransfer: ExpenseSettlementTransferView | null
 }
 
 const FILTERS: SettlementFilter[] = ['outstanding', 'reported', 'completed', 'credit']
@@ -111,38 +111,30 @@ export function ExpenseSettlementParticipantList({
                 className="mt-1 flex min-h-11 items-center gap-2 rounded-lg text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
               >
                 <span className="min-w-0 flex-1 space-y-1">
-                  <ExpenseRepaymentStatusLines status={row.repaymentStatus} />
+                  <ExpenseRepaymentStatusLines
+                    status={row.repaymentStatus}
+                    currency={row.currency}
+                    remainingAmountMinor={row.remainingAmountMinor}
+                  />
                 </span>
                 <ChevronRight aria-hidden size={17} className="shrink-0 text-muted-foreground" />
               </Link>
             ) : (row.repaymentStatus?.reportedAmountMinor ?? 0) > 0
               || (row.repaymentStatus?.confirmedAmountMinor ?? 0) > 0 ? (
                 <div className="mt-0.5 space-y-1">
-                  <ExpenseRepaymentStatusLines status={row.repaymentStatus} />
+                  <ExpenseRepaymentStatusLines
+                    status={row.repaymentStatus}
+                    currency={row.currency}
+                    remainingAmountMinor={row.remainingAmountMinor}
+                  />
                 </div>
               ) : null}
-            {row.reportTransfer ? (
-              <details className="mt-2 border-t border-border pt-2">
-                <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
-                  {t('repayment.report')}
-                </summary>
-                <div className="space-y-4 pb-1 pt-2">
-                  <p className="text-xs leading-5 text-muted-foreground">{t('repayment.payBeforeReport')}</p>
-                  <ExpensePaymentDetails
-                    snapshot={row.reportTransfer.paymentInstruction}
-                    mode="current"
-                    amount={{
-                      display: formatExpenseMinor(row.reportTransfer.amountMinor, row.reportTransfer.currency),
-                      copy: formatExpenseMinorForCopy(row.reportTransfer.amountMinor, row.reportTransfer.currency),
-                    }}
-                  />
-                  <ExpenseRepaymentReportForm
-                    groupId={groupId}
-                    transfer={row.reportTransfer}
-                    initialDate={initialDate}
-                  />
-                </div>
-              </details>
+            {row.actionTransfer ? (
+              <ExpenseRepaymentDialog
+                groupId={groupId}
+                transfer={row.actionTransfer}
+                initialDate={initialDate}
+              />
             ) : null}
           </div>
         ))}

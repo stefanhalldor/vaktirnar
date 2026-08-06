@@ -40,7 +40,7 @@ export function ExpensePaymentDetails({
 
   return (
     <div className="space-y-3 border-y border-border py-4 text-sm">
-      {snapshot ? <p className="font-semibold">{snapshot.title}</p> : null}
+      {snapshot ? <p className="font-semibold">{snapshot.title === 'payment_profile_v2' ? t('preferences.title') : snapshot.title}</p> : null}
       <dl className="divide-y divide-border">
         {amount ? <div className="grid gap-2 py-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-center"><dt className="text-muted-foreground">{t('common.amount')}</dt><dd className="min-w-0 break-words font-semibold sm:text-right">{amount.display}</dd><dd><button type="button" className={`${expenseSecondaryButtonClass} w-full px-3 sm:w-auto`} onClick={() => copyValue('amount', amount.copy)} aria-label={t('repayment.copyValue', { label: t('common.amount') })}>{copiedKey === 'amount' ? t('repayment.copied') : t('repayment.copy')}</button></dd></div> : null}
         {snapshot ? PAYMENT_DETAIL_KEYS_BY_KIND[snapshot.kind].flatMap((key) => {

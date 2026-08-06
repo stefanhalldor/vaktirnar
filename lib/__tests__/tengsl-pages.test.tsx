@@ -31,13 +31,18 @@ vi.mock('@/lib/loans/guard', () => ({
   checkFeatureAccess: vi.fn(async () => false),
 }))
 
-const { mockGetRelationship, mockGetRelationshipLoanActivity } = vi.hoisted(() => ({
+const { mockGetRelationship, mockGetRelationshipLoanActivity, mockGetRelationshipLabelState } = vi.hoisted(() => ({
   mockGetRelationship: vi.fn(),
   mockGetRelationshipLoanActivity: vi.fn(),
+  mockGetRelationshipLabelState: vi.fn(),
 }))
 vi.mock('@/lib/relationships/actions', () => ({
   getRelationship: mockGetRelationship,
   getRelationshipLoanActivity: mockGetRelationshipLoanActivity,
+}))
+
+vi.mock('@/lib/relationships/repository-v2.server', () => ({
+  getRelationshipLabelState: mockGetRelationshipLabelState,
 }))
 
 vi.mock('@/components/tengsl/TagSelectForm', () => ({
@@ -46,6 +51,10 @@ vi.mock('@/components/tengsl/TagSelectForm', () => ({
 
 vi.mock('@/components/tengsl/RelationshipDetailsForm', () => ({
   RelationshipDetailsForm: () => React.createElement('div', { 'data-testid': 'details-form' }),
+}))
+
+vi.mock('@/components/tengsl/RelationshipLabelsForm', () => ({
+  RelationshipLabelsForm: () => React.createElement('div', { 'data-testid': 'labels-form' }),
 }))
 
 vi.mock('next-intl/server', () => ({
@@ -105,6 +114,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockGetRelationship.mockResolvedValue(BASE_RELATIONSHIP)
   mockGetRelationshipLoanActivity.mockResolvedValue([])
+  mockGetRelationshipLabelState.mockResolvedValue({
+    available: true,
+    labels: [],
+    relationshipLabelIds: {},
+  })
 })
 
 // ── notFound ──────────────────────────────────────────────────────────────────

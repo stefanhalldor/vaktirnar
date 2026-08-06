@@ -27,6 +27,7 @@ import {
   LeaveExpenseGroupSchema,
   LinkExpenseGuestMemberSchema,
   RemoveExpenseGroupMemberSchema,
+  RecordExpenseRepaymentReceivedSchema,
   ReportExpenseRepaymentSchema,
   ResendExpenseMemberInvitationSchema,
   SaveExpensePaymentPreferenceSchema,
@@ -44,6 +45,19 @@ import {
 } from './input-money'
 import { ExpenseDomainError } from './domain-error'
 import { SaveExpenseDraftSchema } from './drafts'
+import {
+  ClearExpensePaymentProfileV2Schema,
+  SaveExpensePaymentProfileV2Schema,
+} from './payment-profile-validation'
+import {
+  encryptExpensePaymentProfile,
+  ExpensePaymentCryptoUnavailableError,
+} from './payment-crypto.server'
+import {
+  expensePaymentProfileIsEmpty,
+  normalizeExpensePaymentProfile,
+  type NormalizedExpensePaymentProfileDetails,
+} from './payment-profile'
 import { guardExpenseAccess } from './guard'
 import {
   getExpenseActorDisplayName,
@@ -306,8 +320,13 @@ export async function createExpense(
       currency: transfer.currency,
     }))
 
+    const createRpc = value.group_id
+      ? 'expense_create_expense'
+      : value.circle_id
+        ? 'expense_create_expense_with_circle_context'
+        : 'expense_create_expense_with_known_members'
     const { data, error } = await getAdmin().rpc(
-      value.group_id ? 'expense_create_expense' : 'expense_create_expense_with_known_members',
+      createRpc,
       {
         p_actor_id: user.id,
         p_request_id: value.request_id,
@@ -346,6 +365,14 @@ export async function createExpense(
               : []
           )),
         }),
+        ...(value.circle_id ? {
+          p_circle_id: value.circle_id,
+          p_known_circle_members: members.flatMap((member) => (
+            member.circleMemberId
+              ? [{ member_id: member.id, circle_member_id: member.circleMemberId }]
+              : []
+          )),
+        } : {}),
       },
     )
     if (error) rpcError(error)
@@ -874,6 +901,39 @@ export async function reportExpenseRepayment(
   }
 }
 
+export async function recordExpenseRepaymentReceived(
+  input: unknown,
+): Promise<ExpenseActionResult<{ repaymentId: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = RecordExpenseRepaymentReceivedSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const amountMinor = parseExpenseAmountToMinor(parsed.data.amount, parsed.data.currency)
+    const { data, error } = await getAdmin().rpc('expense_record_received_repayment', {
+      p_actor_id: user.id,
+      p_group_id: parsed.data.group_id,
+      p_from_member_id: parsed.data.from_member_id,
+      p_to_member_id: parsed.data.to_member_id,
+      p_expected_financial_version: parsed.data.expected_financial_version,
+      p_amount_minor: amountMinor,
+      p_currency: parsed.data.currency,
+      p_occurred_on: parsed.data.occurred_on,
+      p_note: parsed.data.note,
+      p_request_id: parsed.data.request_id,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const repaymentId = String(result.repayment_id ?? '')
+    const groupId = String(result.group_id ?? '')
+    if (!repaymentId) throw new Error('expense_save_failed')
+    revalidateExpensePaths(groupId || parsed.data.group_id, undefined, repaymentId)
+    return { ok: true, data: { repaymentId } }
+  } catch (error) {
+    console.error('[expenses] record received repayment failed')
+    return actionError(error)
+  }
+}
+
 export async function transitionExpenseRepayment(input: unknown): Promise<ExpenseActionResult> {
   const { user } = await guardExpenseAccess()
   try {
@@ -944,6 +1004,153 @@ export async function deactivateExpensePaymentPreference(
     return { ok: true }
   } catch (error) {
     console.error('[expenses] deactivate payment preference failed')
+    return actionError(error)
+  }
+}
+
+export async function saveExpensePaymentProfileV2(
+  input: unknown,
+): Promise<ExpenseActionResult<{ profileId: string; version: number }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = SaveExpensePaymentProfileV2Schema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const normalized = normalizeExpensePaymentProfile({
+      bank: parsed.data.bank,
+      ledger: parsed.data.ledger,
+      account: parsed.data.account,
+      nationalId: parsed.data.national_id,
+      other: parsed.data.other,
+    })
+    if (!normalized.ok || expensePaymentProfileIsEmpty(normalized.value)) {
+      return { ok: false, error: 'invalid_input' }
+    }
+    const profileId = parsed.data.profile_id ?? randomUUID()
+    const encrypted = encryptExpensePaymentProfile({
+      ownerUserId: user.id,
+      profileId,
+      details: normalized.value,
+    })
+    const admin = getAdmin()
+    let legacySnapshots: Array<{ id: string; payment_preference_snapshot: Record<string, unknown> }> = []
+    let legacyPreferenceCount = 0
+    if (parsed.data.profile_id === null) {
+      const [snapshotResult, preferenceResult] = await Promise.all([
+        admin.from('expense_repayments')
+          .select('id, payment_preference_snapshot')
+          .contains('payment_preference_snapshot', { owner_user_id: user.id })
+          .limit(501),
+        admin.from('expense_payment_preferences')
+          .select('id', { count: 'exact', head: true })
+          .eq('owner_user_id', user.id),
+      ])
+      const { data: snapshotData, error: snapshotError } = snapshotResult
+      if (snapshotError) rpcError(snapshotError)
+      if (preferenceResult.error) rpcError(preferenceResult.error)
+      legacySnapshots = (snapshotData ?? []) as typeof legacySnapshots
+      legacyPreferenceCount = preferenceResult.count ?? 0
+      if (legacySnapshots.length > 500) return { ok: false, error: 'conflict' }
+    }
+    const encryptedSnapshots = legacySnapshots.map((row) => {
+      const snapshot = row.payment_preference_snapshot
+      const sourceProfileId = typeof snapshot.source_preference_id === 'string' ? snapshot.source_preference_id : ''
+      const sourceVersion = Number(snapshot.source_version)
+      const capturedAt = typeof snapshot.captured_at === 'string' ? snapshot.captured_at : ''
+      const rawDetails = snapshot.details && typeof snapshot.details === 'object' && !Array.isArray(snapshot.details)
+        ? snapshot.details as Record<string, unknown>
+        : {}
+      if (!sourceProfileId || !Number.isSafeInteger(sourceVersion) || sourceVersion < 1 || Number.isNaN(Date.parse(capturedAt))) {
+        throw new Error('expense_invalid_input')
+      }
+      const accountDigits = typeof rawDetails.accountNumber === 'string'
+        ? rawDetails.accountNumber.replace(/\D/g, '')
+        : ''
+      const nationalDigits = typeof rawDetails.nationalId === 'string'
+        ? rawDetails.nationalId.replace(/\D/g, '')
+        : ''
+      const other = ['instructions', 'phoneNumber', 'paymentLink', 'defaultReference']
+        .flatMap((key) => typeof rawDetails[key] === 'string' && rawDetails[key].trim() ? [rawDetails[key].trim()] : [])
+        .filter((value, index, all) => all.indexOf(value) === index)
+        .join('\n')
+        .slice(0, 1000)
+      const snapshotDetails: NormalizedExpensePaymentProfileDetails = {
+        bank: accountDigits.length === 12 ? accountDigits.slice(0, 4) : null,
+        ledger: accountDigits.length === 12 ? accountDigits.slice(4, 6) : null,
+        account: accountDigits.length === 12 ? accountDigits.slice(6) : null,
+        nationalId: nationalDigits.length === 10 ? nationalDigits : null,
+        other: other || null,
+      }
+      const snapshotEncrypted = encryptExpensePaymentProfile({
+        ownerUserId: user.id,
+        profileId: sourceProfileId,
+        details: snapshotDetails,
+      })
+      return {
+        repayment_id: row.id,
+        snapshot: {
+          profile_id: sourceProfileId,
+          owner_user_id: user.id,
+          profile_version: sourceVersion,
+          captured_at: new Date(capturedAt).toISOString(),
+          envelope: snapshotEncrypted.envelope,
+        },
+      }
+    })
+    const useConversion = parsed.data.profile_id === null
+      && (legacySnapshots.length > 0 || legacyPreferenceCount > 0)
+    const { data, error } = await admin.rpc(
+      useConversion ? 'expense_convert_legacy_payment_profile_v2' : 'expense_save_payment_profile_v2',
+      useConversion ? {
+        p_actor_id: user.id,
+        p_profile_id: profileId,
+        p_envelope: encrypted.envelope,
+        p_payload_fingerprint: encrypted.fingerprint,
+        p_encrypted_snapshots: encryptedSnapshots,
+        p_request_id: parsed.data.request_id,
+      } : {
+      p_actor_id: user.id,
+      p_profile_id: profileId,
+      p_expected_version: parsed.data.expected_version,
+      p_envelope: encrypted.envelope,
+      p_payload_fingerprint: encrypted.fingerprint,
+      p_request_id: parsed.data.request_id,
+      },
+    )
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const version = Number(result.version)
+    if (!Number.isSafeInteger(version) || version < 1) throw new Error('expense_save_failed')
+    revalidateExpensePaths()
+    revalidatePath(`${EXPENSES_PATH}/greidsluleidir`)
+    return { ok: true, data: { profileId, version } }
+  } catch (error) {
+    if (error instanceof ExpensePaymentCryptoUnavailableError) {
+      return { ok: false, error: 'feature_disabled' }
+    }
+    console.error('[expenses] save encrypted payment profile failed')
+    return actionError(error)
+  }
+}
+
+export async function clearExpensePaymentProfileV2(
+  input: unknown,
+): Promise<ExpenseActionResult> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = ClearExpensePaymentProfileV2Schema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const { error } = await getAdmin().rpc('expense_clear_payment_profile_v2', {
+      p_actor_id: user.id,
+      p_profile_id: parsed.data.profile_id,
+      p_expected_version: parsed.data.expected_version,
+      p_request_id: parsed.data.request_id,
+    })
+    if (error) rpcError(error)
+    revalidateExpensePaths()
+    revalidatePath(`${EXPENSES_PATH}/greidsluleidir`)
+    return { ok: true }
+  } catch (error) {
+    console.error('[expenses] clear encrypted payment profile failed')
     return actionError(error)
   }
 }
