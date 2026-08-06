@@ -42,6 +42,43 @@ function transport(overrides: Partial<ScopedChatTransport> = {}): ScopedChatTran
 }
 
 describe('ScopedChatPanel', () => {
+  it('interleaves context events and chat messages in one chronological stream', async () => {
+    render(
+      <ScopedChatPanel
+        threadId="thread-1"
+        transport={transport({
+          loadMessages: vi.fn().mockResolvedValue([
+            message('message-middle', 'Message in the middle', '2026-07-27T11:00:00.000Z'),
+          ]),
+        })}
+        labels={labels}
+        locale="en"
+        pollingIntervalMs={60_000}
+        timelineEvents={[
+          {
+            id: 'event-first',
+            createdAt: '2026-07-27T10:00:00.000Z',
+            content: <p>First system event</p>,
+          },
+          {
+            id: 'event-last',
+            createdAt: '2026-07-27T12:00:00.000Z',
+            content: <p>Last system event</p>,
+          },
+        ]}
+      />,
+    )
+
+    const first = screen.getByText('First system event')
+    const middle = await screen.findByText('Message in the middle')
+    const last = screen.getByText('Last system event')
+    const composer = screen.getByPlaceholderText('Write a message')
+
+    expect(first.compareDocumentPosition(middle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(middle.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(last.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows an initial load error, retries, and marks read only after a successful load', async () => {
     const loadMessages = vi.fn()
       .mockRejectedValueOnce(new Error('offline'))

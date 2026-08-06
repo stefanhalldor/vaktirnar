@@ -3,7 +3,7 @@
 import { useId, useRef } from 'react'
 import { Calendar } from 'lucide-react'
 import { useLocale } from 'next-intl'
-import { formatDateOnly } from '@/lib/date-format'
+import { formatDateOnly, normalizeDisplayLocale } from '@/lib/date-format'
 import { cn } from '@/lib/utils'
 
 interface TeskeidDateFieldProps {
@@ -43,7 +43,8 @@ export function TeskeidDateField({
   const inputId = id ?? generatedId
   const inputRef = useRef<HTMLInputElement>(null)
   const locale = useLocale()
-  const displayValue = formatDateOnly(value, locale)
+  const displayLocale = normalizeDisplayLocale(locale)
+  const displayValue = formatDateOnly(value, displayLocale)
 
   function showPicker() {
     if (disabled) return
@@ -66,7 +67,7 @@ export function TeskeidDateField({
         )}
         onClick={showPicker}
       >
-        <span className={cn('min-w-0 truncate select-none', !displayValue && 'text-muted-foreground')}>
+        <span lang={displayLocale} className={cn('min-w-0 truncate select-none', !displayValue && 'text-muted-foreground')}>
           {displayValue || placeholder}
         </span>
         <Calendar aria-hidden size={16} className="ml-3 shrink-0 text-muted-foreground" />
@@ -81,6 +82,7 @@ export function TeskeidDateField({
           required={required}
           disabled={disabled}
           aria-label={label}
+          lang={displayLocale}
           aria-describedby={ariaDescribedBy}
           onChange={(event) => onChange(event.target.value)}
           className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"

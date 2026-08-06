@@ -77,14 +77,15 @@ describe('SQL97 expense editing and identity invitations', () => {
     expect(expenseLock).toBeGreaterThan(groupLock)
     expect(body).toContain('FOR UPDATE')
     expect(body).toContain('v_group.financial_version <> p_expected_financial_version')
-    expect(body).toContain("repayment.status IN ('reported', 'confirmed')")
+    expect(body).not.toContain("repayment.status IN ('reported', 'confirmed')")
+    expect(body).toContain("v_group.status NOT IN ('active', 'settling', 'settled')")
     expect(body).toContain('p_preserve_shares')
     expect(body).toContain('p_total_minor IS NULL')
     expect(body).toContain('p_new_guest_members IS NULL')
     expect(body).toContain('jsonb_array_length(p_new_guest_members)')
-    expect(body).toMatch(/status = 'active'[\s\S]{0,120}> 50/)
+    expect(body).toMatch(/member\.status IN \('active', 'invited'\)[\s\S]{0,120}> 50/)
     expect(body).toContain("v_group.kind <> 'one_off'")
-    expect(body).toContain('SET name = left(btrim(p_title), 160), default_currency = p_currency')
+    expect(body).toContain("name = CASE WHEN v_group.kind = 'one_off'")
     expect(body).toContain("'changed', false")
     expect(body.indexOf("'changed', false")).toBeLessThan(
       body.indexOf('DELETE FROM public.expense_payments'),
@@ -93,6 +94,10 @@ describe('SQL97 expense editing and identity invitations', () => {
     expect(body).toContain('historical_payment.amount_minor = (item->>\'amount_minor\')::bigint')
     expect(body).toContain('historical_share.amount_minor = (item->>\'amount_minor\')::bigint')
     expect(body).toContain("'expense_updated'")
+    expect(body).toContain('INSERT INTO public.expense_revisions')
+    expect(body).toContain('v_before_snapshot')
+    expect(body).toContain('v_after_snapshot')
+    expect(body).toContain('expense_group_reopened_after_expense_edit')
   })
 
   it('never links identity when the email invitation is merely created', () => {
@@ -150,7 +155,8 @@ describe('SQL97 expense editing and identity invitations', () => {
     expect(reserve).toContain("interval '5 minutes'")
     expect(reserve).toContain("interval '24 hours'")
     expect(reserve).toContain('v_invitation.attempt_number >= 3')
-    expect(reserve).toContain("v_group.status <> 'active'")
+    expect(reserve).toContain("v_group.status NOT IN ('active', 'settling', 'settled')")
+    expect(reserve).toContain('v_invitation.id IS NULL OR v_role IS NULL')
     expect(reserve).toContain('v_member.user_id IS NOT NULL')
     expect(delivery).toContain('v_invitation.attempt_number <> p_attempt_number')
     expect(delivery).toContain("v_invitation.attempt_status <> 'reserved'")
@@ -182,9 +188,8 @@ describe('SQL97 expense editing and identity invitations', () => {
     expect(terminal).toContain('ack_at = coalesce(event.ack_at, now())')
   })
 
-  it('scrubs pending invitations on removal, one-off cancellation and account deletion', () => {
+  it('preserves pending links through settlement but scrubs them when identity context ends', () => {
     for (const name of [
-      'expense_set_group_status',
       'expense_remove_group_member',
       'expense_cancel_expense',
       'expense_prepare_account_deletion',
@@ -193,6 +198,10 @@ describe('SQL97 expense editing and identity invitations', () => {
       expect(body).toContain('public.expense_member_invitations')
       expect(body).toContain('public.expense_terminalize_member_invitations')
     }
+    const setStatus = functionBody('expense_set_group_status')
+    expect(setStatus).toContain('expense_group_not_settled')
+    expect(setStatus).not.toContain('public.expense_member_invitations')
+    expect(setStatus).not.toContain('public.expense_terminalize_member_invitations')
     const deletion = functionBody('expense_prepare_account_deletion')
     expect(deletion).toContain('invitation.invited_by = p_user_id')
     expect(deletion).toContain('invitation.recipient_email_canonical = v_email_canonical')

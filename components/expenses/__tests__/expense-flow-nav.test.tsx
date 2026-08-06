@@ -39,19 +39,21 @@ import { ExpenseFlowNav } from '@/components/expenses/ExpenseFlowNav'
 beforeEach(() => vi.clearAllMocks())
 
 describe('ExpenseFlowNav', () => {
-  it('marks the saved summary current and routes every lifecycle tab to its read-only view', async () => {
+  it('marks Útlagt current and routes to the consolidated Uppgjör view', async () => {
     render(<ExpenseFlowNav context="saved" expenseId="expense-1" canEdit />)
 
     const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
     expect(within(nav).getByRole('button', { name: 'Útlagt' })).toHaveAttribute('aria-current', 'step')
-    expect(within(nav).getByRole('button', { name: 'Aðilar' })).toBeEnabled()
+    expect(within(nav).getByRole('button', { name: 'Uppgjör' })).toBeEnabled()
+    expect(within(nav).queryByRole('button', { name: 'Aðilar' })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('button', { name: 'Skipting' })).not.toBeInTheDocument()
 
     await act(async () => {
-      fireEvent.click(within(nav).getByRole('button', { name: /Skipting/ }))
+      fireEvent.click(within(nav).getByRole('button', { name: /Uppgjör/ }))
     })
 
     expect(mockPush).toHaveBeenCalledWith(
-      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1?view=split',
+      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1?view=settlement',
     )
   })
 
@@ -59,7 +61,7 @@ describe('ExpenseFlowNav', () => {
     render(<ExpenseFlowNav context="saved" expenseId="expense-1" canEdit={false} />)
 
     const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
-    expect(within(nav).getByRole('button', { name: 'Aðilar' })).toBeEnabled()
+    expect(within(nav).getByRole('button', { name: 'Uppgjör' })).toBeEnabled()
     await act(async () => fireEvent.click(within(nav).getByRole('button', { name: 'Uppgjör' })))
     expect(mockPush).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1?view=settlement')
   })

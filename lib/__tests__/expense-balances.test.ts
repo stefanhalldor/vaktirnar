@@ -4,6 +4,8 @@ import {
   aggregateLedgerBalances,
   applySettlementTransfers,
   calculateExpenseBalances,
+  reportedRepaymentsNeedingReview,
+  settlementTransferReviewKey,
   simplifySettlement,
   splitByFixedAmounts,
   splitByPercentage,
@@ -284,6 +286,40 @@ describe('ledger aggregation and confirmed repayments', () => {
     expectDomainError(
       () => aggregateLedgerBalances([expense], [repayments[0]!, repayments[0]!], obligations),
       'duplicate_repayment',
+    )
+  })
+
+  it('flags only reported repayments that no longer fit confirmed-only settlement', () => {
+    const balances: PartyBalance[] = [
+      { partyId: 'anna', amountMinor: -4_000, currency: 'ISK' },
+      { partyId: 'stefan', amountMinor: 4_000, currency: 'ISK' },
+    ]
+    const matching = {
+      fromPartyId: 'anna', toPartyId: 'stefan', amountMinor: 3_000, currency: 'ISK',
+    }
+    expect(reportedRepaymentsNeedingReview(balances, [matching])).toEqual(new Set())
+
+    const excessive = { ...matching, amountMinor: 4_001 }
+    const excessiveKey = settlementTransferReviewKey(excessive)
+    expect(reportedRepaymentsNeedingReview(balances, [excessive])).toEqual(new Set([excessiveKey]))
+
+    const reversed = {
+      fromPartyId: 'stefan', toPartyId: 'anna', amountMinor: 1_000, currency: 'ISK',
+    }
+    expect(reportedRepaymentsNeedingReview(balances, [reversed])).toEqual(
+      new Set([settlementTransferReviewKey(reversed)]),
+    )
+  })
+
+  it('aggregates pending reports before deciding whether review is required', () => {
+    const balances: PartyBalance[] = [
+      { partyId: 'anna', amountMinor: -5_000, currency: 'ISK' },
+      { partyId: 'stefan', amountMinor: 5_000, currency: 'ISK' },
+    ]
+    const first = { fromPartyId: 'anna', toPartyId: 'stefan', amountMinor: 3_000, currency: 'ISK' }
+    const second = { ...first, amountMinor: 2_001 }
+    expect(reportedRepaymentsNeedingReview(balances, [first, second])).toEqual(
+      new Set([settlementTransferReviewKey(first)]),
     )
   })
 

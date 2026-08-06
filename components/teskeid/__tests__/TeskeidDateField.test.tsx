@@ -33,6 +33,7 @@ describe('TeskeidDateField', () => {
     expect(screen.getByText('4. ágúst 2026')).toBeInTheDocument()
     const input = screen.getByLabelText('Dagsetning')
     expect(input).toHaveAttribute('type', 'date')
+    expect(input).toHaveAttribute('lang', 'is-IS')
     expect(input).toHaveValue('2026-08-04')
     expect(input).toHaveAttribute('min', '2026-08-01')
     expect(input).toHaveAttribute('max', '2026-08-31')
@@ -67,5 +68,6 @@ describe('TeskeidDateField', () => {
     )
 
     expect(screen.getByText('4 August 2026')).toBeInTheDocument()
+    expect(screen.getByLabelText('Date')).toHaveAttribute('lang', 'en-GB')
   })
 })

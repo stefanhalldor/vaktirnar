@@ -141,6 +141,7 @@ function repayment(overrides: Partial<ExpenseRepaymentView> = {}): ExpenseRepaym
     canConfirm: false,
     canReject: false,
     canCancel: false,
+    requiresReview: false,
     paymentSnapshot: null,
     ...overrides,
   }

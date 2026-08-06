@@ -1,5 +1,6 @@
 import { failExpenseDomain } from './domain-error'
 import { normalizeCurrency } from './money'
+import { normalizeDisplayLocale } from '../date-format'
 
 export const EXPENSE_CURRENCIES = ['ISK', 'EUR', 'USD', 'GBP', 'DKK', 'NOK', 'SEK'] as const
 export type ExpenseCurrency = (typeof EXPENSE_CURRENCIES)[number]
@@ -95,4 +96,54 @@ export function formatExpenseMinorForCopy(amountMinor: number, currency: string)
   const whole = Math.floor(absolute / factor)
   const fraction = String(absolute % factor).padStart(digits, '0')
   return `${sign}${whole}.${fraction}`
+}
+
+function expenseInputSeparators(locale: string): { decimal: string; group: string } {
+  const parts = new Intl.NumberFormat(normalizeDisplayLocale(locale)).formatToParts(12_345.6)
+  return {
+    decimal: parts.find((part) => part.type === 'decimal')?.value ?? '.',
+    group: parts.find((part) => part.type === 'group')?.value ?? ',',
+  }
+}
+
+/**
+ * Formats the canonical form value with locale-aware thousands separators.
+ * The canonical value deliberately remains ungrouped so existing validation,
+ * drafts and RPC payloads keep the same unambiguous decimal representation.
+ */
+export function formatExpenseAmountInput(
+  value: string,
+  currency: string,
+  locale = 'is-IS',
+): string {
+  if (!value) return ''
+  const digits = expenseCurrencyMinorDigits(currency)
+  const canonical = value.includes(',') && !value.includes('.')
+    ? value.replace(',', '.')
+    : value
+  const match = /^(\d+)(?:\.(\d*))?$/.exec(canonical)
+  if (!match || (match[2]?.length ?? 0) > digits) return value
+
+  const { decimal, group } = expenseInputSeparators(locale)
+  const groupedWhole = match[1]!.replace(/\B(?=(\d{3})+(?!\d))/g, group)
+  return match[2] === undefined ? groupedWhole : `${groupedWhole}${decimal}${match[2]}`
+}
+
+/** Converts a localized editing value back to the canonical ungrouped value. */
+export function normalizeExpenseAmountInput(
+  value: string,
+  currency: string,
+  locale = 'is-IS',
+): string | null {
+  const digits = expenseCurrencyMinorDigits(currency)
+  const { decimal, group } = expenseInputSeparators(locale)
+  let canonical = value.trim().replace(/[\s\u00a0\u202f]/g, '')
+  if (group) canonical = canonical.split(group).join('')
+  if (decimal !== '.') canonical = canonical.split(decimal).join('.')
+
+  if (!canonical) return ''
+  if (digits === 0) return /^\d+$/.test(canonical) ? canonical : null
+  const match = /^(\d+)(?:\.(\d*))?$/.exec(canonical)
+  if (!match || (match[2]?.length ?? 0) > digits) return null
+  return canonical
 }

@@ -308,3 +308,43 @@ export function simplifySettlement(balances: readonly PartyBalance[]): Settlemen
   }
   return transfers
 }
+
+function transferKey(transfer: Pick<SettlementTransfer, 'fromPartyId' | 'toPartyId' | 'currency'>): string {
+  return `${transfer.currency}:${transfer.fromPartyId}:${transfer.toPartyId}`
+}
+
+/**
+ * Reported repayments are pending cash claims, not mutable ledger rows. After
+ * an expense edit, a pending claim may no longer fit the confirmed-only
+ * settlement direction or amount. Keep the claim, but require review before
+ * another repayment can be reported for the group.
+ */
+export function reportedRepaymentsNeedingReview(
+  confirmedOnlyBalances: readonly PartyBalance[],
+  reportedRepayments: readonly SettlementTransfer[],
+): Set<string> {
+  const reportedByTransfer = new Map<string, number>()
+  for (const repayment of reportedRepayments) {
+    assertPartyId(repayment.fromPartyId)
+    assertPartyId(repayment.toPartyId)
+    if (repayment.fromPartyId === repayment.toPartyId) failExpenseDomain('invalid_transfer')
+    assertMinorAmount(repayment.amountMinor)
+    const key = transferKey({ ...repayment, currency: normalizeCurrency(repayment.currency) })
+    reportedByTransfer.set(key, addMinorAmounts(reportedByTransfer.get(key) ?? 0, repayment.amountMinor))
+  }
+
+  const currentByTransfer = new Map(
+    simplifySettlement(confirmedOnlyBalances).map((transfer) => [transferKey(transfer), transfer.amountMinor]),
+  )
+  return new Set(
+    [...reportedByTransfer.entries()]
+      .filter(([key, amountMinor]) => amountMinor > (currentByTransfer.get(key) ?? 0))
+      .map(([key]) => key),
+  )
+}
+
+export function settlementTransferReviewKey(
+  transfer: Pick<SettlementTransfer, 'fromPartyId' | 'toPartyId' | 'currency'>,
+): string {
+  return transferKey({ ...transfer, currency: normalizeCurrency(transfer.currency) })
+}

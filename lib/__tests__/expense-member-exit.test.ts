@@ -20,6 +20,7 @@ function repayment(overrides: Partial<ExpenseRepaymentView>): ExpenseRepaymentVi
     canConfirm: false,
     canReject: false,
     canCancel: false,
+    requiresReview: false,
     paymentSnapshot: null,
     ...overrides,
   }

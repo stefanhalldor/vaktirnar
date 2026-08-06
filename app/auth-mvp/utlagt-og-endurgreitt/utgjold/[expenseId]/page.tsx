@@ -13,17 +13,26 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
     getExpenseTranslations(),
     searchParams,
   ])
-  const result = await getExpenseItemView(user.id, expenseId)
+  const result = await getExpenseItemView(user.id, expenseId, {
+    includeCurrentPaymentInstructions: true,
+  })
   if (!result) notFound()
 
   return (
     <ExpenseShell
       title={result.expense.title}
       homeLabel={t('homeLabel')}
-      backHref={`/auth-mvp/utlagt-og-endurgreitt/hopar/${result.group.id}`}
+      backHref={result.group.kind === 'one_off'
+        ? '/auth-mvp/utlagt-og-endurgreitt'
+        : `/auth-mvp/utlagt-og-endurgreitt/hopar/${result.group.id}`}
       backLabel={t('back')}
     >
-      <ExpenseItemDetail group={result.group} expense={result.expense} view={parseExpenseSavedView(query.view)} />
+      <ExpenseItemDetail
+        group={result.group}
+        expense={result.expense}
+        view={parseExpenseSavedView(query.view)}
+        initialDate={new Date().toISOString().slice(0, 10)}
+      />
     </ExpenseShell>
   )
 }

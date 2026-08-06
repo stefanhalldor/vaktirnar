@@ -65,39 +65,22 @@ function fingerprintBlock(name: string): string {
 }
 
 describe('sql/96_expenses_core.sql — migration boundary and schema', () => {
-  it('is transactional and preserves the complete private-beta feature union', () => {
+  it('is transactional and widens the live feature union without replacing it', () => {
     expect(sql).toMatch(/^BEGIN;/m)
     expect(sql).toMatch(/^COMMIT;/m)
-    for (const feature of [
-      'umonnun',
-      'tengsl',
-      'facebook-oauth',
-      'vedrid',
-      'ferdalagid',
-      'elta-vedrid',
-      'weather-provider-vedurstofan',
-      'weather-pulse',
-      'weather-provider-vegagerdin',
-      'road-intelligence-v1',
-      'teskeid-routing-v1',
-      'agent-collaboration-private-beta',
-      'utlagt-og-endurgreitt',
-    ]) {
-      expect(sql).toContain(`'${feature}'`)
-    }
+    expect(sql).toContain('pg_catalog.pg_get_expr(constraint_row.conbin')
+    expect(sql).toContain("v_expression NOT LIKE '%utlagt-og-endurgreitt%'")
+    expect(sql).toContain('CHECK ((%s) OR feature_key = %L)')
+    expect(sql).toContain("'utlagt-og-endurgreitt'")
+    expect(sql).toContain('SQL96 as a whole must not be rerun after SQL97')
   })
 
   it('keeps the expense entitlement valid if pending migration 95 runs later', () => {
-    const featureConstraintStart = pendingSql95.indexOf(
-      'ADD CONSTRAINT feature_access_feature_key_check',
-    )
-    const featureConstraintEnd = pendingSql95.indexOf('));', featureConstraintStart)
+    const featureBlock = pendingSql95.slice(0, pendingSql95.indexOf('-- Conversations'))
 
-    expect(featureConstraintStart).toBeGreaterThanOrEqual(0)
-    expect(featureConstraintEnd).toBeGreaterThan(featureConstraintStart)
-    expect(
-      pendingSql95.slice(featureConstraintStart, featureConstraintEnd),
-    ).toContain("'utlagt-og-endurgreitt'")
+    expect(featureBlock).toContain('pg_catalog.pg_get_expr(constraint_row.conbin')
+    expect(featureBlock).toContain('CHECK ((%s) OR feature_key = %L)')
+    expect(featureBlock).toContain('v_expression')
   })
 
   it('creates every dedicated persistence table idempotently', () => {

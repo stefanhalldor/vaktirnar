@@ -1,13 +1,15 @@
-export const EXPENSE_FLOW_STEPS = ['details', 'people', 'split', 'review'] as const
+export const EXPENSE_FLOW_STEPS = ['details', 'split'] as const
 
 export type ExpenseFlowStep = (typeof EXPENSE_FLOW_STEPS)[number]
-export const EXPENSE_SAVED_VIEWS = ['review', 'people', 'split', 'settlement'] as const
+export const EXPENSE_SAVED_VIEWS = ['review', 'settlement'] as const
 export type ExpenseSavedView = (typeof EXPENSE_SAVED_VIEWS)[number]
 
 export function parseExpenseFlowStep(
   value: string | string[] | undefined,
 ): ExpenseFlowStep {
   const candidate = Array.isArray(value) ? value[0] : value
+  // Old deep links and private drafts used separate people/review steps.
+  if (candidate === 'people' || candidate === 'review') return 'split'
   return EXPENSE_FLOW_STEPS.find((step) => step === candidate) ?? 'details'
 }
 
@@ -15,10 +17,22 @@ export function expenseDetailHref(expenseId: string): string {
   return `/auth-mvp/utlagt-og-endurgreitt/utgjold/${expenseId}`
 }
 
+export function canonicalOneOffExpenseHref(
+  kind: 'group' | 'one_off',
+  expenseIds: readonly string[],
+): string | null {
+  return kind === 'one_off' && expenseIds.length === 1
+    ? expenseDetailHref(expenseIds[0]!)
+    : null
+}
+
 export function parseExpenseSavedView(
   value: string | string[] | undefined,
 ): ExpenseSavedView {
   const candidate = Array.isArray(value) ? value[0] : value
+  // Preserve old shared/deep links after the three read-only views were
+  // consolidated into the participant-centred settlement view.
+  if (candidate === 'people' || candidate === 'split') return 'settlement'
   return EXPENSE_SAVED_VIEWS.find((view) => view === candidate) ?? 'review'
 }
 
@@ -36,7 +50,7 @@ export function parseExpenseDraftId(value: string | string[] | undefined): strin
 
 export function expenseEditStepHref(
   expenseId: string,
-  step: Exclude<ExpenseFlowStep, 'review'>,
+  step: ExpenseFlowStep,
 ): string {
   return `${expenseDetailHref(expenseId)}/breyta?step=${step}`
 }

@@ -34,9 +34,16 @@ function toPublicFirstName(displayName: string | null): string | null {
   return first || null
 }
 
-function toMessageDto(row: any, profileMap: Map<string, string | null> = new Map()): MessageDto {
+type ChatAuthorNameMode = 'first' | 'full'
+
+function toMessageDto(
+  row: any,
+  profileMap: Map<string, string | null> = new Map(),
+  authorNameMode: ChatAuthorNameMode = 'first',
+): MessageDto {
   const isDeleted = !!row.deleted_at
   const isHidden = !!row.hidden_at
+  const displayName = row.user_id ? profileMap.get(row.user_id)?.trim() || null : null
   return {
     id: row.id,
     threadId: row.thread_id,
@@ -46,7 +53,7 @@ function toMessageDto(row: any, profileMap: Map<string, string | null> = new Map
     createdAt: row.created_at,
     isDeleted,
     isHidden,
-    authorName: row.user_id ? toPublicFirstName(profileMap.get(row.user_id) ?? null) : null,
+    authorName: authorNameMode === 'full' ? displayName : toPublicFirstName(displayName),
   }
 }
 
@@ -135,7 +142,7 @@ export async function getOrCreateThread(target: ChatThreadTarget): Promise<Threa
  */
 export async function listMessages(
   threadId: string,
-  opts?: { limit?: number; before?: string }
+  opts?: { limit?: number; before?: string; authorNameMode?: ChatAuthorNameMode }
 ): Promise<MessageDto[]> {
   const admin = getAdmin()
   let query: any = admin
@@ -153,7 +160,7 @@ export async function listMessages(
   const rows = (data ?? []).reverse()
   const userIds = [...new Set<string>(rows.map((r: any) => r.user_id).filter(Boolean))]
   const profileMap = await fetchProfileMap(userIds)
-  return rows.map((r: any) => toMessageDto(r, profileMap))
+  return rows.map((r: any) => toMessageDto(r, profileMap, opts?.authorNameMode))
 }
 
 /**
@@ -165,9 +172,51 @@ export async function listMessages(
 export async function postMessage(
   threadId: string,
   userId: string,
-  input: CreateMessageInput
+  input: CreateMessageInput,
+  options?: {
+    clientMessageId: string
+    idempotencyKey: string
+    authorNameMode?: ChatAuthorNameMode
+  },
 ): Promise<MessageDto> {
   const admin = getAdmin()
+  // Keep legacy/weather posting compatible before SQL106 is applied. Expense
+  // messages opt into the durable request identifiers and therefore use the
+  // extended projection only after that migration exists.
+  const messageSelect = options
+    ? 'id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at, client_message_id, idempotency_key'
+    : 'id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at'
+
+  async function findExisting(): Promise<any | null> {
+    if (!options) return null
+    const { data, error } = await admin
+      .from('teskeid_chat_messages')
+      .select(messageSelect)
+      .eq('thread_id', threadId)
+      .eq('user_id', userId)
+      .eq('idempotency_key', options.idempotencyKey)
+      .maybeSingle()
+    if (error) throw new Error('chat: postMessage failed')
+    return data
+  }
+
+  function assertSameRequest(row: any): void {
+    if (
+      row.body !== input.body.trim()
+      || row.message_kind !== input.messageKind
+      || row.client_message_id !== options?.clientMessageId
+    ) {
+      throw new Error('chat: idempotency conflict')
+    }
+  }
+
+  const existing = await findExisting()
+  if (existing) {
+    assertSameRequest(existing)
+    const profileMap = await fetchProfileMap([userId])
+    return toMessageDto(existing, profileMap, options?.authorNameMode)
+  }
+
   const { data, error } = await admin
     .from('teskeid_chat_messages')
     .insert({
@@ -175,12 +224,24 @@ export async function postMessage(
       user_id: userId,
       body: input.body.trim(),
       message_kind: input.messageKind,
+      ...(options ? {
+        client_message_id: options.clientMessageId,
+        idempotency_key: options.idempotencyKey,
+      } : {}),
     })
-    .select('id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at')
+    .select(messageSelect)
     .single()
+  if ((error?.code === '23505' || !data) && options) {
+    const raceWinner = await findExisting()
+    if (raceWinner) {
+      assertSameRequest(raceWinner)
+      const profileMap = await fetchProfileMap([userId])
+      return toMessageDto(raceWinner, profileMap, options.authorNameMode)
+    }
+  }
   if (error || !data) throw new Error('chat: postMessage failed')
   const profileMap = await fetchProfileMap([userId])
-  return toMessageDto(data, profileMap)
+  return toMessageDto(data, profileMap, options?.authorNameMode)
 }
 
 /**
@@ -228,6 +289,24 @@ export async function assertThreadScope(
     ? query.eq('target_type', types[0])
     : query.in('target_type', types)
   const { data, error } = await q.maybeSingle()
+  if (error) throw new Error('chat: scope check failed')
+  if (!data) throw new Error('chat: not found')
+}
+
+/** Exact generic target fence for private context adapters such as expenses. */
+export async function assertThreadTarget(
+  threadId: string,
+  scope: { domain: string; targetType: string; targetId: string },
+): Promise<void> {
+  const admin = getAdmin()
+  const { data, error } = await admin
+    .from('teskeid_chat_threads')
+    .select('id')
+    .eq('id', threadId)
+    .eq('domain', scope.domain)
+    .eq('target_type', scope.targetType)
+    .eq('target_id', scope.targetId)
+    .maybeSingle()
   if (error) throw new Error('chat: scope check failed')
   if (!data) throw new Error('chat: not found')
 }

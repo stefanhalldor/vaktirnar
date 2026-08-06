@@ -268,7 +268,8 @@ BEGIN
   FOR UPDATE;
   v_role := public.expense_active_member_role(p_actor_id, p_group_id);
 
-  IF v_group.id IS NULL OR v_group.status <> 'active'
+  IF v_group.id IS NULL
+     OR v_group.status NOT IN ('active', 'settling', 'settled')
      OR coalesce(v_role, '') NOT IN ('owner', 'admin')
      OR v_member.id IS NULL OR v_member.status <> 'active'
      OR v_member.role = 'owner' OR v_member.user_id IS NOT NULL THEN
@@ -415,7 +416,8 @@ BEGIN
     invitation.created_at
   FROM public.expense_member_invitations AS invitation
   JOIN public.expense_groups AS group_row
-    ON group_row.id = invitation.group_id AND group_row.status = 'active'
+    ON group_row.id = invitation.group_id
+   AND group_row.status IN ('active', 'settling', 'settled')
   JOIN public.expense_group_members AS member
     ON member.group_id = invitation.group_id
    AND member.id = invitation.member_id
@@ -500,14 +502,14 @@ BEGIN
   FOR UPDATE;
   v_role := public.expense_active_member_role(p_actor_id, v_group_id);
 
-  IF v_invitation.id IS NULL
+  IF v_invitation.id IS NULL OR v_role IS NULL
      OR (v_invitation.invited_by IS DISTINCT FROM p_actor_id
        AND coalesce(v_role, '') NOT IN ('owner', 'admin')) THEN
     RETURN QUERY SELECT 0, false, 'not_found'::text, NULL::text, NULL::text,
       NULL::text, NULL::text;
     RETURN;
   END IF;
-  IF v_group.status <> 'active'
+  IF v_group.status NOT IN ('active', 'settling', 'settled')
      OR v_member.id IS NULL
      OR v_member.status <> 'active'
      OR v_member.user_id IS NOT NULL
@@ -863,7 +865,8 @@ BEGIN
   SELECT activity.id, p_actor_id
   FROM public.expense_member_invitations AS invitation
   JOIN public.expense_groups AS group_row
-    ON group_row.id = invitation.group_id AND group_row.status = 'active'
+    ON group_row.id = invitation.group_id
+   AND group_row.status IN ('active', 'settling', 'settled')
   JOIN public.expense_group_members AS member
     ON member.group_id = invitation.group_id
    AND member.id = invitation.member_id
@@ -899,7 +902,8 @@ BEGIN
     NULL
   FROM public.expense_member_invitations AS invitation
   JOIN public.expense_groups AS group_row
-    ON group_row.id = invitation.group_id AND group_row.status = 'active'
+    ON group_row.id = invitation.group_id
+   AND group_row.status IN ('active', 'settling', 'settled')
   JOIN public.expense_group_members AS member
     ON member.group_id = invitation.group_id
    AND member.id = invitation.member_id
@@ -987,6 +991,282 @@ ALTER TABLE public.expense_activity
       AND expense_title IS NULL AND group_title IS NULL)
   );
 
+-- Private, append-only before/after audit for expense edits. The normalized
+-- ledger tables remain authoritative; JSON is a bounded historical snapshot.
+CREATE OR REPLACE FUNCTION public.expense_valid_revision_fields(p_fields text[])
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = ''
+AS $$
+DECLARE
+  v_field text;
+BEGIN
+  IF p_fields IS NULL OR cardinality(p_fields) NOT BETWEEN 1 AND 9 THEN
+    RETURN false;
+  END IF;
+  FOREACH v_field IN ARRAY p_fields LOOP
+    IF v_field IS NULL OR v_field NOT IN (
+      'title', 'note', 'total_minor', 'currency', 'incurred_on',
+      'category', 'split_method', 'payments', 'shares'
+    ) THEN
+      RETURN false;
+    END IF;
+  END LOOP;
+  RETURN (SELECT count(DISTINCT field) = cardinality(p_fields) FROM unnest(p_fields) AS field);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.expense_valid_revision_snapshot(p_snapshot jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = ''
+AS $$
+DECLARE
+  v_expense jsonb;
+  v_summary jsonb;
+BEGIN
+  IF p_snapshot IS NULL OR jsonb_typeof(p_snapshot) <> 'object'
+     OR octet_length(p_snapshot::text) > 65536
+     OR NOT (p_snapshot ?& ARRAY['version','groupStatus','expense','payments','shares','balances','repaymentSummary'])
+     OR (p_snapshot - ARRAY['version','groupStatus','expense','payments','shares','balances','repaymentSummary']::text[]) <> '{}'::jsonb
+     OR p_snapshot->>'version' <> '1'
+     OR p_snapshot->>'groupStatus' NOT IN ('active','settling','settled','closed')
+     OR jsonb_typeof(p_snapshot->'payments') <> 'array'
+     OR jsonb_typeof(p_snapshot->'shares') <> 'array'
+     OR jsonb_typeof(p_snapshot->'balances') <> 'array'
+     OR jsonb_array_length(p_snapshot->'payments') NOT BETWEEN 1 AND 50
+     OR jsonb_array_length(p_snapshot->'shares') NOT BETWEEN 1 AND 50
+     OR jsonb_array_length(p_snapshot->'balances') > 50 THEN
+    RETURN false;
+  END IF;
+  v_expense := p_snapshot->'expense';
+  v_summary := p_snapshot->'repaymentSummary';
+  IF jsonb_typeof(v_expense) <> 'object'
+     OR NOT (v_expense ?& ARRAY['title','note','totalMinor','currency','incurredOn','category','splitMethod'])
+     OR (v_expense - ARRAY['title','note','totalMinor','currency','incurredOn','category','splitMethod']::text[]) <> '{}'::jsonb
+     OR char_length(btrim(v_expense->>'title')) NOT BETWEEN 1 AND 200
+     OR (v_expense->>'totalMinor') !~ '^[0-9]+$'
+     OR (v_expense->>'totalMinor')::numeric NOT BETWEEN 1 AND 9007199254740991
+     OR (v_expense->>'currency') !~ '^[A-Z]{3}$'
+     OR (v_expense->>'incurredOn') !~ '^\d{4}-\d{2}-\d{2}$'
+     OR ((v_expense->'note') <> 'null'::jsonb AND char_length(v_expense->>'note') > 1000)
+     OR ((v_expense->'category') <> 'null'::jsonb AND v_expense->>'category' NOT IN (
+       'food','accommodation','transport','travel','home','entertainment','gifts','shopping','other'
+     ))
+     OR v_expense->>'splitMethod' NOT IN (
+       'equal','percentage','fixed','mixed_equal_remainder','mixed_percentage_remainder','weighted'
+     ) THEN
+    RETURN false;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements((p_snapshot->'payments') || (p_snapshot->'shares')) AS item
+    WHERE jsonb_typeof(item) <> 'object'
+       OR NOT (item ?& ARRAY['memberId','displayName','amountMinor'])
+       OR (item - ARRAY['memberId','displayName','amountMinor']::text[]) <> '{}'::jsonb
+       OR (item->>'memberId') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+       OR char_length(btrim(item->>'displayName')) NOT BETWEEN 1 AND 120
+       OR (item->>'amountMinor') !~ '^[0-9]+$'
+       OR (item->>'amountMinor')::numeric NOT BETWEEN 0 AND 9007199254740991
+  ) OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_snapshot->'balances') AS item
+    WHERE jsonb_typeof(item) <> 'object'
+       OR NOT (item ?& ARRAY['memberId','displayName','currency','amountMinor'])
+       OR (item - ARRAY['memberId','displayName','currency','amountMinor']::text[]) <> '{}'::jsonb
+       OR (item->>'memberId') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+       OR char_length(btrim(item->>'displayName')) NOT BETWEEN 1 AND 120
+       OR (item->>'currency') !~ '^[A-Z]{3}$'
+       OR (item->>'amountMinor') !~ '^-?[0-9]+$'
+       OR abs((item->>'amountMinor')::numeric) > 9007199254740991
+  ) THEN
+    RETURN false;
+  END IF;
+  IF jsonb_typeof(v_summary) <> 'object'
+     OR NOT (v_summary ?& ARRAY['reported','confirmed','rejected','cancelled'])
+     OR (v_summary - ARRAY['reported','confirmed','rejected','cancelled']::text[]) <> '{}'::jsonb
+     OR EXISTS (
+       SELECT 1 FROM jsonb_each(v_summary) AS entry
+       WHERE jsonb_typeof(entry.value) <> 'number'
+          OR entry.value::text !~ '^[0-9]+$'
+          OR (entry.value::text)::numeric > 1000000
+     ) THEN
+    RETURN false;
+  END IF;
+  RETURN true;
+EXCEPTION WHEN others THEN
+  RETURN false;
+END;
+$$;
+
+CREATE TABLE IF NOT EXISTS public.expense_revisions (
+  id                       uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  sequence_no              bigint      GENERATED ALWAYS AS IDENTITY UNIQUE,
+  group_id                 uuid        NOT NULL REFERENCES public.expense_groups(id) ON DELETE RESTRICT,
+  expense_id               uuid        NOT NULL,
+  activity_id              uuid        NOT NULL UNIQUE REFERENCES public.expense_activity(id) ON DELETE RESTRICT,
+  actor_user_id            uuid        NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  financial_version_before bigint      NOT NULL,
+  financial_version_after  bigint      NOT NULL,
+  changed_fields           text[]      NOT NULL,
+  before_snapshot          jsonb       NOT NULL,
+  after_snapshot           jsonb       NOT NULL,
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT expense_revisions_group_expense_fk FOREIGN KEY (group_id, expense_id)
+    REFERENCES public.expenses(group_id, id) ON DELETE RESTRICT,
+  CONSTRAINT expense_revisions_version_check CHECK (
+    financial_version_before >= 0 AND financial_version_after = financial_version_before + 1
+  ),
+  CONSTRAINT expense_revisions_changed_fields_check CHECK (public.expense_valid_revision_fields(changed_fields)),
+  CONSTRAINT expense_revisions_before_snapshot_check CHECK (public.expense_valid_revision_snapshot(before_snapshot)),
+  CONSTRAINT expense_revisions_after_snapshot_check CHECK (public.expense_valid_revision_snapshot(after_snapshot)),
+  CONSTRAINT expense_revisions_expense_version_unique UNIQUE (expense_id, financial_version_after)
+);
+
+CREATE INDEX IF NOT EXISTS expense_revisions_expense_sequence_idx
+  ON public.expense_revisions (expense_id, sequence_no DESC);
+ALTER TABLE public.expense_revisions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.expense_revisions FORCE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION public.expense_revisions_immutable()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  -- Auth deletion may null only the private actor link through ON DELETE SET
+  -- NULL. Every financial and display snapshot field remains immutable.
+  IF TG_OP = 'UPDATE'
+     AND OLD.actor_user_id IS NOT NULL
+     AND NEW.actor_user_id IS NULL
+     AND (to_jsonb(NEW) - 'actor_user_id') = (to_jsonb(OLD) - 'actor_user_id') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'expense_revision_immutable';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS expense_revisions_immutable_guard ON public.expense_revisions;
+CREATE TRIGGER expense_revisions_immutable_guard
+BEFORE UPDATE OR DELETE ON public.expense_revisions
+FOR EACH ROW EXECUTE FUNCTION public.expense_revisions_immutable();
+
+CREATE OR REPLACE FUNCTION public.expense_build_revision_snapshot(
+  p_group_id uuid,
+  p_expense_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_snapshot jsonb;
+BEGIN
+  SELECT jsonb_build_object(
+    'version', 1,
+    'groupStatus', group_row.status,
+    'expense', jsonb_build_object(
+      'title', expense.title, 'note', expense.note,
+      'totalMinor', expense.total_minor, 'currency', expense.currency,
+      'incurredOn', expense.incurred_on, 'category', expense.category,
+      'splitMethod', expense.split_method
+    ),
+    'payments', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'memberId', payment.member_id, 'displayName', member.display_name,
+      'amountMinor', payment.amount_minor
+    ) ORDER BY payment.member_id), '[]'::jsonb)
+      FROM public.expense_payments AS payment
+      JOIN public.expense_group_members AS member
+        ON member.group_id = payment.group_id AND member.id = payment.member_id
+      WHERE payment.group_id = p_group_id AND payment.expense_id = p_expense_id),
+    'shares', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'memberId', share.member_id, 'displayName', member.display_name,
+      'amountMinor', share.amount_minor
+    ) ORDER BY share.member_id), '[]'::jsonb)
+      FROM public.expense_shares AS share
+      JOIN public.expense_group_members AS member
+        ON member.group_id = share.group_id AND member.id = share.member_id
+      WHERE share.group_id = p_group_id AND share.expense_id = p_expense_id),
+    'balances', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'memberId', balance.member_id, 'displayName', member.display_name,
+      'currency', balance.currency, 'amountMinor', balance.amount_minor
+    ) ORDER BY balance.currency, balance.member_id), '[]'::jsonb)
+      FROM public.expense_group_balances(p_group_id, false) AS balance
+      JOIN public.expense_group_members AS member
+        ON member.group_id = p_group_id AND member.id = balance.member_id),
+    'repaymentSummary', (SELECT jsonb_build_object(
+      'reported', count(*) FILTER (WHERE repayment.status = 'reported'),
+      'confirmed', count(*) FILTER (WHERE repayment.status = 'confirmed'),
+      'rejected', count(*) FILTER (WHERE repayment.status = 'rejected'),
+      'cancelled', count(*) FILTER (WHERE repayment.status = 'cancelled')
+    ) FROM public.expense_repayments AS repayment WHERE repayment.group_id = p_group_id)
+  ) INTO v_snapshot
+  FROM public.expense_groups AS group_row
+  JOIN public.expenses AS expense ON expense.group_id = group_row.id
+  WHERE group_row.id = p_group_id AND expense.id = p_expense_id;
+  IF v_snapshot IS NULL OR NOT public.expense_valid_revision_snapshot(v_snapshot) THEN
+    RAISE EXCEPTION 'expense_revision_snapshot_invalid';
+  END IF;
+  RETURN v_snapshot;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.expense_reported_repayments_need_review(p_group_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  WITH reported AS (
+    SELECT repayment.from_member_id, repayment.to_member_id, repayment.currency,
+           sum(repayment.amount_minor)::bigint AS amount_minor
+    FROM public.expense_repayments AS repayment
+    WHERE repayment.group_id = p_group_id AND repayment.status = 'reported'
+    GROUP BY repayment.from_member_id, repayment.to_member_id, repayment.currency
+  ), current_settlement AS (
+    SELECT currency.value AS currency, settlement.from_member_id,
+           settlement.to_member_id, settlement.amount_minor
+    FROM (SELECT DISTINCT repayment.currency AS value
+          FROM public.expense_repayments AS repayment
+          WHERE repayment.group_id = p_group_id AND repayment.status = 'reported') AS currency
+    CROSS JOIN LATERAL public.expense_simplified_settlement(
+      p_group_id, currency.value, false
+    ) AS settlement
+  )
+  SELECT EXISTS (
+    SELECT 1 FROM reported
+    LEFT JOIN current_settlement
+      ON current_settlement.from_member_id = reported.from_member_id
+     AND current_settlement.to_member_id = reported.to_member_id
+     AND current_settlement.currency = reported.currency
+    WHERE current_settlement.amount_minor IS NULL
+       OR reported.amount_minor > current_settlement.amount_minor
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.expense_guard_new_reported_repayment()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF NEW.status = 'reported'
+     AND public.expense_reported_repayments_need_review(NEW.group_id) THEN
+    RAISE EXCEPTION 'expense_repayment_review_required';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS expense_repayments_review_guard ON public.expense_repayments;
+CREATE TRIGGER expense_repayments_review_guard
+BEFORE INSERT ON public.expense_repayments
+FOR EACH ROW EXECUTE FUNCTION public.expense_guard_new_reported_repayment();
+
 -- Full, atomic expense edit. New name-only parties are allowed only in a
 -- one-off expense and are inserted under the same group lock as the edit.
 CREATE OR REPLACE FUNCTION public.expense_update_expense(
@@ -1030,6 +1310,14 @@ DECLARE
   v_canonical_new_members jsonb;
   v_changed boolean;
   v_new_version bigint;
+  v_changed_fields text[];
+  v_before_snapshot jsonb;
+  v_after_snapshot jsonb;
+  v_summary_code text;
+  v_activity_id uuid;
+  v_revision_id uuid := gen_random_uuid();
+  v_reopened boolean := false;
+  v_group_name text;
 BEGIN
   PERFORM public.expense_assert_beta_actor(p_actor_id);
 
@@ -1127,9 +1415,9 @@ BEGIN
 
   SELECT coalesce(jsonb_agg(
     jsonb_build_object(
-      'memberRef', coalesce('new:' || new_member.ordinal::text, 'existing:' || payment.value->>'member_id'),
+      'memberRef', coalesce('new:' || new_member.ordinal::text, 'existing:' || (payment.value->>'member_id')),
       'amountMinor', (payment.value->>'amount_minor')::bigint
-    ) ORDER BY coalesce('new:' || new_member.ordinal::text, 'existing:' || payment.value->>'member_id')
+    ) ORDER BY coalesce('new:' || new_member.ordinal::text, 'existing:' || (payment.value->>'member_id'))
   ), '[]'::jsonb)
   INTO v_input_payments
   FROM jsonb_array_elements(p_payments) AS payment(value)
@@ -1141,9 +1429,9 @@ BEGIN
   ELSE
     SELECT coalesce(jsonb_agg(
       jsonb_build_object(
-        'memberRef', coalesce('new:' || new_member.ordinal::text, 'existing:' || share.value->>'member_id'),
+        'memberRef', coalesce('new:' || new_member.ordinal::text, 'existing:' || (share.value->>'member_id')),
         'amountMinor', (share.value->>'amount_minor')::bigint
-      ) ORDER BY coalesce('new:' || new_member.ordinal::text, 'existing:' || share.value->>'member_id')
+      ) ORDER BY coalesce('new:' || new_member.ordinal::text, 'existing:' || (share.value->>'member_id'))
     ), '[]'::jsonb)
     INTO v_input_shares
     FROM jsonb_array_elements(p_shares) AS share(value)
@@ -1192,14 +1480,11 @@ BEGIN
 
   v_role := public.expense_active_member_role(p_actor_id, v_group_id);
   IF v_group.id IS NULL OR v_expense.id IS NULL
-     OR v_group.status <> 'active' OR v_expense.status <> 'active'
+     OR v_group.status NOT IN ('active', 'settling', 'settled')
+     OR v_expense.status <> 'active'
+     OR v_role IS NULL
      OR (v_expense.created_by IS DISTINCT FROM p_actor_id
-       AND coalesce(v_role, '') NOT IN ('owner', 'admin'))
-     OR EXISTS (
-       SELECT 1 FROM public.expense_repayments AS repayment
-       WHERE repayment.group_id = v_group_id
-         AND repayment.status IN ('reported', 'confirmed')
-     ) THEN
+       AND coalesce(v_role, '') NOT IN ('owner', 'admin')) THEN
     RAISE EXCEPTION 'expense_update_not_allowed';
   END IF;
   IF v_group.financial_version <> p_expected_financial_version THEN
@@ -1211,7 +1496,8 @@ BEGIN
   IF (
     SELECT count(*)
     FROM public.expense_group_members AS member
-    WHERE member.group_id = v_group_id AND member.status = 'active'
+    WHERE member.group_id = v_group_id
+      AND member.status IN ('active', 'invited')
   ) + jsonb_array_length(p_new_guest_members) > 50 THEN
     RAISE EXCEPTION 'expense_members_invalid';
   END IF;
@@ -1233,7 +1519,8 @@ BEGIN
        WHERE NOT EXISTS (
          SELECT 1 FROM public.expense_group_members AS member
          WHERE member.id = (item->>'member_id')::uuid
-           AND member.group_id = v_group_id AND member.status = 'active'
+           AND member.group_id = v_group_id
+           AND member.status IN ('active', 'invited')
        ) AND NOT EXISTS (
          SELECT 1 FROM jsonb_array_elements(p_new_guest_members) AS new_member
          WHERE new_member->>'id' = item->>'member_id'
@@ -1257,7 +1544,8 @@ BEGIN
        WHERE NOT EXISTS (
          SELECT 1 FROM public.expense_group_members AS member
          WHERE member.id = (item->>'member_id')::uuid
-           AND member.group_id = v_group_id AND member.status = 'active'
+           AND member.group_id = v_group_id
+           AND member.status IN ('active', 'invited')
        ) AND NOT EXISTS (
          SELECT 1 FROM jsonb_array_elements(p_new_guest_members) AS new_member
          WHERE new_member->>'id' = item->>'member_id'
@@ -1333,6 +1621,18 @@ BEGIN
     OR v_current_payments IS DISTINCT FROM v_input_payments
     OR v_current_shares IS DISTINCT FROM v_input_shares;
 
+  v_changed_fields := array_remove(ARRAY[
+    CASE WHEN v_expense.title IS DISTINCT FROM btrim(p_title) THEN 'title' END,
+    CASE WHEN v_expense.note IS DISTINCT FROM NULLIF(btrim(p_note), '') THEN 'note' END,
+    CASE WHEN v_expense.total_minor IS DISTINCT FROM p_total_minor THEN 'total_minor' END,
+    CASE WHEN v_expense.currency IS DISTINCT FROM p_currency THEN 'currency' END,
+    CASE WHEN v_expense.incurred_on IS DISTINCT FROM p_incurred_on THEN 'incurred_on' END,
+    CASE WHEN v_expense.category IS DISTINCT FROM p_category THEN 'category' END,
+    CASE WHEN v_expense.split_method IS DISTINCT FROM p_split_method THEN 'split_method' END,
+    CASE WHEN v_current_payments IS DISTINCT FROM v_input_payments THEN 'payments' END,
+    CASE WHEN v_current_shares IS DISTINCT FROM v_input_shares THEN 'shares' END
+  ]::text[], NULL);
+
   IF NOT v_changed THEN
     v_result := jsonb_build_object(
       'changed', false, 'group_id', v_group_id, 'expense_id', p_expense_id,
@@ -1341,6 +1641,8 @@ BEGIN
     PERFORM public.expense_finish_request(p_actor_id, p_request_id, v_result);
     RETURN v_result;
   END IF;
+
+  v_before_snapshot := public.expense_build_revision_snapshot(v_group_id, p_expense_id);
 
   FOR v_member IN SELECT value FROM jsonb_array_elements(p_new_guest_members)
   LOOP
@@ -1376,15 +1678,6 @@ BEGIN
     FROM jsonb_array_elements(p_shares) AS item;
   END IF;
 
-  IF v_group.kind = 'one_off' THEN
-    -- expense_groups.name is a compact one-off label (max 160 in SQL96),
-    -- while the authoritative expense title may be up to 200 characters.
-    -- Keep the full title on expenses and a bounded snapshot on the group.
-    UPDATE public.expense_groups AS group_row
-    SET name = left(btrim(p_title), 160), default_currency = p_currency
-    WHERE group_row.id = v_group_id;
-  END IF;
-
   IF EXISTS (
     SELECT 1 FROM public.expense_group_balances(v_group_id, false) AS balance
     WHERE abs(balance.amount_minor) > 9007199254740991
@@ -1396,35 +1689,70 @@ BEGIN
     FROM public.expense_group_balances(v_group_id, false) AS balance
     JOIN public.expense_group_members AS member
       ON member.group_id = v_group_id AND member.id = balance.member_id
-    WHERE member.status <> 'active' AND balance.amount_minor <> 0
+    WHERE member.status NOT IN ('active', 'invited')
+      AND balance.amount_minor <> 0
   ) THEN
     RAISE EXCEPTION 'expense_inactive_member_balance';
   END IF;
 
+  v_reopened := v_group.status = 'settled' AND EXISTS (
+    SELECT 1 FROM public.expense_group_balances(v_group_id, false) AS balance
+    WHERE balance.amount_minor <> 0
+  );
   UPDATE public.expense_groups AS group_row
-  SET financial_version = group_row.financial_version + 1
+  SET name = CASE WHEN v_group.kind = 'one_off' THEN left(btrim(p_title), 160) ELSE group_row.name END,
+      default_currency = CASE WHEN v_group.kind = 'one_off' THEN p_currency ELSE group_row.default_currency END,
+      status = CASE WHEN v_reopened THEN 'settling' ELSE group_row.status END,
+      financial_version = group_row.financial_version + 1
   WHERE group_row.id = v_group_id
-  RETURNING financial_version INTO v_new_version;
+  RETURNING financial_version, name INTO v_new_version, v_group_name;
 
-  PERFORM public.expense_record_activity(
+  v_after_snapshot := public.expense_build_revision_snapshot(v_group_id, p_expense_id);
+  v_summary_code := CASE
+    WHEN v_changed_fields = ARRAY['title']::text[] THEN 'expense_title_updated'
+    WHEN v_changed_fields = ARRAY['note']::text[] THEN 'expense_description_updated'
+    WHEN v_changed_fields = ARRAY['title','note']::text[] THEN 'expense_title_description_updated'
+    ELSE 'expense_updated'
+  END;
+
+  v_activity_id := public.expense_record_activity(
     v_group_id, p_actor_id, 'expense_updated', 'expense', p_expense_id,
-    'expense_updated', btrim(p_title),
-    (SELECT group_row.name FROM public.expense_groups AS group_row WHERE group_row.id = v_group_id),
+    v_summary_code, btrim(p_title), v_group_name,
     ARRAY[]::uuid[], true
   );
 
+  INSERT INTO public.expense_revisions (
+    id, group_id, expense_id, activity_id, actor_user_id,
+    financial_version_before, financial_version_after, changed_fields,
+    before_snapshot, after_snapshot
+  ) VALUES (
+    v_revision_id, v_group_id, p_expense_id, v_activity_id, p_actor_id,
+    v_group.financial_version, v_new_version, v_changed_fields,
+    v_before_snapshot, v_after_snapshot
+  );
+
+  IF v_reopened THEN
+    PERFORM public.expense_record_activity(
+      v_group_id, p_actor_id, 'expense_group_settling', 'expense_group', v_group_id,
+      'expense_group_reopened_after_expense_edit', NULL, v_group_name,
+      ARRAY[]::uuid[], true
+    );
+  END IF;
+
   v_result := jsonb_build_object(
     'changed', true, 'group_id', v_group_id, 'expense_id', p_expense_id,
-    'financial_version', v_new_version
+    'financial_version', v_new_version, 'revision_id', v_revision_id,
+    'settlement_reopened', v_reopened,
+    'reported_repayments_need_review', public.expense_reported_repayments_need_review(v_group_id)
   );
   PERFORM public.expense_finish_request(p_actor_id, p_request_id, v_result);
   RETURN v_result;
 END;
 $$;
 
--- Leaving the active state makes every still-unlinked identity invitation
--- unusable. Terminalize those invitations in the same group transaction so
--- email snapshots and unread consent notifications cannot linger.
+-- Settlement changes financial workflow state only. Pending identity links
+-- survive until they are accepted, declined, expired, explicitly cancelled,
+-- or the underlying expense/member is cancelled or removed.
 CREATE OR REPLACE FUNCTION public.expense_set_group_status(
   p_actor_id uuid,
   p_group_id uuid,
@@ -1477,18 +1805,6 @@ BEGIN
     )
   ) THEN
     RAISE EXCEPTION 'expense_group_not_settled';
-  END IF;
-
-  IF p_status = 'settling' THEN
-    PERFORM public.expense_terminalize_member_invitations(
-      ARRAY(
-        SELECT invitation.id
-        FROM public.expense_member_invitations AS invitation
-        WHERE invitation.group_id = p_group_id
-          AND invitation.status = 'pending'
-      ),
-      'cancelled'
-    );
   END IF;
 
   UPDATE public.expense_groups AS group_row
@@ -1627,7 +1943,7 @@ BEGIN
     RETURN v_result;
   END IF;
 
-  IF v_group.status <> 'active'
+  IF v_group.status NOT IN ('active', 'settling', 'settled')
      OR v_member.id IS NULL OR v_member.status <> 'active'
      OR v_member.user_id IS NOT NULL
      OR EXISTS (
@@ -1729,6 +2045,7 @@ BEGIN
   v_role := public.expense_active_member_role(p_actor_id, v_group_id);
 
   IF v_invitation.id IS NULL OR v_invitation.status <> 'pending'
+     OR v_role IS NULL
      OR (v_invitation.invited_by IS DISTINCT FROM p_actor_id
        AND coalesce(v_role, '') NOT IN ('owner', 'admin')) THEN
     RAISE EXCEPTION 'expense_invitation_not_found';
@@ -1992,6 +2309,7 @@ BEGIN
   FOR UPDATE;
   v_role := public.expense_active_member_role(p_actor_id, v_group.id);
   IF v_group.status <> 'active' OR v_expense.status <> 'active'
+     OR v_role IS NULL
      OR (v_expense.created_by IS DISTINCT FROM p_actor_id
        AND coalesce(v_role, '') NOT IN ('owner', 'admin'))
      OR EXISTS (
@@ -2029,7 +2347,8 @@ BEGIN
     FROM public.expense_group_balances(v_group.id, false) AS balance
     JOIN public.expense_group_members AS member
       ON member.group_id = v_group.id AND member.id = balance.member_id
-    WHERE member.status <> 'active' AND balance.amount_minor <> 0
+    WHERE member.status NOT IN ('active', 'invited')
+      AND balance.amount_minor <> 0
   ) THEN
     RAISE EXCEPTION 'expense_inactive_member_balance';
   END IF;
@@ -2193,6 +2512,22 @@ $$;
 
 -- Browser roles receive neither table access nor RPC execution. Server actions
 -- use only these service-role entry points; internal helpers remain private.
+REVOKE ALL ON TABLE public.expense_revisions FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.expense_revisions TO service_role;
+
+REVOKE ALL ON FUNCTION public.expense_valid_revision_fields(text[])
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.expense_valid_revision_snapshot(jsonb)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.expense_revisions_immutable()
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.expense_build_revision_snapshot(uuid, uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.expense_reported_repayments_need_review(uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.expense_guard_new_reported_repayment()
+  FROM PUBLIC, anon, authenticated, service_role;
+
 REVOKE ALL ON FUNCTION public.expense_update_expense(
   uuid, uuid, uuid, bigint, text, bigint, text, date, text, text,
   text, boolean, jsonb, jsonb, jsonb
@@ -2266,10 +2601,12 @@ GRANT EXECUTE ON FUNCTION public.expense_prepare_account_deletion(uuid)
 
 COMMENT ON TABLE public.expense_member_invitations IS
   'Consent-bound email links for durable guest expense members. Terminal states scrub recipient email.';
+COMMENT ON TABLE public.expense_revisions IS
+  'Private append-only before/after audit for expense edits. Normalized expense tables remain authoritative.';
 COMMENT ON FUNCTION public.expense_update_expense(
   uuid, uuid, uuid, bigint, text, bigint, text, date, text, text,
   text, boolean, jsonb, jsonb, jsonb
-) IS 'Atomic, version-checked expense edit. May add name-only one-off members without replacing durable party IDs.';
+) IS 'Atomic audited expense edit with CAS, immutable repayment preservation, derived settlement recalculation, and conditional settled-group reopening.';
 COMMENT ON FUNCTION public.expense_respond_member_invitation(uuid, uuid, text, uuid)
   IS 'Explicit email-matched accept/decline. Accept links the same durable member ID and never grants beta access.';
 COMMENT ON FUNCTION public.expense_sync_my_member_invitation_events(uuid)

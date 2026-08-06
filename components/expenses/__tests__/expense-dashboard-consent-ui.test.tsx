@@ -133,15 +133,13 @@ beforeEach(() => {
 })
 
 describe('ExpenseDashboard compact and privacy-safe projection', () => {
-  it('shows the complete expense flow immediately and disables later steps without an active expense', async () => {
+  it('shows the simplified expense flow and disables settlement without an active expense', async () => {
     render(await ExpenseDashboard({ dashboard: dashboard() }))
 
     const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
     expect(within(nav).getByRole('button', { name: 'Útgjald' })).toHaveAttribute('aria-current', 'step')
-    expect(within(nav).getByRole('button', { name: /Aðilar/ })).toBeDisabled()
     expect(within(nav).getByRole('button', { name: /Skipting/ })).toBeDisabled()
-    expect(within(nav).getByRole('button', { name: /Yfirferð/ })).toBeDisabled()
-    expect(within(nav).getByRole('button', { name: /Aðilar.*Veldu eða stofnaðu útgjald fyrst/ })).toBeDisabled()
+    expect(within(nav).getByRole('button', { name: /Skipting.*Veldu eða stofnaðu útgjald fyrst/ })).toBeDisabled()
   })
 
   it('renders only compact group aggregates and never arbitrary private detail fields', async () => {

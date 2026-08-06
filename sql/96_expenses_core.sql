@@ -7,28 +7,41 @@
 
 BEGIN;
 
--- Keep the complete feature-key union from every earlier migration, including
--- the not-yet-applied migration 95 key.
-ALTER TABLE public.feature_access
-  DROP CONSTRAINT IF EXISTS feature_access_feature_key_check;
+-- Preserve every feature key allowed by the target database and widen the
+-- union only for expenses, so this block cannot remove keys added later.
+-- SQL96 as a whole must not be rerun after SQL97, which replaces several of
+-- its function bodies with newer behavior.
+DO $feature_key$
+DECLARE
+  v_expression text;
+BEGIN
+  SELECT pg_catalog.pg_get_expr(constraint_row.conbin, constraint_row.conrelid)
+  INTO v_expression
+  FROM pg_catalog.pg_constraint AS constraint_row
+  JOIN pg_catalog.pg_class AS relation
+    ON relation.oid = constraint_row.conrelid
+  JOIN pg_catalog.pg_namespace AS namespace
+    ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relname = 'feature_access'
+    AND constraint_row.conname = 'feature_access_feature_key_check'
+    AND constraint_row.contype = 'c';
 
-ALTER TABLE public.feature_access
-  ADD CONSTRAINT feature_access_feature_key_check
-  CHECK (feature_key IN (
-    'umonnun',
-    'tengsl',
-    'facebook-oauth',
-    'vedrid',
-    'ferdalagid',
-    'elta-vedrid',
-    'weather-provider-vedurstofan',
-    'weather-pulse',
-    'weather-provider-vegagerdin',
-    'road-intelligence-v1',
-    'teskeid-routing-v1',
-    'agent-collaboration-private-beta',
-    'utlagt-og-endurgreitt'
-  ));
+  IF v_expression IS NULL THEN
+    RAISE EXCEPTION 'expense_feature_constraint_missing';
+  END IF;
+
+  IF v_expression NOT LIKE '%utlagt-og-endurgreitt%' THEN
+    ALTER TABLE public.feature_access
+      DROP CONSTRAINT feature_access_feature_key_check;
+    EXECUTE pg_catalog.format(
+      'ALTER TABLE public.feature_access ADD CONSTRAINT feature_access_feature_key_check CHECK ((%s) OR feature_key = %L)',
+      v_expression,
+      'utlagt-og-endurgreitt'
+    );
+  END IF;
+END;
+$feature_key$;
 
 -- recent_events predates source enums. Preserve its existing loans rows while
 -- making the expense projection explicit and fail closed for unknown sources.
@@ -1470,7 +1483,7 @@ BEGIN
        LEFT JOIN public.expense_group_members AS member
          ON member.id = (item->>'member_id')::uuid
         AND member.group_id = v_group_id
-        AND member.status = 'active'
+        AND member.status IN ('active', 'invited')
        WHERE member.id IS NULL
      )
      OR EXISTS (
@@ -1479,7 +1492,7 @@ BEGIN
        LEFT JOIN public.expense_group_members AS member
          ON member.id = (item->>'member_id')::uuid
         AND member.group_id = v_group_id
-        AND member.status = 'active'
+        AND member.status IN ('active', 'invited')
        WHERE member.id IS NULL
      ) THEN
     RAISE EXCEPTION 'expense_member_invalid';
@@ -1742,14 +1755,30 @@ BEGIN
     AND member.user_id = p_actor_id
     AND member.status = 'invited'
   FOR UPDATE;
-  IF v_group.id IS NULL OR v_group.kind <> 'group' OR v_group.status <> 'active'
+  IF v_group.id IS NULL OR v_group.kind NOT IN ('group', 'one_off')
+     OR v_group.status NOT IN ('active', 'settling', 'settled')
      OR v_member.id IS NULL THEN
     RAISE EXCEPTION 'expense_invitation_not_found';
   END IF;
 
-  UPDATE public.expense_group_members AS member
-  SET status = CASE p_action WHEN 'accept' THEN 'active' ELSE 'declined' END
-  WHERE member.id = v_member.id;
+  IF p_action = 'accept' THEN
+    UPDATE public.expense_group_members AS member
+    SET status = 'active'
+    WHERE member.id = v_member.id;
+  ELSIF public.expense_member_can_exit(p_group_id, v_member.id) THEN
+    UPDATE public.expense_group_members AS member
+    SET status = 'declined'
+    WHERE member.id = v_member.id;
+  ELSE
+    -- Declining Teskeið access must not erase or strand a real-world debt.
+    -- Keep the durable financial party as an unlinked guest so a manager can
+    -- finish settlement and the same member_id may be linked again later.
+    UPDATE public.expense_group_members AS member
+    SET user_id = NULL,
+        role = 'member',
+        status = 'active'
+    WHERE member.id = v_member.id;
+  END IF;
 
   v_event := CASE p_action
     WHEN 'accept' THEN 'expense_group_invitation_accepted'
@@ -1933,6 +1962,7 @@ BEGIN
   FOR UPDATE;
   v_role := public.expense_active_member_role(p_actor_id, v_group.id);
   IF v_group.status <> 'active' OR v_expense.status <> 'active'
+     OR v_role IS NULL
      OR (v_expense.created_by IS DISTINCT FROM p_actor_id
          AND coalesce(v_role, '') NOT IN ('owner', 'admin'))
      OR EXISTS (
@@ -1959,7 +1989,7 @@ BEGIN
     JOIN public.expense_group_members AS member
       ON member.group_id = v_group.id
      AND member.id = balance.member_id
-    WHERE member.status <> 'active'
+    WHERE member.status NOT IN ('active', 'invited')
       AND balance.amount_minor <> 0
   ) THEN
     RAISE EXCEPTION 'expense_inactive_member_balance';
@@ -2135,17 +2165,17 @@ BEGIN
   FROM public.expense_group_members AS member
   WHERE member.group_id = p_group_id
     AND member.id = p_from_member_id
-    AND member.status = 'active';
+    AND member.status IN ('active', 'invited');
   SELECT member.* INTO v_to
   FROM public.expense_group_members AS member
   WHERE member.group_id = p_group_id
     AND member.id = p_to_member_id
-    AND member.status = 'active';
+    AND member.status IN ('active', 'invited');
   IF v_from.id IS NULL OR v_to.id IS NULL
      OR NOT (
-       v_from.user_id = p_actor_id
+       (v_from.status = 'active' AND v_from.user_id = p_actor_id)
        OR (
-         v_from.user_id IS NULL
+         (v_from.user_id IS NULL OR v_from.status = 'invited')
          AND coalesce(v_role, '') IN ('owner', 'admin')
        )
      ) THEN
@@ -2333,12 +2363,17 @@ BEGIN
 
   -- Confirmed is terminal: neither debtor nor manager can undo it. Rejection
   -- and cancellation are also terminal; every transition starts at reported.
-  IF v_repayment.status <> 'reported' OR v_role IS NULL THEN
+  IF v_repayment.status <> 'reported' OR v_role IS NULL
+     OR v_from.status NOT IN ('active', 'invited')
+     OR v_to.status NOT IN ('active', 'invited') THEN
     RAISE EXCEPTION 'expense_repayment_transition_invalid';
   END IF;
   IF p_action IN ('confirm', 'reject') AND NOT (
-    v_to.user_id = p_actor_id
-    OR (v_to.user_id IS NULL AND coalesce(v_role, '') IN ('owner', 'admin'))
+    (v_to.status = 'active' AND v_to.user_id = p_actor_id)
+    OR (
+      (v_to.user_id IS NULL OR v_to.status = 'invited')
+      AND coalesce(v_role, '') IN ('owner', 'admin')
+    )
   ) THEN
     RAISE EXCEPTION 'expense_repayment_not_allowed';
   END IF;

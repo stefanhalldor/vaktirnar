@@ -19,6 +19,7 @@ import {
   markThreadRead,
   reportMessage,
   assertThreadScope,
+  assertThreadTarget,
   assertMessageScope,
   getFeedMessages,
   getPreviewMessages,
@@ -230,6 +231,56 @@ describe('postMessage', () => {
     await expect(postMessage('thread-1', 'user-1', { body: 'test', messageKind: 'chat' }))
       .rejects.toThrow('chat: postMessage failed')
   })
+
+  it('returns an identical prior request without inserting a duplicate', async () => {
+    const existing = {
+      ...MESSAGE_ROW,
+      client_message_id: '00000000-0000-4000-8000-000000000003',
+      idempotency_key: '00000000-0000-4000-8000-000000000004',
+    }
+    const chain = makeChain({
+      maybeSingle: vi.fn().mockResolvedValue({ data: existing, error: null }),
+    })
+    mockFrom.mockReturnValue(chain)
+
+    const dto = await postMessage(
+      'thread-1',
+      'user-1',
+      { body: ' Vindur er sterkur hér ', messageKind: 'chat' },
+      {
+        clientMessageId: existing.client_message_id,
+        idempotencyKey: existing.idempotency_key,
+        authorNameMode: 'full',
+      },
+    )
+
+    expect(dto.id).toBe(existing.id)
+    expect(chain.insert).not.toHaveBeenCalled()
+  })
+
+  it('rejects reuse of an idempotency key with different message content', async () => {
+    const chain = makeChain({
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: {
+          ...MESSAGE_ROW,
+          client_message_id: '00000000-0000-4000-8000-000000000003',
+          idempotency_key: '00000000-0000-4000-8000-000000000004',
+        },
+        error: null,
+      }),
+    })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(postMessage(
+      'thread-1',
+      'user-1',
+      { body: 'Önnur skilaboð', messageKind: 'chat' },
+      {
+        clientMessageId: '00000000-0000-4000-8000-000000000003',
+        idempotencyKey: '00000000-0000-4000-8000-000000000004',
+      },
+    )).rejects.toThrow('chat: idempotency conflict')
+  })
 })
 
 // ── markRead ──────────────────────────────────────────────────────────────────
@@ -311,6 +362,22 @@ describe('assertThreadScope', () => {
     mockFrom.mockReturnValue(chain)
 
     await expect(assertThreadScope('thread-1', SCOPE)).rejects.toThrow('chat: scope check failed')
+  })
+})
+
+describe('assertThreadTarget', () => {
+  it('adds an exact target-id fence for private context threads', async () => {
+    const maybeSingleFn = vi.fn().mockResolvedValue({ data: { id: 'thread-1' }, error: null })
+    const chain = makeChain({ maybeSingle: maybeSingleFn })
+    mockFrom.mockReturnValue(chain)
+
+    await expect(assertThreadTarget('thread-1', {
+      domain: 'expenses',
+      targetType: 'expense_item',
+      targetId: 'expense-1',
+    })).resolves.toBeUndefined()
+
+    expect(chain.eq).toHaveBeenCalledWith('target_id', 'expense-1')
   })
 })
 

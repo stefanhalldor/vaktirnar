@@ -1,6 +1,7 @@
 import React from 'react'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ExpenseItemView } from '@/lib/expenses/contracts'
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -19,12 +20,15 @@ const translations: Record<string, string> = {
   'common.amount': 'Upphæð', 'common.currency': 'Gjaldmiðill', 'common.date': 'Dagsetning',
   'common.datePlaceholder': 'Veldu dag', 'common.optional': 'Valfrjálst', 'common.note': 'Athugasemd',
   'expenseForm.stepNavAriaLabel': 'Skref', 'expenseForm.steps.details': 'Útlagt',
-  'expenseForm.steps.people': 'Aðilar', 'expenseForm.steps.split': 'Skipting', 'expenseForm.steps.review': 'Yfirferð',
+  'expenseForm.steps.split': 'Skiptingin',
   'expenseForm.stepNeedsReview': 'Þarf yfirferð', 'expenseForm.previousStep': 'Til baka',
-  'expenseForm.nextSteps.people': 'Áfram í aðila', 'expenseForm.nextSteps.split': 'Áfram í skiptingu',
-  'expenseForm.nextSteps.review': 'Áfram í yfirferð', 'expenseForm.details': 'Upplýsingar',
+  'expenseForm.nextSteps.split': 'Áfram í skiptingu', 'expenseForm.details': 'Upplýsingar',
   'expenseForm.title': 'Heiti útgjalds', 'expenseForm.titlePlaceholder': 'Til dæmis Kvöldmatur',
-  'expenseForm.category': 'Flokkur', 'expenseForm.participants': 'Fyrir hvern?',
+  'expenseForm.description': 'Lýsing', 'expenseForm.descriptionPlaceholder': 'Hvað var greitt fyrir?',
+  'expenseForm.category': 'Flokkur', 'expenseForm.participants': 'Taka þátt í kostnaði',
+  'expenseForm.youSuffix': '(þú)',
+  'expenseForm.participantShare': 'Hlutur í kostnaði: {amount}',
+  'expenseForm.paidAtPurchase': 'Lagði út {amount}',
   'expenseForm.participantHint': 'Veldu aðila.', 'expenseForm.knownPeople': 'Þekktir aðilar',
   'expenseForm.guestName': 'Nafn gests', 'expenseForm.addGuest': 'Bæta við gesti',
   'expenseForm.removeParticipant': 'Fjarlægja {name}', 'expenseForm.paidBy': 'Hverjir greiða?',
@@ -40,12 +44,15 @@ const translations: Record<string, string> = {
   'expenseForm.previewPaymentDetails': 'Greiðsluupplýsingar síðar.', 'expenseForm.roundingHint': 'Rúnnun.',
   'expenseForm.totalPaid': 'Samtals', 'expenseForm.create': 'Vista útlagt', 'expenseForm.creating': 'Vista...',
   'expenseForm.update': 'Vista breytingar', 'expenseForm.updating': 'Vista...',
+  'expenseForm.saveNow': 'Vista',
   'expenseForm.draftSaving': 'Vista breytingar...', 'expenseForm.draftSaved': 'Breytingar vistaðar',
   'expenseForm.draftSaveFailed': 'Vistun mistókst',
   'splitMethods.fixed': 'Föst upphæð', 'splitMethods.percentage': 'Prósenta', 'splitMethods.weighted': 'Hlutir',
   'splitMethods.fixedLabel': 'Föst upphæð', 'splitMethods.percentageLabel': 'Prósenta',
   'splitMethods.weightLabel': 'Hlutir', 'splitMethods.simpleHint': 'Veldu leið.',
   'splitMethods.weightHint': 'Einn hlutur skiptir jafnt.', 'splitMethods.resetEqual': 'Skipta jafnt',
+  'repayment.reportedAt': 'Greiðsla tilkynnt {date}',
+  'repayment.confirmedReportedAt': 'Greiðsla tilkynnt {date} · staðfest',
   'errors.detailsRequired': 'Fylltu út upplýsingar.', 'errors.participant_required': 'Bættu við aðila.',
   'errors.paymentTotal': 'Greiðslur stemma ekki.', 'errors.splitTotal': 'Skipting stemmir ekki.',
   'errors.invalid_input': 'Ógilt.', 'errors.draftSaveFailed': 'Vistun mistókst.',
@@ -76,6 +83,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.saveDraft.mockResolvedValue({ ok: true, data: { draftId: '11111111-1111-4111-8111-111111111111', version: 1, savedAt: '2026-08-05T12:00:00Z' } })
   mocks.create.mockResolvedValue({ ok: true, data: { groupId: 'group-1', expenseId: 'expense-1' } })
+  mocks.update.mockResolvedValue({ ok: true, data: { groupId: 'group-1', expenseId: 'expense-1', financialVersion: 2 } })
 })
 
 function renderForm(extra: Partial<React.ComponentProps<typeof ExpenseForm>> = {}) {
@@ -106,23 +114,26 @@ describe('ExpenseForm simplified split and autosave', () => {
   it('autosaves a private draft before moving forward and advances the CAS version', async () => {
     renderForm()
     fillDetails()
-    await next('Áfram í aðila')
+    await next('Áfram í skiptingu')
     expect(mocks.saveDraft).toHaveBeenLastCalledWith(expect.objectContaining({
-      context_type: 'group', group_id: 'group-1', current_step: 'people', expected_version: null,
+      context_type: 'group', group_id: 'group-1', current_step: 'split', expected_version: null,
       payload: expect.objectContaining({ title: 'Kvöldmatur', splitMethod: 'weighted' }),
     }))
     expect(mocks.replace).toHaveBeenCalledWith(expect.stringMatching(/^\/draft\?draft=/))
+  })
 
-    mocks.saveDraft.mockResolvedValueOnce({ ok: true, data: { draftId: '11111111-1111-4111-8111-111111111111', version: 2, savedAt: '2026-08-05T12:01:00Z' } })
-    await next('Áfram í skiptingu')
-    expect(mocks.saveDraft).toHaveBeenLastCalledWith(expect.objectContaining({ expected_version: 1, current_step: 'split' }))
+  it('shows localized thousands separators and keeps category hidden in the UI', () => {
+    renderForm()
+    fillDetails()
+    expect(screen.getByRole('textbox', { name: 'Upphæð' })).toHaveValue('10.000')
+    expect(screen.queryByRole('combobox', { name: /Flokkur/ })).not.toBeInTheDocument()
   })
 
   it('keeps the user on the current step when autosave fails', async () => {
     mocks.saveDraft.mockResolvedValueOnce({ ok: false, error: 'save_failed' })
     renderForm()
     fillDetails()
-    fireEvent.click(screen.getByRole('button', { name: 'Áfram í aðila' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Vistun mistókst')
     expect(screen.getByRole('textbox', { name: 'Heiti útgjalds' })).toBeInTheDocument()
   })
@@ -130,13 +141,11 @@ describe('ExpenseForm simplified split and autosave', () => {
   it('supports multiple payers and submits the simplified weighted allocation', async () => {
     renderForm()
     fillDetails()
-    await next('Áfram í aðila')
+    await next('Áfram í skiptingu')
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við greiðanda' }))
     const amounts = screen.getAllByRole('textbox', { name: /Upphæð/ })
     fireEvent.change(amounts[0]!, { target: { value: '6000' } })
     fireEvent.change(amounts[1]!, { target: { value: '4000' } })
-    await next('Áfram í skiptingu')
-    await next('Áfram í yfirferð')
     fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
     await waitFor(() => expect(mocks.create).toHaveBeenCalled())
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -144,5 +153,142 @@ describe('ExpenseForm simplified split and autosave', () => {
       payments: [{ member_key: 'member-self', amount: '6000' }, { member_key: 'member-anna', amount: '4000' }],
       allocations: [{ member_key: 'member-self', weight: '1' }, { member_key: 'member-anna', weight: '1' }],
     }))
+  })
+
+  it('prefills and updates the expense title and description through the details step', async () => {
+    const editExpense: ExpenseItemView = {
+      id: 'expense-1',
+      groupId: 'group-1',
+      title: 'Gamalt heiti',
+      totalMinor: 10_000,
+      currency: 'ISK',
+      incurredOn: '2026-08-05',
+      category: null,
+      note: 'Gömul lýsing',
+      status: 'active',
+      splitMethod: 'weighted',
+      createdBySelf: true,
+      createdAt: '2026-08-05T12:00:00Z',
+      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
+      shares: [
+        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
+        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
+      ],
+      revisions: [],
+    }
+    renderForm({ edit: { expense: editExpense, expectedFinancialVersion: 1 } })
+
+    const title = screen.getByRole('textbox', { name: 'Heiti útgjalds' })
+    const description = screen.getByRole('textbox', { name: /Lýsing/ })
+    expect(title).toHaveValue('Gamalt heiti')
+    expect(description).toHaveValue('Gömul lýsing')
+    expect(screen.getByRole('textbox', { name: 'Upphæð' })).toHaveValue('10.000')
+    expect(screen.getByRole('button', { name: 'Vista' })).toBeInTheDocument()
+
+    fireEvent.change(title, { target: { value: 'Nýtt heiti' } })
+    fireEvent.change(description, { target: { value: 'Ný lýsing' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Vista' }))
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({
+      expense_id: 'expense-1',
+      title: 'Nýtt heiti',
+      note: 'Ný lýsing',
+    })))
+  })
+
+  it('keeps settled edit navigation local when SQL102 drafts are unavailable', async () => {
+    const editExpense: ExpenseItemView = {
+      id: 'expense-1', groupId: 'group-1', title: 'Kvöldmatur', totalMinor: 10_000,
+      currency: 'ISK', incurredOn: '2026-08-05', category: 'food', note: null,
+      status: 'active', splitMethod: 'weighted', createdBySelf: true,
+      createdAt: '2026-08-05T12:00:00Z',
+      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
+      shares: [
+        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
+        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
+      ],
+      revisions: [],
+    }
+    renderForm({
+      edit: {
+        expense: editExpense,
+        expectedFinancialVersion: 4,
+        groupStatus: 'settled',
+        hasConfirmedRepayment: true,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
+    const participants = await screen.findByRole('group', { name: 'Taka þátt í kostnaði' })
+    expect(within(participants).getByText('Ég (þú)')).toBeInTheDocument()
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows each persisted cost share and positive payment states with the participant', () => {
+    const editExpense: ExpenseItemView = {
+      id: 'expense-1', groupId: 'group-1', title: 'Kvöldmatur', totalMinor: 10_000,
+      currency: 'ISK', incurredOn: '2026-08-05', category: null, note: null,
+      status: 'active', splitMethod: 'weighted', createdBySelf: true,
+      createdAt: '2026-08-05T12:00:00Z',
+      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
+      shares: [
+        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
+        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
+      ],
+      revisions: [],
+    }
+    renderForm({
+      mode: 'one_off',
+      initialStep: 'split',
+      edit: {
+        expense: editExpense,
+        expectedFinancialVersion: 4,
+        repayments: [{
+          id: 'repayment-1', obligationId: 'obligation-1', groupId: 'group-1',
+          fromMemberId: 'member-anna', fromDisplayName: 'Anna',
+          toMemberId: 'member-self', toDisplayName: 'Ég',
+          amountMinor: 5_000, currency: 'ISK', occurredOn: '2026-08-05', note: null,
+          status: 'confirmed', createdAt: '2026-08-05T12:30:00Z',
+          canConfirm: false, canReject: false, canCancel: false, requiresReview: false,
+          paymentSnapshot: null,
+        }],
+      },
+    })
+
+    const participants = screen.getByRole('group', { name: 'Taka þátt í kostnaði' })
+    expect(within(participants).getAllByText(/Hlutur í kostnaði: 5\.000\s*kr\./)).toHaveLength(2)
+    expect(within(participants).getByText(/Lagði út 10\.000\s*kr\./)).toBeInTheDocument()
+    expect(within(participants).getByText(/Greiðsla tilkynnt .* · staðfest/)).toBeInTheDocument()
+  })
+
+  it('recalculates a settled expense without an interruption popup', async () => {
+    const editExpense: ExpenseItemView = {
+      id: 'expense-1', groupId: 'group-1', title: 'Kvöldmatur', totalMinor: 10_000,
+      currency: 'ISK', incurredOn: '2026-08-05', category: null, note: null,
+      status: 'active', splitMethod: 'weighted', createdBySelf: true,
+      createdAt: '2026-08-05T12:00:00Z',
+      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
+      shares: [
+        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
+        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
+      ],
+      revisions: [],
+    }
+    const confirm = vi.spyOn(window, 'confirm')
+    renderForm({
+      initialStep: 'split',
+      edit: {
+        expense: editExpense,
+        expectedFinancialVersion: 4,
+        groupStatus: 'settled',
+        hasConfirmedRepayment: true,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
+    await waitFor(() => expect(mocks.update).toHaveBeenCalled())
+    expect(confirm).not.toHaveBeenCalled()
+    confirm.mockRestore()
   })
 })

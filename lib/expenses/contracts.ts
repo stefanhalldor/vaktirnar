@@ -65,6 +65,47 @@ export interface ExpenseShareView {
   amountMinor: number
 }
 
+export interface ExpenseRevisionSnapshot {
+  version: 1
+  groupStatus: ExpenseGroupStatus
+  expense: {
+    title: string
+    note: string | null
+    totalMinor: number
+    currency: string
+    incurredOn: string
+    category: string | null
+    splitMethod: ExpenseSplitMethod
+  }
+  payments: ExpensePaymentView[]
+  shares: ExpenseShareView[]
+  balances: Array<{
+    memberId: string
+    displayName: string
+    currency: string
+    amountMinor: number
+  }>
+  repaymentSummary: {
+    reported: number
+    confirmed: number
+    rejected: number
+    cancelled: number
+  }
+}
+
+export interface ExpenseRevisionView {
+  id: string
+  activityId: string
+  financialVersionBefore: number
+  financialVersionAfter: number
+  changedFields: string[]
+  actorDisplayName: string
+  summaryCode: string
+  before: ExpenseRevisionSnapshot
+  after: ExpenseRevisionSnapshot
+  createdAt: string
+}
+
 export interface ExpenseItemView {
   id: string
   groupId: string
@@ -80,6 +121,7 @@ export interface ExpenseItemView {
   createdAt: string
   payments: ExpensePaymentView[]
   shares: ExpenseShareView[]
+  revisions: ExpenseRevisionView[]
 }
 
 export interface ExpenseBalanceView {
@@ -129,6 +171,7 @@ export interface ExpenseRepaymentView {
   canConfirm: boolean
   canReject: boolean
   canCancel: boolean
+  requiresReview: boolean
   paymentSnapshot: ExpensePaymentSnapshotView | null
 }
 
@@ -164,6 +207,7 @@ export interface ExpenseGroupView {
   expenses: ExpenseItemView[]
   balances: ExpenseBalanceView[]
   settlementTransfers: ExpenseSettlementTransferView[]
+  settlementRequiresReview: boolean
   repayments: ExpenseRepaymentView[]
   activity: ExpenseActivityView[]
 }

@@ -3,11 +3,14 @@ import { getAdmin } from '@/lib/supabase/admin'
 import {
   aggregateLedgerBalances,
   applySettlementTransfers,
+  reportedRepaymentsNeedingReview,
+  settlementTransferReviewKey,
   simplifySettlement,
 } from './balances'
 import { addMinorAmounts } from './money'
 import { paymentSnapshotForViewer } from './payment-snapshot-visibility'
 import { canLeaveExpenseGroup } from './member-exit'
+import { canActAsExpenseMember, canManageExpenseMemberOnBehalf } from './policy'
 import type {
   DebtObligation,
   ExpenseLedgerEntry,
@@ -27,6 +30,8 @@ import type {
   ExpenseMemberView,
   ExpensePaymentPreferenceView,
   ExpenseRepaymentView,
+  ExpenseRevisionSnapshot,
+  ExpenseRevisionView,
 } from './contracts'
 import type { ExpenseActivityEventType } from './events'
 import { ExpenseDraftPayloadSchema, type ExpensePrivateDraftView } from './drafts'
@@ -124,6 +129,17 @@ interface ActivityRow {
   created_at: string
 }
 
+interface RevisionRow {
+  id: string
+  activity_id: string
+  financial_version_before: number | string
+  financial_version_after: number | string
+  changed_fields: unknown
+  before_snapshot: unknown
+  after_snapshot: unknown
+  created_at: string
+}
+
 interface MemberInvitationRow {
   id: string
   group_id: string
@@ -140,6 +156,111 @@ function safeMinor(value: number | string): number {
   const amount = typeof value === 'number' ? value : Number(value)
   if (!Number.isSafeInteger(amount)) throw new Error('expense_amount_invalid')
   return amount
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function boundedString(value: unknown, maximum: number): string | null {
+  return typeof value === 'string' && value.length <= maximum ? value : null
+}
+
+function parseRevisionSnapshot(value: unknown): ExpenseRevisionSnapshot | null {
+  const source = record(value)
+  const expense = record(source?.expense)
+  if (!source || source.version !== 1 || !expense) return null
+  const groupStatus = source.groupStatus
+  const splitMethod = expense.splitMethod
+  if (!['active', 'settling', 'settled', 'closed'].includes(String(groupStatus))
+    || !['equal', 'percentage', 'weighted', 'fixed', 'mixed_equal_remainder', 'mixed_percentage_remainder'].includes(String(splitMethod))) {
+    return null
+  }
+  const title = boundedString(expense.title, 200)
+  const note = expense.note === null ? null : boundedString(expense.note, 1000)
+  const currency = boundedString(expense.currency, 3)
+  const incurredOn = boundedString(expense.incurredOn, 10)
+  const category = expense.category === null ? null : boundedString(expense.category, 40)
+  const totalMinor = Number(expense.totalMinor)
+  if (title === null || note === null && expense.note !== null || currency === null
+    || incurredOn === null || category === null && expense.category !== null
+    || !Number.isSafeInteger(totalMinor) || totalMinor < 0) return null
+
+  const parseAmounts = (rows: unknown, maximum: number) => {
+    if (!Array.isArray(rows) || rows.length > maximum) return null
+    const parsed = rows.map((item) => {
+      const row = record(item)
+      const memberId = boundedString(row?.memberId, 64)
+      const displayName = boundedString(row?.displayName, 120)
+      const amountMinor = Number(row?.amountMinor)
+      return row && memberId && displayName !== null && Number.isSafeInteger(amountMinor)
+        ? { memberId, displayName, amountMinor }
+        : null
+    })
+    return parsed.every((item) => item !== null) ? parsed as Array<{ memberId: string; displayName: string; amountMinor: number }> : null
+  }
+  const payments = parseAmounts(source.payments, 50)
+  const shares = parseAmounts(source.shares, 50)
+  const balanceAmounts = parseAmounts(source.balances, 50)
+  if (!payments || !shares || !balanceAmounts) return null
+  const balances = balanceAmounts.map((balance, index) => {
+    const sourceBalance = record((source.balances as unknown[])[index])
+    const balanceCurrency = boundedString(sourceBalance?.currency, 3)
+    return balanceCurrency ? { ...balance, currency: balanceCurrency } : null
+  })
+  if (balances.some((balance) => balance === null)) return null
+  const repaymentSummarySource = record(source.repaymentSummary)
+  if (!repaymentSummarySource) return null
+  const repaymentSummary = {
+    reported: Number(repaymentSummarySource.reported),
+    confirmed: Number(repaymentSummarySource.confirmed),
+    rejected: Number(repaymentSummarySource.rejected),
+    cancelled: Number(repaymentSummarySource.cancelled),
+  }
+  if (Object.values(repaymentSummary).some((count) => !Number.isSafeInteger(count) || count < 0)) return null
+  return {
+    version: 1,
+    groupStatus: groupStatus as ExpenseRevisionSnapshot['groupStatus'],
+    expense: {
+      title,
+      note,
+      totalMinor,
+      currency,
+      incurredOn,
+      category,
+      splitMethod: splitMethod as ExpenseRevisionSnapshot['expense']['splitMethod'],
+    },
+    payments,
+    shares,
+    balances: balances as ExpenseRevisionSnapshot['balances'],
+    repaymentSummary,
+  }
+}
+
+function parseRevision(row: RevisionRow): ExpenseRevisionView | null {
+  const before = parseRevisionSnapshot(row.before_snapshot)
+  const after = parseRevisionSnapshot(row.after_snapshot)
+  const beforeVersion = Number(row.financial_version_before)
+  const afterVersion = Number(row.financial_version_after)
+  const changedFields = Array.isArray(row.changed_fields)
+    ? row.changed_fields.filter((field): field is string => typeof field === 'string')
+    : []
+  if (!before || !after || !Number.isSafeInteger(beforeVersion) || !Number.isSafeInteger(afterVersion)
+    || changedFields.length === 0 || changedFields.length > 8) return null
+  return {
+    id: row.id,
+    activityId: row.activity_id,
+    financialVersionBefore: beforeVersion,
+    financialVersionAfter: afterVersion,
+    changedFields,
+    actorDisplayName: '',
+    summaryCode: 'expense_updated',
+    before,
+    after,
+    createdAt: row.created_at,
+  }
 }
 
 function throwOnError(error: unknown, operation: string): void {
@@ -302,9 +423,21 @@ function buildGroupView(
       amountMinor: safeMinor(repayment.amount_minor),
       currency: repayment.currency,
     }))
+  const reportedReviewKeys = reportedRepaymentsNeedingReview(domainBalances, reportedReservations)
+  const settlementRequiresReview = reportedReviewKeys.size > 0
   const availableBalances = applySettlementTransfers(domainBalances, reportedReservations)
   const transfers = simplifySettlement(availableBalances).map((transfer) => {
     const from = membersById.get(transfer.fromPartyId)
+    const viewerIsFrom = from ? canActAsExpenseMember({
+      actorUserId,
+      memberStatus: from.status,
+      memberUserId: from.user_id,
+    }) : false
+    const managedDebtor = canManageExpenseMemberOnBehalf({
+      canManage,
+      memberStatus: from?.status,
+      memberUserId: from?.user_id,
+    })
     return {
       fromMemberId: transfer.fromPartyId,
       fromDisplayName: memberName(transfer.fromPartyId),
@@ -313,7 +446,8 @@ function buildGroupView(
       amountMinor: transfer.amountMinor,
       currency: transfer.currency,
       expectedFinancialVersion: rows.group.financial_version,
-      canReport: from?.user_id === actorUserId || (from?.user_id === null && canManage),
+      canReport: !settlementRequiresReview
+        && (viewerIsFrom || managedDebtor),
       paymentInstruction: null,
     }
   })
@@ -345,15 +479,28 @@ function buildGroupView(
         displayName: memberName(share.member_id),
         amountMinor: safeMinor(share.amount_minor),
       })),
+    revisions: [],
   }))
 
   const repaymentViews: ExpenseRepaymentView[] = rows.repayments.map((repayment) => {
     const from = membersById.get(repayment.from_member_id)
     const to = membersById.get(repayment.to_member_id)
     const isReported = repayment.status === 'reported'
-    const viewerIsFrom = from?.user_id === actorUserId
-    const viewerIsTo = to?.user_id === actorUserId
-    const guestCreditorManaged = to?.user_id === null && canManage
+    const viewerIsFrom = from ? canActAsExpenseMember({
+      actorUserId,
+      memberStatus: from.status,
+      memberUserId: from.user_id,
+    }) : false
+    const viewerIsTo = to ? canActAsExpenseMember({
+      actorUserId,
+      memberStatus: to.status,
+      memberUserId: to.user_id,
+    }) : false
+    const managedCreditor = canManageExpenseMemberOnBehalf({
+      canManage,
+      memberStatus: to?.status,
+      memberUserId: to?.user_id,
+    })
     const allocation = rows.allocations.find((candidate) => candidate.repayment_id === repayment.id)
     if (!allocation) throw new Error('expense_repayment_allocation_invalid')
     const snapshotOwnerUserId = to?.user_id
@@ -371,9 +518,14 @@ function buildGroupView(
       note: repayment.note,
       status: repayment.status,
       createdAt: repayment.created_at,
-      canConfirm: isReported && (viewerIsTo || guestCreditorManaged),
-      canReject: isReported && (viewerIsTo || guestCreditorManaged),
+      canConfirm: isReported && (viewerIsTo || managedCreditor),
+      canReject: isReported && (viewerIsTo || managedCreditor),
       canCancel: isReported && (viewerIsFrom || repayment.reported_by === actorUserId || canManage),
+      requiresReview: isReported && reportedReviewKeys.has(settlementTransferReviewKey({
+        fromPartyId: repayment.from_member_id,
+        toPartyId: repayment.to_member_id,
+        currency: repayment.currency,
+      })),
       paymentSnapshot: paymentSnapshotForViewer(
         repayment.payment_preference_snapshot,
         {
@@ -429,6 +581,7 @@ function buildGroupView(
     expenses: expenseViews,
     balances,
     settlementTransfers: transfers,
+    settlementRequiresReview,
     repayments: repaymentViews,
     activity,
   }
@@ -661,6 +814,7 @@ export async function getExpenseInvitation(
 export async function getExpenseItemView(
   actorUserId: string,
   expenseId: string,
+  options: { includeCurrentPaymentInstructions?: boolean } = {},
 ): Promise<{ group: ExpenseGroupView; expense: ExpenseItemView } | null> {
   const { data, error } = await getAdmin()
     .from('expenses')
@@ -669,10 +823,46 @@ export async function getExpenseItemView(
     .maybeSingle()
   throwOnError(error, 'expense locator query')
   if (!data) return null
-  const group = await getExpenseGroupView(actorUserId, (data as { group_id: string }).group_id)
+  const group = await getExpenseGroupView(
+    actorUserId,
+    (data as { group_id: string }).group_id,
+    options,
+  )
   if (!group) return null
   const expense = group.expenses.find((item) => item.id === expenseId)
-  return expense ? { group, expense } : null
+  if (!expense) return null
+  const { data: revisionRows, error: revisionError } = await getAdmin()
+    .from('expense_revisions')
+    .select('id, activity_id, financial_version_before, financial_version_after, changed_fields, before_snapshot, after_snapshot, created_at')
+    .eq('expense_id', expenseId)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  throwOnError(revisionError, 'expense revision query')
+  const parsedRevisions = ((revisionRows ?? []) as RevisionRow[])
+    .map(parseRevision)
+    .filter((revision): revision is ExpenseRevisionView => revision !== null)
+  const revisionActivityIds = parsedRevisions.map((revision) => revision.activityId)
+  const revisionActivityResult = revisionActivityIds.length > 0
+    ? await getAdmin()
+      .from('expense_activity')
+      .select('id, actor_display_name, summary_code')
+      .in('id', revisionActivityIds)
+    : { data: [], error: null }
+  throwOnError(revisionActivityResult.error, 'expense revision activity query')
+  const revisionActivity = new Map(((revisionActivityResult.data ?? []) as Array<{
+    id: string
+    actor_display_name: string
+    summary_code: string
+  }>).map((activity) => [activity.id, activity]))
+  const revisions = parsedRevisions.map((revision) => {
+    const activity = revisionActivity.get(revision.activityId)
+    return {
+      ...revision,
+      actorDisplayName: activity?.actor_display_name ?? '',
+      summaryCode: activity?.summary_code ?? 'expense_updated',
+    }
+  })
+  return { group, expense: { ...expense, revisions } }
 }
 
 export async function getExpensePrivateDraft(
@@ -690,12 +880,15 @@ export async function getExpensePrivateDraft(
   const payload = ExpenseDraftPayloadSchema.safeParse(row.payload)
   const version = Number(row.draft_version)
   const contextType = row.context_type
-  const currentStep = row.current_step
+  const rawCurrentStep = row.current_step
+  const currentStep = rawCurrentStep === 'people' || rawCurrentStep === 'review'
+    ? 'split'
+    : rawCurrentStep
   if (!payload.success
     || !Number.isSafeInteger(version)
     || version < 1
     || (contextType !== 'one_off' && contextType !== 'group' && contextType !== 'edit')
-    || (currentStep !== 'details' && currentStep !== 'people' && currentStep !== 'split' && currentStep !== 'review')) {
+    || (currentStep !== 'details' && currentStep !== 'split')) {
     return null
   }
   return {

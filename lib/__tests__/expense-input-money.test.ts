@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   ExpenseDomainError,
   expenseCurrencyMinorDigits,
+  formatExpenseAmountInput,
   formatExpenseMinor,
   formatExpenseMinorForCopy,
+  normalizeExpenseAmountInput,
   parseExpenseAmountToMinor,
   parseExpensePercentageToBasisPoints,
 } from '@/lib/expenses'
@@ -45,5 +47,14 @@ describe('expense amount input', () => {
     expect(formatExpenseMinor(1_234, 'EUR', 'en-GB')).toContain('12.34')
     expect(formatExpenseMinorForCopy(12_345, 'ISK')).toBe('12345')
     expect(formatExpenseMinorForCopy(1_234, 'EUR')).toBe('12.34')
+  })
+
+  it('groups editable amounts by locale without changing the canonical value', () => {
+    expect(formatExpenseAmountInput('10000000', 'ISK', 'is')).toBe('10.000.000')
+    expect(formatExpenseAmountInput('12345.67', 'EUR', 'is')).toBe('12.345,67')
+    expect(formatExpenseAmountInput('12345.67', 'EUR', 'en')).toBe('12,345.67')
+    expect(normalizeExpenseAmountInput('10.000.000', 'ISK', 'is')).toBe('10000000')
+    expect(normalizeExpenseAmountInput('12.345,67', 'EUR', 'is')).toBe('12345.67')
+    expect(normalizeExpenseAmountInput('12,345.67', 'EUR', 'en')).toBe('12345.67')
   })
 })

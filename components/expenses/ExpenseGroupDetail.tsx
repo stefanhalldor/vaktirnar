@@ -4,12 +4,12 @@ import { getLocale } from 'next-intl/server'
 import { formatDateOnly, formatDateTime } from '@/lib/date-format'
 import type { ExpenseGroupView, ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { formatExpenseMinor, formatExpenseMinorForCopy } from '@/lib/expenses/input-money'
+import { canLinkExpenseGuest } from '@/lib/expenses/policy'
 import { getExpenseTranslations } from './i18n.server'
 import { ExpenseRepaymentReportForm } from './ExpenseRepaymentReportForm'
 import { ExpenseGroupActions } from './ExpenseGroupActions'
 import { ExpenseMemberManager } from './ExpenseMemberManager'
 import { ExpensePaymentDetails } from './ExpensePaymentDetails'
-import { ExpenseFlowNav } from './ExpenseFlowNav'
 import { expensePrimaryButtonClass } from './ui'
 
 export async function ExpenseGroupDetail({ group, initialDate, participantOptions, participantOptionsError }: {
@@ -22,8 +22,9 @@ export async function ExpenseGroupDetail({ group, initialDate, participantOption
   const statusKey = group.status === 'active' ? 'statusActive' : group.status === 'settling' ? 'statusSettling' : group.status === 'settled' ? 'statusSettled' : 'statusClosed'
   return (
     <div className="space-y-8">
-      <ExpenseFlowNav context="entry" />
       <div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{t(`group.${statusKey}`)}</p>{group.canCreateExpense ? <Link href={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}/nytt-utgjald`} className={expensePrimaryButtonClass}><Plus aria-hidden size={17} className="mr-1.5" />{t('group.newExpense')}</Link> : null}</div>
+
+      {group.settlementRequiresReview ? <div role="status" className="border-y border-amber-300 bg-amber-50 px-3 py-4 text-sm text-amber-950"><p className="font-semibold">{t('repayment.reviewRequiredTitle')}</p><p className="mt-1 leading-6">{t('repayment.reviewRequiredBody')}</p></div> : null}
 
       <section><h2 className="mb-2 text-sm font-semibold">{t('group.balances')}</h2><div className="divide-y divide-border border-y border-border">{group.balances.map((balance) => <div key={`${balance.memberId}:${balance.currency}`} className="flex justify-between gap-4 py-2.5 text-sm"><span className="truncate">{balance.displayName}</span><strong className={balance.amountMinor < 0 ? 'text-destructive' : 'text-primary'}>{formatExpenseMinor(balance.amountMinor, balance.currency)}</strong></div>)}</div></section>
 
@@ -31,7 +32,7 @@ export async function ExpenseGroupDetail({ group, initialDate, participantOption
 
       <section><h2 className="mb-2 text-sm font-semibold">{t('group.expenses')}</h2>{group.expenses.length === 0 ? <p className="border-y border-border py-4 text-sm text-muted-foreground">{t('dashboard.empty')}</p> : <div className="divide-y divide-border border-y border-border">{group.expenses.map((expense) => <Link key={expense.id} href={`/auth-mvp/utlagt-og-endurgreitt/utgjold/${expense.id}`} className="flex min-h-14 items-center gap-3 py-3"><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{expense.title}</span><span className="text-xs text-muted-foreground">{formatDateOnly(expense.incurredOn, locale)}</span></span><strong className="text-sm">{formatExpenseMinor(expense.totalMinor, expense.currency)}</strong><ChevronRight aria-hidden size={17} className="text-muted-foreground" /></Link>)}</div>}</section>
 
-      {group.repayments.length > 0 ? <section><h2 className="mb-2 text-sm font-semibold">{t('group.repayments')}</h2><div className="divide-y divide-border border-y border-border">{group.repayments.map((repayment) => <Link key={repayment.id} href={`/auth-mvp/utlagt-og-endurgreitt/endurgreidslur/${repayment.id}`} className="flex min-h-14 items-center gap-3 py-3"><span className="min-w-0 flex-1 truncate text-sm">{t('repayment.fromTo', { from: repayment.fromDisplayName, to: repayment.toDisplayName })}</span><strong className="text-sm">{formatExpenseMinor(repayment.amountMinor, repayment.currency)}</strong><ChevronRight aria-hidden size={17} className="text-muted-foreground" /></Link>)}</div></section> : null}
+      {group.repayments.length > 0 ? <section><h2 className="mb-2 text-sm font-semibold">{t('group.repayments')}</h2><div className="divide-y divide-border border-y border-border">{group.repayments.map((repayment) => <Link key={repayment.id} href={`/auth-mvp/utlagt-og-endurgreitt/endurgreidslur/${repayment.id}`} className="flex min-h-14 items-center gap-3 py-3"><span className="min-w-0 flex-1"><span className="block truncate text-sm">{t('repayment.fromTo', { from: repayment.fromDisplayName, to: repayment.toDisplayName })}</span>{repayment.requiresReview ? <span className="mt-0.5 block text-xs text-amber-800">{t('repayment.statusNeedsReview')}</span> : null}</span><strong className="text-sm">{formatExpenseMinor(repayment.amountMinor, repayment.currency)}</strong><ChevronRight aria-hidden size={17} className="text-muted-foreground" /></Link>)}</div></section> : null}
 
       <ExpenseMemberManager
         groupId={group.id}
@@ -39,10 +40,10 @@ export async function ExpenseGroupDetail({ group, initialDate, participantOption
         options={participantOptions}
         optionsError={participantOptionsError}
         canManage={group.kind === 'group' && group.status === 'active' && group.canManage}
-        canLinkGuests={group.status === 'active' && group.canManage}
+        canLinkGuests={canLinkExpenseGuest({ groupStatus: group.status, canManage: group.canManage })}
       />
 
-      {group.activity.length > 0 ? <section><h2 className="mb-2 text-sm font-semibold">{t('group.activity')}</h2><ol className="divide-y divide-border border-y border-border">{group.activity.map((activity) => <li key={activity.id} className="py-3 text-sm"><p>{t(`activity.${activity.eventType}`)}</p><p className="mt-0.5 text-xs text-muted-foreground">{activity.actorDisplayName} · {formatDateTime(activity.createdAt, locale)}</p></li>)}</ol></section> : null}
+      {group.activity.length > 0 ? <section><h2 className="mb-2 text-sm font-semibold">{t('group.activity')}</h2><ol className="divide-y divide-border border-y border-border">{group.activity.map((activity) => <li key={activity.id} className="py-3 text-sm"><p>{activity.summaryCode === 'expense_group_reopened_after_expense_edit' ? t('activitySummary.expense_group_reopened_after_expense_edit') : t(`activity.${activity.eventType}`)}</p><p className="mt-0.5 text-xs text-muted-foreground">{activity.actorDisplayName} · {formatDateTime(activity.createdAt, locale)}</p></li>)}</ol></section> : null}
 
       <ExpenseGroupActions group={group} />
     </div>

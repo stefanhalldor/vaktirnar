@@ -2,10 +2,16 @@
 
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { useLocale } from 'next-intl'
 import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
 import { reportExpenseRepayment } from '@/lib/expenses/actions'
 import type { ExpenseSettlementTransferView } from '@/lib/expenses/contracts'
-import { formatExpenseMinor, formatExpenseMinorForCopy } from '@/lib/expenses/input-money'
+import {
+  formatExpenseAmountInput,
+  formatExpenseMinor,
+  formatExpenseMinorForCopy,
+  normalizeExpenseAmountInput,
+} from '@/lib/expenses/input-money'
 import { useExpenseTranslations } from './i18n.client'
 import { useExpenseMutationRequestIds } from './request-id'
 import { expenseInputClass, expenseLabelClass, expensePrimaryButtonClass, expenseTextareaClass } from './ui'
@@ -16,6 +22,7 @@ export function ExpenseRepaymentReportForm({ groupId, transfer, initialDate }: {
   initialDate: string
 }) {
   const t = useExpenseTranslations()
+  const locale = useLocale()
   const router = useRouter()
   const requestIds = useExpenseMutationRequestIds()
   const alertRef = useRef<HTMLParagraphElement>(null)
@@ -61,7 +68,7 @@ export function ExpenseRepaymentReportForm({ groupId, transfer, initialDate }: {
     <form className="mt-3 space-y-3 border-t border-border pt-3" onSubmit={submit}>
       <p className="text-xs leading-5 text-muted-foreground">{t('repayment.outsidePayment')}</p>
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="text-sm text-destructive">{error}</p> : null}
-      <label><span className={expenseLabelClass}>{t('common.amount')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required /><span className="mt-1 block text-xs text-muted-foreground">{t('repayment.maximum', { amount: formatExpenseMinor(transfer.amountMinor, transfer.currency) })}</span></label>
+      <label><span className={expenseLabelClass}>{t('common.amount')}</span><input className={expenseInputClass} type="text" inputMode="decimal" value={formatExpenseAmountInput(amount, transfer.currency, locale)} onChange={(event) => { const next = normalizeExpenseAmountInput(event.target.value, transfer.currency, locale); if (next !== null) setAmount(next) }} required /><span className="mt-1 block text-xs text-muted-foreground">{t('repayment.maximum', { amount: formatExpenseMinor(transfer.amountMinor, transfer.currency, locale) })}</span></label>
       <TeskeidDateField label={t('common.date')} value={date} onChange={setDate} placeholder={t('common.datePlaceholder')} required />
       <label><span className={expenseLabelClass}>{t('common.note')} <span className="font-normal text-muted-foreground">({t('common.optional')})</span></span><textarea className={expenseTextareaClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} /></label>
       <button className={`${expensePrimaryButtonClass} w-full`} type="submit" disabled={isPending}>{isPending ? t('repayment.reporting') : t('repayment.report')}</button>

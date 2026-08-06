@@ -1,5 +1,5 @@
-export type ChatDomain = 'weather'
-export type ChatTargetType = 'vedurstofan_station' | 'vegagerdin_station'
+export type ChatDomain = 'weather' | 'expenses'
+export type ChatTargetType = 'vedurstofan_station' | 'vegagerdin_station' | 'expense_item'
 export type ChatMessageKind = 'chat' | 'field_report' | 'measurement_report' | 'system'
 
 /** The stable target a chat thread is scoped to. */

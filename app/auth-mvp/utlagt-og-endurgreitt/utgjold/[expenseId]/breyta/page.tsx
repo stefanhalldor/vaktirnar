@@ -4,6 +4,7 @@ import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { expenseDetailHref, parseExpenseDraftId, parseExpenseFlowStep } from '@/lib/expenses/flow'
+import { canEditExpense } from '@/lib/expenses/policy'
 import { getExpenseItemView, getExpensePrivateDraft } from '@/lib/expenses/repository.server'
 
 export default async function EditExpensePage({
@@ -23,13 +24,18 @@ export default async function EditExpensePage({
   if (!result) notFound()
 
   const { expense, group } = result
-  const hasLockedRepayment = group.repayments.some(
-    (repayment) => repayment.status === 'reported' || repayment.status === 'confirmed',
+  const hasReportedRepayment = group.repayments.some(
+    (repayment) => repayment.status === 'reported',
   )
-  const canEdit = expense.status === 'active'
-    && group.status === 'active'
-    && !hasLockedRepayment
-    && (expense.createdBySelf || group.canManage)
+  const hasConfirmedRepayment = group.repayments.some(
+    (repayment) => repayment.status === 'confirmed',
+  )
+  const canEdit = canEditExpense({
+    expenseStatus: expense.status,
+    groupStatus: group.status,
+    createdBySelf: expense.createdBySelf,
+    canManage: group.canManage,
+  })
   if (!canEdit) notFound()
 
   const draftId = parseExpenseDraftId(query.draft)
@@ -69,7 +75,14 @@ export default async function EditExpensePage({
             isSelf: member.isSelf,
             included: sharedMemberIds.has(member.id),
           }))}
-        edit={{ expense, expectedFinancialVersion: group.financialVersion }}
+        edit={{
+          expense,
+          expectedFinancialVersion: group.financialVersion,
+          groupStatus: group.status,
+          hasReportedRepayment,
+          hasConfirmedRepayment,
+          repayments: group.kind === 'one_off' ? group.repayments : [],
+        }}
       />
     </ExpenseShell>
   )

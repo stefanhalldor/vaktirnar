@@ -79,6 +79,7 @@ function actionError(error: unknown): ExpenseActionResult<never> {
           || message.includes('blocked')
           || message.includes('cannot_')
           || message.includes('not_settled')
+          || message.includes('review_required')
           || message.includes('exceeds_available') ? 'conflict'
           : message.includes('invalid') || message.includes('required') || message.includes('mismatch')
             ? 'invalid_input'

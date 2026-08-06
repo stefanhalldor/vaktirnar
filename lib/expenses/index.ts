@@ -14,6 +14,7 @@ export {
   sumMinorAmounts,
 } from './money'
 export * from './payment-preferences'
+export * from './policy'
 export * from './repayments'
 export * from './splits'
 export * from './types'

@@ -1,7 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import type { ChatMessageKind, MessageDto } from '@/lib/chat/types'
+import {
+  teskeidContextTimelineItemClass,
+  type TeskeidContextTimelineEvent,
+  type TeskeidContextTimelineOrder,
+} from './TeskeidContextTimeline'
 import { ChatMessageRow, type AugmentedChatMessage } from './ChatMessageRow'
 import { ScopedChatComposer } from './ScopedChatComposer'
 
@@ -63,6 +68,9 @@ interface ScopedChatPanelProps {
   composerMaxLength?: number
   composerMultiline?: boolean
   locale: string
+  /** Optional system events merged chronologically with messages. */
+  timelineEvents?: readonly TeskeidContextTimelineEvent[]
+  timelineOrder?: TeskeidContextTimelineOrder
 }
 
 const DEFAULT_PAGE_SIZE = 10
@@ -83,6 +91,8 @@ export function ScopedChatPanel({
   composerMaxLength,
   composerMultiline = false,
   locale,
+  timelineEvents,
+  timelineOrder = 'ascending',
 }: ScopedChatPanelProps) {
   const effectivePageSize = pageSize ?? DEFAULT_PAGE_SIZE
   const [messages, setMessages] = useState<AugmentedChatMessage[]>([])
@@ -112,6 +122,27 @@ export function ScopedChatPanel({
     clientMessageId: string
     idempotencyKey: string
   } | null>(null)
+  const timelineRows = useMemo(() => {
+    if (timelineEvents === undefined) return []
+    const direction = timelineOrder === 'ascending' ? 1 : -1
+    return [
+      ...timelineEvents.map((event) => ({
+        kind: 'event' as const,
+        id: `event:${event.id}`,
+        createdAt: event.createdAt,
+        event,
+      })),
+      ...messages.map((chatMessage) => ({
+        kind: 'message' as const,
+        id: `message:${chatMessage.id}`,
+        createdAt: chatMessage.createdAt,
+        message: chatMessage,
+      })),
+    ].sort((left, right) => {
+      const byTime = left.createdAt.localeCompare(right.createdAt)
+      return byTime !== 0 ? direction * byTime : direction * left.id.localeCompare(right.id)
+    })
+  }, [messages, timelineEvents, timelineOrder])
 
   async function loadMessages(generation = loadGenerationRef.current) {
     if (loadInFlightGenerationRef.current === generation) return
@@ -397,7 +428,45 @@ export function ScopedChatPanel({
             {loadingMore ? '...' : labels.loadOlder}
           </button>
         )}
-        {!initialLoadDone ? (
+        {timelineEvents !== undefined ? (
+          <>
+            {timelineRows.map((row) => (
+              <div key={row.id} className={teskeidContextTimelineItemClass}>
+                {row.kind === 'event' ? row.event.content : (
+                  <ChatMessageRow
+                    msg={row.message}
+                    deletedLabel={labels.deleted}
+                    kindLabels={labels.kindLabels}
+                    locale={locale}
+                  />
+                )}
+              </div>
+            ))}
+            {!initialLoadDone ? (
+              labels.loading ? <p className="py-2 text-xs text-muted-foreground">{labels.loading}</p> : null
+            ) : initialLoadError && (labels.loadError || labels.retry) ? (
+              <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
+                {labels.loadError && <p className="text-xs text-destructive">{labels.loadError}</p>}
+                {labels.retry && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      initialLoadDoneRef.current = false
+                      setInitialLoadDone(false)
+                      setInitialLoadError(false)
+                      loadMessages()
+                    }}
+                    className="min-h-10 shrink-0 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    {labels.retry}
+                  </button>
+                )}
+              </div>
+            ) : timelineRows.length === 0 ? (
+              <p className="text-xs text-muted-foreground">{labels.empty}</p>
+            ) : null}
+          </>
+        ) : !initialLoadDone ? (
           labels.loading ? <p className="text-xs text-muted-foreground">{labels.loading}</p> : null
         ) : initialLoadError && (labels.loadError || labels.retry) ? (
           <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
