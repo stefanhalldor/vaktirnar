@@ -604,6 +604,19 @@
           "privacyNotice": "You cannot see financial details and are not linked to the expense until you accept.",
           "tagline": "Teskeið helps you keep everything in good order.",
           "unknownInviter": "A Teskeið user"
+        },
+        "emailV3": {
+          "subject": "Invitation to join Expenses and repayments in Teskeið",
+          "introBefore": "You have been invited to take part in an entry in ",
+          "productName": "Expenses and repayments",
+          "introAfter": " in Teskeið.",
+          "contextLabel": "Context",
+          "fromLabel": "Invited by",
+          "instructionsBefore": "Go to ",
+          "siteName": "Teskeið.is",
+          "instructionsAfter": " and sign in, or create an account with the same email address that received this message. There you can see more details and respond to the invitation.",
+          "tagline": "Teskeið helps you keep everything at ten out of ten. 🥄",
+          "unknownInviter": "A Teskeið user"
         }
       },
       "groupForm": {

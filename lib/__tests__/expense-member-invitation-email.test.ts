@@ -82,4 +82,32 @@ describe('expense member invitation email v1', () => {
       idempotencyKey: 'expense-member-invitation/v2/50000000-0000-4000-8000-000000000002/1',
     })
   })
+
+  it('uses the immutable v3 copy without changing v1/v2 retry payloads', async () => {
+    await expect(sendExpenseMemberInvitationEmail(
+      'recipient@example.is',
+      '50000000-0000-4000-8000-000000000003',
+      1,
+      {
+        templateVersion: 'v3',
+        contextTitle: 'Martine þrítug 🔴',
+        inviterDisplayName: 'Stefán Halldór Jónsson',
+      },
+    )).resolves.toBe('sent')
+
+    const [message, options] = mockSend.mock.calls[0]!
+    expect(message.subject).toBe('Boð um að taka þátt í Útlagt og endurgreitt á Teskeið')
+    expect(message.html).toContain('<strong>Útlagt og endurgreitt</strong>')
+    expect(message.html).toContain('<strong>Samhengi:</strong> Martine þrítug 🔴')
+    expect(message.html).toContain('<strong>Boð frá:</strong> Stefán Halldór Jónsson')
+    expect(message.html).toContain('<strong>Teskeið.\u200Bis</strong>')
+    expect(message.html).toContain('Teskeiðin hjálpar þér að vera með allt upp á 10. 🥄')
+    expect(message.html).not.toContain('href=')
+    expect(message.html).not.toContain('Þú sérð engar fjárhagsupplýsingar')
+    expect(message.text).toContain('Samhengi: Martine þrítug 🔴')
+    expect(message.text).toContain('Boð frá: Stefán Halldór Jónsson')
+    expect(options).toEqual({
+      idempotencyKey: 'expense-member-invitation/v3/50000000-0000-4000-8000-000000000003/1',
+    })
+  })
 })

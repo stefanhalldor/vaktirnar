@@ -4,7 +4,7 @@ import isMessages from '@/messages/is.json'
 export type ExpenseInvitationEmailSendResult = 'sent' | 'failed' | 'uncertain'
 
 export interface ExpenseInvitationEmailContext {
-  templateVersion: 'v1' | 'v2'
+  templateVersion: 'v1' | 'v2' | 'v3'
   contextTitle: string
   inviterDisplayName: string | null
 }
@@ -14,6 +14,7 @@ const DEFAULT_FROM = 'Teskeið <teskeid@mail.gottvibe.is>'
 // Resend idempotency key. A future wording/locale change gets a new template.
 const EMAIL_V1_COPY = isMessages.teskeid.expenses.memberInvitation.emailV1
 const EMAIL_V2_COPY = isMessages.teskeid.expenses.memberInvitation.emailV2
+const EMAIL_V3_COPY = isMessages.teskeid.expenses.memberInvitation.emailV3
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://teskeid.is').replace(/\/$/, '')
 
 function escapeHtml(value: string): string {
@@ -63,7 +64,7 @@ export async function sendExpenseMemberInvitationEmail(
 ): Promise<ExpenseInvitationEmailSendResult> {
   const idempotencyKey = context.templateVersion === 'v1'
     ? `expense-member-invitation/${invitationId}/${attemptNumber}`
-    : `expense-member-invitation/v2/${invitationId}/${attemptNumber}`
+    : `expense-member-invitation/${context.templateVersion}/${invitationId}/${attemptNumber}`
 
   if (!process.env.RESEND_API_KEY) {
     if (process.env.NODE_ENV === 'production') {
@@ -74,38 +75,68 @@ export async function sendExpenseMemberInvitationEmail(
     return 'sent'
   }
 
-  const copy = context.templateVersion === 'v1' ? EMAIL_V1_COPY : EMAIL_V2_COPY
   const safeHtml = (value: string) => escapeHtml(preventAutoLink(value))
   const contextTitle = preventAutoLink(context.contextTitle)
-  const inviterDisplayName = preventAutoLink(
-    context.inviterDisplayName ?? copy.unknownInviter,
-  )
-  const subject = copy.subject
-  const claimUrl = `${SITE_URL}/auth-mvp/utlagt-og-endurgreitt/bod/adili/${encodeURIComponent(invitationId)}`
-  const actionHtml = context.templateVersion === 'v2'
-    ? `<p><a href="${escapeHtml(claimUrl)}">${safeHtml(EMAIL_V2_COPY.action)}</a></p>`
-    : ''
-  const html = [
-    `<p>${safeHtml(copy.intro)}</p>`,
-    `<p>${safeHtml(copy.instructions)}</p>`,
-    actionHtml,
-    `<p>${safeHtml(copy.contextLabel)}: ${escapeHtml(contextTitle)}<br>${safeHtml(copy.fromLabel)}: ${escapeHtml(inviterDisplayName)}</p>`,
-    `<p>${safeHtml(copy.privacyNotice)}</p>`,
-    `<p>${safeHtml(copy.tagline)}</p>`,
-  ].filter(Boolean).join('\n')
-  const text = [
-    preventAutoLink(copy.intro),
-    '',
-    preventAutoLink(copy.instructions),
-    ...(context.templateVersion === 'v2' ? ['', `${EMAIL_V2_COPY.action}: ${claimUrl}`] : []),
-    '',
-    `${preventAutoLink(copy.contextLabel)}: ${contextTitle}`,
-    `${preventAutoLink(copy.fromLabel)}: ${inviterDisplayName}`,
-    '',
-    preventAutoLink(copy.privacyNotice),
-    '',
-    preventAutoLink(copy.tagline),
-  ].join('\n')
+  let subject: string
+  let html: string
+  let text: string
+
+  if (context.templateVersion === 'v3') {
+    const copy = EMAIL_V3_COPY
+    const inviterDisplayName = preventAutoLink(
+      context.inviterDisplayName ?? copy.unknownInviter,
+    )
+    subject = copy.subject
+    html = [
+      `<p>${escapeHtml(copy.introBefore)}<strong>${escapeHtml(copy.productName)}</strong>${escapeHtml(copy.introAfter)}</p>`,
+      `<p><strong>${escapeHtml(copy.contextLabel)}:</strong> ${escapeHtml(contextTitle)}<br><strong>${escapeHtml(copy.fromLabel)}:</strong> ${escapeHtml(inviterDisplayName)}</p>`,
+      `<p>${escapeHtml(copy.instructionsBefore)}<strong>${safeHtml(copy.siteName)}</strong>${escapeHtml(copy.instructionsAfter)}</p>`,
+      `<p>${escapeHtml(copy.tagline)}</p>`,
+    ].join('\n')
+    text = [
+      `${copy.introBefore}${copy.productName}${copy.introAfter}`,
+      '',
+      `${copy.contextLabel}: ${contextTitle}`,
+      `${copy.fromLabel}: ${inviterDisplayName}`,
+      '',
+      `${copy.instructionsBefore}${preventAutoLink(copy.siteName)}${copy.instructionsAfter}`,
+      '',
+      copy.tagline,
+    ].join('\n')
+  } else {
+    // v1/v2 are immutable: retries must retain their original byte-stable
+    // payload and Resend idempotency key after the v3 rollout.
+    const copy = context.templateVersion === 'v1' ? EMAIL_V1_COPY : EMAIL_V2_COPY
+    const inviterDisplayName = preventAutoLink(
+      context.inviterDisplayName ?? copy.unknownInviter,
+    )
+    subject = copy.subject
+    const claimUrl = `${SITE_URL}/auth-mvp/utlagt-og-endurgreitt/bod/adili/${encodeURIComponent(invitationId)}`
+    const actionHtml = context.templateVersion === 'v2'
+      ? `<p><a href="${escapeHtml(claimUrl)}">${safeHtml(EMAIL_V2_COPY.action)}</a></p>`
+      : ''
+    html = [
+      `<p>${safeHtml(copy.intro)}</p>`,
+      `<p>${safeHtml(copy.instructions)}</p>`,
+      actionHtml,
+      `<p>${safeHtml(copy.contextLabel)}: ${escapeHtml(contextTitle)}<br>${safeHtml(copy.fromLabel)}: ${escapeHtml(inviterDisplayName)}</p>`,
+      `<p>${safeHtml(copy.privacyNotice)}</p>`,
+      `<p>${safeHtml(copy.tagline)}</p>`,
+    ].filter(Boolean).join('\n')
+    text = [
+      preventAutoLink(copy.intro),
+      '',
+      preventAutoLink(copy.instructions),
+      ...(context.templateVersion === 'v2' ? ['', `${EMAIL_V2_COPY.action}: ${claimUrl}`] : []),
+      '',
+      `${preventAutoLink(copy.contextLabel)}: ${contextTitle}`,
+      `${preventAutoLink(copy.fromLabel)}: ${inviterDisplayName}`,
+      '',
+      preventAutoLink(copy.privacyNotice),
+      '',
+      preventAutoLink(copy.tagline),
+    ].join('\n')
+  }
 
   try {
     const { Resend } = await import('resend')

@@ -359,8 +359,8 @@ describe('expense guest-member invitations', () => {
           reason: 'reserved',
           attempt_number: 2,
           recipient_email: 'martine@example.is',
-          email_template_version: 'v1',
-          context_title: 'Afmælisgjöf',
+          email_template_version: 'v3',
+          context_title: 'Afmælisgjöf 🔴',
           inviter_display_name: 'Stebbi',
           total_minor: 85000,
           note: 'must not be sent',
@@ -382,8 +382,8 @@ describe('expense guest-member invitations', () => {
       INVITATION_ID,
       2,
       {
-        templateVersion: 'v1',
-        contextTitle: 'Afmælisgjöf',
+        templateVersion: 'v3',
+        contextTitle: 'Afmælisgjöf 🔴',
         inviterDisplayName: 'Stebbi',
       },
     )

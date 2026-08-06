@@ -608,6 +608,19 @@
           "privacyNotice": "Þú sérð engar fjárhagsupplýsingar og tengist ekki færslunni fyrr en þú samþykkir boðið.",
           "tagline": "Teskeiðin hjálpar þér að vera með allt upp á 10.",
           "unknownInviter": "Notandi á Teskeið"
+        },
+        "emailV3": {
+          "subject": "Boð um að taka þátt í Útlagt og endurgreitt á Teskeið",
+          "introBefore": "Þér hefur verið boðið að taka þátt í færslu í ",
+          "productName": "Útlagt og endurgreitt",
+          "introAfter": " á Teskeið.",
+          "contextLabel": "Samhengi",
+          "fromLabel": "Boð frá",
+          "instructionsBefore": "Farðu á ",
+          "siteName": "Teskeið.is",
+          "instructionsAfter": " og skráðu þig inn, eða stofnaðu aðgang með sama netfangi og þessi póstur barst á. Þar sérðu nánari upplýsingar og getur brugðist við boðinu.",
+          "tagline": "Teskeiðin hjálpar þér að vera með allt upp á 10. 🥄",
+          "unknownInviter": "Notandi á Teskeið"
         }
       },
       "groupForm": {

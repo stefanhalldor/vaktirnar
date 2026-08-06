@@ -560,6 +560,12 @@ function firstRpcRow(data: unknown): ExpenseInvitationReserveRow {
   return {}
 }
 
+function isExpenseInvitationTemplateVersion(
+  value: unknown,
+): value is 'v1' | 'v2' | 'v3' {
+  return value === 'v1' || value === 'v2' || value === 'v3'
+}
+
 async function deliverExpenseMemberInvitation(
   actorUserId: string,
   invitationId: string,
@@ -578,7 +584,7 @@ async function deliverExpenseMemberInvitation(
   if (
     !Number.isInteger(row.attempt_number)
     || typeof row.recipient_email !== 'string'
-    || (row.email_template_version !== 'v1' && row.email_template_version !== 'v2')
+    || !isExpenseInvitationTemplateVersion(row.email_template_version)
     || typeof row.context_title !== 'string'
     || (row.inviter_display_name !== null && typeof row.inviter_display_name !== 'string')
   ) {
