@@ -61,4 +61,25 @@ describe('expense member invitation email v1', () => {
     )
     expect(mockSend.mock.calls[1]).toEqual(mockSend.mock.calls[0])
   })
+
+  it('uses a versioned direct claim link for new scoped invitations', async () => {
+    await expect(sendExpenseMemberInvitationEmail(
+      'recipient@example.is',
+      '50000000-0000-4000-8000-000000000002',
+      1,
+      {
+        templateVersion: 'v2',
+        contextTitle: 'Kvöldmatur',
+        inviterDisplayName: 'Stefán',
+      },
+    )).resolves.toBe('sent')
+
+    const [message, options] = mockSend.mock.calls[0]!
+    expect(message.subject).toBe(isMessages.teskeid.expenses.memberInvitation.emailV2.subject)
+    expect(message.html).toContain('/auth-mvp/utlagt-og-endurgreitt/bod/adili/50000000-0000-4000-8000-000000000002')
+    expect(message.text).toContain('/auth-mvp/utlagt-og-endurgreitt/bod/adili/50000000-0000-4000-8000-000000000002')
+    expect(options).toEqual({
+      idempotencyKey: 'expense-member-invitation/v2/50000000-0000-4000-8000-000000000002/1',
+    })
+  })
 })

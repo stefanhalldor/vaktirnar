@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { ExpenseMemberInvitationActions } from '@/components/expenses/ExpenseMemberInvitationActions'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
-import { guardExpenseAccess } from '@/lib/expenses/guard'
+import { guardExpenseSession } from '@/lib/expenses/guard'
 import { getExpenseMemberInvitation } from '@/lib/expenses/repository.server'
 
 export default async function ExpenseMemberInvitationPage({
@@ -12,7 +12,7 @@ export default async function ExpenseMemberInvitationPage({
 }) {
   const [{ invitationId }, { user }, t] = await Promise.all([
     params,
-    guardExpenseAccess(),
+    guardExpenseSession(),
     getExpenseTranslations(),
   ])
   const invitation = await getExpenseMemberInvitation(user.id, invitationId)

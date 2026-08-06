@@ -32,11 +32,7 @@ export function ExpenseMemberInvitationActions({ invitationId }: { invitationId:
         return
       }
       requestIds.succeeded(payload)
-      if (result.data.status === 'accepted' && result.data.groupId) {
-        router.push(`/auth-mvp/utlagt-og-endurgreitt/hopar/${result.data.groupId}`)
-      } else {
-        router.push('/auth-mvp/utlagt-og-endurgreitt')
-      }
+      router.push('/auth-mvp/heim')
       router.refresh()
     })
   }

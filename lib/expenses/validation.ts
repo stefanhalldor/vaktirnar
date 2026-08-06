@@ -33,6 +33,12 @@ export const ExpenseNewMemberSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('relationship'), key: memberKey, relationship_id: uuid }),
   z.object({
+    type: z.literal('email'),
+    key: memberKey,
+    recipient_email: z.string().trim().email().max(320),
+    display_name: z.string().trim().min(1).max(120),
+  }),
+  z.object({
     type: z.literal('circle_member'),
     key: memberKey,
     circle_id: uuid,
@@ -132,7 +138,10 @@ export const UpdateExpenseSchema = z.object({
   new_members: z.array(z.object({
     id: uuid,
     display_name: z.string().trim().min(1).max(120),
+    recipient_email: z.string().trim().email().max(320).optional(),
+    relationship_id: uuid.optional(),
   }).strict()).max(48).default([]),
+  removed_member_ids: z.array(uuid).max(48).default([]),
   payments: z.array(paymentInput).min(1).max(50),
   allocations: z.array(allocationInput).max(50),
 }).superRefine((value, ctx) => {
@@ -150,6 +159,13 @@ export const UpdateExpenseSchema = z.object({
     ...value.allocations.map((allocation) => allocation.member_key),
   ])
   value.new_members.forEach((member, index) => {
+    if (member.recipient_email && member.relationship_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['new_members', index],
+        message: 'ambiguous_identity',
+      })
+    }
     if (!referencedMemberKeys.has(member.id)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -158,6 +174,13 @@ export const UpdateExpenseSchema = z.object({
       })
     }
   })
+  if (new Set(value.removed_member_ids).size !== value.removed_member_ids.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['removed_member_ids'],
+      message: 'duplicate_member',
+    })
+  }
 })
 
 export const AddExpenseGroupMemberSchema = z.object({
@@ -165,6 +188,11 @@ export const AddExpenseGroupMemberSchema = z.object({
   request_id: requestId,
   member: z.union([
     z.object({ type: z.literal('guest'), display_name: z.string().trim().min(1).max(120) }),
+    z.object({
+      type: z.literal('email'),
+      display_name: z.string().trim().min(1).max(120),
+      recipient_email: z.string().trim().email().max(320),
+    }),
     z.object({ type: z.literal('relationship'), relationship_id: uuid }),
   ]),
 })

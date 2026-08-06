@@ -38,6 +38,10 @@ import { useExpenseTranslations } from './i18n.client'
 import { useExpenseMutationRequestIds } from './request-id'
 import { ExpenseRepaymentStatusLines } from './ExpenseRepaymentStatusLines'
 import {
+  ExpenseParticipantPicker,
+  type ManualExpenseParticipant,
+} from './ExpenseParticipantPicker'
+import {
   createRequestId,
   expenseInputClass,
   expenseLabelClass,
@@ -50,7 +54,12 @@ interface FormMember {
   key: string
   label: string
   input?: ExpenseNewMemberInput
-  newGuest?: { id: string; display_name: string }
+  newGuest?: {
+    id: string
+    display_name: string
+    recipient_email?: string
+    relationship_id?: string
+  }
   isSelf: boolean
   included?: boolean
 }
@@ -204,6 +213,9 @@ export function ExpenseForm({
   const startingMembers = initialDraftPayload?.members ?? initialMembers
   const startingStep = draft?.currentStep ?? initialStep
   const [members, setMembers] = useState<FormMember[]>(startingMembers)
+  const [removedMemberIds, setRemovedMemberIds] = useState<string[]>(
+    initialDraftPayload?.removedMemberIds ?? [],
+  )
   const [included, setIncluded] = useState<Record<string, boolean>>(
     initialDraftPayload?.included
       ?? Object.fromEntries(startingMembers.map((member) => [member.key, member.included !== false])),
@@ -239,9 +251,6 @@ export function ExpenseForm({
   const [percentages, setPercentages] = useState<Record<string, string>>(initialDraftPayload?.percentages ?? initialAllocations.percentages)
   const [weights, setWeights] = useState<Record<string, string>>(initialDraftPayload?.weights ?? initialAllocations.weights)
   const [preserveShares, setPreserveShares] = useState(initialDraftPayload?.preserveShares ?? Boolean(edit))
-  const [relationshipId, setRelationshipId] = useState('')
-  const [participantLabelId, setParticipantLabelId] = useState<string | null>(null)
-  const [guestName, setGuestName] = useState('')
   const [circleId, setCircleId] = useState(initialDraftPayload?.circleId ?? '')
   const [error, setError] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
@@ -251,12 +260,9 @@ export function ExpenseForm({
   const draftVersionRef = useRef<number | null>(draft?.version ?? null)
   const draftSavingRef = useRef(false)
   const [isPending, startTransition] = useTransition()
-  const participantLabels = Array.from(new Map(
-    participantOptions.flatMap((option) => option.customLabels ?? []).map((label) => [label.id, label]),
-  ).values()).sort((left, right) => left.name.localeCompare(right.name, locale))
-
   const draftFingerprint = JSON.stringify({
     members,
+    removedMemberIds,
     included,
     title,
     total,
@@ -272,8 +278,6 @@ export function ExpenseForm({
     weights,
     preserveShares,
     circleId,
-    relationshipId,
-    guestName,
   })
   const initialDraftFingerprint = useRef(draftFingerprint)
 
@@ -293,6 +297,7 @@ export function ExpenseForm({
         isSelf: member.isSelf,
         ...(member.included === undefined ? {} : { included: member.included }),
       })),
+      removedMemberIds,
       included,
       title,
       total,
@@ -370,32 +375,61 @@ export function ExpenseForm({
     }
   }
 
-  function addRelationship() {
-    if (edit) return
-    const option = participantOptions.find((candidate) => candidate.relationshipId === relationshipId)
-    if (!option) return
+  function addKnownParticipant(option: ExpenseParticipantOption): boolean {
+    const id = edit ? createRequestId() : `relationship:${option.relationshipId}`
+    if (members.some((member) => (
+      member.key === `relationship:${option.relationshipId}`
+      || member.newGuest?.relationship_id === option.relationshipId
+    ))) return false
     addMember({
-      key: `relationship:${option.relationshipId}`,
+      key: id,
       label: option.pickerLabel,
-      input: { type: 'relationship', key: `relationship:${option.relationshipId}`, relationship_id: option.relationshipId },
+      input: edit ? undefined : {
+        type: 'relationship',
+        key: id,
+        relationship_id: option.relationshipId,
+      },
+      newGuest: edit ? {
+        id,
+        display_name: option.sharedLabel,
+        relationship_id: option.relationshipId,
+      } : undefined,
       isSelf: false,
     })
-    setRelationshipId('')
+    return true
   }
 
-  function addGuest() {
-    const label = guestName.trim()
-    if (!label) return
+  function addManualParticipant(participant: ManualExpenseParticipant): boolean {
     const id = createRequestId()
     const key = edit ? id : `guest:${id}`
+    const isEmail = participant.kind === 'email'
+    const sharedLabel = isEmail
+      ? t('expenseForm.invitedParticipant')
+      : participant.displayName
+    if (isEmail && members.some((member) => (
+      member.input?.type === 'email'
+        ? member.input.recipient_email === participant.recipientEmail
+        : member.newGuest?.recipient_email === participant.recipientEmail
+    ))) return false
     addMember({
       key,
-      label,
-      input: edit ? undefined : { type: 'guest', key, display_name: label },
-      newGuest: edit ? { id, display_name: label } : undefined,
+      label: isEmail ? participant.recipientEmail : sharedLabel,
+      input: edit ? undefined : isEmail
+        ? {
+          type: 'email',
+          key,
+          recipient_email: participant.recipientEmail,
+          display_name: sharedLabel,
+        }
+        : { type: 'guest', key, display_name: sharedLabel },
+      newGuest: edit ? {
+        id,
+        display_name: sharedLabel,
+        ...(isEmail ? { recipient_email: participant.recipientEmail } : {}),
+      } : undefined,
       isSelf: false,
     })
-    setGuestName('')
+    return true
   }
 
   function selectCircle(nextCircleId: string) {
@@ -435,7 +469,27 @@ export function ExpenseForm({
 
   function removeMember(key: string) {
     const member = members.find((candidate) => candidate.key === key)
-    if (!member || member.isSelf || mode === 'group' || (edit && !member.newGuest)) return
+    if (!member || member.isSelf || mode === 'group') return
+    const persistedPayment = edit?.expense.payments.find((payment) => payment.memberId === key)
+    const hasRepayment = edit?.repayments?.some((repayment) => (
+      repayment.fromMemberId === key || repayment.toMemberId === key
+    )) ?? false
+    if (edit && !member.newGuest && ((persistedPayment?.amountMinor ?? 0) > 0 || hasRepayment)) return
+    if (edit && !member.newGuest) {
+      if (!window.confirm(t('expenseForm.removeParticipantConfirm', { name: member.label }))) return
+      setRemovedMemberIds((current) => current.includes(key) ? current : [...current, key])
+      setSplitMethod('fixed')
+      setAmounts((current) => ({
+        ...current,
+        ...Object.fromEntries(edit.expense.shares
+          .filter((share) => share.memberId !== key)
+          .map((share) => [
+            share.memberId,
+            formatExpenseMinorForCopy(share.amountMinor, edit.expense.currency),
+          ])),
+      }))
+      setPreserveShares(false)
+    }
     if (edit && included[key] !== false) setPreserveShares(false)
     const remainingMembers = members.filter((candidate) => candidate.key !== key)
     const nextPayerKeys = payerKeys.filter((payerKey) => payerKey !== key)
@@ -572,6 +626,17 @@ export function ExpenseForm({
       })) ?? [])
       .map((share) => [share.participantId, share] as const),
   )
+  const fixedSplitRemainderMinor = (() => {
+    if (preserveShares || splitMethod !== 'fixed' || !paymentState) return null
+    try {
+      const allocatedMinor = sumMinorAmounts(selectedKeys.map((key) => (
+        parseExpenseAmountToMinor(amounts[key] ?? '', currency, { allowZero: true })
+      )))
+      return paymentState.totalMinor - allocatedMinor
+    } catch {
+      return null
+    }
+  })()
   const repaymentStatusByMember = summarizeExpenseRepaymentsByPayer(
     edit?.repayments ?? [],
     currency,
@@ -731,6 +796,7 @@ export function ExpenseForm({
           ? [member.newGuest]
           : []
       )),
+      removed_member_ids: removedMemberIds,
       payments: paymentRows,
       allocations: preserveShares ? [] : allocationPayload(),
     } : null
@@ -754,6 +820,13 @@ export function ExpenseForm({
       router.push(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`)
       router.refresh()
     })
+  }
+
+  async function saveDraftOnly() {
+    setError(null)
+    if (!await persistDraft(currentStep)) return
+    router.push('/auth-mvp/utlagt-og-endurgreitt')
+    router.refresh()
   }
 
   function submit(event: React.FormEvent) {
@@ -795,64 +868,9 @@ export function ExpenseForm({
       </section>
       ) : null}
 
-      {currentStep === 'split' ? <>
+      {currentStep === 'split' ? <div className="space-y-8">
       <fieldset className="space-y-3 border-y border-border py-5">
-        <legend id="expense-split-heading" tabIndex={-1} className="text-sm font-semibold">{t('expenseForm.participants')}</legend>
-        {mode === 'one_off' ? <p className="text-xs leading-5 text-muted-foreground">{t('expenseForm.participantHint')}</p> : null}
-        <div className="divide-y divide-border">
-          {members.map((member) => {
-            const share = included[member.key] !== false
-              ? participantShareByMember.get(member.key)
-              : undefined
-            const purchasePayment = paymentState?.payerRows.find((payment) => payment.payerId === member.key)
-            const repaymentStatus = repaymentStatusByMember.get(member.key)
-
-            return (
-              <div key={member.key} className="flex min-h-12 items-start gap-3 py-3">
-                <label className="flex min-h-11 min-w-0 flex-1 items-start gap-3 text-sm">
-                  <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={included[member.key] !== false} onChange={(e) => { setIncluded((current) => ({ ...current, [member.key]: e.target.checked })); if (edit) setPreserveShares(false) }} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-words">{member.label}{member.isSelf ? ` ${t('expenseForm.youSuffix')}` : ''}</span>
-                    {share ? (
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                        {t('expenseForm.participantShare', {
-                          amount: formatExpenseMinor(share.amountMinor, share.currency),
-                        })}
-                      </span>
-                    ) : null}
-                    {purchasePayment ? (
-                      <span className="mt-1 flex items-start gap-1.5 text-xs leading-5 text-emerald-700">
-                        <CheckCircle2 aria-hidden size={15} className="mt-0.5 shrink-0" />
-                        <span>{t('expenseForm.paidAtPurchase', {
-                          amount: formatExpenseMinor(purchasePayment.amountMinor, purchasePayment.currency),
-                        })}</span>
-                      </span>
-                    ) : null}
-                    {(repaymentStatus?.reportedAmountMinor ?? 0) > 0
-                      || (repaymentStatus?.confirmedAmountMinor ?? 0) > 0 ? (
-                        <span className="mt-1 block space-y-1">
-                          <ExpenseRepaymentStatusLines status={repaymentStatus} />
-                        </span>
-                      ) : null}
-                  </span>
-                </label>
-                {!member.isSelf && mode === 'one_off' && (!edit || member.newGuest) ? <button type="button" aria-label={t('expenseForm.removeParticipant', { name: member.label })} className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted" onClick={() => removeMember(member.key)}><X aria-hidden size={18} /></button> : null}
-              </div>
-            )
-          })}
-        </div>
-        {mode === 'one_off' ? (
-          <div className="space-y-3 pt-2">
-            {participantOptionsError ? <p role="status" className="text-sm text-amber-800">{t('expenseForm.participantLoadError')}</p> : null}
-            {!edit && circleOptions.length > 0 ? <label className="block"><span className={expenseLabelClass}>{t('expenseForm.relationshipCircle')}</span><select className={expenseInputClass} value={circleId} onChange={(event) => selectCircle(event.target.value)}><option value="">{t('expenseForm.noRelationshipCircle')}</option>{circleOptions.map((circle) => <option key={circle.id} value={circle.id}>{circle.name}</option>)}</select><span className="mt-1 block text-xs leading-5 text-muted-foreground">{t('expenseForm.relationshipCircleHint')}</span></label> : null}
-            {!edit && participantOptions.length > 0 ? <div className="space-y-2">{participantLabels.length > 0 ? <div className="flex flex-wrap gap-2" aria-label={t('expenseForm.filterKnownPeople')}><button type="button" className={`min-h-10 rounded-full border px-3 text-sm ${participantLabelId === null ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setParticipantLabelId(null)}>{t('expenseForm.allKnownPeople')}</button>{participantLabels.map((label) => <button key={label.id} type="button" className={`min-h-10 rounded-full border px-3 text-sm ${participantLabelId === label.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setParticipantLabelId(label.id)}>{label.name}</button>)}</div> : null}<div className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t('expenseForm.knownPeople')}</span><select className={expenseInputClass} value={relationshipId} onChange={(e) => setRelationshipId(e.target.value)}><option value="">{t('expenseForm.knownPeople')}</option>{participantOptions.filter((option) => (!participantLabelId || option.customLabels?.some((label) => label.id === participantLabelId)) && !members.some((member) => member.key === `relationship:${option.relationshipId}`)).map((option) => <option key={option.relationshipId} value={option.relationshipId}>{option.pickerLabel}</option>)}</select></label><button type="button" className={expenseSecondaryButtonClass} disabled={!relationshipId} onClick={addRelationship}><Plus aria-hidden size={18} /></button></div></div> : null}
-            <div className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t('expenseForm.guestName')}</span><input className={expenseInputClass} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder={t('expenseForm.guestName')} maxLength={120} /></label><button type="button" className={expenseSecondaryButtonClass} disabled={!guestName.trim()} onClick={addGuest}><Plus aria-hidden size={18} /><span className="sr-only">{t('expenseForm.addGuest')}</span></button></div>
-          </div>
-        ) : null}
-      </fieldset>
-
-      <fieldset className="space-y-3 border-y border-border py-5">
-        <legend className="text-sm font-semibold">{t('expenseForm.paidBy')}</legend>
+        <legend className="text-sm font-semibold">{t(payerKeys.length > 1 ? 'expenseForm.paidByMultiple' : 'expenseForm.paidBy')}</legend>
         <p className="text-xs leading-5 text-muted-foreground">{t('expenseForm.paidHint')}</p>
         <div className="space-y-3">
           {payerKeys.map((memberKey, index) => {
@@ -908,11 +926,93 @@ export function ExpenseForm({
           </button>
         ) : null}
       </fieldset>
-      </> : null}
+
+      <fieldset className="space-y-3 border-y border-border py-5">
+        <legend id="expense-split-heading" tabIndex={-1} className="text-sm font-semibold">{t('expenseForm.participants')}</legend>
+        {mode === 'one_off' ? <p className="text-xs leading-5 text-muted-foreground">{t('expenseForm.participantHint')}</p> : null}
+        <div className="divide-y divide-border">
+          {members.map((member) => {
+            const share = included[member.key] !== false
+              ? participantShareByMember.get(member.key)
+              : undefined
+            const purchasePayment = paymentState?.payerRows.find((payment) => payment.payerId === member.key)
+            const repaymentStatus = repaymentStatusByMember.get(member.key)
+
+            return (
+              <div key={member.key} className="flex min-h-12 items-start gap-3 py-3">
+                <label className="flex min-h-11 min-w-0 flex-1 items-start gap-3 text-sm">
+                  <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={included[member.key] !== false} onChange={(e) => { setIncluded((current) => ({ ...current, [member.key]: e.target.checked })); if (edit) setPreserveShares(false) }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-words">{member.label}{member.isSelf ? ` ${t('expenseForm.youSuffix')}` : ''}</span>
+                    {share ? (
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                        {t('expenseForm.participantShare', {
+                          amount: formatExpenseMinor(share.amountMinor, share.currency),
+                        })}
+                      </span>
+                    ) : null}
+                    {purchasePayment ? (
+                      <span className="mt-1 flex items-start gap-1.5 text-xs leading-5 text-emerald-700">
+                        <CheckCircle2 aria-hidden size={15} className="mt-0.5 shrink-0" />
+                        <span>{t('expenseForm.paidAtPurchase', {
+                          amount: formatExpenseMinor(purchasePayment.amountMinor, purchasePayment.currency),
+                        })}</span>
+                      </span>
+                    ) : null}
+                    {(repaymentStatus?.reportedAmountMinor ?? 0) > 0
+                      || (repaymentStatus?.confirmedAmountMinor ?? 0) > 0 ? (
+                        <span className="mt-1 block space-y-1">
+                          <ExpenseRepaymentStatusLines status={repaymentStatus} />
+                        </span>
+                      ) : null}
+                  </span>
+                </label>
+                {!member.isSelf && mode === 'one_off' && (
+                  !edit
+                  || member.newGuest
+                  || (((edit.expense.payments.find((payment) => payment.memberId === member.key)?.amountMinor ?? 0) === 0)
+                    && !(edit.repayments?.some((repayment) => repayment.fromMemberId === member.key || repayment.toMemberId === member.key)))
+                ) ? <button type="button" aria-label={t('expenseForm.removeParticipant', { name: member.label })} className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted" onClick={() => removeMember(member.key)}><X aria-hidden size={18} /></button> : null}
+              </div>
+            )
+          })}
+        </div>
+        {mode === 'one_off' ? (
+          <div className="space-y-3 pt-2">
+            {participantOptionsError ? <p role="status" className="text-sm text-amber-800">{t('expenseForm.participantLoadError')}</p> : null}
+            <ExpenseParticipantPicker
+              options={participantOptions}
+              optionsError={participantOptionsError}
+              circles={!edit ? circleOptions : []}
+              disabled={isPending}
+              excludedRelationshipIds={members.flatMap((member) => {
+                if (member.input?.type === 'relationship') return [member.input.relationship_id]
+                return member.newGuest?.relationship_id ? [member.newGuest.relationship_id] : []
+              })}
+              onAddKnown={addKnownParticipant}
+              onAddManual={addManualParticipant}
+              onSelectCircle={!edit ? (circle) => {
+                selectCircle(circle.id)
+                return true
+              } : undefined}
+            />
+          </div>
+        ) : null}
+      </fieldset>
+      </div> : null}
 
       {currentStep === 'split' ? (
       <fieldset className="space-y-4 border-y border-border py-5">
         <legend className="text-sm font-semibold">{t('expenseForm.split')}</legend>
+        {!isStepValid('split') ? (
+          <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
+            {fixedSplitRemainderMinor !== null && fixedSplitRemainderMinor !== 0
+              ? t(fixedSplitRemainderMinor > 0 ? 'expenseForm.splitRemainder' : 'expenseForm.splitExcess', {
+                amount: formatExpenseMinor(Math.abs(fixedSplitRemainderMinor), currency),
+              })
+              : t('expenseForm.splitNeedsAttention')}
+          </p>
+        ) : null}
         {edit && preserveShares ? (
           <div className="space-y-3">
             <p role="status" className="text-xs leading-5 text-muted-foreground">
@@ -953,11 +1053,17 @@ export function ExpenseForm({
           </button>
         ) : null}
         {currentStepIndex === EXPENSE_FLOW_STEPS.length - 1 ? (
-          <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy}>
-            {isPending
-              ? t(edit ? 'expenseForm.updating' : 'expenseForm.creating')
-              : t(edit ? 'expenseForm.update' : 'expenseForm.create')}
-          </button>
+          isStepValid(currentStep) ? (
+            <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy}>
+              {isPending
+                ? t(edit ? 'expenseForm.updating' : 'expenseForm.creating')
+                : t(edit ? 'expenseForm.update' : 'expenseForm.create')}
+            </button>
+          ) : (
+            <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy || !isDetailsValid()} onClick={() => void saveDraftOnly()}>
+              {draftStatus === 'saving' ? t('expenseForm.draftSaving') : t('expenseForm.saveDraftOnly')}
+            </button>
+          )
         ) : (
           <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy} onClick={() => void advanceStep()}>
             {t(`expenseForm.nextSteps.${EXPENSE_FLOW_STEPS[currentStepIndex + 1]}`)}

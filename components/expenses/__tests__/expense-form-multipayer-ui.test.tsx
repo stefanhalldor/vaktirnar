@@ -25,16 +25,22 @@ const translations: Record<string, string> = {
   'expenseForm.nextSteps.split': 'Áfram í skiptingu', 'expenseForm.details': 'Upplýsingar',
   'expenseForm.title': 'Heiti útgjalds', 'expenseForm.titlePlaceholder': 'Til dæmis Kvöldmatur',
   'expenseForm.description': 'Lýsing', 'expenseForm.descriptionPlaceholder': 'Hvað var greitt fyrir?',
-  'expenseForm.category': 'Flokkur', 'expenseForm.participants': 'Taka þátt í kostnaði',
+  'expenseForm.category': 'Flokkur', 'expenseForm.participants': 'Hverjir taka þátt í kostnaðinum?',
   'expenseForm.youSuffix': '(þú)',
   'expenseForm.participantShare': 'Hlutur í kostnaði: {amount}',
   'expenseForm.paidAtPurchase': 'Lagði út {amount}',
   'expenseForm.participantHint': 'Veldu aðila.', 'expenseForm.knownPeople': 'Þekktir aðilar',
   'expenseForm.guestName': 'Nafn gests', 'expenseForm.addGuest': 'Bæta við gesti',
-  'expenseForm.removeParticipant': 'Fjarlægja {name}', 'expenseForm.paidBy': 'Hverjir greiða?',
+  'expenseForm.removeParticipant': 'Fjarlægja {name}', 'expenseForm.paidBy': 'Hver borgaði?',
+  'expenseForm.paidByMultiple': 'Hverjir borguðu?',
   'expenseForm.paidHint': 'Einn greiðandi.', 'expenseForm.payer': 'Greiðandi {number}',
-  'expenseForm.addPayer': 'Bæta við greiðanda', 'expenseForm.removePayer': 'Fjarlægja {name}',
-  'expenseForm.split': 'Hvernig skiptist útlagt?', 'expenseForm.preserveSharesHint': 'Núverandi skipting helst.',
+  'expenseForm.addPayer': 'Fleiri', 'expenseForm.removePayer': 'Fjarlægja {name}',
+  'expenseForm.split': 'Hvernig skiptist greiðslan?', 'expenseForm.preserveSharesHint': 'Núverandi skipting helst.',
+  'expenseForm.splitRemainder': 'Skipting þarf lagfæringu. {amount} eru óúthlutaðar.',
+  'expenseForm.splitExcess': 'Skipting þarf lagfæringu. {amount} er umfram heildarupphæðina.',
+  'expenseForm.splitNeedsAttention': 'Skipting þarf lagfæringu áður en hægt er að hefja uppgjör.',
+  'expenseForm.saveDraftOnly': 'Vista færslu',
+  'expenseForm.addParticipant': 'Bæta við þátttakanda',
   'expenseForm.changeShares': 'Breyta skiptingu', 'expenseForm.preview': 'Forskoðun',
   'expenseForm.previewHint': 'Forskoðun.', 'expenseForm.previewPaidBy': 'Greiðendur',
   'expenseForm.previewShares': 'Skipting', 'expenseForm.previewNet': 'Nettóstaða',
@@ -104,7 +110,7 @@ async function next(name: string) {
 describe('ExpenseForm simplified split and autosave', () => {
   it('shows only fixed amount, percentage and shares, with shares selected by default', async () => {
     renderForm({ initialStep: 'split' })
-    const group = screen.getByRole('group', { name: 'Hvernig skiptist útlagt?' })
+    const group = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })
     expect(within(group).getAllByRole('radio')).toHaveLength(3)
     expect(within(group).getByRole('radio', { name: 'Hlutir' })).toBeChecked()
     expect(within(group).queryByRole('radio', { name: 'Jafnt' })).not.toBeInTheDocument()
@@ -142,7 +148,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     renderForm()
     fillDetails()
     await next('Áfram í skiptingu')
-    fireEvent.click(screen.getByRole('button', { name: 'Bæta við greiðanda' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Fleiri' }))
     const amounts = screen.getAllByRole('textbox', { name: /Upphæð/ })
     fireEvent.change(amounts[0]!, { target: { value: '6000' } })
     fireEvent.change(amounts[1]!, { target: { value: '4000' } })
@@ -219,7 +225,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
-    const participants = await screen.findByRole('group', { name: 'Taka þátt í kostnaði' })
+    const participants = await screen.findByRole('group', { name: 'Hverjir taka þátt í kostnaðinum?' })
     expect(within(participants).getByText('Ég (þú)')).toBeInTheDocument()
     expect(mocks.saveDraft).not.toHaveBeenCalled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -256,7 +262,7 @@ describe('ExpenseForm simplified split and autosave', () => {
       },
     })
 
-    const participants = screen.getByRole('group', { name: 'Taka þátt í kostnaði' })
+    const participants = screen.getByRole('group', { name: 'Hverjir taka þátt í kostnaðinum?' })
     expect(within(participants).getAllByText(/Hlutur í kostnaði: 5\.000\s*kr\./)).toHaveLength(2)
     expect(within(participants).getByText(/Lagði út 10\.000\s*kr\./)).toBeInTheDocument()
     expect(within(participants).getByText(/Greiðsla tilkynnt .* · staðfest/)).toBeInTheDocument()
@@ -290,5 +296,34 @@ describe('ExpenseForm simplified split and autosave', () => {
     await waitFor(() => expect(mocks.update).toHaveBeenCalled())
     expect(confirm).not.toHaveBeenCalled()
     confirm.mockRestore()
+  })
+
+  it('saves an underallocated fixed split as a recoverable draft instead of creating ledger state', async () => {
+    renderForm()
+    fillDetails()
+    await next('Áfram í skiptingu')
+    mocks.saveDraft.mockClear()
+
+    const split = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })
+    fireEvent.click(within(split).getByRole('radio', { name: 'Föst upphæð' }))
+    const shares = within(split).getAllByRole('textbox', { name: 'Föst upphæð' })
+    fireEvent.change(shares[0]!, { target: { value: '1000' } })
+    fireEvent.change(shares[1]!, { target: { value: '1000' } })
+
+    expect(screen.getByText(/8\.000.*óúthlutaðar/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Vista færslu' }))
+
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      current_step: 'split',
+      payload: expect.objectContaining({
+        splitMethod: 'fixed',
+        amounts: expect.objectContaining({
+          'member-self': '1000',
+          'member-anna': '1000',
+        }),
+      }),
+    })))
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(mocks.push).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt')
   })
 })

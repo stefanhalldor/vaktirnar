@@ -5,6 +5,8 @@ import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { expenseDetailHref, parseExpenseDraftId, parseExpenseFlowStep } from '@/lib/expenses/flow'
 import { canEditExpense } from '@/lib/expenses/policy'
+import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
+import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { getExpenseItemView, getExpensePrivateDraft } from '@/lib/expenses/repository.server'
 
 export default async function EditExpensePage({
@@ -51,6 +53,13 @@ export default async function EditExpensePage({
     ...expense.shares.map((share) => share.memberId),
   ])
   const sharedMemberIds = new Set(expense.shares.map((share) => share.memberId))
+  let participantOptions: ExpenseParticipantOption[] = []
+  let participantOptionsError = false
+  try {
+    participantOptions = await getExpenseParticipantOptions(user.id)
+  } catch {
+    participantOptionsError = true
+  }
 
   return (
     <ExpenseShell
@@ -65,6 +74,8 @@ export default async function EditExpensePage({
         defaultCurrency={expense.currency}
         initialDate={expense.incurredOn}
         initialStep={initialStep}
+        participantOptions={participantOptions}
+        participantOptionsError={participantOptionsError}
         draft={safeDraft}
         draftBaseHref={`${expenseDetailHref(expense.id)}/breyta`}
         initialMembers={group.members

@@ -48,6 +48,11 @@ const translations: Record<string, string> = {
   'dashboard.clearFilters': 'Hreinsa síur',
   'dashboard.noActive': 'Engar virkar færslur.',
   'dashboard.noFilterResults': 'Engar færslur passa við síurnar.',
+  'dashboard.needsAttention': 'Þarfnast lagfæringar',
+  'dashboard.splitNeedsAttention': 'Skipting þarf lagfæringu',
+  'dashboard.untitledDraft': 'Ónefnd færsla',
+  'dashboard.unallocated': 'Óúthlutað {amount}',
+  'dashboard.overallocated': 'Of úthlutað {amount}',
   'dashboard.summary': 'Staðan þín',
   'dashboard.owedToYou': 'Þú átt inni',
   'dashboard.youOwe': 'Þú átt eftir að greiða',
@@ -162,12 +167,12 @@ beforeEach(() => {
 
 describe('ExpenseDashboard compact and privacy-safe projection', () => {
   it('shows Active and All dashboard views without the expense step navigation', async () => {
-    render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile(), canUseCircles: true }))
+    render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile() }))
 
     expect(screen.queryByRole('navigation', { name: 'Skref við skráningu útgjalds' })).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Virkt' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: 'Allt' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Tengslahringir/ })).toHaveAttribute('href', '/stillingar/tengsl/hringir')
+    expect(screen.queryByRole('link', { name: /Tengslahringir/ })).not.toBeInTheDocument()
   })
 
   it('renders only compact group aggregates and never arbitrary private detail fields', async () => {
@@ -184,7 +189,7 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
       ],
     })
 
-    const { container } = render(await ExpenseDashboard({ dashboard: unsafeDashboard, paymentProfile: emptyPaymentProfile(), canUseCircles: false }))
+    const { container } = render(await ExpenseDashboard({ dashboard: unsafeDashboard, paymentProfile: emptyPaymentProfile() }))
 
     expect(screen.getByText('Sumarferð')).toBeInTheDocument()
     expect(screen.getByText('3 útgjöld', { exact: false })).toBeInTheDocument()
@@ -194,12 +199,39 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
     expect(container.textContent).not.toContain('private@example.test')
   })
 
+  it('shows an incomplete private draft as a resumable entry with its unallocated remainder', async () => {
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [],
+        totals: [],
+        incompleteDrafts: [{
+          id: '11111111-1111-4111-8111-111111111111',
+          contextType: 'one_off',
+          groupId: null,
+          expenseId: null,
+          title: 'Hundrað þúsund',
+          totalMinor: 100_000,
+          currency: 'ISK',
+          differenceMinor: 80_000,
+          savedAt: '2026-08-06T10:00:00.000Z',
+        }],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByText('Skipting þarf lagfæringu')).toBeInTheDocument()
+    expect(screen.getByText(/Óúthlutað 80\.000/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Hundrað þúsund/ })).toHaveAttribute(
+      'href',
+      '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=11111111-1111-4111-8111-111111111111',
+    )
+  })
+
   it('shows an invitation as a consent decision without a pre-acceptance group link', async () => {
     const invited = invitation()
     const { container } = render(await ExpenseDashboard({
       dashboard: dashboard({ groups: [], invitations: [invited], totals: [] }),
       paymentProfile: emptyPaymentProfile(),
-      canUseCircles: false,
     }))
 
     expect(screen.getByText('Boð sem bíða')).toBeInTheDocument()

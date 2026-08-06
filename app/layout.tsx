@@ -54,7 +54,7 @@ export default async function RootLayout({
         <meta name="theme-color" content="#154212" />
       </head>
       <body className={inter.className}>
-        <NextIntlClientProvider messages={messages}>
+        <NextIntlClientProvider locale={locale} messages={messages}>
           {children}
         </NextIntlClientProvider>
         <PushSetup />

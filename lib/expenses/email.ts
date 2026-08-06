@@ -4,7 +4,7 @@ import isMessages from '@/messages/is.json'
 export type ExpenseInvitationEmailSendResult = 'sent' | 'failed' | 'uncertain'
 
 export interface ExpenseInvitationEmailContext {
-  templateVersion: 'v1'
+  templateVersion: 'v1' | 'v2'
   contextTitle: string
   inviterDisplayName: string | null
 }
@@ -13,6 +13,8 @@ const DEFAULT_FROM = 'Teskeið <teskeid@mail.gottvibe.is>'
 // Versioned, fixed-locale catalog copy keeps retries byte-stable for the same
 // Resend idempotency key. A future wording/locale change gets a new template.
 const EMAIL_V1_COPY = isMessages.teskeid.expenses.memberInvitation.emailV1
+const EMAIL_V2_COPY = isMessages.teskeid.expenses.memberInvitation.emailV2
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://teskeid.is').replace(/\/$/, '')
 
 function escapeHtml(value: string): string {
   return value
@@ -50,8 +52,8 @@ export function classifyExpenseInvitationEmailError(error: {
 }
 
 /**
- * Sends an immutable, link-free consent email. Recipient email is used only
- * as the Resend destination and must never be logged by this function/callers.
+ * Sends an immutable consent email. Recipient email is used only as the
+ * Resend destination and must never be logged by this function/callers.
  */
 export async function sendExpenseMemberInvitationEmail(
   recipientEmail: string,
@@ -59,8 +61,9 @@ export async function sendExpenseMemberInvitationEmail(
   attemptNumber: number,
   context: ExpenseInvitationEmailContext,
 ): Promise<ExpenseInvitationEmailSendResult> {
-  if (context.templateVersion !== 'v1') return 'uncertain'
-  const idempotencyKey = `expense-member-invitation/${invitationId}/${attemptNumber}`
+  const idempotencyKey = context.templateVersion === 'v1'
+    ? `expense-member-invitation/${invitationId}/${attemptNumber}`
+    : `expense-member-invitation/v2/${invitationId}/${attemptNumber}`
 
   if (!process.env.RESEND_API_KEY) {
     if (process.env.NODE_ENV === 'production') {
@@ -71,30 +74,37 @@ export async function sendExpenseMemberInvitationEmail(
     return 'sent'
   }
 
+  const copy = context.templateVersion === 'v1' ? EMAIL_V1_COPY : EMAIL_V2_COPY
   const safeHtml = (value: string) => escapeHtml(preventAutoLink(value))
   const contextTitle = preventAutoLink(context.contextTitle)
   const inviterDisplayName = preventAutoLink(
-    context.inviterDisplayName ?? EMAIL_V1_COPY.unknownInviter,
+    context.inviterDisplayName ?? copy.unknownInviter,
   )
-  const subject = EMAIL_V1_COPY.subject
+  const subject = copy.subject
+  const claimUrl = `${SITE_URL}/auth-mvp/utlagt-og-endurgreitt/bod/adili/${encodeURIComponent(invitationId)}`
+  const actionHtml = context.templateVersion === 'v2'
+    ? `<p><a href="${escapeHtml(claimUrl)}">${safeHtml(EMAIL_V2_COPY.action)}</a></p>`
+    : ''
   const html = [
-    `<p>${safeHtml(EMAIL_V1_COPY.intro)}</p>`,
-    `<p>${safeHtml(EMAIL_V1_COPY.instructions)}</p>`,
-    `<p>${safeHtml(EMAIL_V1_COPY.contextLabel)}: ${escapeHtml(contextTitle)}<br>${safeHtml(EMAIL_V1_COPY.fromLabel)}: ${escapeHtml(inviterDisplayName)}</p>`,
-    `<p>${safeHtml(EMAIL_V1_COPY.privacyNotice)}</p>`,
-    `<p>${safeHtml(EMAIL_V1_COPY.tagline)}</p>`,
-  ].join('\n')
+    `<p>${safeHtml(copy.intro)}</p>`,
+    `<p>${safeHtml(copy.instructions)}</p>`,
+    actionHtml,
+    `<p>${safeHtml(copy.contextLabel)}: ${escapeHtml(contextTitle)}<br>${safeHtml(copy.fromLabel)}: ${escapeHtml(inviterDisplayName)}</p>`,
+    `<p>${safeHtml(copy.privacyNotice)}</p>`,
+    `<p>${safeHtml(copy.tagline)}</p>`,
+  ].filter(Boolean).join('\n')
   const text = [
-    preventAutoLink(EMAIL_V1_COPY.intro),
+    preventAutoLink(copy.intro),
     '',
-    preventAutoLink(EMAIL_V1_COPY.instructions),
+    preventAutoLink(copy.instructions),
+    ...(context.templateVersion === 'v2' ? ['', `${EMAIL_V2_COPY.action}: ${claimUrl}`] : []),
     '',
-    `${preventAutoLink(EMAIL_V1_COPY.contextLabel)}: ${contextTitle}`,
-    `${preventAutoLink(EMAIL_V1_COPY.fromLabel)}: ${inviterDisplayName}`,
+    `${preventAutoLink(copy.contextLabel)}: ${contextTitle}`,
+    `${preventAutoLink(copy.fromLabel)}: ${inviterDisplayName}`,
     '',
-    preventAutoLink(EMAIL_V1_COPY.privacyNotice),
+    preventAutoLink(copy.privacyNotice),
     '',
-    preventAutoLink(EMAIL_V1_COPY.tagline),
+    preventAutoLink(copy.tagline),
   ].join('\n')
 
   try {

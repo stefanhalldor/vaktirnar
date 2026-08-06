@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
-import { Mail, Plus, RotateCcw, X } from 'lucide-react'
+import { Mail, RotateCcw, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { IdentityInvitationEmailForm } from '@/components/teskeid/IdentityInvitationEmailForm'
 import {
@@ -13,10 +13,13 @@ import {
 } from '@/lib/expenses/actions'
 import type { ExpenseMemberView, ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { useExpenseTranslations } from './i18n.client'
+import {
+  ExpenseParticipantPicker,
+  type ManualExpenseParticipant,
+} from './ExpenseParticipantPicker'
 import { useExpenseMutationRequestIds } from './request-id'
 import {
   expenseDangerButtonClass,
-  expenseInputClass,
   expenseSecondaryButtonClass,
 } from './ui'
 
@@ -39,8 +42,6 @@ export function ExpenseMemberManager({
   const router = useRouter()
   const requestIds = useExpenseMutationRequestIds()
   const alertRef = useRef<HTMLParagraphElement>(null)
-  const [relationshipId, setRelationshipId] = useState('')
-  const [guestName, setGuestName] = useState('')
   const [linkingMemberId, setLinkingMemberId] = useState<string | null>(null)
   const [recipientEmail, setRecipientEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -128,13 +129,14 @@ export function ExpenseMemberManager({
     })
   }
 
-  function add(kind: 'relationship' | 'guest') {
-    const member = kind === 'relationship'
-      ? { type: 'relationship' as const, relationship_id: relationshipId }
-      : { type: 'guest' as const, display_name: guestName.trim() }
+  function add(member:
+    | { type: 'relationship'; relationship_id: string }
+    | { type: 'guest'; display_name: string }
+    | { type: 'email'; display_name: string; recipient_email: string },
+  ): boolean {
     const payload = { group_id: groupId, member }
     setError(null)
-    setPendingKey(`add:${kind}`)
+    setPendingKey('add:participant')
     startTransition(async () => {
       const result = await addExpenseGroupMember({
         ...payload,
@@ -146,10 +148,30 @@ export function ExpenseMemberManager({
         return
       }
       requestIds.succeeded(payload)
-      setRelationshipId('')
-      setGuestName('')
+      if ('recipient_email' in member || member.type === 'relationship') {
+        setNotice(t(
+          result.data?.delivery === 'sent' || result.data?.delivery === 'already_sent'
+            ? 'expenseForm.memberInvitationSent'
+            : 'expenseForm.memberInvitationSavedDeliveryIssue',
+        ))
+      }
       router.refresh()
     })
+    return true
+  }
+
+  function addKnown(option: ExpenseParticipantOption): boolean {
+    return add({ type: 'relationship', relationship_id: option.relationshipId })
+  }
+
+  function addManual(participant: ManualExpenseParticipant): boolean {
+    return participant.kind === 'email'
+      ? add({
+        type: 'email',
+        display_name: t('expenseForm.invitedParticipant'),
+        recipient_email: participant.recipientEmail,
+      })
+      : add({ type: 'guest', display_name: participant.displayName })
   }
 
   function remove(member: ExpenseMemberView) {
@@ -274,32 +296,14 @@ export function ExpenseMemberManager({
       {canManage ? (
         <div className="mt-4 space-y-3">
           <p className="text-xs leading-5 text-muted-foreground">{t('group.addMemberHint')}</p>
-          {optionsError ? <p role="status" className="text-sm text-amber-800">{t('group.memberOptionsError')}</p> : null}
-          {options.length > 0 ? (
-            <div className="flex gap-2">
-              <label className="min-w-0 flex-1">
-                <span className="sr-only">{t('group.addKnownMember')}</span>
-                <select className={expenseInputClass} value={relationshipId} onChange={(event) => setRelationshipId(event.target.value)}>
-                  <option value="">{t('group.addKnownMember')}</option>
-                  {options.map((option) => <option key={option.relationshipId} value={option.relationshipId}>{option.pickerLabel}</option>)}
-                </select>
-              </label>
-              <button type="button" className={`${expenseSecondaryButtonClass} size-11 px-0`} disabled={isPending || !relationshipId} onClick={() => add('relationship')}>
-                <Plus aria-hidden size={18} />
-                <span className="sr-only">{pendingKey === 'add:relationship' ? t('group.addingMember') : t('group.addKnownMember')}</span>
-              </button>
-            </div>
-          ) : null}
-          <div className="flex gap-2">
-            <label className="min-w-0 flex-1">
-              <span className="sr-only">{t('group.guestName')}</span>
-              <input className={expenseInputClass} value={guestName} onChange={(event) => setGuestName(event.target.value)} maxLength={120} placeholder={t('group.guestName')} />
-            </label>
-            <button type="button" className={`${expenseSecondaryButtonClass} size-11 px-0`} disabled={isPending || !guestName.trim()} onClick={() => add('guest')}>
-              <Plus aria-hidden size={18} />
-              <span className="sr-only">{pendingKey === 'add:guest' ? t('group.addingMember') : t('group.addGuest')}</span>
-            </button>
-          </div>
+          <ExpenseParticipantPicker
+            options={options}
+            excludedRelationshipIds={[]}
+            optionsError={optionsError}
+            disabled={isPending}
+            onAddKnown={addKnown}
+            onAddManual={addManual}
+          />
         </div>
       ) : null}
     </section>

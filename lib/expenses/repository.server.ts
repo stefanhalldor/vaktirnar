@@ -32,6 +32,7 @@ import type {
   ExpenseGroupView,
   ExpenseGroupSummaryView,
   ExpenseInvitationView,
+  ExpenseIncompleteDraftSummaryView,
   ExpenseItemView,
   ExpenseMemberInvitationView,
   ExpenseMemberRole,
@@ -43,7 +44,11 @@ import type {
   ExpenseRevisionView,
 } from './contracts'
 import type { ExpenseActivityEventType } from './events'
-import { ExpenseDraftPayloadSchema, type ExpensePrivateDraftView } from './drafts'
+import {
+  ExpenseDraftPayloadSchema,
+  getExpenseDraftAttention,
+  type ExpensePrivateDraftView,
+} from './drafts'
 
 interface GroupRow {
   id: string
@@ -722,13 +727,14 @@ export async function getExpenseDashboard(
   actorUserId: string,
 ): Promise<ExpenseDashboardView> {
   const admin = getAdmin()
-  const [{ data, error }, memberInvitationResult] = await Promise.all([
+  const [{ data, error }, memberInvitationResult, draftResult] = await Promise.all([
     admin
     .from('expense_group_members')
     .select('group_id, status, created_at')
     .eq('user_id', actorUserId)
     .in('status', ['active', 'invited']),
     admin.rpc('expense_get_my_member_invitations', { p_actor_id: actorUserId }),
+    admin.rpc('expense_list_my_private_drafts', { p_actor_id: actorUserId }),
   ])
   throwOnError(error, 'dashboard membership query')
   throwOnError(memberInvitationResult.error, 'member invitation inbox query')
@@ -747,6 +753,27 @@ export async function getExpenseDashboard(
     expiresAt: invitation.expires_at,
     invitedAt: invitation.invited_at,
   }))
+  const incompleteDrafts: ExpenseIncompleteDraftSummaryView[] = draftResult.error
+    ? []
+    : ((draftResult.data ?? []) as Array<Record<string, unknown>>).flatMap((row) => {
+      const payload = ExpenseDraftPayloadSchema.safeParse(row.payload)
+      const contextType = row.context_type
+      const attention = payload.success ? getExpenseDraftAttention(payload.data) : null
+      if (!payload.success
+        || !attention
+        || (contextType !== 'one_off' && contextType !== 'group' && contextType !== 'edit')) return []
+      return [{
+        id: String(row.draft_id),
+        contextType,
+        groupId: typeof row.group_id === 'string' ? row.group_id : null,
+        expenseId: typeof row.expense_id === 'string' ? row.expense_id : null,
+        title: payload.data.title.trim(),
+        totalMinor: attention.totalMinor,
+        currency: payload.data.currency,
+        differenceMinor: attention.differenceMinor,
+        savedAt: String(row.saved_at),
+      }]
+    })
   const membershipRows = (data ?? []) as Array<{
     group_id: string
     status: 'active' | 'invited'
@@ -843,6 +870,7 @@ export async function getExpenseDashboard(
       .map(([currency, totals]) => ({ currency, ...totals }))
       .sort((left, right) => left.currency.localeCompare(right.currency)),
     pendingConfirmationCount,
+    incompleteDrafts,
   }
 }
 
@@ -850,8 +878,9 @@ export async function getExpenseMemberInvitation(
   actorUserId: string,
   invitationId: string,
 ): Promise<ExpenseMemberInvitationView | null> {
-  const { data, error } = await getAdmin().rpc('expense_get_my_member_invitations', {
+  const { data, error } = await getAdmin().rpc('expense_get_scoped_member_invitation', {
     p_actor_id: actorUserId,
+    p_invitation_id: invitationId,
   })
   throwOnError(error, 'member invitation detail query')
   const row = ((data ?? []) as Array<{

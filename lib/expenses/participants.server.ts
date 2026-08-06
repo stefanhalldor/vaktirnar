@@ -24,6 +24,7 @@ export interface ResolvedExpenseMember {
   role: 'owner' | 'member'
   status: 'invited' | 'active'
   relationshipId?: string
+  recipientEmail?: string
   circleId?: string
   circleMemberId?: string
 }
@@ -154,6 +155,19 @@ export async function resolveExpenseMembers(input: {
         displayName: member.display_name,
         role: 'member',
         status: 'active',
+      })
+      continue
+    }
+
+    if (member.type === 'email') {
+      resolved.push({
+        id: randomUUID(),
+        key: member.key,
+        userId: null,
+        displayName: member.display_name,
+        role: 'member',
+        status: 'active',
+        recipientEmail: member.recipient_email,
       })
       continue
     }

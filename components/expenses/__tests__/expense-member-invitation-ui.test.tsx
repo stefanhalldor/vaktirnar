@@ -243,9 +243,7 @@ describe('ExpenseMemberInvitationActions explicit consent', () => {
       action: 'accept',
       request_id: expect.any(String),
     }))
-    expect(mockPush).toHaveBeenCalledWith(
-      `/auth-mvp/utlagt-og-endurgreitt/hopar/${GROUP_ID}`,
-    )
+    expect(mockPush).toHaveBeenCalledWith('/auth-mvp/heim')
     expect(mockRefresh).toHaveBeenCalledOnce()
   })
 

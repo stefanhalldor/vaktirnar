@@ -9,9 +9,14 @@ export interface ExpenseAccess {
   user: User
 }
 
-export async function guardExpenseAccess(): Promise<ExpenseAccess> {
+export async function guardExpenseSession(): Promise<ExpenseAccess> {
   if (process.env.EXPENSES_ENABLED !== 'true') redirect('/')
   const { user } = await guardTeskeidSession()
+  return { user }
+}
+
+export async function guardExpenseAccess(): Promise<ExpenseAccess> {
+  const { user } = await guardExpenseSession()
   const allowed = await checkFeatureAccess(user.id, user.email!, EXPENSE_FEATURE_KEY)
   if (!allowed) redirect('/')
   return { user }

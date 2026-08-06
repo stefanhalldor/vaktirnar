@@ -226,6 +226,19 @@ export interface ExpenseDashboardView {
     youOweMinor: number
   }>
   pendingConfirmationCount: number
+  incompleteDrafts?: ExpenseIncompleteDraftSummaryView[]
+}
+
+export interface ExpenseIncompleteDraftSummaryView {
+  id: string
+  contextType: 'one_off' | 'group' | 'edit'
+  groupId: string | null
+  expenseId: string | null
+  title: string
+  totalMinor: number
+  currency: string
+  differenceMinor: number | null
+  savedAt: string
 }
 
 /** Safe pre-consent snapshot. It deliberately contains no ledger fields. */

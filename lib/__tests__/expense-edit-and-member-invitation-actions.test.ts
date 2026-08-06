@@ -29,7 +29,10 @@ const {
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ revalidatePath: mockRevalidatePath }))
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mockGetAdmin }))
-vi.mock('@/lib/expenses/guard', () => ({ guardExpenseAccess: mockGuardExpenseAccess }))
+vi.mock('@/lib/expenses/guard', () => ({
+  guardExpenseAccess: mockGuardExpenseAccess,
+  guardExpenseSession: mockGuardExpenseAccess,
+}))
 vi.mock('@/lib/expenses/participants.server', () => ({
   getExpenseActorDisplayName: vi.fn(),
   resolveExpenseMembers: vi.fn(),
@@ -217,7 +220,7 @@ describe('UpdateExpenseSchema', () => {
 describe('updateExpense RPC mapping', () => {
   it('passes preserve-shares and name-only member data without client-supplied shares', async () => {
     setRpcResponses({
-      expense_update_expense: {
+      expense_update_expense_with_participants: {
         data: { group_id: GROUP_ID, expense_id: EXPENSE_ID, financial_version: 8 },
         error: null,
       },
@@ -235,7 +238,7 @@ describe('updateExpense RPC mapping', () => {
       ok: true,
       data: { groupId: GROUP_ID, expenseId: EXPENSE_ID, financialVersion: 8 },
     })
-    expect(mockRpc).toHaveBeenCalledWith('expense_update_expense', {
+    expect(mockRpc).toHaveBeenCalledWith('expense_update_expense_with_participants', {
       p_actor_id: ACTOR_ID,
       p_request_id: REQUEST_ID,
       p_expense_id: EXPENSE_ID,
@@ -249,6 +252,8 @@ describe('updateExpense RPC mapping', () => {
       p_split_method: 'equal',
       p_preserve_shares: true,
       p_new_guest_members: [{ id: NEW_GUEST_MEMBER_ID, display_name: 'Martine' }],
+      p_new_participant_invitations: [],
+      p_removed_member_ids: [],
       p_payments: [
         { member_id: SELF_MEMBER_ID, amount_minor: 60000 },
         { member_id: NEW_GUEST_MEMBER_ID, amount_minor: 25000 },
@@ -259,7 +264,7 @@ describe('updateExpense RPC mapping', () => {
 
   it('derives replacement shares from validated allocation rows', async () => {
     setRpcResponses({
-      expense_update_expense: {
+      expense_update_expense_with_participants: {
         data: { group_id: GROUP_ID, expense_id: EXPENSE_ID, financial_version: 9 },
         error: null,
       },
@@ -276,7 +281,7 @@ describe('updateExpense RPC mapping', () => {
       payments: [{ member_key: SELF_MEMBER_ID, amount: '100' }],
     }))
 
-    const updateCall = mockRpc.mock.calls.find(([name]) => name === 'expense_update_expense')
+    const updateCall = mockRpc.mock.calls.find(([name]) => name === 'expense_update_expense_with_participants')
     expect(updateCall?.[1].p_shares).toEqual([
       { member_id: SELF_MEMBER_ID, amount_minor: 50 },
       { member_id: GUEST_MEMBER_ID, amount_minor: 50 },
@@ -299,7 +304,7 @@ describe('updateExpense RPC mapping', () => {
       },
     ])
     setRpcResponses({
-      expense_update_expense: {
+      expense_update_expense_with_participants: {
         data: { group_id: GROUP_ID, expense_id: EXPENSE_ID, financial_version: 8 },
         error: null,
       },
@@ -311,21 +316,44 @@ describe('updateExpense RPC mapping', () => {
 
     expect(result.ok).toBe(true)
     expect(mockGetEditMembers).toHaveBeenCalledWith(ACTOR_ID, GROUP_ID, EXPENSE_ID)
-    expect(mockRpc).toHaveBeenCalledWith('expense_update_expense', expect.objectContaining({
+    expect(mockRpc).toHaveBeenCalledWith('expense_update_expense_with_participants', expect.objectContaining({
       p_payments: [{ member_id: INACTIVE_MEMBER_ID, amount_minor: 85000 }],
       p_preserve_shares: true,
     }))
+  })
+
+  it('passes a non-paying participant removal to the audited SQL110 wrapper', async () => {
+    setRpcResponses({
+      expense_update_expense_with_participants: {
+        data: { group_id: GROUP_ID, expense_id: EXPENSE_ID, financial_version: 10 },
+        error: null,
+      },
+    })
+
+    const result = await updateExpense(updateInput({
+      total: '100',
+      preserve_shares: false,
+      removed_member_ids: [GUEST_MEMBER_ID],
+      payments: [{ member_key: SELF_MEMBER_ID, amount: '100' }],
+      allocations: [{ member_key: SELF_MEMBER_ID }],
+    }))
+
+    expect(result.ok).toBe(true)
+    expect(mockRpc).toHaveBeenCalledWith(
+      'expense_update_expense_with_participants',
+      expect.objectContaining({ p_removed_member_ids: [GUEST_MEMBER_ID] }),
+    )
   })
 })
 
 describe('expense guest-member invitations', () => {
   it('sends from the private reservation but returns only curated delivery state', async () => {
     setRpcResponses({
-      expense_link_guest_member_email: {
+      expense_invite_existing_participant: {
         data: { invitation_id: INVITATION_ID, recipient_email: 'must-not-leak@example.is' },
         error: null,
       },
-      expense_reserve_member_invitation_send: {
+      expense_reserve_scoped_member_invitation_send: {
         data: [{
           can_send: true,
           reason: 'reserved',
@@ -367,11 +395,11 @@ describe('expense guest-member invitations', () => {
 
   it('fails closed as uncertain when a send reservation has an invalid safe snapshot', async () => {
     setRpcResponses({
-      expense_link_guest_member_email: {
+      expense_invite_existing_participant: {
         data: { invitation_id: INVITATION_ID },
         error: null,
       },
-      expense_reserve_member_invitation_send: {
+      expense_reserve_scoped_member_invitation_send: {
         data: [{
           can_send: true,
           reason: 'reserved',
@@ -399,7 +427,7 @@ describe('expense guest-member invitations', () => {
 
   it('keeps an accepted durable link successful when optional Tengsl enrichment fails', async () => {
     setRpcResponses({
-      expense_respond_member_invitation: {
+      expense_respond_scoped_member_invitation: {
         data: {
           status: 'accepted',
           group_id: GROUP_ID,
@@ -444,7 +472,7 @@ describe('expense guest-member invitations', () => {
 
   it('does not perform relationship lookup for a declined invitation', async () => {
     setRpcResponses({
-      expense_respond_member_invitation: {
+      expense_respond_scoped_member_invitation: {
         data: {
           status: 'declined',
           group_id: GROUP_ID,

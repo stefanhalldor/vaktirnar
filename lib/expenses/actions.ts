@@ -58,7 +58,7 @@ import {
   normalizeExpensePaymentProfile,
   type NormalizedExpensePaymentProfileDetails,
 } from './payment-profile'
-import { guardExpenseAccess } from './guard'
+import { guardExpenseAccess, guardExpenseSession } from './guard'
 import {
   getExpenseActorDisplayName,
   resolveExpenseMembers,
@@ -223,6 +223,10 @@ function requireMemberKey(
   return key
 }
 
+type ExpenseParticipantInvitationInput =
+  | { member_id: string; relationship_id: string }
+  | { member_id: string; recipient_email: string }
+
 export async function createExpense(
   input: unknown,
 ): Promise<ExpenseActionResult<{ groupId: string; expenseId: string }>> {
@@ -324,7 +328,7 @@ export async function createExpense(
       ? 'expense_create_expense'
       : value.circle_id
         ? 'expense_create_expense_with_circle_context'
-        : 'expense_create_expense_with_known_members'
+        : 'expense_create_expense_with_participants'
     const { data, error } = await getAdmin().rpc(
       createRpc,
       {
@@ -358,13 +362,19 @@ export async function createExpense(
           amount_minor: share.amountMinor,
         })),
         p_obligations: obligations,
-        ...(value.group_id ? {} : {
-          p_known_relationship_members: members.flatMap((member) => (
-            member.relationshipId
-              ? [{ member_id: member.id, relationship_id: member.relationshipId }]
-              : []
-          )),
-        }),
+        ...(!value.group_id && !value.circle_id ? {
+          p_participant_invitations: members.flatMap<ExpenseParticipantInvitationInput>((member) => {
+            if (member.relationshipId) return [{
+              member_id: member.id,
+              relationship_id: member.relationshipId,
+            }]
+            if (member.recipientEmail) return [{
+              member_id: member.id,
+              recipient_email: member.recipientEmail,
+            }]
+            return []
+          }),
+        } : {}),
         ...(value.circle_id ? {
           p_circle_id: value.circle_id,
           p_known_circle_members: members.flatMap((member) => (
@@ -381,6 +391,7 @@ export async function createExpense(
     const persistedExpenseId = String(result.expense_id ?? expenseId)
     if (!groupId || !persistedExpenseId) throw new Error('expense_save_failed')
     await deleteExpenseDraftAfterSave(user.id, value.draft_id)
+    await deliverExpenseInvitationIds(user.id, result.invitation_ids)
     revalidateExpensePaths(groupId, persistedExpenseId)
     return { ok: true, data: { groupId, expenseId: persistedExpenseId } }
   } catch (error) {
@@ -480,7 +491,7 @@ export async function updateExpense(
       amount_minor: share.amountMinor,
     }))
 
-    const { data, error } = await admin.rpc('expense_update_expense', {
+    const { data, error } = await admin.rpc('expense_update_expense_with_participants', {
       p_actor_id: user.id,
       p_request_id: value.request_id,
       p_expense_id: value.expense_id,
@@ -493,7 +504,13 @@ export async function updateExpense(
       p_note: value.note,
       p_split_method: value.split_method,
       p_preserve_shares: value.preserve_shares,
-      p_new_guest_members: value.new_members,
+      p_new_guest_members: value.new_members.map(({ id, display_name }) => ({ id, display_name })),
+      p_new_participant_invitations: value.new_members.flatMap<ExpenseParticipantInvitationInput>((member) => {
+        if (member.relationship_id) return [{ member_id: member.id, relationship_id: member.relationship_id }]
+        if (member.recipient_email) return [{ member_id: member.id, recipient_email: member.recipient_email }]
+        return []
+      }),
+      p_removed_member_ids: value.removed_member_ids,
       p_payments: payments.map((payment) => ({
         member_id: payment.payerId,
         amount_minor: payment.amountMinor,
@@ -509,6 +526,7 @@ export async function updateExpense(
       throw new Error('expense_save_failed')
     }
     await deleteExpenseDraftAfterSave(user.id, value.draft_id)
+    await deliverExpenseInvitationIds(user.id, result.invitation_ids)
     revalidateExpensePaths(persistedGroupId, persistedExpenseId)
     return {
       ok: true,
@@ -547,7 +565,7 @@ async function deliverExpenseMemberInvitation(
   invitationId: string,
 ): Promise<ExpenseInvitationDelivery> {
   const admin = getAdmin()
-  const { data, error } = await admin.rpc('expense_reserve_member_invitation_send', {
+  const { data, error } = await admin.rpc('expense_reserve_scoped_member_invitation_send', {
     p_actor_id: actorUserId,
     p_invitation_id: invitationId,
   })
@@ -560,7 +578,7 @@ async function deliverExpenseMemberInvitation(
   if (
     !Number.isInteger(row.attempt_number)
     || typeof row.recipient_email !== 'string'
-    || row.email_template_version !== 'v1'
+    || (row.email_template_version !== 'v1' && row.email_template_version !== 'v2')
     || typeof row.context_title !== 'string'
     || (row.inviter_display_name !== null && typeof row.inviter_display_name !== 'string')
   ) {
@@ -573,7 +591,7 @@ async function deliverExpenseMemberInvitation(
     invitationId,
     attemptNumber,
     {
-      templateVersion: 'v1',
+      templateVersion: row.email_template_version,
       contextTitle: row.context_title,
       inviterDisplayName: row.inviter_display_name as string | null,
     },
@@ -593,6 +611,14 @@ async function deliverExpenseMemberInvitation(
   return sendResult
 }
 
+async function deliverExpenseInvitationIds(actorUserId: string, rawIds: unknown): Promise<void> {
+  if (!Array.isArray(rawIds)) return
+  const ids = rawIds.filter((value): value is string => typeof value === 'string').slice(0, 49)
+  for (const invitationId of ids) {
+    await deliverExpenseMemberInvitation(actorUserId, invitationId)
+  }
+}
+
 export async function linkExpenseGuestMember(
   input: unknown,
 ): Promise<ExpenseActionResult<{ invitationId: string; delivery: ExpenseInvitationDelivery }>> {
@@ -600,7 +626,7 @@ export async function linkExpenseGuestMember(
   try {
     const parsed = LinkExpenseGuestMemberSchema.safeParse(input)
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
-    const { data, error } = await getAdmin().rpc('expense_link_guest_member_email', {
+    const { data, error } = await getAdmin().rpc('expense_invite_existing_participant', {
       p_actor_id: user.id,
       p_group_id: parsed.data.group_id,
       p_member_id: parsed.data.member_id,
@@ -638,12 +664,12 @@ export async function resendExpenseMemberInvitation(
 export async function respondExpenseMemberInvitation(
   input: unknown,
 ): Promise<ExpenseActionResult<{ status: 'accepted' | 'declined' | 'expired'; groupId?: string }>> {
-  const { user } = await guardExpenseAccess()
+  const { user } = await guardExpenseSession()
   try {
     const parsed = RespondExpenseMemberInvitationSchema.safeParse(input)
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
     const admin = getAdmin()
-    const { data, error } = await admin.rpc('expense_respond_member_invitation', {
+    const { data, error } = await admin.rpc('expense_respond_scoped_member_invitation', {
       p_actor_id: user.id,
       p_invitation_id: parsed.data.invitation_id,
       p_action: parsed.data.action,
@@ -677,7 +703,9 @@ export async function respondExpenseMemberInvitation(
               .maybeSingle(),
           ])
           const ownerEmail = ownerData?.user?.email
-          const privateDisplayName = invitationData
+          const privateDisplayName = result.participant_source === 'manual_email'
+            ? null
+            : invitationData
             && typeof invitationData.guest_display_name_snapshot === 'string'
             ? invitationData.guest_display_name_snapshot
             : null
@@ -732,7 +760,9 @@ export async function cancelExpenseMemberInvitation(
   }
 }
 
-export async function addExpenseGroupMember(input: unknown): Promise<ExpenseActionResult> {
+export async function addExpenseGroupMember(
+  input: unknown,
+): Promise<ExpenseActionResult<{ memberId: string; invitationId?: string; delivery?: ExpenseInvitationDelivery }>> {
   const { user } = await guardExpenseAccess()
   try {
     const parsed = AddExpenseGroupMemberSchema.safeParse(input)
@@ -745,25 +775,44 @@ export async function addExpenseGroupMember(input: unknown): Promise<ExpenseActi
         { type: 'self', key: 'self' },
         parsed.data.member.type === 'guest'
           ? { type: 'guest', key: 'new', display_name: parsed.data.member.display_name }
-          : { type: 'relationship', key: 'new', relationship_id: parsed.data.member.relationship_id },
+          : parsed.data.member.type === 'email'
+            ? {
+              type: 'email',
+              key: 'new',
+              display_name: parsed.data.member.display_name,
+              recipient_email: parsed.data.member.recipient_email,
+            }
+            : { type: 'relationship', key: 'new', relationship_id: parsed.data.member.relationship_id },
       ],
     })
     const member = members.find((candidate) => candidate.key === 'new')
     if (!member) throw new Error('expense_member_invalid')
-    const { error } = await getAdmin().rpc('expense_add_group_member', {
+    const { data, error } = await getAdmin().rpc('expense_add_participant', {
       p_actor_id: user.id,
       p_group_id: parsed.data.group_id,
       p_request_id: parsed.data.request_id,
       p_member: {
         id: member.id,
-        user_id: member.userId,
         display_name: member.displayName,
-        status: member.status,
       },
+      p_recipient_email: member.recipientEmail ?? null,
+      p_relationship_id: member.relationshipId ?? null,
     })
     if (error) rpcError(error)
+    const result = resultObject(data)
+    const invitationId = typeof result.invitation_id === 'string' ? result.invitation_id : undefined
+    const delivery = invitationId
+      ? await deliverExpenseMemberInvitation(user.id, invitationId)
+      : undefined
     revalidateExpensePaths(parsed.data.group_id)
-    return { ok: true }
+    return {
+      ok: true,
+      data: {
+        memberId: String(result.member_id ?? member.id),
+        ...(invitationId ? { invitationId } : {}),
+        ...(delivery ? { delivery } : {}),
+      },
+    }
   } catch (error) {
     console.error('[expenses] add member failed')
     return actionError(error)

@@ -89,8 +89,8 @@ describe('createExpense RPC contract', () => {
       data: { groupId: persistedGroupId, expenseId: persistedExpenseId },
     })
     const [rpcName, payload] = mockRpc.mock.calls[0]
-    expect(rpcName).toBe('expense_create_expense_with_known_members')
-    expect(payload.p_known_relationship_members).toEqual([])
+    expect(rpcName).toBe('expense_create_expense_with_participants')
+    expect(payload.p_participant_invitations).toEqual([])
     expect(payload.p_obligations).toEqual([
       {
         from_member_id: guestMemberId,
@@ -102,7 +102,7 @@ describe('createExpense RPC contract', () => {
     expect(payload.p_obligations[0]).not.toHaveProperty('id')
   })
 
-  it('atomically maps a known relationship to an invited member instead of a guest invitation', async () => {
+  it('keeps a known relationship anonymous until the scoped invitation is accepted', async () => {
     const relationshipId = '60000000-0000-4000-8000-000000000001'
     const counterpartId = '70000000-0000-4000-8000-000000000001'
     mockResolveExpenseMembers.mockResolvedValueOnce([
@@ -121,8 +121,8 @@ describe('createExpense RPC contract', () => {
 
     expect(result.ok).toBe(true)
     const [rpcName, payload] = mockRpc.mock.calls[0]
-    expect(rpcName).toBe('expense_create_expense_with_known_members')
+    expect(rpcName).toBe('expense_create_expense_with_participants')
     expect(payload.p_one_off_members[1]).toMatchObject({ id: guestMemberId, user_id: null, status: 'active' })
-    expect(payload.p_known_relationship_members).toEqual([{ member_id: guestMemberId, relationship_id: relationshipId }])
+    expect(payload.p_participant_invitations).toEqual([{ member_id: guestMemberId, relationship_id: relationshipId }])
   })
 })

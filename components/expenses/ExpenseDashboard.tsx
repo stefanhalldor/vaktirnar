@@ -1,40 +1,50 @@
 import Link from 'next/link'
-import { Plus, Users, CreditCard } from 'lucide-react'
-import type { ExpenseDashboardView, ExpensePaymentProfileV2View } from '@/lib/expenses/contracts'
+import { AlertTriangle, ChevronRight, Plus, CreditCard } from 'lucide-react'
+import type {
+  ExpenseDashboardView,
+  ExpenseIncompleteDraftSummaryView,
+  ExpensePaymentProfileV2View,
+} from '@/lib/expenses/contracts'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { formatExpenseBankAccount, formatExpenseNationalIdDraft } from '@/lib/expenses/payment-profile'
 import { getExpenseTranslations } from './i18n.server'
 import { ExpenseInvitationActions } from './ExpenseInvitationActions'
 import { ExpenseMemberInvitationActions } from './ExpenseMemberInvitationActions'
 import { ExpenseDashboardDirectory } from './ExpenseDashboardDirectory'
-import { expensePrimaryButtonClass, expenseSecondaryButtonClass } from './ui'
+import { expensePrimaryButtonClass } from './ui'
+
+function incompleteDraftHref(draft: ExpenseIncompleteDraftSummaryView): string {
+  if (draft.contextType === 'edit' && draft.expenseId) {
+    return `/auth-mvp/utlagt-og-endurgreitt/utgjold/${draft.expenseId}/breyta?step=split&draft=${draft.id}`
+  }
+  if (draft.contextType === 'group' && draft.groupId) {
+    return `/auth-mvp/utlagt-og-endurgreitt/hopar/${draft.groupId}/nytt-utgjald?draft=${draft.id}`
+  }
+  return `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${draft.id}`
+}
 
 export async function ExpenseDashboard({
   dashboard,
   paymentProfile,
-  canUseCircles,
 }: {
   dashboard: ExpenseDashboardView
   paymentProfile: ExpensePaymentProfileV2View
-  canUseCircles: boolean
 }) {
   const t = await getExpenseTranslations()
   const memberInvitations = dashboard.memberInvitations ?? []
   const allItems = [...dashboard.groups, ...dashboard.oneOffs]
   const paymentDetails = paymentProfile.details
   const bankAccount = paymentDetails ? formatExpenseBankAccount(paymentDetails) : null
+  const incompleteDrafts = dashboard.incompleteDrafts ?? []
 
   return (
     <div className="space-y-8">
       <p className="text-sm leading-6 text-muted-foreground">{t('dashboard.intro')}</p>
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div>
         <Link href="/auth-mvp/utlagt-og-endurgreitt/nytt" className={expensePrimaryButtonClass}>
           <Plus aria-hidden size={18} className="mr-2" />{t('dashboard.addExpense')}
         </Link>
-        {canUseCircles ? <Link href="/stillingar/tengsl/hringir" className={expenseSecondaryButtonClass}>
-          <Users aria-hidden size={18} className="mr-2" />{t('dashboard.relationshipCircles')}
-        </Link> : null}
       </div>
 
       <section aria-labelledby="expense-summary-title">
@@ -98,8 +108,38 @@ export async function ExpenseDashboard({
         </section>
       ) : null}
 
+      {incompleteDrafts.length > 0 ? (
+        <section aria-labelledby="expense-incomplete-drafts-title" className="space-y-3">
+          <h2 id="expense-incomplete-drafts-title" className="text-sm font-semibold">
+            {t('dashboard.needsAttention')}
+          </h2>
+          <div className="divide-y divide-border border-y border-border">
+            {incompleteDrafts.map((draft) => (
+              <Link key={draft.id} href={incompleteDraftHref(draft)} className="flex min-h-16 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800">
+                  <AlertTriangle size={18} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{draft.title || t('dashboard.untitledDraft')}</span>
+                  <span className="mt-0.5 block text-xs text-amber-800">{t('dashboard.splitNeedsAttention')}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {formatExpenseMinor(draft.totalMinor, draft.currency)}
+                    {draft.differenceMinor !== null && draft.differenceMinor > 0
+                      ? ` · ${t('dashboard.unallocated', { amount: formatExpenseMinor(draft.differenceMinor, draft.currency) })}`
+                      : draft.differenceMinor !== null && draft.differenceMinor < 0
+                        ? ` · ${t('dashboard.overallocated', { amount: formatExpenseMinor(Math.abs(draft.differenceMinor), draft.currency) })}`
+                        : ''}
+                  </span>
+                </span>
+                <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" />
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {allItems.length > 0 ? <ExpenseDashboardDirectory items={allItems} /> : null}
-      {allItems.length === 0 && dashboard.invitations.length === 0 && memberInvitations.length === 0 ? (
+      {allItems.length === 0 && dashboard.invitations.length === 0 && memberInvitations.length === 0 && incompleteDrafts.length === 0 ? (
         <p className="border-y border-border py-6 text-center text-sm text-muted-foreground">{t('dashboard.empty')}</p>
       ) : null}
 

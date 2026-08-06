@@ -101,8 +101,9 @@ describe('expense member invitation repository privacy boundary', () => {
       'inviterDisplayName',
       'status',
     ])
-    expect(mockRpc).toHaveBeenCalledWith('expense_get_my_member_invitations', {
+    expect(mockRpc).toHaveBeenCalledWith('expense_get_scoped_member_invitation', {
       p_actor_id: ACTOR_ID,
+      p_invitation_id: INVITATION_ID,
     })
   })
 
