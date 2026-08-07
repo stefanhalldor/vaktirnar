@@ -63,6 +63,13 @@ describe('getExpenseEditMembersForActor', () => {
                 role: 'member',
                 status: 'removed',
               },
+              {
+                id: 'member-collaborator',
+                user_id: '40000000-0000-4000-8000-000000000001',
+                display_name: 'Samstarfsaðili á hlut',
+                role: 'member',
+                status: 'active',
+              },
             ],
             error: null,
           }),
@@ -75,6 +82,9 @@ describe('getExpenseEditMembersForActor', () => {
       }
       if (table === 'expense_shares') {
         return twoEqResult([{ member_id: 'member-self' }])
+      }
+      if (table === 'expense_share_collaborators') {
+        return twoEqResult([{ collaborator_member_id: 'member-collaborator' }])
       }
       throw new Error(`unexpected table: ${table}`)
     })

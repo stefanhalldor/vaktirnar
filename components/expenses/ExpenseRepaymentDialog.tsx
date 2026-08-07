@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
+import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import type { ExpenseSettlementTransferView } from '@/lib/expenses/contracts'
 import { formatExpenseMinor, formatExpenseMinorForCopy } from '@/lib/expenses/input-money'
 import { ExpensePaymentDetails } from './ExpensePaymentDetails'
@@ -18,10 +19,12 @@ export function ExpenseRepaymentDialog({
   groupId,
   transfer,
   initialDate,
+  actionSheetTrigger = false,
 }: {
   groupId: string
   transfer: ExpenseSettlementTransferView
   initialDate: string
+  actionSheetTrigger?: boolean
 }) {
   const t = useExpenseTranslations()
   const router = useRouter()
@@ -38,9 +41,15 @@ export function ExpenseRepaymentDialog({
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button type="button" className={`${expenseSecondaryButtonClass} mt-2 w-full justify-start border-0 px-0 text-primary shadow-none`}>
-          {t(mode === 'recordReceived' ? 'repayment.recordReceived' : 'repayment.report')}
-        </button>
+        {actionSheetTrigger ? (
+          <TeskeidActionButton type="button" variant="primary" className="w-full">
+            {t(mode === 'recordReceived' ? 'repayment.recordReceived' : 'repayment.report')}
+          </TeskeidActionButton>
+        ) : (
+          <button type="button" className={`${expenseSecondaryButtonClass} mt-2 w-full justify-start border-0 px-0 text-primary shadow-none`}>
+            {t(mode === 'recordReceived' ? 'repayment.recordReceived' : 'repayment.report')}
+          </button>
+        )}
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />

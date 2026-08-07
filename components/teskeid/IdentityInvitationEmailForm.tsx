@@ -1,5 +1,7 @@
 'use client'
 
+import { TeskeidActionButton } from './TeskeidActionButton'
+
 type IdentityInvitationEmailFormProps = {
   value: string
   label: string
@@ -51,21 +53,24 @@ export function IdentityInvitationEmailForm({
         />
       </label>
       <div className="flex gap-2">
-        <button
+        <TeskeidActionButton
           type="button"
-          className="min-h-11 flex-1 rounded-xl border border-border px-3 text-sm"
+          variant="secondary"
+          className="flex-1"
           disabled={isPending}
           onClick={onCancel}
         >
           {cancelLabel}
-        </button>
-        <button
+        </TeskeidActionButton>
+        <TeskeidActionButton
           type="submit"
-          className="min-h-11 flex-1 rounded-xl bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          variant="primary"
+          className="flex-1"
           disabled={isPending || !value.trim()}
+          pending={isPending}
         >
           {isPending ? pendingLabel : submitLabel}
-        </button>
+        </TeskeidActionButton>
       </div>
     </form>
   )

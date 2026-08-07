@@ -4,7 +4,9 @@ import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { parseExpenseSavedView } from '@/lib/expenses/flow'
+import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
 import { getExpenseItemView } from '@/lib/expenses/repository.server'
+import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 
 export default async function ExpenseItemPage({ params, searchParams }: { params: Promise<{ expenseId: string }>; searchParams: Promise<{ view?: string | string[] }> }) {
   const [{ expenseId }, { user }, t, query] = await Promise.all([
@@ -17,6 +19,15 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
     includeCurrentPaymentInstructions: true,
   })
   if (!result) notFound()
+  let participantOptions: ExpenseParticipantOption[] = []
+  let participantOptionsError = false
+  if (result.group.kind === 'one_off' && result.group.canManage) {
+    try {
+      participantOptions = await getExpenseParticipantOptions(user.id)
+    } catch {
+      participantOptionsError = true
+    }
+  }
 
   return (
     <ExpenseShell
@@ -32,6 +43,8 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         expense={result.expense}
         view={parseExpenseSavedView(query.view)}
         initialDate={new Date().toISOString().slice(0, 10)}
+        participantOptions={participantOptions}
+        participantOptionsError={participantOptionsError}
       />
     </ExpenseShell>
   )

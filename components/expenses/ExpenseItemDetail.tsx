@@ -1,8 +1,12 @@
 import Link from 'next/link'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Plus } from 'lucide-react'
 import { getLocale } from 'next-intl/server'
 import { formatDateOnly } from '@/lib/date-format'
-import type { ExpenseGroupView, ExpenseItemView } from '@/lib/expenses/contracts'
+import type {
+  ExpenseGroupView,
+  ExpenseItemView,
+  ExpenseParticipantOption,
+} from '@/lib/expenses/contracts'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
 import { expenseEditStepHref, expenseSavedViewHref, type ExpenseSavedView } from '@/lib/expenses/flow'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
@@ -12,7 +16,6 @@ import { getExpenseTranslations } from './i18n.server'
 import { ExpenseItemActions } from './ExpenseItemActions'
 import { ExpenseItemHistory } from './ExpenseItemHistory'
 import { ExpenseFlowNav } from './ExpenseFlowNav'
-import { ExpenseMemberManager } from './ExpenseMemberManager'
 import {
   ExpenseSettlementParticipantList,
   type ExpenseSettlementParticipantRow,
@@ -23,11 +26,15 @@ export async function ExpenseItemDetail({
   expense,
   view = 'review',
   initialDate,
+  participantOptions = [],
+  participantOptionsError = false,
 }: {
   group: ExpenseGroupView
   expense: ExpenseItemView
   view?: ExpenseSavedView
   initialDate?: string
+  participantOptions?: ExpenseParticipantOption[]
+  participantOptionsError?: boolean
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const hasLockedRepayment = group.repayments.some(
@@ -65,10 +72,23 @@ export async function ExpenseItemDetail({
     ...expense.shares.map((share) => [share.memberId, share.displayName] as const),
   ])
   const selfMember = group.members.find((member) => member.isSelf)
+  const membersById = new Map(group.members.map((member) => [member.id, member]))
+  const activeCollaboratorsByShare = new Map<string, ExpenseGroupView['members']>()
+  for (const collaborator of expense.shareCollaborators ?? []) {
+    if (collaborator.status !== 'active') continue
+    const member = membersById.get(collaborator.memberId)
+    if (!member || member.status !== 'active') continue
+    const current = activeCollaboratorsByShare.get(collaborator.shareMemberId) ?? []
+    current.push(member)
+    activeCollaboratorsByShare.set(collaborator.shareMemberId, current)
+  }
   const effectiveBalances = group.kind === 'one_off'
     ? group.balances.filter((balance) => balance.currency === expense.currency)
       .map((balance) => ({ partyId: balance.memberId, amountMinor: balance.amountMinor, currency: balance.currency }))
     : balances
+  const oneOffSelfMemberIds = new Set(
+    group.balances.filter((balance) => balance.isSelf).map((balance) => balance.memberId),
+  )
   const effectiveSettlement = group.kind === 'one_off'
     ? group.settlementTransfers.filter((transfer) => transfer.currency === expense.currency)
       .map((transfer) => ({
@@ -98,14 +118,6 @@ export async function ExpenseItemDetail({
   }, new Map<string, number>())
   const shareByMember = new Map(expense.shares.map((share) => [share.memberId, share] as const))
   const paymentByMember = new Map(expense.payments.map((payment) => [payment.memberId, payment] as const))
-  const latestRepaymentByMember = group.repayments.reduce((rows, repayment) => {
-    if (repayment.status !== 'reported' && repayment.status !== 'confirmed') return rows
-    const current = rows.get(repayment.fromMemberId)
-    if (!current || current.createdAt < repayment.createdAt) {
-      rows.set(repayment.fromMemberId, repayment)
-    }
-    return rows
-  }, new Map<string, ExpenseGroupView['repayments'][number]>())
   const actionTransferByMember = new Map(oneOffSettlementTransfers
     .filter((transfer) => transfer.canReport || transfer.canRecordReceived)
     .map((transfer) => [transfer.fromMemberId, transfer] as const))
@@ -114,35 +126,61 @@ export async function ExpenseItemDetail({
       ? actionableBalanceByMember.get(balance.partyId) ?? 0
       : balance.amountMinor
     const repaymentStatus = repaymentStatusByMember.get(balance.partyId)
-    const hasConfirmed = (repaymentStatus?.confirmedAmountMinor ?? 0) > 0
-    const category = amountMinor > 0
+    // The durable ledger balance, which includes confirmed repayments, owns
+    // the lifecycle category. Reported payments only reserve the next action
+    // and are overlaid as the temporary "reported" section below.
+    const category = balance.amountMinor > 0
       ? 'credit' as const
-      : amountMinor < 0 || (balance.amountMinor < 0 && !hasConfirmed)
+      : balance.amountMinor < 0
         ? 'outstanding' as const
         : 'completed' as const
     const member = group.members.find((candidate) => candidate.id === balance.partyId)
+    const identities = [
+      ...(member ? [member] : []),
+      ...(activeCollaboratorsByShare.get(balance.partyId) ?? []),
+    ]
+    const identityNames = identities.map((identity) => (
+      identity.identityInvitation?.recipientLabel ?? identity.displayName
+    ))
     return {
       id: balance.partyId,
-      name: displayName.get(balance.partyId) ?? balance.partyId,
-      isSelf: member?.isSelf ?? false,
+      name: identityNames.length > 0
+        ? new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(identityNames)
+        : displayName.get(balance.partyId) ?? balance.partyId,
+      isSelf: group.kind === 'one_off'
+        ? oneOffSelfMemberIds.has(balance.partyId)
+        : member?.isSelf ?? false,
       currency: balance.currency,
       shareAmountMinor: shareByMember.get(balance.partyId)?.amountMinor ?? null,
       paymentAmountMinor: paymentByMember.get(balance.partyId)?.amountMinor ?? null,
       category,
       repaymentStatus,
-      repaymentId: latestRepaymentByMember.get(balance.partyId)?.id ?? null,
       remainingAmountMinor: Math.max(-balance.amountMinor, 0),
+      actionableRemainingAmountMinor: Math.max(-amountMinor, 0),
       actionTransfer: actionTransferByMember.get(balance.partyId) ?? null,
+      identities,
+      isShared: identities.length > 1,
+      canAddCollaborator: group.kind === 'one_off'
+        && group.canManage
+        && group.shareCollaborationReady === true
+        && group.status !== 'closed'
+        && expense.status === 'active'
+        && shareByMember.has(balance.partyId),
+      expenseId: expense.id,
+      shareMemberId: balance.partyId,
     }
   })
   // The headline must reflect the actionable settlement, which already
   // reserves reported repayments. Reading the raw ledger balance here made a
   // reported payer appear as an additional amount still owed to the viewer.
-  const selfBalance = selfMember
+  const selfBalanceMemberIds = new Set(group.kind === 'one_off'
+    ? oneOffSelfMemberIds
+    : selfMember ? [selfMember.id] : [])
+  const selfBalance = selfBalanceMemberIds.size > 0
     ? effectiveSettlement.reduce((amountMinor, transfer) => (
-      transfer.toPartyId === selfMember.id
+      selfBalanceMemberIds.has(transfer.toPartyId)
         ? amountMinor + transfer.amountMinor
-        : transfer.fromPartyId === selfMember.id
+        : selfBalanceMemberIds.has(transfer.fromPartyId)
           ? amountMinor - transfer.amountMinor
           : amountMinor
     ), 0)
@@ -260,42 +298,39 @@ export async function ExpenseItemDetail({
 
       {view === 'settlement' ? (
         <section className="space-y-5">
-          <h2 className="text-base font-semibold">{t('expense.savedViews.settlement')}</h2>
+          <div className="flex min-h-11 items-center justify-between gap-3">
+            <h2 className="text-base font-semibold">{t('expense.savedViews.settlement')}</h2>
+            {canEdit ? (
+              <Link
+                href={expenseEditStepHref(expense.id, 'split')}
+                className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              >
+                <Plus aria-hidden size={17} />
+                {t('expense.addPerson')}
+              </Link>
+            ) : null}
+          </div>
           {group.settlementRequiresReview ? (
             <div role="status" className="border-y border-amber-300 bg-amber-50 px-3 py-4 text-sm text-amber-950">
               <p className="font-semibold">{t('repayment.reviewRequiredTitle')}</p>
               <p className="mt-1 leading-6">{t('repayment.reviewRequiredBody')}</p>
             </div>
           ) : null}
-          <h3 className="text-sm font-semibold">{t('expense.settlementParticipants')}</h3>
           <ExpenseSettlementParticipantList
             rows={settlementParticipantRows}
             groupId={group.id}
             initialDate={initialDate ?? expense.incurredOn}
+            participantOptions={participantOptions}
+            participantOptionsError={participantOptionsError}
+            canLinkGuests={canLinkExpenseGuest({
+              groupStatus: group.status,
+              canManage: group.canManage,
+            })}
+            canRenameGuests={group.kind === 'one_off'
+              && group.guestMemberRenameReady === true
+              && group.status !== 'closed'
+              && group.canManage}
           />
-          {group.kind === 'one_off' ? (
-            <details className="border-y border-border py-2">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
-                {t('expense.manageParticipants')}
-              </summary>
-              <div className="pb-3 pt-2">
-                <ExpenseMemberManager
-                  groupId={group.id}
-                  members={group.members.filter((member) => (
-                    expense.payments.some((payment) => payment.memberId === member.id)
-                    || expense.shares.some((share) => share.memberId === member.id)
-                  ))}
-                  options={[]}
-                  optionsError={false}
-                  canManage={false}
-                  canLinkGuests={canLinkExpenseGuest({
-                    groupStatus: group.status,
-                    canManage: group.canManage,
-                  })}
-                />
-              </div>
-            </details>
-          ) : null}
           {group.kind === 'group' ? (
             <>
               <p className="text-xs leading-5 text-muted-foreground">{t('expense.groupSettlementHint')}</p>

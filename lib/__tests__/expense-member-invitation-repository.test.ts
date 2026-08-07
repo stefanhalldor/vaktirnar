@@ -63,6 +63,8 @@ describe('expense member invitation repository privacy boundary', () => {
       ".filter((row) => !row.event_type.startsWith('expense_member_invitation_'))",
     )
     expect(source).toContain(".gt('expires_at', new Date().toISOString())")
+    expect(source).toContain("...(canManage ? { recipientLabel: invitation.recipient_email_canonical } : {})")
+    expect(source).not.toContain('recipientLabel: member')
   })
 
   it('curates inbox rows to safe context with no email or ledger details', async () => {

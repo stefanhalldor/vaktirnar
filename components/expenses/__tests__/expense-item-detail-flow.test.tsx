@@ -30,13 +30,32 @@ const translations: Record<string, string> = {
   'expense.savedViews.split': 'Skipting',
   'expense.savedViews.settlement': 'Uppgjör',
   'expense.settlementParticipants': 'Þátttakendur og staða',
+  'expense.addPerson': 'Bæta við aðila',
+  'expense.settlementActions.open': 'Aðgerðir fyrir {name}',
+  'expense.settlementActions.title': 'Aðgerðir fyrir {name}',
+  'expense.settlementActions.description': 'Veldu aðgerð.',
+  'expense.settlementActions.close': 'Loka aðgerðum',
   'expense.manageParticipants': 'Tengja gest eða skoða boð',
   'expense.settlementFilters.label': 'Sía þátttakendur eftir uppgjörsstöðu',
-  'expense.settlementFilters.outstanding': 'Útistandandi',
-  'expense.settlementFilters.reported': 'Tilkynnt',
-  'expense.settlementFilters.completed': 'Greiðslu lokið',
+  'expense.settlementFilters.outstanding': 'Útistandandi greiðslur',
+  'expense.settlementFilters.reported': 'Tilkynntar greiðslur',
+  'expense.settlementFilters.completed': 'Uppgjöri lokið',
   'expense.settlementFilters.credit': 'Inneign',
   'expense.settlementFilters.empty': 'Enginn þátttakandi er í þessum flokki.',
+  'expenseForm.sharedParticipantShare': 'Sameiginlegur hlutur í kostnaði: {amount}',
+  'expenseForm.guestMarker': 'gestur',
+  'expenseForm.registeredMarker': '🥄',
+  'expenseForm.invitationPending': 'boð bíður',
+  'expenseForm.linkToTeskeidUser': 'Tengja við Teskeiðarnotanda',
+  'expenseForm.renameGuest': 'Breyta nafni',
+  'expenseForm.guestDisplayName': 'Nafn óskráðs aðila',
+  'expenseForm.savingGuestName': 'Vista nafn...',
+  'expenseForm.guestNameUpdated': 'Nafnið var uppfært.',
+  'expenseForm.resendMemberInvitation': 'Senda boð aftur',
+  'expenseForm.cancelMemberInvitation': 'Afturkalla boð',
+  'expenseForm.cancellingMemberInvitation': 'Afturkalla boð...',
+  'expenseForm.addShareCollaborator': 'Bæta aðila við hlut',
+  'expenseForm.addShareCollaboratorDescription': 'Bættu aðila við sama hlut.',
   'expenseForm.stepCompleted': 'Lokið, opna til að breyta',
   'expenseForm.stepEditUnavailable': 'Ekki er hægt að breyta þessu útgjaldi',
   'expenseForm.previewNet': 'Nettóstaða eftir útgjaldið',
@@ -47,6 +66,8 @@ const translations: Record<string, string> = {
   'expenseForm.previewOwes': '{from} greiðir {to}',
   'expenseForm.previewSettled': 'Engin greiðsla þarf að fara milli aðila.',
   'common.status': 'Staða',
+  'common.save': 'Vista',
+  'common.cancel': 'Hætta við',
   'expense.active': 'Virkt',
   'expense.splitMethod': 'Skipting',
   'expense.paid': 'Greitt við kaup',
@@ -101,10 +122,13 @@ const translations: Record<string, string> = {
   'repayment.reportedAt': 'Greiðsla tilkynnt {date}',
   'repayment.confirmedReportedAt': 'Greiðsla tilkynnt {date} · staðfest',
   'repayment.reportedAmountAt': 'Greiðsla upp á {amount} tilkynnt {date}',
+  'repayment.reportedProgress': 'Tilkynnt {reported} af {total}',
+  'repayment.reportedFull': 'Tilkynnt {amount}',
   'repayment.confirmedAmountAt': 'Greitt {amount} · staðfest {date}',
   'repayment.partiallyPaid': 'Greitt að hluta',
   'repayment.remainingAmount': 'Eftir að greiða {amount}',
   'history.title': 'Saga hlutarins',
+  'history.memberRenameChange': '{before} → {after}',
   'history.empty': 'Engin saga hefur verið skráð enn.',
   'history.showChanges': 'Sýna breytingar',
   'history.before': 'Áður',
@@ -128,6 +152,7 @@ const translations: Record<string, string> = {
   'activitySummary.expense_updated': 'Færsla uppfærð',
   'activity.expense_created': 'Útgjald skráð',
   'activity.expense_updated': 'Færsla uppfærð',
+  'activity.expense_group_member_renamed': 'Nafni aðila breytt',
   'common.amount': 'Upphæð',
   'common.date': 'Dagsetning',
   'common.datePlaceholder': 'Veldu dag',
@@ -152,12 +177,14 @@ vi.mock('next-intl/server', () => ({
 }))
 vi.mock('@/lib/expenses/actions', () => ({
   addExpenseGroupMember: vi.fn(),
+  addExpenseShareCollaborator: vi.fn(),
   cancelExpense: vi.fn(),
   cancelExpenseMemberInvitation: vi.fn(),
   linkExpenseGuestMember: vi.fn(),
   removeExpenseGroupMember: vi.fn(),
   reportExpenseRepayment: vi.fn(),
   recordExpenseRepaymentReceived: vi.fn(),
+  renameExpenseGuestMember: vi.fn(),
   resendExpenseMemberInvitation: vi.fn(),
 }))
 
@@ -325,14 +352,28 @@ describe('ExpenseItemDetail flow context', () => {
     expect(screen.getByText('1 af 3 hafa endurgreitt.')).toBeInTheDocument()
   })
 
-  it('keeps guest linking in the consolidated one-off settlement view', async () => {
+  it('keeps guest linking on the applicable consolidated settlement row', async () => {
     render(await ExpenseItemDetail({
-      group: { ...group, kind: 'one_off' },
+      group: {
+        ...group,
+        kind: 'one_off',
+        balances: [
+          { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 5_000, isSelf: true },
+          { memberId: 'anna', displayName: 'Anna', currency: 'ISK', amountMinor: -5_000, isSelf: false },
+        ],
+      },
       expense,
       view: 'settlement',
     }))
 
-    expect(screen.getByRole('button', { name: 'Tengja' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Bæta við aðila' })).toHaveAttribute(
+      'href',
+      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1/breyta?step=split',
+    )
+    expect(screen.queryByRole('button', { name: 'Tengja við Teskeiðarnotanda' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Aðgerðir fyrir Anna' }))
+    expect(screen.getByRole('button', { name: 'Tengja við Teskeiðarnotanda' })).toBeInTheDocument()
+    expect(screen.queryByText('Tengja gest eða skoða boð')).not.toBeInTheDocument()
   })
 
   it('keeps repayment reporting inside the one-off settlement view', async () => {
@@ -363,7 +404,9 @@ describe('ExpenseItemDetail flow context', () => {
       initialDate: '2026-08-05',
     }))
 
-    expect(screen.getAllByText('Anna').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Anna (gestur)').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Tilkynna greitt' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Aðgerðir fyrir Anna' }))
     expect(screen.getByRole('button', { name: 'Tilkynna greitt' })).toBeInTheDocument()
     expect(screen.queryByText('Anna greiðir Ég')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Opna hópinn' })).not.toBeInTheDocument()
@@ -408,21 +451,245 @@ describe('ExpenseItemDetail flow context', () => {
     expect(screen.queryByText('Anna skuldar')).not.toBeInTheDocument()
     expect(screen.queryByText('Berglind skuldar')).not.toBeInTheDocument()
     expect(screen.queryByText('Ég á inni')).not.toBeInTheDocument()
-    expect(screen.getByText(/Greiðsla upp á 3\.334\s*kr\. tilkynnt 5\. ágú\. 2026, 11:54/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Útistandandi 2' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Tilkynnt 1' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Greiðslu lokið 0' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Inneign 1' })).toBeInTheDocument()
+    expect(screen.getByText(/Tilkynnt 3\.334\s*kr\./)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Útistandandi greiðslur 1' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tilkynntar greiðslur 1' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Uppgjöri lokið/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Inneign 1' })).toBeInTheDocument()
     expect(screen.queryByText('Skráðar endurgreiðslur')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tilkynnt 1' }))
-    const participantList = screen.getByRole('list', { name: 'Þátttakendur og staða' })
-    expect(within(participantList).getByText('Anna')).toBeInTheDocument()
-    expect(within(participantList).queryByText('Berglind')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Greiðsla upp á .* tilkynnt/ })).toHaveAttribute(
-      'href',
-      '/auth-mvp/utlagt-og-endurgreitt/endurgreidslur/repayment-1',
-    )
+    const reportedSection = screen.getByRole('region', { name: 'Tilkynntar greiðslur 1' })
+    expect(within(reportedSection).getByText('Anna (gestur)')).toBeInTheDocument()
+    expect(within(reportedSection).queryByText('Berglind')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Greiðsla upp á .* tilkynnt/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps a partially reported payment outstanding and shows reported progress', async () => {
+    const reportedPartial = {
+      id: 'repayment-partial-reported', obligationId: 'obligation-partial-reported', groupId: group.id,
+      fromMemberId: 'anna', fromDisplayName: 'Anna', toMemberId: 'self', toDisplayName: 'Ég',
+      amountMinor: 4_000, currency: 'ISK', occurredOn: '2026-08-05', note: null,
+      status: 'reported' as const, createdAt: '2026-08-05T11:54:00Z',
+      canConfirm: true, canReject: true, canCancel: false, requiresReview: false,
+      paymentSnapshot: null,
+    }
+    const partialGroup: ExpenseGroupView = {
+      ...group,
+      kind: 'one_off',
+      balances: [
+        { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 10_000, isSelf: true },
+        { memberId: 'anna', displayName: 'Anna', currency: 'ISK', amountMinor: -10_000, isSelf: false },
+      ],
+      settlementTransfers: [{
+        fromMemberId: 'anna', fromDisplayName: 'Anna',
+        toMemberId: 'self', toDisplayName: 'Ég', amountMinor: 6_000,
+        currency: 'ISK', expectedFinancialVersion: 2, canReport: false,
+        canRecordReceived: true, paymentInstruction: null,
+      }],
+      repayments: [reportedPartial],
+    }
+
+    render(await ExpenseItemDetail({ group: partialGroup, expense, view: 'settlement' }))
+
+    const outstandingSection = screen.getByRole('region', { name: 'Útistandandi greiðslur 1' })
+    expect(within(outstandingSection).getByText('Anna (gestur)')).toBeInTheDocument()
+    expect(within(outstandingSection).getByText(/Tilkynnt 4\.000\s*kr\. af 10\.000\s*kr\./)).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /Tilkynnt/ })).not.toBeInTheDocument()
+  })
+
+  it('moves every participant to settlement complete when no ledger balance remains', async () => {
+    render(await ExpenseItemDetail({
+      group: {
+        ...group,
+        kind: 'one_off',
+        balances: [
+          { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 0, isSelf: true },
+          { memberId: 'anna', displayName: 'Anna', currency: 'ISK', amountMinor: 0, isSelf: false },
+        ],
+        settlementTransfers: [],
+      },
+      expense,
+      view: 'settlement',
+    }))
+
+    expect(screen.getByRole('heading', { name: 'Uppgjöri lokið 2' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Útistandandi greiðslur/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Tilkynnt/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Inneign/ })).not.toBeInTheDocument()
+  })
+
+  it('renders one financial row and one filter count for a shared share', async () => {
+    const sharedExpense: ExpenseItemView = {
+      ...expense,
+      shareCollaborators: [{
+        id: 'collaboration-1',
+        shareMemberId: 'anna',
+        memberId: 'pabbi',
+        status: 'active',
+        createdAt: '2026-08-06T10:00:00.000Z',
+      }],
+    }
+    const sharedGroup: ExpenseGroupView = {
+      ...group,
+      kind: 'one_off',
+      shareCollaborationReady: true,
+      expenses: [sharedExpense],
+      members: [
+        ...group.members,
+        { id: 'pabbi', displayName: 'Pabbi', role: 'member', status: 'active', isSelf: false, isRegistered: true },
+      ],
+      balances: [
+        { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 5_000, isSelf: true },
+        { memberId: 'anna', displayName: 'Anna', currency: 'ISK', amountMinor: -5_000, isSelf: false },
+      ],
+      settlementTransfers: [{
+        fromMemberId: 'anna', fromDisplayName: 'Anna',
+        toMemberId: 'self', toDisplayName: 'Ég', amountMinor: 5_000,
+        currency: 'ISK', expectedFinancialVersion: 2, canReport: false,
+        canRecordReceived: true, paymentInstruction: null,
+      }],
+    }
+
+    render(await ExpenseItemDetail({
+      group: sharedGroup,
+      expense: sharedExpense,
+      view: 'settlement',
+    }))
+
+    expect(screen.getByText('Anna og Pabbi')).toBeInTheDocument()
+    expect(screen.getByText(/Sameiginlegur hlutur í kostnaði: 5\.000\s*kr\./)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Útistandandi greiðslur 1' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Merkja greiðslu móttekna' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Aðgerðir fyrir Anna og Pabbi' }))
+    expect(screen.getByRole('button', { name: 'Merkja greiðslu móttekna' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Bæta aðila við hlut' })).toBeInTheDocument()
+  })
+
+  it('offers a standardized rename action only for the canonical unregistered share member', async () => {
+    const sharedExpense: ExpenseItemView = {
+      ...expense,
+      shares: expense.shares.map((share) => share.memberId === 'anna'
+        ? { ...share, displayName: 'Mamma og pabbi' }
+        : share),
+      shareCollaborators: [{
+        id: 'collaboration-1',
+        shareMemberId: 'anna',
+        memberId: 'pabbi',
+        status: 'active',
+        createdAt: '2026-08-06T10:00:00.000Z',
+      }],
+    }
+    const sharedGroup: ExpenseGroupView = {
+      ...group,
+      kind: 'one_off',
+      shareCollaborationReady: true,
+      guestMemberRenameReady: true,
+      expenses: [sharedExpense],
+      members: [
+        ...group.members.map((member) => member.id === 'anna'
+          ? { ...member, displayName: 'Mamma og pabbi' }
+          : member),
+        {
+          id: 'pabbi',
+          displayName: 'Boðinn þátttakandi',
+          role: 'member',
+          status: 'active',
+          isSelf: false,
+          isRegistered: false,
+          identityInvitation: {
+            id: 'invitation-pabbi',
+            status: 'pending',
+            delivery: 'sent',
+            recipientLabel: 'jonarna60@gmail.com',
+          },
+        },
+      ],
+      balances: [
+        { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 5_000, isSelf: true },
+        { memberId: 'anna', displayName: 'Mamma og pabbi', currency: 'ISK', amountMinor: -5_000, isSelf: false },
+      ],
+      settlementTransfers: [{
+        fromMemberId: 'anna', fromDisplayName: 'Mamma og pabbi',
+        toMemberId: 'self', toDisplayName: 'Ég', amountMinor: 5_000,
+        currency: 'ISK', expectedFinancialVersion: 2, canReport: false,
+        canRecordReceived: true, paymentInstruction: null,
+      }],
+    }
+
+    render(await ExpenseItemDetail({ group: sharedGroup, expense: sharedExpense, view: 'settlement' }))
+
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Aðgerðir fyrir Mamma og pabbi og jonarna60@gmail.com',
+    }))
+    expect(screen.getByRole('button', { name: 'Merkja greiðslu móttekna' })).toHaveClass('bg-primary')
+    expect(screen.getByRole('heading', { name: 'Mamma og pabbi (gestur)' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'jonarna60@gmail.com · boð bíður' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Breyta nafni' })).toHaveClass('border-border')
+    expect(screen.getByRole('button', { name: 'Senda boð aftur' })).toHaveClass('border-border')
+    expect(screen.getByRole('button', { name: 'Afturkalla boð' })).toHaveClass('text-destructive')
+    expect(screen.getByRole('button', { name: 'Bæta aðila við hlut' })).toHaveClass('border-border')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Breyta nafni' }))
+    expect(screen.getByRole('textbox', { name: 'Nafn óskráðs aðila' })).toHaveValue('Mamma og pabbi')
+  })
+
+  it('uses the manager-only pending recipient label on the financial row', async () => {
+    const pendingGroup: ExpenseGroupView = {
+      ...group,
+      kind: 'one_off',
+      members: group.members.map((member) => member.id === 'anna' ? {
+        ...member,
+        displayName: 'Boðinn þátttakandi',
+        identityInvitation: {
+          id: 'invitation-1',
+          status: 'pending',
+          delivery: 'sent',
+          recipientLabel: 'gretajons@gmail.com',
+        },
+      } : member),
+      balances: [
+        { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 5_000, isSelf: true },
+        { memberId: 'anna', displayName: 'Boðinn þátttakandi', currency: 'ISK', amountMinor: -5_000, isSelf: false },
+      ],
+      settlementTransfers: [],
+    }
+
+    render(await ExpenseItemDetail({ group: pendingGroup, expense, view: 'settlement' }))
+
+    expect(screen.getByText(/gretajons@gmail\.com · boð bíður/)).toBeInTheDocument()
+    expect(screen.queryByText('Boðinn þátttakandi')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aðgerðir fyrir gretajons@gmail.com' }))
+    expect(screen.getByRole('button', { name: 'Senda boð aftur' })).toHaveClass('border-border')
+    expect(screen.getByRole('button', { name: 'Afturkalla boð' })).toHaveClass('text-destructive')
+  })
+
+  it('shows pending consent without leaking the recipient email to a non-manager', async () => {
+    const participantGroup: ExpenseGroupView = {
+      ...group,
+      kind: 'one_off',
+      canManage: false,
+      role: 'member',
+      members: group.members.map((member) => member.id === 'anna' ? {
+        ...member,
+        displayName: 'Boðinn þátttakandi',
+        identityInvitation: {
+          id: 'invitation-1',
+          status: 'pending',
+          delivery: 'sent',
+        },
+      } : member),
+      balances: [
+        { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 5_000, isSelf: true },
+        { memberId: 'anna', displayName: 'Boðinn þátttakandi', currency: 'ISK', amountMinor: -5_000, isSelf: false },
+      ],
+      settlementTransfers: [],
+    }
+
+    render(await ExpenseItemDetail({ group: participantGroup, expense, view: 'settlement' }))
+
+    expect(screen.getByText(/Boðinn þátttakandi · boð bíður/)).toBeInTheDocument()
+    expect(screen.queryByText(/gretajons@gmail\.com/)).not.toBeInTheDocument()
   })
 
   it('keeps a confirmed partial payer outstanding and offers the recipient the remainder', async () => {
@@ -475,8 +742,15 @@ describe('ExpenseItemDetail flow context', () => {
     expect(screen.getByText('Greitt að hluta')).toBeInTheDocument()
     expect(screen.getByText(/Greitt 3\.600\.000\s*kr\./)).toBeInTheDocument()
     expect(screen.getByText(/Eftir að greiða 1\.400\.000\s*kr\./)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Útistandandi 2' })).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Merkja greiðslu móttekna' })).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'Útistandandi greiðslur 2' })).toBeInTheDocument()
+    const outstandingSection = screen.getByRole('region', { name: 'Útistandandi greiðslur 2' })
+    expect(within(outstandingSection).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      expect.stringContaining('Anna'),
+      expect.stringContaining('Stebbishj'),
+    ])
+    expect(screen.getByRole('button', { name: 'Aðgerðir fyrir Anna' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Aðgerðir fyrir Stebbishj' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Merkja greiðslu móttekna' })).not.toBeInTheDocument()
   })
 
   it('keeps editing available after settlement starts and explains a reported-payment conflict', async () => {
@@ -550,6 +824,32 @@ describe('ExpenseItemDetail flow context', () => {
     expect(screen.getByText('Saga hlutarins')).toBeInTheDocument()
     expect(screen.getByText('Heiti uppfært')).toBeInTheDocument()
     expect(screen.getByText('Sýna breytingar')).toBeInTheDocument()
+  })
+
+  it('renders the audited before/after guest name in the item timeline', async () => {
+    render(await ExpenseItemDetail({
+      group: {
+        ...group,
+        kind: 'one_off',
+        activity: [{
+          id: 'activity-rename',
+          sequence: 3,
+          eventType: 'expense_group_member_renamed',
+          entityType: 'expense',
+          entityId: expense.id,
+          summaryCode: 'expense_group_member_renamed',
+          actorDisplayName: 'Stefán',
+          createdAt: '2026-08-07T08:00:00Z',
+          expenseTitle: expense.title,
+          groupTitle: null,
+          memberRename: { before: 'Mamma og pabbi', after: 'Mamma' },
+        }],
+      },
+      expense,
+    }))
+
+    expect(screen.getByText('Nafni aðila breytt')).toBeInTheDocument()
+    expect(screen.getByText('Mamma og pabbi → Mamma')).toBeInTheDocument()
   })
 
   it('mounts the reusable context chat inside Saga hlutarins when enabled', async () => {

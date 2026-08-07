@@ -9,6 +9,8 @@ const {
   mockGuardExpenseAccess,
   mockMaybeSingle,
   mockRevalidatePath,
+  mockResolveExpenseMembers,
+  mockGetActorDisplayName,
   mockRpc,
   mockSendInvitation,
   mockUpsertSourceRelationship,
@@ -21,6 +23,8 @@ const {
   mockGuardExpenseAccess: vi.fn(),
   mockMaybeSingle: vi.fn(),
   mockRevalidatePath: vi.fn(),
+  mockResolveExpenseMembers: vi.fn(),
+  mockGetActorDisplayName: vi.fn(),
   mockRpc: vi.fn(),
   mockSendInvitation: vi.fn(),
   mockUpsertSourceRelationship: vi.fn(),
@@ -34,8 +38,8 @@ vi.mock('@/lib/expenses/guard', () => ({
   guardExpenseSession: mockGuardExpenseAccess,
 }))
 vi.mock('@/lib/expenses/participants.server', () => ({
-  getExpenseActorDisplayName: vi.fn(),
-  resolveExpenseMembers: vi.fn(),
+  getExpenseActorDisplayName: mockGetActorDisplayName,
+  resolveExpenseMembers: mockResolveExpenseMembers,
 }))
 vi.mock('@/lib/expenses/persistence.server', () => ({
   getActiveExpenseGroupMembersForActor: mockGetActiveMembers,
@@ -49,8 +53,10 @@ vi.mock('@/lib/relationships/upsert-source.server', () => ({
 }))
 
 import {
+  addExpenseShareCollaborator,
   cancelExpenseMemberInvitation,
   linkExpenseGuestMember,
+  renameExpenseGuestMember,
   resendExpenseMemberInvitation,
   respondExpenseMemberInvitation,
   updateExpense,
@@ -158,6 +164,138 @@ beforeEach(() => {
   })
   mockSendInvitation.mockResolvedValue('sent')
   mockUpsertSourceRelationship.mockResolvedValue(undefined)
+  mockGetActorDisplayName.mockResolvedValue('Stebbi')
+  mockResolveExpenseMembers.mockResolvedValue([
+    {
+      id: SELF_MEMBER_ID,
+      key: 'self',
+      userId: ACTOR_ID,
+      displayName: 'Stebbi',
+      role: 'owner',
+      status: 'active',
+    },
+    {
+      id: NEW_GUEST_MEMBER_ID,
+      key: 'new',
+      userId: null,
+      displayName: 'Mamma og pabbi',
+      role: 'member',
+      status: 'active',
+    },
+  ])
+})
+
+describe('shared expense share collaborators', () => {
+  it('adds identity access without sending any financial amount to the RPC', async () => {
+    setRpcResponses({
+      expense_add_share_collaborator: {
+        data: { group_id: GROUP_ID, expense_id: EXPENSE_ID, member_id: NEW_GUEST_MEMBER_ID },
+        error: null,
+      },
+    })
+
+    const result = await addExpenseShareCollaborator({
+      group_id: GROUP_ID,
+      expense_id: EXPENSE_ID,
+      share_member_id: GUEST_MEMBER_ID,
+      request_id: REQUEST_ID,
+      member: { type: 'guest', display_name: 'Mamma og pabbi' },
+    })
+
+    expect(result).toEqual({ ok: true, data: { memberId: NEW_GUEST_MEMBER_ID } })
+    expect(mockRpc).toHaveBeenCalledWith('expense_add_share_collaborator', {
+      p_actor_id: ACTOR_ID,
+      p_group_id: GROUP_ID,
+      p_expense_id: EXPENSE_ID,
+      p_share_member_id: GUEST_MEMBER_ID,
+      p_request_id: REQUEST_ID,
+      p_member: { id: NEW_GUEST_MEMBER_ID, display_name: 'Mamma og pabbi' },
+      p_recipient_email: null,
+      p_relationship_id: null,
+    })
+    expect(JSON.stringify(mockRpc.mock.calls)).not.toContain('amount_minor')
+  })
+
+  it('uses the existing scoped invitation delivery for an emailed collaborator', async () => {
+    mockResolveExpenseMembers.mockResolvedValueOnce([
+      {
+        id: SELF_MEMBER_ID,
+        key: 'self',
+        userId: ACTOR_ID,
+        displayName: 'Stebbi',
+        role: 'owner',
+        status: 'active',
+      },
+      {
+        id: NEW_GUEST_MEMBER_ID,
+        key: 'new',
+        userId: null,
+        displayName: 'Jón',
+        role: 'member',
+        status: 'active',
+        recipientEmail: 'jon@example.is',
+      },
+    ])
+    setRpcResponses({
+      expense_add_share_collaborator: {
+        data: {
+          group_id: GROUP_ID,
+          expense_id: EXPENSE_ID,
+          member_id: NEW_GUEST_MEMBER_ID,
+          invitation_id: INVITATION_ID,
+        },
+        error: null,
+      },
+      expense_reserve_scoped_member_invitation_send: {
+        data: [{
+          can_send: true,
+          reason: 'reserved',
+          attempt_number: 1,
+          recipient_email: 'jon@example.is',
+          email_template_version: 'v3',
+          context_title: 'Afmælisgjöf 🔴',
+          inviter_display_name: 'Stebbi',
+        }],
+        error: null,
+      },
+      expense_update_member_invitation_delivery: { data: 'ok', error: null },
+    })
+
+    const result = await addExpenseShareCollaborator({
+      group_id: GROUP_ID,
+      expense_id: EXPENSE_ID,
+      share_member_id: GUEST_MEMBER_ID,
+      request_id: REQUEST_ID,
+      member: {
+        type: 'email',
+        display_name: 'Jón',
+        recipient_email: 'jon@example.is',
+      },
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        memberId: NEW_GUEST_MEMBER_ID,
+        invitationId: INVITATION_ID,
+        delivery: 'sent',
+      },
+    })
+    expect(mockSendInvitation).toHaveBeenCalledWith(
+      'jon@example.is',
+      INVITATION_ID,
+      1,
+      {
+        templateVersion: 'v3',
+        contextTitle: 'Afmælisgjöf 🔴',
+        inviterDisplayName: 'Stebbi',
+      },
+    )
+    expect(mockRpc).toHaveBeenCalledWith('expense_add_share_collaborator', expect.objectContaining({
+      p_recipient_email: 'jon@example.is',
+      p_relationship_id: null,
+    }))
+  })
 })
 
 describe('UpdateExpenseSchema', () => {
@@ -347,6 +485,36 @@ describe('updateExpense RPC mapping', () => {
 })
 
 describe('expense guest-member invitations', () => {
+  it('renames a guest through the bounded idempotent RPC without financial input', async () => {
+    setRpcResponses({
+      expense_rename_guest_member: {
+        data: {
+          group_id: GROUP_ID,
+          expense_id: EXPENSE_ID,
+          member_id: GUEST_MEMBER_ID,
+          display_name: 'Mamma',
+        },
+        error: null,
+      },
+    })
+
+    await expect(renameExpenseGuestMember({
+      group_id: GROUP_ID,
+      member_id: GUEST_MEMBER_ID,
+      display_name: '  Mamma  ',
+      request_id: REQUEST_ID,
+    })).resolves.toEqual({ ok: true, data: { displayName: 'Mamma' } })
+
+    expect(mockRpc).toHaveBeenCalledWith('expense_rename_guest_member', {
+      p_actor_id: ACTOR_ID,
+      p_group_id: GROUP_ID,
+      p_member_id: GUEST_MEMBER_ID,
+      p_display_name: 'Mamma',
+      p_request_id: REQUEST_ID,
+    })
+    expect(JSON.stringify(mockRpc.mock.calls)).not.toContain('amount_minor')
+  })
+
   it('sends from the private reservation but returns only curated delivery state', async () => {
     setRpcResponses({
       expense_invite_existing_participant: {
@@ -499,6 +667,7 @@ describe('expense guest-member invitations', () => {
   it.each([
     ['updateExpense', updateExpense],
     ['linkExpenseGuestMember', linkExpenseGuestMember],
+    ['renameExpenseGuestMember', renameExpenseGuestMember],
     ['resendExpenseMemberInvitation', resendExpenseMemberInvitation],
     ['respondExpenseMemberInvitation', respondExpenseMemberInvitation],
     ['cancelExpenseMemberInvitation', cancelExpenseMemberInvitation],

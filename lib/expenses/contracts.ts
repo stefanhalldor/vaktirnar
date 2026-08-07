@@ -51,7 +51,17 @@ export interface ExpenseMemberView {
     id: string
     status: ExpenseMemberInvitationStatus
     delivery: 'not_sent' | 'reserved' | 'sent' | 'failed'
+    /** Manager-only pending recipient label. Never populated for other viewers. */
+    recipientLabel?: string
   } | null
+}
+
+export interface ExpenseShareCollaboratorView {
+  id: string
+  shareMemberId: string
+  memberId: string
+  status: 'active' | 'removed'
+  createdAt: string
 }
 
 export interface ExpensePaymentView {
@@ -122,6 +132,8 @@ export interface ExpenseItemView {
   createdAt: string
   payments: ExpensePaymentView[]
   shares: ExpenseShareView[]
+  /** Additive identity actors. Amounts remain exclusively on `shares`. */
+  shareCollaborators?: ExpenseShareCollaboratorView[]
   revisions: ExpenseRevisionView[]
 }
 
@@ -189,6 +201,10 @@ export interface ExpenseActivityView {
   createdAt: string
   expenseTitle: string | null
   groupTitle: string | null
+  memberRename?: {
+    before: string
+    after: string
+  }
 }
 
 export interface ExpenseGroupView {
@@ -211,6 +227,10 @@ export interface ExpenseGroupView {
   balances: ExpenseBalanceView[]
   settlementTransfers: ExpenseSettlementTransferView[]
   settlementRequiresReview: boolean
+  /** False while the additive SQL migration is not installed. */
+  shareCollaborationReady?: boolean
+  /** False while the additive guest-rename SQL migration is not installed. */
+  guestMemberRenameReady?: boolean
   repayments: ExpenseRepaymentView[]
   activity: ExpenseActivityView[]
 }

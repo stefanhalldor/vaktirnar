@@ -161,6 +161,23 @@ interface MemberInvitationRow {
   member_id: string
   status: 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired'
   attempt_status: 'reserved' | 'sent' | 'failed' | null
+  recipient_email_canonical: string
+}
+
+interface ShareCollaboratorRow {
+  id: string
+  group_id: string
+  expense_id: string
+  share_member_id: string
+  collaborator_member_id: string
+  status: 'active' | 'removed'
+  created_at: string
+}
+
+interface MemberNameRevisionRow {
+  activity_id: string
+  old_display_name: string
+  new_display_name: string
 }
 
 const GROUP_SELECT = 'id, kind, name, description, emoji, default_currency, default_include_creator, status, financial_version, created_at'
@@ -284,6 +301,15 @@ function throwOnError(error: unknown, operation: string): void {
   throw new Error('expense_load_failed')
 }
 
+function isMissingOptionalExpenseRelation(error: unknown, relation: string): boolean {
+  if (!error || typeof error !== 'object') return false
+  const code = 'code' in error ? String(error.code) : ''
+  const message = 'message' in error ? String(error.message) : ''
+  return code === '42P01'
+    || code === 'PGRST205'
+    || message.includes(relation) && message.includes('does not exist')
+}
+
 async function loadGroupRows(groupId: string): Promise<{
   group: GroupRow
   members: MemberRow[]
@@ -295,6 +321,10 @@ async function loadGroupRows(groupId: string): Promise<{
   allocations: AllocationRow[]
   activity: ActivityRow[]
   memberInvitations: MemberInvitationRow[]
+  shareCollaborators: ShareCollaboratorRow[]
+  shareCollaborationReady: boolean
+  memberNameRevisions: MemberNameRevisionRow[]
+  guestMemberRenameReady: boolean
 }> {
   const admin = getAdmin()
   const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult] = await Promise.all([
@@ -303,7 +333,7 @@ async function loadGroupRows(groupId: string): Promise<{
     admin.from('expenses').select(EXPENSE_SELECT).eq('group_id', groupId).order('incurred_on', { ascending: false }).order('created_at', { ascending: false }),
     admin.from('expense_repayments').select('id, group_id, from_member_id, to_member_id, amount_minor, currency, occurred_on, note, status, reported_by, payment_preference_snapshot, created_at').eq('group_id', groupId).order('created_at', { ascending: false }),
     admin.from('expense_activity').select('id, sequence_no, event_type, entity_type, entity_id, summary_code, actor_display_name, expense_title, group_title, created_at').eq('group_id', groupId).order('sequence_no', { ascending: false }).limit(50),
-    admin.from('expense_member_invitations').select('id, group_id, member_id, status, attempt_status').eq('group_id', groupId).eq('status', 'pending').gt('expires_at', new Date().toISOString()),
+    admin.from('expense_member_invitations').select('id, group_id, member_id, status, attempt_status, recipient_email_canonical').eq('group_id', groupId).eq('status', 'pending').gt('expires_at', new Date().toISOString()),
   ])
   throwOnError(groupResult.error, 'group query')
   throwOnError(membersResult.error, 'member query')
@@ -318,7 +348,14 @@ async function loadGroupRows(groupId: string): Promise<{
   const expenseIds = expenses.map((row) => row.id)
   const repaymentIds = repayments.map((row) => row.id)
   const empty = { data: [] as unknown[], error: null }
-  const [paymentsResult, sharesResult, obligationsResult, allocationsResult] = await Promise.all([
+  const [
+    paymentsResult,
+    sharesResult,
+    obligationsResult,
+    allocationsResult,
+    shareCollaboratorsResult,
+    memberNameRevisionsResult,
+  ] = await Promise.all([
     expenseIds.length > 0
       ? admin.from('expense_payments').select('expense_id, member_id, amount_minor').in('expense_id', expenseIds)
       : Promise.resolve(empty),
@@ -329,11 +366,32 @@ async function loadGroupRows(groupId: string): Promise<{
     repaymentIds.length > 0
       ? admin.from('expense_repayment_allocations').select('repayment_id, obligation_id, amount_minor').in('repayment_id', repaymentIds)
       : Promise.resolve(empty),
+    admin.from('expense_share_collaborators')
+      .select('id, group_id, expense_id, share_member_id, collaborator_member_id, status, created_at')
+      .eq('group_id', groupId)
+      .order('created_at', { ascending: true }),
+    admin.from('expense_member_name_revisions')
+      .select('activity_id, old_display_name, new_display_name')
+      .eq('group_id', groupId)
+      .order('created_at', { ascending: false })
+      .limit(50),
   ])
   throwOnError(paymentsResult.error, 'payment query')
   throwOnError(sharesResult.error, 'share query')
   throwOnError(obligationsResult.error, 'obligation query')
   throwOnError(allocationsResult.error, 'repayment allocation query')
+  if (shareCollaboratorsResult.error && !isMissingOptionalExpenseRelation(
+    shareCollaboratorsResult.error,
+    'expense_share_collaborators',
+  )) {
+    throwOnError(shareCollaboratorsResult.error, 'share collaborator query')
+  }
+  if (memberNameRevisionsResult.error && !isMissingOptionalExpenseRelation(
+    memberNameRevisionsResult.error,
+    'expense_member_name_revisions',
+  )) {
+    throwOnError(memberNameRevisionsResult.error, 'member name revision query')
+  }
 
   return {
     group: groupResult.data as GroupRow,
@@ -346,6 +404,14 @@ async function loadGroupRows(groupId: string): Promise<{
     allocations: (allocationsResult.data ?? []) as AllocationRow[],
     activity: (activityResult.data ?? []) as ActivityRow[],
     memberInvitations: (memberInvitationsResult.data ?? []) as MemberInvitationRow[],
+    shareCollaborators: shareCollaboratorsResult.error
+      ? []
+      : (shareCollaboratorsResult.data ?? []) as ShareCollaboratorRow[],
+    shareCollaborationReady: !shareCollaboratorsResult.error,
+    memberNameRevisions: memberNameRevisionsResult.error
+      ? []
+      : (memberNameRevisionsResult.data ?? []) as MemberNameRevisionRow[],
+    guestMemberRenameReady: !memberNameRevisionsResult.error,
   }
 }
 
@@ -359,13 +425,39 @@ function buildGroupView(
   const canManage = actorMember.role === 'owner' || actorMember.role === 'admin'
   const membersById = new Map(rows.members.map((member) => [member.id, member]))
   const memberName = (id: string) => membersById.get(id)?.display_name ?? '—'
+  const shareKeys = new Set(rows.shares.map((share) => `${share.expense_id}:${share.member_id}`))
+  const activeShareCollaborators = rows.shareCollaborators.filter((collaborator) => {
+    if (collaborator.status !== 'active') return false
+    if (!membersById.has(collaborator.collaborator_member_id)
+      || !shareKeys.has(`${collaborator.expense_id}:${collaborator.share_member_id}`)) {
+      throw new Error('expense_share_collaboration_invalid')
+    }
+    return true
+  })
+  const actorCanonicalMemberIds = new Set(activeShareCollaborators.flatMap((collaborator) => (
+    membersById.get(collaborator.collaborator_member_id)?.user_id === actorUserId
+      ? [collaborator.share_member_id]
+      : []
+  )))
+  const viewerActsForMember = (memberId: string): boolean => {
+    const member = membersById.get(memberId)
+    return Boolean(member && canActAsExpenseMember({
+      actorUserId,
+      memberStatus: member.status,
+      memberUserId: member.user_id,
+    })) || actorCanonicalMemberIds.has(memberId)
+  }
 
   const invitationsByMember = new Map(rows.memberInvitations.map((invitation) => [
     invitation.member_id,
     invitation,
   ]))
+  const memberNameRevisionsByActivity = new Map(rows.memberNameRevisions.map((revision) => [
+    revision.activity_id,
+    revision,
+  ]))
   const members: ExpenseMemberView[] = rows.members.map((member) => {
-    const invitation = canManage ? invitationsByMember.get(member.id) : undefined
+    const invitation = invitationsByMember.get(member.id)
     return {
       id: member.id,
       displayName: member.display_name,
@@ -377,6 +469,7 @@ function buildGroupView(
         id: invitation.id,
         status: invitation.status,
         delivery: invitation.attempt_status ?? 'not_sent',
+        ...(canManage ? { recipientLabel: invitation.recipient_email_canonical } : {}),
       } : null,
     }
   })
@@ -428,7 +521,7 @@ function buildGroupView(
     displayName: memberName(balance.partyId),
     currency: balance.currency,
     amountMinor: balance.amountMinor,
-    isSelf: balance.partyId === actorMember.id,
+    isSelf: balance.partyId === actorMember.id || actorCanonicalMemberIds.has(balance.partyId),
   }))
   const reportedReservations = rows.repayments
     .filter((repayment) => repayment.status === 'reported')
@@ -444,21 +537,13 @@ function buildGroupView(
   const transfers = simplifySettlement(availableBalances).map((transfer) => {
     const from = membersById.get(transfer.fromPartyId)
     const to = membersById.get(transfer.toPartyId)
-    const viewerIsFrom = from ? canActAsExpenseMember({
-      actorUserId,
-      memberStatus: from.status,
-      memberUserId: from.user_id,
-    }) : false
+    const viewerIsFrom = from ? viewerActsForMember(from.id) : false
     const managedDebtor = canManageExpenseMemberOnBehalf({
       canManage,
       memberStatus: from?.status,
       memberUserId: from?.user_id,
     })
-    const viewerIsTo = to ? canActAsExpenseMember({
-      actorUserId,
-      memberStatus: to.status,
-      memberUserId: to.user_id,
-    }) : false
+    const viewerIsTo = to ? viewerActsForMember(to.id) : false
     const managedCreditor = canManageExpenseMemberOnBehalf({
       canManage,
       memberStatus: to?.status,
@@ -507,6 +592,15 @@ function buildGroupView(
         displayName: memberName(share.member_id),
         amountMinor: safeMinor(share.amount_minor),
       })),
+    shareCollaborators: rows.shareCollaborators
+      .filter((collaborator) => collaborator.expense_id === expense.id)
+      .map((collaborator) => ({
+        id: collaborator.id,
+        shareMemberId: collaborator.share_member_id,
+        memberId: collaborator.collaborator_member_id,
+        status: collaborator.status,
+        createdAt: collaborator.created_at,
+      })),
     revisions: [],
   }))
 
@@ -514,16 +608,8 @@ function buildGroupView(
     const from = membersById.get(repayment.from_member_id)
     const to = membersById.get(repayment.to_member_id)
     const isReported = repayment.status === 'reported'
-    const viewerIsFrom = from ? canActAsExpenseMember({
-      actorUserId,
-      memberStatus: from.status,
-      memberUserId: from.user_id,
-    }) : false
-    const viewerIsTo = to ? canActAsExpenseMember({
-      actorUserId,
-      memberStatus: to.status,
-      memberUserId: to.user_id,
-    }) : false
+    const viewerIsFrom = from ? viewerActsForMember(from.id) : false
+    const viewerIsTo = to ? viewerActsForMember(to.id) : false
     const managedCreditor = canManageExpenseMemberOnBehalf({
       canManage,
       memberStatus: to?.status,
@@ -583,6 +669,15 @@ function buildGroupView(
     createdAt: row.created_at,
     expenseTitle: row.expense_title,
     groupTitle: row.group_title,
+    ...(() => {
+      const rename = memberNameRevisionsByActivity.get(row.id)
+      return rename ? {
+        memberRename: {
+          before: rename.old_display_name,
+          after: rename.new_display_name,
+        },
+      } : {}
+    })(),
   }))
 
   return {
@@ -610,6 +705,8 @@ function buildGroupView(
     balances,
     settlementTransfers: transfers,
     settlementRequiresReview,
+    shareCollaborationReady: rows.shareCollaborationReady,
+    guestMemberRenameReady: rows.guestMemberRenameReady,
     repayments: repaymentViews,
     activity,
   }

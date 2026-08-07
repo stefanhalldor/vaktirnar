@@ -1,5 +1,7 @@
 'use client'
 
+import { TeskeidActionButton } from './TeskeidActionButton'
+
 type InvitationDecisionButtonsProps = {
   acceptLabel: string
   declineLabel: string
@@ -26,22 +28,24 @@ export function InvitationDecisionButtons({
         </p>
       ) : null}
       <div className="flex gap-3">
-        <button
+        <TeskeidActionButton
           type="button"
+          variant="secondary"
           onClick={onDecline}
           disabled={isPending}
-          className="min-h-11 flex-1 rounded-xl border border-border bg-card px-3 text-sm text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex-1"
         >
           {declineLabel}
-        </button>
-        <button
+        </TeskeidActionButton>
+        <TeskeidActionButton
           type="button"
+          variant="primary"
           onClick={onAccept}
           disabled={isPending}
-          className="min-h-11 flex-1 rounded-xl bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex-1"
         >
           {acceptLabel}
-        </button>
+        </TeskeidActionButton>
       </div>
     </div>
   )

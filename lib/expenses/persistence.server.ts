@@ -17,6 +17,14 @@ interface MemberRow {
   status: 'active' | 'removed'
 }
 
+function missingShareCollaboratorRelation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const code = 'code' in error ? String(error.code) : ''
+  const message = 'message' in error ? String(error.message) : ''
+  return code === '42P01' || code === 'PGRST205'
+    || (message.includes('expense_share_collaborators') && message.includes('does not exist'))
+}
+
 export async function getActiveExpenseGroupMembersForActor(
   actorUserId: string,
   groupId: string,
@@ -95,9 +103,23 @@ export async function getExpenseEditMembersForActor(
     ...((paymentResult.data ?? []) as Array<{ member_id: string }>).map((row) => row.member_id),
     ...((shareResult.data ?? []) as Array<{ member_id: string }>).map((row) => row.member_id),
   ])
+  const collaboratorResult = await admin
+    .from('expense_share_collaborators')
+    .select('collaborator_member_id')
+    .eq('expense_id', expenseId)
+    .eq('status', 'active')
+  if (collaboratorResult.error && !missingShareCollaboratorRelation(collaboratorResult.error)) {
+    throw new Error('expense_member_lookup_failed')
+  }
+  const collaboratorIds = new Set(((collaboratorResult.data ?? []) as Array<{
+    collaborator_member_id: string
+  }>).map((row) => row.collaborator_member_id))
 
   return ((memberResult.data ?? []) as MemberRow[])
-    .filter((row) => row.status === 'active' || referencedIds.has(row.id))
+    .filter((row) => (
+      (row.status === 'active' || referencedIds.has(row.id))
+      && !collaboratorIds.has(row.id)
+    ))
     .map((row) => ({
       id: row.id,
       userId: row.user_id,

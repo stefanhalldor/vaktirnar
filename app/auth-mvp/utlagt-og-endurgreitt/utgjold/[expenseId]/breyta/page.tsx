@@ -53,6 +53,12 @@ export default async function EditExpensePage({
     ...expense.shares.map((share) => share.memberId),
   ])
   const sharedMemberIds = new Set(expense.shares.map((share) => share.memberId))
+  // Shared-share collaborators are identity actors, not additional financial
+  // participants. Keep them out of the existing allocation editor so an edit
+  // can never duplicate their canonical share.
+  const collaboratorMemberIds = new Set((expense.shareCollaborators ?? [])
+    .filter((collaborator) => collaborator.status === 'active')
+    .map((collaborator) => collaborator.memberId))
   let participantOptions: ExpenseParticipantOption[] = []
   let participantOptionsError = false
   try {
@@ -79,7 +85,10 @@ export default async function EditExpensePage({
         draft={safeDraft}
         draftBaseHref={`${expenseDetailHref(expense.id)}/breyta`}
         initialMembers={group.members
-          .filter((member) => member.status === 'active' || referencedMemberIds.has(member.id))
+          .filter((member) => (
+            (member.status === 'active' || referencedMemberIds.has(member.id))
+            && !collaboratorMemberIds.has(member.id)
+          ))
           .map((member) => ({
             key: member.id,
             label: member.displayName,

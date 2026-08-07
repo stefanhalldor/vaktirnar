@@ -12,10 +12,12 @@ export function ExpenseRepaymentStatusLines({
   status,
   currency,
   remainingAmountMinor,
+  showReported = true,
 }: {
   status: ExpenseMemberRepaymentStatus | undefined
   currency?: string
   remainingAmountMinor?: number
+  showReported?: boolean
 }) {
   const t = useExpenseTranslations()
   const locale = useLocale()
@@ -24,7 +26,7 @@ export function ExpenseRepaymentStatusLines({
 
   return (
     <>
-      {hasReported && status?.latestReportedAt ? (
+      {showReported && hasReported && status?.latestReportedAt ? (
         <span className="flex items-start gap-1.5 text-xs leading-5 text-amber-800">
           <Clock3 aria-hidden size={15} className="mt-0.5 shrink-0" />
           <span>{t(currency ? 'repayment.reportedAmountAt' : 'repayment.reportedAt', {

@@ -19,6 +19,7 @@ import type {
 } from './contracts'
 import {
   AddExpenseGroupMemberSchema,
+  AddExpenseShareCollaboratorSchema,
   CancelExpenseSchema,
   CancelExpenseMemberInvitationSchema,
   CreateExpenseGroupSchema,
@@ -28,6 +29,7 @@ import {
   LinkExpenseGuestMemberSchema,
   RemoveExpenseGroupMemberSchema,
   RecordExpenseRepaymentReceivedSchema,
+  RenameExpenseGuestMemberSchema,
   ReportExpenseRepaymentSchema,
   ResendExpenseMemberInvitationSchema,
   SaveExpensePaymentPreferenceSchema,
@@ -651,6 +653,33 @@ export async function linkExpenseGuestMember(
   }
 }
 
+export async function renameExpenseGuestMember(
+  input: unknown,
+): Promise<ExpenseActionResult<{ displayName: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = RenameExpenseGuestMemberSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const { data, error } = await getAdmin().rpc('expense_rename_guest_member', {
+      p_actor_id: user.id,
+      p_group_id: parsed.data.group_id,
+      p_member_id: parsed.data.member_id,
+      p_display_name: parsed.data.display_name,
+      p_request_id: parsed.data.request_id,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const displayName = String(result.display_name ?? '')
+    const expenseId = String(result.expense_id ?? '')
+    if (!displayName || !expenseId) throw new Error('expense_save_failed')
+    revalidateExpensePaths(parsed.data.group_id, expenseId)
+    return { ok: true, data: { displayName } }
+  } catch (error) {
+    console.error('[expenses] rename guest member failed')
+    return actionError(error)
+  }
+}
+
 export async function resendExpenseMemberInvitation(
   input: unknown,
 ): Promise<ExpenseActionResult<{ delivery: ExpenseInvitationDelivery }>> {
@@ -821,6 +850,73 @@ export async function addExpenseGroupMember(
     }
   } catch (error) {
     console.error('[expenses] add member failed')
+    return actionError(error)
+  }
+}
+
+export async function addExpenseShareCollaborator(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  memberId: string
+  invitationId?: string
+  delivery?: ExpenseInvitationDelivery
+}>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = AddExpenseShareCollaboratorSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const actorDisplayName = await getExpenseActorDisplayName(user.id)
+    const members = await resolveExpenseMembers({
+      actorUserId: user.id,
+      actorDisplayName,
+      members: [
+        { type: 'self', key: 'self' },
+        parsed.data.member.type === 'guest'
+          ? { type: 'guest', key: 'new', display_name: parsed.data.member.display_name }
+          : parsed.data.member.type === 'email'
+            ? {
+              type: 'email',
+              key: 'new',
+              display_name: parsed.data.member.display_name,
+              recipient_email: parsed.data.member.recipient_email,
+            }
+            : { type: 'relationship', key: 'new', relationship_id: parsed.data.member.relationship_id },
+      ],
+    })
+    const member = members.find((candidate) => candidate.key === 'new')
+    if (!member) throw new Error('expense_member_invalid')
+    const { data, error } = await getAdmin().rpc('expense_add_share_collaborator', {
+      p_actor_id: user.id,
+      p_group_id: parsed.data.group_id,
+      p_expense_id: parsed.data.expense_id,
+      p_share_member_id: parsed.data.share_member_id,
+      p_request_id: parsed.data.request_id,
+      p_member: {
+        id: member.id,
+        display_name: member.displayName,
+      },
+      p_recipient_email: member.recipientEmail ?? null,
+      p_relationship_id: member.relationshipId ?? null,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const invitationId = typeof result.invitation_id === 'string'
+      ? result.invitation_id
+      : undefined
+    const delivery = invitationId
+      ? await deliverExpenseMemberInvitation(user.id, invitationId)
+      : undefined
+    revalidateExpensePaths(parsed.data.group_id, parsed.data.expense_id)
+    return {
+      ok: true,
+      data: {
+        memberId: String(result.member_id ?? member.id),
+        ...(invitationId ? { invitationId } : {}),
+        ...(delivery ? { delivery } : {}),
+      },
+    }
+  } catch (error) {
+    console.error('[expenses] add share collaborator failed')
     return actionError(error)
   }
 }

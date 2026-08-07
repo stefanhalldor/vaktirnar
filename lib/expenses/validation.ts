@@ -197,6 +197,22 @@ export const AddExpenseGroupMemberSchema = z.object({
   ]),
 })
 
+export const AddExpenseShareCollaboratorSchema = z.object({
+  group_id: uuid,
+  expense_id: uuid,
+  share_member_id: uuid,
+  request_id: requestId,
+  member: z.union([
+    z.object({ type: z.literal('guest'), display_name: z.string().trim().min(1).max(120) }),
+    z.object({
+      type: z.literal('email'),
+      display_name: z.string().trim().min(1).max(120),
+      recipient_email: z.string().trim().email().max(320),
+    }),
+    z.object({ type: z.literal('relationship'), relationship_id: uuid }),
+  ]),
+})
+
 export const RemoveExpenseGroupMemberSchema = z.object({
   group_id: uuid,
   member_id: uuid,
@@ -223,6 +239,13 @@ export const LinkExpenseGuestMemberSchema = z.object({
   group_id: uuid,
   member_id: uuid,
   recipient_email: z.string().trim().email().max(320),
+  request_id: requestId,
+})
+
+export const RenameExpenseGuestMemberSchema = z.object({
+  group_id: uuid,
+  member_id: uuid,
+  display_name: z.string().trim().min(1).max(120),
   request_id: requestId,
 })
 

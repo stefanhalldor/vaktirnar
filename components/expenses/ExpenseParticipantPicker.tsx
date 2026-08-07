@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Plus, X } from 'lucide-react'
+import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type { RelationshipCircleOption } from '@/lib/relationships/types'
 import { useExpenseTranslations } from './i18n.client'
@@ -36,6 +37,8 @@ export function ExpenseParticipantPicker({
   circles = [],
   disabled = false,
   triggerLabel,
+  dialogTitle,
+  dialogDescription,
   onAddKnown,
   onAddManual,
   onSelectCircle,
@@ -46,6 +49,8 @@ export function ExpenseParticipantPicker({
   circles?: RelationshipCircleOption[]
   disabled?: boolean
   triggerLabel?: string
+  dialogTitle?: string
+  dialogDescription?: string
   onAddKnown: (option: ExpenseParticipantOption) => boolean
   onAddManual: (participant: ManualExpenseParticipant) => boolean
   onSelectCircle?: (circle: RelationshipCircleOption) => boolean
@@ -104,19 +109,21 @@ export function ExpenseParticipantPicker({
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { setOpen(next); if (!next) reset() }}>
       <Dialog.Trigger asChild>
-        <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={disabled}>
+        <TeskeidActionButton type="button" variant="secondary" className="w-full" disabled={disabled}>
           <Plus aria-hidden size={18} />
           {triggerLabel ?? t('expenseForm.addParticipant')}
-        </button>
+        </TeskeidActionButton>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />
         <Dialog.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-background p-5 shadow-xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(32rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-lg font-semibold">{t('expenseForm.addParticipant')}</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold">
+                {dialogTitle ?? t('expenseForm.addParticipant')}
+              </Dialog.Title>
               <Dialog.Description className="mt-1 text-sm leading-6 text-muted-foreground">
-                {t('expenseForm.addParticipantDescription')}
+                {dialogDescription ?? t('expenseForm.addParticipantDescription')}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>

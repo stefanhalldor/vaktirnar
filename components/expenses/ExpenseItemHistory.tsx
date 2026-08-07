@@ -106,6 +106,14 @@ export async function ExpenseItemHistory({ group, expense }: {
         content: (
           <div className="text-sm">
             <p>{title}</p>
+            {row.activity?.memberRename ? (
+              <p className="mt-0.5 break-words text-xs text-foreground">
+                {t('history.memberRenameChange', {
+                  before: row.activity.memberRename.before,
+                  after: row.activity.memberRename.after,
+                })}
+              </p>
+            ) : null}
             <p className="mt-0.5 text-xs text-muted-foreground">{actor} · {formatDateTime(row.createdAt, locale)}</p>
           </div>
         ),

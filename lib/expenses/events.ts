@@ -26,8 +26,12 @@ export type ExpenseRecentEventType =
 
 export type ExpenseActivityEventType =
   | ExpenseRecentEventType
+  | 'expense_group_member_renamed'
   | 'expense_payment_preference_saved'
   | 'expense_payment_preference_deactivated'
+  | 'expense_share_collaborator_added'
+  | 'expense_share_collaborator_linked'
+  | 'expense_share_collaborator_removed'
 
 export type ExpenseRecentEventEntityType =
   | 'expense'
