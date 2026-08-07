@@ -58,14 +58,26 @@ export async function updateRelationshipTag(
 
 export type UpdateDetailsResult =
   | { ok: true }
-  | { ok: false; error: 'not_found' | 'save_failed' }
+  | { ok: false; error: 'invalid_input' | 'not_found' | 'save_failed' }
+
+export type UpdateRelationshipDetailsInput =
+  | { field: 'privateDisplayName'; value: string }
+  | { field: 'note'; value: string }
 
 export async function updateRelationshipDetails(
   relationshipId: string,
-  { note, privateDisplayName }: { note: string; privateDisplayName: string },
+  input: UpdateRelationshipDetailsInput,
 ): Promise<UpdateDetailsResult> {
   const { user } = await guardTeskeidSession()
   await guardFeatureAccess(user.email!, 'tengsl')
+
+  if (
+    !input
+    || typeof input.value !== 'string'
+    || (input.field !== 'privateDisplayName' && input.field !== 'note')
+    || (input.field === 'privateDisplayName' && input.value.length > 120)
+    || (input.field === 'note' && input.value.length > 1000)
+  ) return { ok: false, error: 'invalid_input' }
 
   const admin = getAdmin()
 
@@ -79,12 +91,14 @@ export async function updateRelationshipDetails(
 
   if (!rel) return { ok: false, error: 'not_found' }
 
-  const noteVal = note.trim() || null
-  const nameVal = privateDisplayName.trim() || null
+  const value = input.value.trim() || null
+  const update = input.field === 'privateDisplayName'
+    ? { private_display_name: value }
+    : { note: value }
 
   const { error } = await admin
     .from('relationships')
-    .update({ note: noteVal, private_display_name: nameVal })
+    .update(update)
     .eq('id', relationshipId)
     .eq('owner_id', user.id)
 

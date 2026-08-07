@@ -35,7 +35,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 
 vi.mock('next/cache', () => ({ revalidatePath: mockRevalidatePath }))
 
-import { updateRelationshipTag } from '@/lib/relationships/tag-action'
+import { updateRelationshipDetails, updateRelationshipTag } from '@/lib/relationships/tag-action'
 // ALLOWED_TAGS is in lib/relationships/types.ts — not exported from 'use server' file
 
 import { getRelationshipDirectory, getRelationship, getRelationshipLoanActivity, getRelationshipRecipientOptions } from '@/lib/relationships/actions'
@@ -64,6 +64,15 @@ function makeTagsMutations(insertError: unknown = null) {
     })),
     insert: vi.fn(async () => ({ error: insertError })),
   }
+}
+
+function makeDetailsUpdate(update: ReturnType<typeof vi.fn>, error: unknown = null) {
+  update.mockImplementation(() => ({
+    eq: vi.fn(() => ({
+      eq: vi.fn(async () => ({ error })),
+    })),
+  }))
+  return { update }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -359,6 +368,84 @@ describe('getRelationshipDirectory — persisted only', () => {
     expect(result[0]).toMatchObject({ id: 'rel-1', tags: ['family'] })
     // No re-fetch needed: no upserts happened
     expect(callCount).toBeLessThanOrEqual(3)
+  })
+
+  it('returns persisted relationships in canonical Icelandic display-name order', async () => {
+    const rows = [
+      {
+        id: 'rel-thor', private_display_name: 'Þór', email_canonical: 'thor@example.com',
+        counterpart_user_id: null, created_at: '2026-06-03T00:00:00Z', relationship_tags: [],
+      },
+      {
+        id: 'rel-anna', private_display_name: 'Anna', email_canonical: 'anna@example.com',
+        counterpart_user_id: null, created_at: '2026-06-01T00:00:00Z', relationship_tags: [],
+      },
+      {
+        id: 'rel-arni', private_display_name: 'Árni', email_canonical: 'arni@example.com',
+        counterpart_user_id: null, created_at: '2026-06-02T00:00:00Z', relationship_tags: [],
+      },
+    ]
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return makePersistedSelect(rows)
+      if (callCount === 2) return makeDirectLoansSelect([])
+      return makeInSelect([])
+    })
+
+    const result = await getRelationshipDirectory(OWNER_ID, OWNER_EMAIL)
+
+    expect(result.map((item) => item.id)).toEqual(['rel-anna', 'rel-arni', 'rel-thor'])
+  })
+})
+
+describe('updateRelationshipDetails — independent private fields', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('updates only the private display name', async () => {
+    const update = vi.fn()
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      return callCount === 1 ? makeRelSelect(true) : makeDetailsUpdate(update)
+    })
+
+    const result = await updateRelationshipDetails('rel-id', {
+      field: 'privateDisplayName',
+      value: '  Mamma  ',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(update).toHaveBeenCalledWith({ private_display_name: 'Mamma' })
+    expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ note: expect.anything() }))
+  })
+
+  it('updates only the private note', async () => {
+    const update = vi.fn()
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      return callCount === 1 ? makeRelSelect(true) : makeDetailsUpdate(update)
+    })
+
+    const result = await updateRelationshipDetails('rel-id', {
+      field: 'note',
+      value: '  Hringja fyrir afmælið  ',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(update).toHaveBeenCalledWith({ note: 'Hringja fyrir afmælið' })
+    expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ private_display_name: expect.anything() }))
+  })
+
+  it('rejects overlong values before querying relationship data', async () => {
+    const result = await updateRelationshipDetails('rel-id', {
+      field: 'privateDisplayName',
+      value: 'x'.repeat(121),
+    })
+
+    expect(result).toEqual({ ok: false, error: 'invalid_input' })
+    expect(mockFrom).not.toHaveBeenCalled()
   })
 })
 
@@ -932,5 +1019,27 @@ describe('getRelationshipRecipientOptions — Gmail dedup', () => {
     const result = await getRelationshipRecipientOptions(OWNER_ID)
     expect(result).toHaveLength(1)
     expect(result[0].selfDisplayName).toBe('Alice Smith')
+  })
+
+  it('returns loan recipient options in the same canonical display-name order', async () => {
+    const rows = [
+      {
+        id: 'rel-thor', email_canonical: 'thor@example.com', counterpart_user_id: null,
+        private_display_name: 'Þór', note: null, created_at: '2026-06-03T00:00:00Z', relationship_tags: [],
+      },
+      {
+        id: 'rel-anna', email_canonical: 'anna@example.com', counterpart_user_id: null,
+        private_display_name: 'Anna', note: null, created_at: '2026-06-01T00:00:00Z', relationship_tags: [],
+      },
+      {
+        id: 'rel-arni', email_canonical: 'arni@example.com', counterpart_user_id: null,
+        private_display_name: 'Árni', note: null, created_at: '2026-06-02T00:00:00Z', relationship_tags: [],
+      },
+    ]
+    mockFrom.mockImplementation(() => makeRecipientOptionsSelect(rows))
+
+    const result = await getRelationshipRecipientOptions(OWNER_ID)
+
+    expect(result.map((option) => option.id)).toEqual(['rel-anna', 'rel-arni', 'rel-thor'])
   })
 })

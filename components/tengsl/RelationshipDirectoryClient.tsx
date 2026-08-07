@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl'
 import type { RelationshipListItem } from '@/lib/relationships/actions'
 import { setRelationshipLabelAssignmentV2 } from '@/lib/relationships/actions-v2'
 import type { RelationshipCircleSummary, RelationshipCustomLabel } from '@/lib/relationships/types'
+import { getRelationshipDisplayName } from '@/lib/relationships/display-and-sort'
 
 function requestId() {
   return crypto.randomUUID()
@@ -125,15 +126,21 @@ export function RelationshipDirectoryClient({
           {filtered.map((item) => {
             const itemLabels = labels.filter((label) => assignments[item.id]?.includes(label.id))
             const selected = selectedRelationshipIds.includes(item.id)
+            const displayName = getRelationshipDisplayName({
+              privateDisplayName: item.private_display_name,
+              counterpartDisplayName: item.counterpart_display_name,
+              email: item.email_canonical,
+              fallback: t('unknownContact'),
+            })
             return (
               <li key={item.id} className="flex min-h-14 items-start gap-2 py-2">
                 {labels.length > 0 ? <label className="flex min-h-11 shrink-0 items-center">
-                  <span className="sr-only">{t('selectRelationship', { name: item.private_display_name ?? item.counterpart_display_name ?? item.email_canonical ?? t('unknownContact') })}</span>
+                  <span className="sr-only">{t('selectRelationship', { name: displayName })}</span>
                   <input type="checkbox" checked={selected} onChange={() => toggleSelected(item.id)} className="size-5 accent-primary" />
                 </label> : null}
                 <Link href={`/stillingar/tengsl/${item.id}`} className="min-w-0 flex-1 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <p className="text-sm font-medium text-foreground">
-                    {item.private_display_name ?? item.counterpart_display_name ?? item.email_canonical ?? t('unknownContact')}
+                    {displayName}
                   </p>
                   {itemLabels.length > 0 ? (
                     <div className="mt-1 flex flex-wrap gap-1.5">

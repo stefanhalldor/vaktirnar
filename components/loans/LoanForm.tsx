@@ -7,6 +7,7 @@ import { LoanDateField } from './LoanDateField'
 import type { ActionResult } from '@/lib/loans/actions'
 import type { LoanItem } from '@/lib/loans/types'
 import type { RelationshipRecipientOption } from '@/lib/relationships/actions'
+import { getRelationshipDisplayName } from '@/lib/relationships/display-and-sort'
 
 interface Props {
   action: (input: unknown) => Promise<ActionResult>
@@ -15,7 +16,11 @@ interface Props {
 }
 
 function relationshipOptionName(option: RelationshipRecipientOption) {
-  return option.privateDisplayName ?? option.selfDisplayName ?? option.email
+  return getRelationshipDisplayName({
+    privateDisplayName: option.privateDisplayName,
+    counterpartDisplayName: option.selfDisplayName,
+    email: option.email,
+  })
 }
 
 function relationshipOptionShowsEmail(option: RelationshipRecipientOption) {

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { addLoanInvitation } from '@/lib/loans/actions'
 import type { RelationshipRecipientOption } from '@/lib/relationships/actions'
+import { getRelationshipDisplayName } from '@/lib/relationships/display-and-sort'
 
 interface Props {
   loanId: string
@@ -12,7 +13,11 @@ interface Props {
 }
 
 function relationshipOptionName(option: RelationshipRecipientOption) {
-  return option.privateDisplayName ?? option.selfDisplayName ?? option.email
+  return getRelationshipDisplayName({
+    privateDisplayName: option.privateDisplayName,
+    counterpartDisplayName: option.selfDisplayName,
+    email: option.email,
+  })
 }
 
 function relationshipOptionShowsEmail(option: RelationshipRecipientOption) {

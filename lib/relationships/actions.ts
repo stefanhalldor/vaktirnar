@@ -3,6 +3,7 @@ import 'server-only'
 import { getAdmin } from '@/lib/supabase/admin'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 import { upsertSourceRelationship } from '@/lib/relationships/upsert-source.server'
+import { getRelationshipDisplayName, sortRelationshipEntries } from '@/lib/relationships/display-and-sort'
 
 export type RelationshipListItem = {
   id: string
@@ -105,13 +106,23 @@ export async function getRelationships(ownerUserId: string): Promise<Relationshi
     }
   }
 
-  return rows.map((r) => ({
+  const items = rows.map((r) => ({
     id: r.id,
     private_display_name: r.private_display_name,
     email_canonical: r.email_canonical,
     counterpart_display_name: r.counterpart_user_id ? (displayNameMap.get(r.counterpart_user_id) ?? null) : null,
     created_at: r.created_at,
     tags: r.relationship_tags.map((t) => t.tag),
+  }))
+
+  return sortRelationshipEntries(items, (item) => ({
+    id: item.id,
+    displayName: getRelationshipDisplayName({
+      privateDisplayName: item.private_display_name,
+      counterpartDisplayName: item.counterpart_display_name,
+      email: item.email_canonical,
+    }),
+    email: item.email_canonical,
   }))
 }
 
@@ -480,13 +491,23 @@ export async function getRelationshipDirectory(
     }
   }
 
-  return finalRows.map((r) => ({
+  const items = finalRows.map((r) => ({
     id: r.id,
     private_display_name: r.private_display_name,
     email_canonical: r.email_canonical,
     counterpart_display_name: r.counterpart_user_id ? (displayNameMap.get(r.counterpart_user_id) ?? null) : null,
     created_at: r.created_at,
     tags: r.relationship_tags.map((t) => t.tag),
+  }))
+
+  return sortRelationshipEntries(items, (item) => ({
+    id: item.id,
+    displayName: getRelationshipDisplayName({
+      privateDisplayName: item.private_display_name,
+      counterpartDisplayName: item.counterpart_display_name,
+      email: item.email_canonical,
+    }),
+    email: item.email_canonical,
   }))
 }
 
@@ -817,7 +838,7 @@ export async function getRelationshipRecipientOptions(
     }
   }
 
-  return mergedRows.map((r) => ({
+  const options = mergedRows.map((r) => ({
     id: r.id,
     email: r.email_canonical,
     selfDisplayName: r.counterpart_user_id ? (profileMap.get(r.counterpart_user_id) ?? null) : null,
@@ -825,5 +846,15 @@ export async function getRelationshipRecipientOptions(
     note: r.note,
     tags: r.relationship_tags.map((t) => t.tag),
     customLabels: customLabelsByRelationship.get(r.id) ?? [],
+  }))
+
+  return sortRelationshipEntries(options, (option) => ({
+    id: option.id,
+    displayName: getRelationshipDisplayName({
+      privateDisplayName: option.privateDisplayName,
+      counterpartDisplayName: option.selfDisplayName,
+      email: option.email,
+    }),
+    email: option.email,
   }))
 }

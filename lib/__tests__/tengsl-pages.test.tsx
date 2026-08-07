@@ -26,15 +26,25 @@ vi.mock('@/lib/auth/guard', () => ({
   })),
 }))
 
-vi.mock('@/lib/loans/guard', () => ({
-  guardFeatureAccess: vi.fn(async () => undefined),
-  checkFeatureAccess: vi.fn(async () => false),
+const { mockCheckFeatureAccess } = vi.hoisted(() => ({
+  mockCheckFeatureAccess: vi.fn(),
 }))
 
-const { mockGetRelationship, mockGetRelationshipLoanActivity, mockGetRelationshipLabelState } = vi.hoisted(() => ({
+vi.mock('@/lib/loans/guard', () => ({
+  guardFeatureAccess: vi.fn(async () => undefined),
+  checkFeatureAccess: mockCheckFeatureAccess,
+}))
+
+const {
+  mockGetRelationship,
+  mockGetRelationshipLoanActivity,
+  mockGetRelationshipLabelState,
+  mockGetRelationshipExpenseContexts,
+} = vi.hoisted(() => ({
   mockGetRelationship: vi.fn(),
   mockGetRelationshipLoanActivity: vi.fn(),
   mockGetRelationshipLabelState: vi.fn(),
+  mockGetRelationshipExpenseContexts: vi.fn(),
 }))
 vi.mock('@/lib/relationships/actions', () => ({
   getRelationship: mockGetRelationship,
@@ -45,16 +55,20 @@ vi.mock('@/lib/relationships/repository-v2.server', () => ({
   getRelationshipLabelState: mockGetRelationshipLabelState,
 }))
 
+vi.mock('@/lib/expenses/relationship-contexts.server', () => ({
+  getRelationshipExpenseContexts: mockGetRelationshipExpenseContexts,
+}))
+
 vi.mock('@/components/tengsl/TagSelectForm', () => ({
   TagSelectForm: () => React.createElement('div', { 'data-testid': 'tag-select-form' }),
 }))
 
 vi.mock('@/components/tengsl/RelationshipDetailsForm', () => ({
-  RelationshipDetailsForm: () => React.createElement('div', { 'data-testid': 'details-form' }),
+  RelationshipDetailsForm: () => React.createElement('div', { 'data-testid': 'details-form' }, 'Einkaupplýsingar'),
 }))
 
 vi.mock('@/components/tengsl/RelationshipLabelsForm', () => ({
-  RelationshipLabelsForm: () => React.createElement('div', { 'data-testid': 'labels-form' }),
+  RelationshipLabelsForm: () => React.createElement('div', { 'data-testid': 'labels-form' }, 'Flokkun'),
 }))
 
 vi.mock('next-intl/server', () => ({
@@ -64,6 +78,11 @@ vi.mock('next-intl/server', () => ({
       title: 'Tengsl',
       backToList: '← Til baka',
       sourceLoans: 'Lánað og skilað',
+      sourceExpenses: 'Útlagt og endurgreitt',
+      sharedActivity: 'Sameiginleg virkni',
+      expenseGroup: 'Hópur',
+      expenseOneOff: 'Einskiptisfærsla',
+      openExpenses: 'Opna Útlagt og endurgreitt',
       openLoan: 'Opna lán',
       loanedPrefix: 'Lánað',
       loanReturned: 'Skilað',
@@ -114,10 +133,74 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockGetRelationship.mockResolvedValue(BASE_RELATIONSHIP)
   mockGetRelationshipLoanActivity.mockResolvedValue([])
+  mockGetRelationshipExpenseContexts.mockResolvedValue([])
+  mockCheckFeatureAccess.mockResolvedValue(false)
   mockGetRelationshipLabelState.mockResolvedValue({
     available: true,
     labels: [],
     relationshipLabelIds: {},
+  })
+})
+
+describe('TengslDetailPage — expense contexts', () => {
+  it('shows owner-visible shared expense contexts when both feature access and counterpart identity exist', async () => {
+    mockCheckFeatureAccess.mockResolvedValue(true)
+    mockGetRelationship.mockResolvedValue({
+      ...BASE_RELATIONSHIP,
+      counterpart_user_id: 'counterpart-id',
+    })
+    mockGetRelationshipExpenseContexts.mockResolvedValue([
+      { id: 'group-id', kind: 'group', name: 'Sumarferð', emoji: '🚗' },
+    ])
+
+    const { container } = render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+
+    expect(screen.getByText('Útlagt og endurgreitt')).toBeDefined()
+    expect(screen.getByText('Sumarferð')).toBeDefined()
+    expect(container.querySelector('a[href="/auth-mvp/utlagt-og-endurgreitt/hopar/group-id"]')).not.toBeNull()
+    expect(mockGetRelationshipExpenseContexts).toHaveBeenCalledWith('owner-id', 'counterpart-id')
+  })
+
+  it('does not query or render expense contexts without expense feature access', async () => {
+    mockGetRelationship.mockResolvedValue({
+      ...BASE_RELATIONSHIP,
+      counterpart_user_id: 'counterpart-id',
+    })
+
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+
+    expect(mockGetRelationshipExpenseContexts).not.toHaveBeenCalled()
+    expect(screen.queryByText('Útlagt og endurgreitt')).toBeNull()
+  })
+
+  it('does not resolve an email-only relationship into expense groups', async () => {
+    mockCheckFeatureAccess.mockResolvedValue(true)
+
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+
+    expect(mockGetRelationshipExpenseContexts).not.toHaveBeenCalled()
+    expect(screen.queryByText('Útlagt og endurgreitt')).toBeNull()
+  })
+
+  it('orders identity, shared activity, private details, and classification like the approved screenshots', async () => {
+    mockCheckFeatureAccess.mockResolvedValue(true)
+    mockGetRelationship.mockResolvedValue({
+      ...BASE_RELATIONSHIP,
+      counterpart_user_id: 'counterpart-id',
+    })
+    mockGetRelationshipExpenseContexts.mockResolvedValue([
+      { id: 'group-id', kind: 'one_off', name: 'Martine þrítug', emoji: null },
+    ])
+
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+
+    const identity = screen.getByRole('heading', { name: 'Jón' })
+    const sharedActivity = screen.getByRole('heading', { name: 'Sameiginleg virkni' })
+    const privateDetails = screen.getByTestId('details-form')
+    const classification = screen.getByTestId('labels-form')
+    expect(identity.compareDocumentPosition(sharedActivity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(sharedActivity.compareDocumentPosition(privateDetails) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(privateDetails.compareDocumentPosition(classification) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 

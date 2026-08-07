@@ -4,6 +4,7 @@ import { getAdmin } from '@/lib/supabase/admin'
 import type { ExpenseParticipantOption } from './contracts'
 import type { ExpenseNewMemberInput } from './validation'
 import { getRelationshipLabelState } from '@/lib/relationships/repository-v2.server'
+import { sortRelationshipEntries } from '@/lib/relationships/display-and-sort'
 
 interface RelationshipRow {
   id: string
@@ -67,7 +68,7 @@ export async function getExpenseParticipantOptions(
     rows.flatMap((row) => row.counterpart_user_id ? [row.counterpart_user_id] : []),
   )
 
-  return rows.flatMap((row) => {
+  const options = rows.flatMap((row) => {
     if (!row.counterpart_user_id) return []
     const sharedLabel = profileNames.get(row.counterpart_user_id) ?? 'Teskeiðarnotandi'
     return [{
@@ -79,6 +80,11 @@ export async function getExpenseParticipantOptions(
         .map((label) => ({ id: label.id, name: label.name })),
     }]
   })
+
+  return sortRelationshipEntries(options, (option) => ({
+    id: option.relationshipId,
+    displayName: option.pickerLabel,
+  }))
 }
 
 export async function resolveExpenseMembers(input: {

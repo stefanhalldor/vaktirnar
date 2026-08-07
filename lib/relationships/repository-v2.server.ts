@@ -2,6 +2,7 @@ import 'server-only'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 import { getAdmin } from '@/lib/supabase/admin'
 import { getRelationshipRecipientOptions } from './actions'
+import { getRelationshipDisplayName } from './display-and-sort'
 import type {
   RelationshipCircleDetail,
   RelationshipCircleInvitationView,
@@ -257,6 +258,10 @@ export async function getRelationshipCircleInviteOptions(ownerUserId: string) {
   const options = await getRelationshipRecipientOptions(ownerUserId)
   return options.map((option) => ({
     relationshipId: option.id,
-    label: option.privateDisplayName || option.selfDisplayName || option.email,
+    label: getRelationshipDisplayName({
+      privateDisplayName: option.privateDisplayName,
+      counterpartDisplayName: option.selfDisplayName,
+      email: option.email,
+    }),
   }))
 }
