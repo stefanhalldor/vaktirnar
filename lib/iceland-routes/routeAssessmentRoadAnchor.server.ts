@@ -70,7 +70,19 @@ export type FindRouteAssessmentRoadAnchorsOptions = Readonly<{
   deadlineAtMs?: number
   alternativeDeadlineAtMs?: number
   profile?: IcelandRoadRoutingProfile
+  /** Segment exclusions applied to the primary and every derived alternative. */
+  excludedSegmentIds?: ReadonlySet<string>
+  /**
+   * Geometry-aware policy applied to every edge portion actually traversed.
+   * Projected endpoint slices are checked independently from their source edge,
+   * so a caller can forbid entering an area without discarding the whole road.
+   */
+  edgeAdmissibility?: RouteAssessmentRoadEdgeAdmissibility
 }>
+
+export type RouteAssessmentRoadEdgeAdmissibility = (
+  edge: IcelandRoadGraphEdge,
+) => boolean
 
 export type RouteAssessmentRoadAlternative = Readonly<{
   connectedRoadEdges: readonly IcelandRoadGraphEdge[]
@@ -119,6 +131,11 @@ type SelectedRoute = Readonly<{
   origin: AnchorCandidate
   destination: AnchorCandidate
   connectedRoadEdges: readonly IcelandRoadGraphEdge[]
+}>
+
+type RouteSearchConstraints = Readonly<{
+  excludedSegmentIds?: ReadonlySet<string>
+  edgeAdmissibility?: RouteAssessmentRoadEdgeAdmissibility
 }>
 
 type RouteSearchResult =
@@ -559,9 +576,22 @@ export function restoreRouteAssessmentEdgeSlice(
   return restored?.id === claimedEdgeId ? restored : null
 }
 
+function routeSearchEdgeAllowed(
+  edge: IcelandRoadGraphEdge,
+  profile: IcelandRoadRoutingProfile,
+  constraints: RouteSearchConstraints,
+): boolean {
+  return isIcelandRoadGraphEdgeAllowed(
+    edge,
+    profile,
+    constraints.excludedSegmentIds,
+  ) && (constraints.edgeAdmissibility?.(edge) ?? true)
+}
+
 function originStart(
   candidate: AnchorCandidate,
   profile: IcelandRoadRoutingProfile,
+  constraints: RouteSearchConstraints,
   deadlineAtMs?: number,
 ): {
   nodeId: string
@@ -574,6 +604,7 @@ function originStart(
   }
   const prefix = sliceEdge(candidate.edge, candidate.fraction, 1, deadlineAtMs)
   if (deadlineExceeded(deadlineAtMs)) return null
+  if (prefix && !routeSearchEdgeAllowed(prefix, profile, constraints)) return null
   return {
     nodeId: candidate.edge.toNodeId,
     cost: accessCost(candidate.distanceM, profile)
@@ -585,6 +616,7 @@ function originStart(
 function destinationEnd(
   candidate: AnchorCandidate,
   profile: IcelandRoadRoutingProfile,
+  constraints: RouteSearchConstraints,
   deadlineAtMs?: number,
 ): {
   nodeId: string
@@ -597,6 +629,7 @@ function destinationEnd(
   }
   const suffix = sliceEdge(candidate.edge, 0, candidate.fraction, deadlineAtMs)
   if (deadlineExceeded(deadlineAtMs)) return null
+  if (suffix && !routeSearchEdgeAllowed(suffix, profile, constraints)) return null
   return {
     nodeId: candidate.edge.fromNodeId,
     cost: accessCost(candidate.distanceM, profile)
@@ -686,6 +719,7 @@ function directProjectedRoute(
   origins: readonly AnchorCandidate[],
   destinations: readonly AnchorCandidate[],
   profile: IcelandRoadRoutingProfile,
+  constraints: RouteSearchConstraints,
   deadlineAtMs: number | undefined,
 ): RouteSearchResult {
   let selected: SelectedRoute | null = null
@@ -706,7 +740,7 @@ function directProjectedRoute(
         deadlineAtMs,
       )
       if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
-      if (!partial) continue
+      if (!partial || !routeSearchEdgeAllowed(partial, profile, constraints)) continue
       const candidate: SelectedRoute = {
         cost: accessCost(origin.distanceM, profile)
           + icelandRoadGraphEdgeCost(origin.edge, profile, destination.fraction - origin.fraction)
@@ -730,7 +764,7 @@ function graphRoute(
   origins: readonly AnchorCandidate[],
   destinations: readonly AnchorCandidate[],
   profile: IcelandRoadRoutingProfile,
-  excludedSegmentIds?: ReadonlySet<string>,
+  constraints: RouteSearchConstraints,
   deadlineAtMs?: number,
 ): RouteSearchResult {
   const distanceByNode = new Map<string, number>()
@@ -746,7 +780,7 @@ function graphRoute(
 
   for (const candidate of origins) {
     if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
-    const start = originStart(candidate, profile, deadlineAtMs)
+    const start = originStart(candidate, profile, constraints, deadlineAtMs)
     if (!start) {
       if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
       continue
@@ -795,7 +829,7 @@ function graphRoute(
   }>>()
   for (const candidate of destinations) {
     if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
-    const end = destinationEnd(candidate, profile, deadlineAtMs)
+    const end = destinationEnd(candidate, profile, constraints, deadlineAtMs)
     if (!end) {
       if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
       continue
@@ -860,7 +894,7 @@ function graphRoute(
     const outgoing: IcelandRoadGraphEdge[] = []
     for (const edge of graph.outgoing.get(current.nodeId) ?? []) {
       if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete' }
-      if (isIcelandRoadGraphEdgeAllowed(edge, profile, excludedSegmentIds)) {
+      if (routeSearchEdgeAllowed(edge, profile, constraints)) {
         outgoing.push(edge)
       }
     }
@@ -923,6 +957,7 @@ function assessmentRoadAlternatives(
   graph: IcelandRoadGraph,
   primary: SelectedRoute,
   profile: IcelandRoadRoutingProfile,
+  constraints: RouteSearchConstraints,
   rawMaxAlternatives: number | undefined,
   rawMaxOverlap: number | undefined,
   deadlineAtMs: number | undefined,
@@ -975,7 +1010,13 @@ function assessmentRoadAlternatives(
       [primary.origin],
       [primary.destination],
       profile,
-      new Set([eligibleSegmentIds[index]]),
+      {
+        ...constraints,
+        excludedSegmentIds: new Set([
+          ...(constraints.excludedSegmentIds ?? []),
+          eligibleSegmentIds[index],
+        ]),
+      },
       deadlineAtMs,
     )
     if (routeResult.status === 'incomplete') {
@@ -1163,6 +1204,10 @@ export function findRouteAssessmentRoadAnchors(
   options: FindRouteAssessmentRoadAnchorsOptions,
 ): RouteAssessmentRoadAnchorsResult {
   const profile = options.profile ?? FASTEST_CAR_PROFILE
+  const constraints: RouteSearchConstraints = {
+    excludedSegmentIds: options.excludedSegmentIds,
+    edgeAdmissibility: options.edgeAdmissibility,
+  }
   if (deadlineExceeded(options.deadlineAtMs)) return { status: 'incomplete' }
   const originResolution = resolveCandidates(
     graph,
@@ -1209,6 +1254,7 @@ export function findRouteAssessmentRoadAnchors(
       originCandidates,
       destinationCandidates,
       profile,
+      constraints,
       options.deadlineAtMs,
     )
     if (directResult.status === 'incomplete') return { status: 'incomplete' }
@@ -1217,7 +1263,7 @@ export function findRouteAssessmentRoadAnchors(
       originCandidates,
       destinationCandidates,
       profile,
-      undefined,
+      constraints,
       options.deadlineAtMs,
     )
     if (routedResult.status === 'incomplete') return { status: 'incomplete' }
@@ -1233,6 +1279,7 @@ export function findRouteAssessmentRoadAnchors(
     graph,
     selected,
     profile,
+    constraints,
     options.maxAlternatives,
     options.maxAlternativeOverlap,
     earliestDeadline(options.deadlineAtMs, options.alternativeDeadlineAtMs),

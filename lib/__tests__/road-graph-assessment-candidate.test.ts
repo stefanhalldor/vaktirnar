@@ -416,6 +416,115 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     ))).toBe(false)
   })
 
+  it('keeps the northern exterior leg outside Hólmavík in the reverse direction too', () => {
+    const activeGraph = graphWithHolmavikBacktrackTrap()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: THINGEYRI },
+      { kind: 'canonical_node', point: REYKJAVIK },
+    )
+
+    const outcome = resolveTeskeidAssessmentRouteEvidence({
+      graph: activeGraph,
+      origin: scope.origin,
+      destination: scope.destination,
+      assessmentScopeId: scope.assessmentScopeId,
+      includeAlternatives: false,
+      deadlineAtMs: Date.now() + 30_000,
+    })
+
+    expect(outcome.status).toBe('ready')
+    if (outcome.status !== 'ready') return
+    const viaHolmavik = outcome.evidence.find(evidence => (
+      evidence.route.labels.includes('CURATED_VIA_HOLMAVIK')
+    ))
+    expect(viaHolmavik).toBeDefined()
+    expect(viaHolmavik?.connectedRoadEdges.some(edge => (
+      edge.segmentId === 'north-gate-to-destination'
+    ))).toBe(true)
+    expect(viaHolmavik?.connectedRoadEdges.some(edge => (
+      edge.segmentId === 'backtrack-south'
+        || edge.segmentId === 'southern-shortcut-to-destination'
+    ))).toBe(false)
+  })
+
+  it('keeps validated primary evidence when only implicit safety synthesis exhausts its budget', () => {
+    const activeGraph = graphWithHolmavikBacktrackTrap()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: REYKJAVIK },
+      { kind: 'canonical_node', point: THINGEYRI },
+    )
+
+    const outcome = resolveTeskeidAssessmentRouteEvidence({
+      graph: activeGraph,
+      origin: scope.origin,
+      destination: scope.destination,
+      assessmentScopeId: scope.assessmentScopeId,
+      includeAlternatives: false,
+      deadlineAtMs: Date.now() + 30_000,
+      alternativeDeadlineAtMs: Date.now() - 1,
+    })
+
+    expect(outcome.status).toBe('ready')
+    if (outcome.status !== 'ready') return
+    expect(outcome.cacheable).toBe(false)
+    expect(outcome.evidence).toHaveLength(1)
+    expect(outcome.evidence[0].route.cautions).toContainEqual(
+      expect.objectContaining({ id: 'westfjords-south-route60' }),
+    )
+    expect(outcome.evidence[0].route.labels).not.toContain('CURATED_VIA_HOLMAVIK')
+
+    expect(resolveTeskeidAssessmentRouteEvidence({
+      graph: activeGraph,
+      origin: scope.origin,
+      destination: scope.destination,
+      assessmentScopeId: scope.assessmentScopeId,
+      includeAlternatives: true,
+      deadlineAtMs: Date.now() + 30_000,
+      alternativeDeadlineAtMs: Date.now() - 1,
+    })).toEqual({ status: 'incomplete', evidence: [] })
+  })
+
+  it('does not cache a primary whose implicit safety route is still incomplete', async () => {
+    const activeGraph = graphWithHolmavikBacktrackTrap()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: REYKJAVIK },
+      { kind: 'canonical_node', point: THINGEYRI },
+    )
+    mockGetIcelandRoadGraph.mockResolvedValue(activeGraph)
+    let nowCalls = 0
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (
+      nowCalls++ === 0 ? 0 : 29_900
+    ))
+    try {
+      const partial = await getTeskeidAssessmentRouteCandidatesOutcome(
+        scope.origin,
+        scope.destination,
+        scope.assessmentScopeId,
+      )
+      expect(partial.status).toBe('ready')
+      if (partial.status !== 'ready') return
+      expect(partial.routes).toHaveLength(1)
+      expect(partial.cacheable).toBe(false)
+
+      const completed = await getTeskeidAssessmentRouteCandidatesOutcome(
+        scope.origin,
+        scope.destination,
+        scope.assessmentScopeId,
+      )
+      expect(completed.status).toBe('ready')
+      if (completed.status !== 'ready') return
+      expect(completed.routes).toHaveLength(2)
+      expect(completed.cacheable).toBeUndefined()
+      expect(completed).not.toBe(partial)
+      expect(mockGetIcelandRoadGraph).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it('preserves both projected endpoints during a reverse-direction alternative search', async () => {
     const activeGraph = graphWithAlternative('both')
     const scope = signedScopeInput(
@@ -659,6 +768,48 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(mockGetIcelandRoadGraph).toHaveBeenCalledTimes(4)
   })
 
+  it('keeps quick and extended results separately cached on one graph identity', async () => {
+    const activeGraph = graph()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: ROAD_START },
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.3 } },
+    )
+    mockGetIcelandRoadGraph.mockResolvedValue(activeGraph)
+
+    const quick = await getTeskeidAssessmentRouteCandidatesOutcome(
+      scope.origin,
+      scope.destination,
+      scope.assessmentScopeId,
+      false,
+      'quick',
+    )
+    const extended = await getTeskeidAssessmentRouteCandidatesOutcome(
+      scope.origin,
+      scope.destination,
+      scope.assessmentScopeId,
+      false,
+      'extended',
+    )
+    const repeatedExtended = await getTeskeidAssessmentRouteCandidatesOutcome(
+      scope.origin,
+      scope.destination,
+      scope.assessmentScopeId,
+      false,
+      'extended',
+    )
+
+    expect(quick.status).toBe('ready')
+    expect(extended.status).toBe('ready')
+    expect(extended).not.toBe(quick)
+    expect(repeatedExtended).toBe(extended)
+    expect(mockGetIcelandRoadGraph.mock.calls).toEqual([
+      [],
+      [],
+      [],
+    ])
+  })
+
   it('drops Fast Refresh candidate state created by an older routing policy', async () => {
     const activeGraph = graph()
     const scope = signedScopeInput(
@@ -675,10 +826,10 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(first.status).toBe('ready')
 
     const runtime = globalThis as typeof globalThis & {
-      __teskeidRouteCandidateCacheV3__?: { policyFingerprint: string }
+      __teskeidRouteCandidateCacheV4__?: { policyFingerprint: string }
     }
-    expect(runtime.__teskeidRouteCandidateCacheV3__).toBeDefined()
-    runtime.__teskeidRouteCandidateCacheV3__!.policyFingerprint = 'stale-routing-policy'
+    expect(runtime.__teskeidRouteCandidateCacheV4__).toBeDefined()
+    runtime.__teskeidRouteCandidateCacheV4__!.policyFingerprint = 'stale-routing-policy'
 
     const recomputed = await getTeskeidAssessmentRouteCandidatesOutcome(
       scope.origin,

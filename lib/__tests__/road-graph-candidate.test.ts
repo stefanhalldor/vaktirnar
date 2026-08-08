@@ -258,4 +258,39 @@ describe('Teskeið route candidate flag', () => {
       vi.useRealTimers()
     }
   })
+
+  it('keeps quick and extended budgets on the same fail-closed snapshot reader', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      process.env.TESKEID_ROUTE_CANDIDATE_ENABLED = 'true'
+      mockGetIcelandRoadGraph.mockReturnValue(new Promise(() => {}))
+
+      const quickOutcome = getTeskeidRouteCandidatesOutcome(
+        ORIGIN,
+        DESTINATION,
+        false,
+        'quick',
+      )
+      await vi.advanceTimersByTimeAsync(8_000)
+      await expect(quickOutcome).resolves.toEqual({ status: 'pending', routes: [] })
+
+      const extendedOutcome = getTeskeidRouteCandidatesOutcome(
+        ORIGIN,
+        DESTINATION,
+        false,
+        'extended',
+      )
+      await vi.advanceTimersByTimeAsync(20_000)
+      await expect(extendedOutcome).resolves.toEqual({ status: 'pending', routes: [] })
+
+      expect(mockGetIcelandRoadGraph.mock.calls).toEqual([
+        [],
+        [],
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+      vi.useRealTimers()
+    }
+  })
 })

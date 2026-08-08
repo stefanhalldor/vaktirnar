@@ -32,7 +32,7 @@ const MAX_SNAP_DISTANCE_M = 25_000
 const CANDIDATE_CACHE_TTL_MS = 30 * 60 * 1_000
 const CANDIDATE_CACHE_MAX_ENTRIES_PER_GRAPH = 128
 const CURRENT_ASSESSMENT_SCOPE_ID_PATTERN = /^assessment:v3:[A-Za-z0-9_-]{43}$/
-const ROUTE_CANDIDATE_POLICY_VERSION = 'nearest-reachable-road-v2'
+const ROUTE_CANDIDATE_POLICY_VERSION = 'nearest-reachable-road-v3'
 const ROUTE_CANDIDATE_CACHE_POLICY_FINGERPRINT =
   `${ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT}:${ROUTE_CANDIDATE_POLICY_VERSION}`
 
@@ -56,7 +56,7 @@ type CandidateCacheState = {
 
 // Bump this global key whenever a routing-policy change must invalidate state
 // retained across Next.js Fast Refresh/module replacement.
-const CANDIDATE_CACHE_STATE_KEY = '__teskeidRouteCandidateCacheV3__' as const
+const CANDIDATE_CACHE_STATE_KEY = '__teskeidRouteCandidateCacheV4__' as const
 
 function candidateCacheState(): CandidateCacheState {
   const runtime = globalThis as typeof globalThis & {
@@ -142,6 +142,7 @@ function writeCachedCandidate(
   key: string,
   outcome: TeskeidRouteCandidatesOutcome,
 ): void {
+  if (outcome.status === 'ready' && outcome.cacheable === false) return
   if (outcome.status !== 'ready' && outcome.status !== 'no_route') return
   bucket.completed.delete(key)
   bucket.completed.set(key, {
@@ -222,6 +223,8 @@ export type TeskeidRouteCandidatesOutcome =
       routes: RouteOption[]
       /** Server-only graph evidence; API responses must project only `routes`. */
       evidence?: readonly TeskeidAssessmentRouteEvidence[]
+      /** False only when an implicit safety route timed out after primary validation. */
+      cacheable?: false
     }
   | { status: 'disabled' | 'pending' | 'no_route' | 'unavailable'; routes: [] }
 
@@ -327,6 +330,7 @@ export async function getTeskeidAssessmentRouteCandidatesOutcome(
           status: 'ready',
           routes: evidence.evidence.map(candidate => candidate.route),
           evidence: evidence.evidence,
+          ...(evidence.cacheable === false ? { cacheable: false as const } : {}),
         }
       })
     } catch {

@@ -488,6 +488,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
       status: 'ready',
       routes: [candidate],
       evidence: [makeEvidence(candidate)],
+      cacheable: false,
     })
     const res = await POST(request({
       origin: ORIGIN,
@@ -500,6 +501,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toMatchObject({
       status: 'ready',
+      cacheable: false,
       assessmentScope: { status: 'ready', scopeId: assessmentScopeId },
       routeEnvelopes: expect.any(Array),
     })

@@ -561,6 +561,7 @@ type TeskeidCandidateResult = {
   status: TeskeidCandidateStatus
   choices: RouteSurfaceChoice[]
   assessmentScope: ReadyRouteAssessmentScope | null
+  cacheable?: false
 }
 
 type RouteSectionsUiState =
@@ -601,7 +602,6 @@ type RouteSectionsCacheEntry = {
 }
 
 const ROUTE_SCOPE_RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000] as const
-const TESKEID_CANDIDATE_RETRY_DELAYS_MS = [250, 750, 1_500, 3_000, 5_000] as const
 const TESKEID_CLIENT_CANDIDATE_CACHE_MAX_ENTRIES = 16
 const TESKEID_CLIENT_CANDIDATE_CACHE_MIN_TTL_MS = 60_000
 const ROUTE_SECTIONS_CLIENT_CACHE_MAX_ENTRIES = 8
@@ -2513,6 +2513,7 @@ export function RoadMapPrototypeMap({
   const routeSectionsCacheRef = useRef(new Map<string, RouteSectionsCacheEntry>())
   const routeSectionsRefreshRequestRef = useRef<AbortController | null>(null)
   const routeBridgeRunIdRef = useRef(0)
+  const teskeidProgressiveExtendedRunIdRef = useRef<number | null>(null)
   const formRef = useRef<HTMLFormElement | null>(null)
   const routePanelScrollRef = useRef<HTMLDivElement | null>(null)
   const weatherResultsRef = useRef<HTMLDivElement | null>(null)
@@ -7925,7 +7926,7 @@ export function RoadMapPrototypeMap({
           ? [payload.route as RouteOption]
           : []
     const envelopesByRouteId = new Map(envelopes.map(envelope => [envelope.route.id, envelope]))
-    if (status === 'ready' && envelopes.length > 0) {
+    if (status === 'ready' && envelopes.length > 0 && payload?.cacheable !== false) {
       const expiresAtMs = Math.min(...envelopes.map(envelope => Date.parse(envelope.expiresAt)))
       if (Number.isFinite(expiresAtMs) && expiresAtMs > Date.now() + TESKEID_CLIENT_CANDIDATE_CACHE_MIN_TTL_MS) {
         teskeidClientCandidateCacheRef.current.delete(cacheKey)
@@ -7940,6 +7941,7 @@ export function RoadMapPrototypeMap({
     return {
       status,
       assessmentScope,
+      ...(payload?.cacheable === false ? { cacheable: false as const } : {}),
       choices: status === 'ready'
         ? routes
             .map((route, index) => routeOptionToSurfaceChoice(
@@ -7952,31 +7954,51 @@ export function RoadMapPrototypeMap({
     }
   }
 
-  async function fetchTeskeidCandidateWithRetry(
+  async function fetchTeskeidCandidateWithProgressiveFallback(
     origin: RoadIntelligencePlaceResult,
     destination: RoadIntelligencePlaceResult,
     expectedAssessmentScopeId: string | null,
     signal: AbortSignal,
-    alternatives = false,
     onPending?: () => void,
   ): Promise<TeskeidCandidateResult> {
-    for (let attempt = 0; attempt <= TESKEID_CANDIDATE_RETRY_DELAYS_MS.length; attempt += 1) {
-      const result = await fetchTeskeidCandidate(
+    const quickResult = await fetchTeskeidCandidate(
+      origin,
+      destination,
+      expectedAssessmentScopeId,
+      signal,
+      false,
+      'quick',
+      0,
+    )
+    const quickNeedsExtended = quickResult.status === 'pending'
+      || (quickResult.status === 'ready' && quickResult.cacheable === false)
+    if (!quickNeedsExtended) return quickResult
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    teskeidProgressiveExtendedRunIdRef.current = routeBridgeRunIdRef.current
+    onPending?.()
+    const extendedScopeId = quickResult.assessmentScope?.scopeId
+      ?? expectedAssessmentScopeId
+    let extendedResult: TeskeidCandidateResult
+    try {
+      extendedResult = await fetchTeskeidCandidate(
         origin,
         destination,
-        expectedAssessmentScopeId,
+        extendedScopeId,
         signal,
-        alternatives,
-        'quick',
-        attempt,
+        false,
+        'extended',
+        1,
       )
-      if (result.status !== 'pending') return result
-      onPending?.()
-      const delay = TESKEID_CANDIDATE_RETRY_DELAYS_MS[attempt]
-      if (delay === undefined) return { status: 'slow', choices: [], assessmentScope: result.assessmentScope }
-      await waitForAbortableBrowser(delay, signal)
+    } catch (error) {
+      if (signal.aborted) throw error
+      if (quickResult.status === 'ready') return quickResult
+      throw error
     }
-    return { status: 'unavailable', choices: [], assessmentScope: null }
+    if (
+      quickResult.status === 'ready'
+      && (extendedResult.status !== 'ready' || extendedResult.cacheable === false)
+    ) return quickResult
+    return extendedResult
   }
 
   async function refreshRouteChoiceEnvelope(
@@ -7988,14 +8010,24 @@ export function RoadMapPrototypeMap({
     if (choice.route.provider === 'teskeid') {
       if (!canRequestTeskeidCandidate(places)) throw new Error('route_unavailable')
       setTeskeidCandidateStatus('loading')
-      const result = await fetchTeskeidCandidateWithRetry(
-        places.navigationOrigin,
-        places.navigationDestination,
-        places.assessmentScope.scopeId,
-        signal,
-        choice.route.labels.includes('TESKEID_ALTERNATIVE'),
-        () => setTeskeidCandidateStatus('pending'),
-      )
+      const isAlternative = choice.route.labels.includes('TESKEID_ALTERNATIVE')
+      const result = isAlternative
+        ? await fetchTeskeidCandidate(
+            places.navigationOrigin,
+            places.navigationDestination,
+            places.assessmentScope.scopeId,
+            signal,
+            true,
+            'extended',
+            0,
+          )
+        : await fetchTeskeidCandidateWithProgressiveFallback(
+            places.navigationOrigin,
+            places.navigationDestination,
+            places.assessmentScope.scopeId,
+            signal,
+            () => setTeskeidCandidateStatus('pending'),
+          )
       if (result.status === 'ready') {
         refreshedChoices = result.choices
         setTeskeidCandidateStatus('ready')
@@ -8061,7 +8093,7 @@ export function RoadMapPrototypeMap({
         setRouteSurfaceChoices(current => mergeProviderRouteChoices(
           current,
           'teskeid',
-          result.choices.slice(0, 1),
+          result.choices,
         ))
       }
     } catch {
@@ -8087,13 +8119,14 @@ export function RoadMapPrototypeMap({
     )
     setTeskeidAlternativesStatus('loading')
     try {
-      const result = await fetchTeskeidCandidateWithRetry(
+      const result = await fetchTeskeidCandidate(
         places.navigationOrigin,
         places.navigationDestination,
         places.assessmentScope.scopeId,
         controller.signal,
         true,
-        undefined,
+        'extended',
+        0,
       )
       if (!isCurrentRun()) return
       if (result.status === 'no_route') {
@@ -8101,7 +8134,7 @@ export function RoadMapPrototypeMap({
         return
       }
       if (result.status !== 'ready') {
-        setTeskeidAlternativesStatus(result.status === 'slow' ? 'slow' : 'unavailable')
+        setTeskeidAlternativesStatus(result.status === 'pending' ? 'slow' : 'unavailable')
         return
       }
       const alternatives = result.choices.slice(1)
@@ -8795,14 +8828,17 @@ export function RoadMapPrototypeMap({
 
       setRouteSurfaceChoicesStatus('loading')
       const initialTeskeidResultPromise = teskeidRouteCandidateEnabled
-        ? fetchTeskeidCandidate(
+        ? fetchTeskeidCandidateWithProgressiveFallback(
             origin,
             destination,
             null,
             discoveryController.signal,
-            false,
-            'quick',
-            0,
+            () => {
+              if (
+                !discoveryController.signal.aborted
+                && routeBridgeRunIdRef.current === runId
+              ) setTeskeidCandidateStatus('pending')
+            },
           ).then((result): TeskeidCandidateResult => (
             result.status === 'pending'
               ? { ...result, status: 'slow' }
@@ -10912,6 +10948,7 @@ export function RoadMapPrototypeMap({
       routeBridgeSummary !== null
       && teskeidCandidateStatus === 'ready'
       && teskeidAlternativesStatus === 'idle'
+      && teskeidProgressiveExtendedRunIdRef.current !== routeBridgeRunIdRef.current
       && teskeidChoices.length === 1
       && (teskeidChoices[0].route.cautions?.length ?? 0) > 0
     )
@@ -10929,6 +10966,7 @@ export function RoadMapPrototypeMap({
     const automaticAlternativeSearchExpected = (
       teskeidCandidateStatus === 'ready'
       && teskeidAlternativesStatus === 'idle'
+      && teskeidProgressiveExtendedRunIdRef.current !== routeBridgeRunIdRef.current
       && teskeidChoices.length === 1
       && (teskeidChoices[0].route.cautions?.length ?? 0) > 0
     )

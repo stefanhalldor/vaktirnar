@@ -221,6 +221,40 @@ describe('route assessment official-road anchors', () => {
     expect(result.connectedRoadEdges[0].geometry.at(-1)?.lon).toBeCloseTo(-20.2, 6)
   })
 
+  it('applies edge admissibility to only the traversed same-edge slice', () => {
+    const roadStart = { lat: 64, lon: -20.5 }
+    const roadEnd = { lat: 64, lon: -20.1 }
+    const inspected: IcelandRoadGraphSegmentInput['geometry'][] = []
+    const result = findRouteAssessmentRoadAnchors(
+      buildIcelandRoadGraph([
+        segment('target', [roadStart, roadEnd], { direction: 'forward' }),
+      ], { nodeSnapToleranceM: 2 }),
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.4 } },
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.2 } },
+      {
+        maxOriginSnapDistanceM: 500,
+        maxDestinationSnapDistanceM: 500,
+        edgeAdmissibility: edge => {
+          inspected.push(edge.geometry)
+          return (edge.geometry[0]?.lon ?? -Infinity) > -20.45
+            && (edge.geometry.at(-1)?.lon ?? Infinity) < -20.15
+        },
+      },
+    )
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(inspected.some(geometry => (
+      Math.abs((geometry[0]?.lon ?? 0) - (-20.4)) < 1e-6
+      && Math.abs((geometry.at(-1)?.lon ?? 0) - (-20.2)) < 1e-6
+    ))).toBe(true)
+    expect(inspected.some(geometry => (
+      geometry[0]?.lon === roadStart.lon
+      && geometry.at(-1)?.lon === roadEnd.lon
+    ))).toBe(false)
+    expect(result.connectedRoadEdges).toHaveLength(1)
+  })
+
   it('projects canonical endpoints to the middle of long segments instead of graph endpoints', () => {
     const result = findAnchors([
       segment('long-road', [
@@ -599,6 +633,62 @@ describe('route assessment official-road anchors', () => {
       'detour-b',
       'destination-edge',
     ])
+  })
+
+  it('inherits base exclusions and sliced-edge admissibility in generated alternatives', () => {
+    const roadStart = { lat: 64, lon: -20.8 }
+    const startGateway = { lat: 64, lon: -20.7 }
+    const primaryMid = { lat: 64, lon: -20.5 }
+    const endGateway = { lat: 64, lon: -20.3 }
+    const roadEnd = { lat: 64, lon: -20.2 }
+    const graph = buildIcelandRoadGraph([
+      segment('origin-edge', [roadStart, startGateway], { direction: 'forward' }),
+      segment('primary-a', [startGateway, primaryMid], { direction: 'forward' }),
+      segment('primary-b', [primaryMid, endGateway], { direction: 'forward' }),
+      segment('excluded-a', [startGateway, { lat: 63.97, lon: -20.5 }], { direction: 'forward' }),
+      segment('excluded-b', [{ lat: 63.97, lon: -20.5 }, endGateway], { direction: 'forward' }),
+      segment('rejected-a', [startGateway, { lat: 63.95, lon: -20.5 }], { direction: 'forward' }),
+      segment('rejected-b', [{ lat: 63.95, lon: -20.5 }, endGateway], { direction: 'forward' }),
+      segment('allowed-a', [startGateway, { lat: 63.9, lon: -20.5 }], { direction: 'forward' }),
+      segment('allowed-b', [{ lat: 63.9, lon: -20.5 }, endGateway], { direction: 'forward' }),
+      segment('destination-edge', [endGateway, roadEnd], { direction: 'forward' }),
+    ], { nodeSnapToleranceM: 2 })
+
+    const result = findRouteAssessmentRoadAnchors(
+      graph,
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.75 } },
+      { kind: 'projected_road', point: { lat: 64.001, lon: -20.25 } },
+      {
+        maxOriginSnapDistanceM: 500,
+        maxDestinationSnapDistanceM: 500,
+        maxAlternatives: 4,
+        maxAlternativeOverlap: 0.94,
+        excludedSegmentIds: new Set(['excluded-a', 'excluded-b']),
+        edgeAdmissibility: edge => {
+          if (edge.segmentId === 'origin-edge') {
+            return (edge.geometry[0]?.lon ?? -Infinity) > roadStart.lon
+          }
+          if (edge.segmentId === 'destination-edge') {
+            return (edge.geometry.at(-1)?.lon ?? Infinity) < roadEnd.lon
+          }
+          return !edge.segmentId.startsWith('rejected-')
+        },
+      },
+    )
+
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.alternatives).toHaveLength(1)
+    expect(result.alternatives[0].connectedRoadEdges.map(edge => edge.segmentId)).toEqual([
+      'origin-edge',
+      'allowed-a',
+      'allowed-b',
+      'destination-edge',
+    ])
+    expect(result.alternatives[0].connectedRoadEdges[0].geometry[0]).toEqual(result.origin.point)
+    expect(result.alternatives[0].connectedRoadEdges.at(-1)?.geometry.at(-1)).toEqual(
+      result.destination.point,
+    )
   })
 
   it('marks a bounded alternative search incomplete when its synchronous deadline is exhausted', () => {

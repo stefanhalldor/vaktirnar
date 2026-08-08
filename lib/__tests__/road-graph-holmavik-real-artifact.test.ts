@@ -100,16 +100,19 @@ describeRealArtifact('Reykjavík to Þingeyri via Hólmavík official-artifact r
       destinationPoint: anchors.destination.point,
       routeProvenanceFingerprint: anchors.routeProvenanceFingerprint,
     })
+    const startedAtMs = Date.now()
     const outcome = resolveTeskeidAssessmentRouteEvidence({
       graph,
       origin: anchors.origin.point,
       destination: anchors.destination.point,
       assessmentScopeId,
       includeAlternatives: false,
-      deadlineAtMs: Date.now() + 60_000,
+      // This artifact gate proves the extended completion path, not a portable
+      // host-level SLO for metadata reads, signing or HTTP overhead.
+      deadlineAtMs: Date.now() + 20_000,
     })
-
     expect(outcome.status).toBe('ready')
+    expect(Date.now() - startedAtMs).toBeLessThan(20_000)
     if (outcome.status !== 'ready') return
     const viaHolmavik = outcome.evidence.find(evidence => (
       evidence.route.labels.includes('CURATED_VIA_HOLMAVIK')

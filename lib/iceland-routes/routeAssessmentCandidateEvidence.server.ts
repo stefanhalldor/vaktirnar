@@ -64,6 +64,8 @@ export type TeskeidAssessmentRouteEvidenceOutcome =
       evidence: readonly TeskeidAssessmentRouteEvidence[]
       originSnapDistanceM: number
       destinationSnapDistanceM: number
+      /** A validated primary whose implicit safety route exhausted its deadline. */
+      cacheable?: false
     }>
   | Readonly<{ status: 'incomplete' | 'unavailable'; evidence: readonly [] }>
 
@@ -255,6 +257,15 @@ function deadlineExceeded(deadlineAtMs: number | undefined): boolean {
     && Date.now() >= deadlineAtMs
 }
 
+function earliestDeadline(
+  ...deadlines: readonly (number | undefined)[]
+): number | undefined {
+  const finite = deadlines.filter((value): value is number => (
+    value !== undefined && Number.isFinite(value)
+  ))
+  return finite.length > 0 ? Math.min(...finite) : undefined
+}
+
 type HolmavikAlternativeOutcome =
   | Readonly<{ status: 'ready'; evidence: TeskeidAssessmentRouteEvidence }>
   | Readonly<{ status: 'incomplete' | 'unavailable' }>
@@ -268,13 +279,12 @@ type HolmavikRouteLegOutcome =
     }>
   | Readonly<{ status: 'incomplete' | 'unavailable' }>
 
-function routeEdgesPassNearHolmavik(edges: readonly IcelandRoadGraphEdge[]): boolean {
-  const route = buildIcelandRoadGraphRouteFromEdges(edges)
-  return validRoute(route) && pointToPolylineDistanceM(
+function edgeStaysOutsideHolmavikGeofence(edge: IcelandRoadGraphEdge): boolean {
+  return pointToPolylineDistanceM(
     HOLMAVIK_VIA.lat,
     HOLMAVIK_VIA.lon,
-    route.geometry,
-  ) <= HOLMAVIK_PROXIMITY_M
+    edge.geometry,
+  ) > HOLMAVIK_PROXIMITY_M
 }
 
 function resolveHolmavikRouteLeg(input: {
@@ -294,32 +304,21 @@ function resolveHolmavikRouteLeg(input: {
     {
       maxOriginSnapDistanceM: input.maxOriginSnapDistanceM,
       maxDestinationSnapDistanceM: input.maxDestinationSnapDistanceM,
-      maxAlternatives: input.avoidReturningToHolmavik ? 4 : 0,
-      maxAlternativeOverlap: 0.98,
+      maxAlternatives: 0,
+      edgeAdmissibility: input.avoidReturningToHolmavik
+        ? edgeStaysOutsideHolmavikGeofence
+        : undefined,
       deadlineAtMs: input.deadlineAtMs,
-      alternativeDeadlineAtMs: input.deadlineAtMs,
     },
   )
   if (anchors.status === 'incomplete') return { status: 'incomplete' }
   if (anchors.status !== 'ok') return { status: 'unavailable' }
 
-  const candidates = [
-    anchors.connectedRoadEdges,
-    ...anchors.alternatives.map(alternative => alternative.connectedRoadEdges),
-  ]
-  const connectedRoadEdges = input.avoidReturningToHolmavik
-    ? candidates.find(edges => !routeEdgesPassNearHolmavik(edges))
-    : candidates[0]
-  if (!connectedRoadEdges) {
-    return anchors.alternativesComplete
-      ? { status: 'unavailable' }
-      : { status: 'incomplete' }
-  }
   return {
     status: 'ready',
     origin: anchors.origin,
     destination: anchors.destination,
-    connectedRoadEdges,
+    connectedRoadEdges: anchors.connectedRoadEdges,
   }
 }
 
@@ -538,9 +537,21 @@ export function resolveTeskeidAssessmentRouteEvidence(input: {
       origin: anchors.origin,
       destination: anchors.destination,
       alternativeIndex: 1,
-      deadlineAtMs,
+      deadlineAtMs: earliestDeadline(deadlineAtMs, input.alternativeDeadlineAtMs),
     })
     if (holmavikAlternative.status === 'incomplete') {
+      // The attested primary has already passed every integrity and scope check.
+      // A best-effort safety route must not erase it when the caller did not
+      // explicitly request alternatives and only that synthesis exhausts time.
+      if (!input.includeAlternatives) {
+        return {
+          status: 'ready',
+          evidence,
+          originSnapDistanceM: anchors.origin.snapDistanceM,
+          destinationSnapDistanceM: anchors.destination.snapDistanceM,
+          cacheable: false,
+        }
+      }
       return { status: 'incomplete', evidence: [] }
     }
     if (holmavikAlternative.status === 'ready') {

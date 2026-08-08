@@ -331,18 +331,55 @@ describe('road-map route results display state', () => {
 
     const candidateBlock = functionBlock(
       'async function fetchTeskeidCandidate(',
-      'async function fetchTeskeidCandidateWithRetry(',
+      'async function fetchTeskeidCandidateWithProgressiveFallback(',
     )
     expect(candidateBlock).toContain('resolveAssessmentScope: true')
     expect(candidateBlock).toContain('{ expectedAssessmentScopeId }')
     expect(candidateBlock).not.toContain('accessRouteEnvelope')
+    expect(candidateBlock).toContain("payload?.cacheable !== false")
+    expect(candidateBlock).toContain("payload?.cacheable === false ? { cacheable: false as const } : {}")
+
+    const progressiveFallbackBlock = functionBlock(
+      'async function fetchTeskeidCandidateWithProgressiveFallback(',
+      'async function refreshRouteChoiceEnvelope(',
+    )
+    expect(progressiveFallbackBlock.match(/fetchTeskeidCandidate\(/g)).toHaveLength(2)
+    expect(progressiveFallbackBlock).toMatch(
+      /fetchTeskeidCandidate\(\s*origin,\s*destination,\s*expectedAssessmentScopeId,\s*signal,\s*false,\s*'quick',\s*0,/,
+    )
+    expect(progressiveFallbackBlock).toContain("quickResult.status === 'pending'")
+    expect(progressiveFallbackBlock).toContain("quickResult.cacheable === false")
+    expect(progressiveFallbackBlock).toContain('if (!quickNeedsExtended) return quickResult')
+    expect(progressiveFallbackBlock).not.toContain('quickNeedsSafetyCompletion')
+    expect(progressiveFallbackBlock).toContain('if (signal.aborted)')
+    expect(progressiveFallbackBlock).toContain(
+      'teskeidProgressiveExtendedRunIdRef.current = routeBridgeRunIdRef.current',
+    )
+    expect(progressiveFallbackBlock).toContain('quickResult.assessmentScope?.scopeId')
+    expect(progressiveFallbackBlock).toMatch(
+      /fetchTeskeidCandidate\(\s*origin,\s*destination,\s*extendedScopeId,\s*signal,\s*false,\s*'extended',\s*1,/,
+    )
+    expect(progressiveFallbackBlock).toMatch(
+      /catch \(error\) \{\s*if \(signal\.aborted\) throw error\s*if \(quickResult\.status === 'ready'\) return quickResult\s*throw error/,
+    )
+    expect(progressiveFallbackBlock).toContain('return extendedResult')
+    expect(progressiveFallbackBlock).toContain("extendedResult.status !== 'ready' || extendedResult.cacheable === false")
+    expect(progressiveFallbackBlock).not.toContain('for (')
+    expect(source).not.toContain('TESKEID_CANDIDATE_RETRY_DELAYS_MS')
+    expect(source.match(
+      /teskeidProgressiveExtendedRunIdRef\.current !== routeBridgeRunIdRef\.current/g,
+    )).toHaveLength(2)
 
     const refreshBlock = functionBlock(
       'async function refreshRouteChoiceEnvelope(',
       'async function handleRetryTeskeidCandidate()',
     )
+    expect(refreshBlock).toContain("const isAlternative = choice.route.labels.includes('TESKEID_ALTERNATIVE')")
     expect(refreshBlock).toMatch(
-      /fetchTeskeidCandidateWithRetry\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*signal,/,
+      /isAlternative\s*\? await fetchTeskeidCandidate\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*signal,\s*true,\s*'extended',/,
+    )
+    expect(refreshBlock).toMatch(
+      /: await fetchTeskeidCandidateWithProgressiveFallback\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*signal,/,
     )
     expect(refreshBlock).toContain('if (!canRequestTeskeidCandidate(places))')
     expect(refreshBlock).toMatch(
@@ -359,20 +396,24 @@ describe('road-map route results display state', () => {
     expect(retryBlock).toMatch(
       /fetchTeskeidCandidate\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*controller\.signal,\s*false,\s*'extended',/,
     )
-    expect(retryBlock).not.toContain('fetchTeskeidCandidateWithRetry(')
+    expect(retryBlock).not.toContain('fetchTeskeidCandidateWithProgressiveFallback(')
     expect(retryBlock).toContain('routeExtendedCandidateRequestRef.current')
     expect(retryBlock).toContain("result.status === 'pending' ? 'slow' : result.status")
     expect(retryBlock).toContain('!canRequestTeskeidCandidate(places)')
+    expect(retryBlock).toContain("'teskeid',\n          result.choices,")
+    expect(retryBlock).not.toContain('result.choices.slice(0, 1)')
 
     const alternativesBlock = functionBlock(
       'async function handleFindMoreTeskeidRoutes()',
       'async function hydrateRouteSurfaceChoiceSummaries(',
     )
     expect(alternativesBlock).toMatch(
-      /fetchTeskeidCandidateWithRetry\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*controller\.signal,/,
+      /fetchTeskeidCandidate\(\s*places\.navigationOrigin,\s*places\.navigationDestination,\s*places\.assessmentScope\.scopeId,\s*controller\.signal,\s*true,\s*'extended',\s*0,/,
     )
+    expect(alternativesBlock).not.toContain('fetchTeskeidCandidateWithProgressiveFallback(')
     expect(alternativesBlock).toContain('!canRequestTeskeidCandidate(places)')
     expect(alternativesBlock).toContain("if (result.status === 'no_route')")
+    expect(alternativesBlock).toContain("result.status === 'pending' ? 'slow' : 'unavailable'")
     expect(source).toContain('onFindMore={fullscreenTeskeidInitialSearchVisible')
     expect(source).toContain('findMoreProminent={fullscreenTeskeidInitialSearchVisible}')
     expect(source).toContain('void handleRetryTeskeidCandidate()')
@@ -385,11 +426,12 @@ describe('road-map route results display state', () => {
       /fetchRouteSurfaceChoices\(\s*origin,\s*destination,\s*discoveryController\.signal,\s*\)/,
     )
     expect(submitBlock).toContain('const initialTeskeidResultPromise = teskeidRouteCandidateEnabled')
-    expect(submitBlock.indexOf('fetchTeskeidCandidate(')).toBeLessThan(
+    expect(submitBlock.indexOf('fetchTeskeidCandidateWithProgressiveFallback(')).toBeLessThan(
       submitBlock.indexOf('const scopedGoogleResult = await googleResultPromise'),
     )
     expect(submitBlock).toContain("result.status === 'pending'")
     expect(submitBlock).toContain("? { ...result, status: 'slow' }")
+    expect(submitBlock).toContain('routeBridgeRunIdRef.current === runId')
     expect(submitBlock).toContain('navigationOrigin: origin')
     expect(submitBlock).toContain('navigationDestination: destination')
     expect(submitBlock).toContain(
@@ -585,7 +627,10 @@ describe('road-map route results display state', () => {
     expect(source).not.toContain('async function handleRetryRouteSections(')
 
     const candidateStart = source.indexOf('async function fetchTeskeidCandidate(')
-    const candidateEnd = source.indexOf('async function fetchTeskeidCandidateWithRetry(', candidateStart)
+    const candidateEnd = source.indexOf(
+      'async function fetchTeskeidCandidateWithProgressiveFallback(',
+      candidateStart,
+    )
     const candidateBlock = source.slice(candidateStart, candidateEnd)
     expect(candidateBlock).toContain('resolveAssessmentScope: true')
     expect(candidateBlock).not.toContain('accessRouteEnvelope')

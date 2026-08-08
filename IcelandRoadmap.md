@@ -203,6 +203,21 @@ endurmerkt, caution-merkt í samanburðinum né notuð til að útbúa þennan
 valkost með auka Google-kalli. Reglan er boundary-, vegagrafar- og
 geometry-drifin, ekki bundin Þingeyri eða ákveðnum upphafsstað.
 
+**Afhendingar- og tímamarkainvariant (v194):** Hraðleit fær áfram þröngt
+response-budget, en staðfest aðalleið má ekki hverfa þó að valfrjáls
+öryggisleið klárist ekki innan þess. Viðmótið gerir eina hraðleit og, aðeins
+þegar hún er enn í vinnslu eða skilar skýru merki um ólokna öryggisleið, eina
+lengri leit. Ófullgerð niðurstaða er hvorki vistuð í server-cache né
+envelope-cache og staðfesta hraðleitarleiðin helst sýnileg ef lengri leitin
+klárast ekki. Beiðni um fleiri Teskeiðarleiðir fer beint í lengri leit og allar
+staðfestar Teskeiðarleiðir eru varðveittar.
+Hólmavíkurvalkosturinn
+notar eina deterministic skorðaða stystu-leið leit eftir Route 61-gate í stað
+bounded sampled alternatives: ytri leggurinn má ekki fara aftur inn í
+Hólmavíkur-geofence og sama regla gildir í báðar akstursáttir. Þetta er
+provider-neutral grafregla fyrir boundary-fjölskylduna, ekki staðbundin
+Reykjavík–Þingeyri undantekning.
+
 **Nákvæm leiðarkafla-evidence (v190 hotfix):** Ný scoped Teskeiðarleið bindur
 undirritaða, raðaða edge- og node-auðkennisröð ásamt runtime-policy og
 route-provenance við route-envelope. `route-sections` endurheimtir sömu
