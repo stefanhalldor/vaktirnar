@@ -5,6 +5,8 @@ import type { Idea, Submission, IdeaCategory } from '@/lib/teskeid/types'
 import { IDEA_CATEGORIES } from '@/lib/teskeid/types'
 import { StatusBadge } from '@/components/teskeid/StatusBadge'
 import { resolveInitialPeriod } from '@/lib/admin/period'
+import { MapFeedbackAdminSection } from '@/components/teskeid/MapFeedbackAdminSection'
+import { RoadGraphAdminSection } from '@/components/teskeid/RoadGraphAdminSection'
 
 type IdeaStatus = Idea['status']
 type SubmissionStatus = Submission['status']
@@ -1658,6 +1660,13 @@ export default function AdminPage() {
             )}
           </div>
         )}
+
+        <hr className="border-[#c2c9bb] my-8" />
+        <MapFeedbackAdminSection />
+
+        <div className="mt-6">
+          <RoadGraphAdminSection />
+        </div>
 
         <hr className="border-[#c2c9bb] my-8" />
         <div className="flex flex-col gap-6">

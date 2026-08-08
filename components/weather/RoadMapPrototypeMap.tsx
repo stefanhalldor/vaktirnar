@@ -11683,9 +11683,9 @@ export function RoadMapPrototypeMap({
       )}
 
       {isChatOpen && (
-        <div className="absolute inset-0 z-[100] flex min-h-0 flex-col overflow-hidden bg-background/95 backdrop-blur-sm sm:bottom-3 sm:left-3 sm:right-auto sm:top-14 sm:z-30 sm:w-[calc(100%-1.5rem)] sm:max-w-[360px] sm:rounded-xl sm:border sm:border-border/70 sm:p-2 sm:shadow-lg">
-          {/* Desktop-only close button */}
-          <div className="mb-1 hidden items-center justify-end sm:flex">
+        <div className="pointer-events-none absolute inset-0 z-[100] flex items-end px-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] pt-16 sm:items-start sm:justify-start sm:p-3 sm:pt-14">
+          <div className="pointer-events-auto flex max-h-[46dvh] min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-background/95 shadow-xl backdrop-blur-sm sm:max-h-[calc(100dvh-4.5rem)] sm:max-w-[390px]">
+          <div className="flex items-center justify-end border-b border-border/60 px-2 py-1">
             <button
               type="button"
               onClick={handleMessagesToggle}
@@ -11694,7 +11694,7 @@ export function RoadMapPrototypeMap({
               {t('overlayClose')}
             </button>
           </div>
-          <div className="min-h-0 flex-1 overscroll-contain overflow-y-auto p-3 sm:p-0 sm:pr-1">
+          <div className="min-h-0 flex-1 overscroll-contain overflow-y-auto p-3">
           <MapNotesPanel
             isAuthenticated={isAuthenticated}
             anchor={mapNoteAnchor}
@@ -11734,6 +11734,7 @@ export function RoadMapPrototypeMap({
                   )
             }}
           />
+          </div>
           </div>
           </div>
         </div>

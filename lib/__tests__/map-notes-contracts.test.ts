@@ -13,10 +13,30 @@ const ids = {
 }
 
 describe('map note contracts', () => {
-  it('keeps the desktop notes drawer viewport-bounded and internally scrollable', () => {
+  it('keeps the map visible behind a viewport-bounded community sheet', () => {
     const source = readFileSync(join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'), 'utf8')
-    expect(source).toMatch(/sm:bottom-3[^"\n]*sm:top-14/)
+    expect(source).toContain('pointer-events-none absolute inset-0')
+    expect(source).toContain('max-h-[46dvh]')
+    expect(source).toContain('pointer-events-auto')
     expect(source).toMatch(/min-h-0 flex-1 overscroll-contain overflow-y-auto/)
+  })
+
+  it('opens in browse mode and confirms a completed submission', () => {
+    const source = readFileSync(join(process.cwd(), 'components/weather/MapNotesPanel.tsx'), 'utf8')
+    expect(source).toContain('const [composerOpen, setComposerOpen] = useState(false)')
+    expect(source).toContain('setSendSuccess(kind)')
+    expect(source).toContain('setComposerOpen(false)')
+    expect(source).toContain('role="status"')
+    expect(source).toContain("t('mapNotesCommunitySent')")
+    expect(source).toContain("t('mapNotesFeedbackSent')")
+  })
+
+  it('keeps V4 activation behind the existing authenticated admin refresh endpoint', () => {
+    const source = readFileSync(join(process.cwd(), 'components/teskeid/RoadGraphAdminSection.tsx'), 'utf8')
+    expect(source).toContain("fetch('/api/admin/weather/refresh-road-graph'")
+    expect(source).toContain("method: 'POST'")
+    expect(source).toContain("result?.status === 'ok'")
+    expect(source).toContain("result?.status === 'error'")
   })
 
   it('keeps the changed weather-overview message namespace in is/en parity', () => {
@@ -33,6 +53,7 @@ describe('map note contracts', () => {
     expect(isMessages.teskeid.vedrid.overview.mapNotesRouteFeedbackAction).toBe(
       'Láttu okkur endilega vita hvað Teskeiðarleiðarkerfið gæti gert betur',
     )
+    expect(isMessages.teskeid.vedrid.overview.roadMapPrototypePanelMessages).toBe('Samfélagið')
   })
 
   it('requires one explicit Iceland anchor for a community note', () => {

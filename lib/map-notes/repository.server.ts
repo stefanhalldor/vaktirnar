@@ -122,12 +122,19 @@ export async function listOwnTeskeidFeedback(userId: string, limit = 50): Promis
   if (error) throw new Error('map-notes: feedback list failed')
   const rows = (data ?? []) as MapMessageRow[]
   const names = await profileNames([userId])
-  return rows.filter(row => !row.deleted_at && !row.hidden_at).map(row => ({
+  return rows.filter(row => !row.deleted_at && !row.hidden_at).map(row => toPrivateFeedbackDto(row, names))
+}
+
+function toPrivateFeedbackDto(
+  row: MapMessageRow,
+  names: Map<string, string | null>,
+): PrivateTeskeidFeedbackDto {
+  return {
     id: row.id,
     body: row.body,
     createdAt: row.created_at,
     latestAt: row.created_at,
-    authorName: firstName(names.get(userId)),
+    authorName: firstName(names.get(row.user_id)),
     anchor: row.anchor_lat !== null && row.anchor_lon !== null
       ? {
           lat: row.anchor_lat,
@@ -140,7 +147,23 @@ export async function listOwnTeskeidFeedback(userId: string, limit = 50): Promis
     routeContext: row.metadata?.routeContext && typeof row.metadata.routeContext === 'object'
       ? row.metadata.routeContext as PrivateTeskeidFeedbackDto['routeContext']
       : null,
-  }))
+  }
+}
+
+export async function listTeskeidFeedbackForAdmin(limit = 150): Promise<PrivateTeskeidFeedbackDto[]> {
+  const threadId = await findThreadId('teskeid_feedback')
+  if (!threadId) return []
+  const { data, error } = await getAdmin()
+    .from('teskeid_chat_messages')
+    .select('id, user_id, body, created_at, deleted_at, hidden_at, metadata, anchor_lat, anchor_lon')
+    .eq('thread_id', threadId)
+    .order('created_at', { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 200))
+  if (error) throw new Error('map-notes: admin feedback list failed')
+  const rows = (data ?? []) as MapMessageRow[]
+  const visibleRows = rows.filter(row => !row.deleted_at && !row.hidden_at)
+  const names = await profileNames([...new Set(visibleRows.map(row => row.user_id))])
+  return visibleRows.map(row => toPrivateFeedbackDto(row, names))
 }
 
 export async function createMapNote(userId: string, input: CreateMapNoteInput): Promise<MapNoteDto> {

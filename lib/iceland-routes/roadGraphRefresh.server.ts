@@ -624,6 +624,17 @@ export async function refreshRoadGraphSnapshot(
     if (active?.id !== snapshotId) throw new Error('snapshot_verify_failed')
     await pruneRoadGraphSnapshotHistory().catch(() => undefined)
 
+    console.info('[road-graph-refresh] refresh complete', {
+      trigger: triggeredBy,
+      snapshotId,
+      policyFingerprint: buildPolicyFingerprint,
+      segmentCount: diagnostics.segmentCount,
+      nodeCount: diagnostics.nodeCount,
+      edgeCount: diagnostics.edgeCount,
+      goldenRoutePassCount,
+      goldenRouteTotalCount,
+    })
+
     return {
       status: 'ok',
       snapshotId,

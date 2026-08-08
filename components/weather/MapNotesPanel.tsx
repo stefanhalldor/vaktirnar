@@ -90,11 +90,17 @@ export function MapNotesPanel({
   const [hours, setHours] = useState('72')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState(false)
+  const [sendSuccess, setSendSuccess] = useState<MapNoteKind | null>(null)
+  const [composerOpen, setComposerOpen] = useState(false)
   const [localPreviewOnly, setLocalPreviewOnly] = useState(false)
   const envelopeRef = useRef<DraftEnvelope | null>(null)
 
   useEffect(() => {
-    if (routeFeedbackRequestId > 0) setKind('teskeid_feedback')
+    if (routeFeedbackRequestId > 0) {
+      setKind('teskeid_feedback')
+      setComposerOpen(true)
+      setSendSuccess(null)
+    }
   }, [routeFeedbackRequestId])
 
   useEffect(() => {
@@ -144,6 +150,7 @@ export function MapNotesPanel({
     envelopeRef.current = envelope
     setSending(true)
     setSendError(false)
+    setSendSuccess(null)
     try {
       const response = await fetch('/api/auth-mvp/map-notes', {
         method: 'POST',
@@ -159,6 +166,7 @@ export function MapNotesPanel({
           ...envelope,
         }),
       })
+      let createdItem: MapNoteDto | PrivateTeskeidFeedbackDto | null = null
       if (!response.ok) {
         if (process.env.NODE_ENV !== 'production' && (response.status === 404 || response.status === 503)) {
           const createdAt = new Date().toISOString()
@@ -181,9 +189,15 @@ export function MapNotesPanel({
         } else {
           throw new Error('send failed')
         }
+      } else {
+        const payload = await response.json() as { item?: MapNoteDto | PrivateTeskeidFeedbackDto }
+        createdItem = payload.item ?? null
       }
       setBody('')
       envelopeRef.current = null
+      setSendSuccess(kind)
+      setComposerOpen(false)
+      if (createdItem?.anchor) onFocusAnchor(createdItem.anchor)
       if (kind === 'community') community.refresh()
       else feedback.refresh()
     } catch {
@@ -191,7 +205,7 @@ export function MapNotesPanel({
     } finally {
       setSending(false)
     }
-  }, [anchor, body, community, feedback, isAuthenticated, kind, locationMode, routeFeedbackContext, sending])
+  }, [anchor, body, community, feedback, isAuthenticated, kind, locationMode, onFocusAnchor, routeFeedbackContext, sending])
 
   const activeItems = kind === 'community' ? community.items : feedback.items
   const activeLoading = kind === 'community' ? community.loading : feedback.loading
@@ -218,6 +232,12 @@ export function MapNotesPanel({
         </p>
       )}
 
+      {sendSuccess && (
+        <p role="status" className="rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm font-medium text-primary">
+          {sendSuccess === 'community' ? t('mapNotesCommunitySent') : t('mapNotesFeedbackSent')}
+        </p>
+      )}
+
       <div role="tablist" aria-label={t('mapNotesKindLabel')} className="flex border-b border-border">
         {(['community', 'teskeid_feedback'] as const).map(tab => (
           <button
@@ -226,7 +246,11 @@ export function MapNotesPanel({
             role="tab"
             aria-selected={kind === tab}
             tabIndex={kind === tab ? 0 : -1}
-            onClick={() => setKind(tab)}
+            onClick={() => {
+              setKind(tab)
+              setComposerOpen(false)
+              setSendSuccess(null)
+            }}
             onKeyDown={event => {
               if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
               event.preventDefault()
@@ -243,6 +267,31 @@ export function MapNotesPanel({
             {tab === 'community' ? t('mapNotesCommunityTab') : t('mapNotesFeedbackTab')}
           </button>
         ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setComposerOpen(true)
+            setSendSuccess(null)
+          }}
+          className="min-h-10 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {kind === 'community' ? t('mapNotesOpenComposer') : t('mapNotesOpenFeedbackComposer')}
+        </button>
+        {composerOpen && (
+          <button
+            type="button"
+            onClick={() => {
+              setComposerOpen(false)
+              setSendError(false)
+            }}
+            className="min-h-10 rounded-full px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t('mapNotesComposerCancel')}
+          </button>
+        )}
       </div>
 
       {kind === 'community' && (
@@ -274,7 +323,7 @@ export function MapNotesPanel({
         </div>
       )}
 
-      {isAuthenticated ? (
+      {composerOpen && isAuthenticated ? (
         <div className="space-y-2 rounded-xl border border-border/70 bg-background p-3">
           <p className="text-xs font-semibold text-foreground">
             {kind === 'community' ? t('mapNotesCommunityComposerTitle') : t('mapNotesFeedbackComposerTitle')}
@@ -376,9 +425,9 @@ export function MapNotesPanel({
           <p className="text-[11px] leading-relaxed text-muted-foreground">{t('mapNotesDrivingSafety')}</p>
           {sendError && <p role="alert" className="text-xs text-destructive">{t('mapNotesSendError')}</p>}
         </div>
-      ) : (
+      ) : composerOpen ? (
         <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">{t('mapNotesSignInToWrite')}</p>
-      )}
+      ) : null}
 
       <div className="space-y-3" aria-live="polite">
         {activeLoading ? (

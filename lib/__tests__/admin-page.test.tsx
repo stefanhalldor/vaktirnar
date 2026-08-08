@@ -5,6 +5,12 @@ import AdminPage from '@/app/(admin)/admin/page'
 vi.mock('@/components/teskeid/StatusBadge', () => ({
   StatusBadge: () => null,
 }))
+vi.mock('@/components/teskeid/MapFeedbackAdminSection', () => ({
+  MapFeedbackAdminSection: () => <div data-testid="map-feedback-admin" />,
+}))
+vi.mock('@/components/teskeid/RoadGraphAdminSection', () => ({
+  RoadGraphAdminSection: () => <div data-testid="road-graph-admin" />,
+}))
 
 const EMPTY_ANALYTICS = {
   summary: {
