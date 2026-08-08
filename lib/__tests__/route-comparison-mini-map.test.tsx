@@ -261,6 +261,8 @@ describe('RouteComparisonFullscreenMap', () => {
       onClose: vi.fn(),
       onApply: vi.fn(),
       googleSectionAnalysisOnlyLabel: 'Vegkaflagreining birtist aðeins á Teskeiðarleiðum.',
+      gravelGeometryLoadingLabel: 'Sæki malarkaflana…',
+      gravelGeometrySlowLabel: 'Malarkaflarnir eru enn að hlaðast.',
       gravelGeometryUnavailableLabel: 'Möl er á leiðinni en nákvæm staðsetning er ekki tiltæk.',
     }
 
@@ -281,6 +283,46 @@ describe('RouteComparisonFullscreenMap', () => {
     expect(screen.queryByText(commonProps.gravelGeometryUnavailableLabel)).not.toBeInTheDocument()
     googleView.unmount()
 
+    const loadingGeometryView = render(
+      <RouteComparisonFullscreenMap
+        {...commonProps}
+        gravelGeometryStatus="loading"
+        selectedRouteId="teskeid"
+        routes={[{
+          id: 'teskeid',
+          label: 'Teskeiðarleið',
+          provider: 'teskeid',
+          points: POINTS,
+          selected: true,
+          gravelKm: 12.3,
+        }]}
+      />,
+    )
+    expect(screen.getByText(commonProps.gravelGeometryLoadingLabel)).toBeInTheDocument()
+    expect(screen.queryByText(commonProps.gravelGeometryUnavailableLabel)).not.toBeInTheDocument()
+    expect(screen.getByRole('status').querySelector('.animate-spin')).toBeInTheDocument()
+    loadingGeometryView.unmount()
+
+    const slowGeometryView = render(
+      <RouteComparisonFullscreenMap
+        {...commonProps}
+        gravelGeometryStatus="slow"
+        selectedRouteId="teskeid"
+        routes={[{
+          id: 'teskeid',
+          label: 'Teskeiðarleið',
+          provider: 'teskeid',
+          points: POINTS,
+          selected: true,
+          gravelKm: 12.3,
+        }]}
+      />,
+    )
+    expect(screen.getByText(commonProps.gravelGeometrySlowLabel)).toBeInTheDocument()
+    expect(screen.getByRole('status').querySelector('.animate-spin')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /malarkafla aftur/i })).not.toBeInTheDocument()
+    slowGeometryView.unmount()
+
     const missingGeometryView = render(
       <RouteComparisonFullscreenMap
         {...commonProps}
@@ -297,6 +339,7 @@ describe('RouteComparisonFullscreenMap', () => {
     )
     expect(screen.getByText(commonProps.gravelGeometryUnavailableLabel)).toBeInTheDocument()
     expect(screen.queryByText(commonProps.googleSectionAnalysisOnlyLabel)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /malarkafla aftur/i })).not.toBeInTheDocument()
     missingGeometryView.unmount()
 
     render(

@@ -301,6 +301,20 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).not.toContain('if (freeDrive) return `${formatNum(averageOverviewWindMs')
   })
 
+  it('keeps exact free-drive filters independent from route mode and close stations unclustered', () => {
+    const visibilityStart = source.indexOf('function updateOverviewMarkerVisibility(')
+    const visibilityEnd = source.indexOf('\n  function scheduleOverviewMarkerVisibilityUpdate()', visibilityStart)
+    const visibility = source.slice(visibilityStart, visibilityEnd)
+
+    expect(visibilityStart).toBeGreaterThan(-1)
+    expect(visibilityEnd).toBeGreaterThan(visibilityStart)
+    expect(visibility).toContain('isFreeDriveWindStatusVisible(status, effectiveStatuses)')
+    expect(visibility).toContain('freeDriveShowsIndividualStationMarkers(level)')
+    expect(visibility).toContain('for (const entry of eligibleEntries)')
+    expect(visibility).toContain("entry.element.style.display = 'block'")
+    expect(source).toContain('mode={FREE_DRIVE_WIND_STATUS_FILTER_MODE}')
+  })
+
   it('self-heals free-drive station markers and never clears them before map readiness', () => {
     const markerEffectStart = source.indexOf("const useLivePresentation = liveDriveMode === 'free-drive'")
     const markerEffectEnd = source.indexOf('\n  useEffect(() => {', markerEffectStart + 1)

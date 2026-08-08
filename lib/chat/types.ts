@@ -1,6 +1,17 @@
-export type ChatDomain = 'weather' | 'expenses'
-export type ChatTargetType = 'vedurstofan_station' | 'vegagerdin_station' | 'expense_item'
-export type ChatMessageKind = 'chat' | 'field_report' | 'measurement_report' | 'system'
+export type ChatDomain = 'weather' | 'expenses' | 'map'
+export type ChatTargetType =
+  | 'vedurstofan_station'
+  | 'vegagerdin_station'
+  | 'expense_item'
+  | 'map_community'
+  | 'teskeid_feedback'
+export type ChatMessageKind =
+  | 'chat'
+  | 'field_report'
+  | 'measurement_report'
+  | 'system'
+  | 'map_note'
+  | 'teskeid_feedback'
 
 /** The stable target a chat thread is scoped to. */
 export interface ChatThreadTarget {
@@ -125,6 +136,9 @@ export interface ConditionFeedPreviewItemDto extends ConditionFeedTarget {
 export interface CreateMessageInput {
   body: string
   messageKind: ChatMessageKind
+  metadata?: Record<string, unknown>
+  anchorLat?: number | null
+  anchorLon?: number | null
 }
 
 export interface ReportMessageInput {

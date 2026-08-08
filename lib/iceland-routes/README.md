@@ -43,7 +43,8 @@ useful across providers, screens, or future Teskeid products.
   a pending state: graph materialisation from the active snapshot continues with
   `after()`. Live source refresh is separate, protected by admin/cron auth and a
   database lease, and promotes only snapshots that pass structural checks plus
-  all 21 golden routes. Source failure, no route, or flag-off never fail the Google result. The same helper
+  all 23 bidirectional golden route pairs. Source failure, no route, or
+  flag-off never fail the Google result. The same helper
   recalculates a selected candidate for final travel-weather sampling so preview
   and submit cannot use different rules.
 
@@ -57,11 +58,11 @@ useful across providers, screens, or future Teskeid products.
 - `GET /api/cron/refresh-road-graph` runs daily with `CRON_SECRET` when the
   global route-candidate flag or the independent
   `TESKEID_ROAD_GRAPH_REFRESH_ENABLED=true` prewarm flag is on.
-- The reader accepts reciprocal-v1 and exact-vertex-v2 contracts. Refresh keeps
-  writing reciprocal-v1 during reader-first rollout until
-  `TESKEID_ROAD_GRAPH_EXACT_VERTEX_V2_ENABLED=true`; after v2 is active it will
-  not downgrade merely because that rollout flag disappears. Before selecting
-  a writer policy, refresh verifies that the active payload and metadata carry
+- The reader accepts reciprocal-v1, exact-vertex-v2, endpoint-junction-v3 and
+  hub-endpoint-v4 contracts. Refresh selects a newer writer only behind its
+  reader-first rollout flag, and never downgrades an already active newer
+  fingerprint merely because that rollout flag disappears. Before selecting a
+  writer policy, refresh verifies that the active payload and metadata carry
   the same runtime contract and fails closed on missing/corrupt disagreement.
   Successful and unchanged responses include the selected policy fingerprint.
 - Refresh fetches and normalizes official source data, sorts it deterministically,
@@ -71,19 +72,29 @@ useful across providers, screens, or future Teskeid products.
   in its largest weak component because the layer includes many small detached
   road stubs. Bootstrap therefore requires at least 60%, while later refreshes
   must also retain at least 90% of the active snapshot's component share. All
-  21 golden routes remain mandatory and the 20 m topology tolerance is fixed.
+  23 bidirectional golden route pairs remain mandatory and the 20 m topology
+  tolerance is fixed.
 - Topology policy v2 also recognizes a unique source-attested endpoint that is
   horizontally coincident within 1 mm with an interior vertex of the uniquely
   named official target section. This splits a real T-junction; it does not
   draw a proximity connector. Non-zero gaps retain the reciprocal-reference
   policy, and reliable elevation contradictions still fail closed.
+- Endpoint-junction v3 pins a reciprocal official reference to the named target
+  endpoint, treats an all-zero elevation series as missing source elevation and
+  requires the connector to remain in both endpoint forward half-planes.
+- Hub-endpoint v4 may bridge a bounded one-sided official-reference gap only
+  when the exact target endpoint is independently attested by a reciprocal or
+  exact-endpoint receipt. It preserves the direction, role, road-part,
+  elevation and third-party crossing safeguards and never uses a road number,
+  place name or corridor allowlist as routing policy.
 - Every v2 promotion runs the actual HMS Víðibakki 851 Hella to Ísafjörður
   canary in both directions. It requires the 271-01 to Ring Road 1-c5 receipt,
   a 530–540 km corridor, bounded endpoint snaps and no 268/26 detour. This is a
   promotion assertion over the ordinary graph, not a place-specific route rule.
-- Enhanced schema-v1 snapshots carry one of two explicit build fingerprints.
-  The runtime can materialize retained reciprocal-v1 snapshots and current
-  exact-vertex-v2 snapshots with the same pure materializer used by refresh.
+- Enhanced schema-v1 snapshots carry one of four explicit build fingerprints.
+  The runtime can materialize retained reciprocal-v1, exact-vertex-v2,
+  endpoint-junction-v3 and hub-endpoint-v4 snapshots with the same pure
+  materializer used by refresh.
   A policy change invalidates graph and candidate state retained across Fast
   Refresh.
 - A validated payload is canonicalized, SHA-256 hashed, gzip-compressed and
@@ -94,9 +105,10 @@ useful across providers, screens, or future Teskeid products.
   calls the live Vegagerðin source.
 - Active plus the two previous retired snapshots are retained. Failed and
   unchanged refresh metadata is retained for 30 days; no user route is stored.
-- Promote exact-vertex-v2 only after every serving runtime can read both
-  fingerprints. If localhost and production share Supabase, deploying the
-  dual-reader first is required before the separate admin refresh promotes v2.
+- Promote a newer topology fingerprint only after every serving runtime can
+  read it. If localhost and production share Supabase, deploying the reader
+  first is required before a separate admin/cron refresh promotes the new
+  immutable snapshot.
 
 ## Shadow Routing Safety
 

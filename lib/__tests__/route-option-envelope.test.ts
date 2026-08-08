@@ -10,6 +10,14 @@ const NOW = new Date('2026-07-26T22:30:00.000Z')
 const ORIGIN = { lat: 64.1466, lon: -21.9426 }
 const DESTINATION = { lat: 65.6885, lon: -18.1262 }
 const ASSESSMENT_SCOPE_ID = 'assessment:v2:server-attested-scope'
+const ROUTE_EVIDENCE = {
+  graphBuildPolicyFingerprint: 'road-graph-policy-v4',
+  routeProvenanceFingerprint: 'A'.repeat(43),
+  originAnchorKind: 'projected_road' as const,
+  destinationAnchorKind: 'projected_road' as const,
+  edgeIds: ['edge-a', 'edge-b'],
+  nodeIds: ['node-a', 'node-b', 'node-c'],
+}
 
 const ROUTE: RouteOption = {
   id: 'teskeid-road-graph-v1',
@@ -142,6 +150,54 @@ describe('route option envelope', () => {
       { origin: ORIGIN, destination: DESTINATION, assessmentScopeId: null },
       { now: NOW },
     )).toEqual(unscoped)
+  })
+
+  it('cryptographically binds bounded graph evidence only to scoped Teskeið routes', () => {
+    const envelope = signRouteOptionEnvelope(
+      {
+        origin: ORIGIN,
+        destination: DESTINATION,
+        route: ROUTE,
+        assessmentScopeId: ASSESSMENT_SCOPE_ID,
+        routeEvidence: ROUTE_EVIDENCE,
+      },
+      { now: NOW },
+    )
+
+    expect(verifyRouteOptionEnvelope(
+      envelope,
+      { origin: ORIGIN, destination: DESTINATION, assessmentScopeId: ASSESSMENT_SCOPE_ID },
+      { now: NOW },
+    )).toEqual(envelope)
+    expect(verifyRouteOptionEnvelope(
+      {
+        ...envelope,
+        routeEvidence: { ...envelope.routeEvidence!, edgeIds: ['edge-a', 'edge-c'] },
+      },
+      { origin: ORIGIN, destination: DESTINATION, assessmentScopeId: ASSESSMENT_SCOPE_ID },
+      { now: NOW },
+    )).toBeNull()
+
+    expect(() => signRouteOptionEnvelope({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      route: ROUTE,
+      routeEvidence: ROUTE_EVIDENCE,
+    }, { now: NOW })).toThrow('Invalid route option envelope input')
+    expect(() => signRouteOptionEnvelope({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      route: { ...ROUTE, provider: 'google' },
+      routeEvidence: ROUTE_EVIDENCE,
+    }, { now: NOW })).toThrow('Invalid route option envelope input')
+    expect(() => signRouteOptionEnvelope({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      assessmentScopeId: ASSESSMENT_SCOPE_ID,
+      route: ROUTE,
+      routeEvidence: { ...ROUTE_EVIDENCE, edgeIds: ['edge-a', 'edge-a'] },
+    }, { now: NOW })).toThrow('Invalid route option envelope input')
   })
 
   it('rejects expired, future-issued, and malformed envelopes', () => {

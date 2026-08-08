@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   FREE_DRIVE_AGGREGATE_MARKER_OFFSETS,
+  FREE_DRIVE_WIND_STATUS_FILTER_MODE,
   createDefaultFreeDriveVisibleWindStatuses,
   freeDriveAggregateStationCountLabel,
   freeDriveAggregateStatus,
+  freeDriveShowsIndividualStationMarkers,
+  isFreeDriveWindStatusVisible,
   overviewStationClusterKey,
   routeOriginFromLiveLocation,
 } from '@/lib/weather/freeDriveMapPresentation'
@@ -37,6 +40,24 @@ describe('free-drive map presentation', () => {
     ])
     expect(statuses.has('no_data')).toBe(false)
     expect(statuses.has('no_wind_data')).toBe(false)
+  })
+
+  it('filters exact free-drive statuses without inheriting a grouped route preference', () => {
+    const statuses = createDefaultFreeDriveVisibleWindStatuses()
+    statuses.delete('innan-marka')
+
+    expect(FREE_DRIVE_WIND_STATUS_FILTER_MODE).toBe('detailed')
+    expect(isFreeDriveWindStatusVisible('innan-marka', statuses)).toBe(false)
+    expect(isFreeDriveWindStatusVisible('nalgast-othaegindi', statuses)).toBe(true)
+    expect(isFreeDriveWindStatusVisible('othaegilegt', statuses)).toBe(true)
+    expect(isFreeDriveWindStatusVisible('no_data', statuses)).toBe(false)
+    expect(isFreeDriveWindStatusVisible('haettulegt', new Set())).toBe(true)
+  })
+
+  it('clusters overview zooms but keeps every station at close free-drive zoom', () => {
+    expect(freeDriveShowsIndividualStationMarkers('aggregate')).toBe(false)
+    expect(freeDriveShowsIndividualStationMarkers('compact')).toBe(false)
+    expect(freeDriveShowsIndividualStationMarkers('full')).toBe(true)
   })
 
   it('turns the last trusted free-drive point into an exact device origin', () => {

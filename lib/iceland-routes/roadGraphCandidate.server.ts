@@ -16,6 +16,7 @@ import {
 import {
   resolveTeskeidAssessmentRouteEvidence,
   roadGraphRouteToTeskeidOption,
+  type TeskeidAssessmentRouteEvidence,
 } from './routeAssessmentCandidateEvidence.server'
 
 export const TESKEID_ROUTE_CANDIDATE_FLAG = 'TESKEID_ROUTE_CANDIDATE_ENABLED'
@@ -216,7 +217,12 @@ export type TeskeidRouteCandidateOutcome =
   | { status: 'disabled' | 'pending' | 'no_route' | 'unavailable'; route: null }
 
 export type TeskeidRouteCandidatesOutcome =
-  | { status: 'ready'; routes: RouteOption[] }
+  | {
+      status: 'ready'
+      routes: RouteOption[]
+      /** Server-only graph evidence; API responses must project only `routes`. */
+      evidence?: readonly TeskeidAssessmentRouteEvidence[]
+    }
   | { status: 'disabled' | 'pending' | 'no_route' | 'unavailable'; routes: [] }
 
 export async function getTeskeidRouteCandidatesOutcome(
@@ -317,7 +323,11 @@ export async function getTeskeidAssessmentRouteCandidatesOutcome(
         })
         if (evidence.status === 'incomplete') return { status: 'pending', routes: [] }
         if (evidence.status !== 'ready') return { status: 'unavailable', routes: [] }
-        return { status: 'ready', routes: evidence.evidence.map(candidate => candidate.route) }
+        return {
+          status: 'ready',
+          routes: evidence.evidence.map(candidate => candidate.route),
+          evidence: evidence.evidence,
+        }
       })
     } catch {
       return { status: 'unavailable', routes: [] }

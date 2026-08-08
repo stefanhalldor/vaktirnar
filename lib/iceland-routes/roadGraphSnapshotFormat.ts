@@ -30,13 +30,19 @@ export const ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1 =
   'teskeid-road-runtime-v1:topology-reciprocal-section-endpoints-v1:bidirectional-routing-v1'
 export const ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2 =
   'teskeid-road-runtime-v1:topology-source-attested-exact-interior-vertex-v2:bidirectional-routing-v1'
+export const ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3 =
+  'teskeid-road-runtime-v1:topology-attested-endpoint-junctions-v3:bidirectional-routing-v1'
+export const ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_HUB_ENDPOINT_V4 =
+  'teskeid-road-runtime-v1:topology-source-attested-hub-endpoint-gaps-v4:bidirectional-routing-v1'
 /** Current reader/materializer generation; refresh rollout is gated separately. */
 export const ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT =
-  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_HUB_ENDPOINT_V4
 
 export type RoadGraphRuntimeBuildPolicyFingerprint =
   | typeof ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1
   | typeof ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2
+  | typeof ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3
+  | typeof ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_HUB_ENDPOINT_V4
 
 /**
  * Hash-bound materialisation contract for the topology-enhanced schema-v1
@@ -288,7 +294,9 @@ function validRuntimeBuildContractV1(value: unknown): value is RoadGraphRuntimeB
   if (
     value.schemaVersion !== 1
     || (value.policyFingerprint !== ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1
-      && value.policyFingerprint !== ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2)
+      && value.policyFingerprint !== ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2
+      && value.policyFingerprint !== ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3
+      && value.policyFingerprint !== ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_HUB_ENDPOINT_V4)
     || !validRuntimeDiagnostics(value.diagnostics)
     || !finiteInteger(value.goldenRoutePassCount, 1)
     || !finiteInteger(value.goldenRouteTotalCount, 1)

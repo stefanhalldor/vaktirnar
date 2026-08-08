@@ -25,11 +25,15 @@ import {
 } from '@/lib/iceland-routes/routeAssessmentCandidateEvidence.server'
 import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 import { createRouteAssessmentScopeId } from '@/lib/iceland-routes/routeAssessmentScopeId.server'
+import { HOLMAVIK_NORTH_ROUTE61_VIA } from '@/lib/weather/routeCautionConstants'
 import type { IcelandRoadGraph, IcelandRoadGraphSegmentInput } from '@/lib/iceland-routes/roadGraphTypes'
 import type { LatLon } from '@/lib/iceland-routes/types'
 
 const ROAD_START = { lat: 64, lon: -20.5 }
 const ROAD_END = { lat: 64, lon: -20.1 }
+const REYKJAVIK = { lat: 64.1466, lon: -21.9426 }
+const HOLMAVIK = { lat: 65.703, lon: -21.685 }
+const THINGEYRI = { lat: 65.8797, lon: -23.4929 }
 
 function segment(
   id: string,
@@ -66,6 +70,33 @@ function graphWithAlternative(direction: 'forward' | 'both' = 'forward'): Icelan
     segment('detour-a', [startGateway, detourMid], { direction }),
     segment('detour-b', [detourMid, endGateway], { direction }),
     segment('destination-edge', [endGateway, { lat: 64, lon: -20.1 }], { direction }),
+  ], { nodeSnapToleranceM: 2 })
+}
+
+function graphWithWestfjordsRoutes(): IcelandRoadGraph {
+  return buildIcelandRoadGraph([
+    segment('south-westfjords-direct', [REYKJAVIK, THINGEYRI]),
+    segment('holmavik-leg-south', [REYKJAVIK, HOLMAVIK]),
+    segment('holmavik-leg-north', [HOLMAVIK, THINGEYRI]),
+  ], { nodeSnapToleranceM: 2 })
+}
+
+function graphWithOnlyHolmavikWestfjordsRoute(): IcelandRoadGraph {
+  return buildIcelandRoadGraph([
+    segment('holmavik-only-south', [REYKJAVIK, HOLMAVIK]),
+    segment('holmavik-only-north', [HOLMAVIK, THINGEYRI]),
+  ], { nodeSnapToleranceM: 2 })
+}
+
+function graphWithHolmavikBacktrackTrap(): IcelandRoadGraph {
+  const southernShortcut = { lat: 65.1, lon: -22.1 }
+  return buildIcelandRoadGraph([
+    segment('primary-southern-route', [REYKJAVIK, THINGEYRI], { lengthM: 300_000 }),
+    segment('origin-to-holmavik', [REYKJAVIK, HOLMAVIK], { lengthM: 200_000 }),
+    segment('holmavik-to-north-gate', [HOLMAVIK, HOLMAVIK_NORTH_ROUTE61_VIA], { lengthM: 20_000 }),
+    segment('backtrack-south', [HOLMAVIK, southernShortcut], { lengthM: 10_000 }),
+    segment('southern-shortcut-to-destination', [southernShortcut, THINGEYRI], { lengthM: 30_000 }),
+    segment('north-gate-to-destination', [HOLMAVIK_NORTH_ROUTE61_VIA, THINGEYRI], { lengthM: 100_000 }),
   ], { nodeSnapToleranceM: 2 })
 }
 
@@ -262,6 +293,127 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(alternative.points).toContainEqual({ lat: 63.9, lon: -20.4 })
     expect(alternative.points).not.toEqual(withAlternatives.routes[0].points)
     expect(mockGetIcelandRoadGraph).toHaveBeenCalledTimes(3)
+  })
+
+  it('publishes a Teskeið-owned route through Hólmavík when the primary Westfjords route is cautioned', () => {
+    const activeGraph = graphWithWestfjordsRoutes()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: REYKJAVIK },
+      { kind: 'canonical_node', point: THINGEYRI },
+    )
+
+    const outcome = resolveTeskeidAssessmentRouteEvidence({
+      graph: activeGraph,
+      origin: scope.origin,
+      destination: scope.destination,
+      assessmentScopeId: scope.assessmentScopeId,
+      includeAlternatives: false,
+      deadlineAtMs: Date.now() + 30_000,
+    })
+
+    expect(outcome.status).toBe('ready')
+    if (outcome.status !== 'ready') return
+    expect(outcome.evidence).toHaveLength(2)
+    expect(outcome.evidence[0].route.cautions).toContainEqual(
+      expect.objectContaining({ id: 'westfjords-south-route60' }),
+    )
+    const viaHolmavik = outcome.evidence[1]
+    expect(viaHolmavik.route).toMatchObject({
+      provider: 'teskeid',
+      labels: expect.arrayContaining(['CURATED_VIA_HOLMAVIK', 'TESKEID_ALTERNATIVE']),
+    })
+    expect(viaHolmavik.route.points).toContainEqual(HOLMAVIK)
+    expect(viaHolmavik.route.cautions).not.toContainEqual(
+      expect.objectContaining({ id: 'westfjords-south-route60' }),
+    )
+    expect(viaHolmavik.route.distanceM).toBeGreaterThan(outcome.evidence[0].route.distanceM)
+  })
+
+  it('keeps the Teskeið-owned Hólmavík route invariant in the reverse direction', () => {
+    const activeGraph = graphWithWestfjordsRoutes()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: THINGEYRI },
+      { kind: 'canonical_node', point: REYKJAVIK },
+    )
+
+    const outcome = resolveTeskeidAssessmentRouteEvidence({
+      graph: activeGraph,
+      origin: scope.origin,
+      destination: scope.destination,
+      assessmentScopeId: scope.assessmentScopeId,
+      includeAlternatives: false,
+      deadlineAtMs: Date.now() + 30_000,
+    })
+
+    expect(outcome.status).toBe('ready')
+    if (outcome.status !== 'ready') return
+    const viaHolmavik = outcome.evidence.find(evidence => (
+      evidence.route.labels.includes('CURATED_VIA_HOLMAVIK')
+    ))
+    expect(viaHolmavik?.route.provider).toBe('teskeid')
+    expect(viaHolmavik?.route.points).toContainEqual(HOLMAVIK)
+    expect(viaHolmavik?.route.points[0]).toEqual(THINGEYRI)
+    expect(viaHolmavik?.route.points.at(-1)).toEqual(REYKJAVIK)
+  })
+
+  it('names the primary Teskeið route when it already runs through Hólmavík', () => {
+    const activeGraph = graphWithOnlyHolmavikWestfjordsRoute()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: REYKJAVIK },
+      { kind: 'canonical_node', point: THINGEYRI },
+    )
+
+    const outcome = resolveTeskeidAssessmentRouteEvidence({
+      graph: activeGraph,
+      origin: scope.origin,
+      destination: scope.destination,
+      assessmentScopeId: scope.assessmentScopeId,
+      includeAlternatives: false,
+    })
+
+    expect(outcome.status).toBe('ready')
+    if (outcome.status !== 'ready') return
+    expect(outcome.evidence).toHaveLength(1)
+    expect(outcome.evidence[0].route).toMatchObject({
+      provider: 'teskeid',
+      labels: expect.arrayContaining(['CURATED_VIA_HOLMAVIK']),
+    })
+    expect(outcome.evidence[0].route.points).toContainEqual(HOLMAVIK)
+  })
+
+  it('does not let the post-Hólmavík leg turn south again when that path is shorter', () => {
+    const activeGraph = graphWithHolmavikBacktrackTrap()
+    const scope = signedScopeInput(
+      activeGraph,
+      { kind: 'canonical_node', point: REYKJAVIK },
+      { kind: 'canonical_node', point: THINGEYRI },
+    )
+
+    const outcome = resolveTeskeidAssessmentRouteEvidence({
+      graph: activeGraph,
+      origin: scope.origin,
+      destination: scope.destination,
+      assessmentScopeId: scope.assessmentScopeId,
+      includeAlternatives: false,
+      deadlineAtMs: Date.now() + 30_000,
+    })
+
+    expect(outcome.status).toBe('ready')
+    if (outcome.status !== 'ready') return
+    const viaHolmavik = outcome.evidence.find(evidence => (
+      evidence.route.labels.includes('CURATED_VIA_HOLMAVIK')
+    ))
+    expect(viaHolmavik).toBeDefined()
+    expect(viaHolmavik?.connectedRoadEdges.some(edge => (
+      edge.segmentId === 'north-gate-to-destination'
+    ))).toBe(true)
+    expect(viaHolmavik?.connectedRoadEdges.some(edge => (
+      edge.segmentId === 'backtrack-south'
+        || edge.segmentId === 'southern-shortcut-to-destination'
+    ))).toBe(false)
   })
 
   it('preserves both projected endpoints during a reverse-direction alternative search', async () => {

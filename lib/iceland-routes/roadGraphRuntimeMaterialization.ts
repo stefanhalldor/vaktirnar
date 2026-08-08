@@ -1,6 +1,8 @@
 import { buildIcelandRoadGraph } from './roadGraph'
 import {
   ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_HUB_ENDPOINT_V4,
   ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1,
   type RoadGraphRuntimeBuildPolicyFingerprint,
 } from './roadGraphSnapshotFormat'
@@ -9,6 +11,8 @@ import {
   reconcileVegagerdinRoadGraphTopology,
   VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V1,
   VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2,
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3,
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4,
   type VegagerdinRoadGraphTopologyResult,
   type VegagerdinTopologyReconciliationPolicyId,
 } from './vegagerdinRoadGraphTopology'
@@ -26,6 +30,12 @@ function topologyPolicyIdForFingerprint(
   }
   if (fingerprint === ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2) {
     return VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2
+  }
+  if (fingerprint === ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3) {
+    return VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3
+  }
+  if (fingerprint === ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_HUB_ENDPOINT_V4) {
+    return VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4
   }
   throw new Error('road_graph_runtime_build_policy_unsupported')
 }
@@ -55,10 +65,14 @@ export function materializeEnhancedRoadGraphSnapshotV1(input: {
     nodeSnapToleranceM: input.nodeSnapToleranceM,
     routingDirectionPolicy: 'bidirectional',
     missingDirectionPolicy: 'provisional_bidirectional',
-    ...(topology.bindings.length > 0
+    ...(topology.bindings.length > 0 && topology.receipts[0]
       ? {
           topologyReconciliation: {
             bindings: topology.bindings,
+            sectionLedger: topology.sectionLedger,
+            receiptLedger: topology.receipts,
+            policyId: topology.policyId,
+            provenance: topology.receipts[0].provenance,
             invalidBindingBehavior: 'throw' as const,
           },
         }

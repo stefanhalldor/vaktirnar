@@ -19,6 +19,22 @@ function renderComposer(multiline: boolean) {
 }
 
 describe('ScopedChatComposer keyboard behavior', () => {
+  it('can keep the draft editable while a context requirement disables only send', () => {
+    render(
+      <ScopedChatComposer
+        value="Uppkast"
+        onChange={vi.fn()}
+        onSend={vi.fn()}
+        disabled={false}
+        sendDisabled
+        placeholder="Skrifaðu"
+        sendLabel="Senda"
+      />,
+    )
+    expect(screen.getByRole('textbox')).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Senda' })).toBeDisabled()
+  })
+
   it('keeps plain Enter available for paragraphs in multiline mode', () => {
     const onSend = renderComposer(true)
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })

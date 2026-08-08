@@ -31,6 +31,14 @@ export const WESTFJORDS_NORTH_BOUNDS: Bounds = { minLat: 65.80, maxLat: 66.50, m
 export const HOLMAVIK_VIA = { lat: 65.703, lon: -21.685 }
 
 /**
+ * Route 61 control point west/north of Hólmavík at the official
+ * Steingrímsfjarðarheiði station. A safe northern-Westfjords alternative must
+ * cross this gate after Hólmavík (or before it in the reverse direction), so a
+ * shortest-path leg cannot immediately turn south again.
+ */
+export const HOLMAVIK_NORTH_ROUTE61_VIA = { lat: 65.7503, lon: -22.1291 }
+
+/**
  * Proximity radius used to decide whether a route passes "near" Hólmavík.
  * Used both for caution detection (routeCautions.ts) and curated duplicate
  * suppression (google.server.ts) so the two systems stay consistent.

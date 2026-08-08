@@ -6,6 +6,8 @@ interface ScopedChatComposerProps {
   onSend: () => void
   /** Disables both input and button (e.g. while sending). */
   disabled: boolean
+  /** Keeps the draft editable while only the send action is unavailable. */
+  sendDisabled?: boolean
   placeholder: string
   sendLabel: string
   /**
@@ -23,6 +25,7 @@ export function ScopedChatComposer({
   onChange,
   onSend,
   disabled,
+  sendDisabled = false,
   placeholder,
   sendLabel,
   variant = 'full',
@@ -55,7 +58,7 @@ export function ScopedChatComposer({
         <button
           type="button"
           onClick={onSend}
-          disabled={disabled || !value.trim()}
+          disabled={disabled || sendDisabled || !value.trim()}
           className="text-sm sm:text-xs min-h-10 sm:min-h-8 px-2.5 sm:px-2 rounded-md border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-40 transition-colors shrink-0"
         >
           {sendLabel}
@@ -91,7 +94,7 @@ export function ScopedChatComposer({
       <button
         type="button"
         onClick={onSend}
-        disabled={disabled || !value.trim()}
+        disabled={disabled || sendDisabled || !value.trim()}
         className="text-sm min-h-10 px-3 rounded-lg bg-foreground text-background disabled:opacity-40 transition-opacity shrink-0"
       >
         {sendLabel}

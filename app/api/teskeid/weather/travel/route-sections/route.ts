@@ -21,6 +21,7 @@ import {
   verifyRouteOptionEnvelope,
   type RouteEnvelopeEndpoint,
 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
+import { restoreRouteOptionEvidence } from '@/lib/iceland-routes/routeOptionEvidence.server'
 import {
   buildRouteSectionsData,
   routeSectionsPresentationHashPayload,
@@ -224,6 +225,14 @@ export async function POST(request: Request) {
   if (!isPrimary && !alternativeIdentity) {
     return jsonResponse({ status: 'invalid_route' }, 422)
   }
+  if (
+    verifiedEnvelope.routeEvidence
+    && alternativeIdentity
+    && verifiedEnvelope.routeEvidence.routeProvenanceFingerprint
+      !== alternativeIdentity.routeProvenanceFingerprint
+  ) {
+    return jsonResponse({ status: 'invalid_route' }, 422)
+  }
 
   try {
     const evidenceDeadlineAtMs = Date.now() + EVIDENCE_BUDGET_MS
@@ -234,32 +243,52 @@ export async function POST(request: Request) {
     if (graph === DEADLINE_EXCEEDED) {
       return pendingResponse(verifiedEnvelope.signature)
     }
-    const evidence = resolveTeskeidAssessmentRouteEvidence({
-      graph,
-      origin: verifiedEnvelope.origin,
-      destination: verifiedEnvelope.destination,
-      assessmentScopeId: verifiedEnvelope.assessmentScopeId!,
-      includeAlternatives: Boolean(alternativeIdentity),
-      deadlineAtMs: evidenceDeadlineAtMs,
-      ...(alternativeIdentity
-        ? { alternativeDeadlineAtMs: evidenceDeadlineAtMs }
-        : {}),
-    })
-    if (evidence.status === 'incomplete') {
-      return pendingResponse(verifiedEnvelope.signature)
+    let regeneratedRoute: ReturnType<typeof buildIcelandRoadGraphRouteFromEdges>
+    if (verifiedEnvelope.routeEvidence) {
+      const restored = restoreRouteOptionEvidence({
+        graph,
+        claim: verifiedEnvelope.routeEvidence,
+        origin: verifiedEnvelope.origin,
+        destination: verifiedEnvelope.destination,
+      })
+      if (!restored) return jsonResponse({ status: 'unavailable' }, 409)
+      regeneratedRoute = restored.route
+    } else {
+      // Backward-compatible path for already-issued v1 envelopes. Newly
+      // signed scoped Teskeið envelopes carry bounded evidence and avoid this
+      // full primary/alternative search.
+      const evidence = resolveTeskeidAssessmentRouteEvidence({
+        graph,
+        origin: verifiedEnvelope.origin,
+        destination: verifiedEnvelope.destination,
+        assessmentScopeId: verifiedEnvelope.assessmentScopeId!,
+        includeAlternatives: Boolean(alternativeIdentity),
+        deadlineAtMs: evidenceDeadlineAtMs,
+        ...(alternativeIdentity
+          ? { alternativeDeadlineAtMs: evidenceDeadlineAtMs }
+          : {}),
+      })
+      if (evidence.status === 'incomplete') {
+        return pendingResponse(verifiedEnvelope.signature)
+      }
+      if (evidence.status !== 'ready') {
+        return jsonResponse({ status: 'unavailable' }, 409)
+      }
+
+      const selectedEvidence = evidence.evidence.find(candidate => (
+        teskeidAssessmentEvidenceMatchesSignedRoute(candidate, verifiedEnvelope.route)
+      ))
+      if (!selectedEvidence) return jsonResponse({ status: 'unavailable' }, 409)
+      regeneratedRoute = buildIcelandRoadGraphRouteFromEdges(
+        selectedEvidence.connectedRoadEdges,
+      )
     }
-    if (evidence.status !== 'ready') {
+    if (
+      regeneratedRoute.distanceM !== verifiedEnvelope.route.distanceM
+      || regeneratedRoute.durationS !== verifiedEnvelope.route.durationS
+    ) {
       return jsonResponse({ status: 'unavailable' }, 409)
     }
-
-    const selectedEvidence = evidence.evidence.find(candidate => (
-      teskeidAssessmentEvidenceMatchesSignedRoute(candidate, verifiedEnvelope.route)
-    ))
-    if (!selectedEvidence) return jsonResponse({ status: 'unavailable' }, 409)
-
-    const regeneratedRoute = buildIcelandRoadGraphRouteFromEdges(
-      selectedEvidence.connectedRoadEdges,
-    )
     if (!exactSurfaceMatch(
       verifiedEnvelope.route.experimental.surface,
       regeneratedRoute.surface,

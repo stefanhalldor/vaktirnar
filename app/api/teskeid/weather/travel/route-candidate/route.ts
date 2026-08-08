@@ -14,6 +14,8 @@ import {
 } from '@/lib/iceland-routes/roadGraphRuntime.server'
 import { resolveRouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope.server'
 import type { RouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope'
+import { teskeidAssessmentEvidenceMatchesSignedRoute } from '@/lib/iceland-routes/routeAssessmentCandidateEvidence.server'
+import { createRouteOptionEvidenceClaim } from '@/lib/iceland-routes/routeOptionEvidence.server'
 import {
   signRouteOptionEnvelope,
   type RouteOptionEnvelopeV1,
@@ -328,12 +330,24 @@ export async function POST(request: Request) {
   if (includeRouteEnvelopes && outcome.status === 'ready') {
     try {
       const signStartedAt = performance.now()
-      routeEnvelopes = outcome.routes.map(route => signRouteOptionEnvelope({
-        origin,
-        destination,
-        route,
-        ...(assessmentScopeId ? { assessmentScopeId } : {}),
-      }))
+      routeEnvelopes = outcome.routes.map((route, index) => {
+        const evidence = outcome.evidence?.[index]
+        const routeEvidence = assessmentScopeId
+          ? evidence && teskeidAssessmentEvidenceMatchesSignedRoute(evidence, route)
+            ? createRouteOptionEvidenceClaim({ origin, destination, evidence })
+            : null
+          : undefined
+        if (assessmentScopeId && !routeEvidence) {
+          throw new Error('route_evidence_unavailable')
+        }
+        return signRouteOptionEnvelope({
+          origin,
+          destination,
+          route,
+          ...(assessmentScopeId ? { assessmentScopeId } : {}),
+          ...(routeEvidence ? { routeEvidence } : {}),
+        })
+      })
       signMs = performance.now() - signStartedAt
     } catch {
       console.error('[route-candidate] envelope signing failed')

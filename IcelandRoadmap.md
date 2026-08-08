@@ -191,6 +191,28 @@ Teskeiðar-segments:
 - keyra Route Intelligence Intake án þess að vista raw Google route content sem
   canonical Teskeiðargögn
 
+**Hólmavíkur-invariant (v187 hotfix):** Ef Teskeiðarleið til eða frá
+norðanverðum Vestfjörðum fær caution fyrir suðurleiðina reynir
+Teskeiðarvegagröfin sjálf að reikna annan samfelldan valkost um canonical
+Hólmavíkur-control point og þaðan yfir Route 61-gate við
+Steingrímsfjarðarheiði. Ytri leggurinn norðan gatesins má ekki velja styttri
+leið aftur um Hólmavík. Í gagnstæða akstursstefnu er röð control pointanna
+snúið við. Aðeins sú Teskeiðarleið fær
+`CURATED_VIA_HOLMAVIK` og heitið `Gegnum Hólmavík`; Google-leið er hvorki
+endurmerkt, caution-merkt í samanburðinum né notuð til að útbúa þennan
+valkost með auka Google-kalli. Reglan er boundary-, vegagrafar- og
+geometry-drifin, ekki bundin Þingeyri eða ákveðnum upphafsstað.
+
+**Nákvæm leiðarkafla-evidence (v190 hotfix):** Ný scoped Teskeiðarleið bindur
+undirritaða, raðaða edge- og node-auðkennisröð ásamt runtime-policy og
+route-provenance við route-envelope. `route-sections` endurheimtir sömu
+brúnirnar úr virka immutable vegagrafinu og byggir m.a. malargeometry án þess
+að keyra primary- eða alternative-leit aftur. Endurheimtin endursannar
+samfellu, provenance, vegalengd, tíma og slitlagstölur og failar lokað ef
+snapshot eða graph-content hefur breyst. Gömul envelope án evidence nota
+tímabundið eldri endurreikningsleið þar til 15 mínútna gildistími þeirra
+rennur út. Reglan inniheldur engin staðar-, vegnúmers- eða leiðarallowlist.
+
 ### R3 - Provider Station Matching
 
 Veðurstofu- og Vegagerðarpunktar eiga að tengjast leiðum með sama
@@ -469,6 +491,38 @@ Prófa einfalt graph fyrir langar Íslandsleiðir:
   Supabase-verkefni þjónar eldri runtime-instönsum. Refresh er áfram aðskilin,
   skrifandi og sérstaklega samþykkt aðgerð.
 
+**Framhald (v0.9.5 — landsreglur fyrir endpoint- og hub-gatnamót):**
+
+- Ný topology-semantík er alltaf útgáfustýrð. Reciprocal-v1 og
+  exact-vertex-v2 haldast óbreytt; endpoint-junction-v3 festir gagnkvæma
+  kaflatilvísun við staðfest target-endpoint, notar öll-núll Z-röð sem
+  vöntunargildi og krefst þess að bilið liggi í forward half-plane beggja
+  vegenda.
+- Source-attested hub-endpoint-v4 er þrengri viðbót fyrir einhliða tilvísun að
+  tengimiðju. Target-endpoint þarf fyrst að vera sjálfstætt staðfestur með
+  samþykktri v3 reciprocal/exact-endpoint receipt. Síðan gilda áfram unique
+  section/endpoint, 50 m hámark, source-approach, crossing-angle, direction,
+  role/road-part, reliable-elevation og third-party-crossing varnir. Engin
+  staðarheiti, hnit, vegnúmer eða kaflanúmer eru routing-regla.
+- Golden-grunnurinn er 23 leiðapör. Hvert par keyrir sjálfkrafa í báðar áttir,
+  notar að hámarki 2,5 km staðfest veg-snap, vegalengdarbil,
+  road-to-air guard og að hámarki 1 m mun milli stefna. Nýju sýnishornin eru
+  Reykjavík ↔ Stykkishólmur og Eyrarbakki ↔ Selfoss; þau eru quality gates,
+  ekki corridor-allowlistar.
+- Staðbundinn opinber source-artifact skilar með v4 um 173,1 km
+  Reykjavík ↔ Stykkishólmur, 99,3 km Borgarnes ↔ Stykkishólmur og 11,7 km
+  Eyrarbakki ↔ Selfoss í báðar áttir. Sjálfstætt hub-evidence heldur líka
+  Höfn tengdri landsnetinu án sérreglu og 23/23 golden pör standast áður en
+  policy getur talist publication-candidate.
+- Refresh á nýrri policy þarf áfram reader-first rollout og sérstakt writer
+  flagg. Engin v3/v4 snapshot-virkjun, provider-breyting eða production-skrif
+  fylgja localhost-kóðanum sjálfkrafa.
+- Næsta drift-hardening þarf að varðveita canonical raw hash og feature-count
+  fyrir hvert source-layer, fulla normalization-skýrslu, talningu á
+  topology-sections sem voru samþykktar eða felldar út eftir reason og bounded
+  LKG-delta á receipts/bindings. Þangað til er 23-leiða matrix fail-closed
+  útgáfuhlið en ekki full sönnun fyrir óséðum breytingum utan leiðanna.
+
 ### R7 - Eigið Kortalag Prototype
 
 Staða: ekki byrjað.
@@ -500,6 +554,27 @@ Teskeið þróast í live ferðafélaga:
 
 Þessi fasi þarf sér privacy, battery, push-notification og safety rýni áður en
 hann verður product.
+
+### R9 - Staðbundnar samfélagsathugasemdir og leiðarábendingar
+
+Staða: localhost-MVP, ókeyrð SQL118 og engin production-virkjun.
+
+- Samfélagsathugasemd er stök færsla með afmörkuðum texta, tíma og einum
+  staðfestum punkti sem notandinn velur. Hún er ekki spjallþráður og geymir
+  aldrei GPS-feril.
+- Staðurinn er valinn með sama `PlaceSearch` contracti og Hvaðan/Hvert:
+  staðaleit, núverandi staðsetning og samnýtt „Leita á korti“ eru sýnileg frá
+  upphafi. Kortakerfið má ekki þróa sérstakt annað staðavalsmynstur fyrir notes.
+- Community-færsla má vera skýrt merkt `general`/„Óháð staðsetningu“. Þá geymir
+  hún engin hnit og birtist í straumi/leitarniðurstöðum en aldrei sem kortapinni.
+- Einkarábending til Teskeiðar er geymd í aðskildu chat-contexti. Hún má bera
+  afmarkað hvaðan/hvert og auðkenni valinnar leiðar, en þau gögn fara aldrei í
+  samfélags-DTO.
+- Notendatexti eða fjöldi athugasemda breytir aldrei road graph, route policy
+  eða leiðarvali sjálfkrafa. Gögnin eru fyrst feedback/evidence sem þarf
+  sjálfstæða sannprófun áður en þau geta haft áhrif á leiðakerfið.
+- Frjálsum akstri er lokað áður en notandi velur punkt eða skrifar. Kortið má
+  síðar draga saman nýlegar færslur framundan, en það er ekki hluti af MVP.
 
 ## Data, Privacy Og Kostnaður
 
@@ -556,7 +631,9 @@ Næstu skrár koma aðeins þegar þær eru notaðar:
 ## Opin Atriði
 
 - Byrjum við með hand-curated registry eða OSM import?
-- Hvaða 10-20 leiðir verða regression test grunnur?
+- Hvaða leiðir bætast næst við 23-leiða regression-grunninn? Reykjavík ↔
+  Egilsstaðir, Reykjavík ↔ Stykkishólmur og Eyrarbakki ↔ Selfoss eru nú
+  skylduleiðir í grunninum.
 - Á graph að búa í TS registry fyrst eða Supabase síðar?
 - Hvaða segment-level gögn má geyma án þess að privacy flækist?
 - Hvaða afleiddu gögn úr Google Routes köllum má geyma samkvæmt skilmálum, og

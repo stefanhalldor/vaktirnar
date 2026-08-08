@@ -76,11 +76,20 @@ const POINTS_NOT_VIA_HOLMAVIK = [
   { lat: 65.68, lon: -18.10 }, // Akureyri area
 ]
 
-// Points that DO pass near Hólmavík (within 8 km of lat 65.703, lon -21.685).
+// Touches Hólmavík but does not continue over the northern Route 61 gate.
 const POINTS_VIA_HOLMAVIK = [
   { lat: 64.10, lon: -21.90 }, // Garðabær area
   { lat: 65.70, lon: -21.69 }, // ~0.4 km from HOLMAVIK_VIA — inside 8 km threshold
+  { lat: 65.10, lon: -21.80 }, // turns back south instead of crossing the Route 61 gate
+  { lat: 65.60, lon: -24.00 }, // southern Westfjords corridor
   { lat: 66.07, lon: -23.13 }, // Ísafjörður
+]
+
+const POINTS_VIA_HOLMAVIK_NORTH_CORRIDOR = [
+  { lat: 64.10, lon: -21.90 },
+  { lat: 65.70, lon: -21.69 },
+  { lat: 65.7503, lon: -22.1291 },
+  { lat: 66.07, lon: -23.13 },
 ]
 
 // ── Westfjords trailer caution ────────────────────────────────────────────────
@@ -107,8 +116,17 @@ describe('matchRouteCautions — Westfjords trailer caution', () => {
     expect(cautions.some(c => c.id === 'westfjords-south-route60')).toBe(true)
   })
 
-  it('route to Ísafjörður that passes near Hólmavík does NOT get trailer caution', () => {
+  it('route that reaches Hólmavík but turns south again still gets trailer caution', () => {
     const cautions = matchRouteCautions(POINTS_VIA_HOLMAVIK, FROM_REYKJAVIK, TO_ISAFJORDUR)
+    expect(cautions.some(c => c.id === 'westfjords-south-route60')).toBe(true)
+  })
+
+  it('route through Hólmavík and the northern Route 61 gate clears the caution', () => {
+    const cautions = matchRouteCautions(
+      POINTS_VIA_HOLMAVIK_NORTH_CORRIDOR,
+      FROM_REYKJAVIK,
+      TO_ISAFJORDUR,
+    )
     expect(cautions.some(c => c.id === 'westfjords-south-route60')).toBe(false)
   })
 

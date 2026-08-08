@@ -1,8 +1,17 @@
 import 'server-only'
 
 import type { RouteOption } from '@/lib/weather/provider.types'
-import { rdpSimplifyToMaxPoints } from '@/lib/weather/providerRouteMatching'
+import {
+  pointToPolylineDistanceM,
+  rdpSimplifyToMaxPoints,
+} from '@/lib/weather/providerRouteMatching'
 import { matchRouteCautions } from '@/lib/weather/routeCautions'
+import {
+  HOLMAVIK_PROXIMITY_M,
+  HOLMAVIK_NORTH_ROUTE61_VIA,
+  HOLMAVIK_VIA,
+  WESTFJORDS_NORTH_BOUNDS,
+} from '@/lib/weather/routeCautionConstants'
 import {
   buildIcelandRoadGraphRouteFromEdges,
   haversineDistanceM,
@@ -14,7 +23,11 @@ import type {
   IcelandRoadGraphEdge,
   IcelandRoadGraphRoute,
 } from './roadGraphTypes'
-import { findRouteAssessmentRoadAnchors } from './routeAssessmentRoadAnchor.server'
+import {
+  createRouteAssessmentRouteProvenanceFingerprint,
+  findRouteAssessmentRoadAnchors,
+  type ResolvedRouteAssessmentAnchor,
+} from './routeAssessmentRoadAnchor.server'
 import {
   createTeskeidAssessmentAlternativeRouteId,
   TESKEID_ROUTE_CANDIDATE_ID,
@@ -32,6 +45,8 @@ const TESKEID_ROUTE_MAX_CONNECTED_GEOMETRY_GAP_M = 50
 const TESKEID_ROUTE_EXACT_TOPOLOGY_CONNECTOR_TOLERANCE_M = 0.001
 const TESKEID_ROUTE_METRIC_TOLERANCE = 0.500001
 const TESKEID_ROUTE_COST_TOLERANCE = 1e-6
+const HOLMAVIK_ROUTE_MAX_SNAP_DISTANCE_M = 2_500
+const WESTFJORDS_SOUTH_CAUTION_ID = 'westfjords-south-route60'
 
 type Point = { lat: number; lon: number }
 
@@ -39,6 +54,8 @@ export type TeskeidAssessmentRouteEvidence = Readonly<{
   route: RouteOption
   connectedRoadEdges: readonly IcelandRoadGraphEdge[]
   routeProvenanceFingerprint: string
+  originAnchorKind: ResolvedRouteAssessmentAnchor['kind']
+  destinationAnchorKind: ResolvedRouteAssessmentAnchor['kind']
 }>
 
 export type TeskeidAssessmentRouteEvidenceOutcome =
@@ -58,8 +75,13 @@ export function roadGraphRouteToTeskeidOption(
   originSnapDistanceM: number,
   destinationSnapDistanceM: number,
   routeId?: string,
+  extraLabels: readonly string[] = [],
 ): RouteOption {
-  const labels = ['TESKEID_EXPERIMENTAL', 'TESKEID_DERIVED_DURATION']
+  const labels = [...new Set([
+    'TESKEID_EXPERIMENTAL',
+    'TESKEID_DERIVED_DURATION',
+    ...extraLabels,
+  ])]
   if (index > 0) labels.push('TESKEID_ALTERNATIVE')
   if (route.surface.gravelM > 0) labels.push('TESKEID_GRAVEL')
   if (route.surface.mixedM > 0) labels.push('TESKEID_MIXED_SURFACE')
@@ -107,6 +129,33 @@ function routeEdgeCost(edges: readonly IcelandRoadGraphEdge[]): number {
   return edges.reduce((sum, edge) => (
     sum + icelandRoadGraphEdgeCost(edge, ICELAND_ROUTING_PROFILES.fastestCar)
   ), 0)
+}
+
+function routeIsRelevantHolmavikOption(
+  route: IcelandRoadGraphRoute,
+  origin: Point,
+  destination: Point,
+): boolean {
+  const originInNorthernWestfjords = pointIsInNorthernWestfjords(origin)
+  const destinationInNorthernWestfjords = pointIsInNorthernWestfjords(destination)
+  return originInNorthernWestfjords !== destinationInNorthernWestfjords
+    && pointToPolylineDistanceM(
+      HOLMAVIK_VIA.lat,
+      HOLMAVIK_VIA.lon,
+      route.geometry,
+    ) <= HOLMAVIK_PROXIMITY_M
+    && pointToPolylineDistanceM(
+      HOLMAVIK_NORTH_ROUTE61_VIA.lat,
+      HOLMAVIK_NORTH_ROUTE61_VIA.lon,
+      route.geometry,
+    ) <= HOLMAVIK_PROXIMITY_M
+}
+
+function pointIsInNorthernWestfjords(point: Point): boolean {
+  return point.lat >= WESTFJORDS_NORTH_BOUNDS.minLat
+    && point.lat <= WESTFJORDS_NORTH_BOUNDS.maxLat
+    && point.lon >= WESTFJORDS_NORTH_BOUNDS.minLon
+    && point.lon <= WESTFJORDS_NORTH_BOUNDS.maxLon
 }
 
 /**
@@ -206,6 +255,191 @@ function deadlineExceeded(deadlineAtMs: number | undefined): boolean {
     && Date.now() >= deadlineAtMs
 }
 
+type HolmavikAlternativeOutcome =
+  | Readonly<{ status: 'ready'; evidence: TeskeidAssessmentRouteEvidence }>
+  | Readonly<{ status: 'incomplete' | 'unavailable' }>
+
+type HolmavikRouteLegOutcome =
+  | Readonly<{
+      status: 'ready'
+      origin: ResolvedRouteAssessmentAnchor
+      destination: ResolvedRouteAssessmentAnchor
+      connectedRoadEdges: readonly IcelandRoadGraphEdge[]
+    }>
+  | Readonly<{ status: 'incomplete' | 'unavailable' }>
+
+function routeEdgesPassNearHolmavik(edges: readonly IcelandRoadGraphEdge[]): boolean {
+  const route = buildIcelandRoadGraphRouteFromEdges(edges)
+  return validRoute(route) && pointToPolylineDistanceM(
+    HOLMAVIK_VIA.lat,
+    HOLMAVIK_VIA.lon,
+    route.geometry,
+  ) <= HOLMAVIK_PROXIMITY_M
+}
+
+function resolveHolmavikRouteLeg(input: {
+  graph: IcelandRoadGraph
+  origin: Point
+  destination: Point
+  maxOriginSnapDistanceM: number
+  maxDestinationSnapDistanceM: number
+  destinationKind: 'canonical_node' | 'trusted_anchor'
+  avoidReturningToHolmavik?: boolean
+  deadlineAtMs?: number
+}): HolmavikRouteLegOutcome {
+  const anchors = findRouteAssessmentRoadAnchors(
+    input.graph,
+    { kind: 'trusted_anchor', point: input.origin },
+    { kind: input.destinationKind, point: input.destination },
+    {
+      maxOriginSnapDistanceM: input.maxOriginSnapDistanceM,
+      maxDestinationSnapDistanceM: input.maxDestinationSnapDistanceM,
+      maxAlternatives: input.avoidReturningToHolmavik ? 4 : 0,
+      maxAlternativeOverlap: 0.98,
+      deadlineAtMs: input.deadlineAtMs,
+      alternativeDeadlineAtMs: input.deadlineAtMs,
+    },
+  )
+  if (anchors.status === 'incomplete') return { status: 'incomplete' }
+  if (anchors.status !== 'ok') return { status: 'unavailable' }
+
+  const candidates = [
+    anchors.connectedRoadEdges,
+    ...anchors.alternatives.map(alternative => alternative.connectedRoadEdges),
+  ]
+  const connectedRoadEdges = input.avoidReturningToHolmavik
+    ? candidates.find(edges => !routeEdgesPassNearHolmavik(edges))
+    : candidates[0]
+  if (!connectedRoadEdges) {
+    return anchors.alternativesComplete
+      ? { status: 'unavailable' }
+      : { status: 'incomplete' }
+  }
+  return {
+    status: 'ready',
+    origin: anchors.origin,
+    destination: anchors.destination,
+    connectedRoadEdges,
+  }
+}
+
+function appendControlPointRouteLeg(
+  combined: IcelandRoadGraphEdge[],
+  leg: readonly IcelandRoadGraphEdge[],
+): boolean {
+  if (leg.length === 0) return false
+  if (combined.length === 0) {
+    combined.push(...leg)
+    return true
+  }
+  const previous = combined.at(-1)
+  const next = leg[0]
+  const previousPoint = previous?.geometry.at(-1)
+  const nextPoint = next.geometry[0]
+  if (
+    !previous
+    || !previousPoint
+    || !nextPoint
+    || haversineDistanceM(previousPoint, nextPoint) > TESKEID_ROUTE_ENDPOINT_TOLERANCE_M
+  ) return false
+
+  // Projected two-way assessment anchors can represent the exact same physical
+  // control point with complementary forward/reverse synthetic node IDs. The
+  // geometry is the authority at this local composition seam; canonicalize the
+  // next partial edge to the preceding node only when the points are equivalent.
+  const first = previous.toNodeId === next.fromNodeId
+    ? next
+    : { ...next, fromNodeId: previous.toNodeId }
+  combined.push(first, ...leg.slice(1))
+  return true
+}
+
+function resolveHolmavikAssessmentAlternative(input: {
+  graph: IcelandRoadGraph
+  origin: ResolvedRouteAssessmentAnchor
+  destination: ResolvedRouteAssessmentAnchor
+  alternativeIndex: number
+  deadlineAtMs?: number
+}): HolmavikAlternativeOutcome {
+  const originInNorthernWestfjords = pointIsInNorthernWestfjords(input.origin.point)
+  const destinationInNorthernWestfjords = pointIsInNorthernWestfjords(input.destination.point)
+  if (originInNorthernWestfjords === destinationInNorthernWestfjords) {
+    return { status: 'unavailable' }
+  }
+  const controlPoints = destinationInNorthernWestfjords
+    ? [HOLMAVIK_VIA, HOLMAVIK_NORTH_ROUTE61_VIA, input.destination.point]
+    : [HOLMAVIK_NORTH_ROUTE61_VIA, HOLMAVIK_VIA, input.destination.point]
+  const connectedRoadEdges: IcelandRoadGraphEdge[] = []
+  let currentPoint = input.origin.point
+
+  for (const [index, destinationPoint] of controlPoints.entries()) {
+    if (deadlineExceeded(input.deadlineAtMs)) return { status: 'incomplete' }
+    const isNorthernExteriorLeg = destinationInNorthernWestfjords
+      ? index === controlPoints.length - 1
+      : index === 0
+    const isFinalLeg = index === controlPoints.length - 1
+    const leg = resolveHolmavikRouteLeg({
+      graph: input.graph,
+      origin: currentPoint,
+      destination: destinationPoint,
+      maxOriginSnapDistanceM: ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M,
+      maxDestinationSnapDistanceM: isFinalLeg
+        ? ROUTE_ASSESSMENT_ANCHOR_REDERIVATION_TOLERANCE_M
+        : HOLMAVIK_ROUTE_MAX_SNAP_DISTANCE_M,
+      destinationKind: isFinalLeg ? 'trusted_anchor' : 'canonical_node',
+      avoidReturningToHolmavik: isNorthernExteriorLeg,
+      deadlineAtMs: input.deadlineAtMs,
+    })
+    if (leg.status !== 'ready') return leg
+    if (
+      haversineDistanceM(currentPoint, leg.origin.point) > TESKEID_ROUTE_ENDPOINT_TOLERANCE_M
+      || !appendControlPointRouteLeg(connectedRoadEdges, leg.connectedRoadEdges)
+    ) return { status: 'unavailable' }
+    currentPoint = leg.destination.point
+  }
+  if (!teskeidAssessmentRouteEdgesHaveIntegrity({
+    connectedRoadEdges,
+    origin: input.origin.point,
+    destination: input.destination.point,
+  })) return { status: 'unavailable' }
+  const route = buildIcelandRoadGraphRouteFromEdges(connectedRoadEdges)
+  if (
+    !validRoute(route)
+    || !routeIsRelevantHolmavikOption(route, input.origin.point, input.destination.point)
+  ) return { status: 'unavailable' }
+  const routeProvenanceFingerprint = createRouteAssessmentRouteProvenanceFingerprint({
+    origin: input.origin,
+    destination: input.destination,
+    connectedRoadEdges,
+  })
+  const option = roadGraphRouteToTeskeidOption(
+    route,
+    input.origin.point,
+    input.destination.point,
+    input.alternativeIndex,
+    input.origin.snapDistanceM,
+    input.destination.snapDistanceM,
+    createTeskeidAssessmentAlternativeRouteId(
+      input.alternativeIndex,
+      routeProvenanceFingerprint,
+    ),
+    ['CURATED_VIA_HOLMAVIK'],
+  )
+  if (option.cautions?.some(caution => caution.id === WESTFJORDS_SOUTH_CAUTION_ID)) {
+    return { status: 'unavailable' }
+  }
+  return {
+    status: 'ready',
+    evidence: {
+      route: option,
+      connectedRoadEdges,
+      routeProvenanceFingerprint,
+      originAnchorKind: input.origin.kind,
+      destinationAnchorKind: input.destination.kind,
+    },
+  }
+}
+
 export function resolveTeskeidAssessmentRouteEvidence(input: {
   graph: IcelandRoadGraph
   origin: Point
@@ -269,22 +503,63 @@ export function resolveTeskeidAssessmentRouteEvidence(input: {
     anchors.origin.snapDistanceM,
     anchors.destination.snapDistanceM,
     TESKEID_ROUTE_CANDIDATE_ID,
+    routeIsRelevantHolmavikOption(
+      primaryRoute,
+      anchors.origin.point,
+      anchors.destination.point,
+    ) ? ['CURATED_VIA_HOLMAVIK'] : [],
   )
   if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
   const evidence: TeskeidAssessmentRouteEvidence[] = [{
     route: primaryOption,
     connectedRoadEdges: anchors.connectedRoadEdges,
     routeProvenanceFingerprint: anchors.routeProvenanceFingerprint,
+    originAnchorKind: anchors.origin.kind,
+    destinationAnchorKind: anchors.destination.kind,
   }]
   const primaryCost = routeEdgeCost(anchors.connectedRoadEdges)
   const routeFingerprints = new Set([anchors.routeProvenanceFingerprint])
   const routeEdgeKeys = new Set([
     anchors.connectedRoadEdges.map(edge => edge.id).join('|'),
   ])
+  let holmavikAlternativeFingerprint: string | null = null
+  const crossesNorthernWestfjordsBoundary = pointIsInNorthernWestfjords(anchors.origin.point)
+    !== pointIsInNorthernWestfjords(anchors.destination.point)
+  if (
+    crossesNorthernWestfjordsBoundary
+    && !routeIsRelevantHolmavikOption(
+      primaryRoute,
+      anchors.origin.point,
+      anchors.destination.point,
+    )
+  ) {
+    const holmavikAlternative = resolveHolmavikAssessmentAlternative({
+      graph: input.graph,
+      origin: anchors.origin,
+      destination: anchors.destination,
+      alternativeIndex: 1,
+      deadlineAtMs,
+    })
+    if (holmavikAlternative.status === 'incomplete') {
+      return { status: 'incomplete', evidence: [] }
+    }
+    if (holmavikAlternative.status === 'ready') {
+      if (
+        routeEdgeCost(holmavikAlternative.evidence.connectedRoadEdges)
+          < primaryCost - TESKEID_ROUTE_COST_TOLERANCE
+      ) return { status: 'unavailable', evidence: [] }
+      evidence.push(holmavikAlternative.evidence)
+      holmavikAlternativeFingerprint = holmavikAlternative.evidence.routeProvenanceFingerprint
+      routeFingerprints.add(holmavikAlternativeFingerprint)
+      routeEdgeKeys.add(holmavikAlternative.evidence.connectedRoadEdges.map(edge => edge.id).join('|'))
+    }
+  }
 
-  for (const [alternativeIndex, alternative] of anchors.alternatives.entries()) {
+  for (const alternative of anchors.alternatives) {
+    if (evidence.length >= 5) break
     if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
     const edgeKey = alternative.connectedRoadEdges.map(edge => edge.id).join('|')
+    if (alternative.routeProvenanceFingerprint === holmavikAlternativeFingerprint) continue
     if (
       routeFingerprints.has(alternative.routeProvenanceFingerprint)
       || routeEdgeKeys.has(edgeKey)
@@ -300,15 +575,16 @@ export function resolveTeskeidAssessmentRouteEvidence(input: {
     const route = buildIcelandRoadGraphRouteFromEdges(alternative.connectedRoadEdges)
     if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }
     if (!validRoute(route)) return { status: 'unavailable', evidence: [] }
+    const alternativeIndex = evidence.length
     const option = roadGraphRouteToTeskeidOption(
       route,
       anchors.origin.point,
       anchors.destination.point,
-      alternativeIndex + 1,
+      alternativeIndex,
       anchors.origin.snapDistanceM,
       anchors.destination.snapDistanceM,
       createTeskeidAssessmentAlternativeRouteId(
-        alternativeIndex + 1,
+        alternativeIndex,
         alternative.routeProvenanceFingerprint,
       ),
     )
@@ -317,6 +593,8 @@ export function resolveTeskeidAssessmentRouteEvidence(input: {
       route: option,
       connectedRoadEdges: alternative.connectedRoadEdges,
       routeProvenanceFingerprint: alternative.routeProvenanceFingerprint,
+      originAnchorKind: anchors.origin.kind,
+      destinationAnchorKind: anchors.destination.kind,
     })
   }
   if (deadlineExceeded(deadlineAtMs)) return { status: 'incomplete', evidence: [] }

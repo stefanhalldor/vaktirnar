@@ -4,6 +4,8 @@ import {
   reconcileVegagerdinRoadGraphTopology,
   VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V1,
   VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2,
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3,
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4,
 } from '@/lib/iceland-routes/vegagerdinRoadGraphTopology'
 
 const ARTIFACT = {
@@ -83,13 +85,13 @@ function exactVertexSegments(): IcelandRoadGraphSegmentInput[] {
 }
 
 describe('Vegagerðin road-graph topology policy adapter', () => {
-  it('uses strict exact-interior-vertex v2 by default while retaining reciprocal-v1 rollback', () => {
+  it('uses hub-endpoint v4 by default while retaining immutable v3, v2 and v1 readers', () => {
     const current = reconcileVegagerdinRoadGraphTopology({
       segments: exactVertexSegments(),
       nodeSnapToleranceM: 20,
       artifact: ARTIFACT,
     })
-    expect(current.policyId).toBe(VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2)
+    expect(current.policyId).toBe(VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4)
     expect(current.receipts).toHaveLength(1)
     expect(current.bindings).toHaveLength(1)
     expect(current.receipts[0]).toMatchObject({
@@ -98,6 +100,32 @@ describe('Vegagerðin road-graph topology policy adapter', () => {
       targetAttestation: { kind: 'source_exact_interior_vertex', vertexIndex: 1 },
       targetSplit: { location: 'vertex', edgeIndex: 0, edgeFraction: 1 },
       connector: { lengthM: 0, assessmentEligible: false },
+    })
+
+    const retainedV3 = reconcileVegagerdinRoadGraphTopology({
+      segments: exactVertexSegments(),
+      nodeSnapToleranceM: 20,
+      policyId: VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3,
+      artifact: ARTIFACT,
+    })
+    expect(retainedV3.policyId).toBe(VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3)
+    expect(retainedV3.receipts).toHaveLength(1)
+    expect(retainedV3.receipts[0]).toMatchObject({
+      targetAttestation: { kind: 'source_exact_interior_vertex', vertexIndex: 1 },
+      connector: { lengthM: 0 },
+    })
+
+    const retainedV2 = reconcileVegagerdinRoadGraphTopology({
+      segments: exactVertexSegments(),
+      nodeSnapToleranceM: 20,
+      policyId: VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2,
+      artifact: ARTIFACT,
+    })
+    expect(retainedV2.policyId).toBe(VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2)
+    expect(retainedV2.receipts).toHaveLength(1)
+    expect(retainedV2.receipts[0].targetAttestation).toEqual({
+      kind: 'source_exact_interior_vertex',
+      vertexIndex: 1,
     })
 
     const rollback = reconcileVegagerdinRoadGraphTopology({

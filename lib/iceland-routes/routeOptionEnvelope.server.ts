@@ -17,6 +17,21 @@ const MAX_ROUTE_DISTANCE_M = 5_000_000
 const MAX_ROUTE_DURATION_S = 7 * 24 * 60 * 60
 const MAX_CANONICAL_PAYLOAD_BYTES = 4 * 1024 * 1024
 const MAX_ASSESSMENT_SCOPE_ID_LENGTH = 500
+const MAX_ROUTE_EVIDENCE_EDGE_IDS = 10_000
+const MAX_ROUTE_EVIDENCE_EDGE_ID_LENGTH = 2_048
+const MAX_ROUTE_EVIDENCE_NODE_ID_LENGTH = 2_048
+const MAX_ROUTE_EVIDENCE_POLICY_LENGTH = 512
+
+export type RouteEvidenceAnchorKind = 'settlement_node' | 'projected_road'
+
+export type RouteOptionEvidenceV1 = Readonly<{
+  graphBuildPolicyFingerprint: string
+  routeProvenanceFingerprint: string
+  originAnchorKind: RouteEvidenceAnchorKind
+  destinationAnchorKind: RouteEvidenceAnchorKind
+  edgeIds: readonly string[]
+  nodeIds: readonly string[]
+}>
 
 export type RouteEnvelopeEndpoint = {
   lat: number
@@ -32,6 +47,8 @@ export type RouteOptionEnvelopeV1 = {
   origin: RouteEnvelopeEndpoint
   destination: RouteEnvelopeEndpoint
   route: RouteOption
+  /** Signed, compact graph evidence; contains no user display metadata or raw GPS endpoints. */
+  routeEvidence?: RouteOptionEvidenceV1
   signature: string
 }
 
@@ -42,6 +59,7 @@ type SignRouteOptionEnvelopeInput = {
   destination: RouteEnvelopeEndpoint
   route: RouteOption
   assessmentScopeId?: string
+  routeEvidence?: RouteOptionEvidenceV1
 }
 
 type ExpectedRouteEnvelopeEndpoints = {
@@ -83,6 +101,40 @@ function isBoundedString(value: unknown, maxLength: number, allowEmpty = false):
 function isAssessmentScopeId(value: unknown): value is string {
   return isBoundedString(value, MAX_ASSESSMENT_SCOPE_ID_LENGTH)
     && value.trim() === value
+}
+
+function isRouteEvidence(value: unknown): value is RouteOptionEvidenceV1 {
+  if (!isPlainRecord(value) || !hasOnlyKeys(value, [
+    'graphBuildPolicyFingerprint',
+    'routeProvenanceFingerprint',
+    'originAnchorKind',
+    'destinationAnchorKind',
+    'edgeIds',
+    'nodeIds',
+  ])) return false
+  if (
+    !isBoundedString(value.graphBuildPolicyFingerprint, MAX_ROUTE_EVIDENCE_POLICY_LENGTH)
+    || typeof value.routeProvenanceFingerprint !== 'string'
+    || !/^[A-Za-z0-9_-]{43}$/.test(value.routeProvenanceFingerprint)
+    || !['settlement_node', 'projected_road'].includes(value.originAnchorKind as string)
+    || !['settlement_node', 'projected_road'].includes(value.destinationAnchorKind as string)
+    || !Array.isArray(value.edgeIds)
+    || value.edgeIds.length === 0
+    || value.edgeIds.length > MAX_ROUTE_EVIDENCE_EDGE_IDS
+    || !Array.isArray(value.nodeIds)
+    || value.nodeIds.length !== value.edgeIds.length + 1
+  ) return false
+  const edgeIds = value.edgeIds as unknown[]
+  if (!edgeIds.every(edgeId => (
+    isBoundedString(edgeId, MAX_ROUTE_EVIDENCE_EDGE_ID_LENGTH)
+    && edgeId.trim() === edgeId
+  ))) return false
+  const nodeIds = value.nodeIds as unknown[]
+  if (!nodeIds.every(nodeId => (
+    isBoundedString(nodeId, MAX_ROUTE_EVIDENCE_NODE_ID_LENGTH)
+    && nodeId.trim() === nodeId
+  ))) return false
+  return new Set(edgeIds).size === edgeIds.length
 }
 
 function isBoundedNumber(value: unknown, minimum: number, maximum: number): value is number {
@@ -235,6 +287,7 @@ function isEnvelope(value: unknown): value is RouteOptionEnvelopeV1 {
       'origin',
       'destination',
       'route',
+      'routeEvidence',
       'signature',
     ])
     && value.version === ENVELOPE_VERSION
@@ -244,6 +297,14 @@ function isEnvelope(value: unknown): value is RouteOptionEnvelopeV1 {
     && isEndpoint(value.origin)
     && isEndpoint(value.destination)
     && isRouteOption(value.route)
+    && (
+      value.routeEvidence === undefined
+      || (
+        value.assessmentScopeId !== undefined
+        && value.route.provider === 'teskeid'
+        && isRouteEvidence(value.routeEvidence)
+      )
+    )
     && typeof value.signature === 'string'
     && /^[a-f0-9]{64}$/.test(value.signature)
 }
@@ -267,6 +328,14 @@ export function signRouteOptionEnvelope(
     || !isEndpoint(input.destination)
     || !isRouteOption(input.route)
     || (input.assessmentScopeId !== undefined && !isAssessmentScopeId(input.assessmentScopeId))
+    || (
+      input.routeEvidence !== undefined
+      && (
+        input.assessmentScopeId === undefined
+        || input.route.provider !== 'teskeid'
+        || !isRouteEvidence(input.routeEvidence)
+      )
+    )
   ) {
     throw new Error('Invalid route option envelope input')
   }
@@ -285,6 +354,7 @@ export function signRouteOptionEnvelope(
     origin: { lat: input.origin.lat, lon: input.origin.lon },
     destination: { lat: input.destination.lat, lon: input.destination.lon },
     route: input.route,
+    ...(input.routeEvidence ? { routeEvidence: input.routeEvidence } : {}),
   }
 
   return { ...payload, signature: payloadSignature(payload) }

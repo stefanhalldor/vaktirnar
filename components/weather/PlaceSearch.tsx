@@ -98,6 +98,8 @@ export type PlaceSearchProps = {
   selectedPlace?: SelectedPlaceDisplay | null
   onClearSelectedPlace?: () => void
   allowMapSelection?: boolean
+  /** Show map picking immediately or only after the user has completed a search. */
+  mapSelectionMode?: 'always' | 'after-search'
 }
 
 const EMPTY_PLACE_EXCLUSIONS: readonly PlaceExclusion[] = []
@@ -308,6 +310,7 @@ export function PlaceSearch({
   selectedPlace = null,
   onClearSelectedPlace,
   allowMapSelection = true,
+  mapSelectionMode = 'always',
 }: PlaceSearchProps) {
   const t = useTranslations('teskeid.vedrid.placeSearch')
   const locale = useLocale()
@@ -355,6 +358,10 @@ export function PlaceSearch({
   const trimmedQuery = selectedPlace ? '' : query.trim()
   const resultsOpen = !dismissed && visibleResults.length > 0
   const noResults = searchComplete && !loading && !fetchError && visibleResults.length === 0
+  const mapSelectionVisible = allowMapSelection && (
+    mapSelectionMode === 'always'
+    || (trimmedQuery.length >= 2 && searchComplete && !loading)
+  )
   const interfaceUsesEnglish = locale.toLowerCase().startsWith('en')
   const permissionHelpUsesEnglish = interfaceUsesEnglish || showEnglishPermissionHelp
   const settlementTypeLabel = t('placeTypeSettlement')
@@ -701,23 +708,34 @@ export function PlaceSearch({
         </button>
       )}
 
-      {allowMapSelection && (
+      {mapSelectionVisible && (
         <button
           type="button"
           onClick={openMapPicker}
           className={`inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg px-3 py-2 font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${compact ? 'text-xs' : 'text-sm'}`}
         >
           <MapPinned size={16} aria-hidden />
-          {visibleResults.length > 0
-            ? t('chooseFromMapResults', { count: visibleResults.length })
-            : t('chooseFromMap')}
+          {mapSelectionMode === 'after-search'
+            ? t('chooseFromMapFallback')
+            : visibleResults.length > 0
+              ? t('chooseFromMapResults', { count: visibleResults.length })
+              : t('chooseFromMap')}
         </button>
       )}
 
       {loading && (
-        <p id={statusId} role="status" aria-live="polite" className="px-1 text-xs text-muted-foreground">
-          {t('loading')}
-        </p>
+        <div
+          id={statusId}
+          role="status"
+          aria-live="polite"
+          className="flex min-h-10 items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"
+        >
+          <span
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent"
+          />
+          <span>{t('loading')}</span>
+        </div>
       )}
 
       {(fetchError || locationError) && (

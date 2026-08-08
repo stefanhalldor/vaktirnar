@@ -5,8 +5,14 @@ import {
   buildIcelandRoadGraph,
   findIcelandRoadGraphRoute,
   geometryLengthM,
+  haversineDistanceM,
   ICELAND_ROUTING_PROFILES,
 } from './roadGraph'
+import {
+  ICELAND_GOLDEN_ROUTE_DEFAULTS,
+  reverseIcelandGoldenRouteAuditStatus,
+  type IcelandGoldenRouteAuditStatus,
+} from './goldenRoutes'
 import {
   canonicalIcelandRoadSourceProvenanceKey,
   isIcelandRoadDirectionEvidenceArtifactV1,
@@ -44,7 +50,7 @@ import { reconcileVegagerdinRoadGraphTopology } from './vegagerdinRoadGraphTopol
 
 export const ROAD_GRAPH_CANDIDATE_GENERATOR = {
   id: 'teskeid-road-graph-candidate-v2',
-  version: 2,
+  version: 4,
 } as const
 
 /**
@@ -67,6 +73,8 @@ export interface RoadGraphCandidateGoldenRoute {
   minKm: number
   maxKm: number
   maxSnapDistanceM?: number
+  maxRoadToAirRatio?: number
+  maxDirectionalDistanceDeltaM?: number
 }
 
 export interface RoadGraphCandidateBudgets {
@@ -122,8 +130,16 @@ interface CandidateSourceReport {
 
 interface CandidateGoldenRouteReport {
   id: string
-  status: 'ok' | 'no_nearby_node' | 'no_route' | 'distance_out_of_range'
+  status: IcelandGoldenRouteAuditStatus
   distanceKm: number | null
+  reverseDistanceKm: number | null
+  airDistanceKm: number
+  roadToAirRatio: number | null
+  directionalDistanceDeltaM: number | null
+  originSnapM: number | null
+  destinationSnapM: number | null
+  reverseOriginSnapM: number | null
+  reverseDestinationSnapM: number | null
   authoritativeDirectionKm: number | null
   inferredDirectionKm: number | null
   provisionalDirectionKm: number | null
@@ -365,27 +381,74 @@ function auditGoldenRoutes(
   return [...definitions]
     .sort((a, b) => compareText(a.id, b.id))
     .map(definition => {
+      const airDistanceKm = haversineDistanceM(definition.origin, definition.destination) / 1_000
+      const maximumSnapDistanceM = definition.maxSnapDistanceM
+        ?? ICELAND_GOLDEN_ROUTE_DEFAULTS.maxSnapDistanceM
+      const maximumRoadToAirRatio = definition.maxRoadToAirRatio
+        ?? ICELAND_GOLDEN_ROUTE_DEFAULTS.maxRoadToAirRatio
+      const maximumDirectionalDistanceDeltaM = definition.maxDirectionalDistanceDeltaM
+        ?? ICELAND_GOLDEN_ROUTE_DEFAULTS.maxDirectionalDistanceDeltaM
       const result = findIcelandRoadGraphRoute(graph, definition.origin, definition.destination, {
         profile: ICELAND_ROUTING_PROFILES.fastestCar,
-        maxSnapDistanceM: definition.maxSnapDistanceM ?? 25_000,
+        maxSnapDistanceM: maximumSnapDistanceM,
       })
       if (result.status !== 'ok') {
         return {
           id: definition.id,
           status: result.status,
           distanceKm: null,
+          reverseDistanceKm: null,
+          airDistanceKm,
+          roadToAirRatio: null,
+          directionalDistanceDeltaM: null,
+          originSnapM: null,
+          destinationSnapM: null,
+          reverseOriginSnapM: null,
+          reverseDestinationSnapM: null,
           authoritativeDirectionKm: null,
           inferredDirectionKm: null,
           provisionalDirectionKm: null,
         }
       }
+      const reverse = findIcelandRoadGraphRoute(graph, definition.destination, definition.origin, {
+        profile: ICELAND_ROUTING_PROFILES.fastestCar,
+        maxSnapDistanceM: maximumSnapDistanceM,
+      })
       const distanceKm = result.route.distanceM / 1_000
+      const reverseDistanceKm = reverse.status === 'ok' ? reverse.route.distanceM / 1_000 : null
+      const roadToAirRatio = airDistanceKm > 0 ? distanceKm / airDistanceKm : null
+      const directionalDistanceDeltaM = reverse.status === 'ok'
+        ? Math.abs(result.route.distanceM - reverse.route.distanceM)
+        : null
+      let status: IcelandGoldenRouteAuditStatus = 'ok'
+      if (reverse.status !== 'ok') {
+        status = reverseIcelandGoldenRouteAuditStatus(reverse.status)
+      } else if (
+        result.originSnapDistanceM > maximumSnapDistanceM
+        || result.destinationSnapDistanceM > maximumSnapDistanceM
+        || reverse.originSnapDistanceM > maximumSnapDistanceM
+        || reverse.destinationSnapDistanceM > maximumSnapDistanceM
+      ) status = 'snap_out_of_range'
+      else if (distanceKm < definition.minKm || distanceKm > definition.maxKm) {
+        status = 'distance_out_of_range'
+      } else if (roadToAirRatio === null || roadToAirRatio > maximumRoadToAirRatio) {
+        status = 'stretch_out_of_range'
+      } else if (
+        directionalDistanceDeltaM === null
+        || directionalDistanceDeltaM > maximumDirectionalDistanceDeltaM
+      ) status = 'directional_distance_mismatch'
       return {
         id: definition.id,
-        status: distanceKm >= definition.minKm && distanceKm <= definition.maxKm
-          ? 'ok' as const
-          : 'distance_out_of_range' as const,
+        status,
         distanceKm,
+        reverseDistanceKm,
+        airDistanceKm,
+        roadToAirRatio,
+        directionalDistanceDeltaM,
+        originSnapM: result.originSnapDistanceM,
+        destinationSnapM: result.destinationSnapDistanceM,
+        reverseOriginSnapM: reverse.status === 'ok' ? reverse.originSnapDistanceM : null,
+        reverseDestinationSnapM: reverse.status === 'ok' ? reverse.destinationSnapDistanceM : null,
         authoritativeDirectionKm: result.route.authoritativeDirectionDistanceM / 1_000,
         inferredDirectionKm: result.route.inferredDirectionDistanceM / 1_000,
         provisionalDirectionKm: result.route.legacyDirectionDistanceM / 1_000,
@@ -533,10 +596,14 @@ export function buildRoadGraphCandidateV2(input: BuildRoadGraphCandidateV2Input)
         nodeSnapToleranceM: ROAD_GRAPH_NODE_SNAP_TOLERANCE_M,
         routingDirectionPolicy: 'bidirectional',
         missingDirectionPolicy: 'provisional_bidirectional',
-        ...(topology && topology.bindings.length > 0
+        ...(topology && topology.bindings.length > 0 && topology.receipts[0]
           ? {
               topologyReconciliation: {
                 bindings: topology.bindings,
+                sectionLedger: topology.sectionLedger,
+                receiptLedger: topology.receipts,
+                policyId: topology.policyId,
+                provenance: topology.receipts[0].provenance,
                 invalidBindingBehavior: 'throw' as const,
               },
             }

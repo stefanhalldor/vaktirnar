@@ -2,6 +2,7 @@ import type { PlaceCandidate } from './provider.types'
 import type { RouteCautionResult, RouteCautionSeverity, RouteCautionVehicle } from './provider.types'
 import {
   WESTFJORDS_NORTH_BOUNDS,
+  HOLMAVIK_NORTH_ROUTE61_VIA,
   HOLMAVIK_VIA,
   HOLMAVIK_PROXIMITY_M,
 } from './routeCautionConstants'
@@ -20,7 +21,7 @@ import { pointToPolylineDistanceM } from './providerRouteMatching'
  *   once corridor points are visually verified (e.g. Öxi pass, Road 939).
  *
  * missing-via — TRANSITIONAL PROXY: caution fires when the route does NOT pass
- *   near any viaNearPoints AND at least one route party (origin or destination)
+ *   near every required viaNearPoint AND at least one route party (origin or destination)
  *   is inside anyPartyBounds.
  *
  *   This is NOT a true geometry-based segment detector. It relies on the
@@ -39,7 +40,7 @@ import { pointToPolylineDistanceM } from './providerRouteMatching'
 type RoadSegmentDetection =
   | {
       type: 'missing-via'
-      /** Route gets caution when it does NOT pass near any of these points. */
+      /** Route gets caution unless it passes near every required corridor point. */
       viaNearPoints: Array<{ lat: number; lon: number; radiusM: number }>
       /**
        * At least one of origin or destination must be inside one of these bounds.
@@ -122,7 +123,10 @@ const SENSITIVE_ROAD_SEGMENTS: readonly SensitiveRoadSegment[] = [
     roadNumbers: ['60'],
     detection: {
       type: 'missing-via',
-      viaNearPoints: [{ ...HOLMAVIK_VIA, radiusM: HOLMAVIK_PROXIMITY_M }],
+      viaNearPoints: [
+        { ...HOLMAVIK_VIA, radiusM: HOLMAVIK_PROXIMITY_M },
+        { ...HOLMAVIK_NORTH_ROUTE61_VIA, radiusM: HOLMAVIK_PROXIMITY_M },
+      ],
       anyPartyBounds: [WESTFJORDS_NORTH_BOUNDS],
     },
     labelKey: 'routeCautionTrailer',
@@ -131,7 +135,7 @@ const SENSITIVE_ROAD_SEGMENTS: readonly SensitiveRoadSegment[] = [
     appliesTo: ['trailer', 'caravan', 'camper'],
     source: {
       type: 'manual-curated',
-      note: 'Hólmavík (Route 61) via-point used as safe-corridor proxy. Route 60 exact geometry pending visual verification on localhost.',
+      note: 'Hólmavík plus the Steingrímsfjarðarheiði Route 61 gate are used as the safe-corridor proxy. Route 60 exact geometry pending visual verification on localhost.',
       verified: false,
     },
   },
@@ -221,10 +225,10 @@ export function matchRouteCautions(
       if (!partyInBounds) continue
 
       // Caution fires when the route does NOT pass near any of the via points.
-      const passesNearAny = det.viaNearPoints.some(vp =>
+      const passesNearEveryRequiredPoint = det.viaNearPoints.every(vp =>
         routePassesNear(points, vp, vp.radiusM)
       )
-      if (passesNearAny) continue
+      if (passesNearEveryRequiredPoint) continue
     } else if (det.type === 'present-near-corridor') {
       // Caution fires when the route passes near at least one corridor point OR evidence point.
       // evidencePointsOnly skips corridorPoints — use when validating curated avoidance routes

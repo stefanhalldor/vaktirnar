@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getGraph: vi.fn(),
   resolveEvidence: vi.fn(),
   evidenceMatches: vi.fn(),
+  edgesHaveIntegrity: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -37,10 +38,13 @@ vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
 vi.mock('@/lib/iceland-routes/routeAssessmentCandidateEvidence.server', () => ({
   resolveTeskeidAssessmentRouteEvidence: mocks.resolveEvidence,
   teskeidAssessmentEvidenceMatchesSignedRoute: mocks.evidenceMatches,
+  teskeidAssessmentRouteEdgesHaveIntegrity: mocks.edgesHaveIntegrity,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route-sections/route'
 import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
+import { createRouteAssessmentRouteProvenanceFingerprint } from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
+import { ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT } from '@/lib/iceland-routes/roadGraphSnapshotFormat'
 import { parseRouteSectionsResponse } from '@/lib/iceland-routes/routeSections'
 
 const ORIGIN = { lat: 64, lon: -21 }
@@ -133,6 +137,30 @@ function envelope(route: RouteOption = ROUTE, now = new Date()) {
   }, { now })
 }
 
+function evidenceEnvelope(
+  edges: readonly IcelandRoadGraphEdge[] = CONNECTED_EDGES,
+  route: RouteOption = ROUTE,
+) {
+  return signRouteOptionEnvelope({
+    origin: ORIGIN,
+    destination: DESTINATION,
+    assessmentScopeId: ASSESSMENT_SCOPE_ID,
+    route,
+    routeEvidence: {
+      graphBuildPolicyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+      routeProvenanceFingerprint: createRouteAssessmentRouteProvenanceFingerprint({
+        origin: { kind: 'projected_road', point: ORIGIN },
+        destination: { kind: 'projected_road', point: DESTINATION },
+        connectedRoadEdges: edges,
+      }),
+      originAnchorKind: 'projected_road',
+      destinationAnchorKind: 'projected_road',
+      edgeIds: edges.map(edge => edge.id),
+      nodeIds: [edges[0].fromNodeId, ...edges.map(edge => edge.toNodeId)],
+    },
+  })
+}
+
 function request(routeEnvelope: unknown, extra: Record<string, unknown> = {}) {
   return new Request('http://localhost/api/teskeid/weather/travel/route-sections', {
     method: 'POST',
@@ -160,12 +188,15 @@ beforeEach(() => {
   })
   mocks.guestRateLimit.mockResolvedValue(true)
   mocks.getGraph.mockResolvedValue({ graph: 'active-v1' })
+  mocks.edgesHaveIntegrity.mockReturnValue(true)
   mocks.resolveEvidence.mockReturnValue({
     status: 'ready',
     evidence: [{
       route: ROUTE,
       connectedRoadEdges: CONNECTED_EDGES,
       routeProvenanceFingerprint: 'server-only-provenance',
+      originAnchorKind: 'projected_road',
+      destinationAnchorKind: 'projected_road',
     }],
     originSnapDistanceM: 0,
     destinationSnapDistanceM: 0,
@@ -178,6 +209,49 @@ beforeEach(() => {
 })
 
 describe('POST /api/teskeid/weather/travel/route-sections', () => {
+  it('restores signed edge evidence without rerunning primary or alternative routing', async () => {
+    mocks.getGraph.mockResolvedValue({
+      nodes: new Map(),
+      edges: CONNECTED_EDGES,
+      outgoing: new Map(),
+    })
+    const signed = evidenceEnvelope()
+
+    const response = await POST(request(signed))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data.surface.gravelSections).toEqual([
+      expect.objectContaining({
+        startDistanceM: 400,
+        endDistanceM: 600,
+        distanceM: 200,
+        geometry: [ROAD_POINT_A, ROAD_POINT_B],
+      }),
+    ])
+    expect(mocks.resolveEvidence).not.toHaveBeenCalled()
+    expect(mocks.evidenceMatches).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when signed edge evidence no longer matches the current graph', async () => {
+    const signed = evidenceEnvelope()
+    mocks.getGraph.mockResolvedValue({
+      nodes: new Map(),
+      edges: CONNECTED_EDGES.map(edge => (
+        edge.id === 'private-edge-gravel'
+          ? { ...edge, surface: 'paved' as const }
+          : edge
+      )),
+      outgoing: new Map(),
+    })
+
+    const response = await POST(request(signed))
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ status: 'unavailable' })
+    expect(mocks.resolveEvidence).not.toHaveBeenCalled()
+  })
+
   it('returns bounded official gravel sections bound to the exact envelope signature', async () => {
     const signed = envelope()
     const first = await POST(request(signed))

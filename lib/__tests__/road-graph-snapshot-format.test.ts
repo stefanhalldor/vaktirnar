@@ -12,6 +12,9 @@ import {
   parseRoadGraphSnapshotPayloadLegacyV1Compatibility,
   parseRoadGraphSnapshotPayloadV2,
   ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_HUB_ENDPOINT_V4,
   ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1,
   serializeRoadGraphSnapshotSegmentsV1,
   type RoadGraphSnapshotPayloadV1,
@@ -133,7 +136,26 @@ describe('road graph snapshot payload', () => {
       official: { directionCode: null, directionFieldState: 'null' },
     })
     expect(parseRoadGraphSnapshotPayload(enhancedPayload)).toEqual(enhancedPayload)
+    expect(ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT).toBe(
+      ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_HUB_ENDPOINT_V4,
+    )
     expect(parseRoadGraphSnapshotPayloadLegacyV1Compatibility(enhancedPayload)).toEqual(enhancedPayload)
+    const exactVertexV2Payload = {
+      ...enhancedPayload,
+      runtimeBuildContract: {
+        ...runtimeBuildContract,
+        policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2,
+      },
+    }
+    expect(parseRoadGraphSnapshotPayload(exactVertexV2Payload)).toEqual(exactVertexV2Payload)
+    const endpointJunctionV3Payload = {
+      ...enhancedPayload,
+      runtimeBuildContract: {
+        ...runtimeBuildContract,
+        policyFingerprint: ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3,
+      },
+    }
+    expect(parseRoadGraphSnapshotPayload(endpointJunctionV3Payload)).toEqual(endpointJunctionV3Payload)
     const reciprocalV1Payload = {
       ...enhancedPayload,
       runtimeBuildContract: {

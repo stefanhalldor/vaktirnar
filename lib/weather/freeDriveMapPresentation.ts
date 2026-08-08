@@ -6,6 +6,10 @@ import {
   type WindDisplayStatus,
 } from '@/lib/weather/windDisplayStatus'
 
+export const FREE_DRIVE_WIND_STATUS_FILTER_MODE = 'detailed' as const
+
+export type FreeDriveStationDensityLevel = 'aggregate' | 'compact' | 'full'
+
 export const FREE_DRIVE_AGGREGATE_MARKER_OFFSETS: Record<WindDisplayStatus, [number, number]> = {
   'innan-marka': [-28, -18],
   'nalgast-othaegindi': [0, -20],
@@ -34,6 +38,28 @@ export function createDefaultFreeDriveVisibleWindStatuses(): Set<WindDisplayStat
       status => status !== 'no_data' && status !== 'no_wind_data',
     ),
   )
+}
+
+/**
+ * Free drive always filters the exact status represented by each pill.
+ * Route filter preferences must not collapse neighbouring detailed statuses.
+ */
+export function isFreeDriveWindStatusVisible(
+  status: WindDisplayStatus,
+  visibleStatuses: ReadonlySet<WindDisplayStatus>,
+): boolean {
+  return visibleStatuses.size === 0 || visibleStatuses.has(status)
+}
+
+/**
+ * Country and regional views stay clustered, while a close driving view keeps
+ * every eligible station visible so small camera movements cannot swap a
+ * nearby station for another screen-cell representative.
+ */
+export function freeDriveShowsIndividualStationMarkers(
+  densityLevel: FreeDriveStationDensityLevel,
+): boolean {
+  return densityLevel === 'full'
 }
 
 export function freeDriveAggregateStationCountLabel(stationCount: number): string {

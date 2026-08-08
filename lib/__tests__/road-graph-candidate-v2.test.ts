@@ -105,7 +105,7 @@ describe('road graph schema-v2 local candidate builder', () => {
     expect(first.report.checks.directionInferenceTrustedIngestionGate).toBe(true)
     expect(first.report.checks.directionInferenceActivationFreshnessGate).toBe(true)
     expect(first.report.sourceEffectiveAtIso).toBe('2026-07-02T00:00:00.000Z')
-    expect(first.report.generator).toEqual({ id: 'teskeid-road-graph-candidate-v2', version: 2 })
+    expect(first.report.generator).toEqual({ id: 'teskeid-road-graph-candidate-v2', version: 4 })
     expect(first.report.snapshotSha256).toMatch(/^[a-f0-9]{64}$/)
     expect(first.payloadJson).toBe(second.payloadJson)
     expect(first.reportJson).toBe(second.reportJson)

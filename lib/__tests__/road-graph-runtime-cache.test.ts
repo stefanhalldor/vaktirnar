@@ -36,6 +36,8 @@ vi.mock('@/lib/iceland-routes/vegagerdinRoadGraphTopology', () => ({
   reconcileVegagerdinRoadGraphTopology: mockReconcileTopology,
   VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V1: 'vegagerdin-reciprocal-section-endpoints-v1',
   VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2: 'vegagerdin-attested-section-junctions-v2',
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3: 'vegagerdin-attested-endpoint-junctions-v3',
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4: 'vegagerdin-source-attested-hub-endpoint-gaps-v4',
 }))
 
 import {
@@ -45,6 +47,8 @@ import {
 } from '@/lib/iceland-routes/roadGraphRuntime.server'
 import {
   ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2,
+  ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3,
   ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_RECIPROCAL_V1,
   type RoadGraphRuntimeBuildPolicyFingerprint,
 } from '@/lib/iceland-routes/roadGraphSnapshotFormat'
@@ -157,7 +161,7 @@ describe('road graph last-known-good runtime', () => {
     mockHashPayload.mockReturnValue('hash')
     mockPayloadBytes.mockReturnValue(123)
     mockReconcileTopology.mockReturnValue({
-      policyId: 'vegagerdin-attested-section-junctions-v2',
+      policyId: 'vegagerdin-source-attested-hub-endpoint-gaps-v4',
       candidates: [], receipts: [], bindings: [], topologySegmentCount: 0,
     })
     mockReadPayload.mockResolvedValue(PAYLOAD)
@@ -178,10 +182,15 @@ describe('road graph last-known-good runtime', () => {
   })
 
   it('derives official topology receipts inside the active runtime build', async () => {
-    const binding = { receipt: { id: 'receipt-1' } }
+    const provenance = {
+      artifactId: 'runtime-test', contentSha256: 'a'.repeat(64),
+      validationReportId: 'runtime-test-report', numericCeilingRationale: 'test',
+    }
+    const binding = { receipt: { id: 'receipt-1', provenance } }
     mockReconcileTopology.mockReturnValue({
-      policyId: 'vegagerdin-attested-section-junctions-v2',
-      candidates: [], receipts: [binding.receipt], bindings: [binding], topologySegmentCount: 2,
+      policyId: 'vegagerdin-source-attested-hub-endpoint-gaps-v4',
+      candidates: [], receipts: [binding.receipt], bindings: [binding], sectionLedger: [],
+      topologySegmentCount: 2,
     })
     const payload = enhancedPayload(['receipt-1'])
     mockReadPayload.mockResolvedValue(payload)
@@ -195,7 +204,7 @@ describe('road graph last-known-good runtime', () => {
     expect(mockReconcileTopology).toHaveBeenCalledWith(expect.objectContaining({
       segments: payload.segments,
       nodeSnapToleranceM: 20,
-      policyId: 'vegagerdin-attested-section-junctions-v2',
+      policyId: 'vegagerdin-source-attested-hub-endpoint-gaps-v4',
       artifact: expect.objectContaining({ contentSha256: 'source-hash' }),
     }))
     expect(mockBuildGraph).toHaveBeenCalledWith(payload.segments, expect.objectContaining({
@@ -203,6 +212,10 @@ describe('road graph last-known-good runtime', () => {
       missingDirectionPolicy: 'provisional_bidirectional',
       topologyReconciliation: {
         bindings: [binding],
+        sectionLedger: [],
+        receiptLedger: [binding.receipt],
+        policyId: 'vegagerdin-source-attested-hub-endpoint-gaps-v4',
+        provenance,
         invalidBindingBehavior: 'throw',
       },
     }))
@@ -219,6 +232,34 @@ describe('road graph last-known-good runtime', () => {
 
     expect(mockReconcileTopology).toHaveBeenCalledWith(expect.objectContaining({
       policyId: 'vegagerdin-reciprocal-section-endpoints-v1',
+    }))
+  })
+
+  it('cold-loads a retained endpoint-junction-v3 snapshot with its original topology policy', async () => {
+    const payload = enhancedPayload([], ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_ENDPOINT_JUNCTION_V3)
+    mockReadPayload.mockResolvedValue(payload)
+    mockReadMetadata.mockResolvedValue(metadata('snapshot-endpoint-junction-v3', {
+      runtimeBuildContract: payload.runtimeBuildContract,
+    }))
+
+    await getIcelandRoadGraph()
+
+    expect(mockReconcileTopology).toHaveBeenCalledWith(expect.objectContaining({
+      policyId: 'vegagerdin-attested-endpoint-junctions-v3',
+    }))
+  })
+
+  it('cold-loads a retained exact-vertex-v2 snapshot with its original topology policy', async () => {
+    const payload = enhancedPayload([], ROAD_GRAPH_RUNTIME_BUILD_POLICY_FINGERPRINT_EXACT_VERTEX_V2)
+    mockReadPayload.mockResolvedValue(payload)
+    mockReadMetadata.mockResolvedValue(metadata('snapshot-exact-vertex-v2', {
+      runtimeBuildContract: payload.runtimeBuildContract,
+    }))
+
+    await getIcelandRoadGraph()
+
+    expect(mockReconcileTopology).toHaveBeenCalledWith(expect.objectContaining({
+      policyId: 'vegagerdin-attested-section-junctions-v2',
     }))
   })
 

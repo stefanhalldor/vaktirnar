@@ -1018,6 +1018,22 @@ describe('googleProvider.getRouteOptions', () => {
 
   // ── Curated Vestfirðir / Hólmavík route ──────────────────────────────────
 
+  it('does not spend a second Google request on a Teskeið-owned Hólmavík alternative', async () => {
+    const spy = mockFetch(makeMultiRouteResponse([{ numPoints: 37, labels: ['DEFAULT_ROUTE'] }]))
+    const results = await googleProvider.getRouteOptions(FROM_GARDABAER, {
+      placeId: 'ChIJisafjordur',
+      displayName: 'Ísafjörður',
+      formattedAddress: 'Ísafjörður, Iceland',
+      lat: 66.07,
+      lon: -23.13,
+    })
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(results.some(route => route.labels.includes('CURATED_VIA_HOLMAVIK'))).toBe(false)
+  })
+
+  describe.skip('retired Google-owned Hólmavík shaping behavior', () => {
+
   // Ísafjörður (66.07, -23.13) — inside WESTFJORDS_NORTH_BOUNDS (65.80–66.50 N, 25–22 W)
   const TO_ISAFJORDUR: PlaceCandidate = {
     placeId: 'ChIJisafjordur',
@@ -1233,6 +1249,8 @@ describe('googleProvider.getRouteOptions', () => {
     const baseRoute = results.find(r => !r.labels.includes('CURATED_VIA_HOLMAVIK'))
     const caution = baseRoute?.cautions?.find(c => c.id === 'westfjords-south-route60')
     expect(caution?.summaryKey).toBe('routeCautionWestfjordsSummary')
+  })
+
   })
 
   // ── Curated Öxi-avoid route (CURATED_AVOID_OXI) ─────────────────────────────

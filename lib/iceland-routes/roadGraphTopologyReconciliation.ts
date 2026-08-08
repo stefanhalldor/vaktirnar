@@ -78,6 +78,16 @@ export interface RoadTopologyReconciliationPolicy {
   maximumGapApproachDifferenceDeg: number
   /** Enables strict one-sided T-junctions only at an exact target vertex. */
   allowSourceAttestedExactInteriorVertex: boolean
+  /** Enables a one-sided reference only when it lands on one unique exact target endpoint. */
+  allowSourceAttestedExactTargetEndpoint: boolean
+  /** Enables a non-zero one-sided gap only to an independently attested endpoint hub. */
+  allowSourceAttestedHubEndpointGap: boolean
+  /** Treats an all-zero source Z series as missing for every junction type. */
+  useReliableElevationForEndpointJunctions: boolean
+  /** Pins reciprocal references to the attested target endpoint instead of a free projection. */
+  reciprocalReferenceTargetsEndpoint: boolean
+  /** Forward-half-plane turn ceiling for attested endpoint-to-endpoint gaps. */
+  maximumEndpointJunctionTurnDeg: number
   /** Maximum horizontal distance for the exact-vertex rule. */
   exactVertexToleranceM: number
   artifact: RoadTopologyArtifactEvidence
@@ -94,6 +104,8 @@ export type RoadTopologyReconciliationRejectionReason =
   | 'target_ambiguous'
   | 'nonreciprocal_reference'
   | 'reciprocal_reference_ambiguous'
+  | 'target_hub_missing'
+  | 'target_hub_ambiguous'
   | 'incompatible_network_role'
   | 'incompatible_road_part'
   | 'incompatible_direction'
@@ -159,6 +171,12 @@ export interface SourceAttestedJunctionGapReceipt {
   targetFeatureId: string
   targetAttestation:
     | { kind: 'reciprocal_endpoint'; endpoint: RoadTopologyEndpointSide }
+    | { kind: 'source_exact_endpoint'; endpoint: RoadTopologyEndpointSide }
+    | {
+        kind: 'source_attested_hub_endpoint'
+        endpoint: RoadTopologyEndpointSide
+        hubReceiptIds: readonly string[]
+      }
     | { kind: 'source_exact_interior_vertex'; vertexIndex: number }
   targetSection: OfficialRoadSectionIdentity
   targetSplit: RoadTopologyTargetSplit
@@ -289,6 +307,26 @@ function exactVertexReceiptId(
   return `source-attested-exact-vertex:${encodeURIComponent(sourceKey)}:${encodeURIComponent(targetKey)}`
 }
 
+function exactEndpointReceiptId(
+  source: RoadTopologySourceSegment,
+  sourceSide: RoadTopologyEndpointSide,
+  target: RoadTopologySourceSegment,
+  targetSide: RoadTopologyEndpointSide,
+): string {
+  const pair = [endpointKey(source, sourceSide), endpointKey(target, targetSide)].sort()
+  return `source-attested-exact-endpoint:${encodeURIComponent(pair[0])}:${encodeURIComponent(pair[1])}`
+}
+
+function hubEndpointGapReceiptId(
+  source: RoadTopologySourceSegment,
+  sourceSide: RoadTopologyEndpointSide,
+  target: RoadTopologySourceSegment,
+  targetSide: RoadTopologyEndpointSide,
+): string {
+  const pair = [endpointKey(source, sourceSide), endpointKey(target, targetSide)].sort()
+  return `source-attested-hub-gap:${encodeURIComponent(pair[0])}:${encodeURIComponent(pair[1])}`
+}
+
 export function roadTopologyDistanceM(a: RoadTopologyPoint, b: RoadTopologyPoint): number {
   const lat1 = a.lat * Math.PI / 180
   const lat2 = b.lat * Math.PI / 180
@@ -411,6 +449,82 @@ function targetSplit(
 interface ExactInteriorVertexProjection {
   projection: Projection
   vertexIndex: number
+}
+
+interface ExactEndpointProjection {
+  projection: Projection
+  endpoint: RoadTopologyEndpointSide
+}
+
+type UniqueEndpointProjection =
+  | ({ status: 'ok' } & ExactEndpointProjection)
+  | { status: 'too_far' }
+  | { status: 'ambiguous' }
+
+function endpointProjection(
+  sourcePoint: RoadTopologyPoint,
+  target: RoadTopologySourceSegment,
+  endpoint: RoadTopologyEndpointSide,
+): Projection {
+  const cumulative: number[] = [0]
+  for (let index = 1; index < target.geometry.length; index += 1) {
+    cumulative.push(
+      cumulative[index - 1]
+      + roadTopologyDistanceM(target.geometry[index - 1], target.geometry[index]),
+    )
+  }
+  const totalLengthM = cumulative[cumulative.length - 1]
+  if (endpoint === 'start') {
+    const point = target.geometry[0]
+    return {
+      point,
+      distanceM: roadTopologyDistanceM(sourcePoint, point),
+      edgeIndex: 0,
+      edgeFraction: 0,
+      distanceFromStartM: 0,
+      totalLengthM,
+    }
+  }
+  const point = target.geometry[target.geometry.length - 1]
+  return {
+    point,
+    distanceM: roadTopologyDistanceM(sourcePoint, point),
+    edgeIndex: target.geometry.length - 2,
+    edgeFraction: 1,
+    distanceFromStartM: totalLengthM,
+    totalLengthM,
+  }
+}
+
+function exactTargetEndpointProjection(
+  sourcePoint: RoadTopologyPoint,
+  target: RoadTopologySourceSegment,
+  toleranceM: number,
+): ExactEndpointProjection | null {
+  const matches = (['start', 'end'] as const)
+    .map(endpoint => ({ endpoint, projection: endpointProjection(sourcePoint, target, endpoint) }))
+    .filter(candidate => candidate.projection.distanceM <= toleranceM)
+  return matches.length === 1 ? matches[0] : null
+}
+
+function uniqueTargetEndpointProjection(
+  sourcePoint: RoadTopologyPoint,
+  target: RoadTopologySourceSegment,
+  maximumDistanceM: number,
+  tieToleranceM: number,
+): UniqueEndpointProjection {
+  const endpoints = (['start', 'end'] as const)
+    .map(endpoint => ({ endpoint, projection: endpointProjection(sourcePoint, target, endpoint) }))
+    .sort((a, b) => (
+      a.projection.distanceM - b.projection.distanceM
+      || a.endpoint.localeCompare(b.endpoint)
+    ))
+  if (endpoints[0].projection.distanceM > maximumDistanceM) return { status: 'too_far' }
+  if (
+    Math.abs(endpoints[1].projection.distanceM - endpoints[0].projection.distanceM)
+      <= tieToleranceM
+  ) return { status: 'ambiguous' }
+  return { status: 'ok', ...endpoints[0] }
 }
 
 function exactInteriorVertexProjection(
@@ -562,6 +676,18 @@ function targetTangentBearing(segment: RoadTopologySourceSegment, edgeIndex: num
   return bearingDegrees(segment.geometry[edgeIndex], segment.geometry[edgeIndex + 1])
 }
 
+function targetDepartureBearing(
+  segment: RoadTopologySourceSegment,
+  endpoint: RoadTopologyEndpointSide,
+): number {
+  return endpoint === 'start'
+    ? bearingDegrees(segment.geometry[0], segment.geometry[1])
+    : bearingDegrees(
+        segment.geometry[segment.geometry.length - 1],
+        segment.geometry[segment.geometry.length - 2],
+      )
+}
+
 interface XYPoint { x: number; y: number }
 
 function localXY(point: RoadTopologyPoint, origin: RoadTopologyPoint): XYPoint {
@@ -591,6 +717,7 @@ function connectorCrossesThirdParty(
   target: RoadTopologySourceSegment,
   segments: readonly RoadTopologySourceSegment[],
   maximumElevationDifferenceM: number,
+  useReliableElevation: boolean,
 ): boolean {
   if (roadTopologyDistanceM(sourcePoint, targetPoint) <= FLOAT_EPSILON) return false
   const a = localXY(sourcePoint, sourcePoint)
@@ -602,11 +729,19 @@ function connectorCrossesThirdParty(
       const d = localXY(segment.geometry[index + 1], sourcePoint)
       if (!properIntersection(a, b, c, d)) continue
 
-      const thirdZKnown = segment.geometry[index].zM !== undefined && segment.geometry[index + 1].zM !== undefined
-      const connectorZKnown = sourcePoint.zM !== undefined && targetPoint.zM !== undefined
+      const thirdStartZ = useReliableElevation
+        ? reliableElevationM(segment, segment.geometry[index])
+        : segment.geometry[index].zM
+      const thirdEndZ = useReliableElevation
+        ? reliableElevationM(segment, segment.geometry[index + 1])
+        : segment.geometry[index + 1].zM
+      const sourceZ = useReliableElevation ? reliableElevationM(source, sourcePoint) : sourcePoint.zM
+      const targetZ = useReliableElevation ? reliableElevationM(target, targetPoint) : targetPoint.zM
+      const thirdZKnown = thirdStartZ !== undefined && thirdEndZ !== undefined
+      const connectorZKnown = sourceZ !== undefined && targetZ !== undefined
       if (thirdZKnown && connectorZKnown) {
-        const thirdZ = (segment.geometry[index].zM! + segment.geometry[index + 1].zM!) / 2
-        const connectorZ = (sourcePoint.zM! + targetPoint.zM!) / 2
+        const thirdZ = (thirdStartZ + thirdEndZ) / 2
+        const connectorZ = (sourceZ + targetZ) / 2
         if (Math.abs(thirdZ - connectorZ) > maximumElevationDifferenceM) continue
       }
       return true
@@ -624,7 +759,11 @@ function validatePolicy(policy: RoadTopologyReconciliationPolicy): void {
     policy.minimumGapForHeadingCheckM,
     policy.exactVertexToleranceM,
   ]
-  const angles = [policy.minimumCrossingAngleDeg, policy.maximumGapApproachDifferenceDeg]
+  const angles = [
+    policy.minimumCrossingAngleDeg,
+    policy.maximumGapApproachDifferenceDeg,
+    policy.maximumEndpointJunctionTurnDeg,
+  ]
   const hashIsSha256 = /^[a-f0-9]{64}$/i.test(policy.artifact.contentSha256)
   if (
     !policy.policyId.trim()
@@ -635,6 +774,10 @@ function validatePolicy(policy: RoadTopologyReconciliationPolicy): void {
     || positive.some(value => !validFiniteNumber(value) || value <= 0)
     || angles.some(value => !validFiniteNumber(value) || value <= 0 || value > 180)
     || typeof policy.allowSourceAttestedExactInteriorVertex !== 'boolean'
+    || typeof policy.allowSourceAttestedExactTargetEndpoint !== 'boolean'
+    || typeof policy.allowSourceAttestedHubEndpointGap !== 'boolean'
+    || typeof policy.useReliableElevationForEndpointJunctions !== 'boolean'
+    || typeof policy.reciprocalReferenceTargetsEndpoint !== 'boolean'
     || policy.exactVertexToleranceM > MAX_EXACT_VERTEX_TOLERANCE_M
     || !policy.artifact.artifactId.trim()
     || !hashIsSha256
@@ -687,6 +830,19 @@ function sortedCandidates(
   ))
 }
 
+interface PendingHubEndpointGap {
+  source: RoadTopologySourceSegment
+  sourceEndpoint: RoadTopologyEndpointSide
+  sourceIdentity: OfficialRoadSectionIdentity
+  target: RoadTopologySourceSegment
+  targetIdentity: OfficialRoadSectionIdentity
+  targetEndpoint: RoadTopologyEndpointSide
+  projection: Projection
+  referencedSection: ParsedOfficialEndpointSectionReference
+  canonicalPair: string
+  traversal: readonly RoadTopologyGapTraversal[]
+}
+
 /**
  * Produces deterministic graph-ready split coordinates and explicit gap
  * connectors. It never mutates or silently snaps the supplied road segments.
@@ -699,6 +855,7 @@ export function reconcileSourceAttestedJunctionGaps(
   const segments = [...inputSegments].sort((a, b) => a.id.localeCompare(b.id))
   const candidates: RoadTopologyReconciliationCandidate[] = []
   const receipts: SourceAttestedJunctionGapReceipt[] = []
+  const pendingHubEndpointGaps: PendingHubEndpointGap[] = []
   const acceptedEndpointPairs = new Set<string>()
 
   const canonicalIdentityById = new Map<string, OfficialRoadSectionIdentity | null>()
@@ -792,16 +949,20 @@ export function reconcileSourceAttestedJunctionGaps(
       let traversal: readonly RoadTopologyGapTraversal[]
       if (reciprocal.length === 1) {
         const targetEndpoint = reciprocal[0]
-        const projected = projectOntoGeometry(
-          sourcePoint,
-          target.geometry,
-          policy.projectionTieToleranceM,
-        )
-        if (projected.status === 'ambiguous') {
-          reject(source, sourceEndpoint, 'projection_ambiguous', parsed.reference)
-          continue
+        if (policy.reciprocalReferenceTargetsEndpoint) {
+          projection = endpointProjection(sourcePoint, target, targetEndpoint)
+        } else {
+          const projected = projectOntoGeometry(
+            sourcePoint,
+            target.geometry,
+            policy.projectionTieToleranceM,
+          )
+          if (projected.status === 'ambiguous') {
+            reject(source, sourceEndpoint, 'projection_ambiguous', parsed.reference)
+            continue
+          }
+          projection = projected.projection
         }
-        projection = projected.projection
         targetAttestation = { kind: 'reciprocal_endpoint', endpoint: targetEndpoint }
         canonicalPair = [
           endpointKey(source, sourceEndpoint),
@@ -809,28 +970,81 @@ export function reconcileSourceAttestedJunctionGaps(
         ].sort().join('|')
         traversal = allowedTraversal(source, sourceEndpoint, target, targetEndpoint)
       } else {
-        const exactVertex = policy.allowSourceAttestedExactInteriorVertex
-          ? exactInteriorVertexProjection(
-              sourcePoint,
-              target,
-              policy.exactVertexToleranceM,
-              policy.endpointClearanceM,
-            )
+        const exactEndpoint = policy.allowSourceAttestedExactTargetEndpoint
+          ? exactTargetEndpointProjection(sourcePoint, target, policy.exactVertexToleranceM)
           : null
-        if (!exactVertex) {
-          reject(source, sourceEndpoint, 'nonreciprocal_reference', parsed.reference)
-          continue
+        if (exactEndpoint) {
+          projection = exactEndpoint.projection
+          targetAttestation = {
+            kind: 'source_exact_endpoint',
+            endpoint: exactEndpoint.endpoint,
+          }
+          canonicalPair = [
+            endpointKey(source, sourceEndpoint),
+            endpointKey(target, exactEndpoint.endpoint),
+          ].sort().join('|')
+          traversal = allowedTraversal(source, sourceEndpoint, target, exactEndpoint.endpoint)
+        } else {
+          const exactVertex = policy.allowSourceAttestedExactInteriorVertex
+            ? exactInteriorVertexProjection(
+                sourcePoint,
+                target,
+                policy.exactVertexToleranceM,
+                policy.endpointClearanceM,
+              )
+            : null
+          if (!exactVertex) {
+            if (policy.allowSourceAttestedHubEndpointGap) {
+              const hubEndpoint = uniqueTargetEndpointProjection(
+                sourcePoint,
+                target,
+                policy.maximumGapDistanceM,
+                policy.projectionTieToleranceM,
+              )
+              if (hubEndpoint.status === 'ambiguous') {
+                reject(source, sourceEndpoint, 'target_hub_ambiguous', parsed.reference)
+                continue
+              }
+              if (hubEndpoint.status === 'too_far') {
+                reject(source, sourceEndpoint, 'gap_too_far', parsed.reference)
+                continue
+              }
+              pendingHubEndpointGaps.push({
+                source,
+                sourceEndpoint,
+                sourceIdentity,
+                target,
+                targetIdentity,
+                targetEndpoint: hubEndpoint.endpoint,
+                projection: hubEndpoint.projection,
+                referencedSection: parsed.reference,
+                canonicalPair: [
+                  endpointKey(source, sourceEndpoint),
+                  endpointKey(target, hubEndpoint.endpoint),
+                ].sort().join('|'),
+                traversal: allowedTraversal(
+                  source,
+                  sourceEndpoint,
+                  target,
+                  hubEndpoint.endpoint,
+                ),
+              })
+              continue
+            }
+            reject(source, sourceEndpoint, 'nonreciprocal_reference', parsed.reference)
+            continue
+          }
+          projection = exactVertex.projection
+          targetAttestation = {
+            kind: 'source_exact_interior_vertex',
+            vertexIndex: exactVertex.vertexIndex,
+          }
+          canonicalPair = [
+            endpointKey(source, sourceEndpoint),
+            `${target.id}\u0000vertex-${exactVertex.vertexIndex}`,
+          ].sort().join('|')
+          traversal = allowedTraversalAtTargetInterior(source, sourceEndpoint)
         }
-        projection = exactVertex.projection
-        targetAttestation = {
-          kind: 'source_exact_interior_vertex',
-          vertexIndex: exactVertex.vertexIndex,
-        }
-        canonicalPair = [
-          endpointKey(source, sourceEndpoint),
-          `${target.id}\u0000vertex-${exactVertex.vertexIndex}`,
-        ].sort().join('|')
-        traversal = allowedTraversalAtTargetInterior(source, sourceEndpoint)
       }
       if (acceptedEndpointPairs.has(canonicalPair)) continue
 
@@ -854,21 +1068,37 @@ export function reconcileSourceAttestedJunctionGaps(
 
       if (projection.distanceM >= policy.minimumGapForHeadingCheckM) {
         const gapBearing = bearingDegrees(sourcePoint, projection.point)
-        const approachDifference = angularDifferenceDegrees(
+        const targetEndpoint = targetAttestation.kind === 'source_exact_interior_vertex'
+          ? null
+          : targetAttestation.endpoint
+        const sourceTurn = angularDifferenceDegrees(
           sourceApproachBearing(source, sourceEndpoint),
           gapBearing,
         )
-        if (approachDifference > policy.maximumGapApproachDifferenceDeg) {
+        const targetTurn = targetEndpoint === null
+          ? 0
+          : angularDifferenceDegrees(gapBearing, targetDepartureBearing(target, targetEndpoint))
+        const endpointJunctionMisaligned = policy.reciprocalReferenceTargetsEndpoint
+          && targetEndpoint !== null
+          && (sourceTurn > policy.maximumEndpointJunctionTurnDeg
+            || targetTurn > policy.maximumEndpointJunctionTurnDeg)
+        const legacyGapMisaligned = !policy.reciprocalReferenceTargetsEndpoint
+          && sourceTurn > policy.maximumGapApproachDifferenceDeg
+        const interiorGapMisaligned = targetEndpoint === null
+          && sourceTurn > policy.maximumGapApproachDifferenceDeg
+        if (endpointJunctionMisaligned || legacyGapMisaligned || interiorGapMisaligned) {
           reject(source, sourceEndpoint, 'gap_approach_misaligned', parsed.reference)
           continue
         }
       }
 
       const exactVertexAttested = targetAttestation.kind === 'source_exact_interior_vertex'
-      const sourceZ = exactVertexAttested
+      const useReliableElevation = exactVertexAttested
+        || policy.useReliableElevationForEndpointJunctions
+      const sourceZ = useReliableElevation
         ? reliableElevationM(source, sourcePoint)
         : sourcePoint.zM
-      const targetZ = exactVertexAttested
+      const targetZ = useReliableElevation
         ? reliableElevationM(target, projection.point)
         : projection.point.zM
       if (sourceZ !== undefined && targetZ !== undefined) {
@@ -897,6 +1127,7 @@ export function reconcileSourceAttestedJunctionGaps(
         target,
         segments,
         policy.maximumElevationDifferenceM,
+        policy.useReliableElevationForEndpointJunctions,
       )) {
         reject(source, sourceEndpoint, 'third_party_crossing_ambiguous', parsed.reference)
         continue
@@ -909,12 +1140,19 @@ export function reconcileSourceAttestedJunctionGaps(
             target,
             targetAttestation.endpoint,
           )
-        : exactVertexReceiptId(
-            source,
-            sourceEndpoint,
-            target,
-            targetAttestation.vertexIndex,
-          )
+        : targetAttestation.kind === 'source_exact_endpoint'
+          ? exactEndpointReceiptId(
+              source,
+              sourceEndpoint,
+              target,
+              targetAttestation.endpoint,
+            )
+          : exactVertexReceiptId(
+              source,
+              sourceEndpoint,
+              target,
+              targetAttestation.vertexIndex,
+            )
       const split = targetSplit(target, projection, policy.endpointClearanceM)
       const connector: SourceAttestedJunctionGapConnector = {
         id: `${id}:connector`,
@@ -952,6 +1190,163 @@ export function reconcileSourceAttestedJunctionGaps(
       })
       acceptedEndpointPairs.add(canonicalPair)
     }
+  }
+
+  // V4 is deliberately two-phase. Only receipts accepted by the immutable
+  // reciprocal/exact-endpoint pass above may attest a hub. Deferred one-sided
+  // gaps can never bootstrap one another, and input ordering cannot affect the
+  // evidence set.
+  const receiptById = new Map(receipts.map(receipt => [receipt.id, receipt]))
+  const hubReceiptIdsByEndpoint = new Map<string, Set<string>>()
+  function attestHubEndpoint(
+    segmentId: string,
+    endpoint: RoadTopologyEndpointSide,
+    receiptId: string,
+  ): void {
+    const key = `${segmentId}\u0000${endpoint}`
+    const existing = hubReceiptIdsByEndpoint.get(key) ?? new Set<string>()
+    existing.add(receiptId)
+    hubReceiptIdsByEndpoint.set(key, existing)
+  }
+  for (const receipt of receipts) {
+    if (
+      receipt.targetAttestation.kind !== 'reciprocal_endpoint'
+      && receipt.targetAttestation.kind !== 'source_exact_endpoint'
+    ) continue
+    attestHubEndpoint(receipt.sourceSegmentId, receipt.sourceEndpoint, receipt.id)
+    attestHubEndpoint(
+      receipt.targetSegmentId,
+      receipt.targetAttestation.endpoint,
+      receipt.id,
+    )
+  }
+
+  for (const pending of [...pendingHubEndpointGaps].sort((a, b) => (
+    candidateId(a.source, a.sourceEndpoint).localeCompare(candidateId(b.source, b.sourceEndpoint))
+  ))) {
+    const {
+      source,
+      sourceEndpoint,
+      sourceIdentity,
+      target,
+      targetIdentity,
+      targetEndpoint,
+      projection,
+      referencedSection,
+      canonicalPair,
+      traversal,
+    } = pending
+    if (acceptedEndpointPairs.has(canonicalPair)) continue
+    if (!allowedPair(source.networkRole, target.networkRole, policy.compatibleNetworkRolePairs)) {
+      reject(source, sourceEndpoint, 'incompatible_network_role', referencedSection)
+      continue
+    }
+    if (!allowedPair(source.roadPart, target.roadPart, policy.compatibleRoadPartPairs)) {
+      reject(source, sourceEndpoint, 'incompatible_road_part', referencedSection)
+      continue
+    }
+    if (traversal.length === 0) {
+      reject(source, sourceEndpoint, 'incompatible_direction', referencedSection)
+      continue
+    }
+
+    const hubReceiptIds = [...(hubReceiptIdsByEndpoint.get(
+      endpointKey(target, targetEndpoint),
+    ) ?? [])]
+      .filter(receiptId => {
+        const evidence = receiptById.get(receiptId)
+        return evidence !== undefined
+          && evidence.sourceSegmentId !== source.id
+          && evidence.targetSegmentId !== source.id
+      })
+      .sort()
+    if (hubReceiptIds.length === 0) {
+      reject(source, sourceEndpoint, 'target_hub_missing', referencedSection)
+      continue
+    }
+
+    const sourcePoint = endpointPoint(source, sourceEndpoint)
+    const gapBearing = bearingDegrees(sourcePoint, projection.point)
+    const sourceTurn = angularDifferenceDegrees(
+      sourceApproachBearing(source, sourceEndpoint),
+      gapBearing,
+    )
+    const targetCrossing = angularDifferenceDegrees(
+      gapBearing,
+      targetDepartureBearing(target, targetEndpoint),
+    )
+    if (
+      sourceTurn > policy.maximumGapApproachDifferenceDeg
+      || targetCrossing < policy.minimumCrossingAngleDeg
+      || targetCrossing > 180 - policy.minimumCrossingAngleDeg
+    ) {
+      reject(source, sourceEndpoint, 'gap_approach_misaligned', referencedSection)
+      continue
+    }
+
+    const sourceZ = reliableElevationM(source, sourcePoint)
+    const targetZ = reliableElevationM(target, projection.point)
+    if (
+      sourceZ !== undefined
+      && targetZ !== undefined
+      && Math.abs(sourceZ - targetZ) > policy.maximumElevationDifferenceM
+    ) {
+      reject(source, sourceEndpoint, 'elevation_contradiction', referencedSection)
+      continue
+    }
+    if (connectorCrossesThirdParty(
+      sourcePoint,
+      projection.point,
+      source,
+      target,
+      segments,
+      policy.maximumElevationDifferenceM,
+      true,
+    )) {
+      reject(source, sourceEndpoint, 'third_party_crossing_ambiguous', referencedSection)
+      continue
+    }
+
+    const id = hubEndpointGapReceiptId(source, sourceEndpoint, target, targetEndpoint)
+    const split = targetSplit(target, projection, policy.endpointClearanceM)
+    receipts.push({
+      id,
+      kind: 'source_attested_junction_gap',
+      policyId: policy.policyId,
+      sourceSegmentId: source.id,
+      sourceFeatureId: source.sourceFeatureId,
+      sourceEndpoint,
+      sourceSection: sourceIdentity,
+      targetSegmentId: target.id,
+      targetFeatureId: target.sourceFeatureId,
+      targetAttestation: {
+        kind: 'source_attested_hub_endpoint',
+        endpoint: targetEndpoint,
+        hubReceiptIds,
+      },
+      targetSection: targetIdentity,
+      targetSplit: split,
+      connector: {
+        id: `${id}:connector`,
+        kind: 'source_attested_junction_gap',
+        networkRole: 'access_connector',
+        assessmentEligible: false,
+        geometry: [sourcePoint, split.point],
+        lengthM: projection.distanceM,
+        allowedTraversal: traversal,
+        truthClaims: { road: false, surface: false, weather: false, safety: false },
+      },
+      provenance: policy.artifact,
+    })
+    candidates.push({
+      candidateId: candidateId(source, sourceEndpoint),
+      sourceSegmentId: source.id,
+      sourceEndpoint,
+      referencedSection,
+      status: 'accepted',
+      receiptId: id,
+    })
+    acceptedEndpointPairs.add(canonicalPair)
   }
 
   return {

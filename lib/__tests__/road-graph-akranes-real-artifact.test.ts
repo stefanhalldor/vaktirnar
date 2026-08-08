@@ -59,6 +59,10 @@ describeRealArtifact('Garðabær to Akranes official-artifact topology regressio
       missingDirectionPolicy: 'provisional_bidirectional',
       topologyReconciliation: {
         bindings: topology.bindings,
+        sectionLedger: topology.sectionLedger,
+        receiptLedger: topology.receipts,
+        policyId: topology.policyId,
+        provenance: topology.receipts[0].provenance,
         invalidBindingBehavior: 'throw',
       },
     })
@@ -120,6 +124,10 @@ describeRealArtifact('Garðabær to Akranes official-artifact topology regressio
       missingDirectionPolicy: 'provisional_bidirectional',
       topologyReconciliation: {
         bindings: topology.bindings,
+        sectionLedger: topology.sectionLedger,
+        receiptLedger: topology.receipts,
+        policyId: topology.policyId,
+        provenance: topology.receipts[0].provenance,
         invalidBindingBehavior: 'throw',
       },
     })
@@ -289,6 +297,10 @@ describeRealArtifact('Garðabær to Akranes official-artifact topology regressio
       missingDirectionPolicy: 'provisional_bidirectional',
       topologyReconciliation: {
         bindings: topology.bindings,
+        sectionLedger: topology.sectionLedger,
+        receiptLedger: topology.receipts,
+        policyId: topology.policyId,
+        provenance: topology.receipts[0].provenance,
         invalidBindingBehavior: 'throw',
       },
     })

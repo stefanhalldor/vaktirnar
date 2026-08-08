@@ -532,6 +532,33 @@ function sliceEdge(
   }
 }
 
+/**
+ * Recreates a signed assessment-only prefix/suffix edge from its immutable
+ * source edge. Full graph edges are returned by identity elsewhere; this
+ * helper accepts only the exact fixed-precision marker emitted by sliceEdge.
+ */
+export function restoreRouteAssessmentEdgeSlice(
+  sourceEdge: IcelandRoadGraphEdge,
+  claimedEdgeId: string,
+): IcelandRoadGraphEdge | null {
+  const prefix = `${sourceEdge.id}:assessment:`
+  if (!claimedEdgeId.startsWith(prefix)) return null
+  const marker = claimedEdgeId.slice(prefix.length)
+  const match = /^(\d\.\d{12})-(\d\.\d{12})$/.exec(marker)
+  if (!match) return null
+  const startFraction = Number(match[1])
+  const endFraction = Number(match[2])
+  if (
+    !Number.isFinite(startFraction)
+    || !Number.isFinite(endFraction)
+    || startFraction < 0
+    || endFraction > 1
+    || endFraction <= startFraction
+  ) return null
+  const restored = sliceEdge(sourceEdge, startFraction, endFraction)
+  return restored?.id === claimedEdgeId ? restored : null
+}
+
 function originStart(
   candidate: AnchorCandidate,
   profile: IcelandRoadRoutingProfile,
@@ -988,7 +1015,7 @@ function assessmentRoadAlternatives(
       complete = false
       break
     }
-    const routeFingerprint = routeProvenanceFingerprint(candidate.route)
+    const routeFingerprint = createRouteAssessmentRouteProvenanceFingerprint(candidate.route)
     if (deadlineExceeded(deadlineAtMs)) {
       complete = false
       break
@@ -1010,7 +1037,11 @@ function publicAnchor(candidate: AnchorCandidate): ResolvedRouteAssessmentAnchor
   }
 }
 
-function routeProvenanceFingerprint(route: SelectedRoute): string {
+export function createRouteAssessmentRouteProvenanceFingerprint(route: Readonly<{
+  origin: Readonly<{ kind: 'settlement_node' | 'projected_road'; point: LatLon }>
+  destination: Readonly<{ kind: 'settlement_node' | 'projected_road'; point: LatLon }>
+  connectedRoadEdges: readonly IcelandRoadGraphEdge[]
+}>): string {
   const edgeIdentity = route.connectedRoadEdges.map(edge => ({
     id: edge.id,
     segmentId: edge.segmentId,
@@ -1207,7 +1238,7 @@ export function findRouteAssessmentRoadAnchors(
     earliestDeadline(options.deadlineAtMs, options.alternativeDeadlineAtMs),
   )
   if (deadlineExceeded(options.deadlineAtMs)) return { status: 'incomplete' }
-  const primaryRouteProvenanceFingerprint = routeProvenanceFingerprint(selected)
+  const primaryRouteProvenanceFingerprint = createRouteAssessmentRouteProvenanceFingerprint(selected)
   if (deadlineExceeded(options.deadlineAtMs)) return { status: 'incomplete' }
   return {
     status: 'ok',

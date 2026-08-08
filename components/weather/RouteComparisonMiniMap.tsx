@@ -98,6 +98,7 @@ export type RouteComparisonMiniMapItem = {
 }
 
 export type RouteComparisonSortMode = 'default' | 'duration' | 'distance' | 'weather'
+export type RouteGravelGeometryStatus = 'loading' | 'slow' | 'unavailable' | 'ready'
 
 const EARTH_RADIUS_M = 6_371_000
 
@@ -506,7 +507,12 @@ export function RouteComparisonFullscreenMap({
   mapLabelScaleResetLabel,
   mapLabelScaleIncreaseLabel,
   googleSectionAnalysisOnlyLabel,
+  gravelGeometryStatus,
+  gravelGeometryLoadingLabel,
+  gravelGeometrySlowLabel,
   gravelGeometryUnavailableLabel,
+  feedbackLabel,
+  onFeedback,
 }: {
   routes: RouteComparisonMiniMapItem[]
   selectedRouteId: string | null
@@ -536,7 +542,12 @@ export function RouteComparisonFullscreenMap({
   mapLabelScaleResetLabel?: string
   mapLabelScaleIncreaseLabel?: string
   googleSectionAnalysisOnlyLabel?: string
+  gravelGeometryStatus?: RouteGravelGeometryStatus
+  gravelGeometryLoadingLabel?: string
+  gravelGeometrySlowLabel?: string
   gravelGeometryUnavailableLabel?: string
+  feedbackLabel?: string
+  onFeedback?: () => void
 }) {
   const [sortMode, setSortMode] = useState<RouteComparisonSortMode>('default')
   const { scale: mapLabelScale, saveScale: saveMapLabelScale } = useRouteMapLabelScale()
@@ -609,13 +620,21 @@ export function RouteComparisonFullscreenMap({
     selectedRouteId === null ? route.selected : route.id === selectedRouteId
   )) ?? null
   const selectedHasGravelGeometry = mapAnnotations.some(annotation => annotation.kind === 'gravel')
+  const selectedNeedsGravelGeometry = selectedMapRoute?.provider === 'teskeid'
+    && (selectedMapRoute.gravelKm ?? 0) > 0
+    && !selectedHasGravelGeometry
+  const effectiveGravelGeometryStatus = gravelGeometryStatus ?? 'unavailable'
   const mapScopeNotice = selectedMapRoute?.provider === 'google'
     ? googleSectionAnalysisOnlyLabel
-    : selectedMapRoute?.provider === 'teskeid'
-      && (selectedMapRoute.gravelKm ?? 0) > 0
-      && !selectedHasGravelGeometry
-      ? gravelGeometryUnavailableLabel
+    : selectedNeedsGravelGeometry
+      ? effectiveGravelGeometryStatus === 'loading'
+        ? gravelGeometryLoadingLabel
+        : effectiveGravelGeometryStatus === 'slow'
+          ? gravelGeometrySlowLabel
+          : gravelGeometryUnavailableLabel
       : undefined
+  const gravelGeometryPending = selectedNeedsGravelGeometry
+    && (effectiveGravelGeometryStatus === 'loading' || effectiveGravelGeometryStatus === 'slow')
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -733,12 +752,18 @@ export function RouteComparisonFullscreenMap({
               </span>
             ))}
             {mapScopeNotice && (
-              <span
+              <div
                 role="status"
-                className="inline-flex min-h-8 items-center rounded-full border border-border bg-background/95 px-2.5 py-1 text-[11px] font-medium leading-snug text-muted-foreground shadow-sm backdrop-blur-sm"
+                className="inline-flex min-h-8 items-center gap-2 rounded-full border border-border bg-background/95 px-2.5 py-1 text-[11px] font-medium leading-snug text-muted-foreground shadow-sm backdrop-blur-sm"
               >
-                {mapScopeNotice}
-              </span>
+                {gravelGeometryPending && (
+                  <span
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent"
+                  />
+                )}
+                <span>{mapScopeNotice}</span>
+              </div>
             )}
           </div>
         )}
@@ -898,6 +923,16 @@ export function RouteComparisonFullscreenMap({
           data-route-comparison-action-footer="true"
           className="relative z-20 shrink-0 border-t border-border/70 bg-background px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] pt-2 shadow-[0_-6px_16px_rgba(15,23,42,0.08)]"
         >
+          {feedbackLabel && onFeedback && (
+            <button
+              type="button"
+              onClick={onFeedback}
+              disabled={applyPending}
+              className="mb-2 flex min-h-10 w-full items-center justify-center rounded-lg border border-border px-4 py-2 text-xs font-semibold text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {feedbackLabel}
+            </button>
+          )}
           <button
             type="button"
             onClick={onApply}

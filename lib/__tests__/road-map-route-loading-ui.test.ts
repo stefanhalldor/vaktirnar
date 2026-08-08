@@ -576,16 +576,24 @@ describe('road-map route results display state', () => {
     expect(source).toContain('const expiresAtMs = Date.parse(envelope.expiresAt)')
     expect(source).toContain('routeSectionsCacheRef.current.delete(routeIdentity)')
     expect(source).toContain('await routeSectionsPresentationHashMatches(parsed)')
-    expect(source).toContain('async function handleRetryRouteSections(choice: RouteSurfaceChoice)')
-    expect(source).toMatch(
-      /refreshRouteChoiceEnvelope\(\s*choice,\s*places,\s*controller\.signal,\s*\)/,
-    )
+    expect(source).toContain('const ROUTE_SECTIONS_LOADING_BUDGET_MS = 60_000')
+    expect(source).toContain('ROUTE_SECTIONS_PENDING_RETRY_DELAYS_MS')
+    expect(source).toContain("response.status === 202 || payload?.status === 'pending'")
+    expect(source).toContain('await waitForRouteSectionsRetry(')
+    expect(source).toContain('gravelGeometryStatus={selectedRouteGravelGeometryStatus}')
+    expect(source).not.toContain('onRetryGravelGeometry=')
+    expect(source).not.toContain('async function handleRetryRouteSections(')
 
     const candidateStart = source.indexOf('async function fetchTeskeidCandidate(')
     const candidateEnd = source.indexOf('async function fetchTeskeidCandidateWithRetry(', candidateStart)
     const candidateBlock = source.slice(candidateStart, candidateEnd)
     expect(candidateBlock).toContain('resolveAssessmentScope: true')
     expect(candidateBlock).not.toContain('accessRouteEnvelope')
+    expect(source).toContain("route.provider === 'teskeid' && route.labels.includes('CURATED_VIA_HOLMAVIK')")
+    expect(source).toContain("label === 'CURATED_VIA_HOLMAVIK' && route.provider !== 'teskeid'")
+    expect(source).toContain("const usesTeskeidRouteIntelligence = choice.route.provider === 'teskeid'")
+    expect(source).toContain("const firstChoiceIsCaution = firstChoice.route.provider === 'teskeid'")
+    expect(source).toContain('const safeChoice = [...teskeidChoices]')
   })
 
   it('keeps stable server route ids scope-local in React and async hydration', () => {

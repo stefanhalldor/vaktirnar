@@ -17,13 +17,14 @@ vi.mock('next-intl', () => ({
     const translations: Record<string, string> = {
       ariaLabel: 'Search for a place',
       placeholder: 'Search for a place in Iceland...',
-      loading: 'Searching...',
+      loading: 'Searching for places…',
       errorAllProviders: 'Search is unavailable right now.',
       noResults: 'No place found.',
       rateLimited: 'Too many searches right now.',
       useCurrentLocation: 'Use current location',
       chooseFromMap: 'Choose on map',
       chooseFromMapResults: `Choose on map (${values?.count ?? 0})`,
+      chooseFromMapFallback: 'Could not find the place? Choose on map',
       selectedLocationLabel: 'Selected place',
       changeSelectedPlace: 'Change',
       currentLocationLoading: 'Finding your location...',
@@ -132,6 +133,42 @@ beforeEach(() => {
 })
 
 describe('PlaceSearch', () => {
+  it('shows a prominent accessible loading state while a place search is pending', async () => {
+    const response = deferred<Response>()
+    fetchMock.mockReturnValue(response.promise)
+    render(<PlaceSearch autoFocus={false} onPlaceSelected={vi.fn()} />)
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'leit' } })
+    await advanceSearchDebounce()
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Searching for places…')
+    expect(status).toHaveClass('border-primary/30', 'bg-primary/5', 'text-primary')
+    expect(status.querySelector('.animate-spin')).toBeInTheDocument()
+  })
+
+  it('keeps map search visible immediately in the canonical default mode', () => {
+    render(<PlaceSearch autoFocus={false} onPlaceSelected={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Choose on map' })).toBeInTheDocument()
+  })
+
+  it('reveals the shared map fallback only after a search attempt', async () => {
+    fetchMock.mockResolvedValue(searchResponse([]))
+    render(
+      <PlaceSearch
+        autoFocus={false}
+        mapSelectionMode="after-search"
+        onPlaceSelected={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Could not find the place? Choose on map' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Óþekktur staður' } })
+    await advanceSearchDebounce()
+
+    expect(screen.getByRole('button', { name: 'Could not find the place? Choose on map' })).toBeInTheDocument()
+  })
+
   it('shows a confirmed current location with nearby label and accuracy until changed', () => {
     const onClearSelectedPlace = vi.fn()
     render(

@@ -1,5 +1,6 @@
 import type {
   IcelandRoadGraphTopologyReceiptBinding,
+  IcelandRoadGraphTopologySectionBinding,
 } from './roadGraph'
 import type {
   IcelandRoadGraphPoint,
@@ -20,14 +21,20 @@ export const VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V1 =
   'vegagerdin-reciprocal-section-endpoints-v1'
 export const VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2 =
   'vegagerdin-attested-section-junctions-v2'
+export const VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3 =
+  'vegagerdin-attested-endpoint-junctions-v3'
+export const VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4 =
+  'vegagerdin-source-attested-hub-endpoint-gaps-v4'
 export const VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID =
-  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2
+  VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4
 export const VEGAGERDIN_TOPOLOGY_MAXIMUM_GAP_M = 50
 export const VEGAGERDIN_TOPOLOGY_EXACT_VERTEX_TOLERANCE_M = 0.001
 
 export type VegagerdinTopologyReconciliationPolicyId =
   | typeof VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V1
   | typeof VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2
+  | typeof VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3
+  | typeof VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4
 
 const COORDINATE_EPSILON_DEG = 1e-9
 const ELEVATION_EPSILON_M = 1e-6
@@ -45,6 +52,7 @@ export interface VegagerdinRoadGraphTopologyResult {
   candidates: readonly RoadTopologyReconciliationCandidate[]
   receipts: readonly SourceAttestedJunctionGapReceipt[]
   bindings: readonly IcelandRoadGraphTopologyReceiptBinding[]
+  sectionLedger: readonly IcelandRoadGraphTopologySectionBinding[]
   topologySegmentCount: number
 }
 
@@ -212,9 +220,13 @@ function topologyPolicy(
     artifactId: artifact.artifactId,
     contentSha256: artifact.contentSha256,
     validationReportId: artifact.validationReportId,
-    numericCeilingRationale: policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2
-      ? 'Non-zero repairs retain the 50 m reciprocal-reference ceiling. One-sided official references are accepted only at one unique interior target vertex within a 1 mm horizontal tolerance.'
-      : 'A 50 m repair window is bounded above the unchanged 20 m endpoint snap and is accepted only with unique reciprocal official section references plus geometry safeguards.',
+    numericCeilingRationale: policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4
+      ? 'The 50 m repair window remains bounded above the unchanged 20 m node snap. A deferred one-sided gap requires a unique named target endpoint already attested as a hub by an independent reciprocal or exact-endpoint receipt, source alignment within 35 degrees, target crossing between 45 and 135 degrees, reliable elevation within 5 m when known, and fail-closed third-party safeguards.'
+      : policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3
+        ? 'The 50 m repair window remains bounded above the unchanged 20 m node snap. Unique reciprocal endpoint gaps must stay inside both road-end forward half-planes (at most 90 degrees), while one-sided references require one exact target endpoint or interior vertex within 1 mm. Reliable elevation and third-party crossing safeguards remain fail-closed.'
+      : policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2
+        ? 'Non-zero repairs retain the 50 m reciprocal-reference ceiling. One-sided official references are accepted only at one unique interior target vertex within a 1 mm horizontal tolerance.'
+        : 'A 50 m repair window is bounded above the unchanged 20 m endpoint snap and is accepted only with unique reciprocal official section references plus geometry safeguards.',
   }
   return {
     policyId,
@@ -232,7 +244,19 @@ function topologyPolicy(
     minimumGapForHeadingCheckM: 0.5,
     maximumGapApproachDifferenceDeg: 35,
     allowSourceAttestedExactInteriorVertex:
-      policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V2,
+      policyId !== VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V1,
+    allowSourceAttestedExactTargetEndpoint:
+      policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3
+      || policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4,
+    allowSourceAttestedHubEndpointGap:
+      policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4,
+    useReliableElevationForEndpointJunctions:
+      policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3
+      || policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4,
+    reciprocalReferenceTargetsEndpoint:
+      policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V3
+      || policyId === VEGAGERDIN_TOPOLOGY_RECONCILIATION_POLICY_ID_V4,
+    maximumEndpointJunctionTurnDeg: 90,
     exactVertexToleranceM: VEGAGERDIN_TOPOLOGY_EXACT_VERTEX_TOLERANCE_M,
     artifact: provenance,
   }
@@ -283,7 +307,10 @@ export function reconcileVegagerdinRoadGraphTopology(input: {
     .filter((value): value is AggregatedOfficialSection => value !== null)
     .sort((a, b) => a.topology.id.localeCompare(b.topology.id))
   if (sections.length === 0) {
-    return { policyId, candidates: [], receipts: [], bindings: [], topologySegmentCount: 0 }
+    return {
+      policyId, candidates: [], receipts: [], bindings: [], sectionLedger: [],
+      topologySegmentCount: 0,
+    }
   }
 
   const reconciliation = reconcileSourceAttestedJunctionGaps(
@@ -315,6 +342,7 @@ export function reconcileVegagerdinRoadGraphTopology(input: {
       targetGraph: {
         segmentId: targetEdge.segmentId,
         sourceId: targetEdge.sourceId,
+        topologyEdgeIndex: receipt.targetSplit.edgeIndex,
         edgeIndex: targetEdge.edgeIndex,
         edgeFraction: receipt.targetSplit.edgeFraction,
       },
@@ -326,6 +354,12 @@ export function reconcileVegagerdinRoadGraphTopology(input: {
     candidates: reconciliation.candidates,
     receipts: reconciliation.receipts,
     bindings: bindings.sort((a, b) => a.receipt.id.localeCompare(b.receipt.id)),
+    sectionLedger: sections.map(section => ({
+      topologySegmentId: section.topology.id,
+      sourceFeatureId: section.topology.sourceFeatureId,
+      officialSection: section.topology.officialSection,
+      graphEdges: section.edgeBindings,
+    })),
     topologySegmentCount: sections.length,
   }
 }

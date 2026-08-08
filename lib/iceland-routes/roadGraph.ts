@@ -21,9 +21,12 @@ import {
   validateIcelandRoadDirectionInferenceSet,
   type IcelandRoadResolvedDirection,
 } from './roadGraphDirectionInference'
-import type {
-  RoadTopologyEndpointSide,
-  SourceAttestedJunctionGapReceipt,
+import {
+  parseOfficialEndpointSectionReference,
+  type OfficialRoadSectionIdentity,
+  type RoadTopologyArtifactEvidence,
+  type RoadTopologyEndpointSide,
+  type SourceAttestedJunctionGapReceipt,
 } from './roadGraphTopologyReconciliation'
 
 const EARTH_RADIUS_M = 6_371_000
@@ -35,6 +38,8 @@ const RECEIPT_COORDINATE_EPSILON_DEG = 1e-9
 const RECEIPT_ELEVATION_EPSILON_M = 1e-6
 const RECEIPT_DISTANCE_EPSILON_M = 1e-6
 const EXACT_INTERIOR_VERTEX_MAX_DISTANCE_M = 0.01
+const EXACT_ENDPOINT_MAX_DISTANCE_M = 0.01
+const HUB_ENDPOINT_GAP_MAX_DISTANCE_M = 50
 
 export const ICELAND_ROUTING_PROFILES = {
   fastestCar: {
@@ -154,13 +159,33 @@ export interface IcelandRoadGraphTopologyReceiptBinding {
   targetGraph: {
     segmentId: string
     sourceId: string
+    /** Edge in the unsplit topology section; distinct from a surface child's local edge. */
+    topologyEdgeIndex: number
     edgeIndex: number
     edgeFraction: number
   }
 }
 
+export interface IcelandRoadGraphTopologySectionBinding {
+  topologySegmentId: string
+  sourceFeatureId: string
+  officialSection: OfficialRoadSectionIdentity
+  /** Ordered mapping from every unsplit topology edge to its exact graph child edge. */
+  graphEdges: readonly {
+    segmentId: string
+    sourceId: string
+    edgeIndex: number
+  }[]
+}
+
 export interface IcelandRoadGraphTopologyReconciliationOptions {
   bindings: readonly IcelandRoadGraphTopologyReceiptBinding[]
+  sectionLedger: readonly IcelandRoadGraphTopologySectionBinding[]
+  /** Complete accepted ledger, including receipts that need no explicit connector binding. */
+  receiptLedger: readonly SourceAttestedJunctionGapReceipt[]
+  /** Immutable build contract that every ledger receipt must share. */
+  policyId: string
+  provenance: RoadTopologyArtifactEvidence
   /** Both modes fail closed; `throw` also rejects the candidate graph build. */
   invalidBindingBehavior: 'throw' | 'ignore'
 }
@@ -172,6 +197,17 @@ interface ValidatedTopologyBinding {
   sourcePoint: IcelandRoadGraphPoint
   targetPoint: IcelandRoadGraphPoint
   targetDistanceFromStartM: number
+}
+
+interface ValidatedTopologySectionBinding {
+  binding: IcelandRoadGraphTopologySectionBinding
+  graphEdges: readonly {
+    input: IcelandRoadGraphSegmentInput
+    edgeIndex: number
+    startPoint: IcelandRoadGraphPoint
+    endPoint: IcelandRoadGraphPoint
+  }[]
+  inputs: readonly IcelandRoadGraphSegmentInput[]
 }
 
 interface TopologySplitMarker {
@@ -203,6 +239,18 @@ function receiptPointMatchesGraphPoint(
   graphPoint: IcelandRoadGraphPoint,
 ): boolean {
   if (
+    !Number.isFinite(receiptPoint.lat)
+    || !Number.isFinite(receiptPoint.lon)
+    || receiptPoint.lat < -90
+    || receiptPoint.lat > 90
+    || receiptPoint.lon < -180
+    || receiptPoint.lon > 180
+    || (receiptPoint.zM !== undefined && !Number.isFinite(receiptPoint.zM))
+    || !Number.isFinite(graphPoint.lat)
+    || !Number.isFinite(graphPoint.lon)
+    || (graphPoint.elevationM !== undefined && !Number.isFinite(graphPoint.elevationM))
+  ) return false
+  if (
     Math.abs(receiptPoint.lat - graphPoint.lat) > RECEIPT_COORDINATE_EPSILON_DEG
     || Math.abs(receiptPoint.lon - graphPoint.lon) > RECEIPT_COORDINATE_EPSILON_DEG
   ) return false
@@ -210,6 +258,228 @@ function receiptPointMatchesGraphPoint(
   return receiptPoint.zM !== undefined
     && graphPoint.elevationM !== undefined
     && Math.abs(receiptPoint.zM - graphPoint.elevationM) <= RECEIPT_ELEVATION_EPSILON_M
+}
+
+function receiptPointsMatch(
+  left: { lat: number; lon: number; zM?: number },
+  right: { lat: number; lon: number; zM?: number },
+): boolean {
+  return receiptPointMatchesGraphPoint(left, {
+    lat: right.lat,
+    lon: right.lon,
+    ...(right.zM === undefined ? {} : { elevationM: right.zM }),
+  })
+}
+
+function graphPointsMatch(
+  left: IcelandRoadGraphPoint,
+  right: IcelandRoadGraphPoint,
+): boolean {
+  return receiptPointMatchesGraphPoint({
+    lat: left.lat,
+    lon: left.lon,
+    ...(left.elevationM === undefined ? {} : { zM: left.elevationM }),
+  }, right)
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return JSON.stringify(value)
+  }
+  if (typeof value === 'number') return Number.isFinite(value) ? JSON.stringify(value) : 'null'
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (typeof value === 'object') {
+    const object = value as Record<string, unknown>
+    return `{${Object.keys(object).sort().map(key => (
+      `${JSON.stringify(key)}:${canonicalJson(object[key])}`
+    )).join(',')}}`
+  }
+  return JSON.stringify(null)
+}
+
+function validReceiptPoint(point: unknown): point is { lat: number; lon: number; zM?: number } {
+  if (!point || typeof point !== 'object') return false
+  const candidate = point as { lat?: unknown; lon?: unknown; zM?: unknown }
+  return typeof candidate.lat === 'number'
+    && Number.isFinite(candidate.lat)
+    && candidate.lat >= -90
+    && candidate.lat <= 90
+    && typeof candidate.lon === 'number'
+    && Number.isFinite(candidate.lon)
+    && candidate.lon >= -180
+    && candidate.lon <= 180
+    && (candidate.zM === undefined
+      || (typeof candidate.zM === 'number' && Number.isFinite(candidate.zM)))
+}
+
+function validReceiptSection(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const section = value as Record<string, unknown>
+  return ['authority', 'datasetId', 'roadNumber', 'sectionNumber']
+    .every(key => typeof section[key] === 'string' && Boolean((section[key] as string).trim()))
+}
+
+function validReceiptProvenance(value: unknown): value is RoadTopologyArtifactEvidence {
+  if (!value || typeof value !== 'object') return false
+  const provenance = value as Partial<RoadTopologyArtifactEvidence>
+  return typeof provenance.artifactId === 'string'
+    && Boolean(provenance.artifactId.trim())
+    && typeof provenance.contentSha256 === 'string'
+    && /^[a-f0-9]{64}$/i.test(provenance.contentSha256)
+    && typeof provenance.validationReportId === 'string'
+    && Boolean(provenance.validationReportId.trim())
+    && typeof provenance.numericCeilingRationale === 'string'
+    && Boolean(provenance.numericCeilingRationale.trim())
+}
+
+function validTargetAttestation(
+  value: SourceAttestedJunctionGapReceipt['targetAttestation'],
+): boolean {
+  if (!value || typeof value !== 'object') return false
+  if (value.kind === 'source_exact_interior_vertex') {
+    return Number.isSafeInteger(value.vertexIndex) && value.vertexIndex > 0
+  }
+  if (
+    value.kind !== 'reciprocal_endpoint'
+    && value.kind !== 'source_exact_endpoint'
+    && value.kind !== 'source_attested_hub_endpoint'
+  ) return false
+  if (value.endpoint !== 'start' && value.endpoint !== 'end') return false
+  if (value.kind !== 'source_attested_hub_endpoint') return true
+  return Array.isArray(value.hubReceiptIds)
+    && value.hubReceiptIds.length > 0
+    && value.hubReceiptIds.every(id => typeof id === 'string' && Boolean(id.trim()))
+    && new Set(value.hubReceiptIds).size === value.hubReceiptIds.length
+    && value.hubReceiptIds.every((id, index, ids) => (
+      index === 0 || ids[index - 1].localeCompare(id) < 0
+    ))
+}
+
+function validReceiptStructure(receipt: SourceAttestedJunctionGapReceipt): boolean {
+  const split = receipt.targetSplit
+  const connector = receipt.connector
+  if (
+    !receipt.id?.trim()
+    || receipt.kind !== 'source_attested_junction_gap'
+    || !receipt.policyId?.trim()
+    || !receipt.sourceSegmentId?.trim()
+    || !receipt.sourceFeatureId?.trim()
+    || (receipt.sourceEndpoint !== 'start' && receipt.sourceEndpoint !== 'end')
+    || !validReceiptSection(receipt.sourceSection)
+    || !receipt.targetSegmentId?.trim()
+    || !receipt.targetFeatureId?.trim()
+    || !validTargetAttestation(receipt.targetAttestation)
+    || !validReceiptSection(receipt.targetSection)
+    || !validReceiptProvenance(receipt.provenance)
+    || !split
+    || split.segmentId !== receipt.targetSegmentId
+    || !Number.isSafeInteger(split.edgeIndex)
+    || split.edgeIndex < 0
+    || !Number.isFinite(split.edgeFraction)
+    || split.edgeFraction < 0
+    || split.edgeFraction > 1
+    || !Number.isFinite(split.geometryFraction)
+    || split.geometryFraction < 0
+    || split.geometryFraction > 1
+    || !Number.isFinite(split.distanceFromStartM)
+    || split.distanceFromStartM < 0
+    || !Number.isFinite(split.distanceToEndM)
+    || split.distanceToEndM < 0
+    || !validReceiptPoint(split.point)
+    || !Array.isArray(split.geometryBefore)
+    || !Array.isArray(split.geometryAfter)
+    || split.geometryBefore.length === 0
+    || split.geometryAfter.length === 0
+    || !split.geometryBefore.every(validReceiptPoint)
+    || !split.geometryAfter.every(validReceiptPoint)
+    || !connector
+    || connector.id !== `${receipt.id}:connector`
+    || connector.kind !== 'source_attested_junction_gap'
+    || connector.networkRole !== 'access_connector'
+    || connector.assessmentEligible !== false
+    || !Array.isArray(connector.geometry)
+    || connector.geometry.length !== 2
+    || !connector.geometry.every(validReceiptPoint)
+    || !Number.isFinite(connector.lengthM)
+    || connector.lengthM < 0
+    || !Array.isArray(connector.allowedTraversal)
+    || connector.allowedTraversal.length === 0
+    || connector.allowedTraversal.some(value => (
+      value !== 'source_to_target' && value !== 'target_to_source'
+    ))
+    || new Set(connector.allowedTraversal).size !== connector.allowedTraversal.length
+    || !connector.truthClaims
+    || connector.truthClaims.road !== false
+    || connector.truthClaims.surface !== false
+    || connector.truthClaims.weather !== false
+    || connector.truthClaims.safety !== false
+    || !receiptPointsMatch(connector.geometry[1], split.point)
+  ) return false
+  const measuredLengthM = geometryLengthM(connector.geometry)
+  return Number.isFinite(measuredLengthM)
+    && Math.abs(connector.lengthM - measuredLengthM) <= RECEIPT_DISTANCE_EPSILON_M
+}
+
+function receiptSectionMatchesInput(
+  section: SourceAttestedJunctionGapReceipt['sourceSection'],
+  input: IcelandRoadGraphSegmentInput,
+): boolean {
+  if (input.source === 'teskeid_fixture') return true
+  if (!input.official) return false
+  return section.authority === 'vegagerdin'
+    && section.datasetId === `vegagerdin:vegakerfi:layer-${input.official.sourceLayerId}`
+    && section.roadNumber.trim().toUpperCase() === input.roadNumber?.trim().toUpperCase()
+    && section.sectionNumber.trim().toUpperCase()
+      === input.official.sectionNumber?.trim().toUpperCase()
+}
+
+function receiptSectionsMatch(
+  left: SourceAttestedJunctionGapReceipt['sourceSection'],
+  right: SourceAttestedJunctionGapReceipt['sourceSection'],
+): boolean {
+  return left.authority === right.authority
+    && left.datasetId === right.datasetId
+    && left.roadNumber.trim().toUpperCase() === right.roadNumber.trim().toUpperCase()
+    && left.sectionNumber.trim().toUpperCase() === right.sectionNumber.trim().toUpperCase()
+}
+
+function endpointReferenceMatchesSection(
+  value: string | undefined,
+  section: OfficialRoadSectionIdentity,
+): boolean {
+  const parsed = parseOfficialEndpointSectionReference(value)
+  return parsed.status === 'ok'
+    && parsed.reference.roadNumber === section.roadNumber
+    && parsed.reference.sectionNumber === section.sectionNumber
+}
+
+function receiptReferencesMatchInputs(
+  receipt: SourceAttestedJunctionGapReceipt,
+  sourceCandidates: readonly IcelandRoadGraphSegmentInput[],
+  targetCandidates: readonly IcelandRoadGraphSegmentInput[],
+): boolean {
+  const officialSource = sourceCandidates.filter(candidate => candidate.source === 'vegagerdin')
+  if (officialSource.length === 0) return true
+  const officialTarget = targetCandidates.filter(candidate => candidate.source === 'vegagerdin')
+  if (
+    officialSource.length !== sourceCandidates.length
+    || officialTarget.length !== targetCandidates.length
+  ) return false
+  const sourceReferencesTarget = officialSource.every(candidate => endpointReferenceMatchesSection(
+    receipt.sourceEndpoint === 'start'
+      ? candidate.official?.sectionStartLabel
+      : candidate.official?.sectionEndLabel,
+    receipt.targetSection,
+  ))
+  if (!sourceReferencesTarget) return false
+  if (receipt.targetAttestation.kind !== 'reciprocal_endpoint') return true
+  return officialTarget.every(candidate => endpointReferenceMatchesSection(
+      receipt.targetAttestation.kind === 'reciprocal_endpoint'
+        && receipt.targetAttestation.endpoint === 'start'
+        ? candidate.official?.sectionStartLabel
+        : candidate.official?.sectionEndLabel,
+      receipt.sourceSection,
+    ))
 }
 
 function cumulativeGeometryDistances(geometry: readonly IcelandRoadGraphPoint[]): number[] {
@@ -321,12 +591,272 @@ function validateTopologyBindings(
     return false
   }
 
+  const receiptById = new Map<string, SourceAttestedJunctionGapReceipt>()
+  const sectionById = new Map<string, ValidatedTopologySectionBinding>()
+  let ledgerValid = Boolean(options.policyId.trim())
+    && validReceiptProvenance(options.provenance)
+  if (!ledgerValid) invalid('invalid_receipt_contract')
+
+  // Authenticate the unsplit official section against every graph child edge.
+  // This is what distinguishes a real section start/end from a surface-child
+  // seam that merely happens to be a local segment endpoint.
+  for (const section of options.sectionLedger) {
+    if (sectionById.has(section.topologySegmentId)) {
+      invalid('duplicate_section_ledger_entry')
+      ledgerValid = false
+      continue
+    }
+    const sectionInputs = inputs.filter(
+      input => input.sourceId === section.sourceFeatureId,
+    )
+    const expectedEdgeKeys = new Set<string>()
+    for (const input of sectionInputs) {
+      for (let edgeIndex = 0; edgeIndex + 1 < input.geometry.length; edgeIndex += 1) {
+        expectedEdgeKeys.add(`${input.id}\u0000${edgeIndex}`)
+      }
+    }
+    const graphEdges: ValidatedTopologySectionBinding['graphEdges'][number][] = []
+    const seenEdgeKeys = new Set<string>()
+    let validSection = Boolean(section.topologySegmentId.trim())
+      && Boolean(section.sourceFeatureId.trim())
+      && validReceiptSection(section.officialSection)
+      && sectionInputs.length > 0
+      && section.graphEdges.length > 0
+      && sectionInputs.every(input => (
+        input.networkRole === 'assessment_public'
+        && input.geometry.length >= 2
+        && input.geometry.every(point => graphPointsMatch(point, point))
+        && receiptSectionMatchesInput(section.officialSection, input)
+      ))
+    for (const edge of section.graphEdges) {
+      const matches = inputsById.get(edge.segmentId) ?? []
+      const input = matches.length === 1 ? matches[0] : null
+      const key = `${edge.segmentId}\u0000${edge.edgeIndex}`
+      if (
+        !input
+        || input.sourceId !== edge.sourceId
+        || input.sourceId !== section.sourceFeatureId
+        || !Number.isSafeInteger(edge.edgeIndex)
+        || edge.edgeIndex < 0
+        || edge.edgeIndex + 1 >= input.geometry.length
+        || seenEdgeKeys.has(key)
+      ) {
+        validSection = false
+        continue
+      }
+      const graphEdge = {
+        input,
+        edgeIndex: edge.edgeIndex,
+        startPoint: input.geometry[edge.edgeIndex],
+        endPoint: input.geometry[edge.edgeIndex + 1],
+      }
+      if (
+        graphEdges.length > 0
+        && !graphPointsMatch(graphEdges[graphEdges.length - 1].endPoint, graphEdge.startPoint)
+      ) validSection = false
+      seenEdgeKeys.add(key)
+      graphEdges.push(graphEdge)
+    }
+    if (
+      seenEdgeKeys.size !== expectedEdgeKeys.size
+      || [...seenEdgeKeys].some(key => !expectedEdgeKeys.has(key))
+      || graphEdges[0]?.edgeIndex !== 0
+      || graphEdges[graphEdges.length - 1]?.edgeIndex + 2
+        !== graphEdges[graphEdges.length - 1]?.input.geometry.length
+    ) validSection = false
+    if (!validSection) {
+      invalid('invalid_section_ledger')
+      ledgerValid = false
+      continue
+    }
+    sectionById.set(section.topologySegmentId, {
+      binding: section,
+      graphEdges,
+      inputs: sectionInputs,
+    })
+  }
+
+  function sectionEndpointPoint(
+    section: ValidatedTopologySectionBinding,
+    endpoint: RoadTopologyEndpointSide,
+  ): IcelandRoadGraphPoint {
+    return endpoint === 'start'
+      ? section.graphEdges[0].startPoint
+      : section.graphEdges[section.graphEdges.length - 1].endPoint
+  }
+
+  function targetAttestationIsExactEndpoint(
+    receipt: SourceAttestedJunctionGapReceipt,
+    section: ValidatedTopologySectionBinding,
+  ): boolean {
+    if (receipt.targetAttestation.kind === 'source_exact_interior_vertex') return false
+    const endpoint = receipt.targetAttestation.endpoint
+    const expectedEdgeIndex = endpoint === 'start' ? 0 : section.graphEdges.length - 1
+    const expectedFraction = endpoint === 'start' ? 0 : 1
+    return receipt.targetSplit.location === endpoint
+      && receipt.targetSplit.edgeIndex === expectedEdgeIndex
+      && Math.abs(receipt.targetSplit.edgeFraction - expectedFraction)
+        <= RECEIPT_DISTANCE_EPSILON_M
+  }
+
+  // Validate every receipt, not only receipts that need an explicit connector.
+  // Foundational receipts consumed by ordinary node snap are still security
+  // evidence for a V4 hub and therefore receive the same kind-specific checks.
+  for (const receipt of options.receiptLedger) {
+    if (receiptById.has(receipt.id)) {
+      invalid('duplicate_ledger_receipt')
+      ledgerValid = false
+      continue
+    }
+    const sourceSection = sectionById.get(receipt.sourceSegmentId)
+    const targetSection = sectionById.get(receipt.targetSegmentId)
+    const targetEdge = targetSection?.graphEdges[receipt.targetSplit.edgeIndex]
+    const sourcePoint = sourceSection
+      ? sectionEndpointPoint(sourceSection, receipt.sourceEndpoint)
+      : null
+    const targetPoint = targetEdge
+      ? graphPointAtFraction(
+          targetEdge.startPoint,
+          targetEdge.endPoint,
+          receipt.targetSplit.edgeFraction,
+        )
+      : null
+    const connectorLengthM = sourcePoint && targetPoint
+      ? geometryLengthM([sourcePoint, targetPoint])
+      : Number.NaN
+    let kindValid = Boolean(sourceSection && targetSection && sourcePoint && targetPoint)
+      && connectorLengthM <= HUB_ENDPOINT_GAP_MAX_DISTANCE_M
+    if (kindValid && receipt.targetAttestation.kind === 'source_exact_interior_vertex') {
+      kindValid = receipt.targetSplit.location === 'vertex'
+        && receipt.targetSplit.edgeIndex + 1 === receipt.targetAttestation.vertexIndex
+        && receipt.targetAttestation.vertexIndex < targetSection!.graphEdges.length
+        && Math.abs(1 - receipt.targetSplit.edgeFraction) <= RECEIPT_DISTANCE_EPSILON_M
+        && connectorLengthM <= EXACT_INTERIOR_VERTEX_MAX_DISTANCE_M
+    } else if (kindValid && receipt.targetAttestation.kind === 'source_exact_endpoint') {
+      kindValid = targetAttestationIsExactEndpoint(receipt, targetSection!)
+        && connectorLengthM <= EXACT_ENDPOINT_MAX_DISTANCE_M
+    } else if (kindValid && receipt.targetAttestation.kind === 'source_attested_hub_endpoint') {
+      kindValid = targetAttestationIsExactEndpoint(receipt, targetSection!)
+    }
+    const sourceDirectionInput = sourceSection
+      ? (receipt.sourceEndpoint === 'start'
+          ? sourceSection.graphEdges[0].input
+          : sourceSection.graphEdges[sourceSection.graphEdges.length - 1].input)
+      : null
+    const targetDirectionInput = targetEdge?.input ?? null
+    const expectedTraversal = sourceDirectionInput && targetDirectionInput
+      ? expectedTopologyTraversal(
+          receipt,
+          sourceDirectionInput,
+          targetDirectionInput,
+          buildOptions,
+          acceptedBySourceId,
+        )
+      : []
+    const valid = validReceiptStructure(receipt)
+      && receipt.policyId === options.policyId
+      && canonicalJson(receipt.provenance) === canonicalJson(options.provenance)
+      && receipt.sourceSegmentId !== receipt.targetSegmentId
+      && receipt.sourceFeatureId === sourceSection?.binding.sourceFeatureId
+      && receipt.targetFeatureId === targetSection?.binding.sourceFeatureId
+      && Boolean(sourceSection && receiptSectionsMatch(
+        receipt.sourceSection,
+        sourceSection.binding.officialSection,
+      ))
+      && Boolean(targetSection && receiptSectionsMatch(
+        receipt.targetSection,
+        targetSection.binding.officialSection,
+      ))
+      && Boolean(sourcePoint && receiptPointMatchesGraphPoint(
+        receipt.connector.geometry[0],
+        sourcePoint,
+      ))
+      && Boolean(targetPoint && receiptPointMatchesGraphPoint(
+        receipt.connector.geometry[1],
+        targetPoint,
+      ))
+      && Boolean(targetPoint && receiptPointMatchesGraphPoint(
+        receipt.targetSplit.point,
+        targetPoint,
+      ))
+      && Math.abs(receipt.connector.lengthM - connectorLengthM)
+        <= RECEIPT_DISTANCE_EPSILON_M
+      && sourceSection !== undefined
+      && targetSection !== undefined
+      && receiptReferencesMatchInputs(receipt, sourceSection.inputs, targetSection.inputs)
+      && expectedTraversal.length === receipt.connector.allowedTraversal.length
+      && receipt.connector.allowedTraversal.every(value => expectedTraversal.includes(value))
+      && kindValid
+    if (!valid) {
+      invalid('invalid_receipt_ledger')
+      ledgerValid = false
+      continue
+    }
+    receiptById.set(receipt.id, receipt)
+  }
+
+  function hubEvidenceValid(receipt: SourceAttestedJunctionGapReceipt): boolean {
+    const hubAttestation = receipt.targetAttestation
+    if (hubAttestation.kind !== 'source_attested_hub_endpoint') return true
+    const hubSection = sectionById.get(receipt.targetSegmentId)
+    if (!hubSection) return false
+    const hubPoint = sectionEndpointPoint(hubSection, hubAttestation.endpoint)
+    return hubAttestation.hubReceiptIds.every(evidenceId => {
+      const evidence = receiptById.get(evidenceId)
+      if (
+        !evidence
+        || evidence.id === receipt.id
+        || (evidence.targetAttestation.kind !== 'reciprocal_endpoint'
+          && evidence.targetAttestation.kind !== 'source_exact_endpoint')
+        || evidence.sourceSegmentId === receipt.sourceSegmentId
+        || evidence.targetSegmentId === receipt.sourceSegmentId
+        || evidence.sourceFeatureId === receipt.sourceFeatureId
+        || evidence.targetFeatureId === receipt.sourceFeatureId
+        || evidence.policyId !== receipt.policyId
+        || canonicalJson(evidence.provenance) !== canonicalJson(receipt.provenance)
+      ) return false
+      const evidenceTargetSection = sectionById.get(evidence.targetSegmentId)
+      const attestsAsSource = evidence.sourceSegmentId === receipt.targetSegmentId
+        && evidence.sourceFeatureId === receipt.targetFeatureId
+        && evidence.sourceEndpoint === hubAttestation.endpoint
+        && receiptPointMatchesGraphPoint(evidence.connector.geometry[0], hubPoint)
+      const attestsAsTarget = evidence.targetSegmentId === receipt.targetSegmentId
+        && evidence.targetFeatureId === receipt.targetFeatureId
+        && evidence.targetAttestation.endpoint === hubAttestation.endpoint
+        && evidenceTargetSection !== undefined
+        && targetAttestationIsExactEndpoint(evidence, evidenceTargetSection)
+        && receiptPointMatchesGraphPoint(evidence.targetSplit.point, hubPoint)
+      return attestsAsSource || attestsAsTarget
+    })
+  }
+
+  if (
+    !ledgerValid
+    || [...receiptById.values()].some(receipt => !hubEvidenceValid(receipt))
+  ) {
+    if (ledgerValid) invalid('hub_evidence_mismatch')
+    return []
+  }
+
   for (const binding of [...options.bindings].sort((a, b) => a.receipt.id.localeCompare(b.receipt.id))) {
     const { receipt } = binding
     if (acceptedReceiptIds.has(receipt.id)) {
       invalid('duplicate_receipt')
       continue
     }
+    const ledgerReceipt = receiptById.get(receipt.id)
+    if (!ledgerReceipt || canonicalJson(ledgerReceipt) !== canonicalJson(receipt)) {
+      invalid(ledgerReceipt ? 'receipt_ledger_mismatch' : 'receipt_not_in_ledger')
+      continue
+    }
+    const sourceSection = sectionById.get(receipt.sourceSegmentId)
+    const targetSection = sectionById.get(receipt.targetSegmentId)
+    const expectedSourceEdge = sourceSection
+      ? (receipt.sourceEndpoint === 'start'
+          ? sourceSection.graphEdges[0]
+          : sourceSection.graphEdges[sourceSection.graphEdges.length - 1])
+      : null
+    const expectedTargetEdge = targetSection?.graphEdges[receipt.targetSplit.edgeIndex] ?? null
     const sourceMatches = inputsById.get(binding.sourceGraph.segmentId) ?? []
     const targetMatches = inputsById.get(binding.targetGraph.segmentId) ?? []
     if (sourceMatches.length !== 1) {
@@ -345,6 +875,15 @@ function validateTopologyBindings(
       || receipt.sourceFeatureId !== binding.sourceGraph.sourceId
       || receipt.targetFeatureId !== binding.targetGraph.sourceId
       || receipt.sourceEndpoint !== binding.sourceGraph.endpoint
+      || !expectedSourceEdge
+      || !expectedTargetEdge
+      || sourceInput !== expectedSourceEdge.input
+      || targetInput !== expectedTargetEdge.input
+      || binding.sourceGraph.segmentId !== expectedSourceEdge.input.id
+      || binding.targetGraph.segmentId !== expectedTargetEdge.input.id
+      || binding.targetGraph.edgeIndex !== expectedTargetEdge.edgeIndex
+      || !receiptSectionMatchesInput(receipt.sourceSection, sourceInput)
+      || !receiptSectionMatchesInput(receipt.targetSection, targetInput)
     ) {
       invalid('source_identity_mismatch')
       continue
@@ -378,9 +917,25 @@ function validateTopologyBindings(
       || (targetAttestation.kind === 'reciprocal_endpoint'
         && targetAttestation.endpoint !== 'start'
         && targetAttestation.endpoint !== 'end')
+      || (targetAttestation.kind === 'source_exact_endpoint'
+        && targetAttestation.endpoint !== 'start'
+        && targetAttestation.endpoint !== 'end')
+      || (targetAttestation.kind === 'source_attested_hub_endpoint'
+        && (targetAttestation.endpoint !== 'start'
+          && targetAttestation.endpoint !== 'end'))
+      || (targetAttestation.kind === 'source_attested_hub_endpoint'
+        && (targetAttestation.hubReceiptIds.length === 0
+          || targetAttestation.hubReceiptIds.some(id => typeof id !== 'string' || !id.trim())
+          || new Set(targetAttestation.hubReceiptIds).size
+            !== targetAttestation.hubReceiptIds.length
+          || targetAttestation.hubReceiptIds.some((id, index, ids) => (
+            index > 0 && ids[index - 1].localeCompare(id) >= 0
+          ))))
       || (targetAttestation.kind === 'source_exact_interior_vertex'
         && (!Number.isInteger(targetAttestation.vertexIndex) || targetAttestation.vertexIndex <= 0))
       || (targetAttestation.kind !== 'reciprocal_endpoint'
+        && targetAttestation.kind !== 'source_exact_endpoint'
+        && targetAttestation.kind !== 'source_attested_hub_endpoint'
         && targetAttestation.kind !== 'source_exact_interior_vertex')
     ) {
       invalid('target_attestation')
@@ -414,14 +969,31 @@ function validateTopologyBindings(
     const edgeIndex = binding.targetGraph.edgeIndex
     const edgeFraction = binding.targetGraph.edgeFraction
     if (
-      !Number.isInteger(edgeIndex)
+      !Number.isSafeInteger(binding.targetGraph.topologyEdgeIndex)
+      || binding.targetGraph.topologyEdgeIndex !== receipt.targetSplit.edgeIndex
+      || !Number.isInteger(edgeIndex)
       || edgeIndex < 0
       || edgeIndex + 1 >= targetInput.geometry.length
       || !Number.isFinite(edgeFraction)
       || edgeFraction < 0
       || edgeFraction > 1
+      || Math.abs(edgeFraction - receipt.targetSplit.edgeFraction)
+        > RECEIPT_DISTANCE_EPSILON_M
     ) {
       invalid('target_projection_range')
+      continue
+    }
+    if (
+      targetAttestation.kind === 'reciprocal_endpoint'
+      && receipt.targetSplit.location === targetAttestation.endpoint
+      && Math.abs(
+        (targetAttestation.endpoint === 'start' ? 0 : 1) - edgeFraction,
+      ) <= RECEIPT_DISTANCE_EPSILON_M
+      && edgeIndex !== (targetAttestation.endpoint === 'start'
+        ? 0
+        : targetInput.geometry.length - 2)
+    ) {
+      invalid('reciprocal_endpoint_attestation')
       continue
     }
     const targetPoint = graphPointAtFraction(
@@ -439,8 +1011,38 @@ function validateTopologyBindings(
       invalid('projection_geometry_mismatch')
       continue
     }
+    if (targetAttestation.kind === 'source_attested_hub_endpoint') {
+      const evidenceValid = targetAttestation.hubReceiptIds.every(evidenceId => {
+        const evidence = receiptById.get(evidenceId)
+        if (
+          !evidence
+          || evidence.id === receipt.id
+          || (evidence.targetAttestation.kind !== 'reciprocal_endpoint'
+            && evidence.targetAttestation.kind !== 'source_exact_endpoint')
+          || evidence.sourceSegmentId === receipt.sourceSegmentId
+          || evidence.targetSegmentId === receipt.sourceSegmentId
+          || evidence.sourceFeatureId === receipt.sourceFeatureId
+          || evidence.targetFeatureId === receipt.sourceFeatureId
+          || evidence.policyId !== receipt.policyId
+          || canonicalJson(evidence.provenance) !== canonicalJson(receipt.provenance)
+        ) return false
+        const attestsAsSource = evidence.sourceSegmentId === receipt.targetSegmentId
+          && evidence.sourceFeatureId === receipt.targetFeatureId
+          && evidence.sourceEndpoint === targetAttestation.endpoint
+          && receiptPointsMatch(evidence.connector.geometry[0], receipt.targetSplit.point)
+        const attestsAsTarget = evidence.targetSegmentId === receipt.targetSegmentId
+          && evidence.targetFeatureId === receipt.targetFeatureId
+          && evidence.targetAttestation.endpoint === targetAttestation.endpoint
+          && receiptPointsMatch(evidence.targetSplit.point, receipt.targetSplit.point)
+        return attestsAsSource || attestsAsTarget
+      })
+      if (!evidenceValid) {
+        invalid('hub_evidence_mismatch')
+        continue
+      }
+    }
     if (targetAttestation.kind === 'source_exact_interior_vertex') {
-      const connectorGeometryLengthM = geometryLengthM([connectorStart, connectorEnd])
+      const connectorGeometryLengthM = geometryLengthM([sourcePoint, targetPoint])
       if (
         receipt.targetSplit.location !== 'vertex'
         || receipt.targetSplit.edgeIndex + 1 !== targetAttestation.vertexIndex
@@ -451,6 +1053,44 @@ function validateTopologyBindings(
           > RECEIPT_DISTANCE_EPSILON_M
       ) {
         invalid('exact_vertex_attestation')
+        continue
+      }
+    }
+    if (targetAttestation.kind === 'source_exact_endpoint') {
+      const connectorGeometryLengthM = geometryLengthM([sourcePoint, targetPoint])
+      const expectedFraction = targetAttestation.endpoint === 'start' ? 0 : 1
+      const expectedEdgeIndex = targetAttestation.endpoint === 'start'
+        ? 0
+        : targetInput.geometry.length - 2
+      if (
+        receipt.targetSplit.location !== targetAttestation.endpoint
+        || edgeIndex !== expectedEdgeIndex
+        || Math.abs(expectedFraction - receipt.targetSplit.edgeFraction) > RECEIPT_DISTANCE_EPSILON_M
+        || Math.abs(expectedFraction - edgeFraction) > RECEIPT_DISTANCE_EPSILON_M
+        || connectorGeometryLengthM > EXACT_ENDPOINT_MAX_DISTANCE_M
+        || Math.abs(receipt.connector.lengthM - connectorGeometryLengthM)
+          > RECEIPT_DISTANCE_EPSILON_M
+      ) {
+        invalid('exact_endpoint_attestation')
+        continue
+      }
+    }
+    if (targetAttestation.kind === 'source_attested_hub_endpoint') {
+      const connectorGeometryLengthM = geometryLengthM([sourcePoint, targetPoint])
+      const expectedFraction = targetAttestation.endpoint === 'start' ? 0 : 1
+      const expectedEdgeIndex = targetAttestation.endpoint === 'start'
+        ? 0
+        : targetInput.geometry.length - 2
+      if (
+        receipt.targetSplit.location !== targetAttestation.endpoint
+        || edgeIndex !== expectedEdgeIndex
+        || Math.abs(expectedFraction - receipt.targetSplit.edgeFraction) > RECEIPT_DISTANCE_EPSILON_M
+        || Math.abs(expectedFraction - edgeFraction) > RECEIPT_DISTANCE_EPSILON_M
+        || connectorGeometryLengthM > HUB_ENDPOINT_GAP_MAX_DISTANCE_M
+        || Math.abs(receipt.connector.lengthM - connectorGeometryLengthM)
+          > RECEIPT_DISTANCE_EPSILON_M
+      ) {
+        invalid('hub_endpoint_attestation')
         continue
       }
     }

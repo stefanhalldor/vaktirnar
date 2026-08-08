@@ -4,8 +4,6 @@ import { matchRouteCautions } from './routeCautions'
 import { rdpSimplify } from './providerRouteMatching'
 import { augmentProviderMatchingPoints, ROUTE_CONTROL_SECTIONS } from './routeControlPoints'
 import {
-  HOLMAVIK_VIA,
-  HOLMAVIK_PROXIMITY_M,
   REYDARFJORDUR_VIA,
 } from './routeCautionConstants'
 import type { Bounds } from './routeCautionConstants'
@@ -250,25 +248,6 @@ const CURATED_ROUTE_RULES: readonly CuratedRouteRule[] = [
     vias: [REYDARFJORDUR_VIA],
     labels: ['CURATED_AVOID_OXI'],
   },
-  {
-    // Gegnum Hólmavík: caution-triggered curated route via Hólmavík (Route 61).
-    // Fires whenever a base route receives the westfjords-south-route60 caution, meaning the
-    // route touches the northern Westfjords (Ísafjörður, Bolungarvík area) and avoids Hólmavík.
-    // Works in both directions: Garðabær → Ísafjörður and Ísafjörður → Akureyri both trigger it.
-    // After fetch, the curated route is validated: if it still carries westfjords-south-route60
-    // (e.g. Google routes it away from Hólmavík despite the via), it is suppressed.
-    // The shouldSkipCuratedHolmavik guard additionally suppresses duplicates when a base route
-    // already passes through the Hólmavík corridor.
-    // The 180 km distance gate prevents short local trips from triggering this rule.
-    //
-    // Via-point must be verified visually on localhost before each release.
-    id: 'safe-westfjords-via-holmavik',
-    logName: 'Vestfirðir / Hólmavík',
-    triggerCautionId: 'westfjords-south-route60',
-    minFastestRouteDistanceM: 180_000,
-    vias: [HOLMAVIK_VIA],
-    labels: ['CURATED_VIA_HOLMAVIK'],
-  },
 ]
 
 function matchesBounds(c: PlaceCandidate, b: Bounds): boolean {
@@ -476,33 +455,6 @@ function shouldSkipCuratedHellisheidi(
   return curated.durationS >= fastestBase.durationS - HELLISHEIDI_DUPLICATE_TOLERANCE_S
 }
 
-// ── Hólmavík duplicate filter ─────────────────────────────────────────────────
-
-// HOLMAVIK_PROXIMITY_M imported from routeCautionConstants — kept in sync with caution detection.
-const HOLMAVIK_DUPLICATE_TOLERANCE_S = 60
-
-/**
- * Returns true when a CURATED_VIA_HOLMAVIK route should be suppressed because:
- * 1. The base Google routes already include a route through the Hólmavík corridor, AND
- * 2. The curated route is not meaningfully faster than the fastest base route.
- */
-function shouldSkipCuratedHolmavik(
-  curated: RouteOption,
-  baseRoutes: readonly RouteOption[]
-): boolean {
-  if (!curated.labels.includes('CURATED_VIA_HOLMAVIK')) return false
-
-  const fastestBase = baseRoutes[0]
-  if (!fastestBase) return false
-
-  const baseAlreadyPassesHolmavik = baseRoutes.some(route =>
-    routePassesNearPoint(route, HOLMAVIK_VIA, HOLMAVIK_PROXIMITY_M)
-  )
-  if (!baseAlreadyPassesHolmavik) return false
-
-  return curated.durationS >= fastestBase.durationS - HOLMAVIK_DUPLICATE_TOLERANCE_S
-}
-
 /**
  * Run all matching curated route rules sequentially.
  * Each matching rule makes one extra Google Routes request.
@@ -554,12 +506,6 @@ async function getCuratedRouteOptions(
       if (shouldSkipCuratedHellisheidi(curated, baseRoutes)) {
         if (process.env.NODE_ENV !== 'production') {
           console.log(`[weather/google] curated ${rule.logName}: skipped — base route already uses Hellisheiði corridor`)
-        }
-        continue
-      }
-      if (shouldSkipCuratedHolmavik(curated, baseRoutes)) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`[weather/google] curated ${rule.logName}: skipped — base route already uses Hólmavík corridor`)
         }
         continue
       }

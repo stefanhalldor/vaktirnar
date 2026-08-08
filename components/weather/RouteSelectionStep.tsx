@@ -592,7 +592,7 @@ export function RouteSelectionStep({
               ? tf('routeOptionRingRoad')
               : ro.labels.includes('CURATED_VIA_HELLISHEIDI')
               ? tf('routeOptionViaHellisheidi')
-              : ro.labels.includes('CURATED_VIA_HOLMAVIK')
+              : ro.provider === 'teskeid' && ro.labels.includes('CURATED_VIA_HOLMAVIK')
               ? tf('routeOptionViaHolmavik')
               : ro.labels.includes('CURATED_AVOID_OXI')
               ? tf('routeOptionAvoidOxi')
@@ -620,7 +620,7 @@ export function RouteSelectionStep({
                   <span className={`text-sm font-medium truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}>
                     {label}
                   </span>
-                  {ro.cautions?.map(caution => (
+                  {ro.provider === 'teskeid' && ro.cautions?.map(caution => (
                     <div key={caution.id} className="flex flex-col gap-1">
                       <span className="inline-flex w-fit items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
                         <AlertTriangle size={11} aria-hidden />

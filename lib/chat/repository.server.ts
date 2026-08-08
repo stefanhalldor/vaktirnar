@@ -183,8 +183,9 @@ export async function postMessage(
   // Keep legacy/weather posting compatible before SQL106 is applied. Expense
   // messages opt into the durable request identifiers and therefore use the
   // extended projection only after that migration exists.
+  const hasContext = input.metadata !== undefined || input.anchorLat !== undefined || input.anchorLon !== undefined
   const messageSelect = options
-    ? 'id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at, client_message_id, idempotency_key'
+    ? `id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at, client_message_id, idempotency_key${hasContext ? ', metadata, anchor_lat, anchor_lon' : ''}`
     : 'id, thread_id, user_id, body, message_kind, created_at, deleted_at, hidden_at'
 
   async function findExisting(): Promise<any | null> {
@@ -201,10 +202,15 @@ export async function postMessage(
   }
 
   function assertSameRequest(row: any): void {
+    const storedMetadata = hasContext ? JSON.stringify(row.metadata ?? {}) : null
+    const requestedMetadata = hasContext ? JSON.stringify(input.metadata ?? {}) : null
     if (
       row.body !== input.body.trim()
       || row.message_kind !== input.messageKind
       || row.client_message_id !== options?.clientMessageId
+      || storedMetadata !== requestedMetadata
+      || (hasContext && (row.anchor_lat ?? null) !== (input.anchorLat ?? null))
+      || (hasContext && (row.anchor_lon ?? null) !== (input.anchorLon ?? null))
     ) {
       throw new Error('chat: idempotency conflict')
     }
@@ -224,6 +230,11 @@ export async function postMessage(
       user_id: userId,
       body: input.body.trim(),
       message_kind: input.messageKind,
+      ...(hasContext ? {
+        metadata: input.metadata ?? {},
+        anchor_lat: input.anchorLat ?? null,
+        anchor_lon: input.anchorLon ?? null,
+      } : {}),
       ...(options ? {
         client_message_id: options.clientMessageId,
         idempotency_key: options.idempotencyKey,

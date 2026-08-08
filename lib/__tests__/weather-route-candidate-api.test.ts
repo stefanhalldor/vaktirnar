@@ -14,6 +14,9 @@ const { mockGetRoadGraph, mockGetGraphCacheStatus } = vi.hoisted(() => ({
 const { mockResolveAssessmentScope } = vi.hoisted(() => ({
   mockResolveAssessmentScope: vi.fn(),
 }))
+const { mockCreateRouteEvidenceClaim } = vi.hoisted(() => ({
+  mockCreateRouteEvidenceClaim: vi.fn(),
+}))
 
 vi.mock('next/server', async importOriginal => {
   const actual = await importOriginal<typeof import('next/server')>()
@@ -49,6 +52,10 @@ vi.mock('@/lib/iceland-routes/routeAssessmentScope.server', () => ({
   resolveRouteAssessmentScope: mockResolveAssessmentScope,
 }))
 
+vi.mock('@/lib/iceland-routes/routeOptionEvidence.server', () => ({
+  createRouteOptionEvidenceClaim: mockCreateRouteEvidenceClaim,
+}))
+
 import { POST } from '@/app/api/teskeid/weather/travel/route-candidate/route'
 import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 
@@ -70,6 +77,16 @@ function makeCandidate() {
       derivedDuration: true as const,
       surface: { pavedM: 450_000, gravelM: 10_000, mixedM: 0, unknownM: 0 },
     },
+  }
+}
+
+function makeEvidence(route = makeCandidate()) {
+  return {
+    route,
+    connectedRoadEdges: [],
+    routeProvenanceFingerprint: 'b'.repeat(43),
+    originAnchorKind: 'projected_road' as const,
+    destinationAnchorKind: 'projected_road' as const,
   }
 }
 
@@ -116,9 +133,19 @@ beforeEach(() => {
     key === 'vedrid' || key === 'teskeid-routing-v1'
   ))
   mockGetCandidates.mockResolvedValue({ status: 'ready', routes: [{ id: 'teskeid-road-graph-v1' }] })
+  const assessmentCandidate = makeCandidate()
   mockGetAssessmentCandidates.mockResolvedValue({
     status: 'ready',
-    routes: [{ id: 'teskeid-road-graph-v1' }],
+    routes: [assessmentCandidate],
+    evidence: [makeEvidence(assessmentCandidate)],
+  })
+  mockCreateRouteEvidenceClaim.mockReturnValue({
+    graphBuildPolicyFingerprint: 'test-graph-policy',
+    routeProvenanceFingerprint: 'b'.repeat(43),
+    originAnchorKind: 'projected_road',
+    destinationAnchorKind: 'projected_road',
+    edgeIds: ['edge-1'],
+    nodeIds: ['node-1', 'node-2'],
   })
   mockGuestRateLimit.mockResolvedValue(true)
   mockAfter.mockImplementation((callback: () => unknown) => callback())
@@ -263,6 +290,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     mockGetAssessmentCandidates.mockResolvedValue({
       status: 'ready',
       routes: [makeCandidate(), alternative],
+      evidence: [makeEvidence(makeCandidate()), makeEvidence(alternative)],
     })
 
     const res = await POST(request({
@@ -284,6 +312,11 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
         origin: ORIGIN,
         destination: DESTINATION,
         route: { provider: 'teskeid' },
+        routeEvidence: {
+          graphBuildPolicyFingerprint: 'test-graph-policy',
+          edgeIds: ['edge-1'],
+          nodeIds: ['node-1', 'node-2'],
+        },
       })
     }
     expect(body.routeEnvelopes[1].route.id).toBe(alternative.id)
@@ -450,7 +483,12 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
 
   it('derives a provider-neutral assessment scope without waiting for a Google grant', async () => {
     const assessmentScopeId = `assessment:v3:${'a'.repeat(43)}`
-    mockGetAssessmentCandidates.mockResolvedValue({ status: 'ready', routes: [makeCandidate()] })
+    const candidate = makeCandidate()
+    mockGetAssessmentCandidates.mockResolvedValue({
+      status: 'ready',
+      routes: [candidate],
+      evidence: [makeEvidence(candidate)],
+    })
     const res = await POST(request({
       origin: ORIGIN,
       destination: DESTINATION,
