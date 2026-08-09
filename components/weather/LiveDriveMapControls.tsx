@@ -16,6 +16,7 @@ export function LiveDriveMapControls({
   onPlan,
   children,
   footer,
+  collapsedAlert,
 }: {
   collapsed: boolean
   onCollapsedChange: (collapsed: boolean) => void
@@ -29,9 +30,18 @@ export function LiveDriveMapControls({
   onPlan: () => void
   children: ReactNode
   footer?: ReactNode
+  collapsedAlert?: ReactNode
 }) {
   return (
-    <div className="px-3 pb-2 pt-2">
+    <div className="relative px-3 pb-2 pt-2">
+      {collapsed && collapsedAlert && (
+        <div
+          role="alert"
+          className="pointer-events-none absolute bottom-full left-3 right-3 mb-2 rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs leading-snug text-amber-950 shadow-md backdrop-blur-sm dark:border-amber-700 dark:bg-amber-950/90 dark:text-amber-100"
+        >
+          {collapsedAlert}
+        </div>
+      )}
       {collapsed ? (
         <button
           type="button"

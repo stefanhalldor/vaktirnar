@@ -307,16 +307,17 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain('updateLiveVegagerdinStationLabelInPlace(current.element, nextElement)')
   })
 
-  it('fails safe for live-route freshness when station or provider data is old', () => {
+  it('warns for live-route freshness only when the actual measurement is old', () => {
     expect(source).toContain(
-      'const nowMeasurementFreshness = liveVegagerdinFeedFreshness({',
+      'const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)',
     )
     expect(source).toContain('setRouteNowMeasurementFreshness(nowMeasurementFreshness)')
     expect(source).toContain(
-      'measuredAtIso: routeMeasuredAtIso,',
+      'freeDriveStationFreshness(routeMeasuredAtIso)',
     )
-    expect(source).toContain('const routeNowFeedNeedsWarning = routeNowMeasurementFreshness !== null')
+    expect(source).toContain("const routeNowStaleMessage = routeNowMeasurementFreshness === 'stale'")
     expect(source).toContain("t('roadMapPrototypeVegagerdinDataStaleShort')")
+    expect(source).toContain("collapsedAlert={routeWeatherMode === 'now' ? routeNowStaleMessage : null}")
     expect(source).not.toContain(
       'setRouteNowMeasurementFreshness(layer?.measurementFreshness ?? payload.measurementFreshness)',
     )

@@ -189,7 +189,6 @@ import {
   LIVE_DRIVE_TEMPERATURE_MAX_C,
   classifyLiveVegagerdinStationWindStatus,
   liveDriveTemperatureValue,
-  liveVegagerdinFeedFreshness,
   liveVegagerdinStationFromCurrent,
   liveVegagerdinStationFromRoutePoint,
   type LiveVegagerdinStation,
@@ -3623,19 +3622,18 @@ export function RoadMapPrototypeMap({
   const freeDriveNewestFreshness = overviewVegagerdinNewestMeasuredAtIso
     ? freeDriveStationFreshness(overviewVegagerdinNewestMeasuredAtIso)
     : 'unknown'
-  const freeDriveProviderDataIsLastKnown = overviewVegagerdinData?.status === 'ok' &&
-    liveVegagerdinFeedFreshness({
-      cacheStatus: overviewVegagerdinData.cacheStatus,
-      measurementFreshness: overviewVegagerdinData.measurementFreshness,
-      measuredAtIso: overviewVegagerdinNewestMeasuredAtIso,
-    }) !== 'fresh'
-  const freeDriveFeedNeedsWarning = freeDriveStationFeedError || freeDriveProviderDataIsLastKnown
+  const freeDriveStaleMessage = freeDriveNewestFreshness === 'stale' &&
+    overviewVegagerdinNewestMeasuredAtIso
+    ? t('roadMapPrototypeVegagerdinDataStale', {
+        time: formatKlTime(overviewVegagerdinNewestMeasuredAtIso),
+      })
+    : null
   const freeDriveMeasuredLabel = overviewVegagerdinNewestMeasuredAtIso
     ? t('roadMapPrototypeVegagerdinNowLabel', {
         time: formatKlTime(overviewVegagerdinNewestMeasuredAtIso),
       })
     : t('roadMapPrototypeVegagerdinNowFallback')
-  const freeDriveFreshnessLabel = freeDriveFeedNeedsWarning
+  const freeDriveFreshnessLabel = freeDriveStaleMessage
     ? t('roadMapPrototypeVegagerdinDataStaleShort')
     : freeDriveNewestFreshness === 'fresh'
       ? t('vegagerdinFreshnessFresh')
@@ -8611,11 +8609,7 @@ export function RoadMapPrototypeMap({
     const nowMeasuredAtIso =
       vegagerdinLayer?.measuredAtIso ??
       newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
-    const nowMeasurementFreshness = liveVegagerdinFeedFreshness({
-      cacheStatus: vegagerdinLayer?.cacheStatus ?? null,
-      measurementFreshness: vegagerdinLayer?.measurementFreshness ?? null,
-      measuredAtIso: nowMeasuredAtIso,
-    })
+    const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)
     // Station providers are display-only evidence. Even a complete station
     // read does not prove complete spatial coverage and must never override
     // the route-wide forecast assessment.
@@ -10262,11 +10256,7 @@ export function RoadMapPrototypeMap({
     const nowStatusCounts = render.statusCounts
     const nowMeasuredAtIso =
       layer?.measuredAtIso ?? newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
-    const nowMeasurementFreshness = liveVegagerdinFeedFreshness({
-      cacheStatus: payload.cacheStatus,
-      measurementFreshness: payload.measurementFreshness,
-      measuredAtIso: nowMeasuredAtIso,
-    })
+    const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)
 
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteVisibleStatusCounts(nowStatusCounts)
@@ -10407,11 +10397,7 @@ export function RoadMapPrototypeMap({
             )
             setRouteNowMeasuredAtIso(routeMeasuredAtIso)
             setRouteNowMeasurementFreshness(
-              liveVegagerdinFeedFreshness({
-                cacheStatus: payload.cacheStatus,
-                measurementFreshness: payload.measurementFreshness,
-                measuredAtIso: routeMeasuredAtIso,
-              }),
+              freeDriveStationFreshness(routeMeasuredAtIso),
             )
             if (
               current.measurementFreshness !== payload.measurementFreshness ||
@@ -10587,9 +10573,12 @@ export function RoadMapPrototypeMap({
         time: formatKlTime(routeNowMeasuredAtIso),
       })
     : t('roadMapPrototypeVegagerdinNowFallback')
-  const routeNowFeedNeedsWarning = routeNowMeasurementFreshness !== null &&
-    routeNowMeasurementFreshness !== 'fresh'
-  const routeNowFreshnessLabel = routeNowFeedNeedsWarning
+  const routeNowStaleMessage = routeNowMeasurementFreshness === 'stale' && routeNowMeasuredAtIso
+    ? t('roadMapPrototypeVegagerdinDataStale', {
+        time: formatKlTime(routeNowMeasuredAtIso),
+      })
+    : null
+  const routeNowFreshnessLabel = routeNowStaleMessage
     ? t('roadMapPrototypeVegagerdinDataStaleShort')
     : routeNowMeasurementFreshness === 'fresh'
       ? t('vegagerdinFreshnessFresh')
@@ -12692,6 +12681,7 @@ export function RoadMapPrototypeMap({
             onSelectCurrent={() => {}}
             planLabel={t('roadMapPrototypePlanRoute')}
             onPlan={handlePlanRoute}
+            collapsedAlert={freeDriveStaleMessage}
             footer={(
               <button
                 type="button"
@@ -12758,14 +12748,20 @@ export function RoadMapPrototypeMap({
                   : t('roadMapPrototypeFreeDriveStationFeedLoading')}
             </span>
 
-            {(freeDriveFeedNeedsWarning || overviewVegagerdinRestricted) && (
+            {freeDriveStaleMessage && (
               <p
                 role="alert"
                 className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
               >
-                {overviewVegagerdinData?.status === 'ok'
-                  ? t('roadMapPrototypeFreeDriveStationFeedStale')
-                  : t('roadMapPrototypeFreeDriveStationFeedError')}
+                {freeDriveStaleMessage}
+              </p>
+            )}
+
+            {(overviewVegagerdinRestricted || (
+              freeDriveStationFeedError && overviewVegagerdinData?.status !== 'ok'
+            )) && (
+              <p role="status" className="text-[10px] leading-snug text-muted-foreground">
+                {t('roadMapPrototypeFreeDriveStationFeedError')}
               </p>
             )}
 
@@ -12799,6 +12795,7 @@ export function RoadMapPrototypeMap({
             onSelectCurrent={handleSelectRouteNow}
             planLabel={t('roadMapPrototypePlanRoute')}
             onPlan={handlePlanRoute}
+            collapsedAlert={routeWeatherMode === 'now' ? routeNowStaleMessage : null}
           >
                 {routeWeatherMode === 'now' && (
               <div className="space-y-1">
@@ -12817,12 +12814,12 @@ export function RoadMapPrototypeMap({
                   </p>
                 )}
 
-                {routeNowFeedNeedsWarning && (
+                {routeNowStaleMessage && (
                   <p
                     role="alert"
                     className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
                   >
-                    {t('roadMapPrototypeVegagerdinDataStale')}
+                    {routeNowStaleMessage}
                   </p>
                 )}
 

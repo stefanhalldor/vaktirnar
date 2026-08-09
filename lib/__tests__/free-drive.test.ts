@@ -54,6 +54,22 @@ describe('free-drive station safety presentation', () => {
     expect(freeDriveStationFreshness('not-a-date', NOW)).toBe('unknown')
   })
 
+  it('does not warn for a 17:15 measurement at 17:27 and warns only after 17:30', () => {
+    const measuredAt = '2026-08-09T17:15:00.000Z'
+    expect(freeDriveStationFreshness(
+      measuredAt,
+      Date.parse('2026-08-09T17:27:00.000Z'),
+    )).toBe('fresh')
+    expect(freeDriveStationFreshness(
+      measuredAt,
+      Date.parse('2026-08-09T17:30:59.999Z'),
+    )).toBe('fresh')
+    expect(freeDriveStationFreshness(
+      measuredAt,
+      Date.parse('2026-08-09T17:31:00.000Z'),
+    )).toBe('stale')
+  })
+
   it('matches manually entered or reused wind limits against saved thresholds numerically', () => {
     const saved = { cautionWindMs: 10, redWindMs: 15 }
     expect(windThresholdInputsMatchSaved('10', '15', saved)).toBe(true)
