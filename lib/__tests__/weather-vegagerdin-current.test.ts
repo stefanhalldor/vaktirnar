@@ -10,7 +10,14 @@ vi.mock('@/lib/supabase/admin', () => ({
 
 vi.mock('server-only', () => ({}))
 
-import { parseVegagerdinResponse, readVegagerdinCurrentFromCache, getMeasurementFreshness, buildSafeShapeInfo } from '@/lib/weather/providers/vegagerdinCurrent.server'
+import {
+  buildSafeShapeInfo,
+  getMeasurementFreshness,
+  parseVegagerdinResponse,
+  readVegagerdinCurrentFromCache,
+  readVegagerdinFetchTelemetry,
+  recordVegagerdinFetchAttempt,
+} from '@/lib/weather/providers/vegagerdinCurrent.server'
 
 // ── Fixture data ───────────────────────────────────────────────────────────────
 //
@@ -438,6 +445,61 @@ describe('readVegagerdinCurrentFromCache', () => {
     mockGetAdmin.mockImplementation(() => { throw new Error('db down') })
     const result = await readVegagerdinCurrentFromCache()
     expect(result.status).toBe('unavailable')
+  })
+})
+
+describe('Vegagerðin fetch telemetry', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function makeTelemetryReadMock(responseBody: unknown) {
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: responseBody === null
+        ? null
+        : { response_body: responseBody, fetched_at: '2026-08-09T18:20:04.000Z' },
+    })
+    const eq = vi.fn().mockReturnValue({ maybeSingle })
+    const select = vi.fn().mockReturnValue({ eq })
+    mockGetAdmin.mockReturnValue({ from: vi.fn().mockReturnValue({ select }) })
+  }
+
+  it('reads a valid last-attempt timestamp without treating it as a successful fetch', async () => {
+    makeTelemetryReadMock({
+      source: 'vegagerdin',
+      endpoint: 'vedur2014_1',
+      lastAttemptedAtIso: '2026-08-09T18:20:04.000Z',
+    })
+    await expect(readVegagerdinFetchTelemetry()).resolves.toEqual({
+      lastAttemptedAtIso: '2026-08-09T18:20:04.000Z',
+    })
+  })
+
+  it('fails closed for missing or invalid attempt telemetry', async () => {
+    makeTelemetryReadMock({ lastAttemptedAtIso: 'not-a-date' })
+    await expect(readVegagerdinFetchTelemetry()).resolves.toEqual({ lastAttemptedAtIso: null })
+  })
+
+  it('writes attempt telemetry to an isolated cache key', async () => {
+    const upsert = vi.fn().mockResolvedValue({ error: null })
+    const from = vi.fn().mockReturnValue({ upsert })
+    mockGetAdmin.mockReturnValue({ from })
+
+    await expect(recordVegagerdinFetchAttempt(
+      '2026-08-09T18:20:04.000Z',
+    )).resolves.toBe(true)
+
+    expect(from).toHaveBeenCalledWith('weather_cache')
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cache_key: 'vegagerdin:vedur2014_1:telemetry',
+        response_body: expect.objectContaining({
+          lastAttemptedAtIso: '2026-08-09T18:20:04.000Z',
+        }),
+        fetched_at: '2026-08-09T18:20:04.000Z',
+      }),
+      { onConflict: 'cache_key' },
+    )
   })
 })
 

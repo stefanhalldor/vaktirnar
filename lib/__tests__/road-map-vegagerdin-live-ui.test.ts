@@ -316,6 +316,9 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
       'freeDriveStationFreshness(routeMeasuredAtIso)',
     )
     expect(source).toContain("const routeNowStaleMessage = routeNowMeasurementFreshness === 'stale'")
+    expect(source).toContain('const routeNowSuccessfulFetchAtIso = routeVegagerdinLastRefreshIso')
+    expect(source).toContain('const routeNowAttemptedFetchAtIso = overviewVegagerdinData?.status')
+    expect(source).toContain('current.lastAttemptedAtIso !== payload.lastAttemptedAtIso')
     expect(source).toContain("t('roadMapPrototypeVegagerdinDataStaleShort')")
     expect(source).toContain("collapsedAlert={routeWeatherMode === 'now' ? routeNowStaleMessage : null}")
     expect(source).not.toContain(

@@ -3,6 +3,7 @@ import {
   fetchVegagerdinCurrent,
   readVegagerdinCurrentFromCache,
   getMeasurementFreshness,
+  recordVegagerdinFetchAttempt,
 } from '@/lib/weather/providers/vegagerdinCurrent.server'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 
@@ -38,7 +39,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await fetchVegagerdinCurrent()
+    const attemptedAtIso = new Date().toISOString()
+    const [result] = await Promise.all([
+      fetchVegagerdinCurrent(),
+      recordVegagerdinFetchAttempt(attemptedAtIso),
+    ])
 
     if (!result.ok) {
       return NextResponse.json(
@@ -46,6 +51,7 @@ export async function GET(request: Request) {
           status: 'error',
           reason: result.reason,
           stationCount: 0,
+          attemptedAtIso,
           // shapeInfo only present on parse_zero — safe keys-only descriptor, no raw values
           ...(result.shapeInfo ? { shapeInfo: result.shapeInfo } : {}),
         },
@@ -80,6 +86,7 @@ export async function GET(request: Request) {
       oldestMeasuredAtIso: result.payload.oldestMeasuredAtIso,
       measurementFreshness,
       historyStatus: result.historyStatus,
+      attemptedAtIso,
     })
   } catch {
     console.error('[cron/warm-vegagerdin] unexpected error')

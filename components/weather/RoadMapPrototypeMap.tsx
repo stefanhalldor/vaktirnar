@@ -693,6 +693,7 @@ type VegagerdinCurrentApiData =
       cacheStatus: VegagerdinRouteLayer['cacheStatus']
       measurementFreshness: VegagerdinRouteLayer['measurementFreshness']
       fetchedAtIso: string
+      lastAttemptedAtIso?: string | null
       oldestMeasuredAtIso: string | null
       stations: VegagerdinCurrentStationDto[]
     }
@@ -3623,9 +3624,14 @@ export function RoadMapPrototypeMap({
     ? freeDriveStationFreshness(overviewVegagerdinNewestMeasuredAtIso)
     : 'unknown'
   const freeDriveStaleMessage = freeDriveNewestFreshness === 'stale' &&
-    overviewVegagerdinNewestMeasuredAtIso
+    overviewVegagerdinNewestMeasuredAtIso &&
+    overviewVegagerdinData?.status === 'ok'
     ? t('roadMapPrototypeVegagerdinDataStale', {
-        time: formatKlTime(overviewVegagerdinNewestMeasuredAtIso),
+        measuredTime: formatKlTime(overviewVegagerdinNewestMeasuredAtIso),
+        fetchedTime: formatKlTime(overviewVegagerdinData.fetchedAtIso),
+        attemptedTime: formatKlTime(
+          overviewVegagerdinData.lastAttemptedAtIso ?? overviewVegagerdinData.fetchedAtIso,
+        ),
       })
     : null
   const freeDriveMeasuredLabel = overviewVegagerdinNewestMeasuredAtIso
@@ -6260,6 +6266,7 @@ export function RoadMapPrototypeMap({
       cacheStatus: null,
       measurementFreshness: 'unknown',
       fetchedAtIso,
+      lastAttemptedAtIso: fetchedAtIso,
       oldestMeasuredAtIso: null,
       stations,
     }
@@ -8680,6 +8687,7 @@ export function RoadMapPrototypeMap({
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteNowMeasuredAtIso(nowMeasuredAtIso)
     setRouteNowMeasurementFreshness(nowMeasurementFreshness)
+    setRouteVegagerdinLastRefreshIso(vegagerdinLayer?.fetchedAtIso ?? null)
     setRouteVisibleStatusCounts(nowStatusCounts)
     setRouteCandidates(initialRouteCandidates)
     setSelectedCandidateIdx(null)
@@ -10401,7 +10409,8 @@ export function RoadMapPrototypeMap({
             )
             if (
               current.measurementFreshness !== payload.measurementFreshness ||
-              current.cacheStatus !== payload.cacheStatus
+              current.cacheStatus !== payload.cacheStatus ||
+              current.lastAttemptedAtIso !== payload.lastAttemptedAtIso
             ) {
               overviewVegagerdinDataRef.current = payload
               setOverviewVegagerdinData(payload)
@@ -10573,9 +10582,20 @@ export function RoadMapPrototypeMap({
         time: formatKlTime(routeNowMeasuredAtIso),
       })
     : t('roadMapPrototypeVegagerdinNowFallback')
-  const routeNowStaleMessage = routeNowMeasurementFreshness === 'stale' && routeNowMeasuredAtIso
+  const routeNowSuccessfulFetchAtIso = routeVegagerdinLastRefreshIso ?? (
+    overviewVegagerdinData?.status === 'ok' ? overviewVegagerdinData.fetchedAtIso : null
+  )
+  const routeNowAttemptedFetchAtIso = overviewVegagerdinData?.status === 'ok'
+    ? overviewVegagerdinData.lastAttemptedAtIso ?? overviewVegagerdinData.fetchedAtIso
+    : routeNowSuccessfulFetchAtIso
+  const routeNowStaleMessage = routeNowMeasurementFreshness === 'stale' &&
+    routeNowMeasuredAtIso &&
+    routeNowSuccessfulFetchAtIso &&
+    routeNowAttemptedFetchAtIso
     ? t('roadMapPrototypeVegagerdinDataStale', {
-        time: formatKlTime(routeNowMeasuredAtIso),
+        measuredTime: formatKlTime(routeNowMeasuredAtIso),
+        fetchedTime: formatKlTime(routeNowSuccessfulFetchAtIso),
+        attemptedTime: formatKlTime(routeNowAttemptedFetchAtIso),
       })
     : null
   const routeNowFreshnessLabel = routeNowStaleMessage

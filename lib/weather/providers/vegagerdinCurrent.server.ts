@@ -38,6 +38,7 @@ import type {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CACHE_KEY = 'vegagerdin:vedur2014_1:latest'
+const TELEMETRY_CACHE_KEY = 'vegagerdin:vedur2014_1:telemetry'
 const UPSTREAM_URL = 'https://gagnaveita.vegagerdin.is/api/vedur2014_1'
 const FRESH_TTL_MS = 2 * 60 * 1000       // 2 minutes
 const STALE_FALLBACK_MS = 30 * 60 * 1000 // 30 minutes
@@ -275,15 +276,75 @@ type CacheRow = {
 }
 
 async function readFromCache(): Promise<CacheRow | null> {
+  return readCacheRow(CACHE_KEY)
+}
+
+async function readCacheRow(cacheKey: string): Promise<CacheRow | null> {
   try {
     const { data } = await getAdmin()
       .from('weather_cache')
       .select('response_body, fetched_at')
-      .eq('cache_key', CACHE_KEY)
+      .eq('cache_key', cacheKey)
       .maybeSingle()
     return data as CacheRow | null
   } catch {
     return null
+  }
+}
+
+export type VegagerdinFetchTelemetry = {
+  lastAttemptedAtIso: string | null
+}
+
+/**
+ * Read only the latest upstream-attempt timestamp. This metadata is isolated
+ * from the successful measurement payload so a failed attempt can never make
+ * old observations look newly fetched.
+ */
+export async function readVegagerdinFetchTelemetry(): Promise<VegagerdinFetchTelemetry> {
+  const row = await readCacheRow(TELEMETRY_CACHE_KEY)
+  if (!row?.response_body || typeof row.response_body !== 'object') {
+    return { lastAttemptedAtIso: null }
+  }
+  const attemptedAt = (row.response_body as Record<string, unknown>).lastAttemptedAtIso
+  if (typeof attemptedAt !== 'string' || !Number.isFinite(Date.parse(attemptedAt))) {
+    return { lastAttemptedAtIso: null }
+  }
+  return { lastAttemptedAtIso: new Date(Date.parse(attemptedAt)).toISOString() }
+}
+
+/** Record an actual outbound attempt without changing successful data/cache age. */
+export async function recordVegagerdinFetchAttempt(attemptedAtIso: string): Promise<boolean> {
+  const attemptedAtMs = Date.parse(attemptedAtIso)
+  if (!Number.isFinite(attemptedAtMs)) return false
+  const normalizedAttemptedAtIso = new Date(attemptedAtMs).toISOString()
+  try {
+    const expiresAt = new Date(attemptedAtMs + 30 * 24 * 60 * 60 * 1000).toISOString()
+    const { error } = await getAdmin()
+      .from('weather_cache')
+      .upsert(
+        {
+          cache_key: TELEMETRY_CACHE_KEY,
+          response_body: {
+            source: 'vegagerdin',
+            endpoint: 'vedur2014_1',
+            lastAttemptedAtIso: normalizedAttemptedAtIso,
+          },
+          expires_at: expiresAt,
+          last_modified: null,
+          fetched_at: normalizedAttemptedAtIso,
+          updated_at: normalizedAttemptedAtIso,
+        },
+        { onConflict: 'cache_key' },
+      )
+    if (error) {
+      console.error('[vegagerdin] attempt telemetry write failed')
+      return false
+    }
+    return true
+  } catch {
+    console.error('[vegagerdin] attempt telemetry write failed (exception)')
+    return false
   }
 }
 

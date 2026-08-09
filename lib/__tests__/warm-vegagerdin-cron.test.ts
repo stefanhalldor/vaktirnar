@@ -3,9 +3,10 @@ import vercelConfig from '../../vercel.json'
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { mockFetch, mockReadCache, mockGetWeatherMode } = vi.hoisted(() => ({
+const { mockFetch, mockReadCache, mockRecordAttempt, mockGetWeatherMode } = vi.hoisted(() => ({
   mockFetch: vi.fn(),
   mockReadCache: vi.fn(),
+  mockRecordAttempt: vi.fn(),
   mockGetWeatherMode: vi.fn(),
 }))
 
@@ -14,6 +15,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/weather/providers/vegagerdinCurrent.server', () => ({
   fetchVegagerdinCurrent: mockFetch,
   readVegagerdinCurrentFromCache: mockReadCache,
+  recordVegagerdinFetchAttempt: mockRecordAttempt,
   getMeasurementFreshness: vi.fn(() => 'fresh'),
 }))
 
@@ -89,6 +91,7 @@ beforeEach(() => {
   mockGetWeatherMode.mockReturnValue('All')
   // Default: cache is unavailable (not fresh) so warm proceeds
   mockReadCache.mockResolvedValue(CACHE_UNAVAILABLE)
+  mockRecordAttempt.mockResolvedValue(true)
 })
 
 // ── Auth tests ────────────────────────────────────────────────────────────────
@@ -114,6 +117,7 @@ describe('GET /api/cron/warm-vegagerdin - auth', () => {
     await GET(makeRequest())
     expect(mockFetch).not.toHaveBeenCalled()
     expect(mockReadCache).not.toHaveBeenCalled()
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
   })
 })
 
@@ -127,6 +131,7 @@ describe('GET /api/cron/warm-vegagerdin - feature flags', () => {
     const body = await res.json()
     expect(body.skipped).toBe('weather disabled')
     expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
   })
 })
 
@@ -141,6 +146,7 @@ describe('GET /api/cron/warm-vegagerdin - anti-stampede', () => {
     expect(body.skipped).toBe('alreadyFresh')
     expect(body.stationCount).toBe(42)
     expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
   })
 
   it('proceeds when cache is stale (not fresh)', async () => {
@@ -154,6 +160,8 @@ describe('GET /api/cron/warm-vegagerdin - anti-stampede', () => {
     const body = await res.json()
     expect(body.status).toBe('ok')
     expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockRecordAttempt).toHaveBeenCalledTimes(1)
+    expect(Number.isFinite(Date.parse(mockRecordAttempt.mock.calls[0][0]))).toBe(true)
   })
 
   it('proceeds when cache is unavailable', async () => {
@@ -253,6 +261,7 @@ describe('GET /api/cron/warm-vegagerdin - failures', () => {
     const body = await res.json()
     expect(body.reason).toBe('parse_zero')
     expect(body.shapeInfo).toEqual(shapeInfo)
+    expect(body.attemptedAtIso).toBe(mockRecordAttempt.mock.calls[0][0])
   })
 
   it('returns 500 with write_failed reason when cache write fails', async () => {

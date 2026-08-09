@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
 const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
 const { mockReadCurrent } = vi.hoisted(() => ({ mockReadCurrent: vi.fn() }))
+const { mockReadTelemetry } = vi.hoisted(() => ({ mockReadTelemetry: vi.fn() }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => ({
@@ -20,19 +21,20 @@ vi.mock('server-only', () => ({}))
 
 vi.mock('@/lib/weather/providers/vegagerdinCurrent.server', () => ({
   readVegagerdinCurrentWithHistoryFallback: mockReadCurrent,
+  readVegagerdinFetchTelemetry: mockReadTelemetry,
 }))
 
 import { GET } from '@/app/api/teskeid/weather/vegagerdin/current/route'
 
 // ── Fixture helpers ───────────────────────────────────────────────────────────
 
-function makeMeasurement(stationId: string) {
+function makeMeasurement(stationId: string, measuredAtIso = new Date().toISOString()) {
   return {
     stationId,
     stationName: `Station ${stationId}`,
     lat: 64.0,
     lon: -21.5,
-    measuredAtIso: new Date().toISOString(),
+    measuredAtIso,
     fetchedAtIso: new Date().toISOString(),
     meanWindMs: 5.0,
     gustLast10MinMs: 8.0,
@@ -69,6 +71,7 @@ beforeEach(() => {
   delete process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED
   // Default: cache is unavailable unless test overrides
   mockReadCurrent.mockResolvedValue({ status: 'unavailable', reason: 'cache_missing' })
+  mockReadTelemetry.mockResolvedValue({ lastAttemptedAtIso: null })
 })
 
 // ── Feature flag tests ────────────────────────────────────────────────────────
@@ -250,6 +253,34 @@ describe('GET /api/teskeid/weather/vegagerdin/current - DTO shape', () => {
     expect(body.cacheStatus).toBe('fresh')
     expect(body.measurementFreshness).toBe('fresh')
     expect(body.fetchedAtIso).toBeTruthy()
+    expect(body.lastAttemptedAtIso).toBe(body.fetchedAtIso)
+    expect(mockReadTelemetry).not.toHaveBeenCalled()
+  })
+
+  it('returns separate success and attempt times once the newest measurement is stale', async () => {
+    const measuredAtIso = '2026-08-09T17:40:00.000Z'
+    const fetchedAtIso = '2026-08-09T17:40:36.000Z'
+    const lastAttemptedAtIso = '2026-08-09T18:20:04.000Z'
+    mockReadCurrent.mockResolvedValue({
+      status: 'stale',
+      cacheStatus: 'history_fallback',
+      measurementFreshness: 'stale',
+      payload: {
+        source: 'vegagerdin',
+        endpoint: 'vedur2014_1',
+        fetchedAtIso,
+        oldestMeasuredAtIso: measuredAtIso,
+        measurements: [makeMeasurement('1111', measuredAtIso)],
+      },
+    })
+    mockReadTelemetry.mockResolvedValue({ lastAttemptedAtIso })
+
+    const res = await GET()
+    const body = await res.json()
+
+    expect(body.fetchedAtIso).toBe(fetchedAtIso)
+    expect(body.lastAttemptedAtIso).toBe(lastAttemptedAtIso)
+    expect(mockReadTelemetry).toHaveBeenCalledTimes(1)
   })
 
   it('returns stale cacheStatus when cache is stale', async () => {

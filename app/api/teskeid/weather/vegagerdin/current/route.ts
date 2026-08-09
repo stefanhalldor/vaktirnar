@@ -2,8 +2,12 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
-import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
+import {
+  readVegagerdinCurrentWithHistoryFallback,
+  readVegagerdinFetchTelemetry,
+} from '@/lib/weather/providers/vegagerdinCurrent.server'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
+import { freeDriveStationFreshness } from '@/lib/weather/freeDrive'
 
 export async function GET() {
   if (process.env.AUTH_MVP_ENABLED !== 'true') {
@@ -44,6 +48,15 @@ export async function GET() {
   }
 
   const { payload, cacheStatus, measurementFreshness } = result
+  const newestMeasuredAtIso = payload.measurements.reduce<string | null>(
+    (latest, measurement) => !latest || measurement.measuredAtIso > latest
+      ? measurement.measuredAtIso
+      : latest,
+    null,
+  )
+  const fetchTelemetry = freeDriveStationFreshness(newestMeasuredAtIso) === 'stale'
+    ? await readVegagerdinFetchTelemetry()
+    : { lastAttemptedAtIso: null }
 
   // Explicit DTO mapping — do not pass internal measurement shape directly.
   // This decouples the public API contract from server-internal provider types.
@@ -69,6 +82,7 @@ export async function GET() {
       cacheStatus,
       measurementFreshness,
       fetchedAtIso: payload.fetchedAtIso,
+      lastAttemptedAtIso: fetchTelemetry.lastAttemptedAtIso ?? payload.fetchedAtIso,
       oldestMeasuredAtIso: payload.oldestMeasuredAtIso,
       stations,
     },

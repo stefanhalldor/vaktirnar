@@ -2864,7 +2864,7 @@
         "roadMapPrototypeVegagerdinNoRouteStations": "No Vegagerðin wind measurements were found on this route.",
         "roadMapPrototypeVegagerdinDataAging": "The Vegagerðin measurements are getting old.",
         "roadMapPrototypeVegagerdinDataStaleShort": "Old data",
-        "roadMapPrototypeVegagerdinDataStale": "The Vegagerðin data was last updated at {time}.",
+        "roadMapPrototypeVegagerdinDataStale": "The Vegagerðin data was last updated at {measuredTime} and Teskeið fetched it at {fetchedTime}. Teskeið last tried to fetch data at {attemptedTime}.",
         "roadMapPrototypeVegagerdinDataRefreshed": "Latest data fetched at {time}",
         "roadMapPrototypeViewingDepartureNow": "Viewing: Now",
         "roadMapPrototypeViewingDepartureAt": "Viewing departure: {time}",
