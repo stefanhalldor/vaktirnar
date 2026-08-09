@@ -286,6 +286,45 @@ describe('AdminPage — FeatureAccessSection', () => {
     expect(await screen.findByText('Aðgangur veittur: bookkeeper@example.com')).toBeInTheDocument()
   })
 
+  it('renders the Kviss private-beta control and grants the exact feature key', async () => {
+    const featureCalls: Array<{ url: string; method: string; body?: string }> = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/admin/feature-access')) {
+        featureCalls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined })
+      }
+      if (url.includes('/api/admin/analytics')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      }
+      if (url.includes('/api/admin/teskeid-usage')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_USAGE) })
+      }
+      if (method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, email: 'host@example.com' }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+    }))
+
+    render(<AdminPage />)
+
+    const heading = await screen.findByRole('heading', { name: 'Kviss — private beta' })
+    expect(heading.parentElement?.textContent).toContain('KVISS_ENABLED=true')
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Netfang fyrir Kviss — private beta',
+    }), { target: { value: 'host@example.com' } })
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Gefa aðgang að Kviss — private beta',
+    }))
+
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual({
+        url: '/api/admin/feature-access?feature=kviss',
+        method: 'POST',
+        body: JSON.stringify({ email: 'host@example.com' }),
+      })
+    })
+  })
+
   it('shows load error message when feature-access API returns 500', async () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => {
       if (url.includes('/api/admin/analytics')) {

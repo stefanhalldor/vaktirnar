@@ -4,17 +4,19 @@ import { useState, useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { Menu, X, Lightbulb, Send, LogIn, UserCircle, LayoutGrid, LogOut, MessagesSquare } from 'lucide-react'
+import { Menu, X, Lightbulb, Send, LogIn, UserCircle, LayoutGrid, LogOut, MessagesSquare, Trophy } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 const PUBLIC_ITEMS = [
   { href: '/', labelKey: 'ideas', icon: Lightbulb },
+  { href: '/kviss', labelKey: 'quiz', icon: Trophy },
   { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },
   { href: '/innskraning', labelKey: 'login', icon: LogIn },
 ] as const
 
 const AUTH_ITEMS = [
   { href: '/auth-mvp/heim', labelKey: 'teskeidar', icon: LayoutGrid, activePrefixes: ['/auth-mvp/heim', '/auth-mvp/lanad-og-skilad', '/auth-mvp/utlagt-og-endurgreitt', '/auth-mvp/bokhaldid', '/auth-mvp/umonnun', '/auth-mvp/vedrid'] },
+  { href: '/auth-mvp/kviss', labelKey: 'quiz', icon: Trophy, feature: 'kviss' },
   { href: '/auth-mvp/samvinna', labelKey: 'agentCollaboration', icon: MessagesSquare, agentCollaboration: true },
   { href: '/auth-mvp/minn-profill', labelKey: 'profile', icon: UserCircle },
   { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },
@@ -32,12 +34,14 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [agentCollaborationAvailable, setAgentCollaborationAvailable] = useState(false)
   const [agentUnreadCount, setAgentUnreadCount] = useState(0)
+  const [capabilities, setCapabilities] = useState({ kviss: false })
   const ref = useRef<HTMLDetailsElement>(null)
 
   const items = variant === 'public'
     ? PUBLIC_ITEMS
     : AUTH_ITEMS.filter(item => (
-        !('agentCollaboration' in item) || !item.agentCollaboration || agentCollaborationAvailable
+        (!('agentCollaboration' in item) || !item.agentCollaboration || agentCollaborationAvailable)
+        && (!('feature' in item) || !item.feature || capabilities[item.feature as keyof typeof capabilities])
       ))
 
   useEffect(() => {
@@ -45,6 +49,18 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
     createClient().auth.getSession().then(({ data }) => {
       setUserEmail(data.session?.user?.email ?? null)
     })
+  }, [variant])
+
+  useEffect(() => {
+    if (variant !== 'authenticated') return
+    let active = true
+    fetch('/api/auth-mvp/capabilities', { cache: 'no-store' })
+      .then(response => response.ok ? response.json() : { kviss: false })
+      .then((value: { kviss?: boolean }) => {
+        if (active) setCapabilities({ kviss: value.kviss === true })
+      })
+      .catch(() => undefined)
+    return () => { active = false }
   }, [variant])
 
   useEffect(() => {

@@ -1,81 +1,137 @@
--- Platform: spaces and space_members
--- Idempotent migration.
--- Dependency: teskeid_set_updated_at() must exist (04_teskeid_schema.sql).
--- All access to these tables goes through SECURITY DEFINER functions.
--- Direct client access is revoked; no policies are needed (RLS default = deny all).
-
--- ============================================================
--- SPACES
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS spaces (
-  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  type       text        NOT NULL CHECK (type = 'personal'),
-  name       text        CHECK (char_length(name) <= 200),
-  created_by uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
--- One personal space per user. Conflict target for ensure_personal_space().
-CREATE UNIQUE INDEX IF NOT EXISTS spaces_one_personal_per_user
-  ON spaces (created_by) WHERE type = 'personal';
-
--- ============================================================
--- SPACE_MEMBERS
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS space_members (
-  space_id   uuid NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
-  user_id    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  role       text NOT NULL CHECK (role IN ('owner', 'member')),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (space_id, user_id)
-);
-
-CREATE INDEX IF NOT EXISTS space_members_user_id_idx
-  ON space_members (user_id);
-
-CREATE INDEX IF NOT EXISTS space_members_space_user_idx
-  ON space_members (space_id, user_id);
-
--- ============================================================
--- TRIGGERS
--- ============================================================
-
-DROP TRIGGER IF EXISTS spaces_updated_at ON spaces;
-CREATE TRIGGER spaces_updated_at
-  BEFORE UPDATE ON spaces
-  FOR EACH ROW EXECUTE FUNCTION teskeid_set_updated_at();
-
--- ============================================================
--- RLS
--- Enable RLS. No policies = deny all by default.
--- If a grant is accidentally added later, RLS will still deny.
--- ============================================================
-
-ALTER TABLE spaces        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE space_members ENABLE ROW LEVEL SECURITY;
-
--- ============================================================
--- GRANTS
--- No direct access for any role. All reads/writes via SECURITY DEFINER functions.
--- ============================================================
-
-REVOKE ALL ON spaces        FROM anon, authenticated;
-REVOKE ALL ON space_members FROM anon, authenticated;
-
--- ============================================================
--- FUNCTION: public.is_space_member
--- Used in loan_items RLS to check membership without recursive
--- policy evaluation on space_members.
+-- Platform catch-up: personal spaces and owner memberships.
 --
--- SECURITY DEFINER: runs as function owner (migration/admin role),
--- bypasses RLS on space_members. search_path = '' prevents schema
--- injection. User identity sourced from auth.uid() only.
--- ============================================================
+-- Production has not applied this historical foundation, while later Kviss
+-- authoring depends on it. This is intentionally a one-time, fail-closed
+-- migration: run the dedicated read-only preflight first. If any target object
+-- already exists, the transaction stops without changing anything.
 
-CREATE OR REPLACE FUNCTION public.is_space_member(p_space_id uuid)
+BEGIN;
+
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+SET LOCAL search_path = pg_catalog;
+
+DO $spaces_foundation_preconditions$
+DECLARE
+  v_collision text;
+BEGIN
+  IF pg_catalog.to_regclass('auth.users') IS NULL THEN
+    RAISE EXCEPTION 'spaces_foundation_missing_dependency:auth.users';
+  END IF;
+  IF pg_catalog.to_regprocedure('auth.uid()') IS NULL THEN
+    RAISE EXCEPTION 'spaces_foundation_missing_dependency:auth.uid()';
+  END IF;
+  IF pg_catalog.to_regprocedure('public.teskeid_set_updated_at()') IS NULL THEN
+    RAISE EXCEPTION 'spaces_foundation_missing_dependency:public.teskeid_set_updated_at()';
+  END IF;
+  IF pg_catalog.to_regprocedure('pg_catalog.gen_random_uuid()') IS NULL THEN
+    RAISE EXCEPTION 'spaces_foundation_missing_dependency:gen_random_uuid()';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM (VALUES ('anon'), ('authenticated'), ('service_role')) AS required(role_name)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_roles AS role
+      WHERE role.rolname = required.role_name
+    )
+  ) THEN
+    RAISE EXCEPTION 'spaces_foundation_missing_required_role';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_roles AS role
+    WHERE role.rolname = current_user
+      AND (role.rolsuper OR role.rolbypassrls)
+  ) THEN
+    RAISE EXCEPTION 'spaces_foundation_owner_cannot_bypass_rls:%', current_user;
+  END IF;
+  IF NOT pg_catalog.has_schema_privilege('authenticated', 'public', 'USAGE') THEN
+    RAISE EXCEPTION 'spaces_foundation_authenticated_missing_public_schema_usage';
+  END IF;
+
+  SELECT collision.name
+    INTO v_collision
+  FROM (
+    SELECT target.name
+    FROM (VALUES
+      ('spaces'),
+      ('space_members'),
+      ('spaces_one_personal_per_user'),
+      ('space_members_user_id_idx')
+    ) AS target(name)
+    WHERE pg_catalog.to_regclass('public.' || target.name) IS NOT NULL
+
+    UNION ALL
+
+    SELECT procedure.proname || '(' || pg_catalog.pg_get_function_identity_arguments(procedure.oid) || ')'
+    FROM pg_catalog.pg_proc AS procedure
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid = procedure.pronamespace
+    WHERE namespace.nspname = 'public'
+      AND procedure.proname IN ('is_space_member', 'ensure_personal_space')
+  ) AS collision
+  ORDER BY collision.name
+  LIMIT 1;
+
+  IF v_collision IS NOT NULL THEN
+    RAISE EXCEPTION 'spaces_foundation_collision:%', v_collision;
+  END IF;
+END;
+$spaces_foundation_preconditions$;
+
+CREATE TABLE public.spaces (
+  id uuid NOT NULL DEFAULT pg_catalog.gen_random_uuid(),
+  type text NOT NULL,
+  name text,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
+  updated_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
+  CONSTRAINT spaces_pkey PRIMARY KEY (id),
+  CONSTRAINT spaces_type_check CHECK (type = 'personal'),
+  CONSTRAINT spaces_name_check CHECK (name IS NULL OR pg_catalog.char_length(name) <= 200),
+  CONSTRAINT spaces_created_by_fkey
+    FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+
+-- One personal space per auth user. This is also the conflict target used by
+-- ensure_personal_space() during concurrent first access.
+CREATE UNIQUE INDEX spaces_one_personal_per_user
+  ON public.spaces (created_by)
+  WHERE type = 'personal';
+
+CREATE TABLE public.space_members (
+  space_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  role text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
+  CONSTRAINT space_members_pkey PRIMARY KEY (space_id, user_id),
+  CONSTRAINT space_members_space_id_fkey
+    FOREIGN KEY (space_id) REFERENCES public.spaces(id) ON DELETE CASCADE,
+  CONSTRAINT space_members_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE,
+  CONSTRAINT space_members_role_check CHECK (role IN ('owner', 'member'))
+);
+
+CREATE INDEX space_members_user_id_idx
+  ON public.space_members (user_id);
+
+CREATE TRIGGER spaces_updated_at
+  BEFORE UPDATE ON public.spaces
+  FOR EACH ROW EXECUTE FUNCTION public.teskeid_set_updated_at();
+
+-- Default deny. No table policies are created: callers use the two narrowly
+-- granted SECURITY DEFINER functions below.
+ALTER TABLE public.spaces ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.spaces FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.space_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.space_members FORCE ROW LEVEL SECURITY;
+
+REVOKE ALL PRIVILEGES ON TABLE public.spaces
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL PRIVILEGES ON TABLE public.space_members
+  FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE FUNCTION public.is_space_member(p_space_id uuid)
 RETURNS boolean
 LANGUAGE sql
 SECURITY DEFINER
@@ -84,71 +140,68 @@ SET search_path = ''
 AS $$
   SELECT EXISTS (
     SELECT 1
-    FROM public.space_members
-    WHERE space_id = p_space_id
-      AND user_id = auth.uid()
+    FROM public.space_members AS membership
+    WHERE membership.space_id = p_space_id
+      AND membership.user_id = auth.uid()
   );
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.is_space_member(uuid) FROM PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.is_space_member(uuid) TO authenticated;
--- anon: no access
-
--- ============================================================
--- FUNCTION: public.ensure_personal_space
--- Idempotently creates a personal space and owner membership for
--- the authenticated user. Returns the space_id (uuid).
---
--- SECURITY DEFINER: runs as function owner. Uses auth.uid() internally;
--- takes no user-controlled parameters. Concurrent-safe via partial
--- unique index + ON CONFLICT. Never returns null on success.
--- ============================================================
-
-CREATE OR REPLACE FUNCTION public.ensure_personal_space()
+CREATE FUNCTION public.ensure_personal_space()
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_user_id  uuid := auth.uid();
+  v_user_id uuid := auth.uid();
   v_space_id uuid;
 BEGIN
   IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'ensure_personal_space: not authenticated';
+    RAISE EXCEPTION 'ensure_personal_space:not_authenticated';
   END IF;
 
-  -- 1. Try to get existing personal space
-  SELECT id INTO v_space_id
-  FROM public.spaces
-  WHERE created_by = v_user_id
-    AND type = 'personal';
+  SELECT space.id
+    INTO v_space_id
+  FROM public.spaces AS space
+  WHERE space.created_by = v_user_id
+    AND space.type = 'personal';
 
-  -- 2. Create if not found (partial unique index handles concurrent creation)
   IF v_space_id IS NULL THEN
     INSERT INTO public.spaces (type, created_by)
     VALUES ('personal', v_user_id)
     ON CONFLICT (created_by) WHERE type = 'personal' DO NOTHING
     RETURNING id INTO v_space_id;
 
-    -- Concurrent creation: another transaction won the INSERT; fetch existing row
+    -- A concurrent first request may have won the unique-index race.
     IF v_space_id IS NULL THEN
-      SELECT id INTO v_space_id
-      FROM public.spaces
-      WHERE created_by = v_user_id
-        AND type = 'personal';
+      SELECT space.id
+        INTO v_space_id
+      FROM public.spaces AS space
+      WHERE space.created_by = v_user_id
+        AND space.type = 'personal';
     END IF;
   END IF;
 
-  -- 3. Ensure owner membership (idempotent; also repairs missing membership)
-  INSERT INTO public.space_members (space_id, user_id, role)
+  IF v_space_id IS NULL THEN
+    RAISE EXCEPTION 'ensure_personal_space:creation_failed';
+  END IF;
+
+  INSERT INTO public.space_members AS membership (space_id, user_id, role)
   VALUES (v_space_id, v_user_id, 'owner')
-  ON CONFLICT (space_id, user_id) DO NOTHING;
+  ON CONFLICT (space_id, user_id) DO UPDATE
+    SET role = EXCLUDED.role
+    WHERE membership.role IS DISTINCT FROM EXCLUDED.role;
 
   RETURN v_space_id;
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.ensure_personal_space() FROM PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.ensure_personal_space() TO authenticated;
--- anon: no access
+REVOKE ALL PRIVILEGES ON FUNCTION public.is_space_member(uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL PRIVILEGES ON FUNCTION public.ensure_personal_space()
+  FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION public.is_space_member(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.ensure_personal_space() TO authenticated;
+
+COMMIT;

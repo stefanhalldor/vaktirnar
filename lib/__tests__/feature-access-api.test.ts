@@ -543,3 +543,22 @@ describe('feature-access API — bookkeeping private beta', () => {
     },
   )
 })
+
+describe('feature-access API — Kviss private beta', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('accepts, grants and revokes the exact kviss feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    expect((await GET(makeGetRequest('kviss'))).status).toBe(200)
+    expect((await POST(makeRequest({ email: ' Host@Example.com ' }, 'POST', 'kviss'))).status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith({ feature_key: 'kviss', email: 'host@example.com' })
+    expect((await DELETE(makeRequest({ email: 'host@example.com' }, 'DELETE', 'kviss'))).status).toBe(200)
+  })
+
+  it.each(['quiz', 'kviss-private-beta', 'kviss_'])('rejects the lookalike key %s', async featureKey => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const response = await GET(makeGetRequest(featureKey))
+    expect(response.status).toBe(400)
+  })
+})

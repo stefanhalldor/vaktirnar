@@ -41,6 +41,13 @@ const PREVIEW_PATH_PATTERNS = [
   /^\/api\/teskeid\/weather\/vedurpuls\/vegagerdin\/stations\/[^/]+\/preview$/,
 ]
 
+// Public Kviss routes are segment-exact. Route handlers still enforce the
+// feature switch, bounded input, rate limits and session capabilities.
+const PUBLIC_KVISS_PATH_PATTERNS = [
+  /^\/kviss(?:\/[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6})?$/i,
+  /^\/api\/kviss\/public\/(?:lookup|join|session|answer|chat)$/,
+]
+
 const AGENT_BRIDGE_PATHS = new Set([
   // Provider-neutral local agent bridge. These exact routes do not use a
   // browser session; each handler enforces one-time pairing or a scoped bearer
@@ -112,6 +119,17 @@ const EXACT_PUBLIC_PATHS = new Set([
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
+  const isPublicKvissPath = PUBLIC_KVISS_PATH_PATTERNS.some(pattern => pattern.test(pathname))
+  if (isPublicKvissPath && process.env.KVISS_ENABLED !== 'true') {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'not_found' },
+        { status: 404, headers: { 'Cache-Control': 'private, no-store' } },
+      )
+    }
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   // Feature flag: guard all /auth-mvp/* pages and /api/auth-mvp/* endpoints.
   // Must be checked before any auth logic — AUTH_MVP_ENABLED is server-only (no NEXT_PUBLIC_).
   const isAuthMvpPath = pathname.startsWith('/auth-mvp') || pathname.startsWith('/api/auth-mvp')
@@ -175,6 +193,20 @@ export async function middleware(request: NextRequest) {
   const isBookkeepingPath = pathname === '/auth-mvp/bokhaldid'
     || pathname.startsWith('/auth-mvp/bokhaldid/')
   if (isBookkeepingPath && process.env.BOOKKEEPING_ENABLED !== 'true') {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  const isKvissCreatorPath = pathname === '/auth-mvp/kviss'
+    || pathname.startsWith('/auth-mvp/kviss/')
+    || pathname === '/api/auth-mvp/kviss'
+    || pathname.startsWith('/api/auth-mvp/kviss/')
+  if (isKvissCreatorPath && process.env.KVISS_ENABLED !== 'true') {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'not_found' },
+        { status: 404, headers: { 'Cache-Control': 'private, no-store' } },
+      )
+    }
     return NextResponse.redirect(new URL('/', request.url))
   }
 
@@ -259,7 +291,10 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const isRoot = pathname === '/'
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p)) || EXACT_PUBLIC_PATHS.has(pathname) || PREVIEW_PATH_PATTERNS.some(r => r.test(pathname))
+  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+    || EXACT_PUBLIC_PATHS.has(pathname)
+    || PREVIEW_PATH_PATTERNS.some(r => r.test(pathname))
+    || PUBLIC_KVISS_PATH_PATTERNS.some(r => r.test(pathname))
   const isAuthCallback = pathname.startsWith('/auth/callback')
 
   // Landing page (/): public for guests, but authenticated users go to Teskeiðar.
@@ -292,7 +327,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/auth-mvp/heim') ||
     pathname.startsWith('/auth-mvp/minn-profill') ||
     pathname.startsWith('/auth-mvp/lanad-og-skilad') ||
-    pathname.startsWith('/auth-mvp/utlagt-og-endurgreitt')
+    pathname.startsWith('/auth-mvp/utlagt-og-endurgreitt') ||
+    pathname.startsWith('/auth-mvp/kviss')
   )) {
     return redirectToInnskraningWithNext()
   }

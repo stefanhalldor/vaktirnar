@@ -39,6 +39,7 @@ vi.mock('next-intl', () => ({
         profile: 'Minn prófíll',
         loans: 'Lánað og skilað',
         teskeidar: 'Teskeiðar',
+        quiz: 'Kviss',
         agentCollaboration: 'Samvinna',
         agentUnread: 'Ólesin skilaboð',
         signOut: 'Útskrá',
@@ -74,11 +75,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockPathname.mockReturnValue('/')
   mockGetSession.mockResolvedValue({ data: { session: null } })
-  mockFetch.mockResolvedValue({
+  mockFetch.mockImplementation(async (url: string) => ({
     ok: true,
     status: 200,
-    json: async () => ({ unreadCount: 0 }),
-  })
+    json: async () => url.includes('/capabilities') ? { kviss: true } : { unreadCount: 0 },
+  }))
 })
 
 // ── Button label ──────────────────────────────────────────────────────────────
@@ -110,10 +111,11 @@ describe('TeskeidMenu — button label', () => {
 // ── Public items ──────────────────────────────────────────────────────────────
 
 describe('TeskeidMenu — public variant items', () => {
-  it('shows Hugmyndabankinn, Ný hugmynd, Innskráning when open', () => {
+  it('shows Hugmyndabankinn, Kviss, Ný hugmynd and Innskráning when open', () => {
     render(<TeskeidMenu variant="public" />)
     fireEvent.click(screen.getByRole('button'))
     expect(screen.getByText('Hugmyndabankinn')).toBeDefined()
+    expect(screen.getByText('Kviss')).toBeDefined()
     expect(screen.getByText('Ný hugmynd')).toBeDefined()
     expect(screen.getByText('Nýskráning / innskráning')).toBeDefined()
   })
@@ -122,6 +124,7 @@ describe('TeskeidMenu — public variant items', () => {
     const { container } = render(<TeskeidMenu variant="public" />)
     fireEvent.click(screen.getByRole('button'))
     expect(container.querySelector('a[href="/"]')).not.toBeNull()
+    expect(container.querySelector('a[href="/kviss"]')).not.toBeNull()
     expect(container.querySelector('a[href="/senda-hugmynd"]')).not.toBeNull()
     expect(container.querySelector('a[href="/innskraning"]')).not.toBeNull()
   })
@@ -147,17 +150,17 @@ describe('TeskeidMenu — authenticated variant items', () => {
   it('hides Samvinna when the fail-closed summary endpoint returns 404', async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) })
     render(<TeskeidMenu variant="authenticated" />)
-    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
     fireEvent.click(screen.getByRole('button'))
     expect(screen.queryByText('Samvinna')).toBeNull()
   })
 
   it('shows an unread notification on the closed menu button', async () => {
-    mockFetch.mockResolvedValue({
+    mockFetch.mockImplementation(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => ({ unreadCount: 3 }),
-    })
+      json: async () => url.includes('/capabilities') ? { kviss: true } : { unreadCount: 3 },
+    }))
     render(<TeskeidMenu variant="authenticated" />)
     expect(await screen.findByTestId('agent-unread-indicator')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Valmynd.*ólesin skilaboð/i })).toBeInTheDocument()
@@ -174,8 +177,21 @@ describe('TeskeidMenu — authenticated variant items', () => {
     fireEvent.click(screen.getByRole('button'))
     await screen.findByText('Samvinna')
     expect(container.querySelector('a[href="/auth-mvp/heim"]')).not.toBeNull()
+    expect(container.querySelector('a[href="/auth-mvp/kviss"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/samvinna"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/minn-profill"]')).not.toBeNull()
+  })
+
+  it('hides creator Kviss when the capability endpoint fails closed', async () => {
+    mockFetch.mockImplementation(async (url: string) => ({
+      ok: !url.includes('/capabilities'),
+      status: url.includes('/capabilities') ? 404 : 200,
+      json: async () => url.includes('/capabilities') ? {} : { unreadCount: 0 },
+    }))
+    render(<TeskeidMenu variant="authenticated" />)
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.queryByText('Kviss')).toBeNull()
   })
 
   it('does not show public-only items', () => {

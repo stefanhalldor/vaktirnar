@@ -76,6 +76,12 @@ export async function checkFeatureAccess(
     if (process.env.BOOKKEEPING_ENABLED !== 'true') return false
     return checkPerUserAccess(email, 'bokhaldid')
   }
+  if (featureKey === 'kviss') {
+    // Hosts require both the global kill-switch and an explicit entitlement.
+    // Public participants use a separate session-scoped capability.
+    if (process.env.KVISS_ENABLED !== 'true') return false
+    return checkPerUserAccess(email, 'kviss')
+  }
   if (featureKey === 'facebook-oauth') {
     if (process.env.FACEBOOK_OAUTH_ENABLED !== 'true') return false
     if (process.env.FACEBOOK_OAUTH_FLAG !== 'true') return true

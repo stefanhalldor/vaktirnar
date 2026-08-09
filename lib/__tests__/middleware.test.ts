@@ -824,3 +824,51 @@ describe('middleware — authenticated /vedrid canonicalization', () => {
   })
 })
 
+describe('middleware — Kviss public and creator boundaries', () => {
+  let savedAuthMvp: string | undefined
+  let savedKviss: string | undefined
+
+  beforeEach(() => {
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    savedKviss = process.env.KVISS_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  afterEach(() => {
+    if (savedAuthMvp === undefined) delete process.env.AUTH_MVP_ENABLED
+    else process.env.AUTH_MVP_ENABLED = savedAuthMvp
+    if (savedKviss === undefined) delete process.env.KVISS_ENABLED
+    else process.env.KVISS_ENABLED = savedKviss
+  })
+
+  it('fails closed for the public page and API while Kviss is disabled', async () => {
+    delete process.env.KVISS_ENABLED
+    const page = await middleware(makeReq('/kviss/ABC234'))
+    const api = await middleware(makeReq('/api/kviss/public/session'))
+    expect(page.status).toBe(307)
+    expect(redirectedTo(page)).toBe('/')
+    expect(api.status).toBe(404)
+    expect(api.headers.get('cache-control')).toBe('private, no-store')
+  })
+
+  it('opens only exact public Kviss routes when enabled', async () => {
+    process.env.KVISS_ENABLED = 'true'
+    expect((await middleware(makeReq('/kviss'))).status).toBe(200)
+    expect((await middleware(makeReq('/kviss/ABC234'))).status).toBe(200)
+    expect((await middleware(makeReq('/api/kviss/public/answer'))).status).toBe(200)
+    expect((await middleware(makeReq('/api/kviss/public/answer/private'))).status).toBe(401)
+    expect((await middleware(makeReq('/kviss/invalid'))).status).toBe(307)
+  })
+
+  it('preserves the creator deep-link for unauthenticated users', async () => {
+    process.env.KVISS_ENABLED = 'true'
+    const response = await middleware(makeReq('/auth-mvp/kviss'))
+    expect(response.status).toBe(307)
+    const location = new URL(response.headers.get('location')!)
+    expect(location.pathname).toBe('/innskraning')
+    expect(location.searchParams.get('next')).toBe('/auth-mvp/kviss')
+  })
+})
+
