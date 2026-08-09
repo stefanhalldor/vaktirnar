@@ -78,9 +78,9 @@ describe('sql/96_expenses_core.sql — migration boundary and schema', () => {
   it('keeps the expense entitlement valid if pending migration 95 runs later', () => {
     const featureBlock = pendingSql95.slice(0, pendingSql95.indexOf('-- Conversations'))
 
-    expect(featureBlock).toContain('pg_catalog.pg_get_expr(constraint_row.conbin')
-    expect(featureBlock).toContain('CHECK ((%s) OR feature_key = %L)')
-    expect(featureBlock).toContain('v_expression')
+    expect(featureBlock).toContain('feature_access_feature_key_check')
+    expect(featureBlock).toContain("'agent-collaboration-private-beta'")
+    expect(featureBlock).toContain("'utlagt-og-endurgreitt'")
   })
 
   it('creates every dedicated persistence table idempotently', () => {

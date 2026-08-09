@@ -7,6 +7,9 @@ for collaboration between Stebbi, Codex, and Claude Code.
 
 - Use one file per handoff or review.
 - Do not overwrite older handoff or review files.
+- Handoff Markdown files are local-first and ignored by default so historical
+  working notes do not overwhelm `git status`. Preserve them on disk. Add a
+  release record deliberately with `git add -f ai-handoff/<filename>.md`.
 - Use filenames in this format:
   `YYYY-MM-DD-HHMM-todo-XYZ-vNNN-agent-description.md`
 - `HHMM` is 24-hour local time when the file is created.

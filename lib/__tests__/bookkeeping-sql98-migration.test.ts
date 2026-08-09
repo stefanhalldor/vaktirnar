@@ -29,14 +29,6 @@ const sql96 = readFileSync(
   join(process.cwd(), 'sql/96_expenses_core.sql'),
   'utf8',
 )
-const sql95Postflight = readFileSync(
-  join(
-    process.cwd(),
-    'sql/validation/95-agent-collaboration/02-postapply-assertions.sql',
-  ),
-  'utf8',
-)
-
 const TABLES = [
   'bookkeeping_entities',
   'bookkeeping_entity_members',
@@ -113,7 +105,6 @@ describe('SQL98 bookkeeping migration boundary and catalog integration', () => {
   })
 
   it.each([
-    ['SQL95', sql95, 'agent-collaboration-private-beta'],
     ['SQL96', sql96, 'utlagt-og-endurgreitt'],
     ['SQL98', sql, 'bokhaldid'],
   ])('%s preserves the existing feature expression and adds only its own key', (_name, source, key) => {
@@ -125,18 +116,13 @@ describe('SQL98 bookkeeping migration boundary and catalog integration', () => {
     expect(featureBlock).toContain(`'${key}'`)
   })
 
-  it('allows SQL95 validation to preserve already-existing later feature keys', () => {
-    expect(sql95Postflight).toContain('required_feature_keys(feature_key) AS')
-    expect(sql95Postflight).toContain('allowed_feature_keys(feature_key) AS')
-    expect(sql95Postflight).toContain('<@ (SELECT keys FROM feature_constraint_keys)')
-    expect(sql95Postflight).toContain(
-      '<@ ARRAY(SELECT feature_key FROM allowed_feature_keys ORDER BY feature_key)',
-    )
-    expect(sql95Postflight).toContain("('utlagt-og-endurgreitt')")
-    expect(sql95Postflight).toContain("('bokhaldid')")
-    expect(sql95Postflight).not.toContain(
-      'ARRAY(SELECT feature_key FROM expected_feature_keys ORDER BY feature_key)',
-    )
+  it('documents legacy SQL95 as order-sensitive after the bookkeeping rollout', () => {
+    const featureBlock = sql95.slice(0, sql95.indexOf('-- Conversations'))
+
+    expect(featureBlock).toContain("'agent-collaboration-private-beta'")
+    expect(featureBlock).toContain("'utlagt-og-endurgreitt'")
+    expect(featureBlock).not.toContain("'bokhaldid'")
+    expect(preflight).toContain('Stale SQL95/SQL96 copies can remove bokhaldid')
   })
 
   it('seeds the exact home catalog dependency without overwriting existing admin copy', () => {

@@ -5,6 +5,12 @@ node_modules/
 
 # Testing
 coverage/
+.tmp/
+
+# Local AI collaboration records are preserved on disk but do not belong in
+# normal git status. Release records can still be added deliberately with
+# `git add -f ai-handoff/<filename>.md`.
+/ai-handoff/*.md
 
 # Next.js
 .next/
