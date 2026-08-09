@@ -246,7 +246,43 @@ export interface ExpenseDashboardView {
     youOweMinor: number
   }>
   pendingConfirmationCount: number
+  /** True when the signed-in user's still-unreserved debt has a settlement context. */
+  hasPayAllItems: boolean
   incompleteDrafts?: ExpenseIncompleteDraftSummaryView[]
+}
+
+export interface ExpensePayAllExpenseLinkView {
+  id: string
+  title: string
+  incurredOn: string
+}
+
+export interface ExpensePayAllContextView {
+  groupId: string
+  groupKind: ExpenseGroupKind
+  groupName: string
+  emoji: string | null
+  amountMinor: number
+  currency: string
+  expenses: ExpensePayAllExpenseLinkView[]
+}
+
+export interface ExpensePayAllPaymentView {
+  id: string
+  recipientDisplayName: string
+  amountMinor: number
+  currency: string
+  paymentInstruction: ExpensePaymentSnapshotView | null
+  contexts: ExpensePayAllContextView[]
+}
+
+export interface ExpensePayAllBlockedContextView extends ExpensePayAllContextView {
+  recipientDisplayName: string
+}
+
+export interface ExpensePayAllView {
+  payments: ExpensePayAllPaymentView[]
+  blockedContexts: ExpensePayAllBlockedContextView[]
 }
 
 export interface ExpenseIncompleteDraftSummaryView {

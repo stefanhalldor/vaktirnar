@@ -580,7 +580,27 @@
         "oneOffs": "Stök útgjöld",
         "empty": "Engin útgjöld hafa verið skráð enn.",
         "expenseCount": "{count, plural, one {# útgjald} other {# útgjöld}}",
-        "pendingCount": "{count, plural, one {# greiðsla bíður staðfestingar} other {# greiðslur bíða staðfestingar}}"
+        "pendingCount": "{count, plural, one {# greiðsla bíður staðfestingar} other {# greiðslur bíða staðfestingar}}",
+        "settleAll": "Gera allt upp"
+      },
+      "payAll": {
+        "title": "Gera allt upp",
+        "intro": "Hér sérðu upphæðirnar og greiðsluupplýsingarnar sem þú þarft til að gera opnar skuldir upp.",
+        "outsidePayment": "Teskeið millifærir ekki peninga. Greiðslurnar fara fram utan Teskeiðar.",
+        "payRecipient": "Greiða {name}",
+        "details": "Nánar",
+        "detailsTitle": "Samhengi greiðslunnar",
+        "detailsDescription": "Þetta er það sem greiðslan til {name} gerir upp.",
+        "closeDetails": "Loka nánari upplýsingum",
+        "groupContext": "Hópur",
+        "oneOffContext": "Stök færsla",
+        "openSettlement": "Opna uppgjör",
+        "relatedEntries": "Tengdar færslur",
+        "reportHint": "Eftir greiðslu geturðu opnað viðkomandi uppgjör undir Nánar og tilkynnt greiðsluna.",
+        "empty": "Allt er uppgert 😊",
+        "reviewTitle": "Sum uppgjör þarfnast yfirferðar",
+        "reviewBody": "Þau eru ekki talin með greiðslunum hér að ofan. Opnaðu uppgjörið áður en þú greiðir.",
+        "reviewContext": "{group}: greiðsla til {name}"
       },
       "invitation": {
         "title": "Boð í útgjaldahóp",

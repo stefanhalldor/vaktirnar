@@ -69,6 +69,7 @@ const translations: Record<string, string> = {
   'dashboard.settled': 'Uppgert',
   'dashboard.cancelled': 'Fellt niður',
   'dashboard.pendingCount': '{count} greiðsla bíður staðfestingar',
+  'dashboard.settleAll': 'Gera allt upp',
   'expenseForm.stepNavAriaLabel': 'Skref við skráningu útgjalds',
   'expenseForm.steps.details': 'Útgjald',
   'expenseForm.steps.people': 'Aðilar',
@@ -151,6 +152,7 @@ function dashboard(overrides: Partial<ExpenseDashboardView> = {}): ExpenseDashbo
     invitations: [],
     totals: [{ currency: 'ISK', owedToYouMinor: 4_000, youOweMinor: 12_500 }],
     pendingConfirmationCount: 0,
+    hasPayAllItems: true,
     ...overrides,
   }
 }
@@ -175,6 +177,27 @@ beforeEach(() => {
 })
 
 describe('ExpenseDashboard compact and privacy-safe projection', () => {
+  it('offers the consolidated settlement only when the signed-in user owes money', async () => {
+    const { rerender } = render(await ExpenseDashboard({
+      dashboard: dashboard(),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByRole('link', { name: 'Gera allt upp' })).toHaveAttribute(
+      'href',
+      '/auth-mvp/utlagt-og-endurgreitt/gera-upp',
+    )
+
+    rerender(await ExpenseDashboard({
+      dashboard: dashboard({
+        totals: [{ currency: 'ISK', owedToYouMinor: 4_000, youOweMinor: 0 }],
+        hasPayAllItems: false,
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+    expect(screen.queryByRole('link', { name: 'Gera allt upp' })).not.toBeInTheDocument()
+  })
+
   it('shows Active and All dashboard views without the expense step navigation', async () => {
     render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile() }))
 

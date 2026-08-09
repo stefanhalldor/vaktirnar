@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { getLocale } from 'next-intl/server'
-import { AlertTriangle, ChevronRight, FilePenLine, Plus, CreditCard } from 'lucide-react'
+import { AlertTriangle, ChevronRight, FilePenLine, Plus, CreditCard, WalletCards } from 'lucide-react'
 import type {
   ExpenseDashboardView,
   ExpenseIncompleteDraftSummaryView,
@@ -98,6 +98,15 @@ export async function ExpenseDashboard({
             ))}
           </div>
         )}
+        {dashboard.hasPayAllItems ? (
+          <Link
+            href="/auth-mvp/utlagt-og-endurgreitt/gera-upp"
+            className={`${expensePrimaryButtonClass} mt-4 w-full`}
+          >
+            <WalletCards aria-hidden size={18} className="mr-2" />
+            {t('dashboard.settleAll')}
+          </Link>
+        ) : null}
       </section>
 
       {dashboard.invitations.length > 0 ? (

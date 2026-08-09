@@ -576,7 +576,27 @@
         "oneOffs": "One-off expenses",
         "empty": "No expenses have been added yet.",
         "expenseCount": "{count, plural, one {# expense} other {# expenses}}",
-        "pendingCount": "{count, plural, one {# payment awaits confirmation} other {# payments await confirmation}}"
+        "pendingCount": "{count, plural, one {# payment awaits confirmation} other {# payments await confirmation}}",
+        "settleAll": "Settle everything"
+      },
+      "payAll": {
+        "title": "Settle everything",
+        "intro": "Here are the amounts and payment details you need to settle your open debts.",
+        "outsidePayment": "Teskeið does not transfer money. Payments take place outside Teskeið.",
+        "payRecipient": "Pay {name}",
+        "details": "Details",
+        "detailsTitle": "Payment context",
+        "detailsDescription": "This is what the payment to {name} settles.",
+        "closeDetails": "Close payment details",
+        "groupContext": "Group",
+        "oneOffContext": "One-off entry",
+        "openSettlement": "Open settlement",
+        "relatedEntries": "Related entries",
+        "reportHint": "After paying, open the relevant settlement under Details and report the payment.",
+        "empty": "Everything is settled 😊",
+        "reviewTitle": "Some settlements need review",
+        "reviewBody": "They are not included in the payments above. Open the settlement before paying.",
+        "reviewContext": "{group}: payment to {name}"
       },
       "invitation": {
         "title": "Expense group invitation",

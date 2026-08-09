@@ -8,6 +8,7 @@ import {
   simplifySettlement,
 } from './balances'
 import { addMinorAmounts } from './money'
+import { buildExpensePayAllView, type ExpensePayAllCandidate } from './pay-all'
 import { parseExpenseAmountToMinor } from './input-money'
 import { paymentSnapshotForViewer } from './payment-snapshot-visibility'
 import {
@@ -40,6 +41,9 @@ import type {
   ExpenseMemberView,
   ExpensePaymentPreferenceView,
   ExpensePaymentProfileV2View,
+  ExpensePayAllBlockedContextView,
+  ExpensePayAllContextView,
+  ExpensePayAllView,
   ExpenseRepaymentView,
   ExpenseRevisionSnapshot,
   ExpenseRevisionView,
@@ -821,6 +825,86 @@ export async function getExpenseGroupView(
   }
 }
 
+function expensePayAllContext(
+  group: ExpenseGroupView,
+  amountMinor: number,
+  currency: string,
+): ExpensePayAllContextView {
+  return {
+    groupId: group.id,
+    groupKind: group.kind,
+    groupName: group.name,
+    emoji: group.emoji,
+    amountMinor,
+    currency,
+    expenses: group.expenses
+      .filter((expense) => expense.status === 'active' && expense.currency === currency)
+      .map((expense) => ({
+        id: expense.id,
+        title: expense.title,
+        incurredOn: expense.incurredOn,
+      })),
+  }
+}
+
+export async function getExpensePayAllView(actorUserId: string): Promise<ExpensePayAllView> {
+  const { data, error } = await getAdmin()
+    .from('expense_group_members')
+    .select('group_id')
+    .eq('user_id', actorUserId)
+    .eq('status', 'active')
+  throwOnError(error, 'pay-all membership query')
+
+  const groupIds = [...new Set(((data ?? []) as Array<{ group_id: string }>).map((row) => row.group_id))]
+  const resolved = await Promise.all(groupIds.map(async (groupId) => {
+    try {
+      const rows = await loadGroupRows(groupId)
+      const group = await attachCurrentPaymentInstructions(
+        buildGroupView(rows, actorUserId),
+        rows,
+        actorUserId,
+      )
+      const membersById = new Map(rows.members.map((member) => [member.id, member]))
+      const candidates: ExpensePayAllCandidate[] = []
+      const blockedContexts: ExpensePayAllBlockedContextView[] = []
+
+      for (const transfer of group.settlementTransfers) {
+        const debtor = membersById.get(transfer.fromMemberId)
+        if (debtor?.user_id !== actorUserId) continue
+        const creditor = membersById.get(transfer.toMemberId)
+        if (!creditor) continue
+        const context = expensePayAllContext(group, transfer.amountMinor, transfer.currency)
+        if (!transfer.canReport) {
+          blockedContexts.push({ ...context, recipientDisplayName: transfer.toDisplayName })
+          continue
+        }
+        candidates.push({
+          creditorKey: creditor.user_id
+            ? `user:${creditor.user_id}`
+            : `group:${group.id}:member:${creditor.id}`,
+          recipientDisplayName: transfer.toDisplayName,
+          amountMinor: transfer.amountMinor,
+          currency: transfer.currency,
+          paymentInstruction: transfer.paymentInstruction,
+          context,
+        })
+      }
+
+      return { candidates, blockedContexts }
+    } catch (caught) {
+      if (caught instanceof Error && ['expense_not_found', 'expense_not_allowed'].includes(caught.message)) {
+        return { candidates: [], blockedContexts: [] }
+      }
+      throw caught
+    }
+  }))
+
+  return buildExpensePayAllView(
+    resolved.flatMap((entry) => entry.candidates),
+    resolved.flatMap((entry) => entry.blockedContexts),
+  )
+}
+
 export async function getExpenseDashboard(
   actorUserId: string,
 ): Promise<ExpenseDashboardView> {
@@ -934,6 +1018,7 @@ export async function getExpenseDashboard(
   }
   const totalsByCurrency = new Map<string, { owedToYouMinor: number; youOweMinor: number }>()
   let pendingConfirmationCount = 0
+  let hasPayAllItems = false
   for (const group of groups) {
     for (const balance of group.balances.filter((entry) => entry.isSelf)) {
       const current = totalsByCurrency.get(balance.currency) ?? { owedToYouMinor: 0, youOweMinor: 0 }
@@ -945,6 +1030,14 @@ export async function getExpenseDashboard(
       totalsByCurrency.set(balance.currency, current)
     }
     pendingConfirmationCount += group.repayments.filter((repayment) => repayment.canConfirm).length
+    if (!hasPayAllItems) {
+      const selfMemberIds = new Set(
+        group.members.filter((member) => member.isSelf).map((member) => member.id),
+      )
+      hasPayAllItems = group.settlementTransfers.some((transfer) => (
+        selfMemberIds.has(transfer.fromMemberId)
+      ))
+    }
   }
   const summaries: ExpenseGroupSummaryView[] = groups.map((group) => ({
     id: group.id,
@@ -976,6 +1069,7 @@ export async function getExpenseDashboard(
       .map(([currency, totals]) => ({ currency, ...totals }))
       .sort((left, right) => left.currency.localeCompare(right.currency)),
     pendingConfirmationCount,
+    hasPayAllItems,
     incompleteDrafts,
   }
 }
