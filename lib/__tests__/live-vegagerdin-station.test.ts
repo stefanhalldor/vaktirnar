@@ -3,6 +3,7 @@ import { resolveThresholds } from '@/lib/weather/thresholds'
 import {
   classifyLiveVegagerdinStationWindStatus,
   liveDriveTemperatureValue,
+  liveVegagerdinFeedFreshness,
   liveVegagerdinStationFromCurrent,
   liveVegagerdinStationFromRoutePoint,
 } from '@/lib/weather/liveVegagerdinStation'
@@ -81,6 +82,27 @@ describe('live Vegagerðin station presentation', () => {
     expect(future.freshness).toBe('unknown')
     expect(unknown.displayStatus).toBe('othaegilegt')
     expect(unknown.freshness).toBe('unknown')
+  })
+
+  it('fails safe when the provider feed is stale even if one station timestamp looks fresh', () => {
+    const nowMs = Date.parse('2026-08-01T12:05:00.000Z')
+    const measuredAtIso = '2026-08-01T12:00:00.000Z'
+
+    expect(liveVegagerdinFeedFreshness({
+      cacheStatus: 'fresh',
+      measurementFreshness: 'fresh',
+      measuredAtIso,
+    }, nowMs)).toBe('fresh')
+    expect(liveVegagerdinFeedFreshness({
+      cacheStatus: 'history_fallback',
+      measurementFreshness: 'fresh',
+      measuredAtIso,
+    }, nowMs)).toBe('stale')
+    expect(liveVegagerdinFeedFreshness({
+      cacheStatus: 'fresh',
+      measurementFreshness: 'unknown',
+      measuredAtIso,
+    }, nowMs)).toBe('stale')
   })
 
   it('uses gust first, falls back to mean wind and reserves no-wind for missing values', () => {

@@ -102,11 +102,35 @@ function parseWindDirection(raw: VegagerdinRawItem): {
   }
 }
 
+function parseUtcDateParts(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): string | null {
+  const timestamp = Date.UTC(year, month - 1, day, hour, minute, second)
+  const date = new Date(timestamp)
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour ||
+    date.getUTCMinutes() !== minute ||
+    date.getUTCSeconds() !== second
+  ) {
+    return null
+  }
+  return date.toISOString()
+}
+
 /**
  * Parse the Vegagerðin Dags field to an ISO UTC string.
  *
  * Iceland uses UTC year-round (no DST, UTC+0), so local time = UTC.
- * Expected format: 'YYYY-MM-DD HH:mm:ss' (documented; unverified against live).
+ * Supported live formats: Icelandic 'D.M.YYYY HH:mm:ss' and legacy
+ * 'YYYY-MM-DD HH:mm:ss'.
  *
  * Falls back to fetchedAtIso if Dags is absent or unparseable.
  * Do NOT rely on new Date(raw.Dags) unless the live format is confirmed ISO.
@@ -115,6 +139,25 @@ function parseDags(raw: string | null | undefined, fallbackIso: string): string 
   if (!raw) return fallbackIso
   const trimmed = String(raw).trim()
   if (trimmed === '') return fallbackIso
+
+  // Live responses currently use Icelandic day-month-year timestamps such as
+  // "9.8.2026 16:30:00". Date.parse interprets that ambiguously as September
+  // 8 in Node, which can turn old measurements into future measurements and
+  // suppress stale-data warnings. Parse the documented Icelandic order first.
+  const icelandicMatch = trimmed.match(
+    /^(\d{1,2})\.(\d{1,2})\.(\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/,
+  )
+  if (icelandicMatch) {
+    return parseUtcDateParts(
+      Number(icelandicMatch[3]),
+      Number(icelandicMatch[2]),
+      Number(icelandicMatch[1]),
+      Number(icelandicMatch[4]),
+      Number(icelandicMatch[5]),
+      Number(icelandicMatch[6] ?? 0),
+    ) ?? fallbackIso
+  }
+
   // Attempt: 'YYYY-MM-DD HH:mm:ss' → replace space with T, append Z for UTC.
   const isoAttempt = trimmed.replace(' ', 'T') + (trimmed.includes('Z') ? '' : 'Z')
   const ms = Date.parse(isoAttempt)
@@ -276,6 +319,7 @@ async function writeToCache(payload: VegagerdinCachePayload): Promise<boolean> {
 
 const MEASUREMENT_FRESH_MS = 15 * 60 * 1000  // 15 minutes
 const MEASUREMENT_AGING_MS = 30 * 60 * 1000  // 30 minutes
+const MEASUREMENT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000
 
 function isCacheFresh(fetchedAtIso: string): boolean {
   return Date.now() - Date.parse(fetchedAtIso) < FRESH_TTL_MS
@@ -300,6 +344,7 @@ export function getMeasurementFreshness(oldestMeasuredAtIso: string | null): Mea
   if (!oldestMeasuredAtIso) return 'unknown'
   const ageMs = Date.now() - Date.parse(oldestMeasuredAtIso)
   if (!isFinite(ageMs)) return 'unknown'
+  if (ageMs < -MEASUREMENT_FUTURE_TOLERANCE_MS) return 'unknown'
   if (ageMs < MEASUREMENT_FRESH_MS) return 'fresh'
   if (ageMs < MEASUREMENT_AGING_MS) return 'aging'
   return 'stale'

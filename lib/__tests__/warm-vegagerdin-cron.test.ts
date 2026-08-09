@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import vercelConfig from '../../vercel.json'
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
@@ -21,6 +22,15 @@ vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
 }))
 
 import { GET } from '@/app/api/cron/warm-vegagerdin/route'
+
+describe('Vegagerðin cron schedule', () => {
+  it('does not poll the upstream service more often than its measurement cycle', () => {
+    expect(vercelConfig.crons).toContainEqual({
+      path: '/api/cron/warm-vegagerdin',
+      schedule: '*/10 * * * *',
+    })
+  })
+})
 
 // ── Fixture helpers ───────────────────────────────────────────────────────────
 

@@ -307,14 +307,16 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain('updateLiveVegagerdinStationLabelInPlace(current.element, nextElement)')
   })
 
-  it('ages the displayed live-route measurement only after its own 15-minute boundary', () => {
+  it('fails safe for live-route freshness when station or provider data is old', () => {
     expect(source).toContain(
-      'const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)',
+      'const nowMeasurementFreshness = liveVegagerdinFeedFreshness({',
     )
     expect(source).toContain('setRouteNowMeasurementFreshness(nowMeasurementFreshness)')
     expect(source).toContain(
-      'freeDriveStationFreshness(routeMeasuredAtIso)',
+      'measuredAtIso: routeMeasuredAtIso,',
     )
+    expect(source).toContain('const routeNowFeedNeedsWarning = routeNowMeasurementFreshness !== null')
+    expect(source).toContain("t('roadMapPrototypeVegagerdinDataStaleShort')")
     expect(source).not.toContain(
       'setRouteNowMeasurementFreshness(layer?.measurementFreshness ?? payload.measurementFreshness)',
     )

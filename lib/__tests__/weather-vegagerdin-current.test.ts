@@ -268,6 +268,18 @@ describe('parseVegagerdinResponse - Dags time parsing', () => {
     expect(m.measuredAtIso).toBe('2026-07-17T11:50:00.000Z')
   })
 
+  it('parses the live Icelandic D.M.YYYY timestamp without swapping day and month', () => {
+    const item = { ...FIXTURE_COMPLETE, Dags: '9.8.2026 16:30:00' }
+    const [m] = parseVegagerdinResponse(makeBody([item]), FETCHED_AT)
+    expect(m.measuredAtIso).toBe('2026-08-09T16:30:00.000Z')
+  })
+
+  it('falls back instead of rolling an invalid Icelandic calendar date', () => {
+    const item = { ...FIXTURE_COMPLETE, Dags: '31.2.2026 16:30:00' }
+    const [m] = parseVegagerdinResponse(makeBody([item]), FETCHED_AT)
+    expect(m.measuredAtIso).toBe(FETCHED_AT)
+  })
+
   it('falls back to fetchedAtIso when Dags is null', () => {
     const [m] = parseVegagerdinResponse(makeBody([FIXTURE_ALL_NULLS]), FETCHED_AT)
     expect(m.measuredAtIso).toBe(FETCHED_AT)
@@ -438,6 +450,11 @@ describe('getMeasurementFreshness - measurement staleness from oldest observatio
 
   it('returns unknown when oldestMeasuredAtIso is an unparseable string', () => {
     expect(getMeasurementFreshness('not-a-date')).toBe('unknown')
+  })
+
+  it('returns unknown for a measurement implausibly far in the future', () => {
+    const tenMinFromNow = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    expect(getMeasurementFreshness(tenMinFromNow)).toBe('unknown')
   })
 
   it('returns fresh when oldest measurement is under 15 minutes ago', () => {

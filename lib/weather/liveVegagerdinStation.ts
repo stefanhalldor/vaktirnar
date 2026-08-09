@@ -1,4 +1,7 @@
-import type { VegagerdinRouteLayerPoint } from '@/lib/road-intelligence/vegagerdinRouteLayer'
+import type {
+  VegagerdinRouteLayer,
+  VegagerdinRouteLayerPoint,
+} from '@/lib/road-intelligence/vegagerdinRouteLayer'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import type { ResolvedTravelThresholds } from '@/lib/weather/types'
 import {
@@ -31,6 +34,26 @@ export type LiveVegagerdinStation = {
 }
 
 export const LIVE_DRIVE_TEMPERATURE_MAX_C = 2
+
+/**
+ * Resolve the user-facing freshness of one provider feed. A fresh-looking
+ * station timestamp must never override a stale/history cache or provider-wide
+ * freshness warning.
+ */
+export function liveVegagerdinFeedFreshness(
+  input: Pick<VegagerdinRouteLayer, 'cacheStatus' | 'measurementFreshness' | 'measuredAtIso'>,
+  nowMs = Date.now(),
+): LiveVegagerdinStation['freshness'] {
+  const stationFreshness = freeDriveStationFreshness(input.measuredAtIso, nowMs)
+  if (input.cacheStatus === null && input.measurementFreshness === null) {
+    return stationFreshness
+  }
+  return input.cacheStatus === 'fresh' &&
+    input.measurementFreshness === 'fresh' &&
+    stationFreshness === 'fresh'
+    ? 'fresh'
+    : 'stale'
+}
 
 export function liveDriveTemperatureValue(value: number | null): number | null {
   return value !== null && Number.isFinite(value) && value <= LIVE_DRIVE_TEMPERATURE_MAX_C

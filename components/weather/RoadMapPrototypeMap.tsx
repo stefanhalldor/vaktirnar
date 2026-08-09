@@ -189,6 +189,7 @@ import {
   LIVE_DRIVE_TEMPERATURE_MAX_C,
   classifyLiveVegagerdinStationWindStatus,
   liveDriveTemperatureValue,
+  liveVegagerdinFeedFreshness,
   liveVegagerdinStationFromCurrent,
   liveVegagerdinStationFromRoutePoint,
   type LiveVegagerdinStation,
@@ -3622,15 +3623,22 @@ export function RoadMapPrototypeMap({
   const freeDriveNewestFreshness = overviewVegagerdinNewestMeasuredAtIso
     ? freeDriveStationFreshness(overviewVegagerdinNewestMeasuredAtIso)
     : 'unknown'
+  const freeDriveProviderDataIsLastKnown = overviewVegagerdinData?.status === 'ok' &&
+    liveVegagerdinFeedFreshness({
+      cacheStatus: overviewVegagerdinData.cacheStatus,
+      measurementFreshness: overviewVegagerdinData.measurementFreshness,
+      measuredAtIso: overviewVegagerdinNewestMeasuredAtIso,
+    }) !== 'fresh'
+  const freeDriveFeedNeedsWarning = freeDriveStationFeedError || freeDriveProviderDataIsLastKnown
   const freeDriveMeasuredLabel = overviewVegagerdinNewestMeasuredAtIso
     ? t('roadMapPrototypeVegagerdinNowLabel', {
         time: formatKlTime(overviewVegagerdinNewestMeasuredAtIso),
       })
     : t('roadMapPrototypeVegagerdinNowFallback')
-  const freeDriveFreshnessLabel = freeDriveNewestFreshness === 'fresh'
-    ? t('vegagerdinFreshnessFresh')
-    : freeDriveNewestFreshness === 'stale'
-      ? t('roadMapPrototypeVegagerdinDataStale')
+  const freeDriveFreshnessLabel = freeDriveFeedNeedsWarning
+    ? t('roadMapPrototypeVegagerdinDataStaleShort')
+    : freeDriveNewestFreshness === 'fresh'
+      ? t('vegagerdinFreshnessFresh')
       : null
 
   useEffect(() => {
@@ -8603,7 +8611,11 @@ export function RoadMapPrototypeMap({
     const nowMeasuredAtIso =
       vegagerdinLayer?.measuredAtIso ??
       newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
-    const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)
+    const nowMeasurementFreshness = liveVegagerdinFeedFreshness({
+      cacheStatus: vegagerdinLayer?.cacheStatus ?? null,
+      measurementFreshness: vegagerdinLayer?.measurementFreshness ?? null,
+      measuredAtIso: nowMeasuredAtIso,
+    })
     // Station providers are display-only evidence. Even a complete station
     // read does not prove complete spatial coverage and must never override
     // the route-wide forecast assessment.
@@ -10250,7 +10262,11 @@ export function RoadMapPrototypeMap({
     const nowStatusCounts = render.statusCounts
     const nowMeasuredAtIso =
       layer?.measuredAtIso ?? newestVegagerdinRouteMeasuredAtIso(routeVegagerdinPointsRef.current)
-    const nowMeasurementFreshness = freeDriveStationFreshness(nowMeasuredAtIso)
+    const nowMeasurementFreshness = liveVegagerdinFeedFreshness({
+      cacheStatus: payload.cacheStatus,
+      measurementFreshness: payload.measurementFreshness,
+      measuredAtIso: nowMeasuredAtIso,
+    })
 
     setRouteNowStatusCounts(nowStatusCounts)
     setRouteVisibleStatusCounts(nowStatusCounts)
@@ -10391,7 +10407,11 @@ export function RoadMapPrototypeMap({
             )
             setRouteNowMeasuredAtIso(routeMeasuredAtIso)
             setRouteNowMeasurementFreshness(
-              freeDriveStationFreshness(routeMeasuredAtIso),
+              liveVegagerdinFeedFreshness({
+                cacheStatus: payload.cacheStatus,
+                measurementFreshness: payload.measurementFreshness,
+                measuredAtIso: routeMeasuredAtIso,
+              }),
             )
             if (
               current.measurementFreshness !== payload.measurementFreshness ||
@@ -10567,13 +10587,13 @@ export function RoadMapPrototypeMap({
         time: formatKlTime(routeNowMeasuredAtIso),
       })
     : t('roadMapPrototypeVegagerdinNowFallback')
-  const routeNowFreshnessLabel = routeNowMeasurementFreshness === 'aging'
-    ? t('roadMapPrototypeVegagerdinDataAging')
-    : routeNowMeasurementFreshness === 'stale'
-      ? t('roadMapPrototypeVegagerdinDataStale')
-      : routeNowMeasurementFreshness === 'fresh'
-        ? t('vegagerdinFreshnessFresh')
-        : null
+  const routeNowFeedNeedsWarning = routeNowMeasurementFreshness !== null &&
+    routeNowMeasurementFreshness !== 'fresh'
+  const routeNowFreshnessLabel = routeNowFeedNeedsWarning
+    ? t('roadMapPrototypeVegagerdinDataStaleShort')
+    : routeNowMeasurementFreshness === 'fresh'
+      ? t('vegagerdinFreshnessFresh')
+      : null
   const hasUsableRouteNowMeasurements = countUsableWindStatuses(routeNowStatusCounts ?? {}) > 0
   const routeWeatherCoverage = routeBridgeSummary?.weatherCoverage ?? null
   const routeAssessmentCompleteness = routeBridgeSummary?.assessmentCompleteness ?? null
@@ -12738,10 +12758,13 @@ export function RoadMapPrototypeMap({
                   : t('roadMapPrototypeFreeDriveStationFeedLoading')}
             </span>
 
-            {(freeDriveStationFeedError || overviewVegagerdinRestricted) && (
-              <p role="status" className="text-[10px] leading-snug text-amber-800 dark:text-amber-200">
+            {(freeDriveFeedNeedsWarning || overviewVegagerdinRestricted) && (
+              <p
+                role="alert"
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+              >
                 {overviewVegagerdinData?.status === 'ok'
-                  ? t('roadMapPrototypeFreeDriveStationFeedLastKnown')
+                  ? t('roadMapPrototypeFreeDriveStationFeedStale')
                   : t('roadMapPrototypeFreeDriveStationFeedError')}
               </p>
             )}
@@ -12791,6 +12814,15 @@ export function RoadMapPrototypeMap({
                 ) : (
                   <p className="text-[10px] leading-snug text-muted-foreground">
                     {t('roadMapPrototypeVegagerdinNoRouteStations')}
+                  </p>
+                )}
+
+                {routeNowFeedNeedsWarning && (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+                  >
+                    {t('roadMapPrototypeVegagerdinDataStale')}
                   </p>
                 )}
 

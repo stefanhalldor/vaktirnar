@@ -279,6 +279,20 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source.slice(gpsStart, gpsEnd)).not.toContain('/api/teskeid/weather/vegagerdin/current')
   })
 
+  it('fails safe with a visible alert when provider data is old or last-known', () => {
+    expect(source).toContain("const freeDriveProviderDataIsLastKnown = overviewVegagerdinData?.status === 'ok'")
+    expect(source).toContain('liveVegagerdinFeedFreshness({')
+    expect(source).toContain('cacheStatus: overviewVegagerdinData.cacheStatus')
+    expect(source).toContain('measurementFreshness: overviewVegagerdinData.measurementFreshness')
+    expect(source).toContain('measuredAtIso: overviewVegagerdinNewestMeasuredAtIso')
+    expect(source).toContain('role="alert"')
+    expect(source).toContain("t('roadMapPrototypeFreeDriveStationFeedStale')")
+    expect(messagesIs).toContain('"roadMapPrototypeVegagerdinDataStaleShort": "Gömul gögn"')
+    expect(messagesEn).toContain('"roadMapPrototypeVegagerdinDataStaleShort": "Old data"')
+    expect(messagesIs).toContain('"roadMapPrototypeFreeDriveStationFeedStale": "Gögn Vegagerðarinnar eru gömul')
+    expect(messagesEn).toContain('"roadMapPrototypeFreeDriveStationFeedStale": "The Vegagerðin data is old')
+  })
+
   it('shares one live-location controller and the same live presentation across both drive modes', () => {
     expect(source.match(/watchLiveLocation\(/g)).toHaveLength(1)
     expect(source).toContain("mode: Exclude<LiveDriveMode, 'off'>")
