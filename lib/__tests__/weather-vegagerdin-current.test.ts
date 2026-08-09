@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
@@ -12,6 +12,7 @@ vi.mock('server-only', () => ({}))
 
 import {
   buildSafeShapeInfo,
+  fetchVegagerdinCurrent,
   getMeasurementFreshness,
   parseVegagerdinResponse,
   readVegagerdinCurrentFromCache,
@@ -445,6 +446,137 @@ describe('readVegagerdinCurrentFromCache', () => {
     mockGetAdmin.mockImplementation(() => { throw new Error('db down') })
     const result = await readVegagerdinCurrentFromCache()
     expect(result.status).toBe('unavailable')
+  })
+})
+
+describe('fetchVegagerdinCurrent - rejected upstream responses', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  function mockResponse(body: string, contentType = 'application/json', extraHeaders = {}) {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, {
+      status: 200,
+      headers: { 'content-type': contentType, ...extraHeaders },
+    })))
+  }
+
+  it('classifies a literal empty JSON dataset and exposes only safe response metadata', async () => {
+    mockResponse('[]', 'application/json; charset=utf-8', {
+      'content-encoding': 'gzip',
+      'content-length': '2',
+      date: 'Sun, 09 Aug 2026 19:20:00 GMT',
+      age: '0',
+      etag: 'safe-etag',
+      'last-modified': 'Sun, 09 Aug 2026 19:19:00 GMT',
+      'cache-control': 'no-cache',
+    })
+
+    const result = await fetchVegagerdinCurrent()
+
+    expect(result).toEqual({
+      ok: false,
+      reason: 'empty_dataset',
+      diagnostics: expect.objectContaining({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        contentEncoding: 'gzip',
+        contentLength: 2,
+        bodyBytes: 2,
+        responseDate: 'Sun, 09 Aug 2026 19:20:00 GMT',
+        age: '0',
+        etag: 'safe-etag',
+        lastModified: 'Sun, 09 Aug 2026 19:19:00 GMT',
+        cacheControl: 'no-cache',
+        bodyKind: 'json',
+        inputRowCount: 0,
+      }),
+    })
+  })
+
+  it.each([
+    ['unexpected_content_type', '<ArrayOfVedur />', 'application/xml'],
+    ['unexpected_content_type', '<html>upstream error</html>', 'text/html'],
+    ['invalid_json', '{not-json', 'application/json'],
+    ['invalid_json', '<html>wrong body</html>', 'application/json'],
+    ['unexpected_shape', JSON.stringify({ status: 'ok' }), 'application/json'],
+  ])('classifies %s without falling through to cache writes', async (reason, body, contentType) => {
+    mockResponse(body, contentType)
+
+    await expect(fetchVegagerdinCurrent()).resolves.toEqual(
+      expect.objectContaining({ ok: false, reason }),
+    )
+    expect(mockGetAdmin).not.toHaveBeenCalled()
+  })
+
+  it('reports only rejection counts and field names when every row is unusable', async () => {
+    mockResponse(JSON.stringify([{ Nafn: 'PRIVATE STATION VALUE' }]))
+
+    const result = await fetchVegagerdinCurrent()
+    const serialized = JSON.stringify(result)
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'all_rows_rejected',
+      diagnostics: expect.objectContaining({
+        inputRowCount: 1,
+        acceptedRowCount: 0,
+        rejectedRowCount: 1,
+        rejectedRows: expect.objectContaining({ missingStationId: 1 }),
+        shapeInfo: expect.objectContaining({ firstItemKeys: ['Nafn'] }),
+      }),
+    }))
+    expect(serialized).not.toContain('PRIVATE STATION VALUE')
+    expect(mockGetAdmin).not.toHaveBeenCalled()
+  })
+
+  it('keeps the successful cache and history path unchanged for valid JSON', async () => {
+    mockResponse(JSON.stringify([FIXTURE_COMPLETE]))
+    const upsert = vi.fn().mockResolvedValue({ error: null })
+    const from = vi.fn().mockReturnValue({ upsert })
+    mockGetAdmin.mockReturnValue({ from })
+
+    const result = await fetchVegagerdinCurrent()
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      historyStatus: 'ok',
+      payload: expect.objectContaining({
+        endpoint: 'vedur2014_1',
+        measurements: [expect.objectContaining({ stationId: '1234' })],
+      }),
+    }))
+    expect(from).toHaveBeenCalledWith('weather_cache')
+    expect(from).toHaveBeenCalledWith('vegagerdin_measurements_history')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('vedur2014_1'),
+      expect.objectContaining({ cache: 'no-store', headers: { Accept: 'application/json' } }),
+    )
+  })
+
+  it.each([
+    ['results', { results: [FIXTURE_COMPLETE] }],
+    ['data', { data: [FIXTURE_COMPLETE] }],
+  ])('keeps the supported %s wrapper in the provider contract', async (_wrapper, body) => {
+    mockResponse(JSON.stringify(body))
+    const upsert = vi.fn().mockResolvedValue({ error: null })
+    mockGetAdmin.mockReturnValue({ from: vi.fn().mockReturnValue({ upsert }) })
+
+    const result = await fetchVegagerdinCurrent()
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      payload: expect.objectContaining({
+        measurements: [expect.objectContaining({ stationId: '1234' })],
+      }),
+    }))
   })
 })
 

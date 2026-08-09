@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   FREE_DRIVE_STATION_STALE_AFTER_MS,
+  FREE_DRIVE_STATION_VERY_STALE_AFTER_MS,
+  freeDriveStationIsVeryStale,
   freeDriveStationFreshness,
 } from '@/lib/weather/freeDrive'
 import { classifyLiveVegagerdinStationWindStatus } from '@/lib/weather/liveVegagerdinStation'
@@ -68,6 +70,21 @@ describe('free-drive station safety presentation', () => {
       measuredAt,
       Date.parse('2026-08-09T17:31:00.000Z'),
     )).toBe('stale')
+  })
+
+  it('uses the first visible minute over 20 minutes for the stronger warning', () => {
+    const measuredAt = '2026-08-09T17:15:00.000Z'
+    expect(FREE_DRIVE_STATION_VERY_STALE_AFTER_MS).toBe(20 * 60 * 1_000)
+    expect(freeDriveStationIsVeryStale(
+      measuredAt,
+      Date.parse('2026-08-09T17:35:59.999Z'),
+    )).toBe(false)
+    expect(freeDriveStationIsVeryStale(
+      measuredAt,
+      Date.parse('2026-08-09T17:36:00.000Z'),
+    )).toBe(true)
+    expect(freeDriveStationIsVeryStale(null, NOW)).toBe(false)
+    expect(freeDriveStationIsVeryStale('not-a-date', NOW)).toBe(false)
   })
 
   it('matches manually entered or reused wind limits against saved thresholds numerically', () => {

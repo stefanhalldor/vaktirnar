@@ -14,6 +14,10 @@ const liveDriveControlsSource = readFileSync(
   join(process.cwd(), 'components/weather/LiveDriveMapControls.tsx'),
   'utf8',
 )
+const staleNoticeSource = readFileSync(
+  join(process.cwd(), 'components/weather/VegagerdinStaleNotice.tsx'),
+  'utf8',
+)
 const liveStationSource = readFileSync(
   join(process.cwd(), 'lib/weather/liveVegagerdinStation.ts'),
   'utf8',
@@ -315,12 +319,17 @@ describe('RoadMap Vegagerðin live-mode contracts', () => {
     expect(source).toContain(
       'freeDriveStationFreshness(routeMeasuredAtIso)',
     )
-    expect(source).toContain("const routeNowStaleMessage = routeNowMeasurementFreshness === 'stale'")
+    expect(source).toContain("const routeNowStaleDetails = routeNowMeasurementFreshness === 'stale'")
     expect(source).toContain('const routeNowSuccessfulFetchAtIso = routeVegagerdinLastRefreshIso')
     expect(source).toContain('const routeNowAttemptedFetchAtIso = overviewVegagerdinData?.status')
     expect(source).toContain('current.lastAttemptedAtIso !== payload.lastAttemptedAtIso')
     expect(source).toContain("t('roadMapPrototypeVegagerdinDataStaleShort')")
-    expect(source).toContain("collapsedAlert={routeWeatherMode === 'now' ? routeNowStaleMessage : null}")
+    expect(source).toContain('freeDriveStationIsVeryStale(routeNowStaleDetails.measuredAtIso)')
+    expect(source).toContain("collapsedAlert={routeWeatherMode === 'now' ? routeNowStaleNotice : null}")
+    expect(source).toContain('{routeNowStaleNotice}')
+    expect(staleNoticeSource).toContain('href="https://umferdin.is/"')
+    expect(staleNoticeSource).toContain('target="_blank"')
+    expect(staleNoticeSource).toContain('min-h-11')
     expect(source).not.toContain(
       'setRouteNowMeasurementFreshness(layer?.measurementFreshness ?? payload.measurementFreshness)',
     )

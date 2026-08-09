@@ -198,36 +198,64 @@ export function parseVegagerdinResponse(
   try {
     raw = JSON.parse(body)
   } catch {
-    console.error('[vegagerdin] JSON parse failed')
     return []
   }
 
-  // Endpoint may return an array directly or an object wrapping an array.
-  // Handle both and fail gracefully for unexpected shapes.
-  let items: unknown[]
-  if (Array.isArray(raw)) {
-    items = raw
-  } else if (raw && typeof raw === 'object' && Array.isArray((raw as Record<string, unknown>).results)) {
-    items = (raw as Record<string, unknown>).results as unknown[]
-  } else if (raw && typeof raw === 'object' && Array.isArray((raw as Record<string, unknown>).data)) {
-    items = (raw as Record<string, unknown>).data as unknown[]
-  } else {
-    console.error('[vegagerdin] unexpected response shape')
-    return []
+  const items = extractVegagerdinItems(raw)
+  return items ? parseVegagerdinItems(items, fetchedAtIso).measurements : []
+}
+
+type VegagerdinRowRejectionCounts = {
+  notObject: number
+  missingStationId: number
+  missingCoordinates: number
+}
+
+type ParsedVegagerdinItems = {
+  measurements: VegagerdinCurrentMeasurement[]
+  rejectedRows: VegagerdinRowRejectionCounts
+}
+
+function extractVegagerdinItems(raw: unknown): unknown[] | null {
+  if (Array.isArray(raw)) return raw
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  if (Array.isArray(record.results)) return record.results
+  if (Array.isArray(record.data)) return record.data
+  return null
+}
+
+function parseVegagerdinItems(
+  items: unknown[],
+  fetchedAtIso: string,
+): ParsedVegagerdinItems {
+  const rejectedRows: VegagerdinRowRejectionCounts = {
+    notObject: 0,
+    missingStationId: 0,
+    missingCoordinates: 0,
   }
 
   const measurements: VegagerdinCurrentMeasurement[] = []
 
   for (const item of items) {
-    if (!item || typeof item !== 'object') continue
+    if (!item || typeof item !== 'object') {
+      rejectedRows.notObject += 1
+      continue
+    }
     const r = item as VegagerdinRawItem
 
     const stationId = parseStationId(r.Nr)
-    if (!stationId) continue // station ID is required
+    if (!stationId) {
+      rejectedRows.missingStationId += 1
+      continue
+    }
 
     const lat = parseNum(r.Breidd)
     const lon = parseNum(r.Lengd)
-    if (lat === null || lon === null) continue // coordinates required for mapping
+    if (lat === null || lon === null) {
+      rejectedRows.missingCoordinates += 1
+      continue
+    }
 
     const measuredAtIso = parseDags(r.Dags, fetchedAtIso)
     const meanWindMs = parseNum(r.Vindhradi)
@@ -265,7 +293,7 @@ export function parseVegagerdinResponse(
     })
   }
 
-  return measurements
+  return { measurements, rejectedRows }
 }
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
@@ -461,6 +489,78 @@ export function buildSafeShapeInfo(raw: unknown): SafeShapeInfo {
     return { topLevelKind: 'object', topLevelKeys }
   }
   return { topLevelKind: 'other' }
+}
+
+export type VegagerdinResponseBodyKind = 'json' | 'xml' | 'html' | 'empty' | 'other'
+
+export type SafeFetchDiagnostics = {
+  status: number
+  contentType: string | null
+  contentEncoding: string | null
+  contentLength: number | null
+  bodyBytes?: number
+  responseDate: string | null
+  age: string | null
+  etag: string | null
+  lastModified: string | null
+  cacheControl: string | null
+  bodyKind?: VegagerdinResponseBodyKind
+  inputRowCount?: number
+  acceptedRowCount?: number
+  rejectedRowCount?: number
+  rejectedRows?: VegagerdinRowRejectionCounts
+  shapeInfo?: SafeShapeInfo
+}
+
+function safeHeader(headers: Headers, name: string): string | null {
+  const value = headers.get(name)
+  return value ? value.slice(0, 256) : null
+}
+
+function safeContentLength(headers: Headers): number | null {
+  const value = headers.get('content-length')
+  if (!value) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null
+}
+
+function responseDiagnostics(response: Response): SafeFetchDiagnostics {
+  return {
+    status: response.status,
+    contentType: safeHeader(response.headers, 'content-type'),
+    contentEncoding: safeHeader(response.headers, 'content-encoding'),
+    contentLength: safeContentLength(response.headers),
+    responseDate: safeHeader(response.headers, 'date'),
+    age: safeHeader(response.headers, 'age'),
+    etag: safeHeader(response.headers, 'etag'),
+    lastModified: safeHeader(response.headers, 'last-modified'),
+    cacheControl: safeHeader(response.headers, 'cache-control'),
+  }
+}
+
+function responseBodyKind(body: string, contentType: string | null): VegagerdinResponseBodyKind {
+  const trimmed = body.trimStart()
+  if (trimmed === '') return 'empty'
+  const normalizedContentType = contentType?.toLowerCase() ?? ''
+  if (normalizedContentType.includes('html') || /^<!doctype\s+html|^<html[\s>]/i.test(trimmed)) {
+    return 'html'
+  }
+  if (normalizedContentType.includes('xml') || trimmed.startsWith('<')) return 'xml'
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) return 'json'
+  return 'other'
+}
+
+function isJsonContentType(contentType: string | null): boolean {
+  if (!contentType) return false
+  const mediaType = contentType.split(';', 1)[0].trim().toLowerCase()
+  return mediaType === 'application/json' || mediaType.endsWith('+json')
+}
+
+function logRejectedUpstreamResponse(
+  reason: FetchVegagerdinReason,
+  diagnostics: SafeFetchDiagnostics,
+): void {
+  console.warn('[vegagerdin] upstream response rejected', { reason, diagnostics })
 }
 
 export type VegagerdinUnavailableReason = 'cache_missing' | 'cache_expired' | 'cache_invalid'
@@ -707,12 +807,16 @@ export async function findVegagerdinCurrentMeasurementByStationId(
 export type FetchVegagerdinReason =
   | 'http_error'
   | 'fetch_error'
-  | 'parse_zero'
+  | 'empty_dataset'
+  | 'unexpected_content_type'
+  | 'invalid_json'
+  | 'unexpected_shape'
+  | 'all_rows_rejected'
   | 'write_failed'
 
 export type FetchVegagerdinResult =
   | { ok: true; payload: VegagerdinCachePayload; historyStatus: 'ok' | 'failed' }
-  | { ok: false; reason: FetchVegagerdinReason; shapeInfo?: SafeShapeInfo }
+  | { ok: false; reason: FetchVegagerdinReason; diagnostics?: SafeFetchDiagnostics }
 
 /**
  * Fetches Vegagerðin current measurements from upstream, parses, and caches.
@@ -721,49 +825,87 @@ export type FetchVegagerdinResult =
  * External network fetch to gagnaveita.vegagerdin.is requires sign-off.
  *
  * Returns { ok: true, payload } on success (fetch + parse + cache write all succeeded).
- * Returns { ok: false, reason, shapeInfo? } on any failure — never throws.
+ * Returns { ok: false, reason, diagnostics? } on any failure — never throws.
  *
- * shapeInfo is included on parse_zero to help diagnose unexpected upstream shapes.
- * It contains only structural info (keys, counts), never raw field values or secrets.
+ * Diagnostics contain only allowlisted response metadata, structural keys and
+ * counts. They never contain raw field values, station names, coordinates or secrets.
  */
 export async function fetchVegagerdinCurrent(): Promise<FetchVegagerdinResult> {
   const fetchedAtIso = new Date().toISOString()
-  let body: string | null = null
+  let response: Response
 
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
     try {
-      const res = await fetch(UPSTREAM_URL, {
+      response = await fetch(UPSTREAM_URL, {
         cache: 'no-store',
         signal: controller.signal,
         headers: { 'Accept': 'application/json' },
       })
-      if (!res.ok) {
-        console.error(`[vegagerdin] HTTP ${res.status}`)
-        return { ok: false, reason: 'http_error' }
-      }
-      body = await res.text()
     } finally {
       clearTimeout(timeoutId)
     }
-  } catch (err) {
-    console.error('[vegagerdin] fetch error', err)
+  } catch {
+    console.error('[vegagerdin] fetch failed')
     return { ok: false, reason: 'fetch_error' }
   }
 
-  if (!body) return { ok: false, reason: 'fetch_error' }
+  const baseDiagnostics = responseDiagnostics(response)
+  if (!response.ok) {
+    logRejectedUpstreamResponse('http_error', baseDiagnostics)
+    return { ok: false, reason: 'http_error', diagnostics: baseDiagnostics }
+  }
 
-  const measurements = parseVegagerdinResponse(body, fetchedAtIso)
+  let body: string
+  try {
+    body = await response.text()
+  } catch {
+    console.error('[vegagerdin] response body read failed')
+    return { ok: false, reason: 'fetch_error', diagnostics: baseDiagnostics }
+  }
+
+  const diagnostics: SafeFetchDiagnostics = {
+    ...baseDiagnostics,
+    bodyBytes: new TextEncoder().encode(body).byteLength,
+    bodyKind: responseBodyKind(body, baseDiagnostics.contentType),
+  }
+
+  if (!isJsonContentType(diagnostics.contentType)) {
+    logRejectedUpstreamResponse('unexpected_content_type', diagnostics)
+    return { ok: false, reason: 'unexpected_content_type', diagnostics }
+  }
+
+  let raw: unknown
+  try {
+    raw = JSON.parse(body)
+  } catch {
+    logRejectedUpstreamResponse('invalid_json', diagnostics)
+    return { ok: false, reason: 'invalid_json', diagnostics }
+  }
+
+  diagnostics.shapeInfo = buildSafeShapeInfo(raw)
+  const items = extractVegagerdinItems(raw)
+  if (!items) {
+    logRejectedUpstreamResponse('unexpected_shape', diagnostics)
+    return { ok: false, reason: 'unexpected_shape', diagnostics }
+  }
+
+  diagnostics.inputRowCount = items.length
+  if (items.length === 0) {
+    logRejectedUpstreamResponse('empty_dataset', diagnostics)
+    return { ok: false, reason: 'empty_dataset', diagnostics }
+  }
+
+  const parsed = parseVegagerdinItems(items, fetchedAtIso)
+  diagnostics.acceptedRowCount = parsed.measurements.length
+  diagnostics.rejectedRowCount = items.length - parsed.measurements.length
+  diagnostics.rejectedRows = parsed.rejectedRows
+  const measurements = parsed.measurements
+
   if (measurements.length === 0) {
-    console.warn('[vegagerdin] parsed 0 measurements from upstream response')
-    let shapeInfo: SafeShapeInfo | undefined
-    try {
-      shapeInfo = buildSafeShapeInfo(JSON.parse(body))
-    } catch {
-      // ignore — shape info is diagnostic only
-    }
-    return { ok: false, reason: 'parse_zero', shapeInfo }
+    logRejectedUpstreamResponse('all_rows_rejected', diagnostics)
+    return { ok: false, reason: 'all_rows_rejected', diagnostics }
   }
 
   // Compute oldest measuredAt across all measurements (conservative freshness indicator).

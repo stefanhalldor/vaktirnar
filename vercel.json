@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/warm-vegagerdin",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/3 * * * *"
     },
     {
       "path": "/api/cron/warm-metno-points",

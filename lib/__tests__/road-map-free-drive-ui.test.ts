@@ -14,6 +14,10 @@ const liveDriveControlsSource = readFileSync(
   join(process.cwd(), 'components/weather/LiveDriveMapControls.tsx'),
   'utf8',
 )
+const staleNoticeSource = readFileSync(
+  join(process.cwd(), 'components/weather/VegagerdinStaleNotice.tsx'),
+  'utf8',
+)
 const liveStationSource = readFileSync(
   join(process.cwd(), 'lib/weather/liveVegagerdinStation.ts'),
   'utf8',
@@ -279,21 +283,33 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source.slice(gpsStart, gpsEnd)).not.toContain('/api/teskeid/weather/vegagerdin/current')
   })
 
-  it('warns only after the actual station timestamp is over 15 minutes old', () => {
-    expect(source).toContain("const freeDriveStaleMessage = freeDriveNewestFreshness === 'stale'")
+  it('warns after 15 visible minutes and offers umferdin.is only after 20', () => {
+    expect(source).toContain("const freeDriveStaleDetails = freeDriveNewestFreshness === 'stale'")
     expect(source).not.toContain('freeDriveProviderDataIsLastKnown')
     expect(source).not.toContain('liveVegagerdinFeedFreshness({')
-    expect(source).toContain('role="alert"')
-    expect(source).toContain('collapsedAlert={freeDriveStaleMessage}')
+    expect(source).toContain('freeDriveStationIsVeryStale(freeDriveStaleDetails.measuredAtIso)')
+    expect(source).toContain('collapsedAlert={freeDriveStaleNotice}')
+    expect(source).toContain('{freeDriveStaleNotice}')
     expect(messagesIs).toContain('"roadMapPrototypeVegagerdinDataStaleShort": "Gömul gögn"')
     expect(messagesEn).toContain('"roadMapPrototypeVegagerdinDataStaleShort": "Old data"')
     expect(source).toContain('lastAttemptedAtIso ?? overviewVegagerdinData.fetchedAtIso')
-    expect(source).toContain('measuredTime: formatKlTime(overviewVegagerdinNewestMeasuredAtIso)')
-    expect(source).toContain('fetchedTime: formatKlTime(overviewVegagerdinData.fetchedAtIso)')
+    expect(source).toContain('measuredTime: formatKlTime(freeDriveStaleDetails.measuredAtIso)')
+    expect(source).toContain('fetchedTime: formatKlTime(freeDriveStaleDetails.fetchedAtIso)')
     expect(messagesIs).toContain('"roadMapPrototypeVegagerdinDataStale": "Gögn Vegagerðarinnar uppfærðust síðast kl. {measuredTime}, sem Teskeið sótti kl. {fetchedTime}. Teskeið reyndi síðast að ná í gögn kl. {attemptedTime}."')
     expect(messagesEn).toContain('"roadMapPrototypeVegagerdinDataStale": "The Vegagerðin data was last updated at {measuredTime} and Teskeið fetched it at {fetchedTime}. Teskeið last tried to fetch data at {attemptedTime}."')
+    expect(messagesIs).toContain('"roadMapPrototypeVegagerdinDataVeryStale": "Nýjustu gögn sem Teskeið fær frá Vegagerðinni eru orðin meira en 20 mínútna gömul. Skoðaðu nýjustu upplýsingar á umferdin.is."')
+    expect(messagesEn).toContain('"roadMapPrototypeVegagerdinDataVeryStale": "The latest data Teskeið receives from Vegagerðin is more than 20 minutes old. Check the latest information on umferdin.is."')
+    expect(staleNoticeSource).toContain('href="https://umferdin.is/"')
+    expect(staleNoticeSource).toContain('target="_blank"')
+    expect(staleNoticeSource).toContain('rel="noopener noreferrer"')
+    expect(staleNoticeSource).toContain('pointer-events-auto mt-2 inline-flex min-h-11 w-full')
+    expect(staleNoticeSource).toContain('role="alert"')
+    expect(staleNoticeSource).toContain('role="status"')
+    expect(staleNoticeSource).toContain('<span role="status" className="sr-only">{timeDetails}</span>')
+    expect(staleNoticeSource).toContain('aria-hidden="true"')
+    expect(staleNoticeSource).not.toContain('window.location')
     expect(liveDriveControlsSource).toContain('collapsed && collapsedAlert')
-    expect(liveDriveControlsSource).toContain('absolute bottom-full')
+    expect(liveDriveControlsSource).toContain('pointer-events-none absolute bottom-full')
   })
 
   it('shares one live-location controller and the same live presentation across both drive modes', () => {

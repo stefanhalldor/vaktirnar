@@ -148,6 +148,7 @@ import {
 import { LiveLocationControls } from './LiveLocationControls'
 import { LiveDriveMapControls } from './LiveDriveMapControls'
 import { LiveDriveThresholdFields } from './LiveDriveThresholdFields'
+import { VegagerdinStaleNotice } from './VegagerdinStaleNotice'
 import { MapNotesPanel } from './MapNotesPanel'
 import { PlaceSearch } from './PlaceSearch'
 import {
@@ -170,6 +171,7 @@ import { vedurstofanPulseHref, vegagerdinPulseHref } from '@/lib/weather/pulseTa
 import { haversineDistanceM } from '@/lib/weather/nearestStations'
 import type { MapNoteAnchor, MapNoteDto, MapRouteFeedbackContext } from '@/lib/map-notes/contracts'
 import {
+  freeDriveStationIsVeryStale,
   freeDriveStationFreshness,
   type LiveDriveMode,
 } from '@/lib/weather/freeDrive'
@@ -3623,16 +3625,46 @@ export function RoadMapPrototypeMap({
   const freeDriveNewestFreshness = overviewVegagerdinNewestMeasuredAtIso
     ? freeDriveStationFreshness(overviewVegagerdinNewestMeasuredAtIso)
     : 'unknown'
-  const freeDriveStaleMessage = freeDriveNewestFreshness === 'stale' &&
+  const freeDriveStaleDetails = freeDriveNewestFreshness === 'stale' &&
     overviewVegagerdinNewestMeasuredAtIso &&
     overviewVegagerdinData?.status === 'ok'
-    ? t('roadMapPrototypeVegagerdinDataStale', {
-        measuredTime: formatKlTime(overviewVegagerdinNewestMeasuredAtIso),
-        fetchedTime: formatKlTime(overviewVegagerdinData.fetchedAtIso),
-        attemptedTime: formatKlTime(
+    ? {
+        measuredAtIso: overviewVegagerdinNewestMeasuredAtIso,
+        fetchedAtIso: overviewVegagerdinData.fetchedAtIso,
+        attemptedAtIso:
           overviewVegagerdinData.lastAttemptedAtIso ?? overviewVegagerdinData.fetchedAtIso,
-        ),
+      }
+    : null
+  const freeDriveStaleTimes = freeDriveStaleDetails
+    ? t('roadMapPrototypeVegagerdinDataStaleTimes', {
+        measuredTime: formatKlTime(freeDriveStaleDetails.measuredAtIso),
+        fetchedTime: formatKlTime(freeDriveStaleDetails.fetchedAtIso),
+        attemptedTime: formatKlTime(freeDriveStaleDetails.attemptedAtIso),
       })
+    : null
+  const freeDriveDataIsVeryStale = freeDriveStaleDetails
+    ? freeDriveStationIsVeryStale(freeDriveStaleDetails.measuredAtIso)
+    : false
+  const freeDriveStaleMessage = freeDriveStaleTimes
+    ? freeDriveDataIsVeryStale
+      ? t('roadMapPrototypeVegagerdinDataVeryStale')
+      : t('roadMapPrototypeVegagerdinDataStale', {
+          measuredTime: formatKlTime(freeDriveStaleDetails!.measuredAtIso),
+          fetchedTime: formatKlTime(freeDriveStaleDetails!.fetchedAtIso),
+          attemptedTime: formatKlTime(freeDriveStaleDetails!.attemptedAtIso),
+        })
+    : null
+  const freeDriveStaleNotice = freeDriveStaleMessage && freeDriveStaleTimes
+    ? (
+        <VegagerdinStaleNotice
+          message={freeDriveStaleMessage}
+          isVeryStale={freeDriveDataIsVeryStale}
+          timeDetails={freeDriveStaleTimes}
+          statusLabel={t('roadMapPrototypeVegagerdinDataStaleShort')}
+          linkLabel={t('roadMapPrototypeVegagerdinOpenUmferdin')}
+          linkAriaLabel={t('roadMapPrototypeVegagerdinOpenUmferdinNewTab')}
+        />
+      )
     : null
   const freeDriveMeasuredLabel = overviewVegagerdinNewestMeasuredAtIso
     ? t('roadMapPrototypeVegagerdinNowLabel', {
@@ -10588,15 +10620,46 @@ export function RoadMapPrototypeMap({
   const routeNowAttemptedFetchAtIso = overviewVegagerdinData?.status === 'ok'
     ? overviewVegagerdinData.lastAttemptedAtIso ?? overviewVegagerdinData.fetchedAtIso
     : routeNowSuccessfulFetchAtIso
-  const routeNowStaleMessage = routeNowMeasurementFreshness === 'stale' &&
+  const routeNowStaleDetails = routeNowMeasurementFreshness === 'stale' &&
     routeNowMeasuredAtIso &&
     routeNowSuccessfulFetchAtIso &&
     routeNowAttemptedFetchAtIso
-    ? t('roadMapPrototypeVegagerdinDataStale', {
-        measuredTime: formatKlTime(routeNowMeasuredAtIso),
-        fetchedTime: formatKlTime(routeNowSuccessfulFetchAtIso),
-        attemptedTime: formatKlTime(routeNowAttemptedFetchAtIso),
+    ? {
+        measuredAtIso: routeNowMeasuredAtIso,
+        fetchedAtIso: routeNowSuccessfulFetchAtIso,
+        attemptedAtIso: routeNowAttemptedFetchAtIso,
+      }
+    : null
+  const routeNowStaleTimes = routeNowStaleDetails
+    ? t('roadMapPrototypeVegagerdinDataStaleTimes', {
+        measuredTime: formatKlTime(routeNowStaleDetails.measuredAtIso),
+        fetchedTime: formatKlTime(routeNowStaleDetails.fetchedAtIso),
+        attemptedTime: formatKlTime(routeNowStaleDetails.attemptedAtIso),
       })
+    : null
+  const routeNowDataIsVeryStale = routeNowStaleDetails
+    ? freeDriveStationIsVeryStale(routeNowStaleDetails.measuredAtIso)
+    : false
+  const routeNowStaleMessage = routeNowStaleTimes
+    ? routeNowDataIsVeryStale
+      ? t('roadMapPrototypeVegagerdinDataVeryStale')
+      : t('roadMapPrototypeVegagerdinDataStale', {
+          measuredTime: formatKlTime(routeNowStaleDetails!.measuredAtIso),
+          fetchedTime: formatKlTime(routeNowStaleDetails!.fetchedAtIso),
+          attemptedTime: formatKlTime(routeNowStaleDetails!.attemptedAtIso),
+        })
+    : null
+  const routeNowStaleNotice = routeNowStaleMessage && routeNowStaleTimes
+    ? (
+        <VegagerdinStaleNotice
+          message={routeNowStaleMessage}
+          isVeryStale={routeNowDataIsVeryStale}
+          timeDetails={routeNowStaleTimes}
+          statusLabel={t('roadMapPrototypeVegagerdinDataStaleShort')}
+          linkLabel={t('roadMapPrototypeVegagerdinOpenUmferdin')}
+          linkAriaLabel={t('roadMapPrototypeVegagerdinOpenUmferdinNewTab')}
+        />
+      )
     : null
   const routeNowFreshnessLabel = routeNowStaleMessage
     ? t('roadMapPrototypeVegagerdinDataStaleShort')
@@ -12701,7 +12764,7 @@ export function RoadMapPrototypeMap({
             onSelectCurrent={() => {}}
             planLabel={t('roadMapPrototypePlanRoute')}
             onPlan={handlePlanRoute}
-            collapsedAlert={freeDriveStaleMessage}
+            collapsedAlert={freeDriveStaleNotice}
             footer={(
               <button
                 type="button"
@@ -12768,14 +12831,7 @@ export function RoadMapPrototypeMap({
                   : t('roadMapPrototypeFreeDriveStationFeedLoading')}
             </span>
 
-            {freeDriveStaleMessage && (
-              <p
-                role="alert"
-                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
-              >
-                {freeDriveStaleMessage}
-              </p>
-            )}
+            {freeDriveStaleNotice}
 
             {(overviewVegagerdinRestricted || (
               freeDriveStationFeedError && overviewVegagerdinData?.status !== 'ok'
@@ -12815,7 +12871,7 @@ export function RoadMapPrototypeMap({
             onSelectCurrent={handleSelectRouteNow}
             planLabel={t('roadMapPrototypePlanRoute')}
             onPlan={handlePlanRoute}
-            collapsedAlert={routeWeatherMode === 'now' ? routeNowStaleMessage : null}
+            collapsedAlert={routeWeatherMode === 'now' ? routeNowStaleNotice : null}
           >
                 {routeWeatherMode === 'now' && (
               <div className="space-y-1">
@@ -12834,14 +12890,7 @@ export function RoadMapPrototypeMap({
                   </p>
                 )}
 
-                {routeNowStaleMessage && (
-                  <p
-                    role="alert"
-                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
-                  >
-                    {routeNowStaleMessage}
-                  </p>
-                )}
+                {routeNowStaleNotice}
 
                 {routeWindArrowCount > 0 && (
                   <p className="text-[10px] leading-snug text-muted-foreground">

@@ -14,7 +14,7 @@ import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 // Do not trigger this route without explicit approval from Stebbi for the first live run.
 //
 // Returns only safe metadata — never the raw upstream payload or secrets.
-// shapeInfo on parse failure contains keys only, never raw values or coordinates.
+// Failure diagnostics contain only allowlisted headers, keys and counts.
 export const maxDuration = 30
 
 export async function GET(request: Request) {
@@ -52,8 +52,8 @@ export async function GET(request: Request) {
           reason: result.reason,
           stationCount: 0,
           attemptedAtIso,
-          // shapeInfo only present on parse_zero — safe keys-only descriptor, no raw values
-          ...(result.shapeInfo ? { shapeInfo: result.shapeInfo } : {}),
+          // Never contains raw response values, station data or coordinates.
+          ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
         },
         { status: 500 },
       )

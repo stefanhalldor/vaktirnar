@@ -26,10 +26,10 @@ vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
 import { GET } from '@/app/api/cron/warm-vegagerdin/route'
 
 describe('Vegagerðin cron schedule', () => {
-  it('does not poll the upstream service more often than its measurement cycle', () => {
+  it('polls every three minutes within Vegagerðin written 2-3 minute guidance', () => {
     expect(vercelConfig.crons).toContainEqual({
       path: '/api/cron/warm-vegagerdin',
-      schedule: '*/10 * * * *',
+      schedule: '*/3 * * * *',
     })
   })
 })
@@ -67,8 +67,8 @@ function makeFetchOk(stationCount = 3) {
   return { ok: true as const, payload: makePayload(stationCount) }
 }
 
-function makeFetchError(reason = 'fetch_error', shapeInfo?: object) {
-  return { ok: false as const, reason, ...(shapeInfo ? { shapeInfo } : {}) }
+function makeFetchError(reason = 'fetch_error', diagnostics?: object) {
+  return { ok: false as const, reason, ...(diagnostics ? { diagnostics } : {}) }
 }
 
 /** Wraps an existing payload as a fresh cache result — shares fetchedAtIso to avoid timestamp flakes. */
@@ -253,15 +253,25 @@ describe('GET /api/cron/warm-vegagerdin - failures', () => {
     expect(body.reason).toBe('fetch_error')
   })
 
-  it('returns 500 with parse_zero reason and shapeInfo when parser yields 0 measurements', async () => {
-    const shapeInfo = { topLevelKind: 'object', topLevelKeys: ['error', 'message'] }
-    mockFetch.mockResolvedValue(makeFetchError('parse_zero', shapeInfo))
+  it('returns safe diagnostics for an empty upstream dataset without retrying immediately', async () => {
+    const diagnostics = {
+      status: 200,
+      contentType: 'application/json',
+      contentLength: 2,
+      bodyBytes: 2,
+      bodyKind: 'json',
+      inputRowCount: 0,
+      shapeInfo: { topLevelKind: 'array', itemCount: 0 },
+    }
+    mockFetch.mockResolvedValue(makeFetchError('empty_dataset', diagnostics))
     const res = await GET(makeRequest('test-secret'))
     expect(res.status).toBe(500)
     const body = await res.json()
-    expect(body.reason).toBe('parse_zero')
-    expect(body.shapeInfo).toEqual(shapeInfo)
+    expect(body.reason).toBe('empty_dataset')
+    expect(body.diagnostics).toEqual(diagnostics)
     expect(body.attemptedAtIso).toBe(mockRecordAttempt.mock.calls[0][0])
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockRecordAttempt).toHaveBeenCalledTimes(1)
   })
 
   it('returns 500 with write_failed reason when cache write fails', async () => {
