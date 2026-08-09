@@ -13,7 +13,6 @@ export async function guardKvissCreator(): Promise<{ user: User; spaceId: string
   if (error || typeof data !== 'string') throw new Error('kviss_space_unavailable')
   return { user, spaceId: data }
 }
-
 export async function requireKvissCreatorApi(): Promise<
   { ok: true; user: User; spaceId: string } | { ok: false; status: 404 | 401 }
 > {
@@ -26,4 +25,3 @@ export async function requireKvissCreatorApi(): Promise<
   if (error || typeof data !== 'string') return { ok: false, status: 404 }
   return { ok: true, user, spaceId: data }
 }
-

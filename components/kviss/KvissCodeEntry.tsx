@@ -43,4 +43,3 @@ export function KvissCodeEntry({ initialCode = '' }: { initialCode?: string }) {
     </form>
   )
 }
-

@@ -10,4 +10,3 @@ export async function GET(request: NextRequest) {
   if (!preview) return NextResponse.json({ error: 'not_found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
   return NextResponse.json(preview, { headers: { 'Cache-Control': 'no-store' } })
 }
-

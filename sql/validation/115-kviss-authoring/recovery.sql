@@ -9,4 +9,3 @@ DROP TABLE IF EXISTS public.kviss_templates;
 DROP TABLE IF EXISTS public.kviss_questions;
 -- The dynamic feature-key union is deliberately not narrowed here.
 COMMIT;
-

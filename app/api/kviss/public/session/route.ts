@@ -14,4 +14,3 @@ export async function GET(request: NextRequest) {
   if (!projection) return NextResponse.json({ error: 'not_joined' }, { status: 401, headers })
   return NextResponse.json(projection, { headers })
 }
-

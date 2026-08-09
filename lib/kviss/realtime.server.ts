@@ -16,4 +16,3 @@ export async function notifyKvissInvalidation(topic: string | null, revision?: n
     await admin.removeChannel(channel).catch(() => undefined)
   }
 }
-
