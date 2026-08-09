@@ -70,6 +70,7 @@ export function MapNotesPanel({
   onClearRouteContext,
   onCommunityItemsChange,
   onFocusAnchor,
+  onSelectCommunityItem,
 }: {
   isAuthenticated: boolean
   anchor: MapNoteAnchor | null
@@ -80,6 +81,7 @@ export function MapNotesPanel({
   onClearRouteContext: () => void
   onCommunityItemsChange: (items: MapNoteDto[]) => void
   onFocusAnchor: (anchor: MapNoteAnchor) => void
+  onSelectCommunityItem: (item: MapNoteDto) => void
 }) {
   const t = useTranslations('teskeid.vedrid.overview')
   const locale = useLocale()
@@ -87,18 +89,19 @@ export function MapNotesPanel({
   const [locationMode, setLocationMode] = useState<'anchored' | 'general'>('anchored')
   const [body, setBody] = useState('')
   const [search, setSearch] = useState('')
-  const [hours, setHours] = useState('72')
+  const [hours, setHours] = useState('all')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState(false)
   const [sendSuccess, setSendSuccess] = useState<MapNoteKind | null>(null)
-  const [composerOpen, setComposerOpen] = useState(false)
+  const [view, setView] = useState<'actions' | 'composer' | 'list'>('actions')
   const [localPreviewOnly, setLocalPreviewOnly] = useState(false)
   const envelopeRef = useRef<DraftEnvelope | null>(null)
+  const ageMenuRef = useRef<HTMLDetailsElement | null>(null)
 
   useEffect(() => {
     if (routeFeedbackRequestId > 0) {
       setKind('teskeid_feedback')
-      setComposerOpen(true)
+      setView('composer')
       setSendSuccess(null)
     }
   }, [routeFeedbackRequestId])
@@ -112,9 +115,9 @@ export function MapNotesPanel({
     'community',
     () => setLocalPreviewOnly(true),
   ).then(items => {
-    const cutoff = Date.now() - Number(hours) * 60 * 60 * 1000
+    const cutoff = hours === 'all' ? null : Date.now() - Number(hours) * 60 * 60 * 1000
     const needle = search.trim().toLocaleLowerCase('is')
-    return items.filter(item => Date.parse(item.createdAt) >= cutoff).filter(item => (
+    return items.filter(item => cutoff === null || Date.parse(item.createdAt) >= cutoff).filter(item => (
       !needle || `${item.body} ${item.anchor?.label ?? ''}`.toLocaleLowerCase('is').includes(needle)
     ))
   }), [hours, search])
@@ -196,7 +199,7 @@ export function MapNotesPanel({
       setBody('')
       envelopeRef.current = null
       setSendSuccess(kind)
-      setComposerOpen(false)
+      setView('actions')
       if (createdItem?.anchor) onFocusAnchor(createdItem.anchor)
       if (kind === 'community') community.refresh()
       else feedback.refresh()
@@ -207,8 +210,6 @@ export function MapNotesPanel({
     }
   }, [anchor, body, community, feedback, isAuthenticated, kind, locationMode, onFocusAnchor, routeFeedbackContext, sending])
 
-  const activeItems = kind === 'community' ? community.items : feedback.items
-  const activeLoading = kind === 'community' ? community.loading : feedback.loading
   const canSend = isAuthenticated && (
     kind === 'teskeid_feedback' || locationMode === 'general' || anchor !== null
   )
@@ -218,6 +219,17 @@ export function MapNotesPanel({
     lon: anchor.lon,
     source: 'map' as const,
   } : null
+  const ageOptions = [
+    ['0.1666666667', t('mapNotesTimeTenMinutes')],
+    ['0.5', t('mapNotesTimeThirtyMinutes')],
+    ['1', t('mapNotesTimeSixtyMinutes')],
+    ['24', t('mapNotesTimeDay')],
+    ['72', t('mapNotesTimeThreeDays')],
+    ['168', t('mapNotesTimeWeek')],
+    ['720', t('mapNotesTimeMonth')],
+    ['all', t('mapNotesTimeAll')],
+  ] as const
+  const selectedAgeLabel = ageOptions.find(([value]) => value === hours)?.[1] ?? t('mapNotesTimeAll')
 
   return (
     <section aria-labelledby="map-notes-title" className="space-y-3">
@@ -238,93 +250,35 @@ export function MapNotesPanel({
         </p>
       )}
 
-      <div role="tablist" aria-label={t('mapNotesKindLabel')} className="flex border-b border-border">
-        {(['community', 'teskeid_feedback'] as const).map(tab => (
-          <button
-            key={tab}
-            type="button"
-            role="tab"
-            aria-selected={kind === tab}
-            tabIndex={kind === tab ? 0 : -1}
-            onClick={() => {
-              setKind(tab)
-              setComposerOpen(false)
-              setSendSuccess(null)
-            }}
-            onKeyDown={event => {
-              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-              event.preventDefault()
-              setKind(tab === 'community' ? 'teskeid_feedback' : 'community')
-              const sibling = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
-                `[role="tab"]:not([aria-selected="true"])`,
-              )
-              window.requestAnimationFrame(() => sibling?.focus())
-            }}
-            className={`min-h-10 flex-1 border-b-2 px-2 py-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              kind === tab ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'
-            }`}
-          >
-            {tab === 'community' ? t('mapNotesCommunityTab') : t('mapNotesFeedbackTab')}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            setComposerOpen(true)
-            setSendSuccess(null)
-          }}
-          className="min-h-10 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {kind === 'community' ? t('mapNotesOpenComposer') : t('mapNotesOpenFeedbackComposer')}
-        </button>
-        {composerOpen && (
-          <button
-            type="button"
-            onClick={() => {
-              setComposerOpen(false)
-              setSendError(false)
-            }}
-            className="min-h-10 rounded-full px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {t('mapNotesComposerCancel')}
-          </button>
-        )}
-      </div>
-
-      {kind === 'community' && (
-        <div className="space-y-3 rounded-xl border border-border/70 bg-background p-3">
-          <label className="space-y-1 text-xs font-medium text-foreground">
-            <span>{t('mapNotesSearchLabel')}</span>
-            <input
-              type="search"
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-              maxLength={80}
-              placeholder={t('mapNotesSearchPlaceholder')}
-              className="min-h-11 w-full rounded-lg border border-border bg-background px-3 text-base"
-            />
-          </label>
-          <label className="space-y-1 text-xs font-medium text-foreground">
-            <span>{t('mapNotesTimeLabel')}</span>
-            <select
-              value={hours}
-              onChange={event => setHours(event.target.value)}
-              className="min-h-11 w-full rounded-lg border border-border bg-background px-3 text-base"
-            >
-              <option value="24">{t('mapNotesTimeDay')}</option>
-              <option value="72">{t('mapNotesTimeThreeDays')}</option>
-              <option value="168">{t('mapNotesTimeWeek')}</option>
-              <option value="720">{t('mapNotesTimeMonth')}</option>
-            </select>
-          </label>
-        </div>
-      )}
-
-      {composerOpen && isAuthenticated ? (
+      {view === 'actions' && <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-foreground">{t('mapNotesActions')}</h3>
         <div className="space-y-2 rounded-xl border border-border/70 bg-background p-3">
+          <button type="button" onClick={() => { setKind('community'); setView('composer'); setSendSuccess(null) }} className="min-h-11 w-full rounded-lg bg-primary px-3 text-left text-sm font-semibold text-primary-foreground">{t('mapNotesOpenComposer')}</button>
+          <button type="button" onClick={() => setView('list')} className="min-h-11 w-full rounded-lg border border-border px-3 text-left text-sm font-semibold">{t('mapNotesViewAll')}</button>
+          <div className="min-w-0 space-y-1 text-xs font-medium text-foreground">
+            <span>{t('mapNotesAge')}</span>
+            <details ref={ageMenuRef} className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-base font-normal marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                <span className="min-w-0 truncate">{selectedAgeLabel}</span>
+                <span aria-hidden="true" className="shrink-0 text-muted-foreground">⌄</span>
+              </summary>
+              <div className="max-h-[min(16rem,40dvh)] min-w-0 space-y-1 overflow-y-auto border-t border-border p-1">
+                {ageOptions.map(([value, label]) => (
+                  <button key={value} type="button" aria-pressed={hours === value} onClick={() => { setHours(value); if (ageMenuRef.current) ageMenuRef.current.open = false }} className={`min-h-10 w-full min-w-0 rounded-md px-2 text-left text-sm font-normal ${hours === value ? 'bg-primary/10 font-semibold text-primary' : 'hover:bg-muted'}`}>
+                    <span className="block truncate">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>}
+
+      {view === 'composer' && isAuthenticated ? (
+        <div className="space-y-2 rounded-xl border border-border/70 bg-background p-3">
+          <div role="group" aria-label={t('mapNotesKindLabel')} className="grid grid-cols-2 rounded-full bg-muted p-1">
+            {(['community', 'teskeid_feedback'] as const).map(option => <button key={option} type="button" aria-pressed={kind === option} onClick={() => setKind(option)} className={`min-h-10 rounded-full px-2 text-xs font-semibold ${kind === option ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground'}`}>{option === 'community' ? t('mapNotesCommunityTab') : t('mapNotesFeedbackTab')}</button>)}
+          </div>
           <p className="text-xs font-semibold text-foreground">
             {kind === 'community' ? t('mapNotesCommunityComposerTitle') : t('mapNotesFeedbackComposerTitle')}
           </p>
@@ -424,22 +378,25 @@ export function MapNotesPanel({
           />
           <p className="text-[11px] leading-relaxed text-muted-foreground">{t('mapNotesDrivingSafety')}</p>
           {sendError && <p role="alert" className="text-xs text-destructive">{t('mapNotesSendError')}</p>}
+          <button type="button" onClick={() => { setView('actions'); setSendError(false) }} className="min-h-10 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-muted">{t('mapNotesComposerCancel')}</button>
         </div>
-      ) : composerOpen ? (
+      ) : view === 'composer' ? (
         <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">{t('mapNotesSignInToWrite')}</p>
       ) : null}
 
-      <div className="space-y-3" aria-live="polite">
-        {activeLoading ? (
+      {view === 'list' && <div className="space-y-3" aria-live="polite">
+        <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">{t('mapNotesViewAll')}</h3><button type="button" onClick={() => setView('actions')} className="min-h-10 rounded-lg px-3 text-sm text-muted-foreground hover:bg-muted">{t('mapNotesBack')}</button></div>
+        <label className="space-y-1 text-xs font-medium"><span>{t('mapNotesSearchLabel')}</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} maxLength={80} placeholder={t('mapNotesSearchPlaceholder')} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 text-base" /></label>
+        {community.loading ? (
           <p className="text-xs text-muted-foreground">{t('mapNotesLoading')}</p>
-        ) : activeItems.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{kind === 'community' ? t('mapNotesEmpty') : t('mapNotesFeedbackEmpty')}</p>
-        ) : activeItems.map(item => (
+        ) : community.items.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{t('mapNotesEmpty')}</p>
+        ) : community.items.map(item => (
           <button
             key={item.id}
             type="button"
             disabled={!item.anchor}
-            onClick={() => item.anchor && onFocusAnchor(item.anchor)}
+            onClick={() => item.anchor && onSelectCommunityItem(item)}
             className="block min-h-10 w-full rounded-lg border-b border-border/70 px-1 py-2 text-left disabled:cursor-default"
           >
             <ChatMessageRow
@@ -447,7 +404,7 @@ export function MapNotesPanel({
                 id: item.id,
                 threadId: 'map',
                 body: item.body,
-                messageKind: kind === 'community' ? 'map_note' : 'teskeid_feedback',
+                messageKind: 'map_note',
                 createdAt: item.createdAt,
                 isDeleted: false,
                 isHidden: false,
@@ -460,7 +417,7 @@ export function MapNotesPanel({
             />
           </button>
         ))}
-      </div>
+      </div>}
     </section>
   )
 }

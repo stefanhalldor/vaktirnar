@@ -118,9 +118,10 @@ export function sanitizeMapNoteSearch(value: string | null): string {
   return (value ?? '').trim().slice(0, MAP_NOTE_SEARCH_MAX)
 }
 
-export function parseMapNoteHours(value: string | null): number {
-  const parsed = Number.parseInt(value ?? '', 10)
+export function parseMapNoteHours(value: string | null): number | null {
+  if (value === 'all') return null
+  const parsed = Number.parseFloat(value ?? '')
   return Number.isFinite(parsed)
-    ? Math.min(Math.max(parsed, 1), MAP_NOTE_MAX_HOURS)
+    ? Math.min(Math.max(parsed, 10 / 60), MAP_NOTE_MAX_HOURS)
     : MAP_NOTE_DEFAULT_HOURS
 }

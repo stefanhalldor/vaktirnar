@@ -56,6 +56,12 @@ describe('map notes API', () => {
     expect(mocks.listFeedback).not.toHaveBeenCalled()
   })
 
+  it('supports the default unbounded community history', async () => {
+    const response = await GET(new NextRequest('http://localhost/api/auth-mvp/map-notes?kind=community&hours=all'))
+    expect(response.status).toBe(200)
+    expect(mocks.listCommunity).toHaveBeenCalledWith({ search: '', sinceHours: null })
+  })
+
   it('requires the signed-in owner for private feedback reads', async () => {
     mocks.getUser.mockResolvedValueOnce({ data: { user: null } })
     const response = await GET(new NextRequest('http://localhost/api/auth-mvp/map-notes?kind=teskeid_feedback'))

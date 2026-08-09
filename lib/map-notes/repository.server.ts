@@ -86,19 +86,22 @@ async function findThreadId(targetType: 'map_community' | 'teskeid_feedback'): P
 
 export async function listCommunityMapNotes(options: {
   search: string
-  sinceHours: number
+  sinceHours: number | null
   limit?: number
 }): Promise<MapNoteDto[]> {
   const threadId = await findThreadId('map_community')
   if (!threadId) return []
-  const since = new Date(Date.now() - options.sinceHours * 60 * 60 * 1000).toISOString()
-  const { data, error } = await getAdmin()
+  let query = getAdmin()
     .from('teskeid_chat_messages')
     .select('id, user_id, body, created_at, deleted_at, hidden_at, metadata, anchor_lat, anchor_lon')
     .eq('thread_id', threadId)
-    .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(options.limit ?? 100, 1), 150))
+  if (options.sinceHours !== null) {
+    const since = new Date(Date.now() - options.sinceHours * 60 * 60 * 1000).toISOString()
+    query = query.gte('created_at', since)
+  }
+  const { data, error } = await query
   if (error) throw new Error('map-notes: community list failed')
   const rows = (data ?? []) as MapMessageRow[]
   const names = await profileNames([...new Set(rows.map(row => row.user_id))])

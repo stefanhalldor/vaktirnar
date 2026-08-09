@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   parseCreateMapNoteInput,
   parseMapNoteAnchor,
+  parseMapNoteHours,
   parseRouteFeedbackContext,
 } from '@/lib/map-notes/contracts'
 
@@ -23,12 +24,45 @@ describe('map note contracts', () => {
 
   it('opens in browse mode and confirms a completed submission', () => {
     const source = readFileSync(join(process.cwd(), 'components/weather/MapNotesPanel.tsx'), 'utf8')
-    expect(source).toContain('const [composerOpen, setComposerOpen] = useState(false)')
+    expect(source).toContain("const [view, setView] = useState<'actions' | 'composer' | 'list'>('actions')")
     expect(source).toContain('setSendSuccess(kind)')
-    expect(source).toContain('setComposerOpen(false)')
+    expect(source).toContain("setView('actions')")
     expect(source).toContain('role="status"')
     expect(source).toContain("t('mapNotesCommunitySent')")
     expect(source).toContain("t('mapNotesFeedbackSent')")
+  })
+
+  it('defaults to all notes and supports the requested short age windows', () => {
+    const source = readFileSync(join(process.cwd(), 'components/weather/MapNotesPanel.tsx'), 'utf8')
+    expect(source).toContain("const [hours, setHours] = useState('all')")
+    expect(source).toContain("['0.1666666667', t('mapNotesTimeTenMinutes')]")
+    expect(source).toContain("['0.5', t('mapNotesTimeThirtyMinutes')]")
+    expect(source).toContain('ageMenuRef.current.open = false')
+    expect(parseMapNoteHours('all')).toBeNull()
+    expect(parseMapNoteHours('0.5')).toBe(0.5)
+  })
+
+  it('keeps weather-station feed and the scrubber out of community mode', () => {
+    const source = readFileSync(join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'), 'utf8')
+    expect(source).not.toContain('<ConditionsFeedPreview')
+    expect(source).toContain('isChatOpen\n          || isPanelOpen')
+    expect(source).toContain('hideOverviewStationMarkers()')
+    expect(source).toContain('const showOverview = !isChatOpenRef.current')
+    expect(source).toContain('setCommunitySheetCollapsed(false)')
+    expect(source).toContain("onClick={() => setCommunitySheetCollapsed(false)}")
+    expect(source).toContain('mapRef.current?.fitBounds(')
+    expect(source).toContain('[-25, 63]')
+    expect(source).toContain('[-12, 67]')
+  })
+
+  it('opens a map comment in the bottom drawer without changing zoom', () => {
+    const source = readFileSync(join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'), 'utf8')
+    expect(source).toContain('zoom: mapRef.current.getZoom()')
+    expect(source).not.toMatch(/setSelectedCommunityNoteId\(note\.id\)[\s\S]{0,120}focusMapNoteAnchor/)
+    expect(source).toContain('id="selected-map-note-title"')
+    expect(source).toContain('background:#f59e0b')
+    expect(source).toContain('selectedCommunityNote.body')
+    expect(source).not.toContain("element.textContent = selected ? note.body")
   })
 
   it('keeps V4 activation behind the existing authenticated admin refresh endpoint', () => {
