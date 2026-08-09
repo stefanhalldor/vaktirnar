@@ -4,7 +4,7 @@
 import { type FormEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { ArrowUp, ChevronDown, LocateFixed, Pencil } from 'lucide-react'
-import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
+import { VEGAGERDIN_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import {
   createFirstReadyCoordinator,
   reduceFirstReadyCoordinator,
@@ -242,7 +242,13 @@ const STAMEN_TERRAIN_LINE_TILES = [
   'https://tiles-eu.stadiamaps.com/tiles/stamen_terrain_lines/{z}/{x}/{y}@2x.png',
 ]
 const STAMEN_TERRAIN_ATTRIBUTION =
-  `${OPENSTREETMAP_ATTRIBUTION} | © Stadia Maps | © Stamen Design | © OpenMapTiles`
+  '© Stadia Maps | © Stamen Design | © OpenMapTiles'
+
+function collapseMapAttribution(container: HTMLElement | null) {
+  const attribution = container?.querySelector('.maplibregl-ctrl-attrib')
+  attribution?.classList.remove('maplibregl-compact-show')
+  attribution?.removeAttribute('open')
+}
 
 // Vegagerðin road network via same-origin allowlisted proxy (CORS not open to browser).
 const ICELAND_CENTER: [number, number] = [-18.9, 64.9]
@@ -9348,6 +9354,7 @@ export function RoadMapPrototypeMap({
         })
 
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
+        collapseMapAttribution(containerRef.current)
 
         mapRef.current = map
         popupConstructorRef.current = maplibregl.Popup
@@ -9375,6 +9382,7 @@ export function RoadMapPrototypeMap({
         map.on('load', async () => {
           if (cancelled) return
           map.resize()
+          collapseMapAttribution(containerRef.current)
 
           map.addSource('carto-basemap', {
             type: 'raster',
@@ -11230,6 +11238,7 @@ export function RoadMapPrototypeMap({
       setFreeDriveWithoutLocation(false)
     }
     setSelectedCommunityNoteId(null)
+    collapseMapAttribution(containerRef.current)
     setCommunitySheetCollapsed(false)
     setCommunitySheetExpanded(false)
     setCommunityFitRequestId(value => value + 1)
@@ -11419,7 +11428,7 @@ export function RoadMapPrototypeMap({
       <DriveRouteMap
         externalContainer={setMapContainer}
         className={`h-full w-full ${isChatOpen
-          ? '[&_.maplibregl-ctrl-bottom-right]:bottom-auto [&_.maplibregl-ctrl-bottom-right]:top-2'
+          ? '[&_.maplibregl-ctrl-bottom-right]:!bottom-auto [&_.maplibregl-ctrl-bottom-right]:!top-2'
           : ''}`}
       />
 
