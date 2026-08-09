@@ -45,7 +45,7 @@ describe('official place directory deterministic generator core', () => {
     const checkedIn = readFileSync(
       'lib/places/officialPlaceDirectory.generated.json',
       'utf8',
-    )
+    ).replace(/\r\n/g, '\n')
 
     expect(serializeOfficialPlaceDirectory(second)).toBe(serializeOfficialPlaceDirectory(first))
     expect(serializeOfficialPlaceDirectory(first)).toBe(checkedIn)

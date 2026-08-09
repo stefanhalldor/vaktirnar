@@ -14,12 +14,17 @@ describe('public Teskeið route client contract', () => {
     expect(source).toContain('teskeidRouteCandidateEnabled={isTeskeidRouteCandidateEnabled()}')
   })
 
-  it('keeps the mobile top navigation below the device status area', () => {
+  it('keeps the mobile top navigation inside the dynamic viewport and below the device status area', () => {
     const source = readWorkspaceFile('components/weather/RoadMapPrototypeMap.tsx')
+    const publicPage = readWorkspaceFile('app/vedrid/page.tsx')
+    const authenticatedPage = readWorkspaceFile('app/auth-mvp/vedrid/page.tsx')
 
-    expect(source).toContain(
-      'pt-[calc(env(safe-area-inset-top,0px)+1rem)] sm:pt-2',
-    )
+    expect(source).toContain('flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden')
+    expect(source).toContain('sticky top-0')
+    expect(source).toContain('pt-[env(safe-area-inset-top,0px)] sm:pt-2')
+    expect(source).not.toContain('calc(env(safe-area-inset-top,0px)+1rem)')
+    expect(publicPage).toContain('h-[100dvh] overflow-hidden')
+    expect(authenticatedPage).toContain('h-[100dvh] overflow-hidden')
   })
 
   it('makes authenticated weather-place autosave recoverable across navigation and transient failures', () => {

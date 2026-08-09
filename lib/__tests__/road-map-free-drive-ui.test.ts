@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(
   join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
   'utf8',
-)
+).replace(/\r\n/g, '\n')
 const liveLocationControlsSource = readFileSync(
   join(process.cwd(), 'components/weather/LiveLocationControls.tsx'),
   'utf8',
@@ -359,7 +359,7 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).toContain("metric.style.display = suppressed ? 'none' : 'flex'")
     expect(source).toContain("temperatureRow.style.display = 'none'")
     expect(source).toContain('`repeat(${visibleMetrics.length}, minmax(0, 1fr))`')
-    expect(source).toContain("metric.textContent = suppressed\n        ? ''")
+    expect(source).toMatch(/metric\.textContent = suppressed\r?\n\s+\? ''/)
     expect(source).not.toContain('freeDriveNearbyStations')
     expect(source).not.toContain('free-drive-nearby-stations')
   })

@@ -17,7 +17,7 @@ export default function VedridPublicPage() {
   }
 
   return (
-    <main className="h-screen bg-background overflow-hidden">
+    <main className="h-[100dvh] overflow-hidden bg-background">
       <RoadMapPrototypeMap
         isAuthenticated={false}
         hasRoadIntelligence

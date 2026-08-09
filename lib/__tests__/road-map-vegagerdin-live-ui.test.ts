@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(
   join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
   'utf8',
-)
+).replace(/\r\n/g, '\n')
 const liveLocationControlsSource = readFileSync(
   join(process.cwd(), 'components/weather/LiveLocationControls.tsx'),
   'utf8',

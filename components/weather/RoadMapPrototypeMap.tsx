@@ -3,7 +3,7 @@
 // MapLibre CSS is loaded by route layout (app/auth-mvp/vedrid/road-map-prototype/layout.tsx).
 import { type FormEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { ArrowUp, LocateFixed, Pencil } from 'lucide-react'
+import { ArrowUp, ChevronDown, LocateFixed, Pencil } from 'lucide-react'
 import { VEGAGERDIN_ATTRIBUTION, OPENSTREETMAP_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import {
   createFirstReadyCoordinator,
@@ -2479,11 +2479,18 @@ export function RoadMapPrototypeMap({
   const isChatOpenRef = useRef(false)
   isChatOpenRef.current = isChatOpen
   const [communitySheetCollapsed, setCommunitySheetCollapsed] = useState(false)
+  const [communitySheetExpanded, setCommunitySheetExpanded] = useState(false)
+  const [communityFitRequestId, setCommunityFitRequestId] = useState(0)
   const [mapNoteAnchor, setMapNoteAnchor] = useState<MapNoteAnchor | null>(null)
   const [communityMapNotes, setCommunityMapNotes] = useState<MapNoteDto[]>([])
+  const [communityMapNotesLoading, setCommunityMapNotesLoading] = useState(true)
   const [selectedCommunityNoteId, setSelectedCommunityNoteId] = useState<string | null>(null)
   const [routeFeedbackContext, setRouteFeedbackContext] = useState<MapRouteFeedbackContext | null>(null)
   const [routeFeedbackRequestId, setRouteFeedbackRequestId] = useState(0)
+  const handleCommunityItemsChange = useCallback((items: MapNoteDto[]) => {
+    setCommunityMapNotes(items)
+    setCommunityMapNotesLoading(false)
+  }, [])
   const [lastMapContext, setLastMapContext] = useState<'weather' | 'route'>('weather')
   const [weatherContextView, setWeatherContextView] = useState<'information' | 'map'>('information')
   const [routeContextView, setRouteContextView] = useState<'information' | 'map'>('information')
@@ -3952,6 +3959,7 @@ export function RoadMapPrototypeMap({
     if (!mapReady) return
     clearWeatherChaseMapMarkers()
     const shouldShowWeatherChaseMarkers =
+      !isChatOpen &&
       lastMapContext === 'weather' &&
       !isPanelOpen &&
       weatherChaseSelectedItems.length > 0
@@ -4106,6 +4114,7 @@ export function RoadMapPrototypeMap({
       clearWeatherChaseMapMarkers()
     }
   }, [
+    isChatOpen,
     isPanelOpen,
     isWeatherChaseOpen,
     lastMapContext,
@@ -4116,6 +4125,28 @@ export function RoadMapPrototypeMap({
     weatherChaseNearbyFocusId,
     weatherChaseSelectedItems,
     weatherChaseVedurstofanItems,
+  ])
+
+  useEffect(() => {
+    if (!isChatOpen || !mapReady) return
+    const hideCommunityWeatherMarkers = () => {
+      for (const entry of [
+        ...overviewVegagerdinMarkersRef.current,
+        ...overviewVedurstofanMarkersRef.current,
+      ]) {
+        entry.element.style.display = 'none'
+      }
+      clearWeatherChaseMapMarkers()
+    }
+    hideCommunityWeatherMarkers()
+    const frame = window.requestAnimationFrame(hideCommunityWeatherMarkers)
+    return () => window.cancelAnimationFrame(frame)
+  }, [
+    isChatOpen,
+    mapReady,
+    overviewMarkerReconcileVersion,
+    overviewVegagerdinData,
+    overviewVedurstofanData,
   ])
 
   function routeStatusColor(status: DeterministicResult['stada']): string {
@@ -9313,7 +9344,10 @@ export function RoadMapPrototypeMap({
           },
           center: ICELAND_CENTER,
           zoom: ICELAND_ZOOM,
+          attributionControl: false,
         })
+
+        map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
 
         mapRef.current = map
         popupConstructorRef.current = maplibregl.Popup
@@ -11103,6 +11137,7 @@ export function RoadMapPrototypeMap({
           setIsChatOpen(true)
         } else {
           setSelectedCommunityNoteId(note.id)
+          setCommunitySheetExpanded(false)
           setIsChatOpen(true)
         }
       })
@@ -11120,6 +11155,52 @@ export function RoadMapPrototypeMap({
       mapNoteMarkersRef.current = []
     }
   }, [communityMapNotes, mapNoteAnchor, mapReady, selectedCommunityNoteId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch('/api/auth-mvp/map-notes?kind=community&hours=all&q=', {
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
+      .then(async response => {
+        if (!response.ok) throw new Error('community-notes-unavailable')
+        return response.json() as Promise<{ items?: MapNoteDto[] }>
+      })
+      .then(payload => {
+        if (!controller.signal.aborted) handleCommunityItemsChange(payload.items ?? [])
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!controller.signal.aborted) setCommunityMapNotesLoading(false)
+      })
+    return () => controller.abort()
+  }, [handleCommunityItemsChange])
+
+  useEffect(() => {
+    if (!mapReady || communityFitRequestId < 1) return
+    let fitFrame: number | null = null
+    const resizeFrame = window.requestAnimationFrame(() => {
+      const map = mapRef.current
+      if (!map) return
+      map.resize()
+      fitFrame = window.requestAnimationFrame(() => {
+        map.fitBounds(
+          [[-25, 63], [-12, 67]],
+          {
+            padding: window.innerWidth >= 640
+              ? { top: 72, right: 32, bottom: 48, left: 420 }
+              : { top: 72, right: 20, bottom: 210, left: 20 },
+            maxZoom: 5.8,
+            duration: 600,
+          },
+        )
+      })
+    })
+    return () => {
+      window.cancelAnimationFrame(resizeFrame)
+      if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)
+    }
+  }, [communityFitRequestId, mapReady])
 
   if (mapError) {
     return (
@@ -11150,22 +11231,14 @@ export function RoadMapPrototypeMap({
     }
     setSelectedCommunityNoteId(null)
     setCommunitySheetCollapsed(false)
+    setCommunitySheetExpanded(false)
+    setCommunityFitRequestId(value => value + 1)
     isChatOpenRef.current = true
     setIsChatOpen(true)
     setIsWeatherChaseOpen(false)
     setIsPanelOpen(false)
     updateOverviewLayerVisibility(overviewActiveModeRef.current, false)
     hideOverviewStationMarkers()
-    mapRef.current?.fitBounds(
-      [[-25, 63], [-12, 67]],
-      {
-        padding: typeof window !== 'undefined' && window.innerWidth >= 640
-          ? { top: 72, right: 32, bottom: 48, left: 420 }
-          : { top: 72, right: 20, bottom: 180, left: 20 },
-        maxZoom: 5.8,
-        duration: 600,
-      },
-    )
   }
 
   function focusMapNoteAnchor(anchor: MapNoteAnchor) {
@@ -11265,10 +11338,10 @@ export function RoadMapPrototypeMap({
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden">
       {/* Topbar */}
       <div
-        className="relative z-[110] flex shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 pb-2 pt-[calc(env(safe-area-inset-top,0px)+1rem)] sm:pt-2"
+        className="sticky top-0 z-[110] flex shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 pb-2 pt-[env(safe-area-inset-top,0px)] sm:pt-2"
       >
         {renderContextTab('weather')}
         {renderContextTab('route')}
@@ -11345,7 +11418,9 @@ export function RoadMapPrototypeMap({
           h-full w-full survives the position override. */}
       <DriveRouteMap
         externalContainer={setMapContainer}
-        className="h-full w-full"
+        className={`h-full w-full ${isChatOpen
+          ? '[&_.maplibregl-ctrl-bottom-right]:bottom-auto [&_.maplibregl-ctrl-bottom-right]:top-2'
+          : ''}`}
       />
 
       {mapReady && mapViewVisible && lastMapContext === 'route' && !isRouteLoading && (
@@ -11743,34 +11818,59 @@ export function RoadMapPrototypeMap({
       )}
 
       {isChatOpen && (
-        <div className={`pointer-events-none absolute inset-0 z-[100] flex px-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] pt-16 sm:justify-start sm:p-3 sm:pt-14 ${selectedCommunityNote || communitySheetCollapsed ? 'items-end' : 'items-end sm:items-start'}`}>
+        <div className={`pointer-events-none absolute inset-0 z-[100] flex px-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] pt-16 sm:justify-start sm:p-3 sm:pt-14 ${selectedCommunityNote ? 'items-end' : communitySheetCollapsed ? 'items-end justify-end' : 'items-end sm:items-start'}`}>
           {selectedCommunityNote ? (
-            <article className="pointer-events-auto w-full rounded-2xl border border-amber-400/70 bg-background/95 p-4 shadow-xl backdrop-blur-sm sm:max-w-[390px]" aria-labelledby="selected-map-note-title">
-              <div className="flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <h2 id="selected-map-note-title" className="text-sm font-semibold text-foreground">{t('mapNotesSelectedTitle')}</h2>
+            <article className="pointer-events-auto w-full overflow-hidden rounded-2xl border border-amber-400/70 bg-background/95 shadow-xl backdrop-blur-sm sm:max-w-[390px]" aria-labelledby="selected-map-note-title">
+              <header className="flex min-h-12 items-center justify-between gap-2 border-b border-border/60 px-3 py-1">
+                <h2 id="selected-map-note-title" className="flex h-10 items-center text-sm font-semibold leading-none text-foreground">{t('mapNotesSelectedTitle')}</h2>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCommunityNoteId(null)}
+                  aria-label={t('mapNotesMinimizeDetail')}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <ChevronDown size={18} aria-hidden />
+                </button>
+              </header>
+              <div className="p-4">
+                <div className="min-w-0">
                   <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{selectedCommunityNote.body}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{[selectedCommunityNote.authorName, formatCompactDateTime(selectedCommunityNote.createdAt, locale), selectedCommunityNote.anchor?.label].filter(Boolean).join(' · ')}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {[selectedCommunityNote.authorName, formatCompactDateTime(selectedCommunityNote.createdAt, locale), selectedCommunityNote.anchor?.label].filter(Boolean).join(' · ')}
+                  </p>
                 </div>
-                <button type="button" onClick={() => setSelectedCommunityNoteId(null)} aria-label={t('mapNotesCloseDetail')} className="flex size-10 shrink-0 items-center justify-center rounded-full text-lg text-muted-foreground hover:bg-muted hover:text-foreground"><span aria-hidden="true">×</span></button>
               </div>
             </article>
           ) : communitySheetCollapsed ? (
-            <button type="button" onClick={() => setCommunitySheetCollapsed(false)} aria-label={t('mapNotesExpand')} className="pointer-events-auto min-h-11 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-lg transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('mapNotesActions')}</button>
-          ) : (
-          <div className="pointer-events-auto flex max-h-[46dvh] min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-background/95 shadow-xl backdrop-blur-sm sm:max-h-[calc(100dvh-4.5rem)] sm:max-w-[390px]">
-          <div className="flex items-center justify-end border-b border-border/60 px-2 py-1">
             <button
               type="button"
-              onClick={() => setCommunitySheetCollapsed(true)}
+              onClick={() => setCommunitySheetCollapsed(false)}
+              aria-label={t('mapNotesExpand')}
+              className="pointer-events-auto mb-20 min-h-11 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-lg transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:mb-0"
+            >
+              {t('mapNotesActions')}
+            </button>
+          ) : (
+          <div className={`pointer-events-auto flex min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-background/95 shadow-xl backdrop-blur-sm sm:max-w-[390px] ${communitySheetExpanded ? 'max-h-[75dvh]' : 'max-h-[46dvh]'}`}>
+          <div className="flex min-h-12 items-center justify-between gap-2 border-b border-border/60 px-3 py-1">
+            <h2 className="flex h-10 items-center text-sm font-semibold leading-none text-foreground">{t('mapNotesActions')}</h2>
+            <button
+              type="button"
+              onClick={() => { setCommunitySheetCollapsed(true); setCommunitySheetExpanded(false) }}
               aria-expanded="true"
               aria-label={t('mapNotesMinimize')}
-              className="flex size-10 items-center justify-center rounded-full text-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <span aria-hidden="true">⌄</span>
+              <ChevronDown size={18} aria-hidden />
             </button>
           </div>
-          <div className="min-h-0 flex-1 overscroll-contain overflow-y-auto p-3">
+          {!communitySheetCollapsed && <div className="min-h-0 overscroll-contain overflow-y-auto p-3">
+          {communityMapNotesLoading && (
+            <div role="status" aria-live="polite" className="mb-3 flex min-h-10 items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-primary">
+              <span aria-hidden="true" className="size-4 shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent" />
+              <span>{t('mapNotesLoading')}</span>
+            </div>
+          )}
           <MapNotesPanel
             isAuthenticated={isAuthenticated}
             anchor={mapNoteAnchor}
@@ -11782,15 +11882,22 @@ export function RoadMapPrototypeMap({
             }}
             onClearAnchor={() => setMapNoteAnchor(null)}
             onClearRouteContext={() => setRouteFeedbackContext(null)}
-            onCommunityItemsChange={setCommunityMapNotes}
+            onCommunityItemsChange={handleCommunityItemsChange}
+            onCommunityLoadingChange={setCommunityMapNotesLoading}
             onFocusAnchor={focusMapNoteAnchor}
+            onExpandedChange={setCommunitySheetExpanded}
             onSelectCommunityItem={(item) => {
               if (!item.anchor) return
               setSelectedCommunityNoteId(item.id)
-              mapRef.current?.easeTo({ center: [item.anchor.lon, item.anchor.lat], zoom: mapRef.current.getZoom(), duration: 350 })
+              setCommunitySheetExpanded(false)
+              mapRef.current?.easeTo({
+                center: [item.anchor.lon, item.anchor.lat],
+                zoom: mapRef.current.getZoom(),
+                duration: 350,
+              })
             }}
           />
-          </div>
+          </div>}
           </div>
           )}
         </div>
@@ -12224,7 +12331,8 @@ export function RoadMapPrototypeMap({
                             savedPlaces={savedPlaces}
                             onDeleteSavedPlace={deleteSavedPlace}
                             excludePlaces={fromResolved ? [fromResolved] : []}
-                            allowCurrentLocation={false}
+                            allowCurrentLocation
+                            showCurrentLocationOnAllViewports
                             autoFocus={false}
                             ariaLabel={t('roadMapPrototypeRouteToLabel')}
                             placeholder={t('roadMapPrototypeRouteToPlaceholder')}

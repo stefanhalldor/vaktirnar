@@ -647,45 +647,6 @@ export function PlaceSearch({
         }
       }}
     >
-      <div className="relative">
-        <Search
-          size={14}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <input
-          ref={mergedInputRef}
-          id={inputId}
-          type="text"
-          value={query}
-          onChange={(event) => {
-            updateQuery(event.target.value)
-            setDismissed(false)
-            setLocationError(null)
-          }}
-          onFocus={() => setDismissed(false)}
-          onKeyDown={handleInputKeyDown}
-          placeholder={placeholder ?? t('placeholder')}
-          autoFocus={autoFocus}
-          autoComplete="off"
-          spellCheck={false}
-          role="combobox"
-          aria-label={ariaLabel ?? t('ariaLabel')}
-          aria-autocomplete="list"
-          aria-expanded={resultsOpen}
-          aria-controls={resultsOpen ? listboxId : undefined}
-          aria-activedescendant={
-            resultsOpen && activeIndex >= 0
-              ? `${listboxId}-option-${activeIndex}`
-              : undefined
-          }
-          aria-busy={loading}
-          aria-invalid={fetchError ? true : undefined}
-          aria-describedby={describedBy}
-          className={`h-10 w-full border bg-card pl-8 pr-4 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:ring-2 focus:ring-ring ${compact ? 'rounded-md' : 'rounded-xl'}`}
-        />
-      </div>
-
       {allowCurrentLocation && (
         <button
           type="button"
@@ -722,6 +683,37 @@ export function PlaceSearch({
               : t('chooseFromMap')}
         </button>
       )}
+
+      <div className="relative">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        <input
+          ref={mergedInputRef}
+          id={inputId}
+          type="text"
+          value={query}
+          onChange={(event) => {
+            updateQuery(event.target.value)
+            setDismissed(false)
+            setLocationError(null)
+          }}
+          onFocus={() => setDismissed(false)}
+          onKeyDown={handleInputKeyDown}
+          placeholder={placeholder ?? t('placeholder')}
+          autoFocus={autoFocus}
+          autoComplete="off"
+          spellCheck={false}
+          role="combobox"
+          aria-label={ariaLabel ?? t('ariaLabel')}
+          aria-autocomplete="list"
+          aria-expanded={resultsOpen}
+          aria-controls={resultsOpen ? listboxId : undefined}
+          aria-activedescendant={resultsOpen && activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+          aria-busy={loading}
+          aria-invalid={fetchError ? true : undefined}
+          aria-describedby={describedBy}
+          className={`h-10 w-full border bg-card pl-8 pr-4 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:ring-2 focus:ring-ring ${compact ? 'rounded-md' : 'rounded-xl'}`}
+        />
+      </div>
 
       {loading && (
         <div

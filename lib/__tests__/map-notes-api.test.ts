@@ -52,6 +52,7 @@ describe('map notes API', () => {
   it('returns only the fixed community repository projection', async () => {
     const response = await GET(new NextRequest('http://localhost/api/auth-mvp/map-notes?kind=community&q=gróft&hours=24'))
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('private, max-age=15, stale-while-revalidate=45')
     expect(mocks.listCommunity).toHaveBeenCalledWith({ search: 'gróft', sinceHours: 24 })
     expect(mocks.listFeedback).not.toHaveBeenCalled()
   })

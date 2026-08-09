@@ -35,7 +35,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         search: sanitizeMapNoteSearch(request.nextUrl.searchParams.get('q')),
         sinceHours: parseMapNoteHours(request.nextUrl.searchParams.get('hours')),
       })
-      return NextResponse.json({ items })
+      return NextResponse.json({ items }, {
+        headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=45' },
+      })
     } catch {
       return NextResponse.json({ error: 'Notes unavailable' }, { status: 503 })
     }

@@ -15,6 +15,10 @@ import {
 } from '@/lib/road-intelligence/routeAssessmentClientFlow'
 import { buildGoogleMapsDirectionsUrl } from '@/lib/iceland-routes/googleMapsDirectionsUrl'
 
+function readSource(path: string) {
+  return readFileSync(join(process.cwd(), path), 'utf8').replace(/\r\n/g, '\n')
+}
+
 type DisplayStateCase = {
   label: string
   bridgeStatus: RouteBridgeDisplayStatus
@@ -262,10 +266,7 @@ describe('road-map route results display state', () => {
   )
 
   it('connects every pending transition to the canonical loader, not route cards', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
-      'utf8',
-    )
+    const source = readSource('components/weather/RoadMapPrototypeMap.tsx')
     const pendingBranchStart = source.indexOf(
       ") : routeResultsDisplayState !== 'form' ? (",
     )
@@ -279,8 +280,8 @@ describe('road-map route results display state', () => {
     expect(pendingBranch).not.toContain('<DriveJourneyPanel')
     expect(source).toContain('setRouteSafetySearchPending(false)')
     expect(source).toContain('hasSaferRouteSearchFinished({')
-    expect(source).toContain(
-      'onClose={() => {\n            if (routeComparisonApplyPendingRef.current) return\n            restoreAppliedSurfaceRoutePreview()',
+    expect(source).toMatch(
+      /onClose=\{\(\) => \{\r?\n\s+if \(routeComparisonApplyPendingRef\.current\) return\r?\n\s+restoreAppliedSurfaceRoutePreview\(\)/,
     )
     expect(source).toContain('!isAuthenticated ||\n      !teskeidRouteCandidateEnabled ||')
     expect(source).toContain("liveDriveModeRef.current === 'free-drive'")
@@ -298,10 +299,7 @@ describe('road-map route results display state', () => {
   })
 
   it('derives provider-neutral scopes and suppresses node-only candidates for assessment', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
-      'utf8',
-    )
+    const source = readSource('components/weather/RoadMapPrototypeMap.tsx')
     const functionBlock = (startMarker: string, endMarker: string) => {
       const start = source.indexOf(startMarker)
       const end = source.indexOf(endMarker, start)
@@ -400,7 +398,7 @@ describe('road-map route results display state', () => {
     expect(retryBlock).toContain('routeExtendedCandidateRequestRef.current')
     expect(retryBlock).toContain("result.status === 'pending' ? 'slow' : result.status")
     expect(retryBlock).toContain('!canRequestTeskeidCandidate(places)')
-    expect(retryBlock).toContain("'teskeid',\n          result.choices,")
+    expect(retryBlock).toMatch(/'teskeid',\r?\n\s+result\.choices,/)
     expect(retryBlock).not.toContain('result.choices.slice(0, 1)')
 
     const alternativesBlock = functionBlock(
@@ -488,10 +486,7 @@ describe('road-map route results display state', () => {
   })
 
   it('keeps comparison open while Apply is pending and focuses current weather results only after success', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
-      'utf8',
-    )
+    const source = readSource('components/weather/RoadMapPrototypeMap.tsx')
     const applyStart = source.indexOf('async function handleApplyRouteComparison()')
     const applyEnd = source.indexOf('\n  function restoreAppliedSurfaceRoutePreview()', applyStart)
     const applyBlock = source.slice(applyStart, applyEnd)
@@ -506,8 +501,8 @@ describe('road-map route results display state', () => {
     expect(applyAwait).toBeGreaterThan(pendingStart)
     expect(applyBlock).toContain('if (applied && routeBridgeRunIdRef.current === runId)')
     expect(applyBlock).toContain('requestWeatherResultsFocus(runId)')
-    expect(applyBlock).toContain(
-      'if (routeBridgeRunIdRef.current === runId) {\n        routeComparisonApplyPendingRef.current = false\n        setRouteComparisonApplyPending(false)',
+    expect(applyBlock).toMatch(
+      /if \(routeBridgeRunIdRef\.current === runId\) \{\r?\n\s+routeComparisonApplyPendingRef\.current = false\r?\n\s+setRouteComparisonApplyPending\(false\)/,
     )
     expect(applyBlock).not.toContain('setRouteComparisonFullscreen(false)')
 
@@ -539,10 +534,7 @@ describe('road-map route results display state', () => {
   })
 
   it('clears stale weather visuals and keeps malformed assessment scope in exact handoff-only mode', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
-      'utf8',
-    )
+    const source = readSource('components/weather/RoadMapPrototypeMap.tsx')
     const handoffStart = source.indexOf('function showRouteHandoffOnly(')
     const handoffEnd = source.indexOf('\n\n  async function calculateResolvedRoute(', handoffStart)
     const handoffBlock = source.slice(handoffStart, handoffEnd)
@@ -564,10 +556,7 @@ describe('road-map route results display state', () => {
   })
 
   it('separates current conditions from future whole-hour departure assessments', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
-      'utf8',
-    )
+    const source = readSource('components/weather/RoadMapPrototypeMap.tsx')
 
     expect(source).not.toContain('buildDepartureForecastSlotStatusOverrides')
     expect(source).not.toContain('setRouteSlotStatusOverrides')
@@ -601,10 +590,7 @@ describe('road-map route results display state', () => {
   })
 
   it('keeps the selected route and offers retry after a structured forecast failure', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
-      'utf8',
-    )
+    const source = readSource('components/weather/RoadMapPrototypeMap.tsx')
 
     expect(source).toContain("res.status === 503 && data?.error === 'forecast_unavailable'")
     expect(source).toContain("reason: 'weather_unavailable'")
@@ -642,10 +628,7 @@ describe('road-map route results display state', () => {
   })
 
   it('keeps stable server route ids scope-local in React and async hydration', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'components/weather/RoadMapPrototypeMap.tsx'),
-      'utf8',
-    )
+    const source = readSource('components/weather/RoadMapPrototypeMap.tsx')
     const choiceStart = source.indexOf('function routeOptionToSurfaceChoice(')
     const choiceEnd = source.indexOf('\n  function mergeProviderRouteChoices(', choiceStart)
     const choiceBlock = source.slice(choiceStart, choiceEnd)
@@ -658,6 +641,6 @@ describe('road-map route results display state', () => {
     expect(hydrationBlock).toContain('route.identity === choice.identity')
     expect(source).toContain('key={choice.identity}')
     expect(source).toContain('routeBridgeRunIdRef.current !== runId')
-    expect(source).toContain("assessmentScopeId ?? 'resolve-scope',\n    origin.lat.toFixed(6)")
+    expect(source).toMatch(/assessmentScopeId \?\? 'resolve-scope',\r?\n\s+origin\.lat\.toFixed\(6\)/)
   })
 })

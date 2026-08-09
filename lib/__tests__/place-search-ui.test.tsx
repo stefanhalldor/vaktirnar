@@ -145,6 +145,16 @@ describe('PlaceSearch', () => {
     expect(status).toHaveTextContent('Searching for places…')
     expect(status).toHaveClass('border-primary/30', 'bg-primary/5', 'text-primary')
     expect(status.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(screen.getByRole('combobox').compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('orders current location, map selection, and text search consistently', () => {
+    render(<PlaceSearch autoFocus={false} allowCurrentLocation showCurrentLocationOnAllViewports onPlaceSelected={vi.fn()} />)
+    const currentLocation = screen.getByRole('button', { name: 'Use current location' })
+    const mapSelection = screen.getByRole('button', { name: 'Choose on map' })
+    const textSearch = screen.getByRole('combobox')
+    expect(currentLocation.compareDocumentPosition(mapSelection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(mapSelection.compareDocumentPosition(textSearch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('keeps map search visible immediately in the canonical default mode', () => {
