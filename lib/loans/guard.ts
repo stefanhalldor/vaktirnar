@@ -82,6 +82,12 @@ export async function checkFeatureAccess(
     if (process.env.KVISS_ENABLED !== 'true') return false
     return checkPerUserAccess(email, 'kviss')
   }
+  if (featureKey === 'auglysandi') {
+    // Advertiser authoring is independent from both Quiz creator access and
+    // public ad delivery. It always requires both gates while in private beta.
+    if (process.env.ADVERTISER_ENABLED !== 'true') return false
+    return checkPerUserAccess(email, 'auglysandi')
+  }
   if (featureKey === 'facebook-oauth') {
     if (process.env.FACEBOOK_OAUTH_ENABLED !== 'true') return false
     if (process.env.FACEBOOK_OAUTH_FLAG !== 'true') return true

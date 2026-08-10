@@ -163,7 +163,7 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 type FeatureAccessEntry = { email: string; granted_at: string }
 
 interface FeatureAccessSectionProps {
-  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'bokhaldid' | 'kviss'
+  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'bokhaldid' | 'kviss' | 'auglysandi'
   heading: string
   flagName: string
   enabledFlagName?: string
@@ -1695,6 +1695,17 @@ export default function AdminPage() {
             heading="Kviss — private beta"
             flagName="KVISS_ENABLED"
           />
+          <FeatureAccessSection
+            featureKey="auglysandi"
+            heading="Auglýsenda-aðgangur — private beta"
+            flagName="ADVERTISER_ENABLED"
+          />
+          <a
+            href="/admin/advertiser"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#c2c9bb] bg-white px-4 text-sm font-semibold text-[#154212]"
+          >
+            Yfirfara auglýsingar
+          </a>
           <FeatureAccessSection
             featureKey="vedrid"
             heading="Veðrið-aðgangur"

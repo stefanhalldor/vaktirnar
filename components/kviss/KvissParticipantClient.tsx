@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { createClient } from '@/lib/supabase/client'
+import { PublicQuizAdCard } from '@/components/kviss/PublicQuizAdCard'
+import type { AdPlacement, PublicQuizAd } from '@/lib/advertiser/contracts'
 import type { KvissJoinPreview, KvissParticipantProjection } from '@/lib/kviss/contracts'
 
 type LoadState = 'loading' | 'join' | 'joined' | 'missing'
@@ -18,6 +20,7 @@ export function KvissParticipantClient({ code }: { code: string }) {
   const [pending, setPending] = useState(false)
   const [chatBody, setChatBody] = useState('')
   const [remaining, setRemaining] = useState<number | null>(null)
+  const [publicAd, setPublicAd] = useState<PublicQuizAd | null>(null)
   const fetchInFlight = useRef<Promise<void> | null>(null)
 
   const refresh = useCallback(async () => {
@@ -141,6 +144,44 @@ export function KvissParticipantClient({ code }: { code: string }) {
     return projection.activeQuestion.correctOptionIndices.includes(projection.participantAnswer.selectedOption)
   }, [projection])
 
+  const adPlacement: AdPlacement | null = projection?.status === 'lobby'
+    ? 'public_quiz_lobby'
+    : projection && ['leaderboard', 'ended'].includes(projection.status)
+      ? 'public_quiz_results'
+      : null
+
+  useEffect(() => {
+    if (!adPlacement) {
+      setPublicAd(null)
+      return
+    }
+    let active = true
+    let timeout: number | undefined
+    async function loadAd() {
+      try {
+        const response = await fetch(`/api/kviss/public/ad?placement=${adPlacement}`, { cache: 'no-store' })
+        const payload = response.ok ? await response.json() as { ad?: PublicQuizAd | null } : null
+        if (active) setPublicAd(payload?.ad ?? null)
+      } catch {
+        if (active) setPublicAd(null)
+      }
+    }
+    async function pollAd() {
+      if (document.visibilityState === 'visible') await loadAd()
+      if (active) timeout = window.setTimeout(pollAd, 30_000)
+    }
+    function onVisibility() {
+      if (active && document.visibilityState === 'visible') void loadAd()
+    }
+    void pollAd()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      active = false
+      if (timeout !== undefined) window.clearTimeout(timeout)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [adPlacement])
+
   if (state === 'loading') return <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p>
   if (state === 'missing') return <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{t('notFound')}</p>
   if (state === 'join') return (
@@ -156,6 +197,7 @@ export function KvissParticipantClient({ code }: { code: string }) {
   return (
     <div className="grid gap-5">
       <header><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('joinedAs')}</p><h1 className="text-xl font-semibold text-primary">{projection.participant.nickname}</h1>{projection.participant.teamName ? <p className="mt-1 text-sm">{t('team', { team: projection.participant.teamName })}</p> : null}</header>
+      <PublicQuizAdCard ad={publicAd} />
       {projection.status === 'lobby' ? <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">{t('waiting')}</p> : null}
       {projection.activeQuestion && ['question', 'reveal'].includes(projection.status) ? (
         <section className="rounded-xl border border-border bg-card p-4">

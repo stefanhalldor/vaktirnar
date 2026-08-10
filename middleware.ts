@@ -45,7 +45,7 @@ const PREVIEW_PATH_PATTERNS = [
 // feature switch, bounded input, rate limits and session capabilities.
 const PUBLIC_KVISS_PATH_PATTERNS = [
   /^\/kviss(?:\/[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6})?$/i,
-  /^\/api\/kviss\/public\/(?:lookup|join|session|answer|chat)$/,
+  /^\/api\/kviss\/public\/(?:lookup|join|session|answer|chat|ad)$/,
 ]
 
 const AGENT_BRIDGE_PATHS = new Set([
@@ -210,6 +210,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
+  const isAdvertiserPath = pathname === '/auth-mvp/auglysandi'
+    || pathname.startsWith('/auth-mvp/auglysandi/')
+    || pathname === '/api/auth-mvp/advertiser'
+    || pathname.startsWith('/api/auth-mvp/advertiser/')
+  if (isAdvertiserPath && process.env.ADVERTISER_ENABLED !== 'true') {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'not_found' },
+        { status: 404, headers: { 'Cache-Control': 'private, no-store' } },
+      )
+    }
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   // Feature flag: guard /stillingar/tengsl and all sub-paths.
   // TENGSL_ENABLED must be 'true'. Per-user gating is enforced in server guards.
   if (
@@ -328,7 +342,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/auth-mvp/minn-profill') ||
     pathname.startsWith('/auth-mvp/lanad-og-skilad') ||
     pathname.startsWith('/auth-mvp/utlagt-og-endurgreitt') ||
-    pathname.startsWith('/auth-mvp/kviss')
+    pathname.startsWith('/auth-mvp/kviss') ||
+    pathname.startsWith('/auth-mvp/auglysandi')
   )) {
     return redirectToInnskraningWithNext()
   }

@@ -325,6 +325,46 @@ describe('AdminPage — FeatureAccessSection', () => {
     })
   })
 
+  it('renders an independent advertiser control and review link', async () => {
+    const featureCalls: Array<{ url: string; method: string; body?: string }> = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/admin/feature-access')) {
+        featureCalls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined })
+      }
+      if (url.includes('/api/admin/analytics')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      }
+      if (url.includes('/api/admin/teskeid-usage')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_USAGE) })
+      }
+      if (method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, email: 'advertiser@example.com' }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+    }))
+
+    render(<AdminPage />)
+
+    const heading = await screen.findByRole('heading', { name: 'Auglýsenda-aðgangur — private beta' })
+    expect(heading.parentElement?.textContent).toContain('ADVERTISER_ENABLED=true')
+    expect(screen.getByRole('link', { name: 'Yfirfara auglýsingar' })).toHaveAttribute('href', '/admin/advertiser')
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Netfang fyrir Auglýsenda-aðgangur — private beta',
+    }), { target: { value: 'advertiser@example.com' } })
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Gefa aðgang að Auglýsenda-aðgangur — private beta',
+    }))
+
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual({
+        url: '/api/admin/feature-access?feature=auglysandi',
+        method: 'POST',
+        body: JSON.stringify({ email: 'advertiser@example.com' }),
+      })
+    })
+  })
+
   it('shows load error message when feature-access API returns 500', async () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => {
       if (url.includes('/api/admin/analytics')) {

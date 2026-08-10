@@ -858,6 +858,7 @@ describe('middleware — Kviss public and creator boundaries', () => {
     expect((await middleware(makeReq('/kviss'))).status).toBe(200)
     expect((await middleware(makeReq('/kviss/ABC234'))).status).toBe(200)
     expect((await middleware(makeReq('/api/kviss/public/answer'))).status).toBe(200)
+    expect((await middleware(makeReq('/api/kviss/public/ad?placement=public_quiz_lobby'))).status).toBe(200)
     expect((await middleware(makeReq('/api/kviss/public/answer/private'))).status).toBe(401)
     expect((await middleware(makeReq('/kviss/invalid'))).status).toBe(307)
   })
@@ -869,6 +870,43 @@ describe('middleware — Kviss public and creator boundaries', () => {
     const location = new URL(response.headers.get('location')!)
     expect(location.pathname).toBe('/innskraning')
     expect(location.searchParams.get('next')).toBe('/auth-mvp/kviss')
+  })
+})
+
+describe('middleware — advertiser authoring boundary', () => {
+  const originalAuthMvp = process.env.AUTH_MVP_ENABLED
+  const originalAdvertiser = process.env.ADVERTISER_ENABLED
+
+  beforeEach(() => {
+    process.env.AUTH_MVP_ENABLED = 'true'
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  afterEach(() => {
+    if (originalAuthMvp === undefined) delete process.env.AUTH_MVP_ENABLED
+    else process.env.AUTH_MVP_ENABLED = originalAuthMvp
+    if (originalAdvertiser === undefined) delete process.env.ADVERTISER_ENABLED
+    else process.env.ADVERTISER_ENABLED = originalAdvertiser
+  })
+
+  it('fails closed before auth when advertiser authoring is disabled', async () => {
+    delete process.env.ADVERTISER_ENABLED
+    const page = await middleware(makeReq('/auth-mvp/auglysandi'))
+    const api = await middleware(makeReq('/api/auth-mvp/advertiser'))
+    expect(page.status).toBe(307)
+    expect(redirectedTo(page)).toBe('/')
+    expect(api.status).toBe(404)
+    expect(api.headers.get('cache-control')).toBe('private, no-store')
+  })
+
+  it('preserves the advertiser deep-link for sign-in when enabled', async () => {
+    process.env.ADVERTISER_ENABLED = 'true'
+    const response = await middleware(makeReq('/auth-mvp/auglysandi'))
+    expect(response.status).toBe(307)
+    const location = new URL(response.headers.get('location')!)
+    expect(location.pathname).toBe('/innskraning')
+    expect(location.searchParams.get('next')).toBe('/auth-mvp/auglysandi')
   })
 })
 

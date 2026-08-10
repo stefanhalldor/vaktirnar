@@ -78,7 +78,7 @@ beforeEach(() => {
   mockFetch.mockImplementation(async (url: string) => ({
     ok: true,
     status: 200,
-    json: async () => url.includes('/capabilities') ? { kviss: true } : { unreadCount: 0 },
+    json: async () => url.includes('/capabilities') ? { kviss: true, advertiser: true } : { unreadCount: 0 },
   }))
 })
 
@@ -159,7 +159,7 @@ describe('TeskeidMenu — authenticated variant items', () => {
     mockFetch.mockImplementation(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => url.includes('/capabilities') ? { kviss: true } : { unreadCount: 3 },
+      json: async () => url.includes('/capabilities') ? { kviss: true, advertiser: true } : { unreadCount: 3 },
     }))
     render(<TeskeidMenu variant="authenticated" />)
     expect(await screen.findByTestId('agent-unread-indicator')).toBeInTheDocument()
@@ -178,6 +178,7 @@ describe('TeskeidMenu — authenticated variant items', () => {
     await screen.findByText('Samvinna')
     expect(container.querySelector('a[href="/auth-mvp/heim"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/kviss"]')).not.toBeNull()
+    expect(container.querySelector('a[href="/auth-mvp/auglysandi"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/samvinna"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/minn-profill"]')).not.toBeNull()
   })
@@ -192,6 +193,22 @@ describe('TeskeidMenu — authenticated variant items', () => {
     await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
     fireEvent.click(screen.getByRole('button'))
     expect(screen.queryByText('Kviss')).toBeNull()
+    expect(screen.queryByText('Auglýsandi')).toBeNull()
+  })
+
+  it('keeps Kviss and advertiser capabilities independent', async () => {
+    mockFetch.mockImplementation(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => url.includes('/capabilities')
+        ? { kviss: true, advertiser: false }
+        : { unreadCount: 0 },
+    }))
+    render(<TeskeidMenu variant="authenticated" />)
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('button'))
+    expect(await screen.findByText('Kviss')).toBeInTheDocument()
+    expect(screen.queryByText('Auglýsandi')).toBeNull()
   })
 
   it('does not show public-only items', () => {
