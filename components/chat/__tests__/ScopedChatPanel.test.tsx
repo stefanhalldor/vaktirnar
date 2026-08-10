@@ -391,4 +391,117 @@ describe('ScopedChatPanel', () => {
 
     await waitFor(() => expect(screen.getAllByText('Hello')).toHaveLength(1))
   })
+
+  it('refreshes authoritatively on subscription invalidation and cleans up each scope', async () => {
+    const invalidations = new Map<string, () => void>()
+    const unsubscribers = new Map<string, ReturnType<typeof vi.fn>>()
+    let oldThreadLoads = 0
+    const loadMessages = vi.fn().mockImplementation(async (threadId: string) => {
+      if (threadId === 'old-thread') {
+        oldThreadLoads += 1
+        return [{
+          ...message(
+            oldThreadLoads === 1 ? 'old-initial' : 'old-refreshed',
+            oldThreadLoads === 1 ? 'Initial message' : 'Invalidation refresh',
+          ),
+          threadId,
+        }]
+      }
+      return [{ ...message('new-initial', 'New scope message'), threadId }]
+    })
+    const subscribe = vi.fn((threadId: string, onInvalidate: () => void) => {
+      invalidations.set(threadId, onInvalidate)
+      const unsubscribe = vi.fn()
+      unsubscribers.set(threadId, unsubscribe)
+      return unsubscribe
+    })
+    const chatTransport = transport({ loadMessages, subscribe })
+
+    const { rerender, unmount } = render(
+      <ScopedChatPanel
+        threadId="old-thread"
+        transport={chatTransport}
+        labels={labels}
+        locale="en"
+        pollingIntervalMs={60_000}
+      />,
+    )
+
+    expect(await screen.findByText('Initial message')).toBeInTheDocument()
+    expect(subscribe).toHaveBeenCalledWith('old-thread', expect.any(Function))
+
+    act(() => { invalidations.get('old-thread')?.() })
+    expect(await screen.findByText('Invalidation refresh')).toBeInTheDocument()
+
+    rerender(
+      <ScopedChatPanel
+        threadId="new-thread"
+        transport={chatTransport}
+        labels={labels}
+        locale="en"
+        pollingIntervalMs={60_000}
+      />,
+    )
+
+    expect(await screen.findByText('New scope message')).toBeInTheDocument()
+    expect(unsubscribers.get('old-thread')).toHaveBeenCalledOnce()
+    expect(subscribe).toHaveBeenCalledWith('new-thread', expect.any(Function))
+
+    const callsBeforeStaleInvalidation = loadMessages.mock.calls.length
+    act(() => { invalidations.get('old-thread')?.() })
+    expect(loadMessages).toHaveBeenCalledTimes(callsBeforeStaleInvalidation)
+
+    unmount()
+    expect(unsubscribers.get('new-thread')).toHaveBeenCalledOnce()
+  })
+
+  it('drops a stale load-older response and resets loading-more on thread change', async () => {
+    let resolveOldPage: ((messages: MessageDto[]) => void) | undefined
+    const oldPage = new Promise<MessageDto[]>(resolve => { resolveOldPage = resolve })
+    const oldFirst = message('old-first', 'Old first', '2026-07-27T10:00:00.000Z')
+    const oldSecond = message('old-second', 'Old second', '2026-07-27T11:00:00.000Z')
+    const newFirst = { ...message('new-first', 'New first', '2026-07-27T10:00:00.000Z'), threadId: 'new-thread' }
+    const newSecond = { ...message('new-second', 'New second', '2026-07-27T11:00:00.000Z'), threadId: 'new-thread' }
+    const loadMessages = vi.fn().mockImplementation((threadId: string, options?: { before?: string }) => {
+      if (threadId === 'old-thread' && options?.before) return oldPage
+      if (threadId === 'old-thread') return Promise.resolve([oldFirst, oldSecond])
+      return Promise.resolve([newFirst, newSecond])
+    })
+    const chatTransport = transport({ loadMessages })
+
+    const { rerender } = render(
+      <ScopedChatPanel
+        threadId="old-thread"
+        transport={chatTransport}
+        labels={labels}
+        locale="en"
+        pageSize={2}
+        pollingIntervalMs={60_000}
+      />,
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Load older' }))
+
+    rerender(
+      <ScopedChatPanel
+        threadId="new-thread"
+        transport={chatTransport}
+        labels={labels}
+        locale="en"
+        pageSize={2}
+        pollingIntervalMs={60_000}
+      />,
+    )
+
+    expect(await screen.findByText('New first')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Load older' })).toBeEnabled()
+
+    await act(async () => {
+      resolveOldPage?.([message('stale-older', 'Stale older page', '2026-07-27T09:00:00.000Z')])
+      await oldPage
+    })
+
+    expect(screen.queryByText('Stale older page')).not.toBeInTheDocument()
+    expect(screen.getByText('New second')).toBeInTheDocument()
+  })
 })

@@ -36,12 +36,15 @@ describe('production Kviss source security contracts', () => {
 
   it('treats Broadcast as a content-free invalidation signal', () => {
     const realtime = source('lib/kviss/realtime.server.ts')
+    const realtimeClient = source('lib/kviss/realtime.client.ts')
     const participant = source('components/kviss/KvissParticipantClient.tsx')
     expect(realtime).toMatch(/event: 'invalidate'/)
     expect(realtime).toMatch(/payload: revision === undefined \? \{ kind: 'invalidate' \}/)
     expect(realtime).not.toMatch(/nickname|answer|question|chat|capability|sessionId/)
-    expect(participant).toMatch(/on\('broadcast', \{ event: 'invalidate' \}/)
-    expect(participant).toMatch(/void refresh\(true\)/)
+    expect(realtimeClient).toMatch(/on\('broadcast', \{ event: 'invalidate' \}/)
+    expect(realtimeClient).toMatch(/const onBroadcast = \(\) =>/)
+    expect(realtimeClient).not.toMatch(/payload\.(?:question|answer|chat|state)/)
+    expect(participant).toMatch(/createKvissRealtimeSubscription\(realtimeTopic, 500\)/)
     expect(participant).not.toMatch(/payload\.(?:question|answer|chat|state)/)
   })
 

@@ -27,7 +27,10 @@ vi.mock('@/lib/supabase/client', () => {
         realtime.channel(topic)
         return channel
       },
-      removeChannel: (selected: unknown) => realtime.removeChannel(selected),
+      removeChannel: (selected: unknown) => {
+        realtime.removeChannel(selected)
+        return Promise.resolve()
+      },
     }),
   }
 })
@@ -192,6 +195,34 @@ describe('Kviss participant loading and answer refresh', () => {
     expect(screen.getByRole('button', { name: 'Rétt' })).toBeDisabled()
 
     unmount()
+  })
+
+  it('refetches the authoritative projection after realtime invalidation and cleans up the channel', async () => {
+    let sessionRequests = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (!url.includes('/session?')) throw new Error(`Unexpected request: ${url}`)
+      sessionRequests += 1
+      return Promise.resolve(response({
+        ...participantProjection(sessionRequests > 1),
+        realtimeTopic: 'kviss-live-topic',
+      }))
+    }))
+
+    const { unmount } = render(<KvissParticipantClient code="ABC234" />)
+
+    await screen.findByRole('button', { name: 'Rétt' })
+    await waitFor(() => expect(realtime.on).toHaveBeenCalledTimes(1))
+    const onInvalidate = realtime.on.mock.calls[0]?.[2] as (() => void) | undefined
+    expect(onInvalidate).toBeTypeOf('function')
+
+    act(() => onInvalidate?.())
+
+    await waitFor(() => expect(sessionRequests).toBe(2))
+    expect(await screen.findByText('Svarið þitt er skráð.')).toBeInTheDocument()
+
+    unmount()
+    expect(realtime.removeChannel).toHaveBeenCalledTimes(1)
   })
 
   it('keeps a non-success answer error visible instead of erasing it with a refresh', async () => {

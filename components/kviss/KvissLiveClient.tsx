@@ -1,11 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, Copy, ExternalLink, LoaderCircle, Users } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { createClient } from '@/lib/supabase/client'
 import type { KvissHostProjection } from '@/lib/kviss/contracts'
+import { createKvissRealtimeSubscription } from '@/lib/kviss/realtime.client'
+import {
+  useAuthoritativeRefresh,
+  type AuthoritativeRefreshLoadContext,
+} from '@/lib/realtime/useAuthoritativeRefresh'
 import { KvissAudienceView } from './KvissAudienceView'
 import { KvissLoading } from './KvissLoading'
 import { kvissPrimaryButtonClass, kvissSecondaryButtonClass } from './formStyles'
@@ -37,78 +41,43 @@ export function KvissLiveClient({
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [remaining, setRemaining] = useState<number | null>(null)
-  const loadInFlight = useRef<Promise<void> | null>(null)
-
-  const refresh = useCallback(async (forceFresh = false) => {
-    if (loadInFlight.current) {
-      await loadInFlight.current
-      if (!forceFresh) return
+  const loadProjection = useCallback(async ({
+    signal,
+    isCurrent,
+  }: AuthoritativeRefreshLoadContext) => {
+    try {
+      const response = await fetch(
+        `/api/auth-mvp/kviss/live?sessionId=${encodeURIComponent(sessionId)}`,
+        { cache: 'no-store', signal },
+      )
+      if (!response.ok) throw new Error(response.status === 404 ? 'missing' : 'load')
+      const next = await response.json() as KvissHostProjection
+      if (!isCurrent()) return
+      setProjection(next)
+      setLoadError(null)
+    } catch (cause) {
+      if (!isCurrent() || signal.aborted) return
+      setLoadError(cause instanceof Error && cause.message === 'missing'
+        ? t('liveSessionNotFound')
+        : t('liveLoadError'))
+    } finally {
+      if (isCurrent()) setLoading(false)
     }
-    if (loadInFlight.current) return loadInFlight.current
-
-    const task = (async () => {
-      try {
-        const response = await fetch(
-          `/api/auth-mvp/kviss/live?sessionId=${encodeURIComponent(sessionId)}`,
-          { cache: 'no-store' },
-        )
-        if (!response.ok) throw new Error(response.status === 404 ? 'missing' : 'load')
-        setProjection(await response.json() as KvissHostProjection)
-        setLoadError(null)
-      } catch (cause) {
-        setLoadError(cause instanceof Error && cause.message === 'missing'
-          ? t('liveSessionNotFound')
-          : t('liveLoadError'))
-      } finally {
-        setLoading(false)
-      }
-    })()
-    loadInFlight.current = task
-    await task.finally(() => {
-      if (loadInFlight.current === task) loadInFlight.current = null
-    })
   }, [sessionId, t])
 
-  useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => {
-    let stopped = false
-    let timeout: number | undefined
-    const poll = async () => {
-      if (!stopped && document.visibilityState === 'visible') await refresh()
-      if (!stopped) timeout = window.setTimeout(poll, 5_000)
-    }
-    timeout = window.setTimeout(poll, 5_000)
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void refresh()
-    }
-    const onOnline = () => void refresh()
-    document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('online', onOnline)
-    return () => {
-      stopped = true
-      if (timeout !== undefined) window.clearTimeout(timeout)
-      document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('online', onOnline)
-    }
-  }, [refresh])
-
-  useEffect(() => {
-    const topic = projection?.realtimeTopic
-    if (!topic) return
-    const supabase = createClient()
-    let lastScheduled = 0
-    const channel = supabase.channel(topic)
-      .on('broadcast', { event: 'invalidate' }, () => {
-        const now = Date.now()
-        if (now - lastScheduled < 300) return
-        lastScheduled = now
-        void refresh(true)
-      })
-      .subscribe(status => {
-        if (status === 'SUBSCRIBED') void refresh(true)
-      })
-    return () => { void supabase.removeChannel(channel) }
-  }, [projection?.realtimeTopic, refresh])
+  const realtimeTopic = projection?.realtimeTopic ?? null
+  const subscribe = useMemo(
+    () => createKvissRealtimeSubscription(realtimeTopic),
+    [realtimeTopic],
+  )
+  const { refresh } = useAuthoritativeRefresh({
+    scopeKey: sessionId,
+    enabled: true,
+    pollIntervalMs: 5_000,
+    load: loadProjection,
+    subscribe,
+    subscriptionKey: realtimeTopic,
+  })
 
   useEffect(() => {
     const question = projection?.questions.find(
@@ -157,11 +126,11 @@ export function KvissLiveClient({
         }),
       })
       if (!response.ok) throw new Error(response.status === 409 ? 'conflict' : 'mutation')
-      await refresh(true)
+      await refresh({ afterCurrent: true })
     } catch (cause) {
       if (cause instanceof Error && cause.message === 'conflict') {
         setMutationError(t('conflict'))
-        await refresh(true)
+        await refresh({ afterCurrent: true })
       } else {
         setMutationError(t('liveCommandError'))
       }
@@ -204,7 +173,7 @@ export function KvissLiveClient({
           className={kvissSecondaryButtonClass}
           onClick={() => {
             setLoading(true)
-            void refresh(true)
+            void refresh({ afterCurrent: true })
           }}
         >
           {t('tryAgain')}

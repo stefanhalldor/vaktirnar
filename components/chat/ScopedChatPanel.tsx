@@ -3,6 +3,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import type { ChatMessageKind, MessageDto } from '@/lib/chat/types'
 import {
+  useAuthoritativeRefresh,
+  type AuthoritativeRefreshLoadContext,
+} from '@/lib/realtime/useAuthoritativeRefresh'
+import {
   teskeidContextTimelineItemClass,
   type TeskeidContextTimelineEvent,
   type TeskeidContextTimelineOrder,
@@ -34,11 +38,11 @@ export type ScopedChatTransport = {
   markRead(threadId: string, opts?: ScopedChatReadOptions): Promise<void>
   sendMessage(threadId: string, body: string, opts?: ScopedChatSendOptions): Promise<MessageDto>
   /**
-   * Optional Realtime subscription. When provided, the panel subscribes to live
-   * message inserts and calls `loadMessages` on each event. The polling fallback
-   * remains active regardless. Returns an unsubscribe function.
+   * Optional Realtime invalidation subscription. Event payloads are never
+   * applied as state; each signal asks the authoritative loader to refresh.
+   * The polling fallback remains active. Returns an unsubscribe function.
    */
-  subscribe?(threadId: string, onNewMessage: () => void): () => void
+  subscribe?(threadId: string, onInvalidate: () => void): () => void
 }
 
 interface ScopedChatPanelLabels {
@@ -112,7 +116,6 @@ export function ScopedChatPanel({
   const [initialLoadError, setInitialLoadError] = useState(false)
   const initialLoadDoneRef = useRef(false)
   const loadGenerationRef = useRef(0)
-  const loadInFlightGenerationRef = useRef<number | null>(null)
   const lastMarkedCursorRef = useRef<string | null>(null)
   const isAtBottomRef = useRef(true)
   const bottomVisibleRef = useRef(false)
@@ -144,12 +147,11 @@ export function ScopedChatPanel({
     })
   }, [messages, timelineEvents, timelineOrder])
 
-  async function loadMessages(generation = loadGenerationRef.current) {
-    if (loadInFlightGenerationRef.current === generation) return
-    loadInFlightGenerationRef.current = generation
+  async function loadMessages({ isCurrent }: AuthoritativeRefreshLoadContext) {
+    const generation = loadGenerationRef.current
     try {
       const data = await transport.loadMessages(threadId, { limit: effectivePageSize })
-      if (generation !== loadGenerationRef.current) return
+      if (!isCurrent() || generation !== loadGenerationRef.current) return
       if (!hasLoadedOlderRef.current) {
         // Normal: replace confirmed messages with fresh poll result
         setMessages(prev => {
@@ -175,17 +177,15 @@ export function ScopedChatPanel({
       setInitialLoadError(false)
     } catch {
       if (
-        generation === loadGenerationRef.current
+        isCurrent()
+        && generation === loadGenerationRef.current
         && !initialLoadDoneRef.current
       ) {
         setInitialLoadError(true)
       }
       // Background polls remain quiet after the initial state is known.
     } finally {
-      if (loadInFlightGenerationRef.current === generation) {
-        loadInFlightGenerationRef.current = null
-      }
-      if (generation !== loadGenerationRef.current) return
+      if (!isCurrent() || generation !== loadGenerationRef.current) return
       if (!initialLoadDoneRef.current) {
         initialLoadDoneRef.current = true
         setInitialLoadDone(true)
@@ -209,42 +209,22 @@ export function ScopedChatPanel({
     setInitialLoadDone(false)
     setInitialLoadError(false)
     setHasMore(false)
-    let stopped = false
-    let polling = false
-    let timeoutId: number | undefined
-    const schedule = () => {
-      if (stopped) return
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
-      timeoutId = window.setTimeout(refresh, pollingIntervalMs)
-    }
-    const refresh = async () => {
-      if (stopped || polling) return
-      if (document.visibilityState !== 'visible' && initialLoadDoneRef.current) {
-        schedule()
-        return
-      }
-      polling = true
-      await loadMessages(generation)
-      polling = false
-      schedule()
-    }
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') return
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
-      void refresh()
-    }
-    void refresh()
-    const unsub = transport.subscribe?.(threadId, refresh)
-    document.addEventListener('visibilitychange', onVisibilityChange)
+    setLoadingMore(false)
     return () => {
-      stopped = true
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      unsub?.()
       if (loadGenerationRef.current === generation) loadGenerationRef.current += 1
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, pollingIntervalMs])
+  }, [threadId])
+
+  const { refresh } = useAuthoritativeRefresh({
+    scopeKey: threadId,
+    enabled: true,
+    pollIntervalMs: pollingIntervalMs,
+    load: loadMessages,
+    subscribe: transport.subscribe
+      ? onInvalidate => transport.subscribe?.(threadId, onInvalidate)
+      : undefined,
+    subscriptionKey: transport.subscribe ?? null,
+  })
 
   useEffect(() => {
     if (shouldScrollRef.current && listRef.current) {
@@ -305,6 +285,7 @@ export function ScopedChatPanel({
 
   async function loadOlder() {
     if (loadingMore) return
+    const generation = loadGenerationRef.current
     const confirmed = messages.filter(m => !m.optimistic)
     const before = confirmed[0]?.createdAt
     const beforeId = confirmed[0]?.id
@@ -316,6 +297,7 @@ export function ScopedChatPanel({
         beforeId,
         limit: effectivePageSize,
       })
+      if (generation !== loadGenerationRef.current) return
       hasLoadedOlderRef.current = true
       setHasMore(older.length >= effectivePageSize)
       setMessages(prev => {
@@ -324,7 +306,7 @@ export function ScopedChatPanel({
         return [...older, ...prevConfirmed, ...optimistic]
       })
     } catch { /* silent */ } finally {
-      setLoadingMore(false)
+      if (generation === loadGenerationRef.current) setLoadingMore(false)
     }
   }
 
@@ -454,7 +436,7 @@ export function ScopedChatPanel({
                       initialLoadDoneRef.current = false
                       setInitialLoadDone(false)
                       setInitialLoadError(false)
-                      loadMessages()
+                      void refresh({ afterCurrent: true })
                     }}
                     className="min-h-10 shrink-0 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
@@ -478,7 +460,7 @@ export function ScopedChatPanel({
                   initialLoadDoneRef.current = false
                   setInitialLoadDone(false)
                   setInitialLoadError(false)
-                  loadMessages()
+                  void refresh({ afterCurrent: true })
                 }}
                 className="min-h-10 shrink-0 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >

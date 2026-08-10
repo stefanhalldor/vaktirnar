@@ -1,9 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import {
+  useAuthoritativeRefresh,
+  type AuthoritativeRefreshLoadContext,
+} from '@/lib/realtime/useAuthoritativeRefresh'
 import type { QuestionBankDraft, QuestionBankItem, QuizQuestion } from '@/lib/kviss/authoring'
 import { KvissLoading } from './KvissLoading'
 import { KvissQuestionBankPanel } from './KvissQuestionBankPanel'
@@ -81,52 +85,31 @@ export function KvissCreatorClient() {
   const [teamNames, setTeamNames] = useState('')
   const [questions, setQuestions] = useState<QuizQuestion[]>([])
   const [passwords, setPasswords] = useState<Record<string, string>>({})
-  const loadInFlight = useRef<Promise<void> | null>(null)
-
-  const load = useCallback(async (forceFresh = false) => {
-    if (loadInFlight.current) {
-      await loadInFlight.current
-      if (!forceFresh) return
+  const loadAuthoringState = useCallback(async ({
+    signal,
+    isCurrent,
+  }: AuthoritativeRefreshLoadContext) => {
+    try {
+      const response = await fetch('/api/auth-mvp/kviss', { cache: 'no-store', signal })
+      if (!response.ok) throw new Error('load')
+      const next = await response.json() as AuthoringState
+      if (!isCurrent()) return
+      setData(next)
+      setLoadError(null)
+    } catch {
+      if (!isCurrent() || signal.aborted) return
+      setLoadError(t('creatorLoadError'))
+    } finally {
+      if (isCurrent()) setLoading(false)
     }
-    if (loadInFlight.current) return loadInFlight.current
-
-    const task = (async () => {
-      try {
-        const response = await fetch('/api/auth-mvp/kviss', { cache: 'no-store' })
-        if (!response.ok) throw new Error('load')
-        setData(await response.json() as AuthoringState)
-        setLoadError(null)
-      } catch {
-        setLoadError(t('creatorLoadError'))
-      } finally {
-        setLoading(false)
-      }
-    })()
-    loadInFlight.current = task
-    await task.finally(() => {
-      if (loadInFlight.current === task) loadInFlight.current = null
-    })
   }, [t])
 
-  useEffect(() => { void load() }, [load])
-  useEffect(() => {
-    let stopped = false
-    let timeout: number | undefined
-    const poll = async () => {
-      if (!stopped && document.visibilityState === 'visible') await load()
-      if (!stopped) timeout = window.setTimeout(poll, 5_000)
-    }
-    timeout = window.setTimeout(poll, 5_000)
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void load()
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      stopped = true
-      if (timeout !== undefined) window.clearTimeout(timeout)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [load])
+  const { refresh } = useAuthoritativeRefresh({
+    scopeKey: 'kviss-creator',
+    enabled: true,
+    pollIntervalMs: 5_000,
+    load: loadAuthoringState,
+  })
 
   const mutate = async (body: unknown): Promise<MutationResult> => {
     const response = await fetch('/api/auth-mvp/kviss', {
@@ -136,7 +119,7 @@ export function KvissCreatorClient() {
     })
     if (!response.ok) throw new Error(response.status === 409 ? 'conflict' : 'mutation')
     const payload = await response.json() as MutationResult
-    await load(true)
+    await refresh({ afterCurrent: true })
     return payload
   }
 

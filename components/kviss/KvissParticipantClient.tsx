@@ -1,11 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { createClient } from '@/lib/supabase/client'
 import { PublicQuizAdCard } from '@/components/kviss/PublicQuizAdCard'
 import type { AdPlacement, PublicQuizAd } from '@/lib/advertiser/contracts'
 import type { KvissJoinPreview, KvissParticipantProjection } from '@/lib/kviss/contracts'
+import { createKvissRealtimeSubscription } from '@/lib/kviss/realtime.client'
+import {
+  useAuthoritativeRefresh,
+  type AuthoritativeRefreshLoadContext,
+} from '@/lib/realtime/useAuthoritativeRefresh'
 import { KvissLoading } from './KvissLoading'
 
 type LoadState = 'loading' | 'join' | 'joined' | 'missing' | 'error'
@@ -22,77 +26,67 @@ export function KvissParticipantClient({ code }: { code: string }) {
   const [chatBody, setChatBody] = useState('')
   const [remaining, setRemaining] = useState<number | null>(null)
   const [publicAd, setPublicAd] = useState<PublicQuizAd | null>(null)
-  const fetchInFlight = useRef<Promise<void> | null>(null)
   const pending = pendingAction !== null
 
-  const refresh = useCallback(async (forceFresh = false) => {
-    if (fetchInFlight.current) {
-      await fetchInFlight.current
-      if (!forceFresh) return
-    }
-    if (fetchInFlight.current) return fetchInFlight.current
-    const task = (async () => {
-      try {
-        const response = await fetch(`/api/kviss/public/session?code=${encodeURIComponent(code)}`, { cache: 'no-store' })
-        if (response.ok) {
-          setProjection(await response.json() as KvissParticipantProjection)
-          setState('joined')
-          setError(null)
-          return
-        }
-        if (response.status !== 401) { setState('missing'); setError(null); return }
-        const lookup = await fetch(`/api/kviss/public/lookup?code=${encodeURIComponent(code)}`, { cache: 'no-store' })
-        if (!lookup.ok) { setState('missing'); setError(null); return }
-        setPreview(await lookup.json() as KvissJoinPreview)
-        setState('join')
+  const loadProjection = useCallback(async ({
+    signal,
+    isCurrent,
+  }: AuthoritativeRefreshLoadContext) => {
+    try {
+      const response = await fetch(
+        `/api/kviss/public/session?code=${encodeURIComponent(code)}`,
+        { cache: 'no-store', signal },
+      )
+      if (response.ok) {
+        const next = await response.json() as KvissParticipantProjection
+        if (!isCurrent()) return
+        setProjection(next)
+        setState('joined')
         setError(null)
-      } catch {
-        setError(t('connectionError'))
-        setState(current => current === 'loading' ? 'error' : current)
+        return
       }
-    })()
-    fetchInFlight.current = task
-    await task.finally(() => { fetchInFlight.current = null })
+      if (response.status !== 401) {
+        if (!isCurrent()) return
+        setState('missing')
+        setError(null)
+        return
+      }
+      const lookup = await fetch(
+        `/api/kviss/public/lookup?code=${encodeURIComponent(code)}`,
+        { cache: 'no-store', signal },
+      )
+      if (!isCurrent()) return
+      if (!lookup.ok) {
+        setState('missing')
+        setError(null)
+        return
+      }
+      const next = await lookup.json() as KvissJoinPreview
+      if (!isCurrent()) return
+      setPreview(next)
+      setState('join')
+      setError(null)
+    } catch {
+      if (!isCurrent() || signal.aborted) return
+      setError(t('connectionError'))
+      setState(current => current === 'loading' ? 'error' : current)
+    }
   }, [code, t])
 
-  useEffect(() => { void refresh() }, [refresh])
-
-  useEffect(() => {
-    if (state !== 'joined') return
-    let stopped = false
-    let timeout: number | undefined
-    const poll = async () => {
-      if (!stopped && document.visibilityState === 'visible') await refresh()
-      if (!stopped) timeout = window.setTimeout(poll, 5_000)
-    }
-    const onVisibility = () => { if (document.visibilityState === 'visible') void refresh() }
-    const onOnline = () => void refresh()
-    void poll()
-    document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('online', onOnline)
-    return () => {
-      stopped = true
-      if (timeout !== undefined) window.clearTimeout(timeout)
-      document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('online', onOnline)
-    }
-  }, [refresh, state])
-
-  useEffect(() => {
-    const topic = projection?.realtimeTopic
-    if (!topic) return
-    const supabase = createClient()
-    let lastScheduled = 0
-    const channel = supabase.channel(topic)
-      .on('broadcast', { event: 'invalidate' }, () => {
-        const now = Date.now()
-        if (now - lastScheduled < 500) return
-        lastScheduled = now
-        void refresh(true)
-      })
-      .subscribe(status => { if (status === 'SUBSCRIBED') void refresh(true) })
-    return () => { void supabase.removeChannel(channel) }
-  }, [projection?.realtimeTopic, refresh])
+  const realtimeTopic = projection?.realtimeTopic ?? null
+  const subscribe = useMemo(
+    () => createKvissRealtimeSubscription(realtimeTopic, 500),
+    [realtimeTopic],
+  )
+  const { refresh } = useAuthoritativeRefresh({
+    scopeKey: code,
+    enabled: true,
+    pollIntervalMs: state === 'joined' ? 5_000 : null,
+    recoveryEnabled: state === 'joined',
+    load: loadProjection,
+    subscribe,
+    subscriptionKey: realtimeTopic,
+  })
 
   useEffect(() => {
     const question = projection?.activeQuestion
@@ -115,7 +109,7 @@ export function KvissParticipantClient({ code }: { code: string }) {
       })
       if (response.status === 429) setError(t('tooManyAttempts'))
       else if (!response.ok) setError(t('joinFailed'))
-      else await refresh(true)
+      else await refresh({ afterCurrent: true })
     } catch { setError(t('connectionError')) } finally { setPendingAction(null) }
   }
 
@@ -127,7 +121,7 @@ export function KvissParticipantClient({ code }: { code: string }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, questionId: projection.activeQuestion.id, selectedOption, commandId: crypto.randomUUID() }),
       })
-      if (response.ok || response.status === 409) await refresh(true)
+      if (response.ok || response.status === 409) await refresh({ afterCurrent: true })
       else setError(t('answerFailed'))
     } catch { setError(t('connectionError')) } finally { setPendingAction(null) }
   }
@@ -143,7 +137,7 @@ export function KvissParticipantClient({ code }: { code: string }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, body, clientMessageId: crypto.randomUUID() }),
       })
-      if (response.ok) { setChatBody(''); await refresh(true) }
+      if (response.ok) { setChatBody(''); await refresh({ afterCurrent: true }) }
       else setError(t('chatFailed'))
     } catch { setError(t('connectionError')) } finally { setPendingAction(null) }
   }
@@ -202,7 +196,7 @@ export function KvissParticipantClient({ code }: { code: string }) {
         className="min-h-11 rounded-lg border border-border bg-card px-4 text-sm font-medium"
         onClick={() => {
           setState('loading')
-          void refresh(true)
+          void refresh({ afterCurrent: true })
         }}
       >
         {t('tryAgain')}

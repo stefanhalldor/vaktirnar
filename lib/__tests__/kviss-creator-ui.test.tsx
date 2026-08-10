@@ -36,7 +36,10 @@ vi.mock('@/lib/supabase/client', () => {
         realtime.channel(topic)
         return channel
       },
-      removeChannel: (selected: unknown) => realtime.removeChannel(selected),
+      removeChannel: (selected: unknown) => {
+        realtime.removeChannel(selected)
+        return Promise.resolve()
+      },
     }),
   }
 })
@@ -362,5 +365,44 @@ describe('Kviss live settings', () => {
     unmount()
     expect(realtime.removeChannel).toHaveBeenCalledTimes(1)
     expect(clearTimeoutSpy).toHaveBeenCalled()
+  })
+
+  it('waits for a post-command authoritative refresh when a recovery GET is already active', async () => {
+    const staleGet = deferred<Response>()
+    const freshGet = deferred<Response>()
+    let liveRequests = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/auth-mvp/kviss/live')) {
+        liveRequests += 1
+        if (liveRequests === 1) return Promise.resolve(response(hostProjection('question')))
+        if (liveRequests === 2) return staleGet.promise
+        if (liveRequests === 3) return freshGet.promise
+      }
+      if (url.includes('/api/auth-mvp/kviss') && init?.method === 'POST') {
+        return Promise.resolve(response({ ok: true }))
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const { unmount } = render(
+      <KvissLiveClient sessionId="session-1" initialView="performer" />,
+    )
+    const reveal = await screen.findByRole('button', { name: 'reveal' })
+    window.dispatchEvent(new Event('online'))
+    await waitFor(() => expect(liveRequests).toBe(2))
+
+    fireEvent.click(reveal)
+    expect(await screen.findByRole('button', { name: 'revealing' })).toBeDisabled()
+    expect(liveRequests).toBe(2)
+
+    act(() => staleGet.resolve(response(hostProjection('question'))))
+    await waitFor(() => expect(liveRequests).toBe(3))
+    expect(screen.getByRole('button', { name: 'revealing' })).toBeDisabled()
+
+    act(() => freshGet.resolve(response(hostProjection('reveal'))))
+    expect(await screen.findByRole('button', { name: 'showLeaderboard' })).toBeEnabled()
+
+    unmount()
   })
 })
