@@ -8,7 +8,11 @@ import {
   simplifySettlement,
 } from './balances'
 import { addMinorAmounts } from './money'
-import { buildExpensePayAllView, type ExpensePayAllCandidate } from './pay-all'
+import {
+  buildExpensePayAllView,
+  expensePayAllSelfMemberIds,
+  type ExpensePayAllCandidate,
+} from './pay-all'
 import { parseExpenseAmountToMinor } from './input-money'
 import { paymentSnapshotForViewer } from './payment-snapshot-visibility'
 import {
@@ -722,14 +726,14 @@ async function attachCurrentPaymentInstructions(
   actorUserId: string,
 ): Promise<ExpenseGroupView> {
   const membersById = new Map(rows.members.map((member) => [member.id, member]))
+  const selfMemberIds = expensePayAllSelfMemberIds(group)
   const admin = getAdmin()
   const settlementTransfers = await Promise.all(group.settlementTransfers.map(async (transfer) => {
-    const debtor = membersById.get(transfer.fromMemberId)
     const creditor = membersById.get(transfer.toMemberId)
     const ownerUserId = creditor?.user_id
     if (
       !transfer.canReport
-      || debtor?.user_id !== actorUserId
+      || !selfMemberIds.has(transfer.fromMemberId)
       || typeof ownerUserId !== 'string'
     ) return transfer
 
@@ -865,12 +869,12 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
         actorUserId,
       )
       const membersById = new Map(rows.members.map((member) => [member.id, member]))
+      const selfMemberIds = expensePayAllSelfMemberIds(group)
       const candidates: ExpensePayAllCandidate[] = []
       const blockedContexts: ExpensePayAllBlockedContextView[] = []
 
       for (const transfer of group.settlementTransfers) {
-        const debtor = membersById.get(transfer.fromMemberId)
-        if (debtor?.user_id !== actorUserId) continue
+        if (!selfMemberIds.has(transfer.fromMemberId)) continue
         const creditor = membersById.get(transfer.toMemberId)
         if (!creditor) continue
         const context = expensePayAllContext(group, transfer.amountMinor, transfer.currency)
@@ -1031,9 +1035,7 @@ export async function getExpenseDashboard(
     }
     pendingConfirmationCount += group.repayments.filter((repayment) => repayment.canConfirm).length
     if (!hasPayAllItems) {
-      const selfMemberIds = new Set(
-        group.members.filter((member) => member.isSelf).map((member) => member.id),
-      )
+      const selfMemberIds = expensePayAllSelfMemberIds(group)
       hasPayAllItems = group.settlementTransfers.some((transfer) => (
         selfMemberIds.has(transfer.fromMemberId)
       ))

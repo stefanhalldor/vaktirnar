@@ -3,6 +3,7 @@ import type {
   ExpensePayAllContextView,
   ExpensePayAllPaymentView,
   ExpensePayAllView,
+  ExpenseGroupView,
   ExpensePaymentSnapshotView,
 } from './contracts'
 import { addMinorAmounts, compareStableIds } from './money'
@@ -15,6 +16,14 @@ export interface ExpensePayAllCandidate {
   currency: string
   paymentInstruction: ExpensePaymentSnapshotView | null
   context: ExpensePayAllContextView
+}
+
+export function expensePayAllSelfMemberIds(
+  group: Pick<ExpenseGroupView, 'balances'>,
+): Set<string> {
+  return new Set(
+    group.balances.filter((balance) => balance.isSelf).map((balance) => balance.memberId),
+  )
 }
 
 function paymentInstructionSignature(snapshot: ExpensePaymentSnapshotView | null): string {

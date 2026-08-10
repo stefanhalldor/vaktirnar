@@ -4,7 +4,11 @@ import type {
   ExpensePayAllContextView,
   ExpensePaymentSnapshotView,
 } from '@/lib/expenses/contracts'
-import { buildExpensePayAllView, type ExpensePayAllCandidate } from '@/lib/expenses/pay-all'
+import {
+  buildExpensePayAllView,
+  expensePayAllSelfMemberIds,
+  type ExpensePayAllCandidate,
+} from '@/lib/expenses/pay-all'
 
 function context(overrides: Partial<ExpensePayAllContextView> = {}): ExpensePayAllContextView {
   return {
@@ -44,6 +48,18 @@ function candidate(overrides: Partial<ExpensePayAllCandidate> = {}): ExpensePayA
 }
 
 describe('buildExpensePayAllView', () => {
+  it('recognizes direct and canonical linked self balances regardless of debt count', () => {
+    const ids = expensePayAllSelfMemberIds({
+      balances: [
+        { memberId: 'direct-self', displayName: 'Ég', currency: 'ISK', amountMinor: 0, isSelf: true },
+        { memberId: 'linked-self', displayName: 'Pabbi', currency: 'ISK', amountMinor: -25_000, isSelf: true },
+        { memberId: 'guest', displayName: 'Gestur', currency: 'ISK', amountMinor: -5_000, isSelf: false },
+      ],
+    })
+
+    expect([...ids].sort()).toEqual(['direct-self', 'linked-self'])
+  })
+
   it('combines the same creditor, currency and payment destination across contexts', () => {
     const view = buildExpensePayAllView([
       candidate(),
