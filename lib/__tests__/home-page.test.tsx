@@ -40,6 +40,10 @@ vi.mock('next-intl/server', () => ({
         weatherCardDescription: 'Þitt veðurkort ásamt akstri með tilliti til færðar',
         bookkeepingCardTitle: 'Bókhaldið',
         bookkeepingCardDescription: 'Handvirkar færslur og rekjanleg VSK-vinnubók fyrir reksturinn þinn.',
+        quizCardTitle: 'Kviss',
+        quizCardDescription: 'Búðu til spurningar, settu saman kviss og stjórnaðu leiknum.',
+        advertiserCardTitle: 'Auglýsandi',
+        advertiserCardDescription: 'Búðu til auglýsingar fyrir Kviss og sendu þær í yfirferð.',
         homeIdeasDrawerOpen:  'Skoða hugmyndir',
         homeIdeasDrawerClose: 'Fela hugmyndir',
         loansTitle:           'Lánað og skilað',
@@ -351,6 +355,8 @@ function setupGuard(
   vedridAccess = false,
   expensesAccess = false,
   bookkeepingAccess = false,
+  kvissAccess = false,
+  advertiserAccess = false,
 ) {
   mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
   mockCheckFeatureAccess.mockImplementation(
@@ -360,6 +366,8 @@ function setupGuard(
       if (featureKey === 'vedrid') return vedridAccess
       if (featureKey === 'utlagt-og-endurgreitt') return expensesAccess
       if (featureKey === 'bokhaldid') return bookkeepingAccess
+      if (featureKey === 'kviss') return kvissAccess
+      if (featureKey === 'auglysandi') return advertiserAccess
       return false
     },
   )
@@ -1521,5 +1529,46 @@ describe('HeimPage — bookkeeping private-beta card', () => {
     expect(screen.queryByRole('link', { name: /Opna Bókhaldið/ })).toBeNull()
     expect(screen.queryByText('Bókhaldið')).toBeNull()
     expect(document.querySelector('a[href="/hugmyndir/bokhaldid"]')).toBeNull()
+  })
+})
+
+describe('HeimPage — Kviss and advertiser private-beta cards', () => {
+  it('shows both as normal Teskeið cards only for an entitled user', async () => {
+    setupGuard(false, false, false, false, false, true, true)
+    setupProfile(null)
+
+    render(await HeimPage())
+
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith(TEST_USER.id, TEST_USER.email, 'kviss')
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith(TEST_USER.id, TEST_USER.email, 'auglysandi')
+    expect(screen.getByRole('link', { name: 'Opna Kviss' })).toHaveAttribute('href', '/auth-mvp/kviss')
+    expect(screen.getByRole('link', { name: 'Opna Auglýsandi' })).toHaveAttribute('href', '/auth-mvp/auglysandi')
+  })
+
+  it('hides both cards when their exact per-user gates are denied', async () => {
+    setupGuard(false, false, false, false, false, false, false)
+    setupProfile(null)
+
+    render(await HeimPage())
+
+    expect(screen.queryByRole('link', { name: 'Opna Kviss' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Opna Auglýsandi' })).toBeNull()
+  })
+
+  it('does not duplicate a matching idea seed', async () => {
+    mockIdeasResult.mockResolvedValue({
+      data: [
+        makeIdea({ id: 'idea-kviss', slug: 'kviss', title: 'Kviss', status: 'building' }),
+        makeIdea({ id: 'idea-advertiser', slug: 'auglysandi', title: 'Auglýsandi', status: 'building' }),
+      ],
+      error: null,
+    })
+    setupGuard(false, false, false, false, false, true, true)
+    setupProfile(null)
+
+    render(await HeimPage())
+
+    expect(screen.getAllByRole('link', { name: 'Opna Kviss' })).toHaveLength(1)
+    expect(screen.getAllByRole('link', { name: 'Opna Auglýsandi' })).toHaveLength(1)
   })
 })

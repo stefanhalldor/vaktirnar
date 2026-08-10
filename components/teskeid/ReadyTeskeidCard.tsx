@@ -10,6 +10,8 @@ import {
   Clock,
   Lightbulb,
   CloudSun,
+  Trophy,
+  Megaphone,
   ChevronRight,
   type LucideIcon,
 } from 'lucide-react'
@@ -23,6 +25,8 @@ const SLUG_ICONS: Record<string, LucideIcon> = {
   'krakkavaktin': Baby,
   'vedrid': CloudSun,
   'umonnun': Heart,
+  'kviss': Trophy,
+  'auglysandi': Megaphone,
 }
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
@@ -52,7 +56,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
 const DEFAULT_COLORS = { bg: 'bg-[#e9f4e6]', text: 'text-[#2d5a27]' }
 
 interface Props {
-  idea: Idea
+  idea: Pick<Idea, 'slug' | 'title' | 'short_description' | 'category'>
   href: string
   openLabel: string
   pendingBadge?: number

@@ -68,10 +68,12 @@ export default async function HeimPage() {
     // createClient() failed — fall through to defaults
   }
 
-  const [recentEventAccess, umonnunEnabled, bookkeepingEnabled] = await Promise.all([
+  const [recentEventAccess, umonnunEnabled, bookkeepingEnabled, kvissEnabled, advertiserEnabled] = await Promise.all([
     resolveRecentEventSourceAccess(user),
     checkFeatureAccess(user.id, user.email!, 'umonnun'),
     checkFeatureAccess(user.id, user.email!, 'bokhaldid'),
+    checkFeatureAccess(user.id, user.email!, 'kviss'),
+    checkFeatureAccess(user.id, user.email!, 'auglysandi'),
   ])
   const { loansEnabled, expensesEnabled, sources: recentEventSources } = recentEventAccess
 
@@ -88,17 +90,47 @@ export default async function HeimPage() {
     'bokhaldid':       { href: '/auth-mvp/bokhaldid',       enabled: bookkeepingEnabled },
     'umonnun':         { href: '/auth-mvp/umonnun',         enabled: umonnunEnabled },
     'vedrid':          { href: '/auth-mvp/vedrid',           enabled: weatherCardEnabled },
+    'kviss':           { href: '/auth-mvp/kviss',            enabled: kvissEnabled },
+    'auglysandi':      { href: '/auth-mvp/auglysandi',       enabled: advertiserEnabled },
   }
 
   const isPromotedPrivateBeta = (idea: Idea) =>
     (idea.slug === 'utlagt-og-endurgreitt' && expensesEnabled)
     || (idea.slug === 'bokhaldid' && bookkeepingEnabled)
+    || (idea.slug === 'kviss' && kvissEnabled)
+    || (idea.slug === 'auglysandi' && advertiserEnabled)
   const visibleIdeas = allIdeas.filter((i) => i.slug !== 'bokhaldid' || bookkeepingEnabled)
   const launchedIdeas = visibleIdeas.filter((i) => i.status === 'launched' || isPromotedPrivateBeta(i))
   const futureIdeas   = visibleIdeas.filter((i) => i.status !== 'launched' && !isPromotedPrivateBeta(i))
-  const readyCards    = launchedIdeas
+  const ideaReadyCards = launchedIdeas
     .filter((i) => READY_TESKEID_ROUTES[i.slug]?.enabled)
     .map((i) => ({ idea: i, href: READY_TESKEID_ROUTES[i.slug]!.href }))
+  const readyCards: Array<{
+    idea: Pick<Idea, 'slug' | 'title' | 'short_description' | 'category'>
+    href: string
+  }> = [...ideaReadyCards]
+  if (kvissEnabled && !readyCards.some(({ idea }) => idea.slug === 'kviss')) {
+    readyCards.push({
+      idea: {
+        slug: 'kviss',
+        title: t('quizCardTitle'),
+        short_description: t('quizCardDescription'),
+        category: 'Viðburðir',
+      },
+      href: '/auth-mvp/kviss',
+    })
+  }
+  if (advertiserEnabled && !readyCards.some(({ idea }) => idea.slug === 'auglysandi')) {
+    readyCards.push({
+      idea: {
+        slug: 'auglysandi',
+        title: t('advertiserCardTitle'),
+        short_description: t('advertiserCardDescription'),
+        category: 'Annað',
+      },
+      href: '/auth-mvp/auglysandi',
+    })
+  }
 
   let pendingCount = 0
   let invitationsError = false
