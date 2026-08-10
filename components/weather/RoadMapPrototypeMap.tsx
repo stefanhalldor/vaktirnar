@@ -151,6 +151,7 @@ import { LiveDriveThresholdFields } from './LiveDriveThresholdFields'
 import { VegagerdinStaleNotice } from './VegagerdinStaleNotice'
 import { MapNotesPanel } from './MapNotesPanel'
 import { PlaceSearch } from './PlaceSearch'
+import { CurrentLocationPermissionHelp } from './CurrentLocationPermissionHelp'
 import {
   WeatherChasePanel,
   addCustomMetnoPreferenceItem,
@@ -6009,7 +6010,10 @@ export function RoadMapPrototypeMap({
         setRouteLiveLocationPoint(null)
         setRouteLiveLocationError(error)
         setRouteLiveLocationStatus('error')
-        if (mode === 'free-drive') setFreeDrivePaused(false)
+        if (mode === 'free-drive') {
+          setFreeDrivePaused(false)
+          if (error === 'permission_denied') setIsRouteMapSettingsCollapsed(false)
+        }
       },
       enableHighAccuracy: true,
       maximumAgeMs: 0,
@@ -11863,6 +11867,10 @@ export function RoadMapPrototypeMap({
                   backLabel: t('roadMapPrototypeWeatherChasePlaceBack'),
                   cancelLabel: t('roadMapPrototypeWeatherChasePlaceCancel'),
                   saveLabel: t('roadMapPrototypeWeatherChasePlaceSave'),
+                  nameTitle: t('roadMapPrototypeWeatherChaseCustomMetnoNameTitle'),
+                  nameLabel: t('roadMapPrototypeWeatherChaseCustomMetnoNameLabel'),
+                  namePlaceholder: t('roadMapPrototypeWeatherChaseCustomMetnoNamePlaceholder'),
+                  nameRequired: t('roadMapPrototypeWeatherChaseCustomMetnoNameRequired'),
                   mapLoadingLabel: t('roadMapPrototypeWeatherChasePlaceMapLoading'),
                   mapErrorLabel: t('roadMapPrototypeWeatherChasePlaceMapError'),
                   metnoProviderLabel: t('roadMapPrototypeWeatherChaseProviderMetno'),
@@ -12795,6 +12803,10 @@ export function RoadMapPrototypeMap({
                   {t('roadMapPrototypeFreeDriveStationsWithoutLocation')}
                 </button>
               </div>
+            )}
+
+            {routeLiveLocationError === 'permission_denied' && (
+              <CurrentLocationPermissionHelp />
             )}
 
             <LiveLocationControls

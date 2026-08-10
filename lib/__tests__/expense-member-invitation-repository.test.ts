@@ -14,6 +14,7 @@ vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mockGetAdmin }))
 import {
   getExpenseDashboard,
   getExpenseMemberInvitation,
+  getExpenseMemberInvitationPreview,
 } from '@/lib/expenses/repository.server'
 
 const ACTOR_ID = '10000000-0000-4000-8000-000000000001'
@@ -37,6 +38,18 @@ const rawInvitation = {
   shares: [{ member_id: 'private' }],
 }
 
+const rawPreview = {
+  ...rawInvitation,
+  expense_id: '40000000-0000-4000-8000-000000000001',
+  expense_title: 'Afmælisgjöf fyrir mömmu',
+  description: 'Blóm og kvöldverður',
+  total_minor: 85000,
+  currency: 'ISK',
+  incurred_on: '2026-08-03',
+  payers: [{ displayName: 'Stebbi', amountMinor: 85000, memberId: 'must-not-leak' }],
+  participants: [{ displayName: 'Martine', amountMinor: 42500, email: 'must-not-leak@example.is' }],
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockFrom.mockImplementation((table: string) => {
@@ -49,7 +62,10 @@ beforeEach(() => {
       })),
     }
   })
-  mockRpc.mockResolvedValue({ data: [rawInvitation], error: null })
+  mockRpc.mockImplementation(async (name: string) => ({
+    data: [name === 'expense_get_scoped_member_invitation_preview' ? rawPreview : rawInvitation],
+    error: null,
+  }))
   mockGetAdmin.mockReturnValue({ from: mockFrom, rpc: mockRpc })
 })
 
@@ -114,5 +130,25 @@ describe('expense member invitation repository privacy boundary', () => {
       ACTOR_ID,
       '50000000-0000-4000-8000-000000000099',
     )).resolves.toBeNull()
+  })
+
+  it('projects only the exact bounded ledger preview for the intended recipient', async () => {
+    const preview = await getExpenseMemberInvitationPreview(ACTOR_ID, INVITATION_ID)
+
+    expect(preview).toMatchObject({
+      invitationId: INVITATION_ID,
+      expenseId: rawPreview.expense_id,
+      expenseTitle: 'Afmælisgjöf fyrir mömmu',
+      description: 'Blóm og kvöldverður',
+      totalMinor: 85000,
+      currency: 'ISK',
+      payers: [{ displayName: 'Stebbi', amountMinor: 85000 }],
+      participants: [{ displayName: 'Martine', amountMinor: 42500 }],
+    })
+    expect(JSON.stringify(preview)).not.toContain('must-not-leak')
+    expect(mockRpc).toHaveBeenCalledWith('expense_get_scoped_member_invitation_preview', {
+      p_actor_id: ACTOR_ID,
+      p_invitation_id: INVITATION_ID,
+    })
   })
 })

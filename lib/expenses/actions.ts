@@ -698,12 +698,24 @@ export async function resendExpenseMemberInvitation(
 
 export async function respondExpenseMemberInvitation(
   input: unknown,
-): Promise<ExpenseActionResult<{ status: 'accepted' | 'declined' | 'expired'; groupId?: string }>> {
+): Promise<ExpenseActionResult<{ status: 'accepted' | 'declined' | 'expired'; groupId?: string; expenseId?: string }>> {
   const { user } = await guardExpenseSession()
   try {
     const parsed = RespondExpenseMemberInvitationSchema.safeParse(input)
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
     const admin = getAdmin()
+    if (parsed.data.action === 'accept') {
+      const { data: previewData, error: previewError } = await admin.rpc(
+        'expense_get_scoped_member_invitation_preview',
+        { p_actor_id: user.id, p_invitation_id: parsed.data.invitation_id },
+      )
+      if (previewError) rpcError(previewError)
+      const preview = Array.isArray(previewData) ? previewData[0] : previewData
+      if (!preview || typeof preview !== 'object'
+        || (preview as Record<string, unknown>).expense_id !== parsed.data.expected_expense_id) {
+        throw new Error('expense_save_failed')
+      }
+    }
     const { data, error } = await admin.rpc('expense_respond_scoped_member_invitation', {
       p_actor_id: user.id,
       p_invitation_id: parsed.data.invitation_id,
@@ -718,7 +730,11 @@ export async function respondExpenseMemberInvitation(
     }
 
     const groupId = typeof result.group_id === 'string' ? result.group_id : undefined
+    const expenseId = typeof result.expense_id === 'string' ? result.expense_id : undefined
     if (status === 'accepted') {
+      if (!expenseId || expenseId !== parsed.data.expected_expense_id) {
+        throw new Error('expense_save_failed')
+      }
       const ownerUserId = typeof result.invited_by === 'string' ? result.invited_by : ''
       const memberId = typeof result.member_id === 'string' ? result.member_id : ''
       const counterpartUserId = typeof result.counterpart_user_id === 'string'
@@ -767,7 +783,11 @@ export async function respondExpenseMemberInvitation(
     }
 
     revalidateExpensePaths(groupId)
-    return { ok: true, data: { status, ...(groupId ? { groupId } : {}) } }
+    return { ok: true, data: {
+      status,
+      ...(groupId ? { groupId } : {}),
+      ...(expenseId ? { expenseId } : {}),
+    } }
   } catch (error) {
     console.error('[expenses] member invitation response failed')
     return actionError(error)

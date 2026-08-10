@@ -265,6 +265,8 @@ export interface ExpensePayAllContextView {
   amountMinor: number
   currency: string
   expenses: ExpensePayAllExpenseLinkView[]
+  /** Exact server-authorized transfer used by the existing idempotent report flow. */
+  transfer: ExpenseSettlementTransferView
 }
 
 export interface ExpensePayAllPaymentView {
@@ -307,6 +309,27 @@ export interface ExpenseMemberInvitationView {
   expiresAt: string
   invitedAt: string
 }
+
+export interface ExpenseMemberInvitationPartyView {
+  displayName: string
+  amountMinor: number
+}
+
+export interface ExpenseMemberInvitationPreviewView extends ExpenseMemberInvitationView {
+  expenseId: string
+  expenseTitle: string
+  description: string | null
+  totalMinor: number
+  currency: string
+  incurredOn: string
+  payers: ExpenseMemberInvitationPartyView[]
+  participants: ExpenseMemberInvitationPartyView[]
+}
+
+export type ExpenseItemLookupResult =
+  | { status: 'ok'; group: ExpenseGroupView; expense: ExpenseItemView }
+  | { status: 'not_found' }
+  | { status: 'forbidden' }
 
 export interface ExpenseGroupSummaryView {
   id: string

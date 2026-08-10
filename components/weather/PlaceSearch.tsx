@@ -10,10 +10,11 @@ import {
   type KeyboardEvent,
   type Ref,
 } from 'react'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
 import { LocateFixed, MapPinned, Search, X } from 'lucide-react'
 import { PlaceMapPicker } from './PlaceMapPicker'
 import { PlaceDataAttributions } from './PlaceDataAttributions'
+import { CurrentLocationPermissionHelp } from './CurrentLocationPermissionHelp'
 import { PlaceResultIdentity } from './PlaceResultIdentity'
 import type {
   PlaceRoutingReference,
@@ -313,7 +314,6 @@ export function PlaceSearch({
   mapSelectionMode = 'always',
 }: PlaceSearchProps) {
   const t = useTranslations('teskeid.vedrid.placeSearch')
-  const locale = useLocale()
   const generatedId = useId()
   const inputId = `place-search-${generatedId}`
   const listboxId = `${inputId}-results`
@@ -331,7 +331,6 @@ export function PlaceSearch({
   const [resultsMaxHeightPx, setResultsMaxHeightPx] = useState<number | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
   const [locationError, setLocationError] = useState<CurrentLocationErrorCode | null>(null)
-  const [showEnglishPermissionHelp, setShowEnglishPermissionHelp] = useState(false)
   const [mapPickerOpen, setMapPickerOpen] = useState(false)
   const [mapPickerPlaces, setMapPickerPlaces] = useState<PlaceResult[]>([])
   const localInputRef = useRef<HTMLInputElement | null>(null)
@@ -362,8 +361,6 @@ export function PlaceSearch({
     mapSelectionMode === 'always'
     || (trimmedQuery.length >= 2 && searchComplete && !loading)
   )
-  const interfaceUsesEnglish = locale.toLowerCase().startsWith('en')
-  const permissionHelpUsesEnglish = interfaceUsesEnglish || showEnglishPermissionHelp
   const settlementTypeLabel = t('placeTypeSettlement')
   const addressTypeLabel = t('placeTypeAddress')
   const accessiblePlaceLabel = (place: PlaceResult | SavedPlace) => getPlaceAccessibleLabel(
@@ -740,42 +737,7 @@ export function PlaceSearch({
                 : t('errorAllProviders')}
           </p>
           {locationError === 'permission_denied' && (
-            <details
-              id={permissionHelpId}
-              className="overflow-hidden rounded-lg border border-border bg-muted/30 text-muted-foreground"
-            >
-              <summary className="min-h-10 cursor-pointer px-3 py-2 text-xs font-medium leading-6 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                {t('currentLocationPermissionHelpTitle')}
-              </summary>
-              <div className="flex flex-col gap-2 border-t border-border px-3 py-2 text-xs leading-relaxed">
-                {!interfaceUsesEnglish && (
-                  <button
-                    type="button"
-                    onClick={() => setShowEnglishPermissionHelp(current => !current)}
-                    className="min-h-10 self-start rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {showEnglishPermissionHelp
-                      ? t('currentLocationPermissionShowIcelandic')
-                      : t('currentLocationPermissionShowEnglish')}
-                  </button>
-                )}
-                <div
-                  lang={permissionHelpUsesEnglish ? 'en' : 'is'}
-                  className="flex flex-col gap-2"
-                >
-                  <p>
-                    {t(permissionHelpUsesEnglish
-                      ? 'currentLocationPermissionIosHelpEnglish'
-                      : 'currentLocationPermissionIosHelp')}
-                  </p>
-                  <p>
-                    {t(permissionHelpUsesEnglish
-                      ? 'currentLocationPermissionBrowserHelpEnglish'
-                      : 'currentLocationPermissionBrowserHelp')}
-                  </p>
-                </div>
-              </div>
-            </details>
+            <CurrentLocationPermissionHelp id={permissionHelpId} />
           )}
         </>
       )}

@@ -7,7 +7,7 @@ import { respondExpenseMemberInvitation } from '@/lib/expenses/actions'
 import { useExpenseTranslations } from './i18n.client'
 import { useExpenseMutationRequestIds } from './request-id'
 
-export function ExpenseMemberInvitationActions({ invitationId }: { invitationId: string }) {
+export function ExpenseMemberInvitationActions({ invitationId, expenseId }: { invitationId: string; expenseId: string }) {
   const t = useExpenseTranslations()
   const router = useRouter()
   const requestIds = useExpenseMutationRequestIds()
@@ -17,7 +17,11 @@ export function ExpenseMemberInvitationActions({ invitationId }: { invitationId:
   const containerRef = useRef<HTMLDivElement>(null)
 
   function respond(action: 'accept' | 'decline') {
-    const payload = { invitation_id: invitationId, action }
+    const payload = {
+      invitation_id: invitationId,
+      action,
+      ...(action === 'accept' ? { expected_expense_id: expenseId } : {}),
+    }
     setError(null)
     setPendingAction(action)
     startTransition(async () => {
@@ -32,7 +36,9 @@ export function ExpenseMemberInvitationActions({ invitationId }: { invitationId:
         return
       }
       requestIds.succeeded(payload)
-      router.push('/auth-mvp/heim')
+      router.push(action === 'accept' && result.data.expenseId
+        ? `/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`
+        : '/auth-mvp/utlagt-og-endurgreitt')
       router.refresh()
     })
   }

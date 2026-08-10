@@ -20,11 +20,13 @@ export function ExpenseRepaymentDialog({
   transfer,
   initialDate,
   actionSheetTrigger = false,
+  triggerLabel,
 }: {
   groupId: string
   transfer: ExpenseSettlementTransferView
   initialDate: string
   actionSheetTrigger?: boolean
+  triggerLabel?: string
 }) {
   const t = useExpenseTranslations()
   const router = useRouter()
@@ -43,11 +45,11 @@ export function ExpenseRepaymentDialog({
       <Dialog.Trigger asChild>
         {actionSheetTrigger ? (
           <TeskeidActionButton type="button" variant="primary" className="w-full">
-            {t(mode === 'recordReceived' ? 'repayment.recordReceived' : 'repayment.report')}
+            {triggerLabel ?? t(mode === 'recordReceived' ? 'repayment.recordReceived' : 'repayment.report')}
           </TeskeidActionButton>
         ) : (
           <button type="button" className={`${expenseSecondaryButtonClass} mt-2 w-full justify-start border-0 px-0 text-primary shadow-none`}>
-            {t(mode === 'recordReceived' ? 'repayment.recordReceived' : 'repayment.report')}
+            {triggerLabel ?? t(mode === 'recordReceived' ? 'repayment.recordReceived' : 'repayment.report')}
           </button>
         )}
       </Dialog.Trigger>

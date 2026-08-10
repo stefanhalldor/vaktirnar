@@ -19,6 +19,11 @@ function context(overrides: Partial<ExpensePayAllContextView> = {}): ExpensePayA
     amountMinor: 5_000,
     currency: 'ISK',
     expenses: [{ id: 'expense-1', title: 'Matur', incurredOn: '2026-08-08' }],
+    transfer: {
+      fromMemberId: 'self', fromDisplayName: 'Ég', toMemberId: 'creditor', toDisplayName: 'Anna',
+      amountMinor: 5_000, currency: 'ISK', expectedFinancialVersion: 1, canReport: true,
+      paymentInstruction: null,
+    },
     ...overrides,
   }
 }

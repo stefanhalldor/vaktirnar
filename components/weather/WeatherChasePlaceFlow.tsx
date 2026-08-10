@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { SelectedProviderMarker } from '@/lib/weather/types'
 import { haversineDistanceM } from '@/lib/weather/nearestStations'
 import { PlaceSearch, type PlaceResult } from './PlaceSearch'
@@ -19,6 +19,10 @@ export type WeatherChasePlaceFlowLabels = {
   backLabel: string
   cancelLabel: string
   saveLabel: string
+  nameTitle: string
+  nameLabel: string
+  namePlaceholder: string
+  nameRequired: string
   mapLoadingLabel: string
   mapErrorLabel: string
   metnoProviderLabel: string
@@ -70,11 +74,14 @@ export function WeatherChasePlaceFlow({
   labels: WeatherChasePlaceFlowLabels
   locale: string
   onCancel: () => void
-  onSave: (place: PlaceResult) => void
+  onSave: (place: PlaceResult, customName: string) => void
   onAddNearbyItem: (item: WeatherChaseItem) => void
 }) {
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null)
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null)
+  const [customName, setCustomName] = useState('')
+  const [nameError, setNameError] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
   const nearbyVedurstofan = useMemo(
     () => selectedPlace ? nearestWeatherChaseContextItems(selectedPlace, items, 'vedurstofan', items.length) : [],
     [items, selectedPlace],
@@ -140,6 +147,18 @@ export function WeatherChasePlaceFlow({
     setSelectedStationId(selected?.markerId ?? null)
   }
 
+  const saveCustomPoint = () => {
+    const name = customName.trim()
+    if (!name) {
+      setNameError(true)
+      nameInputRef.current?.focus()
+      return
+    }
+    onSave(selectedPlace, name)
+    setCustomName('')
+    setNameError(false)
+  }
+
   return (
     <section className="space-y-3 border-y border-border py-3">
       <div>
@@ -156,9 +175,38 @@ export function WeatherChasePlaceFlow({
         selected={selectedMarker}
         onSelect={selectMarker}
       />
+      <div className="space-y-2">
+        <div>
+          <h4 className="text-sm font-semibold text-foreground">{labels.nameTitle}</h4>
+          <label htmlFor="weather-chase-custom-point-name" className="mt-2 block text-sm font-medium text-foreground">
+            {labels.nameLabel}
+          </label>
+        </div>
+        <input
+          ref={nameInputRef}
+          id="weather-chase-custom-point-name"
+          type="text"
+          value={customName}
+          maxLength={120}
+          autoComplete="off"
+          placeholder={labels.namePlaceholder}
+          aria-invalid={nameError || undefined}
+          aria-describedby={nameError ? 'weather-chase-custom-point-name-error' : undefined}
+          onChange={(event) => {
+            setCustomName(event.target.value)
+            if (event.target.value.trim()) setNameError(false)
+          }}
+          className="h-11 w-full rounded-lg border border-border bg-background px-3 text-base text-foreground outline-none focus:ring-2 focus:ring-ring"
+        />
+        {nameError && (
+          <p id="weather-chase-custom-point-name-error" role="alert" className="text-xs text-destructive">
+            {labels.nameRequired}
+          </p>
+        )}
+      </div>
       <button
         type="button"
-        onClick={() => onSave(selectedPlace)}
+        onClick={saveCustomPoint}
         className="min-h-11 w-full rounded-lg bg-green-700 px-3 py-2 text-sm font-semibold text-white hover:bg-green-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2"
       >
         {labels.saveLabel}
@@ -215,7 +263,11 @@ export function WeatherChasePlaceFlow({
       <div>
         <button
           type="button"
-          onClick={() => setSelectedPlace(null)}
+          onClick={() => {
+            setSelectedPlace(null)
+            setCustomName('')
+            setNameError(false)
+          }}
           className="min-h-11 w-full rounded-lg border border-border px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {labels.backLabel}

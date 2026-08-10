@@ -11,12 +11,14 @@ import type {
 import { formatDateOnly } from '@/lib/date-format'
 import { formatExpenseMinor, formatExpenseMinorForCopy } from '@/lib/expenses/input-money'
 import { ExpensePaymentDetails } from './ExpensePaymentDetails'
+import { ExpenseRepaymentDialog } from './ExpenseRepaymentDialog'
 import { useExpenseTranslations } from './i18n.client'
 import { expenseSecondaryButtonClass, expenseSectionClass } from './ui'
 
-function ContextRows({ contexts, locale }: {
+function ContextRows({ contexts, locale, initialDate }: {
   contexts: ExpensePayAllContextView[]
   locale: string
+  initialDate: string
 }) {
   const t = useExpenseTranslations()
 
@@ -44,6 +46,14 @@ function ContextRows({ contexts, locale }: {
           >
             {t('payAll.openSettlement')}
           </Link>
+
+          <ExpenseRepaymentDialog
+            groupId={context.groupId}
+            transfer={context.transfer}
+            initialDate={initialDate}
+            actionSheetTrigger
+            triggerLabel={t('payAll.markPaid')}
+          />
 
           {context.expenses.length > 0 ? (
             <div>
@@ -73,9 +83,10 @@ function ContextRows({ contexts, locale }: {
   )
 }
 
-function PaymentContextDrawer({ payment, locale }: {
+function PaymentContextDrawer({ payment, locale, initialDate }: {
   payment: ExpensePayAllPaymentView
   locale: string
+  initialDate: string
 }) {
   const t = useExpenseTranslations()
 
@@ -109,7 +120,7 @@ function PaymentContextDrawer({ payment, locale }: {
             </Dialog.Close>
           </div>
           <div className="mt-5">
-            <ContextRows contexts={payment.contexts} locale={locale} />
+            <ContextRows contexts={payment.contexts} locale={locale} initialDate={initialDate} />
           </div>
         </Dialog.Content>
       </Dialog.Portal>
@@ -117,7 +128,7 @@ function PaymentContextDrawer({ payment, locale }: {
   )
 }
 
-export function ExpensePayAll({ view, locale }: { view: ExpensePayAllView; locale: string }) {
+export function ExpensePayAll({ view, locale, initialDate }: { view: ExpensePayAllView; locale: string; initialDate: string }) {
   const t = useExpenseTranslations()
 
   if (view.payments.length === 0 && view.blockedContexts.length === 0) {
@@ -148,7 +159,16 @@ export function ExpensePayAll({ view, locale }: { view: ExpensePayAllView; local
               copy: formatExpenseMinorForCopy(payment.amountMinor, payment.currency),
             }}
           />
-          <PaymentContextDrawer payment={payment} locale={locale} />
+          {payment.contexts.length === 1 ? (
+            <ExpenseRepaymentDialog
+              groupId={payment.contexts[0].groupId}
+              transfer={payment.contexts[0].transfer}
+              initialDate={initialDate}
+              actionSheetTrigger
+              triggerLabel={t('payAll.markPaid')}
+            />
+          ) : null}
+          <PaymentContextDrawer payment={payment} locale={locale} initialDate={initialDate} />
         </section>
       ))}
 

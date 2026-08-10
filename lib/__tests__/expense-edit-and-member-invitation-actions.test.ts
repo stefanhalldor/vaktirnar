@@ -595,10 +595,15 @@ describe('expense guest-member invitations', () => {
 
   it('keeps an accepted durable link successful when optional Tengsl enrichment fails', async () => {
     setRpcResponses({
+      expense_get_scoped_member_invitation_preview: {
+        data: [{ expense_id: EXPENSE_ID }],
+        error: null,
+      },
       expense_respond_scoped_member_invitation: {
         data: {
           status: 'accepted',
           group_id: GROUP_ID,
+          expense_id: EXPENSE_ID,
           invited_by: OWNER_ID,
           member_id: GUEST_MEMBER_ID,
           counterpart_user_id: ACTOR_ID,
@@ -617,6 +622,7 @@ describe('expense guest-member invitations', () => {
     const result = await respondExpenseMemberInvitation({
       invitation_id: INVITATION_ID,
       action: 'accept',
+      expected_expense_id: EXPENSE_ID,
       request_id: REQUEST_ID,
     })
 
@@ -634,7 +640,7 @@ describe('expense guest-member invitations', () => {
     })
     expect(result).toEqual({
       ok: true,
-      data: { status: 'accepted', groupId: GROUP_ID },
+      data: { status: 'accepted', groupId: GROUP_ID, expenseId: EXPENSE_ID },
     })
   })
 
@@ -662,6 +668,49 @@ describe('expense guest-member invitations', () => {
     })
     expect(mockGetUserById).not.toHaveBeenCalled()
     expect(mockUpsertSourceRelationship).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when an accepted response does not bind the expected exact expense', async () => {
+    setRpcResponses({
+      expense_get_scoped_member_invitation_preview: {
+        data: [{ expense_id: EXPENSE_ID }],
+        error: null,
+      },
+      expense_respond_scoped_member_invitation: {
+        data: { status: 'accepted', group_id: GROUP_ID, expense_id: '40000000-0000-4000-8000-000000000099' },
+        error: null,
+      },
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(respondExpenseMemberInvitation({
+      invitation_id: INVITATION_ID,
+      action: 'accept',
+      expected_expense_id: EXPENSE_ID,
+      request_id: REQUEST_ID,
+    })).resolves.toEqual({ ok: false, error: 'save_failed' })
+    expect(mockUpsertSourceRelationship).not.toHaveBeenCalled()
+  })
+
+  it('does not mutate an invitation when the client supplies the wrong expected expense', async () => {
+    setRpcResponses({
+      expense_get_scoped_member_invitation_preview: {
+        data: [{ expense_id: EXPENSE_ID }],
+        error: null,
+      },
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(respondExpenseMemberInvitation({
+      invitation_id: INVITATION_ID,
+      action: 'accept',
+      expected_expense_id: '40000000-0000-4000-8000-000000000099',
+      request_id: REQUEST_ID,
+    })).resolves.toEqual({ ok: false, error: 'save_failed' })
+    expect(mockRpc).not.toHaveBeenCalledWith(
+      'expense_respond_scoped_member_invitation',
+      expect.anything(),
+    )
   })
 
   it.each([

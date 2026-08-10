@@ -41,6 +41,8 @@ import type {
   ExpenseIncompleteDraftSummaryView,
   ExpenseItemView,
   ExpenseMemberInvitationView,
+  ExpenseMemberInvitationPreviewView,
+  ExpenseItemLookupResult,
   ExpenseMemberRole,
   ExpenseMemberView,
   ExpensePaymentPreferenceView,
@@ -51,6 +53,7 @@ import type {
   ExpenseRepaymentView,
   ExpenseRevisionSnapshot,
   ExpenseRevisionView,
+  ExpenseSettlementTransferView,
 } from './contracts'
 import type { ExpenseActivityEventType } from './events'
 import {
@@ -831,18 +834,18 @@ export async function getExpenseGroupView(
 
 function expensePayAllContext(
   group: ExpenseGroupView,
-  amountMinor: number,
-  currency: string,
+  transfer: ExpenseSettlementTransferView,
 ): ExpensePayAllContextView {
   return {
     groupId: group.id,
     groupKind: group.kind,
     groupName: group.name,
     emoji: group.emoji,
-    amountMinor,
-    currency,
+    amountMinor: transfer.amountMinor,
+    currency: transfer.currency,
+    transfer,
     expenses: group.expenses
-      .filter((expense) => expense.status === 'active' && expense.currency === currency)
+      .filter((expense) => expense.status === 'active' && expense.currency === transfer.currency)
       .map((expense) => ({
         id: expense.id,
         title: expense.title,
@@ -877,7 +880,7 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
         if (!selfMemberIds.has(transfer.fromMemberId)) continue
         const creditor = membersById.get(transfer.toMemberId)
         if (!creditor) continue
-        const context = expensePayAllContext(group, transfer.amountMinor, transfer.currency)
+        const context = expensePayAllContext(group, transfer)
         if (!transfer.canReport) {
           blockedContexts.push({ ...context, recipientDisplayName: transfer.toDisplayName })
           continue
@@ -1103,6 +1106,73 @@ export async function getExpenseMemberInvitation(
   } : null
 }
 
+export async function getExpenseMemberInvitationPreview(
+  actorUserId: string,
+  invitationId: string,
+): Promise<ExpenseMemberInvitationPreviewView | null> {
+  const { data, error } = await getAdmin().rpc('expense_get_scoped_member_invitation_preview', {
+    p_actor_id: actorUserId,
+    p_invitation_id: invitationId,
+  })
+  throwOnError(error, 'member invitation preview query')
+  const row = ((data ?? []) as Array<{
+    invitation_id: string
+    context_title: string
+    inviter_display_name: string | null
+    status: 'pending'
+    expires_at: string
+    invited_at: string
+    expense_id: string
+    expense_title: string
+    description: string | null
+    total_minor: number
+    currency: string
+    incurred_on: string
+    payers: unknown
+    participants: unknown
+  }>).find((candidate) => candidate.invitation_id === invitationId)
+  if (!row) return null
+  const totalMinor = Number(row.total_minor)
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.expense_id)
+    || !row.expense_title.trim()
+    || !Number.isSafeInteger(totalMinor)
+    || totalMinor < 1
+    || !/^[A-Z]{3}$/.test(row.currency)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(row.incurred_on)) return null
+
+  const parseParties = (value: unknown): Array<{ displayName: string; amountMinor: number }> => (
+    Array.isArray(value)
+      ? value.flatMap((party) => {
+          if (!party || typeof party !== 'object') return []
+          const item = party as Record<string, unknown>
+          return typeof item.displayName === 'string'
+            && item.displayName.trim().length > 0
+            && Number.isSafeInteger(item.amountMinor)
+            && (item.amountMinor as number) >= 0
+            ? [{ displayName: item.displayName.trim().slice(0, 120), amountMinor: item.amountMinor as number }]
+            : []
+        }).slice(0, 50)
+      : []
+  )
+
+  return {
+    invitationId: row.invitation_id,
+    contextTitle: row.context_title,
+    inviterDisplayName: row.inviter_display_name,
+    status: row.status,
+    expiresAt: row.expires_at,
+    invitedAt: row.invited_at,
+    expenseId: row.expense_id,
+    expenseTitle: row.expense_title.trim().slice(0, 200),
+    description: row.description?.trim().slice(0, 1000) || null,
+    totalMinor,
+    currency: row.currency,
+    incurredOn: row.incurred_on,
+    payers: parseParties(row.payers),
+    participants: parseParties(row.participants),
+  }
+}
+
 export async function getExpenseInvitation(
   actorUserId: string,
   groupId: string,
@@ -1133,26 +1203,29 @@ export async function getExpenseInvitation(
   }
 }
 
-export async function getExpenseItemView(
+export async function getExpenseItemLookup(
   actorUserId: string,
   expenseId: string,
   options: { includeCurrentPaymentInstructions?: boolean } = {},
-): Promise<{ group: ExpenseGroupView; expense: ExpenseItemView } | null> {
+): Promise<ExpenseItemLookupResult> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(expenseId)) {
+    return { status: 'not_found' }
+  }
   const { data, error } = await getAdmin()
     .from('expenses')
     .select('group_id')
     .eq('id', expenseId)
     .maybeSingle()
   throwOnError(error, 'expense locator query')
-  if (!data) return null
+  if (!data) return { status: 'not_found' }
   const group = await getExpenseGroupView(
     actorUserId,
     (data as { group_id: string }).group_id,
     options,
   )
-  if (!group) return null
+  if (!group) return { status: 'forbidden' }
   const expense = group.expenses.find((item) => item.id === expenseId)
-  if (!expense) return null
+  if (!expense) return { status: 'forbidden' }
   const { data: revisionRows, error: revisionError } = await getAdmin()
     .from('expense_revisions')
     .select('id, activity_id, financial_version_before, financial_version_after, changed_fields, before_snapshot, after_snapshot, created_at')
@@ -1184,7 +1257,16 @@ export async function getExpenseItemView(
       summaryCode: activity?.summary_code ?? 'expense_updated',
     }
   })
-  return { group, expense: { ...expense, revisions } }
+  return { status: 'ok', group, expense: { ...expense, revisions } }
+}
+
+export async function getExpenseItemView(
+  actorUserId: string,
+  expenseId: string,
+  options: { includeCurrentPaymentInstructions?: boolean } = {},
+): Promise<{ group: ExpenseGroupView; expense: ExpenseItemView } | null> {
+  const result = await getExpenseItemLookup(actorUserId, expenseId, options)
+  return result.status === 'ok' ? { group: result.group, expense: result.expense } : null
 }
 
 export async function getExpensePrivateDraft(

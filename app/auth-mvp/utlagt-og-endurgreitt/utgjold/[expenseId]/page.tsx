@@ -5,7 +5,7 @@ import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { parseExpenseSavedView } from '@/lib/expenses/flow'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
-import { getExpenseItemView } from '@/lib/expenses/repository.server'
+import { getExpenseItemLookup } from '@/lib/expenses/repository.server'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 
 export default async function ExpenseItemPage({ params, searchParams }: { params: Promise<{ expenseId: string }>; searchParams: Promise<{ view?: string | string[] }> }) {
@@ -15,10 +15,25 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
     getExpenseTranslations(),
     searchParams,
   ])
-  const result = await getExpenseItemView(user.id, expenseId, {
+  const result = await getExpenseItemLookup(user.id, expenseId, {
     includeCurrentPaymentInstructions: true,
   })
-  if (!result) notFound()
+  if (result.status === 'not_found') notFound()
+  if (result.status === 'forbidden') {
+    return (
+      <ExpenseShell
+        title={t('noAccess.title')}
+        homeLabel={t('homeLabel')}
+        backHref="/auth-mvp/utlagt-og-endurgreitt"
+        backLabel={t('back')}
+      >
+        <div role="alert" className="space-y-3 border-y border-border py-6">
+          <p className="font-semibold">{t('noAccess.heading')}</p>
+          <p className="text-sm leading-6 text-muted-foreground">{t('noAccess.body')}</p>
+        </div>
+      </ExpenseShell>
+    )
+  }
   let participantOptions: ExpenseParticipantOption[] = []
   let participantOptionsError = false
   if (result.group.kind === 'one_off' && result.group.canManage) {

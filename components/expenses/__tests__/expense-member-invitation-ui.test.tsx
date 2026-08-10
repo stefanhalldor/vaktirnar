@@ -49,8 +49,8 @@ const translations: Record<string, string> = {
   'expenseForm.cancelMemberInvitation': 'Afturkalla boð',
   'expenseForm.cancelMemberInvitationConfirm': 'Viltu afturkalla boðið?',
   'expenseForm.memberInvitationCancelled': 'Boðið hefur verið afturkallað.',
-  'memberInvitation.accept': 'Samþykkja boð',
-  'memberInvitation.decline': 'Hafna boði',
+  'memberInvitation.accept': 'Þekki málið',
+  'memberInvitation.decline': 'Þekki málið ekki',
   'memberInvitation.accepting': 'Samþykki...',
   'memberInvitation.declining': 'Hafna...',
   'errors.save_failed': 'Ekki tókst að vista.',
@@ -82,6 +82,7 @@ import { ExpenseMemberManager } from '@/components/expenses/ExpenseMemberManager
 const GROUP_ID = '30000000-0000-4000-8000-000000000001'
 const GUEST_MEMBER_ID = '20000000-0000-4000-8000-000000000002'
 const INVITATION_ID = '50000000-0000-4000-8000-000000000001'
+const EXPENSE_ID = '60000000-0000-4000-8000-000000000001'
 
 function guestMember(overrides: Partial<ExpenseMemberView> = {}): ExpenseMemberView {
   return {
@@ -120,7 +121,7 @@ beforeEach(() => {
   mockCancelInvitation.mockResolvedValue({ ok: true })
   mockRespondInvitation.mockResolvedValue({
     ok: true,
-    data: { status: 'accepted', groupId: GROUP_ID },
+    data: { status: 'accepted', groupId: GROUP_ID, expenseId: EXPENSE_ID },
   })
   vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
@@ -232,27 +233,28 @@ describe('ExpenseMemberManager identity invitation controls', () => {
 
 describe('ExpenseMemberInvitationActions explicit consent', () => {
   it('accepts explicitly and navigates only after the server confirms the durable link', async () => {
-    render(<ExpenseMemberInvitationActions invitationId={INVITATION_ID} />)
+    render(<ExpenseMemberInvitationActions invitationId={INVITATION_ID} expenseId={EXPENSE_ID} />)
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Samþykkja boð' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Þekki málið' }))
     })
 
     await waitFor(() => expect(mockRespondInvitation).toHaveBeenCalledWith({
       invitation_id: INVITATION_ID,
       action: 'accept',
+      expected_expense_id: EXPENSE_ID,
       request_id: expect.any(String),
     }))
-    expect(mockPush).toHaveBeenCalledWith('/auth-mvp/heim')
+    expect(mockPush).toHaveBeenCalledWith(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}`)
     expect(mockRefresh).toHaveBeenCalledOnce()
   })
 
   it('stays in place and announces a failed decision', async () => {
     mockRespondInvitation.mockResolvedValueOnce({ ok: false, error: 'save_failed' })
-    render(<ExpenseMemberInvitationActions invitationId={INVITATION_ID} />)
+    render(<ExpenseMemberInvitationActions invitationId={INVITATION_ID} expenseId={EXPENSE_ID} />)
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Hafna boði' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Þekki málið ekki' }))
     })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að vista.')

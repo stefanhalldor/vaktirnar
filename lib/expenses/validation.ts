@@ -253,6 +253,11 @@ export const RespondExpenseMemberInvitationSchema = z.object({
   invitation_id: uuid,
   action: z.enum(['accept', 'decline']),
   request_id: requestId,
+  expected_expense_id: uuid.optional(),
+}).superRefine((value, ctx) => {
+  if (value.action === 'accept' && !value.expected_expense_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['expected_expense_id'], message: 'expense_required' })
+  }
 })
 
 export const CancelExpenseMemberInvitationSchema = z.object({

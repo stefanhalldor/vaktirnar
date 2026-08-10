@@ -20,7 +20,7 @@ export default async function ExpensePayAllPage() {
       backHref="/auth-mvp/utlagt-og-endurgreitt"
       backLabel={t('back')}
     >
-      <ExpensePayAll view={view} locale={locale} />
+      <ExpensePayAll view={view} locale={locale} initialDate={new Date().toISOString().slice(0, 10)} />
     </ExpenseShell>
   )
 }

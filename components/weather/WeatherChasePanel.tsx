@@ -169,14 +169,16 @@ type Props = {
 
 export function customMetnoPreferenceItemFromPlace(
   place: Pick<PlaceResult, 'name' | 'lat' | 'lon'>,
-  customLabel = place.name,
+  customLabel: string,
 ): WeatherChasePreferenceItem {
+  const label = customLabel.trim().slice(0, 120)
+  if (!label) throw new Error('weather_chase_custom_point_name_required')
   const lat = Math.round(place.lat * 1_000) / 1_000
   const lon = Math.round(place.lon * 1_000) / 1_000
   return {
     id: `metno:custom:${lat.toFixed(3)}:${lon.toFixed(3)}`,
     providerId: 'metno',
-    label: customLabel.trim().slice(0, 120),
+    label,
     lat,
     lon,
   }
@@ -1514,8 +1516,8 @@ export function WeatherChasePanel({
                     labels={labels.placeFlow}
                     locale={locale}
                     onCancel={() => setCustomPlaceFlowOpen(false)}
-                    onSave={place => {
-                      onAddCustomMetnoPlace(customMetnoPreferenceItemFromPlace(place))
+                    onSave={(place, customName) => {
+                      onAddCustomMetnoPlace(customMetnoPreferenceItemFromPlace(place, customName))
                       setPlacesChanged(true)
                       setCustomPlaceFlowOpen(false)
                     }}

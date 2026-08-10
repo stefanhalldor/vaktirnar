@@ -10,7 +10,6 @@ import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { formatExpenseBankAccount, formatExpenseNationalIdDraft } from '@/lib/expenses/payment-profile'
 import { getExpenseTranslations } from './i18n.server'
 import { ExpenseInvitationActions } from './ExpenseInvitationActions'
-import { ExpenseMemberInvitationActions } from './ExpenseMemberInvitationActions'
 import { ExpenseDashboardDirectory } from './ExpenseDashboardDirectory'
 import { expensePrimaryButtonClass } from './ui'
 
@@ -142,7 +141,6 @@ export async function ExpenseDashboard({
                     })}
                   </span>
                 </Link>
-                <ExpenseMemberInvitationActions invitationId={invitation.invitationId} />
               </div>
             ))}
           </div>

@@ -146,7 +146,9 @@ describe('WeatherChasePanel preference hydration', () => {
             noVedurstofanLabel: 'Engar stöðvar',
             backLabel: 'Velja annan stað',
             cancelLabel: 'Hætta við',
-            saveLabel: 'Vista sem eigin Yr spápunkt',
+            saveLabel: 'Vista spápunkt',
+            nameTitle: 'Gefðu spápunktinum nafn', nameLabel: 'Nafn spápunkts',
+            namePlaceholder: 'Til dæmis Norðurakurinn', nameRequired: 'Nafn vantar',
             mapLoadingLabel: 'Hleð korti',
             mapErrorLabel: 'Kortvilla',
             metnoProviderLabel: 'Yr / met.no',
@@ -166,12 +168,21 @@ describe('WeatherChasePanel preference hydration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Velja stað úr leit' }))
     expect(onAddCustomMetnoPlace).not.toHaveBeenCalled()
     expect(screen.getByTestId('provider-context-map')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Vista sem eigin Yr spápunkt' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nafn spápunkts' }), { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Vista spápunkt' }))
+    expect(onAddCustomMetnoPlace).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Nafn vantar')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nafn spápunkts' }), { target: { value: '  Norðurakurinn  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Velja annan stað' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Velja stað úr leit' }))
+    expect(screen.getByRole('textbox', { name: 'Nafn spápunkts' })).toHaveValue('')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nafn spápunkts' }), { target: { value: '  Norðurakurinn  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Vista spápunkt' }))
 
     expect(onAddCustomMetnoPlace).toHaveBeenCalledWith({
       id: 'metno:custom:63.902:-20.412',
       providerId: 'metno',
-      label: 'Víðibakki',
+      label: 'Norðurakurinn',
       lat: 63.902,
       lon: -20.412,
     })
@@ -179,7 +190,7 @@ describe('WeatherChasePanel preference hydration', () => {
       name: '  Bærinn  ',
       lat: 64.10049,
       lon: -21.90049,
-    })).toMatchObject({
+    }, '  Bærinn  ')).toMatchObject({
       id: 'metno:custom:64.100:-21.900',
       label: 'Bærinn',
     })
@@ -213,7 +224,9 @@ describe('WeatherChasePanel preference hydration', () => {
             noVedurstofanLabel: 'Engar stöðvar',
             backLabel: 'Velja annan stað',
             cancelLabel: 'Hætta við',
-            saveLabel: 'Vista sem eigin Yr spápunkt',
+            saveLabel: 'Vista spápunkt',
+            nameTitle: 'Gefðu spápunktinum nafn', nameLabel: 'Nafn spápunkts',
+            namePlaceholder: 'Til dæmis Norðurakurinn', nameRequired: 'Nafn vantar',
             mapLoadingLabel: 'Hleð korti',
             mapErrorLabel: 'Kortvilla',
             metnoProviderLabel: 'Yr / met.no',
@@ -249,7 +262,7 @@ describe('WeatherChasePanel preference hydration', () => {
     )
 
     const map = screen.getByTestId('provider-context-map')
-    const save = screen.getByRole('button', { name: 'Vista sem eigin Yr spápunkt' })
+    const save = screen.getByRole('button', { name: 'Vista spápunkt' })
     expect(map.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
@@ -275,7 +288,9 @@ describe('WeatherChasePanel preference hydration', () => {
             confirmTitle: 'Nálægt', selectedPointLabel: 'Valinn punktur', nearbyTitle: 'Nálægt',
             distanceLabel: 'Fjarlægð', noVedurstofanLabel: 'Engar stöðvar',
             backLabel: 'Til baka', cancelLabel: 'Hætta við',
-            saveLabel: 'Vista sem eigin Yr spápunkt', mapLoadingLabel: 'Hleð',
+            saveLabel: 'Vista spápunkt', mapLoadingLabel: 'Hleð',
+            nameTitle: 'Gefðu spápunktinum nafn', nameLabel: 'Nafn spápunkts',
+            namePlaceholder: 'Til dæmis Norðurakurinn', nameRequired: 'Nafn vantar',
             mapErrorLabel: 'Villa', metnoProviderLabel: 'Yr / met.no',
             addNearbyPrompt: (place: string) => `Viltu bæta ${place} við þínar veðurstöðvar?`,
             addNearbyCancelLabel: 'Hætta við', addNearbyConfirmLabel: 'Bæta við',
