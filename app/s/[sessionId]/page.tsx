@@ -2,7 +2,7 @@
 
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   Users, Share2, Activity, BarChart3, Clock, Monitor, Flame, CircleDot,
@@ -44,19 +44,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const [selectedEndTime, setSelectedEndTime] = useState<string>('');
   const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
 
-  useEffect(() => {
-    fetchSession();
-    const interval = setInterval(fetchSession, 5000);
-    return () => clearInterval(interval);
-  }, [sessionId, key]);
-
-  useEffect(() => {
-    if (sessionData) {
-      setSelectedKids(new Set(sessionData.kids.map(k => k.id)));
-    }
-  }, [sessionData?.kids.length]);
-
-  const fetchSession = async () => {
+  const fetchSession = useCallback(async () => {
     try {
       const response = await fetch(`/api/sessions/${sessionId}?key=${key || ''}`);
       if (!response.ok) throw new Error('Failed to fetch session');
@@ -67,7 +55,21 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
     } finally {
       setLoading(false);
     }
-  };
+  }, [sessionId, key]);
+
+  useEffect(() => {
+    fetchSession();
+    const interval = setInterval(fetchSession, 5000);
+    return () => clearInterval(interval);
+  }, [fetchSession]);
+
+  const sessionKidIds = sessionData?.kids.map(kid => kid.id).join('\n') ?? null;
+
+  useEffect(() => {
+    if (sessionKidIds !== null) {
+      setSelectedKids(new Set(sessionKidIds === '' ? [] : sessionKidIds.split('\n')));
+    }
+  }, [sessionKidIds]);
 
   const handleAddKid = async () => {
     if (!newKidName.trim() || !sessionData?.hasEditAccess) return;

@@ -4,6 +4,62 @@ Saga kláraðra og staðfestra atriða.
 
 ---
 
+## #95 — UL production-core, SQL119 og SQL121
+
+**Lokið áfangi:** 2026-08-10
+**Staðfesting:** Production release-handoff og græn postflight frá Stebba;
+full handvirk fjölskyldu-acceptance er áfram opin undir TODO #95.
+
+Útlagt og endurgreitt er komið með invitation preview, direct detail redirect,
+generic no-access síðu, sameinað uppgjör, authorized greiðsluupplýsingar og
+context-bound tilkynningu um greidda skuld. SQL119 opnaði exact canonical shared
+debtor lestur á encrypted greiðsluprófíl og SQL121 bætti bounded invitation-
+preview samningi við. Báðar migrationir voru keyrðar af Stebba; Codex tengdist
+ekki Supabase og keyrði ekkert SQL.
+
+Helstu release-commit:
+- `648cb35` — consolidated settlement view.
+- `cf3b5ea` — linked debtors í settlement.
+- `2be2909` — UL invitation og sex UX/security fixes.
+- v219 varðveitir SQL119 source, preflight, postflight og static-próf í Git.
+
+---
+
+## #97 — Standalone Kviss og sameiginlegur realtime-kjarni
+
+**Lokið áfangi:** 2026-08-10
+**Staðfesting:** Production deployment og sjálfvirkar release-gáttir; fullur
+tveggja-tækja product-acceptance hringur er áfram opinn undir TODO #97.
+
+Kviss er sjálfstætt MVP með spurningasafni, live host workspace, performer/
+audience sýn, public direct join án creator-flags og resilient participant-
+flæði. `useAuthoritativeRefresh` sameinar single-flight, queued refresh,
+visibility/online recovery og polling fallback fyrir Kviss og Teskeiðarspjall.
+
+Helstu release-commit:
+- `be0a2ec` — flagged public beta.
+- `8246ae7` — resilient live host workspace.
+- `513eb02` — shared authoritative realtime core.
+
+Kosning, Tónlist og Live Studio preview eru ekki hluti þessa lokna áfanga.
+
+---
+
+## #97 — Auglýsenda-foundation
+
+**Lokið áfangi:** 2026-08-10
+**Staðfesting:** SQL120 postflight og production deployment; raunverulegur
+Quizbadour end-to-end acceptance hringur er áfram opinn undir TODO #97.
+
+Auglýsendur hafa fail-closed per-user access, `business_profiles`, owner-
+workspace, admin review, exact approved snapshot, activate/pause og fail-soft
+public Kviss-auglýsingaspjald. Public delivery er áfram sjálfstætt flagg og
+þessi skráning staðfestir ekki að því hafi verið rúllað út.
+
+Release-commit: `a63a1ff` — flagged quiz ad foundation.
+
+---
+
 ## #68 - Public top nav virkar ekki rétt eftir útskráningu
 
 **Lokið:** 2026-07-08  

@@ -14,7 +14,9 @@ describe('SQL121 invitation preview static security contract', () => {
     expect(migration).toContain('invited_member.user_id IS NULL')
     expect(migration).not.toContain('e.note')
     expect(migration).toContain('REVOKE ALL ON FUNCTION public.expense_get_scoped_member_invitation_preview(uuid,uuid)')
-    expect(migration).toContain('GRANT EXECUTE ON FUNCTION public.expense_get_scoped_member_invitation_preview(uuid,uuid)\n  TO service_role')
+    expect(migration).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.expense_get_scoped_member_invitation_preview\(uuid,uuid\)\r?\n  TO service_role/,
+    )
     expect(migration).not.toMatch(/GRANT EXECUTE[\s\S]{0,180}TO (?:anon|authenticated)/)
   })
 

@@ -465,10 +465,11 @@ export function WeatherOverviewClient({
       ? (routeMemory.variants.find(v => v.routeVariantKey === selectedVariantKey) ?? null)
       : null
 
-  const vedurstofanRouteFilterIds: Set<string> | null =
+  const vedurstofanRouteFilterIds = useMemo<Set<string> | null>(() => (
     routeMemory.status === 'resolved'
       ? (activeVariant ? new Set(activeVariant.vedurstofanStationIds) : routeMemory.vedurstofanIds)
       : singlePlaceVedurstofanIds
+  ), [routeMemory, activeVariant, singlePlaceVedurstofanIds])
 
   // Fetch station data on mount.
   // 401/403: provider is access-restricted for this user/mode — omit the layer silently.
@@ -795,10 +796,11 @@ export function WeatherOverviewClient({
       ? (placeFocusIds.vegagerdin.size > 0 ? placeFocusIds.vegagerdin : null)
       : null
 
-  const vegagerdinRouteFilterIds: Set<string> | null =
+  const vegagerdinRouteFilterIds = useMemo<Set<string> | null>(() => (
     routeMemory.status === 'resolved'
       ? (activeVariant ? new Set(activeVariant.vegagerdinStationIds) : routeMemory.vegagerdinIds)
       : singlePlaceVegagerdinIds
+  ), [routeMemory, activeVariant, singlePlaceVegagerdinIds])
 
   // Active Vegagerðin stations after route/place filter — shared source for selector metrics.
   // Using this for newest time and worst status ensures the Núna selector matches the map.

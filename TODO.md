@@ -30,6 +30,8 @@ tilvísanir og verkefnasaga rofni ekki.
 
 | Röð | Atriði                                                        | Vinnupakki og samhengi                                                                                                                                 |
 | --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A   | **#95 Útlagt og endurgreitt production-acceptance**          | **Næsta lokagátt.** Core, SQL119 og SQL121 eru komin út; skrá þarf afmarkaða fjölskyldu-acceptance áður en atriðinu er lokað. |
+| B   | **#97 Kviss/Auglýsendur acceptance og Bókanir MVP**          | **Næsti vörupakki.** Ljúka tveggja-tækja Kviss og Quizbadour-auglýsingu, síðan afmarka request → accept/reject Bókanir ofan á `business_profiles`. |
 | 1   | **#85 Veður: einfalda veðurmörk og ný vindstöðulabel**      | **Ferðalagið núna.** Taka út `Eftirvagn`, sleppa hviðum, láta notanda stilla aðeins óþægilegan/hættulegan vind og bæta við `Innan marka`/`Nálgast...` statusum. |
 | 2   | **#81 Veður: `Um Þingvelli` route family**                  | **Route-refactor núna.** Bæta við curated leið um Þingvelli/Route 36 þegar Google Maps sýnir hana sem raunhæfan valkost, t.d. Garðabær -> Stóra-borg. |
 | 3   | **#61 Aðila-flæði birtist í sögu hlutar**                    | **Event/history pakki með #38.** Skrá í `Saga hlutarins` þegar aðila er bætt við, boð samþykkt eða boði hafnað. |
@@ -3817,7 +3819,8 @@ tilkynning um að enn sé beðið. Aldrei merkja hlutasvar sem fullnaðarniðurs
 #95
 ## Útlagt og endurgreitt — örugg private beta
 
-**Staða:** Í vinnslu — production migration bíður keyrslu Stebba
+**Staða:** Í vinnslu — core og SQL komin á production; handvirk fjölskyldu-
+acceptance er ekki öll skráð
 
 **Stofnað:** 2026-08-03
 
@@ -3836,8 +3839,43 @@ Tengsl eru aðeins einkavalmynd; skráður notandi verður ekki virkur
 fjárhagsmeðlimur án samþykkis. Bankaupplýsingar, kennitala, sími, netföng,
 athugasemdir og upphæðir mega ekki fara í `recent_events` eða chat-samhengi.
 
-**Localhost checks for Stebbi:** SQL96 og default-deny postflight voru staðfest
-á einnota Supabase preview-branchi 2026-08-04. Production rollout fer fyrst út
-með lokað global flagg. Stebbi einn keyrir production preflight og SQL96;
-Codex keyrir aldrei SQL eða migration. Eftir postflight er flaggið opnað og
-aðgangur veittur afmarkað í admin áður en private-beta flæðið er prófað.
+**Komið á production:** UL core, sameiginlegt uppgjör, greiðsluupplýsingar fyrir
+canonical shared debtor, recipient-scoped invitation preview og sex atriða
+fjölskylduhotfix. SQL119 og SQL121 voru keyrð af Stebba og postflight-uð græn;
+v219 varðveitir áður keyrðan SQL119-pakka í Git án endurkeyrslu.
+
+**Opið áður en atriðinu er lokað:** Skrá handvirka acceptance með mömmu og
+pabba fyrir boð, forbidden-link, eitt og mörg uppgjörssamhengi,
+greiðsluupplýsingar og idempotent „Búinn að borga“. Ekki merkja greiðslu eða
+færslu sem test nema það sé meðvitað production-próf með réttum aðilum.
+
+**Production checks for Stebbi:** Prófa aðeins með þekktum fjölskyldugögnum.
+Staðfesta að boðsþegi sjái bounded preview, að „Þekki málið“ opni rétta færslu,
+að óheimill hlekkur leki engu, og að greiðslutilkynning verði `reported` þar til
+viðtakandi staðfestir. Codex keyrir aldrei SQL eða migration.
+
+#97
+## Kviss, Auglýsendur og Bókanir — MVP-frágangur
+
+**Staða:** Í vinnslu — standalone Kviss og Auglýsenda-grunnur eru komnir á
+production; acceptance og Bókanir eru opin
+
+**Komið:** Standalone Kviss styður creator, public direct join, host/audience/
+participant live-flæði, sýnileg loading-state og sameiginlegan authoritative
+realtime-kjarna með spjalli. Auglýsendur hafa `business_profiles`, owner-
+workspace, admin review, activate/pause og flaggvarið public Kviss-auglýsingaspjald.
+
+**Opið næst:** Keyra og skrá einn fullan tveggja-tækja Kviss-hring og eina
+Quizbadour auglýsingu frá stofnun í review, samþykkt, birtingu og pause. Public
+auglýsingaflagg er sjálfstæð rollout-ákvörðun og má ekki kveikja sem hluta af
+almennri acceptance.
+
+**Bókanir:** Óhafið MVP sem byggir á `business_profiles`. Fyrsta afmörkun er
+bókunarbeiðni sem Quizbadour getur samþykkt eða hafnað; ekki full calendar-vél.
+
+**Deferred:** Kosning, Tónlist og Live Studio/CrowdSync preview eru sjálfstæðar
+hugmyndir og ekki hluti standalone Kviss MVP eða blocker fyrir Bókanir.
+
+**Production checks for Stebbi:** Kviss: lobby → svar → reveal → leaderboard →
+end á tveimur tækjum, ásamt reconnect. Auglýsendur: afmarkaður Quizbadour-
+testprófíll og creative, review/activate/pause, án óviðkomandi production-gagna.

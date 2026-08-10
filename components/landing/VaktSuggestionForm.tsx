@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getLegacySupabaseClient } from '@/lib/supabase'
 
 interface VaktSuggestionFormProps {
   placeholder: string
@@ -19,15 +19,17 @@ export function VaktSuggestionForm({ placeholder, emailPlaceholder, buttonLabel,
     e.preventDefault()
     setStatus('loading')
 
-    const { error } = await supabase
-      .from('vakt_suggestions')
-      .insert({ suggestion, email: email || null })
+    try {
+      const supabase = getLegacySupabaseClient()
+      const { error } = await supabase
+        .from('vakt_suggestions')
+        .insert({ suggestion, email: email || null })
+      if (error) throw error
 
-    if (error) {
+      setStatus('success')
+    } catch (error) {
       console.error('Suggestion error:', error)
       setStatus('error')
-    } else {
-      setStatus('success')
     }
   }
 

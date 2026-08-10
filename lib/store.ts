@@ -1,11 +1,12 @@
 // lib/store.ts
 
 import { Session, Kid, LogEntry, DashboardStats } from './types';
-import { supabase } from './supabase';
+import { getLegacySupabaseClient } from './supabase';
 
 export const store = {
   // Sessions
   createSession: async (session: Session): Promise<Session> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('sessions')
       .insert({
@@ -28,6 +29,7 @@ export const store = {
   },
 
   getSession: async (id: string): Promise<Session | null> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('sessions')
       .select('*')
@@ -49,6 +51,7 @@ export const store = {
 
   // Kids
   createKid: async (kid: Kid): Promise<Kid> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('kids')
       .insert({
@@ -71,6 +74,7 @@ export const store = {
   },
 
   getKidsBySession: async (sessionId: string): Promise<Kid[]> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('kids')
       .select('*')
@@ -88,6 +92,7 @@ export const store = {
   },
 
   deleteKid: async (id: string): Promise<boolean> => {
+    const supabase = getLegacySupabaseClient();
     const { error } = await supabase
       .from('kids')
       .delete()
@@ -99,6 +104,7 @@ export const store = {
 
   // Logs
   createLog: async (log: LogEntry): Promise<LogEntry> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('logs')
       .insert({
@@ -131,6 +137,7 @@ export const store = {
   },
 
   getLogsBySession: async (sessionId: string): Promise<LogEntry[]> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('logs')
       .select('*')
@@ -153,6 +160,7 @@ export const store = {
   },
 
   getLog: async (id: string): Promise<LogEntry | null> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('logs')
       .select('*')
@@ -178,6 +186,7 @@ export const store = {
   },
 
   updateLog: async (id: string, updates: Partial<LogEntry>): Promise<LogEntry | null> => {
+    const supabase = getLegacySupabaseClient();
     // Convert camelCase to snake_case for Supabase
     const dbUpdates: Record<string, string | string[] | number | undefined> = {};
     if (updates.kidIds !== undefined) dbUpdates.kid_ids = updates.kidIds;
@@ -213,6 +222,7 @@ export const store = {
   },
 
   deleteLog: async (id: string): Promise<boolean> => {
+    const supabase = getLegacySupabaseClient();
     const { error } = await supabase
       .from('logs')
       .delete()
@@ -224,6 +234,7 @@ export const store = {
 
   // Utility methods (useful for admin/debugging)
   getAllKids: async (): Promise<Kid[]> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('kids')
       .select('*');
@@ -239,6 +250,7 @@ export const store = {
   },
 
   getAllLogs: async (): Promise<LogEntry[]> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('logs')
       .select('*');
@@ -259,6 +271,7 @@ export const store = {
   },
 
   getAllSessions: async (): Promise<Session[]> => {
+    const supabase = getLegacySupabaseClient();
     const { data, error } = await supabase
       .from('sessions')
       .select('*');
@@ -274,6 +287,7 @@ export const store = {
   },
 
   getDashboardStats: async (): Promise<DashboardStats> => {
+    const supabase = getLegacySupabaseClient();
     const [sessionsResult, activeResult, kidsResult, logsResult] = await Promise.all([
       supabase.from('sessions').select('*', { count: 'exact', head: true }),
       supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('status', 'open'),

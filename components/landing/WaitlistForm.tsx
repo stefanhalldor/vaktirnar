@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getLegacySupabaseClient } from '@/lib/supabase'
 
 interface WaitlistFormProps {
   product: string
@@ -19,15 +19,17 @@ export function WaitlistForm({ product, locale, placeholder, buttonLabel, succes
     e.preventDefault()
     setStatus('loading')
 
-    const { error } = await supabase
-      .from('waitlist')
-      .insert({ email, product, locale })
+    try {
+      const supabase = getLegacySupabaseClient()
+      const { error } = await supabase
+        .from('waitlist')
+        .insert({ email, product, locale })
+      if (error && error.code !== '23505') throw error
 
-    if (error && error.code !== '23505') {
+      setStatus('success')
+    } catch (error) {
       console.error('Waitlist error:', error)
       setStatus('error')
-    } else {
-      setStatus('success')
     }
   }
 

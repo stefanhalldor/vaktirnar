@@ -106,6 +106,7 @@ export function IcelandOverviewMap({
   // so that layers arriving after mount are handled the same way.
   useEffect(() => {
     let cancelled = false
+    const markerRegistry = markerRegistryRef.current
 
     async function init() {
       if (!mapDivRef.current) return
@@ -142,8 +143,8 @@ export function IcelandOverviewMap({
 
     return () => {
       cancelled = true
-      markerRegistryRef.current.forEach(marker => marker.setMap(null))
-      markerRegistryRef.current.clear()
+      markerRegistry.forEach(marker => marker.setMap(null))
+      markerRegistry.clear()
       mapRef.current = null
     }
   }, [])

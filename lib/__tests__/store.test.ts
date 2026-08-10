@@ -5,7 +5,9 @@ import { Session, Kid, LogEntry } from '../types';
 const mockFrom = vi.fn();
 
 vi.mock('../supabase', () => ({
-  supabase: { from: (...args: unknown[]) => mockFrom(...args) },
+  getLegacySupabaseClient: () => ({
+    from: (...args: unknown[]) => mockFrom(...args),
+  }),
 }));
 
 // Import store after mock is set up
