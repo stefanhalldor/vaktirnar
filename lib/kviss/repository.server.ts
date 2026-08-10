@@ -1,7 +1,12 @@
 import 'server-only'
 import { createHash } from 'node:crypto'
 import { getAdmin } from '@/lib/supabase/admin'
-import type { KvissJoinPreview, KvissParticipantProjection } from './contracts'
+import type {
+  KvissHostProjection,
+  KvissJoinPreview,
+  KvissParticipantProjection,
+  KvissPublicStatus,
+} from './contracts'
 import { normalizeKvissCode } from './contracts'
 
 type DbRecord = Record<string, unknown>
@@ -12,6 +17,47 @@ function asString(value: unknown): string {
 
 function asNumber(value: unknown): number {
   return Number.isFinite(Number(value)) ? Number(value) : 0
+}
+
+function asKvissStatus(value: unknown): KvissPublicStatus {
+  if (value === 'lobby' || value === 'question' || value === 'reveal'
+    || value === 'leaderboard' || value === 'ended') return value
+  throw new Error('kviss_invalid_session_status')
+}
+
+function nullableTeamIndex(value: unknown): number | null {
+  return value === null || value === undefined ? null : asNumber(value)
+}
+
+function buildKvissLeaderboard(
+  participants: DbRecord[],
+  questions: DbRecord[],
+  answers: DbRecord[],
+): Array<{ participantId: string; nickname: string; points: number; correctCount: number }> {
+  const scores = new Map<string, { points: number; correct: number }>()
+  participants.forEach(row => scores.set(asString(row.id), { points: 0, correct: 0 }))
+  for (const question of questions) {
+    const correct = answers
+      .filter(answer => answer.question_id === question.id && answer.is_correct === true)
+      .sort((left, right) => asString(left.answered_at).localeCompare(asString(right.answered_at))
+        || asString(left.id).localeCompare(asString(right.id)))
+    correct.forEach((answer, rank) => {
+      const participantId = asString(answer.participant_id)
+      const current = scores.get(participantId) ?? { points: 0, correct: 0 }
+      current.correct += 1
+      current.points += Math.max(0, 1000 * asNumber(question.point_weight) - rank * 500)
+      scores.set(participantId, current)
+    })
+  }
+  const names = new Map(participants.map(row => [asString(row.id), asString(row.nickname)]))
+  return [...scores.entries()]
+    .map(([participantId, score]) => ({
+      participantId,
+      nickname: names.get(participantId) ?? '',
+      points: score.points,
+      correctCount: score.correct,
+    }))
+    .sort((left, right) => right.points - left.points || left.nickname.localeCompare(right.nickname, 'is'))
 }
 
 export async function loadKvissAuthoring(spaceId: string) {
@@ -40,6 +86,125 @@ export async function loadKvissAuthoring(spaceId: string) {
     sessions: sessionsResult.data ?? [],
     sessionQuestions: sessionQuestionsResult.data ?? [],
     sessionParticipants: sessionParticipantsResult.data ?? [],
+  }
+}
+
+export async function loadKvissHostProjection(
+  actorId: string,
+  spaceId: string,
+  sessionId: string,
+): Promise<KvissHostProjection | null> {
+  const admin = getAdmin()
+  const sessionResult = await admin.from('kviss_sessions')
+    .select('id,join_code,title,status,revision,active_question_id,activation_id,question_started_at,broadcast_topic,team_names,created_at,ended_at')
+    .eq('id', sessionId)
+    .eq('space_id', spaceId)
+    .eq('created_by', actorId)
+    .maybeSingle()
+  if (sessionResult.error) throw new Error('kviss_host_projection_load_failed')
+  if (!sessionResult.data) return null
+
+  const session = sessionResult.data as DbRecord
+  const [questionsResult, participantsResult, answersResult, commandsResult] = await Promise.all([
+    admin.from('kviss_session_questions')
+      .select('id,sort_order,question_text,options,correct_option_indices,duration_seconds,point_weight,confidence_mode')
+      .eq('session_id', sessionId)
+      .order('sort_order'),
+    admin.from('kviss_participants')
+      .select('id,nickname,team_index,joined_at,last_seen_at')
+      .eq('session_id', sessionId)
+      .is('revoked_at', null)
+      .order('joined_at'),
+    admin.from('kviss_answers')
+      .select('id,participant_id,question_id,activation_id,is_correct,answered_at')
+      .eq('session_id', sessionId)
+      .order('answered_at'),
+    admin.from('kviss_session_commands')
+      .select('question_id,resulting_revision')
+      .eq('session_id', sessionId)
+      .eq('command_type', 'activate_question')
+      .order('resulting_revision'),
+  ])
+  if (questionsResult.error || participantsResult.error || answersResult.error || commandsResult.error) {
+    throw new Error('kviss_host_projection_load_failed')
+  }
+
+  const questions = (questionsResult.data ?? []) as DbRecord[]
+  const participants = (participantsResult.data ?? []) as DbRecord[]
+  const answers = (answersResult.data ?? []) as DbRecord[]
+  const commands = (commandsResult.data ?? []) as DbRecord[]
+  const status = asKvissStatus(session.status)
+  const teamNames = Array.isArray(session.team_names) ? session.team_names.map(String) : []
+  const participantTeam = new Map(participants.map(participant => {
+    const teamIndex = nullableTeamIndex(participant.team_index)
+    return [asString(participant.id), {
+      teamIndex,
+      teamName: teamIndex === null ? null : teamNames[teamIndex] ?? null,
+    }] as const
+  }))
+  const activeParticipantIds = new Set(participants.map(participant => asString(participant.id)))
+  const activeQuestionId = session.active_question_id ? asString(session.active_question_id) : null
+  const activeActivationId = session.activation_id ? asString(session.activation_id) : null
+  const activatedQuestionIds: string[] = []
+  const activatedQuestionSet = new Set<string>()
+  for (const command of commands) {
+    const questionId = asString(command.question_id)
+    if (!questionId || activatedQuestionSet.has(questionId)) continue
+    activatedQuestionSet.add(questionId)
+    activatedQuestionIds.push(questionId)
+  }
+  const topic = asString(session.broadcast_topic)
+
+  return {
+    session: {
+      id: asString(session.id),
+      joinCode: asString(session.join_code),
+      title: asString(session.title),
+      status,
+      revision: asNumber(session.revision),
+      activeQuestionId,
+      questionStartedAt: session.question_started_at ? asString(session.question_started_at) : null,
+      teamNames,
+      createdAt: asString(session.created_at),
+      endedAt: session.ended_at ? asString(session.ended_at) : null,
+    },
+    questions: questions.map(question => ({
+      id: asString(question.id),
+      sortOrder: asNumber(question.sort_order),
+      text: asString(question.question_text),
+      options: Array.isArray(question.options) ? question.options.map(String) : [],
+      correctOptionIndices: Array.isArray(question.correct_option_indices)
+        ? question.correct_option_indices.map(Number)
+        : [],
+      durationSeconds: asNumber(question.duration_seconds),
+      pointWeight: asNumber(question.point_weight),
+      confidenceMode: question.confidence_mode === true,
+    })),
+    activatedQuestionIds,
+    activeAnswerCount: activeQuestionId && activeActivationId
+      ? answers.filter(answer => answer.question_id === activeQuestionId
+        && answer.activation_id === activeActivationId
+        && activeParticipantIds.has(asString(answer.participant_id))).length
+      : 0,
+    participants: participants.map(participant => {
+      const participantId = asString(participant.id)
+      const team = participantTeam.get(participantId) ?? { teamIndex: null, teamName: null }
+      return {
+        id: participantId,
+        nickname: asString(participant.nickname),
+        teamIndex: team.teamIndex,
+        teamName: team.teamName,
+        joinedAt: asString(participant.joined_at),
+        lastSeenAt: asString(participant.last_seen_at),
+      }
+    }),
+    leaderboard: buildKvissLeaderboard(participants, questions, answers).map(entry => {
+      const team = participantTeam.get(entry.participantId) ?? { teamIndex: null, teamName: null }
+      return { ...entry, teamIndex: team.teamIndex, teamName: team.teamName }
+    }),
+    realtimeTopic: process.env.KVISS_REALTIME_ENABLED === 'true' && status !== 'ended' && topic
+      ? topic
+      : null,
   }
 }
 
@@ -97,7 +262,11 @@ export async function createKvissSession(actorId: string, spaceId: string, templ
     p_password: password, p_broadcast_topic: topic,
   })
   if (error) throw error
-  const row = data as DbRecord
+  const raw = Array.isArray(data) ? data[0] : data
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !asString((raw as DbRecord).id)) {
+    throw new Error('kviss_session_create_failed')
+  }
+  const row = raw as DbRecord
   return {
     id: asString(row.id),
     joinCode: asString(row.join_code),
@@ -221,7 +390,7 @@ export async function loadParticipantProjection(capabilityDigest: string, expect
   const activeOptions: unknown[] = activeQuestion && Array.isArray(activeQuestion.options)
     ? activeQuestion.options
     : []
-  const status = asString(session.status) as KvissParticipantProjection['status']
+  const status = asKvissStatus(session.status)
   const permutation = activeQuestion
     ? optionPermutation(participantId, asString(activeQuestion.id), activeOptions.length)
     : []
@@ -240,19 +409,7 @@ export async function loadParticipantProjection(capabilityDigest: string, expect
     : undefined
   const ownDisplayedAnswer = ownAnswer ? permutation.indexOf(asNumber(ownAnswer.selected_option)) : -1
 
-  const scores = new Map<string, { points: number; correct: number }>()
-  participants.forEach(row => scores.set(asString(row.id), { points: 0, correct: 0 }))
-  for (const question of questions) {
-    const correct = answers
-      .filter(answer => answer.question_id === question.id && answer.is_correct === true)
-      .sort((left, right) => asString(left.answered_at).localeCompare(asString(right.answered_at)) || asString(left.id).localeCompare(asString(right.id)))
-    correct.forEach((answer, rank) => {
-      const current = scores.get(asString(answer.participant_id)) ?? { points: 0, correct: 0 }
-      current.correct += 1
-      current.points += Math.max(0, 1000 * asNumber(question.point_weight) - rank * 500)
-      scores.set(asString(answer.participant_id), current)
-    })
-  }
+  const leaderboard = buildKvissLeaderboard(participants, questions, answers)
   const names = new Map(participants.map(row => [asString(row.id), asString(row.nickname)]))
   const teamNames = Array.isArray(session.team_names) ? session.team_names.map(String) : []
   return {
@@ -275,15 +432,29 @@ export async function loadParticipantProjection(capabilityDigest: string, expect
     } : null,
     questionStartedAt: session.question_started_at ? asString(session.question_started_at) : null,
     leaderboard: status === 'leaderboard' || status === 'ended'
-      ? [...scores.entries()].map(([id, score]) => ({ nickname: names.get(id) ?? '', points: score.points, correctCount: score.correct }))
-        .sort((left, right) => right.points - left.points || left.nickname.localeCompare(right.nickname, 'is'))
+      ? leaderboard.map(({ nickname, points, correctCount }) => ({ nickname, points, correctCount }))
       : [],
     chat: messages.map(message => ({ id: asString(message.id), authorName: names.get(asString(message.participant_id)) ?? '', body: asString(message.body), createdAt: asString(message.created_at) })),
     realtimeTopic: process.env.KVISS_REALTIME_ENABLED === 'true' && status !== 'ended' ? asString(session.broadcast_topic) : null,
   }
 }
 
-export async function getSessionTopicForAuthor(actorId: string, sessionId: string): Promise<string | null> {
-  const { data } = await getAdmin().from('kviss_sessions').select('broadcast_topic,created_by').eq('id', sessionId).maybeSingle()
-  return data?.created_by === actorId ? data.broadcast_topic : null
+export async function getSessionTopicForAuthor(spaceId: string, sessionId: string): Promise<string | null> {
+  const { data, error } = await getAdmin().from('kviss_sessions')
+    .select('broadcast_topic,status')
+    .eq('id', sessionId)
+    .eq('space_id', spaceId)
+    .maybeSingle()
+  if (error || !data || data.status === 'ended') return null
+  return asString(data.broadcast_topic) || null
+}
+
+export async function getSessionTopicAfterJoin(sessionId: string): Promise<string | null> {
+  if (process.env.KVISS_REALTIME_ENABLED !== 'true') return null
+  const { data, error } = await getAdmin().from('kviss_sessions')
+    .select('broadcast_topic,status')
+    .eq('id', sessionId)
+    .maybeSingle()
+  if (error || !data || data.status === 'ended') return null
+  return asString(data.broadcast_topic) || null
 }

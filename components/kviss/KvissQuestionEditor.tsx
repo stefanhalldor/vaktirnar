@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { LoaderCircle } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { TeskeidNumberField } from '@/components/teskeid/TeskeidNumberField'
 import { validateIntegerDraft } from '@/lib/forms/numeric-draft'
@@ -18,11 +19,15 @@ export function KvissQuestionEditor({
   sortOrder,
   onSave,
   onCancel,
+  pending,
+  saving,
 }: {
   item: QuestionBankItem | null
   sortOrder: number
   onSave(draft: QuestionBankDraft): void
   onCancel(): void
+  pending: boolean
+  saving: boolean
 }) {
   const t = useTranslations('kviss')
   const [text, setText] = useState(item?.text ?? '')
@@ -104,6 +109,7 @@ export function KvissQuestionEditor({
             className={kvissInputClass}
             value={text}
             autoFocus={item !== null}
+            disabled={pending}
             onChange={(event) => setText(event.target.value)}
           />
         </label>
@@ -123,6 +129,7 @@ export function KvissQuestionEditor({
                   <input
                     type="checkbox"
                     checked={correctSlots.includes(index)}
+                    disabled={pending}
                     onChange={() => setCorrectSlots((current) => current.includes(index)
                       ? current.filter((slot) => slot !== index)
                       : [...current, index])}
@@ -134,6 +141,7 @@ export function KvissQuestionEditor({
                   id={`bank-option-${item?.id ?? 'new'}-${index}`}
                   className={kvissInputClass}
                   value={option}
+                  disabled={pending}
                   onChange={(event) => setOptions((current) => current.map((value, slotIndex) =>
                     slotIndex === index ? event.target.value : value))}
                 />
@@ -157,6 +165,7 @@ export function KvissQuestionEditor({
             min={5}
             step={1}
             required
+            disabled={pending}
             error={numericError(durationValidation, 5)}
           />
           <TeskeidNumberField
@@ -166,6 +175,7 @@ export function KvissQuestionEditor({
             min={1}
             step={1}
             required
+            disabled={pending}
             error={numericError(pointWeightValidation, 1)}
           />
         </div>
@@ -174,6 +184,7 @@ export function KvissQuestionEditor({
           <input
             type="checkbox"
             checked={confidenceMode}
+            disabled={pending}
             onChange={(event) => setConfidenceMode(event.target.checked)}
             className="size-5"
           />
@@ -181,14 +192,13 @@ export function KvissQuestionEditor({
         </label>
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" className={kvissPrimaryButtonClass} disabled={!canSave} onClick={submit}>
-            {t('saveQuestion')}
+          <button type="button" className={kvissPrimaryButtonClass} disabled={!canSave || pending} onClick={submit}>
+            {saving ? <LoaderCircle size={17} className="mr-2 animate-spin" aria-hidden="true" /> : null}
+            {saving ? t('savingQuestion') : t('saveQuestion')}
           </button>
-          {item ? (
-            <button type="button" className={kvissSecondaryButtonClass} onClick={onCancel}>
-              {t('cancel')}
-            </button>
-          ) : null}
+          <button type="button" className={kvissSecondaryButtonClass} disabled={pending} onClick={onCancel}>
+            {t('cancel')}
+          </button>
         </div>
       </div>
     </section>

@@ -5,6 +5,14 @@ import { describe, expect, it } from 'vitest'
 const source = (path: string) => readFileSync(join(process.cwd(), path), 'utf8')
 
 describe('production Kviss source security contracts', () => {
+  it('keeps direct guest links public without a per-user entitlement check', () => {
+    const middleware = source('middleware.ts')
+    const guestPage = source('app/kviss/[code]/page.tsx')
+    expect(middleware).toMatch(/\^\\\/kviss\(\?:\\\/\[ABCDEFGHJKMNPQRSTUVWXYZ23456789\]\{6\}\)\?\$/)
+    expect(middleware).toMatch(/const isPublic = [\s\S]*PUBLIC_KVISS_PATH_PATTERNS\.some/)
+    expect(guestPage).not.toMatch(/guardKvissCreator|checkFeatureAccess|guardTeskeidSession/)
+  })
+
   it('keeps all new Icelandic and English message keys in parity', () => {
     const isMessages = JSON.parse(source('messages/is.json')) as Record<string, unknown>
     const enMessages = JSON.parse(source('messages/en.json')) as Record<string, unknown>
@@ -33,7 +41,7 @@ describe('production Kviss source security contracts', () => {
     expect(realtime).toMatch(/payload: revision === undefined \? \{ kind: 'invalidate' \}/)
     expect(realtime).not.toMatch(/nickname|answer|question|chat|capability|sessionId/)
     expect(participant).toMatch(/on\('broadcast', \{ event: 'invalidate' \}/)
-    expect(participant).toMatch(/void refresh\(\)/)
+    expect(participant).toMatch(/void refresh\(true\)/)
     expect(participant).not.toMatch(/payload\.(?:question|answer|chat|state)/)
   })
 

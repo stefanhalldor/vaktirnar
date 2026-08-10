@@ -10,6 +10,8 @@ const bcryptPassword = (min: number) => z.string().min(min).max(72).refine(
 
 export const joinCodeSchema = z.string().trim().toUpperCase().regex(KVISS_CODE_PATTERN)
 
+export const hostLiveQuerySchema = z.object({ sessionId: uuid }).strict()
+
 export const publicJoinSchema = z.object({
   code: joinCodeSchema,
   nickname: boundedText(1, 40),

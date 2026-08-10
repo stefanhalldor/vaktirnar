@@ -1,6 +1,6 @@
 'use client'
 
-import { Pencil, Trash2 } from 'lucide-react'
+import { LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import type { QuestionBankDraft, QuestionBankItem } from '@/lib/kviss/authoring'
@@ -11,6 +11,9 @@ export function KvissQuestionBankPanel({
   items,
   editingItem,
   editorVersion,
+  editorOpen,
+  pendingAction,
+  onNew,
   onSave,
   onEdit,
   onCancelEdit,
@@ -19,6 +22,9 @@ export function KvissQuestionBankPanel({
   items: QuestionBankItem[]
   editingItem: QuestionBankItem | null
   editorVersion: number
+  editorOpen: boolean
+  pendingAction: string | null
+  onNew(): void
   onSave(draft: QuestionBankDraft): void
   onEdit(itemId: string): void
   onCancelEdit(): void
@@ -40,6 +46,7 @@ export function KvissQuestionBankPanel({
     )
   }, [orderedItems, search])
   const nextSortOrder = orderedItems.reduce((highest, item) => Math.max(highest, item.sortOrder), -1) + 1
+  const controlsLocked = pendingAction !== null || editorOpen
 
   const edit = (itemId: string) => {
     onEdit(itemId)
@@ -48,19 +55,41 @@ export function KvissQuestionBankPanel({
 
   return (
     <div className="flex flex-col gap-6">
-      <div ref={editorRef} className="scroll-mt-4">
-        <KvissQuestionEditor
-          key={editingItem ? `${editingItem.id}:${editingItem.revision}` : `new:${editorVersion}`}
-          item={editingItem}
-          sortOrder={nextSortOrder}
-          onSave={onSave}
-          onCancel={onCancelEdit}
-        />
-      </div>
+      {editorOpen ? (
+        <div ref={editorRef} className="scroll-mt-4">
+          <KvissQuestionEditor
+            key={editingItem ? `${editingItem.id}:${editingItem.revision}` : `new:${editorVersion}`}
+            item={editingItem}
+            sortOrder={nextSortOrder}
+            onSave={onSave}
+            onCancel={onCancelEdit}
+            pending={pendingAction !== null}
+            saving={pendingAction === 'question:save'}
+          />
+        </div>
+      ) : null}
 
       <section className="rounded-xl border border-border bg-card p-4">
-        <h2 className="text-sm font-semibold text-primary">{t('questionBankTitle')}</h2>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('questionBankDescription')}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-primary">{t('questionBankTitle')}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('questionBankDescription')}</p>
+          </div>
+          {!editorOpen ? (
+            <button
+              type="button"
+              disabled={pendingAction !== null}
+              onClick={() => {
+                onNew()
+                requestAnimationFrame(() => editorRef.current?.scrollIntoView({ block: 'start' }))
+              }}
+              className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-45"
+            >
+              <Plus size={17} aria-hidden="true" />
+              {t('newBankQuestion')}
+            </button>
+          ) : null}
+        </div>
         <label className="mt-4 grid gap-1.5 text-sm font-medium">
           {t('questionSearchLabel')}
           <input
@@ -88,21 +117,25 @@ export function KvissQuestionBankPanel({
                 </div>
                 <button
                   type="button"
-                  className="grid size-10 shrink-0 place-items-center rounded-lg hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="grid size-10 shrink-0 place-items-center rounded-lg hover:bg-background disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={t('editQuestion')}
+                  disabled={controlsLocked}
                   onClick={() => edit(item.id)}
                 >
                   <Pencil size={18} aria-hidden="true" />
                 </button>
                 <button
                   type="button"
-                  className="grid size-10 shrink-0 place-items-center rounded-lg text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="grid size-10 shrink-0 place-items-center rounded-lg text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={t('deleteQuestion')}
+                  disabled={controlsLocked}
                   onClick={() => {
                     if (window.confirm(t('deleteQuestionConfirm'))) onDelete(item.id)
                   }}
                 >
-                  <Trash2 size={18} aria-hidden="true" />
+                  {pendingAction === `question:delete:${item.id}`
+                    ? <LoaderCircle size={18} className="animate-spin" aria-hidden="true" />
+                    : <Trash2 size={18} aria-hidden="true" />}
                 </button>
               </li>
             ))}

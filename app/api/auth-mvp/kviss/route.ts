@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data }, { headers: NO_STORE })
     }
     const revision = await applyKvissHostCommand(access.user.id, parsed.data)
-    const topic = await getSessionTopicForAuthor(access.user.id, parsed.data.sessionId)
+    const topic = await getSessionTopicForAuthor(access.spaceId, parsed.data.sessionId)
     await notifyKvissInvalidation(topic, revision)
     return NextResponse.json({ revision }, { headers: NO_STORE })
   } catch (error) {

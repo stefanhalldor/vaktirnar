@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { publicJoinSchema } from '@/lib/kviss/validation'
-import { joinKviss } from '@/lib/kviss/repository.server'
+import { getSessionTopicAfterJoin, joinKviss } from '@/lib/kviss/repository.server'
+import { notifyKvissInvalidation } from '@/lib/kviss/realtime.server'
 import {
   assertSameOriginMutation,
   createParticipantCapability,
@@ -23,6 +24,8 @@ export async function POST(request: NextRequest) {
     })
     const response = NextResponse.json({ joinCode: joined.joinCode }, { headers })
     setCapabilityCookie(response, joined.joinCode, capability.token)
+    const topic = await getSessionTopicAfterJoin(joined.sessionId)
+    await notifyKvissInvalidation(topic)
     return response
   } catch (error) {
     const rateLimited = error instanceof Error && error.message.includes('rate_limited')

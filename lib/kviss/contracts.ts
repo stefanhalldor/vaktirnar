@@ -43,6 +43,54 @@ export interface KvissParticipantProjection {
   realtimeTopic: string | null
 }
 
+export interface KvissHostQuestion {
+  id: string
+  sortOrder: number
+  text: string
+  options: string[]
+  correctOptionIndices: number[]
+  durationSeconds: number
+  pointWeight: number
+  confidenceMode: boolean
+}
+
+export interface KvissHostParticipant {
+  id: string
+  nickname: string
+  teamIndex: number | null
+  teamName: string | null
+  joinedAt: string
+  lastSeenAt: string
+}
+
+export interface KvissHostProjection {
+  session: {
+    id: string
+    joinCode: string
+    title: string
+    status: KvissPublicStatus
+    revision: number
+    activeQuestionId: string | null
+    questionStartedAt: string | null
+    teamNames: string[]
+    createdAt: string
+    endedAt: string | null
+  }
+  questions: KvissHostQuestion[]
+  activatedQuestionIds: string[]
+  activeAnswerCount: number
+  participants: KvissHostParticipant[]
+  leaderboard: Array<{
+    participantId: string
+    nickname: string
+    teamIndex: number | null
+    teamName: string | null
+    points: number
+    correctCount: number
+  }>
+  realtimeTopic: string | null
+}
+
 export interface KvissJoinPreview {
   joinCode: string
   title: string

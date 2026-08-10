@@ -6,8 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import { PublicQuizAdCard } from '@/components/kviss/PublicQuizAdCard'
 import type { AdPlacement, PublicQuizAd } from '@/lib/advertiser/contracts'
 import type { KvissJoinPreview, KvissParticipantProjection } from '@/lib/kviss/contracts'
+import { KvissLoading } from './KvissLoading'
 
-type LoadState = 'loading' | 'join' | 'joined' | 'missing'
+type LoadState = 'loading' | 'join' | 'joined' | 'missing' | 'error'
 
 export function KvissParticipantClient({ code }: { code: string }) {
   const t = useTranslations('kviss')
@@ -17,13 +18,18 @@ export function KvissParticipantClient({ code }: { code: string }) {
   const [nickname, setNickname] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [pending, setPending] = useState(false)
+  const [pendingAction, setPendingAction] = useState<'join' | 'answer' | 'chat' | null>(null)
   const [chatBody, setChatBody] = useState('')
   const [remaining, setRemaining] = useState<number | null>(null)
   const [publicAd, setPublicAd] = useState<PublicQuizAd | null>(null)
   const fetchInFlight = useRef<Promise<void> | null>(null)
+  const pending = pendingAction !== null
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (forceFresh = false) => {
+    if (fetchInFlight.current) {
+      await fetchInFlight.current
+      if (!forceFresh) return
+    }
     if (fetchInFlight.current) return fetchInFlight.current
     const task = (async () => {
       try {
@@ -34,13 +40,15 @@ export function KvissParticipantClient({ code }: { code: string }) {
           setError(null)
           return
         }
-        if (response.status !== 401) { setState('missing'); return }
+        if (response.status !== 401) { setState('missing'); setError(null); return }
         const lookup = await fetch(`/api/kviss/public/lookup?code=${encodeURIComponent(code)}`, { cache: 'no-store' })
-        if (!lookup.ok) { setState('missing'); return }
+        if (!lookup.ok) { setState('missing'); setError(null); return }
         setPreview(await lookup.json() as KvissJoinPreview)
         setState('join')
+        setError(null)
       } catch {
         setError(t('connectionError'))
+        setState(current => current === 'loading' ? 'error' : current)
       }
     })()
     fetchInFlight.current = task
@@ -80,9 +88,9 @@ export function KvissParticipantClient({ code }: { code: string }) {
         const now = Date.now()
         if (now - lastScheduled < 500) return
         lastScheduled = now
-        void refresh()
+        void refresh(true)
       })
-      .subscribe(status => { if (status === 'SUBSCRIBED') void refresh() })
+      .subscribe(status => { if (status === 'SUBSCRIBED') void refresh(true) })
     return () => { void supabase.removeChannel(channel) }
   }, [projection?.realtimeTopic, refresh])
 
@@ -99,7 +107,7 @@ export function KvissParticipantClient({ code }: { code: string }) {
   const submitJoin = async (event: React.FormEvent) => {
     event.preventDefault()
     if (pending) return
-    setPending(true); setError(null)
+    setPendingAction('join'); setError(null)
     try {
       const response = await fetch('/api/kviss/public/join', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -107,36 +115,37 @@ export function KvissParticipantClient({ code }: { code: string }) {
       })
       if (response.status === 429) setError(t('tooManyAttempts'))
       else if (!response.ok) setError(t('joinFailed'))
-      else await refresh()
-    } catch { setError(t('connectionError')) } finally { setPending(false) }
+      else await refresh(true)
+    } catch { setError(t('connectionError')) } finally { setPendingAction(null) }
   }
 
   const answer = async (selectedOption: number) => {
     if (!projection?.activeQuestion || projection.participantAnswer || pending || remaining === 0) return
-    setPending(true); setError(null)
+    setPendingAction('answer'); setError(null)
     try {
       const response = await fetch('/api/kviss/public/answer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, questionId: projection.activeQuestion.id, selectedOption, commandId: crypto.randomUUID() }),
       })
-      if (!response.ok && response.status !== 409) setError(t('answerFailed'))
-      await refresh()
-    } catch { setError(t('connectionError')) } finally { setPending(false) }
+      if (response.ok || response.status === 409) await refresh(true)
+      else setError(t('answerFailed'))
+    } catch { setError(t('connectionError')) } finally { setPendingAction(null) }
   }
 
   const sendChat = async (event: React.FormEvent) => {
     event.preventDefault()
     const body = chatBody.trim()
     if (!body || pending) return
-    setPending(true)
+    setPendingAction('chat')
+    setError(null)
     try {
       const response = await fetch('/api/kviss/public/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, body, clientMessageId: crypto.randomUUID() }),
       })
-      if (response.ok) { setChatBody(''); await refresh() }
+      if (response.ok) { setChatBody(''); await refresh(true) }
       else setError(t('chatFailed'))
-    } catch { setError(t('connectionError')) } finally { setPending(false) }
+    } catch { setError(t('connectionError')) } finally { setPendingAction(null) }
   }
 
   const ownCorrect = useMemo(() => {
@@ -182,15 +191,32 @@ export function KvissParticipantClient({ code }: { code: string }) {
     }
   }, [adPlacement])
 
-  if (state === 'loading') return <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p>
+  if (state === 'loading') return <KvissLoading />
+  if (state === 'error') return (
+    <div className="grid gap-3">
+      <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+        {error ?? t('connectionError')}
+      </p>
+      <button
+        type="button"
+        className="min-h-11 rounded-lg border border-border bg-card px-4 text-sm font-medium"
+        onClick={() => {
+          setState('loading')
+          void refresh(true)
+        }}
+      >
+        {t('tryAgain')}
+      </button>
+    </div>
+  )
   if (state === 'missing') return <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">{t('notFound')}</p>
   if (state === 'join') return (
     <form onSubmit={submitJoin} className="grid gap-4 rounded-xl border border-border bg-card p-4">
       <div><h1 className="text-xl font-semibold text-primary">{preview?.title}</h1><p className="mt-1 text-sm text-muted-foreground">{t('joinDescription')}</p></div>
-      <label className="grid gap-1.5 text-sm font-medium">{t('nicknameLabel')}<input value={nickname} onChange={event => setNickname(event.target.value)} maxLength={40} autoComplete="nickname" className="min-h-11 rounded-lg border border-border bg-background px-3 text-base" /></label>
-      {preview?.passwordRequired ? <label className="grid gap-1.5 text-sm font-medium">{t('passwordLabel')}<input type="password" value={password} onChange={event => setPassword(event.target.value)} maxLength={72} autoComplete="current-password" className="min-h-11 rounded-lg border border-border bg-background px-3 text-base" /></label> : null}
+      <label className="grid gap-1.5 text-sm font-medium">{t('nicknameLabel')}<input value={nickname} disabled={pending} onChange={event => setNickname(event.target.value)} maxLength={40} autoComplete="nickname" className="min-h-11 rounded-lg border border-border bg-background px-3 text-base disabled:opacity-60" /></label>
+      {preview?.passwordRequired ? <label className="grid gap-1.5 text-sm font-medium">{t('passwordLabel')}<input type="password" value={password} disabled={pending} onChange={event => setPassword(event.target.value)} maxLength={72} autoComplete="current-password" className="min-h-11 rounded-lg border border-border bg-background px-3 text-base disabled:opacity-60" /></label> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-      <button disabled={pending || !nickname.trim() || (preview?.passwordRequired === true && !password)} className="min-h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-45">{pending ? t('joining') : t('join')}</button>
+      <button disabled={pending || !nickname.trim() || (preview?.passwordRequired === true && !password)} className="min-h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-45">{pendingAction === 'join' ? t('joining') : t('join')}</button>
     </form>
   )
   if (!projection) return null
@@ -207,12 +233,13 @@ export function KvissParticipantClient({ code }: { code: string }) {
             const correct = projection.activeQuestion?.correctOptionIndices?.includes(index)
             return <button key={index} type="button" onClick={() => void answer(index)} disabled={Boolean(projection.participantAnswer) || pending || projection.status !== 'question' || remaining === 0} className={`min-h-12 rounded-lg border px-3 text-left text-base disabled:opacity-70 ${correct ? 'border-emerald-600 bg-emerald-50' : selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}>{option}</button>
           })}</div>
+          {pendingAction === 'answer' ? <p role="status" className="mt-3 text-sm text-muted-foreground">{t('answering')}</p> : null}
           {projection.participantAnswer && projection.status === 'question' ? <p className="mt-3 text-sm text-muted-foreground">{t('answerLocked')}</p> : null}
           {projection.status === 'reveal' && ownCorrect !== null ? <p className="mt-3 font-medium">{t(ownCorrect ? 'correct' : 'incorrect')}</p> : null}
         </section>
       ) : null}
       {['leaderboard', 'ended'].includes(projection.status) ? <section className="rounded-xl border border-border bg-card p-4"><h2 className="font-semibold">{t('leaderboard')}</h2><ol className="mt-3 divide-y divide-border">{projection.leaderboard.map((row, index) => <li key={`${row.nickname}:${index}`} className="flex justify-between gap-3 py-2 text-sm"><span>{index + 1}. {row.nickname}</span><strong>{t('points', { count: row.points })}</strong></li>)}</ol></section> : null}
-      {projection.status !== 'ended' ? <section className="rounded-xl border border-border bg-card p-4"><h2 className="font-semibold">{t('chatTitle')}</h2><div className="mt-3 max-h-48 space-y-2 overflow-y-auto">{projection.chat.length === 0 ? <p className="text-sm text-muted-foreground">{t('chatEmpty')}</p> : projection.chat.map(message => <div key={message.id} className="rounded-lg bg-background p-2 text-sm"><strong>{message.authorName}</strong><p className="whitespace-pre-wrap break-words">{message.body}</p></div>)}</div><form onSubmit={sendChat} className="mt-3 flex gap-2"><input value={chatBody} onChange={event => setChatBody(event.target.value)} maxLength={500} placeholder={t('chatPlaceholder')} className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-base" /><button disabled={pending || !chatBody.trim()} className="min-h-11 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-45">{t('send')}</button></form></section> : null}
+      {projection.status !== 'ended' ? <section className="rounded-xl border border-border bg-card p-4"><h2 className="font-semibold">{t('chatTitle')}</h2><div className="mt-3 max-h-48 space-y-2 overflow-y-auto">{projection.chat.length === 0 ? <p className="text-sm text-muted-foreground">{t('chatEmpty')}</p> : projection.chat.map(message => <div key={message.id} className="rounded-lg bg-background p-2 text-sm"><strong>{message.authorName}</strong><p className="whitespace-pre-wrap break-words">{message.body}</p></div>)}</div><form onSubmit={sendChat} className="mt-3 flex gap-2"><input value={chatBody} disabled={pending} onChange={event => setChatBody(event.target.value)} maxLength={500} placeholder={t('chatPlaceholder')} className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-base disabled:opacity-60" /><button disabled={pending || !chatBody.trim()} className="min-h-11 min-w-20 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-45">{t(pendingAction === 'chat' ? 'sending' : 'send')}</button></form></section> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </div>
   )

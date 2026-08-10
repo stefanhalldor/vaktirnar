@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, LoaderCircle, Trash2 } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 import type { QuestionBankItem, QuizQuestion } from '@/lib/kviss/authoring'
@@ -23,6 +23,8 @@ export function KvissQuizBuilder({
   onRefresh,
   onOpenQuestionBank,
   onSave,
+  pending,
+  saving,
 }: {
   title: string
   teamNames: string
@@ -36,6 +38,8 @@ export function KvissQuizBuilder({
   onRefresh(questionId: string, item: QuestionBankItem): void
   onOpenQuestionBank(): void
   onSave(): void
+  pending: boolean
+  saving: boolean
 }) {
   const t = useTranslations('kviss')
   const orderedBank = useMemo(
@@ -52,13 +56,14 @@ export function KvissQuizBuilder({
       <div className="mt-4 grid gap-4">
         <label className="grid gap-1.5 text-sm font-medium">
           {t('quizTitleLabel')}
-          <input className={kvissInputClass} value={title} onChange={(event) => onTitleChange(event.target.value)} />
+          <input className={kvissInputClass} value={title} disabled={pending} onChange={(event) => onTitleChange(event.target.value)} />
         </label>
         <label className="grid gap-1.5 text-sm font-medium">
           {t('teamNamesLabel')}
           <input
             className={kvissInputClass}
             value={teamNames}
+            disabled={pending}
             onChange={(event) => onTeamNamesChange(event.target.value)}
             placeholder={t('teamNamesPlaceholder')}
           />
@@ -93,26 +98,27 @@ export function KvissQuizBuilder({
                       <div className="flex shrink-0 gap-1">
                         <button
                           type="button"
-                          className="grid size-10 place-items-center rounded-lg hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="grid size-10 place-items-center rounded-lg hover:bg-background disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label={t('moveUp')}
-                          disabled={index === 0}
+                          disabled={pending || index === 0}
                           onClick={() => onMove(question.id, -1)}
                         >
                           <ChevronUp size={18} aria-hidden="true" />
                         </button>
                         <button
                           type="button"
-                          className="grid size-10 place-items-center rounded-lg hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="grid size-10 place-items-center rounded-lg hover:bg-background disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label={t('moveDown')}
-                          disabled={index === questions.length - 1}
+                          disabled={pending || index === questions.length - 1}
                           onClick={() => onMove(question.id, 1)}
                         >
                           <ChevronDown size={18} aria-hidden="true" />
                         </button>
                         <button
                           type="button"
-                          className="grid size-10 place-items-center rounded-lg text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="grid size-10 place-items-center rounded-lg text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label={t('removeFromQuiz')}
+                          disabled={pending}
                           onClick={() => onRemove(question.id)}
                         >
                           <Trash2 size={18} aria-hidden="true" />
@@ -123,6 +129,7 @@ export function KvissQuizBuilder({
                       <button
                         type="button"
                         className={`${kvissSecondaryButtonClass} mt-2 w-full sm:w-auto`}
+                        disabled={pending}
                         onClick={() => onRefresh(question.id, source)}
                       >
                         {t('updateFromQuestionBank')}
@@ -144,7 +151,7 @@ export function KvissQuizBuilder({
           {orderedBank.length === 0 ? (
             <div className="mt-3">
               <p className="text-sm text-muted-foreground">{t('questionBankRequired')}</p>
-              <button type="button" className={`${kvissSecondaryButtonClass} mt-2`} onClick={onOpenQuestionBank}>
+              <button type="button" className={`${kvissSecondaryButtonClass} mt-2`} disabled={pending} onClick={onOpenQuestionBank}>
                 {t('openQuestionBank')}
               </button>
             </div>
@@ -161,7 +168,7 @@ export function KvissQuizBuilder({
                     <button
                       type="button"
                       className={`${kvissSecondaryButtonClass} w-full shrink-0 sm:w-auto`}
-                      disabled={added}
+                      disabled={pending || added}
                       onClick={() => onAdd(item)}
                     >
                       {t(added ? 'addedToQuiz' : 'addToQuiz')}
@@ -176,10 +183,11 @@ export function KvissQuizBuilder({
         <button
           type="button"
           className={kvissPrimaryButtonClass}
-          disabled={!title.trim() || questions.length === 0}
+          disabled={pending || !title.trim() || questions.length === 0}
           onClick={onSave}
         >
-          {t('saveQuiz')}
+          {saving ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : null}
+          {t(saving ? 'savingQuiz' : 'saveQuiz')}
         </button>
       </div>
     </section>
