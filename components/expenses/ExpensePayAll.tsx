@@ -40,13 +40,6 @@ function ContextRows({ contexts, locale, initialDate }: {
             </strong>
           </div>
 
-          <Link
-            href={`/auth-mvp/utlagt-og-endurgreitt/hopar/${context.groupId}`}
-            className={`${expenseSecondaryButtonClass} w-full`}
-          >
-            {t('payAll.openSettlement')}
-          </Link>
-
           <ExpenseRepaymentDialog
             groupId={context.groupId}
             transfer={context.transfer}
@@ -54,6 +47,15 @@ function ContextRows({ contexts, locale, initialDate }: {
             actionSheetTrigger
             triggerLabel={t('payAll.markPaid')}
           />
+
+          <Link
+            href={context.expenses.length === 1
+              ? `/auth-mvp/utlagt-og-endurgreitt/utgjold/${context.expenses[0].id}`
+              : `/auth-mvp/utlagt-og-endurgreitt/hopar/${context.groupId}`}
+            className={`${expenseSecondaryButtonClass} w-full`}
+          >
+            {t(context.expenses.length === 1 ? 'payAll.openEntry' : 'payAll.openSettlement')}
+          </Link>
 
           {context.expenses.length > 0 ? (
             <div>
@@ -63,30 +65,69 @@ function ContextRows({ contexts, locale, initialDate }: {
                   <Link
                     key={expense.id}
                     href={`/auth-mvp/utlagt-og-endurgreitt/utgjold/${expense.id}`}
-                    className="flex min-h-12 items-center gap-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
-                    <span className="min-w-0 flex-1">
+                    <span className="min-w-0">
                       <span className="block break-words font-medium">{expense.title}</span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">
                         {formatDateOnly(expense.incurredOn, locale)}
                       </span>
                     </span>
+                    <strong className="shrink-0 text-right text-sm">
+                      {formatExpenseMinor(expense.amountMinor, context.currency, locale)}
+                    </strong>
                     <ChevronRight aria-hidden size={17} className="shrink-0 text-muted-foreground" />
                   </Link>
                 ))}
+                {context.nettingAdjustmentMinor !== 0 ? (
+                  <div className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm">
+                    <span className="min-w-0 break-words text-muted-foreground">
+                      {t('payAll.nettingAdjustment')}
+                    </span>
+                    <strong className="shrink-0 text-right">
+                      {formatExpenseMinor(context.nettingAdjustmentMinor, context.currency, locale)}
+                    </strong>
+                  </div>
+                ) : null}
+                <div className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm">
+                  <span className="font-semibold">{t('payAll.contextTotal')}</span>
+                  <strong className="shrink-0 text-right">
+                    {formatExpenseMinor(context.amountMinor, context.currency, locale)}
+                  </strong>
+                </div>
               </div>
             </div>
-          ) : null}
+          ) : (
+            <div className="divide-y divide-border border-y border-border">
+              {context.nettingAdjustmentMinor !== 0 ? (
+                <div className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm">
+                  <span className="min-w-0 break-words text-muted-foreground">
+                    {t('payAll.nettingAdjustment')}
+                  </span>
+                  <strong className="shrink-0 text-right">
+                    {formatExpenseMinor(context.nettingAdjustmentMinor, context.currency, locale)}
+                  </strong>
+                </div>
+              ) : null}
+              <div className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm">
+                <span className="font-semibold">{t('payAll.contextTotal')}</span>
+                <strong className="shrink-0 text-right">
+                  {formatExpenseMinor(context.amountMinor, context.currency, locale)}
+                </strong>
+              </div>
+            </div>
+          )}
         </section>
       ))}
     </div>
   )
 }
 
-function PaymentContextDrawer({ payment, locale, initialDate }: {
+function PaymentContextDrawer({ payment, locale, initialDate, triggerLabel }: {
   payment: ExpensePayAllPaymentView
   locale: string
   initialDate: string
+  triggerLabel?: string
 }) {
   const t = useExpenseTranslations()
 
@@ -94,7 +135,7 @@ function PaymentContextDrawer({ payment, locale, initialDate }: {
     <Dialog.Root>
       <Dialog.Trigger asChild>
         <button type="button" className={`${expenseSecondaryButtonClass} w-full`}>
-          {t('payAll.details')}
+          {triggerLabel ?? t('payAll.details')}
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>
@@ -151,6 +192,11 @@ export function ExpensePayAll({ view, locale, initialDate }: { view: ExpensePayA
           <h2 className="break-words text-base font-semibold">
             {t('payAll.payRecipient', { name: payment.recipientDisplayName })}
           </h2>
+          {payment.contexts.length > 1 ? (
+            <p className="text-sm text-muted-foreground">
+              {t('payAll.combinedPaymentCount', { count: payment.contexts.length })}
+            </p>
+          ) : null}
           <ExpensePaymentDetails
             snapshot={payment.paymentInstruction}
             mode="current"
@@ -167,7 +213,14 @@ export function ExpensePayAll({ view, locale, initialDate }: { view: ExpensePayA
               actionSheetTrigger
               triggerLabel={t('payAll.markPaid')}
             />
-          ) : null}
+          ) : (
+            <PaymentContextDrawer
+              payment={payment}
+              locale={locale}
+              initialDate={initialDate}
+              triggerLabel={t('payAll.markPaid')}
+            />
+          )}
           <PaymentContextDrawer payment={payment} locale={locale} initialDate={initialDate} />
         </section>
       ))}

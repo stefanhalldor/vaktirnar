@@ -17,7 +17,6 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: t('title'),
       description: t('description'),
-      url: 'https://teskeid.is',
       siteName: 'Teskeið',
       locale: 'is_IS',
       type: 'website',

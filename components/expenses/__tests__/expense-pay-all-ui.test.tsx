@@ -26,6 +26,7 @@ const translations: Record<string, string> = {
   'payAll.intro': 'Hér sérðu upphæðirnar og greiðsluupplýsingarnar.',
   'payAll.outsidePayment': 'Teskeið millifærir ekki peninga.',
   'payAll.payRecipient': 'Greiða {name}',
+  'payAll.combinedPaymentCount': '{count} greiðslur til þessa aðila',
   'payAll.details': 'Nánar',
   'payAll.detailsTitle': 'Samhengi greiðslunnar',
   'payAll.detailsDescription': 'Þetta er það sem greiðslan til {name} gerir upp.',
@@ -33,7 +34,10 @@ const translations: Record<string, string> = {
   'payAll.groupContext': 'Hópur',
   'payAll.oneOffContext': 'Stök færsla',
   'payAll.openSettlement': 'Opna uppgjör',
+  'payAll.openEntry': 'Nánar um færslu',
   'payAll.relatedEntries': 'Tengdar færslur',
+  'payAll.nettingAdjustment': 'Jöfnun og fyrri greiðslur',
+  'payAll.contextTotal': 'Samtals',
   'payAll.reportHint': 'Opnaðu uppgjörið og tilkynntu greiðsluna.',
   'payAll.markPaid': 'Búinn að borga',
   'repayment.report': 'Tilkynna greiðslu',
@@ -82,7 +86,8 @@ function payAllView(): ExpensePayAllView {
         emoji: '🏡',
         amountMinor: 12_500,
         currency: 'ISK',
-        expenses: [{ id: 'expense-1', title: 'Matur', incurredOn: '2026-08-08' }],
+        expenses: [{ id: 'expense-1', title: 'Matur', incurredOn: '2026-08-08', amountMinor: 15_000 }],
+        nettingAdjustmentMinor: -2_500,
         transfer: {
           fromMemberId: 'self', fromDisplayName: 'Ég', toMemberId: 'anna', toDisplayName: 'Anna',
           amountMinor: 12_500, currency: 'ISK', expectedFinancialVersion: 4, canReport: true,
@@ -111,14 +116,16 @@ describe('ExpensePayAll', () => {
 
     expect(screen.getByRole('dialog', { name: 'Samhengi greiðslunnar' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /Bústaðarferð/ })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Opna uppgjör' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Nánar um færslu' })).toHaveAttribute(
       'href',
-      '/auth-mvp/utlagt-og-endurgreitt/hopar/group-1',
+      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1',
     )
     expect(screen.getByRole('link', { name: /Matur/ })).toHaveAttribute(
       'href',
       '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1',
     )
+    expect(screen.getByText('Jöfnun og fyrri greiðslur')).toBeInTheDocument()
+    expect(screen.getByText('Samtals')).toBeInTheDocument()
   })
 
   it('fails closed when payment details are unavailable and handles an empty settlement', () => {
@@ -131,7 +138,7 @@ describe('ExpensePayAll', () => {
     expect(screen.getByText('Allt er uppgert 😊')).toBeInTheDocument()
   })
 
-  it('never offers one ambiguous aggregate report action for multiple contexts', () => {
+  it('shows a safe top-level paid action and keeps each underlying report context-bound', () => {
     const view = payAllView()
     view.payments[0]!.contexts.push({
       ...view.payments[0]!.contexts[0]!,
@@ -146,8 +153,9 @@ describe('ExpensePayAll', () => {
     })
     render(<ExpensePayAll view={view} locale="is" initialDate="2026-08-10" />)
 
-    expect(screen.queryByRole('button', { name: 'Búinn að borga' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Nánar' }))
+    expect(screen.getByText('2 greiðslur til þessa aðila')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Búinn að borga' }))
     expect(screen.getAllByRole('button', { name: 'Búinn að borga' })).toHaveLength(2)
+    expect(screen.getAllByRole('link', { name: 'Nánar um færslu' })).toHaveLength(2)
   })
 })

@@ -255,6 +255,8 @@ export interface ExpensePayAllExpenseLinkView {
   id: string
   title: string
   incurredOn: string
+  /** This member's debt contribution from the exact expense. */
+  amountMinor: number
 }
 
 export interface ExpensePayAllContextView {
@@ -265,6 +267,12 @@ export interface ExpensePayAllContextView {
   amountMinor: number
   currency: string
   expenses: ExpensePayAllExpenseLinkView[]
+  /**
+   * Signed remainder after the linked expense contributions. This captures
+   * prior repayments, credits and group netting so the displayed rows always
+   * reconcile exactly to `amountMinor`.
+   */
+  nettingAdjustmentMinor: number
   /** Exact server-authorized transfer used by the existing idempotent report flow. */
   transfer: ExpenseSettlementTransferView
 }

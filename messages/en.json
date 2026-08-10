@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Everything in Teskeið",
+    "loginTitle": "Log in | Teskeið",
     "description": "Many small everyday tools in one place. One account."
   },
   "nav": {
@@ -589,6 +590,7 @@
         "intro": "Here are the amounts and payment details you need to settle your open debts.",
         "outsidePayment": "Teskeið does not transfer money. Payments take place outside Teskeið.",
         "payRecipient": "Pay {name}",
+        "combinedPaymentCount": "{count, plural, one {# payment to this recipient} other {# payments to this recipient}}",
         "details": "Details",
         "detailsTitle": "Payment context",
         "detailsDescription": "This is what the payment to {name} settles.",
@@ -596,7 +598,10 @@
         "groupContext": "Group",
         "oneOffContext": "One-off entry",
         "openSettlement": "Open settlement",
-        "relatedEntries": "Related entries",
+        "openEntry": "View entry details",
+        "relatedEntries": "Entries in this amount",
+        "nettingAdjustment": "Netting and earlier payments",
+        "contextTotal": "Total",
         "reportHint": "After paying, you can report it for the exact settlement.",
         "markPaid": "I've paid",
         "empty": "Everything is settled 😊",

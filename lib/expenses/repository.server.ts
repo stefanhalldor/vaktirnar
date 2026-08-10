@@ -9,6 +9,7 @@ import {
 } from './balances'
 import { addMinorAmounts } from './money'
 import {
+  buildExpensePayAllContext,
   buildExpensePayAllView,
   expensePayAllSelfMemberIds,
   type ExpensePayAllCandidate,
@@ -48,12 +49,10 @@ import type {
   ExpensePaymentPreferenceView,
   ExpensePaymentProfileV2View,
   ExpensePayAllBlockedContextView,
-  ExpensePayAllContextView,
   ExpensePayAllView,
   ExpenseRepaymentView,
   ExpenseRevisionSnapshot,
   ExpenseRevisionView,
-  ExpenseSettlementTransferView,
 } from './contracts'
 import type { ExpenseActivityEventType } from './events'
 import {
@@ -832,28 +831,6 @@ export async function getExpenseGroupView(
   }
 }
 
-function expensePayAllContext(
-  group: ExpenseGroupView,
-  transfer: ExpenseSettlementTransferView,
-): ExpensePayAllContextView {
-  return {
-    groupId: group.id,
-    groupKind: group.kind,
-    groupName: group.name,
-    emoji: group.emoji,
-    amountMinor: transfer.amountMinor,
-    currency: transfer.currency,
-    transfer,
-    expenses: group.expenses
-      .filter((expense) => expense.status === 'active' && expense.currency === transfer.currency)
-      .map((expense) => ({
-        id: expense.id,
-        title: expense.title,
-        incurredOn: expense.incurredOn,
-      })),
-  }
-}
-
 export async function getExpensePayAllView(actorUserId: string): Promise<ExpensePayAllView> {
   const { data, error } = await getAdmin()
     .from('expense_group_members')
@@ -880,7 +857,7 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
         if (!selfMemberIds.has(transfer.fromMemberId)) continue
         const creditor = membersById.get(transfer.toMemberId)
         if (!creditor) continue
-        const context = expensePayAllContext(group, transfer)
+        const context = buildExpensePayAllContext(group, transfer)
         if (!transfer.canReport) {
           blockedContexts.push({ ...context, recipientDisplayName: transfer.toDisplayName })
           continue

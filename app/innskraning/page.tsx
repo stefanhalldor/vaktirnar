@@ -4,9 +4,23 @@ import { TeskeidLoginForm } from '@/components/teskeid/TeskeidLoginForm'
 import { PublicTopNav } from '@/components/teskeid/PublicTopNav'
 import { createClient } from '@/lib/supabase/server'
 import { resolveSafeLoginNext } from '@/lib/auth/loginNext'
+import { buildLoginMetadata } from '@/lib/auth/loginMetadata'
+import { getTranslations } from 'next-intl/server'
 
-export const metadata: Metadata = {
-  title: 'Innskráning | Teskeið',
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>
+}): Promise<Metadata> {
+  const [{ next }, t] = await Promise.all([
+    searchParams,
+    getTranslations('meta'),
+  ])
+
+  return buildLoginMetadata(next, {
+    title: t('loginTitle'),
+    description: t('description'),
+  })
 }
 
 export default async function InnskraningPage({

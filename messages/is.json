@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Allt í Teskeið",
+    "loginTitle": "Innskráning | Teskeið",
     "description": "Margar litlar hversdagslausnir á einum stað. Einn aðgangur."
   },
   "nav": {
@@ -593,6 +594,7 @@
         "intro": "Hér sérðu upphæðirnar og greiðsluupplýsingarnar sem þú þarft til að gera opnar skuldir upp.",
         "outsidePayment": "Teskeið millifærir ekki peninga. Greiðslurnar fara fram utan Teskeiðar.",
         "payRecipient": "Greiða {name}",
+        "combinedPaymentCount": "{count, plural, one {# greiðsla til þessa aðila} other {# greiðslur til þessa aðila}}",
         "details": "Nánar",
         "detailsTitle": "Samhengi greiðslunnar",
         "detailsDescription": "Þetta er það sem greiðslan til {name} gerir upp.",
@@ -600,7 +602,10 @@
         "groupContext": "Hópur",
         "oneOffContext": "Stök færsla",
         "openSettlement": "Opna uppgjör",
-        "relatedEntries": "Tengdar færslur",
+        "openEntry": "Nánar um færslu",
+        "relatedEntries": "Færslur í upphæðinni",
+        "nettingAdjustment": "Jöfnun og fyrri greiðslur",
+        "contextTotal": "Samtals",
         "reportHint": "Eftir greiðslu geturðu tilkynnt hana fyrir nákvæmt uppgjör.",
         "markPaid": "Búinn að borga",
         "empty": "Allt er uppgert 😊",

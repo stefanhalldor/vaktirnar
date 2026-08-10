@@ -4,9 +4,10 @@ import type {
   ExpensePayAllPaymentView,
   ExpensePayAllView,
   ExpenseGroupView,
+  ExpenseSettlementTransferView,
   ExpensePaymentSnapshotView,
 } from './contracts'
-import { addMinorAmounts, compareStableIds } from './money'
+import { addMinorAmounts, compareStableIds, sumMinorAmounts } from './money'
 
 export interface ExpensePayAllCandidate {
   /** Server-only canonical identity. It is deliberately omitted from the returned view. */
@@ -24,6 +25,53 @@ export function expensePayAllSelfMemberIds(
   return new Set(
     group.balances.filter((balance) => balance.isSelf).map((balance) => balance.memberId),
   )
+}
+
+/**
+ * Builds a ledger-backed explanation for one simplified settlement transfer.
+ * Only expenses that add debt for this exact debtor are linked. Credits,
+ * confirmed/reported payments and cross-member netting are represented by one
+ * signed adjustment, making the rows reconcile exactly without pretending
+ * that the simplified creditor route is an original expense obligation.
+ */
+export function buildExpensePayAllContext(
+  group: ExpenseGroupView,
+  transfer: ExpenseSettlementTransferView,
+): ExpensePayAllContextView {
+  const expenses = group.expenses
+    .filter((expense) => expense.status === 'active' && expense.currency === transfer.currency)
+    .flatMap((expense) => {
+      const paidMinor = sumMinorAmounts(
+        expense.payments
+          .filter((payment) => payment.memberId === transfer.fromMemberId)
+          .map((payment) => payment.amountMinor),
+      )
+      const shareMinor = sumMinorAmounts(
+        expense.shares
+          .filter((share) => share.memberId === transfer.fromMemberId)
+          .map((share) => share.amountMinor),
+      )
+      const debtContributionMinor = addMinorAmounts(shareMinor, -paidMinor)
+      return debtContributionMinor > 0 ? [{
+        id: expense.id,
+        title: expense.title,
+        incurredOn: expense.incurredOn,
+        amountMinor: debtContributionMinor,
+      }] : []
+    })
+  const linkedExpenseTotal = sumMinorAmounts(expenses.map((expense) => expense.amountMinor))
+
+  return {
+    groupId: group.id,
+    groupKind: group.kind,
+    groupName: group.name,
+    emoji: group.emoji,
+    amountMinor: transfer.amountMinor,
+    currency: transfer.currency,
+    expenses,
+    nettingAdjustmentMinor: addMinorAmounts(transfer.amountMinor, -linkedExpenseTotal),
+    transfer,
+  }
 }
 
 function paymentInstructionSignature(snapshot: ExpensePaymentSnapshotView | null): string {

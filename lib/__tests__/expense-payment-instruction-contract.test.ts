@@ -15,6 +15,10 @@ describe('pre-payment instruction repository boundary', () => {
 
     expect(start).toBeGreaterThanOrEqual(0)
     expect(end).toBeGreaterThan(start)
+    expect(body).toContain("'expense_resolve_payment_profile_v2'")
+    expect(body.indexOf("'expense_resolve_payment_profile_v2'")).toBeLessThan(
+      body.indexOf("'expense_resolve_payment_instruction'"),
+    )
     expect(body).toContain("admin.rpc('expense_resolve_payment_instruction'")
     expect(body).toContain('p_actor_id: actorUserId')
     expect(body).toContain('p_group_id: group.id')
