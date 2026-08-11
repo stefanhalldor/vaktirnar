@@ -7,6 +7,7 @@ import { X } from 'lucide-react'
 import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import type { ExpenseSettlementTransferView } from '@/lib/expenses/contracts'
 import { formatExpenseMinor, formatExpenseMinorForCopy } from '@/lib/expenses/input-money'
+import { expensePayAllSafeFirstName } from '@/lib/expenses/pay-all'
 import { ExpensePaymentDetails } from './ExpensePaymentDetails'
 import {
   ExpenseRepaymentReportForm,
@@ -80,14 +81,21 @@ export function ExpenseRepaymentDialog({
             {mode === 'report' ? (
               <>
                 <p className="text-xs leading-5 text-muted-foreground">{t('repayment.payBeforeReport')}</p>
-                <ExpensePaymentDetails
-                  snapshot={transfer.paymentInstruction}
-                  mode="current"
-                  amount={{
-                    display: formatExpenseMinor(transfer.amountMinor, transfer.currency),
-                    copy: formatExpenseMinorForCopy(transfer.amountMinor, transfer.currency),
-                  }}
-                />
+                {transfer.currentPaymentDetails?.paymentDetailsState === 'unavailable' ? (
+                  <p className="border-y border-border py-4 text-sm text-muted-foreground">
+                    {t('payAll.paymentUnavailable')}
+                  </p>
+                ) : (
+                  <ExpensePaymentDetails
+                    snapshot={transfer.paymentInstruction}
+                    mode="current"
+                    ownerFirstName={expensePayAllSafeFirstName(transfer.toDisplayName)}
+                    amount={{
+                      display: formatExpenseMinor(transfer.amountMinor, transfer.currency),
+                      copy: formatExpenseMinorForCopy(transfer.amountMinor, transfer.currency),
+                    }}
+                  />
+                )}
               </>
             ) : null}
             <ExpenseRepaymentReportForm

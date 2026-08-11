@@ -5,6 +5,7 @@ import { useLocale } from 'next-intl'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
 import {
+  filterForecastSlotsFromToday,
   formatCompactForecastDay,
   groupSlotsByDay,
 } from '@/lib/weather/forecastSlotHelpers'
@@ -33,12 +34,14 @@ export function WeatherChaseTimeSelector({
 }: WeatherChaseTimeSelectorProps) {
   const locale = useLocale()
   const scrollRef = useRef<HTMLDivElement>(null)
-  const activeIndex = slots.findIndex(slot => slot.timeMs === activeTimeMs)
+  // Defensive: ensure no past-day slots reach the selector regardless of source.
+  const filteredSlots = filterForecastSlotsFromToday(slots, Date.now())
+  const activeIndex = filteredSlots.findIndex(slot => slot.timeMs === activeTimeMs)
 
   function selectRelative(delta: -1 | 1) {
-    if (slots.length === 0) return
-    const baseIndex = activeIndex >= 0 ? activeIndex : delta > 0 ? -1 : slots.length
-    const nextSlot = slots[baseIndex + delta]
+    if (filteredSlots.length === 0) return
+    const baseIndex = activeIndex >= 0 ? activeIndex : delta > 0 ? -1 : filteredSlots.length
+    const nextSlot = filteredSlots[baseIndex + delta]
     if (nextSlot) onTimeChange(nextSlot.timeMs)
   }
 
@@ -47,7 +50,7 @@ export function WeatherChaseTimeSelector({
     active?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
   }, [activeTimeMs])
 
-  if (loading && slots.length === 0) {
+  if (loading && filteredSlots.length === 0) {
     return (
       <div className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
         {loadingLabel}
@@ -55,7 +58,7 @@ export function WeatherChaseTimeSelector({
     )
   }
 
-  if (slots.length === 0) return null
+  if (filteredSlots.length === 0) return null
 
   return (
     <div className="flex w-full justify-center">
@@ -72,7 +75,7 @@ export function WeatherChaseTimeSelector({
 
         <div ref={scrollRef} className="min-w-0 overflow-x-auto">
           <div className="flex min-w-max gap-2 px-1.5 py-1">
-            {groupSlotsByDay(slots, locale).map(({ dayKey, slots: daySlots }) => {
+            {groupSlotsByDay(filteredSlots, locale).map(({ dayKey, slots: daySlots }) => {
               const day = formatCompactForecastDay(daySlots[0].timeMs, locale)
               return (
                 <div key={dayKey} className="flex flex-col items-center gap-0.5">
@@ -111,7 +114,7 @@ export function WeatherChaseTimeSelector({
 
         <button
           type="button"
-          disabled={activeIndex < 0 || activeIndex >= slots.length - 1}
+          disabled={activeIndex < 0 || activeIndex >= filteredSlots.length - 1}
           onClick={() => selectRelative(1)}
           aria-label={nextLabel}
           className="flex w-10 shrink-0 items-center justify-center border-l border-border text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-default disabled:text-muted-foreground/30"

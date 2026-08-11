@@ -119,8 +119,13 @@ import {
 } from '@/lib/weather/windDisplayStatus'
 import { resolveRouteForecastEtaMs } from '@/lib/weather/routeForecastTiming'
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
+import {
+  filterForecastSlotsFromToday,
+  resolveForecastMapActiveTime,
+} from '@/lib/weather/forecastSlotHelpers'
 import { routeOptionLabelMessageKey } from '@/lib/weather/routeOptionLabels'
 import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
+import { MobileForecastMapNotice } from './MobileForecastMapNotice'
 import { WindStatusFilterPills, type WindStatusFilterMode } from './WindStatusFilterPills'
 import { DepartureHeatmap } from './DepartureHeatmap'
 import {
@@ -1905,6 +1910,8 @@ export function RoadMapPrototypeMap({
     createDefaultFreeDriveVisibleWindStatuses,
   )
   const [overviewActiveMode, setOverviewActiveMode] = useState<'now' | number>('now')
+  // Increments at every UTC midnight to re-filter past-day forecast slots.
+  const [dateBoundaryTick, setDateBoundaryTick] = useState(0)
   const [mapVisibleHours, setMapVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
   const [showMedals, setShowMedals] = useState(false)
   const [overviewVegagerdinData, setOverviewVegagerdinData] = useState<VegagerdinCurrentApiData | null>(null)
@@ -2631,6 +2638,26 @@ export function RoadMapPrototypeMap({
     return resolveThresholds('none', { cautionWindMs: caution, redWindMs: red })
   }, [routeCautionWind, routeRedWind])
 
+  // Scheduler: increment dateBoundaryTick at every UTC midnight to re-filter past-day slots.
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    function scheduleNext() {
+      const now = Date.now()
+      const d = new Date(now)
+      const nextMidnightMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)
+      timeoutId = setTimeout(() => {
+        setDateBoundaryTick(tick => tick + 1)
+        scheduleNext()
+      }, nextMidnightMs - now)
+    }
+
+    scheduleNext()
+    return () => {
+      if (timeoutId !== null) clearTimeout(timeoutId)
+    }
+  }, [])
+
   const overviewForecastSlots = useMemo<number[]>(() => {
     if (!overviewVedurstofanData) return []
     const timeSet = new Set<number>()
@@ -2640,8 +2667,15 @@ export function RoadMapPrototypeMap({
         if (Number.isFinite(timeMs)) timeSet.add(timeMs)
       }
     }
-    return Array.from(timeSet).sort((a, b) => a - b)
-  }, [overviewVedurstofanData])
+    return filterForecastSlotsFromToday(
+      Array.from(timeSet, timeMs => ({ timeMs })),
+      Date.now(),
+    )
+      .map(slot => slot.timeMs)
+      .sort((a, b) => a - b)
+    // dateBoundaryTick listed to re-run at midnight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overviewVedurstofanData, dateBoundaryTick])
 
   const overviewForecastAnchorMs =
     typeof overviewActiveMode === 'number' ? overviewActiveMode : Date.now()
@@ -3529,7 +3563,10 @@ export function RoadMapPrototypeMap({
   const mapForecastSlotStatuses = displayOverviewForecastSlotStatuses.filter(
     slot => mapVisibleHours.some(hour => hour === new Date(slot.timeMs).getUTCHours()),
   )
-  const firstWeatherMapTimeMs = mapForecastSlotStatuses[0]?.timeMs ?? null
+  const resolvedWeatherMapActiveMode = resolveForecastMapActiveTime(
+    overviewActiveMode,
+    mapForecastSlotStatuses,
+  )
 
   useEffect(() => {
     const weatherMapIsVisible =
@@ -3538,21 +3575,17 @@ export function RoadMapPrototypeMap({
       !isPanelOpen &&
       !isChatOpen &&
       !routeBridgeSummary
-    if (
-      (weatherMapIsVisible || isWeatherChaseOpen) &&
-      typeof overviewActiveMode !== 'number' &&
-      firstWeatherMapTimeMs !== null
-    ) {
-      overviewActiveModeRef.current = firstWeatherMapTimeMs
-      setOverviewActiveMode(firstWeatherMapTimeMs)
-    }
+    if (!weatherMapIsVisible && !isWeatherChaseOpen) return
+    if (overviewActiveMode === resolvedWeatherMapActiveMode) return
+    overviewActiveModeRef.current = resolvedWeatherMapActiveMode
+    setOverviewActiveMode(resolvedWeatherMapActiveMode)
   }, [
-    firstWeatherMapTimeMs,
     isChatOpen,
     isPanelOpen,
     isWeatherChaseOpen,
     lastMapContext,
     overviewActiveMode,
+    resolvedWeatherMapActiveMode,
     routeBridgeSummary,
   ])
 
@@ -10821,6 +10854,10 @@ export function RoadMapPrototypeMap({
       (lastMapContext === 'weather' && !isWeatherChaseOpen) ||
       (lastMapContext === 'route' && !isPanelOpen)
     )
+  const forecastMapViewActive =
+    mapViewVisible &&
+    lastMapContext === 'weather' &&
+    weatherContextView === 'map'
 
   function openWeatherContext(view = weatherContextView) {
     if (liveDriveModeRef.current === 'free-drive') {
@@ -11521,12 +11558,23 @@ export function RoadMapPrototypeMap({
           .maplibregl-map { position: relative } to this element, which would
           override Tailwind's `absolute` and cause inset-0 to collapse to 0px.
           h-full w-full survives the position override. */}
-      <DriveRouteMap
-        externalContainer={setMapContainer}
-        className={`h-full w-full ${isChatOpen
-          ? '[&_.maplibregl-ctrl-bottom-right]:!bottom-auto [&_.maplibregl-ctrl-bottom-right]:!top-2'
-          : ''}`}
-      />
+      <div className={`h-full w-full ${forecastMapViewActive ? 'hidden lg:block' : ''}`}>
+        <DriveRouteMap
+          externalContainer={setMapContainer}
+          className={`h-full w-full ${isChatOpen
+            ? '[&_.maplibregl-ctrl-bottom-right]:!bottom-auto [&_.maplibregl-ctrl-bottom-right]:!top-2'
+            : ''}`}
+        />
+      </div>
+
+      {/* Mobile-only overlay: forecast map not available on small screens */}
+      {forecastMapViewActive && (
+        <div className="absolute inset-0 z-[95] flex items-center justify-center bg-background/80 p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] backdrop-blur-sm lg:hidden">
+          <MobileForecastMapNotice
+            onViewData={() => openWeatherContext('information')}
+          />
+        </div>
+      )}
 
       {mapReady && mapViewVisible && lastMapContext === 'route' && !isRouteLoading && (
         <div
@@ -11588,7 +11636,7 @@ export function RoadMapPrototypeMap({
       {mapViewVisible && lastMapContext === 'weather' && (
         <div
           data-weather-card-obstacle="true"
-          className="absolute right-3 top-3 z-[90] inline-flex overflow-hidden rounded-full border border-border/80 bg-background/95 shadow-md backdrop-blur-sm lg:hidden"
+          className="hidden"
           role="group"
           aria-label={t('roadMapPrototypeForecastCardTextSize')}
         >
@@ -11762,7 +11810,7 @@ export function RoadMapPrototypeMap({
       {mapViewVisible && lastMapContext === 'weather' && hiddenForecastCardCount > 0 && (
         <div
           data-weather-card-obstacle="true"
-          className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+7.5rem)] left-3 right-3 z-[125] rounded-xl border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-900 shadow-md backdrop-blur-sm sm:left-1/2 sm:right-auto sm:max-w-md sm:-translate-x-1/2"
+          className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+7.5rem)] left-3 right-3 z-[125] hidden rounded-xl border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-900 shadow-md backdrop-blur-sm sm:left-1/2 sm:right-auto sm:max-w-md sm:-translate-x-1/2 lg:block"
           role="status"
         >
           {t('roadMapPrototypeHiddenForecastCards', { count: hiddenForecastCardCount })}
@@ -12746,7 +12794,7 @@ export function RoadMapPrototypeMap({
       <div
         ref={routeBottomStripRef}
         data-weather-card-obstacle="true"
-        className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-[max(1.25rem,env(safe-area-inset-bottom))] ${
+        className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-[max(1.25rem,env(safe-area-inset-bottom))] ${forecastMapViewActive ? 'hidden lg:block' : ''} ${
           isChatOpen
           || isPanelOpen
           || (lastMapContext === 'weather' && isWeatherChaseOpen)
@@ -12992,16 +13040,18 @@ export function RoadMapPrototypeMap({
           /* Default overview: time selector + Einfalt/Nánar inline with pills */
           <div className="flex flex-col gap-2 px-3 pb-1 pt-2">
             {lastMapContext === 'weather' && (
-              <WeatherChaseTimeSelector
-                slots={mapForecastSlotStatuses}
-                loading={overviewVedurstofanLoading && !overviewVedurstofanRestricted}
-                loadingLabel={t('sourceLoadingForecast')}
-                activeTimeMs={typeof overviewActiveMode === 'number' ? overviewActiveMode : null}
-                onTimeChange={handleOverviewModeChange}
-                previousLabel={t('sourceTimePrevious')}
-                nextLabel={t('sourceTimeNext')}
-                forecastLabel={t('sourceForecastLabel')}
-              />
+              <div className="hidden lg:block">
+                <WeatherChaseTimeSelector
+                  slots={mapForecastSlotStatuses}
+                  loading={overviewVedurstofanLoading && !overviewVedurstofanRestricted}
+                  loadingLabel={t('sourceLoadingForecast')}
+                  activeTimeMs={typeof overviewActiveMode === 'number' ? overviewActiveMode : null}
+                  onTimeChange={handleOverviewModeChange}
+                  previousLabel={t('sourceTimePrevious')}
+                  nextLabel={t('sourceTimeNext')}
+                  forecastLabel={t('sourceForecastLabel')}
+                />
+              </div>
             )}
             {isPanelOpen && (
             <div className="flex flex-wrap items-center gap-2">

@@ -1,5 +1,6 @@
 import 'server-only'
 import { getAdmin } from '@/lib/supabase/admin'
+import { checkFeatureAccess } from '@/lib/loans/guard'
 import {
   aggregateLedgerBalances,
   applySettlementTransfers,
@@ -10,9 +11,13 @@ import {
 import { addMinorAmounts } from './money'
 import {
   buildExpensePayAllContext,
+  buildExpensePayAllPairContext,
   buildExpensePayAllView,
+  expensePayAllCanonicalPairDirection,
+  expensePayAllSafeFirstName,
   expensePayAllSelfMemberIds,
   type ExpensePayAllCandidate,
+  type ExpensePayAllPairCandidate,
 } from './pay-all'
 import { parseExpenseAmountToMinor } from './input-money'
 import { paymentSnapshotForViewer } from './payment-snapshot-visibility'
@@ -26,6 +31,7 @@ import {
 } from './payment-profile'
 import { canLeaveExpenseGroup } from './member-exit'
 import { canActAsExpenseMember, canManageExpenseMemberOnBehalf } from './policy'
+import { EXPENSE_FEATURE_KEY } from './contracts'
 import type {
   DebtObligation,
   ExpenseLedgerEntry,
@@ -49,6 +55,8 @@ import type {
   ExpensePaymentPreferenceView,
   ExpensePaymentProfileV2View,
   ExpensePayAllBlockedContextView,
+  ExpensePendingSettlementBatchView,
+  ExpensePayAllPaymentDetailsView,
   ExpensePayAllView,
   ExpenseRepaymentView,
   ExpenseRevisionSnapshot,
@@ -139,6 +147,12 @@ interface AllocationRow {
   repayment_id: string
   obligation_id: string
   amount_minor: number | string
+}
+
+interface SettlementBatchRepaymentLinkRow {
+  repayment_id: string
+  batch_id: string
+  method: 'external_payment' | 'debt_offset'
 }
 
 interface ActivityRow {
@@ -335,6 +349,8 @@ async function loadGroupRows(groupId: string): Promise<{
   shareCollaborationReady: boolean
   memberNameRevisions: MemberNameRevisionRow[]
   guestMemberRenameReady: boolean
+  settlementBatchRepaymentLinks: SettlementBatchRepaymentLinkRow[]
+  settlementBatchReady: boolean
 }> {
   const admin = getAdmin()
   const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult] = await Promise.all([
@@ -365,6 +381,7 @@ async function loadGroupRows(groupId: string): Promise<{
     allocationsResult,
     shareCollaboratorsResult,
     memberNameRevisionsResult,
+    settlementBatchItemsResult,
   ] = await Promise.all([
     expenseIds.length > 0
       ? admin.from('expense_payments').select('expense_id, member_id, amount_minor').in('expense_id', expenseIds)
@@ -385,6 +402,11 @@ async function loadGroupRows(groupId: string): Promise<{
       .eq('group_id', groupId)
       .order('created_at', { ascending: false })
       .limit(50),
+    repaymentIds.length > 0
+      ? admin.from('expense_settlement_batch_items')
+        .select('repayment_id, batch_id, method')
+        .in('repayment_id', repaymentIds)
+      : Promise.resolve(empty),
   ])
   throwOnError(paymentsResult.error, 'payment query')
   throwOnError(sharesResult.error, 'share query')
@@ -401,6 +423,12 @@ async function loadGroupRows(groupId: string): Promise<{
     'expense_member_name_revisions',
   )) {
     throwOnError(memberNameRevisionsResult.error, 'member name revision query')
+  }
+  if (settlementBatchItemsResult.error && !isMissingOptionalExpenseRelation(
+    settlementBatchItemsResult.error,
+    'expense_settlement_batch_items',
+  )) {
+    throwOnError(settlementBatchItemsResult.error, 'settlement batch item query')
   }
 
   return {
@@ -422,6 +450,10 @@ async function loadGroupRows(groupId: string): Promise<{
       ? []
       : (memberNameRevisionsResult.data ?? []) as MemberNameRevisionRow[],
     guestMemberRenameReady: !memberNameRevisionsResult.error,
+    settlementBatchRepaymentLinks: settlementBatchItemsResult.error
+      ? []
+      : (settlementBatchItemsResult.data ?? []) as SettlementBatchRepaymentLinkRow[],
+    settlementBatchReady: !settlementBatchItemsResult.error,
   }
 }
 
@@ -628,6 +660,9 @@ function buildGroupView(
     const allocation = rows.allocations.find((candidate) => candidate.repayment_id === repayment.id)
     if (!allocation) throw new Error('expense_repayment_allocation_invalid')
     const snapshotOwnerUserId = to?.user_id
+    const settlementBatchLink = rows.settlementBatchRepaymentLinks.find(
+      (candidate) => candidate.repayment_id === repayment.id,
+    )
     return {
       id: repayment.id,
       obligationId: allocation.obligation_id,
@@ -642,9 +677,11 @@ function buildGroupView(
       note: repayment.note,
       status: repayment.status,
       createdAt: repayment.created_at,
-      canConfirm: isReported && (viewerIsTo || managedCreditor),
-      canReject: isReported && (viewerIsTo || managedCreditor),
-      canCancel: isReported && (viewerIsFrom || repayment.reported_by === actorUserId || canManage),
+      canConfirm: !settlementBatchLink && isReported && (viewerIsTo || managedCreditor),
+      canReject: !settlementBatchLink && isReported && (viewerIsTo || managedCreditor),
+      canCancel: !settlementBatchLink
+        && isReported
+        && (viewerIsFrom || repayment.reported_by === actorUserId || canManage),
       requiresReview: isReported && reportedReviewKeys.has(settlementTransferReviewKey({
         fromPartyId: repayment.from_member_id,
         toPartyId: repayment.to_member_id,
@@ -660,6 +697,8 @@ function buildGroupView(
           explicitlySharedWithViewer: false,
         },
       ),
+      settlementBatchId: settlementBatchLink?.batch_id ?? null,
+      settlementMethod: settlementBatchLink?.method ?? null,
     }
   })
 
@@ -722,6 +761,152 @@ function buildGroupView(
   }
 }
 
+function unavailablePaymentDetails(): ExpensePayAllPaymentDetailsView {
+  return {
+    paymentDetailsState: 'unavailable',
+    paymentInstruction: null,
+    expectedPaymentProfile: null,
+  }
+}
+
+async function resolveCurrentPaymentDetails(input: {
+  actorUserId: string
+  groupId: string
+  transfer: ExpenseGroupView['settlementTransfers'][number]
+  ownerUserId: string
+}): Promise<ExpensePayAllPaymentDetailsView> {
+  const admin = getAdmin()
+  const rpcInput = {
+    p_actor_id: input.actorUserId,
+    p_group_id: input.groupId,
+    p_from_member_id: input.transfer.fromMemberId,
+    p_to_member_id: input.transfer.toMemberId,
+    p_currency: input.transfer.currency,
+  }
+
+  try {
+    const { data: encryptedData, error: encryptedError } = await admin.rpc(
+      'expense_resolve_payment_profile_v2',
+      rpcInput,
+    )
+    if (encryptedError) {
+      console.error('[expenses] current payment-profile resolution failed')
+      return unavailablePaymentDetails()
+    }
+    if (encryptedData !== null) {
+      if (!encryptedData || typeof encryptedData !== 'object' || Array.isArray(encryptedData)) {
+        console.error('[expenses] current payment-profile response was invalid')
+        return unavailablePaymentDetails()
+      }
+      const encrypted = encryptedData as Record<string, unknown>
+      const profileId = typeof encrypted.profile_id === 'string' ? encrypted.profile_id : ''
+      const encryptedOwnerId = typeof encrypted.owner_user_id === 'string' ? encrypted.owner_user_id : ''
+      const profileVersion = encrypted.version
+      const profileStateToken = typeof encrypted.state_token === 'string'
+        ? encrypted.state_token
+        : ''
+      if (
+        !profileId
+        || encryptedOwnerId !== input.ownerUserId
+        || !Number.isSafeInteger(profileVersion)
+        || (profileVersion as number) <= 0
+        || !/^[0-9a-f]{32}$/.test(profileStateToken)
+      ) {
+        console.error('[expenses] current payment-profile response was invalid')
+        return unavailablePaymentDetails()
+      }
+
+      const details = decryptExpensePaymentProfile({
+        ownerUserId: input.ownerUserId,
+        profileId,
+        envelope: encrypted.envelope,
+      })
+      const accountNumber = formatExpenseBankAccount(details)
+      const nationalId = formatExpenseNationalId(details.nationalId)
+      return {
+        paymentDetailsState: 'available',
+        expectedPaymentProfile: {
+          profileId,
+          version: profileVersion as number,
+          stateToken: profileStateToken,
+        },
+        paymentInstruction: {
+          title: 'payment_profile_v2',
+          kind: accountNumber ? 'bank_account' : 'other',
+          currency: input.transfer.currency,
+          details: {
+            ...(accountNumber ? { accountNumber } : {}),
+            ...(nationalId ? { nationalId } : {}),
+            ...(details.other ? { instructions: details.other } : {}),
+          },
+          visibility: 'debt_context',
+          capturedAt: new Date().toISOString(),
+        },
+      }
+    }
+
+    // SQL122 returns NULL both when no global v2 profile exists and when its
+    // exact debt-context gate fails closed. Distinguish those states with a
+    // service-role existence check before making a user-visible absence claim.
+    const { data: profilePresence, error: profilePresenceError } = await admin
+      .from('expense_payment_profiles_v2')
+      .select('id')
+      .eq('owner_user_id', input.ownerUserId)
+      .maybeSingle()
+    if (profilePresenceError) {
+      console.error('[expenses] current payment-profile presence check failed')
+      return unavailablePaymentDetails()
+    }
+    if (profilePresence !== null) {
+      console.error('[expenses] current payment-profile resolver failed closed')
+      return unavailablePaymentDetails()
+    }
+
+    const { data: legacyData, error: legacyError } = await admin.rpc(
+      'expense_resolve_payment_instruction',
+      rpcInput,
+    )
+    if (legacyError) {
+      console.error('[expenses] current payment-instruction resolution failed')
+      return unavailablePaymentDetails()
+    }
+    if (legacyData === null) {
+      return {
+        paymentDetailsState: 'not_configured',
+        paymentInstruction: null,
+        expectedPaymentProfile: null,
+      }
+    }
+    if (!legacyData || typeof legacyData !== 'object' || Array.isArray(legacyData)) {
+      console.error('[expenses] current payment-instruction response was invalid')
+      return unavailablePaymentDetails()
+    }
+    const paymentInstruction = paymentSnapshotForViewer(
+      legacyData as Record<string, unknown>,
+      {
+        viewerUserId: input.actorUserId,
+        ownerUserId: input.ownerUserId,
+        viewerOwesOwner: true,
+        sharesSettlementWithOwner: false,
+        explicitlySharedWithViewer: false,
+      },
+    )
+    return paymentInstruction
+      ? {
+          paymentDetailsState: 'available',
+          paymentInstruction,
+          // Legacy scoped preferences remain available to the one-way flow.
+          // Pair batches deliberately require the global encrypted v2 profile.
+          expectedPaymentProfile: null,
+        }
+      : unavailablePaymentDetails()
+  } catch {
+    // Crypto/config/tamper failures must not be presented as profile absence.
+    console.error('[expenses] current payment-profile resolution failed')
+    return unavailablePaymentDetails()
+  }
+}
+
 async function attachCurrentPaymentInstructions(
   group: ExpenseGroupView,
   rows: Awaited<ReturnType<typeof loadGroupRows>>,
@@ -729,7 +914,6 @@ async function attachCurrentPaymentInstructions(
 ): Promise<ExpenseGroupView> {
   const membersById = new Map(rows.members.map((member) => [member.id, member]))
   const selfMemberIds = expensePayAllSelfMemberIds(group)
-  const admin = getAdmin()
   const settlementTransfers = await Promise.all(group.settlementTransfers.map(async (transfer) => {
     const creditor = membersById.get(transfer.toMemberId)
     const ownerUserId = creditor?.user_id
@@ -739,73 +923,16 @@ async function attachCurrentPaymentInstructions(
       || typeof ownerUserId !== 'string'
     ) return transfer
 
-    try {
-      const { data: encryptedData, error: encryptedError } = await admin.rpc(
-        'expense_resolve_payment_profile_v2',
-        {
-          p_actor_id: actorUserId,
-          p_group_id: group.id,
-          p_from_member_id: transfer.fromMemberId,
-          p_to_member_id: transfer.toMemberId,
-          p_currency: transfer.currency,
-        },
-      )
-      if (!encryptedError && encryptedData && typeof encryptedData === 'object' && !Array.isArray(encryptedData)) {
-        const encrypted = encryptedData as Record<string, unknown>
-        const profileId = typeof encrypted.profile_id === 'string' ? encrypted.profile_id : ''
-        const encryptedOwnerId = typeof encrypted.owner_user_id === 'string' ? encrypted.owner_user_id : ''
-        if (profileId && encryptedOwnerId === ownerUserId) {
-          const details = decryptExpensePaymentProfile({
-            ownerUserId,
-            profileId,
-            envelope: encrypted.envelope,
-          })
-          const accountNumber = formatExpenseBankAccount(details)
-          const nationalId = formatExpenseNationalId(details.nationalId)
-          return {
-            ...transfer,
-            paymentInstruction: {
-              title: 'payment_profile_v2',
-              kind: accountNumber ? 'bank_account' as const : 'other' as const,
-              currency: transfer.currency,
-              details: {
-                ...(accountNumber ? { accountNumber } : {}),
-                ...(nationalId ? { nationalId } : {}),
-                ...(details.other ? { instructions: details.other } : {}),
-              },
-              visibility: 'debt_context' as const,
-              capturedAt: new Date().toISOString(),
-            },
-          }
-        }
-      }
-
-      const { data, error } = await admin.rpc('expense_resolve_payment_instruction', {
-        p_actor_id: actorUserId,
-        p_group_id: group.id,
-        p_from_member_id: transfer.fromMemberId,
-        p_to_member_id: transfer.toMemberId,
-        p_currency: transfer.currency,
-      })
-      if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
-        if (error) console.error('[expenses] current payment-instruction resolution failed')
-        return transfer
-      }
-      const paymentInstruction = paymentSnapshotForViewer(
-        data as Record<string, unknown>,
-        {
-          viewerUserId: actorUserId,
-          ownerUserId,
-          viewerOwesOwner: true,
-          sharesSettlementWithOwner: false,
-          explicitlySharedWithViewer: false,
-        },
-      )
-      return { ...transfer, paymentInstruction }
-    } catch {
-      // Payment details fail closed without making the shared ledger unavailable.
-      console.error('[expenses] current payment-instruction resolution failed')
-      return transfer
+    const currentPaymentDetails = await resolveCurrentPaymentDetails({
+      actorUserId,
+      groupId: group.id,
+      transfer,
+      ownerUserId,
+    })
+    return {
+      ...transfer,
+      paymentInstruction: currentPaymentDetails.paymentInstruction,
+      currentPaymentDetails,
     }
   }))
 
@@ -831,12 +958,153 @@ export async function getExpenseGroupView(
   }
 }
 
+async function loadPendingExpenseSettlementBatches(
+  actorUserId: string,
+): Promise<{ ready: boolean; batches: ExpensePendingSettlementBatchView[] }> {
+  interface BatchRow {
+    id: string
+    proposed_by_user_id: string | null
+    counterparty_user_id: string | null
+    currency: string
+    gross_payable_minor: number | string
+    gross_receivable_minor: number | string
+    offset_minor: number | string
+    cash_minor: number | string
+    occurred_on: string
+    note: string | null
+    created_at: string
+  }
+  interface BatchItemPartyRow {
+    batch_id: string
+    from_member_id: string
+    to_member_id: string
+  }
+
+  const admin = getAdmin()
+  const batchResult = await admin
+    .from('expense_settlement_batches')
+    .select('id, proposed_by_user_id, counterparty_user_id, currency, gross_payable_minor, gross_receivable_minor, offset_minor, cash_minor, occurred_on, note, created_at')
+    .eq('status', 'proposed')
+    .or(`proposed_by_user_id.eq.${actorUserId},counterparty_user_id.eq.${actorUserId}`)
+    .order('created_at', { ascending: false })
+
+  if (batchResult.error) {
+    if (
+      isMissingOptionalExpenseRelation(batchResult.error, 'expense_settlement_batches')
+      || (
+        typeof batchResult.error === 'object'
+        && batchResult.error !== null
+        && 'code' in batchResult.error
+        && ['42703', 'PGRST204'].includes(String(batchResult.error.code))
+      )
+    ) return { ready: false, batches: [] }
+    throwOnError(batchResult.error, 'pending settlement batch query')
+  }
+
+  const rows = (batchResult.data ?? []) as BatchRow[]
+  if (rows.length === 0) return { ready: true, batches: [] }
+  const batchIds = rows.map((row) => row.id)
+  const itemResult = await admin
+    .from('expense_settlement_batch_items')
+    .select('batch_id, from_member_id, to_member_id')
+    .in('batch_id', batchIds)
+  if (itemResult.error) {
+    if (isMissingOptionalExpenseRelation(
+      itemResult.error,
+      'expense_settlement_batch_items',
+    )) return { ready: false, batches: [] }
+    throwOnError(itemResult.error, 'pending settlement batch item query')
+  }
+
+  const items = (itemResult.data ?? []) as BatchItemPartyRow[]
+  const memberIds = [...new Set(items.flatMap((item) => [
+    item.from_member_id,
+    item.to_member_id,
+  ]))]
+  const memberResult = memberIds.length > 0
+    ? await admin
+      .from('expense_group_members')
+      .select('id, user_id, display_name, status')
+      .in('id', memberIds)
+    : { data: [] as unknown[], error: null }
+  throwOnError(memberResult.error, 'pending settlement batch member query')
+  const members = (memberResult.data ?? []) as Array<Pick<
+    MemberRow,
+    'id' | 'user_id' | 'display_name' | 'status'
+  >>
+  const membersById = new Map(members.map((member) => [member.id, member]))
+
+  const batches = rows.flatMap((row): ExpensePendingSettlementBatchView[] => {
+    const proposedBySelf = row.proposed_by_user_id === actorUserId
+    const actorIsCounterparty = row.counterparty_user_id === actorUserId
+    if (!proposedBySelf && !actorIsCounterparty) return []
+    const otherUserId = proposedBySelf
+      ? row.counterparty_user_id
+      : row.proposed_by_user_id
+    if (!otherUserId) return []
+    const batchItems = items.filter((item) => item.batch_id === row.id)
+    const counterparty = batchItems
+      .flatMap((item) => [
+        membersById.get(item.from_member_id),
+        membersById.get(item.to_member_id),
+      ])
+      .find((member) => (
+        member?.user_id === otherUserId && member.status === 'active'
+      ))
+    const counterpartyDisplayName = counterparty?.display_name ?? 'Teskeiðarnotandi'
+    return [{
+      id: row.id,
+      counterpartyDisplayName,
+      counterpartyFirstName: expensePayAllSafeFirstName(counterpartyDisplayName),
+      currency: row.currency,
+      proposerGrossPayableMinor: safeMinor(row.gross_payable_minor),
+      proposerGrossReceivableMinor: safeMinor(row.gross_receivable_minor),
+      offsetMinor: safeMinor(row.offset_minor),
+      cashMinor: safeMinor(row.cash_minor),
+      occurredOn: row.occurred_on,
+      note: row.note,
+      proposedBySelf,
+      canConfirm: actorIsCounterparty,
+      canReject: actorIsCounterparty,
+      canCancel: proposedBySelf,
+      createdAt: row.created_at,
+    }]
+  })
+  return { ready: true, batches }
+}
+
+async function loadSettlementCounterpartyEligibility(
+  counterpartyUserIds: readonly string[],
+): Promise<Map<string, boolean>> {
+  const admin = getAdmin()
+  const uniqueIds = [...new Set(counterpartyUserIds)]
+  const entries = await Promise.all(uniqueIds.map(async (userId) => {
+    try {
+      const { data, error } = await admin.auth.admin.getUserById(userId)
+      const email = data.user?.email
+      if (error || !email) return [userId, false] as const
+      return [
+        userId,
+        await checkFeatureAccess(userId, email, EXPENSE_FEATURE_KEY),
+      ] as const
+    } catch {
+      console.error('[expenses] settlement counterparty access lookup failed')
+      return [userId, false] as const
+    }
+  }))
+  return new Map(entries)
+}
+
 export async function getExpensePayAllView(actorUserId: string): Promise<ExpensePayAllView> {
-  const { data, error } = await getAdmin()
-    .from('expense_group_members')
-    .select('group_id')
-    .eq('user_id', actorUserId)
-    .eq('status', 'active')
+  const [membershipResult, pendingBatchState] = await Promise.all([
+    getAdmin()
+      .from('expense_group_members')
+      .select('group_id')
+      .eq('user_id', actorUserId)
+      .eq('status', 'active'),
+    loadPendingExpenseSettlementBatches(actorUserId),
+  ])
+  const { data, error } = membershipResult
   throwOnError(error, 'pay-all membership query')
 
   const groupIds = [...new Set(((data ?? []) as Array<{ group_id: string }>).map((row) => row.group_id))]
@@ -849,14 +1117,82 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
         actorUserId,
       )
       const membersById = new Map(rows.members.map((member) => [member.id, member]))
+      const actorMember = rows.members.find((member) => (
+        member.status === 'active' && member.user_id === actorUserId
+      ))
+      if (!actorMember) throw new Error('expense_not_allowed')
       const selfMemberIds = expensePayAllSelfMemberIds(group)
       const candidates: ExpensePayAllCandidate[] = []
+      const pairCandidates: ExpensePayAllPairCandidate[] = []
       const blockedContexts: ExpensePayAllBlockedContextView[] = []
 
       for (const transfer of group.settlementTransfers) {
+        const fromMember = membersById.get(transfer.fromMemberId)
+        const toMember = membersById.get(transfer.toMemberId)
+        const pairDirection = expensePayAllCanonicalPairDirection({
+          actorUserId,
+          actorMember: {
+            id: actorMember.id,
+            userId: actorMember.user_id,
+            displayName: actorMember.display_name,
+            status: actorMember.status,
+          },
+          fromMember: fromMember ? {
+            id: fromMember.id,
+            userId: fromMember.user_id,
+            displayName: fromMember.display_name,
+            status: fromMember.status,
+          } : null,
+          toMember: toMember ? {
+            id: toMember.id,
+            userId: toMember.user_id,
+            displayName: toMember.display_name,
+            status: toMember.status,
+          } : null,
+        })
+
+        if (pairDirection) {
+          const context = buildExpensePayAllContext(group, transfer)
+          const pairContext = buildExpensePayAllPairContext(context)
+          const actionable = !group.settlementRequiresReview
+            && (group.status === 'active' || group.status === 'settling')
+          if (pairDirection.direction === 'outgoing') {
+            const resolvedPaymentDetails = transfer.currentPaymentDetails
+              ?? unavailablePaymentDetails()
+            const pairPaymentDetails = resolvedPaymentDetails.paymentDetailsState === 'available'
+              && resolvedPaymentDetails.expectedPaymentProfile === null
+              ? {
+                  paymentDetailsState: 'not_configured' as const,
+                  paymentInstruction: null,
+                  expectedPaymentProfile: null,
+                }
+              : resolvedPaymentDetails
+            pairCandidates.push({
+              counterpartyUserId: pairDirection.counterpartyUserId,
+              counterpartyDisplayName: pairDirection.displayName,
+              direction: 'outgoing',
+              actionable,
+              context: pairContext,
+              paymentDetails: pairPaymentDetails,
+            })
+          } else {
+            pairCandidates.push({
+              counterpartyUserId: pairDirection.counterpartyUserId,
+              counterpartyDisplayName: pairDirection.displayName,
+              direction: 'incoming',
+              actionable,
+              context: pairContext,
+              paymentDetails: null,
+            })
+          }
+        }
+
         if (!selfMemberIds.has(transfer.fromMemberId)) continue
         const creditor = membersById.get(transfer.toMemberId)
         if (!creditor) continue
+        // Exact canonical registered pairs are rendered by counterpartyViews.
+        // Keep the legacy outgoing list only for guests/delegated share actors.
+        if (pairDirection?.direction === 'outgoing' && creditor.user_id) continue
         const context = buildExpensePayAllContext(group, transfer)
         if (!transfer.canReport) {
           blockedContexts.push({ ...context, recipientDisplayName: transfer.toDisplayName })
@@ -869,31 +1205,69 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
           recipientDisplayName: transfer.toDisplayName,
           amountMinor: transfer.amountMinor,
           currency: transfer.currency,
-          paymentInstruction: transfer.paymentInstruction,
+          ...(creditor.user_id
+            ? (transfer.currentPaymentDetails ?? unavailablePaymentDetails())
+             : {
+                 paymentDetailsState: 'not_configured' as const,
+                 paymentInstruction: null,
+                 expectedPaymentProfile: null,
+               }),
           context,
         })
       }
 
-      return { candidates, blockedContexts }
+      return {
+        candidates,
+        pairCandidates,
+        blockedContexts,
+        settlementBatchReady: rows.settlementBatchReady,
+      }
     } catch (caught) {
       if (caught instanceof Error && ['expense_not_found', 'expense_not_allowed'].includes(caught.message)) {
-        return { candidates: [], blockedContexts: [] }
+        return {
+          candidates: [],
+          pairCandidates: [],
+          blockedContexts: [],
+          settlementBatchReady: true,
+        }
       }
       throw caught
     }
   }))
 
-  return buildExpensePayAllView(
+  const view = buildExpensePayAllView(
     resolved.flatMap((entry) => entry.candidates),
     resolved.flatMap((entry) => entry.blockedContexts),
+    resolved.flatMap((entry) => entry.pairCandidates),
   )
+  const settlementBatchReady = pendingBatchState.ready
+    && resolved.every((entry) => entry.settlementBatchReady)
+  const counterpartyEligibility = settlementBatchReady
+    ? await loadSettlementCounterpartyEligibility(
+        view.counterpartyViews.map((pair) => pair.counterpartyUserId),
+      )
+    : new Map<string, boolean>()
+  return {
+    ...view,
+    counterpartyViews: view.counterpartyViews.map((pair) => ({
+      ...pair,
+      counterpartyCanSettle: counterpartyEligibility.get(pair.counterpartyUserId) === true,
+    })),
+    pendingBatches: pendingBatchState.batches,
+    settlementBatchReady,
+  }
 }
 
 export async function getExpenseDashboard(
   actorUserId: string,
 ): Promise<ExpenseDashboardView> {
   const admin = getAdmin()
-  const [{ data, error }, memberInvitationResult, draftResult] = await Promise.all([
+  const [
+    { data, error },
+    memberInvitationResult,
+    draftResult,
+    pendingBatchState,
+  ] = await Promise.all([
     admin
     .from('expense_group_members')
     .select('group_id, status, created_at')
@@ -901,6 +1275,7 @@ export async function getExpenseDashboard(
     .in('status', ['active', 'invited']),
     admin.rpc('expense_get_my_member_invitations', { p_actor_id: actorUserId }),
     admin.rpc('expense_list_my_private_drafts', { p_actor_id: actorUserId }),
+    loadPendingExpenseSettlementBatches(actorUserId),
   ])
   throwOnError(error, 'dashboard membership query')
   throwOnError(memberInvitationResult.error, 'member invitation inbox query')
@@ -1001,8 +1376,10 @@ export async function getExpenseDashboard(
     }))
   }
   const totalsByCurrency = new Map<string, { owedToYouMinor: number; youOweMinor: number }>()
-  let pendingConfirmationCount = 0
-  let hasPayAllItems = false
+  let pendingConfirmationCount = pendingBatchState.batches.filter(
+    (batch) => batch.canConfirm,
+  ).length
+  let hasPayAllItems = pendingBatchState.batches.length > 0
   for (const group of groups) {
     for (const balance of group.balances.filter((entry) => entry.isSelf)) {
       const current = totalsByCurrency.get(balance.currency) ?? { owedToYouMinor: 0, youOweMinor: 0 }

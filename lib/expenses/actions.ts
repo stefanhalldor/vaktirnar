@@ -30,10 +30,12 @@ import {
   RemoveExpenseGroupMemberSchema,
   RecordExpenseRepaymentReceivedSchema,
   RenameExpenseGuestMemberSchema,
+  ProposeExpenseSettlementBatchSchema,
   ReportExpenseRepaymentSchema,
   ResendExpenseMemberInvitationSchema,
   SaveExpensePaymentPreferenceSchema,
   SetExpenseGroupStatusSchema,
+  TransitionExpenseSettlementBatchSchema,
   TransitionExpenseRepaymentSchema,
   RespondExpenseGroupInvitationSchema,
   RespondExpenseMemberInvitationSchema,
@@ -76,6 +78,7 @@ const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
 function revalidateExpensePaths(groupId?: string, expenseId?: string, repaymentId?: string) {
   revalidatePath(EXPENSES_PATH)
   revalidatePath('/auth-mvp/heim')
+  revalidatePath(`${EXPENSES_PATH}/gera-upp`)
   if (groupId) revalidatePath(`${EXPENSES_PATH}/hopar/${groupId}`)
   if (expenseId) revalidatePath(`${EXPENSES_PATH}/utgjold/${expenseId}`)
   if (repaymentId) revalidatePath(`${EXPENSES_PATH}/endurgreidslur/${repaymentId}`)
@@ -96,6 +99,8 @@ function actionError(error: unknown): ExpenseActionResult<never> {
           || message.includes('cannot_')
           || message.includes('not_settled')
           || message.includes('review_required')
+          || message.includes('settlement_batch_transition')
+          || message.includes('repayment_batch_managed')
           || message.includes('exceeds_available') ? 'conflict'
           : message.includes('invalid') || message.includes('required') || message.includes('mismatch')
             ? 'invalid_input'
@@ -1122,6 +1127,87 @@ export async function transitionExpenseRepayment(input: unknown): Promise<Expens
     return { ok: true }
   } catch (error) {
     console.error('[expenses] transition repayment failed')
+    return actionError(error)
+  }
+}
+
+function revalidateExpenseBatchPaths(groupIds: readonly unknown[]) {
+  revalidateExpensePaths()
+  for (const groupId of new Set(
+    groupIds.filter((value): value is string => typeof value === 'string' && value.length > 0),
+  )) {
+    revalidatePath(`${EXPENSES_PATH}/hopar/${groupId}`)
+  }
+}
+
+export async function proposeExpenseSettlementBatch(
+  input: unknown,
+): Promise<ExpenseActionResult<{ batchId: string; status: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = ProposeExpenseSettlementBatchSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const cashMinor = parseExpenseAmountToMinor(
+      parsed.data.cash_amount,
+      parsed.data.currency,
+      { allowZero: true },
+    )
+    const { data, error } = await getAdmin().rpc('expense_propose_settlement_batch', {
+      p_actor_id: user.id,
+      p_anchor_group_id: parsed.data.anchor.group_id,
+      p_anchor_from_member_id: parsed.data.anchor.from_member_id,
+      p_anchor_to_member_id: parsed.data.anchor.to_member_id,
+      p_currency: parsed.data.currency,
+      p_expected_contexts: parsed.data.expected_contexts,
+      p_expected_profile_id: parsed.data.expected_payment_profile?.profile_id ?? null,
+      p_expected_profile_version: parsed.data.expected_payment_profile?.version ?? null,
+      p_expected_profile_state_token:
+        parsed.data.expected_payment_profile?.state_token ?? null,
+      p_cash_minor: cashMinor,
+      p_use_offset: parsed.data.use_offset,
+      p_occurred_on: parsed.data.occurred_on,
+      p_note: parsed.data.note,
+      p_request_id: parsed.data.request_id,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const batchId = String(result.batch_id ?? '')
+    const status = String(result.status ?? '')
+    if (!batchId || status !== 'proposed') throw new Error('expense_save_failed')
+    revalidateExpenseBatchPaths(Array.isArray(result.group_ids) ? result.group_ids : [])
+    return { ok: true, data: { batchId, status } }
+  } catch (error) {
+    console.error('[expenses] propose settlement batch failed')
+    return actionError(error)
+  }
+}
+
+export async function transitionExpenseSettlementBatch(
+  input: unknown,
+): Promise<ExpenseActionResult<{ status: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = TransitionExpenseSettlementBatchSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const { data, error } = await getAdmin().rpc('expense_transition_settlement_batch', {
+      p_actor_id: user.id,
+      p_batch_id: parsed.data.batch_id,
+      p_action: parsed.data.action,
+      p_request_id: parsed.data.request_id,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const status = String(result.status ?? '')
+    const expectedStatus = {
+      confirm: 'confirmed',
+      reject: 'rejected',
+      cancel: 'cancelled',
+    }[parsed.data.action]
+    if (status !== expectedStatus) throw new Error('expense_save_failed')
+    revalidateExpenseBatchPaths(Array.isArray(result.group_ids) ? result.group_ids : [])
+    return { ok: true, data: { status } }
+  } catch (error) {
+    console.error('[expenses] transition settlement batch failed')
     return actionError(error)
   }
 }

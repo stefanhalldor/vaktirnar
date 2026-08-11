@@ -4,8 +4,8 @@ import Link from 'next/link'
 import { ChevronRight, Package, Receipt } from 'lucide-react'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { checkFeatureAccess, guardFeatureAccess } from '@/lib/loans/guard'
-import { getRelationship, getRelationshipLoanActivity } from '@/lib/relationships/actions'
-import { getRelationshipExpenseContexts } from '@/lib/expenses/relationship-contexts.server'
+import { getRelationship } from '@/lib/relationships/actions'
+import { getRelationshipSharedOverview } from '@/lib/relationships/shared-overview.server'
 import { RelationshipLabelsForm } from '@/components/tengsl/RelationshipLabelsForm'
 import { RelationshipDetailsForm } from '@/components/tengsl/RelationshipDetailsForm'
 import { getRelationshipLabelState } from '@/lib/relationships/repository-v2.server'
@@ -33,19 +33,19 @@ export default async function TengslDetailPage({
 
   // Dynamic activity lookups do not rely on polymorphic relationship_sources.
   // Expense contexts require a confirmed counterpart and shared active membership.
-  const [loanActivity, expenseContexts] = await Promise.all([
-    getRelationshipLoanActivity(user.id, relationship),
-    canUseExpenses && relationship.counterpart_user_id
-      ? getRelationshipExpenseContexts(user.id, relationship.counterpart_user_id).catch(() => [])
-      : Promise.resolve([]),
-  ])
+  const { loanActivity, expenseContexts, hasPartialError } =
+    await getRelationshipSharedOverview(user.id, relationship, {
+      includeExpenses: canUseExpenses,
+      includeLoans: true,
+    })
 
   const displayName =
     relationship.private_display_name ??
     relationship.counterpart_display_name ??
     relationship.email_canonical ??
     id
-  const hasSharedActivity = expenseContexts.length > 0 || loanActivity.length > 0
+  const hasSharedItems = expenseContexts.length > 0 || loanActivity.length > 0
+  const hasSharedActivity = hasSharedItems || hasPartialError
 
   return (
     <div className="min-h-screen bg-background">
@@ -77,8 +77,16 @@ export default async function TengslDetailPage({
 
         {hasSharedActivity && (
           <section className="space-y-3">
-            <h2 className="text-base font-semibold text-foreground">{t('sharedActivity')}</h2>
-            <div className="divide-y divide-border rounded-xl border border-border bg-card">
+            <h2 className="break-words text-base font-semibold text-foreground">
+              {t('sharedWith', { name: displayName })}
+            </h2>
+            {hasPartialError && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {t('sharedUnavailable')}
+              </p>
+            )}
+            {hasSharedItems && (
+              <div className="divide-y divide-border rounded-xl border border-border bg-card">
               {expenseContexts.length > 0 ? (
                 <div className="p-4">
                   <h3 className="text-sm font-medium text-foreground">{t('sourceExpenses')}</h3>
@@ -137,7 +145,8 @@ export default async function TengslDetailPage({
                   </div>
                 </div>
               ) : null}
-            </div>
+              </div>
+            )}
           </section>
         )}
 

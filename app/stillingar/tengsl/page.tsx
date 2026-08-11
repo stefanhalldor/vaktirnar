@@ -4,7 +4,7 @@ import { guardTeskeidSession } from '@/lib/auth/guard'
 import { guardFeatureAccess } from '@/lib/loans/guard'
 import { getRelationshipDirectory } from '@/lib/relationships/actions'
 import type { RelationshipListItem } from '@/lib/relationships/actions'
-import { getRelationshipCircles, getRelationshipLabelState } from '@/lib/relationships/repository-v2.server'
+import { getRelationshipLabelState } from '@/lib/relationships/repository-v2.server'
 import { RelationshipDirectoryClient } from '@/components/tengsl/RelationshipDirectoryClient'
 
 export default async function TengslPage() {
@@ -12,10 +12,9 @@ export default async function TengslPage() {
   await guardFeatureAccess(user.email!, 'tengsl')
   const t = await getTranslations('teskeid.stillingar.tengsl')
 
-  const [items, labelState, circleState]: [RelationshipListItem[], Awaited<ReturnType<typeof getRelationshipLabelState>>, Awaited<ReturnType<typeof getRelationshipCircles>>] = await Promise.all([
+  const [items, labelState]: [RelationshipListItem[], Awaited<ReturnType<typeof getRelationshipLabelState>>] = await Promise.all([
     getRelationshipDirectory(user.id, user.email!),
     getRelationshipLabelState(user.id),
-    getRelationshipCircles(user.id),
   ])
 
   return (
@@ -37,7 +36,6 @@ export default async function TengslPage() {
           items={items}
           labels={labelState.labels}
           relationshipLabelIds={labelState.relationshipLabelIds}
-          circles={circleState.circles}
         />
 
       </main>

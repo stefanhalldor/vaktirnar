@@ -295,6 +295,72 @@ export const TransitionExpenseRepaymentSchema = z.object({
   request_id: requestId,
 })
 
+const settlementBatchContextSchema = z.object({
+  group_id: uuid,
+  from_member_id: uuid,
+  to_member_id: uuid,
+  expected_financial_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  amount_minor: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+}).strict().refine(
+  (value) => value.from_member_id !== value.to_member_id,
+  { message: 'expense_distinct_members_required' },
+)
+
+const settlementBatchAnchorSchema = z.object({
+  group_id: uuid,
+  from_member_id: uuid,
+  to_member_id: uuid,
+}).strict().refine(
+  (value) => value.from_member_id !== value.to_member_id,
+  { message: 'expense_distinct_members_required' },
+)
+
+const settlementBatchPaymentProfileSchema = z.object({
+  profile_id: uuid,
+  version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  state_token: z.string().regex(/^[0-9a-f]{32}$/),
+}).strict()
+
+export const ProposeExpenseSettlementBatchSchema = z.object({
+  anchor: settlementBatchAnchorSchema,
+  currency,
+  expected_contexts: z.array(settlementBatchContextSchema).min(1).max(100),
+  expected_payment_profile: settlementBatchPaymentProfileSchema.nullable(),
+  cash_amount: amountInput,
+  use_offset: z.boolean(),
+  occurred_on: dateField,
+  note: z.string().trim().max(1000).nullable().optional().transform((v) => v || null),
+  request_id: requestId,
+}).strict().superRefine((value, ctx) => {
+  const keys = value.expected_contexts.map((context) => (
+    `${context.group_id}:${context.from_member_id}:${context.to_member_id}`
+  ))
+  if (new Set(keys).size !== keys.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['expected_contexts'],
+      message: 'expense_duplicate_context',
+    })
+  }
+  if (!value.expected_contexts.some((context) => (
+    context.group_id === value.anchor.group_id
+    && context.from_member_id === value.anchor.from_member_id
+    && context.to_member_id === value.anchor.to_member_id
+  ))) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['anchor'],
+      message: 'expense_settlement_anchor_required',
+    })
+  }
+})
+
+export const TransitionExpenseSettlementBatchSchema = z.object({
+  batch_id: uuid,
+  action: z.enum(['confirm', 'reject', 'cancel']),
+  request_id: requestId,
+}).strict()
+
 const preferenceDetailsSchema = z.object({
   accountNumber: z.string().trim().max(80).optional(),
   nationalId: z.string().trim().max(32).optional(),

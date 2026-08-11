@@ -32,6 +32,7 @@ import {
   DEFAULT_OVERVIEW_VISIBLE_WIND_STATUSES,
 } from '@/lib/weather/windDisplayStatus'
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
+import { filterForecastSlotsFromToday } from '@/lib/weather/forecastSlotHelpers'
 import { WeatherSourceTimeSelector } from '@/components/weather/WeatherSourceTimeSelector'
 import { RouteMemoryPicker, type RouteMemoryPlace } from '@/components/weather/RouteMemoryPicker'
 import { WeatherWatchersComparison } from '@/components/weather/WeatherWatchersComparison'
@@ -505,7 +506,29 @@ export function WeatherOverviewClient({
   const thresholdsRef = useRef(thresholds)
   thresholdsRef.current = thresholds
 
-  // Derive sorted unique forecast slot times from all Veðurstofan stations.
+  // Tick that increments at every UTC midnight to trigger re-filtering of past-day slots.
+  const [dateBoundaryTick, setDateBoundaryTick] = useState(0)
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    function scheduleNext() {
+      const now = Date.now()
+      const d = new Date(now)
+      const nextMidnightMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)
+      const delay = nextMidnightMs - now
+      timeoutId = setTimeout(() => {
+        setDateBoundaryTick(t => t + 1)
+        scheduleNext()
+      }, delay)
+    }
+
+    scheduleNext()
+    return () => {
+      if (timeoutId !== null) clearTimeout(timeoutId)
+    }
+  }, [])
+
+  // Derive sorted unique forecast slot times from all Veðurstofan stations, filtered to today+.
   const availableForecastSlots = useMemo<number[]>(() => {
     if (!data) return []
     const timeSet = new Set<number>()
@@ -514,8 +537,15 @@ export function WeatherOverviewClient({
         timeSet.add(new Date(f.ftimeIso).getTime())
       }
     }
-    return Array.from(timeSet).sort((a, b) => a - b)
-  }, [data])
+    return filterForecastSlotsFromToday(
+      Array.from(timeSet, timeMs => ({ timeMs })),
+      Date.now(),
+    )
+      .map(slot => slot.timeMs)
+      .sort((a, b) => a - b)
+    // dateBoundaryTick intentionally listed to re-run at midnight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, dateBoundaryTick])
 
   // Effective anchor used for Veðurstofan classification. Only meaningful when typeof activeMode === 'number'.
   const forecastAnchorMs = typeof activeMode === 'number' ? activeMode : Date.now()
@@ -881,6 +911,18 @@ export function WeatherOverviewClient({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeMemory.status, vegagerdinRouteFilterIds, vedurstofanRouteFilterIds, filteredVegagerdinStations, forecastSlotStatuses, activeMode, vegagerdinLoading, data])
+
+  // Snap selection when UTC midnight removes the active forecast slot from availableForecastSlots.
+  useEffect(() => {
+    if (typeof activeMode !== 'number') return
+    if (availableForecastSlots.includes(activeMode)) return
+    // Active slot has been filtered out — move to first available slot or fall back to 'now'.
+    if (availableForecastSlots.length > 0) {
+      setActiveMode(availableForecastSlots[0])
+    } else {
+      setActiveMode('now')
+    }
+  }, [activeMode, availableForecastSlots])
 
   // ── Route-variant pills — sorted by worst station status for the active source/time ──
   // Only computed when both places are selected and multiple variants are returned.

@@ -682,7 +682,7 @@ export async function getRelationshipLoanActivity(
 
   if (relationship.counterpart_user_id) {
     const cid = relationship.counterpart_user_id
-    const { data } = await admin
+    const { data, error } = await admin
       .from('loan_items')
       .select('id, item_name, loaned_at, returned_at, lender_user_id')
       .or(
@@ -690,6 +690,7 @@ export async function getRelationshipLoanActivity(
         `and(borrower_user_id.eq.${ownerUserId},lender_user_id.eq.${cid})`,
       )
       .order('loaned_at', { ascending: false })
+    if (error) throw new Error('relationship_loan_activity_lookup_failed')
     rows = (data as LoanRow[] | null) ?? []
   } else if (relationship.email_canonical) {
     // Fetch owner-visible loans first, then filter their invitations by
@@ -698,20 +699,22 @@ export async function getRelationshipLoanActivity(
     const targetEmailNorm = normalizeEmailForAccess(relationship.email_canonical)
 
     if (targetEmailNorm) {
-      const { data: ownerLoanData } = await admin
+      const { data: ownerLoanData, error: ownerLoanError } = await admin
         .from('loan_items')
         .select('id, item_name, loaned_at, returned_at, lender_user_id')
         .or(`lender_user_id.eq.${ownerUserId},borrower_user_id.eq.${ownerUserId}`)
         .order('loaned_at', { ascending: false })
+      if (ownerLoanError) throw new Error('relationship_loan_activity_lookup_failed')
 
       const ownerLoans = (ownerLoanData as LoanRow[] | null) ?? []
       const ownerLoanIds = ownerLoans.map((loan) => loan.id)
 
       if (ownerLoanIds.length > 0) {
-        const { data: invData } = await admin
+        const { data: invData, error: invitationError } = await admin
           .from('loan_invitations')
           .select('loan_id, recipient_email_normalized')
           .in('loan_id', ownerLoanIds)
+        if (invitationError) throw new Error('relationship_loan_activity_lookup_failed')
 
         const matchingLoanIds = new Set(
           ((invData as Array<{ loan_id: string; recipient_email_normalized: string }> | null) ?? [])

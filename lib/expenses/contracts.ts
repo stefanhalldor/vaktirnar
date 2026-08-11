@@ -158,6 +158,8 @@ export interface ExpenseSettlementTransferView {
   canRecordReceived?: boolean
   /** Current, server-authorized details shown before an outside payment. */
   paymentInstruction: ExpensePaymentSnapshotView | null
+  /** Present when the pay-all repository authoritatively resolved the current state. */
+  currentPaymentDetails?: ExpensePayAllPaymentDetailsView
 }
 
 export interface ExpensePaymentSnapshotView {
@@ -188,13 +190,16 @@ export interface ExpenseRepaymentView {
   canCancel: boolean
   requiresReview: boolean
   paymentSnapshot: ExpensePaymentSnapshotView | null
+  /** Batch-linked rows are transitioned only through the atomic batch action. */
+  settlementBatchId?: string | null
+  settlementMethod?: 'external_payment' | 'debt_offset' | null
 }
 
 export interface ExpenseActivityView {
   id: string
   sequence: number
   eventType: ExpenseActivityEventType
-  entityType: 'expense' | 'expense_group' | 'expense_group_invitation' | 'expense_member_invitation' | 'expense_repayment' | 'payment_preference'
+  entityType: 'expense' | 'expense_group' | 'expense_group_invitation' | 'expense_member_invitation' | 'expense_repayment' | 'payment_preference' | 'expense_settlement_batch'
   entityId: string
   summaryCode: string
   actorDisplayName: string
@@ -277,22 +282,133 @@ export interface ExpensePayAllContextView {
   transfer: ExpenseSettlementTransferView
 }
 
-export interface ExpensePayAllPaymentView {
+export type ExpensePayAllPaymentDetailsView =
+  | {
+      paymentDetailsState: 'available'
+      paymentInstruction: ExpensePaymentSnapshotView
+      /** Opaque v2 identity used only for stale-profile protection on submit. */
+      expectedPaymentProfile: {
+        profileId: string
+        version: number
+        stateToken: string
+      } | null
+    }
+  | {
+      paymentDetailsState: 'not_configured' | 'unavailable'
+      paymentInstruction: null
+      expectedPaymentProfile: null
+    }
+
+interface ExpensePayAllPaymentViewBase {
   id: string
   recipientDisplayName: string
   amountMinor: number
   currency: string
-  paymentInstruction: ExpensePaymentSnapshotView | null
   contexts: ExpensePayAllContextView[]
 }
+
+export type ExpensePayAllPaymentView = ExpensePayAllPaymentViewBase
+  & ExpensePayAllPaymentDetailsView
+
+/** Exact context-vector item that a future pair action can submit as stale-state evidence. */
+export interface ExpensePayAllPairContextView {
+  groupId: string
+  expectedFinancialVersion: number
+  fromMemberId: string
+  toMemberId: string
+  amountMinor: number
+  currency: string
+  context: ExpensePayAllContextView
+}
+
+export interface ExpensePayAllBlockedPairContextView extends ExpensePayAllPairContextView {
+  direction: 'outgoing' | 'incoming'
+}
+
+/** Bilateral view for one exact canonical (actor, counterparty, currency) pair. */
+export interface ExpensePayAllCounterpartyView {
+  counterpartyUserId: string
+  counterpartyDisplayName: string
+  /** Safe display-name first token for friendly copy; never derived from an email address. */
+  counterpartyFirstName: string | null
+  currency: string
+  grossPayableMinor: number
+  grossReceivableMinor: number
+  offsetMinor: number
+  netPayableMinor: number
+  netReceivableMinor: number
+  outgoingContexts: ExpensePayAllPairContextView[]
+  incomingContexts: ExpensePayAllPairContextView[]
+  blockedContexts: ExpensePayAllBlockedPairContextView[]
+  /** False when the exact registered counterpart cannot use this beta flow. */
+  counterpartyCanSettle: boolean
+  /** Null only when there is no actionable outgoing cash direction to resolve. */
+  paymentDetails: ExpensePayAllPaymentDetailsView | null
+}
+
+export interface ExpensePayAllContextAllocationView {
+  groupId: string
+  expectedFinancialVersion: number
+  fromMemberId: string
+  toMemberId: string
+  contextAmountMinor: number
+  allocatedMinor: number
+}
+
+export type ExpensePayAllSettlementValidationError =
+  | 'cash_exceeds_payable'
+  | 'settlement_amount_required'
+
+export type ExpensePayAllSettlementPlan =
+  | {
+      valid: false
+      error: ExpensePayAllSettlementValidationError
+      requestedCashMinor: number
+      appliedOffsetMinor: number
+      maxCashMinor: number
+    }
+  | {
+      valid: true
+      error: null
+      cashMinor: number
+      offsetMinor: number
+      totalSettledMinor: number
+      remainingPayableMinor: number
+      remainingReceivableMinor: number
+      outgoingOffsetAllocations: ExpensePayAllContextAllocationView[]
+      incomingOffsetAllocations: ExpensePayAllContextAllocationView[]
+      cashAllocations: ExpensePayAllContextAllocationView[]
+    }
 
 export interface ExpensePayAllBlockedContextView extends ExpensePayAllContextView {
   recipientDisplayName: string
 }
 
+export interface ExpensePendingSettlementBatchView {
+  id: string
+  counterpartyDisplayName: string
+  counterpartyFirstName: string | null
+  currency: string
+  /** Stored terms are always from the original proposer's perspective. */
+  proposerGrossPayableMinor: number
+  proposerGrossReceivableMinor: number
+  offsetMinor: number
+  cashMinor: number
+  occurredOn: string
+  note: string | null
+  proposedBySelf: boolean
+  canConfirm: boolean
+  canReject: boolean
+  canCancel: boolean
+  createdAt: string
+}
+
 export interface ExpensePayAllView {
   payments: ExpensePayAllPaymentView[]
   blockedContexts: ExpensePayAllBlockedContextView[]
+  counterpartyViews: ExpensePayAllCounterpartyView[]
+  pendingBatches: ExpensePendingSettlementBatchView[]
+  settlementBatchReady: boolean
 }
 
 export interface ExpenseIncompleteDraftSummaryView {

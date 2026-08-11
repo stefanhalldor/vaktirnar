@@ -88,8 +88,8 @@ const translations: Record<string, string> = {
   'repayment.cancel': 'Afturkalla tilkynningu',
   'repayment.cancelling': 'Afturkalla...',
   'repayment.cancelConfirm': 'Viltu afturkalla greiðslutilkynninguna?',
-  'repayment.currentPaymentDetailsHidden': 'Viðtakandi hefur ekki deilt greiðsluupplýsingum fyrir þetta uppgjör.',
-  'repayment.currentPaymentDetailsHint': 'Þetta er núverandi greiðsluleið viðtakanda fyrir þetta uppgjör.',
+  'repayment.currentPaymentDetailsHidden': 'Viðtakandi á eftir að skrá greiðsluupplýsingarnar sínar í Teskeið.',
+  'repayment.currentPaymentDetailsHint': 'Þetta er núverandi greiðsluleið viðtakanda í Teskeið.',
   'repayment.copy': 'Afrita',
   'repayment.copied': 'Afritað',
   'repayment.copyValue': 'Afrita {label}',
@@ -199,7 +199,7 @@ describe('ExpensePaymentDetails before outside payment', () => {
 
   it('fails closed with a clear message when no instruction is authorized', () => {
     render(<ExpensePaymentDetails mode="current" snapshot={null} />)
-    expect(screen.getByText('Viðtakandi hefur ekki deilt greiðsluupplýsingum fyrir þetta uppgjör.')).toBeInTheDocument()
+    expect(screen.getByText('Viðtakandi á eftir að skrá greiðsluupplýsingarnar sínar í Teskeið.')).toBeInTheDocument()
   })
 })
 

@@ -32,6 +32,10 @@ export type ExpenseActivityEventType =
   | 'expense_share_collaborator_added'
   | 'expense_share_collaborator_linked'
   | 'expense_share_collaborator_removed'
+  | 'expense_settlement_batch_proposed'
+  | 'expense_settlement_batch_confirmed'
+  | 'expense_settlement_batch_rejected'
+  | 'expense_settlement_batch_cancelled'
 
 export type ExpenseRecentEventEntityType =
   | 'expense'

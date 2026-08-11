@@ -26,12 +26,14 @@ import {
   createExpenseGroup,
   deactivateExpensePaymentPreference,
   leaveExpenseGroup,
+  proposeExpenseSettlementBatch,
   removeExpenseGroupMember,
   reportExpenseRepayment,
   respondExpenseGroupInvitation,
   saveExpensePaymentPreference,
   setExpenseGroupStatus,
   transitionExpenseRepayment,
+  transitionExpenseSettlementBatch,
 } from '@/lib/expenses/actions'
 
 describe('expense server-action guard placement', () => {
@@ -46,6 +48,8 @@ describe('expense server-action guard placement', () => {
     ['setExpenseGroupStatus', setExpenseGroupStatus],
     ['reportExpenseRepayment', reportExpenseRepayment],
     ['transitionExpenseRepayment', transitionExpenseRepayment],
+    ['proposeExpenseSettlementBatch', proposeExpenseSettlementBatch],
+    ['transitionExpenseSettlementBatch', transitionExpenseSettlementBatch],
     ['saveExpensePaymentPreference', saveExpensePaymentPreference],
     ['deactivateExpensePaymentPreference', deactivateExpensePaymentPreference],
   ])('%s does not swallow Next redirect control flow', async (_name, action) => {

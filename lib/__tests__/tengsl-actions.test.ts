@@ -39,6 +39,7 @@ import { updateRelationshipDetails, updateRelationshipTag } from '@/lib/relation
 // ALLOWED_TAGS is in lib/relationships/types.ts — not exported from 'use server' file
 
 import { getRelationshipDirectory, getRelationship, getRelationshipLoanActivity, getRelationshipRecipientOptions } from '@/lib/relationships/actions'
+import { createRelationshipCircle } from '@/lib/relationships/actions-v2'
 
 const OWNER_ID = 'owner-id'
 const OWNER_EMAIL = 'owner@example.com'
@@ -178,10 +179,10 @@ function makeDirectLoansSelect(rows: unknown[]) {
   }
 }
 
-function makeInSelect(rows: unknown[]) {
+function makeInSelect(rows: unknown[], error: unknown = null) {
   return {
     select: vi.fn(() => ({
-      in: vi.fn(async () => ({ data: rows, error: null })),
+      in: vi.fn(async () => ({ data: rows, error })),
     })),
   }
 }
@@ -299,11 +300,11 @@ function makeInOrOrderSelect(rows: unknown[]) {
 }
 
 // .select().or().order() — for getRelationshipLoanActivity owner loans query
-function makeOrOrderSelect(rows: unknown[]) {
+function makeOrOrderSelect(rows: unknown[], error: unknown = null) {
   return {
     select: vi.fn(() => ({
       or: vi.fn(() => ({
-        order: vi.fn(async () => ({ data: rows, error: null })),
+        order: vi.fn(async () => ({ data: rows, error })),
       })),
     })),
   }
@@ -861,6 +862,60 @@ describe('getRelationshipLoanActivity — canonical email normalization', () => 
     const result = await getRelationshipLoanActivity(OWNER_ID, relationship)
     expect(result).toHaveLength(1)
     expect(result[0].item_name).toBe('Hjól')
+  })
+})
+
+describe('getRelationshipLoanActivity — bounded lookup failures', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('throws a generic error when the direct counterpart query fails', async () => {
+    mockFrom.mockReturnValue(makeOrOrderSelect([], { message: 'sensitive database detail' }))
+
+    await expect(getRelationshipLoanActivity(OWNER_ID, {
+      counterpart_user_id: 'counterpart-id',
+      email_canonical: null,
+    })).rejects.toThrow('relationship_loan_activity_lookup_failed')
+  })
+
+  it('throws a generic error when the owner loan query fails', async () => {
+    mockFrom.mockReturnValue(makeOrOrderSelect([], { message: 'sensitive database detail' }))
+
+    await expect(getRelationshipLoanActivity(OWNER_ID, {
+      counterpart_user_id: null,
+      email_canonical: 'friend@example.com',
+    })).rejects.toThrow('relationship_loan_activity_lookup_failed')
+  })
+
+  it('throws a generic error when the invitation query fails', async () => {
+    mockFrom
+      .mockReturnValueOnce(makeOrOrderSelect([{
+        id: 'loan-1',
+        item_name: 'Bók',
+        loaned_at: '2026-06-01',
+        returned_at: null,
+        lender_user_id: OWNER_ID,
+      }]))
+      .mockReturnValueOnce(makeInSelect([], { message: 'sensitive database detail' }))
+
+    await expect(getRelationshipLoanActivity(OWNER_ID, {
+      counterpart_user_id: null,
+      email_canonical: 'friend@example.com',
+    })).rejects.toThrow('relationship_loan_activity_lookup_failed')
+  })
+})
+
+describe('createRelationshipCircle — creation freeze', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('rejects creation after auth guards without touching Supabase', async () => {
+    const result = await createRelationshipCircle({
+      name: 'Nýr hópur',
+      description: '',
+      request_id: '3ac06e6f-cdd1-437c-8d42-17a0f8e6748d',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'not_allowed' })
+    expect(mockFrom).not.toHaveBeenCalled()
   })
 })
 

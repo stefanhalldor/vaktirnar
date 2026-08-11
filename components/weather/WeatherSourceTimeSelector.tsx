@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { WIND_STATUS_MARKER_COLOR } from '@/lib/weather/windDisplayStatus'
 import type { ForecastTimeScrubberSlot } from '@/components/weather/ForecastTimeScrubber'
 import { formatLongDepartureDateTime } from '@/components/weather/travelAuditMap.helpers'
-import { groupSlotsByDay } from '@/lib/weather/forecastSlotHelpers'
+import { filterForecastSlotsFromToday, groupSlotsByDay } from '@/lib/weather/forecastSlotHelpers'
 
 const NEUTRAL_STATUS_DOT_COLOR = '#94a3b8'
 
@@ -74,10 +74,13 @@ export function WeatherSourceTimeSelector({
   const nowActive = activeMode === 'now'
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // Defensive: ensure no past-day forecast slots reach the selector regardless of source.
+  const filteredForecastSlots = filterForecastSlotsFromToday(forecastSlots, Date.now())
+
   // Ordered list of all selectable modes: 'now' (when enabled) then each forecast slot timeMs.
   const selectableModes: Array<'now' | number> = [
     ...(nowDisabled ? [] : ['now' as const]),
-    ...forecastSlots.map(s => s.timeMs),
+    ...filteredForecastSlots.map(s => s.timeMs),
   ]
   const activeIdx = selectableModes.findIndex(m => m === activeMode)
 
@@ -160,12 +163,12 @@ export function WeatherSourceTimeSelector({
           {forecastGroupLabel}
         </div>
         <div className="px-1 pb-1">
-          {forecastLoading && forecastSlots.length === 0 ? (
+          {forecastLoading && filteredForecastSlots.length === 0 ? (
             <span className="block px-1.5 py-1 text-muted-foreground">{forecastLoadingLabel}</span>
-          ) : forecastSlots.length > 0 ? (
+          ) : filteredForecastSlots.length > 0 ? (
             <div className="overflow-x-auto" ref={scrollRef}>
               <div className="flex gap-2 pb-0.5" style={{ minWidth: 'max-content' }}>
-                {groupSlotsByDay(forecastSlots, locale).map(({ dayKey, dayLabel, slots: daySlots }) => (
+                {groupSlotsByDay(filteredForecastSlots, locale).map(({ dayKey, dayLabel, slots: daySlots }) => (
                   <div key={dayKey} className="flex flex-col gap-0.5">
                     <span className="text-[10px] text-muted-foreground px-1 leading-none text-center">{dayLabel}</span>
                     <div className="flex gap-0.5">

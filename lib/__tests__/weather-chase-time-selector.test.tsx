@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { WeatherChaseTimeSelector } from '@/components/weather/WeatherChaseTimeSelector'
 
@@ -8,6 +8,15 @@ vi.mock('next-intl', () => ({
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn()
+})
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-07-24T18:00:00.000Z'))
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('WeatherChaseTimeSelector', () => {
@@ -63,5 +72,53 @@ describe('WeatherChaseTimeSelector', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Spá.*06:00/i }))
     expect(onTimeChange).toHaveBeenCalledWith(slots[0].timeMs)
+  })
+
+  it('removes prior calendar days from rendering and arrow navigation', () => {
+    const onTimeChange = vi.fn()
+    const datedSlots = [
+      {
+        timeMs: Date.parse('2026-07-23T18:00:00Z'),
+        worstStatus: 'innan-marka' as const,
+        worstStatusLabel: 'Innan marka',
+      },
+      ...slots,
+      {
+        timeMs: Date.parse('2026-07-25T06:00:00Z'),
+        worstStatus: 'innan-marka' as const,
+        worstStatusLabel: 'Innan marka',
+      },
+    ]
+    const { rerender } = render(
+      <WeatherChaseTimeSelector
+        slots={datedSlots}
+        loading={false}
+        loadingLabel="Hleður"
+        activeTimeMs={slots[0].timeMs}
+        onTimeChange={onTimeChange}
+        previousLabel="Fyrri"
+        nextLabel="Næsti"
+        forecastLabel="Spá"
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /Spá.*23\. júlí.*18:00/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Fyrri' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Næsti' }))
+    expect(onTimeChange).toHaveBeenCalledWith(slots[1].timeMs)
+
+    rerender(
+      <WeatherChaseTimeSelector
+        slots={datedSlots}
+        loading={false}
+        loadingLabel="Hleður"
+        activeTimeMs={datedSlots[datedSlots.length - 1].timeMs}
+        onTimeChange={onTimeChange}
+        previousLabel="Fyrri"
+        nextLabel="Næsti"
+        forecastLabel="Spá"
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Næsti' })).toBeDisabled()
   })
 })

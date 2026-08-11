@@ -10,10 +10,12 @@ export function ExpensePaymentDetails({
   snapshot,
   mode,
   amount,
+  ownerFirstName,
 }: {
   snapshot: ExpensePaymentSnapshotView | null
   mode: 'current' | 'snapshot'
   amount?: { display: string; copy: string }
+  ownerFirstName?: string | null
 }) {
   const t = useExpenseTranslations()
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
@@ -22,7 +24,9 @@ export function ExpensePaymentDetails({
   if (!snapshot && !amount) {
     return (
       <p className="border-y border-border py-4 text-sm text-muted-foreground">
-        {t(mode === 'current' ? 'repayment.currentPaymentDetailsHidden' : 'repayment.paymentDetailsHidden')}
+        {mode === 'current' && ownerFirstName
+          ? t('payAll.paymentMissing', { firstName: ownerFirstName })
+          : t(mode === 'current' ? 'repayment.currentPaymentDetailsHidden' : 'repayment.paymentDetailsHidden')}
       </p>
     )
   }
@@ -71,7 +75,13 @@ export function ExpensePaymentDetails({
           ]
         }) : null}
       </dl>
-      {!snapshot ? <p className="text-sm text-muted-foreground">{t('repayment.currentPaymentDetailsHidden')}</p> : null}
+      {!snapshot ? (
+        <p className="text-sm text-muted-foreground">
+          {ownerFirstName
+            ? t('payAll.paymentMissing', { firstName: ownerFirstName })
+            : t('repayment.currentPaymentDetailsHidden')}
+        </p>
+      ) : null}
       {copyFailed ? <p role="alert" className="text-xs text-destructive">{t('repayment.copyFailed')}</p> : null}
       {snapshot ? <p className="text-xs leading-5 text-muted-foreground">
         {t(mode === 'current' ? 'repayment.currentPaymentDetailsHint' : 'preferences.snapshotHint')}

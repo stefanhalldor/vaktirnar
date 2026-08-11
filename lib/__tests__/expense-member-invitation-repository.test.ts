@@ -2,14 +2,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const { mockFrom, mockGetAdmin, mockRpc } = vi.hoisted(() => ({
+const {
+  mockCheckFeatureAccess,
+  mockFrom,
+  mockGetAdmin,
+  mockGetUserById,
+  mockRpc,
+} = vi.hoisted(() => ({
+  mockCheckFeatureAccess: vi.fn(),
   mockFrom: vi.fn(),
   mockGetAdmin: vi.fn(),
+  mockGetUserById: vi.fn(),
   mockRpc: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mockGetAdmin }))
+vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: mockCheckFeatureAccess }))
 
 import {
   getExpenseDashboard,
@@ -53,20 +62,42 @@ const rawPreview = {
 beforeEach(() => {
   vi.clearAllMocks()
   mockFrom.mockImplementation((table: string) => {
-    if (table !== 'expense_group_members') throw new Error(`unexpected_table:${table}`)
-    return {
-      select: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          in: vi.fn().mockResolvedValue({ data: [], error: null }),
+    if (table === 'expense_group_members') {
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            in: vi.fn().mockResolvedValue({ data: [], error: null }),
+          })),
         })),
-      })),
+      }
     }
+    if (table === 'expense_settlement_batches') {
+      const query = {
+        eq: vi.fn(),
+        or: vi.fn(),
+        order: vi.fn().mockResolvedValue({
+          data: null,
+          error: {
+            code: 'PGRST205',
+            message: "Could not find the table 'public.expense_settlement_batches' in the schema cache",
+          },
+        }),
+      }
+      query.eq.mockReturnValue(query)
+      query.or.mockReturnValue(query)
+      return { select: vi.fn(() => query) }
+    }
+    throw new Error(`unexpected_table:${table}`)
   })
   mockRpc.mockImplementation(async (name: string) => ({
     data: [name === 'expense_get_scoped_member_invitation_preview' ? rawPreview : rawInvitation],
     error: null,
   }))
-  mockGetAdmin.mockReturnValue({ from: mockFrom, rpc: mockRpc })
+  mockGetAdmin.mockReturnValue({
+    from: mockFrom,
+    rpc: mockRpc,
+    auth: { admin: { getUserById: mockGetUserById } },
+  })
 })
 
 describe('expense member invitation repository privacy boundary', () => {
@@ -98,6 +129,8 @@ describe('expense member invitation repository privacy boundary', () => {
     expect(JSON.stringify(dashboard.memberInvitations)).not.toContain('Martine')
     expect(JSON.stringify(dashboard.memberInvitations)).not.toContain('85000')
     expect(JSON.stringify(dashboard.memberInvitations)).not.toContain('private ledger note')
+    expect(mockGetUserById).not.toHaveBeenCalled()
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
   })
 
   it('returns the same bounded shape from the invitation detail lookup', async () => {

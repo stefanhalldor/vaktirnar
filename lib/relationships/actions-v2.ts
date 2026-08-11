@@ -6,7 +6,6 @@ import { guardTeskeidSession } from '@/lib/auth/guard'
 import { guardFeatureAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import {
-  CreateRelationshipCircleSchema,
   DeleteRelationshipLabelSchema,
   InviteRelationshipCircleSchema,
   RespondRelationshipCircleInvitationSchema,
@@ -98,21 +97,9 @@ export async function deleteRelationshipLabelV2(input: unknown): Promise<Relatio
   return { ok: true, data: undefined }
 }
 
-export async function createRelationshipCircle(input: unknown): Promise<RelationshipV2ActionResult<{ circleId: string }>> {
-  const user = await actor()
-  const parsed = CreateRelationshipCircleSchema.safeParse(input)
-  if (!parsed.success) return { ok: false, error: 'invalid_input' }
-  const circleId = randomUUID()
-  const { data, error } = await getAdmin().rpc('relationship_create_circle', {
-    p_actor_id: user.id,
-    p_circle_id: circleId,
-    p_name: parsed.data.name.normalize('NFC'),
-    p_description: parsed.data.description || null,
-    p_request_id: parsed.data.request_id,
-  })
-  if (error) return { ok: false, error: mapError(error) }
-  refreshRelationshipPaths(undefined, circleId)
-  return { ok: true, data: { circleId: String((data as { circle_id?: unknown } | null)?.circle_id ?? circleId) } }
+export async function createRelationshipCircle(_input: unknown): Promise<RelationshipV2ActionResult<{ circleId: string }>> {
+  await actor()
+  return { ok: false, error: 'not_allowed' }
 }
 
 export async function inviteRelationshipToCircle(input: unknown): Promise<RelationshipV2ActionResult<{ invitationId: string }>> {

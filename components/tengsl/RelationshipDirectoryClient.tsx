@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import type { RelationshipListItem } from '@/lib/relationships/actions'
 import { setRelationshipLabelAssignmentV2 } from '@/lib/relationships/actions-v2'
-import type { RelationshipCircleSummary, RelationshipCustomLabel } from '@/lib/relationships/types'
+import type { RelationshipCustomLabel } from '@/lib/relationships/types'
 import { getRelationshipDisplayName } from '@/lib/relationships/display-and-sort'
 
 function requestId() {
@@ -17,12 +17,10 @@ export function RelationshipDirectoryClient({
   items,
   labels,
   relationshipLabelIds,
-  circles,
 }: {
   items: RelationshipListItem[]
   labels: RelationshipCustomLabel[]
   relationshipLabelIds: Record<string, string[]>
-  circles: RelationshipCircleSummary[]
 }) {
   const t = useTranslations('teskeid.stillingar.tengsl')
   const router = useRouter()
@@ -79,12 +77,9 @@ export function RelationshipDirectoryClient({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-2">
-        <Link href="/stillingar/tengsl/hringir" className="flex min-h-11 items-center justify-center rounded-xl border border-border px-3 text-sm font-medium">
-          {t('circles')} <span className="ml-1 text-muted-foreground">{circles.length}</span>
-        </Link>
-        <Link href="/stillingar/tengsl/hringir/nyr" className="flex min-h-11 items-center justify-center rounded-xl bg-primary px-3 text-sm font-medium text-primary-foreground">
-          {t('newCircle')}
+      <div className="flex">
+        <Link href="/stillingar/tengsl/hringir" className="flex min-h-11 items-center justify-center rounded-xl border border-border px-4 text-sm font-medium">
+          {t('savedCircleGroups')}
         </Link>
       </div>
 

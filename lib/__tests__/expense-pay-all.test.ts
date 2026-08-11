@@ -2,13 +2,22 @@ import { describe, expect, it } from 'vitest'
 import type {
   ExpensePayAllBlockedContextView,
   ExpensePayAllContextView,
+  ExpensePayAllPairContextView,
+  ExpensePayAllPaymentDetailsView,
   ExpensePaymentSnapshotView,
 } from '@/lib/expenses/contracts'
 import {
+  buildExpensePayAllCounterpartyViews,
   buildExpensePayAllView,
   buildExpensePayAllContext,
+  buildExpensePayAllPairContext,
+  combineExpensePayAllPaymentDetails,
+  expensePayAllCanonicalPairDirection,
+  expensePayAllSafeFirstName,
   expensePayAllSelfMemberIds,
+  planExpensePayAllSettlement,
   type ExpensePayAllCandidate,
+  type ExpensePayAllPairCandidate,
 } from '@/lib/expenses/pay-all'
 
 function context(overrides: Partial<ExpensePayAllContextView> = {}): ExpensePayAllContextView {
@@ -42,16 +51,97 @@ function instruction(overrides: Partial<ExpensePaymentSnapshotView> = {}): Expen
   }
 }
 
-function candidate(overrides: Partial<ExpensePayAllCandidate> = {}): ExpensePayAllCandidate {
+function candidate(
+  overrides: Partial<Extract<
+    ExpensePayAllCandidate,
+    { paymentDetailsState: 'available' }
+  >> = {},
+): ExpensePayAllCandidate {
   return {
     creditorKey: 'user:creditor-a',
     recipientDisplayName: 'Anna',
     amountMinor: 5_000,
     currency: 'ISK',
     paymentInstruction: instruction(),
+    paymentDetailsState: 'available',
+    expectedPaymentProfile: {
+      profileId: '80000000-0000-4000-8000-000000000001',
+      version: 3,
+      stateToken: '0123456789abcdef0123456789abcdef',
+    },
     context: context(),
     ...overrides,
   }
+}
+
+function pairContext(input: {
+  groupId?: string
+  amountMinor?: number
+  currency?: string
+  fromMemberId?: string
+  toMemberId?: string
+  expectedFinancialVersion?: number
+} = {}): ExpensePayAllPairContextView {
+  const groupId = input.groupId ?? 'group-1'
+  const amountMinor = input.amountMinor ?? 5_000
+  const currency = input.currency ?? 'ISK'
+  const fromMemberId = input.fromMemberId ?? 'actor-member'
+  const toMemberId = input.toMemberId ?? 'counterparty-member'
+  const expectedFinancialVersion = input.expectedFinancialVersion ?? 1
+  return buildExpensePayAllPairContext(context({
+    groupId,
+    amountMinor,
+    currency,
+    transfer: {
+      fromMemberId,
+      fromDisplayName: 'Ég',
+      toMemberId,
+      toDisplayName: 'Anna',
+      amountMinor,
+      currency,
+      expectedFinancialVersion,
+      canReport: true,
+      paymentInstruction: null,
+    },
+  }))
+}
+
+function pairCandidate(
+  direction: 'outgoing' | 'incoming',
+  input: {
+    counterpartyUserId?: string
+    counterpartyDisplayName?: string
+    groupId?: string
+    amountMinor?: number
+    currency?: string
+    fromMemberId?: string
+    toMemberId?: string
+    expectedFinancialVersion?: number
+    actionable?: boolean
+    paymentDetails?: ExpensePayAllPaymentDetailsView
+  } = {},
+): ExpensePayAllPairCandidate {
+  const base = {
+    counterpartyUserId: input.counterpartyUserId ?? 'counterparty-user',
+    counterpartyDisplayName: input.counterpartyDisplayName ?? 'Anna Jónsdóttir',
+    actionable: input.actionable ?? true,
+    context: pairContext(input),
+  }
+  return direction === 'outgoing'
+    ? {
+        ...base,
+        direction,
+        paymentDetails: input.paymentDetails ?? {
+          paymentDetailsState: 'available',
+          paymentInstruction: instruction(),
+          expectedPaymentProfile: {
+            profileId: '80000000-0000-4000-8000-000000000001',
+            version: 3,
+            stateToken: '0123456789abcdef0123456789abcdef',
+          },
+        },
+      }
+    : { ...base, direction, paymentDetails: null }
 }
 
 describe('buildExpensePayAllView', () => {
@@ -205,5 +295,288 @@ describe('buildExpensePayAllView', () => {
       ['Færsla B', 15_000],
     ])
     expect(result.nettingAdjustmentMinor).toBe(0)
+  })
+})
+
+describe('canonical pay-all pairs', () => {
+  const member = (
+    id: string,
+    userId: string | null,
+    status: 'invited' | 'active' | 'declined' | 'removed' | 'left' = 'active',
+  ) => ({ id, userId, displayName: id, status })
+
+  it('accepts only the exact direct active actor and an active registered counterparty', () => {
+    const actor = member('actor-member', 'actor-user')
+    expect(expensePayAllCanonicalPairDirection({
+      actorUserId: 'actor-user',
+      actorMember: actor,
+      fromMember: actor,
+      toMember: member('anna-member', 'anna-user'),
+    })).toEqual({
+      direction: 'outgoing',
+      counterpartyUserId: 'anna-user',
+      displayName: 'anna-member',
+    })
+    expect(expensePayAllCanonicalPairDirection({
+      actorUserId: 'actor-user',
+      actorMember: actor,
+      fromMember: member('anna-member', 'anna-user'),
+      toMember: actor,
+    })?.direction).toBe('incoming')
+
+    expect(expensePayAllCanonicalPairDirection({
+      actorUserId: 'actor-user',
+      actorMember: actor,
+      fromMember: member('shared-share-member', null),
+      toMember: member('anna-member', 'anna-user'),
+    })).toBeNull()
+    expect(expensePayAllCanonicalPairDirection({
+      actorUserId: 'actor-user',
+      actorMember: actor,
+      fromMember: actor,
+      toMember: member('guest-member', null),
+    })).toBeNull()
+    expect(expensePayAllCanonicalPairDirection({
+      actorUserId: 'actor-user',
+      actorMember: actor,
+      fromMember: actor,
+      toMember: member('inactive-member', 'anna-user', 'left'),
+    })).toBeNull()
+    expect(expensePayAllCanonicalPairDirection({
+      actorUserId: 'actor-user',
+      actorMember: member('actor-member', 'different-user'),
+      fromMember: actor,
+      toMember: member('anna-member', 'anna-user'),
+    })).toBeNull()
+  })
+
+  it('groups by canonical user and currency across different member ids, never display name', () => {
+    const views = buildExpensePayAllCounterpartyViews([
+      pairCandidate('outgoing', {
+        groupId: 'group-a', amountMinor: 20_000,
+        fromMemberId: 'actor-a', toMemberId: 'anna-a',
+      }),
+      pairCandidate('outgoing', {
+        groupId: 'group-b', amountMinor: 10_000,
+        fromMemberId: 'actor-b', toMemberId: 'anna-b',
+      }),
+      pairCandidate('incoming', {
+        groupId: 'group-c', amountMinor: 5_000,
+        fromMemberId: 'anna-c', toMemberId: 'actor-c',
+      }),
+      pairCandidate('outgoing', {
+        counterpartyUserId: 'different-user',
+        counterpartyDisplayName: 'Anna Jónsdóttir',
+        groupId: 'group-d', amountMinor: 7_000,
+        fromMemberId: 'actor-d', toMemberId: 'different-anna-d',
+      }),
+    ])
+
+    expect(views).toHaveLength(2)
+    const anna = views.find((view) => view.counterpartyUserId === 'counterparty-user')
+    expect(anna).toMatchObject({
+      counterpartyDisplayName: 'Anna Jónsdóttir',
+      counterpartyFirstName: 'Anna',
+      currency: 'ISK',
+      grossPayableMinor: 30_000,
+      grossReceivableMinor: 5_000,
+      offsetMinor: 5_000,
+      netPayableMinor: 25_000,
+      netReceivableMinor: 0,
+      counterpartyCanSettle: true,
+    })
+    expect(anna?.outgoingContexts.map((entry) => ({
+      groupId: entry.groupId,
+      version: entry.expectedFinancialVersion,
+      from: entry.fromMemberId,
+      to: entry.toMemberId,
+      amount: entry.amountMinor,
+    }))).toEqual([
+      { groupId: 'group-a', version: 1, from: 'actor-a', to: 'anna-a', amount: 20_000 },
+      { groupId: 'group-b', version: 1, from: 'actor-b', to: 'anna-b', amount: 10_000 },
+    ])
+  })
+
+  it('keeps blocked contexts visible but out of actionable totals', () => {
+    const [view] = buildExpensePayAllCounterpartyViews([
+      pairCandidate('outgoing', { amountMinor: 30_000 }),
+      pairCandidate('incoming', { groupId: 'blocked', amountMinor: 5_000, actionable: false }),
+    ])
+    expect(view).toMatchObject({
+      grossPayableMinor: 30_000,
+      grossReceivableMinor: 0,
+      offsetMinor: 0,
+    })
+    expect(view?.blockedContexts).toHaveLength(1)
+    expect(view?.blockedContexts[0]?.direction).toBe('incoming')
+  })
+
+  it('derives friendly copy only from a safe display first name', () => {
+    expect(expensePayAllSafeFirstName('  Sigurveig Stefánsdóttir ')).toBe('Sigurveig')
+    expect(expensePayAllSafeFirstName('sigurveig@example.com')).toBeNull()
+    expect(expensePayAllSafeFirstName('12345')).toBeNull()
+  })
+})
+
+describe('truthful pay-all payment details', () => {
+  it('preserves one consistent available snapshot and fails closed on mixed states', () => {
+    const available: ExpensePayAllPaymentDetailsView = {
+      paymentDetailsState: 'available',
+      paymentInstruction: instruction(),
+      expectedPaymentProfile: {
+        profileId: '80000000-0000-4000-8000-000000000001',
+        version: 3,
+        stateToken: '0123456789abcdef0123456789abcdef',
+      },
+    }
+    expect(combineExpensePayAllPaymentDetails([
+      available,
+      {
+        paymentDetailsState: 'available',
+        paymentInstruction: instruction({ capturedAt: '2026-08-10T10:00:00.000Z' }),
+        expectedPaymentProfile: {
+          profileId: '80000000-0000-4000-8000-000000000001',
+          version: 3,
+          stateToken: '0123456789abcdef0123456789abcdef',
+        },
+      },
+    ])).toEqual(available)
+    expect(combineExpensePayAllPaymentDetails([
+      available,
+      {
+        paymentDetailsState: 'not_configured',
+        paymentInstruction: null,
+        expectedPaymentProfile: null,
+      },
+    ])).toEqual({
+      paymentDetailsState: 'unavailable',
+      paymentInstruction: null,
+      expectedPaymentProfile: null,
+    })
+    expect(combineExpensePayAllPaymentDetails([
+      {
+        paymentDetailsState: 'not_configured',
+        paymentInstruction: null,
+        expectedPaymentProfile: null,
+      },
+      {
+        paymentDetailsState: 'not_configured',
+        paymentInstruction: null,
+        expectedPaymentProfile: null,
+      },
+    ])).toEqual({
+      paymentDetailsState: 'not_configured',
+      paymentInstruction: null,
+      expectedPaymentProfile: null,
+    })
+  })
+
+  it('does not combine otherwise identical payment details from different profile versions', () => {
+    const profileId = '80000000-0000-4000-8000-000000000001'
+    expect(combineExpensePayAllPaymentDetails([
+      {
+        paymentDetailsState: 'available',
+        paymentInstruction: instruction(),
+        expectedPaymentProfile: {
+          profileId,
+          version: 3,
+          stateToken: '0123456789abcdef0123456789abcdef',
+        },
+      },
+      {
+        paymentDetailsState: 'available',
+        paymentInstruction: instruction(),
+        expectedPaymentProfile: {
+          profileId,
+          version: 4,
+          stateToken: 'fedcba9876543210fedcba9876543210',
+        },
+      },
+    ])).toEqual({
+      paymentDetailsState: 'unavailable',
+      paymentInstruction: null,
+      expectedPaymentProfile: null,
+    })
+  })
+})
+
+describe('planExpensePayAllSettlement', () => {
+  const outgoing = [
+    pairContext({
+      groupId: 'group-a', amountMinor: 20_000,
+      fromMemberId: 'actor-a', toMemberId: 'anna-a',
+    }),
+    pairContext({
+      groupId: 'group-b', amountMinor: 10_000,
+      fromMemberId: 'actor-b', toMemberId: 'anna-b',
+    }),
+  ]
+  const incoming = [pairContext({
+    groupId: 'group-c', amountMinor: 5_000,
+    fromMemberId: 'anna-c', toMemberId: 'actor-c',
+  })]
+
+  it('allocates full binary offset in both directions before cash and counts it once', () => {
+    const plan = planExpensePayAllSettlement(outgoing, incoming, {
+      cashMinor: 25_000,
+      applyFullOffset: true,
+    })
+    expect(plan).toMatchObject({
+      valid: true,
+      cashMinor: 25_000,
+      offsetMinor: 5_000,
+      totalSettledMinor: 30_000,
+      remainingPayableMinor: 0,
+      remainingReceivableMinor: 0,
+    })
+    if (!plan.valid) throw new Error('expected valid plan')
+    expect(plan.outgoingOffsetAllocations.map((entry) => [entry.groupId, entry.allocatedMinor]))
+      .toEqual([['group-a', 5_000]])
+    expect(plan.incomingOffsetAllocations.map((entry) => [entry.groupId, entry.allocatedMinor]))
+      .toEqual([['group-c', 5_000]])
+    expect(plan.cashAllocations.map((entry) => [entry.groupId, entry.allocatedMinor]))
+      .toEqual([['group-a', 15_000], ['group-b', 10_000]])
+  })
+
+  it('is input-order independent and uses stable group/from/to tie-breakers', () => {
+    const tied = [
+      pairContext({ groupId: 'group-b', amountMinor: 10_000, fromMemberId: 'actor-b', toMemberId: 'anna-b' }),
+      pairContext({ groupId: 'group-a', amountMinor: 10_000, fromMemberId: 'actor-a', toMemberId: 'anna-a' }),
+    ]
+    const claim = [pairContext({ groupId: 'group-c', amountMinor: 5_000, fromMemberId: 'anna-c', toMemberId: 'actor-c' })]
+    const first = planExpensePayAllSettlement(tied, claim, { cashMinor: 0, applyFullOffset: true })
+    const second = planExpensePayAllSettlement([...tied].reverse(), claim, { cashMinor: 0, applyFullOffset: true })
+    expect(first).toEqual(second)
+    if (!first.valid) throw new Error('expected valid plan')
+    expect(first.outgoingOffsetAllocations.map((entry) => entry.groupId)).toEqual(['group-a'])
+  })
+
+  it('keeps offset full when cash is lower and rejects cash above the applicable cap', () => {
+    expect(planExpensePayAllSettlement(outgoing, incoming, {
+      cashMinor: 20_000,
+      applyFullOffset: true,
+    })).toMatchObject({
+      valid: true,
+      offsetMinor: 5_000,
+      remainingPayableMinor: 5_000,
+    })
+    expect(planExpensePayAllSettlement(outgoing, incoming, {
+      cashMinor: 26_000,
+      applyFullOffset: true,
+    })).toEqual({
+      valid: false,
+      error: 'cash_exceeds_payable',
+      requestedCashMinor: 26_000,
+      appliedOffsetMinor: 5_000,
+      maxCashMinor: 25_000,
+    })
+    expect(planExpensePayAllSettlement(outgoing, incoming, {
+      cashMinor: 30_000,
+      applyFullOffset: false,
+    })).toMatchObject({ valid: true, cashMinor: 30_000, offsetMinor: 0 })
+    expect(planExpensePayAllSettlement(outgoing, incoming, {
+      cashMinor: 0,
+      applyFullOffset: false,
+    })).toMatchObject({ valid: false, error: 'settlement_amount_required' })
   })
 })

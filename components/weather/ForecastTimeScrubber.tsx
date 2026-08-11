@@ -3,7 +3,7 @@
 import { useLocale } from 'next-intl'
 import { WIND_STATUS_MARKER_COLOR, type WindDisplayStatus } from '@/lib/weather/windDisplayStatus'
 import { formatLongDepartureDateTime } from '@/components/weather/travelAuditMap.helpers'
-import { groupSlotsByDay } from '@/lib/weather/forecastSlotHelpers'
+import { filterForecastSlotsFromToday, groupSlotsByDay } from '@/lib/weather/forecastSlotHelpers'
 
 export interface ForecastTimeScrubberSlot {
   timeMs: number
@@ -31,7 +31,9 @@ export function ForecastTimeScrubber({
   label,
 }: ForecastTimeScrubberProps) {
   const locale = useLocale()
-  const dayGroups = groupSlotsByDay(slots, locale)
+  // Defensive: ensure no past-day slots reach the scrubber regardless of source.
+  const filteredSlots = filterForecastSlotsFromToday(slots, Date.now())
+  const dayGroups = groupSlotsByDay(filteredSlots, locale)
 
   return (
     <div className="flex flex-col gap-1.5">

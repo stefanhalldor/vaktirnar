@@ -16,13 +16,24 @@ export async function ExpenseRepaymentDetail({
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const statusKey = `repayment.status${repayment.status[0]!.toUpperCase()}${repayment.status.slice(1)}`
+  const isDebtOffset = repayment.settlementMethod === 'debt_offset'
+  const methodKey = isDebtOffset
+    ? 'repayment.methodDebtOffset'
+    : repayment.settlementMethod === 'external_payment'
+      ? 'repayment.methodExternalPayment'
+      : null
 
   return (
     <div className="space-y-8">
       <section className="space-y-3 border-y border-border py-5">
-        <p className="text-sm text-muted-foreground">{t('repayment.outsidePayment')}</p>
+        <p className="text-sm text-muted-foreground">
+          {t(isDebtOffset ? 'repayment.debtOffsetDescription' : 'repayment.outsidePayment')}
+        </p>
         <p className="text-lg font-semibold">
-          {t('repayment.fromTo', { from: repayment.fromDisplayName, to: repayment.toDisplayName })}
+          {t(isDebtOffset ? 'repayment.offsetFromTo' : 'repayment.fromTo', {
+            from: repayment.fromDisplayName,
+            to: repayment.toDisplayName,
+          })}
         </p>
         <strong className="block text-xl">{formatExpenseMinor(repayment.amountMinor, repayment.currency)}</strong>
         <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 text-sm">
@@ -30,14 +41,18 @@ export async function ExpenseRepaymentDetail({
           <dd>{formatDateOnly(repayment.occurredOn, locale)}</dd>
           <dt className="text-muted-foreground">{t('common.status')}</dt>
           <dd>{t(statusKey)}</dd>
+          {methodKey ? <dt className="text-muted-foreground">{t('repayment.method')}</dt> : null}
+          {methodKey ? <dd className="font-medium">{t(methodKey)}</dd> : null}
         </dl>
         {repayment.note ? <p className="whitespace-pre-wrap break-words text-sm leading-6">{repayment.note}</p> : null}
       </section>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold">{t('repayment.paymentDetails')}</h2>
-        <ExpensePaymentDetails snapshot={repayment.paymentSnapshot} mode="snapshot" />
-      </section>
+      {!isDebtOffset ? (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold">{t('repayment.paymentDetails')}</h2>
+          <ExpensePaymentDetails snapshot={repayment.paymentSnapshot} mode="snapshot" />
+        </section>
+      ) : null}
 
       <Link
         href={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}`}
@@ -46,7 +61,7 @@ export async function ExpenseRepaymentDetail({
         {t('repayment.openGroup')}
       </Link>
 
-      <ExpenseRepaymentActions repayment={repayment} />
+      {!repayment.settlementBatchId ? <ExpenseRepaymentActions repayment={repayment} /> : null}
     </div>
   )
 }

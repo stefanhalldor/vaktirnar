@@ -22,8 +22,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string, values?: Record<string, string | number>) => {
     const translations: Record<string, string> = {
-      circles: 'Tengslahringir',
-      newCircle: 'Nýr hringur',
+      savedCircleGroups: 'Vistaðir aðilahópar',
       filterByLabel: 'Sía eftir mínum labelum',
       all: 'Allt',
       quickLabels: 'Flokka',
@@ -63,8 +62,17 @@ beforeEach(() => {
 })
 
 describe('RelationshipDirectoryClient quick labels', () => {
+  it('links to saved contact groups without a misleading partial count', () => {
+    render(<RelationshipDirectoryClient items={items} labels={labels} relationshipLabelIds={{}} />)
+
+    expect(screen.getByRole('link', { name: 'Vistaðir aðilahópar' })).toHaveAttribute(
+      'href',
+      '/stillingar/tengsl/hringir',
+    )
+  })
+
   it('toggles a private label directly from a relationship row', async () => {
-    render(<RelationshipDirectoryClient items={items} labels={labels} relationshipLabelIds={{ 'rel-anna': ['label-family'] }} circles={[]} />)
+    render(<RelationshipDirectoryClient items={items} labels={labels} relationshipLabelIds={{ 'rel-anna': ['label-family'] }} />)
 
     const annaRow = screen.getByText('Anna').closest('li')
     expect(annaRow).not.toBeNull()
@@ -80,7 +88,7 @@ describe('RelationshipDirectoryClient quick labels', () => {
   })
 
   it('bulk-assigns one existing label to every selected relationship', async () => {
-    render(<RelationshipDirectoryClient items={items} labels={labels} relationshipLabelIds={{}} circles={[]} />)
+    render(<RelationshipDirectoryClient items={items} labels={labels} relationshipLabelIds={{}} />)
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Velja Anna' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'Velja Bjarni' }))

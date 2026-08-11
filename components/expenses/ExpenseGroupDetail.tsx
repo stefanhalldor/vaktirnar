@@ -31,7 +31,51 @@ export async function ExpenseGroupDetail({ group, initialDate, participantOption
 
       <section><h2 className="mb-2 text-sm font-semibold">{t('group.expenses')}</h2>{group.expenses.length === 0 ? <p className="border-y border-border py-4 text-sm text-muted-foreground">{t('dashboard.empty')}</p> : <div className="divide-y divide-border border-y border-border">{group.expenses.map((expense) => <Link key={expense.id} href={`/auth-mvp/utlagt-og-endurgreitt/utgjold/${expense.id}`} className="flex min-h-14 items-center gap-3 py-3"><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{expense.title}</span><span className="text-xs text-muted-foreground">{formatDateOnly(expense.incurredOn, locale)}</span></span><strong className="text-sm">{formatExpenseMinor(expense.totalMinor, expense.currency)}</strong><ChevronRight aria-hidden size={17} className="text-muted-foreground" /></Link>)}</div>}</section>
 
-      {group.repayments.length > 0 ? <section><h2 className="mb-2 text-sm font-semibold">{t('group.repayments')}</h2><div className="divide-y divide-border border-y border-border">{group.repayments.map((repayment) => <Link key={repayment.id} href={`/auth-mvp/utlagt-og-endurgreitt/endurgreidslur/${repayment.id}`} className="flex min-h-14 items-center gap-3 py-3"><span className="min-w-0 flex-1"><span className="block truncate text-sm">{t('repayment.fromTo', { from: repayment.fromDisplayName, to: repayment.toDisplayName })}</span>{repayment.requiresReview ? <span className="mt-0.5 block text-xs text-amber-800">{t('repayment.statusNeedsReview')}</span> : null}</span><strong className="text-sm">{formatExpenseMinor(repayment.amountMinor, repayment.currency)}</strong><ChevronRight aria-hidden size={17} className="text-muted-foreground" /></Link>)}</div></section> : null}
+      {group.repayments.length > 0 ? (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold">{t('group.repayments')}</h2>
+          <div className="divide-y divide-border border-y border-border">
+            {group.repayments.map((repayment) => {
+              const isDebtOffset = repayment.settlementMethod === 'debt_offset'
+              const methodKey = isDebtOffset
+                ? 'repayment.methodDebtOffset'
+                : repayment.settlementMethod === 'external_payment'
+                  ? 'repayment.methodExternalPayment'
+                  : null
+              return (
+                <Link
+                  key={repayment.id}
+                  href={`/auth-mvp/utlagt-og-endurgreitt/endurgreidslur/${repayment.id}`}
+                  className="flex min-h-14 items-center gap-3 py-3"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-words text-sm">
+                      {t(isDebtOffset ? 'repayment.offsetFromTo' : 'repayment.fromTo', {
+                        from: repayment.fromDisplayName,
+                        to: repayment.toDisplayName,
+                      })}
+                    </span>
+                    {methodKey ? (
+                      <span className="mt-0.5 block text-xs font-medium text-muted-foreground">
+                        {t(methodKey)}
+                      </span>
+                    ) : null}
+                    {repayment.requiresReview ? (
+                      <span className="mt-0.5 block text-xs text-amber-800">
+                        {t('repayment.statusNeedsReview')}
+                      </span>
+                    ) : null}
+                  </span>
+                  <strong className="shrink-0 text-sm">
+                    {formatExpenseMinor(repayment.amountMinor, repayment.currency)}
+                  </strong>
+                  <ChevronRight aria-hidden size={17} className="shrink-0 text-muted-foreground" />
+                </Link>
+              )
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <ExpenseMemberManager
         groupId={group.id}

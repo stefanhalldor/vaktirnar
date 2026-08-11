@@ -79,7 +79,7 @@ vi.mock('next-intl/server', () => ({
       backToList: '← Til baka',
       sourceLoans: 'Lánað og skilað',
       sourceExpenses: 'Útlagt og endurgreitt',
-      sharedActivity: 'Sameiginleg virkni',
+      sharedUnavailable: 'Ekki tókst að sækja allt sameiginlegt efni.',
       expenseGroup: 'Hópur',
       expenseOneOff: 'Einskiptisfærsla',
       openExpenses: 'Opna Útlagt og endurgreitt',
@@ -91,7 +91,10 @@ vi.mock('next-intl/server', () => ({
       minarNótur: 'Mínar nótur',
       'errors.notFound': 'Tengsl finnast ekki.',
     }
-    return (key: string) => T[key] ?? key
+    return (key: string, values?: Record<string, string | number>) => {
+      if (key === 'sharedWith') return `Sameiginlegt með ${values?.name ?? ''}`
+      return T[key] ?? key
+    }
   }),
 }))
 
@@ -195,12 +198,48 @@ describe('TengslDetailPage — expense contexts', () => {
     render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
 
     const identity = screen.getByRole('heading', { name: 'Jón' })
-    const sharedActivity = screen.getByRole('heading', { name: 'Sameiginleg virkni' })
+    const sharedActivity = screen.getByRole('heading', { name: 'Sameiginlegt með Jón' })
     const privateDetails = screen.getByTestId('details-form')
     const classification = screen.getByTestId('labels-form')
     expect(identity.compareDocumentPosition(sharedActivity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(sharedActivity.compareDocumentPosition(privateDetails) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(privateDetails.compareDocumentPosition(classification) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps loan activity visible and announces a generic warning when expense lookup fails', async () => {
+    mockCheckFeatureAccess.mockResolvedValue(true)
+    mockGetRelationship.mockResolvedValue({
+      ...BASE_RELATIONSHIP,
+      counterpart_user_id: 'counterpart-id',
+    })
+    mockGetRelationshipLoanActivity.mockResolvedValue([BASE_LOAN_ACTIVITY])
+    mockGetRelationshipExpenseContexts.mockRejectedValue(new Error('sensitive database detail'))
+
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+
+    expect(screen.getByText('Bók')).toBeDefined()
+    expect(screen.queryByText('Útlagt og endurgreitt')).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent('Ekki tókst að sækja allt sameiginlegt efni.')
+    expect(screen.queryByText('sensitive database detail')).toBeNull()
+  })
+
+  it('keeps expense contexts visible and announces a generic warning when loan lookup fails', async () => {
+    mockCheckFeatureAccess.mockResolvedValue(true)
+    mockGetRelationship.mockResolvedValue({
+      ...BASE_RELATIONSHIP,
+      counterpart_user_id: 'counterpart-id',
+    })
+    mockGetRelationshipLoanActivity.mockRejectedValue(new Error('sensitive database detail'))
+    mockGetRelationshipExpenseContexts.mockResolvedValue([
+      { id: 'group-id', kind: 'group', name: 'Sumarferð', emoji: '🚗' },
+    ])
+
+    render(await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }))
+
+    expect(screen.getByText('Sumarferð')).toBeDefined()
+    expect(screen.queryByText('Lánað og skilað')).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent('Ekki tókst að sækja allt sameiginlegt efni.')
+    expect(screen.queryByText('sensitive database detail')).toBeNull()
   })
 })
 
