@@ -2503,7 +2503,7 @@
         "mapNotesMinimize": "Minimize action drawer",
         "mapNotesExpand": "Open action drawer",
         "mapNotesSelectedTitle": "Comment",
-        "mapNotesMinimizeDetail": "Minimize comment",
+        "mapNotesCloseDetail": "Close comment",
         "mapNotesViewAll": "View all comments",
         "mapNotesBack": "Back",
         "mapNotesAge": "Comment age",

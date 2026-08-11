@@ -3,7 +3,7 @@
 // MapLibre CSS is loaded by route layout (app/auth-mvp/vedrid/road-map-prototype/layout.tsx).
 import { type FormEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { ArrowUp, ChevronDown, LocateFixed, Pencil } from 'lucide-react'
+import { ArrowUp, ChevronDown, LocateFixed, Pencil, X } from 'lucide-react'
 import { VEGAGERDIN_ATTRIBUTION } from '@/lib/iceland-routes/openDataSources'
 import {
   createFirstReadyCoordinator,
@@ -123,6 +123,7 @@ import {
   filterForecastSlotsFromToday,
   resolveForecastMapActiveTime,
 } from '@/lib/weather/forecastSlotHelpers'
+import { resolveMapNotePresentation } from '@/lib/weather/mapNotePresentation'
 import { routeOptionLabelMessageKey } from '@/lib/weather/routeOptionLabels'
 import { WeatherChaseTimeSelector } from './WeatherChaseTimeSelector'
 import { MobileForecastMapNotice } from './MobileForecastMapNotice'
@@ -1730,6 +1731,15 @@ export function RoadMapPrototypeMap({
   const popupConstructorRef = useRef<typeof import('maplibre-gl').Popup | null>(null)
   const markerConstructorRef = useRef<typeof import('maplibre-gl').Marker | null>(null)
   const mapNoteMarkersRef = useRef<import('maplibre-gl').Marker[]>([])
+  const mapNoteTriggerElementsRef = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const communityTabButtonRef = useRef<HTMLButtonElement | null>(null)
+  const selectedCommunityNoteCloseButtonRef = useRef<HTMLButtonElement | null>(null)
+  const selectedCommunityNoteReturnFocusRef = useRef<
+    { kind: 'map'; noteId: string } | { kind: 'community' } | null
+  >(null)
+  const pendingCommunityNoteFocusRef = useRef<
+    { kind: 'map'; noteId: string } | { kind: 'community' } | null
+  >(null)
   const placeMarkersRef = useRef<RoadMapPlaceMarker[]>([])
   const forecastGlacierLabelMarkersRef = useRef<ForecastGlacierLabelMarker[]>([])
   const forecastMountainLabelMarkersRef = useRef<ForecastMountainLabelMarker[]>([])
@@ -2502,6 +2512,22 @@ export function RoadMapPrototypeMap({
   const [communityMapNotes, setCommunityMapNotes] = useState<MapNoteDto[]>([])
   const [communityMapNotesLoading, setCommunityMapNotesLoading] = useState(true)
   const [selectedCommunityNoteId, setSelectedCommunityNoteId] = useState<string | null>(null)
+  const openCommunityNoteDetail = useCallback((noteId: string, origin: 'map' | 'community') => {
+    selectedCommunityNoteReturnFocusRef.current = origin === 'map'
+      ? { kind: 'map', noteId }
+      : { kind: 'community' }
+    setSelectedCommunityNoteId(noteId)
+  }, [])
+  const closeCommunityNoteDetail = useCallback(() => {
+    pendingCommunityNoteFocusRef.current = selectedCommunityNoteReturnFocusRef.current
+    selectedCommunityNoteReturnFocusRef.current = null
+    setSelectedCommunityNoteId(null)
+  }, [])
+  const dismissCommunityNoteDetail = useCallback(() => {
+    selectedCommunityNoteReturnFocusRef.current = null
+    pendingCommunityNoteFocusRef.current = null
+    setSelectedCommunityNoteId(null)
+  }, [])
   const [routeFeedbackContext, setRouteFeedbackContext] = useState<MapRouteFeedbackContext | null>(null)
   const [routeFeedbackRequestId, setRouteFeedbackRequestId] = useState(0)
   const handleCommunityItemsChange = useCallback((items: MapNoteDto[]) => {
@@ -10846,6 +10872,10 @@ export function RoadMapPrototypeMap({
   const selectedCommunityNote = selectedCommunityNoteId
     ? communityMapNotes.find(note => note.id === selectedCommunityNoteId) ?? null
     : null
+  const mapNotePresentation = resolveMapNotePresentation({
+    isCommunityOpen: isChatOpen,
+    hasSelectedNote: selectedCommunityNote !== null,
+  })
   const weatherTabActive = !isChatOpen && lastMapContext === 'weather'
   const routeTabActive = !isChatOpen && lastMapContext === 'route'
   const mapViewVisible =
@@ -10860,6 +10890,7 @@ export function RoadMapPrototypeMap({
     weatherContextView === 'map'
 
   function openWeatherContext(view = weatherContextView) {
+    dismissCommunityNoteDetail()
     if (liveDriveModeRef.current === 'free-drive') {
       stopRouteLiveLocation()
       setLiveDriveModeState('off')
@@ -10879,6 +10910,7 @@ export function RoadMapPrototypeMap({
   }
 
   function openRouteContext(view = routeContextView) {
+    dismissCommunityNoteDetail()
     if (view === 'information' && liveDriveModeRef.current === 'free-drive') {
       stopRouteLiveLocation()
       setLiveDriveModeState('off')
@@ -11256,6 +11288,8 @@ export function RoadMapPrototypeMap({
   useEffect(() => {
     mapNoteMarkersRef.current.forEach(marker => marker.remove())
     mapNoteMarkersRef.current = []
+    const triggerElements = mapNoteTriggerElementsRef.current
+    triggerElements.clear()
     const map = mapRef.current
     const Marker = markerConstructorRef.current
     if (!mapReady || !map || !Marker) return
@@ -11266,6 +11300,7 @@ export function RoadMapPrototypeMap({
       element.type = 'button'
       element.setAttribute('aria-label', note.body)
       element.title = note.body
+      triggerElements.set(note.id, element)
       const selected = selectedCommunityNoteId === note.id
       element.style.cssText = selected
         ? 'width:34px;height:34px;border-radius:999px;border:4px solid white;background:#f59e0b;color:#17201f;box-shadow:0 0 0 8px rgba(245,158,11,.28),0 3px 12px rgba(0,0,0,.32);cursor:pointer;'
@@ -11274,12 +11309,11 @@ export function RoadMapPrototypeMap({
       element.addEventListener('click', event => {
         event.stopPropagation()
         if (selected) {
-          setSelectedCommunityNoteId(null)
-          setIsChatOpen(true)
+          closeCommunityNoteDetail()
         } else {
-          setSelectedCommunityNoteId(note.id)
-          setCommunitySheetExpanded(false)
-          setIsChatOpen(true)
+          const communityWasOpen = isChatOpenRef.current
+          openCommunityNoteDetail(note.id, communityWasOpen ? 'community' : 'map')
+          if (communityWasOpen) setCommunitySheetExpanded(false)
         }
       })
       markers.push(new Marker({ element }).setLngLat([note.anchor.lon, note.anchor.lat]).addTo(map))
@@ -11294,8 +11328,42 @@ export function RoadMapPrototypeMap({
     return () => {
       markers.forEach(marker => marker.remove())
       mapNoteMarkersRef.current = []
+      triggerElements.clear()
     }
-  }, [communityMapNotes, mapNoteAnchor, mapReady, selectedCommunityNoteId])
+  }, [closeCommunityNoteDetail, communityMapNotes, mapNoteAnchor, mapReady, openCommunityNoteDetail, selectedCommunityNoteId])
+
+  useEffect(() => {
+    if (selectedCommunityNoteId !== null) return
+    const pendingFocus = pendingCommunityNoteFocusRef.current
+    if (!pendingFocus) return
+    const frame = window.requestAnimationFrame(() => {
+      const focusTarget = pendingFocus.kind === 'map'
+        ? mapNoteTriggerElementsRef.current.get(pendingFocus.noteId) ?? null
+        : communityTabButtonRef.current
+      focusTarget?.focus()
+      pendingCommunityNoteFocusRef.current = null
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [communityMapNotes, selectedCommunityNoteId])
+
+  useEffect(() => {
+    if (selectedCommunityNoteId === null) return
+    const frame = window.requestAnimationFrame(() => {
+      selectedCommunityNoteCloseButtonRef.current?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [selectedCommunityNoteId])
+
+  useEffect(() => {
+    if (selectedCommunityNoteId === null) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeCommunityNoteDetail()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [closeCommunityNoteDetail, selectedCommunityNoteId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -11370,7 +11438,7 @@ export function RoadMapPrototypeMap({
       setFreeDrivePaused(false)
       setFreeDriveWithoutLocation(false)
     }
-    setSelectedCommunityNoteId(null)
+    dismissCommunityNoteDetail()
     collapseMapAttribution(containerRef.current)
     setCommunitySheetCollapsed(false)
     setCommunitySheetExpanded(false)
@@ -11402,7 +11470,7 @@ export function RoadMapPrototypeMap({
       durationMinutes: choice?.durationMinutes ?? routeBridgeSummary?.durationMinutes ?? null,
     })
     setMapNoteAnchor(null)
-    setSelectedCommunityNoteId(null)
+    dismissCommunityNoteDetail()
     setRouteFeedbackRequestId(value => value + 1)
     setRouteComparisonFullscreen(false)
     setRouteComparisonOpening(false)
@@ -11488,6 +11556,7 @@ export function RoadMapPrototypeMap({
         {renderContextTab('weather')}
         {renderContextTab('route')}
         <button
+          ref={communityTabButtonRef}
           type="button"
           onClick={handleMessagesToggle}
           aria-pressed={isChatOpen}
@@ -11561,7 +11630,7 @@ export function RoadMapPrototypeMap({
       <div className={`h-full w-full ${forecastMapViewActive ? 'hidden lg:block' : ''}`}>
         <DriveRouteMap
           externalContainer={setMapContainer}
-          className={`h-full w-full ${isChatOpen
+          className={`h-full w-full ${mapNotePresentation.repositionMapAttribution
             ? '[&_.maplibregl-ctrl-bottom-right]:!bottom-auto [&_.maplibregl-ctrl-bottom-right]:!top-2'
             : ''}`}
         />
@@ -11974,22 +12043,27 @@ export function RoadMapPrototypeMap({
         </div>
       )}
 
-      {isChatOpen && (
+      {mapNotePresentation.surface !== 'hidden' && (
         <div className={`pointer-events-none absolute inset-0 z-[100] flex px-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] pt-16 sm:justify-start sm:p-3 sm:pt-14 ${selectedCommunityNote ? 'items-end' : communitySheetCollapsed ? 'items-end justify-end' : 'items-end sm:items-start'}`}>
           {selectedCommunityNote ? (
-            <article className="pointer-events-auto w-full overflow-hidden rounded-2xl border border-amber-400/70 bg-background/95 shadow-xl backdrop-blur-sm sm:max-w-[390px]" aria-labelledby="selected-map-note-title">
+            <article
+              role="dialog"
+              aria-labelledby="selected-map-note-title"
+              className="pointer-events-auto flex max-h-[75dvh] w-full flex-col overflow-hidden rounded-2xl border border-amber-400/70 bg-background/95 shadow-xl backdrop-blur-sm sm:max-w-[390px]"
+            >
               <header className="flex min-h-12 items-center justify-between gap-2 border-b border-border/60 px-3 py-1">
                 <h2 id="selected-map-note-title" className="flex h-10 items-center text-sm font-semibold leading-none text-foreground">{t('mapNotesSelectedTitle')}</h2>
                 <button
+                  ref={selectedCommunityNoteCloseButtonRef}
                   type="button"
-                  onClick={() => setSelectedCommunityNoteId(null)}
-                  aria-label={t('mapNotesMinimizeDetail')}
-                  className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={closeCommunityNoteDetail}
+                  aria-label={t('mapNotesCloseDetail')}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <ChevronDown size={18} aria-hidden />
+                  <X size={18} aria-hidden />
                 </button>
               </header>
-              <div className="p-4">
+              <div className="min-h-0 overscroll-contain overflow-y-auto p-4">
                 <div className="min-w-0">
                   <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{selectedCommunityNote.body}</p>
                   <p className="mt-2 text-xs text-muted-foreground">
@@ -12045,7 +12119,7 @@ export function RoadMapPrototypeMap({
             onExpandedChange={setCommunitySheetExpanded}
             onSelectCommunityItem={(item) => {
               if (!item.anchor) return
-              setSelectedCommunityNoteId(item.id)
+              openCommunityNoteDetail(item.id, 'community')
               setCommunitySheetExpanded(false)
               mapRef.current?.easeTo({
                 center: [item.anchor.lon, item.anchor.lat],
@@ -12795,7 +12869,7 @@ export function RoadMapPrototypeMap({
         ref={routeBottomStripRef}
         data-weather-card-obstacle="true"
         className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-[max(1.25rem,env(safe-area-inset-bottom))] ${forecastMapViewActive ? 'hidden lg:block' : ''} ${
-          isChatOpen
+          mapNotePresentation.hideContextBottomStrip
           || isPanelOpen
           || (lastMapContext === 'weather' && isWeatherChaseOpen)
           || (lastMapContext === 'route' && routeBridgeSummary && !routeHasAssessedWeatherCoverage)
