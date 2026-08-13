@@ -2946,6 +2946,7 @@
         "roadMapPrototypeFreeDriveWind": "Vindur: {value}",
         "roadMapPrototypeFreeDriveGust": "Hviða síðustu 10 mín.: {value}",
         "roadMapPrototypeFreeDriveMeasured": "Mælt {time} · {freshness}",
+        "roadMapPrototypeVegagerdinStationTimestamp": "Stöðvarmæling frá {time}",
         "roadMapPrototypeFreeDriveFresh": "ný mæling",
         "roadMapPrototypeFreeDriveStale": "gömul mæling",
         "roadMapPrototypeFreeDriveUnknownAge": "aldur óþekktur",

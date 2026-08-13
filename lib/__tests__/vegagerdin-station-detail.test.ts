@@ -3,6 +3,7 @@ import {
   fetchVegagerdinStationDetail,
 } from '@/lib/weather/providers/vegagerdinStationDetail.server'
 import {
+  formatVegagerdinStationCompactTimestamp,
   shouldOpenVegagerdinStationExternally,
   shouldWarnVegagerdinStationAge,
   vegagerdinStationUrl,
@@ -17,6 +18,22 @@ describe('Vegagerðin station presentation', () => {
     expect(shouldWarnVegagerdinStationAge('2026-08-13T10:20:00Z', now)).toBe(true)
     expect(shouldOpenVegagerdinStationExternally('2026-08-13T09:10:00Z', now)).toBe(true)
     expect(shouldOpenVegagerdinStationExternally('2026-08-13T09:11:00Z', now)).toBe(false)
+  })
+
+  it('shows a compact station timestamp from 15 minutes based on measurement time', () => {
+    expect(formatVegagerdinStationCompactTimestamp('2026-08-13T10:25:01Z', 'is', now)).toBeNull()
+    expect(formatVegagerdinStationCompactTimestamp('2026-08-13T10:25:00Z', 'is', now)).toBe('10:25')
+    expect(formatVegagerdinStationCompactTimestamp('2026-08-13T10:20:00Z', 'en', now)).toBe('10:20')
+  })
+
+  it('adds a compact date when the station measurement is from an earlier day', () => {
+    expect(formatVegagerdinStationCompactTimestamp('2026-08-12T23:50:00Z', 'is', now)).toBe('12.8. 23:50')
+    expect(formatVegagerdinStationCompactTimestamp('2026-08-12T23:50:00Z', 'en', now)).toBe('12/08 23:50')
+  })
+
+  it('does not label invalid or implausibly future measurements', () => {
+    expect(formatVegagerdinStationCompactTimestamp('invalid', 'is', now)).toBeNull()
+    expect(formatVegagerdinStationCompactTimestamp('2026-08-13T10:46:00Z', 'is', now)).toBeNull()
   })
 
   it('builds only bounded numeric Umferðin station links', () => {

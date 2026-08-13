@@ -2942,6 +2942,7 @@
         "roadMapPrototypeFreeDriveWind": "Wind: {value}",
         "roadMapPrototypeFreeDriveGust": "Gust in the last 10 min: {value}",
         "roadMapPrototypeFreeDriveMeasured": "Measured {time} · {freshness}",
+        "roadMapPrototypeVegagerdinStationTimestamp": "Station measurement from {time}",
         "roadMapPrototypeFreeDriveFresh": "fresh measurement",
         "roadMapPrototypeFreeDriveStale": "old measurement",
         "roadMapPrototypeFreeDriveUnknownAge": "age unknown",

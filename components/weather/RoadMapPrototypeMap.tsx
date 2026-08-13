@@ -205,6 +205,7 @@ import {
   type LiveVegagerdinStation,
 } from '@/lib/weather/liveVegagerdinStation'
 import {
+  formatVegagerdinStationCompactTimestamp,
   shouldOpenVegagerdinStationExternally,
   vegagerdinStationUrl,
 } from '@/lib/weather/vegagerdinStationPresentation'
@@ -6657,6 +6658,8 @@ export function RoadMapPrototypeMap({
     weatherEmoji,
     etaText,
     providerLabel,
+    measurementTimeText,
+    measurementTimeTitle,
     additionalAriaParts = [],
     color,
     compact = false,
@@ -6682,6 +6685,8 @@ export function RoadMapPrototypeMap({
     weatherEmoji?: string | null
     etaText?: string | null
     providerLabel?: string | null
+    measurementTimeText?: string | null
+    measurementTimeTitle?: string | null
     additionalAriaParts?: ReadonlyArray<string | null>
     color: string
     compact?: boolean
@@ -6832,18 +6837,41 @@ export function RoadMapPrototypeMap({
       if (providerLabel) {
         const provider = document.createElement('span')
         provider.dataset.weatherProvider = 'true'
-        provider.textContent = providerLabel
         provider.style.cssText = [
-          'display:block',
-          'overflow:hidden',
-          'text-overflow:ellipsis',
-          'white-space:nowrap',
+          'display:flex',
+          'align-items:center',
+          'justify-content:center',
+          'gap:4px',
+          'max-width:124px',
           'border-bottom:1px solid rgba(15,23,42,0.12)',
           'padding:3px 6px 2px',
           'color:#64748b',
           `font:700 ${compact ? '8px' : '9px'}/1.1 Inter,system-ui,sans-serif`,
           'text-align:center',
         ].join(';')
+        const providerName = document.createElement('span')
+        providerName.textContent = providerLabel
+        providerName.style.cssText = [
+          'min-width:0',
+          'overflow:hidden',
+          'text-overflow:ellipsis',
+          'white-space:nowrap',
+        ].join(';')
+        provider.appendChild(providerName)
+        if (measurementTimeText) {
+          const measurementTime = document.createElement('span')
+          measurementTime.dataset.vegagerdinStationTimestamp = 'true'
+          measurementTime.textContent = measurementTimeText
+          measurementTime.title = measurementTimeTitle ?? ''
+          measurementTime.setAttribute('aria-label', measurementTimeTitle ?? measurementTimeText)
+          measurementTime.style.cssText = [
+            'flex:none',
+            'white-space:nowrap',
+            'font-weight:800',
+            'color:#475569',
+          ].join(';')
+          provider.appendChild(measurementTime)
+        }
         weatherCard.appendChild(provider)
       }
 
@@ -7304,6 +7332,10 @@ export function RoadMapPrototypeMap({
     const measuredAtLabel = Number.isFinite(Date.parse(station.measuredAtIso))
       ? formatCompactDateTime(station.measuredAtIso, locale)
       : t('roadMapPrototypeFreeDriveUnknownAge')
+    const compactMeasurementTimestamp = formatVegagerdinStationCompactTimestamp(
+      station.measuredAtIso,
+      locale,
+    )
     const freshnessLabel = station.freshness === 'fresh'
       ? t('roadMapPrototypeFreeDriveFresh')
       : station.freshness === 'stale'
@@ -7326,6 +7358,12 @@ export function RoadMapPrototypeMap({
         : null,
       weatherEmoji: null,
       providerLabel: station.stationName,
+      measurementTimeText: compactMeasurementTimestamp,
+      measurementTimeTitle: compactMeasurementTimestamp
+        ? t('roadMapPrototypeVegagerdinStationTimestamp', {
+            time: compactMeasurementTimestamp,
+          })
+        : null,
       additionalAriaParts: [
         t('roadMapPrototypeFreeDriveProvider'),
         t('roadMapPrototypeFreeDriveMeasured', {
