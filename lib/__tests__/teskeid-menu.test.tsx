@@ -41,6 +41,8 @@ vi.mock('next-intl', () => ({
         teskeidar: 'Teskeiðar',
         quiz: 'Kviss',
         agentCollaboration: 'Samvinna',
+        advertiser: 'Auglýsandi',
+        bookings: 'Bókanir',
         agentUnread: 'Ólesin skilaboð',
         signOut: 'Útskrá',
       },
@@ -78,7 +80,7 @@ beforeEach(() => {
   mockFetch.mockImplementation(async (url: string) => ({
     ok: true,
     status: 200,
-    json: async () => url.includes('/capabilities') ? { kviss: true, advertiser: true } : { unreadCount: 0 },
+    json: async () => url.includes('/capabilities') ? { kviss: true, advertiser: true, bookings: true } : { unreadCount: 0 },
   }))
 })
 
@@ -159,7 +161,7 @@ describe('TeskeidMenu — authenticated variant items', () => {
     mockFetch.mockImplementation(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => url.includes('/capabilities') ? { kviss: true, advertiser: true } : { unreadCount: 3 },
+      json: async () => url.includes('/capabilities') ? { kviss: true, advertiser: true, bookings: true } : { unreadCount: 3 },
     }))
     render(<TeskeidMenu variant="authenticated" />)
     expect(await screen.findByTestId('agent-unread-indicator')).toBeInTheDocument()
@@ -179,6 +181,7 @@ describe('TeskeidMenu — authenticated variant items', () => {
     expect(container.querySelector('a[href="/auth-mvp/heim"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/kviss"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/auglysandi"]')).not.toBeNull()
+    expect(container.querySelector('a[href="/auth-mvp/bokanir"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/samvinna"]')).not.toBeNull()
     expect(container.querySelector('a[href="/auth-mvp/minn-profill"]')).not.toBeNull()
   })
@@ -194,6 +197,7 @@ describe('TeskeidMenu — authenticated variant items', () => {
     fireEvent.click(screen.getByRole('button'))
     expect(screen.queryByText('Kviss')).toBeNull()
     expect(screen.queryByText('Auglýsandi')).toBeNull()
+    expect(screen.queryByText('Bókanir')).toBeNull()
   })
 
   it('keeps Kviss and advertiser capabilities independent', async () => {
@@ -201,7 +205,7 @@ describe('TeskeidMenu — authenticated variant items', () => {
       ok: true,
       status: 200,
       json: async () => url.includes('/capabilities')
-        ? { kviss: true, advertiser: false }
+        ? { kviss: true, advertiser: false, bookings: false }
         : { unreadCount: 0 },
     }))
     render(<TeskeidMenu variant="authenticated" />)

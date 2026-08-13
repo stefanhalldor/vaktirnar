@@ -24,6 +24,17 @@ describe('resolveSafeLoginNext — untrusted internal paths rejected', () => {
   it('rejects /vedrid-fake (strict boundary)', () => expect(resolveSafeLoginNext('/vedrid-fake')).toBeNull())
   it('rejects /vedridar (strict boundary)', () => expect(resolveSafeLoginNext('/vedridar')).toBeNull())
   it('rejects /vedridX', () => expect(resolveSafeLoginNext('/vedridX')).toBeNull())
+  it.each([
+    '/bokanir',
+    '/bokanir/kvissbador/',
+    '/bokanir/kvissbador?next=https://evil.example',
+    '/bokanir/kvissbador#access=secret',
+    '/bokanir/kvissbador/fyrirspurn/not-a-uuid',
+    '/bokanir/kvissbador/fyrirspurn/11111111-1111-4111-8111-111111111111/extra',
+    '/bokanir/kvissbador%2Ffyrirspurn%2F11111111-1111-4111-8111-111111111111',
+  ])('rejects non-exact booking return path %s', (path) => {
+    expect(resolveSafeLoginNext(path)).toBeNull()
+  })
 })
 
 describe('resolveSafeLoginNext — allowed internal paths', () => {
@@ -40,4 +51,11 @@ describe('resolveSafeLoginNext — allowed internal paths', () => {
   it('allows /vedrid', () => expect(resolveSafeLoginNext('/vedrid')).toBe('/vedrid'))
   it('allows /vedrid?restore=1', () => expect(resolveSafeLoginNext('/vedrid?restore=1')).toBe('/vedrid?restore=1'))
   it('allows /vedrid/ (sub-path)', () => expect(resolveSafeLoginNext('/vedrid/')).toBe('/vedrid/'))
+  it('allows an exact public booking provider path', () => {
+    expect(resolveSafeLoginNext('/bokanir/kvissbador')).toBe('/bokanir/kvissbador')
+  })
+  it('allows an exact public booking detail path with a generated UUID', () => {
+    const path = '/bokanir/kvissbador/fyrirspurn/11111111-1111-4111-8111-111111111111'
+    expect(resolveSafeLoginNext(path)).toBe(path)
+  })
 })

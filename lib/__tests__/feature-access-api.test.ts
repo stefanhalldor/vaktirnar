@@ -583,3 +583,24 @@ describe('feature-access API — advertiser private beta', () => {
     },
   )
 })
+
+describe('feature-access API — booking-provider private beta', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('accepts, grants and revokes only the exact bokanir feature key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    expect((await GET(makeGetRequest('bokanir'))).status).toBe(200)
+    expect((await POST(makeRequest({ email: ' Provider@Example.com ' }, 'POST', 'bokanir'))).status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith({ feature_key: 'bokanir', email: 'provider@example.com' })
+    expect((await DELETE(makeRequest({ email: 'provider@example.com' }, 'DELETE', 'bokanir'))).status).toBe(200)
+  })
+
+  it.each(['bookings', 'bokanir-private-beta', 'bokanir_'])(
+    'rejects the lookalike key %s',
+    async featureKey => {
+      mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+      expect((await GET(makeGetRequest(featureKey))).status).toBe(400)
+    },
+  )
+})

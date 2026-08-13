@@ -910,3 +910,67 @@ describe('middleware — advertiser authoring boundary', () => {
   })
 })
 
+describe('middleware — booking public capability and provider boundaries', () => {
+  const originalAuthMvp = process.env.AUTH_MVP_ENABLED
+  const originalBookings = process.env.BOOKINGS_ENABLED
+  const bookingId = '11111111-1111-4111-8111-111111111111'
+
+  beforeEach(() => {
+    process.env.AUTH_MVP_ENABLED = 'true'
+    vi.clearAllMocks()
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+  })
+
+  afterEach(() => {
+    if (originalAuthMvp === undefined) delete process.env.AUTH_MVP_ENABLED
+    else process.env.AUTH_MVP_ENABLED = originalAuthMvp
+    if (originalBookings === undefined) delete process.env.BOOKINGS_ENABLED
+    else process.env.BOOKINGS_ENABLED = originalBookings
+  })
+
+  it('fails closed without redirecting capability-bearing customer pages when disabled', async () => {
+    delete process.env.BOOKINGS_ENABLED
+    const page = await middleware(makeReq('/bokanir/kvissbador'))
+    const detail = await middleware(makeReq(`/bokanir/kvissbador/fyrirspurn/${bookingId}`))
+    const api = await middleware(makeReq('/api/bookings/public/requests'))
+    const provider = await middleware(makeReq('/auth-mvp/bokanir'))
+    expect(page.status).toBe(200)
+    expect(page.headers.get('location')).toBeNull()
+    expect(detail.status).toBe(200)
+    expect(detail.headers.get('location')).toBeNull()
+    expect(api.status).toBe(404)
+    expect(api.headers.get('cache-control')).toBe('private, no-store')
+    expect(redirectedTo(provider)).toBe('/')
+  })
+
+  it('returns a private 404 instead of redirecting malformed customer booking paths', async () => {
+    process.env.BOOKINGS_ENABLED = 'true'
+    const response = await middleware(makeReq('/bokanir/kvissbador/fyrirspurn/not-a-booking'))
+    expect(response.status).toBe(404)
+    expect(response.headers.get('location')).toBeNull()
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer')
+  })
+
+  it('opens only the exact customer page and capability API shapes', async () => {
+    process.env.BOOKINGS_ENABLED = 'true'
+    expect((await middleware(makeReq('/bokanir/kvissbador'))).status).toBe(200)
+    expect((await middleware(makeReq(`/bokanir/kvissbador/fyrirspurn/${bookingId}`))).status).toBe(200)
+    expect((await middleware(makeReq('/api/bookings/public/requests'))).status).toBe(200)
+    expect((await middleware(makeReq(`/api/bookings/public/requests/${bookingId}/exchange`))).status).toBe(200)
+    expect((await middleware(makeReq(`/api/bookings/requests/${bookingId}/messages`))).status).toBe(200)
+
+    expect((await middleware(makeReq(`/api/bookings/requests/${bookingId}/messages/private`))).status).toBe(401)
+    expect((await middleware(makeReq('/api/bookings/public/requests/not-a-booking/exchange'))).status).toBe(401)
+  })
+
+  it('keeps provider routes authenticated even though customer routes are public', async () => {
+    process.env.BOOKINGS_ENABLED = 'true'
+    const page = await middleware(makeReq('/auth-mvp/bokanir'))
+    const api = await middleware(makeReq('/api/bookings/provider'))
+    expect(redirectedTo(page)).toBe('/innskraning')
+    expect(new URL(page.headers.get('location')!).searchParams.get('next')).toBe('/auth-mvp/bokanir')
+    expect(api.status).toBe(401)
+  })
+})
+

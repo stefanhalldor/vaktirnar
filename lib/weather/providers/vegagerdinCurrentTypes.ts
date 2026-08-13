@@ -77,6 +77,14 @@ export type VegagerdinCurrentMeasurement = {
   airTemperatureC: number | null
   /** Road surface temperature in °C. Null if absent. */
   roadTemperatureC: number | null
+  /** Vehicles recorded during the latest 10-minute interval. */
+  trafficLast10Min?: number | null
+  /** Vehicles recorded since midnight at the station. */
+  trafficFromMidnight?: number | null
+  /** Relative humidity in percent. */
+  humidityPercent?: number | null
+  /** Dew point in °C. */
+  dewPointC?: number | null
   /**
    * 'complete' — all expected numeric fields are present and non-null.
    * 'partial'  — at least one expected numeric field is null/absent.
@@ -105,6 +113,10 @@ export type VegagerdinCurrentStationDto = {
   windDirectionText: string | null
   airTemperatureC: number | null
   roadTemperatureC: number | null
+  trafficLast10Min?: number | null
+  trafficFromMidnight?: number | null
+  humidityPercent?: number | null
+  dewPointC?: number | null
   dataQuality: 'complete' | 'partial'
 }
 

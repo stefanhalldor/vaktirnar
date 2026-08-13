@@ -88,6 +88,13 @@ export async function checkFeatureAccess(
     if (process.env.ADVERTISER_ENABLED !== 'true') return false
     return checkPerUserAccess(email, 'auglysandi')
   }
+  if (featureKey === 'bokanir') {
+    // Provider authoring and the operational inbox are a strict private beta.
+    // Public customers and booking participants use booking-scoped access and
+    // never pass through this provider capability.
+    if (process.env.BOOKINGS_ENABLED !== 'true') return false
+    return checkPerUserAccess(email, 'bokanir')
+  }
   if (featureKey === 'facebook-oauth') {
     if (process.env.FACEBOOK_OAUTH_ENABLED !== 'true') return false
     if (process.env.FACEBOOK_OAUTH_FLAG !== 'true') return true

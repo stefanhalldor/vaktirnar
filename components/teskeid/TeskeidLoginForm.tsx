@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
+import { isSafeBookingLoginNext } from '@/lib/auth/loginNext'
 
 type Step = 'email' | 'code'
 // Must align with DEDUPE_WINDOW_SECONDS in lib/auth/user-codes.ts (120s).
@@ -148,10 +149,14 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
       const profileRes = await fetch('/api/teskeid/profile')
       const profileData = profileRes.ok ? await profileRes.json().catch(() => ({})) : {}
       const hasName = !!profileData.display_name?.trim()
-      router.push(hasName
+      const destination = hasName
         ? (nextHref ?? '/auth-mvp/heim')
         : `/auth-mvp/minn-profill${nextHref ? `?next=${encodeURIComponent(nextHref)}` : ''}`
-      )
+      if (hasName && isSafeBookingLoginNext(nextHref)) {
+        window.location.assign(destination)
+        return
+      }
+      router.push(destination)
       router.refresh()
     } catch {
       setError(t('genericError'))

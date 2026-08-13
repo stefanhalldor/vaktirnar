@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { Menu, X, Lightbulb, Send, LogIn, UserCircle, LayoutGrid, LogOut, MessagesSquare, Trophy, Megaphone } from 'lucide-react'
+import { Menu, X, Lightbulb, Send, LogIn, UserCircle, LayoutGrid, LogOut, MessagesSquare, Trophy, Megaphone, CalendarDays } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 const PUBLIC_ITEMS = [
@@ -18,6 +18,7 @@ const AUTH_ITEMS = [
   { href: '/auth-mvp/heim', labelKey: 'teskeidar', icon: LayoutGrid, activePrefixes: ['/auth-mvp/heim', '/auth-mvp/lanad-og-skilad', '/auth-mvp/utlagt-og-endurgreitt', '/auth-mvp/bokhaldid', '/auth-mvp/umonnun', '/auth-mvp/vedrid'] },
   { href: '/auth-mvp/kviss', labelKey: 'quiz', icon: Trophy, feature: 'kviss' },
   { href: '/auth-mvp/auglysandi', labelKey: 'advertiser', icon: Megaphone, feature: 'advertiser' },
+  { href: '/auth-mvp/bokanir', labelKey: 'bookings', icon: CalendarDays, feature: 'bookings' },
   { href: '/auth-mvp/samvinna', labelKey: 'agentCollaboration', icon: MessagesSquare, agentCollaboration: true },
   { href: '/auth-mvp/minn-profill', labelKey: 'profile', icon: UserCircle },
   { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },
@@ -35,7 +36,7 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [agentCollaborationAvailable, setAgentCollaborationAvailable] = useState(false)
   const [agentUnreadCount, setAgentUnreadCount] = useState(0)
-  const [capabilities, setCapabilities] = useState({ kviss: false, advertiser: false })
+  const [capabilities, setCapabilities] = useState({ kviss: false, advertiser: false, bookings: false })
   const ref = useRef<HTMLDetailsElement>(null)
 
   const items = variant === 'public'
@@ -56,11 +57,12 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
     if (variant !== 'authenticated') return
     let active = true
     fetch('/api/auth-mvp/capabilities', { cache: 'no-store' })
-      .then(response => response.ok ? response.json() : { kviss: false, advertiser: false })
-      .then((value: { kviss?: boolean; advertiser?: boolean }) => {
+      .then(response => response.ok ? response.json() : { kviss: false, advertiser: false, bookings: false })
+      .then((value: { kviss?: boolean; advertiser?: boolean; bookings?: boolean }) => {
         if (active) setCapabilities({
           kviss: value.kviss === true,
           advertiser: value.advertiser === true,
+          bookings: value.bookings === true,
         })
       })
       .catch(() => undefined)

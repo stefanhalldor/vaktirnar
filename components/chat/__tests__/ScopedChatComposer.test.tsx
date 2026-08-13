@@ -19,6 +19,23 @@ function renderComposer(multiline: boolean) {
 }
 
 describe('ScopedChatComposer keyboard behavior', () => {
+  it('renders a visible accessible label when the product supplies one', () => {
+    render(
+      <ScopedChatComposer
+        value=""
+        onChange={vi.fn()}
+        onSend={vi.fn()}
+        disabled={false}
+        inputLabel="Skilaboð"
+        placeholder="Skrifaðu"
+        sendLabel="Senda"
+        multiline
+      />,
+    )
+
+    expect(screen.getByLabelText('Skilaboð')).toBeVisible()
+  })
+
   it('can keep the draft editable while a context requirement disables only send', () => {
     render(
       <ScopedChatComposer

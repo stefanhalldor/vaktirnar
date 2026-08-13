@@ -42,6 +42,7 @@ import {
 } from '@/lib/weather/chasePreferences'
 import type { StationExplorerResponse } from '@/lib/weather/providers/vedurstofanStationExplorer'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
+import type { VegagerdinStationDetail } from '@/lib/weather/providers/vegagerdinStationDetailTypes'
 import { buildTravelBridgeMapData } from '@/lib/road-intelligence/travelBridgeMapData'
 import {
   resolveLiveLocationCameraOffset,
@@ -155,6 +156,7 @@ import { LiveLocationControls } from './LiveLocationControls'
 import { LiveDriveMapControls } from './LiveDriveMapControls'
 import { LiveDriveThresholdFields } from './LiveDriveThresholdFields'
 import { VegagerdinStaleNotice } from './VegagerdinStaleNotice'
+import { VegagerdinStationDetail as VegagerdinStationDetailPanel } from './VegagerdinStationDetail'
 import { MapNotesPanel } from './MapNotesPanel'
 import { PlaceSearch } from './PlaceSearch'
 import { CurrentLocationPermissionHelp } from './CurrentLocationPermissionHelp'
@@ -202,6 +204,10 @@ import {
   liveVegagerdinStationFromRoutePoint,
   type LiveVegagerdinStation,
 } from '@/lib/weather/liveVegagerdinStation'
+import {
+  shouldOpenVegagerdinStationExternally,
+  vegagerdinStationUrl,
+} from '@/lib/weather/vegagerdinStationPresentation'
 import { makeWeatherPlaceKey, type SavedWeatherPlace } from '@/lib/weather/savedPlaces'
 import {
   clampLiveLocationFollowZoom,
@@ -1925,6 +1931,20 @@ export function RoadMapPrototypeMap({
   const [mapVisibleHours, setMapVisibleHours] = useState<WeatherChaseVisibleHour[]>([12])
   const [showMedals, setShowMedals] = useState(false)
   const [overviewVegagerdinData, setOverviewVegagerdinData] = useState<VegagerdinCurrentApiData | null>(null)
+  const [selectedVegagerdinStation, setSelectedVegagerdinStation] = useState<VegagerdinCurrentStationDto | null>(null)
+  const [selectedVegagerdinDetail, setSelectedVegagerdinDetail] = useState<VegagerdinStationDetail | null>(null)
+  const [selectedVegagerdinDetailLoading, setSelectedVegagerdinDetailLoading] = useState(false)
+  const selectedVegagerdinOriginRef = useRef<HTMLElement | null>(null)
+  const closeVegagerdinStationDetail = useCallback((restoreFocus = true) => {
+    setSelectedVegagerdinStation(null)
+    setSelectedVegagerdinDetail(null)
+    setSelectedVegagerdinDetailLoading(false)
+    const origin = selectedVegagerdinOriginRef.current
+    selectedVegagerdinOriginRef.current = null
+    if (restoreFocus && origin?.isConnected) {
+      requestAnimationFrame(() => origin.focus({ preventScroll: true }))
+    }
+  }, [])
   const overviewVegagerdinDataRef = useRef<VegagerdinCurrentApiData | null>(null)
   const applyRefreshedRouteVegagerdinDataRef = useRef<
     (payload: Extract<VegagerdinCurrentApiData, { status: 'ok' }>) => void
@@ -5259,73 +5279,20 @@ export function RoadMapPrototypeMap({
 
   function openOverviewVegagerdinPopup(
     station: VegagerdinCurrentStationDto,
-    coords: [number, number],
+    _coords: [number, number],
   ) {
-    const Popup = popupConstructorRef.current
-    const map = mapRef.current
-    if (!Popup || !map) return
-
-    const gust = station.gustLast10MinMs != null
-      ? `${formatNum(station.gustLast10MinMs, locale)} m/s`
-      : '–'
-    const mean = station.meanWindMs != null
-      ? `${formatNum(station.meanWindMs, locale)} m/s`
-      : '–'
-    const popupIsFreeDrive = liveDriveModeRef.current === 'free-drive'
-    const temp = station.airTemperatureC != null && (
-      !popupIsFreeDrive ||
-      station.airTemperatureC <= LIVE_DRIVE_TEMPERATURE_MAX_C
-    )
-      ? `${formatNum(station.airTemperatureC, locale)} °C`
-      : null
-    const dir = station.windDirectionText ?? ''
-    const freshness = freeDriveStationFreshness(station.measuredAtIso)
-    const measuredAtLabel = Number.isFinite(Date.parse(station.measuredAtIso))
-      ? formatCompactDateTime(station.measuredAtIso, locale)
-      : t('roadMapPrototypeFreeDriveUnknownAge')
-    const status = classifyLiveVegagerdinStationWindStatus(station, overviewThresholds)
-    const statusLabel = tf(WIND_STATUS_META[status].labelKey as 'statusWithinLimits')
-    const freshnessLabel = freshness === 'fresh'
-      ? t('roadMapPrototypeFreeDriveFresh')
-      : freshness === 'stale'
-        ? t('roadMapPrototypeFreeDriveStale')
-        : t('roadMapPrototypeFreeDriveUnknownAge')
-
-    const container = document.createElement('div')
-    container.style.cssText = 'font-size:12px;line-height:1.5'
-
-    const name = document.createElement('strong')
-    name.style.fontSize = '13px'
-    name.textContent = station.stationName ?? t('roadMapPrototypeFreeDriveStationFallback')
-    container.appendChild(name)
-    container.appendChild(document.createElement('br'))
-    container.appendChild(document.createTextNode(t('roadMapPrototypeFreeDriveProvider')))
-    container.appendChild(document.createElement('br'))
-    container.appendChild(document.createTextNode(t('roadMapPrototypeFreeDriveWind', {
-      value: `${mean}${dir ? ` ${dir}` : ''}`,
-    })))
-    container.appendChild(document.createElement('br'))
-    container.appendChild(document.createTextNode(t('roadMapPrototypeFreeDriveGust', { value: gust })))
-    container.appendChild(document.createElement('br'))
-    container.appendChild(document.createTextNode(t('roadMapPrototypeFreeDriveMeasured', {
-      time: measuredAtLabel,
-      freshness: freshnessLabel,
-    })))
-    container.appendChild(document.createElement('br'))
-    container.appendChild(document.createTextNode(statusLabel))
-    if (temp) {
-      container.appendChild(document.createElement('br'))
-      container.appendChild(document.createTextNode(t('roadMapPrototypeFreeDriveAirTemperature', {
-        value: temp,
-      })))
-    }
-
     popupRef.current?.remove()
-    const popup = new Popup({ closeButton: true, maxWidth: '220px' })
-      .setLngLat(coords)
-      .setDOMContent(container)
-      .addTo(map)
-    popupRef.current = popup
+    const externalHref = vegagerdinStationUrl(station.stationId)
+    if (externalHref && shouldOpenVegagerdinStationExternally(station.measuredAtIso)) {
+      window.open(externalHref, '_blank', 'noopener,noreferrer')
+      return
+    }
+    selectedVegagerdinOriginRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    setSelectedVegagerdinStation(station)
+    setSelectedVegagerdinDetail(null)
+    setSelectedVegagerdinDetailLoading(true)
   }
 
   function openOverviewVedurstofanPopup(
@@ -5367,6 +5334,29 @@ export function RoadMapPrototypeMap({
       .addTo(map)
     popupRef.current = popup
   }
+
+  useEffect(() => {
+    if (!selectedVegagerdinStation) return
+    let cancelled = false
+    const controller = new AbortController()
+    fetch(`/api/teskeid/weather/vegagerdin/stations/${selectedVegagerdinStation.stationId}`, {
+      signal: controller.signal,
+    })
+      .then(response => response.ok ? response.json() : null)
+      .then((detail: VegagerdinStationDetail | null) => {
+        if (!cancelled) setSelectedVegagerdinDetail(detail)
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedVegagerdinDetail(null)
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedVegagerdinDetailLoading(false)
+      })
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [selectedVegagerdinStation])
 
   function updateVegagerdinLabelMarkerState(
     statuses = visibleRouteStatusesRef.current,
@@ -7270,12 +7260,21 @@ export function RoadMapPrototypeMap({
     point: VegagerdinRouteLayerPoint,
     coords?: [number, number],
   ) {
-    void coords
-    popupRef.current?.remove()
-    persistRouteReturnSnapshot()
-    const returnHref = routeReturnHref()
-    window.history.replaceState(window.history.state, '', returnHref)
-    window.location.href = vegagerdinPulseHref(point.stationId, returnHref)
+    openOverviewVegagerdinPopup({
+      stationId: point.stationId,
+      stationName: point.stationName,
+      lat: point.lat,
+      lon: point.lon,
+      measuredAtIso: point.measuredAtIso,
+      fetchedAtIso: point.fetchedAtIso,
+      meanWindMs: point.meanWindMs,
+      gustLast10MinMs: point.gustLast10MinMs,
+      windDirectionDeg: point.windDirectionDeg,
+      windDirectionText: point.windDirectionText,
+      airTemperatureC: point.airTemperatureC,
+      roadTemperatureC: point.roadTemperatureC,
+      dataQuality: point.dataQuality,
+    }, coords ?? [point.lon, point.lat])
   }
 
   function createLiveVegagerdinStationLabel(
@@ -10891,6 +10890,7 @@ export function RoadMapPrototypeMap({
 
   function openWeatherContext(view = weatherContextView) {
     dismissCommunityNoteDetail()
+    closeVegagerdinStationDetail(false)
     if (liveDriveModeRef.current === 'free-drive') {
       stopRouteLiveLocation()
       setLiveDriveModeState('off')
@@ -10911,6 +10911,7 @@ export function RoadMapPrototypeMap({
 
   function openRouteContext(view = routeContextView) {
     dismissCommunityNoteDetail()
+    closeVegagerdinStationDetail(false)
     if (view === 'information' && liveDriveModeRef.current === 'free-drive') {
       stopRouteLiveLocation()
       setLiveDriveModeState('off')
@@ -11700,6 +11701,17 @@ export function RoadMapPrototypeMap({
               )
             )}
         </div>
+      )}
+
+      {selectedVegagerdinStation && (
+        <VegagerdinStationDetailPanel
+          detail={selectedVegagerdinDetail}
+          loading={selectedVegagerdinDetailLoading}
+          fallbackStationId={selectedVegagerdinStation.stationId}
+          fallbackName={selectedVegagerdinStation.stationName}
+          fallbackMeasuredAtIso={selectedVegagerdinStation.measuredAtIso}
+          onClose={closeVegagerdinStationDetail}
+        />
       )}
 
       {mapViewVisible && lastMapContext === 'weather' && (
@@ -12870,6 +12882,7 @@ export function RoadMapPrototypeMap({
         data-weather-card-obstacle="true"
         className={`absolute bottom-0 left-0 right-0 z-[120] border-t border-border/50 bg-background pb-[max(1.25rem,env(safe-area-inset-bottom))] ${forecastMapViewActive ? 'hidden lg:block' : ''} ${
           mapNotePresentation.hideContextBottomStrip
+          || Boolean(selectedVegagerdinStation)
           || isPanelOpen
           || (lastMapContext === 'weather' && isWeatherChaseOpen)
           || (lastMapContext === 'route' && routeBridgeSummary && !routeHasAssessedWeatherCoverage)

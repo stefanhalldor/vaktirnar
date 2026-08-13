@@ -50,6 +50,7 @@ interface ScopedChatPanelLabels {
   /** Shown while the initial message load is in progress. Omit to show nothing during load. */
   loading?: string
   inputPlaceholder: string
+  inputLabel?: string
   send: string
   sendError: string
   /** Initial loads are allowed to fail visibly while background polls stay quiet. */
@@ -75,6 +76,8 @@ interface ScopedChatPanelProps {
   /** Optional system events merged chronologically with messages. */
   timelineEvents?: readonly TeskeidContextTimelineEvent[]
   timelineOrder?: TeskeidContextTimelineOrder
+  /** Keep loading, polling, read cursors, and pagination active without allowing replies. */
+  readOnly?: boolean
 }
 
 const DEFAULT_PAGE_SIZE = 10
@@ -97,6 +100,7 @@ export function ScopedChatPanel({
   locale,
   timelineEvents,
   timelineOrder = 'ascending',
+  readOnly = false,
 }: ScopedChatPanelProps) {
   const effectivePageSize = pageSize ?? DEFAULT_PAGE_SIZE
   const [messages, setMessages] = useState<AugmentedChatMessage[]>([])
@@ -132,18 +136,20 @@ export function ScopedChatPanel({
       ...timelineEvents.map((event) => ({
         kind: 'event' as const,
         id: `event:${event.id}`,
+        sortId: event.id,
         createdAt: event.createdAt,
         event,
       })),
       ...messages.map((chatMessage) => ({
         kind: 'message' as const,
         id: `message:${chatMessage.id}`,
+        sortId: chatMessage.id,
         createdAt: chatMessage.createdAt,
         message: chatMessage,
       })),
     ].sort((left, right) => {
       const byTime = left.createdAt.localeCompare(right.createdAt)
-      return byTime !== 0 ? direction * byTime : direction * left.id.localeCompare(right.id)
+      return byTime !== 0 ? direction * byTime : direction * left.sortId.localeCompare(right.sortId)
     })
   }, [messages, timelineEvents, timelineOrder])
 
@@ -311,7 +317,7 @@ export function ScopedChatPanel({
   }
 
   async function handleSend() {
-    if (!body.trim() || sending) return
+    if (readOnly || !body.trim() || sending) return
     const sendGeneration = loadGenerationRef.current
     setSendError(false)
     const trimmed = body.trim()
@@ -405,7 +411,7 @@ export function ScopedChatPanel({
             type="button"
             onClick={loadOlder}
             disabled={loadingMore}
-            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors self-center disabled:opacity-40 py-0.5"
+            className="min-h-10 self-center rounded-lg px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-40"
           >
             {loadingMore ? '...' : labels.loadOlder}
           </button>
@@ -483,23 +489,26 @@ export function ScopedChatPanel({
         )}
         <div ref={bottomSentinelRef} aria-hidden className="h-px w-full shrink-0" />
       </div>
-      <ScopedChatComposer
-        value={body}
-        onChange={(value) => {
-          if (retryEnvelopeRef.current?.body !== value.trim()) {
-            retryEnvelopeRef.current = null
-          }
-          setBody(value)
-        }}
-        onSend={handleSend}
-        disabled={sending}
-        placeholder={labels.inputPlaceholder}
-        sendLabel={labels.send}
-        maxLength={composerMaxLength}
-        multiline={composerMultiline}
-      />
-      {sendError && (
-        <p className="text-xs text-destructive">{labels.sendError}</p>
+      {!readOnly && (
+        <ScopedChatComposer
+          value={body}
+          onChange={(value) => {
+            if (retryEnvelopeRef.current?.body !== value.trim()) {
+              retryEnvelopeRef.current = null
+            }
+            setBody(value)
+          }}
+          onSend={handleSend}
+          disabled={sending}
+          placeholder={labels.inputPlaceholder}
+          inputLabel={labels.inputLabel}
+          sendLabel={labels.send}
+          maxLength={composerMaxLength}
+          multiline={composerMultiline}
+        />
+      )}
+      {!readOnly && sendError && (
+        <p role="alert" className="text-xs text-destructive">{labels.sendError}</p>
       )}
     </>
   )

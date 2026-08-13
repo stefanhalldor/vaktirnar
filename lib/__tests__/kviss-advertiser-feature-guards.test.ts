@@ -19,25 +19,30 @@ vi.mock('@/lib/supabase/admin', () => ({
 
 import { checkFeatureAccess } from '@/lib/loans/guard'
 
-describe('Kviss and advertiser feature guards', () => {
+describe('Kviss, advertiser and booking-provider feature guards', () => {
   const originalKviss = process.env.KVISS_ENABLED
   const originalAdvertiser = process.env.ADVERTISER_ENABLED
+  const originalBookings = process.env.BOOKINGS_ENABLED
 
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.KVISS_ENABLED
     delete process.env.ADVERTISER_ENABLED
+    delete process.env.BOOKINGS_ENABLED
   })
   afterEach(() => {
     if (originalKviss === undefined) delete process.env.KVISS_ENABLED
     else process.env.KVISS_ENABLED = originalKviss
     if (originalAdvertiser === undefined) delete process.env.ADVERTISER_ENABLED
     else process.env.ADVERTISER_ENABLED = originalAdvertiser
+    if (originalBookings === undefined) delete process.env.BOOKINGS_ENABLED
+    else process.env.BOOKINGS_ENABLED = originalBookings
   })
 
   it.each([
     ['kviss', 'KVISS_ENABLED'],
     ['auglysandi', 'ADVERTISER_ENABLED'],
+    ['bokanir', 'BOOKINGS_ENABLED'],
   ] as const)('requires both global and per-user access for %s', async (feature, envKey) => {
     featureResult.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
     expect(await checkFeatureAccess('user', 'user@example.com', feature)).toBe(false)

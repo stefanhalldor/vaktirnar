@@ -68,12 +68,13 @@ export default async function HeimPage() {
     // createClient() failed — fall through to defaults
   }
 
-  const [recentEventAccess, umonnunEnabled, bookkeepingEnabled, kvissEnabled, advertiserEnabled] = await Promise.all([
+  const [recentEventAccess, umonnunEnabled, bookkeepingEnabled, kvissEnabled, advertiserEnabled, bookingsEnabled] = await Promise.all([
     resolveRecentEventSourceAccess(user),
     checkFeatureAccess(user.id, user.email!, 'umonnun'),
     checkFeatureAccess(user.id, user.email!, 'bokhaldid'),
     checkFeatureAccess(user.id, user.email!, 'kviss'),
     checkFeatureAccess(user.id, user.email!, 'auglysandi'),
+    checkFeatureAccess(user.id, user.email!, 'bokanir'),
   ])
   const { loansEnabled, expensesEnabled, sources: recentEventSources } = recentEventAccess
 
@@ -92,6 +93,7 @@ export default async function HeimPage() {
     'vedrid':          { href: '/auth-mvp/vedrid',           enabled: weatherCardEnabled },
     'kviss':           { href: '/auth-mvp/kviss',            enabled: kvissEnabled },
     'auglysandi':      { href: '/auth-mvp/auglysandi',       enabled: advertiserEnabled },
+    'bokanir':         { href: '/auth-mvp/bokanir',          enabled: bookingsEnabled },
   }
 
   const isPromotedPrivateBeta = (idea: Idea) =>
@@ -99,7 +101,11 @@ export default async function HeimPage() {
     || (idea.slug === 'bokhaldid' && bookkeepingEnabled)
     || (idea.slug === 'kviss' && kvissEnabled)
     || (idea.slug === 'auglysandi' && advertiserEnabled)
-  const visibleIdeas = allIdeas.filter((i) => i.slug !== 'bokhaldid' || bookkeepingEnabled)
+    || (idea.slug === 'bokanir' && bookingsEnabled)
+  const visibleIdeas = allIdeas.filter((idea) => (
+    (idea.slug !== 'bokhaldid' || bookkeepingEnabled)
+    && (idea.slug !== 'bokanir' || bookingsEnabled)
+  ))
   const launchedIdeas = visibleIdeas.filter((i) => i.status === 'launched' || isPromotedPrivateBeta(i))
   const futureIdeas   = visibleIdeas.filter((i) => i.status !== 'launched' && !isPromotedPrivateBeta(i))
   const ideaReadyCards = launchedIdeas
@@ -129,6 +135,17 @@ export default async function HeimPage() {
         category: 'Annað',
       },
       href: '/auth-mvp/auglysandi',
+    })
+  }
+  if (bookingsEnabled && !readyCards.some(({ idea }) => idea.slug === 'bokanir')) {
+    readyCards.push({
+      idea: {
+        slug: 'bokanir',
+        title: t('bookingsCardTitle'),
+        short_description: t('bookingsCardDescription'),
+        category: 'Viðburðir',
+      },
+      href: '/auth-mvp/bokanir',
     })
   }
 

@@ -27,6 +27,7 @@ const SLUG_ICONS: Record<string, LucideIcon> = {
   'umonnun': Heart,
   'kviss': Trophy,
   'auglysandi': Megaphone,
+  'bokanir': Calendar,
 }
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {

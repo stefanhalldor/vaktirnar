@@ -48,6 +48,25 @@ const PUBLIC_KVISS_PATH_PATTERNS = [
   /^\/api\/kviss\/public\/(?:lookup|join|session|answer|chat|ad)$/,
 ]
 
+const BOOKING_ID_SEGMENT = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+const BOOKING_SLUG_SEGMENT = '[a-z0-9]+(?:-[a-z0-9]+)*'
+
+// Only these exact customer-facing booking pages and handlers are public.
+// Every booking-scoped handler still validates either the current capability
+// session or an authenticated membership on every request.
+const PUBLIC_BOOKING_PAGE_PATTERNS = [
+  new RegExp(`^/bokanir/${BOOKING_SLUG_SEGMENT}$`, 'i'),
+  new RegExp(`^/bokanir/${BOOKING_SLUG_SEGMENT}/fyrirspurn/${BOOKING_ID_SEGMENT}$`, 'i'),
+]
+const PUBLIC_BOOKING_API_PATTERNS = [
+  /^\/api\/bookings\/public\/requests$/,
+  new RegExp(`^/api/bookings/public/requests/${BOOKING_ID_SEGMENT}/exchange$`, 'i'),
+  new RegExp(`^/api/bookings/requests/${BOOKING_ID_SEGMENT}$`, 'i'),
+  new RegExp(`^/api/bookings/requests/${BOOKING_ID_SEGMENT}/actions$`, 'i'),
+  new RegExp(`^/api/bookings/requests/${BOOKING_ID_SEGMENT}/messages$`, 'i'),
+  new RegExp(`^/api/bookings/requests/${BOOKING_ID_SEGMENT}/read$`, 'i'),
+]
+
 const AGENT_BRIDGE_PATHS = new Set([
   // Provider-neutral local agent bridge. These exact routes do not use a
   // browser session; each handler enforces one-time pairing or a scoped bearer
@@ -119,6 +138,48 @@ const EXACT_PUBLIC_PATHS = new Set([
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
+  const isPublicBookingPage = PUBLIC_BOOKING_PAGE_PATTERNS.some(pattern => pattern.test(pathname))
+  const isPublicBookingApi = PUBLIC_BOOKING_API_PATTERNS.some(pattern => pattern.test(pathname))
+  const isBookingCustomerPageNamespace = pathname === '/bokanir'
+    || pathname.startsWith('/bokanir/')
+  const isBookingProviderPage = pathname === '/auth-mvp/bokanir'
+    || pathname.startsWith('/auth-mvp/bokanir/')
+  const isBookingProviderApi = pathname === '/api/bookings/provider'
+  const isBookingPath = isPublicBookingPage
+    || isPublicBookingApi
+    || isBookingProviderPage
+    || isBookingProviderApi
+
+  // Never redirect a customer booking URL. A browser can inherit its
+  // capability fragment across redirects, which would move the secret onto a
+  // route where analytics may run. Unknown booking page shapes fail here;
+  // exact public pages continue to their own fail-closed server resolver.
+  if (isBookingCustomerPageNamespace && !isPublicBookingPage) {
+    return new NextResponse(null, {
+      status: 404,
+      headers: {
+        'Cache-Control': 'private, no-store',
+        'Referrer-Policy': 'no-referrer',
+        'X-Robots-Tag': 'noindex, nofollow',
+      },
+    })
+  }
+
+  if (isBookingPath && process.env.BOOKINGS_ENABLED !== 'true') {
+    if (isPublicBookingPage) {
+      // The page resolver returns not-found while the feature is disabled.
+      // Staying on /bokanir also keeps any #access fragment away from analytics.
+      return NextResponse.next()
+    }
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'not_found' },
+        { status: 404, headers: { 'Cache-Control': 'private, no-store' } },
+      )
+    }
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   const isPublicKvissPath = PUBLIC_KVISS_PATH_PATTERNS.some(pattern => pattern.test(pathname))
   if (isPublicKvissPath && process.env.KVISS_ENABLED !== 'true') {
     if (pathname.startsWith('/api/')) {
@@ -132,9 +193,11 @@ export async function middleware(request: NextRequest) {
 
   // Feature flag: guard all /auth-mvp/* pages and /api/auth-mvp/* endpoints.
   // Must be checked before any auth logic — AUTH_MVP_ENABLED is server-only (no NEXT_PUBLIC_).
-  const isAuthMvpPath = pathname.startsWith('/auth-mvp') || pathname.startsWith('/api/auth-mvp')
+  const isAuthMvpPath = pathname.startsWith('/auth-mvp')
+    || pathname.startsWith('/api/auth-mvp')
+    || isBookingProviderApi
   if (isAuthMvpPath && process.env.AUTH_MVP_ENABLED !== 'true') {
-    if (pathname.startsWith('/api/auth-mvp')) {
+    if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
     return NextResponse.redirect(new URL('/', request.url))
@@ -309,6 +372,8 @@ export async function middleware(request: NextRequest) {
     || EXACT_PUBLIC_PATHS.has(pathname)
     || PREVIEW_PATH_PATTERNS.some(r => r.test(pathname))
     || PUBLIC_KVISS_PATH_PATTERNS.some(r => r.test(pathname))
+    || isPublicBookingPage
+    || isPublicBookingApi
   const isAuthCallback = pathname.startsWith('/auth/callback')
 
   // Landing page (/): public for guests, but authenticated users go to Teskeiðar.

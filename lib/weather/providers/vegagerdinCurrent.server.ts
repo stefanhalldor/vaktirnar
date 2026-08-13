@@ -265,6 +265,10 @@ function parseVegagerdinItems(
     const windDirectionText = windDirection.text
     const airTemperatureC = parseNum(r.Hiti)
     const roadTemperatureC = parseNum(r.Veghiti)
+    const trafficLast10Min = parseNum(r.Umf10Min as string | number | null | undefined)
+    const trafficFromMidnight = parseNum(r.UmfSum as string | number | null | undefined)
+    const humidityPercent = parseNum(r.Raki as string | number | null | undefined)
+    const dewPointC = parseNum(r.Daggarmark as string | number | null | undefined)
 
     // 'complete' only if all key numeric fields are present.
     const dataQuality: VegagerdinCurrentMeasurement['dataQuality'] =
@@ -289,6 +293,10 @@ function parseVegagerdinItems(
       windDirectionText,
       airTemperatureC,
       roadTemperatureC,
+      trafficLast10Min,
+      trafficFromMidnight,
+      humidityPercent,
+      dewPointC,
       dataQuality,
     })
   }
@@ -671,6 +679,10 @@ export function buildPayloadFromHistoryRows(
       windDirectionText: row.wind_direction_text,
       airTemperatureC: row.air_temperature_c,
       roadTemperatureC: row.road_temperature_c,
+      trafficLast10Min: null,
+      trafficFromMidnight: null,
+      humidityPercent: null,
+      dewPointC: null,
       dataQuality: row.data_quality,
     }
   })
@@ -821,8 +833,8 @@ export type FetchVegagerdinResult =
 /**
  * Fetches Vegagerðin current measurements from upstream, parses, and caches.
  *
- * IMPORTANT: Do not call this function without explicit approval from Stebbi.
- * External network fetch to gagnaveita.vegagerdin.is requires sign-off.
+ * This external fetch is used by the protected cron and by the cooldown-protected
+ * read-time cache repair in the current-measurements route.
  *
  * Returns { ok: true, payload } on success (fetch + parse + cache write all succeeded).
  * Returns { ok: false, reason, diagnostics? } on any failure — never throws.

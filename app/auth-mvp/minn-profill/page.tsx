@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { resolveSafeLoginNext } from '@/lib/auth/loginNext'
+import { isSafeBookingLoginNext, resolveSafeLoginNext } from '@/lib/auth/loginNext'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 
@@ -112,6 +112,10 @@ export default function AuthMvpProfilePage() {
     if (res.ok) {
       const nextParam = new URLSearchParams(window.location.search).get('next')
       const safeNext = nextParam ? resolveSafeLoginNext(nextParam) : null
+      if (isSafeBookingLoginNext(safeNext)) {
+        window.location.assign(safeNext)
+        return
+      }
       router.push(safeNext ?? '/auth-mvp/heim')
     } else {
       setError(t('errors.saveFailed'))

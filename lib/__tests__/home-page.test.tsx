@@ -44,6 +44,8 @@ vi.mock('next-intl/server', () => ({
         quizCardDescription: 'Búðu til spurningar, settu saman kviss og stjórnaðu leiknum.',
         advertiserCardTitle: 'Auglýsandi',
         advertiserCardDescription: 'Búðu til auglýsingar fyrir Kviss og sendu þær í yfirferð.',
+        bookingsCardTitle: 'Bókanir',
+        bookingsCardDescription: 'Taktu við fyrirspurnum og svaraðu gestum á einum stað.',
         homeIdeasDrawerOpen:  'Skoða hugmyndir',
         homeIdeasDrawerClose: 'Fela hugmyndir',
         loansTitle:           'Lánað og skilað',
@@ -357,6 +359,7 @@ function setupGuard(
   bookkeepingAccess = false,
   kvissAccess = false,
   advertiserAccess = false,
+  bookingsAccess = false,
 ) {
   mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
   mockCheckFeatureAccess.mockImplementation(
@@ -368,6 +371,7 @@ function setupGuard(
       if (featureKey === 'bokhaldid') return bookkeepingAccess
       if (featureKey === 'kviss') return kvissAccess
       if (featureKey === 'auglysandi') return advertiserAccess
+      if (featureKey === 'bokanir') return bookingsAccess
       return false
     },
   )
@@ -1532,20 +1536,22 @@ describe('HeimPage — bookkeeping private-beta card', () => {
   })
 })
 
-describe('HeimPage — Kviss and advertiser private-beta cards', () => {
-  it('shows both as normal Teskeið cards only for an entitled user', async () => {
-    setupGuard(false, false, false, false, false, true, true)
+describe('HeimPage — Kviss, advertiser and booking-provider private-beta cards', () => {
+  it('shows all as normal Teskeið cards only for an entitled user', async () => {
+    setupGuard(false, false, false, false, false, true, true, true)
     setupProfile(null)
 
     render(await HeimPage())
 
     expect(mockCheckFeatureAccess).toHaveBeenCalledWith(TEST_USER.id, TEST_USER.email, 'kviss')
     expect(mockCheckFeatureAccess).toHaveBeenCalledWith(TEST_USER.id, TEST_USER.email, 'auglysandi')
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith(TEST_USER.id, TEST_USER.email, 'bokanir')
     expect(screen.getByRole('link', { name: 'Opna Kviss' })).toHaveAttribute('href', '/auth-mvp/kviss')
     expect(screen.getByRole('link', { name: 'Opna Auglýsandi' })).toHaveAttribute('href', '/auth-mvp/auglysandi')
+    expect(screen.getByRole('link', { name: 'Opna Bókanir' })).toHaveAttribute('href', '/auth-mvp/bokanir')
   })
 
-  it('hides both cards when their exact per-user gates are denied', async () => {
+  it('hides all provider cards when their exact per-user gates are denied', async () => {
     setupGuard(false, false, false, false, false, false, false)
     setupProfile(null)
 
@@ -1553,6 +1559,20 @@ describe('HeimPage — Kviss and advertiser private-beta cards', () => {
 
     expect(screen.queryByRole('link', { name: 'Opna Kviss' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Opna Auglýsandi' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Opna Bókanir' })).toBeNull()
+  })
+
+  it('does not leak a booking-provider idea into the future drawer without entitlement', async () => {
+    mockIdeasResult.mockResolvedValue({
+      data: [makeIdea({ id: 'idea-bookings', slug: 'bokanir', title: 'Bókanir', status: 'building' })],
+      error: null,
+    })
+    setupGuard(false, false, false, false, false, false, false, false)
+    setupProfile(null)
+
+    render(await HeimPage())
+    fireEvent.click(screen.getByRole('button', { name: /Hugmyndir sem verða líklega/ }))
+    expect(screen.queryByText('Bókanir')).toBeNull()
   })
 
   it('does not duplicate a matching idea seed', async () => {
@@ -1560,15 +1580,17 @@ describe('HeimPage — Kviss and advertiser private-beta cards', () => {
       data: [
         makeIdea({ id: 'idea-kviss', slug: 'kviss', title: 'Kviss', status: 'building' }),
         makeIdea({ id: 'idea-advertiser', slug: 'auglysandi', title: 'Auglýsandi', status: 'building' }),
+        makeIdea({ id: 'idea-bookings', slug: 'bokanir', title: 'Bókanir', status: 'building' }),
       ],
       error: null,
     })
-    setupGuard(false, false, false, false, false, true, true)
+    setupGuard(false, false, false, false, false, true, true, true)
     setupProfile(null)
 
     render(await HeimPage())
 
     expect(screen.getAllByRole('link', { name: 'Opna Kviss' })).toHaveLength(1)
     expect(screen.getAllByRole('link', { name: 'Opna Auglýsandi' })).toHaveLength(1)
+    expect(screen.getAllByRole('link', { name: 'Opna Bókanir' })).toHaveLength(1)
   })
 })

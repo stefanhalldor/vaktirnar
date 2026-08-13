@@ -9,6 +9,7 @@ const labels = {
   loading: 'Loading messages',
   loadError: 'Could not load',
   retry: 'Retry',
+  inputLabel: 'Message',
   inputPlaceholder: 'Write a message',
   send: 'Send',
   sendError: 'Could not send',
@@ -77,6 +78,32 @@ describe('ScopedChatPanel', () => {
     expect(first.compareDocumentPosition(middle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(middle.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(last.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('breaks equal-timestamp ties by the raw row id rather than the React key prefix', async () => {
+    const createdAt = '2026-07-27T11:00:00.000Z'
+    render(
+      <ScopedChatPanel
+        threadId="thread-1"
+        transport={transport({
+          loadMessages: vi.fn().mockResolvedValue([
+            message('a-message', 'Raw id sorts first', createdAt),
+          ]),
+        })}
+        labels={labels}
+        locale="en"
+        pollingIntervalMs={60_000}
+        timelineEvents={[{
+          id: 'z-event',
+          createdAt,
+          content: <p>Raw id sorts last</p>,
+        }]}
+      />,
+    )
+
+    const first = await screen.findByText('Raw id sorts first')
+    const last = screen.getByText('Raw id sorts last')
+    expect(first.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('shows an initial load error, retries, and marks read only after a successful load', async () => {
@@ -161,13 +188,45 @@ describe('ScopedChatPanel', () => {
       />,
     )
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Load older' }))
+    const loadOlderButton = await screen.findByRole('button', { name: 'Load older' })
+    expect(loadOlderButton).toHaveClass('min-h-10')
+    expect(loadOlderButton.className).toContain('focus-visible:ring-2')
+    await userEvent.click(loadOlderButton)
 
     expect(loadMessages).toHaveBeenNthCalledWith(2, 'thread-1', {
       before: first.createdAt,
       beforeId: first.id,
       limit: 2,
     })
+  })
+
+  it('keeps history pagination available in read-only mode without rendering a composer', async () => {
+    const first = message('first-id', 'First', '2026-07-27T10:00:00.000Z')
+    const second = message('second-id', 'Second', '2026-07-27T11:00:00.000Z')
+    const older = message('older-id', 'Older', '2026-07-27T09:00:00.000Z')
+    const loadMessages = vi.fn()
+      .mockResolvedValueOnce([first, second])
+      .mockResolvedValueOnce([older])
+    const sendMessage = vi.fn()
+
+    render(
+      <ScopedChatPanel
+        threadId="thread-1"
+        transport={transport({ loadMessages, sendMessage })}
+        labels={labels}
+        locale="en"
+        pageSize={2}
+        pollingIntervalMs={60_000}
+        readOnly
+      />,
+    )
+
+    expect(await screen.findByText('Second')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Message')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Load older' }))
+    expect(await screen.findByText('Older')).toBeInTheDocument()
+    expect(sendMessage).not.toHaveBeenCalled()
   })
 
   it('accepts a later id when a new message shares the latest timestamp', async () => {

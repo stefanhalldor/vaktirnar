@@ -10,12 +10,13 @@ describe('advertiser application security contracts', () => {
     const featureApi = source('app/api/admin/feature-access/route.ts')
     const guard = source('lib/loans/guard.ts')
     const capabilities = source('app/api/auth-mvp/capabilities/route.ts')
-    expect(featureApi).toContain("'kviss', 'auglysandi'")
+    expect(featureApi).toContain("'kviss', 'auglysandi', 'bokanir'")
     expect(guard).toContain("featureKey === 'auglysandi'")
     expect(guard).toContain("checkPerUserAccess(email, 'auglysandi')")
     expect(capabilities).toContain("checkFeatureAccess(user.id, user.email, 'kviss')")
     expect(capabilities).toContain("checkFeatureAccess(user.id, user.email, 'auglysandi')")
-    expect(capabilities).toContain('{ kviss, advertiser }')
+    expect(capabilities).toContain("checkFeatureAccess(user.id, user.email, 'bokanir')")
+    expect(capabilities).toContain('{ kviss, advertiser, bookings }')
   })
 
   it('projects bounded DTOs instead of returning internal advertiser rows', () => {

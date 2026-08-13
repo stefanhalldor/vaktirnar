@@ -1,22 +1,33 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { checkFeatureAccess } from '@/lib/loans/guard'
-import { getWeatherEnabledMode } from '@/lib/weather/weatherBaseAccess.server'
 import {
+  fetchVegagerdinCurrent,
   readVegagerdinCurrentWithHistoryFallback,
   readVegagerdinFetchTelemetry,
+  recordVegagerdinFetchAttempt,
 } from '@/lib/weather/providers/vegagerdinCurrent.server'
 import type { VegagerdinCurrentStationDto } from '@/lib/weather/providers/vegagerdinCurrentTypes'
 import { freeDriveStationFreshness } from '@/lib/weather/freeDrive'
+import { getVegagerdinAccessDenialStatus } from '@/lib/weather/vegagerdinAccess.server'
+import { shouldWarnVegagerdinStationAge } from '@/lib/weather/vegagerdinStationPresentation'
+
+let repairInFlight: Promise<void> | null = null
+const REPAIR_ATTEMPT_COOLDOWN_MS = 2 * 60 * 1_000
+
+async function repairStaleVegagerdinCache(): Promise<void> {
+  if (repairInFlight) return repairInFlight
+  repairInFlight = (async () => {
+    const attemptedAtIso = new Date().toISOString()
+    await Promise.all([
+      fetchVegagerdinCurrent(),
+      recordVegagerdinFetchAttempt(attemptedAtIso),
+    ])
+  })().finally(() => {
+    repairInFlight = null
+  })
+  return repairInFlight
+}
 
 export async function GET() {
-  if (process.env.AUTH_MVP_ENABLED !== 'true') {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-  if (getWeatherEnabledMode() === 'off') {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-
   // When WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED=true, require the user to be
   // signed in and have the provider-specific feature_access row.
   //
@@ -26,20 +37,36 @@ export async function GET() {
   //   - In WEATHER_ENABLED=All mode: signed-out users get base weather via public tier, so a
   //     user with only a provider row (no vedrid) must still be signed in for restricted mode.
   //   - Graduation: delete WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED → open to all weather users.
-  if (process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED === 'true') {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    const hasVegagerdin = await checkFeatureAccess(user.id, user.email, 'weather-provider-vegagerdin')
-    if (!hasVegagerdin) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  const denialStatus = await getVegagerdinAccessDenialStatus()
+  if (denialStatus) {
+    return NextResponse.json(
+      { error: denialStatus === 401 ? 'Unauthorized' : denialStatus === 403 ? 'Forbidden' : 'Not found' },
+      { status: denialStatus },
+    )
   }
 
-  // Cache-first read with history fallback. Never contacts upstream Vegagerðin API.
-  const result = await readVegagerdinCurrentWithHistoryFallback()
+  // Cache-first read with history fallback. If the newest measurement is old,
+  // make one cooldown-protected repair attempt before returning stale data.
+  let result = await readVegagerdinCurrentWithHistoryFallback()
+
+  const oldestBeforeRepair = result.status === 'unavailable'
+    ? null
+    : result.payload.measurements.reduce<string | null>(
+        (oldest, measurement) => !oldest || measurement.measuredAtIso < oldest
+          ? measurement.measuredAtIso
+          : oldest,
+        null,
+      )
+  if (result.status === 'unavailable' || shouldWarnVegagerdinStationAge(oldestBeforeRepair)) {
+    const telemetry = await readVegagerdinFetchTelemetry()
+    const lastAttemptMs = telemetry.lastAttemptedAtIso
+      ? Date.parse(telemetry.lastAttemptedAtIso)
+      : Number.NaN
+    if (!Number.isFinite(lastAttemptMs) || Date.now() - lastAttemptMs >= REPAIR_ATTEMPT_COOLDOWN_MS) {
+      await repairStaleVegagerdinCache()
+      result = await readVegagerdinCurrentWithHistoryFallback()
+    }
+  }
 
   if (result.status === 'unavailable') {
     return NextResponse.json({ status: 'unavailable', reason: result.reason, stations: [] }, {
@@ -73,6 +100,10 @@ export async function GET() {
     windDirectionText: m.windDirectionText,
     airTemperatureC: m.airTemperatureC,
     roadTemperatureC: m.roadTemperatureC,
+    trafficLast10Min: m.trafficLast10Min ?? null,
+    trafficFromMidnight: m.trafficFromMidnight ?? null,
+    humidityPercent: m.humidityPercent ?? null,
+    dewPointC: m.dewPointC ?? null,
     dataQuality: m.dataQuality,
   }))
 

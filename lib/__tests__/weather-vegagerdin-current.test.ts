@@ -38,6 +38,10 @@ const FIXTURE_COMPLETE = {
   VindattAsc: 'S',
   Hiti: 8.5,
   Veghiti: 6.2,
+  Umf10Min: 144,
+  UmfSum: 2140,
+  Raki: 99,
+  Daggarmark: 13.3,
 }
 
 const FIXTURE_NULL_GUST = {
@@ -101,6 +105,10 @@ describe('parseVegagerdinResponse - basic parsing', () => {
     expect(m.fetchedAtIso).toBe(FETCHED_AT)
     expect(m.windDirectionDeg).toBe(180)
     expect(m.windDirectionText).toBe('S')
+    expect(m.trafficLast10Min).toBe(144)
+    expect(m.trafficFromMidnight).toBe(2140)
+    expect(m.humidityPercent).toBe(99)
+    expect(m.dewPointC).toBe(13.3)
     expect(m.dataQuality).toBe('complete')
   })
 

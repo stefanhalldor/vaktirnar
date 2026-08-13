@@ -163,7 +163,7 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 type FeatureAccessEntry = { email: string; granted_at: string }
 
 interface FeatureAccessSectionProps {
-  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'bokhaldid' | 'kviss' | 'auglysandi'
+  featureKey: 'umonnun' | 'tengsl' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'bokhaldid' | 'kviss' | 'auglysandi' | 'bokanir'
   heading: string
   flagName: string
   enabledFlagName?: string
@@ -1699,6 +1699,11 @@ export default function AdminPage() {
             featureKey="auglysandi"
             heading="Auglýsenda-aðgangur — private beta"
             flagName="ADVERTISER_ENABLED"
+          />
+          <FeatureAccessSection
+            featureKey="bokanir"
+            heading="Bókanir — þjónustuaðilar í private beta"
+            flagName="BOOKINGS_ENABLED"
           />
           <a
             href="/admin/advertiser"
