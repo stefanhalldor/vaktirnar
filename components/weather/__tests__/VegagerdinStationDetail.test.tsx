@@ -5,7 +5,7 @@ import { VegagerdinStationDetail } from '@/components/weather/VegagerdinStationD
 vi.mock('next-intl', () => ({
   useLocale: () => 'is',
   useTranslations: () => (key: string, values?: { time?: string }) => ({
-    vegagerdinDetailProvider: 'Gögn frá Vegagerðinni',
+    vegagerdinDetailProvider: 'Nýjustu upplýsingar frá Vegagerðinni',
     vegagerdinDetailClose: 'Loka stöðvarupplýsingum',
     vegagerdinDetailStaleAction: `Opna á umferdin.is því gögnin hér að neðan eru frá kl. ${values?.time ?? ''}`,
     vegagerdinDetailLoading: 'Sæki nýjustu stöðvarupplýsingar…',
@@ -22,6 +22,21 @@ describe('VegagerdinStationDetail', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('attributes the station information to Vegagerðin', () => {
+    render(
+      <VegagerdinStationDetail
+        detail={null}
+        loading
+        fallbackStationId="12"
+        fallbackName="Hafnarfjall"
+        fallbackMeasuredAtIso="2026-08-13T10:35:00Z"
+        onClose={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('Nýjustu upplýsingar frá Vegagerðinni')).toBeInTheDocument()
   })
 
   it('keeps the exact Umferðin station link available while stale detail is loading', () => {

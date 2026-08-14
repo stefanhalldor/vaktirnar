@@ -220,6 +220,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     const body = await res.json()
     expect(body.routes).toBeUndefined()
     expect(body.route).toBeUndefined()
+    expect(body.recommendedRouteId).toBe(candidate.id)
     expect(body.routeEnvelopes).toHaveLength(1)
     expect(body.routeEnvelopes[0]).toMatchObject({
       origin: ORIGIN,
@@ -306,6 +307,7 @@ describe('POST /api/teskeid/weather/travel/route-candidate — Weather rollout',
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.routeEnvelopes).toHaveLength(2)
+    expect(body.recommendedRouteId).toBe(makeCandidate().id)
     for (const envelope of body.routeEnvelopes) {
       expect(envelope).toMatchObject({
         assessmentScopeId,

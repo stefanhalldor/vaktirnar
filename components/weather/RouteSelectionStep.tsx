@@ -13,7 +13,8 @@ import { ProviderStationPreviewCard } from './ProviderStationPreviewCard'
 import { VedurstofanPulseInline } from './VedurstofanPulseInline'
 import { ForecastRowLine, selectUpcomingRows } from './VedurstofanForecastRows'
 import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
-import { resolveLegacySafeRouteSelection } from '@/lib/road-intelligence/legacyRouteSelectionSafety'
+import { buildGoogleMapsDirectionsUrl } from '@/lib/iceland-routes/googleMapsDirectionsUrl'
+import { curatedRouteLabelMessageKey } from '@/lib/weather/curatedRouteLabel'
 
 export type RoutePlace = {
   id?: PlaceResult['id']
@@ -43,8 +44,6 @@ type RouteSelectionStepProps = {
   routeOptionsLoading: boolean
   routeOptionsError: string | null
   onRetryRoutes: () => void
-  routeFallback: boolean
-  onUseFallback: () => void
   selectedRouteId: string | null
   onRouteSelected: (id: string) => void
   onConfirm: () => void
@@ -88,8 +87,6 @@ export function RouteSelectionStep({
   routeOptionsLoading,
   routeOptionsError,
   onRetryRoutes,
-  routeFallback,
-  onUseFallback,
   selectedRouteId,
   onRouteSelected,
   onConfirm,
@@ -108,19 +105,12 @@ export function RouteSelectionStep({
   vedurstofanStationsLoading,
 }: RouteSelectionStepProps) {
   const tf = useTranslations('teskeid.vedrid.ferdalagid')
-  // The legacy Google-map selector does not yet carry the scoped partial-
-  // coverage and road-section contracts used by the mobile road-map flow.
-  // Fail closed by keeping Teskeið candidates out of this surface until the
-  // two selectors have presentation parity.
-  const safeSelection = resolveLegacySafeRouteSelection(routeOptions, selectedRouteId)
-  const safeRouteOptions = safeSelection.routeOptions
-  const safeSelectedRouteId = safeSelection.selectedRouteId
-
-  useEffect(() => {
-    if (safeSelection.replacementRouteId) {
-      onRouteSelected(safeSelection.replacementRouteId)
-    }
-  }, [onRouteSelected, safeSelection.replacementRouteId])
+  const safeRouteOptions = routeOptions
+  const safeSelectedRouteId = selectedRouteId
+  const canConfirm = Boolean(
+    safeSelectedRouteId
+    && safeRouteOptions?.some(route => route.id === safeSelectedRouteId),
+  )
 
   // Filter saved places so the already-selected opposite place doesn't appear in the list.
   // Uses the same coordinate key as the server to compare places.
@@ -167,6 +157,9 @@ export function RouteSelectionStep({
   const effectMapDest: RoutePlace | null = ferryPort
     ? { name: ferryPort.name, lat: ferryPort.lat, lon: ferryPort.lon }
     : destination
+  const outboundDirectionsUrl = origin && effectMapDest
+    ? buildGoogleMapsDirectionsUrl({ origin, destination: effectMapDest })
+    : null
 
   // Effect 1: Initialize map (mount only)
   useEffect(() => {
@@ -561,44 +554,41 @@ export function RouteSelectionStep({
             </div>
           )}
 
-          {routeOptionsError && !routeOptionsLoading && !routeFallback && (
+          {routeOptionsError && !routeOptionsLoading && (
             <div className="flex flex-col gap-2">
               <p className="text-xs text-destructive">{routeOptionsError}</p>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={onRetryRoutes}
-                  className="text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-                >
-                  {tf('routeOptionsRetry')}
-                </button>
-                <button
-                  type="button"
-                  onClick={onUseFallback}
-                  className="text-xs text-muted-foreground underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+              <button
+                type="button"
+                onClick={onRetryRoutes}
+                className="self-start text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+              >
+                {tf('routeOptionsRetry')}
+              </button>
+              {outboundDirectionsUrl && (
+                <a
+                  href={outboundDirectionsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                 >
                   {tf('routeOptionsFallback')}
-                </button>
-              </div>
+                </a>
+              )}
             </div>
           )}
-          {routeFallback && (
-            <p className="text-xs text-muted-foreground py-1">{tf('routeOptionsFallbackNote')}</p>
-          )}
 
-          {safeRouteOptions && safeRouteOptions.map((ro, idx) => {
+          {safeRouteOptions && safeRouteOptions.map((ro) => {
             const isSelected = ro.id === safeSelectedRouteId
-            const label = ro.labels.includes('CURATED_RING_ROAD')
-              ? tf('routeOptionRingRoad')
-              : ro.labels.includes('CURATED_VIA_HELLISHEIDI')
-              ? tf('routeOptionViaHellisheidi')
-              : ro.provider === 'teskeid' && ro.labels.includes('CURATED_VIA_HOLMAVIK')
-              ? tf('routeOptionViaHolmavik')
-              : ro.labels.includes('CURATED_AVOID_OXI')
-              ? tf('routeOptionAvoidOxi')
-              : ro.labels.includes('CURATED_VIA_THRENGSLAVEGUR')
-              ? tf('routeOptionViaThrengslavegur')
-              : idx === 0
+            const fastestDurationS = Math.min(...safeRouteOptions.map(option => option.durationS))
+            const curatedLabelKey = ro.provider === 'teskeid'
+              ? curatedRouteLabelMessageKey(
+                  ro.labels,
+                  ro.cautions?.map(caution => caution.id),
+                )
+              : null
+            const label = curatedLabelKey
+              ? tf(curatedLabelKey)
+              : ro.durationS === fastestDurationS
                 ? tf('routeOptionShortest')
                 : ro.isDefault
                   ? tf('routeOptionDefault')
@@ -652,10 +642,10 @@ export function RouteSelectionStep({
         <button
           type="button"
           onClick={() => {
-            if (!safeSelection.canConfirm) return
+            if (!canConfirm) return
             onConfirm()
           }}
-          disabled={confirmDisabled || !safeSelection.canConfirm}
+          disabled={confirmDisabled || !canConfirm}
           className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm cursor-pointer hover:shadow-md hover:opacity-95 active:opacity-90 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed"
         >
           {confirmLabel}

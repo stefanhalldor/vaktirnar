@@ -27,6 +27,13 @@ vi.mock('@/lib/loans/guard', () => ({
   checkFeatureAccess: mockCheckFeatureAccess,
 }))
 
+const { mockResolveTeskeidLauncher } = vi.hoisted(() => ({
+  mockResolveTeskeidLauncher: vi.fn(),
+}))
+vi.mock('@/lib/teskeid/launcher.server', () => ({
+  resolveTeskeidLauncher: mockResolveTeskeidLauncher,
+}))
+
 // next-intl/server
 vi.mock('next-intl/server', () => ({
   getTranslations: vi.fn().mockImplementation(async (ns: string) => {
@@ -37,6 +44,13 @@ vi.mock('next-intl/server', () => ({
         featuresTitle:        'Teskeiðar',
         readyTeskeidarTitle:  'Tilbúnar Teskeiðar',
         readyTeskeidOpen:     'Opna',
+        loansCardTitle: 'Lánað og skilað',
+        loansCardDescription: 'Haltu utan um hvað þú hefur lánað og fengið lánað.',
+        expensesCardTitle: 'Útlagt og endurgreitt',
+        expensesCardDescription: 'Haltu utan um sameiginleg útgjöld og endurgreiðslur.',
+        careCardTitle: 'Umönnun',
+        careCardDescription: 'Opnaðu Umönnun og haltu utan um viðkvæm málefni saman.',
+        weatherCardTitle: 'Veðrið',
         weatherCardDescription: 'Þitt veðurkort ásamt akstri með tilliti til færðar',
         bookkeepingCardTitle: 'Bókhaldið',
         bookkeepingCardDescription: 'Handvirkar færslur og rekjanleg VSK-vinnubók fyrir reksturinn þinn.',
@@ -252,8 +266,11 @@ vi.mock('next/link', () => ({
     React.createElement('a', { href, ...props }, children),
 }))
 vi.mock('@/components/teskeid/TeskeidMenu', () => ({
-  TeskeidMenu: ({ variant }: { variant: string }) =>
-    React.createElement('div', { 'data-testid': `teskeid-menu-${variant}` }),
+  TeskeidMenu: ({ variant, initialFeatureIds = [] }: { variant: string; initialFeatureIds?: string[] }) =>
+    React.createElement('div', {
+      'data-testid': `teskeid-menu-${variant}`,
+      'data-feature-order': initialFeatureIds.join(','),
+    }),
 }))
 
 import HeimPage from '@/app/auth-mvp/heim/page'
@@ -375,6 +392,47 @@ function setupGuard(
       return false
     },
   )
+  const weatherEnabled = vedridAccess
+    || process.env.WEATHER_ENABLED === 'All'
+    || process.env.WEATHER_ENABLED === 'Authenticated'
+    || process.env.WEATHER_ENABLED === 'true'
+  const enabled = [
+    ['lanad-og-skilad', loansAccess],
+    ['utlagt-og-endurgreitt', expensesAccess],
+    ['bokhaldid', bookkeepingAccess],
+    ['umonnun', umonnunAccess],
+    ['vedrid', weatherEnabled],
+    ['kviss', kvissAccess],
+    ['auglysandi', advertiserAccess],
+    ['bokanir', bookingsAccess],
+  ] as const
+  const meta: Record<string, { href: string; titleKey: string; descriptionKey: string }> = {
+    'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', titleKey: 'loansCardTitle', descriptionKey: 'loansCardDescription' },
+    'utlagt-og-endurgreitt': { href: '/auth-mvp/utlagt-og-endurgreitt', titleKey: 'expensesCardTitle', descriptionKey: 'expensesCardDescription' },
+    bokhaldid: { href: '/auth-mvp/bokhaldid', titleKey: 'bookkeepingCardTitle', descriptionKey: 'bookkeepingCardDescription' },
+    umonnun: { href: '/auth-mvp/umonnun', titleKey: 'careCardTitle', descriptionKey: 'careCardDescription' },
+    vedrid: { href: '/auth-mvp/vedrid', titleKey: 'weatherCardTitle', descriptionKey: 'weatherCardDescription' },
+    kviss: { href: '/auth-mvp/kviss', titleKey: 'quizCardTitle', descriptionKey: 'quizCardDescription' },
+    auglysandi: { href: '/auth-mvp/auglysandi', titleKey: 'advertiserCardTitle', descriptionKey: 'advertiserCardDescription' },
+    bokanir: { href: '/auth-mvp/bokanir', titleKey: 'bookingsCardTitle', descriptionKey: 'bookingsCardDescription' },
+  }
+  const featureIds = enabled.flatMap(([id, visible]) => visible ? [id] : [])
+  mockResolveTeskeidLauncher.mockImplementation(async (user: { id: string; email: string }) => {
+    await Promise.all(enabled.map(([id]) => mockCheckFeatureAccess(user.id, user.email, id)))
+    return {
+      featureIds,
+      items: featureIds.map((id, fallbackRank) => ({
+        id,
+        ...meta[id],
+        navKey: id,
+        icon: 'heart',
+        activePrefixes: [meta[id].href],
+        fallbackRank,
+      })),
+      usageAvailable: true,
+      agentCollaborationAvailable: false,
+    }
+  })
 }
 
 function setupProfile(displayName: string | null) {
@@ -1592,5 +1650,41 @@ describe('HeimPage — Kviss, advertiser and booking-provider private-beta cards
     expect(screen.getAllByRole('link', { name: 'Opna Kviss' })).toHaveLength(1)
     expect(screen.getAllByRole('link', { name: 'Opna Auglýsandi' })).toHaveLength(1)
     expect(screen.getAllByRole('link', { name: 'Opna Bókanir' })).toHaveLength(1)
+  })
+})
+
+describe('HeimPage — canonical launcher projection', () => {
+  it('uses the exact same MRU order for home cards and authenticated menu when ideas fail', async () => {
+    setupGuard(false, false, false, false, false, true, false, true)
+    setupProfile(null)
+    setupRpcs([])
+    mockIdeasResult.mockResolvedValue({ data: null, error: { message: 'offline' } })
+    mockResolveTeskeidLauncher.mockResolvedValue({
+      featureIds: ['bokanir', 'kviss'],
+      items: [
+        {
+          id: 'bokanir', href: '/auth-mvp/bokanir', activePrefixes: ['/auth-mvp/bokanir'],
+          fallbackRank: 7, icon: 'calendar', navKey: 'bookings',
+          titleKey: 'bookingsCardTitle', descriptionKey: 'bookingsCardDescription',
+        },
+        {
+          id: 'kviss', href: '/auth-mvp/kviss', activePrefixes: ['/auth-mvp/kviss'],
+          fallbackRank: 5, icon: 'trophy', navKey: 'quiz',
+          titleKey: 'quizCardTitle', descriptionKey: 'quizCardDescription',
+        },
+      ],
+      usageAvailable: true,
+      agentCollaborationAvailable: false,
+    })
+
+    const { container } = render(await HeimPage())
+    const cardHrefs = [...container.querySelectorAll('#teskeidar a')]
+      .map((link) => link.getAttribute('href'))
+      .filter((href) => href === '/auth-mvp/bokanir' || href === '/auth-mvp/kviss')
+    expect(cardHrefs).toEqual(['/auth-mvp/bokanir', '/auth-mvp/kviss'])
+    expect(screen.getByTestId('teskeid-menu-authenticated'))
+      .toHaveAttribute('data-feature-order', 'bokanir,kviss')
+    expect(screen.getByText('Bókanir')).toBeInTheDocument()
+    expect(screen.getByText('Kviss')).toBeInTheDocument()
   })
 })

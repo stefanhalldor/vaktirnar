@@ -9,7 +9,6 @@ import { checkTravelWeather } from '@/lib/weather/travel'
 import type { VedurstofanTravelLayer } from '@/lib/weather/providers/vedurstofanBlend'
 import { VEDURSTOFAN_STATIONS_REGISTRY } from '@/lib/weather/providers/vedurstofanStationsRegistry'
 import { resolveThresholds, validateResolvedThresholdOrdering } from '@/lib/weather/thresholds'
-import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import type {
   WeatherProviderCompleteness,
   TravelThresholdOverrides,
@@ -31,17 +30,13 @@ import { recordTeskeidUsageEvent, routePairFingerprint } from '@/lib/teskeid/usa
 import { readVegagerdinCurrentWithHistoryFallback } from '@/lib/weather/providers/vegagerdinCurrent.server'
 import type { VegagerdinRouteLayer } from '@/lib/road-intelligence/vegagerdinRouteLayer'
 import { classifyLiveVegagerdinStationWindStatus } from '@/lib/weather/liveVegagerdinStation'
-import { normalizePlaceForMemory, buildRouteMemoryKey } from '@/lib/iceland-routes/routePlaceNormalization'
-import { recordRouteMemory, type RouteMemoryStation } from '@/lib/iceland-routes/routeMemory.server'
-import { scheduleTeskeidShadowRun } from '@/lib/iceland-routes/routingScheduler.server'
-import {
-  getTeskeidRouteCandidateById,
-  isTeskeidRouteCandidateEnabled,
-  TESKEID_ROUTE_CANDIDATE_ID,
-  TESKEID_ROUTE_CANDIDATE_ID_PREFIX,
-} from '@/lib/iceland-routes/roadGraphCandidate.server'
+import { isTeskeidRouteCandidateEnabled } from '@/lib/iceland-routes/roadGraphCandidate.server'
 import { verifyRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
-import { routeMemoryVariantIdentity } from '@/lib/iceland-routes/routeMemoryVariant'
+import { getIcelandRoadGraph } from '@/lib/iceland-routes/roadGraphRuntime.server'
+import {
+  restoreRouteOptionEvidence,
+  restoredRouteOptionEvidenceMatchesSignedRoute,
+} from '@/lib/iceland-routes/routeOptionEvidence.server'
 import {
   isConfirmedLocationInput,
   toWeatherPlaceCandidate,
@@ -244,8 +239,6 @@ export async function POST(request: Request) {
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  const hasAuthenticatedIdentity = Boolean(user?.id && user.email)
-
   const access = await resolveWeatherBaseAccess(user)
   if (access.mode === 'blocked') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -317,9 +310,7 @@ export async function POST(request: Request) {
   const origin = body.origin as ConfirmedLocationInput
   const destination = body.destination as ConfirmedLocationInput
   const rawAssessmentScopeId = body.assessmentScopeId
-  const assessmentScopeId = rawAssessmentScopeId === undefined
-    ? null
-    : typeof rawAssessmentScopeId === 'string'
+  const assessmentScopeId = typeof rawAssessmentScopeId === 'string'
       && rawAssessmentScopeId.trim() === rawAssessmentScopeId
       && rawAssessmentScopeId.length > 0
       && rawAssessmentScopeId.length <= MAX_ASSESSMENT_SCOPE_ID_LENGTH
@@ -329,11 +320,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_assessment_scope_id' }, { status: 400 })
   }
 
-  // Get route geometry — use selected route if provided, otherwise first available
+  // Full route weather only accepts a fresh, scope-bound Teskeið envelope.
   const { actor, userId } = access
 
   const hasRouteEnvelope = body.routeEnvelope !== undefined
-  if (assessmentScopeId !== null && !hasRouteEnvelope) {
+  if (!hasRouteEnvelope) {
     return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
   }
   const verifiedRouteEnvelope = hasRouteEnvelope
@@ -343,23 +334,27 @@ export async function POST(request: Request) {
         assessmentScopeId,
       })
     : null
-  if (hasRouteEnvelope && !verifiedRouteEnvelope) {
+  if (
+    !verifiedRouteEnvelope
+    || verifiedRouteEnvelope.route.provider !== 'teskeid'
+    || !verifiedRouteEnvelope.routeEvidence
+  ) {
     return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
   }
 
   // In assessment mode, coordinates authenticated by the envelope are the
   // sole downstream authority. Client metadata remains display-only and can
   // never replace the server-issued road anchors.
-  const trustedOrigin: ConfirmedLocationInput = assessmentScopeId !== null && verifiedRouteEnvelope
-    ? { ...origin, lat: verifiedRouteEnvelope.origin.lat, lon: verifiedRouteEnvelope.origin.lon }
-    : origin
-  const trustedDestination: ConfirmedLocationInput = assessmentScopeId !== null && verifiedRouteEnvelope
-    ? {
-        ...destination,
-        lat: verifiedRouteEnvelope.destination.lat,
-        lon: verifiedRouteEnvelope.destination.lon,
-      }
-    : destination
+  const trustedOrigin: ConfirmedLocationInput = {
+    ...origin,
+    lat: verifiedRouteEnvelope.origin.lat,
+    lon: verifiedRouteEnvelope.origin.lon,
+  }
+  const trustedDestination: ConfirmedLocationInput = {
+    ...destination,
+    lat: verifiedRouteEnvelope.destination.lat,
+    lon: verifiedRouteEnvelope.destination.lon,
+  }
   const originCandidate: PlaceCandidate = toWeatherPlaceCandidate(trustedOrigin)
   const destCandidate: PlaceCandidate = toWeatherPlaceCandidate(trustedDestination)
 
@@ -371,118 +366,46 @@ export async function POST(request: Request) {
   ) {
     return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
   }
-  const selectedRouteId = verifiedRouteEnvelope?.route.id ?? requestedRouteId
-  const selectedTeskeidRouteId = verifiedRouteEnvelope?.route.provider === 'teskeid'
-    ? verifiedRouteEnvelope.route.id
-    : selectedRouteId && (
-    selectedRouteId === TESKEID_ROUTE_CANDIDATE_ID
-    || selectedRouteId.startsWith(TESKEID_ROUTE_CANDIDATE_ID_PREFIX)
-  ) ? selectedRouteId : null
-  const provider = getWeatherMapProvider()
-  if (!verifiedRouteEnvelope && !provider) {
-    return NextResponse.json({ error: 'provider_not_configured' }, { status: 422 })
-  }
+  const selectedRouteId = verifiedRouteEnvelope.route.id
   const routePairHash = routePairFingerprint(trustedOrigin, trustedDestination)
   const hashMeta = routePairHash !== null ? { routePairHash } : {}
 
-  if (selectedTeskeidRouteId) {
-    const anonymousPublicTeskeidEnvelope = access.mode === 'public'
-      && !hasAuthenticatedIdentity
-      && verifiedRouteEnvelope?.route.provider === 'teskeid'
-    if (
-      !isTeskeidRouteCandidateEnabled()
-      || (access.mode === 'public' && !hasAuthenticatedIdentity && !anonymousPublicTeskeidEnvelope)
-    ) {
-      await recordTeskeidUsageEvent({
-        userId,
-        featureKey: 'vedrid',
-        eventName: 'weather_final_forecast_failed',
-        path: '/api/teskeid/weather/travel',
-        metadata: { actor, ...hashMeta, failureReason: 'selected_route_unavailable', selectedRouteProvided: true },
-      })
-      return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
-    }
+  if (!isTeskeidRouteCandidateEnabled()) {
+    await recordTeskeidUsageEvent({
+      userId,
+      featureKey: 'vedrid',
+      eventName: 'weather_final_forecast_failed',
+      path: '/api/teskeid/weather/travel',
+      metadata: { actor, ...hashMeta, failureReason: 'selected_route_unavailable', selectedRouteProvided: true },
+    })
+    return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
   }
 
-  let routeGeometry
+  // Rebind the compact signed ledger to the immutable graph that is active in
+  // this runtime. HMAC validity alone is insufficient: a graph snapshot drift,
+  // missing edge or mismatched regenerated route must fail before any forecast
+  // or station-provider work starts.
   try {
-    if (verifiedRouteEnvelope) {
-      routeGeometry = verifiedRouteEnvelope.route
-    } else if (selectedTeskeidRouteId) {
-      routeGeometry = await getTeskeidRouteCandidateById(
-        { lat: originCandidate.lat, lon: originCandidate.lon },
-        { lat: destCandidate.lat, lon: destCandidate.lon },
-        selectedTeskeidRouteId,
-      )
-      if (!routeGeometry) {
-        await recordTeskeidUsageEvent({
-          userId,
-          featureKey: 'vedrid',
-          eventName: 'weather_final_forecast_failed',
-          path: '/api/teskeid/weather/travel',
-          metadata: { actor, ...hashMeta, failureReason: 'selected_route_unavailable', selectedRouteProvided: true },
-        })
-        return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
-      }
-    } else if (selectedRouteId) {
-      const routeOptions = await provider!.getRouteOptions(originCandidate, destCandidate)
-      const matched = routeOptions.find(r => r.id === selectedRouteId)
-      if (!matched) {
-        await recordTeskeidUsageEvent({
-          userId,
-          featureKey: 'vedrid',
-          eventName: 'weather_final_forecast_failed',
-          path: '/api/teskeid/weather/travel',
-          metadata: { actor, ...hashMeta, failureReason: 'selected_route_unavailable', selectedRouteProvided: true },
-        })
-        return NextResponse.json({ error: 'selected_route_unavailable' }, { status: 422 })
-      }
-      routeGeometry = matched
-    } else {
-      try {
-        routeGeometry = await provider!.getRouteGeometry(originCandidate, destCandidate)
-      } catch (error) {
-        if (shouldLogRoadMapApiDiagnostics()) {
-          console.warn('[RoadMap API] default route geometry failed; trying route options fallback')
-        }
-        routeGeometry = null
-      }
-      if (!routeGeometry) {
-        const fallbackOptions = await provider!.getRouteOptions(originCandidate, destCandidate)
-        routeGeometry = fallbackOptions.find(route => route.isDefault) ?? fallbackOptions[0] ?? null
-      }
-    }
-  } catch (error) {
-    if (shouldLogRoadMapApiDiagnostics()) {
-      console.error('[RoadMap API] route provider unavailable')
-    }
-    await recordTeskeidUsageEvent({
-      userId,
-      featureKey: 'vedrid',
-      eventName: 'weather_final_forecast_failed',
-      path: '/api/teskeid/weather/travel',
-      metadata: { actor, ...hashMeta, failureReason: 'route_unavailable', selectedRouteProvided: !!selectedRouteId },
+    const graph = await getIcelandRoadGraph()
+    const restoredEvidence = restoreRouteOptionEvidence({
+      graph,
+      claim: verifiedRouteEnvelope.routeEvidence,
+      origin: verifiedRouteEnvelope.origin,
+      destination: verifiedRouteEnvelope.destination,
     })
-    return NextResponse.json({
-      error: 'route_unavailable',
-      ...(process.env.NODE_ENV !== 'production'
-        ? { diagnostic: error instanceof Error ? error.message : 'unknown' }
-        : {}),
-    }, { status: 503 })
+    if (!restoredEvidence || !restoredRouteOptionEvidenceMatchesSignedRoute({
+      restored: restoredEvidence,
+      signedRoute: verifiedRouteEnvelope.route,
+      claim: verifiedRouteEnvelope.routeEvidence,
+      origin: verifiedRouteEnvelope.origin,
+      destination: verifiedRouteEnvelope.destination,
+    })) {
+      return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
+    }
+  } catch {
+    return NextResponse.json({ error: 'route_envelope_invalid' }, { status: 422 })
   }
-  if (!routeGeometry) {
-    await recordTeskeidUsageEvent({
-      userId,
-      featureKey: 'vedrid',
-      eventName: 'weather_final_forecast_failed',
-      path: '/api/teskeid/weather/travel',
-      metadata: { actor, ...hashMeta, failureReason: 'route_unavailable', selectedRouteProvided: !!selectedRouteId },
-    })
-    return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
-  }
-  const routeMemoryVariant = selectedRouteId
-    ? routeMemoryVariantIdentity(routeGeometry as RouteOption)
-    : null
+  const routeGeometry = verifiedRouteEnvelope.route
   const routePolyline = routeGeometry.providerMatchingPoints ?? routeGeometry.points
   const weatherCoverage = buildFullRouteWeatherCoverage({
     originName: originCandidate.displayName,
@@ -501,14 +424,6 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
   }
-
-  // Schedule shadow run via after() so it outlives the response flush in serverless.
-  // No-op when TESKEID_ROUTING_SHADOW_ENABLED is not exactly 'true'.
-  scheduleTeskeidShadowRun({
-    origin: { lat: originCandidate.lat, lon: originCandidate.lon },
-    destination: { lat: destCandidate.lat, lon: destCandidate.lon },
-    trailerKind: typeof trailerKind === 'string' ? trailerKind : null,
-  })
 
   // Sample route weather points using exhaustive-when-cheap strategy.
   // Computes cumulative Haversine distance for all route points, then deduplicates
@@ -994,69 +909,6 @@ export async function POST(request: Request) {
       vedurstofan: vedurstofanProviderCompleteness,
       vegagerdin: vegagerdinProviderCompleteness,
     },
-  }
-
-  // ── Route-memory write (best-effort) ─────────────────────────────────────────
-  // Record exact provider station IDs for this route so /vedrid can filter its map
-  // without any corridor/radius approximation on subsequent visits.
-  // Privacy: only normalized place keys/labels + station IDs stored. No user ID,
-  // no raw addresses, no raw Google route content.
-  if (assessmentScopeId === null) {
-    try {
-      const fromNorm = normalizePlaceForMemory(originCandidate.displayName, originCandidate.formattedAddress)
-      const toNorm = normalizePlaceForMemory(destCandidate.displayName, destCandidate.formattedAddress)
-
-      if (fromNorm && toNorm) {
-        const routeKey = buildRouteMemoryKey(
-          fromNorm.key,
-          toNorm.key,
-          routeMemoryVariant?.key,
-        )
-
-        const stations: RouteMemoryStation[] = [
-          ...vedurstofanMatches.map((m, i) => ({
-            provider: 'vedurstofan' as const,
-            stationId: m.point.id,
-            stationName: m.point.name ?? null,
-            routeOrder: i,
-            distanceFromOriginM: Math.round(m.distanceFromOriginM),
-            distanceFromRouteM: Math.round(m.distanceM),
-            routeFraction: m.routeFraction,
-          })),
-          ...vegagerdinRouteMatches.map((m, i) => ({
-            provider: 'vegagerdin' as const,
-            stationId: m.point.id,
-            stationName: m.point.name ?? null,
-            routeOrder: i,
-            distanceFromOriginM: Math.round(m.distanceFromOriginM),
-            distanceFromRouteM: Math.round(m.distanceM),
-            routeFraction: m.routeFraction,
-          })),
-        ]
-
-        const providersEvaluated: Array<'vedurstofan' | 'vegagerdin'> = []
-        if (layerEnabled) providersEvaluated.push('vedurstofan')
-        if (vegagerdinProviderEvaluated) providersEvaluated.push('vegagerdin')
-
-        await recordRouteMemory({
-          routeKey,
-          fromPlaceKey: fromNorm.key,
-          fromPlaceLabel: fromNorm.label,
-          toPlaceKey: toNorm.key,
-          toPlaceLabel: toNorm.label,
-          routeVariantKey: routeMemoryVariant?.key,
-          routeVariantLabel: routeMemoryVariant?.label,
-          routeCautionIds: (routeGeometry as Partial<RouteOption>).cautions?.map(caution => caution.id) ?? [],
-          stations,
-          // Only include providers that were actually evaluated. If a provider was gated
-          // off or its cache was unavailable, leave existing station rows untouched.
-          providersEvaluated,
-        })
-      }
-    } catch (err) {
-      // Best-effort: swallow all errors, log static code only (no raw content)
-      console.error('[route-memory] write failed in travel route')
-    }
   }
 
   await recordTeskeidUsageEvent({

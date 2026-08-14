@@ -13,10 +13,10 @@ describe('advertiser application security contracts', () => {
     expect(featureApi).toContain("'kviss', 'auglysandi', 'bokanir'")
     expect(guard).toContain("featureKey === 'auglysandi'")
     expect(guard).toContain("checkPerUserAccess(email, 'auglysandi')")
-    expect(capabilities).toContain("checkFeatureAccess(user.id, user.email, 'kviss')")
-    expect(capabilities).toContain("checkFeatureAccess(user.id, user.email, 'auglysandi')")
-    expect(capabilities).toContain("checkFeatureAccess(user.id, user.email, 'bokanir')")
-    expect(capabilities).toContain('{ kviss, advertiser, bookings }')
+    expect(capabilities).toContain('resolveTeskeidLauncherVisibility(user)')
+    expect(capabilities).toContain("visible.has('kviss')")
+    expect(capabilities).toContain("visible.has('auglysandi')")
+    expect(capabilities).toContain("visible.has('bokanir')")
   })
 
   it('projects bounded DTOs instead of returning internal advertiser rows', () => {

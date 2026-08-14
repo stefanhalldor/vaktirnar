@@ -75,7 +75,7 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).toContain("t('roadMapPrototypeRoutePlanningDestinationTitle')")
     expect(source).toContain("t('roadMapPrototypeRoutePlanningOriginTitle')")
     expect(source).toContain("t('roadMapPrototypeRoutePlanningThresholdsTitle')")
-    expect(source).toContain("t('roadMapPrototypeRoutePlanningLoadingTitle')")
+    expect(source).toContain("t('roadMapPrototypeTeskeidCandidateSearchLoading')")
     expect(source).toContain("t('roadMapPrototypeRoutePlanningDestinationStep')")
     expect(source).toContain("t('roadMapPrototypeRoutePlanningOriginStep')")
     expect(source).toContain("t('roadMapPrototypeRoutePlanningThresholdsStep')")
@@ -90,7 +90,7 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     expect(source).toContain("setActiveRouteFieldState(routePlanningStep === 'origin' ? 'from' : 'to')")
     expect(source).toContain("if (routePlanningStep !== 'origin' && !toResolved)")
     expect(messagesIs).toContain('"roadMapPrototypeRoutePlanningDestinationTitle": "Hvert ertu að fara?"')
-    expect(messagesIs).toContain('"roadMapPrototypeRoutePlanningLoadingTitle": "Finn leiðir og skoða veðurspárgildi"')
+    expect(messagesIs).toContain('"roadMapPrototypeTeskeidCandidateSearchLoading": "Leita að Teskeiðarleiðum…"')
     expect(messagesEn).toContain('"roadMapPrototypeRoutePlanningDestinationTitle": "Where are you going?"')
   })
 
@@ -132,7 +132,7 @@ describe('RoadMap free-drive Phase 1 contracts', () => {
     const headerStart = source.indexOf('{routeBridgeSummary', panelHeaderStart)
     const headerEnd = source.indexOf('</p>', headerStart)
     const header = source.slice(headerStart, headerEnd)
-    const loadingTitle = header.indexOf("t('roadMapPrototypeRoutePlanningLoadingTitle')")
+    const loadingTitle = header.indexOf("t('roadMapPrototypeTeskeidCandidateSearchLoading')")
     const thresholdsTitle = header.indexOf("t('roadMapPrototypeRoutePlanningThresholdsTitle')")
 
     expect(loadingTitle).toBeGreaterThan(-1)

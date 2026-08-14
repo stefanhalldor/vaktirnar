@@ -1,5 +1,5 @@
 import 'server-only'
-import { googleProvider } from './google.server'
+import { googlePlacesProvider } from './googlePlaces.server'
 import type { WeatherMapProvider } from './provider.types'
 
 /**
@@ -8,6 +8,6 @@ import type { WeatherMapProvider } from './provider.types'
  */
 export function getWeatherMapProvider(): WeatherMapProvider | null {
   const provider = process.env.WEATHER_MAP_PROVIDER
-  if (provider === 'google') return googleProvider
+  if (provider === 'google') return googlePlacesProvider
   return null
 }

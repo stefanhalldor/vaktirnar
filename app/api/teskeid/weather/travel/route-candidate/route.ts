@@ -364,6 +364,9 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({
     status: outcome.status,
+    recommendedRouteId: outcome.status === 'ready'
+      ? outcome.routes[0]?.id ?? null
+      : null,
     ...(assessmentScope ? { assessmentScope } : {}),
     ...(outcome.status === 'ready' && outcome.cacheable === false
       ? { cacheable: false }

@@ -36,11 +36,17 @@ import { VedurstofanRoutePulseSummary } from '@/components/weather/VedurstofanRo
 import { isVestmannaeyjarDestination, FERRY_PORTS, type FerryPortId } from '@/lib/weather/ferryPorts'
 import { isVedurstofanCycleFresh, getNextCycleAfterAtimeIso } from '@/lib/weather/vedurstofanFreshness'
 import type { SavedWeatherPlace } from '@/lib/weather/savedPlaces'
-import type { ProviderStationPoint } from '@/lib/weather/providerRouteMatching'
 import { readOverviewRouteDraft, clearOverviewRouteDraft } from '@/lib/iceland-routes/routeDraft'
 import { buildRouteObservation, recordRouteObservation } from '@/lib/iceland-routes/routeObservation'
 import type { RouteOptionEnvelopeV1 } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 import { findFreshRouteEnvelope } from '@/lib/iceland-routes/routeEnvelopeClient'
+import {
+  FERDALAGID_ROUTE_RESTORE_SCHEMA_VERSION,
+  isLegacyFerdalagidRouteResult,
+  isValidFerdalagidRouteRestorePayload,
+} from '@/lib/road-intelligence/ferdalagidRouteRestore'
+import type { RouteAssessmentScope } from '@/lib/iceland-routes/routeAssessmentScope'
+import { isAtomicTeskeidCandidateArtifact } from '@/lib/road-intelligence/teskeidCandidateArtifact'
 
 
 type VedurstofanAssessment = {
@@ -81,6 +87,7 @@ function computeVedurstofanAssessments(
 }
 
 type WizardStep = 'route' | 'thresholds' | 'result'
+type ReadyRouteAssessmentScope = Extract<RouteAssessmentScope, { status: 'ready' }>
 
 type TrailerKindValue = 'none' | 'generic_trailer' | 'tent_trailer' | 'folding_camper' | 'caravan' | 'horse_trailer'
 
@@ -88,22 +95,6 @@ const STEP_ORDER: WizardStep[] = ['route', 'thresholds', 'result']
 
 // sessionStorage key + restore contract for route-result persistence across refresh and pulse login.
 const ROUTE_RESTORE_KEY = 'vaktirnar:weather-route-restore'
-const ROUTE_RESTORE_SCHEMA_VERSION = 2
-const ROUTE_RESTORE_TTL_MS = 30 * 60 * 1000 // 30 minutes
-
-function isValidRouteRestorePayload(data: unknown): boolean {
-  if (!data || typeof data !== 'object') return false
-  const d = data as Record<string, unknown>
-  if (d.schemaVersion !== ROUTE_RESTORE_SCHEMA_VERSION) return false
-  if (d.step !== 'result') return false
-  if (!d.result || typeof d.result !== 'object') return false
-  if (!d.origin || typeof d.origin !== 'object') return false
-  if (!d.destination || typeof d.destination !== 'object') return false
-  if (typeof d.savedAtIso !== 'string') return false
-  const age = Date.now() - Date.parse(d.savedAtIso as string)
-  if (!Number.isFinite(age) || age > ROUTE_RESTORE_TTL_MS) return false
-  return true
-}
 
 const STATUS_STYLES: Record<WeatherStatus, { dot: string; label: string }> = {
   graent: { dot: 'bg-[#2d5a27]', label: 'text-[#2d5a27]' },
@@ -172,6 +163,9 @@ export function FerdalagidClient({
   const [mapSelectionSignal, setMapSelectionSignal] = useState(0)
   // Track which thresholds were last submitted to detect dirty drafts
   const [submittedThresholds, setSubmittedThresholds] = useState<TravelThresholdOverrides | null>(null)
+  // Keep the trailer assumption paired with the result so a changed selection
+  // cannot be mistaken for the assumptions used by the visible assessment.
+  const [submittedTrailerKind, setSubmittedTrailerKind] = useState<TrailerKindValue | null>(null)
   // Latest-value ref for combined slot statuses — read in auto-select effect without dep array churn
   const combinedSlotStatusesRef = useRef<WindDisplayStatus[] | null>(null)
 
@@ -184,6 +178,7 @@ export function FerdalagidClient({
     destLon: number | undefined
   } | null>(null)
   const restoredSelectedRouteIdRef = useRef<string | null>(null)
+  const [restoredLegacyRouteResult, setRestoredLegacyRouteResult] = useState(false)
 
   // Ferðalag conversion affordance — shown when tripEnabled and result is ready
   const [tripHintVisible, setTripHintVisible] = useState(false)
@@ -193,16 +188,9 @@ export function FerdalagidClient({
   const [routeOptionsLoading, setRouteOptionsLoading] = useState(false)
   const [routeOptionsError, setRouteOptionsError] = useState<string | null>(null)
   const [routeEnvelopes, setRouteEnvelopes] = useState<RouteOptionEnvelopeV1[]>([])
+  const [routeAssessmentScope, setRouteAssessmentScope] = useState<ReadyRouteAssessmentScope | null>(null)
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [routeRetryCount, setRouteRetryCount] = useState(0)
-  const [routeFallback, setRouteFallback] = useState(false)
-
-  // Route-selection Veðurstofan station layer
-  // routeStationLayerAllowed: false when server returns 403 — hides toggle entirely
-  const [routeStationLayerAllowed, setRouteStationLayerAllowed] = useState(true)
-  const [showRouteStationLayer, setShowRouteStationLayer] = useState(true)
-  const [routeSelectionStations, setRouteSelectionStations] = useState<ProviderStationPoint[] | null>(null)
-  const [routeSelectionStationsLoading, setRouteSelectionStationsLoading] = useState(false)
 
   // Guest rate limit state — set when server returns 429 for guest requests
   const [guestRateLimited, setGuestRateLimited] = useState(false)
@@ -274,7 +262,7 @@ export function FerdalagidClient({
         const raw = sessionStorage.getItem(ROUTE_RESTORE_KEY)
         if (!raw) return false
         const state = JSON.parse(raw)
-        if (!isValidRouteRestorePayload(state)) {
+        if (!isValidFerdalagidRouteRestorePayload(state)) {
           sessionStorage.removeItem(ROUTE_RESTORE_KEY)
           return false
         }
@@ -287,12 +275,17 @@ export function FerdalagidClient({
           destLat: state.destination?.lat,
           destLon: state.destination?.lon,
         }
-        if (state.trailerKind) setTrailerKind(state.trailerKind)
+        if (state.trailerKind) {
+          setTrailerKind(state.trailerKind)
+          setSubmittedTrailerKind(state.submittedTrailerKind ?? state.trailerKind)
+        }
         if (state.thresholdOverrides) setThresholdOverrides(state.thresholdOverrides)
         if (typeof state.selectedRouteId === 'string') {
           restoredSelectedRouteIdRef.current = state.selectedRouteId
           setSelectedRouteId(state.selectedRouteId)
         }
+        const restoredIsLegacy = isLegacyFerdalagidRouteResult(state.selectedRouteId)
+        setRestoredLegacyRouteResult(restoredIsLegacy)
         if (state.result) setResult(state.result)
         if (state.vedurstofanLayer !== undefined) setVedurstofanLayer(state.vedurstofanLayer)
         if (state.selectedHeatmapIdx !== undefined) setSelectedHeatmapIdx(state.selectedHeatmapIdx)
@@ -302,7 +295,6 @@ export function FerdalagidClient({
         if (state.submittedThresholds !== undefined) setSubmittedThresholds(state.submittedThresholds)
         if (state.ferrySelection !== undefined) setFerrySelection(state.ferrySelection)
         if (state.userExplicitSlot !== undefined) setUserExplicitSlot(state.userExplicitSlot)
-        if (state.routeFallback !== undefined) setRouteFallback(state.routeFallback)
         setStep('result')
         // Clean ?restore=1 from URL if coming back from pulse login flow
         const params = new URLSearchParams(window.location.search)
@@ -340,9 +332,12 @@ export function FerdalagidClient({
   // Runs whenever result state changes while result step is active.
   useEffect(() => {
     if (step !== 'result' || !result) return
+    // A restored legacy Google result is read-only until its original TTL.
+    // Never create a sliding session by replacing its original savedAt time.
+    if (restoredLegacyRouteResult) return
     try {
       sessionStorage.setItem(ROUTE_RESTORE_KEY, JSON.stringify({
-        schemaVersion: ROUTE_RESTORE_SCHEMA_VERSION,
+        schemaVersion: FERDALAGID_ROUTE_RESTORE_SCHEMA_VERSION,
         savedAtIso: new Date().toISOString(),
         step: 'result',
         origin,
@@ -357,12 +352,12 @@ export function FerdalagidClient({
         outboundVisibleStatuses: [...outboundVisibleStatuses],
         returnVisibleStatuses: [...returnVisibleStatuses],
         submittedThresholds,
+        submittedTrailerKind,
         ferrySelection,
         userExplicitSlot,
-        routeFallback,
       }))
     } catch { /* sessionStorage may be unavailable */ }
-  }, [step, result, origin, destination, trailerKind, thresholdOverrides, selectedRouteId, vedurstofanLayer, selectedHeatmapIdx, selectedReturnHeatmapIdx, outboundVisibleStatuses, returnVisibleStatuses, submittedThresholds, ferrySelection, userExplicitSlot, routeFallback])
+  }, [step, result, origin, destination, trailerKind, thresholdOverrides, selectedRouteId, vedurstofanLayer, selectedHeatmapIdx, selectedReturnHeatmapIdx, outboundVisibleStatuses, returnVisibleStatuses, submittedThresholds, submittedTrailerKind, ferrySelection, userExplicitSlot, restoredLegacyRouteResult])
 
   // Fetch saved places once on mount
   useEffect(() => {
@@ -431,6 +426,7 @@ export function FerdalagidClient({
     setSelectedHeatmapIdx(null)
     setSelectedReturnHeatmapIdx(null)
     setUserExplicitSlot(false)
+    setSubmittedTrailerKind(null)
     // Invalidate any persisted result — user changed the route before a new result was calculated
     try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -441,9 +437,9 @@ export function FerdalagidClient({
   useEffect(() => {
     setRouteOptions(null)
     setRouteEnvelopes([])
+    setRouteAssessmentScope(null)
     if (!restoredSelectedRouteIdRef.current) setSelectedRouteId(null)
     setRouteOptionsError(null)
-    setRouteFallback(false)
 
     // Compute effective destination: ferry port if Vestmannaeyjar, otherwise regular destination
     const effectiveDest = (isVestmannaeyjar && ferrySelection)
@@ -490,18 +486,47 @@ export function FerdalagidClient({
           return
         }
 
-        const options = data.routes as RouteOption[]
+        const options = Array.isArray(data.routes) ? data.routes as RouteOption[] : []
+        const envelopes = Array.isArray(data.routeEnvelopes)
+          ? data.routeEnvelopes as RouteOptionEnvelopeV1[]
+          : []
+        const assessmentScope = data.assessmentScope?.status === 'ready'
+          ? data.assessmentScope as ReadyRouteAssessmentScope
+          : null
+        const recommendedRouteId = typeof data.recommendedRouteId === 'string'
+          ? data.recommendedRouteId
+          : null
+        if (
+          !assessmentScope
+          || options.length !== envelopes.length
+          || options.some((option, index) => (
+            option.provider !== 'teskeid'
+            || option.id !== envelopes[index]?.route.id
+          ))
+          || !isAtomicTeskeidCandidateArtifact({
+            scopeId: assessmentScope?.scopeId,
+            recommendedRouteId,
+            envelopes,
+          })
+        ) {
+          setRouteOptionsError(tf('routeOptionsUnavailable'))
+          return
+        }
         setRouteOptions(options)
-        setRouteEnvelopes(Array.isArray(data.routeEnvelopes) ? data.routeEnvelopes : [])
+        setRouteAssessmentScope(assessmentScope)
+        setRouteEnvelopes(envelopes)
         const restoredRouteId = restoredSelectedRouteIdRef.current
         if (restoredRouteId) {
-          // Never silently switch a restored result to a different route. If
-          // the route disappeared, keep its id so a later refresh fails closed
-          // with selected_route_unavailable instead of using Google route #1.
-          setSelectedRouteId(restoredRouteId)
+          // Never silently switch a restored result to another geometry. A
+          // recent Teskeið route may be re-selected only when the same stable
+          // ID still exists. A Google-backed result stays read-only until the
+          // user explicitly returns to route selection.
+          setSelectedRouteId(options.some(option => option.id === restoredRouteId)
+            ? restoredRouteId
+            : null)
           restoredSelectedRouteIdRef.current = null
         } else if (options.length > 0) {
-          setSelectedRouteId(options[0].id)
+          setSelectedRouteId(recommendedRouteId)
         }
       } catch {
         if (!cancelled) setRouteOptionsError(tf('routeOptionsUnavailable'))
@@ -513,60 +538,6 @@ export function FerdalagidClient({
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin?.lat, origin?.lon, destination?.lat, destination?.lon, routeRetryCount, ferrySelection?.ferryPortId])
-
-  // Fetch Veðurstofan stations for the selected route at the route-selection step.
-  // Sends providerMatchingPoints (RDP-simplified, already within the 1000-point cap)
-  // or falls back to sampled display points (at most 80). On 403: hides the layer toggle entirely.
-  useEffect(() => {
-    if (step !== 'route') return
-    if (!showRouteStationLayer) {
-      setRouteSelectionStations(null)
-      return
-    }
-    if (!selectedRouteId || !routeOptions) return
-
-    const selectedRoute = routeOptions.find(r => r.id === selectedRouteId)
-    if (!selectedRoute || selectedRoute.points.length < 2) return
-
-    let cancelled = false
-    setRouteSelectionStations(null)
-    setRouteSelectionStationsLoading(true)
-
-    // Use dense RDP-simplified geometry for provider matching when available (set by google.server.ts).
-    // Falls back to sampled display points (at most 80) — always within endpoint's 1000-point cap.
-    const routePoints = selectedRoute.providerMatchingPoints ?? selectedRoute.points
-
-    fetch('/api/teskeid/weather/travel/provider-stations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ routePoints }),
-    })
-      .then(async r => {
-        if (r.status === 403) {
-          // User lacks provider access — hide toggle so they cannot retry and get a 403 loop
-          if (!cancelled) setRouteStationLayerAllowed(false)
-          return null
-        }
-        return r.ok ? r.json() : null
-      })
-      .then((data: { stations: ProviderStationPoint[] } | null) => {
-        if (!cancelled) setRouteSelectionStations(data?.stations ?? null)
-      })
-      .catch(() => { if (!cancelled) setRouteSelectionStations(null) })
-      .finally(() => { if (!cancelled) setRouteSelectionStationsLoading(false) })
-
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, selectedRouteId, routeOptions, showRouteStationLayer])
-
-  // Clear station layer when leaving the route step
-  useEffect(() => {
-    if (step !== 'route') {
-      setRouteSelectionStations(null)
-      setRouteSelectionStationsLoading(false)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step])
 
   function goNext(from: WizardStep) {
     const idx = STEP_ORDER.indexOf(from)
@@ -650,8 +621,8 @@ export function FerdalagidClient({
     restoredSelectedRouteIdRef.current = null
     setRouteOptions(null)
     setRouteEnvelopes([])
+    setRouteAssessmentScope(null)
     setRouteOptionsError(null)
-    setRouteFallback(false)
     setResult(null)
     setError(null)
     setShowDetails(false)
@@ -660,6 +631,7 @@ export function FerdalagidClient({
     setSelectedReturnHeatmapIdx(null)
     setUserExplicitSlot(false)
     setSubmittedThresholds(null)
+    setSubmittedTrailerKind(null)
     setFerrySelection(newFerry)
     // Invalidate persisted result — ferry port change makes any prior result stale
     try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
@@ -667,14 +639,19 @@ export function FerdalagidClient({
 
   async function selectedRouteRequestPayload(forceRefresh = false): Promise<{
     routeEnvelope: RouteOptionEnvelopeV1
-  } | {
-    selectedRouteId: string | undefined
+    assessmentScope: ReadyRouteAssessmentScope
   }> {
-    if (!selectedRouteId) return { selectedRouteId: undefined }
+    if (restoredLegacyRouteResult) throw new Error('legacy_route_requires_reselection')
+    if (!selectedRouteId) throw new Error('selected_route_unavailable')
 
     const envelope = findFreshRouteEnvelope(routeEnvelopes, selectedRouteId)
-    if (!forceRefresh && envelope) {
-      return { routeEnvelope: envelope }
+    if (
+      !forceRefresh
+      && envelope
+      && routeAssessmentScope
+      && envelope.assessmentScopeId === routeAssessmentScope.scopeId
+    ) {
+      return { routeEnvelope: envelope, assessmentScope: routeAssessmentScope }
     }
 
     const effectiveDestination = ferrySelection?.ferryPort ?? destination
@@ -703,12 +680,35 @@ export function FerdalagidClient({
       : []
     setRouteOptions(refreshedOptions)
     setRouteEnvelopes(refreshedEnvelopes)
+    const refreshedAssessmentScope = data?.assessmentScope?.status === 'ready'
+      ? data.assessmentScope as ReadyRouteAssessmentScope
+      : null
+    const refreshedRecommendedRouteId = typeof data?.recommendedRouteId === 'string'
+      ? data.recommendedRouteId
+      : null
+    if (
+      !refreshedAssessmentScope
+      || refreshedOptions.length !== refreshedEnvelopes.length
+      || refreshedOptions.some((option, index) => (
+        option.provider !== 'teskeid'
+        || option.id !== refreshedEnvelopes[index]?.route.id
+      ))
+      || !isAtomicTeskeidCandidateArtifact({
+        scopeId: refreshedAssessmentScope?.scopeId,
+        recommendedRouteId: refreshedRecommendedRouteId,
+        envelopes: refreshedEnvelopes,
+      })
+    ) throw new Error('selected_route_unavailable')
+    setRouteAssessmentScope(refreshedAssessmentScope)
 
     const refreshedEnvelope = findFreshRouteEnvelope(refreshedEnvelopes, selectedRouteId)
     if (!refreshedEnvelope) {
       throw new Error('selected_route_unavailable')
     }
-    return { routeEnvelope: refreshedEnvelope }
+    if (refreshedEnvelope.assessmentScopeId !== refreshedAssessmentScope.scopeId) {
+      throw new Error('selected_route_unavailable')
+    }
+    return { routeEnvelope: refreshedEnvelope, assessmentScope: refreshedAssessmentScope }
   }
 
   async function postTravelWithSelectedRoute(
@@ -720,7 +720,13 @@ export function FerdalagidClient({
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, ...routeSelection }),
+        body: JSON.stringify({
+          ...body,
+          origin: routeSelection.assessmentScope.origin,
+          destination: routeSelection.assessmentScope.destination,
+          assessmentScopeId: routeSelection.assessmentScope.scopeId,
+          routeEnvelope: routeSelection.routeEnvelope,
+        }),
       })
     }
 
@@ -798,6 +804,7 @@ export function FerdalagidClient({
         serverInitDoneRef.current = false
         setResult(travelData)
         setSubmittedThresholds(overridesToSend)
+        setSubmittedTrailerKind(trailerKind)
         // Non-blocking route observation — best-effort, does not affect trip UX (v531 R2)
         try {
           const obs = buildRouteObservation(
@@ -893,7 +900,12 @@ export function FerdalagidClient({
   // On first render of the result step with Veðurstofan enabled, sync refresh state from server
   // so the refresh button hides correctly even before the user interacts.
   useEffect(() => {
-    if (step !== 'result' || !showVedurstofan || serverInitDoneRef.current) return
+    if (
+      step !== 'result'
+      || restoredLegacyRouteResult
+      || !showVedurstofan
+      || serverInitDoneRef.current
+    ) return
     serverInitDoneRef.current = true
     ;(async () => {
       try {
@@ -910,12 +922,17 @@ export function FerdalagidClient({
         // best-effort
       }
     })()
-  }, [step, showVedurstofan]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, restoredLegacyRouteResult, showVedurstofan]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll for newer Veðurstofan data every 90 s while result is open and tab is visible.
   // Stops polling once a newer atime is detected (notification shown) or provider is off.
   useEffect(() => {
-    if (step !== 'result' || !showVedurstofan || newerVedurstofanAvailable) return
+    if (
+      step !== 'result'
+      || restoredLegacyRouteResult
+      || !showVedurstofan
+      || newerVedurstofanAvailable
+    ) return
     const poll = async () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
       const knownAtime = knownVedurstofanAtimeRef.current
@@ -944,7 +961,7 @@ export function FerdalagidClient({
     }
     const id = setInterval(poll, 90_000)
     return () => clearInterval(id)
-  }, [step, showVedurstofan, newerVedurstofanAvailable]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, restoredLegacyRouteResult, showVedurstofan, newerVedurstofanAvailable]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fetches the Veðurstofan layer after the user taps "Uppfæra mat".
   // Data is already fresh in the DB (that's how polling detected it), so no warm needed.
@@ -974,7 +991,7 @@ export function FerdalagidClient({
   }
 
   function handleThresholdSubmit() {
-    const defaults = resolveThresholds('none')
+    const defaults = resolveThresholds(trailerKind)
     const cautionWind = parseFloat(draftCautionWind)
     const redWind = parseFloat(draftRedWind)
     // Gust and precipitation thresholds are neutralised in this phase —
@@ -1152,7 +1169,7 @@ export function FerdalagidClient({
     if (JSON.stringify(thresholdOverrides) !== JSON.stringify(submittedThresholds)) return true
     // On the thresholds step, also check if draft wind inputs differ from submitted resolved values
     if (step === 'thresholds') {
-      const submittedResolved = resolveThresholds('none', submittedThresholds)
+      const submittedResolved = resolveThresholds(submittedTrailerKind ?? trailerKind, submittedThresholds)
       const dCaution = parseFloat(draftCautionWind)
       const dRed = parseFloat(draftRedWind)
       if (!isNaN(dCaution) && dCaution !== submittedResolved.cautionWindMs) return true
@@ -1161,11 +1178,14 @@ export function FerdalagidClient({
     return false
   })()
 
-  const effectiveThresholds = resolveThresholds('none', thresholdOverrides)
+  const resultInputsDirty = thresholdsDirty
+    || (result !== null && submittedTrailerKind !== null && trailerKind !== submittedTrailerKind)
+
+  const effectiveThresholds = resolveThresholds(trailerKind, thresholdOverrides)
 
   // Whether visible draft wind values differ from defaults (controls reset button visibility)
   const thresholdDraftDiffersFromDefaults = (() => {
-    const defaults = resolveThresholds('none')
+    const defaults = resolveThresholds(trailerKind)
     const c = parseFloat(draftCautionWind), r = parseFloat(draftRedWind)
     if ([c, r].some(Number.isNaN)) return Object.keys(thresholdOverrides).length > 0
     return c !== defaults.cautionWindMs || r !== defaults.redWindMs
@@ -1308,6 +1328,7 @@ export function FerdalagidClient({
   // stillStale also hides the button — the warm attempt just happened and needs a cooldown.
   // Public/guest users cannot call the refresh endpoint, so hide the button entirely for them.
   const showVedurstofanRefreshButton = !isGuest
+    && !restoredLegacyRouteResult
     && !isVedurstofanDataFresh
     && vedurstofanRefreshState !== 'refreshing'
     && vedurstofanRefreshState !== 'fresh'
@@ -1331,6 +1352,32 @@ export function FerdalagidClient({
         {/* Beta banner — visible on all wizard steps */}
         <WeatherBetaBanner />
 
+        {step === 'result' && restoredLegacyRouteResult && (
+          <div
+            role="status"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+          >
+            <p>{tf('legacyRouteReadOnlyNotice')}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setRestoredLegacyRouteResult(false)
+                setResult(null)
+                setSubmittedThresholds(null)
+                setSubmittedTrailerKind(null)
+                try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
+                const recommendedRoute = routeOptions?.[0] ?? null
+                setSelectedRouteId(recommendedRoute?.id ?? null)
+                if (!recommendedRoute) setRouteRetryCount(count => count + 1)
+                setStep('route')
+              }}
+              className="mt-2 min-h-10 font-medium text-primary underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {tf('legacyRouteReselect')}
+            </button>
+          </div>
+        )}
+
         <div
           role="status"
           className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
@@ -1340,7 +1387,7 @@ export function FerdalagidClient({
         </div>
 
         {/* New Veðurstofan data notification — shown when polling detects a newer forecast cycle */}
-        {step === 'result' && showVedurstofan && newerVedurstofanAvailable && (
+        {step === 'result' && !restoredLegacyRouteResult && showVedurstofan && newerVedurstofanAvailable && (
           <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 flex items-center justify-between gap-3">
             <p className="text-xs text-foreground">{tf('vedurstofanNewDataAvailable')}</p>
             <button
@@ -1354,7 +1401,7 @@ export function FerdalagidClient({
         )}
 
         {/* Veðurstofan freshness banner — shown when Veðurstofan is active and we have layer data */}
-        {step === 'result' && showVedurstofan && vedurstofanLayer && layerAtimeIso && (
+        {step === 'result' && !restoredLegacyRouteResult && showVedurstofan && vedurstofanLayer && layerAtimeIso && (
           <div className={[
             'rounded-lg border px-3 py-2 flex flex-col gap-1',
             !isVedurstofanDataFresh
@@ -1428,7 +1475,7 @@ export function FerdalagidClient({
               const curIdx = STEP_ORDER.indexOf(step)
               const isCompleted = sIdx < curIdx
               const isCurrent = sIdx === curIdx
-              const canReturn = s.step === 'result' && result !== null && !thresholdsDirty
+              const canReturn = s.step === 'result' && result !== null && !resultInputsDirty
               const canNavigate = isCompleted || canReturn
               return (
                 <button
@@ -1440,7 +1487,7 @@ export function FerdalagidClient({
                     else if (canReturn) { setStep('result') }
                   }}
                   aria-current={isCurrent ? 'step' : undefined}
-                  title={s.step === 'result' && result !== null && thresholdsDirty ? tf('thresholdsDirtyNavHint') : undefined}
+                  title={s.step === 'result' && result !== null && resultInputsDirty ? tf('resultInputsDirtyNavHint') : undefined}
                   className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default ${
                     isCurrent
                       ? 'text-primary'
@@ -1522,17 +1569,22 @@ export function FerdalagidClient({
                 routeOptionsLoading={routeOptionsLoading}
                 routeOptionsError={routeOptionsError}
                 onRetryRoutes={() => setRouteRetryCount(c => c + 1)}
-                routeFallback={routeFallback}
-                onUseFallback={() => setRouteFallback(true)}
                 selectedRouteId={selectedRouteId}
                 onRouteSelected={(id) => {
                   restoredSelectedRouteIdRef.current = null
+                  if (restoredLegacyRouteResult || id !== selectedRouteId) {
+                    setRestoredLegacyRouteResult(false)
+                    setResult(null)
+                    setError(null)
+                    setSubmittedThresholds(null)
+                    setSubmittedTrailerKind(null)
+                  }
                   setSelectedRouteId(id)
                   try { sessionStorage.removeItem(ROUTE_RESTORE_KEY) } catch {}
                 }}
                 onConfirm={() => goNext('route')}
-                confirmLabel={routeFallback ? tf('routeConfirmFallback') : tf('routeConfirmSelected')}
-                confirmDisabled={!origin || !destination || (!selectedRouteId && !routeFallback)}
+                confirmLabel={tf('routeConfirmSelected')}
+                confirmDisabled={!origin || !destination || !selectedRouteId}
                 isVestmannaeyjar={isVestmannaeyjar}
                 ferryPortId={ferrySelection?.ferryPortId ?? null}
                 onFerryPortSelected={handleFerryPortSelected}
@@ -1540,16 +1592,11 @@ export function FerdalagidClient({
                 savedPlaces={savedPlaces}
                 onDeleteSavedPlace={handleDeleteSavedPlace}
                 locale={locale}
-                showVedurstofanLayer={routeStationLayerAllowed ? showRouteStationLayer : undefined}
-                onToggleVedurstofanLayer={routeStationLayerAllowed ? () => setShowRouteStationLayer(v => !v) : undefined}
-                vedurstofanStations={routeStationLayerAllowed && showRouteStationLayer ? (routeSelectionStations ?? undefined) : undefined}
-                vedurstofanStationsLoading={routeStationLayerAllowed ? routeSelectionStationsLoading : undefined}
               />
             )}
           </div>
         )}
 
-        {/* Step: Trailer */}
         {/* Step: Thresholds */}
         {step === 'thresholds' && (
           <div className="flex flex-col gap-4">
@@ -1557,6 +1604,26 @@ export function FerdalagidClient({
               <p className="text-sm font-medium text-foreground">{tf('stepThresholdsTitle')}</p>
               <p className="text-xs text-muted-foreground mt-1">{tf('thresholdsSubtitle')}</p>
             </div>
+            <fieldset className="flex flex-col gap-2">
+              <legend id="trailer-kind-label" className="text-sm font-medium text-foreground">
+                {tf('stepTrailerTitle')}
+              </legend>
+              <p id="trailer-kind-help" className="text-xs leading-relaxed text-muted-foreground">
+                {tf('trailerSelectionHelper')}
+              </p>
+              <select
+                id="trailer-kind"
+                value={trailerKind}
+                onChange={(event) => setTrailerKind(event.target.value as TrailerKindValue)}
+                aria-labelledby="trailer-kind-label"
+                aria-describedby="trailer-kind-help"
+                className="min-h-11 w-full rounded-xl border border-border bg-background px-3 text-base text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                {trailerOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </fieldset>
             <div className="flex flex-col gap-3">
               <ThresholdInput id="caution-wind" label={tf('thresholdCautionWind')} unit="m/s" value={draftCautionWind} onChange={setDraftCautionWind} />
               <ThresholdInput id="red-wind" label={tf('thresholdRedWind')} unit="m/s" value={draftRedWind} onChange={setDraftRedWind} />

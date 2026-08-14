@@ -12,8 +12,11 @@ import type {
 import { roadGraphRouteToTeskeidOption } from '@/lib/iceland-routes/routeAssessmentCandidateEvidence.server'
 import { createRouteAssessmentRouteProvenanceFingerprint } from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
 import { restoreRouteAssessmentEdgeSlice } from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
+import { createTeskeidAssessmentAlternativeRouteId } from '@/lib/iceland-routes/routeAssessmentCandidateIdentity.server'
+import { REYDARFJORDUR_GATE } from '@/lib/iceland-routes/curatedRouteParity'
 import {
   createRouteOptionEvidenceClaim,
+  restoredRouteOptionEvidenceMatchesSignedRoute,
   restoreRouteOptionEvidence,
 } from '@/lib/iceland-routes/routeOptionEvidence.server'
 
@@ -131,6 +134,161 @@ describe('signed route option evidence', () => {
     })
     expect(restored?.route.gravelPortions).toHaveLength(1)
     expect(restored?.route.gravelPortions[0].geometry).toEqual([POINT_A, POINT_B])
+  })
+
+  it('strictly matches only the signed route rebuilt from restored graph evidence', () => {
+    const original = evidence()
+    const claim = createRouteOptionEvidenceClaim({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      evidence: original,
+    })
+    expect(claim).not.toBeNull()
+    if (!claim) return
+    const restored = restoreRouteOptionEvidence({
+      graph: graph(),
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })
+    expect(restored).not.toBeNull()
+    if (!restored) return
+
+    expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+      restored,
+      signedRoute: original.route,
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })).toBe(true)
+    const signedAlternative = {
+      ...original.route,
+      id: createTeskeidAssessmentAlternativeRouteId(1, claim.routeProvenanceFingerprint),
+      routeIndex: -2,
+      labels: [...original.route.labels, 'TESKEID_ALTERNATIVE'],
+    }
+    expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+      restored,
+      signedRoute: signedAlternative,
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })).toBe(true)
+    for (const signedRoute of [
+      { ...original.route, id: 'forged-id' },
+      { ...original.route, routeIndex: -2 },
+      { ...original.route, distanceM: original.route.distanceM + 1 },
+      { ...original.route, durationS: original.route.durationS + 1 },
+      { ...original.route, points: [...original.route.points].reverse() },
+      { ...original.route, providerMatchingPoints: [...original.route.points] },
+      {
+        ...original.route,
+        experimental: {
+          ...original.route.experimental!,
+          surface: {
+            ...original.route.experimental!.surface,
+            gravelM: original.route.experimental!.surface.gravelM + 1,
+          },
+        },
+      },
+      {
+        ...original.route,
+        experimental: {
+          ...original.route.experimental!,
+          fRoad: { distanceM: 1, roadNumbers: ['F1'] },
+        },
+      },
+      { ...original.route, labels: [...original.route.labels, 'CURATED_AVOID_OXI'] },
+      {
+        ...original.route,
+        cautions: [{
+          id: 'oxi-axarvegur-939',
+          severity: 'caution' as const,
+          labelKey: 'routeCautionTrailer',
+          summaryKey: 'routeCautionOxiSummary',
+          appliesTo: ['trailer' as const],
+        }],
+      },
+    ]) {
+      expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+        restored,
+        signedRoute,
+        claim,
+        origin: ORIGIN,
+        destination: DESTINATION,
+      })).toBe(false)
+    }
+  })
+
+  it('does not invent an Öxi-avoid label for an ordinary safe Reyðarfjörður route', () => {
+    const safeEdges = [
+      edge({
+        id: 'edge-reydarfjordur-a',
+        segmentId: 'segment-reydarfjordur-a',
+        fromNodeId: 'node-reydarfjordur-a',
+        toNodeId: 'node-reydarfjordur-b',
+        geometry: [ORIGIN, REYDARFJORDUR_GATE],
+        lengthM: 1_000,
+        surface: 'paved',
+      }),
+      edge({
+        id: 'edge-reydarfjordur-b',
+        segmentId: 'segment-reydarfjordur-b',
+        fromNodeId: 'node-reydarfjordur-b',
+        toNodeId: 'node-reydarfjordur-c',
+        geometry: [REYDARFJORDUR_GATE, DESTINATION],
+        lengthM: 1_000,
+        surface: 'paved',
+      }),
+    ].map(item => ({ ...item, roadNumber: '92' }))
+    const route = buildIcelandRoadGraphRouteFromEdges(safeEdges)
+    const ordinary = {
+      route: roadGraphRouteToTeskeidOption(route, ORIGIN, DESTINATION, 0, 0, 0),
+      connectedRoadEdges: safeEdges,
+      routeProvenanceFingerprint: createRouteAssessmentRouteProvenanceFingerprint({
+        origin: { kind: 'projected_road' as const, point: ORIGIN },
+        destination: { kind: 'projected_road' as const, point: DESTINATION },
+        connectedRoadEdges: safeEdges,
+      }),
+      originAnchorKind: 'projected_road' as const,
+      destinationAnchorKind: 'projected_road' as const,
+    }
+    const claim = createRouteOptionEvidenceClaim({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      evidence: ordinary,
+    })
+    expect(claim).not.toBeNull()
+    if (!claim) return
+    const restored = restoreRouteOptionEvidence({
+      graph: graph(safeEdges),
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })
+    expect(restored).not.toBeNull()
+    if (!restored) return
+
+    expect(ordinary.route.labels).not.toContain('CURATED_AVOID_OXI')
+    expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+      restored,
+      signedRoute: ordinary.route,
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })).toBe(true)
+
+    const contextualSafeRoute = {
+      ...ordinary.route,
+      labels: [...ordinary.route.labels, 'CURATED_AVOID_OXI'],
+    }
+    expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+      restored,
+      signedRoute: contextualSafeRoute,
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })).toBe(true)
   })
 
   it('fails closed for missing, reordered, drifted, or wrong-policy graph evidence', () => {

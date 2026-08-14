@@ -1,1205 +1,215 @@
-/**
- * Tests for POST /api/teskeid/weather/travel/route (final-submit path).
- *
- * Focused regression: a selected curated route (CURATED_VIA_THRENGSLAVEGUR)
- * must survive final-submit recomputation without returning selected_route_unavailable.
- */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-// ── Hoisted mocks ─────────────────────────────────────────────────────────────
-
-const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
-const { mockCheckFeatureAccess } = vi.hoisted(() => ({ mockCheckFeatureAccess: vi.fn() }))
-const { mockGetRouteOptions } = vi.hoisted(() => ({ mockGetRouteOptions: vi.fn() }))
-const { mockGetRouteGeometry } = vi.hoisted(() => ({ mockGetRouteGeometry: vi.fn() }))
-const { mockFetchForecast } = vi.hoisted(() => ({ mockFetchForecast: vi.fn() }))
-const { mockSampleRouteWeatherPoints } = vi.hoisted(() => ({ mockSampleRouteWeatherPoints: vi.fn() }))
-const { mockFetchVedurstofan } = vi.hoisted(() => ({ mockFetchVedurstofan: vi.fn() }))
-const { mockReadVegagerdinCurrent } = vi.hoisted(() => ({ mockReadVegagerdinCurrent: vi.fn() }))
-const { mockMatchProviderPoints } = vi.hoisted(() => ({
-  mockMatchProviderPoints: vi.fn(),
-}))
-const { mockGetTeskeidRouteCandidateById } = vi.hoisted(() => ({
-  mockGetTeskeidRouteCandidateById: vi.fn(),
-}))
-const { mockIsTeskeidRouteCandidateEnabled } = vi.hoisted(() => ({
-  mockIsTeskeidRouteCandidateEnabled: vi.fn(),
-}))
-const { mockRecordRouteMemory } = vi.hoisted(() => ({ mockRecordRouteMemory: vi.fn() }))
-const { mockResolveTrustedRouteCoverage } = vi.hoisted(() => ({
-  mockResolveTrustedRouteCoverage: vi.fn(),
-}))
-const { mockRecordTeskeidUsageEvent, mockRoutePairFingerprint } = vi.hoisted(() => ({
-  mockRecordTeskeidUsageEvent: vi.fn(),
-  mockRoutePairFingerprint: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  getUser: vi.fn(),
+  checkFeatureAccess: vi.fn(),
+  getWeatherEnabledMode: vi.fn(),
+  resolveWeatherBaseAccess: vi.fn(),
+  fetchForecast: vi.fn(),
+  sampleRouteWeatherPoints: vi.fn(),
+  resolveRouteForecastCompleteness: vi.fn(),
+  checkTravelWeather: vi.fn(),
+  readVedurstofan: vi.fn(),
+  getLastVedurstofanWarmAttemptIso: vi.fn(),
+  readVegagerdin: vi.fn(),
+  matchProviderPointsToRoute: vi.fn(),
+  recordUsage: vi.fn(),
+  routePairFingerprint: vi.fn(),
+  candidateEnabled: vi.fn(),
+  verifyEnvelope: vi.fn(),
+  getGraph: vi.fn(),
+  restoreEvidence: vi.fn(),
+  restoredMatches: vi.fn(),
+  globalFetch: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(async () => ({
-    auth: { getUser: mockGetUser },
-  })),
+  createClient: vi.fn(async () => ({ auth: { getUser: mocks.getUser } })),
 }))
-
-vi.mock('@/lib/loans/guard', () => ({
-  checkFeatureAccess: mockCheckFeatureAccess,
+vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: mocks.checkFeatureAccess }))
+vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
+  getWeatherEnabledMode: mocks.getWeatherEnabledMode,
+  resolveWeatherBaseAccess: mocks.resolveWeatherBaseAccess,
 }))
-
-vi.mock('@/lib/weather/provider.server', () => ({
-  getWeatherMapProvider: vi.fn(() => ({
-    getRouteOptions: mockGetRouteOptions,
-    getRouteGeometry: mockGetRouteGeometry,
-  })),
-}))
-
-vi.mock('@/lib/weather/metno.server', () => ({
-  fetchForecast: mockFetchForecast,
-}))
-
+vi.mock('@/lib/weather/metno.server', () => ({ fetchForecast: mocks.fetchForecast }))
 vi.mock('@/lib/weather/routeSampling', () => ({
-  sampleRouteWeatherPoints: mockSampleRouteWeatherPoints,
+  sampleRouteWeatherPoints: mocks.sampleRouteWeatherPoints,
 }))
-
+vi.mock('@/lib/weather/routeForecastCompleteness', () => ({
+  resolveRouteForecastCompleteness: mocks.resolveRouteForecastCompleteness,
+}))
+vi.mock('@/lib/weather/travel', () => ({ checkTravelWeather: mocks.checkTravelWeather }))
 vi.mock('@/lib/weather/providers/vedurstofan.server', () => ({
-  readVedurstofanProductForStations: mockFetchVedurstofan,
-  getLastVedurstofanWarmAttemptIso: vi.fn().mockResolvedValue(null),
+  readVedurstofanProductForStations: mocks.readVedurstofan,
+  getLastVedurstofanWarmAttemptIso: mocks.getLastVedurstofanWarmAttemptIso,
 }))
-
-vi.mock('@/lib/weather/providers/vegagerdinCurrent.server', () => ({
-  readVegagerdinCurrentWithHistoryFallback: mockReadVegagerdinCurrent,
-}))
-
 vi.mock('@/lib/weather/providers/vedurstofanStations', () => ({
-  VEDURSTOFAN_STATIONS: [],
+  VEDURSTOFAN_STATIONS: [
+    { stationId: '31392', stationName: 'Hellisheiði', lat: 64.04, lon: -21.37 },
+    { stationId: '6300', stationName: 'Selfoss', lat: 63.93, lon: -20.99 },
+  ],
 }))
-
+vi.mock('@/lib/weather/providers/vedurstofanStationsRegistry', () => ({
+  VEDURSTOFAN_STATIONS_REGISTRY: [
+    {
+      stationId: '31392',
+      name: 'Hellisheiði',
+      lat: 64.04,
+      lon: -21.37,
+      sourceUrl: 'https://example.test/31392',
+    },
+    {
+      stationId: '6300',
+      name: 'Selfoss',
+      lat: 63.93,
+      lon: -20.99,
+      sourceUrl: 'https://example.test/6300',
+    },
+  ],
+}))
+vi.mock('@/lib/weather/providers/vegagerdinCurrent.server', () => ({
+  readVegagerdinCurrentWithHistoryFallback: mocks.readVegagerdin,
+}))
 vi.mock('@/lib/weather/providerRouteMatching', () => ({
   DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M: 1_000,
   VEGAGERDIN_PROVIDER_ROUTE_MAX_DISTANCE_M: 2_500,
-  haversineM: vi.fn((lat1: number, lon1: number, lat2: number, lon2: number) => {
-    // Real haversine for cumDist computation in route.ts
-    const R = 6_371_000
-    const dLat = (lat2 - lat1) * Math.PI / 180
-    const dLon = (lon2 - lon1) * Math.PI / 180
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  }),
+  haversineM: vi.fn(() => 10_000),
   pointToPolylineDistanceM: vi.fn(() => 0),
-  matchProviderPointsToRoute: mockMatchProviderPoints,
+  matchProviderPointsToRoute: mocks.matchProviderPointsToRoute,
 }))
-
-vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
-  TESKEID_ROUTE_CANDIDATE_ID: 'teskeid-road-graph-v1',
-  TESKEID_ROUTE_CANDIDATE_ID_PREFIX: 'teskeid-road-graph-v1-alt-',
-  getTeskeidRouteCandidateById: mockGetTeskeidRouteCandidateById,
-  isTeskeidRouteCandidateEnabled: mockIsTeskeidRouteCandidateEnabled,
-}))
-
-vi.mock('@/lib/iceland-routes/routeMemory.server', () => ({
-  recordRouteMemory: mockRecordRouteMemory,
-}))
-
-vi.mock('@/lib/iceland-routes/trustedRouteCoverage.server', () => ({
-  resolveTrustedRouteCoverageFromRuntime: mockResolveTrustedRouteCoverage,
-}))
-
 vi.mock('@/lib/teskeid/usage.server', () => ({
-  recordTeskeidUsageEvent: mockRecordTeskeidUsageEvent,
-  routePairFingerprint: mockRoutePairFingerprint,
+  recordTeskeidUsageEvent: mocks.recordUsage,
+  routePairFingerprint: mocks.routePairFingerprint,
+}))
+vi.mock('@/lib/iceland-routes/roadGraphCandidate.server', () => ({
+  isTeskeidRouteCandidateEnabled: mocks.candidateEnabled,
+}))
+vi.mock('@/lib/iceland-routes/routeOptionEnvelope.server', () => ({
+  verifyRouteOptionEnvelope: mocks.verifyEnvelope,
+}))
+vi.mock('@/lib/iceland-routes/roadGraphRuntime.server', () => ({
+  getIcelandRoadGraph: mocks.getGraph,
+}))
+vi.mock('@/lib/iceland-routes/routeOptionEvidence.server', () => ({
+  restoreRouteOptionEvidence: mocks.restoreEvidence,
+  restoredRouteOptionEvidenceMatchesSignedRoute: mocks.restoredMatches,
 }))
 
 import { POST } from '@/app/api/teskeid/weather/travel/route'
-import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-// Valid Iceland coordinates for Garðabær and Þorlákshöfn
-const GARDABAER = { name: 'Garðabær', lat: 64.09, lon: -21.93 }
-const THORLAKSHOFN = { name: 'Þorlákshöfn', lat: 63.849, lon: -21.365 }
-const GARDABAER_POINT = { lat: GARDABAER.lat, lon: GARDABAER.lon }
-const THORLAKSHOFN_POINT = { lat: THORLAKSHOFN.lat, lon: THORLAKSHOFN.lon }
-const ASSESSMENT_SCOPE_ID = 'assessment:v2:server-attested-gardabaer-vidibakki'
-const ASSESSMENT_ORIGIN = { name: 'Garðabær', lat: 64.0912, lon: -21.9123 }
-const ASSESSMENT_DESTINATION = { name: 'Víðibakki', lat: 63.9942, lon: -20.1321 }
-const ASSESSMENT_ORIGIN_POINT = { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon }
-const ASSESSMENT_DESTINATION_POINT = {
-  lat: ASSESSMENT_DESTINATION.lat,
-  lon: ASSESSMENT_DESTINATION.lon,
+const ORIGIN = { name: 'Garðabær', lat: 64.0912, lon: -21.9123 }
+const DESTINATION = { name: 'Víðibakki', lat: 63.9942, lon: -20.1321 }
+const SCOPE_ID = `assessment:v3:${'a'.repeat(43)}`
+const ROUTE = {
+  id: `teskeid-road-graph-v1-alt-1-${'b'.repeat(43)}`,
+  routeIndex: -2,
+  provider: 'teskeid' as const,
+  labels: ['TESKEID_EXPERIMENTAL', 'TESKEID_ALTERNATIVE', 'CURATED_VIA_HELLISHEIDI'],
+  isDefault: false,
+  points: [
+    { lat: ORIGIN.lat, lon: ORIGIN.lon },
+    { lat: 64.04, lon: -20.9 },
+    { lat: DESTINATION.lat, lon: DESTINATION.lon },
+  ],
+  providerMatchingPoints: [
+    { lat: ORIGIN.lat, lon: ORIGIN.lon },
+    { lat: 64.06, lon: -21.4 },
+    { lat: 64.04, lon: -20.9 },
+    { lat: DESTINATION.lat, lon: DESTINATION.lon },
+  ],
+  distanceM: 58_000,
+  durationS: 3_600,
+  experimental: {
+    derivedDuration: true as const,
+    surface: { pavedM: 58_000, gravelM: 0, mixedM: 0, unknownM: 0 },
+  },
 }
-const ASSESSMENT_PROVIDER_MATCHING_POINTS = [
-  ASSESSMENT_ORIGIN_POINT,
-  { lat: 64.04, lon: -20.9 },
-  ASSESSMENT_DESTINATION_POINT,
-]
+const CLAIM = {
+  graphBuildPolicyFingerprint: 'policy-v238',
+  routeProvenanceFingerprint: 'c'.repeat(43),
+  originAnchorKind: 'settlement_node' as const,
+  destinationAnchorKind: 'projected_road' as const,
+  edgeIds: ['edge-1'],
+  nodeIds: ['node-a', 'node-b'],
+}
+const VERIFIED_ENVELOPE = {
+  version: 1 as const,
+  issuedAt: '2026-08-13T12:00:00.000Z',
+  expiresAt: '2026-08-13T12:15:00.000Z',
+  assessmentScopeId: SCOPE_ID,
+  origin: { lat: ORIGIN.lat, lon: ORIGIN.lon },
+  destination: { lat: DESTINATION.lat, lon: DESTINATION.lon },
+  route: ROUTE,
+  routeEvidence: CLAIM,
+  signature: 'signed-route',
+}
+const GRAPH = { edges: [{ id: 'edge-1' }] }
+const RESTORED = { connectedRoadEdges: [{ id: 'edge-1' }], route: { distanceM: 58_000 } }
+const HELLISHEIDI_STATION_ID = '31392'
+const SELFOSS_STATION_ID = '6300'
 
-function makeRequest(body: unknown) {
-  return new Request('http://localhost/api/teskeid/weather/travel/route', {
+function request(body: Record<string, unknown>) {
+  return new Request('http://localhost/api/teskeid/weather/travel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 }
 
-function authedUser() {
-  mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
-  mockCheckFeatureAccess.mockResolvedValue(true)
-}
-
-function makeRouteOption(id: string, labels: string[], routeIndex = 0) {
+function validBody(overrides: Record<string, unknown> = {}) {
   return {
-    id,
-    routeIndex,
-    provider: 'google' as const,
-    labels,
-    isDefault: labels.includes('DEFAULT_ROUTE'),
-    points: [
-      { lat: 64.09, lon: -21.93 },
-      { lat: 63.849, lon: -21.365 },
-    ],
-    providerMatchingPoints: [
-      { lat: 64.09, lon: -21.93 },
-      { lat: 64.04, lon: -21.60 },
-      { lat: 63.849, lon: -21.365 },
-    ],
-    distanceM: 56000,
-    durationS: 3420,
+    origin: ORIGIN,
+    destination: DESTINATION,
+    assessmentScopeId: SCOPE_ID,
+    selectedRouteId: ROUTE.id,
+    routeEnvelope: { signature: 'raw-envelope' },
+    trailerKind: 'none',
+    ...overrides,
   }
 }
 
-function makeHour(time: string) {
+function completeAssessment() {
   return {
-    time,
-    airTemperatureC: 10,
-    windSpeedMs: 3,
-    windGustMs: 5,
-    windFromDegrees: 180,
-    precipitationMmPerHour: 0,
-    symbolCode: 'clearsky_day',
-  }
-}
-
-// ── Setup ─────────────────────────────────────────────────────────────────────
-
-beforeEach(() => {
-  vi.clearAllMocks()
-  process.env.AUTH_MVP_ENABLED = 'true'
-  process.env.WEATHER_ENABLED = 'true'
-  process.env.AUTH_CODE_SECRET = 'test-route-envelope-secret-at-least-32-bytes-long'
-  delete process.env.WEATHER_PUBLIC_ENABLED
-  delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ENABLED
-  delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
-  mockGetTeskeidRouteCandidateById.mockResolvedValue(null)
-  mockIsTeskeidRouteCandidateEnabled.mockReturnValue(true)
-  mockRecordRouteMemory.mockResolvedValue(undefined)
-  mockRecordTeskeidUsageEvent.mockResolvedValue(undefined)
-  mockRoutePairFingerprint.mockReturnValue('server-anchor-fingerprint')
-  mockResolveTrustedRouteCoverage.mockResolvedValue({
-    status: 'full',
-    start: {
-      kind: 'exact',
-      label: GARDABAER.name,
-      point: GARDABAER_POINT,
-      routeFraction: 0,
-      distanceFromTripOriginM: 0,
-      elapsedFromTripOriginS: 0,
-    },
-    end: {
-      kind: 'exact',
-      label: THORLAKSHOFN.name,
-      point: THORLAKSHOFN_POINT,
-      routeFraction: 1,
-      distanceFromTripOriginM: 56_000,
-      elapsedFromTripOriginS: 3_420,
-    },
-    coverageDistanceM: 56_000,
-    coverageDurationS: 3_420,
-    distanceConfidence: 'reference_route',
-  })
-
-  mockSampleRouteWeatherPoints.mockImplementation((points, cumulativeDistances) => {
-    const lastIndex = points.length - 1
-    const boundaryPoints = [
-      {
-        lat: points[0].lat,
-        lon: points[0].lon,
-        forecastLat: points[0].lat,
-        forecastLon: points[0].lon,
-        routeIndex: 0,
-        distanceFromOriginM: cumulativeDistances[0],
-      },
-      {
-        lat: points[lastIndex].lat,
-        lon: points[lastIndex].lon,
-        forecastLat: points[lastIndex].lat,
-        forecastLon: points[lastIndex].lon,
-        routeIndex: 1,
-        distanceFromOriginM: cumulativeDistances[lastIndex],
-      },
-    ]
-    return {
-      weatherPoints: boundaryPoints,
-      diagnostics: {
-        mode: 'all_unique_forecast_points',
-        rawRoutePointCount: points.length,
-        uniqueForecastPointCount: 2,
-        selectedWeatherPointCount: 2,
-      },
-    }
-  })
-
-  mockFetchForecast.mockResolvedValue([
-    makeHour('2026-07-10T08:00:00Z'),
-    makeHour('2026-07-10T09:00:00Z'),
-    makeHour('2026-07-10T10:00:00Z'),
-  ])
-
-  // Default route geometry for non-selectedRouteId tests
-  mockGetRouteGeometry.mockResolvedValue({
-    points: [{ lat: 64.09, lon: -21.93 }, { lat: 63.849, lon: -21.365 }],
-    distanceM: 56000,
-    durationS: 3420,
-  })
-
-  // Default: no Veðurstofan stations matched — enrichment is skipped
-  mockMatchProviderPoints.mockReturnValue([])
-  mockFetchVedurstofan.mockResolvedValue(new Map())
-  mockReadVegagerdinCurrent.mockResolvedValue({ status: 'unavailable' })
-})
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe('POST /api/teskeid/weather/travel/route — assessment attestation', () => {
-  function makeAssessmentEnvelope(scopeId = ASSESSMENT_SCOPE_ID) {
-    return signRouteOptionEnvelope({
-      origin: ASSESSMENT_ORIGIN_POINT,
-      destination: ASSESSMENT_DESTINATION_POINT,
-      assessmentScopeId: scopeId,
-      route: {
-        ...makeRouteOption('google-assessment-ready', ['DEFAULT_ROUTE']),
-        points: [
-          { lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon },
-          { lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon },
-        ],
-        providerMatchingPoints: ASSESSMENT_PROVIDER_MATCHING_POINTS,
-      },
-    })
-  }
-
-  it('uses only the signed selected route for fingerprint and route-wide weather, without route-memory', async () => {
-    authedUser()
-    const routeEnvelope = makeAssessmentEnvelope()
-
-    const response = await POST(makeRequest({
-      origin: ASSESSMENT_ORIGIN,
-      destination: ASSESSMENT_DESTINATION,
-      assessmentScopeId: ASSESSMENT_SCOPE_ID,
-      routeEnvelope,
-      trailerKind: 'none',
-    }))
-
-    expect(response.status).toBe(200)
-    expect(mockRoutePairFingerprint).toHaveBeenCalledWith(
-      expect.objectContaining({ lat: ASSESSMENT_ORIGIN.lat, lon: ASSESSMENT_ORIGIN.lon }),
-      expect.objectContaining({ lat: ASSESSMENT_DESTINATION.lat, lon: ASSESSMENT_DESTINATION.lon }),
-    )
-    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
-    const sampledRoute = mockSampleRouteWeatherPoints.mock.calls[0]?.[0] as Array<{
-      lat: number
-      lon: number
-    }>
-    expect(sampledRoute[0]).toEqual(ASSESSMENT_ORIGIN_POINT)
-    expect(sampledRoute.at(-1)).toEqual(ASSESSMENT_DESTINATION_POINT)
-    const body = await response.json()
-    expect(body.travelPlan.route.weatherCoverage).toMatchObject({
-      status: 'full',
-      start: { point: ASSESSMENT_ORIGIN_POINT, routeFraction: 0 },
-      end: { point: ASSESSMENT_DESTINATION_POINT, routeFraction: 1 },
-      unassessedBeforeM: 0,
-      unassessedAfterM: 0,
-    })
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
-  })
-
-  it('uses the exact signed Teskeið alternative for route-wide weather without primary recomputation', async () => {
-    authedUser()
-    const alternativeRoute = {
-      id: `teskeid-road-graph-v1-alt-1-${'a'.repeat(43)}`,
-      routeIndex: -2,
-      provider: 'teskeid' as const,
-      labels: ['TESKEID_EXPERIMENTAL', 'TESKEID_ALTERNATIVE'],
-      isDefault: false,
-      points: ASSESSMENT_PROVIDER_MATCHING_POINTS,
-      distanceM: 58_000,
-      durationS: 3_600,
-    }
-    const routeEnvelope = signRouteOptionEnvelope({
-      origin: ASSESSMENT_ORIGIN_POINT,
-      destination: ASSESSMENT_DESTINATION_POINT,
-      assessmentScopeId: ASSESSMENT_SCOPE_ID,
-      route: alternativeRoute,
-    })
-
-    const response = await POST(makeRequest({
-      origin: ASSESSMENT_ORIGIN,
-      destination: ASSESSMENT_DESTINATION,
-      assessmentScopeId: ASSESSMENT_SCOPE_ID,
-      selectedRouteId: alternativeRoute.id,
-      routeEnvelope,
-      trailerKind: 'none',
-    }))
-
-    expect(response.status).toBe(200)
-    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
-    expect(mockSampleRouteWeatherPoints.mock.calls[0]?.[0]).toEqual(alternativeRoute.points)
-    const body = await response.json()
-    expect(body.travelPlan.route.weatherCoverage).toMatchObject({
-      status: 'full',
-      coverageDistanceM: alternativeRoute.distanceM,
-      coverageDurationS: alternativeRoute.durationS,
-    })
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-  })
-
-  it('matches every provider station against the complete signed route', async () => {
-    authedUser()
-    const stationIds = [HELLISH_ID, '6300', '6315']
-    mockMatchProviderPoints.mockImplementation(({ points, routePolyline }) => {
-      const coversCompleteRoute =
-        routePolyline[0]?.lat === ASSESSMENT_ORIGIN_POINT.lat
-        && routePolyline[0]?.lon === ASSESSMENT_ORIGIN_POINT.lon
-        && routePolyline.at(-1)?.lat === ASSESSMENT_DESTINATION_POINT.lat
-        && routePolyline.at(-1)?.lon === ASSESSMENT_DESTINATION_POINT.lon
-      if (!coversCompleteRoute) return [makeStationMatch(HELLISH_ID)]
-      if (points.length < 10) return [makeStationMatch(points[0]?.id ?? HELLISH_ID)]
-      return stationIds.map((stationId, index) => makeStationMatch(stationId, 8_000 + index * 16_000))
-    })
-    mockFetchVedurstofan.mockResolvedValue(new Map(stationIds.map(stationId => [
-      stationId,
-      {
-        status: 'ok',
-        payload: {
-          ...makeVedurstofanPayload(),
-          stationId,
-        },
-      },
-    ])))
-    mockReadVegagerdinCurrent.mockResolvedValue(makeVegagerdinCurrentResult())
-
-    const response = await POST(makeRequest({
-      origin: ASSESSMENT_ORIGIN,
-      destination: ASSESSMENT_DESTINATION,
-      assessmentScopeId: ASSESSMENT_SCOPE_ID,
-      routeEnvelope: makeAssessmentEnvelope(),
-      trailerKind: 'none',
-    }))
-
-    expect(response.status).toBe(200)
-    const body = await response.json()
-    expect(body.vedurstofanLayer.points).toHaveLength(3)
-    expect(body.vedurstofanLayer.points.map((point: { stationId: string }) => point.stationId))
-      .toEqual(stationIds)
-    expect(body.travelPlan.route.weatherCoverage.status).toBe('full')
-    expect(mockMatchProviderPoints).toHaveBeenCalledTimes(2)
-    for (const [{ routePolyline }] of mockMatchProviderPoints.mock.calls) {
-      expect(routePolyline).toEqual(ASSESSMENT_PROVIDER_MATCHING_POINTS)
-    }
-  })
-
-  it.each([
-    ['an unscoped envelope', () => signRouteOptionEnvelope({
-      origin: ASSESSMENT_ORIGIN_POINT,
-      destination: ASSESSMENT_DESTINATION_POINT,
-      route: makeRouteOption('google-unscoped', ['DEFAULT_ROUTE']),
-    })],
-    ['a mismatched scope claim', () => makeAssessmentEnvelope('assessment:v2:stale-scope')],
-  ])('rejects %s before fingerprint, provider, coverage, forecast or persistence', async (_label, envelopeFactory) => {
-    authedUser()
-
-    const response = await POST(makeRequest({
-      origin: ASSESSMENT_ORIGIN,
-      destination: ASSESSMENT_DESTINATION,
-      assessmentScopeId: ASSESSMENT_SCOPE_ID,
-      routeEnvelope: envelopeFactory(),
-      trailerKind: 'none',
-    }))
-
-    expect(response.status).toBe(422)
-    await expect(response.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
-    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
-    expect(mockFetchForecast).not.toHaveBeenCalled()
-    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
-  })
-
-  it('does not let a scoped envelope fall back into legacy mode when the body omits its claim', async () => {
-    authedUser()
-
-    const response = await POST(makeRequest({
-      origin: ASSESSMENT_ORIGIN,
-      destination: ASSESSMENT_DESTINATION,
-      routeEnvelope: makeAssessmentEnvelope(),
-      trailerKind: 'none',
-    }))
-
-    expect(response.status).toBe(422)
-    await expect(response.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
-    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
-    expect(mockFetchForecast).not.toHaveBeenCalled()
-    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
-  })
-
-  it('requires a signed envelope and validates the bounded scope id before route work', async () => {
-    authedUser()
-
-    const missingEnvelope = await POST(makeRequest({
-      origin: ASSESSMENT_ORIGIN,
-      destination: ASSESSMENT_DESTINATION,
-      assessmentScopeId: ASSESSMENT_SCOPE_ID,
-      trailerKind: 'none',
-    }))
-    expect(missingEnvelope.status).toBe(422)
-    await expect(missingEnvelope.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
-
-    const malformedScope = await POST(makeRequest({
-      origin: ASSESSMENT_ORIGIN,
-      destination: ASSESSMENT_DESTINATION,
-      assessmentScopeId: ' scope-with-whitespace ',
-      routeEnvelope: makeAssessmentEnvelope(),
-      trailerKind: 'none',
-    }))
-    expect(malformedScope.status).toBe(400)
-    await expect(malformedScope.json()).resolves.toEqual({ error: 'invalid_assessment_scope_id' })
-    expect(mockRoutePairFingerprint).not.toHaveBeenCalled()
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
-    expect(mockFetchForecast).not.toHaveBeenCalled()
-    expect(mockRecordRouteMemory).not.toHaveBeenCalled()
-  })
-})
-
-describe('POST /api/teskeid/weather/travel/route — auth / public access', () => {
-  it('uses the default provider route when selectedRouteId is omitted', async () => {
-    authedUser()
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-    }))
-
-    expect(res.status).toBe(200)
-    expect(mockGetRouteGeometry).toHaveBeenCalledOnce()
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-  })
-
-  it('signed-in user without vedrid is allowed in Authenticated mode (legacy: WEATHER_ENABLED=true)', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
-    mockCheckFeatureAccess.mockResolvedValue(false)
-    // WEATHER_ENABLED=true + no WEATHER_PUBLIC_ENABLED = authenticated mode → all signed-in users allowed
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-  })
-
-  it('signed-out guest returns 401 in Authenticated mode', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
-    process.env.WEATHER_ENABLED = 'Authenticated'
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(401)
-  })
-
-  it('legacy fallback for All mode: signed-in user without vedrid gets MET/Yr when WEATHER_ENABLED=true + WEATHER_PUBLIC_ENABLED=true', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
-    mockCheckFeatureAccess.mockResolvedValue(false)
-    process.env.WEATHER_PUBLIC_ENABLED = 'true'
-    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', ['DEFAULT_ROUTE'])])
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-  })
-
-  it('legacy fallback for All mode: signed-in user without vedrid and without provider access does not get Veðurstofan layer', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'novedrid@example.com' } } })
-    // Both vedrid and weather-provider-vedurstofan calls return false
-    mockCheckFeatureAccess.mockResolvedValue(false)
-    process.env.WEATHER_PUBLIC_ENABLED = 'true'
-    mockGetRouteOptions.mockResolvedValue([makeRouteOption('google-0', ['DEFAULT_ROUTE'])])
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    expect(mockFetchVedurstofan).not.toHaveBeenCalled()
-    const body = await res.json()
-    expect(body.vedurstofanLayer).toBeUndefined()
-    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
-      status: 'not_applicable',
-      requestedPointCount: 0,
-      reason: 'no_matching_points',
-    })
-  })
-
-  it('includes vedurstofanLayer for signed-in public-tier user with weather-provider-vedurstofan access (WEATHER_ENABLED=All)', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u-public', email: 'provider@example.com' } } })
-    // First call: vedrid → false (public-tier in All mode), second call: weather-provider-vedurstofan → true
-    mockCheckFeatureAccess.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    process.env.WEATHER_ENABLED = 'All'
-    setupStationMapping()
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
-    )
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.vedurstofanLayer).toBeDefined()
-    expect(body.vedurstofanLayer.status).toBe('available')
-  })
-})
-
-describe('POST /api/teskeid/weather/travel/route — signed first-ready route', () => {
-  it('uses a verified Google route without a second provider lookup', async () => {
-    authedUser()
-    const coordinateBearingId = 'google-56000-64.0900,-21.9300-63.8490,-21.3650'
-    const route = {
-      ...makeRouteOption(coordinateBearingId, ['DEFAULT_ROUTE']),
-      cautions: [{
-        id: 'wind-sensitive',
-        severity: 'caution' as const,
-        labelKey: 'teskeid.routes.cautions.windSensitive',
-        appliesTo: ['all' as const],
-      }],
-    }
-    const routeEnvelope = signRouteOptionEnvelope({
-      origin: GARDABAER_POINT,
-      destination: THORLAKSHOFN_POINT,
-      route,
-    })
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      routeEnvelope,
-    }))
-
-    expect(res.status).toBe(200)
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockSampleRouteWeatherPoints.mock.calls[0]?.[0]).toEqual(route.providerMatchingPoints)
-    expect(mockRecordRouteMemory).toHaveBeenCalledWith(expect.objectContaining({
-      routeVariantKey: 'google:0',
-      routeVariantLabel: null,
-      routeCautionIds: ['wind-sensitive'],
-    }))
-    expect(JSON.stringify(mockRecordRouteMemory.mock.calls)).not.toContain(coordinateBearingId)
-    expect(JSON.stringify(mockRecordRouteMemory.mock.calls)).not.toMatch(/64\.0900|-21\.9300/)
-  })
-
-  it('uses an enabled Teskeið envelope without recomputing either provider', async () => {
-    authedUser()
-    const route = {
-      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
-      provider: 'teskeid' as const,
-      experimental: {
-        derivedDuration: true as const,
-        surface: { pavedM: 56_000, gravelM: 0, mixedM: 0, unknownM: 0 },
-      },
-    }
-    const routeEnvelope = signRouteOptionEnvelope({
-      origin: GARDABAER_POINT,
-      destination: THORLAKSHOFN_POINT,
-      route,
-    })
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      routeEnvelope,
-    }))
-
-    expect(res.status).toBe(200)
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-  })
-
-  it('accepts a signed Teskeið envelope from a signed-out public Weather user', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
-    process.env.WEATHER_ENABLED = 'All'
-    const route = {
-      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
-      provider: 'teskeid' as const,
-    }
-    const routeEnvelope = signRouteOptionEnvelope({
-      origin: GARDABAER_POINT,
-      destination: THORLAKSHOFN_POINT,
-      route,
-    })
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      routeEnvelope,
-    }))
-
-    expect(res.status).toBe(200)
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-  })
-
-  it('rejects a bare Teskeið route id from a signed-out public Weather user', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
-    process.env.WEATHER_ENABLED = 'All'
-    mockGetTeskeidRouteCandidateById.mockResolvedValue({
-      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
-      provider: 'teskeid' as const,
-      experimental: {
-        derivedDuration: true as const,
-        surface: { pavedM: 56_000, gravelM: 0, mixedM: 0, unknownM: 0 },
-      },
-    })
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      selectedRouteId: 'teskeid-road-graph-v1',
-    }))
-
-    expect(res.status).toBe(422)
-    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-  })
-
-  it('rejects a bare Teskeið route id from an email-less Supabase identity', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'anonymous-id', email: null } } })
-    process.env.WEATHER_ENABLED = 'All'
-    mockGetTeskeidRouteCandidateById.mockResolvedValue({
-      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
-      provider: 'teskeid' as const,
-    })
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      selectedRouteId: 'teskeid-road-graph-v1',
-    }))
-
-    expect(res.status).toBe(422)
-    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-  })
-
-  it('invalidates a signed Teskeið envelope immediately when the global kill switch is off', async () => {
-    authedUser()
-    const route = {
-      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
-      provider: 'teskeid' as const,
-    }
-    const routeEnvelope = signRouteOptionEnvelope({
-      origin: GARDABAER_POINT,
-      destination: THORLAKSHOFN_POINT,
-      route,
-    })
-    mockIsTeskeidRouteCandidateEnabled.mockReturnValue(false)
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      routeEnvelope,
-    }))
-
-    expect(res.status).toBe(422)
-    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-    expect(mockFetchForecast).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    ['tampered route', (envelope: ReturnType<typeof signRouteOptionEnvelope>) => ({
-      ...envelope,
-      route: { ...envelope.route, durationS: envelope.route.durationS + 1 },
-    })],
-    ['wrong endpoint pair', (envelope: ReturnType<typeof signRouteOptionEnvelope>) => envelope],
-    ['expired envelope', (_envelope: ReturnType<typeof signRouteOptionEnvelope>) => signRouteOptionEnvelope({
-      origin: GARDABAER_POINT,
-      destination: THORLAKSHOFN_POINT,
-      route: makeRouteOption('google-expired', ['DEFAULT_ROUTE']),
-    }, { now: new Date(Date.now() - 20 * 60_000), ttlMs: 60_000 })],
-  ])('rejects %s before provider and forecast work', async (caseName, mutateEnvelope) => {
-    authedUser()
-    const routeEnvelope = mutateEnvelope(signRouteOptionEnvelope({
-      origin: GARDABAER_POINT,
-      destination: THORLAKSHOFN_POINT,
-      route: makeRouteOption('google-invalid', ['DEFAULT_ROUTE']),
-    }))
-    const requestOrigin = caseName === 'wrong endpoint pair'
-      ? { ...GARDABAER, lat: GARDABAER.lat + 0.001 }
-      : GARDABAER
-
-    const res = await POST(makeRequest({
-      origin: requestOrigin,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      routeEnvelope,
-    }))
-
-    expect(res.status).toBe(422)
-    await expect(res.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
-    expect(mockGetRouteGeometry).not.toHaveBeenCalled()
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-    expect(mockGetTeskeidRouteCandidateById).not.toHaveBeenCalled()
-    expect(mockFetchForecast).not.toHaveBeenCalled()
-  })
-
-  it('rejects a selectedRouteId that conflicts with the signed route', async () => {
-    authedUser()
-    const routeEnvelope = signRouteOptionEnvelope({
-      origin: GARDABAER_POINT,
-      destination: THORLAKSHOFN_POINT,
-      route: makeRouteOption('google-envelope-route', ['DEFAULT_ROUTE']),
-    })
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      selectedRouteId: 'google-conflicting-route',
-      routeEnvelope,
-    }))
-
-    expect(res.status).toBe(422)
-    await expect(res.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-    expect(mockFetchForecast).not.toHaveBeenCalled()
-  })
-})
-
-describe('POST /api/teskeid/weather/travel/route — selected-route weather coverage', () => {
-  it('keeps weather on the full selected route instead of clipping it to graph overlap', async () => {
-    authedUser()
-    mockResolveTrustedRouteCoverage.mockResolvedValueOnce({
-      status: 'partial',
-      start: {
-        kind: 'settlement_gateway',
-        label: 'Garðabær',
-        point: { lat: 64.02975, lon: -21.78875 },
-        routeFraction: 0.25,
-        distanceFromTripOriginM: 14_000,
-        elapsedFromTripOriginS: 855,
-      },
-      end: {
-        kind: 'official_road_anchor',
-        label: 'Þorlákshafnarvegur',
-        point: { lat: 63.90925, lon: -21.50625 },
-        routeFraction: 0.75,
-        distanceFromTripOriginM: 42_000,
-        elapsedFromTripOriginS: 2_565,
-        roadNumber: '38',
-      },
-      coverageDistanceM: 28_000,
-      coverageDurationS: 1_710,
-      unassessedBeforeM: 14_000,
-      unassessedAfterM: 14_000,
-      distanceConfidence: 'reference_route',
-    })
-
-    const response = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-    }))
-    const body = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(body.travelPlan.route.weatherCoverage).toMatchObject({
-      status: 'full',
-      start: {
-        point: GARDABAER_POINT,
-        routeFraction: 0,
-        distanceFromTripOriginM: 0,
-      },
-      end: {
-        point: THORLAKSHOFN_POINT,
-        routeFraction: 1,
-        distanceFromTripOriginM: 56_000,
-      },
-      coverageDistanceM: 56_000,
-      unassessedBeforeM: 0,
-      unassessedAfterM: 0,
-    })
-    expect(body.travelPlan.route.assessmentCompleteness).toMatchObject({
-      status: 'complete',
-      assessedStartDistanceM: 0,
-      assessedEndDistanceM: 56_000,
-      assessedDistanceM: 56_000,
-      unassessedBeforeM: 0,
-      unassessedAfterM: 0,
-      forecast: { status: 'complete' },
-    })
-    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
-    expect(mockSampleRouteWeatherPoints.mock.calls[0]?.[0]).toEqual([
-      GARDABAER_POINT,
-      THORLAKSHOFN_POINT,
-    ])
-    const sampledCumulative = mockSampleRouteWeatherPoints.mock.calls[0][1] as number[]
-    expect(sampledCumulative[0]).toBe(0)
-    expect(sampledCumulative.at(-1)).toBeGreaterThan(0)
-    expect(body.travelPlan.routeWeatherPoints[0].distanceFromOriginM).toBe(0)
-    expect(body.travelPlan.routeWeatherPoints.at(-1).distanceFromOriginM).toBe(56_000)
-    expect(body.travelPlan.samplingDiagnostics.selectedWeatherPointCount)
-      .toBe(body.travelPlan.route.assessmentCompleteness.forecast.requestedPointCount)
-    expect(mockFetchForecast).toHaveBeenCalledTimes(3)
-  })
-
-  it('does not let an unavailable legacy graph-overlap result suppress route weather', async () => {
-    authedUser()
-    mockResolveTrustedRouteCoverage.mockResolvedValueOnce({
-      status: 'unavailable',
-      reason: 'reference_route_mismatch',
-    })
-
-    const response = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-    }))
-    const body = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(body.travelPlan.route.weatherCoverage.status).toBe('full')
-    expect(body.travelPlan.route.auditPolylinePoints).toEqual([
-      GARDABAER_POINT,
-      THORLAKSHOFN_POINT,
-    ])
-    expect(body.travelPlan.routeWeatherPoints).toHaveLength(2)
-    expect(mockResolveTrustedRouteCoverage).not.toHaveBeenCalled()
-    expect(mockSampleRouteWeatherPoints).toHaveBeenCalledOnce()
-    expect(mockFetchForecast).toHaveBeenCalledTimes(3)
-  })
-})
-
-describe('POST /api/teskeid/weather/travel/route — forecast completeness', () => {
-  const calmForecast = () => [
-    makeHour('2026-07-10T08:00:00Z'),
-    makeHour('2026-07-10T09:00:00Z'),
-    makeHour('2026-07-10T10:00:00Z'),
-  ]
-
-  function useFourPointForecastPlan() {
-    mockSampleRouteWeatherPoints.mockReturnValue({
-      weatherPoints: [
-        { lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 },
-        { lat: 64.03, lon: -21.75, forecastLat: 64.03, forecastLon: -21.75, routeIndex: 1, distanceFromOriginM: 20_000 },
-        { lat: 63.94, lon: -21.55, forecastLat: 63.94, forecastLon: -21.55, routeIndex: 2, distanceFromOriginM: 40_000 },
-        { lat: 63.849, lon: -21.365, forecastLat: 63.849, forecastLon: -21.365, routeIndex: 3, distanceFromOriginM: 56_000 },
-      ],
-      diagnostics: {
-        mode: 'all_unique_forecast_points',
-        rawRoutePointCount: 4,
-        uniqueForecastPointCount: 4,
-        selectedWeatherPointCount: 4,
-      },
-    })
-  }
-
-  it('returns a complete contract when every planned route forecast succeeds', async () => {
-    authedUser()
-    useFourPointForecastPlan()
-    mockFetchForecast.mockReset()
-    for (let index = 0; index < 5; index++) {
-      mockFetchForecast.mockResolvedValueOnce(calmForecast())
-    }
-
-    const response = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      earliestDepartureAt: '2026-07-10T08:00:00Z',
-    }))
-    const body = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(body.travelPlan.route.assessmentCompleteness).toMatchObject({
-      status: 'complete',
-      assessedStartDistanceM: 0,
-      assessedEndDistanceM: 56_000,
-      unassessedAfterM: 0,
+    status: 'complete' as const,
+    pointForecasts: [
+      { routeIndex: 0, distanceFromOriginM: 0, elapsedFromTripOriginS: 0, forecast: [] },
+      { routeIndex: 1, distanceFromOriginM: ROUTE.distanceM, elapsedFromTripOriginS: ROUTE.durationS, forecast: [] },
+    ],
+    assessmentCompleteness: {
+      status: 'complete' as const,
       forecast: {
-        status: 'complete',
-        requestedPointCount: 4,
-        succeededPointCount: 4,
+        status: 'complete' as const,
+        requestedPointCount: 2,
+        succeededPointCount: 2,
         failedPointCount: 0,
-        assessedPointCount: 4,
       },
-    })
-    expect(body.travelPlan.routeWeatherPoints).toHaveLength(4)
-    expect(body.travelPlan.samplingDiagnostics.selectedWeatherPointCount)
-      .toBe(body.travelPlan.route.assessmentCompleteness.forecast.requestedPointCount)
-  })
+      providers: {},
+    },
+  }
+}
 
-  it('returns a retryable failure instead of publishing a contiguous prefix as the route result', async () => {
-    authedUser()
-    useFourPointForecastPlan()
-    mockFetchForecast.mockReset()
-      .mockResolvedValueOnce(calmForecast())
-      .mockResolvedValueOnce(calmForecast())
-      .mockRejectedValueOnce(new Error('upstream point failed'))
-      .mockResolvedValueOnce(calmForecast())
-      .mockResolvedValueOnce(calmForecast()) // destination-only forecast must not bridge the gap
+function stationMatch(stationId: string, distanceFromOriginM: number) {
+  const isHellisheidi = stationId === HELLISHEIDI_STATION_ID
+  return {
+    point: {
+      id: stationId,
+      name: isHellisheidi ? 'Hellisheiði' : 'Selfoss',
+      lat: isHellisheidi ? 64.04 : 63.93,
+      lon: isHellisheidi ? -21.37 : -20.99,
+    },
+    distanceM: isHellisheidi ? 240 : 310,
+    distanceFromOriginM,
+    routeFraction: distanceFromOriginM / ROUTE.distanceM,
+    nearestRoutePoint: isHellisheidi
+      ? { lat: 64.04, lon: -21.37 }
+      : { lat: 63.93, lon: -20.99 },
+  }
+}
 
-    const response = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      earliestDepartureAt: '2026-07-10T08:00:00Z',
-    }))
-    const body = await response.json()
-
-    expect(response.status).toBe(503)
-    expect(body.error).toBe('forecast_unavailable')
-    expect(body).not.toHaveProperty('travelPlan')
-    expect(body.assessmentCompleteness).toMatchObject({
-      status: 'partial',
-      reason: 'forecast_gap',
-      forecast: {
-        requestedPointCount: 4,
-        succeededPointCount: 3,
-        failedPointCount: 1,
-        assessedPointCount: 2,
-        excludedSucceededPointCount: 1,
-      },
-    })
-  })
-
-  it('returns truthful unavailable when only the first point survives', async () => {
-    authedUser()
-    useFourPointForecastPlan()
-    mockFetchForecast.mockReset()
-      .mockResolvedValueOnce(calmForecast())
-      .mockRejectedValueOnce(new Error('second point failed'))
-      .mockRejectedValueOnce(new Error('third point failed'))
-      .mockRejectedValueOnce(new Error('fourth point failed'))
-      .mockResolvedValueOnce(calmForecast()) // destination must not rescue the route
-
-    const response = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      earliestDepartureAt: '2026-07-10T08:00:00Z',
-    }))
-    const body = await response.json()
-
-    expect(response.status).toBe(503)
-    expect(body.error).toBe('forecast_unavailable')
-    expect(body.assessmentCompleteness).toMatchObject({
-      status: 'unavailable',
-      reason: 'forecast_unavailable',
-      assessedDistanceM: 0,
-      forecast: {
-        requestedPointCount: 4,
-        succeededPointCount: 1,
-        failedPointCount: 3,
-        assessedPointCount: 0,
-      },
-    })
-    const serializedCompleteness = JSON.stringify(body.assessmentCompleteness)
-    expect(serializedCompleteness).not.toContain('64.09')
-    expect(serializedCompleteness).not.toContain('-21.93')
-    expect(serializedCompleteness).not.toContain('second point failed')
-  })
-
-  it('treats a fulfilled empty forecast as a retryable route-wide failure', async () => {
-    authedUser()
-    useFourPointForecastPlan()
-    mockFetchForecast.mockReset()
-      .mockResolvedValueOnce(calmForecast())
-      .mockResolvedValueOnce(calmForecast())
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(calmForecast())
-      .mockResolvedValueOnce(calmForecast())
-
-    const response = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      earliestDepartureAt: '2026-07-10T08:00:00Z',
-    }))
-    const body = await response.json()
-
-    expect(response.status).toBe(503)
-    expect(body.error).toBe('forecast_unavailable')
-    expect(body).not.toHaveProperty('travelPlan')
-    expect(body.assessmentCompleteness).toMatchObject({
-      status: 'partial',
-      reason: 'forecast_gap',
-      forecast: {
-      status: 'partial',
-      failedPointCount: 1,
-      assessedPointCount: 2,
-      excludedSucceededPointCount: 1,
-      },
-    })
-  })
-})
-
-describe('POST /api/teskeid/weather/travel/route — curated route final-submit', () => {
-  it('uses the shared Teskeið candidate without asking Google to match its id', async () => {
-    authedUser()
-    mockGetTeskeidRouteCandidateById.mockResolvedValue({
-      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
-      provider: 'teskeid',
-      experimental: {
-        derivedDuration: true,
-        surface: { pavedM: 56_000, gravelM: 0, mixedM: 0, unknownM: 0 },
-      },
-    })
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      selectedRouteId: 'teskeid-road-graph-v1',
-    }))
-
-    expect(res.status).toBe(200)
-    expect(mockGetTeskeidRouteCandidateById).toHaveBeenCalledWith(
-      { lat: GARDABAER.lat, lon: GARDABAER.lon },
-      { lat: THORLAKSHOFN.lat, lon: THORLAKSHOFN.lon },
-      'teskeid-road-graph-v1',
-    )
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-  })
-
-  it('rejects a stale Teskeið selection when the candidate is no longer available', async () => {
-    authedUser()
-    mockGetTeskeidRouteCandidateById.mockResolvedValue(null)
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      selectedRouteId: 'teskeid-road-graph-v1',
-    }))
-
-    expect(res.status).toBe(422)
-    await expect(res.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
-    expect(mockGetRouteOptions).not.toHaveBeenCalled()
-  })
-
-  it('allows an authenticated Weather user without the legacy per-user routing row', async () => {
-    authedUser()
-    mockCheckFeatureAccess.mockImplementation(async (_uid: string, _email: string, featureKey: string) => (
-      featureKey !== 'teskeid-routing-v1'
-    ))
-    mockGetTeskeidRouteCandidateById.mockResolvedValue({
-      ...makeRouteOption('teskeid-road-graph-v1', ['TESKEID_EXPERIMENTAL']),
-      provider: 'teskeid',
-    })
-
-    const res = await POST(makeRequest({
-      origin: GARDABAER,
-      destination: THORLAKSHOFN,
-      trailerKind: 'none',
-      selectedRouteId: 'teskeid-road-graph-v1',
-    }))
-
-    expect(res.status).toBe(200)
-    expect(mockGetTeskeidRouteCandidateById).toHaveBeenCalledOnce()
-  })
-
-  it('succeeds when selectedRouteId matches a curated CURATED_VIA_THRENGSLAVEGUR route', async () => {
-    authedUser()
-    const curatedId = 'google-56000-64.0900,-21.9300-63.9695,-21.6475-63.8490,-21.3650'
-    mockGetRouteOptions.mockResolvedValue([
-      makeRouteOption('google-default-id', ['DEFAULT_ROUTE']),
-      makeRouteOption(curatedId, ['CURATED_VIA_THRENGSLAVEGUR'], -1),
-    ])
-
-    const res = await POST(makeRequest({
-      origin: { ...GARDABAER, placeId: 'ChIJgardabaer' },
-      destination: { ...THORLAKSHOFN, placeId: 'ChIJU1N290hC1kgRypBJRWS0YX4' },
-      trailerKind: 'none',
-      selectedRouteId: curatedId,
-    }))
-
-    expect(res.status).not.toBe(422)
-    const body = await res.json()
-    expect(body.error).not.toBe('selected_route_unavailable')
-  })
-
-  it('returns selected_route_unavailable when curated id is not in provider results', async () => {
-    authedUser()
-    mockGetRouteOptions.mockResolvedValue([
-      makeRouteOption('google-default-id', ['DEFAULT_ROUTE']),
-    ])
-
-    const res = await POST(makeRequest({
-      origin: { ...GARDABAER, placeId: 'ChIJgardabaer' },
-      destination: { ...THORLAKSHOFN, placeId: 'ChIJU1N290hC1kgRypBJRWS0YX4' },
-      trailerKind: 'none',
-      selectedRouteId: 'google-curated-id-not-in-results',
-    }))
-
-    expect(res.status).toBe(422)
-    const body = await res.json()
-    expect(body.error).toBe('selected_route_unavailable')
-  })
-
-  it('uses the curated route geometry for weather sampling, not the default route', async () => {
-    authedUser()
-    const curatedId = 'google-56000-curated'
-    const curatedPoints = [
-      { lat: 64.09, lon: -21.93 },
-      { lat: 63.97, lon: -21.52 },  // via Þrengslavegur
-      { lat: 63.849, lon: -21.365 },
-    ]
-    mockGetRouteOptions.mockResolvedValue([
-      makeRouteOption('google-default-id', ['DEFAULT_ROUTE']),
-      {
-        id: curatedId,
-        routeIndex: -1,
-        provider: 'google' as const,
-        labels: ['CURATED_VIA_THRENGSLAVEGUR'],
-        isDefault: false,
-        points: curatedPoints,
-        distanceM: 56000,
-        durationS: 3420,
-      },
-    ])
-
-    await POST(makeRequest({
-      origin: { ...GARDABAER, placeId: 'ChIJgardabaer' },
-      destination: { ...THORLAKSHOFN, placeId: 'ChIJU1N290hC1kgRypBJRWS0YX4' },
-      trailerKind: 'none',
-      selectedRouteId: curatedId,
-    }))
-
-    // sampleRouteWeatherPoints should have been called with the curated route's points
-    const samplingCall = mockSampleRouteWeatherPoints.mock.calls[0]
-    expect(samplingCall[0]).toEqual(curatedPoints)
-  })
-})
-
-// ── Veðurstofan travel layer ───────────────────────────────────────────────────
-
-const HELLISH_ID = '31392'
-
-function makeVedurstofanPayload() {
+function vedurstofanPayload(stationId = HELLISHEIDI_STATION_ID) {
+  const stationName = stationId === HELLISHEIDI_STATION_ID ? 'Hellisheiði' : 'Selfoss'
   return {
     source: 'vedurstofan' as const,
     endpoint: 'xml' as const,
@@ -1207,38 +217,56 @@ function makeVedurstofanPayload() {
     lang: 'is' as const,
     timeStep: '3h' as const,
     params: ['F', 'D', 'T', 'R', 'W'] as ['F', 'D', 'T', 'R', 'W'],
-    stationId: HELLISH_ID,
-    stationName: 'Hellisheiði',
-    atimeIso: '2026-07-10T06:00:00Z',
-    fetchedAtIso: new Date().toISOString(),
-    expiresAtIso: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
-    attribution: { provider: 'Veðurstofa Íslands' as const, downloadedAtIso: '', serviceUrl: '' },
+    stationId,
+    stationName,
+    atimeIso: '2026-08-13T12:00:00.000Z',
+    fetchedAtIso: '2026-08-13T12:05:00.000Z',
+    expiresAtIso: '2026-08-13T13:35:00.000Z',
+    attribution: {
+      provider: 'Veðurstofa Íslands' as const,
+      downloadedAtIso: '2026-08-13T12:05:00.000Z',
+      serviceUrl: 'https://example.test/vedurstofan',
+    },
     forecasts: [
-      { ftimeIso: '2026-07-10T09:00:00Z', windSpeedMs: 12, windDirectionText: 'N', temperatureC: 5, precipitationMmPerHour: 0.5, weatherText: 'Skýjað' },
-      { ftimeIso: '2026-07-10T12:00:00Z', windSpeedMs: 8, windDirectionText: 'NV', temperatureC: 6, precipitationMmPerHour: 0, weatherText: 'Hlýtt' },
+      {
+        ftimeIso: '2026-08-13T15:00:00.000Z',
+        windSpeedMs: 12,
+        windDirectionText: 'N',
+        temperatureC: 5,
+        precipitationMmPerHour: 0.5,
+        weatherText: 'Skýjað',
+      },
+      {
+        ftimeIso: '2026-08-13T18:00:00.000Z',
+        windSpeedMs: 8,
+        windDirectionText: 'NV',
+        temperatureC: 6,
+        precipitationMmPerHour: 0,
+        weatherText: 'Léttskýjað',
+      },
     ],
     parseErrors: [],
   }
 }
 
-function makeVegagerdinCurrentResult() {
+function vegagerdinResult(status: 'fresh' | 'stale' = 'fresh') {
   return {
-    status: 'fresh' as const,
-    cacheStatus: 'fresh' as const,
-    measurementFreshness: 'fresh' as const,
+    status,
+    cacheStatus: status,
+    measurementFreshness: status,
     payload: {
       source: 'vegagerdin' as const,
       endpoint: 'vedur2014_1' as const,
-      fetchedAtIso: '2026-07-10T08:05:00Z',
-      oldestMeasuredAtIso: '2026-07-10T08:00:00Z',
+      fetchedAtIso: '2026-08-13T12:05:00.000Z',
+      oldestMeasuredAtIso: '2026-08-13T12:00:00.000Z',
       measurements: [{
         source: 'vegagerdin' as const,
-        stationId: HELLISH_ID,
+        stationId: HELLISHEIDI_STATION_ID,
         stationName: 'Hellisheiði',
         lat: 64.04,
         lon: -21.37,
-        measuredAtIso: '2026-07-10T08:00:00Z',
-        fetchedAtIso: '2026-07-10T08:05:00Z',
+        measuredAtIso: '2026-08-13T12:00:00.000Z',
+        fetchedAtIso: '2026-08-13T12:05:00.000Z',
         meanWindMs: 8,
         gustLast10MinMs: 16,
         windDirectionDeg: 180,
@@ -1251,457 +279,458 @@ function makeVegagerdinCurrentResult() {
   }
 }
 
-function setupLayerEnabled() {
-  // authedUser() makes checkFeatureAccess return true for all calls, including weather-provider-vedurstofan.
-  // No separate env var needed — the gate is now purely per-user feature access.
-}
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.globalFetch.mockRejectedValue(new Error('unexpected_network_fetch'))
+  vi.stubGlobal('fetch', mocks.globalFetch)
+  vi.stubEnv('AUTH_MVP_ENABLED', 'true')
+  vi.stubEnv('WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED', '')
+  vi.stubEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', '')
+  mocks.getWeatherEnabledMode.mockReturnValue('all')
+  mocks.getUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'u@example.com' } } })
+  mocks.resolveWeatherBaseAccess.mockResolvedValue({
+    mode: 'authenticated', actor: 'authenticated', userId: 'u1',
+  })
+  mocks.checkFeatureAccess.mockResolvedValue(true)
+  mocks.candidateEnabled.mockReturnValue(true)
+  mocks.verifyEnvelope.mockReturnValue(VERIFIED_ENVELOPE)
+  mocks.getGraph.mockResolvedValue(GRAPH)
+  mocks.restoreEvidence.mockReturnValue(RESTORED)
+  mocks.restoredMatches.mockReturnValue(true)
+  mocks.routePairFingerprint.mockReturnValue('pair-hash')
+  mocks.sampleRouteWeatherPoints.mockReturnValue({
+    weatherPoints: [
+      { ...ROUTE.providerMatchingPoints[0], forecastLat: ORIGIN.lat, forecastLon: ORIGIN.lon, routeIndex: 0, distanceFromOriginM: 0 },
+      { ...ROUTE.providerMatchingPoints.at(-1)!, forecastLat: DESTINATION.lat, forecastLon: DESTINATION.lon, routeIndex: 1, distanceFromOriginM: 30_000 },
+    ],
+    diagnostics: { mode: 'test', selectedWeatherPointCount: 2 },
+  })
+  mocks.fetchForecast.mockResolvedValue([])
+  mocks.resolveRouteForecastCompleteness.mockReturnValue(completeAssessment())
+  mocks.checkTravelWeather.mockImplementation(() => ({
+    id: 'weather-result',
+    stada: 'innan-marka',
+    svar: 'Prófun',
+    travelPlan: {
+      route: {
+        auditPolylinePoints: ROUTE.providerMatchingPoints,
+      },
+      routeWeatherPoints: [],
+    },
+  }))
+  mocks.matchProviderPointsToRoute.mockReturnValue([])
+  mocks.readVedurstofan.mockResolvedValue(new Map())
+  mocks.getLastVedurstofanWarmAttemptIso.mockResolvedValue(null)
+  mocks.readVegagerdin.mockResolvedValue({ status: 'unavailable', reason: 'test' })
+})
 
-// Hellisheiði coords (~64.04, -21.37) — clearly distinct from Garðabær (64.09, -21.93)
-function makeStationMatch(stationId: string, distanceFromOriginM = 5_000) {
-  return {
-    point: { id: stationId, name: 'Hellisheiði', lat: 64.04, lon: -21.37 },
-    distanceM: 2_000,
-    distanceFromOriginM,
-    routeFraction: distanceFromOriginM / 56_000,
-    nearestRoutePoint: { lat: 64.04, lon: -21.37 },
-  }
-}
+afterEach(() => {
+  expect(mocks.globalFetch).not.toHaveBeenCalled()
+  vi.useRealTimers()
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+})
 
-function setupStationMapping() {
-  mockMatchProviderPoints.mockReturnValue([makeStationMatch(HELLISH_ID)])
-}
+describe('POST /api/teskeid/weather/travel (v238)', () => {
+  it('enforces product/base access and validates endpoints', async () => {
+    process.env.AUTH_MVP_ENABLED = 'false'
+    expect((await POST(request(validBody()))).status).toBe(404)
 
-describe('POST /api/teskeid/weather/travel/route — Veðurstofan layer', () => {
-  it('does not call product table and returns no vedurstofanLayer when user lacks weather-provider-vedurstofan access', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
-    // First call: vedrid access (allow), second call: weather-provider-vedurstofan access (deny)
-    mockCheckFeatureAccess.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    process.env.AUTH_MVP_ENABLED = 'true'
+    mocks.resolveWeatherBaseAccess.mockResolvedValueOnce({ mode: 'blocked' })
+    expect((await POST(request(validBody()))).status).toBe(401)
 
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(mockFetchVedurstofan).not.toHaveBeenCalled()
-    expect(body.vedurstofanLayer).toBeUndefined()
-    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
-      status: 'not_applicable',
-      requestedPointCount: 0,
-      reason: 'no_matching_points',
+    expect((await POST(request(validBody({ origin: null })))).status).toBe(400)
+    expect(mocks.fetchForecast).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['missing scope', { assessmentScopeId: undefined }, 400],
+    ['missing envelope', { routeEnvelope: undefined }, 422],
+    ['bad signature', {}, 422],
+  ])('rejects %s before weather', async (_label, override, expectedStatus) => {
+    if (_label === 'bad signature') mocks.verifyEnvelope.mockReturnValue(null)
+    const response = await POST(request(validBody(override)))
+    expect(response.status).toBe(expectedStatus)
+    expect(mocks.getGraph).not.toHaveBeenCalled()
+    expect(mocks.fetchForecast).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['non-Teskeið provider', { ...VERIFIED_ENVELOPE, route: { ...ROUTE, provider: 'google' } }],
+    ['missing compact evidence', { ...VERIFIED_ENVELOPE, routeEvidence: undefined }],
+  ])('rejects %s before graph/weather', async (_label, envelope) => {
+    mocks.verifyEnvelope.mockReturnValue(envelope)
+    const response = await POST(request(validBody()))
+    expect(response.status).toBe(422)
+    expect(mocks.getGraph).not.toHaveBeenCalled()
+    expect(mocks.fetchForecast).not.toHaveBeenCalled()
+  })
+
+  it('rejects a conflicting selected route id', async () => {
+    const response = await POST(request(validBody({ selectedRouteId: 'another-route' })))
+    expect(response.status).toBe(422)
+    expect(mocks.getGraph).not.toHaveBeenCalled()
+  })
+
+  it('fail-closes the global Teskeið routing switch before graph/weather', async () => {
+    mocks.candidateEnabled.mockReturnValue(false)
+    const response = await POST(request(validBody()))
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toMatchObject({ error: 'selected_route_unavailable' })
+    expect(mocks.getGraph).not.toHaveBeenCalled()
+    expect(mocks.fetchForecast).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['missing edge/current graph drift', null, true],
+    ['regenerated route mismatch', RESTORED, false],
+  ])('rejects %s before any provider work', async (_label, restored, matches) => {
+    mocks.restoreEvidence.mockReturnValue(restored)
+    mocks.restoredMatches.mockReturnValue(matches)
+
+    const response = await POST(request(validBody()))
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({ error: 'route_envelope_invalid' })
+    expect(mocks.getGraph).toHaveBeenCalledOnce()
+    expect(mocks.fetchForecast).not.toHaveBeenCalled()
+    expect(mocks.sampleRouteWeatherPoints).not.toHaveBeenCalled()
+  })
+
+  it('restores and strict-matches evidence before assessing the exact selected Teskeið geometry', async () => {
+    const response = await POST(request(validBody()))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mocks.restoreEvidence).toHaveBeenCalledWith({
+      graph: GRAPH,
+      claim: CLAIM,
+      origin: VERIFIED_ENVELOPE.origin,
+      destination: VERIFIED_ENVELOPE.destination,
+    })
+    expect(mocks.restoredMatches).toHaveBeenCalledWith({
+      restored: RESTORED,
+      signedRoute: ROUTE,
+      claim: CLAIM,
+      origin: VERIFIED_ENVELOPE.origin,
+      destination: VERIFIED_ENVELOPE.destination,
+    })
+    expect(mocks.sampleRouteWeatherPoints).toHaveBeenCalledWith(
+      ROUTE.providerMatchingPoints,
+      expect.any(Array),
+    )
+    expect(body.travelPlan.route.weatherCoverage).toMatchObject({
+      status: 'full',
+      coverageDistanceM: ROUTE.distanceM,
+      coverageDurationS: ROUTE.durationS,
     })
   })
 
-  it('includes vedurstofanLayer with points when layer is enabled', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
-    )
+  it('samples met.no and matches provider stations over the complete signed Teskeið geometry', async () => {
+    const plannedPoints = ROUTE.providerMatchingPoints.map((point, routeIndex) => ({
+      ...point,
+      forecastLat: point.lat,
+      forecastLon: point.lon,
+      routeIndex,
+      distanceFromOriginM: routeIndex * 10_000,
+    }))
+    mocks.sampleRouteWeatherPoints.mockReturnValue({
+      weatherPoints: plannedPoints,
+      diagnostics: { mode: 'all_unique_forecast_points', selectedWeatherPointCount: 4 },
+    })
+    mocks.matchProviderPointsToRoute.mockReturnValue([
+      stationMatch(HELLISHEIDI_STATION_ID, 18_000),
+    ])
 
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.vedurstofanLayer).toBeDefined()
-    expect(body.vedurstofanLayer.experimental).toBe(true)
-    expect(body.vedurstofanLayer.status).toBe('available')
-    expect(body.vedurstofanLayer.augmentedResult).toBeUndefined()
-    expect(body.vedurstofanLayer.points).toHaveLength(1)
-    expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
-    expect(body.vedurstofanLayer.points[0].forecastRows).toHaveLength(2)
+    const response = await POST(request(validBody()))
+
+    expect(response.status).toBe(200)
+    expect(mocks.sampleRouteWeatherPoints).toHaveBeenCalledWith(
+      ROUTE.providerMatchingPoints,
+      expect.any(Array),
+    )
+    for (const point of ROUTE.providerMatchingPoints) {
+      expect(mocks.fetchForecast).toHaveBeenCalledWith(point.lat, point.lon)
+    }
+    expect(mocks.fetchForecast).toHaveBeenCalledTimes(ROUTE.providerMatchingPoints.length + 1)
+    expect(mocks.matchProviderPointsToRoute).toHaveBeenCalledWith(expect.objectContaining({
+      routePolyline: ROUTE.providerMatchingPoints,
+      maxDistanceM: 1_000,
+    }))
+    expect(mocks.checkTravelWeather).toHaveBeenCalledWith(expect.objectContaining({
+      auditPolylinePoints: ROUTE.providerMatchingPoints,
+    }))
+  })
+
+  it('falls back to signed display points when provider-matching geometry is absent', async () => {
+    const routeWithoutDenseGeometry = { ...ROUTE, providerMatchingPoints: undefined }
+    mocks.verifyEnvelope.mockReturnValue({
+      ...VERIFIED_ENVELOPE,
+      route: routeWithoutDenseGeometry,
+    })
+
+    const response = await POST(request(validBody()))
+
+    expect(response.status).toBe(200)
+    expect(mocks.sampleRouteWeatherPoints).toHaveBeenCalledWith(ROUTE.points, expect.any(Array))
+    expect(mocks.matchProviderPointsToRoute).toHaveBeenCalledWith(expect.objectContaining({
+      routePolyline: ROUTE.points,
+    }))
+    expect(mocks.checkTravelWeather).toHaveBeenCalledWith(expect.objectContaining({
+      auditPolylinePoints: ROUTE.points,
+    }))
+  })
+
+  it('serves public guest weather only from the same signed Teskeið envelope', async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null } })
+    mocks.resolveWeatherBaseAccess.mockResolvedValue({
+      mode: 'public', actor: 'public', userId: null,
+    })
+    delete process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED
+    delete process.env.WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED
+
+    const response = await POST(request(validBody()))
+
+    expect(response.status).toBe(200)
+    expect(mocks.verifyEnvelope).toHaveBeenCalledOnce()
+    expect(mocks.restoreEvidence).toHaveBeenCalledOnce()
+    expect(mocks.fetchForecast).toHaveBeenCalled()
+    expect(mocks.checkFeatureAccess).not.toHaveBeenCalled()
+  })
+
+  it('returns a retryable weather failure without weakening route trust', async () => {
+    mocks.resolveRouteForecastCompleteness.mockReturnValue({
+      pointForecasts: [],
+      assessmentCompleteness: {
+        status: 'incomplete',
+        forecast: {
+          status: 'incomplete',
+          requestedPointCount: 2,
+          succeededPointCount: 1,
+          failedPointCount: 1,
+        },
+        providers: {},
+      },
+    })
+    const response = await POST(request(validBody()))
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body.error).toBe('forecast_unavailable')
+    expect(body).not.toHaveProperty('travelPlan')
+    expect(mocks.restoreEvidence).toHaveBeenCalledOnce()
+  })
+
+  it('honours both authenticated provider-layer access gates without blocking met.no', async () => {
+    vi.stubEnv('WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED', 'true')
+    vi.stubEnv('WEATHER_PROVIDER_VEGAGERDIN_ACCESS_REQUIRED', 'true')
+    mocks.checkFeatureAccess.mockResolvedValue(false)
+    mocks.matchProviderPointsToRoute.mockReturnValue([
+      stationMatch(HELLISHEIDI_STATION_ID, 18_000),
+    ])
+    mocks.readVegagerdin.mockResolvedValue(vegagerdinResult())
+
+    const response = await POST(request(validBody()))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mocks.checkFeatureAccess).toHaveBeenCalledTimes(2)
+    expect(mocks.readVedurstofan).not.toHaveBeenCalled()
+    expect(body).not.toHaveProperty('vedurstofanLayer')
+    expect(body).not.toHaveProperty('vegagerdinLayer')
+    expect(body.travelPlan.route.assessmentCompleteness.providers).toMatchObject({
+      vedurstofan: { status: 'not_requested', reason: 'feature_disabled' },
+      vegagerdin: { status: 'not_requested', reason: 'feature_disabled' },
+    })
+    expect(mocks.fetchForecast).toHaveBeenCalled()
+  })
+
+  it('returns a complete Veðurstofan layer when every matched station is available', async () => {
+    mocks.matchProviderPointsToRoute.mockReturnValue([
+      stationMatch(HELLISHEIDI_STATION_ID, 18_000),
+      stationMatch(SELFOSS_STATION_ID, 42_000),
+    ])
+    mocks.readVedurstofan.mockResolvedValue(new Map([
+      [HELLISHEIDI_STATION_ID, { status: 'ok', payload: vedurstofanPayload() }],
+      [SELFOSS_STATION_ID, { status: 'ok', payload: vedurstofanPayload(SELFOSS_STATION_ID) }],
+    ]))
+
+    const response = await POST(request(validBody()))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.vedurstofanLayer).toMatchObject({
+      status: 'available',
+      mappedPointCount: 2,
+      availablePointCount: 2,
+      stalePointCount: 0,
+      unavailablePointCount: 0,
+    })
+    expect(body.vedurstofanLayer.points.map((point: { stationId: string }) => point.stationId))
+      .toEqual([HELLISHEIDI_STATION_ID, SELFOSS_STATION_ID])
     expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
       status: 'complete',
-      requestedPointCount: 1,
-      succeededPointCount: 1,
+      requestedPointCount: 2,
+      succeededPointCount: 2,
       failedPointCount: 0,
     })
   })
 
-  it('counts omitted requested stations as partial provider evidence', async () => {
-    authedUser()
-    setupLayerEnabled()
-    const stationIds = [HELLISH_ID, '6300', '6315']
-    mockMatchProviderPoints.mockReturnValue(
-      stationIds.map((stationId, index) => makeStationMatch(stationId, 8_000 + index * 12_000)),
-    )
-    mockFetchVedurstofan.mockResolvedValue(new Map([
-      [HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }],
+  it('keeps the baseline result and reports partial Veðurstofan evidence', async () => {
+    mocks.matchProviderPointsToRoute.mockReturnValue([
+      stationMatch(HELLISHEIDI_STATION_ID, 18_000),
+      stationMatch(SELFOSS_STATION_ID, 42_000),
+    ])
+    mocks.readVedurstofan.mockResolvedValue(new Map([
+      [HELLISHEIDI_STATION_ID, { status: 'ok', payload: vedurstofanPayload() }],
     ]))
 
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    const body = await res.json()
+    const response = await POST(request(validBody()))
+    const body = await response.json()
 
+    expect(response.status).toBe(200)
+    expect(body.stada).toBe('innan-marka')
     expect(body.vedurstofanLayer).toMatchObject({
       status: 'partial',
-      mappedPointCount: 3,
+      mappedPointCount: 2,
       availablePointCount: 1,
-      unavailablePointCount: 2,
+      unavailablePointCount: 1,
     })
-    expect(body.vedurstofanLayer.points.map((point: { stationId: string }) => point.stationId))
-      .toEqual([HELLISH_ID])
     expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
       status: 'partial',
-      requestedPointCount: 3,
+      requestedPointCount: 2,
       succeededPointCount: 1,
-      failedPointCount: 2,
+      failedPointCount: 1,
     })
   })
 
-  it('includes vegagerdinLayer with gust-based status when current stations match the route', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockReadVegagerdinCurrent.mockResolvedValue(makeVegagerdinCurrentResult())
+  it('keeps stale Veðurstofan data visible and counts it as usable provider evidence', async () => {
+    mocks.matchProviderPointsToRoute.mockReturnValue([
+      stationMatch(HELLISHEIDI_STATION_ID, 18_000),
+    ])
+    mocks.readVedurstofan.mockResolvedValue(new Map([
+      [HELLISHEIDI_STATION_ID, { status: 'stale', payload: vedurstofanPayload() }],
+    ]))
 
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    const body = await res.json()
+    const response = await POST(request(validBody()))
+    const body = await response.json()
 
-    expect(body.vegagerdinLayer).toBeDefined()
-    expect(body.vegagerdinLayer.points).toHaveLength(1)
-    expect(body.vegagerdinLayer.points[0]).toMatchObject({
-      stationId: HELLISH_ID,
-      meanWindMs: 8,
-      gustLast10MinMs: 16,
-      windDisplayStatus: 'haettulegt',
-      statusWindMs: 16,
+    expect(response.status).toBe(200)
+    expect(body.vedurstofanLayer).toMatchObject({
+      status: 'available',
+      mappedPointCount: 1,
+      availablePointCount: 0,
+      stalePointCount: 1,
+      unavailablePointCount: 0,
     })
+    expect(body.vedurstofanLayer.points[0]).toMatchObject({
+      stationId: HELLISHEIDI_STATION_ID,
+      status: 'stale',
+    })
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan)
+      .toMatchObject({ status: 'complete', succeededPointCount: 1, failedPointCount: 0 })
   })
 
-  it('keeps Vegagerðin layer exceptions privacy-safe in diagnostics', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    const privateFailureText = 'provider failed at https://example.invalid/?lat=64.09&token=secret'
-    mockReadVegagerdinCurrent.mockRejectedValue(new Error(privateFailureText))
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+  it('fails the unavailable Veðurstofan layer open without weakening the baseline result', async () => {
+    mocks.matchProviderPointsToRoute.mockReturnValue([
+      stationMatch(HELLISHEIDI_STATION_ID, 18_000),
+    ])
+    mocks.readVedurstofan.mockResolvedValue(new Map())
+
+    const response = await POST(request(validBody()))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.stada).toBe('innan-marka')
+    expect(body.vedurstofanLayer).toMatchObject({
+      status: 'unavailable',
+      mappedPointCount: 1,
+      availablePointCount: 0,
+      unavailablePointCount: 1,
+      points: [],
+    })
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan)
+      .toMatchObject({ status: 'unavailable', reason: 'provider_unavailable' })
+  })
+
+  it('fails a Veðurstofan timeout open after the bounded 20-second layer budget', async () => {
+    vi.useFakeTimers()
+    mocks.matchProviderPointsToRoute.mockReturnValue([
+      stationMatch(HELLISHEIDI_STATION_ID, 18_000),
+    ])
+    mocks.readVedurstofan.mockReturnValue(new Promise(() => undefined))
+
+    const responsePromise = POST(request(validBody()))
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(20_500)
+    const response = await responsePromise
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.stada).toBe('innan-marka')
+    expect(body).not.toHaveProperty('vedurstofanLayer')
+    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan)
+      .toMatchObject({ status: 'unavailable', reason: 'provider_unavailable' })
+  })
+
+  it.each(['fresh', 'stale'] as const)(
+    'keeps a %s Vegagerðin layer on the full signed route',
+    async freshness => {
+      mocks.matchProviderPointsToRoute.mockReturnValue([
+        stationMatch(HELLISHEIDI_STATION_ID, 18_000),
+      ])
+      mocks.readVegagerdin.mockResolvedValue(vegagerdinResult(freshness))
+
+      const response = await POST(request(validBody()))
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.vegagerdinLayer).toMatchObject({
+        status: 'available',
+        cacheStatus: freshness,
+        measurementFreshness: freshness,
+        mappedPointCount: 1,
+        availablePointCount: 1,
+      })
+      expect(body.vegagerdinLayer.points[0]).toMatchObject({
+        stationId: HELLISHEIDI_STATION_ID,
+        gustLast10MinMs: 16,
+        windDisplayStatus: 'haettulegt',
+      })
+      expect(mocks.matchProviderPointsToRoute).toHaveBeenCalledWith(expect.objectContaining({
+        routePolyline: ROUTE.providerMatchingPoints,
+      }))
+    },
+  )
+
+  it('fails a Vegagerðin exception open and keeps diagnostics privacy-safe', async () => {
+    mocks.readVegagerdin.mockRejectedValue(
+      new Error('https://example.invalid/?lat=64.09&token=private'),
+    )
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    try {
-      const res = await POST(makeRequest({
-        origin: GARDABAER,
-        destination: THORLAKSHOFN,
-        trailerKind: 'none',
-      }))
+    const response = await POST(request(validBody()))
+    const body = await response.json()
+    const serializedLogs = JSON.stringify(errorSpy.mock.calls)
 
-      expect(res.status).toBe(200)
-      const serializedLogs = JSON.stringify([
-        ...logSpy.mock.calls,
-        ...infoSpy.mock.calls,
-        ...errorSpy.mock.calls,
-      ])
-      expect(serializedLogs).toContain('layer_build_failed')
-      expect(serializedLogs).not.toContain(privateFailureText)
-      expect(serializedLogs).not.toContain('token=secret')
-      expect(serializedLogs).not.toContain('lat=64.09')
-    } finally {
-      logSpy.mockRestore()
-      infoSpy.mockRestore()
-      errorSpy.mockRestore()
-    }
+    expect(response.status).toBe(200)
+    expect(body.stada).toBe('innan-marka')
+    expect(body).not.toHaveProperty('vegagerdinLayer')
+    expect(serializedLogs).toContain('[vegagerdin-route-layer] build failed')
+    expect(serializedLogs).not.toContain('token=private')
+    expect(serializedLogs).not.toContain('lat=64.09')
+    errorSpy.mockRestore()
   })
 
-  it('baseline result is unchanged and has no vedurstofanStation when layer is enabled', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
+  it('contains no live Google route computation or route-memory path', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'app/api/teskeid/weather/travel/route.ts'),
+      'utf8',
     )
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    const body = await res.json()
-    expect(body.stada).toBeDefined()
-    expect(body.travelPlan?.routeWeatherPoints?.[0]?.vedurstofanStation).toBeUndefined()
-  })
-
-  it('returns vedurstofanLayer.status unavailable and empty points when product table is empty', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockFetchVedurstofan.mockResolvedValue(new Map())
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.stada).toBeDefined()
-    expect(body.vedurstofanLayer.status).toBe('unavailable')
-    expect(body.vedurstofanLayer.points).toHaveLength(0)
-  })
-
-  it('excludes unavailable station from layer points (fail-open)', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'unavailable' }]]),
-    )
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    const body = await res.json()
-    expect(body.stada).toBeDefined()
-    expect(body.vedurstofanLayer.status).toBe('unavailable')
-    expect(body.vedurstofanLayer.points).toHaveLength(0)
-  })
-
-  it('includes stale station data in layer points with status stale', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'stale', payload: makeVedurstofanPayload() }]]),
-    )
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    const body = await res.json()
-    expect(body.vedurstofanLayer.status).toBe('available')
-    expect(body.vedurstofanLayer.points[0].status).toBe('stale')
-    expect(body.vedurstofanLayer.points[0].forecastRows).toHaveLength(2)
-  })
-
-  it('does not call product table when no stations are matched for the route', async () => {
-    authedUser()
-    setupLayerEnabled()
-    mockMatchProviderPoints.mockReturnValue([])
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    expect(mockFetchVedurstofan).not.toHaveBeenCalled()
-    const body = await res.json()
-    expect(body.vedurstofanLayer).toBeUndefined()
-    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
-      status: 'not_applicable',
-      requestedPointCount: 0,
-      reason: 'no_matching_points',
-    })
-  })
-
-  it('does not read product table or return vedurstofanLayer when user lacks weather-provider-vedurstofan access', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'test@example.com' } } })
-    // Access required gate is active: vedrid access (allow), weather-provider-vedurstofan access (deny)
-    process.env.WEATHER_PROVIDER_VEDURSTOFAN_ACCESS_REQUIRED = 'true'
-    mockCheckFeatureAccess.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
-    setupStationMapping()
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    expect(mockFetchVedurstofan).not.toHaveBeenCalled()
-    const body = await res.json()
-    expect(body.vedurstofanLayer).toBeUndefined()
-    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
-      status: 'not_requested',
-      requestedPointCount: 0,
-      reason: 'feature_disabled',
-    })
-  })
-
-  it('returns baseline result when product-table read times out', async () => {
-    vi.useFakeTimers()
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockFetchVedurstofan.mockReturnValue(new Promise(() => {})) // never resolves
-
-    const resPromise = POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    await vi.advanceTimersByTimeAsync(20_500)
-    const res = await resPromise
-    vi.useRealTimers()
-
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.stada).toBeDefined()
-    expect(body.vedurstofanLayer).toBeUndefined()
-    expect(body.travelPlan.route.assessmentCompleteness.providers.vedurstofan).toMatchObject({
-      status: 'unavailable',
-      requestedPointCount: 1,
-      succeededPointCount: 0,
-      failedPointCount: 1,
-      reason: 'provider_unavailable',
-    })
-  })
-
-  it('keeps every matched station when a valid cold product-table read completes within the 20 s budget', async () => {
-    vi.useFakeTimers()
-    authedUser()
-    setupLayerEnabled()
-    const stationIds = [HELLISH_ID, '6300', '6315']
-    mockMatchProviderPoints.mockReturnValue(
-      stationIds.map((stationId, index) => makeStationMatch(stationId, 8_000 + index * 12_000)),
-    )
-    mockFetchVedurstofan.mockImplementation(() => new Promise(resolve => {
-      setTimeout(() => resolve(new Map(stationIds.map(stationId => [
-        stationId,
-        {
-          status: 'ok' as const,
-          payload: { ...makeVedurstofanPayload(), stationId },
-        },
-      ]))), 10_000)
-    }))
-
-    const resPromise = POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    await vi.advanceTimersByTimeAsync(10_500)
-    const res = await resPromise
-    vi.useRealTimers()
-
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.vedurstofanLayer.points.map((point: { stationId: string }) => point.stationId))
-      .toEqual(stationIds)
-  })
-
-  it('builds one layer point per unique station, matched directly from route geometry', async () => {
-    authedUser()
-    setupLayerEnabled()
-    // The route has two weather sample points, but station selection now comes from route geometry matching.
-    // Only one station is matched (HELLISH_ID) — exactly one layer point must appear.
-    mockSampleRouteWeatherPoints.mockReturnValue({
-      weatherPoints: [
-        { lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 },
-        { lat: 63.849, lon: -21.365, forecastLat: 63.849, forecastLon: -21.365, routeIndex: 1, distanceFromOriginM: 56_000 },
-      ],
-      diagnostics: {
-        mode: 'all_unique_forecast_points',
-        rawRoutePointCount: 2,
-        uniqueForecastPointCount: 2,
-        selectedWeatherPointCount: 2,
-      },
-    })
-    mockMatchProviderPoints.mockReturnValue([makeStationMatch(HELLISH_ID)])
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
-    )
-    mockFetchForecast.mockResolvedValue([makeHour('2026-07-10T08:00:00Z')])
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    const body = await res.json()
-    expect(body.vedurstofanLayer.points).toHaveLength(1)
-    expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
-    expect(body.vedurstofanLayer.points[0].routePointId).toBe(`vedurstofan_${HELLISH_ID}`)
-  })
-
-  it('builds one layer point per unique station with station-based routePointId', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
-    )
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    const body = await res.json()
-    expect(body.vedurstofanLayer.points[0].routePointId).toBe(`vedurstofan_${HELLISH_ID}`)
-    expect(body.vedurstofanLayer.points[0].routeIndex).toBeUndefined()
-  })
-
-  it('selects a station via route geometry even when sampleRouteWeatherPoints does not cover its location', async () => {
-    authedUser()
-    setupLayerEnabled()
-    // Sampled MET/Yr boundaries are both away from Hellisheiði (~64.04, -21.37).
-    // Old code: getUniqueStationIdsForRoute(weatherPoints) would check each sampled point → miss Hellisheiði.
-    // New code: matchProviderPointsToRoute uses routeGeometry.points directly → finds Hellisheiði.
-    // This test proves the API uses the route-geometry matcher; the spatial correctness of
-    // the matcher itself is proven in providerRouteMatching.test.ts test 1.
-    mockSampleRouteWeatherPoints.mockReturnValue({
-      weatherPoints: [
-        { lat: 64.09, lon: -21.93, forecastLat: 64.09, forecastLon: -21.93, routeIndex: 0, distanceFromOriginM: 0 },
-        { lat: 63.849, lon: -21.365, forecastLat: 63.849, forecastLon: -21.365, routeIndex: 1, distanceFromOriginM: 56_000 },
-      ],
-      diagnostics: { strategy: 'exhaustive', totalCells: 2, sampledCells: 2 },
-    })
-    mockMatchProviderPoints.mockReturnValue([makeStationMatch(HELLISH_ID, 8_000)])
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
-    )
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    expect(res.status).toBe(200)
-    // Station was found via route geometry, not via sampled MET/Yr points
-    expect(mockMatchProviderPoints).toHaveBeenCalled()
-    const args = mockMatchProviderPoints.mock.calls[0][0]
-    expect(args.routePolyline).toBeDefined()
-    expect(args.maxDistanceM).toBe(1_000) // DEFAULT_PROVIDER_ROUTE_MAX_DISTANCE_M
-    const body = await res.json()
-    expect(body.vedurstofanLayer.points).toHaveLength(1)
-    expect(body.vedurstofanLayer.points[0].stationId).toBe(HELLISH_ID)
-  })
-
-  it('uses providerMatchingPoints (not sampled points) as routePolyline when present', async () => {
-    authedUser()
-    setupLayerEnabled()
-    const displayPoints = [
-      { lat: 64.09, lon: -21.93 },
-      { lat: 63.849, lon: -21.365 },
-    ]
-    const densePoints = [
-      { lat: 64.09, lon: -21.93 },
-      { lat: 64.04, lon: -21.60 },
-      { lat: 63.95, lon: -21.48 },
-      { lat: 63.849, lon: -21.365 },
-    ]
-    mockGetRouteGeometry.mockResolvedValue({
-      points: displayPoints,
-      providerMatchingPoints: densePoints,
-      distanceM: 56000,
-      durationS: 3420,
-    })
-    mockMatchProviderPoints.mockReturnValue([])
-
-    await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-
-    expect(mockMatchProviderPoints).toHaveBeenCalledWith(
-      expect.objectContaining({ routePolyline: densePoints }),
-    )
-  })
-
-  it('falls back to points when providerMatchingPoints is absent', async () => {
-    authedUser()
-    setupLayerEnabled()
-    const routePoints = [
-      { lat: 64.09, lon: -21.93 },
-      { lat: 63.849, lon: -21.365 },
-    ]
-    mockGetRouteGeometry.mockResolvedValue({ points: routePoints, distanceM: 56000, durationS: 3420 })
-    mockMatchProviderPoints.mockReturnValue([])
-
-    await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-
-    expect(mockMatchProviderPoints).toHaveBeenCalledWith(
-      expect.objectContaining({ routePolyline: routePoints }),
-    )
-  })
-
-  it('preserves distanceM, distanceFromOriginM, and routeFraction from route match in layer points', async () => {
-    authedUser()
-    setupLayerEnabled()
-    mockMatchProviderPoints.mockReturnValue([
-      makeStationMatch(HELLISH_ID, 12_000),
-    ])
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
-    )
-
-    const res = await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-    const body = await res.json()
-    const pt = body.vedurstofanLayer.points[0]
-    expect(pt.distanceM).toBe(2_000)
-    expect(pt.distanceFromOriginM).toBe(12_000)
-    expect(pt.routeFraction).toBeCloseTo(12_000 / 56_000, 5)
-  })
-
-  it('still runs MET/Yr route sampling unchanged when Veðurstofan layer is enabled', async () => {
-    authedUser()
-    setupLayerEnabled()
-    setupStationMapping()
-    mockFetchVedurstofan.mockResolvedValue(
-      new Map([[HELLISH_ID, { status: 'ok', payload: makeVedurstofanPayload() }]]),
-    )
-
-    await POST(makeRequest({ origin: GARDABAER, destination: THORLAKSHOFN, trailerKind: 'none' }))
-
-    // sampleRouteWeatherPoints must still be called for MET/Yr baseline — unchanged by this refactor
-    expect(mockSampleRouteWeatherPoints).toHaveBeenCalledTimes(1)
-    // matchProviderPoints is called for the Veðurstofan layer. Vegagerðin is mocked
-    // unavailable by default in this suite; its route-layer behaviour has a separate test.
-    expect(mockMatchProviderPoints).toHaveBeenCalledTimes(1)
+    expect(source).not.toContain('getWeatherMapProvider')
+    expect(source).not.toContain('getRouteOptions')
+    expect(source).not.toContain('getRouteGeometry')
+    expect(source).not.toContain('computeRoutes')
+    expect(source).not.toContain('recordRouteMemory')
   })
 })

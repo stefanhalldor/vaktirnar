@@ -940,8 +940,58 @@ function graphRoute(
     : { status: 'ok', route: selected }
 }
 
+type PhysicalTraversalPart = {
+  baseEdgeId: string
+  startFraction: number
+  endFraction: number
+  startPoint: LatLon
+  endPoint: LatLon
+}
+
+function physicalTraversalPart(edge: IcelandRoadGraphEdge): PhysicalTraversalPart {
+  const match = /^(.*):assessment:(\d\.\d{12})-(\d\.\d{12})$/.exec(edge.id)
+  return {
+    baseEdgeId: match?.[1] ?? edge.id,
+    startFraction: match ? Number(match[2]) : 0,
+    endFraction: match ? Number(match[3]) : 1,
+    startPoint: edge.geometry[0],
+    endPoint: edge.geometry.at(-1)!,
+  }
+}
+
+/**
+ * Compares the physical directed traversal without changing signed edge
+ * provenance. A full source edge and consecutive assessment slices covering
+ * the same 0→1 interval are equal; reverse, gaps and non-consecutive slices
+ * remain distinct.
+ */
+export function createRouteAssessmentPhysicalTraversalKey(
+  edges: readonly IcelandRoadGraphEdge[],
+): string {
+  const parts: PhysicalTraversalPart[] = []
+  for (const edge of edges) {
+    const current = physicalTraversalPart(edge)
+    const previous = parts.at(-1)
+    if (
+      previous
+      && previous.baseEdgeId === current.baseEdgeId
+      && Math.abs(previous.endFraction - current.startFraction) <= FRACTION_EPSILON
+      && haversineDistanceM(previous.endPoint, current.startPoint)
+        <= TRUSTED_ANCHOR_EQUIVALENCE_M
+    ) {
+      previous.endFraction = current.endFraction
+      previous.endPoint = current.endPoint
+      continue
+    }
+    parts.push(current)
+  }
+  return parts.map(part => (
+    `${part.baseEdgeId}@${part.startFraction.toFixed(12)}-${part.endFraction.toFixed(12)}`
+  )).join('|')
+}
+
 function routeEdgeKey(route: SelectedRoute): string {
-  return route.connectedRoadEdges.map(edge => edge.id).join('|')
+  return createRouteAssessmentPhysicalTraversalKey(route.connectedRoadEdges)
 }
 
 function routeSegmentIds(route: SelectedRoute): string[] {
@@ -949,13 +999,17 @@ function routeSegmentIds(route: SelectedRoute): string[] {
 }
 
 /**
- * Searches a bounded set of real graph detours while keeping the exact anchor
- * candidates selected for the attested primary. Projected prefix/suffix edge
- * slices are therefore mandatory and identical for every returned path.
+ * Searches a bounded set of real graph detours while keeping the exact public
+ * endpoint projection selected for the attested primary. A detour may use the
+ * opposite directed representation of that same physical segment and point;
+ * freezing the primary direction can otherwise force it past the destination
+ * and back along the same road.
  */
 function assessmentRoadAlternatives(
   graph: IcelandRoadGraph,
   primary: SelectedRoute,
+  resolvedOriginCandidates: readonly AnchorCandidate[],
+  resolvedDestinationCandidates: readonly AnchorCandidate[],
   profile: IcelandRoadRoutingProfile,
   constraints: RouteSearchConstraints,
   rawMaxAlternatives: number | undefined,
@@ -995,6 +1049,27 @@ function assessmentRoadAlternatives(
 
   const primarySegmentIds = new Set(routeSegmentIds(primary))
   const primaryKey = routeEdgeKey(primary)
+  const equivalentEndpointCandidates = (
+    selected: AnchorCandidate,
+    candidates: readonly AnchorCandidate[],
+  ): AnchorCandidate[] => candidates.filter(candidate => {
+    if (selected.kind !== candidate.kind) return false
+    if (selected.kind === 'settlement_node' && candidate.kind === 'settlement_node') {
+      return selected.node.id === candidate.node.id
+    }
+    return selected.kind === 'projected_road'
+      && candidate.kind === 'projected_road'
+      && selected.edge.segmentId === candidate.edge.segmentId
+      && equivalentPoints(selected.point, candidate.point)
+  })
+  const alternativeOriginCandidates = equivalentEndpointCandidates(
+    primary.origin,
+    resolvedOriginCandidates,
+  )
+  const alternativeDestinationCandidates = equivalentEndpointCandidates(
+    primary.destination,
+    resolvedDestinationCandidates,
+  )
   const candidates = new Map<string, { route: SelectedRoute; overlapWithPrimary: number }>()
   const stride = Math.max(1, Math.ceil(eligibleSegmentIds.length / 40))
   let complete = true
@@ -1007,8 +1082,8 @@ function assessmentRoadAlternatives(
     attempts += 1
     const routeResult = graphRoute(
       graph,
-      [primary.origin],
-      [primary.destination],
+      alternativeOriginCandidates,
+      alternativeDestinationCandidates,
       profile,
       {
         ...constraints,
@@ -1278,6 +1353,8 @@ export function findRouteAssessmentRoadAnchors(
   const alternatives = assessmentRoadAlternatives(
     graph,
     selected,
+    originResolution.candidates,
+    destinationResolution.candidates,
     profile,
     constraints,
     options.maxAlternatives,

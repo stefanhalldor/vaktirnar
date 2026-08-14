@@ -45,20 +45,25 @@ describe('public Teskeið route client contract', () => {
     expect(source).toContain('onSaveDefault={isAuthenticated ? undefined : handleSaveWeatherChaseDefault}')
   })
 
-  it('resolves RoadMap assessment first and enables only attested scoped candidates', () => {
+  it('discovers one atomic, attested Teskeið route artifact before weather', () => {
     const source = readWorkspaceFile('components/weather/RoadMapPrototypeMap.tsx')
+    const submit = source.slice(
+      source.indexOf('async function handleRouteBridgeSubmit('),
+      source.indexOf('function previewSurfaceRouteChoice('),
+    )
 
-    expect(source).toContain('const scopedGoogleResult = await googleResultPromise')
-    expect(source).toContain('const googleChoicesPromise = googleResultPromise.then(result => result.choices)')
-    expect(source).toContain('resolveAssessmentScope: true')
+    expect(submit).toContain('fetchTeskeidCandidate(')
+    expect(submit).toContain("true,\n        'extended',")
+    expect(submit).toContain('setRouteSurfaceChoices(result.choices)')
+    expect(submit).toContain('result.recommendedRouteId')
+    expect(submit).not.toContain("fetch('/api/teskeid/weather/travel'")
+    expect(submit).not.toContain('googleResultPromise')
+    expect(submit).not.toContain('getRouteOptions')
     expect(source).toContain('places.assessmentOrigin')
     expect(source).toContain('places.assessmentDestination')
     expect(source).toContain('resolveAssessmentScope: true')
-    expect(source).toContain('const initialTeskeidResultPromise = teskeidRouteCandidateEnabled')
     expect(source).not.toContain('async function resolveTeskeidAccessEnvelope(')
-    expect(source).toContain('includeTeskeidCandidate: false')
     expect(source).toContain('function canRequestTeskeidCandidate(places: ResolvedRoutePlaces)')
-    expect(source).toContain('const teskeidCandidateAllowed = teskeidRouteCandidateEnabled')
     const candidatePolicyStart = source.indexOf(
       'function canRequestTeskeidCandidate(places: ResolvedRoutePlaces)',
     )
@@ -70,7 +75,7 @@ describe('public Teskeið route client contract', () => {
     expect(candidatePolicy).not.toContain('return false')
   })
 
-  it('keeps signed envelopes with legacy public route choices and final submits', () => {
+  it('keeps scope-bound Teskeið envelopes for every final weather submit', () => {
     const source = readWorkspaceFile('app/auth-mvp/vedrid/FerdalagidClient.tsx')
     const submit = source.slice(
       source.indexOf('async function handleSubmit('),
@@ -95,7 +100,8 @@ describe('public Teskeið route client contract', () => {
     expect(update).toContain('postTravelWithSelectedRoute({')
     expect(source.match(/fetch\('\/api\/teskeid\/weather\/travel',/g)?.length).toBe(1)
     expect(source).toContain('restoredSelectedRouteIdRef.current = state.selectedRouteId')
-    expect(source).not.toContain('resolveAssessmentScope: true')
+    expect(source).toContain('data.recommendedRouteId')
+    expect(source).toContain("option.provider !== 'teskeid'")
   })
 
   it('locks legacy departure slots to Veðurstofan-only status and rejects old restore state', () => {
@@ -121,10 +127,10 @@ describe('public Teskeið route client contract', () => {
       source.indexOf('// Keep ref in sync'),
     )
 
-    expect(source).toContain('const ROUTE_RESTORE_SCHEMA_VERSION = 2')
+    expect(source).toContain('FERDALAGID_ROUTE_RESTORE_SCHEMA_VERSION')
     expect(source).toContain('const [showVedurstofan, setShowVedurstofan] = useState(true)')
     expect(source).toContain('const [showMetno, setShowMetno] = useState(false)')
-    expect(source).toContain('d.schemaVersion !== ROUTE_RESTORE_SCHEMA_VERSION')
+    expect(source).toContain('isValidFerdalagidRouteRestorePayload(state)')
     expect(submit).toContain('setShowVedurstofan(true)')
     expect(submit).toContain('setShowMetno(false)')
     expect(restore).not.toContain('state.showVedurstofan')

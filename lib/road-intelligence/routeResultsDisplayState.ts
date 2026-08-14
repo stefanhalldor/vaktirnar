@@ -1,27 +1,9 @@
 export type RouteBridgeDisplayStatus = 'idle' | 'loading' | 'success' | 'error'
-export type SaferRouteCandidateStatus =
-  | 'idle'
-  | 'loading'
-  | 'pending'
-  | 'slow'
-  | 'ready'
-  | 'no_route'
-  | 'unavailable'
-  | 'envelope_unavailable'
-  | 'rate_limited'
-export type SaferRouteAlternativesStatus =
-  | 'idle'
-  | 'loading'
-  | 'slow'
-  | 'ready'
-  | 'none'
-  | 'unavailable'
-
 export type RouteResultsDisplayState =
-  | 'safety-search'
   | 'route-switching'
   | 'route-loading'
   | 'comparison-opening'
+  | 'route-ready'
   | 'handoff-only'
   | 'summary'
   | 'form'
@@ -37,7 +19,7 @@ export function resolveRouteResultsDisplayState({
   bridgeStatus,
   hasSummary,
   hasTravelResult,
-  safetySearchPending,
+  hasRouteChoices,
   switchingChoiceId,
   comparisonOpening,
   hasHandoffOnly = false,
@@ -45,18 +27,18 @@ export function resolveRouteResultsDisplayState({
   bridgeStatus: RouteBridgeDisplayStatus
   hasSummary: boolean
   hasTravelResult: boolean
-  safetySearchPending: boolean
+  hasRouteChoices: boolean
   switchingChoiceId: string | null
   comparisonOpening: boolean
   hasHandoffOnly?: boolean
 }): RouteResultsDisplayState {
-  if (safetySearchPending) return 'safety-search'
   if (switchingChoiceId !== null) return 'route-switching'
   if (bridgeStatus === 'loading') return 'route-loading'
   if (comparisonOpening) return 'comparison-opening'
   if (bridgeStatus === 'success') {
     if (hasHandoffOnly) return 'handoff-only'
-    return hasSummary && hasTravelResult ? 'summary' : 'route-loading'
+    if (hasSummary && hasTravelResult) return 'summary'
+    return hasRouteChoices ? 'route-ready' : 'route-loading'
   }
   return 'form'
 }
@@ -80,9 +62,14 @@ export function resolveRouteResultsVisibility({
   routeChoiceCount: number
 }): RouteResultsVisibility {
   const showSummary = displayState === 'summary' && hasSummary && hasTravelResult
+  const hasRouteCards = Number.isInteger(routeChoiceCount) && routeChoiceCount > 0
   return {
     showSummary,
-    showRouteCards: showSummary && Number.isInteger(routeChoiceCount) && routeChoiceCount > 0,
+    showRouteCards: (
+      showSummary
+      || displayState === 'route-ready'
+      || displayState === 'route-switching'
+    ) && hasRouteCards,
     showWeather: showSummary && hasAssessedWeatherCoverage,
     showHandoffOnly: displayState === 'handoff-only',
   }
@@ -95,39 +82,14 @@ export function shouldRecalculateRouteChoice(
   return selectedRouteId !== null && selectedRouteId !== appliedRouteId
 }
 
-export function hasSaferRouteSearchFinished({
-  routeCandidateEnabled,
-  candidateStatus,
-  alternativesStatus,
-  automaticAlternativeSearchExpected,
-  hasCandidateChoices,
-}: {
-  routeCandidateEnabled: boolean
-  candidateStatus: SaferRouteCandidateStatus
-  alternativesStatus: SaferRouteAlternativesStatus
-  automaticAlternativeSearchExpected: boolean
-  hasCandidateChoices: boolean
-}): boolean {
-  if (alternativesStatus === 'loading') return false
-  if (
-    alternativesStatus === 'ready'
-    || alternativesStatus === 'none'
-    || alternativesStatus === 'unavailable'
-    || alternativesStatus === 'slow'
-  ) {
-    return true
-  }
-  if (!routeCandidateEnabled) return true
-  if (
-    candidateStatus === 'no_route'
-    || candidateStatus === 'unavailable'
-    || candidateStatus === 'envelope_unavailable'
-    || candidateStatus === 'slow'
-    || candidateStatus === 'rate_limited'
-  ) return true
-  return (
-    candidateStatus === 'ready'
-    && hasCandidateChoices
-    && !automaticAlternativeSearchExpected
-  )
+/**
+ * A route-weather response may update UI only while its exact request remains
+ * the active one. Comparing signal identity also protects against a stale
+ * response if a caller replaces the controller before abort delivery runs.
+ */
+export function isCurrentRouteWeatherRequest(
+  requestSignal: AbortSignal,
+  activeRequestSignal: AbortSignal | null | undefined,
+): boolean {
+  return !requestSignal.aborted && activeRequestSignal === requestSignal
 }

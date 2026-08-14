@@ -581,6 +581,7 @@ describe('RouteComparisonFullscreenMap', () => {
         title="Veldu leið á korti"
         applyLabel="Reikna veðurskilyrði…"
         applyPending
+        applyPendingLoadingLabel="Sæki veðurgildi og raða þeim á rétta staði miðað við mismunandi brottfarartíma…"
         cautionCloseLabel="Loka skýringu"
         closeLabel="Loka leiðakorti"
         routeCountLabel="1 leið"
@@ -611,6 +612,14 @@ describe('RouteComparisonFullscreenMap', () => {
 
     expect(applyAction).toBeDisabled()
     expect(applyAction).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('status', {
+      name: 'Sæki veðurgildi og raða þeim á rétta staði miðað við mismunandi brottfarartíma…',
+    })).toHaveTextContent(
+      'Sæki veðurgildi og raða þeim á rétta staði miðað við mismunandi brottfarartíma…',
+    )
+    expect(screen.getByTestId('drive-route-map')).toBeInTheDocument()
+    expect(container.querySelector('[data-route-comparison-cards="true"]')).toBeInTheDocument()
+    expect(container.querySelector('[data-route-weather-pending-loader="true"]')).toHaveClass('absolute')
     expect(findMoreAction).toBeDisabled()
     expect(sortAction).toBeDisabled()
     expect(routeAction).toBeDisabled()
@@ -800,7 +809,7 @@ describe('sortRouteComparisonItems', () => {
   ]
 
   it('uses stable deterministic ordering for every mode', () => {
-    expect(sortRouteComparisonItems(routes, 'default').map(route => route.id)).toEqual(['b', 'c', 'a'])
+    expect(sortRouteComparisonItems(routes, 'default').map(route => route.id)).toEqual(['a', 'b', 'c'])
     expect(sortRouteComparisonItems(routes, 'duration').map(route => route.id)).toEqual(['b', 'c', 'a'])
     expect(sortRouteComparisonItems(routes, 'distance').map(route => route.id)).toEqual(['a', 'c', 'b'])
     expect(sortRouteComparisonItems(routes, 'weather').map(route => route.id)).toEqual(['c', 'a', 'b'])
@@ -818,7 +827,7 @@ describe('sortRouteComparisonItems', () => {
       .toEqual(['measured-calm', 'measured-windy', 'limited-calm', 'no-stations'])
   })
 
-  it('puts Google last, then prioritizes surface confidence, weather evidence, cautions, and F-roads within Teskeið routes', () => {
+  it('preserves canonical server order despite provider, surface and overview-weather fields', () => {
     const priorityRoutes = [
       { ...routes[1], id: 'unknown-long', originalIndex: 0, mountainRoad: false, caution: false, gravelKm: 7.5, unknownSurfaceKm: 69 },
       { ...routes[1], id: 'unknown-short', originalIndex: 0, mountainRoad: false, caution: false, gravelKm: 21.3, unknownSurfaceKm: 14.7 },
@@ -831,7 +840,7 @@ describe('sortRouteComparisonItems', () => {
     ]
 
     expect(sortRouteComparisonItems(priorityRoutes, 'default').map(route => route.id))
-      .toEqual(['paved', 'gravel', 'weather-uncertain', 'caution', 'mountain', 'unknown-short', 'unknown-long', 'google-unlabelled'])
+      .toEqual(priorityRoutes.map(route => route.id))
   })
 
   it('shows the Teskeið work-in-progress notice inside its route card', () => {

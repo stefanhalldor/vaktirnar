@@ -70,7 +70,14 @@ export type StaticMapParams = {
 
 export type WeatherMapProvider = {
   geocodePlace(query: string): Promise<PlaceCandidate[]>
+  staticMapUrl(params: StaticMapParams): string
+}
+
+/**
+ * Historical adapter shape retained only for isolated provider parity tests.
+ * Product code must depend on WeatherMapProvider and Teskeið route discovery.
+ */
+export type LegacyWeatherRoutingProvider = WeatherMapProvider & {
   getRouteGeometry(from: PlaceCandidate, to: PlaceCandidate): Promise<RouteGeometry | null>
   getRouteOptions(from: PlaceCandidate, to: PlaceCandidate): Promise<RouteOption[]>
-  staticMapUrl(params: StaticMapParams): string
 }

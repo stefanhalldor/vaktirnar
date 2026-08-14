@@ -8,13 +8,14 @@ import { getAiAnswer } from '@/lib/weather/ai.server'
 import { detectIntent, extractPlace, extractTrailerKind, extractRouteOrigin, extractRouteDestination, parseTimeWindow } from '@/lib/weather/question'
 import { getWeatherMapProvider } from '@/lib/weather/provider.server'
 import type { WeatherAnswerEnvelope, HourPoint } from '@/lib/weather/types'
-import type { PlaceCandidate, RouteGeometry } from '@/lib/weather/provider.types'
+import type { PlaceCandidate } from '@/lib/weather/provider.types'
 import { searchHmsPlaces } from '@/lib/places/hmsDirectory.server'
 import { isConfirmedLocationInput, toWeatherPlaceCandidate } from '@/lib/places/providerCandidate'
+import { discoverTeskeidRoutes } from '@/lib/road-intelligence/teskeidRouteDiscovery.server'
 
 async function resolveRoutePlaceCandidate(
   query: string,
-  provider: NonNullable<ReturnType<typeof getWeatherMapProvider>>,
+  provider: ReturnType<typeof getWeatherMapProvider>,
 ): Promise<PlaceCandidate | null> {
   const curated = resolvePlace(query)
   if (curated) {
@@ -32,7 +33,7 @@ async function resolveRoutePlaceCandidate(
 
   // Temporary, server-only escape hatch while HMS is being bootstrapped.
   // Once local search is active this stays off and the query never reaches Google.
-  if (process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED !== 'true') return null
+  if (!provider || process.env.PLACE_SEARCH_GOOGLE_FALLBACK_ENABLED !== 'true') return null
   try {
     const [google] = await provider.geocodePlace(`${query} Ísland`)
     return google ?? null
@@ -71,9 +72,6 @@ export async function POST(request: Request) {
 
   if (intent === 'route_towable_trailer') {
     const provider = getWeatherMapProvider()
-    if (!provider) {
-      return NextResponse.json({ error: 'provider_not_configured' }, { status: 422 })
-    }
 
     const trailerKind = extractTrailerKind(question)
     const originStr = extractRouteOrigin(question)
@@ -91,16 +89,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'unknown_place' }, { status: 422 })
     }
 
-    // Get route geometry
-    let routeGeometry: RouteGeometry | null
-    try {
-      routeGeometry = await provider.getRouteGeometry(originCandidate, destCandidate)
-    } catch {
+    // Ask is already an explicit route-weather action. Discover the same
+    // canonical Teskeið route set as the visual consumers, then assess only
+    // the server-recommended atomic route. Google remains available solely for
+    // the optional place-resolution escape hatch above.
+    const routeDiscovery = await discoverTeskeidRoutes(
+      {
+        name: originCandidate.displayName,
+        formattedAddress: originCandidate.formattedAddress,
+        lat: originCandidate.lat,
+        lon: originCandidate.lon,
+      },
+      {
+        name: destCandidate.displayName,
+        formattedAddress: destCandidate.formattedAddress,
+        lat: destCandidate.lat,
+        lon: destCandidate.lon,
+      },
+    ).catch(() => null)
+    if (!routeDiscovery) {
       return NextResponse.json({ error: 'route_unavailable' }, { status: 503 })
     }
-    if (!routeGeometry) {
+    if (routeDiscovery.status !== 'ready') {
       return NextResponse.json({ error: 'route_unavailable' }, { status: 422 })
     }
+    const routeGeometry = routeDiscovery.routes[0]
 
     // Subsample route points for weather checks (max 15 to limit met.no API calls)
     const MAX_WEATHER_POINTS = 15

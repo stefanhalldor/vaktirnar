@@ -1,11 +1,36 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { Menu, X, Lightbulb, Send, LogIn, UserCircle, LayoutGrid, LogOut, MessagesSquare, Trophy, Megaphone, CalendarDays } from 'lucide-react'
+import { useTeskeidLauncherCommitSignal } from './AuthenticatedLauncherTracker'
+import {
+  BookOpen,
+  CalendarDays,
+  CloudSun,
+  Handshake,
+  Heart,
+  Lightbulb,
+  LogIn,
+  LogOut,
+  Megaphone,
+  Menu,
+  MessagesSquare,
+  Send,
+  Trophy,
+  UserCircle,
+  Wallet,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import {
+  TESKEID_LAUNCHER_CATALOG,
+  isTeskeidLauncherId,
+  type TeskeidLauncherIcon,
+  type TeskeidLauncherId,
+} from '@/lib/teskeid/launcherCatalog'
 
 const PUBLIC_ITEMS = [
   { href: '/', labelKey: 'ideas', icon: Lightbulb },
@@ -14,37 +39,54 @@ const PUBLIC_ITEMS = [
   { href: '/innskraning', labelKey: 'login', icon: LogIn },
 ] as const
 
-const AUTH_ITEMS = [
-  { href: '/auth-mvp/heim', labelKey: 'teskeidar', icon: LayoutGrid, activePrefixes: ['/auth-mvp/heim', '/auth-mvp/lanad-og-skilad', '/auth-mvp/utlagt-og-endurgreitt', '/auth-mvp/bokhaldid', '/auth-mvp/umonnun', '/auth-mvp/vedrid'] },
-  { href: '/auth-mvp/kviss', labelKey: 'quiz', icon: Trophy, feature: 'kviss' },
-  { href: '/auth-mvp/auglysandi', labelKey: 'advertiser', icon: Megaphone, feature: 'advertiser' },
-  { href: '/auth-mvp/bokanir', labelKey: 'bookings', icon: CalendarDays, feature: 'bookings' },
-  { href: '/auth-mvp/samvinna', labelKey: 'agentCollaboration', icon: MessagesSquare, agentCollaboration: true },
-  { href: '/auth-mvp/minn-profill', labelKey: 'profile', icon: UserCircle },
-  { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },
-] as const
-
+const ICONS: Record<TeskeidLauncherIcon, LucideIcon> = {
+  handshake: Handshake,
+  wallet: Wallet,
+  'book-open': BookOpen,
+  heart: Heart,
+  'cloud-sun': CloudSun,
+  trophy: Trophy,
+  megaphone: Megaphone,
+  calendar: CalendarDays,
+}
 interface TeskeidMenuProps {
   variant: 'public' | 'authenticated'
+  initialFeatureIds?: readonly TeskeidLauncherId[]
+  initialAgentCollaborationAvailable?: boolean
 }
 
-export function TeskeidMenu({ variant }: TeskeidMenuProps) {
+function isActivePath(pathname: string, href: string, prefixes?: readonly string[]) {
+  if (prefixes) return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+  return pathname === href || (href !== '/' && pathname.startsWith(`${href}/`))
+}
+
+export function TeskeidMenu({
+  variant,
+  initialFeatureIds,
+  initialAgentCollaborationAvailable = false,
+}: TeskeidMenuProps) {
   const t = useTranslations('teskeid.nav')
   const pathname = usePathname()
+  const launcherCommitSignal = useTeskeidLauncherCommitSignal()
   const router = useRouter()
+  const panelId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [agentCollaborationAvailable, setAgentCollaborationAvailable] = useState(false)
+  const hasServerProjection = initialFeatureIds !== undefined
+  const [fetchedAgentCollaborationAvailable, setFetchedAgentCollaborationAvailable] = useState(false)
   const [agentUnreadCount, setAgentUnreadCount] = useState(0)
-  const [capabilities, setCapabilities] = useState({ kviss: false, advertiser: false, bookings: false })
-  const ref = useRef<HTMLDetailsElement>(null)
+  const [fetchedFeatureIds, setFetchedFeatureIds] = useState<TeskeidLauncherId[]>([])
+  const featureIds = hasServerProjection ? initialFeatureIds : fetchedFeatureIds
+  const agentCollaborationAvailable = hasServerProjection
+    ? initialAgentCollaborationAvailable
+    : fetchedAgentCollaborationAvailable
 
-  const items = variant === 'public'
-    ? PUBLIC_ITEMS
-    : AUTH_ITEMS.filter(item => (
-        (!('agentCollaboration' in item) || !item.agentCollaboration || agentCollaborationAvailable)
-        && (!('feature' in item) || !item.feature || capabilities[item.feature as keyof typeof capabilities])
-      ))
+  const authenticatedFeatures = featureIds.flatMap((id) => {
+    const item = TESKEID_LAUNCHER_CATALOG.find((candidate) => candidate.id === id)
+    return item ? [item] : []
+  })
 
   useEffect(() => {
     if (variant !== 'authenticated') return
@@ -54,43 +96,57 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
   }, [variant])
 
   useEffect(() => {
-    if (variant !== 'authenticated') return
+    if (variant !== 'authenticated' || hasServerProjection) return
     let active = true
-    fetch('/api/auth-mvp/capabilities', { cache: 'no-store' })
-      .then(response => response.ok ? response.json() : { kviss: false, advertiser: false, bookings: false })
-      .then((value: { kviss?: boolean; advertiser?: boolean; bookings?: boolean }) => {
-        if (active) setCapabilities({
-          kviss: value.kviss === true,
-          advertiser: value.advertiser === true,
-          bookings: value.bookings === true,
-        })
-      })
-      .catch(() => undefined)
+
+    async function loadCanonicalProjection() {
+      try {
+        const response = await fetch('/api/auth-mvp/launcher', { cache: 'no-store' })
+        if (!response.ok) return
+        const value = await response.json() as {
+          featureIds?: unknown
+          agentCollaborationAvailable?: unknown
+        }
+        if (!active) return
+        const ids = Array.isArray(value.featureIds)
+          ? value.featureIds.filter(isTeskeidLauncherId)
+          : []
+        setFetchedFeatureIds(ids)
+        setFetchedAgentCollaborationAvailable(value.agentCollaborationAvailable === true)
+      } catch {
+        // Keep the previous canonical projection when refresh fails.
+      }
+    }
+
+    async function coordinateProjection() {
+      const status = await launcherCommitSignal?.waitForCompletion(2_000)
+      if (!active) return
+      await loadCanonicalProjection()
+      if (status === 'timed-out' && launcherCommitSignal) {
+        const finalStatus = await launcherCommitSignal.waitForCompletion()
+        if (active && finalStatus === 'committed') await loadCanonicalProjection()
+      }
+    }
+
+    void coordinateProjection()
     return () => { active = false }
-  }, [variant])
+  }, [hasServerProjection, launcherCommitSignal, pathname, variant])
 
   useEffect(() => {
-    if (variant !== 'authenticated') return
+    if (variant !== 'authenticated' || !agentCollaborationAvailable) {
+      setAgentUnreadCount(0)
+      return
+    }
     let active = true
 
     async function loadSummary() {
       try {
         const response = await fetch('/api/auth-mvp/agent-collaboration/summary', { cache: 'no-store' })
-        if (!response.ok) {
-          if (active && (response.status === 404 || response.status === 401)) {
-            setAgentCollaborationAvailable(false)
-            setAgentUnreadCount(0)
-            active = false
-          }
-          return
-        }
+        if (!response.ok) return
         const data = await response.json() as { unreadCount?: number }
-        if (active) {
-          setAgentCollaborationAvailable(true)
-          setAgentUnreadCount(Math.max(0, Number(data.unreadCount) || 0))
-        }
+        if (active) setAgentUnreadCount(Math.max(0, Number(data.unreadCount) || 0))
       } catch {
-        // Menu availability must not depend on the optional unread summary.
+        // Unread status is optional and never controls utility visibility.
       }
     }
 
@@ -112,32 +168,31 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
       if (timeoutId !== undefined) window.clearTimeout(timeoutId)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [variant, pathname])
+  }, [agentCollaborationAvailable, variant])
+
+  useEffect(() => {
+    setOpen(false)
+  }, [pathname])
 
   useEffect(() => {
     if (!open) return
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && ref.current) {
-        ref.current.open = false
-        setOpen(false)
-      }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      triggerRef.current?.focus({ preventScroll: true })
     }
-    function onOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        ref.current.open = false
-        setOpen(false)
-      }
+    function onPointerDown(event: PointerEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false)
     }
-    document.addEventListener('keydown', onKey)
-    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('pointerdown', onPointerDown)
     return () => {
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', onPointerDown)
     }
   }, [open])
 
   function closeMenu() {
-    if (ref.current) ref.current.open = false
     setOpen(false)
   }
 
@@ -153,27 +208,21 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
     && !pathname.startsWith('/auth-mvp/samvinna')
 
   return (
-    <details
-      ref={ref}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-      className="group relative z-[60]"
-    >
-      <summary
-        role="button"
-        onClick={(event) => {
-          const details = event.currentTarget.parentElement as HTMLDetailsElement
-          setOpen(!details.open)
-        }}
+    <div ref={rootRef} role="group" className="relative z-[60]">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((current) => !current)}
         aria-label={open
           ? t('closeMenu')
           : showAgentMenuUnread
             ? `${t('menu')} · ${t('agentUnread', { count: agentUnreadCount })}`
             : t('menu')}
         aria-expanded={open}
-        className="relative flex h-11 w-11 cursor-pointer touch-manipulation list-none items-center justify-center rounded-full text-[#42493e] transition-colors hover:bg-black/5 hover:text-[#154212] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-1 [&::-webkit-details-marker]:hidden"
+        aria-controls={panelId}
+        className="relative flex h-11 w-11 touch-manipulation items-center justify-center rounded-full text-[#42493e] transition-colors hover:bg-black/5 hover:text-[#154212] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-1"
       >
-        <Menu size={20} aria-hidden className="group-open:hidden" />
-        <X size={20} aria-hidden className="hidden group-open:block" />
+        {open ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
         {showAgentMenuUnread && (
           <span
             data-testid="agent-unread-indicator"
@@ -181,63 +230,121 @@ export function TeskeidMenu({ variant }: TeskeidMenuProps) {
             className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full border-2 border-[#fbf9f4] bg-red-600"
           />
         )}
-      </summary>
+      </button>
 
-      <div
-        aria-hidden={!open}
-        className="absolute right-0 top-full z-50 mt-1 hidden w-56 overflow-hidden rounded-xl border border-black/10 bg-[#fbf9f4] shadow-lg group-open:block"
-      >
+      {open && (
+        <div
+          id={panelId}
+          className="absolute right-0 top-full z-50 mt-1 max-h-[calc(100dvh-5rem-env(safe-area-inset-bottom))] w-[min(18rem,calc(100vw-2rem))] overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-black/10 bg-[#fbf9f4] shadow-lg"
+        >
           {variant === 'authenticated' && userEmail && (
-            <>
-              <div className="px-4 py-2.5 border-b border-black/5">
-                <p className="text-[11px] text-[#72796e] truncate">{userEmail}</p>
-              </div>
-            </>
-          )}
-          {items.map((item) => {
-            const { href, labelKey, icon: Icon } = item
-            const active = 'activePrefixes' in item
-              ? item.activePrefixes.some((p) => pathname === p || pathname.startsWith(p + '/'))
-              : pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
-            const showUnread = 'agentCollaboration' in item
-              && item.agentCollaboration
-              && agentUnreadCount > 0
-              && !pathname.startsWith('/auth-mvp/samvinna')
-            return (
-              <Link
-                key={href}
-                href={href}
-                onClick={closeMenu}
-                className={`flex items-center gap-3 px-4 py-3 text-sm transition-colors min-h-[44px] ${
-                  active
-                    ? 'bg-[#2d5a27] text-[#9dd090] font-medium'
-                    : 'text-[#42493e] hover:bg-black/5'
-                }`}
-              >
-                <Icon size={16} aria-hidden />
-                <span className="min-w-0 flex-1">{t(labelKey)}</span>
-                {showUnread && (
-                  <>
-                    <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-                    <span className="sr-only">{t('agentUnread', { count: agentUnreadCount })}</span>
-                  </>
-                )}
-              </Link>
-            )
-          })}
-          {variant === 'authenticated' && (
-            <div className="border-t border-black/5">
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors min-h-[44px] w-full"
-              >
-                <LogOut size={16} aria-hidden />
-                <span>{t('signOut')}</span>
-              </button>
+            <div className="border-b border-black/5 px-4 py-2.5">
+              <p className="truncate text-[11px] text-[#72796e]">{userEmail}</p>
             </div>
           )}
-      </div>
-    </details>
+
+          <nav aria-label={t(variant === 'authenticated' ? 'featureNavigation' : 'publicNavigation')}>
+            {variant === 'public' && PUBLIC_ITEMS.map(({ href, labelKey, icon: Icon }) => {
+              const active = isActivePath(pathname, href)
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={closeMenu}
+                  aria-current={active ? 'page' : undefined}
+                  className={`flex min-h-11 items-center gap-3 px-4 py-3 text-sm transition-colors ${active
+                    ? 'bg-[#2d5a27] font-medium text-[#d9f3d3]'
+                    : 'text-[#42493e] hover:bg-black/5'}`}
+                >
+                  <Icon size={16} aria-hidden />
+                  <span className="min-w-0 flex-1">{t(labelKey)}</span>
+                </Link>
+              )
+            })}
+
+            {variant === 'authenticated' && (
+              <>
+                {authenticatedFeatures.map((item) => {
+                  const Icon = ICONS[item.icon]
+                  const active = isActivePath(pathname, item.href, item.activePrefixes)
+                  return (
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      onClick={closeMenu}
+                      aria-current={active ? 'page' : undefined}
+                      className={`flex min-h-11 items-center gap-3 px-4 py-3 text-sm transition-colors ${active
+                        ? 'bg-[#2d5a27] font-medium text-[#d9f3d3]'
+                        : 'text-[#42493e] hover:bg-black/5'}`}
+                    >
+                      <Icon size={16} aria-hidden />
+                      <span className="min-w-0 flex-1">{t(item.navKey)}</span>
+                    </Link>
+                  )
+                })}
+
+                <div className="border-t border-black/5">
+                  <Link
+                    href="/auth-mvp/heim"
+                    onClick={closeMenu}
+                    aria-current={pathname === '/auth-mvp/heim' ? 'page' : undefined}
+                    className={`flex min-h-11 items-center gap-3 px-4 py-3 text-sm transition-colors ${pathname === '/auth-mvp/heim'
+                      ? 'bg-[#2d5a27] font-medium text-[#d9f3d3]'
+                      : 'text-[#42493e] hover:bg-black/5'}`}
+                  >
+                    <Lightbulb size={16} aria-hidden />
+                    <span>{t('home')}</span>
+                  </Link>
+                  {agentCollaborationAvailable && (
+                    <Link
+                      href="/auth-mvp/samvinna"
+                      onClick={closeMenu}
+                      aria-current={pathname.startsWith('/auth-mvp/samvinna') ? 'page' : undefined}
+                      className={`flex min-h-11 items-center gap-3 px-4 py-3 text-sm transition-colors ${pathname.startsWith('/auth-mvp/samvinna')
+                        ? 'bg-[#2d5a27] font-medium text-[#d9f3d3]'
+                        : 'text-[#42493e] hover:bg-black/5'}`}
+                    >
+                      <MessagesSquare size={16} aria-hidden />
+                      <span className="min-w-0 flex-1">{t('agentCollaboration')}</span>
+                      {showAgentMenuUnread && (
+                        <>
+                          <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                          <span className="sr-only">{t('agentUnread', { count: agentUnreadCount })}</span>
+                        </>
+                      )}
+                    </Link>
+                  )}
+                  <Link
+                    href="/auth-mvp/minn-profill"
+                    onClick={closeMenu}
+                    aria-current={pathname.startsWith('/auth-mvp/minn-profill') ? 'page' : undefined}
+                    className="flex min-h-11 items-center gap-3 px-4 py-3 text-sm text-[#42493e] transition-colors hover:bg-black/5"
+                  >
+                    <UserCircle size={16} aria-hidden />
+                    <span>{t('profile')}</span>
+                  </Link>
+                  <Link
+                    href="/senda-hugmynd"
+                    onClick={closeMenu}
+                    className="flex min-h-11 items-center gap-3 px-4 py-3 text-sm text-[#42493e] transition-colors hover:bg-black/5"
+                  >
+                    <Send size={16} aria-hidden />
+                    <span>{t('submitIdea')}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="flex min-h-11 w-full items-center gap-3 px-4 py-3 text-sm text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-600"
+                  >
+                    <LogOut size={16} aria-hidden />
+                    <span>{t('signOut')}</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </nav>
+        </div>
+      )}
+    </div>
   )
 }

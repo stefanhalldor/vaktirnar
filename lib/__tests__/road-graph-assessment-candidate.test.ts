@@ -17,7 +17,10 @@ import {
   resetTeskeidRouteCandidateCacheForTests,
   TESKEID_ROUTE_CANDIDATE_ID,
 } from '@/lib/iceland-routes/roadGraphCandidate.server'
-import { findRouteAssessmentRoadAnchors } from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
+import {
+  createRouteAssessmentPhysicalTraversalKey,
+  findRouteAssessmentRoadAnchors,
+} from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
 import {
   resolveTeskeidAssessmentRouteEvidence,
   teskeidAssessmentRouteEdgesHaveIntegrity,
@@ -26,7 +29,11 @@ import {
 import { signRouteOptionEnvelope } from '@/lib/iceland-routes/routeOptionEnvelope.server'
 import { createRouteAssessmentScopeId } from '@/lib/iceland-routes/routeAssessmentScopeId.server'
 import { HOLMAVIK_NORTH_ROUTE61_VIA } from '@/lib/weather/routeCautionConstants'
-import type { IcelandRoadGraph, IcelandRoadGraphSegmentInput } from '@/lib/iceland-routes/roadGraphTypes'
+import type {
+  IcelandRoadGraph,
+  IcelandRoadGraphEdge,
+  IcelandRoadGraphSegmentInput,
+} from '@/lib/iceland-routes/roadGraphTypes'
 import type { LatLon } from '@/lib/iceland-routes/types'
 
 const ROAD_START = { lat: 64, lon: -20.5 }
@@ -132,6 +139,36 @@ beforeEach(() => {
 })
 
 describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
+  it('dedupes only contiguous assessment slices of the same directed physical edge', () => {
+    const activeGraph = graph()
+    const forward = [...activeGraph.edges.values()].find(edge => edge.id.endsWith(':forward'))!
+    const reverse = [...activeGraph.edges.values()].find(edge => edge.id.endsWith(':reverse'))!
+    const seam = { lat: 64, lon: -20.3 }
+    const first: IcelandRoadGraphEdge = {
+      ...forward,
+      id: `${forward.id}:assessment:0.000000000000-0.500000000000`,
+      geometry: [forward.geometry[0], seam],
+    }
+    const second: IcelandRoadGraphEdge = {
+      ...forward,
+      id: `${forward.id}:assessment:0.500000000000-1.000000000000`,
+      geometry: [seam, forward.geometry.at(-1)!],
+    }
+    const gap: IcelandRoadGraphEdge = {
+      ...second,
+      id: `${forward.id}:assessment:0.600000000000-1.000000000000`,
+    }
+
+    expect(createRouteAssessmentPhysicalTraversalKey([first, second]))
+      .toBe(createRouteAssessmentPhysicalTraversalKey([forward]))
+    expect(createRouteAssessmentPhysicalTraversalKey([first, gap]))
+      .not.toBe(createRouteAssessmentPhysicalTraversalKey([forward]))
+    expect(createRouteAssessmentPhysicalTraversalKey([reverse]))
+      .not.toBe(createRouteAssessmentPhysicalTraversalKey([forward]))
+    expect(createRouteAssessmentPhysicalTraversalKey([first, reverse, second]))
+      .not.toBe(createRouteAssessmentPhysicalTraversalKey([forward]))
+  })
+
   it('preserves a projected mid-edge destination instead of re-snapping to the road endpoint', async () => {
     const activeGraph = graph()
     const exactNavigationDestination = { lat: 64.001, lon: -20.3 }
@@ -315,10 +352,15 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(outcome.status).toBe('ready')
     if (outcome.status !== 'ready') return
     expect(outcome.evidence).toHaveLength(2)
-    expect(outcome.evidence[0].route.cautions).toContainEqual(
+    const cautionedPrimary = outcome.evidence.find(evidence => (
+      evidence.route.id === TESKEID_ROUTE_CANDIDATE_ID
+    ))
+    expect(cautionedPrimary?.route.cautions).toContainEqual(
       expect.objectContaining({ id: 'westfjords-south-route60' }),
     )
-    const viaHolmavik = outcome.evidence[1]
+    const viaHolmavik = outcome.evidence.find(evidence => (
+      evidence.route.labels.includes('CURATED_VIA_HOLMAVIK')
+    ))!
     expect(viaHolmavik.route).toMatchObject({
       provider: 'teskeid',
       labels: expect.arrayContaining(['CURATED_VIA_HOLMAVIK', 'TESKEID_ALTERNATIVE']),
@@ -327,7 +369,7 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(viaHolmavik.route.cautions).not.toContainEqual(
       expect.objectContaining({ id: 'westfjords-south-route60' }),
     )
-    expect(viaHolmavik.route.distanceM).toBeGreaterThan(outcome.evidence[0].route.distanceM)
+    expect(viaHolmavik.route.distanceM).toBeGreaterThan(cautionedPrimary!.route.distanceM)
   })
 
   it('keeps the Teskeið-owned Hólmavík route invariant in the reverse direction', () => {
@@ -547,6 +589,8 @@ describe('edge-aware Teskeið candidate for a signed assessment scope', () => {
     expect(outcome.routes[1].points[0]).toEqual(scope.origin)
     expect(outcome.routes[1].points.at(-1)).toEqual(scope.destination)
     expect(outcome.routes[1].points).toContainEqual({ lat: 63.9, lon: -20.4 })
+    expect(outcome.routes[1].points).not.toContainEqual({ lat: 64, lon: -20.1 })
+    expect(outcome.routes[1].points).not.toContainEqual({ lat: 64, lon: -20.7 })
   })
 
   it('propagates the absolute deadline to primary reconstruction without caching pending', async () => {

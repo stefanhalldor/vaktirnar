@@ -228,6 +228,40 @@ snapshot eða graph-content hefur breyst. Gömul envelope án evidence nota
 tímabundið eldri endurreikningsleið þar til 15 mínútna gildistími þeirra
 rennur út. Reglan inniheldur engin staðar-, vegnúmers- eða leiðarallowlist.
 
+**Curated no-loss parity (v238):** Virkar sérleiðareglur eiga nú versioned,
+provider-neutral manifest í `lib/iceland-routes/curatedRouteParity.ts`.
+Teskeiðarvegagröfin á sjálf eftirfarandi vöruhegðun áður en fimm-leiða cap er
+beitt: Hólmavík í báðar áttir, Hellisheiði fyrir nákvæm Suðurlands- og
+Austurlandsmörk, Hringurinn suður–austur–norður og
+norður–austur–suður með 350 km trigger, og validated Reyðarfjarðarleið án
+Axarvegar 939 þegar Öxi finnst. Curated leið þarf official edge/gate proof,
+samfellda signed evidence og post-validation; nálægð við óstaðfest Google-via
+hnit nægir ekki. Legacy northeast shaping point reyndist 8,27 km frá official
+vegi 1 og var því leiðréttur í staðfestan Road 1 graph-vertex. Öxi-safe reuse
+krefst bæði no-939/no-caution og Reyðarfjarðargate, svo hvaða caution-lausa
+generic leið sem er fær ekki merkinguna.
+
+Mandatory safety/curated candidates eru valdir fyrir cap og generic leiðir
+detta fyrst út. Ef fleiri en fimm mandatory leiðir yrðu virkar failar
+artifactið lokað í stað þess að fella reglu þegjandi. Presentation-order er
+route-only og notar í þessari röð: óvissu/mixed slitlag, F-veg,
+caution, möl, captured engine order og stable ID; veður, provider og
+stöðvaþekja koma hvergi að pre-weather röðun. Official 96.483.446 bæta
+artifactið með SHA-256
+`db5832baf6cb0b566e13da3734cb9926917567bf25f33c91254ffb524be0c7b4`
+er hard test gate og má ekki skip-a ef það vantar.
+
+**Projected endpoint og physical dedupe (v243):** Alternative-leið má velja hina
+directed framsetningu nákvæmlega sama projected endpoints þegar `segmentId`,
+anchor-kind og staðsetning innan 0,5 m stemma. Þetta kemur í veg fyrir að leið
+aki fram hjá áfangastað og snúi til baka á sama physical vegkafla. Innri
+dedupe-lykill sameinar full edge og samliggjandi, contiguous assessment-sneiðar
+á sama directed source edge, en breytir hvorki signed provenance né sameinar
+reverse, gap eða non-consecutive traversal. Ef Öxi-leiðin er jafnframt proof-uð
+um Hellisheiði sameinast evidence-labelin á eitt route artifact og notandinn sér
+eitt spjald með heitinu `Öxi`; innri Austurlands/Hellisheiði inclusion-reglan
+helst virk fyrir þau tilvik þar sem suðurleiðin er raunverulega distinct.
+
 ### R3 - Provider Station Matching
 
 Veðurstofu- og Vegagerðarpunktar eiga að tengjast leiðum með sama

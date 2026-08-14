@@ -417,7 +417,17 @@ export async function middleware(request: NextRequest) {
     // API routes must return JSON — never redirect to a login page.
     // The route handlers enforce their own auth and feature access.
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        {
+          status: 401,
+          headers: {
+            'Cache-Control': 'private, no-store',
+            'Vary': 'Cookie',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        },
+      )
     }
     if (pathname.startsWith('/auth-mvp/')) {
       // Preserve the original path+query as ?next= so the login page can redirect

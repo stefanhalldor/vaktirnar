@@ -6,6 +6,7 @@ import {
   type DriveRouteMapAnnotation,
   type DriveRouteMapRoute,
 } from './DriveRouteMap'
+import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
 
 export const ROUTE_MAP_LABEL_SCALE_STORAGE_KEY = 'teskeid:route-map-label-scale'
 
@@ -239,21 +240,10 @@ export function sortRouteComparisonItems(
         - (b.durationMinutes ?? Number.POSITIVE_INFINITY)
         || originalDifference
     }
-    const googleProviderDifference = Number(a.provider === 'google') - Number(b.provider === 'google')
-    if (googleProviderDifference !== 0) return googleProviderDifference
-    const aUnknownSurfaceKm = Number.isFinite(a.unknownSurfaceKm) ? Math.max(0, a.unknownSurfaceKm ?? 0) : 0
-    const bUnknownSurfaceKm = Number.isFinite(b.unknownSurfaceKm) ? Math.max(0, b.unknownSurfaceKm ?? 0) : 0
-    const unknownSurfaceDifference = Number(aUnknownSurfaceKm > 0) - Number(bUnknownSurfaceKm > 0)
-    if (unknownSurfaceDifference !== 0) return unknownSurfaceDifference
-    const unknownSurfaceDistanceDifference = aUnknownSurfaceKm - bUnknownSurfaceKm
-    if (unknownSurfaceDistanceDifference !== 0) return unknownSurfaceDistanceDifference
-    const mountainDifference = Number(a.mountainRoad ?? false) - Number(b.mountainRoad ?? false)
-    if (mountainDifference !== 0) return mountainDifference
-    const cautionDifference = Number(a.caution ?? false) - Number(b.caution ?? false)
-    if (cautionDifference !== 0) return cautionDifference
-    const weatherCoverageDifference = Number(a.weatherCoverageConcern ?? false) - Number(b.weatherCoverageConcern ?? false)
-    if (weatherCoverageDifference !== 0) return weatherCoverageDifference
-    return (a.gravelKm ?? 0) - (b.gravelKm ?? 0) || originalDifference
+    // The server artifact is already presentation-sorted and routes[0] is the
+    // recommendation. Default UI order must preserve it exactly; provider,
+    // surface and overview weather are descriptive and cannot re-rank it.
+    return 0
   })
 }
 
@@ -484,6 +474,7 @@ export function RouteComparisonFullscreenMap({
   title,
   applyLabel,
   applyPending = false,
+  applyPendingLoadingLabel,
   routeCountLabel,
   findMoreLabel,
   findingMoreLabel,
@@ -519,6 +510,7 @@ export function RouteComparisonFullscreenMap({
   title: string
   applyLabel: string
   applyPending?: boolean
+  applyPendingLoadingLabel?: string
   routeCountLabel: string
   findMoreLabel?: string
   findingMoreLabel?: string
@@ -721,6 +713,19 @@ export function RouteComparisonFullscreenMap({
           ariaLabel={title}
           className="h-full w-full"
         />
+        {applyPending && (
+          <div
+            data-route-weather-pending-loader="true"
+            className="absolute inset-0 z-30 flex items-center justify-center bg-background/70 px-4 backdrop-blur-[1px]"
+          >
+            <TeskeidLoader
+              ideaTitles={[applyPendingLoadingLabel ?? applyLabel]}
+              loadingLabel={applyPendingLoadingLabel ?? applyLabel}
+              fallbackIdeaTitle={applyPendingLoadingLabel ?? applyLabel}
+              className="min-h-[220px] w-full max-w-sm rounded-xl border border-border/80 bg-background/95 px-4 py-6 shadow-lg"
+            />
+          </div>
+        )}
         {(mapAnnotations.length > 0 || mapScopeNotice) && (
           <div
             aria-label={[

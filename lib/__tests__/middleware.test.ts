@@ -256,6 +256,9 @@ describe('middleware — unauthenticated private route', () => {
   it('unauthenticated API request → 401 JSON, not redirect', async () => {
     const res = await middleware(makeReq('/api/teskeid/lanad-og-skilad'))
     expect(res.status).toBe(401)
+    expect(res.headers.get('cache-control')).toBe('private, no-store')
+    expect(res.headers.get('vary')).toBe('Cookie')
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
     const body = await res.json()
     expect(body.error).toBe('Unauthorized')
   })

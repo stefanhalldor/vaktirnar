@@ -1,5 +1,5 @@
 import 'server-only'
-import type { PlaceCandidate, RouteGeometry, RouteOption, StaticMapParams, WeatherMapProvider } from './provider.types'
+import type { LegacyWeatherRoutingProvider, PlaceCandidate, RouteGeometry, RouteOption, StaticMapParams } from './provider.types'
 import { matchRouteCautions } from './routeCautions'
 import { rdpSimplify } from './providerRouteMatching'
 import { augmentProviderMatchingPoints, ROUTE_CONTROL_SECTIONS } from './routeControlPoints'
@@ -729,7 +729,8 @@ function staticMapUrl(params: StaticMapParams): string {
   )
 }
 
-export const googleProvider: WeatherMapProvider = {
+/** @deprecated Isolated reference adapter for parity tests; never import from live product code. */
+export const googleProvider: LegacyWeatherRoutingProvider = {
   geocodePlace,
   getRouteGeometry,
   getRouteOptions,

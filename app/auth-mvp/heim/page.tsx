@@ -3,10 +3,9 @@ import Link from 'next/link'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { guardTeskeidSession } from '@/lib/auth/guard'
-import { checkFeatureAccess } from '@/lib/loans/guard'
-import { resolveAuthenticatedWeatherShellAccess } from '@/lib/weather/weatherBaseAccess.server'
 import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { resolveTeskeidLauncher } from '@/lib/teskeid/launcher.server'
 import type { LoanItem } from '@/lib/loans/types'
 import type { Idea } from '@/lib/teskeid/types'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
@@ -68,33 +67,19 @@ export default async function HeimPage() {
     // createClient() failed — fall through to defaults
   }
 
-  const [recentEventAccess, umonnunEnabled, bookkeepingEnabled, kvissEnabled, advertiserEnabled, bookingsEnabled] = await Promise.all([
+  const [recentEventAccess, launcher] = await Promise.all([
     resolveRecentEventSourceAccess(user),
-    checkFeatureAccess(user.id, user.email!, 'umonnun'),
-    checkFeatureAccess(user.id, user.email!, 'bokhaldid'),
-    checkFeatureAccess(user.id, user.email!, 'kviss'),
-    checkFeatureAccess(user.id, user.email!, 'auglysandi'),
-    checkFeatureAccess(user.id, user.email!, 'bokanir'),
+    resolveTeskeidLauncher(user),
   ])
   const { loansEnabled, expensesEnabled, sources: recentEventSources } = recentEventAccess
-
-  // Weather card: visible to all signed-in users with base weather access.
-  // Both private-vedrid and public-tier users go to /auth-mvp/vedrid to retain saved places.
-  const weatherShellAccess = await resolveAuthenticatedWeatherShellAccess(user)
-  const weatherCardEnabled = weatherShellAccess.mode !== 'blocked'
+  const visibleLauncherIds = new Set(launcher.featureIds)
+  const umonnunEnabled = visibleLauncherIds.has('umonnun')
+  const bookkeepingEnabled = visibleLauncherIds.has('bokhaldid')
+  const kvissEnabled = visibleLauncherIds.has('kviss')
+  const advertiserEnabled = visibleLauncherIds.has('auglysandi')
+  const bookingsEnabled = visibleLauncherIds.has('bokanir')
 
   const displayLocale = getDisplayLocale(locale)
-
-  const READY_TESKEID_ROUTES: Record<string, { href: string; enabled: boolean }> = {
-    'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', enabled: loansEnabled },
-    'utlagt-og-endurgreitt': { href: '/auth-mvp/utlagt-og-endurgreitt', enabled: expensesEnabled },
-    'bokhaldid':       { href: '/auth-mvp/bokhaldid',       enabled: bookkeepingEnabled },
-    'umonnun':         { href: '/auth-mvp/umonnun',         enabled: umonnunEnabled },
-    'vedrid':          { href: '/auth-mvp/vedrid',           enabled: weatherCardEnabled },
-    'kviss':           { href: '/auth-mvp/kviss',            enabled: kvissEnabled },
-    'auglysandi':      { href: '/auth-mvp/auglysandi',       enabled: advertiserEnabled },
-    'bokanir':         { href: '/auth-mvp/bokanir',          enabled: bookingsEnabled },
-  }
 
   const isPromotedPrivateBeta = (idea: Idea) =>
     (idea.slug === 'utlagt-og-endurgreitt' && expensesEnabled)
@@ -106,48 +91,26 @@ export default async function HeimPage() {
     (idea.slug !== 'bokhaldid' || bookkeepingEnabled)
     && (idea.slug !== 'bokanir' || bookingsEnabled)
   ))
-  const launchedIdeas = visibleIdeas.filter((i) => i.status === 'launched' || isPromotedPrivateBeta(i))
-  const futureIdeas   = visibleIdeas.filter((i) => i.status !== 'launched' && !isPromotedPrivateBeta(i))
-  const ideaReadyCards = launchedIdeas
-    .filter((i) => READY_TESKEID_ROUTES[i.slug]?.enabled)
-    .map((i) => ({ idea: i, href: READY_TESKEID_ROUTES[i.slug]!.href }))
+  const futureIdeas = visibleIdeas.filter((idea) => (
+    !visibleLauncherIds.has(idea.slug as typeof launcher.featureIds[number])
+    && idea.status !== 'launched'
+    && !isPromotedPrivateBeta(idea)
+  ))
   const readyCards: Array<{
     idea: Pick<Idea, 'slug' | 'title' | 'short_description' | 'category'>
     href: string
-  }> = [...ideaReadyCards]
-  if (kvissEnabled && !readyCards.some(({ idea }) => idea.slug === 'kviss')) {
-    readyCards.push({
+  }> = launcher.items.map((item) => {
+    return {
       idea: {
-        slug: 'kviss',
-        title: t('quizCardTitle'),
-        short_description: t('quizCardDescription'),
-        category: 'Viðburðir',
-      },
-      href: '/auth-mvp/kviss',
-    })
-  }
-  if (advertiserEnabled && !readyCards.some(({ idea }) => idea.slug === 'auglysandi')) {
-    readyCards.push({
-      idea: {
-        slug: 'auglysandi',
-        title: t('advertiserCardTitle'),
-        short_description: t('advertiserCardDescription'),
+        slug: item.id,
+        title: t(item.titleKey as Parameters<typeof t>[0]),
+        short_description: t(item.descriptionKey as Parameters<typeof t>[0]),
+        // Category is an internal icon fallback and is not rendered as copy.
         category: 'Annað',
       },
-      href: '/auth-mvp/auglysandi',
-    })
-  }
-  if (bookingsEnabled && !readyCards.some(({ idea }) => idea.slug === 'bokanir')) {
-    readyCards.push({
-      idea: {
-        slug: 'bokanir',
-        title: t('bookingsCardTitle'),
-        short_description: t('bookingsCardDescription'),
-        category: 'Viðburðir',
-      },
-      href: '/auth-mvp/bokanir',
-    })
-  }
+      href: item.href,
+    }
+  })
 
   let pendingCount = 0
   let invitationsError = false
@@ -320,7 +283,11 @@ export default async function HeimPage() {
         {/* ── Kveðja + profile-icon í sömu línu ──────────────────── */}
         <section className="flex items-center justify-between gap-3">
           <p className="text-xl font-semibold text-primary">{greeting}</p>
-          <TeskeidMenu variant="authenticated" />
+          <TeskeidMenu
+            variant="authenticated"
+            initialFeatureIds={launcher.featureIds}
+            initialAgentCollaborationAvailable={launcher.agentCollaborationAvailable}
+          />
         </section>
 
         {/* ── Nýlegt — shared feed for currently-authorized Teskeið sources ─ */}
