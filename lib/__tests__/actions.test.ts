@@ -42,7 +42,7 @@ vi.mock('@/lib/loans/email', () => ({
   sendLoanInvitationEmail: mockSendEmail,
 }))
 
-import { sendInvitationEmail, createLoan, addLoanInvitation, updateLoanItemDetails, updateLoan, claimInvitation, declineInvitation, markReturned, undoReturn, deleteLoan, switchLoanRole } from '@/lib/loans/actions'
+import { sendInvitationEmail, createLoan, addLoanInvitation, setLoanCounterpartyName, updateLoanItemDetails, updateLoan, claimInvitation, declineInvitation, markReturned, undoReturn, deleteLoan, switchLoanRole } from '@/lib/loans/actions'
 import { guardLoanAccess } from '@/lib/loans/guard'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -595,6 +595,54 @@ describe('createLoan — no recipient email', () => {
       (c: string[]) => c[0] === 'reserve_invitation_send',
     )
     expect(reserveCalls).toHaveLength(0)
+  })
+
+  it('uses the separate atomic RPC for a private name and never passes recipient email', async () => {
+    mockRpc.mockResolvedValue({
+      data: [{ loan_id: 'loan-name-1', invitation_id: null }],
+      error: null,
+    })
+    await createLoan({
+      item_name: 'Bók', creator_role: 'lender', loaned_at: '2026-01-01',
+      counterparty_name: 'Páll', request_id: '00000000-0000-0000-0000-000000000002',
+    })
+    expect(mockRpc).toHaveBeenCalledWith('create_loan_with_counterparty_name', expect.objectContaining({
+      p_counterparty_name: 'Páll',
+    }))
+    expect(mockRpc.mock.calls[0]?.[1]).not.toHaveProperty('p_recipient_email')
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+})
+
+describe('setLoanCounterpartyName orchestration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRecordEvent.mockResolvedValue(undefined)
+    mockFrom.mockImplementation(() => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: { item_name: 'Bók', lender_user_id: 'actor-uuid', borrower_user_id: null },
+          }),
+        }),
+      }),
+    }))
+  })
+
+  it('sends only the bounded private name to the service-role RPC', async () => {
+    mockRpc.mockResolvedValue({ data: 'ok', error: null })
+    const result = await setLoanCounterpartyName(LOAN_ID, { counterparty_name: 'Páll' })
+    expect(result).toEqual({ ok: true })
+    expect(mockRpc).toHaveBeenCalledWith('set_loan_counterparty_name', {
+      p_actor_id: 'actor-uuid', p_loan_id: LOAN_ID, p_counterparty_name: 'Páll',
+    })
+  })
+
+  it('rejects invalid input before RPC', async () => {
+    expect(await setLoanCounterpartyName(LOAN_ID, { counterparty_name: '' })).toEqual({
+      ok: false, error: 'invalid_input',
+    })
+    expect(mockRpc).not.toHaveBeenCalled()
   })
 })
 

@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, CloudSun, ChevronDown, ChevronUp } from 'lucide-react'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
-import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import type { WeatherAnswerEnvelope, WeatherStatus } from '@/lib/weather/types'
 import { MapConfirmation } from '@/components/weather/MapConfirmation'
 import { PlaceSearch, type PlaceResult } from '@/components/weather/PlaceSearch'
@@ -124,9 +123,6 @@ export function VedridClient() {
           </div>
           <TeskeidMenu variant="authenticated" />
         </div>
-
-        {/* Beta banner */}
-        <WeatherBetaBanner />
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">

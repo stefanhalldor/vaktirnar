@@ -11,7 +11,7 @@ export default async function ExpensesPage() {
     getExpensePaymentProfileV2(user.id),
   ])
   return (
-    <ExpenseShell title={t('title')} homeLabel={t('homeLabel')}>
+    <ExpenseShell title={t('title')} homeLabel={t('homeLabel')} closedTestingFeature="utlagt-og-endurgreitt">
       <ExpenseDashboard dashboard={dashboard} paymentProfile={paymentProfile} />
     </ExpenseShell>
   )

@@ -25,7 +25,6 @@ import { ForecastDrawer } from '@/components/weather/ForecastDrawer'
 import { DepartureHeatmap } from '@/components/weather/DepartureHeatmap'
 import { RouteSelectionStep, type RoutePlace } from '@/components/weather/RouteSelectionStep'
 import { WeatherResultLoader } from '@/components/weather/WeatherResultLoader'
-import { WeatherBetaBanner } from '@/components/weather/WeatherBetaBanner'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { formatKlTime, candidateToIssue, normalizeLocale, formatNum, estimatePointEtaIso, formatCompactDateTime, formatLongDepartureDateTime, getOriginDisplay, buildPointSummary } from '@/components/weather/travelAuditMap.helpers'
 import { WeatherWatchersComparison } from '@/components/weather/WeatherWatchersComparison'
@@ -1348,9 +1347,6 @@ export function FerdalagidClient({
           </div>
           <TeskeidMenu variant={isGuest ? 'public' : 'authenticated'} />
         </div>
-
-        {/* Beta banner — visible on all wizard steps */}
-        <WeatherBetaBanner />
 
         {step === 'result' && restoredLegacyRouteResult && (
           <div

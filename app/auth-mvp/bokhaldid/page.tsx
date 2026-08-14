@@ -1,5 +1,5 @@
 import { BookkeepingDashboard } from '@/components/bookkeeping/BookkeepingDashboard'
-import { BookkeepingShell } from '@/components/bookkeeping/BookkeepingShell'
+import { BookkeepingShell } from '@/components/bookkeeping/BookkeepingPrivateShell.server'
 import { getBookkeepingTranslations } from '@/components/bookkeeping/i18n.server'
 import { guardBookkeepingAccess } from '@/lib/bookkeeping/guard'
 import { getBookkeepingDashboard } from '@/lib/bookkeeping/repository.server'

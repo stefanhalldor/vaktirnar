@@ -10,7 +10,7 @@ export default async function ExpenseInvitationPage({ params }: { params: Promis
   const invitation = await getExpenseInvitation(user.id, groupId)
   if (!invitation) notFound()
   return (
-    <ExpenseShell title={t('invitation.title')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')}>
+    <ExpenseShell title={t('invitation.title')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
       <div className="space-y-5 border-y border-border py-5">
         <div><p className="text-lg font-semibold">{invitation.emoji} {invitation.name}</p><p className="mt-2 text-sm leading-6 text-muted-foreground">{t('invitation.body', { name: invitation.name })}</p></div>
         <ExpenseInvitationActions invitation={invitation} />

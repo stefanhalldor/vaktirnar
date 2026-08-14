@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { BookkeepingCompanyLedger } from '@/components/bookkeeping/BookkeepingCompanyLedger'
-import { BookkeepingShell } from '@/components/bookkeeping/BookkeepingShell'
+import { BookkeepingShell } from '@/components/bookkeeping/BookkeepingPrivateShell.server'
 import { getBookkeepingTranslations } from '@/components/bookkeeping/i18n.server'
 import { guardBookkeepingAccess } from '@/lib/bookkeeping/guard'
 import { getBookkeepingCompanyLedger } from '@/lib/bookkeeping/repository.server'

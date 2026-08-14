@@ -47,15 +47,15 @@ export default async function AddPartyPage({
   const controls = getLoanCardControls(item)
   if (!controls.showAddParty) redirect('/auth-mvp/lanad-og-skilad')
 
-  let relationshipOptions: RelationshipRecipientOption[] | undefined
+  let relationshipOptions: RelationshipRecipientOption[] = []
+  let relationshipOptionsError = false
   try {
     const hasTengsl = await checkFeatureAccess(user.id, user.email!, 'tengsl')
     if (hasTengsl) {
-      const opts = await getRelationshipRecipientOptions(user.id)
-      if (opts.length > 0) relationshipOptions = opts
+      relationshipOptions = await getRelationshipRecipientOptions(user.id, { throwOnError: true })
     }
   } catch {
-    // non-fatal — form works without picker
+    relationshipOptionsError = true
   }
 
   return (
@@ -63,7 +63,7 @@ export default async function AddPartyPage({
       <div>
         <h2 className="text-xl font-semibold text-[#154212] mb-2">{t('addPartyTitle')}</h2>
         <p className="text-sm text-[#72796e] mb-6">{item.item_name}</p>
-        <AddPartyForm loanId={id} relationshipOptions={relationshipOptions} />
+        <AddPartyForm loanId={id} relationshipOptions={relationshipOptions} relationshipOptionsError={relationshipOptionsError} />
       </div>
     </LoanShell>
   )

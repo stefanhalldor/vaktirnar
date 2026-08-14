@@ -20,6 +20,7 @@ export default async function ExpenseRepaymentPage({ params }: { params: Promise
       homeLabel={t('homeLabel')}
       backHref={`/auth-mvp/utlagt-og-endurgreitt/hopar/${result.group.id}`}
       backLabel={t('back')}
+      closedTestingFeature="utlagt-og-endurgreitt"
     >
       <ExpenseRepaymentDetail group={result.group} repayment={result.repayment} />
     </ExpenseShell>

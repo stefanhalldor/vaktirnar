@@ -288,7 +288,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Feature flag: guard /stillingar/tengsl and all sub-paths.
-  // TENGSL_ENABLED must be 'true'. Per-user gating is enforced in server guards.
+  // TENGSL_ENABLED must be 'true'. Authentication is enforced below.
   if (
     pathname.startsWith('/stillingar/tengsl') &&
     process.env.TENGSL_ENABLED !== 'true'

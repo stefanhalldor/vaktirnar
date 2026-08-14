@@ -19,6 +19,7 @@ export default async function ExpensePayAllPage() {
       homeLabel={t('homeLabel')}
       backHref="/auth-mvp/utlagt-og-endurgreitt"
       backLabel={t('back')}
+      closedTestingFeature="utlagt-og-endurgreitt"
     >
       <ExpensePayAll view={view} locale={locale} initialDate={new Date().toISOString().slice(0, 10)} />
     </ExpenseShell>

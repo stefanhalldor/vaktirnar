@@ -9659,7 +9659,7 @@ export function RoadMapPrototypeMap({
             : teskeidCandidateStatus === 'rate_limited'
               ? t('roadMapPrototypeTeskeidCandidateRateLimited')
             : hasTeskeidSurface
-      ? t('roadMapPrototypeTeskeidSurfaceReady')
+      ? null
       : !hasSurfaceSummary
         ? t('roadMapPrototypeSurfaceRouteChoicesFound')
       : selectedHasGravel
@@ -9674,7 +9674,7 @@ export function RoadMapPrototypeMap({
 
     return (
       <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50/95 p-2 text-[11px] text-amber-950 shadow-sm dark:border-amber-800 dark:bg-amber-950/80 dark:text-amber-100">
-        <p className="mb-1.5 leading-snug">{intro}</p>
+        {intro ? <p className="mb-1.5 leading-snug">{intro}</p> : null}
         <RouteComparisonMiniMap
           ariaLabel={t('roadMapPrototypeRouteComparisonMapLabel')}
           routes={routeComparisonItems}

@@ -1,33 +1,22 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { LoanDateField } from './LoanDateField'
+import { LoanRelationshipPicker, type LoanCounterpartySelection } from './LoanRelationshipPicker'
 import type { ActionResult } from '@/lib/loans/actions'
 import type { LoanItem } from '@/lib/loans/types'
 import type { RelationshipRecipientOption } from '@/lib/relationships/actions'
-import { getRelationshipDisplayName } from '@/lib/relationships/display-and-sort'
 
 interface Props {
   action: (input: unknown) => Promise<ActionResult>
   initial?: LoanItem
   relationshipOptions?: RelationshipRecipientOption[]
+  relationshipOptionsError?: boolean
 }
 
-function relationshipOptionName(option: RelationshipRecipientOption) {
-  return getRelationshipDisplayName({
-    privateDisplayName: option.privateDisplayName,
-    counterpartDisplayName: option.selfDisplayName,
-    email: option.email,
-  })
-}
-
-function relationshipOptionShowsEmail(option: RelationshipRecipientOption) {
-  return relationshipOptionName(option) !== option.email
-}
-
-export function LoanForm({ action, initial, relationshipOptions }: Props) {
+export function LoanForm({ action, initial, relationshipOptions = [], relationshipOptionsError = false }: Props) {
   const t = useTranslations('teskeid.loans')
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -37,21 +26,18 @@ export function LoanForm({ action, initial, relationshipOptions }: Props) {
   const isCreate = !initial
   const today = new Date().toISOString().slice(0, 10)
 
-  // Stable request ID per form mount — never changes on re-render
-  const [requestId] = useState(() => crypto.randomUUID())
+  // Reuse an idempotency key only for an unchanged submitted operation.
+  // If the user changes anything after a failed/uncertain submit, that is a
+  // new intent and must not replay or mutate the earlier operation.
+  const lastSubmissionRef = useRef<{ fingerprint: string; requestId: string } | null>(null)
 
   const [creatorRole, setCreatorRole] = useState<'lender' | 'borrower'>('lender')
   const [itemName, setItemName] = useState(initial?.item_name ?? '')
-  const [recipientEmail, setRecipientEmail] = useState('')
-  const [relationshipLabelId, setRelationshipLabelId] = useState<string | null>(null)
+  const [counterparty, setCounterparty] = useState<LoanCounterpartySelection | null>(null)
   const [loanedAt, setLoanedAt] = useState(initial?.loaned_at ?? today)
   const [dueAt, setDueAt] = useState(initial?.due_at ?? '')
   const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
-  const relationshipLabels = Array.from(new Map(
-    (relationshipOptions ?? []).flatMap((option) => option.customLabels ?? []).map((label) => [label.id, label]),
-  ).values())
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (saving) return
@@ -59,15 +45,28 @@ export function LoanForm({ action, initial, relationshipOptions }: Props) {
     setError('')
 
     const input = isCreate
-      ? {
-          item_name: itemName,
-          creator_role: creatorRole,
-          recipient_email: recipientEmail || undefined,
-          loaned_at: loanedAt,
-          due_at: dueAt || null,
-          note: note || null,
-          request_id: requestId,
-        }
+      ? (() => {
+          const canonicalPayload = {
+            item_name: itemName.trim(),
+            creator_role: creatorRole,
+            recipient_email: counterparty?.kind === 'email'
+              ? counterparty.email.trim().toLowerCase()
+              : undefined,
+            counterparty_name: counterparty?.kind === 'name'
+              ? counterparty.name.trim().normalize('NFC')
+              : undefined,
+            loaned_at: loanedAt,
+            due_at: dueAt || null,
+            note: note.trim() || null,
+          }
+          const fingerprint = JSON.stringify(canonicalPayload)
+          const previous = lastSubmissionRef.current
+          const requestId = previous?.fingerprint === fingerprint
+            ? previous.requestId
+            : crypto.randomUUID()
+          lastSubmissionRef.current = { fingerprint, requestId }
+          return { ...canonicalPayload, request_id: requestId }
+        })()
       : {
           item_name: itemName,
           loaned_at: loanedAt,
@@ -138,58 +137,13 @@ export function LoanForm({ action, initial, relationshipOptions }: Props) {
 
       {/* Recipient — optional, create mode only */}
       {isCreate && (
-        <div className="flex flex-col gap-2">
-          {relationshipOptions && relationshipOptions.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-[#42493e]">{t('recipientFromContacts')}</span>
-              {relationshipLabels.length > 0 && <div className="flex flex-wrap gap-2 py-1" aria-label={t('relationshipLabelFilter')}><button type="button" onClick={() => setRelationshipLabelId(null)} className={`min-h-10 rounded-full border px-3 text-sm ${relationshipLabelId === null ? 'border-[#154212] bg-[#154212] text-white' : 'border-gray-200'}`}>{t('allRelationshipLabels')}</button>{relationshipLabels.map((label) => <button key={label.id} type="button" onClick={() => setRelationshipLabelId(label.id)} className={`min-h-10 rounded-full border px-3 text-sm ${relationshipLabelId === label.id ? 'border-[#154212] bg-[#154212] text-white' : 'border-gray-200'}`}>{label.name}</button>)}</div>}
-              <div
-                role="listbox"
-                aria-label={t('recipientFromContacts')}
-                className="max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white"
-              >
-                {relationshipOptions.filter((option) => !relationshipLabelId || option.customLabels?.some((label) => label.id === relationshipLabelId)).map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    role="option"
-                    aria-selected={recipientEmail === opt.email}
-                    onClick={() => setRecipientEmail(opt.email)}
-                    className={`block w-full border-b border-gray-100 px-3 py-2 text-left text-sm last:border-b-0 transition-colors ${
-                      recipientEmail === opt.email
-                        ? 'bg-[#154212]/10 text-[#154212]'
-                        : 'bg-white text-[#1f261d] hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className="block min-w-0 break-words font-medium">
-                      {relationshipOptionName(opt)}
-                    </span>
-                    {relationshipOptionShowsEmail(opt) && (
-                      <span className="mt-0.5 block min-w-0 break-all text-xs text-[#72796e]">
-                        {opt.email}
-                      </span>
-                    )}
-                    {opt.note && (
-                      <span className="mt-1 block min-w-0 break-words border-l-2 border-[#154212]/20 pl-3 text-xs text-[#72796e]">
-                        {opt.note}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-[#42493e]">{t('recipientEmailOptional')}</span>
-            <input
-              type="email"
-              value={recipientEmail}
-              onChange={(e) => setRecipientEmail(e.target.value)}
-              maxLength={320}
-              className={inputClass}
-            />
-          </label>
-        </div>
+        <LoanRelationshipPicker
+          options={relationshipOptions}
+          optionsError={relationshipOptionsError}
+          disabled={saving}
+          value={counterparty}
+          onChange={setCounterparty}
+        />
       )}
 
       {/* Loaned at */}

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { guardLoanAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
-import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, EditLoanItemDetailsSchema, SendLoanChatMessageSchema } from '@/lib/loans/types'
+import { CreateLoanSchema, EditLoanSchema, AddInvitationSchema, SetLoanCounterpartyNameSchema, EditLoanItemDetailsSchema, SendLoanChatMessageSchema } from '@/lib/loans/types'
 import { sendLoanInvitationEmail, type EmailContext } from '@/lib/loans/email'
 import { recordRecentEvent, ackRecentEventByKey } from '@/lib/recent-events/helpers.server'
 import { computeLoanChanges } from '@/lib/loans/event-diff'
@@ -308,26 +308,41 @@ export async function createLoan(input: unknown): Promise<ActionResult> {
   const parsed = CreateLoanSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: 'invalid_input' }
 
-  const { item_name, note, loaned_at, due_at, creator_role, recipient_email, request_id } =
+  const { item_name, note, loaned_at, due_at, creator_role, recipient_email, counterparty_name, request_id } =
     parsed.data
 
   const admin = getAdmin()
-  const { data, error } = await admin.rpc('create_loan', {
-    p_actor_id:        user.id,
-    p_item_name:       item_name,
-    p_note:            note ?? null,
-    p_loaned_at:       loaned_at,
-    p_due_at:          due_at ?? null,
-    p_creator_role:    creator_role,
-    p_recipient_email: recipient_email ?? null,
-    p_request_id:      request_id,
-  })
+  const rpcName = counterparty_name ? 'create_loan_with_counterparty_name' : 'create_loan'
+  const rpcInput = counterparty_name
+    ? {
+        p_actor_id: user.id,
+        p_item_name: item_name,
+        p_note: note ?? null,
+        p_loaned_at: loaned_at,
+        p_due_at: due_at ?? null,
+        p_creator_role: creator_role,
+        p_counterparty_name: counterparty_name,
+        p_request_id: request_id,
+      }
+    : {
+        p_actor_id: user.id,
+        p_item_name: item_name,
+        p_note: note ?? null,
+        p_loaned_at: loaned_at,
+        p_due_at: due_at ?? null,
+        p_creator_role: creator_role,
+        p_recipient_email: recipient_email ?? null,
+        p_request_id: request_id,
+      }
+  const { data, error } = await admin.rpc(rpcName, rpcInput)
 
   if (error) {
     const msg = error.message ?? ''
     if (msg.includes('recipient_unavailable')) return { ok: false, error: 'recipient_unavailable' }
     if (msg.includes('invalid_role'))          return { ok: false, error: 'invalid_input' }
     if (msg.includes('invalid_item_name'))     return { ok: false, error: 'invalid_input' }
+    if (msg.includes('invalid_counterparty_name')) return { ok: false, error: 'invalid_input' }
+    if (msg.includes('idempotency_conflict'))  return { ok: false, error: 'save_failed' }
     if (msg.includes('rate_limited'))          return { ok: false, error: 'rate_limited' }
     console.error('[loans/createLoan] RPC failed')
     return { ok: false, error: 'save_failed' }
@@ -661,6 +676,54 @@ export async function addLoanInvitation(loanId: string, input: unknown): Promise
 
   revalidateLoanViews()
   return { ok: true, emailStatus }
+}
+
+// ============================================================
+// setLoanCounterpartyName
+// Saves a creator-private name only. It creates no invitation and exposes no
+// relationship metadata to the other party.
+// ============================================================
+
+export async function setLoanCounterpartyName(loanId: string, input: unknown): Promise<ActionResult> {
+  const { user } = await guardLoanAccess()
+  const parsed = SetLoanCounterpartyNameSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: 'invalid_input' }
+
+  const admin = getAdmin()
+  const { data, error } = await admin.rpc('set_loan_counterparty_name', {
+    p_actor_id: user.id,
+    p_loan_id: loanId,
+    p_counterparty_name: parsed.data.counterparty_name,
+  })
+
+  if (error) {
+    const msg = error.message ?? ''
+    if (msg.includes('invalid_counterparty_name')) return { ok: false, error: 'invalid_input' }
+    if (msg.includes('not_found')) return { ok: false, error: 'not_found' }
+    if (msg.includes('already_has_party')) return { ok: false, error: 'already_has_party' }
+    if (msg.includes('already_has_invitation')) return { ok: false, error: 'already_has_invitation' }
+    console.error('[loans/setLoanCounterpartyName] RPC failed')
+    return { ok: false, error: 'save_failed' }
+  }
+  if (data !== 'ok') return { ok: false, error: 'save_failed' }
+
+  const { itemName } = await fetchLoanEventContext(admin, loanId)
+  await recordRecentEvent({
+    userId: user.id,
+    source: 'loans',
+    eventType: 'loan_party_added',
+    entityType: 'loan',
+    entityId: loanId,
+    eventKey: `loans:loan:${loanId}:counterparty-name-added`,
+    payload: itemName ? { itemName } : {},
+    href: LOANS_PATH,
+    updateOnConflict: true,
+    initiallyRead: true,
+    actorUserId: user.id,
+  })
+
+  revalidateLoanViews()
+  return { ok: true }
 }
 
 // ============================================================

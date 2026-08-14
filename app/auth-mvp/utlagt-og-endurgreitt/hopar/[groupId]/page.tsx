@@ -25,5 +25,5 @@ export default async function ExpenseGroupPage({ params }: { params: Promise<{ g
   if (group.kind === 'group' && group.status === 'active' && group.canManage) {
     try { participantOptions = await getExpenseParticipantOptions(user.id) } catch { participantOptionsError = true }
   }
-  return <ExpenseShell title={`${group.emoji ?? ''} ${group.name}`.trim()} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')}><ExpenseGroupDetail group={group} initialDate={new Date().toISOString().slice(0, 10)} participantOptions={participantOptions} participantOptionsError={participantOptionsError} /></ExpenseShell>
+  return <ExpenseShell title={`${group.emoji ?? ''} ${group.name}`.trim()} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt"><ExpenseGroupDetail group={group} initialDate={new Date().toISOString().slice(0, 10)} participantOptions={participantOptions} participantOptionsError={participantOptionsError} /></ExpenseShell>
 }

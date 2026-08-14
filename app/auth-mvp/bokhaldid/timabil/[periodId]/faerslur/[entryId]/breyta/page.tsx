@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { BookkeepingEntryForm } from '@/components/bookkeeping/BookkeepingEntryForm'
-import { BookkeepingShell } from '@/components/bookkeeping/BookkeepingShell'
+import { BookkeepingShell } from '@/components/bookkeeping/BookkeepingPrivateShell.server'
 import { getBookkeepingTranslations } from '@/components/bookkeeping/i18n.server'
 import { guardBookkeepingAccess } from '@/lib/bookkeeping/guard'
 import {

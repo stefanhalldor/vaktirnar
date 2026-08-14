@@ -18,17 +18,9 @@ const { mockRedirect } = vi.hoisted(() => ({
 
 const { mockGetUser } = vi.hoisted(() => ({ mockGetUser: vi.fn() }))
 const { mockIsAllowedEmail } = vi.hoisted(() => ({ mockIsAllowedEmail: vi.fn() }))
-const { mockFeatureAccessQuery } = vi.hoisted(() => ({ mockFeatureAccessQuery: vi.fn() }))
-
-vi.mock('next/navigation', () => ({ redirect: mockRedirect }))
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(async () => ({ auth: { getUser: mockGetUser } })),
-}))
-vi.mock('@/lib/auth/allowlist', () => ({
-  isAuthMvpAllowedEmail: mockIsAllowedEmail,
-}))
-vi.mock('@/lib/supabase/admin', () => ({
-  getAdmin: vi.fn(() => ({
+const { mockFeatureAccessQuery, mockGetAdmin } = vi.hoisted(() => {
+  const mockFeatureAccessQuery = vi.fn()
+  const mockGetAdmin = vi.fn(() => ({
     from: vi.fn(() => ({
       select: vi.fn(() => ({
         eq: vi.fn(() => ({
@@ -38,7 +30,19 @@ vi.mock('@/lib/supabase/admin', () => ({
         })),
       })),
     })),
-  })),
+  }))
+  return { mockFeatureAccessQuery, mockGetAdmin }
+})
+
+vi.mock('next/navigation', () => ({ redirect: mockRedirect }))
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: vi.fn(async () => ({ auth: { getUser: mockGetUser } })),
+}))
+vi.mock('@/lib/auth/allowlist', () => ({
+  isAuthMvpAllowedEmail: mockIsAllowedEmail,
+}))
+vi.mock('@/lib/supabase/admin', () => ({
+  getAdmin: mockGetAdmin,
 }))
 
 import { guardTeskeidAccess, guardTeskeidSession } from '@/lib/auth/guard'
@@ -363,6 +367,84 @@ describe('guardFeatureAccess — umonnun', () => {
     mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
     await expect(guardFeatureAccess('user@example.com', 'umonnun')).resolves.toBeUndefined()
     expect(mockRedirect).not.toHaveBeenCalled()
+  })
+})
+
+// ── checkFeatureAccess — tengsl ──────────────────────────────────────────────
+
+describe('checkFeatureAccess — tengsl (graduated authenticated feature)', () => {
+  let savedEnabled: string | undefined
+  let savedFlag: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.TENGSL_ENABLED
+    savedFlag = process.env.TENGSL_FLAG
+  })
+
+  afterEach(() => {
+    setEnv('TENGSL_ENABLED', savedEnabled)
+    setEnv('TENGSL_FLAG', savedFlag)
+  })
+
+  it('returns false when TENGSL_ENABLED is absent', async () => {
+    delete process.env.TENGSL_ENABLED
+
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'tengsl')).toBe(false)
+    expect(mockGetAdmin).not.toHaveBeenCalled()
+  })
+
+  it('returns false when TENGSL_ENABLED is not exactly true', async () => {
+    process.env.TENGSL_ENABLED = 'false'
+
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'tengsl')).toBe(false)
+    expect(mockGetAdmin).not.toHaveBeenCalled()
+  })
+
+  it('returns true when TENGSL_ENABLED=true without a feature_access lookup', async () => {
+    process.env.TENGSL_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'tengsl')).toBe(true)
+    expect(mockGetAdmin).not.toHaveBeenCalled()
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stale TENGSL_FLAG=true and remains open without a feature_access row', async () => {
+    process.env.TENGSL_ENABLED = 'true'
+    process.env.TENGSL_FLAG = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'tengsl')).toBe(true)
+    expect(mockGetAdmin).not.toHaveBeenCalled()
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+})
+
+describe('guardFeatureAccess — tengsl', () => {
+  let savedEnabled: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEnabled = process.env.TENGSL_ENABLED
+  })
+
+  afterEach(() => {
+    setEnv('TENGSL_ENABLED', savedEnabled)
+  })
+
+  it('redirects when the global switch is off', async () => {
+    process.env.TENGSL_ENABLED = 'false'
+
+    await expect(guardFeatureAccess('user@example.com', 'tengsl')).rejects.toThrow('NEXT_REDIRECT:/')
+  })
+
+  it('does not redirect when the global switch is on', async () => {
+    process.env.TENGSL_ENABLED = 'true'
+
+    await expect(guardFeatureAccess('user@example.com', 'tengsl')).resolves.toBeUndefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
+    expect(mockGetAdmin).not.toHaveBeenCalled()
   })
 })
 

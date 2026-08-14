@@ -1,7 +1,10 @@
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
+import { ClosedTestingBanner } from '@/components/teskeid/ClosedTestingBanner'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
+import type { TeskeidLauncherId } from '@/lib/teskeid/launcherCatalog'
+import { resolveTeskeidFeatureRollout } from '@/lib/teskeid/featureRollout.server'
 
 interface ExpenseShellProps {
   title: string
@@ -9,6 +12,7 @@ interface ExpenseShellProps {
   backHref?: string
   backLabel?: string
   homeLabel: string
+  closedTestingFeature?: TeskeidLauncherId
 }
 
 export function ExpenseShell({
@@ -17,7 +21,12 @@ export function ExpenseShell({
   backHref,
   backLabel,
   homeLabel,
+  closedTestingFeature,
 }: ExpenseShellProps) {
+  const showClosedTestingBanner = closedTestingFeature
+    ? resolveTeskeidFeatureRollout(closedTestingFeature) === 'closed-testing'
+    : false
+
   return (
     <div className="min-h-screen overflow-x-clip bg-background text-foreground">
       <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] sm:px-6">
@@ -36,6 +45,8 @@ export function ExpenseShell({
           </h1>
           <TeskeidMenu variant="authenticated" />
         </header>
+
+        {showClosedTestingBanner ? <ClosedTestingBanner className="mb-6" /> : null}
 
         <div className="flex-1">{children}</div>
 

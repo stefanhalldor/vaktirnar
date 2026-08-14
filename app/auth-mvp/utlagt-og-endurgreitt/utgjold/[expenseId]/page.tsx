@@ -26,6 +26,7 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         homeLabel={t('homeLabel')}
         backHref="/auth-mvp/utlagt-og-endurgreitt"
         backLabel={t('back')}
+        closedTestingFeature="utlagt-og-endurgreitt"
       >
         <div role="alert" className="space-y-3 border-y border-border py-6">
           <p className="font-semibold">{t('noAccess.heading')}</p>
@@ -52,6 +53,7 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         ? '/auth-mvp/utlagt-og-endurgreitt'
         : `/auth-mvp/utlagt-og-endurgreitt/hopar/${result.group.id}`}
       backLabel={t('back')}
+      closedTestingFeature="utlagt-og-endurgreitt"
     >
       <ExpenseItemDetail
         group={result.group}

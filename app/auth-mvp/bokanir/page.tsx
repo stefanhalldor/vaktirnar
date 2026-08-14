@@ -2,8 +2,10 @@ import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
 import { BookingShell } from '@/components/bookings/BookingShell'
 import { ProviderBookingWorkspaceClient } from '@/components/bookings/ProviderBookingWorkspaceClient'
+import { ClosedTestingBanner } from '@/components/teskeid/ClosedTestingBanner'
 import { guardBookingProvider } from '@/lib/bookings/access.server'
 import { loadProviderBookingWorkspace } from '@/lib/bookings/repository.server'
+import { resolveTeskeidFeatureRollout } from '@/lib/teskeid/featureRollout.server'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -24,6 +26,7 @@ export default async function BookingProviderPage() {
     getTranslations('bookings'),
   ])
   const workspace = await loadProviderBookingWorkspace(user.id, spaceId)
+  const showClosedTestingBanner = resolveTeskeidFeatureRollout('bokanir') === 'closed-testing'
 
   return (
     <BookingShell
@@ -33,6 +36,7 @@ export default async function BookingProviderPage() {
       backLabel={t('provider.back')}
       menuVariant="authenticated"
     >
+      {showClosedTestingBanner ? <ClosedTestingBanner className="mb-6" /> : null}
       <ProviderBookingWorkspaceClient initialWorkspace={workspace} />
     </BookingShell>
   )

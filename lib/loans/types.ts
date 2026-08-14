@@ -77,11 +77,19 @@ export const CreateLoanSchema = z
       (v) => (v === '' || v == null ? undefined : v),
       z.string().trim().email().max(320).transform((v) => v.toLowerCase()).optional(),
     ),
+    counterparty_name: z.preprocess(
+      (v) => (v === '' || v == null ? undefined : v),
+      z.string().trim().min(1).max(120).transform((v) => v.normalize('NFC')).optional(),
+    ),
     request_id: z.string().uuid(),
   })
   .refine((d) => !d.due_at || d.due_at >= d.loaned_at, {
     message: 'due_at must be on or after loaned_at',
     path: ['due_at'],
+  })
+  .refine((d) => !(d.recipient_email && d.counterparty_name), {
+    message: 'recipient_email and counterparty_name are mutually exclusive',
+    path: ['counterparty_name'],
   })
 
 export const EditLoanItemDetailsSchema = z
@@ -123,6 +131,10 @@ export const AddInvitationSchema = z.object({
   recipient_email: z.string().trim().email('invalid_email').max(320).transform((v) => v.toLowerCase()),
 })
 
+export const SetLoanCounterpartyNameSchema = z.object({
+  counterparty_name: z.string().trim().min(1, 'required').max(120).transform((v) => v.normalize('NFC')),
+})
+
 export const SendLoanChatMessageSchema = z.object({
   body: z.string().trim().min(1, 'required').max(1000),
 })
@@ -130,6 +142,7 @@ export const SendLoanChatMessageSchema = z.object({
 export type CreateLoanInput = z.infer<typeof CreateLoanSchema>
 export type EditLoanInput = z.infer<typeof EditLoanSchema>
 export type AddInvitationInput = z.infer<typeof AddInvitationSchema>
+export type SetLoanCounterpartyNameInput = z.infer<typeof SetLoanCounterpartyNameSchema>
 
 /**
  * Returns 0 (Sun)–6 (Sat) for a YYYY-MM-DD string, parsed as a local date

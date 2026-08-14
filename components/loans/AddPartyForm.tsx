@@ -3,47 +3,38 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { addLoanInvitation } from '@/lib/loans/actions'
+import { addLoanInvitation, setLoanCounterpartyName } from '@/lib/loans/actions'
 import type { RelationshipRecipientOption } from '@/lib/relationships/actions'
-import { getRelationshipDisplayName } from '@/lib/relationships/display-and-sort'
+import { LoanRelationshipPicker, type LoanCounterpartySelection } from './LoanRelationshipPicker'
 
 interface Props {
   loanId: string
   relationshipOptions?: RelationshipRecipientOption[]
+  relationshipOptionsError?: boolean
 }
 
-function relationshipOptionName(option: RelationshipRecipientOption) {
-  return getRelationshipDisplayName({
-    privateDisplayName: option.privateDisplayName,
-    counterpartDisplayName: option.selfDisplayName,
-    email: option.email,
-  })
-}
-
-function relationshipOptionShowsEmail(option: RelationshipRecipientOption) {
-  return relationshipOptionName(option) !== option.email
-}
-
-export function AddPartyForm({ loanId, relationshipOptions }: Props) {
+export function AddPartyForm({ loanId, relationshipOptions = [], relationshipOptionsError = false }: Props) {
   const t = useTranslations('teskeid.loans')
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [recipientEmail, setRecipientEmail] = useState('')
-  const [relationshipLabelId, setRelationshipLabelId] = useState<string | null>(null)
+  const [counterparty, setCounterparty] = useState<LoanCounterpartySelection | null>(null)
   const [error, setError] = useState('')
-  const [saveEmailStatus, setSaveEmailStatus] = useState<'sent' | 'failed' | 'uncertain' | null>(null)
-  const relationshipLabels = Array.from(new Map(
-    (relationshipOptions ?? []).flatMap((option) => option.customLabels ?? []).map((label) => [label.id, label]),
-  ).values())
+  const [saveEmailStatus, setSaveEmailStatus] = useState<'saved' | 'sent' | 'failed' | 'uncertain' | null>(null)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
 
     startTransition(async () => {
-      const result = await addLoanInvitation(loanId, { recipient_email: recipientEmail })
+      if (!counterparty) {
+        setError(t('counterpartyRequired'))
+        return
+      }
+      const result = counterparty.kind === 'email'
+        ? await addLoanInvitation(loanId, { recipient_email: counterparty.email })
+        : await setLoanCounterpartyName(loanId, { counterparty_name: counterparty.name })
       if (result.ok) {
-        setSaveEmailStatus(result.emailStatus ?? 'sent')
+        setSaveEmailStatus(counterparty.kind === 'email' ? (result.emailStatus ?? 'sent') : 'saved')
         setTimeout(() => {
           router.push('/auth-mvp/lanad-og-skilad')
           router.refresh()
@@ -64,67 +55,22 @@ export function AddPartyForm({ loanId, relationshipOptions }: Props) {
     })
   }
 
-  const inputClass =
-    'h-10 w-full rounded-xl border border-gray-200 px-3 text-base outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10'
-
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-      {relationshipOptions && relationshipOptions.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-[#42493e]">{t('recipientFromContacts')}</span>
-          {relationshipLabels.length > 0 && <div className="flex flex-wrap gap-2 py-1" aria-label={t('relationshipLabelFilter')}><button type="button" onClick={() => setRelationshipLabelId(null)} className={`min-h-10 rounded-full border px-3 text-sm ${relationshipLabelId === null ? 'border-[#154212] bg-[#154212] text-white' : 'border-gray-200'}`}>{t('allRelationshipLabels')}</button>{relationshipLabels.map((label) => <button key={label.id} type="button" onClick={() => setRelationshipLabelId(label.id)} className={`min-h-10 rounded-full border px-3 text-sm ${relationshipLabelId === label.id ? 'border-[#154212] bg-[#154212] text-white' : 'border-gray-200'}`}>{label.name}</button>)}</div>}
-          <div
-            role="listbox"
-            aria-label={t('recipientFromContacts')}
-            className="max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white"
-          >
-            {relationshipOptions.filter((option) => !relationshipLabelId || option.customLabels?.some((label) => label.id === relationshipLabelId)).map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                role="option"
-                aria-selected={recipientEmail === opt.email}
-                onClick={() => setRecipientEmail(opt.email)}
-                className={`block w-full border-b border-gray-100 px-3 py-2 text-left text-sm last:border-b-0 transition-colors ${
-                  recipientEmail === opt.email
-                    ? 'bg-[#154212]/10 text-[#154212]'
-                    : 'bg-white text-[#1f261d] hover:bg-gray-50'
-                }`}
-              >
-                <span className="block min-w-0 break-words font-medium">
-                  {relationshipOptionName(opt)}
-                </span>
-                {relationshipOptionShowsEmail(opt) && (
-                  <span className="mt-0.5 block min-w-0 break-all text-xs text-[#72796e]">
-                    {opt.email}
-                  </span>
-                )}
-                {opt.note && (
-                  <span className="mt-1 block min-w-0 break-words border-l-2 border-[#154212]/20 pl-3 text-xs text-[#72796e]">
-                    {opt.note}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-[#42493e]">{t('addPartyEmail')}</span>
-        <input
-          type="email"
-          value={recipientEmail}
-          onChange={(e) => setRecipientEmail(e.target.value)}
-          required
-          maxLength={320}
-          className={inputClass}
-        />
-      </label>
+      <LoanRelationshipPicker
+        options={relationshipOptions}
+        optionsError={relationshipOptionsError}
+        disabled={isPending}
+        value={counterparty}
+        onChange={setCounterparty}
+      />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {saveEmailStatus !== null && (
-        <p className={`text-sm ${saveEmailStatus === 'sent' ? 'text-[#154212]' : 'text-amber-600'}`}>
-          {saveEmailStatus === 'sent'
+        <p className={`text-sm ${saveEmailStatus === 'sent' || saveEmailStatus === 'saved' ? 'text-[#154212]' : 'text-amber-600'}`}>
+          {saveEmailStatus === 'saved'
+            ? t('counterpartySaved')
+            : saveEmailStatus === 'sent'
             ? t('addPartySaved')
             : saveEmailStatus === 'failed'
               ? t('addPartySavedEmailFailed')
@@ -145,7 +91,7 @@ export function AddPartyForm({ loanId, relationshipOptions }: Props) {
           disabled={isPending}
           className="flex-1 h-10 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
         >
-          {isPending ? '...' : t('save')}
+          {isPending ? t('saving') : t('save')}
         </button>
       </div>
     </form>

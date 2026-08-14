@@ -88,21 +88,25 @@ function graph(edges: readonly IcelandRoadGraphEdge[] = EDGES): IcelandRoadGraph
   }
 }
 
-function evidence() {
-  const route = buildIcelandRoadGraphRouteFromEdges(EDGES)
+function evidenceForEdges(connectedRoadEdges: readonly IcelandRoadGraphEdge[]) {
+  const route = buildIcelandRoadGraphRouteFromEdges(connectedRoadEdges)
   const originAnchorKind = 'projected_road' as const
   const destinationAnchorKind = 'projected_road' as const
   return {
     route: roadGraphRouteToTeskeidOption(route, ORIGIN, DESTINATION, 0, 0, 0),
-    connectedRoadEdges: EDGES,
+    connectedRoadEdges,
     routeProvenanceFingerprint: createRouteAssessmentRouteProvenanceFingerprint({
       origin: { kind: originAnchorKind, point: ORIGIN },
       destination: { kind: destinationAnchorKind, point: DESTINATION },
-      connectedRoadEdges: EDGES,
+      connectedRoadEdges,
     }),
     originAnchorKind,
     destinationAnchorKind,
   }
+}
+
+function evidence() {
+  return evidenceForEdges(EDGES)
 }
 
 describe('signed route option evidence', () => {
@@ -161,12 +165,21 @@ describe('signed route option evidence', () => {
       origin: ORIGIN,
       destination: DESTINATION,
     })).toBe(true)
-    const signedAlternative = {
-      ...original.route,
-      id: createTeskeidAssessmentAlternativeRouteId(1, claim.routeProvenanceFingerprint),
-      routeIndex: -2,
-      labels: [...original.route.labels, 'TESKEID_ALTERNATIVE'],
-    }
+    const signedAlternative = roadGraphRouteToTeskeidOption(
+      restored.route,
+      ORIGIN,
+      DESTINATION,
+      1,
+      0,
+      0,
+      createTeskeidAssessmentAlternativeRouteId(1, claim.routeProvenanceFingerprint),
+    )
+    expect(signedAlternative.labels).toEqual([
+      'TESKEID_EXPERIMENTAL',
+      'TESKEID_DERIVED_DURATION',
+      'TESKEID_ALTERNATIVE',
+      'TESKEID_GRAVEL',
+    ])
     expect(restoredRouteOptionEvidenceMatchesSignedRoute({
       restored,
       signedRoute: signedAlternative,
@@ -174,6 +187,39 @@ describe('signed route option evidence', () => {
       origin: ORIGIN,
       destination: DESTINATION,
     })).toBe(true)
+    expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+      restored,
+      signedRoute: {
+        ...signedAlternative,
+        labels: [...signedAlternative.labels].reverse(),
+      },
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })).toBe(true)
+    for (const labels of [
+      signedAlternative.labels.slice(0, -1),
+      [...signedAlternative.labels, 'UNKNOWN_LABEL'],
+      [...signedAlternative.labels, signedAlternative.labels[0]],
+    ]) {
+      expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+        restored,
+        signedRoute: { ...signedAlternative, labels },
+        claim,
+        origin: ORIGIN,
+        destination: DESTINATION,
+      })).toBe(false)
+    }
+    expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+      restored,
+      signedRoute: {
+        ...signedAlternative,
+        labels: undefined as unknown as string[],
+      },
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })).toBe(false)
     for (const signedRoute of [
       { ...original.route, id: 'forged-id' },
       { ...original.route, routeIndex: -2 },
@@ -229,7 +275,7 @@ describe('signed route option evidence', () => {
         toNodeId: 'node-reydarfjordur-b',
         geometry: [ORIGIN, REYDARFJORDUR_GATE],
         lengthM: 1_000,
-        surface: 'paved',
+        surface: 'gravel',
       }),
       edge({
         id: 'edge-reydarfjordur-b',
@@ -278,13 +324,74 @@ describe('signed route option evidence', () => {
       destination: DESTINATION,
     })).toBe(true)
 
+    const contextualAlternative = roadGraphRouteToTeskeidOption(
+      route,
+      ORIGIN,
+      DESTINATION,
+      1,
+      0,
+      0,
+      createTeskeidAssessmentAlternativeRouteId(1, claim.routeProvenanceFingerprint),
+    )
     const contextualSafeRoute = {
-      ...ordinary.route,
-      labels: [...ordinary.route.labels, 'CURATED_AVOID_OXI'],
+      ...contextualAlternative,
+      labels: [
+        'TESKEID_EXPERIMENTAL',
+        'TESKEID_DERIVED_DURATION',
+        'CURATED_AVOID_OXI',
+        'TESKEID_ALTERNATIVE',
+        'TESKEID_GRAVEL',
+      ],
     }
     expect(restoredRouteOptionEvidenceMatchesSignedRoute({
       restored,
       signedRoute: contextualSafeRoute,
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })).toBe(true)
+  })
+
+  it.each([
+    ['gravel', 'TESKEID_GRAVEL'],
+    ['mixed', 'TESKEID_MIXED_SURFACE'],
+    ['unknown', 'TESKEID_UNKNOWN_SURFACE'],
+  ] as const)('accepts a reordered ordinary alternative with %s evidence', (surface, label) => {
+    const connectedRoadEdges = EDGES.map(item => (
+      item.id === 'edge-gravel' ? { ...item, surface } : item
+    ))
+    const original = evidenceForEdges(connectedRoadEdges)
+    const claim = createRouteOptionEvidenceClaim({
+      origin: ORIGIN,
+      destination: DESTINATION,
+      evidence: original,
+    })
+    expect(claim).not.toBeNull()
+    if (!claim) return
+    const restored = restoreRouteOptionEvidence({
+      graph: graph(connectedRoadEdges),
+      claim,
+      origin: ORIGIN,
+      destination: DESTINATION,
+    })
+    expect(restored).not.toBeNull()
+    if (!restored) return
+    const signedAlternative = roadGraphRouteToTeskeidOption(
+      restored.route,
+      ORIGIN,
+      DESTINATION,
+      1,
+      0,
+      0,
+      createTeskeidAssessmentAlternativeRouteId(1, claim.routeProvenanceFingerprint),
+    )
+    expect(signedAlternative.labels).toContain(label)
+    expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+      restored,
+      signedRoute: {
+        ...signedAlternative,
+        labels: [...signedAlternative.labels].reverse(),
+      },
       claim,
       origin: ORIGIN,
       destination: DESTINATION,

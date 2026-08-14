@@ -1,15 +1,17 @@
 import { ArrowLeft } from 'lucide-react'
 import { BookkeepingPendingLink } from '@/components/bookkeeping/BookkeepingPendingLink'
+import { ClosedTestingBanner } from '@/components/teskeid/ClosedTestingBanner'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 
-interface BookkeepingShellProps {
+export interface BookkeepingShellProps {
   title: string
   children: React.ReactNode
   backHref?: string
   backLabel?: string
   homeLabel: string
   wide?: boolean
+  showClosedTestingBanner?: boolean
 }
 
 export function BookkeepingShell({
@@ -19,6 +21,7 @@ export function BookkeepingShell({
   backLabel,
   homeLabel,
   wide = false,
+  showClosedTestingBanner = false,
 }: BookkeepingShellProps) {
   return (
     <div className="min-h-screen overflow-x-clip bg-background text-foreground">
@@ -40,6 +43,8 @@ export function BookkeepingShell({
           </h1>
           <TeskeidMenu variant="authenticated" />
         </header>
+
+        {showClosedTestingBanner ? <ClosedTestingBanner className="mb-6" /> : null}
 
         <div className="min-w-0 flex-1">{children}</div>
 

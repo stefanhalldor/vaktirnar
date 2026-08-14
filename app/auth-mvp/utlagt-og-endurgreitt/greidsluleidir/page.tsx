@@ -9,7 +9,7 @@ export default async function ExpensePaymentPreferencesPage() {
   const profile = await getExpensePaymentProfileV2(user.id)
 
   return (
-    <ExpenseShell title={t('preferences.title')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')}>
+    <ExpenseShell title={t('preferences.title')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
       <ExpensePaymentPreferences profile={profile} />
     </ExpenseShell>
   )

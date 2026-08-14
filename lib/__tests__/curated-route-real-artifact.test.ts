@@ -25,6 +25,11 @@ import {
 } from '@/lib/iceland-routes/routeAssessmentRoadAnchor.server'
 import { createRouteAssessmentScopeId } from '@/lib/iceland-routes/routeAssessmentScopeId.server'
 import type { IcelandRoadGraph, IcelandRoadGraphEdge } from '@/lib/iceland-routes/roadGraphTypes'
+import {
+  createRouteOptionEvidenceClaim,
+  restoredRouteOptionEvidenceMatchesSignedRoute,
+  restoreRouteOptionEvidence,
+} from '@/lib/iceland-routes/routeOptionEvidence.server'
 import type { LatLon } from '@/lib/iceland-routes/types'
 import {
   normalizeVegagerdinRoadGraphSegmentsWithReport,
@@ -109,6 +114,34 @@ function resolved(origin: LatLon, destination: LatLon) {
   return outcome.evidence
 }
 
+function expectSignedEvidenceRoundTrip(
+  evidence: ReturnType<typeof resolved>[number],
+) {
+  const origin = evidence.route.points[0]
+  const destination = evidence.route.points.at(-1)
+  expect(origin).toBeDefined()
+  expect(destination).toBeDefined()
+  if (!origin || !destination) return
+  const claim = createRouteOptionEvidenceClaim({ origin, destination, evidence })
+  expect(claim).not.toBeNull()
+  if (!claim) return
+  const restored = restoreRouteOptionEvidence({
+    graph,
+    claim,
+    origin,
+    destination,
+  })
+  expect(restored).not.toBeNull()
+  if (!restored) return
+  expect(restoredRouteOptionEvidenceMatchesSignedRoute({
+    restored,
+    signedRoute: evidence.route,
+    claim,
+    origin,
+    destination,
+  })).toBe(true)
+}
+
 beforeAll(() => {
   // This suite is a release gate. Missing artifacts fail; they never turn the
   // suite into describe.skip and therefore can never produce a false green.
@@ -189,11 +222,13 @@ describe('v238 official-artifact curated parity (required, never skipped)', () =
     const southRoute = south.find(item => item.route.labels.includes('CURATED_VIA_HELLISHEIDI'))
     expect(southRoute).toBeDefined()
     expect(nearestVerifiedEdgeIndex(southRoute!.connectedRoadEdges, HELLISHEIDI_GATE, ['1'])).toBeGreaterThanOrEqual(0)
+    expectSignedEvidenceRoundTrip(southRoute!)
 
     const east = resolved(REYKJAVIK, EGILSSTADIR)
     const eastRoute = east.find(item => item.route.labels.includes('CURATED_EAST_ICELAND_VIA_HELLISHEIDI'))
     expect(eastRoute?.route.labels).toContain('CURATED_VIA_HELLISHEIDI')
     expect(nearestVerifiedEdgeIndex(eastRoute!.connectedRoadEdges, HELLISHEIDI_GATE, ['1'])).toBeGreaterThanOrEqual(0)
+    expectSignedEvidenceRoundTrip(eastRoute!)
   }, 240_000)
 
   it('dedupes the Garðabær to Egilsstaðir southern path and removes terminal backtrack', () => {
@@ -274,6 +309,8 @@ describe('v238 official-artifact curated parity (required, never skipped)', () =
       expect(nearestVerifiedEdgeIndex(safe!.connectedRoadEdges, REYDARFJORDUR_GATE, ['92', '96'])).toBeGreaterThanOrEqual(0)
       expect(safe!.connectedRoadEdges.some(edge => edge.roadNumber === '939')).toBe(false)
       expect(safe!.route.cautions).not.toContainEqual(expect.objectContaining({ id: 'oxi-axarvegur-939' }))
+      expectSignedEvidenceRoundTrip(oxi!)
+      expectSignedEvidenceRoundTrip(safe!)
     }
   }, 240_000)
 
@@ -294,6 +331,7 @@ describe('v238 official-artifact curated parity (required, never skipped)', () =
       expect(indices[1]).toBeGreaterThan(indices[0])
       expect(holmavik!.route.points[0]).toEqual(holmavik!.connectedRoadEdges[0].geometry[0])
       expect(holmavik!.route.points.at(-1)).toEqual(holmavik!.connectedRoadEdges.at(-1)?.geometry.at(-1))
+      expectSignedEvidenceRoundTrip(holmavik!)
     }
   }, 240_000)
 })

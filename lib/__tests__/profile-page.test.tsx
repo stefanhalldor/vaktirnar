@@ -185,7 +185,7 @@ describe('AuthMvpProfilePage — DOM order', () => {
 // ── Logout redirect ────────────────────────────────────────────────────────
 
 describe('AuthMvpProfilePage — Tengsl entry point', () => {
-  it('does not reveal Tengsl when the per-user feature is unavailable', async () => {
+  it('does not reveal Tengsl when the profile API reports it unavailable', async () => {
     render(React.createElement(AuthMvpProfilePage))
     await screen.findByText('Vista')
     expect(screen.queryByRole('link', { name: /Tengsl/ })).toBeNull()

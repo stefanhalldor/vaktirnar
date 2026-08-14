@@ -21,22 +21,22 @@ export default async function NewLoanPage() {
     </Link>
   )
 
-  let relationshipOptions: RelationshipRecipientOption[] | undefined
+  let relationshipOptions: RelationshipRecipientOption[] = []
+  let relationshipOptionsError = false
   try {
     const hasTengsl = await checkFeatureAccess(user.id, user.email!, 'tengsl')
     if (hasTengsl) {
-      const opts = await getRelationshipRecipientOptions(user.id)
-      if (opts.length > 0) relationshipOptions = opts
+      relationshipOptions = await getRelationshipRecipientOptions(user.id, { throwOnError: true })
     }
   } catch {
-    // non-fatal — form works without picker
+    relationshipOptionsError = true
   }
 
   return (
     <LoanShell nav={nav} homeLabel={t('homeLink')}>
       <div>
         <h2 className="text-xl font-semibold text-[#154212] mb-6">{t('newTitle')}</h2>
-        <LoanForm action={createLoan} relationshipOptions={relationshipOptions} />
+        <LoanForm action={createLoan} relationshipOptions={relationshipOptions} relationshipOptionsError={relationshipOptionsError} />
       </div>
     </LoanShell>
   )

@@ -73,6 +73,7 @@ export default async function EditExpensePage({
       homeLabel={t('homeLabel')}
       backHref={`/auth-mvp/utlagt-og-endurgreitt/utgjold/${expense.id}`}
       backLabel={t('back')}
+      closedTestingFeature="utlagt-og-endurgreitt"
     >
       <ExpenseForm
         mode={group.kind}

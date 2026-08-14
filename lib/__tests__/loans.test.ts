@@ -3,7 +3,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 
 const ROOT = join(__dirname, '..', '..')
-import { CreateLoanSchema, EditLoanSchema, EditLoanItemDetailsSchema, AddInvitationSchema, canShowReturnControls, getLoanCardControls, loanedAtWeekday } from '../loans/types'
+import { CreateLoanSchema, EditLoanSchema, EditLoanItemDetailsSchema, AddInvitationSchema, SetLoanCounterpartyNameSchema, canShowReturnControls, getLoanCardControls, loanedAtWeekday } from '../loans/types'
 import type { LoanItem } from '../loans/types'
 
 const baseCreate = {
@@ -121,6 +121,30 @@ describe('CreateLoanSchema — required text fields', () => {
     const result = CreateLoanSchema.safeParse({ ...base, recipient_email: 'JON@EXAMPLE.COM' })
     expect(result.success).toBe(true)
     if (result.success) expect(result.data.recipient_email).toBe('jon@example.com')
+  })
+})
+
+describe('loan counterparty name validation', () => {
+  const base = {
+    item_name: 'Bók', loaned_at: '2026-08-14', due_at: null,
+    creator_role: 'lender' as const, request_id: '11111111-1111-4111-8111-111111111111',
+  }
+
+  it('accepts and NFC-normalizes a private name', () => {
+    const result = CreateLoanSchema.safeParse({ ...base, counterparty_name: ' Páll ' })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.counterparty_name).toBe('Páll')
+  })
+
+  it('rejects simultaneous email and private name', () => {
+    expect(CreateLoanSchema.safeParse({
+      ...base, recipient_email: 'pall@example.is', counterparty_name: 'Páll',
+    }).success).toBe(false)
+  })
+
+  it('bounds the add-party private-name action input', () => {
+    expect(SetLoanCounterpartyNameSchema.safeParse({ counterparty_name: 'Páll' }).success).toBe(true)
+    expect(SetLoanCounterpartyNameSchema.safeParse({ counterparty_name: 'x'.repeat(121) }).success).toBe(false)
   })
 })
 

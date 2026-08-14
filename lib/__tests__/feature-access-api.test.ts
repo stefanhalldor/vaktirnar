@@ -95,10 +95,10 @@ describe('GET /api/admin/feature-access — auth', () => {
     expect(res.status).toBe(200)
   })
 
-  it('returns 200 for ?feature=tengsl', async () => {
+  it('rejects graduated Tengsl as an obsolete per-user authority', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
     const res = await GET(makeGetRequest('tengsl'))
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(400)
   })
 
   it('returns 200 for ?feature=vedrid', async () => {
@@ -177,11 +177,12 @@ describe('POST /api/admin/feature-access — auth and validation', () => {
     expect(res.status).toBe(400)
   })
 
-  it('?feature=tengsl is accepted', async () => {
+  it('cannot grant obsolete per-user Tengsl access', async () => {
     mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
     mockAdminQuery.mockResolvedValue({ error: null })
     const res = await POST(makeRequest({ email: 'user@example.com' }, 'POST', 'tengsl'))
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(400)
+    expect(mockInsert).not.toHaveBeenCalled()
   })
 
   it('grants only the canonical expenses private-beta key', async () => {
@@ -252,6 +253,18 @@ describe('DELETE /api/admin/feature-access — auth and validation', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
+  })
+
+  it('cannot revoke obsolete per-user Tengsl access', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    const res = await DELETE(makeRequest(
+      { email: 'user@example.com' },
+      'DELETE',
+      'tengsl',
+    ))
+
+    expect(res.status).toBe(400)
+    expect(mockAdminQuery).not.toHaveBeenCalled()
   })
 
   it('revokes the exact expenses private-beta feature key', async () => {

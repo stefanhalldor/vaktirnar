@@ -19,14 +19,16 @@ export default async function VedridPage() {
   ).catch(() => false)
 
   return (
-    <main className="h-[100dvh] overflow-hidden bg-background">
-      <RoadMapPrototypeMap
-        isAuthenticated
-        preferenceOwnerId={user.id}
-        hasRoadIntelligence={hasRoadIntelligence}
-        teskeidRouteCandidateEnabled={hasTeskeidRouting}
-        navigation={{ canonicalPath: '/auth-mvp/vedrid', authenticatedPath: '/auth-mvp/vedrid' }}
-      />
+    <main className="flex min-h-0 h-[100dvh] overflow-hidden flex-col bg-background">
+      <div className="min-h-0 flex-1 [&>div]:h-full">
+        <RoadMapPrototypeMap
+          isAuthenticated
+          preferenceOwnerId={user.id}
+          hasRoadIntelligence={hasRoadIntelligence}
+          teskeidRouteCandidateEnabled={hasTeskeidRouting}
+          navigation={{ canonicalPath: '/auth-mvp/vedrid', authenticatedPath: '/auth-mvp/vedrid' }}
+        />
+      </div>
     </main>
   )
 }

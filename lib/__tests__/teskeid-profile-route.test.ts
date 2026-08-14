@@ -119,7 +119,7 @@ describe('GET /api/teskeid/profile — feature flag', () => {
     expect(mockCheckFeatureAccess).toHaveBeenCalledWith('u1', 'user@example.com', 'tengsl')
   })
 
-  it('returns Tengsl access from the canonical per-user feature gate', async () => {
+  it('returns Tengsl access from the canonical graduated feature gate', async () => {
     process.env.AUTH_MVP_ENABLED = 'true'
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com' } } })
     mockSingle.mockResolvedValue({ data: { display_name: 'Jón' } })

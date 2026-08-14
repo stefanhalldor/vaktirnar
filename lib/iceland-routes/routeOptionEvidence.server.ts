@@ -184,6 +184,7 @@ export function restoredRouteOptionEvidenceMatchesSignedRoute(input: Readonly<{
   const { restored, signedRoute, claim, origin, destination } = input
   if (
     signedRoute.provider !== 'teskeid'
+    || !Array.isArray(signedRoute.labels)
     || !validAnchorKind(claim.originAnchorKind)
     || !validAnchorKind(claim.destinationAnchorKind)
   ) return false
@@ -229,8 +230,21 @@ export function restoredRouteOptionEvidenceMatchesSignedRoute(input: Readonly<{
   }
   return teskeidAssessmentEvidenceMatchesSignedRoute(evidence, signedRoute)
     && exactRouteExperimental(graphDerived.experimental, signedRoute.experimental)
-    && exactStringArray(canonicalLabels, signedRoute.labels)
+    && exactUniqueStringSet(canonicalLabels, signedRoute.labels)
     && exactRouteCautions(graphDerived.cautions, signedRoute.cautions)
+}
+
+function exactUniqueStringSet(
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right
+  const leftSet = new Set(left)
+  const rightSet = new Set(right)
+  return leftSet.size === left.length
+    && rightSet.size === right.length
+    && leftSet.size === rightSet.size
+    && left.every(value => rightSet.has(value))
 }
 
 function exactStringArray(

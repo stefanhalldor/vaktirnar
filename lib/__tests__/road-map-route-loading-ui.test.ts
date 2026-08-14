@@ -51,8 +51,16 @@ describe('v238 RoadMap route discovery and weather boundary', () => {
     expect(messagesIs).toContain('"roadMapPrototypeTeskeidRouteLoaderBuild": "Sæki gögn frá Vegagerðinni og bý til nokkrar leiðir…"')
     expect(messagesIs).toContain('"roadMapPrototypeTeskeidRouteLoaderSurface": "Tek sérstaklega tillit til slitlags á leiðunum…"')
     expect(messagesIs).toContain('"roadMapPrototypeTeskeidRouteLoaderSort": "Raða leiðum eftir slitlagi, aksturstíma og vegalengd…"')
-    expect(messagesIs).toContain('"roadMapPrototypeRouteSortDefault": "Slitlag"')
+    expect(messagesIs).toContain('"roadMapPrototypeRouteSortDefault": "Slitlagi"')
     expect(messagesEn).toContain('"roadMapPrototypeRouteSortDefault": "Road surface"')
+  })
+
+  it('omits the ready-surface explanation without hiding route status feedback', () => {
+    const source = readSource('components/weather/RoadMapPrototypeMap.tsx')
+
+    expect(source).not.toContain("t('roadMapPrototypeTeskeidSurfaceReady')")
+    expect(source).toContain("t('roadMapPrototypeTeskeidCandidateLoading')")
+    expect(source).toContain('{intro ? <p className="mb-1.5 leading-snug">{intro}</p> : null}')
   })
 
   it('hides the legacy route-sections disclosure without removing its map evidence pipeline', () => {

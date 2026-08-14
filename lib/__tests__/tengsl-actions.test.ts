@@ -310,13 +310,15 @@ function makeOrOrderSelect(rows: unknown[], error: unknown = null) {
   }
 }
 
-// .select().eq().not().order() — for getRelationshipRecipientOptions initial fetch
-function makeRecipientOptionsSelect(rows: unknown[]) {
+// .select().eq().order() — for getRelationshipRecipientOptions initial fetch
+function makeRecipientOptionsSelect(rows: unknown[], error: unknown = null) {
+  const order = vi.fn(async () => ({ data: rows, error }))
   return {
     select: vi.fn(() => ({
       eq: vi.fn(() => ({
+        order,
         not: vi.fn(() => ({
-          order: vi.fn(async () => ({ data: rows, error: null })),
+          order,
         })),
       })),
     })),
@@ -995,6 +997,14 @@ describe('getRelationship — email-only counterpart confirmation', () => {
 describe('getRelationshipRecipientOptions — Gmail dedup', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('can surface a bounded load failure to picker pages while legacy callers keep an empty fallback', async () => {
+    mockFrom.mockImplementation(() => makeRecipientOptionsSelect([], { message: 'db unavailable' }))
+
+    await expect(getRelationshipRecipientOptions(OWNER_ID, { throwOnError: true }))
+      .rejects.toThrow('relationship_recipient_options_unavailable')
+    await expect(getRelationshipRecipientOptions(OWNER_ID)).resolves.toEqual([])
+  })
+
   it('returns one option when dotted and canonical Gmail rows both exist, keeping the richer row', async () => {
     const dottedRow = {
       id: 'rel-dotted',
@@ -1074,6 +1084,21 @@ describe('getRelationshipRecipientOptions — Gmail dedup', () => {
     const result = await getRelationshipRecipientOptions(OWNER_ID)
     expect(result).toHaveLength(1)
     expect(result[0].selfDisplayName).toBe('Alice Smith')
+  })
+
+  it('keeps an owner-private name-only Relationship available without inventing an email', async () => {
+    const row = {
+      id: 'rel-name-only', email_canonical: null, counterpart_user_id: null,
+      private_display_name: 'Palli pípari', note: 'Eigandanóta',
+      created_at: '2026-06-01T00:00:00Z', relationship_tags: [{ tag: 'services' }],
+    }
+    mockFrom.mockImplementation(() => makeRecipientOptionsSelect([row]))
+
+    const result = await getRelationshipRecipientOptions(OWNER_ID)
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      id: 'rel-name-only', email: null, privateDisplayName: 'Palli pípari', note: 'Eigandanóta',
+    })
   })
 
   it('returns loan recipient options in the same canonical display-name order', async () => {

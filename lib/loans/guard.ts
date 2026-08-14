@@ -5,6 +5,7 @@ import { guardTeskeidSession } from '@/lib/auth/guard'
 import { getAdmin } from '@/lib/supabase/admin'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherEnabledMode.server'
+import { isAuthenticatedWeatherPerUserAccessRequired } from '@/lib/teskeid/featureRollout.server'
 
 export interface LoanAccess {
   user: User
@@ -22,6 +23,10 @@ export interface LoanAccess {
  *   2. If UMONNUN_FLAG is 'true', the user's canonical email must be in the
  *      feature_access table. If UMONNUN_FLAG is unset or not 'true', all
  *      authenticated users have access (graduation path: just unset the flag).
+ *
+ * tengsl: global TENGSL_ENABLED kill-switch. All authenticated callers have
+ * access when the switch is on; session enforcement lives in the page/action
+ * guards and no per-user feature_access lookup applies.
  *
  * Unknown feature keys return false (no accidental allow-by-default).
  * Never throws, never redirects.
@@ -59,9 +64,7 @@ export async function checkFeatureAccess(
     return checkPerUserAccess(email, 'umonnun')
   }
   if (featureKey === 'tengsl') {
-    if (process.env.TENGSL_ENABLED !== 'true') return false
-    if (process.env.TENGSL_FLAG !== 'true') return true
-    return checkPerUserAccess(email, 'tengsl')
+    return process.env.TENGSL_ENABLED === 'true'
   }
   if (featureKey === 'utlagt-og-endurgreitt') {
     // Private beta is deliberately fail-closed at both levels. Unlike features
@@ -105,11 +108,7 @@ export async function checkFeatureAccess(
     // New var wins when present. Legacy WEATHER_FLAG is fallback when new var is absent.
     // WEATHER_AUTH_ACCESS_REQUIRED=true (or legacy WEATHER_FLAG=true) enables per-user gate.
     // If neither is set, all authenticated users have access (graduation path).
-    const weatherAuthAccessRequired =
-      process.env.WEATHER_AUTH_ACCESS_REQUIRED !== undefined
-        ? process.env.WEATHER_AUTH_ACCESS_REQUIRED === 'true'
-        : process.env.WEATHER_FLAG === 'true'
-    if (!weatherAuthAccessRequired) return true
+    if (!isAuthenticatedWeatherPerUserAccessRequired()) return true
     return checkPerUserAccess(email, 'vedrid')
   }
   if (featureKey === 'ferdalagid') {

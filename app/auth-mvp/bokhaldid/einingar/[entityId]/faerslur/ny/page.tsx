@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { BookkeepingAttachmentUpload } from '@/components/bookkeeping/BookkeepingAttachmentUpload'
 import { BookkeepingCompanyTransactionForm } from '@/components/bookkeeping/BookkeepingCompanyTransactionForm'
-import { BookkeepingShell } from '@/components/bookkeeping/BookkeepingShell'
+import { BookkeepingShell } from '@/components/bookkeeping/BookkeepingPrivateShell.server'
 import { getBookkeepingTranslations } from '@/components/bookkeeping/i18n.server'
 import { guardBookkeepingAccess } from '@/lib/bookkeeping/guard'
 import { getBookkeepingCompanyLedger } from '@/lib/bookkeeping/repository.server'

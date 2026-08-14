@@ -36,7 +36,7 @@ export type LoanActivityItem = {
 
 export type RelationshipRecipientOption = {
   id: string
-  email: string
+  email: string | null
   selfDisplayName: string | null
   privateDisplayName: string | null
   note: string | null
@@ -47,7 +47,7 @@ export type RelationshipRecipientOption = {
 // ─────────────────────────────────────────────────────────────────────────────
 // upsertLoanRelationship
 // Called from createLoan and addLoanInvitation after invitation context exists.
-// No-op if TENGSL_ENABLED is off or user lacks per-user access.
+// No-op if the global TENGSL_ENABLED switch is off.
 // Never throws — failure is logged and aðalflæðið (loan creation) continues.
 // recipient_email is never logged.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -745,14 +745,13 @@ export async function getRelationshipLoanActivity(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // getRelationshipRecipientOptions
-// Returns relationships with a known email_canonical for use in the
-// "add recipient" picker on the new loan form. Never exposes private notes
-// or display names to the loan action — caller uses only the email field
-// to populate createLoan's recipient_email.
+// Returns owner-scoped relationships for the loan counterparty picker.
+// Email-backed rows can invite; name-only rows stay creator-private.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function getRelationshipRecipientOptions(
   ownerUserId: string,
+  loadOptions: { throwOnError?: boolean } = {},
 ): Promise<RelationshipRecipientOption[]> {
   const admin = getAdmin()
 
@@ -760,14 +759,16 @@ export async function getRelationshipRecipientOptions(
     .from('relationships')
     .select('id, email_canonical, counterpart_user_id, private_display_name, note, created_at, relationship_tags(tag)')
     .eq('owner_id', ownerUserId)
-    .not('email_canonical', 'is', null)
     .order('created_at', { ascending: false })
 
-  if (error || !data) return []
+  if (error || !data) {
+    if (loadOptions.throwOnError) throw new Error('relationship_recipient_options_unavailable')
+    return []
+  }
 
   type RecipientRow = {
     id: string
-    email_canonical: string
+    email_canonical: string | null
     counterpart_user_id: string | null
     private_display_name: string | null
     note: string | null
@@ -775,19 +776,21 @@ export async function getRelationshipRecipientOptions(
     relationship_tags: Array<{ tag: string }>
   }
 
-  const rows = data as RecipientRow[]
+  const rows = (data as RecipientRow[]).filter((row) => (
+    Boolean(row.email_canonical) || Boolean(row.private_display_name) || Boolean(row.counterpart_user_id)
+  ))
 
   const rowsByCanon = new Map<string, RecipientRow[]>()
   for (const row of rows) {
-    const canon = normalizeEmailForAccess(row.email_canonical)
-    if (!canon) continue
-    const group = rowsByCanon.get(canon) ?? []
+    const canon = row.email_canonical ? normalizeEmailForAccess(row.email_canonical) : null
+    const key = canon ?? `relationship:${row.id}`
+    const group = rowsByCanon.get(key) ?? []
     group.push(row)
-    rowsByCanon.set(canon, group)
+    rowsByCanon.set(key, group)
   }
 
   const mergedRows: RecipientRow[] = []
-  for (const [email, group] of rowsByCanon) {
+  for (const [key, group] of rowsByCanon) {
     group.sort((a, b) => {
       const score = (r: RecipientRow) =>
         (r.private_display_name ? 4 : 0) +
@@ -803,7 +806,7 @@ export async function getRelationshipRecipientOptions(
 
     mergedRows.push({
       ...primary,
-      email_canonical: email,
+      email_canonical: key.startsWith('relationship:') ? primary.email_canonical : key,
       counterpart_user_id: primary.counterpart_user_id ?? group.find((row) => row.counterpart_user_id)?.counterpart_user_id ?? null,
       private_display_name: primary.private_display_name ?? group.find((row) => row.private_display_name)?.private_display_name ?? null,
       note: primary.note ?? group.find((row) => row.note)?.note ?? null,

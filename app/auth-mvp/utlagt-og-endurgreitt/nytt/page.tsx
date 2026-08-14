@@ -21,7 +21,7 @@ export default async function NewOneOffExpensePage({ searchParams }: { searchPar
   const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
   const safeDraft = draft?.contextType === 'one_off' ? draft : null
   return (
-    <ExpenseShell title={t('expenseForm.oneOffTitle')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')}>
+    <ExpenseShell title={t('expenseForm.oneOffTitle')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
       <ExpenseForm
         mode="one_off"
         defaultCurrency="ISK"

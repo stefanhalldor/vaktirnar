@@ -136,11 +136,23 @@ describe('AdminPage — FeatureAccessSection', () => {
     expect(screen.queryByText('Teskeiðarleiðakerfi (v1)')).not.toBeInTheDocument()
   })
 
+  it('does not render or load obsolete per-user Tengsl access controls', async () => {
+    const fetchMock = makeFetch([])
+    vi.stubGlobal('fetch', fetchMock)
+    render(<AdminPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Umönnun-aðgangur')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('Tengsl-aðgangur')).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('feature=tengsl'))).toBe(false)
+  })
+
   it('renders empty list message when feature_access returns []', async () => {
     vi.stubGlobal('fetch', makeFetch([]))
     render(<AdminPage />)
     await waitFor(() => {
-      // Two sections (umonnun + tengsl) each show the empty message
       expect(screen.getAllByText('Enginn í lista.').length).toBeGreaterThanOrEqual(1)
     })
   })
@@ -149,7 +161,6 @@ describe('AdminPage — FeatureAccessSection', () => {
     vi.stubGlobal('fetch', makeFetch([]))
     render(<AdminPage />)
     await waitFor(() => {
-      // Two sections each have a Gefa aðgang button
       expect(screen.getAllByText('Gefa aðgang').length).toBeGreaterThanOrEqual(1)
     })
   })

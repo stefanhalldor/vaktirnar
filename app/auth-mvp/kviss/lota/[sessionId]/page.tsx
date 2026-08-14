@@ -1,4 +1,6 @@
 import { KvissLiveClient, type KvissLiveView } from '@/components/kviss/KvissLiveClient'
+import { ClosedTestingBanner } from '@/components/teskeid/ClosedTestingBanner'
+import { resolveTeskeidFeatureRollout } from '@/lib/teskeid/featureRollout.server'
 
 const VIEW_FROM_QUERY: Record<string, KvissLiveView> = {
   stillingar: 'settings',
@@ -21,6 +23,8 @@ export default async function KvissLivePage({
   const rawPresentation = Array.isArray(query.skjar) ? query.skjar[0] : query.skjar
   const initialView = rawView ? VIEW_FROM_QUERY[rawView] ?? 'settings' : 'settings'
   const presentation = rawPresentation === '1' && initialView === 'audience'
+  const showClosedTestingBanner = !presentation
+    && resolveTeskeidFeatureRollout('kviss') === 'closed-testing'
 
   return (
     <main className={presentation
@@ -31,6 +35,7 @@ export default async function KvissLivePage({
         ? 'mx-auto w-full max-w-6xl'
         : 'mx-auto w-full max-w-3xl pb-[calc(1.5rem+env(safe-area-inset-bottom))]'}
       >
+        {showClosedTestingBanner ? <ClosedTestingBanner className="mb-6" /> : null}
         <KvissLiveClient
           sessionId={sessionId}
           initialView={initialView}
