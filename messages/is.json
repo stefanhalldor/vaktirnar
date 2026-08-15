@@ -3247,6 +3247,7 @@
       "timeIsRequest": "Dagur og tími eru ósk. Þjónustuaðilinn svarar í spjallinu, en tíminn er ekki staðfestur.",
       "sentTitle": "Fyrirspurnin er farin af stað",
       "sentBody": "Þetta er enn fyrirspurn, ekki staðfest bókun. Fylgstu með svari þjónustuaðilans á einkasíðunni.",
+      "sentForEmailBody": "Fyrirspurnin tengdist Teskeiðaraðganginum fyrir {email}. Skráðu þig inn með því netfangi til að fylgjast með svari.",
       "open": "Opna fyrirspurn",
       "opening": "Opna fyrirspurn…"
     },
@@ -3309,6 +3310,147 @@
       "requested": "Fyrirspurn send",
       "cancelled": "Afturkölluð"
     },
+    "workflow": {
+      "openingEditor": "Opna stöðuflæði…",
+      "editFlow": "Breyta flæði",
+      "unavailable": "Stöðuflæði er ekki tiltækt fyrir þessa þjónustu.",
+      "systemLabels": {
+        "new_request": {
+          "provider": "Ný fyrirspurn",
+          "customer": "Fyrirspurn móttekin"
+        },
+        "under_review": {
+          "provider": "Fyrirspurn í skoðun",
+          "customer": "Fyrirspurnin er í skoðun"
+        },
+        "waiting_customer": {
+          "provider": "Bíður eftir viðskiptavini",
+          "customer": "Við þurfum svar frá þér"
+        },
+        "waiting_provider": {
+          "provider": "Viðskiptavinur bíður",
+          "customer": "Þjónustuaðilinn svarar næst"
+        },
+        "confirmed": {
+          "provider": "Staðfest",
+          "customer": "Bókunin er staðfest"
+        }
+      },
+      "attention": {
+      "provider": {
+          "yours": "Næsta skref er hjá þér.",
+          "customer": "Bíður eftir svari frá viðskiptavini.",
+          "none": "Engin svörun bíður."
+        },
+        "customer": {
+          "provider": "Þjónustuaðilinn svarar næst.",
+          "yours": "Næsta skref er hjá þér.",
+          "none": "Engin svörun bíður."
+        }
+      },
+      "cancellationReasons": {
+        "customer_cancelled": "Viðskiptavinur hætti við",
+        "provider_unavailable": "Þjónustuaðili komst ekki",
+        "other": "Annað",
+        "legacy_unspecified": "Ástæða var ekki skráð"
+      },
+      "statusPanel": {
+        "heading": "Staða bókunar",
+        "unavailable": "Ekki tókst að birta stöðuna.",
+        "cancelled": {
+          "provider": "Hætt við",
+          "customer": "Bókuninni var hætt við"
+        },
+        "cancellationReason": "Ástæða: {reason}",
+        "nextState": "Færa í stöðu",
+        "chooseState": "Veldu stöðu",
+        "change": "Breyta stöðu",
+        "changing": "Breyti stöðu…",
+        "noNextStates": "Engin venjuleg næsta staða er í þessu flæði."
+      },
+      "cancel": {
+        "open": "Hætta við bókun",
+        "title": "Hætta við bókun?",
+        "description": {
+          "provider": "Veldu ástæðu. Bókunin lokast og ekki verður hægt að senda fleiri skilaboð.",
+          "customer": "Bókunin lokast og ekki verður hægt að senda fleiri skilaboð."
+        },
+        "close": "Loka glugga",
+        "reasonLabel": "Ástæða",
+        "chooseReason": "Veldu ástæðu áður en þú heldur áfram.",
+        "failed": "Ekki tókst að hætta við bókunina. Reyndu aftur.",
+        "confirm": "Já, hætta við",
+        "cancelling": "Hætti við…",
+        "keep": "Nei, halda bókun"
+      },
+      "editor": {
+        "title": "Stöðuflæði",
+        "description": "Stilltu hvernig bókanir færast á milli staða.",
+        "back": "Til baka í Bókanir",
+        "service": "Þjónusta: {title}",
+        "activeVersion": "Virkt flæði · útgáfa {version}",
+        "draftVersion": "Drög · útgáfa {version}",
+        "publishNotice": "Nýjar fyrirspurnir nota nýja flæðið. Núverandi bókanir halda sínu flæði.",
+        "noDraft": "Byrjaðu á drögum til að breyta flæðinu. Virka flæðið helst óbreytt þar til drögin eru virkjuð.",
+        "ensureDraft": "Byrja að breyta",
+        "ensuringDraft": "Bý til drög…",
+        "statesTitle": "Stöður",
+        "statePosition": "Staða {position} af {count}",
+        "editState": "Breyta {label}",
+        "closeState": "Loka breytingum á {label}",
+        "providerLabel": "Heiti sem þjónustuaðili sér",
+        "customerLabel": "Heiti sem viðskiptavinur sér",
+        "attentionLabel": "Hver á næsta skref?",
+        "attentionOptions": {
+          "provider": "Þjónustuaðili",
+          "customer": "Viðskiptavinur",
+          "none": "Enginn"
+        },
+        "initialState": "Upphafsstaða",
+        "confirmedState": "Varin staðfest staða",
+        "moveUp": "Færa {label} upp",
+        "moveDown": "Færa {label} niður",
+        "deleteState": "Eyða {label}",
+        "deleteUnavailable": "Upphafsstöðu þarf að færa áður en henni er eytt.",
+        "nextStates": "Má færa næst í",
+        "confirmedHasNoNext": "Staðfest hefur engar venjulegar næstu stöður.",
+        "addState": "Bæta við stöðu",
+        "newState": "Ný staða",
+        "cancelledTitle": "Hætt við",
+        "cancelledBody": "Alltaf tiltækt úr öllum stöðum og ekki hægt að eyða.",
+        "save": "Vista drög",
+        "saving": "Vista drög…",
+        "publish": "Virkja breytingar",
+        "publishing": "Virkja breytingar…",
+        "saveBeforePublish": "Vistaðu drögin áður en breytingarnar eru virkjaðar.",
+        "success": {
+          "draftCreated": "Drögin eru tilbúin til breytinga.",
+          "draftSaved": "Drögin eru vistuð.",
+          "published": "Nýja flæðið er virkt fyrir nýjar fyrirspurnir."
+        },
+        "errors": {
+          "load": "Ekki tókst að sækja flæðið.",
+          "save": "Ekki tókst að vista breytingarnar. Reyndu aftur.",
+          "conflict": "Flæðið breyttist annars staðar. Nýjasta útgáfan var sótt.",
+          "invalid": "Farðu yfir flæðið og lagaðu merktu atriðin.",
+          "random": "Örugg tilviljanakennd auðkenning er ekki tiltæk.",
+      "label": "Bæði heitin þurfa að vera 1–80 stafir án stýri- eða sniðtákna.",
+          "state_count": "Flæðið þarf að hafa 1–20 stöður.",
+          "transition_count": "Flæðið má hafa mest 100 tengingar.",
+          "duplicate_state_id": "Tvær stöður hafa sama auðkenni.",
+          "duplicate_logical_key": "Tvær stöður hafa sama innra heiti.",
+          "duplicate_system_label_key": "Sama sjálfgefna staðan er notuð oftar en einu sinni.",
+          "invalid_sort_order": "Röð staðanna er ógild.",
+          "initial_state_count": "Veldu nákvæmlega eina upphafsstöðu.",
+          "confirmed_state_count": "Flæðið þarf nákvæmlega eina staðfesta stöðu.",
+          "transition_endpoint": "Tenging vísar í stöðu sem er ekki til.",
+          "duplicate_transition": "Sama tenging er skráð oftar en einu sinni.",
+          "self_transition": "Staða má ekki færa í sjálfa sig.",
+          "confirmed_outgoing_transition": "Staðfest staða má ekki hafa venjulega næstu stöðu.",
+          "unreachable_state": "Allar stöður þurfa að vera aðgengilegar frá upphafsstöðunni."
+        }
+      }
+    },
     "claim": {
       "linkModeTitle": "Aðgangur með einkahlekk",
       "linkModeBody": "Allir sem hafa einkahlekkinn hafa sama gestaaðgang. Þú getur lokað honum varanlega með því að tengja fyrirspurnina við Teskeið.",
@@ -3363,6 +3505,8 @@
     "activity": {
       "request_submitted": "Bókunarfyrirspurn var send",
       "request_cancelled": "Fyrirspurnin var afturkölluð",
+      "request_cancelled_with_reason": "Hætt við: {reason}",
+      "workflow_state_changed": "Staða breyttist úr {from} í {to}",
       "booking_claimed": "Fyrirspurnin var tengd Teskeið",
       "member_added": "Aðgangi var bætt við",
       "member_revoked": "Aðgangur var fjarlægður",
@@ -3416,6 +3560,17 @@
       "inboxTitle": "Fyrirspurnir",
       "inboxDescription": "Opnaðu fyrirspurn til að lesa erindið og svara í spjalli.",
       "emptyInbox": "Engin bókunarfyrirspurn hefur borist.",
+      "filters": {
+        "state": "Staða",
+        "allStates": "Allar stöður",
+        "attention": "Næsta skref",
+        "allAttention": "Allar bókanir",
+        "loading": "Sæki bókanir…",
+        "error": "Ekki tókst að sækja bókanir fyrir þessar síur.",
+        "retry": "Reyna aftur",
+        "empty": "Engar fyrirspurnir passa við síurnar.",
+        "clear": "Hreinsa síur"
+      },
       "opening": "Opna fyrirspurn…"
     },
     "errors": {

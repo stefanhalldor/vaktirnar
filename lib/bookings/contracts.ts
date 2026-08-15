@@ -6,6 +6,29 @@ export type BookingServiceState = (typeof BOOKING_SERVICE_STATES)[number]
 export const BOOKING_REQUEST_STATUSES = ['requested', 'cancelled'] as const
 export type BookingRequestStatus = (typeof BOOKING_REQUEST_STATUSES)[number]
 
+export const BOOKING_WORKFLOW_ATTENTION_SIDES = ['provider', 'customer', 'none'] as const
+export type BookingWorkflowAttentionSide = (typeof BOOKING_WORKFLOW_ATTENTION_SIDES)[number]
+
+export const BOOKING_WORKFLOW_SEMANTIC_KINDS = ['active', 'confirmed'] as const
+export type BookingWorkflowSemanticKind = (typeof BOOKING_WORKFLOW_SEMANTIC_KINDS)[number]
+
+export const BOOKING_WORKFLOW_SYSTEM_LABEL_KEYS = [
+  'new_request',
+  'under_review',
+  'waiting_customer',
+  'waiting_provider',
+  'confirmed',
+] as const
+export type BookingWorkflowSystemLabelKey = (typeof BOOKING_WORKFLOW_SYSTEM_LABEL_KEYS)[number]
+
+export const BOOKING_CANCELLATION_REASONS = [
+  'customer_cancelled',
+  'provider_unavailable',
+  'other',
+] as const
+export type BookingCancellationReason = (typeof BOOKING_CANCELLATION_REASONS)[number]
+export type StoredBookingCancellationReason = BookingCancellationReason | 'legacy_unspecified'
+
 export const BOOKING_ACCESS_MODES = ['link', 'members'] as const
 export type BookingAccessMode = (typeof BOOKING_ACCESS_MODES)[number]
 
@@ -18,6 +41,7 @@ export type BookingMemberStatus = (typeof BOOKING_MEMBER_STATUSES)[number]
 export const BOOKING_ACTIVITY_EVENT_TYPES = [
   'request_submitted',
   'request_cancelled',
+  'workflow_state_changed',
   'booking_claimed',
   'member_added',
   'member_revoked',
@@ -76,6 +100,8 @@ export interface CreateBookingRequestResult {
   accessMode: BookingAccessMode
   status: BookingRequestStatus
   appliedDiscountBps: number | null
+  /** Whether the browser that submitted the request can open the private detail now. */
+  currentActorHasAccess: boolean
   /** Present only for a guest/link-mode request. Never persist this in a URL query. */
   guestCapability: string | null
 }
@@ -96,7 +122,48 @@ export interface BookingActivityView {
   eventType: BookingActivityEventType
   actorName: string | null
   createdAt: string
+  /** Audience-safe label snapshots. Never includes workflow or state IDs. */
+  workflowTransition: {
+    from: BookingWorkflowLabelView
+    to: BookingWorkflowLabelView
+  } | null
+  cancellationReason: StoredBookingCancellationReason | null
 }
+
+export interface BookingWorkflowLabelView {
+  /** Only allowlisted Teskeið defaults are translated. Custom labels use label verbatim as React text. */
+  systemLabelKey: BookingWorkflowSystemLabelKey | null
+  /** Custom plain-text label. Null when systemLabelKey supplies the localized default. */
+  label: string | null
+}
+
+export interface CustomerBookingWorkflowStateView extends BookingWorkflowLabelView {
+  audience: 'customer'
+  attentionSide: BookingWorkflowAttentionSide
+  semanticKind: BookingWorkflowSemanticKind
+}
+
+export interface ProviderBookingWorkflowTargetView extends BookingWorkflowLabelView {
+  stateId: string
+  logicalKey: string
+  attentionSide: BookingWorkflowAttentionSide
+  semanticKind: BookingWorkflowSemanticKind
+}
+
+export interface ProviderBookingWorkflowStateView extends BookingWorkflowLabelView {
+  audience: 'provider'
+  workflowId: string
+  versionId: string
+  stateId: string
+  logicalKey: string
+  attentionSide: BookingWorkflowAttentionSide
+  semanticKind: BookingWorkflowSemanticKind
+  allowedNextStates: ProviderBookingWorkflowTargetView[]
+}
+
+export type BookingWorkflowStateView =
+  | CustomerBookingWorkflowStateView
+  | ProviderBookingWorkflowStateView
 
 /** Structurally compatible with ScopedChatPanel's MessageDto contract. */
 export interface BookingMessageView {
@@ -124,7 +191,11 @@ export interface BookingDetailView {
     summary: string | null
     timezone: string
   }
-  status: BookingRequestStatus
+  /** Reserved system lifecycle. Provider-authored workflow labels never enter this field. */
+  lifecycleStatus: BookingRequestStatus
+  /** Null when cancelled; cancellation presentation always dominates the pinned workflow state. */
+  workflowState: BookingWorkflowStateView | null
+  cancellationReason: StoredBookingCancellationReason | null
   accessMode: BookingAccessMode
   revision: number
   accessVersion: number
@@ -153,6 +224,7 @@ export interface BookingDetailView {
     canClaim: boolean
     canManageMembers: boolean
     canMessage: boolean
+    canTransition: boolean
   }
   members: BookingAccessMemberView[]
   activity: BookingActivityView[]
@@ -177,6 +249,12 @@ export interface ProviderBookingServiceView {
   signedInDiscountBps: number | null
   status: BookingServiceState
   updatedAt: string
+  workflow: {
+    id: string
+    revision: number
+    activeVersionId: string
+    activeVersionNumber: number
+  }
 }
 
 export interface ProviderBookingSummaryView {
@@ -184,7 +262,9 @@ export interface ProviderBookingSummaryView {
   businessProfileSlug: string
   providerDisplayName: string
   serviceTitle: string
-  status: BookingRequestStatus
+  lifecycleStatus: BookingRequestStatus
+  cancellationReason: StoredBookingCancellationReason | null
+  workflowState: Omit<ProviderBookingWorkflowStateView, 'audience' | 'versionId' | 'stateId' | 'allowedNextStates'> | null
   requestedDate: string
   requestedTime: string
   timezone: string
@@ -197,9 +277,79 @@ export interface ProviderBookingWorkspaceView {
   profiles: ProviderBusinessProfileView[]
   services: ProviderBookingServiceView[]
   requests: ProviderBookingSummaryView[]
+  facets: {
+    states: Array<BookingWorkflowLabelView & {
+      key: string
+      workflowId: string
+      logicalKey: string
+      count: number
+    }>
+    attention: Array<{
+      attentionSide: BookingWorkflowAttentionSide
+      count: number
+    }>
+  }
 }
 
 export type ProviderBookingDetailView = BookingDetailView
+
+export interface ProviderBookingWorkflowStateEditorView {
+  id: string
+  logicalKey: string
+  systemLabelKey: BookingWorkflowSystemLabelKey | null
+  /** Null while an allowlisted Teskeið default supplies the translated label. */
+  providerLabel: string | null
+  /** Null while an allowlisted Teskeið default supplies the translated label. */
+  customerLabel: string | null
+  sortOrder: number
+  isInitial: boolean
+  semanticKind: BookingWorkflowSemanticKind
+  attentionSide: BookingWorkflowAttentionSide
+}
+
+export interface ProviderBookingWorkflowTransitionView {
+  fromStateId: string
+  toStateId: string
+}
+
+export interface ProviderBookingWorkflowGraphView {
+  id: string
+  versionNumber: number
+  status: 'draft' | 'published'
+  revision: number
+  graphFingerprint: string
+  publishedAt: string | null
+  states: ProviderBookingWorkflowStateEditorView[]
+  transitions: ProviderBookingWorkflowTransitionView[]
+}
+
+export interface ProviderBookingWorkflowView {
+  service: {
+    id: string
+    title: string
+  }
+  workflow: {
+    id: string
+    serviceId: string
+    revision: number
+  }
+  activeVersion: ProviderBookingWorkflowGraphView
+  draftVersion: ProviderBookingWorkflowGraphView | null
+  limits: {
+    maxStates: 20
+    maxTransitions: 100
+  }
+}
+
+export interface BookingWorkflowMutationAck {
+  workflowId: string
+  versionId: string
+  activeVersionId?: string
+  workflowRevision: number
+  versionRevision: number
+  created?: boolean
+  replayed: boolean
+}
 
 export function bookingPublicServicePath(slug: string): string {
   return `/bokanir/${encodeURIComponent(slug)}`

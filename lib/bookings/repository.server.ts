@@ -8,14 +8,25 @@ import {
   type BookingAccessMemberView,
   type BookingActivityEventType,
   type BookingActivityView,
+  type BookingCancellationReason,
   type BookingDetailView,
   type BookingMessageView,
   type BookingRequestStatus,
   type BookingServiceState,
+  type BookingWorkflowAttentionSide,
+  type BookingWorkflowLabelView,
+  type BookingWorkflowMutationAck,
+  type BookingWorkflowSemanticKind,
+  type BookingWorkflowStateView,
+  type BookingWorkflowSystemLabelKey,
   type CreateBookingRequestInput,
   type ProviderBookingDetailView,
   type ProviderBookingServiceView,
   type ProviderBookingSummaryView,
+  type ProviderBookingWorkflowGraphView,
+  type ProviderBookingWorkflowStateEditorView,
+  type ProviderBookingWorkflowTransitionView,
+  type ProviderBookingWorkflowView,
   type ProviderBookingWorkspaceView,
   type ProviderBusinessProfileView,
   type PublicBookingServiceView,
@@ -73,6 +84,11 @@ function positiveInteger(row: JsonRecord, ...keys: string[]): number | null {
   return Number.isSafeInteger(candidate) && candidate > 0 ? candidate : null
 }
 
+function nonNegativeInteger(row: JsonRecord, ...keys: string[]): number | null {
+  const candidate = Number(value(row, ...keys))
+  return Number.isSafeInteger(candidate) && candidate >= 0 ? candidate : null
+}
+
 function nullableBps(row: JsonRecord, ...keys: string[]): number | null {
   const raw = value(row, ...keys)
   if (raw === null || raw === undefined) return null
@@ -84,6 +100,67 @@ function nullableBps(row: JsonRecord, ...keys: string[]): number | null {
 
 function normalizeLocalTime(raw: string): string {
   return /^\d{2}:\d{2}/.test(raw) ? raw.slice(0, 5) : raw
+}
+
+const WORKFLOW_SYSTEM_LABEL_KEYS = new Set<BookingWorkflowSystemLabelKey>([
+  'new_request',
+  'under_review',
+  'waiting_customer',
+  'waiting_provider',
+  'confirmed',
+])
+const WORKFLOW_ATTENTION_SIDES = new Set<BookingWorkflowAttentionSide>([
+  'provider', 'customer', 'none',
+])
+const WORKFLOW_SEMANTIC_KINDS = new Set<BookingWorkflowSemanticKind>([
+  'active', 'confirmed',
+])
+const STORED_CANCELLATION_REASONS = new Set([
+  'customer_cancelled', 'provider_unavailable', 'other', 'legacy_unspecified',
+] as const)
+
+function mapSystemLabelKey(row: JsonRecord): BookingWorkflowSystemLabelKey | null {
+  const candidate = value(row, 'systemLabelKey', 'system_label_key')
+  return typeof candidate === 'string'
+    && WORKFLOW_SYSTEM_LABEL_KEYS.has(candidate as BookingWorkflowSystemLabelKey)
+    ? candidate as BookingWorkflowSystemLabelKey
+    : null
+}
+
+function mapWorkflowLabel(
+  row: JsonRecord,
+  audience: 'provider' | 'customer',
+): BookingWorkflowLabelView | null {
+  const systemLabelKey = mapSystemLabelKey(row)
+  const label = nullableString(row, 'label')
+    ?? (audience === 'provider'
+      ? nullableString(row, 'providerLabel', 'provider_label')
+      : nullableString(row, 'customerLabel', 'customer_label'))
+  if (!systemLabelKey && !label) return null
+  if (label && (label.length > 80 || /[\u0000-\u001f\u007f-\u009f]/u.test(label))) return null
+  return { systemLabelKey, label }
+}
+
+function mapAttentionSide(row: JsonRecord): BookingWorkflowAttentionSide | null {
+  const candidate = value(row, 'attentionSide', 'attention_side')
+  return typeof candidate === 'string'
+    && WORKFLOW_ATTENTION_SIDES.has(candidate as BookingWorkflowAttentionSide)
+    ? candidate as BookingWorkflowAttentionSide
+    : null
+}
+
+function mapSemanticKind(row: JsonRecord): BookingWorkflowSemanticKind | null {
+  const candidate = value(row, 'semanticKind', 'semantic_kind')
+  return typeof candidate === 'string'
+    && WORKFLOW_SEMANTIC_KINDS.has(candidate as BookingWorkflowSemanticKind)
+    ? candidate as BookingWorkflowSemanticKind
+    : null
+}
+
+function mapCancellationReason(raw: unknown) {
+  return typeof raw === 'string' && STORED_CANCELLATION_REASONS.has(
+    raw as 'customer_cancelled' | 'provider_unavailable' | 'other' | 'legacy_unspecified',
+  ) ? raw as 'customer_cancelled' | 'provider_unavailable' | 'other' | 'legacy_unspecified' : null
 }
 
 const ALLOWED_RPC_ERRORS = [
@@ -101,12 +178,23 @@ const ALLOWED_RPC_ERRORS = [
   'booking_member_limit',
   'booking_claim_conflict',
   'booking_service_conflict',
+  'booking_workflow_conflict',
+  'booking_workflow_invalid',
+  'booking_workflow_limit',
+  'booking_workflow_not_found',
 ] as const
 
 function rpcError(error: { message?: string; code?: string } | null, fallback: string): never {
   const details = `${error?.message ?? ''} ${error?.code ?? ''}`.toLowerCase()
   const allowed = ALLOWED_RPC_ERRORS.find((code) => details.includes(code))
   throw new Error(allowed ?? fallback)
+}
+
+function isGenericBookingNotFound(error: { message?: string; code?: string } | null): boolean {
+  const details = `${error?.message ?? ''} ${error?.code ?? ''}`.toLowerCase()
+  return details.includes('booking_not_found')
+    || details.includes('booking_workflow_not_found')
+    || details.includes('booking_provider_not_allowed')
 }
 
 async function optionalUser(): Promise<User | null> {
@@ -259,7 +347,7 @@ export async function createBookingRequest(
   command: CreateBookingRequestCommand,
 ): Promise<CreatedBookingRecord> {
   const actorId = verifiedCanonicalEmail(command.user) ? command.user?.id ?? null : null
-  const { data, error } = await getAdmin().rpc('booking_create_request', {
+  const { data, error } = await getAdmin().rpc('booking_create_request_for_contact_owner', {
     p_service_id: command.serviceId,
     p_request_id: command.input.requestId,
     p_creator_user_id: actorId,
@@ -318,16 +406,30 @@ function mapMember(row: JsonRecord): Omit<BookingAccessMemberView, 'isSelf'> | n
   }
 }
 
-function mapActivity(row: JsonRecord): BookingActivityView | null {
+function mapActivity(
+  row: JsonRecord,
+  audience: 'provider' | 'customer',
+): BookingActivityView | null {
   const id = requiredString(row, 'id')
   const eventType = value(row, 'eventType', 'event_type') as BookingActivityEventType
   const createdAt = requiredString(row, 'createdAt', 'created_at')
   const allowed = new Set<BookingActivityEventType>([
     'request_submitted', 'request_cancelled', 'booking_claimed',
-    'member_added', 'member_revoked', 'discount_applied',
+    'member_added', 'member_revoked', 'discount_applied', 'workflow_state_changed',
   ])
   if (!id || !allowed.has(eventType) || !createdAt) return null
-  return { id, eventType, actorName: nullableString(row, 'actorName', 'actor_name'), createdAt }
+  const transition = record(value(row, 'workflowTransition', 'workflow_transition'))
+  const from = mapWorkflowLabel(record(transition.from), audience)
+  const to = mapWorkflowLabel(record(transition.to), audience)
+  if (eventType === 'workflow_state_changed' && (!from || !to)) return null
+  return {
+    id,
+    eventType,
+    actorName: nullableString(row, 'actorName', 'actor_name'),
+    createdAt,
+    workflowTransition: from && to ? { from, to } : null,
+    cancellationReason: mapCancellationReason(value(row, 'cancellationReason', 'cancellation_reason')),
+  }
 }
 
 function mapMessage(publicId: string, row: JsonRecord): BookingMessageView | null {
@@ -390,9 +492,63 @@ export async function listBookingActivity(
   })
   if (error) rpcError(error, 'booking_not_found')
   return resultRows(data).flatMap((row) => {
-    const event = mapActivity(row)
+    const event = mapActivity(
+      row,
+      authorization.actorKind === 'provider' ? 'provider' : 'customer',
+    )
     return event ? [event] : []
   })
+}
+
+function mapBookingWorkflowState(
+  row: JsonRecord,
+  allowedRows: JsonRecord[],
+  audience: 'provider' | 'customer',
+): BookingWorkflowStateView | null {
+  const label = mapWorkflowLabel(row, audience)
+  const attentionSide = mapAttentionSide(row)
+  const semanticKind = mapSemanticKind(row)
+  if (!label || !attentionSide || !semanticKind) return null
+  if (audience === 'customer') {
+    return {
+      audience: 'customer',
+      ...label,
+      attentionSide,
+      semanticKind,
+    }
+  }
+
+  const workflowId = requiredString(row, 'workflowId', 'workflow_id')
+  const versionId = requiredString(row, 'versionId', 'version_id')
+  const stateId = requiredString(row, 'stateId', 'state_id', 'id')
+  const logicalKey = requiredString(row, 'logicalKey', 'logical_key')
+  if (!workflowId || !versionId || !stateId || !logicalKey) return null
+  const allowedNextStates = allowedRows.flatMap((target) => {
+    const targetLabel = mapWorkflowLabel(target, 'provider')
+    const targetStateId = requiredString(target, 'stateId', 'state_id', 'id')
+    const targetLogicalKey = requiredString(target, 'logicalKey', 'logical_key')
+    const targetAttention = mapAttentionSide(target)
+    const targetSemantic = mapSemanticKind(target)
+    if (!targetLabel || !targetStateId || !targetLogicalKey || !targetAttention || !targetSemantic) return []
+    return [{
+      stateId: targetStateId,
+      logicalKey: targetLogicalKey,
+      ...targetLabel,
+      attentionSide: targetAttention,
+      semanticKind: targetSemantic,
+    }]
+  })
+  return {
+    audience: 'provider',
+    workflowId,
+    versionId,
+    stateId,
+    logicalKey,
+    ...label,
+    attentionSide,
+    semanticKind,
+    allowedNextStates,
+  }
 }
 
 function mapBookingDetail(
@@ -417,7 +573,7 @@ function mapBookingDetail(
     ?? requiredString(row, 'serviceTitle', 'service_title')
   const serviceTimezone = requiredString(service, 'timezone')
     ?? requiredString(source, 'timezone', 'providerTimezone', 'provider_timezone')
-  const status = value(source, 'status')
+  const lifecycleStatus = value(source, 'lifecycleStatus', 'lifecycle_status', 'status')
   const accessMode = value(source, 'accessMode', 'access_mode')
   const revision = positiveInteger(source, 'revision')
   const accessVersion = positiveInteger(source, 'accessVersion', 'access_version')
@@ -431,11 +587,32 @@ function mapBookingDetail(
   const contactEmail = requiredString(contact, 'email') ?? requiredString(source, 'contactEmail', 'contact_email')
   const createdAt = requiredString(source, 'createdAt', 'created_at')
   if (!publicId || !businessProfileSlug || !providerDisplayName || !serviceTitle || !serviceTimezone
-    || (status !== 'requested' && status !== 'cancelled')
+    || (lifecycleStatus !== 'requested' && lifecycleStatus !== 'cancelled')
     || (accessMode !== 'link' && accessMode !== 'members') || !revision || !accessVersion
     || !date || !timeRaw || !startsAtUtc || !contactName || !contactEmail || !createdAt) return null
 
   const memberRows = Array.isArray(row.members) ? resultRows(row.members) : []
+  const workflowRow = record(value(row, 'workflowState', 'workflow_state')
+    ?? value(source, 'workflowState', 'workflow_state'))
+  const allowedWorkflowTargets = resultRows(value(
+    row,
+    'allowedWorkflowTargets',
+    'allowed_workflow_targets',
+  ))
+  const workflowState = lifecycleStatus === 'cancelled'
+    ? null
+    : mapBookingWorkflowState(
+      workflowRow,
+      allowedWorkflowTargets,
+      authorization.actorKind === 'provider' ? 'provider' : 'customer',
+    )
+  if (lifecycleStatus === 'requested' && !workflowState) return null
+  const cancellationReason = mapCancellationReason(value(
+    source,
+    'cancellationReason',
+    'cancellation_reason',
+  ))
+  if (lifecycleStatus === 'cancelled' && !cancellationReason) return null
   return {
     publicId,
     businessProfileSlug,
@@ -449,7 +626,9 @@ function mapBookingDetail(
       summary: nullableString(service, 'summary') ?? nullableString(row, 'serviceSummary', 'service_summary'),
       timezone: serviceTimezone,
     },
-    status,
+    lifecycleStatus,
+    workflowState,
+    cancellationReason,
     accessMode,
     revision,
     accessVersion,
@@ -475,11 +654,12 @@ function mapBookingDetail(
       signedIn: authorization.signedIn,
       canCancel: authorization.permissions.canCancel,
       canClaim: accessMode === 'link'
-        && status === 'requested'
+        && lifecycleStatus === 'requested'
         && authorization.signedIn
         && authorization.permissions.canClaim,
       canManageMembers: authorization.permissions.canManageMembers,
       canMessage: authorization.permissions.canMessage,
+      canTransition: authorization.permissions.canTransition,
     },
     members: memberRows.flatMap((memberRow) => {
       const member = mapMember(memberRow)
@@ -539,12 +719,32 @@ export async function sendBookingMessage(
 export async function cancelBookingRequest(
   authorization: Pick<BookingAuthorization, 'actorUserId' | 'sessionHash'>,
   publicId: string,
-  input: { expectedRevision: number; idempotencyKey: string },
+  input: {
+    expectedRevision: number
+    idempotencyKey: string
+    reason?: BookingCancellationReason
+  },
 ): Promise<void> {
-  const { error } = await getAdmin().rpc('booking_cancel_request', {
+  const { error } = await getAdmin().rpc('booking_cancel_request_with_reason', {
     p_public_id: publicId,
     p_actor_user_id: authorization.actorUserId,
     p_session_hash: authorization.sessionHash,
+    p_expected_revision: input.expectedRevision,
+    p_idempotency_key: input.idempotencyKey,
+    p_requested_reason: input.reason ?? null,
+  })
+  if (error) rpcError(error, 'booking_save_failed')
+}
+
+export async function transitionBookingRequest(
+  actorUserId: string,
+  publicId: string,
+  input: { expectedRevision: number; targetStateId: string; idempotencyKey: string },
+): Promise<void> {
+  const { error } = await getAdmin().rpc('booking_transition_request', {
+    p_public_id: publicId,
+    p_actor_user_id: actorUserId,
+    p_target_state_id: input.targetStateId,
     p_expected_revision: input.expectedRevision,
     p_idempotency_key: input.idempotencyKey,
   })
@@ -619,8 +819,18 @@ function mapProviderService(row: JsonRecord): ProviderBookingServiceView | null 
   const timezone = requiredString(row, 'timezone')
   const status = value(row, 'status') as BookingServiceState
   const updatedAt = requiredString(row, 'updatedAt', 'updated_at')
+  const workflow = record(value(row, 'workflow'))
+  const workflowId = requiredString(workflow, 'id', 'workflowId', 'workflow_id')
+    ?? requiredString(row, 'workflowId', 'workflow_id')
+  const workflowRevision = positiveInteger(workflow, 'revision', 'workflowRevision', 'workflow_revision')
+    ?? positiveInteger(row, 'workflowRevision', 'workflow_revision')
+  const activeVersionId = requiredString(workflow, 'activeVersionId', 'active_version_id')
+    ?? requiredString(row, 'activeWorkflowVersionId', 'active_workflow_version_id')
+  const activeVersionNumber = positiveInteger(workflow, 'activeVersionNumber', 'active_version_number')
+    ?? positiveInteger(row, 'activeWorkflowVersionNumber', 'active_workflow_version_number')
   if (!id || !businessProfileId || !revision || !title || !timezone
-    || !['draft', 'published', 'paused'].includes(status) || !updatedAt) return null
+    || !['draft', 'published', 'paused'].includes(status) || !updatedAt
+    || !workflowId || !workflowRevision || !activeVersionId || !activeVersionNumber) return null
   return {
     id,
     businessProfileId,
@@ -631,6 +841,12 @@ function mapProviderService(row: JsonRecord): ProviderBookingServiceView | null 
     signedInDiscountBps: nullableBps(row, 'signedInDiscountBps', 'signed_in_discount_bps'),
     status,
     updatedAt,
+    workflow: {
+      id: workflowId,
+      revision: workflowRevision,
+      activeVersionId,
+      activeVersionNumber,
+    },
   }
 }
 
@@ -639,21 +855,37 @@ function mapProviderRequest(row: JsonRecord): ProviderBookingSummaryView | null 
   const businessProfileSlug = requiredString(row, 'businessProfileSlug', 'business_profile_slug')
   const providerDisplayName = requiredString(row, 'providerDisplayName', 'provider_display_name')
   const serviceTitle = requiredString(row, 'serviceTitle', 'service_title')
-  const status = value(row, 'status')
+  const lifecycleStatus = value(row, 'lifecycleStatus', 'lifecycle_status', 'status')
   const requestedDate = requiredString(row, 'requestedDate', 'requested_local_date')
   const requestedTime = requiredString(row, 'requestedTime', 'requested_local_time')
   const timezone = requiredString(row, 'timezone', 'provider_timezone')
   const contactName = requiredString(row, 'contactName', 'contact_name')
   const createdAt = requiredString(row, 'createdAt', 'created_at')
   if (!publicId || !businessProfileSlug || !providerDisplayName || !serviceTitle
-    || (status !== 'requested' && status !== 'cancelled') || !requestedDate
+    || (lifecycleStatus !== 'requested' && lifecycleStatus !== 'cancelled') || !requestedDate
     || !requestedTime || !timezone || !contactName || !createdAt) return null
+  const workflowSource = record(value(row, 'workflowState', 'workflow_state'))
+  const workflow = lifecycleStatus === 'cancelled'
+    ? null
+    : mapBookingWorkflowState(workflowSource, [], 'provider')
+  if (lifecycleStatus === 'requested' && (!workflow || workflow.audience !== 'provider')) return null
+  const cancellationReason = mapCancellationReason(value(row, 'cancellationReason', 'cancellation_reason'))
+  if (lifecycleStatus === 'cancelled' && !cancellationReason) return null
   return {
     publicId,
     businessProfileSlug,
     providerDisplayName,
     serviceTitle,
-    status,
+    lifecycleStatus,
+    cancellationReason,
+    workflowState: workflow && workflow.audience === 'provider' ? {
+      workflowId: workflow.workflowId,
+      logicalKey: workflow.logicalKey,
+      systemLabelKey: workflow.systemLabelKey,
+      label: workflow.label,
+      attentionSide: workflow.attentionSide,
+      semanticKind: workflow.semanticKind,
+    } : null,
     requestedDate,
     requestedTime: normalizeLocalTime(requestedTime),
     timezone,
@@ -663,9 +895,39 @@ function mapProviderRequest(row: JsonRecord): ProviderBookingSummaryView | null 
   }
 }
 
+function mapProviderFacets(data: unknown): ProviderBookingWorkspaceView['facets'] {
+  const root = resultRecord(data)
+  const facets = record(value(root, 'facets'))
+  return {
+    states: resultRows(value(facets, 'states')).flatMap((row) => {
+      const workflowId = requiredString(row, 'workflowId', 'workflow_id')
+      const logicalKey = requiredString(row, 'logicalKey', 'logical_key')
+      const label = mapWorkflowLabel(row, 'provider')
+      const count = positiveInteger(row, 'count')
+      return workflowId && logicalKey && label && count ? [{
+        key: `${workflowId}:${logicalKey}`,
+        workflowId,
+        logicalKey,
+        ...label,
+        count,
+      }] : []
+    }),
+    attention: resultRows(value(facets, 'attention')).flatMap((row) => {
+      const attentionSide = mapAttentionSide(row)
+      const count = positiveInteger(row, 'count')
+      return attentionSide && count ? [{ attentionSide, count }] : []
+    }),
+  }
+}
+
 export async function loadProviderBookingWorkspace(
   actorId: string,
   spaceId: string,
+  filters?: {
+    workflowId?: string
+    stateLogicalKey?: string
+    attentionSide?: BookingWorkflowAttentionSide
+  },
 ): Promise<ProviderBookingWorkspaceView> {
   const admin = getAdmin()
   // This RPC performs the authoritative entitlement + exact space-owner
@@ -686,6 +948,9 @@ export async function loadProviderBookingWorkspace(
       p_actor_id: actorId,
       p_space_id: spaceId,
       p_service_id: null,
+      p_workflow_id: filters?.workflowId ?? null,
+      p_state_logical_key: filters?.stateLogicalKey ?? null,
+      p_attention_side: filters?.attentionSide ?? null,
       p_before_created_at: null,
       p_before_id: null,
       p_limit: 100,
@@ -694,6 +959,10 @@ export async function loadProviderBookingWorkspace(
   if (profilesResult.error || requestsResult.error) {
     throw new Error('booking_provider_load_failed')
   }
+  const requestResult = resultRecord(requestsResult.data)
+  const requestRows = Array.isArray(requestsResult.data)
+    ? resultRows(requestsResult.data)
+    : resultRows(value(requestResult, 'items'))
   return {
     profiles: resultRows(profilesResult.data).flatMap((row) => {
       const profile = mapProviderProfile(row)
@@ -703,10 +972,11 @@ export async function loadProviderBookingWorkspace(
       const service = mapProviderService(row)
       return service ? [service] : []
     }),
-    requests: resultRows(requestsResult.data).flatMap((row) => {
+    requests: requestRows.flatMap((row) => {
       const request = mapProviderRequest(row)
       return request ? [request] : []
     }),
+    facets: mapProviderFacets(requestsResult.data),
   }
 }
 
@@ -795,6 +1065,197 @@ export async function transitionBookingService(actorId: string, spaceId: string,
     status: desired,
     idempotencyKey: input.idempotencyKey,
   })
+}
+
+function mapWorkflowEditorState(row: JsonRecord): ProviderBookingWorkflowStateEditorView | null {
+  const id = requiredString(row, 'id', 'stateId', 'state_id')
+  const logicalKey = requiredString(row, 'logicalKey', 'logical_key')
+  const systemLabelKey = mapSystemLabelKey(row)
+  const providerLabel = nullableString(row, 'providerLabel', 'provider_label')
+  const customerLabel = nullableString(row, 'customerLabel', 'customer_label')
+  const sortOrder = nonNegativeInteger(row, 'sortOrder', 'sort_order')
+  const semanticKind = mapSemanticKind(row)
+  const attentionSide = mapAttentionSide(row)
+  const isInitial = value(row, 'isInitial', 'is_initial')
+  if (!id || !logicalKey || sortOrder === null || !semanticKind || !attentionSide
+    || typeof isInitial !== 'boolean') return null
+  if (systemLabelKey && (providerLabel !== null || customerLabel !== null)) return null
+  if (!systemLabelKey && (!providerLabel || !customerLabel)) return null
+  return {
+    id,
+    logicalKey,
+    systemLabelKey,
+    providerLabel,
+    customerLabel,
+    sortOrder,
+    isInitial,
+    semanticKind,
+    attentionSide,
+  }
+}
+
+function mapWorkflowGraph(data: unknown): ProviderBookingWorkflowGraphView | null {
+  const row = record(data)
+  const id = requiredString(row, 'id', 'versionId', 'version_id')
+  const versionNumber = positiveInteger(row, 'versionNumber', 'version_number')
+  const status = value(row, 'status')
+  const revision = positiveInteger(row, 'revision')
+  const graphFingerprint = requiredString(row, 'graphFingerprint', 'graph_fingerprint')
+  if (!id || !versionNumber || (status !== 'draft' && status !== 'published')
+    || !revision || !graphFingerprint) return null
+  const states = resultRows(value(row, 'states')).flatMap((stateRow) => {
+    const state = mapWorkflowEditorState(stateRow)
+    return state ? [state] : []
+  })
+  const transitions = resultRows(value(row, 'transitions')).flatMap((transitionRow) => {
+    const fromStateId = requiredString(transitionRow, 'fromStateId', 'from_state_id')
+    const toStateId = requiredString(transitionRow, 'toStateId', 'to_state_id')
+    return fromStateId && toStateId ? [{ fromStateId, toStateId }] : []
+  })
+  if (states.length !== resultRows(value(row, 'states')).length
+    || transitions.length !== resultRows(value(row, 'transitions')).length) return null
+  return {
+    id,
+    versionNumber,
+    status,
+    revision,
+    graphFingerprint,
+    publishedAt: nullableString(row, 'publishedAt', 'published_at'),
+    states,
+    transitions,
+  }
+}
+
+function mapWorkflowMutationAck(data: unknown): BookingWorkflowMutationAck {
+  const row = resultRecord(data)
+  const workflowId = requiredString(row, 'workflowId', 'workflow_id')
+  const versionId = requiredString(row, 'versionId', 'version_id')
+  const workflowRevision = positiveInteger(row, 'workflowRevision', 'workflow_revision')
+  const versionRevision = positiveInteger(row, 'versionRevision', 'version_revision')
+  if (!workflowId || !versionId || !workflowRevision || !versionRevision) {
+    throw new Error('booking_save_failed')
+  }
+  return {
+    workflowId,
+    versionId,
+    activeVersionId: nullableString(row, 'activeVersionId', 'active_version_id') ?? undefined,
+    workflowRevision,
+    versionRevision,
+    created: typeof value(row, 'created') === 'boolean' ? value(row, 'created') as boolean : undefined,
+    replayed: value(row, 'replayed') === true,
+  }
+}
+
+export async function loadProviderBookingWorkflow(
+  actorId: string,
+  spaceId: string,
+  serviceId: string,
+): Promise<ProviderBookingWorkflowView | null> {
+  const admin = getAdmin()
+  const [workflowResult, servicesResult] = await Promise.all([
+    admin.rpc('booking_provider_read_workflow', {
+      p_actor_id: actorId,
+      p_space_id: spaceId,
+      p_service_id: serviceId,
+    }),
+    admin.rpc('booking_provider_list_services', {
+      p_actor_id: actorId,
+      p_space_id: spaceId,
+    }),
+  ])
+  if (workflowResult.error || servicesResult.error) {
+    const errors = [workflowResult.error, servicesResult.error].filter(error => error !== null)
+    if (errors.length > 0 && errors.every(isGenericBookingNotFound)) return null
+    throw new Error('booking_provider_load_failed')
+  }
+  const service = resultRows(servicesResult.data)
+    .flatMap((row) => {
+      const mapped = mapProviderService(row)
+      return mapped ? [mapped] : []
+    })
+    .find((candidate) => candidate.id === serviceId)
+  if (!service) return null
+  const root = resultRecord(workflowResult.data)
+  const workflow = record(value(root, 'workflow'))
+  const id = requiredString(workflow, 'id', 'workflowId', 'workflow_id')
+  const returnedServiceId = requiredString(workflow, 'serviceId', 'service_id')
+  const revision = positiveInteger(workflow, 'revision')
+  const activeVersion = mapWorkflowGraph(value(root, 'activeVersion', 'active_version'))
+  const draftSource = value(root, 'draftVersion', 'draft_version')
+  const draftVersion = draftSource === null || draftSource === undefined
+    ? null
+    : mapWorkflowGraph(draftSource)
+  if (!id || returnedServiceId !== serviceId || !revision || !activeVersion
+    || (draftSource !== null && draftSource !== undefined && !draftVersion)) return null
+  return {
+    service: { id: service.id, title: service.title },
+    workflow: { id, serviceId: returnedServiceId, revision },
+    activeVersion,
+    draftVersion,
+    limits: { maxStates: 20, maxTransitions: 100 },
+  }
+}
+
+export async function ensureProviderBookingWorkflowDraft(
+  actorId: string,
+  spaceId: string,
+  serviceId: string,
+  input: { expectedWorkflowRevision: number; idempotencyKey: string },
+): Promise<BookingWorkflowMutationAck> {
+  const { data, error } = await getAdmin().rpc('booking_provider_ensure_workflow_draft', {
+    p_actor_id: actorId,
+    p_space_id: spaceId,
+    p_service_id: serviceId,
+    p_expected_workflow_revision: input.expectedWorkflowRevision,
+    p_idempotency_key: input.idempotencyKey,
+  })
+  if (error) rpcError(error, 'booking_save_failed')
+  return mapWorkflowMutationAck(data)
+}
+
+export async function saveProviderBookingWorkflowDraft(
+  actorId: string,
+  spaceId: string,
+  serviceId: string,
+  input: {
+    draftVersionId: string
+    expectedRevision: number
+    graph: {
+      states: ProviderBookingWorkflowStateEditorView[]
+      transitions: ProviderBookingWorkflowTransitionView[]
+    }
+    idempotencyKey: string
+  },
+): Promise<BookingWorkflowMutationAck> {
+  const { data, error } = await getAdmin().rpc('booking_provider_save_workflow_draft', {
+    p_actor_id: actorId,
+    p_space_id: spaceId,
+    p_service_id: serviceId,
+    p_draft_version_id: input.draftVersionId,
+    p_expected_version_revision: input.expectedRevision,
+    p_graph: input.graph,
+    p_idempotency_key: input.idempotencyKey,
+  })
+  if (error) rpcError(error, 'booking_save_failed')
+  return mapWorkflowMutationAck(data)
+}
+
+export async function publishProviderBookingWorkflowDraft(
+  actorId: string,
+  spaceId: string,
+  serviceId: string,
+  input: { draftVersionId: string; expectedRevision: number; idempotencyKey: string },
+): Promise<BookingWorkflowMutationAck> {
+  const { data, error } = await getAdmin().rpc('booking_provider_publish_workflow_draft', {
+    p_actor_id: actorId,
+    p_space_id: spaceId,
+    p_service_id: serviceId,
+    p_draft_version_id: input.draftVersionId,
+    p_expected_version_revision: input.expectedRevision,
+    p_idempotency_key: input.idempotencyKey,
+  })
+  if (error) rpcError(error, 'booking_save_failed')
+  return mapWorkflowMutationAck(data)
 }
 
 export async function loadBookingDetailForPage(input: {

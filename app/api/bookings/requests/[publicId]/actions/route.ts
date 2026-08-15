@@ -12,6 +12,7 @@ import {
   cancelBookingRequest,
   claimBookingRequest,
   manageBookingMember,
+  transitionBookingRequest,
 } from '@/lib/bookings/repository.server'
 import { clearBookingSessionCookie, verifiedCanonicalEmail } from '@/lib/bookings/security.server'
 import { bookingActionSchema, bookingPublicIdSchema } from '@/lib/bookings/validation'
@@ -60,6 +61,10 @@ export async function POST(
         publicId.data,
         parsed.data,
       )
+    } else if (parsed.data.action === 'transitionWorkflow') {
+      const actorUserId = authorization?.actorUserId ?? replayActorUserId
+      if (!actorUserId) return errorResponse('not_found')
+      await transitionBookingRequest(actorUserId, publicId.data, parsed.data)
     } else if (parsed.data.action === 'claim') {
       if (!authorization) return errorResponse('not_found')
       await claimBookingRequest(authorization, publicId.data, parsed.data)

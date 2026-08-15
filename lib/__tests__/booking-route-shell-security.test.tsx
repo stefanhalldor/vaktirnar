@@ -38,10 +38,12 @@ describe('private booking route shell', () => {
     expect(screen.queryByTestId('analytics')).toBeNull()
   })
 
-  it('does not mount analytics on the authenticated provider detail page', () => {
-    mockPathname.mockReturnValue(
-      '/auth-mvp/bokanir/fyrirspurn/11111111-1111-4111-8111-111111111111',
-    )
+  it.each([
+    '/auth-mvp/bokanir',
+    '/auth-mvp/bokanir/fyrirspurn/11111111-1111-4111-8111-111111111111',
+    '/auth-mvp/bokanir/flaedi/22222222-2222-4222-8222-222222222222',
+  ])('does not mount analytics anywhere in the authenticated provider namespace: %s', pathname => {
+    mockPathname.mockReturnValue(pathname)
     render(<TeskeidAnalytics />)
     expect(screen.queryByTestId('analytics')).toBeNull()
   })
@@ -79,7 +81,7 @@ describe('private booking route shell', () => {
       "from '@vercel/analytics/react'",
     )
 
-    const providerStart = config.indexOf("source: '/auth-mvp/bokanir/fyrirspurn/:publicId'")
+    const providerStart = config.indexOf("source: '/auth-mvp/bokanir/:path*'")
     const providerHeaders = config.slice(providerStart)
     expect(providerHeaders).toContain("{ key: 'Cache-Control', value: 'private, no-store' }")
     expect(providerHeaders).toContain("{ key: 'Referrer-Policy', value: 'no-referrer' }")
@@ -89,5 +91,26 @@ describe('private booking route shell', () => {
     expect(globalStart).toBeGreaterThanOrEqual(0)
     expect(start).toBeGreaterThan(globalStart)
     expect(providerStart).toBeGreaterThan(globalStart)
+  })
+
+  it('keeps the workflow editor guarded, pending-visible and retryable on operational errors', () => {
+    const routeRoot = join(
+      process.cwd(),
+      'app',
+      'auth-mvp',
+      'bokanir',
+      'flaedi',
+      '[serviceId]',
+    )
+    const page = readFileSync(join(routeRoot, 'page.tsx'), 'utf8')
+    const loading = readFileSync(join(routeRoot, 'loading.tsx'), 'utf8')
+    const error = readFileSync(join(routeRoot, 'error.tsx'), 'utf8')
+    expect(page).toContain('guardBookingProvider()')
+    expect(page).toContain('loadProviderBookingWorkflow')
+    expect(page).toContain('if (!workflow) notFound()')
+    expect(page).not.toContain('.catch(() => null)')
+    expect(loading).toContain('BookingRouteLoading')
+    expect(error).toContain('BookingErrorState')
+    expect(error).toContain('providerHref="/auth-mvp/bokanir"')
   })
 })

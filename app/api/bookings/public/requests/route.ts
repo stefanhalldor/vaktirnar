@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { User } from '@supabase/supabase-js'
+import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 import { assertSameOriginJsonMutation } from '@/lib/security/sameOrigin.server'
 import { currentBookingUser, bookingActionErrorStatus } from '@/lib/bookings/api.server'
 import { establishBookingCapabilitySession } from '@/lib/bookings/capability-session.server'
@@ -31,6 +33,8 @@ async function successResponse(
   request: NextRequest,
   booking: CreatedBookingRecord,
   guestCapability: { token: string; digest: string } | null,
+  user: User | null,
+  contactEmail: string,
 ) {
   const expectedMode = guestCapability ? 'link' : 'members'
   if (booking.accessMode !== expectedMode) throw new Error('booking_idempotency_conflict')
@@ -41,6 +45,8 @@ async function successResponse(
     accessMode: booking.accessMode,
     status: booking.status,
     appliedDiscountBps: booking.appliedDiscountBps,
+    currentActorHasAccess: guestCapability !== null
+      || verifiedCanonicalEmail(user) === normalizeEmailForAccess(contactEmail),
     guestCapability: guestCapability?.token ?? null,
   }
   const response = NextResponse.json(result, {
@@ -81,7 +87,9 @@ export async function POST(request: NextRequest) {
       user,
       guestCapabilityDigest: guestCapability?.digest ?? null,
     })
-    if (replay) return await successResponse(request, replay, guestCapability)
+    if (replay) {
+      return await successResponse(request, replay, guestCapability, user, parsed.data.contactEmail)
+    }
 
     const resolved = await resolvePublicBookingService(parsed.data.businessProfileSlug)
     if (!resolved) return errorResponse('not_found')
@@ -104,7 +112,7 @@ export async function POST(request: NextRequest) {
     if (booking.businessProfileSlug !== resolved.businessProfileSlug) {
       throw new Error('booking_save_failed')
     }
-    return await successResponse(request, booking, guestCapability)
+    return await successResponse(request, booking, guestCapability, user, parsed.data.contactEmail)
   } catch (error) {
     return errorResponse(mapBookingError(error))
   }

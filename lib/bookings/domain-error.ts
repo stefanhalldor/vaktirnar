@@ -17,7 +17,8 @@ export function mapBookingError(error: unknown): BookingActionError {
   if (message.includes('conflict') || message.includes('last_owner') || message.includes('cancelled')) {
     return 'conflict'
   }
-  if (message.includes('invalid') || message.includes('required') || message.includes('member_limit')) {
+  if (message.includes('invalid') || message.includes('required')
+    || message.includes('member_limit') || message.includes('workflow_limit')) {
     return 'invalid_input'
   }
   return 'save_failed'

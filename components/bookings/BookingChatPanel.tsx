@@ -10,25 +10,50 @@ import {
 import type { BookingActivityView } from '@/lib/bookings/contracts'
 import { createBookingChatTransport } from './bookingChatTransport'
 import { formatBookingDateTime } from './format'
+import {
+  resolveBookingCancellationReason,
+  resolveBookingWorkflowLabel,
+} from './workflow-label'
 
 function useActivityEvents(
   activity: readonly BookingActivityView[],
   timeZone: string,
+  audience: 'provider' | 'customer',
 ): TeskeidContextTimelineEvent[] {
   const locale = useLocale()
   const t = useTranslations('bookings')
-  return useMemo(() => activity.filter(event => event.eventType !== 'discount_applied').map(event => ({
-    id: event.id,
-    createdAt: event.createdAt,
-    content: (
-      <div className="text-sm">
-        <p className="font-medium">{t(`activity.${event.eventType}`)}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {event.actorName ? `${event.actorName} · ` : ''}{formatBookingDateTime(event.createdAt, locale, timeZone)}
-        </p>
-      </div>
-    ),
-  })), [activity, locale, t, timeZone])
+  return useMemo(() => activity.filter(event => event.eventType !== 'discount_applied').map(event => {
+    const content = event.eventType === 'workflow_state_changed' && event.workflowTransition
+      ? t('activity.workflow_state_changed', {
+        from: resolveBookingWorkflowLabel(
+          (key) => t(key),
+          event.workflowTransition.from,
+          audience,
+        ),
+        to: resolveBookingWorkflowLabel(
+          (key) => t(key),
+          event.workflowTransition.to,
+          audience,
+        ),
+      })
+      : event.eventType === 'request_cancelled' && event.cancellationReason
+        ? t('activity.request_cancelled_with_reason', {
+          reason: resolveBookingCancellationReason((key) => t(key), event.cancellationReason),
+        })
+        : t(`activity.${event.eventType}`)
+    return {
+      id: event.id,
+      createdAt: event.createdAt,
+      content: (
+        <div className="text-sm">
+          <p className="font-medium">{content}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {event.actorName ? `${event.actorName} · ` : ''}{formatBookingDateTime(event.createdAt, locale, timeZone)}
+          </p>
+        </div>
+      ),
+    }
+  }), [activity, audience, locale, t, timeZone])
 }
 
 export function BookingChatPanel({
@@ -36,15 +61,17 @@ export function BookingChatPanel({
   activity,
   timeZone,
   canMessage,
+  audience = 'customer',
 }: {
   publicId: string
   activity: readonly BookingActivityView[]
   timeZone: string
   canMessage: boolean
+  audience?: 'provider' | 'customer'
 }) {
   const locale = useLocale()
   const t = useTranslations('bookings')
-  const timelineEvents = useActivityEvents(activity, timeZone)
+  const timelineEvents = useActivityEvents(activity, timeZone, audience)
   const actorLabels = useMemo(() => ({
     guest: t('chat.actorGuest'),
     member: t('chat.actorMember'),

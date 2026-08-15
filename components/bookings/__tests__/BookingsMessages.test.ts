@@ -22,4 +22,23 @@ describe('booking messages', () => {
     expect(isMessages.bookings.form.submit).toBe('Senda fyrirspurn')
     expect(enMessages.bookings.form.submit).toBe('Send enquiry')
   })
+
+  it('localizes every allowlisted default for both audiences and typed history', () => {
+    const keys = [
+      'new_request',
+      'under_review',
+      'waiting_customer',
+      'waiting_provider',
+      'confirmed',
+    ] as const
+    for (const key of keys) {
+      expect(isMessages.bookings.workflow.systemLabels[key].provider).toBeTruthy()
+      expect(isMessages.bookings.workflow.systemLabels[key].customer).toBeTruthy()
+      expect(enMessages.bookings.workflow.systemLabels[key].provider).toBeTruthy()
+      expect(enMessages.bookings.workflow.systemLabels[key].customer).toBeTruthy()
+    }
+    expect(isMessages.bookings.activity.workflow_state_changed).toContain('{from}')
+    expect(isMessages.bookings.activity.request_cancelled_with_reason).toContain('{reason}')
+    expect(enMessages.bookings.activity.workflow_state_changed).toContain('{to}')
+  })
 })

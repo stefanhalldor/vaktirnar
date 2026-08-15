@@ -10,19 +10,39 @@ import {
   saveBookingServiceSettings,
   transitionBookingService,
 } from '@/lib/bookings/repository.server'
-import { bookingProviderMutationSchema } from '@/lib/bookings/validation'
+import {
+  bookingProviderListQuerySchema,
+  bookingProviderMutationSchema,
+} from '@/lib/bookings/validation'
 
 function errorResponse(error: BookingActionError, status = bookingActionErrorStatus(error)) {
   const result: BookingActionResult<never> = { ok: false, error }
   return NextResponse.json(result, { status, headers: BOOKING_PRIVATE_HEADERS })
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const access = await requireBookingProviderApi()
   if (!access.ok) return errorResponse('not_found', access.status)
+  const searchParams = request.nextUrl.searchParams
+  const allowedKeys = new Set(['workflowId', 'stateLogicalKey', 'attentionSide'])
+  for (const key of searchParams.keys()) {
+    if (!allowedKeys.has(key) || searchParams.getAll(key).length !== 1) {
+      return errorResponse('invalid_input')
+    }
+  }
+  const parsedQuery = bookingProviderListQuerySchema.safeParse({
+    ...(searchParams.has('workflowId') ? { workflowId: searchParams.get('workflowId') } : {}),
+    ...(searchParams.has('stateLogicalKey')
+      ? { stateLogicalKey: searchParams.get('stateLogicalKey') }
+      : {}),
+    ...(searchParams.has('attentionSide')
+      ? { attentionSide: searchParams.get('attentionSide') }
+      : {}),
+  })
+  if (!parsedQuery.success) return errorResponse('invalid_input')
   try {
     return NextResponse.json(
-      await loadProviderBookingWorkspace(access.user.id, access.spaceId),
+      await loadProviderBookingWorkspace(access.user.id, access.spaceId, parsedQuery.data),
       { headers: BOOKING_PRIVATE_HEADERS },
     )
   } catch (error) {

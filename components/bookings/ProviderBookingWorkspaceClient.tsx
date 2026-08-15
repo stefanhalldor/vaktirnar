@@ -11,6 +11,10 @@ import type {
 } from '@/lib/bookings/contracts'
 import { BookingPendingLink } from './BookingPendingLink'
 import { formatRequestedBookingTime } from './format'
+import {
+  resolveBookingWorkflowAttention,
+  resolveBookingWorkflowLabel,
+} from './workflow-label'
 
 function bpsToInput(value: number | null): string {
   if (value === null) return ''
@@ -53,6 +57,31 @@ function unwrapWorkspace(value: unknown): ProviderBookingWorkspaceView | null {
   return null
 }
 
+function providerWorkspaceUrl(stateFilter: string, attentionFilter: string): string {
+  const params = new URLSearchParams()
+  if (stateFilter !== 'all') {
+    const separator = stateFilter.indexOf(':')
+    if (separator > 0) {
+      params.set('workflowId', stateFilter.slice(0, separator))
+      params.set('stateLogicalKey', stateFilter.slice(separator + 1))
+    }
+  }
+  if (attentionFilter !== 'all') params.set('attentionSide', attentionFilter)
+  const query = params.toString()
+  return query ? `/api/bookings/provider?${query}` : '/api/bookings/provider'
+}
+
+async function requestProviderWorkspace(url: string): Promise<ProviderBookingWorkspaceView> {
+  const response = await fetch(url, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+  })
+  if (!response.ok) throw new Error('workspace load failed')
+  const next = unwrapWorkspace(await response.json().catch(() => null))
+  if (!next) throw new Error('workspace response invalid')
+  return next
+}
+
 export function ProviderBookingWorkspaceClient({
   initialWorkspace,
 }: {
@@ -69,8 +98,14 @@ export function ProviderBookingWorkspaceClient({
   const [pendingAction, setPendingAction] = useState<'save' | 'publish' | 'pause' | null>(null)
   const [errorKey, setErrorKey] = useState<string | null>(null)
   const [saveSuccessKey, setSaveSuccessKey] = useState<string | null>(null)
+  const [stateFilter, setStateFilter] = useState('all')
+  const [attentionFilter, setAttentionFilter] = useState('all')
+  const [filterPending, setFilterPending] = useState(false)
+  const [filterError, setFilterError] = useState(false)
+  const [filterRetry, setFilterRetry] = useState(0)
+  const filterMounted = useRef(false)
   const transitionEnvelope = useRef<{ fingerprint: string; key: string } | null>(null)
-  const pending = pendingAction !== null
+  const pending = pendingAction !== null || filterPending
 
   const selectedService = useMemo(
     () => workspace.services.find(service => service.businessProfileId === profileId) ?? null,
@@ -83,6 +118,11 @@ export function ProviderBookingWorkspaceClient({
     || timeZone.trim() !== selectedService.timezone
     || parsedDiscount !== selectedService.signedInDiscountBps
   ))
+  const filtersActive = stateFilter !== 'all' || attentionFilter !== 'all'
+  const hasFilterChoices = filtersActive
+    || workspace.requests.length > 0
+    || workspace.facets.states.length > 0
+    || workspace.facets.attention.length > 0
 
   const fillFields = useCallback((service: ProviderBookingServiceView | null) => {
     setTitle(service?.title ?? '')
@@ -103,14 +143,29 @@ export function ProviderBookingWorkspaceClient({
     fillFields(selectedService)
   }, [fillFields, selectedService])
 
+  useEffect(() => {
+    if (!filterMounted.current) {
+      filterMounted.current = true
+      return
+    }
+    let current = true
+    setFilterPending(true)
+    setFilterError(false)
+    void requestProviderWorkspace(providerWorkspaceUrl(stateFilter, attentionFilter))
+      .then((next) => {
+        if (current) setWorkspace(next)
+      })
+      .catch(() => {
+        if (current) setFilterError(true)
+      })
+      .finally(() => {
+        if (current) setFilterPending(false)
+      })
+    return () => { current = false }
+  }, [attentionFilter, filterRetry, stateFilter])
+
   async function reload() {
-    const response = await fetch('/api/bookings/provider', {
-      cache: 'no-store',
-      credentials: 'same-origin',
-    })
-    if (!response.ok) throw new Error('workspace load failed')
-    const next = unwrapWorkspace(await response.json().catch(() => null))
-    if (!next) throw new Error('workspace response invalid')
+    const next = await requestProviderWorkspace(providerWorkspaceUrl(stateFilter, attentionFilter))
     setWorkspace(next)
     return next
   }
@@ -341,6 +396,13 @@ export function ProviderBookingWorkspaceClient({
                     <ExternalLink aria-hidden size={14} />
                   </Link>
                 ) : null}
+                <BookingPendingLink
+                  href={`/auth-mvp/bokanir/flaedi/${encodeURIComponent(selectedService.id)}`}
+                  pendingLabel={t('workflow.openingEditor')}
+                  className="inline-flex min-h-10 items-center font-medium text-primary underline underline-offset-4"
+                >
+                  {t('workflow.editFlow')}
+                </BookingPendingLink>
               </div>
             ) : null}
           </form>
@@ -372,8 +434,82 @@ export function ProviderBookingWorkspaceClient({
           <h2 id="booking-provider-inbox" className="text-lg font-semibold text-primary">{t('provider.inboxTitle')}</h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('provider.inboxDescription')}</p>
         </div>
-        {workspace.requests.length === 0 ? (
+        {hasFilterChoices ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm font-medium">
+              {t('provider.filters.state')}
+              <select
+                value={stateFilter}
+                onChange={(event) => setStateFilter(event.target.value)}
+                disabled={pending}
+                className="min-h-11 min-w-0 rounded-xl border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-60"
+              >
+                <option value="all">{t('provider.filters.allStates')}</option>
+                {workspace.facets.states.map((facet) => {
+                  const serviceTitle = workspace.services.find(
+                    (service) => service.workflow.id === facet.workflowId,
+                  )?.title
+                  const label = resolveBookingWorkflowLabel(
+                    (key) => t(key),
+                    facet,
+                    'provider',
+                  )
+                  return (
+                    <option key={facet.key} value={facet.key}>
+                      {serviceTitle ? `${label} · ${serviceTitle}` : label} ({facet.count})
+                    </option>
+                  )
+                })}
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-medium">
+              {t('provider.filters.attention')}
+              <select
+                value={attentionFilter}
+                onChange={(event) => setAttentionFilter(event.target.value)}
+                disabled={pending}
+                className="min-h-11 min-w-0 rounded-xl border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-60"
+              >
+                <option value="all">{t('provider.filters.allAttention')}</option>
+                {(['provider', 'customer', 'none'] as const).map((side) => (
+                  <option key={side} value={side}>
+                    {resolveBookingWorkflowAttention((key) => t(key), side, 'provider')}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
+        {filterPending ? (
+          <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+            {t('provider.filters.loading')}
+          </p>
+        ) : null}
+        {filterError ? (
+          <div role="alert" className="space-y-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+            <p>{t('provider.filters.error')}</p>
+            <button
+              type="button"
+              disabled={filterPending}
+              onClick={() => setFilterRetry(current => current + 1)}
+              className="min-h-11 rounded-xl border border-destructive/30 px-4 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-55"
+            >
+              {t('provider.filters.retry')}
+            </button>
+          </div>
+        ) : workspace.requests.length === 0 && !filtersActive ? (
           <p className="border-y border-border py-6 text-sm text-muted-foreground">{t('provider.emptyInbox')}</p>
+        ) : workspace.requests.length === 0 ? (
+          <div className="space-y-3 border-y border-border py-6">
+            <p className="text-sm text-muted-foreground">{t('provider.filters.empty')}</p>
+            <button
+              type="button"
+              onClick={() => { setStateFilter('all'); setAttentionFilter('all') }}
+              className="min-h-11 rounded-xl border border-border px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {t('provider.filters.clear')}
+            </button>
+          </div>
         ) : (
           <ul className="divide-y divide-border border-y border-border">
             {workspace.requests.map(request => (
@@ -383,15 +519,38 @@ export function ProviderBookingWorkspaceClient({
                   pendingLabel={t('provider.opening')}
                   className="block min-h-11 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 >
-                  <span className="flex items-start justify-between gap-3">
+                  <span className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{request.contactName}</span>
+                      <span className="block break-words font-medium">{request.contactName}</span>
                       <span className="mt-1 block text-sm text-muted-foreground">
                         {formatRequestedBookingTime(request.requestedDate, request.requestedTime, locale, request.timezone)}
                       </span>
-                      <span className="mt-1 block truncate text-xs text-muted-foreground">{request.serviceTitle}</span>
+                      <span className="mt-1 block break-words text-xs text-muted-foreground">{request.serviceTitle}</span>
                     </span>
-                    <span className="shrink-0 rounded-full border border-border px-2 py-1 text-xs">{t(`status.${request.status}`)}</span>
+                    <span className="min-w-0 sm:max-w-48 sm:text-right">
+                      <span className="inline-flex max-w-full rounded-full border border-border px-2 py-1 text-left text-xs leading-5">
+                        <span className="min-w-0 break-words">
+                          {request.lifecycleStatus === 'cancelled'
+                            ? t('workflow.statusPanel.cancelled.provider')
+                            : request.workflowState
+                              ? resolveBookingWorkflowLabel(
+                                (key) => t(key),
+                                request.workflowState,
+                                'provider',
+                              )
+                              : t('workflow.statusPanel.unavailable')}
+                        </span>
+                      </span>
+                      {request.lifecycleStatus === 'requested' && request.workflowState ? (
+                        <span className="mt-1 block break-words text-xs leading-5 text-muted-foreground">
+                          {resolveBookingWorkflowAttention(
+                            (key) => t(key),
+                            request.workflowState.attentionSide,
+                            'provider',
+                          )}
+                        </span>
+                      ) : null}
+                    </span>
                   </span>
                 </BookingPendingLink>
               </li>

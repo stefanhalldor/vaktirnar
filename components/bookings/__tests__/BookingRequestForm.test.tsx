@@ -12,7 +12,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('next-intl', () => ({
   useLocale: () => 'is',
   useTranslations: () => (key: string, values?: Record<string, unknown>) => (
-    values?.percent ? `${key}:${values.percent}` : key
+    values?.percent ? `${key}:${values.percent}` : values?.email ? `${key}:${values.email}` : key
   ),
 }))
 
@@ -93,6 +93,7 @@ describe('BookingRequestForm', () => {
       accessMode: 'members',
       status: 'requested',
       appliedDiscountBps: 1000,
+      currentActorHasAccess: true,
       guestCapability: null,
     })))
 
@@ -106,6 +107,27 @@ describe('BookingRequestForm', () => {
     expect(screen.getByRole('button', { name: 'form.sending' })).toBeDisabled()
   })
 
+  it('does not open a booking owned by a different contact email', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({
+      publicId: '11111111-1111-4111-8111-111111111111',
+      businessProfileSlug: 'kvissbador',
+      bookingPath: '/bokanir/kvissbador/fyrirspurn/11111111-1111-4111-8111-111111111111',
+      accessMode: 'members',
+      status: 'requested',
+      appliedDiscountBps: 1000,
+      currentActorHasAccess: false,
+      guestCapability: null,
+    })))
+
+    render(<BookingRequestForm view={{ ...view, signedIn: true }} />)
+    await fillRequiredForm()
+    await userEvent.click(screen.getByRole('button', { name: 'form.submit' }))
+
+    expect(await screen.findByText('request.sentForEmailBody:anna@example.com')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'request.open' })).not.toBeInTheDocument()
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled()
+  })
+
   it('reuses the same request id for an exact retry and shows the private guest link', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ error: 'save_failed' }, false, 500))
@@ -116,6 +138,7 @@ describe('BookingRequestForm', () => {
         accessMode: 'link',
         status: 'requested',
         appliedDiscountBps: null,
+        currentActorHasAccess: true,
         guestCapability: 'abcdefghijklmnopqrstuvwxyzABCDEFGH123456789',
       }))
     vi.stubGlobal('fetch', fetchMock)
@@ -182,6 +205,7 @@ describe('BookingRequestForm', () => {
       accessMode: 'link',
       status: 'requested',
       appliedDiscountBps: null,
+      currentActorHasAccess: true,
       guestCapability: 'abcdefghijklmnopqrstuvwxyzABCDEFGH123456789',
     })))
 

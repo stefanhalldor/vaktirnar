@@ -145,6 +145,7 @@ export async function middleware(request: NextRequest) {
   const isBookingProviderPage = pathname === '/auth-mvp/bokanir'
     || pathname.startsWith('/auth-mvp/bokanir/')
   const isBookingProviderApi = pathname === '/api/bookings/provider'
+    || pathname.startsWith('/api/bookings/provider/')
   const isBookingPath = isPublicBookingPage
     || isPublicBookingApi
     || isBookingProviderPage

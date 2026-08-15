@@ -3243,6 +3243,7 @@
       "timeIsRequest": "The date and time are a preference. The provider replies in the conversation, but the time is not confirmed.",
       "sentTitle": "Your enquiry has been sent",
       "sentBody": "This is still an enquiry, not a confirmed booking. Follow the provider's reply on the private page.",
+      "sentForEmailBody": "The enquiry was linked to the Teskeið account for {email}. Sign in with that email to follow the reply.",
       "open": "Open enquiry",
       "opening": "Opening enquiry…"
     },
@@ -3305,6 +3306,147 @@
       "requested": "Enquiry sent",
       "cancelled": "Cancelled"
     },
+    "workflow": {
+      "openingEditor": "Opening status workflow…",
+      "editFlow": "Edit workflow",
+      "unavailable": "A status workflow is not available for this service.",
+      "systemLabels": {
+        "new_request": {
+          "provider": "New enquiry",
+          "customer": "Enquiry received"
+        },
+        "under_review": {
+          "provider": "Enquiry under review",
+          "customer": "Your enquiry is under review"
+        },
+        "waiting_customer": {
+          "provider": "Waiting for customer",
+          "customer": "We need your reply"
+        },
+        "waiting_provider": {
+          "provider": "Customer is waiting",
+          "customer": "The service provider replies next"
+        },
+        "confirmed": {
+          "provider": "Confirmed",
+          "customer": "Your booking is confirmed"
+        }
+      },
+      "attention": {
+        "provider": {
+          "yours": "The next step is yours.",
+          "customer": "Waiting for the customer to reply.",
+          "none": "No reply is pending."
+        },
+        "customer": {
+          "provider": "The service provider replies next.",
+          "yours": "The next step is yours.",
+          "none": "No reply is pending."
+        }
+      },
+      "cancellationReasons": {
+        "customer_cancelled": "Customer cancelled",
+        "provider_unavailable": "Service provider was unavailable",
+        "other": "Other",
+        "legacy_unspecified": "No reason was recorded"
+      },
+      "statusPanel": {
+        "heading": "Booking status",
+        "unavailable": "The status could not be displayed.",
+        "cancelled": {
+          "provider": "Cancelled",
+          "customer": "The booking was cancelled"
+        },
+        "cancellationReason": "Reason: {reason}",
+        "nextState": "Move to status",
+        "chooseState": "Choose a status",
+        "change": "Change status",
+        "changing": "Changing status…",
+        "noNextStates": "This workflow has no ordinary next status."
+      },
+      "cancel": {
+        "open": "Cancel booking",
+        "title": "Cancel booking?",
+        "description": {
+          "provider": "Choose a reason. The booking will close and no more messages can be sent.",
+          "customer": "The booking will close and no more messages can be sent."
+        },
+        "close": "Close dialog",
+        "reasonLabel": "Reason",
+        "chooseReason": "Choose a reason before continuing.",
+        "failed": "The booking could not be cancelled. Try again.",
+        "confirm": "Yes, cancel",
+        "cancelling": "Cancelling…",
+        "keep": "No, keep booking"
+      },
+      "editor": {
+        "title": "Status workflow",
+        "description": "Choose how bookings move between statuses.",
+        "back": "Back to Bookings",
+        "service": "Service: {title}",
+        "activeVersion": "Active workflow · version {version}",
+        "draftVersion": "Draft · version {version}",
+        "publishNotice": "New enquiries use the new workflow. Existing bookings keep their workflow.",
+        "noDraft": "Start a draft to edit the workflow. The active workflow remains unchanged until the draft is published.",
+        "ensureDraft": "Start editing",
+        "ensuringDraft": "Creating draft…",
+        "statesTitle": "Statuses",
+        "statePosition": "Status {position} of {count}",
+        "editState": "Edit {label}",
+        "closeState": "Close edits for {label}",
+        "providerLabel": "Label seen by the service provider",
+        "customerLabel": "Label seen by the customer",
+        "attentionLabel": "Who has the next step?",
+        "attentionOptions": {
+          "provider": "Service provider",
+          "customer": "Customer",
+          "none": "No one"
+        },
+        "initialState": "Initial status",
+        "confirmedState": "Protected confirmed status",
+        "moveUp": "Move {label} up",
+        "moveDown": "Move {label} down",
+        "deleteState": "Delete {label}",
+        "deleteUnavailable": "Move the initial status before deleting it.",
+        "nextStates": "May move next to",
+        "confirmedHasNoNext": "Confirmed has no ordinary next status.",
+        "addState": "Add status",
+        "newState": "New status",
+        "cancelledTitle": "Cancelled",
+        "cancelledBody": "Always available from every status and cannot be deleted.",
+        "save": "Save draft",
+        "saving": "Saving draft…",
+        "publish": "Publish changes",
+        "publishing": "Publishing changes…",
+        "saveBeforePublish": "Save the draft before publishing the changes.",
+        "success": {
+          "draftCreated": "The draft is ready to edit.",
+          "draftSaved": "The draft was saved.",
+          "published": "The new workflow is active for new enquiries."
+        },
+        "errors": {
+          "load": "The workflow could not be loaded.",
+          "save": "The changes could not be saved. Try again.",
+          "conflict": "The workflow changed elsewhere. The latest version was loaded.",
+          "invalid": "Review the workflow and fix the listed issues.",
+          "random": "Secure random identification is unavailable.",
+      "label": "Both labels must contain 1–80 characters without control or formatting characters.",
+          "state_count": "The workflow must contain 1–20 statuses.",
+          "transition_count": "The workflow may contain at most 100 connections.",
+          "duplicate_state_id": "Two statuses have the same identifier.",
+          "duplicate_logical_key": "Two statuses have the same internal key.",
+          "duplicate_system_label_key": "The same default status is used more than once.",
+          "invalid_sort_order": "The status order is invalid.",
+          "initial_state_count": "Choose exactly one initial status.",
+          "confirmed_state_count": "The workflow needs exactly one confirmed status.",
+          "transition_endpoint": "A connection points to a status that does not exist.",
+          "duplicate_transition": "The same connection appears more than once.",
+          "self_transition": "A status cannot move to itself.",
+          "confirmed_outgoing_transition": "Confirmed cannot have an ordinary next status.",
+          "unreachable_state": "Every status must be reachable from the initial status."
+        }
+      }
+    },
     "claim": {
       "linkModeTitle": "Access through a private link",
       "linkModeBody": "Everyone with the private link has the same guest access. You can close it permanently by linking the enquiry to Teskeið.",
@@ -3359,6 +3501,8 @@
     "activity": {
       "request_submitted": "Booking enquiry sent",
       "request_cancelled": "The enquiry was cancelled",
+      "request_cancelled_with_reason": "Cancelled: {reason}",
+      "workflow_state_changed": "Status changed from {from} to {to}",
       "booking_claimed": "The enquiry was linked to Teskeið",
       "member_added": "Access was added",
       "member_revoked": "Access was removed",
@@ -3412,6 +3556,17 @@
       "inboxTitle": "Enquiries",
       "inboxDescription": "Open an enquiry to read it and reply in the conversation.",
       "emptyInbox": "No booking enquiry has arrived.",
+      "filters": {
+        "state": "Status",
+        "allStates": "All statuses",
+        "attention": "Next step",
+        "allAttention": "All bookings",
+        "loading": "Loading bookings…",
+        "error": "Bookings for these filters could not be loaded.",
+        "retry": "Try again",
+        "empty": "No enquiries match the filters.",
+        "clear": "Clear filters"
+      },
       "opening": "Opening enquiry…"
     },
     "errors": {

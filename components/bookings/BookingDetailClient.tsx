@@ -6,8 +6,10 @@ import { ExternalLink, LogIn, UserPlus } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
 import type { BookingActionResult, BookingDetailView } from '@/lib/bookings/contracts'
+import { BookingCancellationDialog } from './BookingCancellationDialog'
 import { BookingChatPanel } from './BookingChatPanel'
 import { BookingPendingLink } from './BookingPendingLink'
+import { BookingStatusPanel } from './BookingStatusPanel'
 import { formatRequestedBookingTime } from './format'
 
 function newIdempotencyKey(): string {
@@ -37,13 +39,15 @@ export function BookingDetailClient({
   const [isRefreshing, startRefreshTransition] = useTransition()
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [errorKey, setErrorKey] = useState<string | null>(null)
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [claimEmails, setClaimEmails] = useState('')
   const [memberEmail, setMemberEmail] = useState('')
   const [memberRole, setMemberRole] = useState<'owner' | 'member'>('member')
   const actionEnvelope = useRef<{ fingerprint: string; id: string } | null>(null)
   const actionInFlight = useRef(false)
   const mutationPending = pendingAction !== null || isRefreshing
+  const workflowStateKey = initialView.workflowState?.audience === 'provider'
+    ? initialView.workflowState.stateId
+    : initialView.workflowState?.systemLabelKey
   const detailPath = `/bokanir/${encodeURIComponent(initialView.businessProfileSlug)}/fyrirspurn/${encodeURIComponent(initialView.publicId)}`
 
   const activeMembers = useMemo(
@@ -62,8 +66,19 @@ export function BookingDetailClient({
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
   }, [providerContext])
 
-  async function runAction(payload: Record<string, unknown>, actionName: string) {
-    if (mutationPending || actionInFlight.current) return
+  useEffect(() => {
+    // Clear a mutation envelope only after authoritative props advance. If a
+    // response or refresh is lost, retrying the same intent reuses its key.
+    actionEnvelope.current = null
+  }, [
+    initialView.accessVersion,
+    initialView.lifecycleStatus,
+    initialView.revision,
+    workflowStateKey,
+  ])
+
+  async function runAction(payload: Record<string, unknown>, actionName: string): Promise<boolean> {
+    if (mutationPending || actionInFlight.current) return false
     actionInFlight.current = true
     setPendingAction(actionName)
     setErrorKey(null)
@@ -75,7 +90,7 @@ export function BookingDetailClient({
         setErrorKey('errors.unavailable')
         setPendingAction(null)
         actionInFlight.current = false
-        return
+        return false
       }
     }
     try {
@@ -89,18 +104,24 @@ export function BookingDetailClient({
       const result = await response.json().catch(() => null) as BookingActionResult<unknown> | null
       if (!response.ok || !result?.ok) {
         const error = result && !result.ok ? result.error : null
-        setErrorKey(error === 'conflict'
-          ? 'errors.conflict'
+        setErrorKey(error === 'conflict' ? 'errors.conflict'
           : error === 'invalid_input'
             ? 'errors.invalidInput'
             : error === 'unauthorized' || error === 'not_found'
               ? 'errors.accessChanged'
               : 'errors.saveFailed')
-        setPendingAction(null)
-        return
+        if (error === 'conflict') {
+          // Keep the same idempotency envelope until refreshed props advance,
+          // but immediately replace stale revision/targets from the server.
+          startRefreshTransition(() => {
+            router.refresh()
+            setPendingAction(null)
+          })
+        } else {
+          setPendingAction(null)
+        }
+        return false
       }
-      actionEnvelope.current = null
-      setShowCancelConfirm(false)
       setClaimEmails('')
       setMemberEmail('')
       // Keep the stale controls disabled until the authoritative RSC refresh
@@ -109,9 +130,11 @@ export function BookingDetailClient({
         router.refresh()
         setPendingAction(null)
       })
+      return true
     } catch {
       setErrorKey('errors.saveFailed')
       setPendingAction(null)
+      return false
     } finally {
       actionInFlight.current = false
     }
@@ -140,22 +163,27 @@ export function BookingDetailClient({
   return (
     <div className="space-y-6">
       <section className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
           <div>
             <p className="text-sm text-muted-foreground">{initialView.provider.displayName}</p>
             <h2 className="mt-1 text-xl font-semibold text-primary">{initialView.service.title}</h2>
           </div>
-          <span className={`inline-flex min-h-8 items-center rounded-full border px-3 text-xs font-medium ${
-            initialView.status === 'cancelled'
-              ? 'border-border bg-muted text-muted-foreground'
-              : 'border-amber-300 bg-amber-50 text-amber-950'
-          }`}>
-            {t(`status.${initialView.status}`)}
-          </span>
         </div>
-        <p className="text-sm leading-6 text-muted-foreground">
-          {initialView.status === 'requested' ? t('detail.notConfirmed') : t('detail.cancelledBody')}
-        </p>
+        <BookingStatusPanel
+          audience={initialView.permissions.actorKind === 'provider' ? 'provider' : 'customer'}
+          lifecycleStatus={initialView.lifecycleStatus}
+          workflowState={initialView.workflowState}
+          cancellationReason={initialView.cancellationReason}
+          canTransition={initialView.permissions.canTransition}
+          pending={mutationPending}
+          onTransition={(targetStateId) => {
+            void runAction({
+              action: 'transitionWorkflow',
+              expectedRevision: initialView.revision,
+              targetStateId,
+            }, `transition:${targetStateId}`)
+          }}
+        />
       </section>
 
       <section aria-labelledby="booking-request-summary" className="border-y border-border">
@@ -221,7 +249,7 @@ export function BookingDetailClient({
                 {pendingAction === 'claim' ? t('claim.claiming') : t('claim.confirm')}
               </button>
             </div>
-          ) : !initialView.permissions.signedIn && initialView.status === 'requested' ? (
+          ) : !initialView.permissions.signedIn && initialView.lifecycleStatus === 'requested' ? (
             <BookingPendingLink
               href={`/innskraning?next=${encodeURIComponent(detailPath)}`}
               pendingLabel={t('access.openingSignIn')}
@@ -310,43 +338,17 @@ export function BookingDetailClient({
         </section>
       ) : null}
 
-      {initialView.permissions.canCancel && initialView.status === 'requested' ? (
-        <section className="space-y-3 border-y border-border py-5">
-          {!showCancelConfirm ? (
-            <button
-              type="button"
-              disabled={mutationPending}
-              onClick={() => setShowCancelConfirm(true)}
-              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-destructive/30 px-4 text-sm font-medium text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-55"
-            >
-              {t('cancel.open')}
-            </button>
-          ) : (
-            <div role="alert" className="space-y-3">
-              <p className="text-sm leading-6">{t('cancel.confirmBody')}</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={mutationPending}
-                  onClick={() => void runAction({
-                    action: 'cancel',
-                    expectedRevision: initialView.revision,
-                  }, 'cancel')}
-                  className="min-h-11 rounded-xl bg-destructive px-4 text-sm font-medium text-destructive-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-55"
-                >
-                  {pendingAction === 'cancel' ? t('cancel.cancelling') : t('cancel.confirm')}
-                </button>
-                <button
-                  type="button"
-                  disabled={mutationPending}
-                  onClick={() => setShowCancelConfirm(false)}
-                  className="min-h-11 rounded-xl border border-border px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {t('cancel.keep')}
-                </button>
-              </div>
-            </div>
-          )}
+      {initialView.permissions.canCancel && initialView.lifecycleStatus === 'requested' ? (
+        <section className="border-y border-border py-5">
+          <BookingCancellationDialog
+            audience={initialView.permissions.actorKind === 'provider' ? 'provider' : 'customer'}
+            pending={mutationPending}
+            onConfirm={(reason) => runAction({
+              action: 'cancel',
+              expectedRevision: initialView.revision,
+              ...(reason ? { reason } : {}),
+            }, 'cancel')}
+          />
         </section>
       ) : null}
 
@@ -356,7 +358,8 @@ export function BookingDetailClient({
         publicId={initialView.publicId}
         activity={initialView.activity}
         timeZone={initialView.requested.timezone}
-        canMessage={initialView.permissions.canMessage && initialView.status === 'requested'}
+        canMessage={initialView.permissions.canMessage && initialView.lifecycleStatus === 'requested'}
+        audience={initialView.permissions.actorKind === 'provider' ? 'provider' : 'customer'}
       />
 
       {initialView.provider.websiteUrl && !providerContext ? (

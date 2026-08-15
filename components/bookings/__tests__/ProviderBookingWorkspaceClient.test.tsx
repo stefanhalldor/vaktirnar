@@ -20,6 +20,14 @@ const workspace: ProviderBookingWorkspaceView = {
   }],
   services: [],
   requests: [],
+  facets: { states: [], attention: [] },
+}
+
+const workflow = {
+  id: '00000000-0000-4000-8000-000000000010',
+  revision: 1,
+  activeVersionId: '00000000-0000-4000-8000-000000000011',
+  activeVersionNumber: 1,
 }
 
 function response(body: unknown, status = 200): Response {
@@ -48,6 +56,7 @@ describe('ProviderBookingWorkspaceClient', () => {
         signedInDiscountBps: 1025,
         status: 'draft',
         updatedAt: '2026-08-11T16:00:00.000Z',
+        workflow,
       }],
     }
     const fetchMock = vi.fn()
@@ -90,6 +99,7 @@ describe('ProviderBookingWorkspaceClient', () => {
         signedInDiscountBps: null,
         status: 'published',
         updatedAt: '2026-08-11T16:00:00.000Z',
+        workflow,
       }],
     }
     const savedWorkspace: ProviderBookingWorkspaceView = {
@@ -121,7 +131,16 @@ describe('ProviderBookingWorkspaceClient', () => {
         businessProfileSlug: 'kvissbador',
         providerDisplayName: 'Kvissbador',
         serviceTitle: 'Kvissveisla',
-        status: 'requested',
+        lifecycleStatus: 'requested',
+        cancellationReason: null,
+        workflowState: {
+          workflowId: workflow.id,
+          logicalKey: 'new_request',
+          systemLabelKey: 'new_request',
+          label: null,
+          attentionSide: 'provider',
+          semanticKind: 'active',
+        },
         requestedDate: '2026-09-20',
         requestedTime: '18:30',
         timezone: 'Atlantic/Reykjavik',
@@ -134,6 +153,150 @@ describe('ProviderBookingWorkspaceClient', () => {
     expect(screen.getByText('Anna')).toBeInTheDocument()
     expect(screen.getByText('provider.inboxTitle')).toBeInTheDocument()
     expect(screen.queryByText(/analytics/i)).not.toBeInTheDocument()
+  })
+
+  it('filters by stable workflow key and keeps cancelled rows out of attention facets', async () => {
+    const active = {
+      publicId: '00000000-0000-4000-8000-000000000020',
+      businessProfileSlug: 'kvissbador',
+      providerDisplayName: 'Kvissbador',
+      serviceTitle: 'Kvissveisla',
+      lifecycleStatus: 'requested' as const,
+      cancellationReason: null,
+      workflowState: {
+        workflowId: workflow.id,
+        logicalKey: 'new_request',
+        systemLabelKey: 'new_request' as const,
+        label: null,
+        attentionSide: 'provider' as const,
+        semanticKind: 'active' as const,
+      },
+      requestedDate: '2026-09-20',
+      requestedTime: '18:30',
+      timezone: 'Atlantic/Reykjavik',
+      contactName: 'Anna',
+      createdAt: '2026-08-11T16:00:00.000Z',
+      lastMessageAt: null,
+    }
+    const cancelled = {
+      ...active,
+      publicId: '00000000-0000-4000-8000-000000000021',
+      contactName: 'Bjarni',
+      lifecycleStatus: 'cancelled' as const,
+      cancellationReason: 'customer_cancelled' as const,
+      workflowState: null,
+    }
+    const olderPinnedVersion = {
+      ...active,
+      publicId: '00000000-0000-4000-8000-000000000022',
+      contactName: 'Dóra',
+      workflowState: {
+        ...active.workflowState,
+        systemLabelKey: null,
+        label: 'Eldra heiti',
+      },
+    }
+    const initialWorkspace: ProviderBookingWorkspaceView = {
+      ...workspace,
+      requests: [active, olderPinnedVersion, cancelled],
+      facets: {
+        states: [{
+          key: `${workflow.id}:new_request`,
+          workflowId: workflow.id,
+          logicalKey: 'new_request',
+          systemLabelKey: 'new_request',
+          label: null,
+          count: 2,
+        }],
+        attention: [{ attentionSide: 'provider', count: 2 }],
+      },
+    }
+    const filteredWorkspace = { ...initialWorkspace, requests: [active, olderPinnedVersion] }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(filteredWorkspace))
+      .mockResolvedValueOnce(response(initialWorkspace))
+      .mockResolvedValueOnce(response(filteredWorkspace))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ProviderBookingWorkspaceClient initialWorkspace={initialWorkspace} />)
+
+    await userEvent.selectOptions(
+      screen.getByLabelText('provider.filters.state'),
+      `${workflow.id}:new_request`,
+    )
+    await waitFor(() => expect(screen.queryByText('Bjarni')).not.toBeInTheDocument())
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `/api/bookings/provider?workflowId=${workflow.id}&stateLogicalKey=new_request`,
+    )
+    expect(screen.getByText('Anna')).toBeInTheDocument()
+    expect(screen.getByText('Dóra')).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText('provider.filters.state'), 'all')
+    await screen.findByText('Bjarni')
+
+    await userEvent.selectOptions(screen.getByLabelText('provider.filters.attention'), 'provider')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('/api/bookings/provider?attentionSide=provider')
+    expect(screen.getByText('Anna')).toBeInTheDocument()
+    expect(screen.getByText('Dóra')).toBeInTheDocument()
+    expect(screen.queryByText('Bjarni')).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'workflow.statusPanel.cancelled.provider' }))
+      .not.toBeInTheDocument()
+  })
+
+  it('shows pending and retry feedback when a server-side filter fails', async () => {
+    const active = {
+      publicId: '00000000-0000-4000-8000-000000000020',
+      businessProfileSlug: 'kvissbador',
+      providerDisplayName: 'Kvissbador',
+      serviceTitle: 'Kvissveisla',
+      lifecycleStatus: 'requested' as const,
+      cancellationReason: null,
+      workflowState: {
+        workflowId: workflow.id,
+        logicalKey: 'new_request',
+        systemLabelKey: 'new_request' as const,
+        label: null,
+        attentionSide: 'provider' as const,
+        semanticKind: 'active' as const,
+      },
+      requestedDate: '2026-09-20',
+      requestedTime: '18:30',
+      timezone: 'Atlantic/Reykjavik',
+      contactName: 'Anna',
+      createdAt: '2026-08-11T16:00:00.000Z',
+      lastMessageAt: null,
+    }
+    const initialWorkspace: ProviderBookingWorkspaceView = {
+      ...workspace,
+      requests: [active],
+      facets: {
+        states: [{
+          key: `${workflow.id}:new_request`,
+          workflowId: workflow.id,
+          logicalKey: 'new_request',
+          systemLabelKey: 'new_request',
+          label: null,
+          count: 1,
+        }],
+        attention: [{ attentionSide: 'provider', count: 1 }],
+      },
+    }
+    let rejectRequest!: (reason?: unknown) => void
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((_resolve, reject) => { rejectRequest = reject }))
+      .mockResolvedValueOnce(response(initialWorkspace))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ProviderBookingWorkspaceClient initialWorkspace={initialWorkspace} />)
+
+    await userEvent.selectOptions(screen.getByLabelText('provider.filters.attention'), 'provider')
+    expect(screen.getByRole('status')).toHaveTextContent('provider.filters.loading')
+    expect(screen.getByLabelText('provider.filters.attention')).toBeDisabled()
+    rejectRequest(new Error('offline'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('provider.filters.error')
+
+    await userEvent.click(screen.getByRole('button', { name: 'provider.filters.retry' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('provider.filters.error')).not.toBeInTheDocument())
   })
 
   it('treats an entered zero-percent discount as disabled', async () => {
@@ -184,6 +347,7 @@ describe('ProviderBookingWorkspaceClient', () => {
         signedInDiscountBps: null,
         status: 'draft',
         updatedAt: '2026-08-11T16:00:00.000Z',
+        workflow,
       }],
     }
     const fetchMock = vi.fn(() => new Promise<Response>(() => undefined))

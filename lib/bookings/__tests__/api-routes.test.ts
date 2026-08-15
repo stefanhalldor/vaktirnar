@@ -5,12 +5,14 @@ const mocks = vi.hoisted(() => ({
   currentUser: vi.fn(),
   authorize: vi.fn(),
   requireProvider: vi.fn(),
+  requireWorkflowActor: vi.fn(),
   resolvePublic: vi.fn(),
   resolveReplay: vi.fn(),
   createRequest: vi.fn(),
   exchange: vi.fn(),
   loadDetail: vi.fn(),
   cancel: vi.fn(),
+  transitionRequest: vi.fn(),
   claim: vi.fn(),
   manageMember: vi.fn(),
   listMessages: vi.fn(),
@@ -18,6 +20,10 @@ const mocks = vi.hoisted(() => ({
   loadWorkspace: vi.fn(),
   saveService: vi.fn(),
   transitionService: vi.fn(),
+  loadWorkflow: vi.fn(),
+  ensureWorkflowDraft: vi.fn(),
+  saveWorkflowDraft: vi.fn(),
+  publishWorkflowDraft: vi.fn(),
 }))
 
 vi.mock('../api.server', () => ({
@@ -36,6 +42,7 @@ vi.mock('../api.server', () => ({
 
 vi.mock('../access.server', () => ({
   requireBookingProviderApi: mocks.requireProvider,
+  requireBookingWorkflowMutationActorApi: mocks.requireWorkflowActor,
   authorizeBookingAccess: mocks.authorize,
 }))
 
@@ -47,6 +54,7 @@ vi.mock('../repository.server', () => ({
   createdBookingPath: (slug: string, publicId: string) => `/bokanir/${slug}/fyrirspurn/${publicId}`,
   loadBookingDetail: mocks.loadDetail,
   cancelBookingRequest: mocks.cancel,
+  transitionBookingRequest: mocks.transitionRequest,
   claimBookingRequest: mocks.claim,
   manageBookingMember: mocks.manageMember,
   listBookingMessages: mocks.listMessages,
@@ -54,6 +62,10 @@ vi.mock('../repository.server', () => ({
   loadProviderBookingWorkspace: mocks.loadWorkspace,
   saveBookingServiceSettings: mocks.saveService,
   transitionBookingService: mocks.transitionService,
+  loadProviderBookingWorkflow: mocks.loadWorkflow,
+  ensureProviderBookingWorkflowDraft: mocks.ensureWorkflowDraft,
+  saveProviderBookingWorkflowDraft: mocks.saveWorkflowDraft,
+  publishProviderBookingWorkflowDraft: mocks.publishWorkflowDraft,
 }))
 
 import { POST as createPost } from '@/app/api/bookings/public/requests/route'
@@ -61,6 +73,10 @@ import { POST as exchangePost } from '@/app/api/bookings/public/requests/[public
 import { POST as actionsPost } from '@/app/api/bookings/requests/[publicId]/actions/route'
 import { POST as messagesPost } from '@/app/api/bookings/requests/[publicId]/messages/route'
 import { GET as providerGet, POST as providerPost } from '@/app/api/bookings/provider/route'
+import {
+  GET as workflowGet,
+  POST as workflowPost,
+} from '@/app/api/bookings/provider/services/[serviceId]/workflow/route'
 import { digestBookingToken } from '../security.server'
 
 const SERVICE_ID = '00000000-0000-4000-8000-000000000001'
@@ -133,6 +149,11 @@ beforeEach(() => {
     user: { id: 'provider-1', email: 'provider@example.com' },
     spaceId: 'space-1',
   })
+  mocks.requireWorkflowActor.mockResolvedValue({
+    ok: true,
+    user: { id: 'provider-1', email: 'provider@example.com' },
+    spaceId: 'space-1',
+  })
   mocks.loadWorkspace.mockResolvedValue({ profiles: [], services: [], requests: [] })
 })
 
@@ -147,6 +168,7 @@ describe('public booking intake routes', () => {
     expect(body).toMatchObject({
       publicId: PUBLIC_ID,
       accessMode: 'link',
+      currentActorHasAccess: true,
       bookingPath: `/bokanir/quizbadour/fyrirspurn/${PUBLIC_ID}`,
     })
     expect(body.guestCapability).toMatch(/^[A-Za-z0-9_-]{43}$/)
@@ -170,7 +192,7 @@ describe('public booking intake routes', () => {
   it('creates signed-in access without returning or exchanging a guest capability', async () => {
     mocks.currentUser.mockResolvedValue({
       id: 'user-1',
-      email: 'user@example.com',
+      email: 'stebbi@example.com',
       email_confirmed_at: '2026-08-11T12:00:00.000Z',
     })
     mocks.createRequest.mockResolvedValue({
@@ -190,11 +212,43 @@ describe('public booking intake routes', () => {
     ))
     expect(await response.json()).toMatchObject({
       accessMode: 'members', guestCapability: null, appliedDiscountBps: 1000,
+      currentActorHasAccess: true,
     })
     expect(mocks.exchange).not.toHaveBeenCalled()
     expect(mocks.createRequest).toHaveBeenCalledWith(expect.objectContaining({
       guestCapabilityDigest: null,
     }))
+  })
+
+  it('does not claim that a signed-in submitter can open another contact email owner booking', async () => {
+    mocks.currentUser.mockResolvedValue({
+      id: 'user-1',
+      email: 'other@example.com',
+      email_confirmed_at: '2026-08-11T12:00:00.000Z',
+    })
+    mocks.createRequest.mockResolvedValue({
+      id: REQUEST_ID,
+      publicId: PUBLIC_ID,
+      businessProfileSlug: 'quizbadour',
+      accessMode: 'members',
+      accessVersion: 1,
+      status: 'requested',
+      revision: 1,
+      appliedDiscountBps: 1000,
+      created: true,
+    })
+
+    const response = await createPost(jsonRequest(
+      'http://localhost/api/bookings/public/requests',
+      validCreate(),
+    ))
+
+    expect(await response.json()).toMatchObject({
+      accessMode: 'members',
+      currentActorHasAccess: false,
+      guestCapability: null,
+    })
+    expect(mocks.exchange).not.toHaveBeenCalled()
   })
 
   it('rejects cross-origin mutations before resolving a public service', async () => {
@@ -329,6 +383,42 @@ describe('public booking intake routes', () => {
 })
 
 describe('booking mutation boundaries', () => {
+  it('passes a provider-selected cancellation reason and only the target state intent', async () => {
+    mocks.authorize.mockResolvedValue({ actorKind: 'provider', actorUserId: 'provider-1' })
+    const cancelResponse = await actionsPost(
+      jsonRequest(`http://localhost/api/bookings/requests/${PUBLIC_ID}/actions`, {
+        action: 'cancel',
+        expectedRevision: 3,
+        reason: 'provider_unavailable',
+        idempotencyKey: IDEMPOTENCY_ID,
+      }),
+      { params: Promise.resolve({ publicId: PUBLIC_ID }) },
+    )
+    expect(cancelResponse.status).toBe(200)
+    expect(mocks.cancel).toHaveBeenCalledWith(
+      expect.anything(),
+      PUBLIC_ID,
+      expect.objectContaining({ reason: 'provider_unavailable' }),
+    )
+
+    const transitionResponse = await actionsPost(
+      jsonRequest(`http://localhost/api/bookings/requests/${PUBLIC_ID}/actions`, {
+        action: 'transitionWorkflow',
+        expectedRevision: 3,
+        targetStateId: MEMBER_ID,
+        idempotencyKey: IDEMPOTENCY_ID,
+      }),
+      { params: Promise.resolve({ publicId: PUBLIC_ID }) },
+    )
+    expect(transitionResponse.status).toBe(200)
+    expect(mocks.transitionRequest).toHaveBeenCalledWith('provider-1', PUBLIC_ID, {
+      action: 'transitionWorkflow',
+      expectedRevision: 3,
+      targetStateId: MEMBER_ID,
+      idempotencyKey: IDEMPOTENCY_ID,
+    })
+  })
+
   it('passes only memberId from revoke payload into the server-derived member repository path', async () => {
     mocks.authorize.mockResolvedValue({ actorKind: 'member', actorUserId: 'owner-1' })
     const response = await actionsPost(
@@ -501,7 +591,7 @@ describe('booking mutation boundaries', () => {
 describe('provider API boundary', () => {
   it('does not load service-role workspace data when the provider gate denies access', async () => {
     mocks.requireProvider.mockResolvedValue({ ok: false, status: 404 })
-    const response = await providerGet()
+    const response = await providerGet(new NextRequest('http://localhost/api/bookings/provider'))
     expect(response.status).toBe(404)
     expect(mocks.loadWorkspace).not.toHaveBeenCalled()
   })
@@ -519,5 +609,84 @@ describe('provider API boundary', () => {
     expect(mocks.transitionService).toHaveBeenCalledWith('provider-1', 'space-1', expect.objectContaining({
       idempotencyKey: IDEMPOTENCY_ID,
     }))
+  })
+
+  it('validates and forwards server-side workflow inbox filters', async () => {
+    const response = await providerGet(new NextRequest(
+      `http://localhost/api/bookings/provider?workflowId=${MEMBER_ID}`
+      + '&stateLogicalKey=new_request&attentionSide=provider',
+    ))
+    expect(response.status).toBe(200)
+    expect(mocks.loadWorkspace).toHaveBeenCalledWith('provider-1', 'space-1', {
+      workflowId: MEMBER_ID,
+      stateLogicalKey: 'new_request',
+      attentionSide: 'provider',
+    })
+
+    const invalid = await providerGet(new NextRequest(
+      `http://localhost/api/bookings/provider?workflowId=${MEMBER_ID}`,
+    ))
+    expect(invalid.status).toBe(400)
+    expect(mocks.loadWorkspace).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('provider workflow API boundary', () => {
+  it('uses the full provider gate and DB-authorized read for editor data', async () => {
+    mocks.loadWorkflow.mockResolvedValue({
+      service: { id: SERVICE_ID, title: 'Kviss' },
+      workflow: { id: MEMBER_ID, serviceId: SERVICE_ID, revision: 1 },
+      activeVersion: {},
+      draftVersion: null,
+      limits: { maxStates: 20, maxTransitions: 100 },
+    })
+    const response = await workflowGet(
+      new NextRequest(`http://localhost/api/bookings/provider/services/${SERVICE_ID}/workflow`),
+      { params: Promise.resolve({ serviceId: SERVICE_ID }) },
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.requireProvider).toHaveBeenCalledOnce()
+    expect(mocks.loadWorkflow).toHaveBeenCalledWith('provider-1', 'space-1', SERVICE_ID)
+  })
+
+  it('lets a confirmed actor reach only SQL-owned draft replay/fresh authorization', async () => {
+    mocks.ensureWorkflowDraft.mockResolvedValue({
+      workflowId: MEMBER_ID,
+      versionId: REQUEST_ID,
+      workflowRevision: 2,
+      versionRevision: 1,
+      replayed: false,
+    })
+    const response = await workflowPost(
+      jsonRequest(`http://localhost/api/bookings/provider/services/${SERVICE_ID}/workflow`, {
+        action: 'ensureDraft',
+        expectedWorkflowRevision: 1,
+        idempotencyKey: IDEMPOTENCY_ID,
+      }),
+      { params: Promise.resolve({ serviceId: SERVICE_ID }) },
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.requireWorkflowActor).toHaveBeenCalledOnce()
+    expect(mocks.ensureWorkflowDraft).toHaveBeenCalledWith(
+      'provider-1',
+      'space-1',
+      SERVICE_ID,
+      expect.objectContaining({ idempotencyKey: IDEMPOTENCY_ID }),
+    )
+  })
+
+  it('rejects oversized or client-authored workflow mutation fields before SQL', async () => {
+    const response = await workflowPost(
+      jsonRequest(`http://localhost/api/bookings/provider/services/${SERVICE_ID}/workflow`, {
+        action: 'ensureDraft',
+        expectedWorkflowRevision: 1,
+        idempotencyKey: IDEMPOTENCY_ID,
+        actorUserId: 'attacker',
+      }),
+      { params: Promise.resolve({ serviceId: SERVICE_ID }) },
+    )
+    expect(response.status).toBe(400)
+    expect(mocks.requireWorkflowActor).not.toHaveBeenCalled()
+    expect(mocks.ensureWorkflowDraft).not.toHaveBeenCalled()
   })
 })

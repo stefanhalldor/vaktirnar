@@ -26,7 +26,11 @@ vi.mock('@/lib/auth/guard', () => ({
   guardTeskeidSession: vi.fn(),
 }))
 
-import { authorizeBookingAccess, requireBookingProviderApi } from '../access.server'
+import {
+  authorizeBookingAccess,
+  requireBookingProviderApi,
+  requireBookingWorkflowMutationActorApi,
+} from '../access.server'
 
 const PUBLIC_ID = '00000000-0000-4000-8000-000000000003'
 
@@ -38,6 +42,7 @@ function projection(actorKind: 'guest' | 'member' | 'provider' = 'guest') {
       canClaim: actorKind === 'guest',
       canManageMembers: actorKind === 'member',
       canSendMessage: true,
+      canTransition: actorKind === 'provider',
     },
   }
 }
@@ -122,5 +127,28 @@ describe('provider API gate', () => {
   it('fails closed without leaking auth/service failures', async () => {
     mocks.getUser.mockRejectedValue(new Error('private auth detail'))
     expect(await requireBookingProviderApi()).toEqual({ ok: false, status: 404 })
+  })
+
+  it('lets only a confirmed actor reach SQL-owned workflow replay without route entitlement', async () => {
+    mocks.getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: 'former-provider-1',
+          email: 'former@example.com',
+          email_confirmed_at: '2026-08-11T12:00:00.000Z',
+        },
+      },
+    })
+    mocks.featureAccess.mockResolvedValue(false)
+    expect(await requireBookingWorkflowMutationActorApi()).toMatchObject({
+      ok: true,
+      spaceId: 'space-1',
+    })
+    expect(mocks.featureAccess).not.toHaveBeenCalled()
+
+    mocks.getUser.mockResolvedValue({
+      data: { user: { id: 'user-1', email: 'user@example.com', email_confirmed_at: null } },
+    })
+    expect(await requireBookingWorkflowMutationActorApi()).toEqual({ ok: false, status: 404 })
   })
 })

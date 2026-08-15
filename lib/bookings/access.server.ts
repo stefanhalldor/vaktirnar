@@ -18,6 +18,7 @@ export type BookingAccessIntent =
   | 'cancel'
   | 'claim'
   | 'membership-owner'
+  | 'transition'
   | 'provider'
 
 export interface BookingAuthorization {
@@ -32,6 +33,7 @@ export interface BookingAuthorization {
     canClaim: boolean
     canManageMembers: boolean
     canMessage: boolean
+    canTransition: boolean
   }
   /** Bounded JSON returned by booking_read_request; repository maps it to a DTO. */
   projection: JsonRecord
@@ -117,6 +119,10 @@ export async function authorizeBookingAccess(input: {
       || projection.canSendMessage === true
       || projection.can_message === true
       || projection.can_send_message === true,
+    canTransition: permissionsRow.canTransition === true
+      || permissionsRow.can_transition === true
+      || projection.canTransition === true
+      || projection.can_transition === true,
   }
   const authorization: BookingAuthorization = {
     user,
@@ -135,6 +141,7 @@ export async function authorizeBookingAccess(input: {
     || (intent === 'cancel' && permissions.canCancel)
     || (intent === 'claim' && actorKindValue === 'guest' && authorization.signedIn && permissions.canClaim)
     || (intent === 'membership-owner' && permissions.canManageMembers)
+    || (intent === 'transition' && permissions.canTransition)
     || (intent === 'provider' && actorKindValue === 'provider')
   return allowed ? authorization : null
 }
@@ -163,6 +170,29 @@ export async function requireBookingProviderApi(): Promise<
     if (!(await checkFeatureAccess(user.id, user.email!, BOOKING_FEATURE_KEY))) {
       return { ok: false, status: 404 }
     }
+    const { data, error } = await supabase.rpc('ensure_personal_space')
+    if (error || typeof data !== 'string') return { ok: false, status: 404 }
+    return { ok: true, user, spaceId: data }
+  } catch {
+    return { ok: false, status: 404 }
+  }
+}
+
+/**
+ * Workflow writes need a narrower HTTP gate so an exact SQL-owned replay can
+ * still return its bounded receipt after entitlement was removed. Fresh writes
+ * always re-check exact provider ownership and `bokanir` entitlement in SQL.
+ */
+export async function requireBookingWorkflowMutationActorApi(): Promise<
+  { ok: true; user: User; spaceId: string }
+  | { ok: false; status: 401 | 404 }
+> {
+  if (process.env.BOOKINGS_ENABLED !== 'true') return { ok: false, status: 404 }
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { ok: false, status: 401 }
+    if (!verifiedCanonicalEmail(user)) return { ok: false, status: 404 }
     const { data, error } = await supabase.rpc('ensure_personal_space')
     if (error || typeof data !== 'string') return { ok: false, status: 404 }
     return { ok: true, user, spaceId: data }

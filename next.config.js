@@ -28,9 +28,10 @@ const nextConfig = {
         ],
       },
       {
-        // The authenticated provider view contains the same booking PII and
-        // public identifier, so it follows the same private response contract.
-        source: '/auth-mvp/bokanir/fyrirspurn/:publicId',
+        // Every authenticated provider booking screen can contain booking PII
+        // or provider-authored workflow labels. Keep the full namespace private,
+        // including future nested editor routes.
+        source: '/auth-mvp/bokanir/:path*',
         headers: [
           { key: 'Cache-Control', value: 'private, no-store' },
           { key: 'Referrer-Policy', value: 'no-referrer' },

@@ -1,14 +1,27 @@
 import { z } from 'zod'
 import {
+  BOOKING_CANCELLATION_REASONS,
   BOOKING_MEMBER_ROLES,
   BOOKING_SERVICE_STATES,
+  BOOKING_WORKFLOW_ATTENTION_SIDES,
+  BOOKING_WORKFLOW_SYSTEM_LABEL_KEYS,
 } from './contracts'
+import { isSafeBookingWorkflowLabel } from './workflow'
 
 const uuid = z.string().uuid().transform((value) => value.toLowerCase())
 const boundedText = (min: number, max: number) => z.string().trim().min(min).max(max)
 const optionalText = (max: number) => z.union([z.string().trim().max(max), z.null()])
   .transform((value) => value || null)
 const email = z.string().trim().email().max(254)
+const workflowLabel = z.string()
+  .trim()
+  .min(1)
+  .max(80)
+  .refine(isSafeBookingWorkflowLabel, 'invalid_workflow_label')
+const workflowLogicalKey = z.string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/)
 
 export const businessProfileSlugSchema = z.string()
   .trim()
@@ -57,6 +70,13 @@ export const bookingActionSchema = z.discriminatedUnion('action', [
     action: z.literal('cancel'),
     expectedRevision: z.number().int().positive(),
     idempotencyKey: uuid,
+    reason: z.enum(BOOKING_CANCELLATION_REASONS).optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('transitionWorkflow'),
+    expectedRevision: z.number().int().positive(),
+    targetStateId: uuid,
+    idempotencyKey: uuid,
   }).strict(),
   z.object({
     action: z.literal('claim'),
@@ -104,6 +124,70 @@ export const bookingProviderMutationSchema = z.discriminatedUnion('action', [
     serviceId: uuid,
     expectedRevision: z.number().int().positive(),
     transition: z.enum(['publish', 'pause']),
+    idempotencyKey: uuid,
+  }).strict(),
+])
+
+export const bookingProviderListQuerySchema = z.object({
+  workflowId: uuid.optional(),
+  stateLogicalKey: workflowLogicalKey.optional(),
+  attentionSide: z.enum(BOOKING_WORKFLOW_ATTENTION_SIDES).optional(),
+}).strict().refine(
+  value => Boolean(value.workflowId) === Boolean(value.stateLogicalKey),
+  { message: 'workflow_state_filter_pair_required' },
+)
+
+export const bookingWorkflowStateInputSchema = z.object({
+  id: uuid,
+  logicalKey: workflowLogicalKey,
+  systemLabelKey: z.enum(BOOKING_WORKFLOW_SYSTEM_LABEL_KEYS).nullable(),
+  providerLabel: workflowLabel.nullable(),
+  customerLabel: workflowLabel.nullable(),
+  sortOrder: z.number().int().min(0).max(19),
+  isInitial: z.boolean(),
+  semanticKind: z.enum(['active', 'confirmed']),
+  attentionSide: z.enum(BOOKING_WORKFLOW_ATTENTION_SIDES),
+}).strict().superRefine((state, context) => {
+  if (state.systemLabelKey) {
+    if (state.providerLabel !== null || state.customerLabel !== null) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'default_label_override_not_allowed' })
+    }
+    return
+  }
+  if (state.providerLabel === null || state.customerLabel === null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'custom_labels_required' })
+  }
+})
+
+export const bookingWorkflowTransitionInputSchema = z.object({
+  fromStateId: uuid,
+  toStateId: uuid,
+}).strict().refine((edge) => edge.fromStateId !== edge.toStateId, {
+  message: 'workflow_self_transition',
+})
+
+export const bookingWorkflowGraphInputSchema = z.object({
+  states: z.array(bookingWorkflowStateInputSchema).min(1).max(20),
+  transitions: z.array(bookingWorkflowTransitionInputSchema).max(100),
+}).strict()
+
+export const bookingWorkflowMutationSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('ensureDraft'),
+    expectedWorkflowRevision: z.number().int().positive(),
+    idempotencyKey: uuid,
+  }).strict(),
+  z.object({
+    action: z.literal('saveDraft'),
+    draftVersionId: uuid,
+    expectedRevision: z.number().int().positive(),
+    graph: bookingWorkflowGraphInputSchema,
+    idempotencyKey: uuid,
+  }).strict(),
+  z.object({
+    action: z.literal('publishDraft'),
+    draftVersionId: uuid,
+    expectedRevision: z.number().int().positive(),
     idempotencyKey: uuid,
   }).strict(),
 ])

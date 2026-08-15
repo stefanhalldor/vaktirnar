@@ -7,7 +7,7 @@ import { isSafeBookingLoginNext } from '@/lib/auth/loginNext'
 
 const PRIVATE_BOOKING_PATHS = [
   /^\/bokanir(?:\/|$)/,
-  /^\/auth-mvp\/bokanir\/fyrirspurn\/[^/]+\/?$/,
+  /^\/auth-mvp\/bokanir(?:\/|$)/,
 ]
 
 /**

@@ -184,7 +184,7 @@ export function BookingRequestForm({ view }: { view: PublicBookingServiceView })
         return
       }
       try { sessionStorage.removeItem(draftStorageKey(view.businessProfile.slug)) } catch { /* no-op */ }
-      if (body.accessMode === 'members') {
+      if (body.accessMode === 'members' && body.currentActorHasAccess) {
         navigatingToBooking = true
         window.requestAnimationFrame(() => {
           window.setTimeout(() => window.location.assign(body.bookingPath), 0)
@@ -224,7 +224,11 @@ export function BookingRequestForm({ view }: { view: PublicBookingServiceView })
             >
               {t('request.sentTitle')}
             </h2>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('request.sentBody')}</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {result.accessMode === 'members' && !result.currentActorHasAccess
+                ? t('request.sentForEmailBody', { email: draft.contactEmail.trim() })
+                : t('request.sentBody')}
+            </p>
           </div>
         </div>
 
@@ -265,7 +269,7 @@ export function BookingRequestForm({ view }: { view: PublicBookingServiceView })
               </BookingPendingLink>
             </div>
           </div>
-        ) : (
+        ) : result.currentActorHasAccess ? (
           <BookingPendingLink
             href={result.bookingPath}
             pendingLabel={t('request.opening')}
@@ -273,7 +277,7 @@ export function BookingRequestForm({ view }: { view: PublicBookingServiceView })
           >
             {t('request.open')}
           </BookingPendingLink>
-        )}
+        ) : null}
       </section>
     )
   }

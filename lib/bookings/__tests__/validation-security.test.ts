@@ -9,7 +9,9 @@ import { createBookingRateLimitInput } from '../rate-limit.server'
 import {
   bookingActionSchema,
   bookingMessageListQuerySchema,
+  bookingProviderListQuerySchema,
   bookingPublicIdSchema,
+  bookingWorkflowGraphInputSchema,
   createBookingRequestSchema,
   resolveRequestedStartUtc,
 } from '../validation'
@@ -112,6 +114,60 @@ describe('booking public validation', () => {
     expect(bookingActionSchema.safeParse({ ...payload, email: 'victim@example.com' }).success).toBe(false)
   })
 
+  it('accepts only public cancellation reasons and never legacy or free text', () => {
+    const base = {
+      action: 'cancel' as const,
+      expectedRevision: 2,
+      idempotencyKey: REQUEST_ID,
+    }
+    expect(bookingActionSchema.safeParse({ ...base, reason: 'provider_unavailable' }).success).toBe(true)
+    expect(bookingActionSchema.safeParse({ ...base, reason: 'legacy_unspecified' }).success).toBe(false)
+    expect(bookingActionSchema.safeParse({ ...base, reason: 'other', explanation: 'private note' }).success)
+      .toBe(false)
+  })
+
+  it('accepts only an opaque target for provider workflow transitions', () => {
+    const payload = {
+      action: 'transitionWorkflow' as const,
+      expectedRevision: 2,
+      targetStateId: '00000000-0000-4000-8000-000000000002',
+      idempotencyKey: REQUEST_ID,
+    }
+    expect(bookingActionSchema.safeParse(payload).success).toBe(true)
+    expect(bookingActionSchema.safeParse({
+      ...payload,
+      actorUserId: '00000000-0000-4000-8000-000000000003',
+      fromStateId: '00000000-0000-4000-8000-000000000004',
+    }).success).toBe(false)
+  })
+
+  it('keeps translated defaults distinct from bounded custom labels', () => {
+    const base = {
+      id: REQUEST_ID,
+      logicalKey: 'new_request',
+      sortOrder: 0,
+      isInitial: true,
+      semanticKind: 'active' as const,
+      attentionSide: 'provider' as const,
+    }
+    expect(bookingWorkflowGraphInputSchema.safeParse({
+      states: [{ ...base, systemLabelKey: 'new_request', providerLabel: null, customerLabel: null }],
+      transitions: [],
+    }).success).toBe(true)
+    expect(bookingWorkflowGraphInputSchema.safeParse({
+      states: [{ ...base, systemLabelKey: null, providerLabel: 'Sérstaða', customerLabel: null }],
+      transitions: [],
+    }).success).toBe(false)
+    expect(bookingWorkflowGraphInputSchema.safeParse({
+      states: [{ ...base, systemLabelKey: null, providerLabel: 'Ógilt\nheiti', customerLabel: 'Heiti' }],
+      transitions: [],
+    }).success).toBe(false)
+    expect(bookingWorkflowGraphInputSchema.safeParse({
+      states: [{ ...base, systemLabelKey: null, providerLabel: '<b>Staða</b>', customerLabel: '**Staða**' }],
+      transitions: [],
+    }).success).toBe(false)
+  })
+
   it('requires a stable timestamp/id cursor pair', () => {
     expect(bookingMessageListQuerySchema.safeParse({
       before: '2026-08-11T10:00:00.000Z',
@@ -155,6 +211,22 @@ describe('booking public validation', () => {
       .toBe('2026-10-25T01:30:00.000Z')
     expect(resolveRequestedStartUtc('2026-11-01', '01:30', 'America/New_York', { now }))
       .toBe('2026-11-01T05:30:00.000Z')
+  })
+})
+
+describe('provider inbox filter validation', () => {
+  it('requires an opaque workflow id and logical key as one filter pair', () => {
+    expect(bookingProviderListQuerySchema.safeParse({
+      workflowId: REQUEST_ID,
+      stateLogicalKey: 'new_request',
+      attentionSide: 'customer',
+    }).success).toBe(true)
+    expect(bookingProviderListQuerySchema.safeParse({ workflowId: REQUEST_ID }).success).toBe(false)
+    expect(bookingProviderListQuerySchema.safeParse({ stateLogicalKey: 'new_request' }).success).toBe(false)
+    expect(bookingProviderListQuerySchema.safeParse({
+      workflowId: REQUEST_ID,
+      stateLogicalKey: 'Provider label',
+    }).success).toBe(false)
   })
 })
 

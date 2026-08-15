@@ -27,7 +27,15 @@ function detail(overrides: Partial<BookingDetailView> = {}): BookingDetailView {
     businessProfileSlug: 'kvissbador',
     provider: { displayName: 'Kvissbador', websiteUrl: null },
     service: { title: 'Kvissveisla', summary: 'Fyrir hópa', timezone: 'Atlantic/Reykjavik' },
-    status: 'requested',
+    lifecycleStatus: 'requested',
+    workflowState: {
+      audience: 'customer',
+      systemLabelKey: 'new_request',
+      label: null,
+      attentionSide: 'provider',
+      semanticKind: 'active',
+    },
+    cancellationReason: null,
     accessMode: 'link',
     revision: 1,
     accessVersion: 1,
@@ -53,6 +61,7 @@ function detail(overrides: Partial<BookingDetailView> = {}): BookingDetailView {
       canClaim: false,
       canManageMembers: false,
       canMessage: true,
+      canTransition: false,
     },
     members: [],
     activity: [],
@@ -65,6 +74,39 @@ function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function providerDetailWithTarget(): BookingDetailView {
+  return detail({
+    workflowState: {
+      audience: 'provider',
+      workflowId: '33333333-3333-4333-8333-333333333333',
+      versionId: '44444444-4444-4444-8444-444444444444',
+      stateId: '55555555-5555-4555-8555-555555555555',
+      logicalKey: 'new_request',
+      systemLabelKey: 'new_request',
+      label: null,
+      attentionSide: 'provider',
+      semanticKind: 'active',
+      allowedNextStates: [{
+        stateId: '22222222-2222-4222-8222-222222222222',
+        logicalKey: 'under_review',
+        systemLabelKey: 'under_review',
+        label: null,
+        attentionSide: 'provider',
+        semanticKind: 'active',
+      }],
+    },
+    permissions: {
+      actorKind: 'provider',
+      signedIn: true,
+      canCancel: true,
+      canClaim: false,
+      canManageMembers: false,
+      canMessage: true,
+      canTransition: true,
+    },
   })
 }
 
@@ -124,6 +166,7 @@ describe('BookingDetailClient', () => {
         canClaim: true,
         canManageMembers: false,
         canMessage: true,
+        canTransition: false,
       },
     })} />)
 
@@ -171,6 +214,7 @@ describe('BookingDetailClient', () => {
               canClaim: true,
               canManageMembers: false,
               canMessage: true,
+              canTransition: false,
             },
           })} />
           <RefreshGate active={refreshing} />
@@ -203,6 +247,7 @@ describe('BookingDetailClient', () => {
         canClaim: false,
         canManageMembers: true,
         canMessage: true,
+        canTransition: false,
       },
       members: [{
         id: '22222222-2222-4222-8222-222222222222',
@@ -230,6 +275,7 @@ describe('BookingDetailClient', () => {
         canClaim: true,
         canManageMembers: false,
         canMessage: true,
+        canTransition: false,
       },
     })} />)
 
@@ -239,5 +285,184 @@ describe('BookingDetailClient', () => {
 
     expect(screen.getByText('claim.tooManyEmails')).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('shows only the customer label and never provider transition targets to customers', () => {
+    render(<BookingDetailClient initialView={detail()} />)
+
+    expect(screen.getByText('workflow.systemLabels.new_request.customer')).toBeInTheDocument()
+    expect(screen.queryByLabelText('workflow.statusPanel.nextState')).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('target-state')
+  })
+
+  it('moves a provider booking only to a server-projected target', async () => {
+    const targetStateId = '22222222-2222-4222-8222-222222222222'
+    const fetchMock = vi.fn().mockResolvedValue(response({ ok: true, data: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<BookingDetailClient providerContext initialView={detail({
+      workflowState: {
+        audience: 'provider',
+        workflowId: '33333333-3333-4333-8333-333333333333',
+        versionId: '44444444-4444-4444-8444-444444444444',
+        stateId: '55555555-5555-4555-8555-555555555555',
+        logicalKey: 'new_request',
+        systemLabelKey: 'new_request',
+        label: null,
+        attentionSide: 'provider',
+        semanticKind: 'active',
+        allowedNextStates: [{
+          stateId: targetStateId,
+          logicalKey: 'under_review',
+          systemLabelKey: 'under_review',
+          label: null,
+          attentionSide: 'provider',
+          semanticKind: 'active',
+        }],
+      },
+      permissions: {
+        actorKind: 'provider',
+        signedIn: true,
+        canCancel: true,
+        canClaim: false,
+        canManageMembers: false,
+        canMessage: true,
+        canTransition: true,
+      },
+    })} />)
+
+    await userEvent.selectOptions(screen.getByLabelText('workflow.statusPanel.nextState'), targetStateId)
+    await userEvent.click(screen.getByRole('button', { name: 'workflow.statusPanel.change' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      action: 'transitionWorkflow',
+      expectedRevision: 1,
+      targetStateId,
+    })
+  })
+
+  it('renders confirmed as a real workflow state and keeps the old unconfirmed copy away', () => {
+    render(<BookingDetailClient initialView={detail({
+      workflowState: {
+        audience: 'customer',
+        systemLabelKey: 'confirmed',
+        label: null,
+        attentionSide: 'none',
+        semanticKind: 'confirmed',
+      },
+    })} />)
+
+    expect(screen.getByText('workflow.systemLabels.confirmed.customer')).toBeInTheDocument()
+    expect(screen.queryByText('detail.notConfirmed')).not.toBeInTheDocument()
+  })
+
+  it('lets a provider select a typed cancellation reason with no free-text field', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ ok: true, data: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<BookingDetailClient providerContext initialView={detail({
+      workflowState: {
+        audience: 'provider',
+        workflowId: '33333333-3333-4333-8333-333333333333',
+        versionId: '44444444-4444-4444-8444-444444444444',
+        stateId: '55555555-5555-4555-8555-555555555555',
+        logicalKey: 'new_request',
+        systemLabelKey: 'new_request',
+        label: null,
+        attentionSide: 'provider',
+        semanticKind: 'active',
+        allowedNextStates: [],
+      },
+      permissions: {
+        actorKind: 'provider',
+        signedIn: true,
+        canCancel: true,
+        canClaim: false,
+        canManageMembers: false,
+        canMessage: true,
+        canTransition: true,
+      },
+    })} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'workflow.cancel.open' }))
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', {
+      name: 'workflow.cancellationReasons.provider_unavailable',
+    }))
+    await userEvent.click(screen.getByRole('button', { name: 'workflow.cancel.confirm' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      action: 'cancel',
+      reason: 'provider_unavailable',
+    })
+  })
+
+  it('uses one pending lock so a transition and cancellation cannot race', async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => undefined))
+    vi.stubGlobal('fetch', fetchMock)
+    const targetStateId = '22222222-2222-4222-8222-222222222222'
+    render(<BookingDetailClient providerContext initialView={detail({
+      workflowState: {
+        audience: 'provider',
+        workflowId: '33333333-3333-4333-8333-333333333333',
+        versionId: '44444444-4444-4444-8444-444444444444',
+        stateId: '55555555-5555-4555-8555-555555555555',
+        logicalKey: 'new_request',
+        systemLabelKey: 'new_request',
+        label: null,
+        attentionSide: 'provider',
+        semanticKind: 'active',
+        allowedNextStates: [{
+          stateId: targetStateId,
+          logicalKey: 'under_review',
+          systemLabelKey: 'under_review',
+          label: null,
+          attentionSide: 'provider',
+          semanticKind: 'active',
+        }],
+      },
+      permissions: {
+        actorKind: 'provider',
+        signedIn: true,
+        canCancel: true,
+        canClaim: false,
+        canManageMembers: false,
+        canMessage: true,
+        canTransition: true,
+      },
+    })} />)
+
+    await userEvent.selectOptions(screen.getByLabelText('workflow.statusPanel.nextState'), targetStateId)
+    await userEvent.click(screen.getByRole('button', { name: 'workflow.statusPanel.change' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(screen.getByRole('button', { name: 'workflow.cancel.open' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'workflow.cancel.open' }))
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it('refreshes authoritative targets after a workflow transition conflict', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ ok: false, error: 'conflict' }, 409))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<BookingDetailClient providerContext initialView={providerDetailWithTarget()} />)
+
+    await userEvent.selectOptions(
+      screen.getByLabelText('workflow.statusPanel.nextState'),
+      '22222222-2222-4222-8222-222222222222',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'workflow.statusPanel.change' }))
+
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledOnce())
+    expect(screen.getByRole('alert')).toHaveTextContent('errors.conflict')
+  })
+
+  it('refreshes authoritative cancellation state after a revision conflict', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ ok: false, error: 'conflict' }, 409))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<BookingDetailClient initialView={detail()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'workflow.cancel.open' }))
+    await userEvent.click(screen.getByRole('button', { name: 'workflow.cancel.confirm' }))
+
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledOnce())
+    expect(screen.getByText('errors.conflict')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 })

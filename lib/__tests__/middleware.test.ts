@@ -971,9 +971,36 @@ describe('middleware — booking public capability and provider boundaries', () 
     process.env.BOOKINGS_ENABLED = 'true'
     const page = await middleware(makeReq('/auth-mvp/bokanir'))
     const api = await middleware(makeReq('/api/bookings/provider'))
+    const editorPage = await middleware(makeReq('/auth-mvp/bokanir/flaedi/service-1'))
+    const workflowApi = await middleware(makeReq('/api/bookings/provider/services/service-1/workflow'))
     expect(redirectedTo(page)).toBe('/innskraning')
     expect(new URL(page.headers.get('location')!).searchParams.get('next')).toBe('/auth-mvp/bokanir')
+    expect(redirectedTo(editorPage)).toBe('/innskraning')
+    expect(new URL(editorPage.headers.get('location')!).searchParams.get('next'))
+      .toBe('/auth-mvp/bokanir/flaedi/service-1')
     expect(api.status).toBe(401)
+    expect(workflowApi.status).toBe(401)
+    expect(workflowApi.headers.get('cache-control')).toBe('private, no-store')
+  })
+
+  it('applies both booking and auth feature gates to nested provider APIs', async () => {
+    delete process.env.BOOKINGS_ENABLED
+    const bookingDisabled = await middleware(
+      makeReq('/api/bookings/provider/services/service-1/workflow'),
+    )
+    expect(bookingDisabled.status).toBe(404)
+    expect(bookingDisabled.headers.get('cache-control')).toBe('private, no-store')
+
+    process.env.BOOKINGS_ENABLED = 'true'
+    process.env.AUTH_MVP_ENABLED = 'false'
+    const authDisabled = await middleware(
+      makeReq('/api/bookings/provider/services/service-1/workflow'),
+    )
+    expect(authDisabled.status).toBe(404)
+
+    // Segment-safe matching: a similarly named sibling is not a booking API.
+    const sibling = await middleware(makeReq('/api/bookings/providerish/private'))
+    expect(sibling.status).toBe(401)
   })
 })
 
