@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 
 interface ClosedTestingBannerProps {
   body?: ReactNode
+  action?: ReactNode
   feedbackHref?: string
   feedbackLabel?: string
   className?: string
@@ -14,6 +15,7 @@ interface ClosedTestingBannerProps {
 
 export function ClosedTestingBanner({
   body,
+  action,
   feedbackHref,
   feedbackLabel,
   className,
@@ -37,6 +39,7 @@ export function ClosedTestingBanner({
       <p className="mt-1 break-words leading-relaxed text-muted-foreground">
         {body ?? t('body')}
       </p>
+      {action ? <div className="mt-3">{action}</div> : null}
       {showFeedback ? (
         <a
           href={feedbackHref}

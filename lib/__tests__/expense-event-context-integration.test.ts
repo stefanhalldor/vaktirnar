@@ -6,15 +6,30 @@ function source(...parts: string[]): string {
   return readFileSync(join(process.cwd(), ...parts), 'utf8')
 }
 
-describe('expense-backed event integration', () => {
-  it('keeps the fresh one-off chooser outside ExpenseForm and bypasses it for drafts', () => {
+describe('independent event and expense integration', () => {
+  it('gates the pluggable event source and lets a saved draft win over the query', () => {
     const page = source('app', 'auth-mvp', 'utlagt-og-endurgreitt', 'nytt', 'page.tsx')
-    expect(page).toContain("query.context !== 'standalone'")
-    expect(page).toContain("'afmaeli-og-vidburdir'")
-    expect(page).toContain('!safeDraft')
-    expect(page).toContain('<ExpenseEventContextChooser events={events} eventsError={eventsError} />')
-    expect(page).not.toContain('listEvents(user.id).catch(() => [])')
-    expect(page.indexOf('<ExpenseEventContextChooser')).toBeLessThan(page.indexOf('const actorName'))
+    const form = source('components', 'expenses', 'ExpenseForm.tsx')
+
+    expect(page).toContain('event?: string | string[]')
+    expect(page.indexOf('guardExpenseAccess()')).toBeLessThan(page.indexOf('canUseEventExpenses(user)'))
+    expect(page).toContain('if (canUseEvents)')
+    expect(page).toContain('eventSources = await listEventExpenseSources(user.id)')
+    expect(page).toContain('exactEventSource = await getOwnedEventExpenseSource(user.id, exactEventId)')
+    expect(page).toContain('eventSources = [exactEventSource, ...eventSources]')
+    expect(page).toContain('const initialEventSource = !safeDraft && requestedEventId')
+    expect(page).toContain('hydrateExpenseDraftEventGuestLabels(')
+    expect(page).toContain("t('expenseForm.eventGuestUnavailableLabel')")
+    expect(page).toContain('draft={displayDraft}')
+    expect(page).toContain('eventSelectionWarning={eventSelectionWarning}')
+    expect(page).toContain('eventSources={eventSources}')
+    expect(page).not.toContain('ExpenseEventContextChooser')
+    expect(page).not.toContain('listEvents(')
+
+    expect(form).toContain("initialDraftPayload ? initialDraftPayload.eventId ?? '' : initialEventSource?.id ?? ''")
+    expect(form).toContain('? initialDraftPayload.eventRosterRevision')
+    expect(form).toContain("event_id: mode === 'one_off' && !edit ? eventId || null : null")
+    expect(form).toContain('expected_event_roster_revision: mode ===')
   })
 
   it('classifies only after canonical financial access and fails closed for UI defaults', () => {
@@ -57,6 +72,26 @@ describe('expense-backed event integration', () => {
     expect(editPage).toContain('isExpenseEventContext(user.id, group.id).catch(() => true)')
     expect(editPage).toContain('eventContext={isEventContext}')
     expect(itemDetail).toContain('!isEventContext && canLinkExpenseGuest')
+  })
+
+  it('keeps the event settlement deep-link owner-scoped, fail-closed and globally truthful', () => {
+    const page = source(
+      'app', 'auth-mvp', 'utlagt-og-endurgreitt', 'gera-upp', 'page.tsx',
+    )
+
+    expect(page).toContain('event?: string | string[]')
+    expect(page.indexOf('guardExpenseAccess()')).toBeLessThan(page.indexOf('canUseEventExpenses(user)'))
+    expect(page.indexOf('getOwnedEventExpenseSource(user.id, requestedEventId)'))
+      .toBeLessThan(page.indexOf('getEventExpensePreview(user.id, authorizedEventSource.id)'))
+    expect(page).toContain("status: 'unavailable'")
+    expect(page).toContain('eventQueryUnavailable = true')
+    expect(page).toContain('<EventExpensePreview')
+    expect(page).toContain('const view = eventMode ? null : await getExpensePayAllView(user.id)')
+    expect(page).toContain('href="/auth-mvp/utlagt-og-endurgreitt/gera-upp"')
+    expect(page).toContain("{eventMode ? (")
+    expect(page).toContain(") : view ? (")
+    expect(page).toContain('<ExpensePayAll view={view}')
+    expect(page).not.toContain('showGlobalSettlementNotice')
   })
 
   it('keeps private headers and analytics exclusion across both namespaces', () => {

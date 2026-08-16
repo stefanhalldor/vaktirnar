@@ -33,6 +33,11 @@ export const ExpenseNewMemberSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('relationship'), key: memberKey, relationship_id: uuid }),
   z.object({
+    type: z.literal('event_guest'),
+    key: memberKey,
+    event_guest_id: uuid,
+  }),
+  z.object({
     type: z.literal('email'),
     key: memberKey,
     recipient_email: z.string().trim().email().max(320),
@@ -54,6 +59,14 @@ export const CreateExpenseGroupSchema = z.object({
   default_currency: currency,
   default_include_creator: z.boolean().default(true),
   members: z.array(ExpenseNewMemberSchema).max(49).default([]),
+}).superRefine((value, ctx) => {
+  if (value.members.some((member) => member.type === 'event_guest')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['members'],
+      message: 'event_guest_not_allowed',
+    })
+  }
 })
 
 const paymentInput = z.object({
@@ -74,6 +87,9 @@ export const CreateExpenseSchema = z.object({
   draft_id: uuid.nullable().optional().transform((v) => v ?? null),
   group_id: uuid.nullable().optional().transform((v) => v ?? null),
   circle_id: uuid.nullable().optional().transform((v) => v ?? null),
+  event_id: uuid.nullable().optional().transform((v) => v ?? null),
+  expected_event_roster_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+    .nullable().optional().transform((v) => v ?? null),
   title: z.string().trim().min(1).max(200),
   total: amountInput,
   currency,
@@ -92,6 +108,35 @@ export const CreateExpenseSchema = z.object({
   payments: z.array(paymentInput).min(1).max(50),
   allocations: z.array(allocationInput).min(1).max(50),
 }).superRefine((value, ctx) => {
+  if ((value.event_id === null) !== (value.expected_event_roster_revision === null)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['event_id'],
+      message: 'event_revision_required',
+    })
+  }
+  if (value.event_id !== null && (value.group_id !== null || value.circle_id !== null)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['event_id'],
+      message: 'event_one_off_required',
+    })
+  }
+  const eventGuests = value.members.filter((member) => member.type === 'event_guest')
+  if (eventGuests.length > 0 && value.event_id === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['members'],
+      message: 'event_required',
+    })
+  }
+  if (new Set(eventGuests.map((member) => member.event_guest_id)).size !== eventGuests.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['members'],
+      message: 'duplicate_event_guest',
+    })
+  }
   if (value.group_id === null) {
     const selfCount = value.members.filter((member) => member.type === 'self').length
     if (selfCount !== 1) {

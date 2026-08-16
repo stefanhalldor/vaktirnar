@@ -5,21 +5,37 @@ import {
   type RelationshipPartyPickerManualResult,
 } from '@/components/tengsl/RelationshipPartyPicker'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
+import type { EventNewGuestInput } from '@/lib/events/contracts'
 import { useTranslations } from 'next-intl'
 
-const UNSAFE_NAME_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
+const UNSAFE_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
+const SIMPLE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 
-export type EventGuestNameResult =
-  | { ok: true; displayName: string }
-  | { ok: false; error: 'invalid' | 'email_not_supported' }
+export type EventManualGuestResult =
+  | { ok: true; label: string; input: EventNewGuestInput }
+  | { ok: false; error: 'invalid_name' | 'invalid_email' }
 
-export function parseEventGuestName(value: string): EventGuestNameResult {
-  const displayName = value.trim().normalize('NFC')
-  if (displayName.includes('@')) return { ok: false, error: 'email_not_supported' }
-  if (!displayName || displayName.length > 120 || UNSAFE_NAME_CONTROLS.test(displayName)) {
-    return { ok: false, error: 'invalid' }
+export function parseEventManualGuest(value: string): EventManualGuestResult {
+  const normalized = value.trim().normalize('NFC')
+  if (normalized.includes('@')) {
+    const email = normalized.toLocaleLowerCase('en-US')
+    if (email.length > 320 || UNSAFE_CONTROLS.test(email) || !SIMPLE_EMAIL.test(email)) {
+      return { ok: false, error: 'invalid_email' }
+    }
+    return {
+      ok: true,
+      label: email,
+      input: { source_kind: 'manual_email', email },
+    }
   }
-  return { ok: true, displayName }
+  if (!normalized || normalized.length > 120 || UNSAFE_CONTROLS.test(normalized)) {
+    return { ok: false, error: 'invalid_name' }
+  }
+  return {
+    ok: true,
+    label: normalized,
+    input: { source_kind: 'manual_name', display_name: normalized },
+  }
 }
 
 export function EventParticipantPicker({
@@ -28,14 +44,14 @@ export function EventParticipantPicker({
   optionsError = false,
   disabled = false,
   onAddKnown,
-  onAddGuest,
+  onAddManual,
 }: {
   options: ExpenseParticipantOption[]
   excludedRelationshipIds?: string[]
   optionsError?: boolean
   disabled?: boolean
   onAddKnown: (option: ExpenseParticipantOption) => boolean
-  onAddGuest: (displayName: string) => boolean
+  onAddManual: (input: EventNewGuestInput, label: string) => boolean
 }) {
   const t = useTranslations('teskeid.events')
 
@@ -44,17 +60,17 @@ export function EventParticipantPicker({
     return option ? onAddKnown(option) : false
   }
 
-  function selectGuest(value: string): RelationshipPartyPickerManualResult {
-    const result = parseEventGuestName(value)
+  function selectManual(value: string): RelationshipPartyPickerManualResult {
+    const result = parseEventManualGuest(value)
     if (!result.ok) {
       return {
         accepted: false,
-        error: t(result.error === 'email_not_supported'
-          ? 'picker.emailNotSupported'
+        error: t(result.error === 'invalid_email'
+          ? 'picker.emailInvalid'
           : 'picker.guestNameInvalid'),
       }
     }
-    return { accepted: onAddGuest(result.displayName) }
+    return { accepted: onAddManual(result.input, result.label) }
   }
 
   return (
@@ -68,7 +84,7 @@ export function EventParticipantPicker({
       excludedOptionIds={excludedRelationshipIds}
       optionsError={optionsError}
       disabled={disabled}
-      manualInputMaxLength={120}
+      manualInputMaxLength={320}
       copy={{
         triggerLabel: t('picker.trigger'),
         title: t('picker.title'),
@@ -91,7 +107,7 @@ export function EventParticipantPicker({
         },
       }}
       onSelectOption={selectKnown}
-      onSelectManual={selectGuest}
+      onSelectManual={selectManual}
     />
   )
 }

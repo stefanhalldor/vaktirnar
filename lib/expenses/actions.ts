@@ -1,9 +1,12 @@
 'use server'
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { getAdmin } from '@/lib/supabase/admin'
 import { upsertSourceRelationship } from '@/lib/relationships/upsert-source.server'
+import { canUseEventExpenses } from '@/lib/events/guard'
+import { getOwnedEventExpenseSource } from '@/lib/events/repository.server'
+import type { EventExpenseSourceView } from '@/lib/events/contracts'
 import { calculateExpenseBalances, simplifySettlement } from './balances'
 import {
   splitByFixedAmounts,
@@ -48,7 +51,10 @@ import {
   parseExpenseWeight,
 } from './input-money'
 import { ExpenseDomainError } from './domain-error'
-import { SaveExpenseDraftSchema } from './drafts'
+import {
+  redactExpenseDraftEventGuestLabels,
+  SaveExpenseDraftSchema,
+} from './drafts'
 import {
   ClearExpensePaymentProfileV2Schema,
   SaveExpensePaymentProfileV2Schema,
@@ -75,13 +81,19 @@ import {
 
 const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
 
-function revalidateExpensePaths(groupId?: string, expenseId?: string, repaymentId?: string) {
+function revalidateExpensePaths(
+  groupId?: string,
+  expenseId?: string,
+  repaymentId?: string,
+  eventId?: string,
+) {
   revalidatePath(EXPENSES_PATH)
   revalidatePath('/auth-mvp/heim')
   revalidatePath(`${EXPENSES_PATH}/gera-upp`)
   if (groupId) revalidatePath(`${EXPENSES_PATH}/hopar/${groupId}`)
   if (expenseId) revalidatePath(`${EXPENSES_PATH}/utgjold/${expenseId}`)
   if (repaymentId) revalidatePath(`${EXPENSES_PATH}/endurgreidslur/${repaymentId}`)
+  if (eventId) revalidatePath(`/auth-mvp/vidburdir/${eventId}`)
 }
 
 function actionError(error: unknown): ExpenseActionResult<never> {
@@ -91,6 +103,9 @@ function actionError(error: unknown): ExpenseActionResult<never> {
   const message = error instanceof Error ? error.message.toLowerCase() : ''
   const code: ExpenseActionErrorCode =
     message.includes('recipient_unavailable') ? 'recipient_unavailable'
+      : (message.includes('teskeid_event_revision_conflict')
+        || message.includes('teskeid_event_roster_conflict')
+        || message.includes('event_guest_not_available')) ? 'event_roster_changed'
       : message.includes('unavailable') ? 'feature_disabled'
       : message.includes('not_allowed') ? 'not_allowed'
       : message.includes('not_found') ? 'not_found'
@@ -147,7 +162,7 @@ export async function saveExpenseDraft(
       p_group_id: value.group_id,
       p_expense_id: value.expense_id,
       p_current_step: value.current_step,
-      p_payload: value.payload,
+      p_payload: redactExpenseDraftEventGuestLabels(value.payload),
       p_expected_version: value.expected_version,
     })
     if (error) rpcError(error)
@@ -168,9 +183,19 @@ export async function saveExpenseDraft(
 async function resolveInputMembers(
   actorUserId: string,
   members: Parameters<typeof resolveExpenseMembers>[0]['members'],
+  eventSource?: EventExpenseSourceView | null,
 ): Promise<ResolvedExpenseMember[]> {
   const actorDisplayName = await getExpenseActorDisplayName(actorUserId)
-  return resolveExpenseMembers({ actorUserId, actorDisplayName, members })
+  return resolveExpenseMembers({
+    actorUserId,
+    actorDisplayName,
+    members,
+    eventSource,
+    // SQL132 validates a fresh relationship source after its exact receipt
+    // lookup. This narrow fallback therefore preserves replay availability
+    // without accepting a missing relationship on a first write.
+    allowUnresolvedRelationshipReceiptReplay: Boolean(eventSource),
+  })
 }
 
 export async function createExpenseGroup(
@@ -234,6 +259,22 @@ type ExpenseParticipantInvitationInput =
   | { member_id: string; relationship_id: string }
   | { member_id: string; recipient_email: string }
 
+function taggedExpenseMemberId(
+  actorUserId: string,
+  requestId: string,
+  memberKey: string,
+): string {
+  const hex = createHash('sha256')
+    .update(JSON.stringify(['teskeid-event-expense-member-v1', actorUserId, requestId, memberKey]))
+    .digest('hex')
+    .slice(0, 32)
+    .split('')
+  hex[12] = '4'
+  hex[16] = '8'
+  const value = hex.join('')
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`
+}
+
 export async function createExpense(
   input: unknown,
 ): Promise<ExpenseActionResult<{ groupId: string; expenseId: string }>> {
@@ -243,6 +284,13 @@ export async function createExpense(
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
     const value = parsed.data
 
+    if (value.event_id && !await canUseEventExpenses(user)) {
+      throw new Error('teskeid_event_unavailable')
+    }
+    const eventSource = value.event_id
+      ? await getOwnedEventExpenseSource(user.id, value.event_id)
+      : null
+    if (value.event_id && !eventSource) throw new Error('teskeid_event_not_found')
     let members: ResolvedExpenseMember[]
     if (value.group_id) {
       const persisted = await getActiveExpenseGroupMembersForActor(user.id, value.group_id)
@@ -255,7 +303,15 @@ export async function createExpense(
         status: 'active',
       }))
     } else {
-      members = await resolveInputMembers(user.id, value.members)
+      members = await resolveInputMembers(user.id, value.members, eventSource)
+    }
+    if (value.event_id) {
+      // SQL132 fingerprints the compact payload. Stable IDs keep a lost-response
+      // replay byte-identical instead of regenerating one-off member UUIDs.
+      members = members.map((member) => ({
+        ...member,
+        id: taggedExpenseMemberId(user.id, value.request_id, member.key),
+      }))
     }
     const membersByKey = mapMembersByKey(members)
     const totalMinor = parseExpenseAmountToMinor(value.total, value.currency)
@@ -331,14 +387,66 @@ export async function createExpense(
       currency: transfer.currency,
     }))
 
-    const createRpc = value.group_id
+    const createRpc = value.event_id
+      ? 'teskeid_event_create_tagged_expense'
+      : value.group_id
       ? 'expense_create_expense'
       : value.circle_id
         ? 'expense_create_expense_with_circle_context'
         : 'expense_create_expense_with_participants'
     const { data, error } = await getAdmin().rpc(
       createRpc,
-      {
+      value.event_id ? {
+        p_actor_id: user.id,
+        p_request_id: value.request_id,
+        p_event_id: value.event_id,
+        p_expected_roster_revision: value.expected_event_roster_revision,
+        p_payload: {
+          title: value.title,
+          total_minor: totalMinor,
+          currency: value.currency,
+          incurred_on: value.incurred_on,
+          category: value.category,
+          note: value.note,
+          split_method: value.split_method,
+          one_off_members: members.map((member) => ({
+            id: member.id,
+            user_id: member.role === 'owner' ? member.userId : null,
+            // SQL132 replaces mapped event guests from the locked roster.
+            // A stable placeholder keeps exact replay fingerprints independent
+            // of later roster snapshot edits without trusting client labels.
+            display_name: member.eventGuestId ? 'Event guest' : member.displayName,
+            role: member.role,
+            status: 'active',
+          })),
+          payments: payments.map((payment) => ({
+            member_id: payment.payerId,
+            amount_minor: payment.amountMinor,
+          })),
+          shares: shares.map((share) => ({
+            member_id: share.participantId,
+            amount_minor: share.amountMinor,
+          })),
+          obligations,
+          participant_invitations: members.flatMap<ExpenseParticipantInvitationInput>((member) => {
+            if (member.eventGuestId) return []
+            if (member.relationshipId) return [{
+              member_id: member.id,
+              relationship_id: member.relationshipId,
+            }]
+            if (member.recipientEmail) return [{
+              member_id: member.id,
+              recipient_email: member.recipientEmail,
+            }]
+            return []
+          }),
+          event_guest_members: members.flatMap((member) => (
+            member.eventGuestId
+              ? [{ event_guest_id: member.eventGuestId, member_id: member.id }]
+              : []
+          )),
+        },
+      } : {
         p_actor_id: user.id,
         p_request_id: value.request_id,
         p_expense_id: expenseId,
@@ -395,11 +503,11 @@ export async function createExpense(
     if (error) rpcError(error)
     const result = resultObject(data)
     const groupId = String(result.group_id ?? value.group_id ?? '')
-    const persistedExpenseId = String(result.expense_id ?? expenseId)
+    const persistedExpenseId = String(result.expense_id ?? (value.event_id ? '' : expenseId))
     if (!groupId || !persistedExpenseId) throw new Error('expense_save_failed')
     await deleteExpenseDraftAfterSave(user.id, value.draft_id)
     await deliverExpenseInvitationIds(user.id, result.invitation_ids)
-    revalidateExpensePaths(groupId, persistedExpenseId)
+    revalidateExpensePaths(groupId, persistedExpenseId, undefined, value.event_id ?? undefined)
     return { ok: true, data: { groupId, expenseId: persistedExpenseId } }
   } catch (error) {
     console.error('[expenses] create expense failed')

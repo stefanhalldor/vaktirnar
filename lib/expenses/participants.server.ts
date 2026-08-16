@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { getAdmin } from '@/lib/supabase/admin'
 import type { ExpenseParticipantOption } from './contracts'
 import type { ExpenseNewMemberInput } from './validation'
+import type { EventExpenseSourceView } from '@/lib/events/contracts'
 import { getRelationshipLabelState } from '@/lib/relationships/repository-v2.server'
 import { sortRelationshipEntries } from '@/lib/relationships/display-and-sort'
 
@@ -28,6 +29,7 @@ export interface ResolvedExpenseMember {
   recipientEmail?: string
   circleId?: string
   circleMemberId?: string
+  eventGuestId?: string
 }
 
 interface CircleMemberRow {
@@ -91,6 +93,14 @@ export async function resolveExpenseMembers(input: {
   actorUserId: string
   actorDisplayName: string
   members: readonly ExpenseNewMemberInput[]
+  eventSource?: EventExpenseSourceView | null
+  /**
+   * Tagged-event writes use a SQL receipt before authoritative relationship
+   * validation. Retaining an unresolved opaque relationship reference lets an
+   * exact lost-response replay reach that receipt after the source row was
+   * deleted. Fresh invalid writes still fail atomically in SQL.
+   */
+  allowUnresolvedRelationshipReceiptReplay?: boolean
 }): Promise<ResolvedExpenseMember[]> {
   const selfInput = input.members.find((member) => member.type === 'self')
   const resolved: ResolvedExpenseMember[] = [{
@@ -178,6 +188,26 @@ export async function resolveExpenseMembers(input: {
       continue
     }
 
+    if (member.type === 'event_guest') {
+      if (!input.eventSource) throw new Error('expense_event_guest_not_available')
+      const guest = input.eventSource?.guests.find((candidate) => (
+        candidate.id === member.event_guest_id
+      ))
+      resolved.push({
+        id: randomUUID(),
+        key: member.key,
+        userId: null,
+        // SQL132 owns the authoritative snapshot and roster-revision check.
+        // The stable placeholder also lets an exact lost-response replay reach
+        // the DB receipt after the guest has since been removed or renamed.
+        displayName: guest?.displayName ?? 'Event guest',
+        role: 'member',
+        status: 'active',
+        eventGuestId: member.event_guest_id,
+      })
+      continue
+    }
+
     if (member.type === 'circle_member') {
       const circleMember = circleMembers.get(member.circle_member_id)
       if (!circleMember || circleMember.circle_id !== member.circle_id || circleMember.user_id === input.actorUserId) {
@@ -198,6 +228,18 @@ export async function resolveExpenseMembers(input: {
 
     const relationship = relationships.get(member.relationship_id)
     if (!relationship?.counterpart_user_id || relationship.counterpart_user_id === input.actorUserId) {
+      if (input.allowUnresolvedRelationshipReceiptReplay) {
+        resolved.push({
+          id: randomUUID(),
+          key: member.key,
+          userId: null,
+          displayName: 'Teskeiðarnotandi',
+          role: 'member',
+          status: 'invited',
+          relationshipId: member.relationship_id,
+        })
+        continue
+      }
       throw new Error('expense_relationship_not_available')
     }
     resolved.push({

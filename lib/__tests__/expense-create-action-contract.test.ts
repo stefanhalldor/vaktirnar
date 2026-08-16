@@ -1,16 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 
 const {
   mockGetAdmin,
   mockGuardExpenseAccess,
+  mockCanUseEventExpenses,
   mockResolveExpenseMembers,
   mockGetExpenseActorDisplayName,
+  mockGetOwnedEventExpenseSource,
+  mockSendInvitationEmail,
   mockRpc,
 } = vi.hoisted(() => ({
   mockGetAdmin: vi.fn(),
   mockGuardExpenseAccess: vi.fn(),
+  mockCanUseEventExpenses: vi.fn(),
   mockResolveExpenseMembers: vi.fn(),
   mockGetExpenseActorDisplayName: vi.fn(),
+  mockGetOwnedEventExpenseSource: vi.fn(),
+  mockSendInvitationEmail: vi.fn(),
   mockRpc: vi.fn(),
 }))
 
@@ -18,6 +25,13 @@ vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mockGetAdmin }))
 vi.mock('@/lib/expenses/guard', () => ({ guardExpenseAccess: mockGuardExpenseAccess }))
+vi.mock('@/lib/events/guard', () => ({ canUseEventExpenses: mockCanUseEventExpenses }))
+vi.mock('@/lib/events/repository.server', () => ({
+  getOwnedEventExpenseSource: mockGetOwnedEventExpenseSource,
+}))
+vi.mock('@/lib/expenses/email', () => ({
+  sendExpenseMemberInvitationEmail: mockSendInvitationEmail,
+}))
 vi.mock('@/lib/expenses/participants.server', () => ({
   getExpenseActorDisplayName: mockGetExpenseActorDisplayName,
   resolveExpenseMembers: mockResolveExpenseMembers,
@@ -27,18 +41,34 @@ vi.mock('@/lib/expenses/persistence.server', () => ({
   getExpenseEditMembersForActor: vi.fn(),
 }))
 
-import { createExpense } from '@/lib/expenses/actions'
+import { createExpense, saveExpenseDraft } from '@/lib/expenses/actions'
 
 const actorId = '10000000-0000-4000-8000-000000000001'
 const selfMemberId = '20000000-0000-4000-8000-000000000001'
 const guestMemberId = '20000000-0000-4000-8000-000000000002'
 const persistedGroupId = '30000000-0000-4000-8000-000000000001'
 const persistedExpenseId = '40000000-0000-4000-8000-000000000001'
+const eventId = '80000000-0000-4000-8000-000000000001'
+const eventGuestId = '90000000-0000-4000-8000-000000000001'
+
+function expectedTaggedMemberId(requestId: string, memberKey: string): string {
+  const hex = createHash('sha256')
+    .update(JSON.stringify(['teskeid-event-expense-member-v1', actorId, requestId, memberKey]))
+    .digest('hex')
+    .slice(0, 32)
+    .split('')
+  hex[12] = '4'
+  hex[16] = '8'
+  const value = hex.join('')
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`
+}
 
 describe('createExpense RPC contract', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGuardExpenseAccess.mockResolvedValue({ user: { id: actorId } })
+    mockCanUseEventExpenses.mockResolvedValue(true)
+    mockSendInvitationEmail.mockResolvedValue('sent')
     mockGetExpenseActorDisplayName.mockResolvedValue('Stebbi')
     mockResolveExpenseMembers.mockResolvedValue([
       {
@@ -124,5 +154,464 @@ describe('createExpense RPC contract', () => {
     expect(rpcName).toBe('expense_create_expense_with_participants')
     expect(payload.p_one_off_members[1]).toMatchObject({ id: guestMemberId, user_id: null, status: 'active' })
     expect(payload.p_participant_invitations).toEqual([{ member_id: guestMemberId, relationship_id: relationshipId }])
+  })
+
+  it('delegates tagged creation atomically with the exact compact SQL132 contract', async () => {
+    const requestId = '50000000-0000-4000-8000-000000000003'
+    const taggedSelfMemberId = expectedTaggedMemberId(requestId, 'self')
+    const taggedGuestMemberId = expectedTaggedMemberId(requestId, `event:${eventGuestId}`)
+    const eventSource = {
+      id: eventId,
+      name: 'Sumarferð',
+      rosterRevision: 4,
+      guests: [{
+        id: eventGuestId,
+        displayName: 'Anna',
+        sourceKind: 'manual_name' as const,
+      }],
+    }
+    mockGetOwnedEventExpenseSource.mockResolvedValueOnce(eventSource)
+    mockResolveExpenseMembers.mockResolvedValueOnce([
+      {
+        id: selfMemberId,
+        key: 'self',
+        userId: actorId,
+        displayName: 'Stebbi',
+        role: 'owner',
+        status: 'active',
+      },
+      {
+        id: guestMemberId,
+        key: `event:${eventGuestId}`,
+        userId: null,
+        displayName: 'Anna',
+        role: 'member',
+        status: 'active',
+        eventGuestId,
+      },
+    ])
+
+    const taggedInput = {
+      request_id: requestId,
+      draft_id: '51000000-0000-4000-8000-000000000003',
+      group_id: null,
+      circle_id: null,
+      event_id: eventId,
+      expected_event_roster_revision: 4,
+      title: 'Kvöldmatur',
+      total: '100',
+      currency: 'ISK',
+      incurred_on: '2026-08-16',
+      category: null,
+      note: null,
+      split_method: 'equal',
+      members: [
+        { type: 'self', key: 'self' },
+        { type: 'event_guest', key: `event:${eventGuestId}`, event_guest_id: eventGuestId },
+      ],
+      payments: [{ member_key: 'self', amount: '100' }],
+      allocations: [
+        { member_key: 'self' },
+        { member_key: `event:${eventGuestId}` },
+      ],
+    }
+    const result = await createExpense(taggedInput)
+
+    expect(result).toEqual({
+      ok: true,
+      data: { groupId: persistedGroupId, expenseId: persistedExpenseId },
+    })
+    expect(mockGetOwnedEventExpenseSource).toHaveBeenCalledWith(actorId, eventId)
+    expect(mockResolveExpenseMembers).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: actorId,
+      eventSource,
+      allowUnresolvedRelationshipReceiptReplay: true,
+      members: expect.arrayContaining([
+        expect.objectContaining({ type: 'event_guest', event_guest_id: eventGuestId }),
+      ]),
+    }))
+    expect(mockRpc.mock.calls.map(([name]) => name)).toEqual([
+      'teskeid_event_create_tagged_expense',
+      'expense_delete_private_draft',
+    ])
+    const [rpcName, rpcInput] = mockRpc.mock.calls[0]
+    expect(rpcName).toBe('teskeid_event_create_tagged_expense')
+    expect(Object.keys(rpcInput).sort()).toEqual([
+      'p_actor_id',
+      'p_event_id',
+      'p_expected_roster_revision',
+      'p_payload',
+      'p_request_id',
+    ])
+    expect(rpcInput).toMatchObject({
+      p_actor_id: actorId,
+      p_request_id: requestId,
+      p_event_id: eventId,
+      p_expected_roster_revision: 4,
+    })
+    expect(Object.keys(rpcInput.p_payload).sort()).toEqual([
+      'category',
+      'currency',
+      'event_guest_members',
+      'incurred_on',
+      'note',
+      'obligations',
+      'one_off_members',
+      'participant_invitations',
+      'payments',
+      'shares',
+      'split_method',
+      'title',
+      'total_minor',
+    ])
+    expect(rpcInput.p_payload).toEqual({
+      title: 'Kvöldmatur',
+      total_minor: 100,
+      currency: 'ISK',
+      incurred_on: '2026-08-16',
+      category: null,
+      note: null,
+      split_method: 'equal',
+      one_off_members: [
+        {
+          id: taggedSelfMemberId,
+          user_id: actorId,
+          display_name: 'Stebbi',
+          role: 'owner',
+          status: 'active',
+        },
+        {
+          id: taggedGuestMemberId,
+          user_id: null,
+          display_name: 'Event guest',
+          role: 'member',
+          status: 'active',
+        },
+      ],
+      payments: [{ member_id: taggedSelfMemberId, amount_minor: 100 }],
+      shares: [
+        { member_id: taggedGuestMemberId, amount_minor: 50 },
+        { member_id: taggedSelfMemberId, amount_minor: 50 },
+      ],
+      obligations: [{
+        from_member_id: taggedGuestMemberId,
+        to_member_id: taggedSelfMemberId,
+        amount_minor: 50,
+        currency: 'ISK',
+      }],
+      participant_invitations: [],
+      event_guest_members: [{ event_guest_id: eventGuestId, member_id: taggedGuestMemberId }],
+    })
+    expect(rpcInput).not.toHaveProperty('p_expense_id')
+    expect(rpcInput).not.toHaveProperty('p_group_id')
+    expect(rpcInput.p_payload).not.toHaveProperty('draft_id')
+
+    mockGetOwnedEventExpenseSource.mockResolvedValue(eventSource)
+    mockResolveExpenseMembers.mockResolvedValue([
+      {
+        id: '21000000-0000-4000-8000-000000000001',
+        key: 'self',
+        userId: actorId,
+        displayName: 'Stebbi',
+        role: 'owner',
+        status: 'active',
+      },
+      {
+        id: '21000000-0000-4000-8000-000000000002',
+        key: `event:${eventGuestId}`,
+        userId: null,
+        displayName: 'Nýr roster-snapshot',
+        role: 'member',
+        status: 'active',
+        eventGuestId,
+      },
+    ])
+    await expect(createExpense(taggedInput)).resolves.toEqual(result)
+    const taggedCalls = mockRpc.mock.calls.filter(([name]) => (
+      name === 'teskeid_event_create_tagged_expense'
+    ))
+    expect(taggedCalls).toHaveLength(2)
+    expect(taggedCalls[1]![1]).toEqual(taggedCalls[0]![1])
+
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'teskeid_event_roster_conflict' },
+    })
+    await expect(createExpense({
+      ...taggedInput,
+      request_id: '50000000-0000-4000-8000-000000000004',
+    })).resolves.toEqual({ ok: false, error: 'event_roster_changed' })
+  })
+
+  it('reaches the tagged SQL receipt when a non-event relationship disappears after a lost response', async () => {
+    const requestId = '50000000-0000-4000-8000-000000000007'
+    const relationshipId = '60000000-0000-4000-8000-000000000007'
+    const counterpartId = '70000000-0000-4000-8000-000000000007'
+    const memberKey = 'relationship:bjarni'
+    const taggedRelationshipMemberId = expectedTaggedMemberId(requestId, memberKey)
+    const eventSource = {
+      id: eventId,
+      name: 'Sumarferð',
+      rosterRevision: 4,
+      guests: [],
+    }
+    mockGetOwnedEventExpenseSource.mockResolvedValue(eventSource)
+    mockResolveExpenseMembers
+      .mockResolvedValueOnce([
+        {
+          id: selfMemberId, key: 'self', userId: actorId, displayName: 'Stebbi',
+          role: 'owner', status: 'active',
+        },
+        {
+          id: guestMemberId, key: memberKey, userId: counterpartId, displayName: 'Bjarni',
+          role: 'member', status: 'invited', relationshipId,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: selfMemberId, key: 'self', userId: actorId, displayName: 'Stebbi',
+          role: 'owner', status: 'active',
+        },
+        {
+          id: guestMemberId, key: memberKey, userId: null,
+          displayName: 'Teskeiðarnotandi', role: 'member', status: 'invited', relationshipId,
+        },
+      ])
+    mockRpc
+      .mockRejectedValueOnce(new Error('network response lost'))
+      .mockResolvedValue({
+        data: { group_id: persistedGroupId, expense_id: persistedExpenseId },
+        error: null,
+      })
+    const input = {
+      request_id: requestId,
+      group_id: null,
+      circle_id: null,
+      event_id: eventId,
+      expected_event_roster_revision: 4,
+      title: 'Kvöldmatur', total: '100', currency: 'ISK', incurred_on: '2026-08-16',
+      category: null, note: null, split_method: 'equal',
+      members: [
+        { type: 'self', key: 'self' },
+        { type: 'relationship', key: memberKey, relationship_id: relationshipId },
+      ],
+      payments: [{ member_key: 'self', amount: '100' }],
+      allocations: [{ member_key: 'self' }, { member_key: memberKey }],
+    }
+
+    await expect(createExpense(input)).resolves.toEqual({ ok: false, error: 'save_failed' })
+    await expect(createExpense(input)).resolves.toEqual({
+      ok: true,
+      data: { groupId: persistedGroupId, expenseId: persistedExpenseId },
+    })
+
+    const taggedCalls = mockRpc.mock.calls.filter(([name]) => (
+      name === 'teskeid_event_create_tagged_expense'
+    ))
+    expect(taggedCalls).toHaveLength(2)
+    for (const [, rpcInput] of taggedCalls) {
+      expect(rpcInput.p_payload.one_off_members[1]).toMatchObject({
+        id: taggedRelationshipMemberId,
+        user_id: null,
+        role: 'member',
+        status: 'active',
+      })
+      expect(rpcInput.p_payload.participant_invitations).toEqual([{
+        member_id: taggedRelationshipMemberId,
+        relationship_id: relationshipId,
+      }])
+    }
+    expect(taggedCalls[0]![1].p_payload.one_off_members[1].display_name).toBe('Bjarni')
+    expect(taggedCalls[1]![1].p_payload.one_off_members[1].display_name)
+      .toBe('Teskeiðarnotandi')
+    expect(mockResolveExpenseMembers).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      allowUnresolvedRelationshipReceiptReplay: true,
+    }))
+  })
+
+  it('fails closed before event reads or writes when either global event gate is unavailable', async () => {
+    mockCanUseEventExpenses.mockResolvedValueOnce(false)
+
+    const result = await createExpense({
+      request_id: '50000000-0000-4000-8000-000000000005',
+      group_id: null,
+      circle_id: null,
+      event_id: eventId,
+      expected_event_roster_revision: 4,
+      title: 'Kvöldmatur',
+      total: '100',
+      currency: 'ISK',
+      incurred_on: '2026-08-16',
+      category: null,
+      note: null,
+      split_method: 'equal',
+      members: [
+        { type: 'self', key: 'self' },
+        { type: 'guest', key: 'guest', display_name: 'Gestur' },
+      ],
+      payments: [{ member_key: 'self', amount: '100' }],
+      allocations: [{ member_key: 'self' }, { member_key: 'guest' }],
+    })
+
+    expect(result).toEqual({ ok: false, error: 'feature_disabled' })
+    expect(mockGetOwnedEventExpenseSource).not.toHaveBeenCalled()
+    expect(mockResolveExpenseMembers).not.toHaveBeenCalled()
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('stores only opaque event provenance in a private draft', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        draft_id: '53000000-0000-4000-8000-000000000001',
+        draft_version: 1,
+        saved_at: '2026-08-16T11:00:00.000Z',
+      },
+      error: null,
+    })
+
+    const result = await saveExpenseDraft({
+      draft_id: '53000000-0000-4000-8000-000000000001',
+      expected_version: null,
+      context_type: 'one_off',
+      group_id: null,
+      expense_id: null,
+      current_step: 'split',
+      payload: {
+        circleId: null,
+        eventId,
+        eventRosterRevision: 4,
+        members: [
+          { key: 'self', label: 'Stebbi', input: { type: 'self', key: 'self' }, isSelf: true },
+          {
+            key: `event:${eventGuestId}`,
+            label: 'anna@example.com',
+            input: { type: 'event_guest', key: `event:${eventGuestId}`, event_guest_id: eventGuestId },
+            newGuest: {
+              id: '54000000-0000-4000-8000-000000000001',
+              display_name: 'Anna',
+              recipient_email: 'anna@example.com',
+            },
+            isSelf: false,
+          },
+        ],
+        removedMemberIds: [],
+        included: { self: true, [`event:${eventGuestId}`]: false },
+        title: 'Kvöldmatur',
+        total: '100',
+        currency: 'ISK',
+        incurredOn: '2026-08-16',
+        category: '',
+        note: '',
+        splitMethod: 'weighted',
+        payments: { self: '100', [`event:${eventGuestId}`]: '' },
+        payerKeys: ['self'],
+        amounts: { self: '0', [`event:${eventGuestId}`]: '0' },
+        percentages: { self: '100', [`event:${eventGuestId}`]: '' },
+        weights: { self: '1', [`event:${eventGuestId}`]: '1' },
+        preserveShares: false,
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    const [rpcName, rpcInput] = mockRpc.mock.calls[0]
+    expect(rpcName).toBe('expense_save_private_draft')
+    expect(rpcInput.p_payload.members[1]).toEqual({
+      key: `event:${eventGuestId}`,
+      label: 'Event participant',
+      input: { type: 'event_guest', key: `event:${eventGuestId}`, event_guest_id: eventGuestId },
+      isSelf: false,
+    })
+    expect(JSON.stringify(rpcInput.p_payload)).not.toContain('anna@example.com')
+  })
+
+  it('delivers only invitation IDs returned by the atomic tagged wrapper', async () => {
+    const requestId = '50000000-0000-4000-8000-000000000006'
+    const invitationId = '55000000-0000-4000-8000-000000000001'
+    const taggedSelfMemberId = expectedTaggedMemberId(requestId, 'self')
+    const taggedGuestMemberId = expectedTaggedMemberId(requestId, `event:${eventGuestId}`)
+    const relationshipSource = {
+      id: eventId,
+      name: 'Sumarferð',
+      rosterRevision: 4,
+      guests: [{ id: eventGuestId, displayName: 'Anna', sourceKind: 'relationship' as const }],
+    }
+    mockGetOwnedEventExpenseSource.mockResolvedValueOnce(relationshipSource)
+    mockResolveExpenseMembers.mockResolvedValueOnce([
+      {
+        id: selfMemberId, key: 'self', userId: actorId, displayName: 'Stebbi',
+        role: 'owner', status: 'active',
+      },
+      {
+        id: guestMemberId, key: `event:${eventGuestId}`, userId: null, displayName: 'Anna',
+        role: 'member', status: 'active', eventGuestId,
+      },
+    ])
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'teskeid_event_create_tagged_expense') {
+        return {
+          data: {
+            group_id: persistedGroupId,
+            expense_id: persistedExpenseId,
+            invitation_ids: [invitationId],
+          },
+          error: null,
+        }
+      }
+      if (name === 'expense_reserve_scoped_member_invitation_send') {
+        return {
+          data: {
+            can_send: true,
+            reason: 'reserved',
+            attempt_number: 1,
+            recipient_email: 'anna@example.com',
+            email_template_version: 'v3',
+            context_title: 'Kvöldmatur',
+            inviter_display_name: 'Stebbi',
+          },
+          error: null,
+        }
+      }
+      if (name === 'expense_update_member_invitation_delivery') {
+        return { data: 'ok', error: null }
+      }
+      return { data: null, error: { message: 'unexpected_rpc' } }
+    })
+
+    await expect(createExpense({
+      request_id: requestId,
+      group_id: null,
+      circle_id: null,
+      event_id: eventId,
+      expected_event_roster_revision: 4,
+      title: 'Kvöldmatur', total: '100', currency: 'ISK', incurred_on: '2026-08-16',
+      category: null, note: null, split_method: 'equal',
+      members: [
+        { type: 'self', key: 'self' },
+        { type: 'event_guest', key: `event:${eventGuestId}`, event_guest_id: eventGuestId },
+      ],
+      payments: [{ member_key: 'self', amount: '100' }],
+      allocations: [{ member_key: 'self' }, { member_key: `event:${eventGuestId}` }],
+    })).resolves.toEqual({
+      ok: true,
+      data: { groupId: persistedGroupId, expenseId: persistedExpenseId },
+    })
+
+    expect(mockRpc.mock.calls.map(([name]) => name)).toEqual([
+      'teskeid_event_create_tagged_expense',
+      'expense_reserve_scoped_member_invitation_send',
+      'expense_update_member_invitation_delivery',
+    ])
+    expect(mockSendInvitationEmail).toHaveBeenCalledWith(
+      'anna@example.com',
+      invitationId,
+      1,
+      expect.objectContaining({ templateVersion: 'v3', contextTitle: 'Kvöldmatur' }),
+    )
+    const taggedPayload = mockRpc.mock.calls[0]![1].p_payload
+    expect(taggedPayload.event_guest_members).toEqual([
+      { event_guest_id: eventGuestId, member_id: taggedGuestMemberId },
+    ])
+    expect(taggedPayload.one_off_members[0].id).toBe(taggedSelfMemberId)
+    expect(JSON.stringify(taggedPayload)).not.toContain('anna@example.com')
   })
 })

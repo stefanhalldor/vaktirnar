@@ -2,8 +2,10 @@ import { notFound } from 'next/navigation'
 import { ExpenseMemberInvitationActions } from '@/components/expenses/ExpenseMemberInvitationActions'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
+import { ClosedTestingAccessRequest } from '@/components/teskeid/ClosedTestingAccessRequest'
 import { guardExpenseSession } from '@/lib/expenses/guard'
 import { getExpenseMemberInvitationPreview } from '@/lib/expenses/repository.server'
+import { checkFeatureAccess } from '@/lib/loans/guard'
 import { formatDateOnly } from '@/lib/date-format'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { getLocale } from 'next-intl/server'
@@ -19,14 +21,17 @@ export default async function ExpenseMemberInvitationPage({
     getExpenseTranslations(),
     getLocale(),
   ])
-  const invitation = await getExpenseMemberInvitationPreview(user.id, invitationId)
+  const [invitation, hasExpenseAccess] = await Promise.all([
+    getExpenseMemberInvitationPreview(user.id, invitationId),
+    checkFeatureAccess(user.id, user.email!, 'utlagt-og-endurgreitt'),
+  ])
   if (!invitation) notFound()
 
   return (
     <ExpenseShell
       title={t('memberInvitation.title')}
       homeLabel={t('homeLabel')}
-      backHref="/auth-mvp/utlagt-og-endurgreitt"
+      backHref={hasExpenseAccess ? '/auth-mvp/utlagt-og-endurgreitt' : '/auth-mvp/heim'}
       backLabel={t('back')}
     >
       <div className="space-y-5">
@@ -68,8 +73,18 @@ export default async function ExpenseMemberInvitationPage({
             </ul>
           </div>
         </section>
+        {!hasExpenseAccess ? (
+          <ClosedTestingAccessRequest
+            featureId="utlagt-og-endurgreitt"
+            reason="participant"
+          />
+        ) : null}
         <p className="text-sm leading-6 text-muted-foreground">{t('memberInvitation.claimHint')}</p>
-        <ExpenseMemberInvitationActions invitationId={invitation.invitationId} expenseId={invitation.expenseId} />
+        <ExpenseMemberInvitationActions
+          invitationId={invitation.invitationId}
+          expenseId={invitation.expenseId}
+          hasExpenseAccess={hasExpenseAccess}
+        />
       </div>
     </ExpenseShell>
   )

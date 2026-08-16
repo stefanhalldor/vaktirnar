@@ -34,6 +34,18 @@ vi.mock('@/lib/teskeid/launcher.server', () => ({
   resolveTeskeidLauncher: mockResolveTeskeidLauncher,
 }))
 
+const { mockHasExpenseAccessRequestContext } = vi.hoisted(() => ({
+  mockHasExpenseAccessRequestContext: vi.fn(),
+}))
+vi.mock('@/lib/expenses/access-request.server', () => ({
+  hasExpenseAccessRequestContext: mockHasExpenseAccessRequestContext,
+}))
+vi.mock('@/components/teskeid/ClosedTestingAccessRequest', () => ({
+  ClosedTestingAccessRequest: ({ featureId }: { featureId: string }) => (
+    <div data-testid="closed-testing-access-request">{featureId}</div>
+  ),
+}))
+
 // next-intl/server
 vi.mock('next-intl/server', () => ({
   getTranslations: vi.fn().mockImplementation(async (ns: string) => {
@@ -471,17 +483,20 @@ let savedLoans: string | undefined
 let savedAuth: string | undefined
 let savedWeather: string | undefined
 let savedWeatherPublic: string | undefined
+let savedExpenses: string | undefined
 
 beforeEach(() => {
   savedLoans = process.env.LOANS_ENABLED
   savedAuth = process.env.AUTH_MVP_ENABLED
   savedWeather = process.env.WEATHER_ENABLED
   savedWeatherPublic = process.env.WEATHER_PUBLIC_ENABLED
+  savedExpenses = process.env.EXPENSES_ENABLED
   process.env.LOANS_ENABLED = 'true'
   process.env.AUTH_MVP_ENABLED = 'true'
   delete process.env.WEATHER_ENABLED
   delete process.env.WEATHER_PUBLIC_ENABLED
   vi.clearAllMocks()
+  mockHasExpenseAccessRequestContext.mockResolvedValue(false)
   setupRecentEvents([])
   mockAckRecentEvents.mockResolvedValue({ ok: true })
   mockAckAllRecentEvents.mockResolvedValue({ ok: true })
@@ -497,6 +512,8 @@ afterEach(() => {
   else delete process.env.WEATHER_ENABLED
   if (savedWeatherPublic !== undefined) process.env.WEATHER_PUBLIC_ENABLED = savedWeatherPublic
   else delete process.env.WEATHER_PUBLIC_ENABLED
+  if (savedExpenses !== undefined) process.env.EXPENSES_ENABLED = savedExpenses
+  else delete process.env.EXPENSES_ENABLED
 })
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -529,6 +546,36 @@ describe('HeimPage — greeting', () => {
 })
 
 describe('HeimPage — Teskeiðar section', () => {
+  it('shows a generic access request to an involved Expenses user without entitlement', async () => {
+    process.env.EXPENSES_ENABLED = 'true'
+    setupGuard(true, false, false, false)
+    setupProfile(null)
+    setupRpcs([])
+    mockHasExpenseAccessRequestContext.mockResolvedValueOnce(true)
+
+    render(await HeimPage())
+
+    expect(screen.getByTestId('closed-testing-access-request')).toHaveTextContent(
+      'utlagt-og-endurgreitt',
+    )
+    expect(mockHasExpenseAccessRequestContext).toHaveBeenCalledWith(
+      TEST_USER.id,
+      TEST_USER.email,
+    )
+  })
+
+  it('does not inspect or render missing-access context for an entitled Expenses user', async () => {
+    process.env.EXPENSES_ENABLED = 'true'
+    setupGuard(true, false, false, true)
+    setupProfile(null)
+    setupRpcs([])
+
+    render(await HeimPage())
+
+    expect(mockHasExpenseAccessRequestContext).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('closed-testing-access-request')).not.toBeInTheDocument()
+  })
+
   it('renders "Tilbúnar Teskeiðar" heading', async () => {
     setupGuard()
     setupProfile(null)

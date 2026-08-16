@@ -5,23 +5,23 @@ import React from 'react'
 const copy: Record<string, string> = {
   'picker.trigger': 'Bæta við gesti',
   'picker.title': 'Bæta við gesti',
-  'picker.description': 'Veldu notanda eða gest.',
+  'picker.description': 'Veldu þekktan aðila eða skráðu nafn eða netfang.',
   'picker.close': 'Loka gestavali',
-  'picker.loadError': 'Ekki tókst að sækja notendur',
+  'picker.loadError': 'Ekki tókst að sækja þekkta aðila',
   'picker.searchLabel': 'Leita í Tengslum',
   'picker.searchPlaceholder': 'Nafn eða label',
   'picker.filterLabel': 'Sía eftir labelum',
   'picker.allFilterLabel': 'Allir',
   'picker.noResults': 'Enginn fannst',
-  'picker.sourceLabel': 'Tegund gests',
-  'picker.knownMode': 'Teskeiðarnotandi',
-  'picker.guestMode': 'Gestur',
-  'picker.guestName': 'Nafn gests',
-  'picker.guestPlaceholder': 'Nafn',
+  'picker.sourceLabel': 'Hvaðan kemur gesturinn?',
+  'picker.knownMode': 'Þekktur aðili',
+  'picker.guestMode': 'Nafn eða netfang',
+  'picker.guestName': 'Nafn eða netfang',
+  'picker.guestPlaceholder': 'Nafn eða netfang',
   'picker.guestHint': 'Ekkert boð er sent.',
   'picker.addGuest': 'Bæta við gesti',
   'picker.guestNameInvalid': 'Ógilt nafn',
-  'picker.emailNotSupported': 'Netföng eru ekki notuð hér',
+  'picker.emailInvalid': 'Ógilt netfang',
 }
 
 vi.mock('next-intl', () => ({
@@ -30,7 +30,7 @@ vi.mock('next-intl', () => ({
 
 import {
   EventParticipantPicker,
-  parseEventGuestName,
+  parseEventManualGuest,
 } from '../EventParticipantPicker'
 
 const option = {
@@ -41,12 +41,21 @@ const option = {
 }
 
 describe('EventParticipantPicker', () => {
-  it('normalizes a guest name and rejects unsafe, overlong, and email-like input', () => {
-    expect(parseEventGuestName('  Páll  ')).toEqual({ ok: true, displayName: 'Páll' })
-    expect(parseEventGuestName('')).toEqual({ ok: false, error: 'invalid' })
-    expect(parseEventGuestName('a'.repeat(121))).toEqual({ ok: false, error: 'invalid' })
-    expect(parseEventGuestName('Anna\u202e')).toEqual({ ok: false, error: 'invalid' })
-    expect(parseEventGuestName('anna@example.is')).toEqual({ ok: false, error: 'email_not_supported' })
+  it('parses the exact manual name/email source shapes and rejects unsafe input', () => {
+    expect(parseEventManualGuest('  Páll  ')).toEqual({
+      ok: true,
+      label: 'Páll',
+      input: { source_kind: 'manual_name', display_name: 'Páll' },
+    })
+    expect(parseEventManualGuest(' GESTUR@Example.is ')).toEqual({
+      ok: true,
+      label: 'gestur@example.is',
+      input: { source_kind: 'manual_email', email: 'gestur@example.is' },
+    })
+    expect(parseEventManualGuest('')).toEqual({ ok: false, error: 'invalid_name' })
+    expect(parseEventManualGuest('a'.repeat(121))).toEqual({ ok: false, error: 'invalid_name' })
+    expect(parseEventManualGuest('Anna\u202e')).toEqual({ ok: false, error: 'invalid_name' })
+    expect(parseEventManualGuest('anna@')).toEqual({ ok: false, error: 'invalid_email' })
   })
 
   it('returns the exact known Relationship option while keeping its shared label search-only', () => {
@@ -55,7 +64,7 @@ describe('EventParticipantPicker', () => {
       <EventParticipantPicker
         options={[option]}
         onAddKnown={onAddKnown}
-        onAddGuest={vi.fn(() => true)}
+        onAddManual={vi.fn(() => true)}
       />,
     )
 
@@ -71,48 +80,50 @@ describe('EventParticipantPicker', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('uses a 120-character name-only manual path with no email or circle contract', () => {
-    const onAddGuest = vi.fn(() => true)
+  it('uses the exact two source labels and returns manual name/email inputs', () => {
+    const onAddManual = vi.fn(() => true)
     render(
       <EventParticipantPicker
         options={[option]}
         onAddKnown={vi.fn(() => true)}
-        onAddGuest={onAddGuest}
+        onAddManual={onAddManual}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við gesti' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Gestur' }))
-    const input = screen.getByRole('textbox', { name: 'Nafn gests' })
-    expect(input).toHaveAttribute('maxlength', '120')
-    expect(screen.queryByText('Tengslahringir')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Þekktur aðili' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Nafn eða netfang' }))
+    const input = screen.getByRole('textbox', { name: 'Nafn eða netfang' })
+    expect(input).toHaveAttribute('maxlength', '320')
 
-    fireEvent.change(input, { target: { value: 'anna@example.is' } })
+    fireEvent.change(input, { target: { value: 'anna@' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Bæta við gesti' }).at(-1)!)
-    expect(screen.getByRole('alert')).toHaveTextContent('Netföng eru ekki notuð hér')
-    expect(onAddGuest).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Ógilt netfang')
+    expect(onAddManual).not.toHaveBeenCalled()
 
-    fireEvent.change(input, { target: { value: '  Páll  ' } })
+    fireEvent.change(input, { target: { value: '  Anna@example.is  ' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Bæta við gesti' }).at(-1)!)
-    expect(onAddGuest).toHaveBeenCalledWith('Páll')
+    expect(onAddManual).toHaveBeenCalledWith(
+      { source_kind: 'manual_email', email: 'anna@example.is' },
+      'anna@example.is',
+    )
   })
 
-  it('honors known exclusions and keeps guest entry available after an option-load error', () => {
+  it('honors known exclusions while manual entry stays available after an option-load error', () => {
     render(
       <EventParticipantPicker
         options={[option]}
         excludedRelationshipIds={[option.relationshipId]}
         optionsError
         onAddKnown={vi.fn(() => true)}
-        onAddGuest={vi.fn(() => true)}
+        onAddManual={vi.fn(() => true)}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við gesti' }))
-    expect(screen.getByText('Ekki tókst að sækja notendur')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Teskeiðarnotandi' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: 'Gestur' }))
-    expect(screen.getByRole('textbox', { name: 'Nafn gests' })).toBeInTheDocument()
-    expect(screen.queryByText('Mamma')).not.toBeInTheDocument()
+    expect(screen.getByText('Ekki tókst að sækja þekkta aðila')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Mamma/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Nafn eða netfang' }))
+    expect(screen.getByRole('textbox', { name: 'Nafn eða netfang' })).toBeInTheDocument()
   })
 })

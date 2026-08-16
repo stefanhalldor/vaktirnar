@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
-import { RelationshipPartyPicker, type RelationshipPartyPickerCopy } from '../RelationshipPartyPicker'
+import {
+  RelationshipPartyPicker,
+  type RelationshipPartyPickerCopy,
+  type RelationshipPartyPickerSource,
+} from '../RelationshipPartyPicker'
 
 const copy: RelationshipPartyPickerCopy = {
   triggerLabel: 'Bæta við aðila',
@@ -175,5 +179,72 @@ describe('RelationshipPartyPicker', () => {
 
     expect(within(dialog).queryByText('Anna vinkona')).not.toBeInTheDocument()
     expect(within(dialog).getByText('Bjarni bróðir')).toBeInTheDocument()
+  })
+
+  it('supports pluggable sources and keeps the sheet open for accepted multi-select', () => {
+    const onSelectEventGuest = vi.fn()
+    const sources: RelationshipPartyPickerSource[] = [
+      {
+        id: 'known',
+        label: 'Þekktur aðili',
+        type: 'options',
+        options,
+        searchLabel: 'Leita',
+        searchPlaceholder: 'Nafn',
+        filterLabel: 'Sía',
+        allFilterLabel: 'Allir',
+        noResultsLabel: 'Enginn fannst',
+        onSelectOption: () => ({ accepted: true }),
+      },
+      {
+        id: 'event',
+        label: 'Úr viðburði',
+        type: 'custom',
+        render: ({ completeSelection }) => (
+          <button
+            type="button"
+            onClick={() => {
+              onSelectEventGuest('event-guest-a')
+              completeSelection({ accepted: true, behavior: 'stay-open' })
+            }}
+          >
+            Velja Önnu
+          </button>
+        ),
+      },
+      {
+        id: 'manual',
+        label: 'Nafn eða netfang',
+        type: 'manual',
+        inputLabel: 'Nafn eða netfang',
+        inputPlaceholder: 'Nafn',
+        hint: 'Sláðu inn gildi.',
+        submitLabel: 'Bæta við',
+        onSelect: () => ({ accepted: true }),
+      },
+    ]
+
+    render(
+      <RelationshipPartyPicker
+        copy={{ ...copy, sourceLabel: 'Leið til að bæta við' }}
+        sources={sources}
+        initialSourceId="event"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við aðila' }))
+
+    const knownSource = screen.getByRole('button', { name: 'Þekktur aðili' })
+    const eventSource = screen.getByRole('button', { name: 'Úr viðburði' })
+    const manualSource = screen.getByRole('button', { name: 'Nafn eða netfang' })
+    expect(knownSource).toHaveAttribute('aria-pressed', 'false')
+    expect(eventSource).toHaveAttribute('aria-pressed', 'true')
+    expect(manualSource).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(manualSource)
+    expect(eventSource).toHaveAttribute('aria-pressed', 'false')
+    expect(manualSource).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(eventSource)
+    fireEvent.click(screen.getByRole('button', { name: 'Velja Önnu' }))
+    expect(onSelectEventGuest).toHaveBeenCalledWith('event-guest-a')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 })

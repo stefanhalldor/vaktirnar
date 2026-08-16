@@ -1441,55 +1441,35 @@ describe('checkFeatureAccess — utlagt-og-endurgreitt (always private beta)', (
   })
 })
 
-describe('checkFeatureAccess — afmaeli-og-vidburdir (composite private beta)', () => {
+describe('checkFeatureAccess — afmaeli-og-vidburdir (independent private beta)', () => {
   let savedEventsEnabled: string | undefined
-  let savedExpensesEnabled: string | undefined
 
   beforeEach(() => {
     vi.clearAllMocks()
     savedEventsEnabled = process.env.EVENTS_ENABLED
-    savedExpensesEnabled = process.env.EXPENSES_ENABLED
   })
 
   afterEach(() => {
     setEnv('EVENTS_ENABLED', savedEventsEnabled)
-    setEnv('EXPENSES_ENABLED', savedExpensesEnabled)
   })
 
-  it.each([
-    [undefined, 'true'],
-    ['false', 'true'],
-    ['true', undefined],
-    ['true', 'false'],
-  ])('fails before lookup when EVENTS_ENABLED=%s and EXPENSES_ENABLED=%s', async (events, expenses) => {
+  it.each([undefined, 'false', 'TRUE'])('fails before lookup when EVENTS_ENABLED=%s', async (events) => {
     setEnv('EVENTS_ENABLED', events)
-    setEnv('EXPENSES_ENABLED', expenses)
     expect(await checkFeatureAccess('uid', 'user@example.com', 'afmaeli-og-vidburdir')).toBe(false)
     expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
   })
 
-  it('requires exact rows for both Events and Expenses', async () => {
+  it('requires only the exact Events row even when Expenses is disabled', async () => {
     process.env.EVENTS_ENABLED = 'true'
-    process.env.EXPENSES_ENABLED = 'true'
-    mockFeatureAccessQuery
-      .mockResolvedValueOnce({ data: { email: 'user@example.com' }, error: null })
-      .mockResolvedValueOnce({ data: null, error: null })
-    expect(await checkFeatureAccess('uid', 'user@example.com', 'afmaeli-og-vidburdir')).toBe(false)
-
-    mockFeatureAccessQuery.mockReset()
-    mockFeatureAccessQuery
-      .mockResolvedValueOnce({ data: { email: 'user@example.com' }, error: null })
-      .mockResolvedValueOnce({ data: { email: 'user@example.com' }, error: null })
+    delete process.env.EXPENSES_ENABLED
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
     expect(await checkFeatureAccess('uid', 'user@example.com', 'afmaeli-og-vidburdir')).toBe(true)
-    expect(mockFeatureAccessQuery).toHaveBeenCalledTimes(2)
+    expect(mockFeatureAccessQuery).toHaveBeenCalledTimes(1)
   })
 
-  it('fails closed when either entitlement lookup fails', async () => {
+  it('fails closed when the Events entitlement lookup fails', async () => {
     process.env.EVENTS_ENABLED = 'true'
-    process.env.EXPENSES_ENABLED = 'true'
-    mockFeatureAccessQuery
-      .mockResolvedValueOnce({ data: null, error: { message: 'db down' } })
-      .mockResolvedValueOnce({ data: { email: 'user@example.com' }, error: null })
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'db down' } })
     expect(await checkFeatureAccess('uid', 'user@example.com', 'afmaeli-og-vidburdir')).toBe(false)
   })
 })

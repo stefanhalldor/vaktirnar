@@ -3,9 +3,13 @@
 import {
   RelationshipPartyPicker,
   type RelationshipPartyPickerManualResult,
+  type RelationshipPartyPickerSelectionResult,
+  type RelationshipPartyPickerSource,
 } from '@/components/tengsl/RelationshipPartyPicker'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
+import type { EventExpenseSourceView } from '@/lib/events/contracts'
 import type { RelationshipCircleOption } from '@/lib/relationships/types'
+import { ExpenseEventParticipantSource } from './ExpenseEventParticipantSource'
 import { useExpenseTranslations } from './i18n.client'
 
 export type ManualExpenseParticipant =
@@ -37,6 +41,14 @@ export function ExpenseParticipantPicker({
   onAddKnown,
   onAddManual,
   onSelectCircle,
+  eventSources,
+  eventSourcesError = false,
+  selectedEventId = null,
+  selectedEventGuestIds = [],
+  initialSourceId,
+  onSelectEvent,
+  onClearEvent,
+  onAddEventGuest,
 }: {
   options: ExpenseParticipantOption[]
   excludedRelationshipIds?: string[]
@@ -49,6 +61,18 @@ export function ExpenseParticipantPicker({
   onAddKnown: (option: ExpenseParticipantOption) => boolean
   onAddManual: (participant: ManualExpenseParticipant) => boolean
   onSelectCircle?: (circle: RelationshipCircleOption) => boolean
+  /** Undefined omits the event source entirely; an empty array renders its true empty state. */
+  eventSources?: EventExpenseSourceView[]
+  eventSourcesError?: boolean
+  selectedEventId?: string | null
+  selectedEventGuestIds?: string[]
+  initialSourceId?: 'known' | 'event' | 'manual'
+  onSelectEvent?: (event: EventExpenseSourceView) => RelationshipPartyPickerSelectionResult
+  onClearEvent?: () => void
+  onAddEventGuest?: (
+    event: EventExpenseSourceView,
+    guest: EventExpenseSourceView['guests'][number],
+  ) => RelationshipPartyPickerSelectionResult
 }) {
   const t = useExpenseTranslations()
 
@@ -75,22 +99,81 @@ export function ExpenseParticipantPicker({
     return circle && onSelectCircle ? onSelectCircle(circle) : false
   }
 
+  const eventSourceEnabled = eventSources !== undefined
+    && Boolean(onSelectEvent)
+    && Boolean(onClearEvent)
+    && Boolean(onAddEventGuest)
+  const pickerOptions = options.map((option) => ({
+    id: option.relationshipId,
+    primaryLabel: option.pickerLabel,
+    searchAliases: [option.sharedLabel],
+    customLabels: option.customLabels,
+  }))
+  const pickerCircles = circles.map((circle) => ({
+    id: circle.id,
+    primaryLabel: circle.name,
+    secondaryLabel: t('expenseForm.circleMemberCount', { count: circle.members.length }),
+  }))
+  const sources: RelationshipPartyPickerSource[] | undefined = eventSourceEnabled ? [
+    {
+      id: 'known',
+      label: t('expenseForm.knownParticipant'),
+      type: 'options',
+      options: pickerOptions,
+      excludedOptionIds: excludedRelationshipIds,
+      optionsError,
+      circles: pickerCircles,
+      disabled: pickerOptions.length === 0 && (!onSelectCircle || pickerCircles.length === 0),
+      loadErrorLabel: t('expenseForm.participantLoadError'),
+      circleSectionLabel: t('expenseForm.relationshipCircles'),
+      searchLabel: t('expenseForm.searchKnownParticipant'),
+      searchPlaceholder: t('expenseForm.searchKnownParticipantPlaceholder'),
+      filterLabel: t('expenseForm.filterKnownPeople'),
+      allFilterLabel: t('expenseForm.allKnownPeople'),
+      noResultsLabel: t('expenseForm.noKnownParticipantResults'),
+      onSelectOption: selectKnown,
+      onSelectCircle: onSelectCircle ? selectCircle : undefined,
+    },
+    {
+      id: 'event',
+      label: t('expenseForm.eventParticipantSource'),
+      type: 'custom',
+      render: ({ completeSelection, setError }) => (
+        <ExpenseEventParticipantSource
+          events={eventSources!}
+          eventsError={eventSourcesError}
+          selectedEventId={selectedEventId}
+          selectedEventGuestIds={selectedEventGuestIds}
+          onSelectEvent={onSelectEvent!}
+          onClearEvent={onClearEvent!}
+          onAddEventGuest={onAddEventGuest!}
+          completeSelection={completeSelection}
+          setPickerError={setError}
+        />
+      ),
+    },
+    {
+      id: 'manual',
+      label: t('expenseForm.nameOrEmail'),
+      type: 'manual',
+      inputLabel: t('expenseForm.nameOrEmail'),
+      inputPlaceholder: t('expenseForm.nameOrEmailPlaceholder'),
+      hint: t('expenseForm.nameOrEmailHint'),
+      submitLabel: t('expenseForm.addParticipant'),
+      inputMaxLength: 320,
+      onSelect: selectManual,
+    },
+  ] : undefined
+
   return (
     <RelationshipPartyPicker
-      options={options.map((option) => ({
-        id: option.relationshipId,
-        primaryLabel: option.pickerLabel,
-        searchAliases: [option.sharedLabel],
-        customLabels: option.customLabels,
-      }))}
+      options={pickerOptions}
       excludedOptionIds={excludedRelationshipIds}
       optionsError={optionsError}
-      circles={circles.map((circle) => ({
-        id: circle.id,
-        primaryLabel: circle.name,
-        secondaryLabel: t('expenseForm.circleMemberCount', { count: circle.members.length }),
-      }))}
+      circles={pickerCircles}
       disabled={disabled}
+      sources={sources}
+      initialSourceId={eventSourceEnabled ? initialSourceId : undefined}
       copy={{
         triggerLabel: triggerLabel ?? t('expenseForm.addParticipant'),
         title: dialogTitle ?? t('expenseForm.addParticipant'),
@@ -103,6 +186,7 @@ export function ExpenseParticipantPicker({
         filterLabel: t('expenseForm.filterKnownPeople'),
         allFilterLabel: t('expenseForm.allKnownPeople'),
         noResultsLabel: t('expenseForm.noKnownParticipantResults'),
+        sourceLabel: t('expenseForm.participantSource'),
         manual: {
           sourceLabel: t('expenseForm.participantSource'),
           knownModeLabel: t('expenseForm.knownParticipant'),

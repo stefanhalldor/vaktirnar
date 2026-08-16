@@ -16,32 +16,75 @@ const guestName = normalizedText(120).refine(
   'email_not_supported',
 )
 
-const EventParticipantSchema = z.discriminatedUnion('type', [
+const guestEmail = z.string()
+  .transform((value) => value.trim().toLocaleLowerCase('en-US'))
+  .pipe(z.string().email().max(320).refine(
+    (value) => !DISALLOWED_CONTROLS.test(value),
+    'disallowed_control_character',
+  ))
+
+const EventNewGuestSchema = z.discriminatedUnion('source_kind', [
   z.object({
-    type: z.literal('guest'),
+    source_kind: z.literal('manual_name'),
     display_name: guestName,
   }).strict(),
   z.object({
-    type: z.literal('relationship'),
+    source_kind: z.literal('manual_email'),
+    email: guestEmail,
+  }).strict(),
+  z.object({
+    source_kind: z.literal('relationship'),
     relationship_id: z.string().uuid(),
   }).strict(),
 ])
 
+const EventRosterGuestSchema = z.union([
+  z.object({ event_guest_id: z.string().uuid() }).strict(),
+  EventNewGuestSchema,
+])
+
+function addDuplicateIssues(
+  guests: Array<z.infer<typeof EventRosterGuestSchema>>,
+  context: z.RefinementCtx,
+) {
+  const retainedIds = guests.flatMap((guest) => 'event_guest_id' in guest ? [guest.event_guest_id] : [])
+  const relationshipIds = guests.flatMap((guest) => (
+    'source_kind' in guest && guest.source_kind === 'relationship' ? [guest.relationship_id] : []
+  ))
+  const emails = guests.flatMap((guest) => (
+    'source_kind' in guest && guest.source_kind === 'manual_email' ? [guest.email] : []
+  ))
+  for (const [values, message] of [
+    [retainedIds, 'duplicate_guest'],
+    [relationshipIds, 'duplicate_relationship'],
+    [emails, 'duplicate_email'],
+  ] as const) {
+    if (new Set(values).size !== values.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['guests'],
+        message,
+      })
+    }
+  }
+}
+
 export const CreateEventSchema = z.object({
   request_id: z.string().uuid(),
   name: normalizedText(160),
-  participants: z.array(EventParticipantSchema).max(49),
+  guests: z.array(EventNewGuestSchema).max(49),
 }).strict().superRefine((value, context) => {
-  const relationshipIds = value.participants.flatMap((participant) => (
-    participant.type === 'relationship' ? [participant.relationship_id] : []
-  ))
-  if (new Set(relationshipIds).size !== relationshipIds.length) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['participants'],
-      message: 'duplicate_relationship',
-    })
-  }
+  addDuplicateIssues(value.guests, context)
+})
+
+export const ReplaceEventRosterSchema = z.object({
+  event_id: z.string().uuid(),
+  request_id: z.string().uuid(),
+  expected_roster_revision: z.number().int().nonnegative().safe(),
+  guests: z.array(EventRosterGuestSchema).max(49),
+}).strict().superRefine((value, context) => {
+  addDuplicateIssues(value.guests, context)
 })
 
 export type CreateEventInput = z.infer<typeof CreateEventSchema>
+export type ReplaceEventRosterInput = z.infer<typeof ReplaceEventRosterSchema>

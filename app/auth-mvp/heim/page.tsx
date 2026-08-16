@@ -9,7 +9,9 @@ import { resolveTeskeidLauncher } from '@/lib/teskeid/launcher.server'
 import type { LoanItem } from '@/lib/loans/types'
 import type { Idea } from '@/lib/teskeid/types'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
+import { ClosedTestingAccessRequest } from '@/components/teskeid/ClosedTestingAccessRequest'
 import { HomeIdeasDrawer } from '@/components/teskeid/HomeIdeasDrawer'
+import { hasExpenseAccessRequestContext } from '@/lib/expenses/access-request.server'
 import { getUnreadRecentEventsForUser, recordRecentEvent } from '@/lib/recent-events/helpers.server'
 import type { ExpenseRecentEventRow, RecentEventDisplay } from '@/lib/recent-events/types'
 import {
@@ -79,6 +81,9 @@ export default async function HeimPage() {
   const advertiserEnabled = visibleLauncherIds.has('auglysandi')
   const bookingsEnabled = visibleLauncherIds.has('bokanir')
   const eventsEnabled = visibleLauncherIds.has('afmaeli-og-vidburdir')
+  const showExpenseAccessRequest = process.env.EXPENSES_ENABLED === 'true'
+    && !visibleLauncherIds.has('utlagt-og-endurgreitt')
+    && await hasExpenseAccessRequestContext(user.id, user.email!)
 
   const displayLocale = getDisplayLocale(locale)
 
@@ -302,6 +307,13 @@ export default async function HeimPage() {
             labels={recentLabels}
           />
         )}
+
+        {showExpenseAccessRequest ? (
+          <ClosedTestingAccessRequest
+            featureId="utlagt-og-endurgreitt"
+            reason="participant"
+          />
+        ) : null}
 
         {/* ── Teskeiðar — ready cards first, future ideas in collapsed drawer ── */}
         <section id="teskeidar">

@@ -29,6 +29,8 @@ export const ExpenseDraftMemberSchema = z.object({
 
 export const ExpenseDraftPayloadSchema = z.object({
   circleId: z.string().uuid().nullable().default(null),
+  eventId: z.string().uuid().nullable().default(null),
+  eventRosterRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().default(null),
   members: z.array(ExpenseDraftMemberSchema).min(1).max(50),
   removedMemberIds: z.array(z.string().uuid()).max(48).default([]),
   included: booleanMap,
@@ -45,7 +47,39 @@ export const ExpenseDraftPayloadSchema = z.object({
   percentages: textMap,
   weights: textMap,
   preserveShares: z.boolean(),
-}).strict()
+}).strict().superRefine((value, context) => {
+  if ((value.eventId === null) !== (value.eventRosterRevision === null)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['eventId'],
+      message: 'event_revision_required',
+    })
+  }
+  if (value.eventId !== null && value.circleId !== null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['eventId'],
+      message: 'event_circle_conflict',
+    })
+  }
+  const eventGuestIds = value.members.flatMap((member) => (
+    member.input?.type === 'event_guest' ? [member.input.event_guest_id] : []
+  ))
+  if (eventGuestIds.length > 0 && value.eventId === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['members'],
+      message: 'event_required',
+    })
+  }
+  if (new Set(eventGuestIds).size !== eventGuestIds.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['members'],
+      message: 'duplicate_event_guest',
+    })
+  }
+})
 
 export const SaveExpenseDraftSchema = z.object({
   draft_id: z.string().uuid(),
@@ -59,6 +93,47 @@ export const SaveExpenseDraftSchema = z.object({
 
 export type ExpenseDraftPayload = z.infer<typeof ExpenseDraftPayloadSchema>
 export type SaveExpenseDraftInput = z.infer<typeof SaveExpenseDraftSchema>
+
+/**
+ * Drafts may outlive the Events entitlement that originally supplied a guest.
+ * Persist only opaque provenance and a non-sensitive placeholder; an authorized
+ * page can hydrate the current display snapshot from the owner-safe event RPC.
+ */
+export const EXPENSE_DRAFT_EVENT_GUEST_LABEL = 'Event participant'
+
+export function redactExpenseDraftEventGuestLabels(
+  payload: ExpenseDraftPayload,
+): ExpenseDraftPayload {
+  return {
+    ...payload,
+    members: payload.members.map((member) => {
+      if (member.input?.type !== 'event_guest') return member
+      const { newGuest: _newGuest, ...safeMember } = member
+      return { ...safeMember, label: EXPENSE_DRAFT_EVENT_GUEST_LABEL }
+    }),
+  }
+}
+
+export function hydrateExpenseDraftEventGuestLabels(
+  payload: ExpenseDraftPayload,
+  eventSource: {
+    id: string
+    guests: Array<{ id: string; displayName: string }>
+  } | null,
+  unavailableLabel: string,
+): ExpenseDraftPayload {
+  const source = eventSource?.id === payload.eventId ? eventSource : null
+  const labels = new Map(source?.guests.map((guest) => [guest.id, guest.displayName]) ?? [])
+  const redacted = redactExpenseDraftEventGuestLabels(payload)
+  return {
+    ...redacted,
+    members: redacted.members.map((member) => (
+      member.input?.type === 'event_guest'
+        ? { ...member, label: labels.get(member.input.event_guest_id) ?? unavailableLabel }
+        : member
+    )),
+  }
+}
 
 export interface ExpensePrivateDraftView {
   id: string

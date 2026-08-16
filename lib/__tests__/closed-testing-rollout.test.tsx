@@ -188,6 +188,9 @@ describe('closed-testing banner placements', () => {
 
     expect(expenseShell).toContain('resolveTeskeidFeatureRollout(closedTestingFeature)')
     expect(expenseInvitation).not.toContain('closedTestingFeature')
+    expect(expenseInvitation).toContain('checkFeatureAccess')
+    expect(expenseInvitation).toContain('<ClosedTestingAccessRequest')
+    expect(expenseInvitation).toContain('featureId="utlagt-og-endurgreitt"')
     expect(bookkeepingPrivateShell).toContain("resolveTeskeidFeatureRollout('bokhaldid')")
     expect(bookkeepingShell).toContain('showClosedTestingBanner ? <ClosedTestingBanner')
     expect(kvissCreator).toContain("resolveTeskeidFeatureRollout('kviss')")

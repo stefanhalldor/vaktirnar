@@ -26,8 +26,13 @@ import {
 import type { ExpenseItemView, ExpenseParticipantOption, ExpenseRepaymentView } from '@/lib/expenses/contracts'
 import type { ExpenseNewMemberInput } from '@/lib/expenses/validation'
 import type { ExpenseSplitMethod } from '@/lib/expenses/types'
-import type { ExpenseDraftPayload, ExpensePrivateDraftView } from '@/lib/expenses/drafts'
+import {
+  redactExpenseDraftEventGuestLabels,
+  type ExpenseDraftPayload,
+  type ExpensePrivateDraftView,
+} from '@/lib/expenses/drafts'
 import type { RelationshipCircleOption } from '@/lib/relationships/types'
+import type { EventExpenseSourceView } from '@/lib/events/contracts'
 import {
   EXPENSE_FLOW_STEPS,
   type ExpenseFlowStep,
@@ -84,6 +89,11 @@ interface ExpenseFormProps {
   reviewHref?: string
   draft?: ExpensePrivateDraftView | null
   draftBaseHref?: string
+  /** Present only when both Events and Expenses gates are authorized. */
+  eventSources?: EventExpenseSourceView[]
+  eventSourcesError?: boolean
+  initialEventSource?: EventExpenseSourceView | null
+  eventSelectionWarning?: boolean
   /** Event rosters are candidates only; guests start unchecked and shares stay explicit. */
   eventContext?: boolean
   edit?: {
@@ -204,6 +214,10 @@ export function ExpenseForm({
   initialStep = 'details',
   draft = null,
   draftBaseHref = '',
+  eventSources,
+  eventSourcesError = false,
+  initialEventSource = null,
+  eventSelectionWarning = false,
   eventContext = false,
   edit,
 }: ExpenseFormProps) {
@@ -255,6 +269,15 @@ export function ExpenseForm({
   const [weights, setWeights] = useState<Record<string, string>>(initialDraftPayload?.weights ?? initialAllocations.weights)
   const [preserveShares, setPreserveShares] = useState(initialDraftPayload?.preserveShares ?? Boolean(edit))
   const [circleId, setCircleId] = useState(initialDraftPayload?.circleId ?? '')
+  const [eventId, setEventId] = useState(
+    initialDraftPayload ? initialDraftPayload.eventId ?? '' : initialEventSource?.id ?? '',
+  )
+  const [eventRosterRevision, setEventRosterRevision] = useState<number | null>(
+    initialDraftPayload
+      ? initialDraftPayload.eventRosterRevision
+      : initialEventSource?.rosterRevision ?? null,
+  )
+  const [eventWarningDismissed, setEventWarningDismissed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
   const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? EXPENSE_FLOW_STEPS.length - 1 : 0)
@@ -281,17 +304,27 @@ export function ExpenseForm({
     weights,
     preserveShares,
     circleId,
+    eventId,
+    eventRosterRevision,
   })
   const initialDraftFingerprint = useRef(draftFingerprint)
 
   const selectedKeys = members.filter((member) => included[member.key]).map((member) => member.key)
+  const selectedEventSource = eventSources?.find((source) => source.id === eventId) ?? null
+  const eventSourceUnavailable = (eventSelectionWarning && !eventWarningDismissed)
+    || Boolean(eventId && eventSources !== undefined && !selectedEventSource)
+  const selectedEventGuestIds = members.flatMap((member) => (
+    member.input?.type === 'event_guest' ? [member.input.event_guest_id] : []
+  ))
   useEffect(() => {
     focusStepHeading(startingStep)
   }, [startingStep])
 
   function draftPayload(): ExpenseDraftPayload {
-    return {
+    return redactExpenseDraftEventGuestLabels({
       circleId: circleId || null,
+      eventId: eventId || null,
+      eventRosterRevision: eventId ? eventRosterRevision : null,
       members: members.map((member) => ({
         key: member.key,
         label: member.label,
@@ -315,7 +348,7 @@ export function ExpenseForm({
       percentages,
       weights,
       preserveShares,
-    }
+    })
   }
 
   async function persistDraft(step: ExpenseFlowStep): Promise<boolean> {
@@ -370,7 +403,11 @@ export function ExpenseForm({
 
   function addMember(member: FormMember, includeInCost = !edit) {
     if (members.some((candidate) => candidate.key === member.key)) return
-    setMembers((current) => [...current, member])
+    setMembers((current) => (
+      current.some((candidate) => candidate.key === member.key)
+        ? current
+        : [...current, member]
+    ))
     // During an edit, a newly named guest starts as payment-only. Merely adding
     // a payer must not reconstruct the authoritative persisted shares. The
     // user can explicitly include the guest below, which then unlocks editing
@@ -379,7 +416,7 @@ export function ExpenseForm({
     setPayments((current) => ({ ...current, [member.key]: '' }))
     setWeights((current) => ({ ...current, [member.key]: '1' }))
     setAmounts((current) => ({ ...current, [member.key]: '0' }))
-    if (!edit && splitMethod === 'percentage') {
+    if (!edit && splitMethod === 'percentage' && includeInCost) {
       setPercentages(equalPercentageValues([...selectedKeys, member.key]))
     }
   }
@@ -463,8 +500,108 @@ export function ExpenseForm({
     return true
   }
 
+  function selectEventSource(source: EventExpenseSourceView) {
+    if (edit || mode !== 'one_off') return { accepted: false }
+    if (circleId) {
+      return { accepted: false, error: t('expenseForm.eventCircleConflict') }
+    }
+    if (eventId && eventId !== source.id) {
+      return { accepted: false, error: t('expenseForm.eventSwitchBlocked') }
+    }
+    if (
+      eventId === source.id
+      && eventRosterRevision !== null
+      && eventRosterRevision !== source.rosterRevision
+    ) {
+      return { accepted: false, error: t('expenseForm.eventRosterChanged') }
+    }
+    setEventId(source.id)
+    setEventRosterRevision(source.rosterRevision)
+    setEventWarningDismissed(true)
+    return { accepted: true, behavior: 'stay-open' as const }
+  }
+
+  function addEventMember(
+    source: EventExpenseSourceView,
+    guest: EventExpenseSourceView['guests'][number],
+    includeInCost: boolean,
+  ): { key: string | null; error?: string } {
+    const selection = selectEventSource(source)
+    if (!selection.accepted) return { key: null, error: selection.error }
+    if (members.some((member) => (
+      member.input?.type === 'event_guest'
+      && member.input.event_guest_id === guest.id
+    ))) return { key: null, error: t('expenseForm.eventGuestAlreadySelected') }
+    const key = `event:${guest.id}`
+    addMember({
+      key,
+      label: guest.displayName,
+      input: { type: 'event_guest', key, event_guest_id: guest.id },
+      isSelf: false,
+    }, includeInCost)
+    return { key }
+  }
+
+  function addEventParticipant(
+    source: EventExpenseSourceView,
+    guest: EventExpenseSourceView['guests'][number],
+  ) {
+    const result = addEventMember(source, guest, true)
+    return result.key
+      ? { accepted: true, behavior: 'stay-open' as const }
+      : { accepted: false, error: result.error }
+  }
+
+  function addEventPayer(
+    source: EventExpenseSourceView,
+    guest: EventExpenseSourceView['guests'][number],
+  ) {
+    const result = addEventMember(source, guest, false)
+    if (!result.key) return { accepted: false, error: result.error }
+    setPayerKeys((current) => (
+      current.includes(result.key!) ? current : [...current, result.key!]
+    ))
+    return { accepted: true, behavior: 'stay-open' as const }
+  }
+
+  function clearEventSelection() {
+    const removedKeys = new Set(members.flatMap((member) => (
+      member.input?.type === 'event_guest' ? [member.key] : []
+    )))
+    const removedIncludedMember = members.some((member) => (
+      removedKeys.has(member.key) && included[member.key] !== false
+    ))
+    const nextMembers = members.filter((member) => !removedKeys.has(member.key))
+    const nextMemberKeys = new Set(nextMembers.map((member) => member.key))
+    const nextPayers = payerKeys.filter((key) => nextMemberKeys.has(key))
+    const fallbackPayer = nextPayers.length === 0
+      ? (nextMembers.find((member) => member.isSelf) ?? nextMembers[0])
+      : null
+    const keepEntries = <T,>(record: Record<string, T>): Record<string, T> => (
+      Object.fromEntries(Object.entries(record).filter(([key]) => !removedKeys.has(key)))
+    )
+
+    setEventId('')
+    setEventRosterRevision(null)
+    setEventWarningDismissed(true)
+    setMembers(nextMembers)
+    setIncluded(keepEntries)
+    setPayments((current) => ({
+      ...keepEntries(current),
+      ...(fallbackPayer ? { [fallbackPayer.key]: total } : {}),
+    }))
+    setAmounts(keepEntries)
+    setWeights(keepEntries)
+    setPercentages((current) => (
+      splitMethod === 'percentage' && removedIncludedMember
+        ? equalPercentageValues(nextMembers.filter((member) => included[member.key] !== false).map((member) => member.key))
+        : keepEntries(current)
+    ))
+    setPayerKeys(fallbackPayer ? [fallbackPayer.key] : nextPayers)
+  }
+
   function selectCircle(nextCircleId: string) {
-    if (edit || mode !== 'one_off') return
+    if (edit || mode !== 'one_off' || eventId) return
     const previousCircleKeys = new Set(members.flatMap((member) => (
       member.input?.type === 'circle_member' ? [member.key] : []
     )))
@@ -797,6 +934,10 @@ export function ExpenseForm({
     const payload = {
       group_id: groupId ?? null,
       circle_id: mode === 'one_off' && !edit ? circleId || null : null,
+      event_id: mode === 'one_off' && !edit ? eventId || null : null,
+      expected_event_roster_revision: mode === 'one_off' && !edit && eventId
+        ? eventRosterRevision
+        : null,
       title,
       total,
       currency,
@@ -887,6 +1028,31 @@ export function ExpenseForm({
         </p>
       ) : null}
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+      {eventSourceUnavailable ? (
+        <div role="status" className="space-y-3 rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
+          <p>{t('expenseForm.eventSelectionUnavailable')}</p>
+          {eventId ? (
+            <button
+              type="button"
+              className={expenseSecondaryButtonClass}
+              disabled={navigationBusy}
+              onClick={clearEventSelection}
+            >
+              {t('expenseForm.clearEventSelection')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {mode === 'one_off' && !edit && circleId ? (
+        <button
+          type="button"
+          className={`${expenseSecondaryButtonClass} w-full`}
+          disabled={navigationBusy}
+          onClick={() => selectCircle('')}
+        >
+          {t('expenseForm.clearRelationshipCircle')}
+        </button>
+      ) : null}
 
       {currentStep === 'details' ? (
       <section className="space-y-4 border-y border-border py-5" aria-labelledby="expense-details-heading">
@@ -972,6 +1138,14 @@ export function ExpenseForm({
             })}
             onAddKnown={addKnownPayer}
             onAddManual={addManualPayer}
+            eventSources={!edit ? eventSources : undefined}
+            eventSourcesError={eventSourcesError}
+            selectedEventId={eventId || null}
+            selectedEventGuestIds={selectedEventGuestIds}
+            initialSourceId={eventId ? 'event' : undefined}
+            onSelectEvent={selectEventSource}
+            onClearEvent={clearEventSelection}
+            onAddEventGuest={addEventPayer}
           />
         ) : null}
       </fieldset>
@@ -1045,7 +1219,7 @@ export function ExpenseForm({
             <ExpenseParticipantPicker
               options={participantOptions}
               optionsError={participantOptionsError}
-              circles={!edit ? circleOptions : []}
+              circles={!edit && !eventId ? circleOptions : []}
               disabled={isPending}
               excludedRelationshipIds={members.flatMap((member) => {
                 if (member.input?.type === 'relationship') return [member.input.relationship_id]
@@ -1053,6 +1227,14 @@ export function ExpenseForm({
               })}
               onAddKnown={addKnownParticipant}
               onAddManual={addManualParticipant}
+              eventSources={!edit ? eventSources : undefined}
+              eventSourcesError={eventSourcesError}
+              selectedEventId={eventId || null}
+              selectedEventGuestIds={selectedEventGuestIds}
+              initialSourceId={eventId ? 'event' : undefined}
+              onSelectEvent={selectEventSource}
+              onClearEvent={clearEventSelection}
+              onAddEventGuest={addEventParticipant}
               onSelectCircle={!edit ? (circle) => {
                 selectCircle(circle.id)
                 return true

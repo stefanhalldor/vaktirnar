@@ -7,7 +7,15 @@ import { respondExpenseMemberInvitation } from '@/lib/expenses/actions'
 import { useExpenseTranslations } from './i18n.client'
 import { useExpenseMutationRequestIds } from './request-id'
 
-export function ExpenseMemberInvitationActions({ invitationId, expenseId }: { invitationId: string; expenseId: string }) {
+export function ExpenseMemberInvitationActions({
+  invitationId,
+  expenseId,
+  hasExpenseAccess = true,
+}: {
+  invitationId: string
+  expenseId: string
+  hasExpenseAccess?: boolean
+}) {
   const t = useExpenseTranslations()
   const router = useRouter()
   const requestIds = useExpenseMutationRequestIds()
@@ -36,9 +44,12 @@ export function ExpenseMemberInvitationActions({ invitationId, expenseId }: { in
         return
       }
       requestIds.succeeded(payload)
-      router.push(action === 'accept' && result.data.expenseId
+      const destination = action === 'accept' && result.data.expenseId && hasExpenseAccess
         ? `/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`
-        : '/auth-mvp/utlagt-og-endurgreitt')
+        : hasExpenseAccess
+          ? '/auth-mvp/utlagt-og-endurgreitt'
+          : '/auth-mvp/heim'
+      router.push(destination)
       router.refresh()
     })
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Plus, X } from 'lucide-react'
 import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
@@ -27,10 +27,59 @@ export type RelationshipPartyPickerCircle = {
   secondaryLabel?: string | null
 }
 
-export type RelationshipPartyPickerManualResult = {
+export type RelationshipPartyPickerSelectionResult = {
   accepted: boolean
   error?: string
+  behavior?: 'close' | 'stay-open'
 }
+
+export type RelationshipPartyPickerManualResult = RelationshipPartyPickerSelectionResult
+
+type RelationshipPartyPickerSourceBase = {
+  id: string
+  label: string
+  disabled?: boolean
+}
+
+export type RelationshipPartyPickerOptionsSource = RelationshipPartyPickerSourceBase & {
+  type: 'options'
+  options: RelationshipPartyPickerOption[]
+  excludedOptionIds?: string[]
+  optionsError?: boolean
+  circles?: RelationshipPartyPickerCircle[]
+  loadErrorLabel?: string
+  circleSectionLabel?: string
+  searchLabel: string
+  searchPlaceholder: string
+  filterLabel: string
+  allFilterLabel: string
+  noResultsLabel: string
+  onSelectOption: (id: string) => boolean | RelationshipPartyPickerSelectionResult
+  onSelectCircle?: (id: string) => boolean | RelationshipPartyPickerSelectionResult
+}
+
+export type RelationshipPartyPickerManualSource = RelationshipPartyPickerSourceBase & {
+  type: 'manual'
+  inputLabel: string
+  inputPlaceholder: string
+  hint: string
+  submitLabel: string
+  inputMaxLength?: number
+  onSelect: (value: string) => RelationshipPartyPickerSelectionResult
+}
+
+export type RelationshipPartyPickerCustomSource = RelationshipPartyPickerSourceBase & {
+  type: 'custom'
+  render: (controls: {
+    completeSelection: (result: RelationshipPartyPickerSelectionResult) => void
+    setError: (error: string | null) => void
+  }) => ReactNode
+}
+
+export type RelationshipPartyPickerSource =
+  | RelationshipPartyPickerOptionsSource
+  | RelationshipPartyPickerManualSource
+  | RelationshipPartyPickerCustomSource
 
 export type RelationshipPartyPickerCopy = {
   triggerLabel: string
@@ -42,6 +91,7 @@ export type RelationshipPartyPickerCopy = {
   filterLabel: string
   allFilterLabel: string
   noResultsLabel: string
+  sourceLabel?: string
   loadErrorLabel?: string
   circleSectionLabel?: string
   manual?: {
@@ -65,7 +115,7 @@ const secondaryButtonClass =
   'inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60'
 
 export function RelationshipPartyPicker({
-  options,
+  options = [],
   excludedOptionIds = [],
   optionsError = false,
   circles = [],
@@ -75,8 +125,10 @@ export function RelationshipPartyPicker({
   onSelectOption,
   onSelectManual,
   onSelectCircle,
+  sources,
+  initialSourceId,
 }: {
-  options: RelationshipPartyPickerOption[]
+  options?: RelationshipPartyPickerOption[]
   excludedOptionIds?: string[]
   optionsError?: boolean
   circles?: RelationshipPartyPickerCircle[]
@@ -85,23 +137,72 @@ export function RelationshipPartyPicker({
   manualInputMaxLength?: number
   copy: RelationshipPartyPickerCopy
   /** Returns only the stable option ID; domain adapters resolve the authoritative value. */
-  onSelectOption: (id: string) => boolean
+  onSelectOption?: (id: string) => boolean
   /** Returns only the raw input; domain adapters own parsing and payload semantics. */
   onSelectManual?: (value: string) => RelationshipPartyPickerManualResult
   /** Returns only the stable circle ID; domain adapters resolve the circle. */
   onSelectCircle?: (id: string) => boolean
+  /** Domain-neutral source configuration. Legacy known/manual props remain supported. */
+  sources?: RelationshipPartyPickerSource[]
+  initialSourceId?: string
 }) {
   const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState<'known' | 'manual'>(
-    options.length > 0 || circles.length > 0 || !onSelectManual ? 'known' : 'manual',
-  )
+  const legacyHasKnownSources = options.length > 0 || circles.length > 0
+  const configuredSources: RelationshipPartyPickerSource[] = sources ?? [
+    {
+      id: 'known',
+      label: copy.manual?.knownModeLabel ?? copy.title,
+      type: 'options',
+      options,
+      excludedOptionIds,
+      optionsError,
+      circles,
+      disabled: Boolean(onSelectManual) && !legacyHasKnownSources,
+      loadErrorLabel: copy.loadErrorLabel,
+      circleSectionLabel: copy.circleSectionLabel,
+      searchLabel: copy.searchLabel,
+      searchPlaceholder: copy.searchPlaceholder,
+      filterLabel: copy.filterLabel,
+      allFilterLabel: copy.allFilterLabel,
+      noResultsLabel: copy.noResultsLabel,
+      onSelectOption: (id) => onSelectOption?.(id) ?? false,
+      onSelectCircle,
+    },
+    ...(copy.manual && onSelectManual ? [{
+      id: 'manual',
+      label: copy.manual.manualModeLabel,
+      type: 'manual' as const,
+      inputLabel: copy.manual.inputLabel,
+      inputPlaceholder: copy.manual.inputPlaceholder,
+      hint: copy.manual.hint,
+      submitLabel: copy.manual.submitLabel,
+      inputMaxLength: manualInputMaxLength,
+      onSelect: onSelectManual,
+    }] : []),
+  ]
+  const firstEnabledSourceId = configuredSources.find((source) => !source.disabled)?.id
+    ?? configuredSources[0]?.id
+    ?? ''
+  const requestedInitialSourceId = configuredSources.some((source) => (
+    source.id === initialSourceId && !source.disabled
+  )) ? initialSourceId! : firstEnabledSourceId
+  const [sourceId, setSourceId] = useState(requestedInitialSourceId)
   const [search, setSearch] = useState('')
   const [labelId, setLabelId] = useState<string | null>(null)
   const [manualValue, setManualValue] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const excluded = useMemo(() => new Set(excludedOptionIds), [excludedOptionIds])
-  const availableOptions = options.filter((option) => !excluded.has(option.id))
-  const hasKnownSources = availableOptions.length > 0 || (circles.length > 0 && Boolean(onSelectCircle))
+  const activeSource = configuredSources.find((source) => source.id === sourceId)
+    ?? configuredSources.find((source) => !source.disabled)
+    ?? configuredSources[0]
+  const activeOptionsSource = activeSource?.type === 'options' ? activeSource : null
+  const activeManualSource = activeSource?.type === 'manual' ? activeSource : null
+  const visibleOptionsError = Boolean(activeOptionsSource?.optionsError)
+    || (sources === undefined && optionsError)
+  const visibleOptionsErrorLabel = activeOptionsSource?.loadErrorLabel ?? copy.loadErrorLabel
+  const activeOptions = activeOptionsSource?.options ?? []
+  const activeExcludedIds = activeOptionsSource?.excludedOptionIds ?? []
+  const excluded = useMemo(() => new Set(activeExcludedIds), [activeExcludedIds])
+  const availableOptions = activeOptions.filter((option) => !excluded.has(option.id))
   const labels = Array.from(new Map(
     availableOptions
       .flatMap((option) => option.customLabels ?? [])
@@ -126,24 +227,36 @@ export function RelationshipPartyPicker({
     setError(null)
   }
 
-  function closeAfterSuccess(accepted: boolean) {
-    if (!accepted) return
+  function completeSelection(result: boolean | RelationshipPartyPickerSelectionResult) {
+    const normalized = typeof result === 'boolean' ? { accepted: result } : result
+    if (!normalized.accepted) {
+      setError(normalized.error ?? null)
+      return
+    }
+    setError(null)
+    if (normalized.behavior === 'stay-open') return
     reset()
     setOpen(false)
   }
 
   function selectManual() {
-    if (!onSelectManual) return
-    const result = onSelectManual(manualValue)
-    if (!result.accepted) {
-      setError(result.error ?? null)
-      return
-    }
-    closeAfterSuccess(true)
+    if (!activeManualSource) return
+    completeSelection(activeManualSource.onSelect(manualValue))
+  }
+
+  function changeSource(nextSourceId: string) {
+    const nextSource = configuredSources.find((source) => source.id === nextSourceId)
+    if (!nextSource || nextSource.disabled) return
+    setSourceId(nextSourceId)
+    reset()
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => { setOpen(next); if (!next) reset() }}>
+    <Dialog.Root open={open} onOpenChange={(next) => {
+      setOpen(next)
+      if (next) setSourceId(requestedInitialSourceId)
+      else reset()
+    }}>
       <Dialog.Trigger asChild>
         <TeskeidActionButton type="button" variant="secondary" className="w-full" disabled={disabled}>
           <Plus aria-hidden size={18} />
@@ -169,28 +282,39 @@ export function RelationshipPartyPicker({
             </Dialog.Close>
           </div>
 
-          {copy.manual && onSelectManual ? (
-            <div className="mt-5 grid grid-cols-2 gap-2" role="group" aria-label={copy.manual.sourceLabel}>
-              <button type="button" className={mode === 'known' ? primaryButtonClass : secondaryButtonClass} disabled={!hasKnownSources} onClick={() => { setMode('known'); setError(null) }}>
-                {copy.manual.knownModeLabel}
-              </button>
-              <button type="button" className={mode === 'manual' ? primaryButtonClass : secondaryButtonClass} onClick={() => { setMode('manual'); setError(null) }}>
-                {copy.manual.manualModeLabel}
-              </button>
+          {configuredSources.length > 1 ? (
+            <div
+              className="mt-5 grid gap-2"
+              style={{ gridTemplateColumns: `repeat(${configuredSources.length}, minmax(0, 1fr))` }}
+              role="group"
+              aria-label={copy.sourceLabel ?? copy.manual?.sourceLabel ?? copy.title}
+            >
+              {configuredSources.map((source) => (
+                <button
+                  key={source.id}
+                  type="button"
+                  className={`${activeSource?.id === source.id ? primaryButtonClass : secondaryButtonClass} min-w-0 whitespace-normal px-2 leading-tight`}
+                  disabled={source.disabled}
+                  aria-pressed={activeSource?.id === source.id}
+                  onClick={() => changeSource(source.id)}
+                >
+                  {source.label}
+                </button>
+              ))}
             </div>
           ) : null}
 
-          {optionsError && copy.loadErrorLabel ? <p className="mt-4 text-sm text-amber-800">{copy.loadErrorLabel}</p> : null}
+          {visibleOptionsError && visibleOptionsErrorLabel ? <p className="mt-4 text-sm text-amber-800">{visibleOptionsErrorLabel}</p> : null}
           {error ? <p role="alert" className="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
 
-          {mode === 'known' ? (
+          {activeOptionsSource ? (
             <div className="mt-5 space-y-4">
-              {circles.length > 0 && onSelectCircle && copy.circleSectionLabel ? (
+              {(activeOptionsSource.circles?.length ?? 0) > 0 && activeOptionsSource.onSelectCircle && activeOptionsSource.circleSectionLabel ? (
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">{copy.circleSectionLabel}</p>
+                  <p className="text-sm font-medium">{activeOptionsSource.circleSectionLabel}</p>
                   <div className="grid gap-2">
-                    {circles.map((circle) => (
-                      <button key={circle.id} type="button" className="min-h-12 rounded-xl border border-border px-3 py-2 text-left hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => closeAfterSuccess(onSelectCircle(circle.id))}>
+                    {activeOptionsSource.circles?.map((circle) => (
+                      <button key={circle.id} type="button" className="min-h-12 rounded-xl border border-border px-3 py-2 text-left hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => completeSelection(activeOptionsSource.onSelectCircle!(circle.id))}>
                         <span className="block font-medium">{circle.primaryLabel}</span>
                         {circle.secondaryLabel ? <span className="block text-xs text-muted-foreground">{circle.secondaryLabel}</span> : null}
                       </button>
@@ -199,16 +323,16 @@ export function RelationshipPartyPicker({
                 </div>
               ) : null}
               <label className="block">
-                <span className="mb-1 block text-sm font-medium">{copy.searchLabel}</span>
-                <input className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={copy.searchPlaceholder} />
+                <span className="mb-1 block text-sm font-medium">{activeOptionsSource.searchLabel}</span>
+                <input className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={activeOptionsSource.searchPlaceholder} />
               </label>
-              {labels.length > 0 ? <div className="flex flex-wrap gap-2" aria-label={copy.filterLabel}>
-                <button type="button" className={`min-h-10 rounded-full border px-3 text-sm ${labelId === null ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setLabelId(null)}>{copy.allFilterLabel}</button>
+              {labels.length > 0 ? <div className="flex flex-wrap gap-2" aria-label={activeOptionsSource.filterLabel}>
+                <button type="button" className={`min-h-10 rounded-full border px-3 text-sm ${labelId === null ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setLabelId(null)}>{activeOptionsSource.allFilterLabel}</button>
                 {labels.map((label) => <button key={label.id} type="button" className={`min-h-10 rounded-full border px-3 text-sm ${labelId === label.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setLabelId(label.id)}>{label.name}</button>)}
               </div> : null}
               <div className="max-h-[40dvh] divide-y divide-border overflow-y-auto border-y border-border">
                 {filteredOptions.map((option) => (
-                  <button key={option.id} type="button" className="flex min-h-14 w-full items-center justify-between gap-3 px-1 py-3 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onClick={() => closeAfterSuccess(onSelectOption(option.id))}>
+                  <button key={option.id} type="button" className="flex min-h-14 w-full items-center justify-between gap-3 px-1 py-3 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onClick={() => completeSelection(activeOptionsSource.onSelectOption(option.id))}>
                     <span className="min-w-0">
                       <span className="block truncate font-medium">{option.primaryLabel}</span>
                       {option.secondaryLabel ? <span className="mt-0.5 block break-all text-xs text-muted-foreground">{option.secondaryLabel}</span> : null}
@@ -218,19 +342,23 @@ export function RelationshipPartyPicker({
                     <Plus aria-hidden size={18} className="shrink-0 text-primary" />
                   </button>
                 ))}
-                {filteredOptions.length === 0 ? <p className="py-4 text-sm text-muted-foreground">{copy.noResultsLabel}</p> : null}
+                {filteredOptions.length === 0 ? <p className="py-4 text-sm text-muted-foreground">{activeOptionsSource.noResultsLabel}</p> : null}
               </div>
             </div>
-          ) : copy.manual && onSelectManual ? (
+          ) : activeManualSource ? (
             <div className="mt-5 space-y-4">
               <label className="block">
-                <span className="mb-1 block text-sm font-medium">{copy.manual.inputLabel}</span>
-                <input className={inputClass} value={manualValue} onChange={(event) => { setManualValue(event.target.value); setError(null) }} maxLength={manualInputMaxLength} autoComplete="off" placeholder={copy.manual.inputPlaceholder} />
+                <span className="mb-1 block text-sm font-medium">{activeManualSource.inputLabel}</span>
+                <input className={inputClass} value={manualValue} onChange={(event) => { setManualValue(event.target.value); setError(null) }} maxLength={activeManualSource.inputMaxLength ?? 320} autoComplete="off" placeholder={activeManualSource.inputPlaceholder} />
               </label>
-              <p className="text-xs leading-5 text-muted-foreground">{copy.manual.hint}</p>
+              <p className="text-xs leading-5 text-muted-foreground">{activeManualSource.hint}</p>
               <button type="button" className={`${primaryButtonClass} w-full`} disabled={!manualValue.trim()} onClick={selectManual}>
-                {copy.manual.submitLabel}
+                {activeManualSource.submitLabel}
               </button>
+            </div>
+          ) : activeSource?.type === 'custom' ? (
+            <div className="mt-5">
+              {activeSource.render({ completeSelection, setError })}
             </div>
           ) : null}
         </Dialog.Content>

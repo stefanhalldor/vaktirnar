@@ -918,10 +918,9 @@ describe('middleware — advertiser authoring boundary', () => {
   })
 })
 
-describe('middleware — events composite global switches and auth boundary', () => {
+describe('middleware — independent events global switch and auth boundary', () => {
   const originalAuth = process.env.AUTH_MVP_ENABLED
   const originalEvents = process.env.EVENTS_ENABLED
-  const originalExpenses = process.env.EXPENSES_ENABLED
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -932,17 +931,10 @@ describe('middleware — events composite global switches and auth boundary', ()
   afterEach(() => {
     setEnv('AUTH_MVP_ENABLED', originalAuth)
     setEnv('EVENTS_ENABLED', originalEvents)
-    setEnv('EXPENSES_ENABLED', originalExpenses)
   })
 
-  it.each([
-    [undefined, 'true'],
-    ['false', 'true'],
-    ['true', undefined],
-    ['true', 'false'],
-  ])('fails closed before auth when EVENTS_ENABLED=%s and EXPENSES_ENABLED=%s', async (events, expenses) => {
+  it.each([undefined, 'false', 'TRUE'])('fails closed before auth when EVENTS_ENABLED=%s', async (events) => {
     setEnv('EVENTS_ENABLED', events)
-    setEnv('EXPENSES_ENABLED', expenses)
     const response = await middleware(makeReq('/auth-mvp/vidburdir/event-id'))
     expect(redirectedTo(response)).toBe('/')
     expect(mockGetUser).not.toHaveBeenCalled()
@@ -950,7 +942,7 @@ describe('middleware — events composite global switches and auth boundary', ()
 
   it('preserves an enabled deep-link for sign-in and lets authenticated requests reach server guards', async () => {
     process.env.EVENTS_ENABLED = 'true'
-    process.env.EXPENSES_ENABLED = 'true'
+    delete process.env.EXPENSES_ENABLED
     const signedOut = await middleware(makeReq('/auth-mvp/vidburdir/event-id'))
     const location = new URL(signedOut.headers.get('location')!)
     expect(location.pathname).toBe('/innskraning')
@@ -962,7 +954,6 @@ describe('middleware — events composite global switches and auth boundary', ()
 
   it('uses segment-safe matching for similarly named siblings', async () => {
     delete process.env.EVENTS_ENABLED
-    delete process.env.EXPENSES_ENABLED
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
     expect((await middleware(makeReq('/auth-mvp/vidburdir-archive'))).status).toBe(200)
   })

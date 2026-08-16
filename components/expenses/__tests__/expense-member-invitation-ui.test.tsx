@@ -261,4 +261,23 @@ describe('ExpenseMemberInvitationActions explicit consent', () => {
     expect(mockPush).not.toHaveBeenCalled()
     expect(mockRefresh).not.toHaveBeenCalled()
   })
+
+  it('returns an unentitled recipient to Home after consent instead of a guarded detail', async () => {
+    render(
+      <ExpenseMemberInvitationActions
+        invitationId={INVITATION_ID}
+        expenseId={EXPENSE_ID}
+        hasExpenseAccess={false}
+      />,
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Þekki málið' }))
+    })
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth-mvp/heim'))
+    expect(mockPush).not.toHaveBeenCalledWith(
+      `/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}`,
+    )
+  })
 })

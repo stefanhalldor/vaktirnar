@@ -38,9 +38,7 @@ export function EventList({ events }: { events: EventSummary[] }) {
                 <span className="min-w-0 flex-1">
                   <span className="block break-words text-sm font-medium">{event.name}</span>
                   <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                    {t('list.participantCount', { count: event.participantCount })}
-                    {' · '}
-                    {t('list.expenseCount', { count: event.expenseCount })}
+                    {t('list.participantCount', { count: event.guestCount })}
                   </span>
                   <span className="block text-xs leading-5 text-muted-foreground">
                     {t('list.createdAt', { date: formatDateTime(event.createdAt, locale) })}

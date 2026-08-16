@@ -2,7 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import { EventCreateForm } from '@/components/events/EventCreateForm'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
-import { guardEventAccess } from '@/lib/events/guard'
+import { canUseEventExpenses, guardEventAccess } from '@/lib/events/guard'
 import { EventShell } from '../EventShell'
 
 export default async function NewEventPage() {
@@ -10,6 +10,7 @@ export default async function NewEventPage() {
     guardEventAccess(),
     getTranslations('teskeid.events'),
   ])
+  const canUseExpenses = await canUseEventExpenses(user)
   let options: ExpenseParticipantOption[] = []
   let optionsError = false
   try {
@@ -24,7 +25,11 @@ export default async function NewEventPage() {
       backHref="/auth-mvp/vidburdir"
       backLabel={t('backToList')}
     >
-      <EventCreateForm options={options} optionsError={optionsError} />
+      <EventCreateForm
+        options={options}
+        optionsError={optionsError}
+        canUseExpenses={canUseExpenses}
+      />
     </EventShell>
   )
 }

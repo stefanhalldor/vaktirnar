@@ -252,13 +252,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
-  // The owner-private Events MVP has its own fail-closed global switch and is
-  // also expense-backed. Server guards repeat both per-user entitlements.
+  // The owner-private Events roster has its own fail-closed global switch.
+  // Financial integrations enforce the separate Expenses chain server-side.
   const isEventsPath = pathname === '/auth-mvp/vidburdir'
     || pathname.startsWith('/auth-mvp/vidburdir/')
   if (
     isEventsPath
-    && (process.env.EVENTS_ENABLED !== 'true' || process.env.EXPENSES_ENABLED !== 'true')
+    && process.env.EVENTS_ENABLED !== 'true'
   ) {
     return NextResponse.redirect(new URL('/', request.url))
   }

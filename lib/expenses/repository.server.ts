@@ -66,6 +66,7 @@ import type { ExpenseActivityEventType } from './events'
 import {
   ExpenseDraftPayloadSchema,
   getExpenseDraftAttention,
+  redactExpenseDraftEventGuestLabels,
   type ExpensePrivateDraftView,
 } from './drafts'
 
@@ -1655,7 +1656,7 @@ export async function getExpensePrivateDraft(
     groupId: typeof row.group_id === 'string' ? row.group_id : null,
     expenseId: typeof row.expense_id === 'string' ? row.expense_id : null,
     currentStep,
-    payload: payload.data,
+    payload: redactExpenseDraftEventGuestLabels(payload.data),
     version,
     savedAt: String(row.saved_at),
   }

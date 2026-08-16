@@ -46,6 +46,17 @@ const translations: Record<string, string> = {
   'expenseForm.closeParticipantPicker': 'Loka',
   'expenseForm.participantSource': 'Leið',
   'expenseForm.knownParticipant': 'Þekktur aðili',
+  'expenseForm.eventParticipantSource': 'Úr viðburði',
+  'expenseForm.eventSearchLabel': 'Leita að viðburði',
+  'expenseForm.eventSearchPlaceholder': 'Heiti viðburðar',
+  'expenseForm.noEventResults': 'Enginn viðburður fannst.',
+  'expenseForm.selectedEvent': 'Valinn viðburður',
+  'expenseForm.clearEventSelection': 'Hreinsa viðburðarval',
+  'expenseForm.changeEvent': 'Breyta viðburði',
+  'expenseForm.eventGuestSearchLabel': 'Leita að gesti',
+  'expenseForm.eventGuestSearchPlaceholder': 'Nafn gests',
+  'expenseForm.noEventGuestResults': 'Enginn gestur fannst.',
+  'expenseForm.clearRelationshipCircle': 'Hreinsa tengslahring',
   'expenseForm.nameOrEmail': 'Nafn eða netfang',
   'expenseForm.nameOrEmailPlaceholder': 'Nafn eða netfang',
   'expenseForm.nameOrEmailHint': 'Netfang sendir boð.',
@@ -72,6 +83,7 @@ const translations: Record<string, string> = {
   'errors.detailsRequired': 'Fylltu út upplýsingar.', 'errors.participant_required': 'Bættu við aðila.',
   'errors.paymentTotal': 'Greiðslur stemma ekki.', 'errors.splitTotal': 'Skipting stemmir ekki.',
   'errors.invalid_input': 'Ógilt.', 'errors.draftSaveFailed': 'Vistun mistókst.',
+  'errors.event_roster_changed': 'Gestalistinn hefur breyst. Hreinsaðu viðburðarvalið og veldu aftur.',
   'errors.save_failed': 'Ekki tókst að vista.',
 }
 
@@ -142,6 +154,180 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('member-self')
   })
 
+  it('adds an event guest as a payer without changing shares or exposing its label in the draft payload', async () => {
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      initialStep: 'split',
+      initialMembers: [{
+        key: 'self',
+        label: 'Ég',
+        input: { type: 'self', key: 'self' },
+        isSelf: true,
+      }],
+      eventSources: [{
+        id: '72000000-0000-4000-8000-000000000001',
+        name: 'Helgarferð',
+        rosterRevision: 3,
+        guests: [{
+          id: '72000000-0000-4000-8000-000000000002',
+          displayName: 'Anna',
+          sourceKind: 'manual_name',
+        }],
+      }],
+    })
+
+    const split = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })
+    fireEvent.click(within(split).getByRole('radio', { name: 'Prósenta' }))
+    expect(within(split).getByRole('textbox', { name: 'Prósenta' })).toHaveValue('100')
+
+    const payers = screen.getByRole('group', { name: 'Hver borgaði?' })
+    fireEvent.click(within(payers).getByRole('button', { name: 'Fleiri' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Úr viðburði' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Helgarferð' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Anna' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Loka' }))
+
+    expect(screen.getByRole('combobox', { name: 'Greiðandi 2' })).toHaveValue(
+      'event:72000000-0000-4000-8000-000000000002',
+    )
+    expect(screen.getByRole('checkbox', { name: 'Anna' })).not.toBeChecked()
+    expect(within(split).getAllByRole('textbox', { name: 'Prósenta' })).toHaveLength(1)
+    expect(within(split).getByRole('textbox', { name: 'Prósenta' })).toHaveValue('100')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Til baka' }))
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalled())
+    const savedMembers = mocks.saveDraft.mock.calls.at(-1)?.[0]?.payload.members
+    expect(savedMembers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: 'event:72000000-0000-4000-8000-000000000002',
+        label: 'Event participant',
+        input: expect.objectContaining({
+          type: 'event_guest',
+          event_guest_id: '72000000-0000-4000-8000-000000000002',
+        }),
+      }),
+    ]))
+    expect(JSON.stringify(savedMembers)).not.toContain('Anna')
+  })
+
+  it('keeps entered fields and opaque provenance when a stale event roster rejects submit', async () => {
+    const staleEventId = '73000000-0000-4000-8000-000000000001'
+    const staleGuestId = '73000000-0000-4000-8000-000000000002'
+    mocks.create.mockResolvedValueOnce({ ok: false, error: 'event_roster_changed' })
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      draft: {
+        id: '73000000-0000-4000-8000-000000000003',
+        contextType: 'one_off',
+        groupId: null,
+        expenseId: null,
+        currentStep: 'split',
+        payload: {
+          circleId: null,
+          eventId: staleEventId,
+          eventRosterRevision: 4,
+          members: [
+            { key: 'self', label: 'Ég', input: { type: 'self', key: 'self' }, isSelf: true },
+            {
+              key: `event:${staleGuestId}`,
+              label: 'Gestur úr viðburði',
+              input: { type: 'event_guest', key: `event:${staleGuestId}`, event_guest_id: staleGuestId },
+              isSelf: false,
+            },
+          ],
+          removedMemberIds: [],
+          included: { self: true, [`event:${staleGuestId}`]: true },
+          title: 'Kvöldmatur',
+          total: '10000',
+          currency: 'ISK',
+          incurredOn: '2026-08-05',
+          category: '',
+          note: 'Má ekki tapast',
+          splitMethod: 'weighted',
+          payments: { self: '10000', [`event:${staleGuestId}`]: '' },
+          payerKeys: ['self'],
+          amounts: { self: '0', [`event:${staleGuestId}`]: '0' },
+          percentages: { self: '50', [`event:${staleGuestId}`]: '50' },
+          weights: { self: '1', [`event:${staleGuestId}`]: '1' },
+          preserveShares: false,
+        },
+        version: 1,
+        savedAt: '2026-08-16T10:00:00.000Z',
+      },
+      eventSources: [{
+        id: staleEventId,
+        name: 'Helgarferð',
+        rosterRevision: 5,
+        guests: [],
+      }],
+      eventSelectionWarning: true,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Gestalistinn hefur breyst')
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      event_id: staleEventId,
+      expected_event_roster_revision: 4,
+      title: 'Kvöldmatur',
+      note: 'Má ekki tapast',
+      members: expect.arrayContaining([
+        expect.objectContaining({ type: 'event_guest', event_guest_id: staleGuestId }),
+      ]),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Til baka' }))
+    expect(await screen.findByRole('textbox', { name: 'Heiti útgjalds' })).toHaveValue('Kvöldmatur')
+    expect(screen.getByRole('textbox', { name: /Lýsing/ })).toHaveValue('Má ekki tapast')
+  })
+
+  it('preserves custom percentages when clearing a payer-only event guest', () => {
+    const event = {
+      id: '74000000-0000-4000-8000-000000000001',
+      name: 'Helgarferð',
+      rosterRevision: 2,
+      guests: [{
+        id: '74000000-0000-4000-8000-000000000002',
+        displayName: 'Bjarni',
+        sourceKind: 'manual_name' as const,
+      }],
+    }
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      initialStep: 'split',
+      initialMembers: [
+        { key: 'self', label: 'Ég', input: { type: 'self', key: 'self' }, isSelf: true },
+        { key: 'anna', label: 'Anna', input: { type: 'guest', key: 'anna', display_name: 'Anna' }, isSelf: false },
+      ],
+      eventSources: [event],
+    })
+
+    const split = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })
+    fireEvent.click(within(split).getByRole('radio', { name: 'Prósenta' }))
+    const initialPercentages = within(split).getAllByRole('textbox', { name: 'Prósenta' })
+    fireEvent.change(initialPercentages[0]!, { target: { value: '70' } })
+    fireEvent.change(initialPercentages[1]!, { target: { value: '30' } })
+
+    const payers = screen.getByRole('group', { name: 'Hver borgaði?' })
+    fireEvent.click(within(payers).getByRole('button', { name: 'Fleiri' }))
+    fireEvent.click(within(payers).getByRole('button', { name: 'Fleiri' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Úr viðburði' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Helgarferð' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Bjarni' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Loka' }))
+    expect(screen.getByRole('checkbox', { name: 'Bjarni' })).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við þátttakanda' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Hreinsa viðburðarval' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Loka' }))
+    expect(screen.queryByRole('checkbox', { name: 'Bjarni' })).not.toBeInTheDocument()
+    const retainedPercentages = within(split).getAllByRole('textbox', { name: 'Prósenta' })
+    expect(retainedPercentages[0]).toHaveValue('70')
+    expect(retainedPercentages[1]).toHaveValue('30')
+  })
+
   it('shows only fixed amount, percentage and shares, with shares selected by default', async () => {
     renderForm({ initialStep: 'split' })
     const group = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })
@@ -161,6 +347,106 @@ describe('ExpenseForm simplified split and autosave', () => {
     }))
     expect(mocks.replace).toHaveBeenCalledWith(expect.stringMatching(/^\/draft\?draft=/))
     expect(screen.queryByText('Breytingar vistaðar')).not.toBeInTheDocument()
+  })
+
+  it('pins a fresh event in the private draft without auto-selecting roster guests', async () => {
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      initialMembers: [{
+        key: 'self',
+        label: 'Ég',
+        input: { type: 'self', key: 'self' },
+        isSelf: true,
+      }],
+      eventSources: [{
+        id: '70000000-0000-4000-8000-000000000001',
+        name: 'Helgarferð',
+        rosterRevision: 4,
+        guests: [{
+          id: '70000000-0000-4000-8000-000000000002',
+          displayName: 'Anna',
+          sourceKind: 'manual_name',
+        }],
+      }],
+      initialEventSource: {
+        id: '70000000-0000-4000-8000-000000000001',
+        name: 'Helgarferð',
+        rosterRevision: 4,
+        guests: [{
+          id: '70000000-0000-4000-8000-000000000002',
+          displayName: 'Anna',
+          sourceKind: 'manual_name',
+        }],
+      },
+    })
+    fillDetails()
+    await next('Áfram í skiptingu')
+
+    expect(mocks.saveDraft).toHaveBeenLastCalledWith(expect.objectContaining({
+      context_type: 'one_off',
+      group_id: null,
+      payload: expect.objectContaining({
+        eventId: '70000000-0000-4000-8000-000000000001',
+        eventRosterRevision: 4,
+        members: [expect.objectContaining({ key: 'self' })],
+      }),
+    }))
+    expect(screen.queryByRole('checkbox', { name: 'Anna' })).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('self')
+  })
+
+  it('explicitly clears a relationship circle before the event source is selected', () => {
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      initialStep: 'split',
+      initialMembers: [
+        {
+          key: 'self',
+          label: 'Ég',
+          input: { type: 'self', key: 'self' },
+          isSelf: true,
+        },
+        {
+          key: 'guest:bjarni',
+          label: 'Bjarni',
+          input: { type: 'guest', key: 'guest:bjarni', display_name: 'Bjarni' },
+          isSelf: false,
+        },
+      ],
+      circleOptions: [{
+        id: '71000000-0000-4000-8000-000000000001',
+        name: 'Fjölskyldan',
+        members: [{
+          circleMemberId: '71000000-0000-4000-8000-000000000002',
+          displayName: 'Anna',
+          isSelf: false,
+        }],
+      }],
+      eventSources: [{
+        id: '71000000-0000-4000-8000-000000000003',
+        name: 'Helgarferð',
+        rosterRevision: 2,
+        guests: [],
+      }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við þátttakanda' }))
+    fireEvent.click(screen.getByRole('button', { name: /Fjölskyldan/ }))
+
+    expect(screen.getByRole('button', { name: 'Hreinsa tengslahring' })).toHaveClass('min-h-11')
+    expect(screen.getByRole('checkbox', { name: 'Anna' })).toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: 'Hreinsa tengslahring' }))
+
+    expect(screen.queryByRole('button', { name: 'Hreinsa tengslahring' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Anna' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Bjarni' })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við þátttakanda' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Úr viðburði' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Helgarferð' }))
+    expect(screen.getByText('Valinn viðburður')).toBeInTheDocument()
   })
 
   it('shows localized thousands separators and keeps category hidden in the UI', () => {

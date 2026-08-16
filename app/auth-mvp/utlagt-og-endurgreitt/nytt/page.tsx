@@ -5,41 +5,75 @@ import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { getExpenseActorDisplayName, getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { parseExpenseDraftId } from '@/lib/expenses/flow'
+import { hydrateExpenseDraftEventGuestLabels } from '@/lib/expenses/drafts'
 import { getExpensePrivateDraft } from '@/lib/expenses/repository.server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getRelationshipCircleOptions } from '@/lib/relationships/repository-v2.server'
-import { ExpenseEventContextChooser } from '@/components/events/ExpenseEventContextChooser'
-import { listEvents } from '@/lib/events/repository.server'
+import { canUseEventExpenses } from '@/lib/events/guard'
+import {
+  getOwnedEventExpenseSource,
+  listEventExpenseSources,
+} from '@/lib/events/repository.server'
+import type { EventExpenseSourceView } from '@/lib/events/contracts'
+import { eventExpensePath } from '@/lib/events/contracts'
 
-export default async function NewOneOffExpensePage({ searchParams }: { searchParams: Promise<{ draft?: string | string[]; context?: string | string[] }> }) {
+export default async function NewOneOffExpensePage({ searchParams }: {
+  searchParams: Promise<{ draft?: string | string[]; event?: string | string[] }>
+}) {
   const [{ user }, t, query] = await Promise.all([guardExpenseAccess(), getExpenseTranslations(), searchParams])
   const draftId = parseExpenseDraftId(query.draft)
   const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
   const safeDraft = draft?.contextType === 'one_off' ? draft : null
+  const requestedEventId = typeof query.event === 'string' ? query.event : null
+  const draftEventId = safeDraft?.payload.eventId ?? null
 
-  // The chooser is a pre-form boundary: a fresh expense does not mount a form
-  // or create a draft until the user explicitly commits to standalone/event.
-  if (!safeDraft && query.context !== 'standalone') {
-    const canUseEvents = await checkFeatureAccess(
-      user.id,
-      user.email ?? '',
-      'afmaeli-og-vidburdir',
-    )
-    if (canUseEvents) {
-      let events: Awaited<ReturnType<typeof listEvents>> = []
-      let eventsError = false
-      try {
-        events = await listEvents(user.id)
-      } catch {
-        eventsError = true
+  const canUseEvents = await canUseEventExpenses(user)
+  let eventSources: EventExpenseSourceView[] | undefined
+  let exactEventSource: EventExpenseSourceView | null = null
+  let eventSourcesError = false
+  if (canUseEvents) {
+    try {
+      eventSources = await listEventExpenseSources(user.id)
+    } catch {
+      eventSources = []
+      eventSourcesError = true
+    }
+    const exactEventId = draftEventId ?? (!safeDraft ? requestedEventId : null)
+    if (exactEventId) {
+      exactEventSource = eventSources.find((event) => event.id === exactEventId) ?? null
+      if (!exactEventSource) {
+        try {
+          exactEventSource = await getOwnedEventExpenseSource(user.id, exactEventId)
+        } catch {
+          eventSourcesError = true
+        }
       }
-      return (
-        <ExpenseShell title={t('expenseForm.oneOffTitle')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
-          <ExpenseEventContextChooser events={events} eventsError={eventsError} />
-        </ExpenseShell>
-      )
+      if (exactEventSource && !eventSources.some((event) => event.id === exactEventSource?.id)) {
+        eventSources = [exactEventSource, ...eventSources]
+      }
     }
   }
+
+  const initialEventSource = !safeDraft && requestedEventId
+    ? exactEventSource
+    : null
+  const draftEventSource = draftEventId
+    ? exactEventSource
+    : null
+  const eventSelectionWarning = safeDraft
+    ? Boolean(draftEventId && (
+      !draftEventSource
+      || draftEventSource.rosterRevision !== safeDraft.payload.eventRosterRevision
+    ))
+    : query.event !== undefined && !initialEventSource
+  const displayDraft = safeDraft ? {
+    ...safeDraft,
+    payload: hydrateExpenseDraftEventGuestLabels(
+      safeDraft.payload,
+      draftEventSource,
+      t('expenseForm.eventGuestUnavailableLabel'),
+    ),
+  } : null
 
   const actorName = await getExpenseActorDisplayName(user.id)
   let options: ExpenseParticipantOption[] = []
@@ -57,8 +91,14 @@ export default async function NewOneOffExpensePage({ searchParams }: { searchPar
         participantOptions={options}
         participantOptionsError={optionsError}
         circleOptions={circleOptions}
-        draft={safeDraft}
-        draftBaseHref="/auth-mvp/utlagt-og-endurgreitt/nytt"
+        draft={displayDraft}
+        draftBaseHref={initialEventSource
+          ? eventExpensePath(initialEventSource.id)
+          : '/auth-mvp/utlagt-og-endurgreitt/nytt'}
+        eventSources={eventSources}
+        eventSourcesError={eventSourcesError}
+        initialEventSource={initialEventSource}
+        eventSelectionWarning={eventSelectionWarning}
       />
     </ExpenseShell>
   )

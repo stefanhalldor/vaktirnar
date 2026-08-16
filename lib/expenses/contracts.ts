@@ -20,6 +20,7 @@ export type ExpenseActionErrorCode =
   | 'not_allowed'
   | 'not_found'
   | 'conflict'
+  | 'event_roster_changed'
   | 'feature_disabled'
   | 'recipient_unavailable'
   | 'delivery_failed'
