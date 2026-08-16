@@ -1,9 +1,14 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
-import { Mail, RotateCcw, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { IdentityInvitationEmailForm } from '@/components/teskeid/IdentityInvitationEmailForm'
+import {
+  IdentityLinkInvitationControl,
+  type IdentityLinkInvitationCancelResult,
+  type IdentityLinkInvitationDeliveryResult,
+  type IdentityLinkInvitationFeedback,
+} from '@/components/teskeid/IdentityLinkInvitationControl'
 import {
   addExpenseGroupMember,
   cancelExpenseMemberInvitation,
@@ -18,10 +23,7 @@ import {
   type ManualExpenseParticipant,
 } from './ExpenseParticipantPicker'
 import { useExpenseMutationRequestIds } from './request-id'
-import {
-  expenseDangerButtonClass,
-  expenseSecondaryButtonClass,
-} from './ui'
+import { expenseDangerButtonClass } from './ui'
 
 export function ExpenseMemberManager({
   groupId,
@@ -42,8 +44,8 @@ export function ExpenseMemberManager({
   const router = useRouter()
   const requestIds = useExpenseMutationRequestIds()
   const alertRef = useRef<HTMLParagraphElement>(null)
-  const [linkingMemberId, setLinkingMemberId] = useState<string | null>(null)
-  const [recipientEmail, setRecipientEmail] = useState('')
+  const [activeLinkMemberId, setActiveLinkMemberId] = useState<string | null>(null)
+  const [identityPending, setIdentityPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pendingKey, setPendingKey] = useState<string | null>(null)
@@ -54,79 +56,54 @@ export function ExpenseMemberManager({
     queueMicrotask(() => alertRef.current?.focus())
   }
 
-  function invite(member: ExpenseMemberView) {
+  function handleIdentityFeedback(feedback: IdentityLinkInvitationFeedback | null) {
+    setError(feedback?.kind === 'error' ? feedback.message : null)
+    setNotice(feedback?.kind === 'status' ? feedback.message : null)
+    if (feedback?.kind === 'error') {
+      queueMicrotask(() => alertRef.current?.focus())
+    }
+  }
+
+  async function invite(
+    member: ExpenseMemberView,
+    recipientEmail: string,
+  ): Promise<IdentityLinkInvitationDeliveryResult> {
     const payload = {
       group_id: groupId,
       member_id: member.id,
       recipient_email: recipientEmail.trim(),
     }
-    setError(null)
-    setNotice(null)
-    setPendingKey(`invite:${member.id}`)
-    startTransition(async () => {
-      const result = await linkExpenseGuestMember({
-        ...payload,
-        request_id: requestIds.forPayload(payload),
-      })
-      if (!result.ok) {
-        showError(result.error)
-        setPendingKey(null)
-        return
-      }
-      requestIds.succeeded(payload)
-      setNotice(t(
-        result.data.delivery === 'sent' || result.data.delivery === 'already_sent'
-          ? 'expenseForm.memberInvitationSent'
-          : 'expenseForm.memberInvitationSavedDeliveryIssue',
-      ))
-      setLinkingMemberId(null)
-      setRecipientEmail('')
-      setPendingKey(null)
-      router.refresh()
+    const result = await linkExpenseGuestMember({
+      ...payload,
+      request_id: requestIds.forPayload(payload),
     })
+    if (!result.ok) {
+      return { ok: false, safeErrorMessage: t(`errors.${result.error}`) }
+    }
+    requestIds.succeeded(payload)
+    return { ok: true, delivery: result.data.delivery }
   }
 
-  function resend(invitationId: string) {
-    setError(null)
-    setNotice(null)
-    setPendingKey(`resend:${invitationId}`)
-    startTransition(async () => {
-      const result = await resendExpenseMemberInvitation({ invitation_id: invitationId })
-      if (!result.ok) {
-        showError(result.error)
-      } else {
-        setNotice(t(
-          result.data.delivery === 'sent' || result.data.delivery === 'already_sent'
-            ? 'expenseForm.memberInvitationSent'
-            : 'expenseForm.memberInvitationSavedDeliveryIssue',
-        ))
-      }
-      setPendingKey(null)
-      router.refresh()
-    })
+  async function resend(invitationId: string): Promise<IdentityLinkInvitationDeliveryResult> {
+    const result = await resendExpenseMemberInvitation({ invitation_id: invitationId })
+    return result.ok
+      ? { ok: true, delivery: result.data.delivery }
+      : { ok: false, safeErrorMessage: t(`errors.${result.error}`) }
   }
 
-  function cancelInvitation(invitationId: string) {
-    if (!window.confirm(t('expenseForm.cancelMemberInvitationConfirm'))) return
+  async function cancelInvitation(
+    invitationId: string,
+  ): Promise<IdentityLinkInvitationCancelResult> {
     const payload = { invitation_id: invitationId }
-    setError(null)
-    setNotice(null)
-    setPendingKey(`cancel-invitation:${invitationId}`)
-    startTransition(async () => {
-      const result = await cancelExpenseMemberInvitation({
-        ...payload,
-        request_id: requestIds.forPayload(payload),
-      })
-      if (!result.ok) {
-        showError(result.error)
-        setPendingKey(null)
-        return
-      }
-      requestIds.succeeded(payload)
-      setNotice(t('expenseForm.memberInvitationCancelled'))
-      setPendingKey(null)
-      router.refresh()
+    const result = await cancelExpenseMemberInvitation({
+      ...payload,
+      request_id: requestIds.forPayload(payload),
     })
+    if (!result.ok) {
+      return { ok: false, safeErrorMessage: t(`errors.${result.error}`) }
+    }
+    requestIds.succeeded(payload)
+    return { ok: true }
   }
 
   function add(member:
@@ -194,6 +171,8 @@ export function ExpenseMemberManager({
     })
   }
 
+  const controlsPending = isPending || identityPending
+
   return (
     <section>
       <h2 className="mb-2 text-sm font-semibold">{t('group.members')}</h2>
@@ -210,7 +189,7 @@ export function ExpenseMemberManager({
           const invitation = member.identityInvitation ?? null
           return (
             <div key={member.id} className="py-2 text-sm">
-              <div className="flex min-h-12 items-center gap-3">
+              <div className="flex min-h-12 flex-wrap items-center gap-3">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{member.displayName}</span>
                   <span className="block text-xs text-muted-foreground">
@@ -218,48 +197,51 @@ export function ExpenseMemberManager({
                     {invitation ? ` · ${t(`expenseForm.memberInvitationDelivery.${invitation.delivery}`)}` : ''}
                   </span>
                 </span>
-                {canLink && !invitation ? (
-                  <button
-                    type="button"
-                    className={`${expenseSecondaryButtonClass} min-h-11 shrink-0 px-3`}
-                    disabled={isPending}
-                    onClick={() => {
-                      setLinkingMemberId(member.id)
-                      setRecipientEmail('')
+                {canLink ? (
+                  <IdentityLinkInvitationControl
+                    state={invitation ? 'pending' : 'eligible'}
+                    partyLabel={member.displayName}
+                    presentation="compact"
+                    disabled={controlsPending}
+                    resetKey={activeLinkMemberId !== null && activeLinkMemberId !== member.id
+                      ? activeLinkMemberId
+                      : undefined}
+                    copy={{
+                      triggerLabel: t('expenseForm.linkGuest'),
+                      emailLabel: t('expenseForm.linkGuestEmail', { name: member.displayName }),
+                      emailPlaceholder: t('expenseForm.linkGuestEmailPlaceholder'),
+                      submitLabel: t('expenseForm.sendMemberInvitation'),
+                      submittingLabel: t('expenseForm.sendingMemberInvitation'),
+                      entryCancelLabel: t('common.cancel'),
+                      resendLabel: t('expenseForm.resendMemberInvitation'),
+                      resendPendingLabel: t('expenseForm.sendingMemberInvitation'),
+                      cancelInvitationLabel: t('expenseForm.cancelMemberInvitation'),
+                      cancellingLabel: t('expenseForm.cancellingMemberInvitation'),
+                      cancelInvitationConfirm: t('expenseForm.cancelMemberInvitationConfirm'),
+                      cancelledNotice: t('expenseForm.memberInvitationCancelled'),
+                      sentNotice: t('expenseForm.memberInvitationSent'),
+                      deliveryIssueNotice: t('expenseForm.memberInvitationSavedDeliveryIssue'),
+                      genericError: t('errors.save_failed'),
                     }}
-                  >
-                    <Mail aria-hidden size={16} className="mr-1.5" />
-                    {t('expenseForm.linkGuest')}
-                  </button>
-                ) : null}
-                {canLink && invitation ? (
-                  <div className="flex shrink-0 gap-1">
-                    <button
-                      type="button"
-                      aria-label={t('expenseForm.resendMemberInvitation')}
-                      className={`${expenseSecondaryButtonClass} size-11 px-0`}
-                      disabled={isPending}
-                      onClick={() => resend(invitation.id)}
-                    >
-                      <RotateCcw aria-hidden size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={t('expenseForm.cancelMemberInvitation')}
-                      className={`${expenseDangerButtonClass} size-11 px-0`}
-                      disabled={isPending}
-                      onClick={() => cancelInvitation(invitation.id)}
-                    >
-                      <X aria-hidden size={16} />
-                    </button>
-                  </div>
+                    onInvite={invitation ? undefined : (email) => invite(member, email)}
+                    onResend={invitation ? () => resend(invitation.id) : undefined}
+                    onCancel={invitation ? () => cancelInvitation(invitation.id) : undefined}
+                    onFeedback={handleIdentityFeedback}
+                    onPendingChange={setIdentityPending}
+                    onEntryOpenChange={(open) => {
+                      setActiveLinkMemberId((current) => open
+                        ? member.id
+                        : current === member.id ? null : current)
+                    }}
+                    onCompleted={() => router.refresh()}
+                  />
                 ) : null}
                 {canRemove ? (
                   <button
                     type="button"
                     aria-label={t('group.removeMember', { name: member.displayName })}
                     className={`${expenseDangerButtonClass} size-11 shrink-0 px-0`}
-                    disabled={isPending}
+                    disabled={controlsPending}
                     onClick={() => remove(member)}
                   >
                     <X aria-hidden size={17} />
@@ -269,25 +251,6 @@ export function ExpenseMemberManager({
                   </button>
                 ) : null}
               </div>
-              {canLink && !invitation && linkingMemberId === member.id ? (
-                <div className="pb-3 pt-1">
-                  <IdentityInvitationEmailForm
-                    value={recipientEmail}
-                    label={t('expenseForm.linkGuestEmail', { name: member.displayName })}
-                    placeholder={t('expenseForm.linkGuestEmailPlaceholder')}
-                    submitLabel={t('expenseForm.sendMemberInvitation')}
-                    pendingLabel={t('expenseForm.sendingMemberInvitation')}
-                    cancelLabel={t('common.cancel')}
-                    isPending={isPending && pendingKey === `invite:${member.id}`}
-                    onChange={setRecipientEmail}
-                    onSubmit={() => invite(member)}
-                    onCancel={() => {
-                      setLinkingMemberId(null)
-                      setRecipientEmail('')
-                    }}
-                  />
-                </div>
-              ) : null}
             </div>
           )
         })}
@@ -300,7 +263,7 @@ export function ExpenseMemberManager({
             options={options}
             excludedRelationshipIds={[]}
             optionsError={optionsError}
-            disabled={isPending}
+            disabled={controlsPending}
             onAddKnown={addKnown}
             onAddManual={addManual}
           />

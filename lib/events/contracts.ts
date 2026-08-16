@@ -24,6 +24,68 @@ export type EventActionResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: EventActionErrorCode }
 
+export type EventAttendanceInvitationDelivery =
+  | 'sent'
+  | 'already_sent'
+  | 'failed'
+  | 'uncertain'
+
+export type EventAttendanceStatus =
+  | 'not_invited'
+  | 'pending'
+  | 'accepted'
+  | 'declined'
+  | 'cancelled'
+  | 'expired'
+  | 'left'
+  | 'revoked'
+
+export type EventAttendanceInvitationKind = 'access_only' | 'identity_and_access'
+
+export interface EventGuestAttendanceView {
+  status: EventAttendanceStatus
+  invitationId: string | null
+  invitationKind: EventAttendanceInvitationKind | null
+  /** Masked owner-safe label. Never a canonical or deliverable email. */
+  recipientLabel: string | null
+  attemptNumber: number | null
+  deliveryStatus: 'not_sent' | 'reserved' | 'sent' | 'failed' | null
+  invitedAt: string | null
+  expiresAt: string | null
+  acceptedAt: string | null
+}
+
+interface EventAttendanceInvitationPreviewBase {
+  invitationId: string
+  eventId: string
+  eventName: string
+  guestDisplayName: string | null
+  inviterDisplayName: string | null
+  invitationKind: EventAttendanceInvitationKind
+  invitedAt: string
+}
+
+export type EventAttendanceInvitationPreviewView =
+  | EventAttendanceInvitationPreviewBase & {
+  status: 'pending'
+  roster: []
+  expiresAt: string
+  }
+  | EventAttendanceInvitationPreviewBase & {
+  status: 'accepted'
+  roster: []
+  expiresAt: null
+  }
+
+export interface EventCommittedAttendanceInvitation {
+  invitationId: string
+  eventGuestId: string
+  invitationKind: EventAttendanceInvitationKind
+  recipientLabel: string
+  invitedAt: string
+  expiresAt: string
+}
+
 export interface EventSummary {
   id: string
   name: string
@@ -33,6 +95,28 @@ export interface EventSummary {
   updatedAt: string
 }
 
+export interface EventViewerSummary extends EventSummary {
+  viewerRole: 'owner' | 'attendee'
+}
+
+export interface EventPendingInvitationSummary {
+  invitationId: string
+  eventId: string
+  name: string
+  guestDisplayName: string | null
+  inviterDisplayName: string | null
+  invitationKind: EventAttendanceInvitationKind
+  status: 'pending'
+  expiresAt: string
+  invitedAt: string
+}
+
+export interface EventDashboardView {
+  owned: EventViewerSummary[]
+  pending: EventPendingInvitationSummary[]
+  attending: EventViewerSummary[]
+}
+
 export interface EventGuestView {
   id: string
   displayName: string
@@ -40,6 +124,8 @@ export interface EventGuestView {
   /** Owner-private canonical email, present only for a manual-email guest. */
   email: string | null
   isTeskeidUser: boolean
+  /** Additive SQL133 owner-only attendance projection. */
+  attendance?: EventGuestAttendanceView
   position: number
 }
 
@@ -50,6 +136,22 @@ export interface EventDetailView {
   createdAt: string
   updatedAt: string
   guests: EventGuestView[]
+}
+
+export interface EventAttendeeDetailView {
+  id: string
+  name: string
+  rosterRevision: number
+  viewerRole: 'attendee'
+  ownerDisplayName: string | null
+  createdAt: string
+  updatedAt: string
+  guests: Array<{
+    id: string
+    displayName: string | null
+    position: number
+    isSelf: boolean
+  }>
 }
 
 /** Opaque picker projection. It deliberately excludes email and linked identities. */
@@ -106,4 +208,8 @@ export function eventExpensePath(eventId: string): string {
 
 export function eventSettlementPreviewPath(eventId: string): string {
   return `/auth-mvp/utlagt-og-endurgreitt/gera-upp?event=${encodeURIComponent(eventId)}`
+}
+
+export function eventGuestAttendanceInvitationPath(invitationId: string): string {
+  return `${EVENTS_PATH}/bod/thattaka/${encodeURIComponent(invitationId)}`
 }

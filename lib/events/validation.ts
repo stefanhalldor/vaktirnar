@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 
 const DISALLOWED_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
 
@@ -22,6 +23,21 @@ const guestEmail = z.string()
     (value) => !DISALLOWED_CONTROLS.test(value),
     'disallowed_control_character',
   ))
+
+const identityRecipientEmail = z.string()
+  .transform((value) => value.trim())
+  .pipe(z.string().email().max(320).refine(
+    (value) => !DISALLOWED_CONTROLS.test(value),
+    'disallowed_control_character',
+  ))
+  .transform((value, context) => {
+    const canonical = normalizeEmailForAccess(value)
+    if (!canonical) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'invalid_email' })
+      return z.NEVER
+    }
+    return canonical
+  })
 
 const EventNewGuestSchema = z.discriminatedUnion('source_kind', [
   z.object({
@@ -86,5 +102,44 @@ export const ReplaceEventRosterSchema = z.object({
   addDuplicateIssues(value.guests, context)
 })
 
+export const InviteEventGuestAttendanceSchema = z.object({
+  event_id: z.string().uuid(),
+  event_guest_id: z.string().uuid(),
+  expected_roster_revision: z.number().int().positive().safe(),
+  request_id: z.string().uuid(),
+  recipient_email: identityRecipientEmail.nullable(),
+}).strict()
+
+export const CancelEventGuestAttendanceInvitationSchema = z.object({
+  event_id: z.string().uuid(),
+  event_guest_id: z.string().uuid(),
+  invitation_id: z.string().uuid(),
+  expected_roster_revision: z.number().int().positive().safe(),
+  request_id: z.string().uuid(),
+}).strict()
+
+export const ResendEventGuestAttendanceInvitationSchema = z.object({
+  event_id: z.string().uuid(),
+  event_guest_id: z.string().uuid(),
+  invitation_id: z.string().uuid(),
+  request_id: z.string().uuid(),
+}).strict()
+
+export const RespondEventGuestAttendanceInvitationSchema = z.object({
+  invitation_id: z.string().uuid(),
+  action: z.enum(['accept', 'decline']),
+  request_id: z.string().uuid(),
+}).strict()
+
+export const LeaveEventAttendanceSchema = z.object({
+  event_id: z.string().uuid(),
+  request_id: z.string().uuid(),
+}).strict()
+
 export type CreateEventInput = z.infer<typeof CreateEventSchema>
 export type ReplaceEventRosterInput = z.infer<typeof ReplaceEventRosterSchema>
+export type InviteEventGuestAttendanceInput = z.infer<typeof InviteEventGuestAttendanceSchema>
+export type CancelEventGuestAttendanceInvitationInput = z.infer<typeof CancelEventGuestAttendanceInvitationSchema>
+export type ResendEventGuestAttendanceInvitationInput = z.infer<typeof ResendEventGuestAttendanceInvitationSchema>
+export type RespondEventGuestAttendanceInvitationInput = z.infer<typeof RespondEventGuestAttendanceInvitationSchema>
+export type LeaveEventAttendanceInput = z.infer<typeof LeaveEventAttendanceSchema>

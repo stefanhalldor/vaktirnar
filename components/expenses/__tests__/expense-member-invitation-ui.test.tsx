@@ -187,6 +187,34 @@ describe('ExpenseMemberManager identity invitation controls', () => {
     expect(screen.queryByRole('textbox', { name: 'Netfang fyrir Martine' })).toBeNull()
   })
 
+  it('keeps only one guest email step open at a time', async () => {
+    render(
+      <ExpenseMemberManager
+        groupId={GROUP_ID}
+        members={[
+          guestMember(),
+          guestMember({
+            id: '20000000-0000-4000-8000-000000000004',
+            displayName: 'Bjarni',
+          }),
+        ]}
+        options={[]}
+        optionsError={false}
+        canManage={false}
+        canLinkGuests
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Tengja gest' })[0]!)
+    expect(screen.getByRole('textbox', { name: 'Netfang fyrir Martine' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tengja gest' }))
+    expect(screen.getByRole('textbox', { name: 'Netfang fyrir Bjarni' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByRole('textbox', { name: 'Netfang fyrir Martine' })).toBeNull()
+    })
+  })
+
   it('shows resend/cancel controls for a pending invitation without rendering its address', async () => {
     const pendingGuest = {
       ...guestMember({

@@ -24,6 +24,15 @@ const copy: Record<string, string> = {
   'create.createAndExpense': 'Búa til og opna nýjan útlagðan kostnað',
   'create.createOnly': 'Búa til',
   'create.creating': 'Bý til...',
+  'create.createdTitle': 'Viðburðurinn var stofnaður',
+  'create.createdWithInvitations': 'Viðburðurinn var stofnaður og ný boð voru send.',
+  'create.createdWithDeliveryIssue': 'Viðburðurinn var stofnaður en einhver boð bíða.',
+  'create.continueToExpense': 'Halda áfram í nýjan útlagðan kostnað',
+  'create.continueToDetail': 'Opna viðburðinn',
+  'create.continuing': 'Opna...',
+  'detail.rosterSavedWithInvitations': 'Gestalistinn var vistaður og ný boð voru send.',
+  'detail.rosterSavedWithDeliveryIssue': 'Gestalistinn var vistaður en einhver boð bíða.',
+  'detail.invitationDeliverySummary': '{sentCount} sent, {pendingCount} pending',
   'picker.trigger': 'Bæta við gesti',
   'picker.title': 'Bæta við gesti',
   'picker.description': 'Veldu þekktan aðila eða skráðu nafn eða netfang.',
@@ -104,7 +113,13 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockCreateEvent.mockResolvedValue({
     ok: true,
-    data: { eventId: '70000000-0000-4000-8000-000000000001', rosterRevision: 1 },
+    data: {
+      eventId: '70000000-0000-4000-8000-000000000001',
+      rosterRevision: 1,
+      invitationCount: 0,
+      deliveredCount: 0,
+      deliveryIssue: false,
+    },
   })
 })
 
@@ -149,6 +164,41 @@ describe('EventCreateForm', () => {
     expect(mockPush).toHaveBeenCalledWith(
       '/auth-mvp/vidburdir/70000000-0000-4000-8000-000000000001',
     )
+  })
+
+  it('shows an honest post-commit receipt before continuing to the expense destination', async () => {
+    mockCreateEvent.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        eventId: '70000000-0000-4000-8000-000000000001',
+        rosterRevision: 1,
+        invitationCount: 3,
+        deliveredCount: 2,
+        deliveryIssue: true,
+      },
+    })
+    renderForm()
+    enterName()
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Búa til og opna nýjan útlagðan kostnað',
+    }))
+
+    expect(await screen.findByRole('heading', { name: 'Viðburðurinn var stofnaður' }))
+      .toBeInTheDocument()
+    expect(screen.getByText('Viðburðurinn var stofnaður en einhver boð bíða.'))
+      .toBeInTheDocument()
+    expect(screen.getByText('2 sent, 1 pending')).toBeInTheDocument()
+    expect(mockPush).not.toHaveBeenCalled()
+
+    const continueButton = screen.getByRole('button', {
+      name: 'Halda áfram í nýjan útlagðan kostnað',
+    })
+    fireEvent.click(continueButton)
+    fireEvent.click(continueButton)
+    expect(mockPush).toHaveBeenCalledWith(
+      '/auth-mvp/utlagt-og-endurgreitt/nytt?event=70000000-0000-4000-8000-000000000001',
+    )
+    expect(mockPush).toHaveBeenCalledTimes(1)
   })
 
   it('renders create-only as the sole default primary action without Expenses access', async () => {

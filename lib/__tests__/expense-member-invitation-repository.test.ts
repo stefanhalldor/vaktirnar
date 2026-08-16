@@ -110,7 +110,9 @@ describe('expense member invitation repository privacy boundary', () => {
       ".filter((row) => !row.event_type.startsWith('expense_member_invitation_'))",
     )
     expect(source).toContain(".gt('expires_at', new Date().toISOString())")
-    expect(source).toContain("...(canManage ? { recipientLabel: invitation.recipient_email_canonical } : {})")
+    expect(source).toContain("expenseInvitationRecipientProjection({")
+    expect(source).toContain("isEventDerivedMember: eventDerivedMemberIds.has(member.id)")
+    expect(source).toContain("'teskeid_event_get_expense_member_sources'")
     expect(source).not.toContain('recipientLabel: member')
   })
 

@@ -18,7 +18,7 @@ vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: mockCheckFeatureAccess
 
 import { EVENT_FEATURE_KEY } from '@/lib/events/contracts'
 import { EXPENSE_FEATURE_KEY } from '@/lib/expenses/contracts'
-import { canUseEventExpenses, guardEventAccess } from '@/lib/events/guard'
+import { canUseEventExpenses, guardEventAccess, guardEventSession } from '@/lib/events/guard'
 
 const savedFlag = process.env.EVENTS_ENABLED
 const savedExpensesFlag = process.env.EXPENSES_ENABLED
@@ -43,6 +43,21 @@ afterEach(() => {
 })
 
 describe('event access guard', () => {
+  it('allows a signed-in session through the global gate without a per-user lookup', async () => {
+    mockCheckFeatureAccess.mockResolvedValue(false)
+
+    await expect(guardEventSession()).resolves.toEqual({ user })
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, 'false', 'TRUE'])('fails the session-only guard before auth when EVENTS_ENABLED=%s', async (flag) => {
+    if (flag === undefined) delete process.env.EVENTS_ENABLED
+    else process.env.EVENTS_ENABLED = flag
+
+    await expect(guardEventSession()).rejects.toThrow('NEXT_REDIRECT:/')
+    expect(mockGuardTeskeidSession).not.toHaveBeenCalled()
+  })
+
   it.each([undefined, 'false', 'TRUE'])('fails before session access when EVENTS_ENABLED=%s', async (flag) => {
     if (flag === undefined) delete process.env.EVENTS_ENABLED
     else process.env.EVENTS_ENABLED = flag

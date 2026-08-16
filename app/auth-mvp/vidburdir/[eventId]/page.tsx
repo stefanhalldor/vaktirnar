@@ -1,13 +1,20 @@
 import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import { EventDetail } from '@/components/events/EventDetail'
+import { EventAttendeeDetail } from '@/components/events/EventAttendeeDetail'
 import { EventExpensePreview } from '@/components/expenses/EventExpensePreview'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
 import { canUseEventExpenses, guardEventAccess } from '@/lib/events/guard'
-import { getEventContext, getEventExpensePreview } from '@/lib/events/repository.server'
+import {
+  getEventAttendeeContext,
+  getEventContext,
+  getEventExpensePreview,
+} from '@/lib/events/repository.server'
 import type { EventExpensePreviewView } from '@/lib/events/contracts'
 import { EventShell } from '../EventShell'
+
+export const maxDuration = 60
 
 export default async function EventDetailPage({
   params,
@@ -20,8 +27,23 @@ export default async function EventDetailPage({
     getTranslations('teskeid.events'),
   ])
   const event = await getEventContext(user.id, eventId)
-  if (!event) notFound()
+  if (!event) {
+    const attendeeEvent = await getEventAttendeeContext(user.id, eventId)
+    if (!attendeeEvent) notFound()
+    return (
+      <EventShell
+        title={attendeeEvent.name}
+        homeLabel={t('homeLabel')}
+        backHref="/auth-mvp/vidburdir"
+        backLabel={t('backToList')}
+      >
+        <EventAttendeeDetail event={attendeeEvent} />
+      </EventShell>
+    )
+  }
 
+  // Owner-only branch. Participant reads never load relationship options,
+  // expense capability or financial previews.
   const canUseExpenses = await canUseEventExpenses(user)
   let expensePreview: EventExpensePreviewView | null = null
   if (canUseExpenses) {

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { unstable_noStore as noStore } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
-import { guardEventAccess } from '@/lib/events/guard'
+import { guardEventSession } from '@/lib/events/guard'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -17,6 +17,6 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function EventLayout({ children }: { children: React.ReactNode }) {
   noStore()
-  await guardEventAccess()
+  await guardEventSession()
   return children
 }

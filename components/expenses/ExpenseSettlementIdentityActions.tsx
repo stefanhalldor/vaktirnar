@@ -2,7 +2,12 @@
 
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { IdentityInvitationEmailForm } from '@/components/teskeid/IdentityInvitationEmailForm'
+import {
+  IdentityLinkInvitationControl,
+  type IdentityLinkInvitationCancelResult,
+  type IdentityLinkInvitationDeliveryResult,
+  type IdentityLinkInvitationFeedback,
+} from '@/components/teskeid/IdentityLinkInvitationControl'
 import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import {
   cancelExpenseMemberInvitation,
@@ -32,9 +37,9 @@ export function ExpenseSettlementIdentityActions({
   const router = useRouter()
   const requestIds = useExpenseMutationRequestIds()
   const alertRef = useRef<HTMLParagraphElement>(null)
-  const [showEmail, setShowEmail] = useState(false)
   const [showRename, setShowRename] = useState(false)
-  const [recipientEmail, setRecipientEmail] = useState('')
+  const [identityResetKey, setIdentityResetKey] = useState(0)
+  const [identityPending, setIdentityPending] = useState(false)
   const [displayName, setDisplayName] = useState(member.displayName)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -67,50 +72,36 @@ export function ExpenseSettlementIdentityActions({
     queueMicrotask(() => alertRef.current?.focus())
   }
 
-  function invite() {
+  function handleIdentityFeedback(feedback: IdentityLinkInvitationFeedback | null) {
+    setError(feedback?.kind === 'error' ? feedback.message : null)
+    setNotice(feedback?.kind === 'status' ? feedback.message : null)
+    if (feedback?.kind === 'error') {
+      queueMicrotask(() => alertRef.current?.focus())
+    }
+  }
+
+  async function invite(recipientEmail: string): Promise<IdentityLinkInvitationDeliveryResult> {
     const payload = {
       group_id: groupId,
       member_id: member.id,
       recipient_email: recipientEmail.trim(),
     }
-    setError(null)
-    setNotice(null)
-    setPendingAction('invite')
-    startTransition(async () => {
-      const result = await linkExpenseGuestMember({
-        ...payload,
-        request_id: requestIds.forPayload(payload),
-      })
-      if (!result.ok) return fail(result.error)
-      requestIds.succeeded(payload)
-      setNotice(t(
-        result.data.delivery === 'sent' || result.data.delivery === 'already_sent'
-          ? 'expenseForm.memberInvitationSent'
-          : 'expenseForm.memberInvitationSavedDeliveryIssue',
-      ))
-      setShowEmail(false)
-      setRecipientEmail('')
-      setPendingAction(null)
-      router.refresh()
+    const result = await linkExpenseGuestMember({
+      ...payload,
+      request_id: requestIds.forPayload(payload),
     })
+    if (!result.ok) {
+      return { ok: false, safeErrorMessage: t(`errors.${result.error}`) }
+    }
+    requestIds.succeeded(payload)
+    return { ok: true, delivery: result.data.delivery }
   }
 
-  function resend() {
-    if (!invitation) return
-    setError(null)
-    setNotice(null)
-    setPendingAction('resend')
-    startTransition(async () => {
-      const result = await resendExpenseMemberInvitation({ invitation_id: invitation.id })
-      if (!result.ok) return fail(result.error)
-      setNotice(t(
-        result.data.delivery === 'sent' || result.data.delivery === 'already_sent'
-          ? 'expenseForm.memberInvitationSent'
-          : 'expenseForm.memberInvitationSavedDeliveryIssue',
-      ))
-      setPendingAction(null)
-      router.refresh()
-    })
+  async function resend(invitationId: string): Promise<IdentityLinkInvitationDeliveryResult> {
+    const result = await resendExpenseMemberInvitation({ invitation_id: invitationId })
+    return result.ok
+      ? { ok: true, delivery: result.data.delivery }
+      : { ok: false, safeErrorMessage: t(`errors.${result.error}`) }
   }
 
   function saveName() {
@@ -137,26 +128,22 @@ export function ExpenseSettlementIdentityActions({
     })
   }
 
-  function cancel() {
-    if (!invitation || !window.confirm(t('expenseForm.cancelMemberInvitationConfirm'))) return
-    const payload = { invitation_id: invitation.id }
-    setError(null)
-    setNotice(null)
-    setPendingAction('cancel')
-    startTransition(async () => {
-      const result = await cancelExpenseMemberInvitation({
-        ...payload,
-        request_id: requestIds.forPayload(payload),
-      })
-      if (!result.ok) return fail(result.error)
-      requestIds.succeeded(payload)
-      setNotice(t('expenseForm.memberInvitationCancelled'))
-      setPendingAction(null)
-      router.refresh()
+  async function cancel(invitationId: string): Promise<IdentityLinkInvitationCancelResult> {
+    const payload = { invitation_id: invitationId }
+    const result = await cancelExpenseMemberInvitation({
+      ...payload,
+      request_id: requestIds.forPayload(payload),
     })
+    if (!result.ok) {
+      return { ok: false, safeErrorMessage: t(`errors.${result.error}`) }
+    }
+    requestIds.succeeded(payload)
+    return { ok: true }
   }
 
   if (!canLink && !canRename) return null
+
+  const controlsPending = isPending || identityPending
 
   return (
     <section className={showIdentityHeading
@@ -187,7 +174,7 @@ export function ExpenseSettlementIdentityActions({
               className={expenseInputClass}
               value={displayName}
               maxLength={120}
-              disabled={isPending}
+              disabled={controlsPending}
               onChange={(event) => setDisplayName(event.target.value)}
             />
           </label>
@@ -195,7 +182,7 @@ export function ExpenseSettlementIdentityActions({
             <TeskeidActionButton
               type="button"
               variant="secondary"
-              disabled={isPending}
+              disabled={controlsPending}
               onClick={() => {
                 setDisplayName(member.displayName)
                 setShowRename(false)
@@ -207,7 +194,9 @@ export function ExpenseSettlementIdentityActions({
               type="submit"
               variant="primary"
               pending={isPending && pendingAction === 'rename'}
-              disabled={!displayName.trim() || displayName.trim() === member.displayName}
+              disabled={controlsPending
+                || !displayName.trim()
+                || displayName.trim() === member.displayName}
             >
               {pendingAction === 'rename'
                 ? t('expenseForm.savingGuestName')
@@ -220,9 +209,9 @@ export function ExpenseSettlementIdentityActions({
           type="button"
           variant="secondary"
           className="w-full"
-          disabled={isPending}
+          disabled={controlsPending}
           onClick={() => {
-            setShowEmail(false)
+            setIdentityResetKey((current) => current + 1)
             setShowRename(true)
           }}
         >
@@ -230,57 +219,40 @@ export function ExpenseSettlementIdentityActions({
         </TeskeidActionButton>
       ) : null}
 
-      {canLink && invitation ? (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <TeskeidActionButton
-            type="button"
-            variant="secondary"
-            disabled={isPending}
-            onClick={resend}
-          >
-            {pendingAction === 'resend'
-              ? t('expenseForm.sendingMemberInvitation')
-              : t('expenseForm.resendMemberInvitation')}
-          </TeskeidActionButton>
-          <TeskeidActionButton
-            type="button"
-            variant="danger"
-            disabled={isPending}
-            onClick={cancel}
-          >
-            {pendingAction === 'cancel'
-              ? t('expenseForm.cancellingMemberInvitation')
-              : t('expenseForm.cancelMemberInvitation')}
-          </TeskeidActionButton>
-        </div>
-      ) : canLink && showEmail ? (
-        <IdentityInvitationEmailForm
-          value={recipientEmail}
-          label={t('expenseForm.linkGuestEmail', { name: member.displayName })}
-          placeholder={t('expenseForm.linkGuestEmailPlaceholder')}
-          submitLabel={t('expenseForm.sendMemberInvitation')}
-          pendingLabel={t('expenseForm.sendingMemberInvitation')}
-          cancelLabel={t('common.cancel')}
-          isPending={isPending && pendingAction === 'invite'}
-          onChange={setRecipientEmail}
-          onSubmit={invite}
-          onCancel={() => {
-            setShowEmail(false)
-            setRecipientEmail('')
+      {canLink ? (
+        <IdentityLinkInvitationControl
+          state={invitation ? 'pending' : 'eligible'}
+          partyLabel={member.displayName}
+          presentation="stacked"
+          disabled={controlsPending}
+          resetKey={identityResetKey}
+          copy={{
+            triggerLabel: t('expenseForm.linkToTeskeidUser'),
+            emailLabel: t('expenseForm.linkGuestEmail', { name: member.displayName }),
+            emailPlaceholder: t('expenseForm.linkGuestEmailPlaceholder'),
+            submitLabel: t('expenseForm.sendMemberInvitation'),
+            submittingLabel: t('expenseForm.sendingMemberInvitation'),
+            entryCancelLabel: t('common.cancel'),
+            resendLabel: t('expenseForm.resendMemberInvitation'),
+            resendPendingLabel: t('expenseForm.sendingMemberInvitation'),
+            cancelInvitationLabel: t('expenseForm.cancelMemberInvitation'),
+            cancellingLabel: t('expenseForm.cancellingMemberInvitation'),
+            cancelInvitationConfirm: t('expenseForm.cancelMemberInvitationConfirm'),
+            cancelledNotice: t('expenseForm.memberInvitationCancelled'),
+            sentNotice: t('expenseForm.memberInvitationSent'),
+            deliveryIssueNotice: t('expenseForm.memberInvitationSavedDeliveryIssue'),
+            genericError: t('errors.save_failed'),
           }}
+          onInvite={invitation ? undefined : invite}
+          onResend={invitation ? () => resend(invitation.id) : undefined}
+          onCancel={invitation ? () => cancel(invitation.id) : undefined}
+          onFeedback={handleIdentityFeedback}
+          onPendingChange={setIdentityPending}
+          onEntryOpenChange={(open) => {
+            if (open) setShowRename(false)
+          }}
+          onCompleted={() => router.refresh()}
         />
-      ) : canLink ? (
-        <TeskeidActionButton
-          type="button"
-          variant="secondary"
-          className="w-full"
-          onClick={() => {
-            setShowRename(false)
-            setShowEmail(true)
-          }}
-        >
-          {t('expenseForm.linkToTeskeidUser')}
-        </TeskeidActionButton>
       ) : null}
     </section>
   )

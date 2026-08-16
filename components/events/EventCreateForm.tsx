@@ -20,6 +20,14 @@ type SelectedEventGuest = {
 
 type CreateDestination = 'detail' | 'expense'
 
+type CreateReceipt = {
+  destination: string
+  destinationKind: CreateDestination
+  invitationCount: number
+  deliveredCount: number
+  deliveryIssue: boolean
+}
+
 const KNOWN_ERROR_CODES = new Set([
   'invalid_input',
   'not_allowed',
@@ -49,10 +57,12 @@ export function EventCreateForm({
   const alertRef = useRef<HTMLParagraphElement>(null)
   const submissionRef = useRef<{ fingerprint: string; requestId: string } | null>(null)
   const submittingRef = useRef(false)
+  const receiptNavigationRef = useRef(false)
   const [name, setName] = useState('')
   const [guests, setGuests] = useState<SelectedEventGuest[]>([])
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [receipt, setReceipt] = useState<CreateReceipt | null>(null)
 
   const atGuestLimit = guests.length >= 49
   const excludedRelationshipIds = guests.flatMap((guest) => (
@@ -126,9 +136,21 @@ export function EventCreateForm({
       return
     }
 
-    router.push(destination === 'expense'
+    const destinationPath = destination === 'expense'
       ? eventExpensePath(result.data.eventId)
-      : eventDetailPath(result.data.eventId))
+      : eventDetailPath(result.data.eventId)
+    if (result.data.invitationCount > 0) {
+      setReceipt({
+        destination: destinationPath,
+        destinationKind: destination,
+        invitationCount: result.data.invitationCount,
+        deliveredCount: result.data.deliveredCount,
+        deliveryIssue: result.data.deliveryIssue,
+      })
+      setIsSubmitting(false)
+      return
+    }
+    router.push(destinationPath)
     router.refresh()
   }
 
@@ -136,6 +158,45 @@ export function EventCreateForm({
     event.preventDefault()
     const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null
     void submit(canUseExpenses && submitter?.value !== 'detail' ? 'expense' : 'detail')
+  }
+
+  if (receipt) {
+    return (
+      <section className="space-y-4 border-y border-border py-5" aria-labelledby="event-created-heading">
+        <h2 id="event-created-heading" className="text-base font-semibold">
+          {t('create.createdTitle')}
+        </h2>
+        <div role="status" className="space-y-2 text-sm leading-6 text-muted-foreground">
+          <p>{receipt.deliveryIssue
+            ? t('create.createdWithDeliveryIssue')
+            : t('create.createdWithInvitations')}</p>
+          <p>{t('detail.invitationDeliverySummary', {
+            sentCount: receipt.deliveredCount,
+            pendingCount: receipt.invitationCount - receipt.deliveredCount,
+          })}</p>
+        </div>
+        <TeskeidActionButton
+          type="button"
+          variant="primary"
+          pending={isSubmitting}
+          disabled={isSubmitting}
+          className="w-full"
+          onClick={() => {
+            if (receiptNavigationRef.current || isSubmitting) return
+            receiptNavigationRef.current = true
+            setIsSubmitting(true)
+            router.push(receipt.destination)
+            router.refresh()
+          }}
+        >
+          {isSubmitting
+            ? t('create.continuing')
+            : receipt.destinationKind === 'expense'
+              ? t('create.continueToExpense')
+              : t('create.continueToDetail')}
+        </TeskeidActionButton>
+      </section>
+    )
   }
 
   return (

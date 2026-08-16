@@ -9,6 +9,7 @@ import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type {
   EventDetailView,
+  EventGuestAttendanceView,
   EventNewGuestInput,
   EventRosterGuestInput,
 } from '@/lib/events/contracts'
@@ -17,11 +18,14 @@ import { saveEventRoster } from '@/lib/events/actions'
 import { formatDateTime } from '@/lib/date-format'
 import { createRequestId } from '@/components/expenses/ui'
 import { EventParticipantPicker } from './EventParticipantPicker'
+import { EventGuestAttendanceControl } from './EventGuestAttendanceControl'
 
 type EditableGuest = {
   key: string
   label: string
   sourceKind: EventDetailView['guests'][number]['sourceKind']
+  isTeskeidUser: boolean
+  attendance?: EventGuestAttendanceView
   input: EventRosterGuestInput
 }
 
@@ -41,6 +45,8 @@ function editableGuests(event: EventDetailView): EditableGuest[] {
       key: guest.id,
       label: guest.email ?? guest.displayName,
       sourceKind: guest.sourceKind,
+      isTeskeidUser: guest.isTeskeidUser,
+      attendance: guest.attendance,
       input: { event_guest_id: guest.id },
     }))
 }
@@ -93,7 +99,13 @@ export function EventDetail({
   const [savedFingerprint, setSavedFingerprint] = useState(() => fingerprint(initialGuests))
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [saveDelivery, setSaveDelivery] = useState<{
+    invitationCount: number
+    deliveredCount: number
+    deliveryIssue: boolean
+  } | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [attendancePendingCount, setAttendancePendingCount] = useState(0)
   const [awaitingRefresh, setAwaitingRefresh] = useState(false)
   const [refreshingConflict, setRefreshingConflict] = useState(false)
   const submissionRef = useRef<{ fingerprint: string; requestId: string } | null>(null)
@@ -106,6 +118,7 @@ export function EventDetail({
   const previousEventRef = useRef(event)
   const baseEventIdRef = useRef(event.id)
   const baseGuestIdsRef = useRef(new Set(initialGuests.map((guest) => guest.key)))
+  const attendancePendingGuestsRef = useRef(new Set<string>())
 
   useEffect(() => {
     const receivedFreshProps = previousEventRef.current !== event
@@ -115,6 +128,16 @@ export function EventDetail({
       && successfulSaveRevisionRef.current !== null
       && event.rosterRevision >= successfulSaveRevisionRef.current
     if (sameEvent && event.rosterRevision === baseRevision && !completedSaveRefresh) {
+      if (receivedFreshProps) {
+        const canonicalById = new Map(editableGuests(event).map((guest) => [guest.key, guest]))
+        const refreshedGuests = guestsRef.current.map((guest) => {
+          if (!('event_guest_id' in guest.input)) return guest
+          const canonical = canonicalById.get(guest.input.event_guest_id)
+          return canonical ?? guest
+        })
+        guestsRef.current = refreshedGuests
+        setGuests(refreshedGuests)
+      }
       // A semantic conflict such as a duplicate guest can leave the canonical
       // revision unchanged. A completed refresh must still release the form;
       // the local draft remains visible and editable for correction.
@@ -156,6 +179,8 @@ export function EventDetail({
 
   const currentFingerprint = fingerprint(guests)
   const dirty = currentFingerprint !== savedFingerprint
+  const attendancePending = attendancePendingCount > 0
+  const formBusy = isSubmitting || awaitingRefresh || refreshingConflict || attendancePending
   const atGuestLimit = guests.length >= 49
   const excludedRelationshipIds = guests.flatMap((guest) => (
     'source_kind' in guest.input && guest.input.source_kind === 'relationship'
@@ -171,11 +196,18 @@ export function EventDetail({
     })
   }
 
+  function setGuestAttendancePending(guestId: string, pending: boolean) {
+    if (pending) attendancePendingGuestsRef.current.add(guestId)
+    else attendancePendingGuestsRef.current.delete(guestId)
+    setAttendancePendingCount(attendancePendingGuestsRef.current.size)
+  }
+
   function addKnown(option: ExpenseParticipantOption): boolean {
     if (
       atGuestLimit
       || awaitingRefresh
       || refreshingConflict
+      || attendancePending
       || excludedRelationshipIds.includes(option.relationshipId)
     ) return false
     setSaved(false)
@@ -184,6 +216,7 @@ export function EventDetail({
       key: `relationship:${createRequestId()}`,
       label: option.pickerLabel,
       sourceKind: 'relationship',
+      isTeskeidUser: true,
       input: { source_kind: 'relationship', relationship_id: option.relationshipId },
     }])
     return true
@@ -194,6 +227,7 @@ export function EventDetail({
       atGuestLimit
       || awaitingRefresh
       || refreshingConflict
+      || attendancePending
       || input.source_kind === 'relationship'
     ) return false
     if (
@@ -210,6 +244,7 @@ export function EventDetail({
       key: `${input.source_kind}:${createRequestId()}`,
       label,
       sourceKind: input.source_kind,
+      isTeskeidUser: false,
       input,
     }])
     return true
@@ -229,10 +264,11 @@ export function EventDetail({
 
   async function submitRoster(eventObject: React.FormEvent<HTMLFormElement>) {
     eventObject.preventDefault()
-    if (!dirty || submittingRef.current || awaitingRefresh) return
+    if (!dirty || submittingRef.current || awaitingRefresh || attendancePendingGuestsRef.current.size > 0) return
     submittingRef.current = true
     setIsSubmitting(true)
     setSaved(false)
+    setSaveDelivery(null)
     setError(null)
 
     let result: Awaited<ReturnType<typeof saveEventRoster>>
@@ -261,6 +297,11 @@ export function EventDetail({
     }
 
     setSaved(true)
+    setSaveDelivery({
+      invitationCount: result.data.invitationCount,
+      deliveredCount: result.data.deliveredCount,
+      deliveryIssue: result.data.deliveryIssue,
+    })
     successfulSaveRevisionRef.current = result.data.rosterRevision
     setAwaitingRefresh(true)
     router.refresh()
@@ -302,31 +343,63 @@ export function EventDetail({
         {error ? (
           <p role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>
         ) : null}
-        {saved ? <p role="status" className="text-sm text-muted-foreground">{t('detail.rosterSaved')}</p> : null}
+        {saved ? (
+          <div role="status" className="space-y-1 text-sm text-muted-foreground">
+            <p>{saveDelivery?.deliveryIssue
+              ? t('detail.rosterSavedWithDeliveryIssue')
+              : saveDelivery && saveDelivery.invitationCount > 0
+                ? t('detail.rosterSavedWithInvitations')
+                : t('detail.rosterSaved')}</p>
+            {saveDelivery && saveDelivery.invitationCount > 0 ? (
+              <p>{t('detail.invitationDeliverySummary', {
+                sentCount: saveDelivery.deliveredCount,
+                pendingCount: saveDelivery.invitationCount - saveDelivery.deliveredCount,
+              })}</p>
+            ) : null}
+          </div>
+        ) : null}
 
         {guests.length === 0 ? (
           <p className="border-y border-border py-4 text-sm text-muted-foreground">{t('detail.noParticipants')}</p>
         ) : (
           <div className="divide-y divide-border border-y border-border">
             {guests.map((guest) => (
-              <div key={guest.key} className="flex min-h-14 items-center gap-3 py-2">
-                <span className="min-w-0 flex-1">
-                  <span className="block break-all text-sm font-medium">{guest.label}</span>
-                  <span className="block text-xs text-muted-foreground">{sourceLabel(guest.sourceKind)}</span>
-                </span>
-                <button
-                  type="button"
-                  aria-label={t('detail.removeParticipant', { name: guest.label })}
-                  className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
-                  disabled={isSubmitting || awaitingRefresh || refreshingConflict}
-                  onClick={() => {
-                    setSaved(false)
-                    setError(null)
-                    updateGuests((current) => current.filter((item) => item.key !== guest.key))
-                  }}
-                >
-                  <X aria-hidden size={18} />
-                </button>
+              <div key={guest.key} className="min-w-0 py-3">
+                <div className="flex min-h-11 items-center gap-3">
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-all text-sm font-medium">{guest.label}</span>
+                    <span className="block text-xs text-muted-foreground">{sourceLabel(guest.sourceKind)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t('detail.removeParticipant', { name: guest.label })}
+                    className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
+                    disabled={formBusy}
+                    onClick={() => {
+                      setSaved(false)
+                      setSaveDelivery(null)
+                      setError(null)
+                      updateGuests((current) => current.filter((item) => item.key !== guest.key))
+                    }}
+                  >
+                    <X aria-hidden size={18} />
+                  </button>
+                </div>
+                {'event_guest_id' in guest.input && guest.attendance ? (
+                  <div className="mt-2 border-l-2 border-border pl-3">
+                    <EventGuestAttendanceControl
+                      eventId={event.id}
+                      eventGuestId={guest.input.event_guest_id}
+                      rosterRevision={baseRevision}
+                      partyLabel={guest.label}
+                      sourceKind={guest.sourceKind}
+                      isTeskeidUser={guest.isTeskeidUser}
+                      attendance={guest.attendance}
+                      disabled={formBusy}
+                      onPendingChange={(pending) => setGuestAttendancePending(guest.key, pending)}
+                    />
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -339,7 +412,7 @@ export function EventDetail({
           options={options}
           excludedRelationshipIds={excludedRelationshipIds}
           optionsError={optionsError}
-          disabled={isSubmitting || awaitingRefresh || refreshingConflict || atGuestLimit}
+          disabled={formBusy || atGuestLimit}
           onAddKnown={addKnown}
           onAddManual={addManual}
         />
@@ -348,7 +421,7 @@ export function EventDetail({
           type="submit"
           variant="primary"
           pending={isSubmitting || awaitingRefresh || refreshingConflict}
-          disabled={!dirty || awaitingRefresh || refreshingConflict}
+          disabled={!dirty || awaitingRefresh || refreshingConflict || attendancePending}
           className="w-full"
         >
           {isSubmitting || awaitingRefresh || refreshingConflict

@@ -5,6 +5,8 @@ import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server
 import { canUseEventExpenses, guardEventAccess } from '@/lib/events/guard'
 import { EventShell } from '../EventShell'
 
+export const maxDuration = 60
+
 export default async function NewEventPage() {
   const [{ user }, t] = await Promise.all([
     guardEventAccess(),

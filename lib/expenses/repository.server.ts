@@ -31,6 +31,7 @@ import {
 } from './payment-profile'
 import { canLeaveExpenseGroup } from './member-exit'
 import { canActAsExpenseMember, canManageExpenseMemberOnBehalf } from './policy'
+import { expenseInvitationRecipientProjection } from './invitation-visibility'
 import { EXPENSE_FEATURE_KEY } from './contracts'
 import type {
   DebtObligation,
@@ -335,7 +336,7 @@ function isMissingOptionalExpenseRelation(error: unknown, relation: string): boo
     || message.includes(relation) && message.includes('does not exist')
 }
 
-async function loadGroupRows(groupId: string): Promise<{
+async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   group: GroupRow
   members: MemberRow[]
   expenses: ExpenseRow[]
@@ -352,6 +353,7 @@ async function loadGroupRows(groupId: string): Promise<{
   guestMemberRenameReady: boolean
   settlementBatchRepaymentLinks: SettlementBatchRepaymentLinkRow[]
   settlementBatchReady: boolean
+  eventDerivedMemberIds: string[]
 }> {
   const admin = getAdmin()
   const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult] = await Promise.all([
@@ -370,6 +372,7 @@ async function loadGroupRows(groupId: string): Promise<{
   throwOnError(memberInvitationsResult.error, 'member invitation query')
   if (!groupResult.data) throw new Error('expense_not_found')
 
+  const members = (membersResult.data ?? []) as MemberRow[]
   const expenses = (expensesResult.data ?? []) as ExpenseRow[]
   const repayments = (repaymentsResult.data ?? []) as RepaymentRow[]
   const expenseIds = expenses.map((row) => row.id)
@@ -432,9 +435,41 @@ async function loadGroupRows(groupId: string): Promise<{
     throwOnError(settlementBatchItemsResult.error, 'settlement batch item query')
   }
 
+  const actorMember = members.find((member) => (
+    member.status === 'active' && member.user_id === actorUserId
+  ))
+  let eventDerivedMemberIds: string[] = []
+  if (actorMember?.role === 'owner' || actorMember?.role === 'admin') {
+    const provenanceResult = await admin.rpc('teskeid_event_get_expense_member_sources', {
+      p_actor_id: actorUserId,
+      p_group_id: groupId,
+    })
+    throwOnError(provenanceResult.error, 'event expense provenance query')
+    const provenance = record(provenanceResult.data)
+    if (
+      !provenance
+      || Object.keys(provenance).length !== 1
+      || !Array.isArray(provenance.member_ids)
+      || provenance.member_ids.length > 50
+    ) throw new Error('expense_event_provenance_invalid')
+    const memberIds = new Set(members.map((member) => member.id))
+    eventDerivedMemberIds = provenance.member_ids.map((memberId) => {
+      if (typeof memberId !== 'string' || !memberIds.has(memberId)) {
+        throw new Error('expense_event_provenance_invalid')
+      }
+      return memberId
+    })
+    if (
+      new Set(eventDerivedMemberIds).size !== eventDerivedMemberIds.length
+      || eventDerivedMemberIds.some((memberId, index) => (
+        index > 0 && eventDerivedMemberIds[index - 1]! >= memberId
+      ))
+    ) throw new Error('expense_event_provenance_invalid')
+  }
+
   return {
     group: groupResult.data as GroupRow,
-    members: (membersResult.data ?? []) as MemberRow[],
+    members,
     expenses,
     payments: (paymentsResult.data ?? []) as PaymentRow[],
     shares: (sharesResult.data ?? []) as ShareRow[],
@@ -455,6 +490,7 @@ async function loadGroupRows(groupId: string): Promise<{
       ? []
       : (settlementBatchItemsResult.data ?? []) as SettlementBatchRepaymentLinkRow[],
     settlementBatchReady: !settlementBatchItemsResult.error,
+    eventDerivedMemberIds,
   }
 }
 
@@ -495,6 +531,7 @@ function buildGroupView(
     invitation.member_id,
     invitation,
   ]))
+  const eventDerivedMemberIds = new Set(rows.eventDerivedMemberIds)
   const memberNameRevisionsByActivity = new Map(rows.memberNameRevisions.map((revision) => [
     revision.activity_id,
     revision,
@@ -512,7 +549,11 @@ function buildGroupView(
         id: invitation.id,
         status: invitation.status,
         delivery: invitation.attempt_status ?? 'not_sent',
-        ...(canManage ? { recipientLabel: invitation.recipient_email_canonical } : {}),
+        ...expenseInvitationRecipientProjection({
+          canManage,
+          isEventDerivedMember: eventDerivedMemberIds.has(member.id),
+          recipientEmail: invitation.recipient_email_canonical,
+        }),
       } : null,
     }
   })
@@ -946,7 +987,7 @@ export async function getExpenseGroupView(
   options: { includeCurrentPaymentInstructions?: boolean } = {},
 ): Promise<ExpenseGroupView | null> {
   try {
-    const rows = await loadGroupRows(groupId)
+    const rows = await loadGroupRows(groupId, actorUserId)
     const group = buildGroupView(rows, actorUserId)
     return options.includeCurrentPaymentInstructions
       ? await attachCurrentPaymentInstructions(group, rows, actorUserId)
@@ -1111,7 +1152,7 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
   const groupIds = [...new Set(((data ?? []) as Array<{ group_id: string }>).map((row) => row.group_id))]
   const resolved = await Promise.all(groupIds.map(async (groupId) => {
     try {
-      const rows = await loadGroupRows(groupId)
+      const rows = await loadGroupRows(groupId, actorUserId)
       const group = await attachCurrentPaymentInstructions(
         buildGroupView(rows, actorUserId),
         rows,

@@ -20,13 +20,18 @@ vi.mock('@/lib/events/guard', () => ({ guardEventAccess: mockGuardEventAccess })
 import { createEvent, saveEventRoster } from '@/lib/events/actions'
 import {
   createEventContext,
+  getEventAttendeeContext,
   getEventContext,
   getEventExpensePreview,
+  getEventGuestAttendancePreview,
   getOwnedEventExpenseSource,
   isExpenseEventContext,
+  listEventDashboard,
   listEventExpenseSources,
   listEvents,
   replaceEventRoster,
+  reserveEventGuestAttendanceDelivery,
+  respondEventGuestAttendanceInvitation,
 } from '@/lib/events/repository.server'
 
 const ACTOR_ID = '10000000-0000-4000-8000-000000000001'
@@ -36,6 +41,10 @@ const GUEST_ID = '40000000-0000-4000-8000-000000000001'
 const RELATIONSHIP_ID = '50000000-0000-4000-8000-000000000001'
 const PARTY_A = '60000000-0000-4000-8000-000000000001'
 const PARTY_B = '60000000-0000-4000-8000-000000000002'
+const INVITATION_ID = '70000000-0000-4000-8000-000000000001'
+const INVITED_AT = '2026-08-16T09:00:00.000Z'
+const EXPIRES_AT = '2026-08-23T09:00:00.000Z'
+const ACCEPTED_AT = '2026-08-16T09:05:00.000Z'
 
 const validInput = {
   request_id: REQUEST_ID,
@@ -45,6 +54,67 @@ const validInput = {
     { source_kind: 'manual_email', email: ' GESTUR@EXAMPLE.IS ' },
     { source_kind: 'relationship', relationship_id: RELATIONSHIP_ID },
   ],
+}
+
+function ownerDetailGuest(overrides: Record<string, unknown> = {}) {
+  return {
+    event_id: EVENT_ID,
+    name: 'Kvisskvöld',
+    roster_revision: 2,
+    created_at: '2026-08-15T21:53:00.000Z',
+    updated_at: '2026-08-16T08:00:00.000Z',
+    guests: [{
+      event_guest_id: GUEST_ID,
+      source_kind: 'manual_email',
+      display_name: 'gestur@example.is',
+      email: 'gestur@example.is',
+      is_teskeid_user: true,
+      position: 0,
+      ...overrides,
+    }],
+  }
+}
+
+function ownerAttendanceState(
+  status: 'not_invited' | 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired' | 'left' | 'revoked',
+  overrides: Record<string, unknown> = {},
+) {
+  const empty = {
+    invitation_id: null,
+    invitation_kind: null,
+    recipient_label: null,
+    delivery_status: null,
+    attempt_number: null,
+    invited_at: null,
+    expires_at: null,
+    accepted_at: null,
+  }
+  const invited = status === 'not_invited' ? empty : {
+    ...empty,
+    invitation_id: INVITATION_ID,
+    invitation_kind: 'identity_and_access',
+    invited_at: INVITED_AT,
+  }
+  const state = status === 'pending' ? {
+    ...invited,
+    recipient_label: 'g***@example.is',
+    delivery_status: 'sent',
+    attempt_number: 1,
+    expires_at: EXPIRES_AT,
+  } : status === 'accepted' ? {
+    ...invited,
+    accepted_at: ACCEPTED_AT,
+  } : invited
+  return {
+    event_id: EVENT_ID,
+    roster_revision: 2,
+    guests: [{
+      event_guest_id: GUEST_ID,
+      attendance_status: status,
+      ...state,
+      ...overrides,
+    }],
+  }
 }
 
 beforeEach(() => {
@@ -60,15 +130,21 @@ afterEach(() => {
 describe('event action boundaries', () => {
   it('normalizes and sends the exact strict v2 create payload', async () => {
     mockRpc.mockResolvedValue({
-      data: { event_id: EVENT_ID, roster_revision: 1 },
+      data: { event_id: EVENT_ID, roster_revision: 1, invitations: [] },
       error: null,
     })
 
     await expect(createEvent(validInput)).resolves.toEqual({
       ok: true,
-      data: { eventId: EVENT_ID, rosterRevision: 1 },
+      data: {
+        eventId: EVENT_ID,
+        rosterRevision: 1,
+        invitationCount: 0,
+        deliveredCount: 0,
+        deliveryIssue: false,
+      },
     })
-    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_create', {
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_create_with_attendance_invitations', {
       p_actor_id: ACTOR_ID,
       p_request_id: REQUEST_ID,
       p_name: 'Kvisskvöld',
@@ -84,7 +160,7 @@ describe('event action boundaries', () => {
 
   it('saves one ordered full replacement with revision and retained stable IDs', async () => {
     mockRpc.mockResolvedValue({
-      data: { event_id: EVENT_ID, roster_revision: 3 },
+      data: { event_id: EVENT_ID, roster_revision: 3, invitations: [] },
       error: null,
     })
     const input = {
@@ -99,9 +175,15 @@ describe('event action boundaries', () => {
 
     await expect(saveEventRoster(input)).resolves.toEqual({
       ok: true,
-      data: { eventId: EVENT_ID, rosterRevision: 3 },
+      data: {
+        eventId: EVENT_ID,
+        rosterRevision: 3,
+        invitationCount: 0,
+        deliveredCount: 0,
+        deliveryIssue: false,
+      },
     })
-    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_replace_roster', {
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_replace_roster_with_attendance_invitations', {
       p_actor_id: ACTOR_ID,
       p_event_id: EVENT_ID,
       p_request_id: REQUEST_ID,
@@ -211,7 +293,7 @@ describe('owner-safe independent event repository', () => {
   })
 
   it('maps ordered owner detail and exposes raw email only for manual_email', async () => {
-    mockRpc.mockResolvedValue({
+    mockRpc.mockResolvedValueOnce({
       data: {
         event_id: EVENT_ID,
         name: 'Kvisskvöld',
@@ -229,6 +311,25 @@ describe('owner-safe independent event repository', () => {
       },
       error: null,
     })
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        event_id: EVENT_ID,
+        roster_revision: 2,
+        guests: [{
+          event_guest_id: GUEST_ID,
+          attendance_status: 'not_invited',
+          invitation_id: null,
+          invitation_kind: null,
+          recipient_label: null,
+          delivery_status: null,
+          attempt_number: null,
+          invited_at: null,
+          expires_at: null,
+          accepted_at: null,
+        }],
+      },
+      error: null,
+    })
 
     await expect(getEventContext(ACTOR_ID, EVENT_ID)).resolves.toEqual({
       id: EVENT_ID,
@@ -242,6 +343,17 @@ describe('owner-safe independent event repository', () => {
         displayName: 'gestur@example.is',
         email: 'gestur@example.is',
         isTeskeidUser: false,
+        attendance: {
+          status: 'not_invited',
+          invitationId: null,
+          invitationKind: null,
+          recipientLabel: null,
+          deliveryStatus: null,
+          attemptNumber: null,
+          invitedAt: null,
+          expiresAt: null,
+          acceptedAt: null,
+        },
         position: 0,
       }],
     })
@@ -252,7 +364,7 @@ describe('owner-safe independent event repository', () => {
   })
 
   it('keeps an anonymized relationship snapshot readable after linked-attendee deletion', async () => {
-    mockRpc.mockResolvedValue({
+    mockRpc.mockResolvedValueOnce({
       data: {
         event_id: EVENT_ID,
         name: 'Kvisskvöld',
@@ -270,6 +382,25 @@ describe('owner-safe independent event repository', () => {
       },
       error: null,
     })
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        event_id: EVENT_ID,
+        roster_revision: 2,
+        guests: [{
+          event_guest_id: GUEST_ID,
+          attendance_status: 'not_invited',
+          invitation_id: null,
+          invitation_kind: null,
+          recipient_label: null,
+          delivery_status: null,
+          attempt_number: null,
+          invited_at: null,
+          expires_at: null,
+          accepted_at: null,
+        }],
+      },
+      error: null,
+    })
 
     await expect(getEventContext(ACTOR_ID, EVENT_ID)).resolves.toMatchObject({
       guests: [{
@@ -280,6 +411,71 @@ describe('owner-safe independent event repository', () => {
         isTeskeidUser: false,
       }],
     })
+  })
+
+  it.each([
+    'not_invited',
+    'pending',
+    'accepted',
+    'declined',
+    'cancelled',
+    'expired',
+    'left',
+    'revoked',
+  ] as const)('maps the exact %s owner attendance lifecycle shape', async (status) => {
+    mockRpc
+      .mockResolvedValueOnce({ data: ownerDetailGuest(), error: null })
+      .mockResolvedValueOnce({ data: ownerAttendanceState(status), error: null })
+
+    const detail = await getEventContext(ACTOR_ID, EVENT_ID)
+    expect(detail?.guests[0]?.isTeskeidUser).toBe(true)
+    expect(detail?.guests[0]?.sourceKind).toBe('manual_email')
+    expect(detail?.guests[0]?.attendance).toMatchObject({ status })
+    if (status === 'pending') {
+      expect(detail?.guests[0]?.attendance).toMatchObject({
+        recipientLabel: 'g***@example.is',
+        deliveryStatus: 'sent',
+        attemptNumber: 1,
+        expiresAt: EXPIRES_AT,
+        acceptedAt: null,
+      })
+    } else if (status === 'accepted') {
+      expect(detail?.guests[0]?.attendance).toMatchObject({
+        recipientLabel: null,
+        deliveryStatus: null,
+        attemptNumber: null,
+        expiresAt: null,
+        acceptedAt: ACCEPTED_AT,
+      })
+    }
+  })
+
+  it.each([
+    'hello*',
+    'guest@example.is',
+    'g***@example.is\u202e',
+    'g**@example.is',
+    'G***@example.is',
+  ])('rejects hostile masked recipient label %s', async (recipientLabel) => {
+    mockRpc
+      .mockResolvedValueOnce({ data: ownerDetailGuest(), error: null })
+      .mockResolvedValueOnce({
+        data: ownerAttendanceState('pending', { recipient_label: recipientLabel }),
+        error: null,
+      })
+    await expect(getEventContext(ACTOR_ID, EVENT_ID)).rejects.toThrow('event_load_failed')
+  })
+
+  it('rejects accepted and terminal states carrying pending-only fields', async () => {
+    for (const state of [
+      ownerAttendanceState('accepted', { recipient_label: 'g***@example.is' }),
+      ownerAttendanceState('revoked', { expires_at: EXPIRES_AT }),
+    ]) {
+      mockRpc
+        .mockResolvedValueOnce({ data: ownerDetailGuest(), error: null })
+        .mockResolvedValueOnce({ data: state, error: null })
+      await expect(getEventContext(ACTOR_ID, EVENT_ID)).rejects.toThrow('event_load_failed')
+    }
   })
 
   it.each(['teskeid_event_not_found', 'teskeid_event_not_allowed'])(
@@ -327,6 +523,227 @@ describe('owner-safe independent event repository', () => {
   it('returns null for malformed IDs without an RPC', async () => {
     await expect(getEventContext(ACTOR_ID, 'not-a-uuid')).resolves.toBeNull()
     expect(mockRpc).not.toHaveBeenCalled()
+  })
+})
+
+describe('attendance dashboard and attendee-safe projections', () => {
+  const summary = (id: string, viewerRole: 'owner' | 'attendee') => ({
+    event_id: id,
+    name: 'Kvisskvöld',
+    active_guest_count: 1,
+    roster_revision: 2,
+    viewer_role: viewerRole,
+    created_at: '2026-08-15T21:53:00.000Z',
+    updated_at: '2026-08-16T08:00:00.000Z',
+  })
+
+  it('maps exact owned, pending and attending buckets', async () => {
+    mockRpc.mockResolvedValue({ data: {
+      owned: [summary(EVENT_ID, 'owner')],
+      pending: [{
+        invitation_id: INVITATION_ID,
+        event_id: PARTY_A,
+        name: 'Matarboð',
+        guest_display_name: 'Anna',
+        inviter_display_name: 'Bjarni',
+        invitation_kind: 'access_only',
+        status: 'pending',
+        expires_at: EXPIRES_AT,
+        invited_at: INVITED_AT,
+      }],
+      attending: [summary(PARTY_B, 'attendee')],
+    }, error: null })
+
+    await expect(listEventDashboard(ACTOR_ID)).resolves.toMatchObject({
+      owned: [{ id: EVENT_ID, viewerRole: 'owner' }],
+      pending: [{
+        invitationId: INVITATION_ID,
+        eventId: PARTY_A,
+        guestDisplayName: 'Anna',
+        inviterDisplayName: 'Bjarni',
+      }],
+      attending: [{ id: PARTY_B, viewerRole: 'attendee' }],
+    })
+  })
+
+  it('fails closed when any dashboard bucket exceeds 100 rows', async () => {
+    const owned = Array.from({ length: 101 }, (_, index) => summary(
+      `80000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      'owner',
+    ))
+    mockRpc.mockResolvedValue({ data: { owned, pending: [], attending: [] }, error: null })
+    await expect(listEventDashboard(ACTOR_ID)).rejects.toThrow('event_load_failed')
+  })
+
+  it('rejects email-like display values from attendee, pending-list and consent projections', async () => {
+    mockRpc.mockResolvedValueOnce({ data: {
+      event_id: EVENT_ID,
+      name: 'Kvisskvöld',
+      roster_revision: 2,
+      viewer_role: 'attendee',
+      owner_display_name: 'Eigandi',
+      created_at: INVITED_AT,
+      updated_at: INVITED_AT,
+      guests: [{
+        event_guest_id: GUEST_ID,
+        display_name: 'private@example.is',
+        position: 0,
+        is_self: true,
+      }],
+    }, error: null })
+    await expect(getEventAttendeeContext(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_load_failed')
+
+    mockRpc.mockResolvedValueOnce({ data: {
+      invitation_id: INVITATION_ID,
+      event_id: EVENT_ID,
+      event_name: 'Kvisskvöld',
+      guest_display_name: 'private@example.is',
+      inviter_display_name: 'Eigandi',
+      invitation_kind: 'identity_and_access',
+      status: 'pending',
+      roster: [{ display_name: 'Anna', position: 0, is_invited_guest: true }],
+      expires_at: EXPIRES_AT,
+      invited_at: INVITED_AT,
+    }, error: null })
+    await expect(getEventGuestAttendancePreview(ACTOR_ID, INVITATION_ID))
+      .rejects.toThrow('event_load_failed')
+
+    mockRpc.mockResolvedValueOnce({ data: {
+      owned: [],
+      pending: [{
+        invitation_id: INVITATION_ID,
+        event_id: EVENT_ID,
+        name: 'Kvisskvöld',
+        guest_display_name: 'private@example.is',
+        inviter_display_name: 'Eigandi',
+        invitation_kind: 'access_only',
+        status: 'pending',
+        expires_at: EXPIRES_AT,
+        invited_at: INVITED_AT,
+      }],
+      attending: [],
+    }, error: null })
+    await expect(listEventDashboard(ACTOR_ID)).rejects.toThrow('event_load_failed')
+  })
+
+  it('binds invitation response receipts to the requested decision', async () => {
+    mockRpc.mockResolvedValueOnce({ data: { status: 'accepted' }, error: null })
+    await expect(respondEventGuestAttendanceInvitation(ACTOR_ID, {
+      invitation_id: INVITATION_ID,
+      action: 'decline',
+      request_id: REQUEST_ID,
+    })).rejects.toThrow('event_save_failed')
+
+    mockRpc.mockResolvedValueOnce({ data: { status: 'expired' }, error: null })
+    await expect(respondEventGuestAttendanceInvitation(ACTOR_ID, {
+      invitation_id: INVITATION_ID,
+      action: 'accept',
+      request_id: REQUEST_ID,
+    })).resolves.toBe('expired')
+  })
+
+  it('maps only the minimal accepted scoped management preview', async () => {
+    mockRpc.mockResolvedValueOnce({ data: {
+      invitation_id: INVITATION_ID,
+      event_id: EVENT_ID,
+      event_name: 'Kvisskvöld',
+      guest_display_name: null,
+      inviter_display_name: null,
+      invitation_kind: 'identity_and_access',
+      status: 'accepted',
+      roster: [],
+      expires_at: null,
+      invited_at: INVITED_AT,
+    }, error: null })
+
+    await expect(getEventGuestAttendancePreview(ACTOR_ID, INVITATION_ID)).resolves.toEqual({
+      invitationId: INVITATION_ID,
+      eventId: EVENT_ID,
+      eventName: 'Kvisskvöld',
+      guestDisplayName: null,
+      inviterDisplayName: null,
+      invitationKind: 'identity_and_access',
+      status: 'accepted',
+      roster: [],
+      expiresAt: null,
+      invitedAt: INVITED_AT,
+    })
+  })
+
+  it('rejects any pre-accept roster projection', async () => {
+    mockRpc.mockResolvedValueOnce({ data: {
+      invitation_id: INVITATION_ID,
+      event_id: EVENT_ID,
+      event_name: 'Kvisskvöld',
+      guest_display_name: 'Anna',
+      inviter_display_name: 'Eigandi',
+      invitation_kind: 'identity_and_access',
+      status: 'pending',
+      roster: [{ display_name: 'Bjarni', position: 0, is_invited_guest: false }],
+      expires_at: EXPIRES_AT,
+      invited_at: INVITED_AT,
+    }, error: null })
+    await expect(getEventGuestAttendancePreview(ACTOR_ID, INVITATION_ID))
+      .rejects.toThrow('event_load_failed')
+  })
+
+  it('rejects an impossible already-sent delivery replay with attempt zero', async () => {
+    mockRpc.mockResolvedValueOnce({ data: {
+      attempt_number: 0,
+      can_send: false,
+      reason: 'already_sent',
+      recipient_email: null,
+      email_template_version: null,
+      event_name: null,
+      guest_display_name: null,
+      inviter_display_name: null,
+      invitation_kind: null,
+    }, error: null })
+    await expect(reserveEventGuestAttendanceDelivery(
+      ACTOR_ID,
+      INVITATION_ID,
+      REQUEST_ID,
+      {
+        recipientHash: 'a'.repeat(64),
+        actorRecipientRateHash: 'b'.repeat(64),
+        actorTotalRateHash: 'c'.repeat(64),
+      },
+      '2026-08-16',
+    )).rejects.toThrow('event_save_failed')
+  })
+
+  it('maps a receipt-backed failed replay without exposing delivery context', async () => {
+    mockRpc.mockResolvedValueOnce({ data: {
+      attempt_number: 2,
+      can_send: false,
+      reason: 'already_failed',
+      recipient_email: null,
+      email_template_version: null,
+      event_name: null,
+      guest_display_name: null,
+      inviter_display_name: null,
+      invitation_kind: null,
+    }, error: null })
+    await expect(reserveEventGuestAttendanceDelivery(
+      ACTOR_ID,
+      INVITATION_ID,
+      REQUEST_ID,
+      {
+        recipientHash: 'a'.repeat(64),
+        actorRecipientRateHash: 'b'.repeat(64),
+        actorTotalRateHash: 'c'.repeat(64),
+      },
+      '2026-08-16',
+    )).resolves.toEqual({
+      canSend: false,
+      reason: 'already_failed',
+      attemptNumber: 2,
+    })
+    expect(mockRpc).toHaveBeenCalledWith(
+      'teskeid_event_reserve_guest_attendance_delivery',
+      expect.objectContaining({ p_delivery_request_id: REQUEST_ID }),
+    )
   })
 })
 
@@ -587,18 +1004,22 @@ describe('legacy SQL131 classifier and direct mutation contracts', () => {
 
   it('returns exact create and roster mutation identities', async () => {
     mockRpc
-      .mockResolvedValueOnce({ data: { event_id: EVENT_ID, roster_revision: 1 }, error: null })
-      .mockResolvedValueOnce({ data: { event_id: EVENT_ID, roster_revision: 2 }, error: null })
+      .mockResolvedValueOnce({ data: {
+        event_id: EVENT_ID, roster_revision: 1, invitations: [],
+      }, error: null })
+      .mockResolvedValueOnce({ data: {
+        event_id: EVENT_ID, roster_revision: 2, invitations: [],
+      }, error: null })
     await expect(createEventContext(ACTOR_ID, {
       request_id: REQUEST_ID,
       name: 'Kvisskvöld',
       guests: [],
-    })).resolves.toEqual({ eventId: EVENT_ID, rosterRevision: 1 })
+    })).resolves.toEqual({ eventId: EVENT_ID, rosterRevision: 1, invitations: [] })
     await expect(replaceEventRoster(ACTOR_ID, {
       event_id: EVENT_ID,
       request_id: REQUEST_ID,
       expected_roster_revision: 1,
       guests: [],
-    })).resolves.toEqual({ eventId: EVENT_ID, rosterRevision: 2 })
+    })).resolves.toEqual({ eventId: EVENT_ID, rosterRevision: 2, invitations: [] })
   })
 })

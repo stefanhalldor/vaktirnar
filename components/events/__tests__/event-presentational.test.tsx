@@ -14,6 +14,16 @@ const copy: Record<string, string> = {
   'list.heading': 'Viðburðirnir þínir',
   'list.participantCount': '{count} gestir',
   'list.createdAt': 'Stofnað {date}',
+  'attendance.ownedHeading': 'Viðburðirnir þínir',
+  'attendance.ownedEmpty': 'Engir eigin viðburðir.',
+  'attendance.pendingHeading': 'Boð sem bíða',
+  'attendance.pendingEmpty': 'Engin boð.',
+  'attendance.acceptedHeading': 'Viðburðir sem þú tekur þátt í',
+  'attendance.acceptedEmpty': 'Engin samþykkt boð.',
+  'attendance.openInvitation': 'Opna boð í {name}',
+  'attendance.invitedBy': 'Boð frá {name}',
+  'attendance.genericGuest': 'Gestur',
+  'invitation.unknownInviter': 'Teskeiðarnotanda',
   'detail.createdAt': 'Stofnað {date}',
   'detail.privateRosterHint': 'Þetta er þitt einkayfirlit.',
   'detail.addExpense': 'Nýr útlagður kostnaður',
@@ -29,6 +39,10 @@ const copy: Record<string, string> = {
   'detail.saveRoster': 'Vista gestalista',
   'detail.savingRoster': 'Vista gestalista...',
   'detail.rosterSaved': 'Gestalistinn var vistaður.',
+  'detail.rosterSavedWithInvitations': 'Gestalistinn var vistaður og ný boð voru send.',
+  'detail.rosterSavedWithDeliveryIssue': 'Gestalistinn var vistaður en einhver boð bíða.',
+  'detail.invitationDeliverySummary': '{sentCount} send, {pendingCount} bíða',
+  'identityInvitation.acceptedAccessLabel': 'Gesturinn hefur samþykkt lestraraðgang.',
   'picker.trigger': 'Bæta við gesti',
   'picker.title': 'Bæta við gesti',
   'picker.description': 'Veldu þekktan aðila eða skráðu nafn eða netfang.',
@@ -118,22 +132,53 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockSaveEventRoster.mockResolvedValue({
     ok: true,
-    data: { eventId: EVENT_ID, rosterRevision: 2 },
+    data: {
+      eventId: EVENT_ID,
+      rosterRevision: 2,
+      invitationCount: 0,
+      deliveredCount: 0,
+      deliveryIssue: false,
+    },
   })
 })
 
 describe('event presentational components', () => {
   it('renders an independent event list without expense counts', () => {
-    const { rerender } = render(<EventList events={[]} />)
-    expect(screen.getByText('Engir viðburðir enn')).toBeInTheDocument()
+    const { rerender } = render(<EventList dashboard={{ owned: [], pending: [], attending: [] }} />)
+    expect(screen.getByText('Engir eigin viðburðir.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Nýr viðburður' }))
       .toHaveAttribute('href', '/auth-mvp/vidburdir/nyr')
 
-    rerender(<EventList events={[eventSummary]} />)
+    rerender(<EventList dashboard={{
+      owned: [{ ...eventSummary, viewerRole: 'owner' }],
+      pending: [],
+      attending: [],
+    }} />)
     expect(screen.getByRole('link', { name: /Kvisskvöld/ }))
       .toHaveAttribute('href', `/auth-mvp/vidburdir/${EVENT_ID}`)
     expect(screen.getByText('2 gestir')).toBeInTheDocument()
     expect(screen.queryByText(/útgjöld/)).not.toBeInTheDocument()
+  })
+
+  it('localizes null pending-invitation labels without exposing an email fallback', () => {
+    render(<EventList dashboard={{
+      owned: [],
+      pending: [{
+        invitationId: '74000000-0000-4000-8000-000000000001',
+        eventId: EVENT_ID,
+        name: 'Matarboð',
+        guestDisplayName: null,
+        inviterDisplayName: null,
+        invitationKind: 'access_only',
+        status: 'pending',
+        invitedAt: '2026-08-16T09:00:00.000Z',
+        expiresAt: '2026-08-23T09:00:00.000Z',
+      }],
+      attending: [],
+    }} />)
+    expect(screen.getByText('Gestur')).toBeInTheDocument()
+    expect(screen.getByText('Boð frá Teskeiðarnotanda')).toBeInTheDocument()
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument()
   })
 
   it('saves one full ordered roster with retained IDs and new strict sources', async () => {
@@ -162,6 +207,34 @@ describe('event presentational components', () => {
       ],
     })
     expect(mockRefresh).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Vista gestalista...' })).toBeDisabled()
+  })
+
+  it('reports the exact delivered and unsent invitation counts after a durable roster save', async () => {
+    mockSaveEventRoster.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        eventId: EVENT_ID,
+        rosterRevision: 2,
+        invitationCount: 21,
+        deliveredCount: 20,
+        deliveryIssue: true,
+      },
+    })
+    render(
+      <EventDetail
+        event={baseEvent}
+        options={[]}
+        optionsError={false}
+        canUseExpenses={false}
+      />,
+    )
+    addManual('Anna')
+    fireEvent.click(screen.getByRole('button', { name: 'Vista gestalista' }))
+
+    expect(await screen.findByText('Gestalistinn var vistaður en einhver boð bíða.'))
+      .toBeInTheDocument()
+    expect(screen.getByText('20 send, 1 bíða')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Vista gestalista...' })).toBeDisabled()
   })
 
@@ -323,6 +396,65 @@ describe('event presentational components', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Vista gestalista' }))
     await waitFor(() => expect(mockSaveEventRoster).toHaveBeenCalledTimes(2))
+  })
+
+  it('rebases same-revision attendance refreshes without losing a dirty roster draft', async () => {
+    const eventWithAttendance = {
+      ...baseEvent,
+      guests: [{
+        ...baseEvent.guests[0]!,
+        attendance: {
+          status: 'not_invited' as const,
+          invitationId: null,
+          invitationKind: null,
+          recipientLabel: null,
+          deliveryStatus: null,
+          attemptNumber: null,
+          invitedAt: null,
+          expiresAt: null,
+          acceptedAt: null,
+        },
+      }],
+    }
+    const view = render(
+      <EventDetail
+        event={eventWithAttendance}
+        options={[]}
+        optionsError={false}
+        canUseExpenses={false}
+      />,
+    )
+    addManual('Óvistaður gestur')
+
+    view.rerender(
+      <EventDetail
+        event={{
+          ...eventWithAttendance,
+          guests: [{
+            ...eventWithAttendance.guests[0]!,
+            attendance: {
+              status: 'accepted',
+              invitationId: '73000000-0000-4000-8000-000000000001',
+              invitationKind: 'access_only',
+              recipientLabel: null,
+              deliveryStatus: null,
+              attemptNumber: null,
+              invitedAt: '2026-08-16T09:00:00.000Z',
+              expiresAt: null,
+              acceptedAt: '2026-08-16T09:05:00.000Z',
+            },
+          }],
+        }}
+        options={[]}
+        optionsError={false}
+        canUseExpenses={false}
+      />,
+    )
+
+    expect(await screen.findByText('Gesturinn hefur samþykkt lestraraðgang.'))
+      .toBeInTheDocument()
+    expect(screen.getByText('Óvistaður gestur')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Vista gestalista' })).toBeEnabled()
   })
 
   it('keeps event CRUD usable without Expenses and exposes only an optional financial seam', () => {

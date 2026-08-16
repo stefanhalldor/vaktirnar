@@ -11,9 +11,19 @@ export interface EventAccess {
   user: User
 }
 
-export async function guardEventAccess(): Promise<EventAccess> {
+/**
+ * Global Events gate plus a verified Teskeið session. Scoped invitation
+ * routes use this guard so an exact-email recipient can consent without an
+ * Events per-user entitlement. It does not grant access to any Event data.
+ */
+export async function guardEventSession(): Promise<EventAccess> {
   if (process.env.EVENTS_ENABLED !== 'true') redirect('/')
   const { user } = await guardTeskeidSession()
+  return { user }
+}
+
+export async function guardEventAccess(): Promise<EventAccess> {
+  const { user } = await guardEventSession()
   if (!user.email || !await checkFeatureAccess(user.id, user.email, EVENT_FEATURE_KEY)) redirect('/')
   return { user }
 }
