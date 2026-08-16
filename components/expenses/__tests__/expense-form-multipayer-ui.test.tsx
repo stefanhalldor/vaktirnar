@@ -30,6 +30,7 @@ const translations: Record<string, string> = {
   'expenseForm.participantShare': 'Hlutur í kostnaði: {amount}',
   'expenseForm.paidAtPurchase': 'Lagði út {amount}',
   'expenseForm.participantHint': 'Veldu aðila.', 'expenseForm.knownPeople': 'Þekktir aðilar',
+  'expenseForm.selectAllEventGuests': 'Velja alla gesti',
   'expenseForm.guestName': 'Nafn gests', 'expenseForm.addGuest': 'Bæta við gesti',
   'expenseForm.removeParticipant': 'Fjarlægja {name}', 'expenseForm.paidBy': 'Hver borgaði?',
   'expenseForm.paidByMultiple': 'Hverjir borguðu?',
@@ -118,6 +119,29 @@ async function next(name: string) {
 }
 
 describe('ExpenseForm simplified split and autosave', () => {
+  it('keeps event guests unchecked until an explicit share selection and never changes the payer', () => {
+    renderForm({
+      eventContext: true,
+      initialStep: 'split',
+      initialMembers: [
+        { key: 'member-self', label: 'Ég', isSelf: true, included: true },
+        { key: 'member-anna', label: 'Anna', isSelf: false, included: false },
+        { key: 'member-bjarni', label: 'Bjarni', isSelf: false, included: false },
+      ],
+    })
+
+    expect(screen.getByRole('checkbox', { name: /Ég/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Anna' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Bjarni' })).not.toBeChecked()
+    expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('member-self')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Velja alla gesti' }))
+    expect(screen.getByRole('checkbox', { name: 'Anna' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Bjarni' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Ég/ })).toBeChecked()
+    expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('member-self')
+  })
+
   it('shows only fixed amount, percentage and shares, with shares selected by default', async () => {
     renderForm({ initialStep: 'split' })
     const group = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })

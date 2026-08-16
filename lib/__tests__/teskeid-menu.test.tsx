@@ -20,7 +20,7 @@ vi.mock('next-intl', () => ({
     menu: 'Valmynd', closeMenu: 'Loka valmynd', publicNavigation: 'Almenn leiðsögn',
     featureNavigation: 'Teskeiðar og aðgangur', ideas: 'Hugmyndabankinn', quiz: 'Kviss',
     submitIdea: 'Ný hugmynd', login: 'Nýskráning / innskráning', loans: 'Lánað og skilað',
-    expenses: 'Útlagt og endurgreitt', bookkeeping: 'Bókhaldið', care: 'Umönnun',
+    expenses: 'Útlagt og endurgreitt', events: 'Viðburðir', bookkeeping: 'Bókhaldið', care: 'Umönnun',
     weather: 'Veðrið', advertiser: 'Auglýsandi', bookings: 'Bókanir', home: 'Heim',
     agentCollaboration: 'Samvinna', profile: 'Minn prófíll', signOut: 'Útskrá',
     agentUnread: 'Ólesin skilaboð',
@@ -41,7 +41,7 @@ import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 vi.stubGlobal('fetch', mockFetch)
 
 const ALL_FEATURES = [
-  'lanad-og-skilad', 'utlagt-og-endurgreitt', 'bokhaldid', 'umonnun',
+  'lanad-og-skilad', 'utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun',
   'vedrid', 'kviss', 'auglysandi', 'bokanir',
 ] as const
 

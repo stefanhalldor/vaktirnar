@@ -147,6 +147,13 @@ describe('RelationshipPartyPicker', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
+  it('lets a domain adapter narrow the manual input presentation limit', () => {
+    openPicker({ manualInputMaxLength: 120 })
+    fireEvent.click(screen.getByRole('button', { name: 'Handvirkt' }))
+
+    expect(screen.getByRole('textbox', { name: 'Nafn eða netfang' })).toHaveAttribute('maxlength', '120')
+  })
+
   it('shows load and empty states and resets state on close', () => {
     openPicker({
       options,

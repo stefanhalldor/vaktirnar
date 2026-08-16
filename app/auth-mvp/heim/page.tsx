@@ -78,6 +78,7 @@ export default async function HeimPage() {
   const kvissEnabled = visibleLauncherIds.has('kviss')
   const advertiserEnabled = visibleLauncherIds.has('auglysandi')
   const bookingsEnabled = visibleLauncherIds.has('bokanir')
+  const eventsEnabled = visibleLauncherIds.has('afmaeli-og-vidburdir')
 
   const displayLocale = getDisplayLocale(locale)
 
@@ -87,9 +88,11 @@ export default async function HeimPage() {
     || (idea.slug === 'kviss' && kvissEnabled)
     || (idea.slug === 'auglysandi' && advertiserEnabled)
     || (idea.slug === 'bokanir' && bookingsEnabled)
+    || (idea.slug === 'afmaeli-og-vidburdir' && eventsEnabled)
   const visibleIdeas = allIdeas.filter((idea) => (
     (idea.slug !== 'bokhaldid' || bookkeepingEnabled)
     && (idea.slug !== 'bokanir' || bookingsEnabled)
+    && (idea.slug !== 'afmaeli-og-vidburdir' || eventsEnabled)
   ))
   const futureIdeas = visibleIdeas.filter((idea) => (
     !visibleLauncherIds.has(idea.slug as typeof launcher.featureIds[number])

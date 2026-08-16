@@ -49,6 +49,17 @@ describe('private booking route shell', () => {
   })
 
   it.each([
+    '/auth-mvp/vidburdir',
+    '/auth-mvp/vidburdir/11111111-1111-4111-8111-111111111111',
+    '/auth-mvp/utlagt-og-endurgreitt',
+    '/auth-mvp/utlagt-og-endurgreitt/hopar/11111111-1111-4111-8111-111111111111',
+  ])('does not mount analytics on private event or expense data: %s', pathname => {
+    mockPathname.mockReturnValue(pathname)
+    render(<TeskeidAnalytics />)
+    expect(screen.queryByTestId('analytics')).toBeNull()
+  })
+
+  it.each([
     ['/innskraning', '/bokanir/kvissbador'],
     [
       '/auth-mvp/minn-profill',
@@ -91,6 +102,18 @@ describe('private booking route shell', () => {
     expect(globalStart).toBeGreaterThanOrEqual(0)
     expect(start).toBeGreaterThan(globalStart)
     expect(providerStart).toBeGreaterThan(globalStart)
+
+    for (const source of [
+      "source: '/auth-mvp/vidburdir/:path*'",
+      "source: '/auth-mvp/utlagt-og-endurgreitt/:path*'",
+    ]) {
+      const privateStart = config.indexOf(source)
+      const privateHeaders = config.slice(privateStart)
+      expect(privateStart).toBeGreaterThan(globalStart)
+      expect(privateHeaders).toContain("{ key: 'Cache-Control', value: 'private, no-store' }")
+      expect(privateHeaders).toContain("{ key: 'Referrer-Policy', value: 'no-referrer' }")
+      expect(privateHeaders).toContain("{ key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' }")
+    }
   })
 
   it('keeps the workflow editor guarded, pending-visible and retryable on operational errors', () => {

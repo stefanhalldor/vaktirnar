@@ -70,6 +70,7 @@ export function RelationshipPartyPicker({
   optionsError = false,
   circles = [],
   disabled = false,
+  manualInputMaxLength = 320,
   copy,
   onSelectOption,
   onSelectManual,
@@ -80,6 +81,8 @@ export function RelationshipPartyPicker({
   optionsError?: boolean
   circles?: RelationshipPartyPickerCircle[]
   disabled?: boolean
+  /** Presentation limit only. Domain adapters remain responsible for validation. */
+  manualInputMaxLength?: number
   copy: RelationshipPartyPickerCopy
   /** Returns only the stable option ID; domain adapters resolve the authoritative value. */
   onSelectOption: (id: string) => boolean
@@ -222,7 +225,7 @@ export function RelationshipPartyPicker({
             <div className="mt-5 space-y-4">
               <label className="block">
                 <span className="mb-1 block text-sm font-medium">{copy.manual.inputLabel}</span>
-                <input className={inputClass} value={manualValue} onChange={(event) => { setManualValue(event.target.value); setError(null) }} maxLength={320} autoComplete="off" placeholder={copy.manual.inputPlaceholder} />
+                <input className={inputClass} value={manualValue} onChange={(event) => { setManualValue(event.target.value); setError(null) }} maxLength={manualInputMaxLength} autoComplete="off" placeholder={copy.manual.inputPlaceholder} />
               </label>
               <p className="text-xs leading-5 text-muted-foreground">{copy.manual.hint}</p>
               <button type="button" className={`${primaryButtonClass} w-full`} disabled={!manualValue.trim()} onClick={selectManual}>

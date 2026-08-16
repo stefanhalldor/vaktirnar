@@ -31,6 +31,7 @@ export function resolveTeskeidFeatureRollout(
     case 'vedrid':
       return 'open'
     case 'utlagt-og-endurgreitt':
+    case 'afmaeli-og-vidburdir':
     case 'bokhaldid':
     case 'kviss':
     case 'auglysandi':

@@ -73,6 +73,18 @@ export async function checkFeatureAccess(
     if (process.env.EXPENSES_ENABLED !== 'true') return false
     return checkPerUserAccess(email, 'utlagt-og-endurgreitt')
   }
+  if (featureKey === 'afmaeli-og-vidburdir') {
+    // Viðburðir are an expense-backed private MVP. Both global switches and
+    // both exact entitlements are required so the launcher and route guards
+    // cannot expose an event context without canonical expense access.
+    if (process.env.EVENTS_ENABLED !== 'true') return false
+    if (process.env.EXPENSES_ENABLED !== 'true') return false
+    const [eventsAccess, expensesAccess] = await Promise.all([
+      checkPerUserAccess(email, 'afmaeli-og-vidburdir'),
+      checkPerUserAccess(email, 'utlagt-og-endurgreitt'),
+    ])
+    return eventsAccess && expensesAccess
+  }
   if (featureKey === 'bokhaldid') {
     // Bókhaldið remains a strict private beta: the global emergency switch
     // and an explicit per-user entitlement are both always required.

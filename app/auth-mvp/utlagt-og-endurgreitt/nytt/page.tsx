@@ -8,18 +8,45 @@ import { parseExpenseDraftId } from '@/lib/expenses/flow'
 import { getExpensePrivateDraft } from '@/lib/expenses/repository.server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getRelationshipCircleOptions } from '@/lib/relationships/repository-v2.server'
+import { ExpenseEventContextChooser } from '@/components/events/ExpenseEventContextChooser'
+import { listEvents } from '@/lib/events/repository.server'
 
-export default async function NewOneOffExpensePage({ searchParams }: { searchParams: Promise<{ draft?: string | string[] }> }) {
+export default async function NewOneOffExpensePage({ searchParams }: { searchParams: Promise<{ draft?: string | string[]; context?: string | string[] }> }) {
   const [{ user }, t, query] = await Promise.all([guardExpenseAccess(), getExpenseTranslations(), searchParams])
+  const draftId = parseExpenseDraftId(query.draft)
+  const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
+  const safeDraft = draft?.contextType === 'one_off' ? draft : null
+
+  // The chooser is a pre-form boundary: a fresh expense does not mount a form
+  // or create a draft until the user explicitly commits to standalone/event.
+  if (!safeDraft && query.context !== 'standalone') {
+    const canUseEvents = await checkFeatureAccess(
+      user.id,
+      user.email ?? '',
+      'afmaeli-og-vidburdir',
+    )
+    if (canUseEvents) {
+      let events: Awaited<ReturnType<typeof listEvents>> = []
+      let eventsError = false
+      try {
+        events = await listEvents(user.id)
+      } catch {
+        eventsError = true
+      }
+      return (
+        <ExpenseShell title={t('expenseForm.oneOffTitle')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
+          <ExpenseEventContextChooser events={events} eventsError={eventsError} />
+        </ExpenseShell>
+      )
+    }
+  }
+
   const actorName = await getExpenseActorDisplayName(user.id)
   let options: ExpenseParticipantOption[] = []
   let optionsError = false
   try { options = await getExpenseParticipantOptions(user.id) } catch { optionsError = true }
   const canUseCircles = await checkFeatureAccess(user.id, user.email!, 'tengsl')
   const circleOptions = canUseCircles ? await getRelationshipCircleOptions(user.id) : []
-  const draftId = parseExpenseDraftId(query.draft)
-  const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
-  const safeDraft = draft?.contextType === 'one_off' ? draft : null
   return (
     <ExpenseShell title={t('expenseForm.oneOffTitle')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
       <ExpenseForm

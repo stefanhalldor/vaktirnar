@@ -84,6 +84,8 @@ interface ExpenseFormProps {
   reviewHref?: string
   draft?: ExpensePrivateDraftView | null
   draftBaseHref?: string
+  /** Event rosters are candidates only; guests start unchecked and shares stay explicit. */
+  eventContext?: boolean
   edit?: {
     expense: ExpenseItemView
     expectedFinancialVersion: number
@@ -202,6 +204,7 @@ export function ExpenseForm({
   initialStep = 'details',
   draft = null,
   draftBaseHref = '',
+  eventContext = false,
   edit,
 }: ExpenseFormProps) {
   const t = useExpenseTranslations()
@@ -976,6 +979,19 @@ export function ExpenseForm({
       <fieldset className="space-y-3 border-y border-border py-5">
         <legend id="expense-split-heading" tabIndex={-1} className="text-sm font-semibold">{t('expenseForm.participants')}</legend>
         {mode === 'one_off' ? <p className="text-xs leading-5 text-muted-foreground">{t('expenseForm.participantHint')}</p> : null}
+        {eventContext && members.some((member) => !member.isSelf) ? (
+          <button
+            type="button"
+            className={`${expenseSecondaryButtonClass} w-full`}
+            disabled={navigationBusy || members.filter((member) => !member.isSelf).every((member) => included[member.key] !== false)}
+            onClick={() => setIncluded((current) => ({
+              ...current,
+              ...Object.fromEntries(members.filter((member) => !member.isSelf).map((member) => [member.key, true])),
+            }))}
+          >
+            {t('expenseForm.selectAllEventGuests')}
+          </button>
+        ) : null}
         <div className="divide-y divide-border">
           {members.map((member) => {
             const share = included[member.key] !== false

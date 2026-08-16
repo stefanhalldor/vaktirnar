@@ -617,3 +617,24 @@ describe('feature-access API — booking-provider private beta', () => {
     },
   )
 })
+
+describe('feature-access API — events private beta', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('accepts, grants and revokes only the exact afmaeli-og-vidburdir key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    expect((await GET(makeGetRequest('afmaeli-og-vidburdir'))).status).toBe(200)
+    expect((await POST(makeRequest({ email: ' Owner@Example.com ' }, 'POST', 'afmaeli-og-vidburdir'))).status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith({ feature_key: 'afmaeli-og-vidburdir', email: 'owner@example.com' })
+    expect((await DELETE(makeRequest({ email: 'owner@example.com' }, 'DELETE', 'afmaeli-og-vidburdir'))).status).toBe(200)
+  })
+
+  it.each(['vidburdir', 'afmaeli-vidburdir', 'afmaeli-og-vidburdir-private-beta'])(
+    'rejects the lookalike key %s',
+    async featureKey => {
+      mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+      expect((await GET(makeGetRequest(featureKey))).status).toBe(400)
+    },
+  )
+})

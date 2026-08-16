@@ -11,11 +11,12 @@ import { ExpenseGroupActions } from './ExpenseGroupActions'
 import { ExpenseMemberManager } from './ExpenseMemberManager'
 import { expensePrimaryButtonClass } from './ui'
 
-export async function ExpenseGroupDetail({ group, initialDate, participantOptions, participantOptionsError }: {
+export async function ExpenseGroupDetail({ group, initialDate, participantOptions, participantOptionsError, isEventContext = false }: {
   group: ExpenseGroupView
   initialDate: string
   participantOptions: ExpenseParticipantOption[]
   participantOptionsError: boolean
+  isEventContext?: boolean
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const statusKey = group.status === 'active' ? 'statusActive' : group.status === 'settling' ? 'statusSettling' : group.status === 'settled' ? 'statusSettled' : 'statusClosed'
@@ -77,14 +78,16 @@ export async function ExpenseGroupDetail({ group, initialDate, participantOption
         </section>
       ) : null}
 
-      <ExpenseMemberManager
-        groupId={group.id}
-        members={group.members}
-        options={participantOptions}
-        optionsError={participantOptionsError}
-        canManage={group.kind === 'group' && group.status === 'active' && group.canManage}
-        canLinkGuests={canLinkExpenseGuest({ groupStatus: group.status, canManage: group.canManage })}
-      />
+      {!isEventContext ? (
+        <ExpenseMemberManager
+          groupId={group.id}
+          members={group.members}
+          options={participantOptions}
+          optionsError={participantOptionsError}
+          canManage={group.kind === 'group' && group.status === 'active' && group.canManage}
+          canLinkGuests={canLinkExpenseGuest({ groupStatus: group.status, canManage: group.canManage })}
+        />
+      ) : null}
 
       {group.activity.length > 0 ? <section><h2 className="mb-2 text-sm font-semibold">{t('group.activity')}</h2><ol className="divide-y divide-border border-y border-border">{group.activity.map((activity) => <li key={activity.id} className="py-3 text-sm"><p>{activity.summaryCode === 'expense_group_reopened_after_expense_edit' ? t('activitySummary.expense_group_reopened_after_expense_edit') : t(`activity.${activity.eventType}`)}</p><p className="mt-0.5 text-xs text-muted-foreground">{activity.actorDisplayName} · {formatDateTime(activity.createdAt, locale)}</p></li>)}</ol></section> : null}
 

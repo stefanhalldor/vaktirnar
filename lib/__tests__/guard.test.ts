@@ -1441,6 +1441,59 @@ describe('checkFeatureAccess — utlagt-og-endurgreitt (always private beta)', (
   })
 })
 
+describe('checkFeatureAccess — afmaeli-og-vidburdir (composite private beta)', () => {
+  let savedEventsEnabled: string | undefined
+  let savedExpensesEnabled: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedEventsEnabled = process.env.EVENTS_ENABLED
+    savedExpensesEnabled = process.env.EXPENSES_ENABLED
+  })
+
+  afterEach(() => {
+    setEnv('EVENTS_ENABLED', savedEventsEnabled)
+    setEnv('EXPENSES_ENABLED', savedExpensesEnabled)
+  })
+
+  it.each([
+    [undefined, 'true'],
+    ['false', 'true'],
+    ['true', undefined],
+    ['true', 'false'],
+  ])('fails before lookup when EVENTS_ENABLED=%s and EXPENSES_ENABLED=%s', async (events, expenses) => {
+    setEnv('EVENTS_ENABLED', events)
+    setEnv('EXPENSES_ENABLED', expenses)
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'afmaeli-og-vidburdir')).toBe(false)
+    expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+  })
+
+  it('requires exact rows for both Events and Expenses', async () => {
+    process.env.EVENTS_ENABLED = 'true'
+    process.env.EXPENSES_ENABLED = 'true'
+    mockFeatureAccessQuery
+      .mockResolvedValueOnce({ data: { email: 'user@example.com' }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'afmaeli-og-vidburdir')).toBe(false)
+
+    mockFeatureAccessQuery.mockReset()
+    mockFeatureAccessQuery
+      .mockResolvedValueOnce({ data: { email: 'user@example.com' }, error: null })
+      .mockResolvedValueOnce({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'afmaeli-og-vidburdir')).toBe(true)
+    expect(mockFeatureAccessQuery).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails closed when either entitlement lookup fails', async () => {
+    process.env.EVENTS_ENABLED = 'true'
+    process.env.EXPENSES_ENABLED = 'true'
+    mockFeatureAccessQuery
+      .mockResolvedValueOnce({ data: null, error: { message: 'db down' } })
+      .mockResolvedValueOnce({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'afmaeli-og-vidburdir')).toBe(false)
+  })
+})
+
 describe('checkFeatureAccess — bokhaldid (always private beta)', () => {
   let savedBookkeepingEnabled: string | undefined
 

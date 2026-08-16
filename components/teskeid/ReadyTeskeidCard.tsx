@@ -21,6 +21,7 @@ const SLUG_ICONS: Record<string, LucideIcon> = {
   'lanad-og-skilad': Handshake,
   'maki-kaero': Heart,
   'utlagt-og-endurgreitt': Wallet,
+  'afmaeli-og-vidburdir': Calendar,
   'bokhaldid': BookOpen,
   'krakkavaktin': Baby,
   'vedrid': CloudSun,
@@ -48,6 +49,7 @@ const SLUG_COLORS: Record<string, { bg: string; text: string }> = {
   'vedrid':          { bg: 'bg-[#eef7f7]', text: 'text-[#1f6f78]' },
   'umonnun':         { bg: 'bg-rose-50',   text: 'text-rose-700'   },
   'utlagt-og-endurgreitt': { bg: 'bg-[#eef7ea]', text: 'text-[#2d5a27]' },
+  'afmaeli-og-vidburdir': { bg: 'bg-[#fff4dc]', text: 'text-[#7a4b00]' },
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {

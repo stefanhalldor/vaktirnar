@@ -7,6 +7,8 @@ import { parseExpenseSavedView } from '@/lib/expenses/flow'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
 import { getExpenseItemLookup } from '@/lib/expenses/repository.server'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
+import { isExpenseEventContext } from '@/lib/events/repository.server'
+import { checkFeatureAccess } from '@/lib/loans/guard'
 
 export default async function ExpenseItemPage({ params, searchParams }: { params: Promise<{ expenseId: string }>; searchParams: Promise<{ view?: string | string[] }> }) {
   const [{ expenseId }, { user }, t, query] = await Promise.all([
@@ -35,6 +37,17 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
       </ExpenseShell>
     )
   }
+  const eventClassification = result.group.kind === 'group'
+    ? await isExpenseEventContext(user.id, result.group.id)
+      .then((value) => ({ value, reliable: true }))
+      .catch(() => ({ value: true, reliable: false }))
+    : { value: false, reliable: true }
+  const isEventContext = eventClassification.value
+  const canUseEventUi = eventClassification.reliable && isEventContext && await checkFeatureAccess(
+    user.id,
+    user.email ?? '',
+    'afmaeli-og-vidburdir',
+  )
   let participantOptions: ExpenseParticipantOption[] = []
   let participantOptionsError = false
   if (result.group.kind === 'one_off' && result.group.canManage) {
@@ -49,7 +62,9 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
     <ExpenseShell
       title={result.expense.title}
       homeLabel={t('homeLabel')}
-      backHref={result.group.kind === 'one_off'
+      backHref={canUseEventUi
+        ? `/auth-mvp/vidburdir/${result.group.id}`
+        : result.group.kind === 'one_off'
         ? '/auth-mvp/utlagt-og-endurgreitt'
         : `/auth-mvp/utlagt-og-endurgreitt/hopar/${result.group.id}`}
       backLabel={t('back')}
@@ -62,6 +77,7 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         initialDate={new Date().toISOString().slice(0, 10)}
         participantOptions={participantOptions}
         participantOptionsError={participantOptionsError}
+        isEventContext={isEventContext}
       />
     </ExpenseShell>
   )

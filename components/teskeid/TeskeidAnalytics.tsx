@@ -5,9 +5,11 @@ import { Analytics } from '@vercel/analytics/react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { isSafeBookingLoginNext } from '@/lib/auth/loginNext'
 
-const PRIVATE_BOOKING_PATHS = [
+const PRIVATE_SENSITIVE_PATHS = [
   /^\/bokanir(?:\/|$)/,
   /^\/auth-mvp\/bokanir(?:\/|$)/,
+  /^\/auth-mvp\/vidburdir(?:\/|$)/,
+  /^\/auth-mvp\/utlagt-og-endurgreitt(?:\/|$)/,
 ]
 
 /**
@@ -18,7 +20,7 @@ const PRIVATE_BOOKING_PATHS = [
 function RouteAwareAnalytics() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  if (PRIVATE_BOOKING_PATHS.some(pattern => pattern.test(pathname))) return null
+  if (PRIVATE_SENSITIVE_PATHS.some(pattern => pattern.test(pathname))) return null
   if (
     (pathname === '/innskraning' || pathname === '/auth-mvp/minn-profill')
     && isSafeBookingLoginNext(searchParams.get('next'))

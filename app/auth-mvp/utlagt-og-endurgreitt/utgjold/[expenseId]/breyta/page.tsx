@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
+import { isExpenseEventContext } from '@/lib/events/repository.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { expenseDetailHref, parseExpenseDraftId, parseExpenseFlowStep } from '@/lib/expenses/flow'
 import { canEditExpense } from '@/lib/expenses/policy'
@@ -26,6 +27,7 @@ export default async function EditExpensePage({
   if (!result) notFound()
 
   const { expense, group } = result
+  const isEventContext = await isExpenseEventContext(user.id, group.id).catch(() => true)
   const hasReportedRepayment = group.repayments.some(
     (repayment) => repayment.status === 'reported',
   )
@@ -83,6 +85,7 @@ export default async function EditExpensePage({
         initialStep={initialStep}
         participantOptions={participantOptions}
         participantOptionsError={participantOptionsError}
+        eventContext={isEventContext}
         draft={safeDraft}
         draftBaseHref={`${expenseDetailHref(expense.id)}/breyta`}
         initialMembers={group.members

@@ -51,9 +51,9 @@ beforeEach(() => {
 })
 
 describe('canonical launcher catalog', () => {
-  it('contains the exact eight stable allowlisted IDs', () => {
+  it('contains the exact nine stable allowlisted IDs', () => {
     expect(TESKEID_LAUNCHER_IDS).toEqual([
-      'lanad-og-skilad', 'utlagt-og-endurgreitt', 'bokhaldid', 'umonnun',
+      'lanad-og-skilad', 'utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun',
       'vedrid', 'kviss', 'auglysandi', 'bokanir',
     ])
     expect(isTeskeidLauncherId('/arbitrary')).toBe(false)
@@ -62,6 +62,7 @@ describe('canonical launcher catalog', () => {
   it.each([
     ['/auth-mvp/lanad-og-skilad/ny', 'lanad-og-skilad'],
     ['/auth-mvp/utlagt-og-endurgreitt/hopar/a', 'utlagt-og-endurgreitt'],
+    ['/auth-mvp/vidburdir/a', 'afmaeli-og-vidburdir'],
     ['/auth-mvp/bokhaldid/timabil/a', 'bokhaldid'],
     ['/auth-mvp/umonnun', 'umonnun'],
     ['/auth-mvp/vedrid/puls/stod/1', 'vedrid'],
@@ -95,7 +96,7 @@ describe('per-user MRU ordering', () => {
       { feature_key: 'utlagt-og-endurgreitt', created_at: '2026-08-13T12:02:00Z' },
     ])).toEqual([
       'utlagt-og-endurgreitt', 'vedrid', 'bokanir', 'lanad-og-skilad',
-      'bokhaldid', 'umonnun', 'kviss', 'auglysandi',
+      'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun', 'kviss', 'auglysandi',
     ])
   })
 

@@ -31,6 +31,7 @@ const translations: Record<string, string> = {
   'expense.savedViews.settlement': 'Uppgjör',
   'expense.settlementParticipants': 'Þátttakendur og staða',
   'expense.addPerson': 'Bæta við aðila',
+  'expense.editSplit': 'Breyta skiptingu',
   'expense.settlementActions.open': 'Aðgerðir fyrir {name}',
   'expense.settlementActions.title': 'Aðgerðir fyrir {name}',
   'expense.settlementActions.description': 'Veldu aðgerð.',
@@ -374,6 +375,23 @@ describe('ExpenseItemDetail flow context', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Aðgerðir fyrir Anna' }))
     expect(screen.getByRole('button', { name: 'Tengja við Teskeiðarnotanda' })).toBeInTheDocument()
     expect(screen.queryByText('Tengja gest eða skoða boð')).not.toBeInTheDocument()
+  })
+
+  it('suppresses every guest identity action for an expense-backed event', async () => {
+    render(await ExpenseItemDetail({
+      group,
+      expense,
+      view: 'settlement',
+      isEventContext: true,
+    }))
+
+    expect(screen.queryByRole('button', { name: 'Aðgerðir fyrir Anna' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Tengja við Teskeiðarnotanda' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Breyta skiptingu' })).toHaveAttribute(
+      'href',
+      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1/breyta?step=split',
+    )
+    expect(screen.queryByRole('link', { name: 'Bæta við aðila' })).not.toBeInTheDocument()
   })
 
   it('keeps repayment reporting inside the one-off settlement view', async () => {

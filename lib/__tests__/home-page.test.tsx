@@ -48,6 +48,8 @@ vi.mock('next-intl/server', () => ({
         loansCardDescription: 'Haltu utan um hvað þú hefur lánað og fengið lánað.',
         expensesCardTitle: 'Útlagt og endurgreitt',
         expensesCardDescription: 'Haltu utan um sameiginleg útgjöld og endurgreiðslur.',
+        eventsCardTitle: 'Viðburðir',
+        eventsCardDescription: 'Safnaðu gestum og útgjöldum á einum stað.',
         careCardTitle: 'Umönnun',
         careCardDescription: 'Opnaðu Umönnun og haltu utan um viðkvæm málefni saman.',
         weatherCardTitle: 'Veðrið',
@@ -377,6 +379,7 @@ function setupGuard(
   kvissAccess = false,
   advertiserAccess = false,
   bookingsAccess = false,
+  eventsAccess = false,
 ) {
   mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
   mockCheckFeatureAccess.mockImplementation(
@@ -389,6 +392,7 @@ function setupGuard(
       if (featureKey === 'kviss') return kvissAccess
       if (featureKey === 'auglysandi') return advertiserAccess
       if (featureKey === 'bokanir') return bookingsAccess
+      if (featureKey === 'afmaeli-og-vidburdir') return eventsAccess
       return false
     },
   )
@@ -399,6 +403,7 @@ function setupGuard(
   const enabled = [
     ['lanad-og-skilad', loansAccess],
     ['utlagt-og-endurgreitt', expensesAccess],
+    ['afmaeli-og-vidburdir', eventsAccess],
     ['bokhaldid', bookkeepingAccess],
     ['umonnun', umonnunAccess],
     ['vedrid', weatherEnabled],
@@ -409,6 +414,7 @@ function setupGuard(
   const meta: Record<string, { href: string; titleKey: string; descriptionKey: string }> = {
     'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', titleKey: 'loansCardTitle', descriptionKey: 'loansCardDescription' },
     'utlagt-og-endurgreitt': { href: '/auth-mvp/utlagt-og-endurgreitt', titleKey: 'expensesCardTitle', descriptionKey: 'expensesCardDescription' },
+    'afmaeli-og-vidburdir': { href: '/auth-mvp/vidburdir', titleKey: 'eventsCardTitle', descriptionKey: 'eventsCardDescription' },
     bokhaldid: { href: '/auth-mvp/bokhaldid', titleKey: 'bookkeepingCardTitle', descriptionKey: 'bookkeepingCardDescription' },
     umonnun: { href: '/auth-mvp/umonnun', titleKey: 'careCardTitle', descriptionKey: 'careCardDescription' },
     vedrid: { href: '/auth-mvp/vedrid', titleKey: 'weatherCardTitle', descriptionKey: 'weatherCardDescription' },
@@ -1650,6 +1656,44 @@ describe('HeimPage — Kviss, advertiser and booking-provider private-beta cards
     expect(screen.getAllByRole('link', { name: 'Opna Kviss' })).toHaveLength(1)
     expect(screen.getAllByRole('link', { name: 'Opna Auglýsandi' })).toHaveLength(1)
     expect(screen.getAllByRole('link', { name: 'Opna Bókanir' })).toHaveLength(1)
+  })
+})
+
+describe('HeimPage — owner-private Events card', () => {
+  const eventIdea = makeIdea({
+    id: 'idea-events',
+    slug: 'afmaeli-og-vidburdir',
+    title: 'Afmæli og viðburðir',
+    status: 'building',
+  })
+
+  it('promotes the existing idea slug once for an entitled user', async () => {
+    mockIdeasResult.mockResolvedValue({ data: [eventIdea], error: null })
+    setupGuard(false, false, false, false, false, false, false, false, true)
+    setupProfile(null)
+
+    render(await HeimPage())
+
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith(
+      TEST_USER.id,
+      TEST_USER.email,
+      'afmaeli-og-vidburdir',
+    )
+    expect(screen.getAllByRole('link', { name: 'Opna Viðburðir' })).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Opna Viðburðir' }))
+      .toHaveAttribute('href', '/auth-mvp/vidburdir')
+    fireEvent.click(screen.getByRole('button', { name: /Hugmyndir sem verða líklega/ }))
+    expect(document.querySelector('a[href="/hugmyndir/afmaeli-og-vidburdir"]')).toBeNull()
+  })
+
+  it('does not leak the private idea when the exact event access is denied', async () => {
+    mockIdeasResult.mockResolvedValue({ data: [eventIdea], error: null })
+    setupGuard(false, false, false, false, false, false, false, false, false)
+    setupProfile(null)
+
+    render(await HeimPage())
+    expect(screen.queryByText('Afmæli og viðburðir')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Opna Viðburðir' })).toBeNull()
   })
 })
 

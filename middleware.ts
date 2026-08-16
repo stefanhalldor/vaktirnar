@@ -252,6 +252,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
+  // The owner-private Events MVP has its own fail-closed global switch and is
+  // also expense-backed. Server guards repeat both per-user entitlements.
+  const isEventsPath = pathname === '/auth-mvp/vidburdir'
+    || pathname.startsWith('/auth-mvp/vidburdir/')
+  if (
+    isEventsPath
+    && (process.env.EVENTS_ENABLED !== 'true' || process.env.EXPENSES_ENABLED !== 'true')
+  ) {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   // Bókhaldið private beta has an independent, fail-closed global switch.
   // Its server layout/pages/actions additionally require the per-user row.
   const isBookkeepingPath = pathname === '/auth-mvp/bokhaldid'
@@ -408,6 +419,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/auth-mvp/minn-profill') ||
     pathname.startsWith('/auth-mvp/lanad-og-skilad') ||
     pathname.startsWith('/auth-mvp/utlagt-og-endurgreitt') ||
+    pathname === '/auth-mvp/vidburdir' ||
+    pathname.startsWith('/auth-mvp/vidburdir/') ||
     pathname.startsWith('/auth-mvp/kviss') ||
     pathname.startsWith('/auth-mvp/auglysandi')
   )) {

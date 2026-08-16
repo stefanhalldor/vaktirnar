@@ -40,7 +40,7 @@ export function ExpenseShell({
               <ArrowLeft aria-hidden size={20} />
             </Link>
           ) : null}
-          <h1 className="min-w-0 flex-1 text-pretty text-lg font-semibold leading-tight text-primary">
+          <h1 className="min-w-0 flex-1 break-words text-pretty text-lg font-semibold leading-tight text-primary">
             {title}
           </h1>
           <TeskeidMenu variant="authenticated" />

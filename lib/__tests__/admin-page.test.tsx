@@ -250,6 +250,92 @@ describe('AdminPage — FeatureAccessSection', () => {
     expect(screen.queryByText('beta@example.com')).not.toBeInTheDocument()
   })
 
+  it('renders the events per-user control and grants the exact feature key', async () => {
+    const featureCalls: Array<{ url: string; method: string; body?: string }> = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/admin/feature-access')) {
+        featureCalls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined })
+      }
+      if (url.includes('/api/admin/analytics')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      }
+      if (url.includes('/api/admin/teskeid-usage')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_USAGE) })
+      }
+      if (method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, email: 'events@example.com' }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+    }))
+
+    render(<AdminPage />)
+
+    const heading = await screen.findByRole('heading', { name: 'Viðburðir — private beta' })
+    expect(heading.parentElement?.textContent).toContain('EVENTS_ENABLED=true')
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual(expect.objectContaining({
+        url: '/api/admin/feature-access?feature=afmaeli-og-vidburdir',
+        method: 'GET',
+      }))
+    })
+
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Netfang fyrir Viðburðir — private beta',
+    }), { target: { value: 'events@example.com' } })
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Gefa aðgang að Viðburðir — private beta',
+    }))
+
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual({
+        url: '/api/admin/feature-access?feature=afmaeli-og-vidburdir',
+        method: 'POST',
+        body: JSON.stringify({ email: 'events@example.com' }),
+      })
+    })
+    expect(await screen.findByText('Aðgangur veittur: events@example.com')).toBeInTheDocument()
+  })
+
+  it('revokes events access through the exact feature key', async () => {
+    const featureCalls: Array<{ url: string; method: string; body?: string }> = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/admin/feature-access')) {
+        featureCalls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined })
+      }
+      if (url.includes('/api/admin/analytics')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_ANALYTICS) })
+      }
+      if (url.includes('/api/admin/teskeid-usage')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(EMPTY_USAGE) })
+      }
+      if (url.includes('feature=afmaeli-og-vidburdir') && method === 'GET') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{ email: 'events@example.com', granted_at: '2026-08-16T00:00:00Z' }]),
+        })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(method === 'DELETE' ? { ok: true } : []) })
+    }))
+
+    render(<AdminPage />)
+
+    const revokeButton = await screen.findByRole('button', {
+      name: 'Fjarlægja events@example.com úr Viðburðir — private beta',
+    })
+    fireEvent.click(revokeButton)
+
+    await waitFor(() => {
+      expect(featureCalls).toContainEqual({
+        url: '/api/admin/feature-access?feature=afmaeli-og-vidburdir',
+        method: 'DELETE',
+        body: JSON.stringify({ email: 'events@example.com' }),
+      })
+    })
+    expect(screen.queryByText('events@example.com')).not.toBeInTheDocument()
+  })
+
   it('renders the bookkeeping private-beta control and grants the exact feature key', async () => {
     const featureCalls: Array<{ url: string; method: string; body?: string }> = []
     vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {

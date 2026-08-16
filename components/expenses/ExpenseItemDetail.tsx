@@ -28,6 +28,7 @@ export async function ExpenseItemDetail({
   initialDate,
   participantOptions = [],
   participantOptionsError = false,
+  isEventContext = false,
 }: {
   group: ExpenseGroupView
   expense: ExpenseItemView
@@ -35,6 +36,7 @@ export async function ExpenseItemDetail({
   initialDate?: string
   participantOptions?: ExpenseParticipantOption[]
   participantOptionsError?: boolean
+  isEventContext?: boolean
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const hasLockedRepayment = group.repayments.some(
@@ -305,8 +307,8 @@ export async function ExpenseItemDetail({
                 href={expenseEditStepHref(expense.id, 'split')}
                 className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
               >
-                <Plus aria-hidden size={17} />
-                {t('expense.addPerson')}
+                {!isEventContext ? <Plus aria-hidden size={17} /> : null}
+                {t(isEventContext ? 'expense.editSplit' : 'expense.addPerson')}
               </Link>
             ) : null}
           </div>
@@ -322,7 +324,7 @@ export async function ExpenseItemDetail({
             initialDate={initialDate ?? expense.incurredOn}
             participantOptions={participantOptions}
             participantOptionsError={participantOptionsError}
-            canLinkGuests={canLinkExpenseGuest({
+            canLinkGuests={!isEventContext && canLinkExpenseGuest({
               groupStatus: group.status,
               canManage: group.canManage,
             })}
