@@ -30,6 +30,7 @@ export interface ResolvedExpenseMember {
   circleId?: string
   circleMemberId?: string
   eventGuestId?: string
+  eventOrganizerParticipantId?: string
 }
 
 interface CircleMemberRow {
@@ -193,6 +194,7 @@ export async function resolveExpenseMembers(input: {
       const guest = input.eventSource?.guests.find((candidate) => (
         candidate.id === member.event_guest_id
       ))
+      const isOrganizer = guest?.participantKind === 'organizer'
       resolved.push({
         id: randomUUID(),
         key: member.key,
@@ -203,7 +205,9 @@ export async function resolveExpenseMembers(input: {
         displayName: guest?.displayName ?? 'Event guest',
         role: 'member',
         status: 'active',
-        eventGuestId: member.event_guest_id,
+        ...(isOrganizer
+          ? { eventOrganizerParticipantId: member.event_guest_id }
+          : { eventGuestId: member.event_guest_id }),
       })
       continue
     }

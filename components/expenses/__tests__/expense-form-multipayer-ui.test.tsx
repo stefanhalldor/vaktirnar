@@ -56,6 +56,8 @@ const translations: Record<string, string> = {
   'expenseForm.eventGuestSearchLabel': 'Leita að gesti',
   'expenseForm.eventGuestSearchPlaceholder': 'Nafn gests',
   'expenseForm.noEventGuestResults': 'Enginn gestur fannst.',
+  'expenseForm.linkToEvent': 'Tengja kostnað við viðburðinn',
+  'expenseForm.linkToEventHint': 'Kostnaðurinn birtist á viðburðinum.',
   'expenseForm.clearRelationshipCircle': 'Hreinsa tengslahring',
   'expenseForm.nameOrEmail': 'Nafn eða netfang',
   'expenseForm.nameOrEmailPlaceholder': 'Nafn eða netfang',
@@ -209,6 +211,38 @@ describe('ExpenseForm simplified split and autosave', () => {
       }),
     ]))
     expect(JSON.stringify(savedMembers)).not.toContain('Anna')
+  })
+
+  it('shows the current organizer as the already-included self member', () => {
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      initialStep: 'split',
+      initialMembers: [{
+        key: 'self',
+        label: 'Ég',
+        input: { type: 'self', key: 'self' },
+        isSelf: true,
+      }],
+      eventSources: [{
+        id: '72500000-0000-4000-8000-000000000001',
+        name: 'Helgarferð',
+        rosterRevision: 3,
+        viewerRole: 'owner',
+        guests: [{
+          id: '72500000-0000-4000-8000-000000000002',
+          displayName: 'Stebbi',
+          sourceKind: 'manual_name',
+          participantKind: 'organizer',
+        }],
+      }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við þátttakanda' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Úr viðburði' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Helgarferð' }))
+
+    expect(screen.getByRole('button', { name: 'Stebbi' })).toBeDisabled()
   })
 
   it('keeps entered fields and opaque provenance when a stale event roster rejects submit', async () => {
@@ -380,6 +414,12 @@ describe('ExpenseForm simplified split and autosave', () => {
         }],
       },
     })
+    const linkCheckbox = screen.getByRole('checkbox', {
+      name: /Tengja kostnað við viðburðinn/,
+    })
+    expect(linkCheckbox).toBeChecked()
+    fireEvent.click(linkCheckbox)
+    expect(linkCheckbox).not.toBeChecked()
     fillDetails()
     await next('Áfram í skiptingu')
 
@@ -389,6 +429,7 @@ describe('ExpenseForm simplified split and autosave', () => {
       payload: expect.objectContaining({
         eventId: '70000000-0000-4000-8000-000000000001',
         eventRosterRevision: 4,
+        linkToEvent: false,
         members: [expect.objectContaining({ key: 'self' })],
       }),
     }))

@@ -156,6 +156,9 @@ um leyfi með fullri mannamálsútskýringu.
 - Rýnið alltaf áhrif á gögn, RLS, auth, grants, functions og production.
 - Service-role functions og tölvupóstsendingar skulu ekki leka netföngum,
   secrets eða öðrum notendagögnum í logs eða client responses.
+- Tölvupóstar frá Teskeið skulu hvorki innihalda smellanlega hlekki né
+  óformataðar slóðir. Beinið notendum þess í stað að auðkenndu flæði inni í
+  appinu, til dæmis að ólesnum atriðum á forsíðu.
 
 ## Notendatextar
 

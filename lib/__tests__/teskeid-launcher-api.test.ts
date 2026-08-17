@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockGetUser, mockResolveLauncher, mockResolveVisibility, mockCanAccess, mockRecordOpen } = vi.hoisted(() => ({
+const { mockGetUser, mockResolveLauncher, mockResolveVisibility, mockCanAccess, mockRecordOpen, mockLoadInbox } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
   mockResolveLauncher: vi.fn(),
   mockResolveVisibility: vi.fn(),
   mockCanAccess: vi.fn(),
   mockRecordOpen: vi.fn(),
+  mockLoadInbox: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -18,6 +19,9 @@ vi.mock('@/lib/teskeid/launcher.server', () => ({
 }))
 vi.mock('@/lib/teskeid/launcherUsage.server', () => ({
   recordTeskeidLauncherOpen: mockRecordOpen,
+}))
+vi.mock('@/lib/recent-events/inbox.server', () => ({
+  loadRecentEventInbox: mockLoadInbox,
 }))
 
 import { GET as getLauncher, POST } from '@/app/api/auth-mvp/launcher/route'
@@ -48,6 +52,7 @@ beforeEach(() => {
   mockResolveVisibility.mockResolvedValue(['kviss', 'bokanir'])
   mockCanAccess.mockResolvedValue(true)
   mockRecordOpen.mockResolvedValue('recorded')
+  mockLoadInbox.mockResolvedValue({ ok: true, sources: [], rows: [], unreadBySource: {} })
 })
 
 describe('legacy capabilities projection', () => {
@@ -76,8 +81,33 @@ describe('private launcher projection API', () => {
     const body = await response.json()
     expect(body).toEqual({
       featureIds: ['bokanir', 'vedrid'], usageAvailable: true, agentCollaborationAvailable: false,
+      unreadCounts: {},
     })
     expect(JSON.stringify(body)).not.toMatch(/user-a|example\.com|created_at|metadata/)
+  })
+
+  it('returns only positive counts for visible Teskeiðar', async () => {
+    mockResolveLauncher.mockResolvedValue({
+      featureIds: ['utlagt-og-endurgreitt', 'afmaeli-og-vidburdir'],
+      usageAvailable: true,
+      agentCollaborationAvailable: false,
+    })
+    mockLoadInbox.mockResolvedValue({
+      ok: true,
+      sources: ['loans', 'expenses', 'events'],
+      rows: [],
+      unreadBySource: { loans: 9, expenses: 3, events: 1 },
+    })
+    const response = await getLauncher()
+    expect(await response.json()).toEqual({
+      featureIds: ['utlagt-og-endurgreitt', 'afmaeli-og-vidburdir'],
+      usageAvailable: true,
+      agentCollaborationAvailable: false,
+      unreadCounts: {
+        'utlagt-og-endurgreitt': 3,
+        'afmaeli-og-vidburdir': 1,
+      },
+    })
   })
 
   it('rejects cross-origin, non-JSON, oversized and unknown feature writes', async () => {

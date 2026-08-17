@@ -24,6 +24,7 @@ vi.mock('next-intl', () => ({
     weather: 'Veðrið', advertiser: 'Auglýsandi', bookings: 'Bókanir', home: 'Heim',
     agentCollaboration: 'Samvinna', profile: 'Minn prófíll', signOut: 'Útskrá',
     agentUnread: 'Ólesin skilaboð',
+    unreadItems: 'Ólesin atriði',
   })[key] ?? key,
 }))
 
@@ -49,11 +50,12 @@ function launcherResponse(
   featureIds: readonly string[] = ALL_FEATURES,
   collaboration = true,
   usageAvailable = true,
+  unreadCounts: Record<string, number> = {},
 ) {
   return {
     ok: true,
     status: 200,
-    json: async () => ({ featureIds, agentCollaborationAvailable: collaboration, usageAvailable }),
+    json: async () => ({ featureIds, agentCollaborationAvailable: collaboration, usageAvailable, unreadCounts }),
   }
 }
 
@@ -72,6 +74,8 @@ describe('TeskeidMenu public variant', () => {
     expect(screen.getByText('Hugmyndabankinn')).toBeInTheDocument()
     expect(screen.getByText('Kviss')).toBeInTheDocument()
     expect(screen.getByText('Ný hugmynd')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ný hugmynd' }).querySelector('svg'))
+      .toHaveClass('lucide-lightbulb')
     expect(screen.getByText('Nýskráning / innskráning')).toBeInTheDocument()
     expect(mockFetch).not.toHaveBeenCalled()
     expect(mockGetSession).not.toHaveBeenCalled()
@@ -79,6 +83,49 @@ describe('TeskeidMenu public variant', () => {
 })
 
 describe('TeskeidMenu authenticated launcher', () => {
+  it('uses a home icon for the Heim navigation item', () => {
+    render(<TeskeidMenu variant="authenticated" initialFeatureIds={[]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+
+    const homeLink = screen.getByRole('link', { name: 'Heim' })
+    expect(homeLink.querySelector('svg')).toHaveClass('lucide-house')
+    expect(homeLink.querySelector('svg')).not.toHaveClass('lucide-lightbulb')
+    expect(screen.getByRole('link', { name: 'Ný hugmynd' }).querySelector('svg'))
+      .toHaveClass('lucide-lightbulb')
+  })
+
+  it('shows source-specific unread badges and omits zero or hidden counts', async () => {
+    mockFetch.mockImplementation(async (url: string) => url.includes('/launcher')
+      ? launcherResponse(
+        ['utlagt-og-endurgreitt', 'afmaeli-og-vidburdir'],
+        false,
+        true,
+        { 'utlagt-og-endurgreitt': 3, 'afmaeli-og-vidburdir': 1, 'lanad-og-skilad': 7 },
+      )
+      : { ok: true, status: 200, json: async () => ({ unreadCount: 0 }) })
+    render(<TeskeidMenu variant="authenticated" />)
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/auth-mvp/launcher', { cache: 'no-store' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    expect(screen.getByTestId('teskeid-unread-utlagt-og-endurgreitt')).toHaveTextContent('3')
+    expect(screen.getByTestId('teskeid-unread-afmaeli-og-vidburdir')).toHaveTextContent('1')
+    expect(screen.queryByTestId('teskeid-unread-lanad-og-skilad')).toBeNull()
+  })
+
+  it('renders home-projected unread counts without refetching the launcher', () => {
+    render(
+      <TeskeidMenu
+        variant="authenticated"
+        initialFeatureIds={['lanad-og-skilad', 'utlagt-og-endurgreitt']}
+        initialUnreadCounts={{ 'lanad-og-skilad': 2 }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    expect(screen.getByTestId('teskeid-unread-lanad-og-skilad')).toHaveTextContent('2')
+    expect(screen.queryByTestId('teskeid-unread-utlagt-og-endurgreitt')).toBeNull()
+    expect(mockFetch).not.toHaveBeenCalledWith('/api/auth-mvp/launcher', { cache: 'no-store' })
+  })
+
+
   it('renders exact server order and has no umbrella Teskeiðar item', async () => {
     mockFetch.mockImplementation(async (url: string) => url.includes('/launcher')
       ? launcherResponse(['bokanir', 'vedrid', 'lanad-og-skilad'], false)

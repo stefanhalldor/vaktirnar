@@ -9,6 +9,7 @@ import type {
   ExpenseRecentEventType,
 } from '@/lib/expenses/events'
 import type {
+  EventRecentEventPayload,
   KnownRecentEventRow,
   LoanFieldChange,
   LoanRecentEventPayload,
@@ -92,6 +93,8 @@ export const EXPENSE_EVENT_TYPE_TO_KEY: Record<ExpenseRecentEventType, string> =
   expense_repayment_confirmed:       'eventExpenseRepaymentConfirmed',
   expense_repayment_rejected:        'eventExpenseRepaymentRejected',
   expense_repayment_cancelled:       'eventExpenseRepaymentCancelled',
+  expense_identity_bound:            'eventExpenseIdentityBound',
+  expense_claim_disputed:            'eventExpenseClaimDisputed',
 }
 
 const EXPENSE_EVENT_ENTITY_TYPE: Record<ExpenseRecentEventType, ExpenseRecentEventEntityType> = {
@@ -114,6 +117,8 @@ const EXPENSE_EVENT_ENTITY_TYPE: Record<ExpenseRecentEventType, ExpenseRecentEve
   expense_repayment_confirmed:       'expense_repayment',
   expense_repayment_rejected:        'expense_repayment',
   expense_repayment_cancelled:       'expense_repayment',
+  expense_identity_bound:            'expense',
+  expense_claim_disputed:            'expense',
 }
 
 const LOAN_FIELDS = new Set<LoanFieldChange['field']>([
@@ -125,6 +130,8 @@ const LOAN_FIELDS = new Set<LoanFieldChange['field']>([
 const LOAN_CHANGE_TYPES = new Set<LoanFieldChange['changeType']>(['changed', 'added', 'removed'])
 const LOANS_PATH = '/auth-mvp/lanad-og-skilad'
 const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
+const EVENTS_INVITATION_PATH = '/auth-mvp/vidburdir/bod/thattaka'
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -194,7 +201,11 @@ function sanitizeExpensePayload(
 ): ExpenseRecentEventPayload | null {
   if (!isRecord(value)) return null
   const actorUserId = optionalString(value.actorUserId)?.trim()
-  if (!actorUserId || actorUserId.length > 128) return null
+  const privateClaimEvent = eventType === 'expense_identity_bound'
+    || eventType === 'expense_claim_disputed'
+  if ((!privateClaimEvent && !actorUserId) || (actorUserId && actorUserId.length > 128)) {
+    return null
+  }
   const expenseTitle = boundedTitle(value.expenseTitle)
   const groupTitle = boundedTitle(value.groupTitle)
   const entityType = EXPENSE_EVENT_ENTITY_TYPE[eventType]
@@ -211,12 +222,24 @@ function sanitizeExpensePayload(
   return {
     ...(expenseTitle ? { expenseTitle } : {}),
     ...(groupTitle ? { groupTitle } : {}),
-    actorUserId,
+    ...(actorUserId ? { actorUserId } : {}),
+  }
+}
+
+function sanitizeEventPayload(value: unknown): EventRecentEventPayload | null {
+  if (!isRecord(value)) return null
+  const eventName = boundedTitle(value.eventName)
+  if (!eventName) return null
+  const inviterDisplayName = boundedTitle(value.inviterDisplayName)
+  if (inviterDisplayName?.includes('@')) return null
+  return {
+    eventName,
+    ...(inviterDisplayName ? { inviterDisplayName } : {}),
   }
 }
 
 export function isRecentEventSource(value: string): value is RecentEventSource {
-  return value === 'loans' || value === 'expenses'
+  return value === 'loans' || value === 'expenses' || value === 'events'
 }
 
 export function isLoanRecentEventType(value: string): value is LoanRecentEventType {
@@ -238,6 +261,11 @@ export function sanitizeRecentEventPayload(
   value: unknown,
 ): ExpenseRecentEventPayload | null
 export function sanitizeRecentEventPayload(
+  source: 'events',
+  eventType: 'event_attendance_invitation_received',
+  value: unknown,
+): EventRecentEventPayload | null
+export function sanitizeRecentEventPayload(
   source: RecentEventSource,
   eventType: string,
   value: unknown,
@@ -245,6 +273,9 @@ export function sanitizeRecentEventPayload(
   if (source === 'loans' && isLoanRecentEventType(eventType)) return sanitizeLoanPayload(value)
   if (source === 'expenses' && isExpenseRecentEventType(eventType)) {
     return sanitizeExpensePayload(eventType, value)
+  }
+  if (source === 'events' && eventType === 'event_attendance_invitation_received') {
+    return sanitizeEventPayload(value)
   }
   return null
 }
@@ -283,6 +314,25 @@ export function parseRecentEventRow(row: RecentEventRow): KnownRecentEventRow | 
       entity_id: row.entity_id,
       payload,
       href: safeLocalHref(row.href, EXPENSES_PATH),
+    }
+  }
+  if (
+    row.source === 'events'
+    && row.event_type === 'event_attendance_invitation_received'
+    && row.entity_type === 'attendance_invitation'
+    && typeof row.entity_id === 'string'
+    && UUID_PATTERN.test(row.entity_id)
+  ) {
+    const payload = sanitizeEventPayload(row.payload)
+    if (!payload) return null
+    return {
+      ...row,
+      source: 'events',
+      event_type: 'event_attendance_invitation_received',
+      entity_type: 'attendance_invitation',
+      entity_id: row.entity_id,
+      payload,
+      href: `${EVENTS_INVITATION_PATH}/${row.entity_id}`,
     }
   }
   return null

@@ -90,6 +90,7 @@ export const CreateExpenseSchema = z.object({
   event_id: uuid.nullable().optional().transform((v) => v ?? null),
   expected_event_roster_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
     .nullable().optional().transform((v) => v ?? null),
+  link_to_event: z.boolean().default(false),
   title: z.string().trim().min(1).max(200),
   total: amountInput,
   currency,
@@ -120,6 +121,13 @@ export const CreateExpenseSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['event_id'],
       message: 'event_one_off_required',
+    })
+  }
+  if (value.link_to_event && value.event_id === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['link_to_event'],
+      message: 'event_required',
     })
   }
   const eventGuests = value.members.filter((member) => member.type === 'event_guest')
@@ -339,6 +347,36 @@ export const TransitionExpenseRepaymentSchema = z.object({
   action: z.enum(['confirm', 'reject', 'cancel']),
   request_id: requestId,
 })
+
+export const AttachExpenseToEventSchema = z.object({
+  expense_id: uuid,
+  event_id: uuid,
+  expected_financial_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  expected_event_roster_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  request_id: requestId,
+}).strict()
+
+export const DetachExpenseFromEventSchema = z.object({
+  expense_id: uuid,
+  expected_event_id: uuid,
+  expected_financial_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  request_id: requestId,
+}).strict()
+
+export const BindExpenseMemberEventIdentitySchema = z.object({
+  expense_id: uuid,
+  member_id: uuid,
+  event_participant_id: uuid,
+  expected_financial_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  request_id: requestId,
+}).strict()
+
+export const DisputeExpenseClaimSchema = z.object({
+  expense_id: uuid,
+  member_id: uuid,
+  expected_financial_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  request_id: requestId,
+}).strict()
 
 const settlementBatchContextSchema = z.object({
   group_id: uuid,

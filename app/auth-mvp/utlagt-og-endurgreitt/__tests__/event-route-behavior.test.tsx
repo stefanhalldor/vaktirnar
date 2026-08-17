@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
   expenseForm: vi.fn(),
   getActorName: vi.fn(),
   getDraft: vi.fn(),
-  getEventPreview: vi.fn(),
   getEventSource: vi.fn(),
   getPayAll: vi.fn(),
   getParticipantOptions: vi.fn(),
@@ -45,11 +44,6 @@ vi.mock('@/components/expenses/ExpenseForm', () => ({
     )
   },
 }))
-vi.mock('@/components/expenses/EventExpensePreview', () => ({
-  EventExpensePreview: ({ preview }: { preview: { status: string } }) => (
-    <div data-testid="event-preview" data-status={preview.status} />
-  ),
-}))
 vi.mock('@/components/expenses/ExpensePayAll', () => ({
   ExpensePayAll: () => <div data-testid="writable-global-pay-all" />,
 }))
@@ -75,7 +69,6 @@ vi.mock('@/lib/events/guard', () => ({ canUseEventExpenses: mocks.canUseEventExp
 vi.mock('@/lib/events/repository.server', () => ({
   listEventExpenseSources: mocks.listEventSources,
   getOwnedEventExpenseSource: mocks.getEventSource,
-  getEventExpensePreview: mocks.getEventPreview,
 }))
 
 import NewOneOffExpensePage from '../nytt/page'
@@ -133,9 +126,6 @@ beforeEach(() => {
   mocks.getDraft.mockResolvedValue(null)
   mocks.listEventSources.mockResolvedValue([sourceA])
   mocks.getEventSource.mockResolvedValue(sourceA)
-  mocks.getEventPreview.mockResolvedValue({
-    eventId: EVENT_A, status: 'none_tagged', taggedExpenseCount: 0, currencies: [],
-  })
   mocks.getPayAll.mockResolvedValue({})
   mocks.getActorName.mockResolvedValue('Stebbi')
   mocks.getParticipantOptions.mockResolvedValue([])
@@ -198,41 +188,11 @@ describe('event-aware new expense route', () => {
   })
 })
 
-describe('read-only event settlement route', () => {
-  it('never mounts writable global settlement inside a valid event preview', async () => {
-    render(await ExpensePayAllPage({ searchParams: Promise.resolve({ event: EVENT_A }) }))
-
-    expect(screen.getByTestId('event-preview')).toBeInTheDocument()
-    expect(screen.queryByTestId('writable-global-pay-all')).not.toBeInTheDocument()
-    expect(screen.getByRole('link')).toHaveAttribute(
-      'href', '/auth-mvp/utlagt-og-endurgreitt/gera-upp',
-    )
-    expect(mocks.getPayAll).not.toHaveBeenCalled()
-  })
-
-  it('fails closed for an invalid event query while keeping the global route separate', async () => {
-    mocks.getEventSource.mockResolvedValueOnce(null)
-    render(await ExpensePayAllPage({ searchParams: Promise.resolve({ event: EVENT_B }) }))
-
-    expect(screen.getByRole('status')).toHaveTextContent('eventPreview.queryUnavailable')
-    expect(screen.queryByTestId('event-preview')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('writable-global-pay-all')).not.toBeInTheDocument()
-    expect(mocks.getPayAll).not.toHaveBeenCalled()
-  })
-
-  it('renders the read-only preview as unavailable when strict DTO mapping fails', async () => {
-    mocks.getEventPreview.mockRejectedValueOnce(new Error('event_preview_failed'))
-    render(await ExpensePayAllPage({ searchParams: Promise.resolve({ event: EVENT_A }) }))
-
-    expect(screen.getByTestId('event-preview')).toHaveAttribute('data-status', 'unavailable')
-    expect(screen.queryByTestId('writable-global-pay-all')).not.toBeInTheDocument()
-    expect(mocks.getPayAll).not.toHaveBeenCalled()
-  })
-
-  it('renders the existing writable pay-all flow only on the queryless route', async () => {
-    render(await ExpensePayAllPage({ searchParams: Promise.resolve({}) }))
+describe('global settlement route', () => {
+  it('always renders the existing writable pay-all flow without an event-specific mode', async () => {
+    render(await ExpensePayAllPage())
     expect(screen.getByTestId('writable-global-pay-all')).toBeInTheDocument()
-    expect(screen.queryByTestId('event-preview')).not.toBeInTheDocument()
     expect(mocks.getPayAll).toHaveBeenCalledWith(ACTOR_ID)
+    expect(mocks.getEventSource).not.toHaveBeenCalled()
   })
 })

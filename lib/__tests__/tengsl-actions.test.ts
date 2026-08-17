@@ -926,6 +926,31 @@ describe('createRelationshipCircle — creation freeze', () => {
 describe('getRelationship — email-only counterpart confirmation', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('returns the current auth email only after an owner-scoped linked counterpart is found', async () => {
+    const relRow = {
+      id: 'rel-linked',
+      counterpart_user_id: 'user-b',
+      private_display_name: 'Bob',
+      email_canonical: 'old-address@example.com',
+      note: null,
+      created_at: '2026-06-01T00:00:00Z',
+      relationship_tags: [{ tag: 'friends' }],
+      relationship_sources: [],
+    }
+    mockFrom
+      .mockReturnValueOnce(makeRelDetailSelect(relRow))
+      .mockReturnValueOnce(makeProfileMaybeSingle('Bob Jonsson'))
+    mockGetUserById.mockResolvedValue({
+      data: { user: { email: 'current-address@example.com' } },
+      error: null,
+    })
+
+    const result = await getRelationship(OWNER_ID, 'rel-linked')
+
+    expect(result?.counterpart_email).toBe('current-address@example.com')
+    expect(mockGetUserById).toHaveBeenCalledWith('user-b')
+  })
+
   it('returns counterpart_display_name via accepted claim when email-only row has no counterpart_user_id', async () => {
     const relRow = {
       id: 'rel-email',
@@ -954,10 +979,15 @@ describe('getRelationship — email-only counterpart confirmation', () => {
         default: return makeRelDetailSelect(null)
       }
     })
+    mockGetUserById.mockResolvedValue({
+      data: { user: { email: 'bob.current@example.com' } },
+      error: null,
+    })
 
     const result = await getRelationship(OWNER_ID, 'rel-email')
     expect(result).not.toBeNull()
     expect(result!.counterpart_display_name).toBe('Bob Jonsson')
+    expect(result!.counterpart_email).toBe('bob.current@example.com')
     expect(result!.private_display_name).toBe('Bob')
     expect(result!.tags).toContain('friends')
   })
@@ -987,6 +1017,8 @@ describe('getRelationship — email-only counterpart confirmation', () => {
     const result = await getRelationship(OWNER_ID, 'rel-pending')
     expect(result).not.toBeNull()
     expect(result!.counterpart_display_name).toBeNull()
+    expect(result!.counterpart_email).toBeNull()
+    expect(mockGetUserById).not.toHaveBeenCalled()
     // Only 2 DB calls — no profile lookup for unconfirmed email-only contact
     expect(callCount).toBe(2)
   })

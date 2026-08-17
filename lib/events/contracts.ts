@@ -154,15 +154,41 @@ export interface EventAttendeeDetailView {
   }>
 }
 
+export interface EventDetailsView {
+  eventId: string
+  eventDate: string | null
+  eventTime: string | null
+  description: string | null
+  agenda: string | null
+}
+
 /** Opaque picker projection. It deliberately excludes email and linked identities. */
 export interface EventExpenseSourceView {
   id: string
   name: string
   rosterRevision: number
+  /** Missing on the SQL132 owner-only projection during the DB-first window. */
+  viewerRole?: 'owner' | 'attendee'
   guests: Array<{
     id: string
     displayName: string
     sourceKind: EventGuestSourceKind
+    /** SQL137 adds an attendee-safe synthetic organizer option. */
+    participantKind?: 'guest' | 'organizer'
+  }>
+}
+
+export interface ExpenseEventLinkManagementView {
+  currentEvent: {
+    id: string
+    name: string | null
+    canOpen: boolean
+  } | null
+  eligibleEvents: Array<{
+    id: string
+    name: string
+    rosterRevision: number
+    viewerRole: 'owner' | 'attendee'
   }>
 }
 
@@ -186,7 +212,7 @@ export interface EventExpensePreviewCurrencyView {
   pendingRepaymentCount: number
   blocked: Array<{
     partyId: string
-    displayName: string
+    displayName: string | null
     reason: 'unresolved_identity'
   }>
 }
@@ -198,6 +224,29 @@ export interface EventExpensePreviewView {
   currencies: EventExpensePreviewCurrencyView[]
 }
 
+export type EventExpenseActorPositionState = 'owes' | 'owed' | 'zero' | 'pending'
+
+export interface EventExpenseActivityView {
+  status: 'none' | 'ready' | 'unavailable'
+  expenses: Array<{
+    title: string
+    description: string | null
+    totalMinor: number
+    currency: string
+    payers: Array<{
+      displayName: string | null
+      amountMinor: number
+    }>
+  }>
+  positions: Array<{
+    currency: string
+    state: EventExpenseActorPositionState
+    amountMinor: number
+  }>
+}
+
+export const EXPENSE_PAY_ALL_PATH = '/auth-mvp/utlagt-og-endurgreitt/gera-upp'
+
 export function eventDetailPath(eventId: string): string {
   return `${EVENTS_PATH}/${encodeURIComponent(eventId)}`
 }
@@ -207,7 +256,8 @@ export function eventExpensePath(eventId: string): string {
 }
 
 export function eventSettlementPreviewPath(eventId: string): string {
-  return `/auth-mvp/utlagt-og-endurgreitt/gera-upp?event=${encodeURIComponent(eventId)}`
+  void eventId
+  return EXPENSE_PAY_ALL_PATH
 }
 
 export function eventGuestAttendanceInvitationPath(invitationId: string): string {

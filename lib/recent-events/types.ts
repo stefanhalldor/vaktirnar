@@ -4,7 +4,7 @@ import type {
   ExpenseRecentEventType,
 } from '@/lib/expenses/events'
 
-export const RECENT_EVENT_SOURCES = ['loans', 'expenses'] as const
+export const RECENT_EVENT_SOURCES = ['loans', 'expenses', 'events'] as const
 export type RecentEventSource = (typeof RECENT_EVENT_SOURCES)[number]
 
 export type LoanRecentEventType =
@@ -20,7 +20,9 @@ export type LoanRecentEventType =
   | 'loan_chat_message'
   | 'loan_role_switched'
 
-export type RecentEventType = LoanRecentEventType | ExpenseRecentEventType
+export type EventRecentEventType = 'event_attendance_invitation_received'
+
+export type RecentEventType = LoanRecentEventType | ExpenseRecentEventType | EventRecentEventType
 
 export type LoanFieldChangeType = 'changed' | 'added' | 'removed'
 
@@ -39,7 +41,12 @@ export interface LoanRecentEventPayload {
   newRole?: 'lender' | 'borrower'
 }
 
-export type RecentEventPayload = LoanRecentEventPayload | ExpenseRecentEventPayload
+export interface EventRecentEventPayload {
+  eventName: string
+  inviterDisplayName?: string
+}
+
+export type RecentEventPayload = LoanRecentEventPayload | ExpenseRecentEventPayload | EventRecentEventPayload
 
 /**
  * Raw service-role row. Text and JSON columns are deliberately left untrusted;
@@ -75,11 +82,20 @@ export interface ExpenseRecentEventRow extends KnownRecentEventRowBase {
   payload: ExpenseRecentEventPayload
 }
 
-export type KnownRecentEventRow = LoanRecentEventRow | ExpenseRecentEventRow
+export interface EventRecentEventRow extends KnownRecentEventRowBase {
+  source: 'events'
+  event_type: EventRecentEventType
+  entity_type: 'attendance_invitation'
+  entity_id: string
+  payload: EventRecentEventPayload
+}
+
+export type KnownRecentEventRow = LoanRecentEventRow | ExpenseRecentEventRow | EventRecentEventRow
 
 // Pre-rendered for the client component — no raw payload or event internals
 export interface RecentEventDisplay {
   id: number
+  source: RecentEventSource
   label: string
   href: string
   /** Link to the specific item inside its teskeid. Null when current access is absent. */

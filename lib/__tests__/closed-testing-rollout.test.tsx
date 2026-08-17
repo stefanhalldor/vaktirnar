@@ -165,7 +165,6 @@ describe('closed-testing banner placements', () => {
       'app/auth-mvp/utlagt-og-endurgreitt/hopar/[groupId]/nytt-utgjald/page.tsx',
       'app/auth-mvp/utlagt-og-endurgreitt/hopar/nyr/page.tsx',
       'app/auth-mvp/utlagt-og-endurgreitt/nytt/page.tsx',
-      'app/auth-mvp/utlagt-og-endurgreitt/utgjold/[expenseId]/page.tsx',
       'app/auth-mvp/utlagt-og-endurgreitt/utgjold/[expenseId]/breyta/page.tsx',
     ]
 
@@ -174,6 +173,13 @@ describe('closed-testing banner placements', () => {
       expect(source, path).toContain('guardExpenseAccess')
       expect(source, path).toContain('closedTestingFeature="utlagt-og-endurgreitt"')
     }
+
+    const exactMemberDetail = readWorkspaceFile(
+      'app/auth-mvp/utlagt-og-endurgreitt/utgjold/[expenseId]/page.tsx',
+    )
+    expect(exactMemberDetail).toContain('guardExpenseSession')
+    expect(exactMemberDetail).not.toContain('guardExpenseAccess')
+    expect(exactMemberDetail).toContain('closedTestingFeature="utlagt-og-endurgreitt"')
   })
 
   it('routes strict private placements through the canonical server resolver', () => {

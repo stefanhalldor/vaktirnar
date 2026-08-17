@@ -21,12 +21,11 @@ const copy: Record<string, string> = {
   'attendance.acceptedHeading': 'Viðburðir sem þú tekur þátt í',
   'attendance.acceptedEmpty': 'Engin samþykkt boð.',
   'attendance.openInvitation': 'Opna boð í {name}',
-  'attendance.invitedBy': 'Boð frá {name}',
+  'attendance.invitedBy': 'Viðburður stofnaður af {name}',
   'attendance.genericGuest': 'Gestur',
   'invitation.unknownInviter': 'Teskeiðarnotanda',
   'detail.createdAt': 'Stofnað {date}',
-  'detail.privateRosterHint': 'Þetta er þitt einkayfirlit.',
-  'detail.addExpense': 'Nýr útlagður kostnaður',
+  'detail.addExpense': 'Skrá útlagðan kostnað',
   'detail.participants': 'Gestir',
   'detail.editRosterHint': 'Bættu við eða fjarlægðu gesti.',
   'detail.noParticipants': 'Engir gestir voru skráðir.',
@@ -177,7 +176,7 @@ describe('event presentational components', () => {
       attending: [],
     }} />)
     expect(screen.getByText('Gestur')).toBeInTheDocument()
-    expect(screen.getByText('Boð frá Teskeiðarnotanda')).toBeInTheDocument()
+    expect(screen.getByText('Viðburður stofnaður af Teskeiðarnotanda')).toBeInTheDocument()
     expect(screen.queryByText(/@/)).not.toBeInTheDocument()
   })
 
@@ -466,7 +465,7 @@ describe('event presentational components', () => {
         canUseExpenses={false}
       />,
     )
-    expect(screen.queryByRole('link', { name: 'Nýr útlagður kostnaður' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Skrá útlagðan kostnað' })).not.toBeInTheDocument()
     expect(screen.queryByTestId('financial-panel')).not.toBeInTheDocument()
 
     rerender(
@@ -478,7 +477,7 @@ describe('event presentational components', () => {
         financialPanel={<div data-testid="financial-panel" />}
       />,
     )
-    const expenseLink = screen.getByRole('link', { name: 'Nýr útlagður kostnaður' })
+    const expenseLink = screen.getByRole('link', { name: 'Skrá útlagðan kostnað' })
     const financialPanel = screen.getByTestId('financial-panel')
     const rosterHeading = screen.getByRole('heading', { name: 'Gestir' })
     expect(expenseLink).toHaveAttribute(

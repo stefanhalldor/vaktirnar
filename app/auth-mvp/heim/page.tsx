@@ -1,4 +1,4 @@
-import { getTranslations, getLocale } from 'next-intl/server'
+import { getLocale, getTranslations } from 'next-intl/server'
 import Link from 'next/link'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
@@ -13,24 +13,31 @@ import { ClosedTestingAccessRequest } from '@/components/teskeid/ClosedTestingAc
 import { HomeIdeasDrawer } from '@/components/teskeid/HomeIdeasDrawer'
 import { hasExpenseAccessRequestContext } from '@/lib/expenses/access-request.server'
 import { getUnreadRecentEventsForUser, recordRecentEvent } from '@/lib/recent-events/helpers.server'
-import type { ExpenseRecentEventRow, RecentEventDisplay } from '@/lib/recent-events/types'
+import type {
+  EventRecentEventRow,
+  ExpenseRecentEventRow,
+  RecentEventDisplay,
+  RecentEventSource,
+} from '@/lib/recent-events/types'
 import {
   expenseActivityIdFromEventKey,
   resolveExpenseRecentEventTargets,
   resolveRecentEventSourceAccess,
+  syncEventAttendanceInvitationEvents,
   syncExpenseMemberInvitationEvents,
 } from '@/lib/recent-events/access.server'
 import {
-  getDisplayLocale,
   buildDetailLines,
   EVENT_TYPE_TO_KEY,
   EXPENSE_EVENT_TYPE_TO_KEY,
   formatEventTimestamp,
+  getDisplayLocale,
   isRecentEventSource,
   parseRecentEventRow,
   pickLoanUpdatedLabelKey,
 } from '@/lib/recent-events/display'
 import { RecentSection, type RecentLabels } from './RecentSection'
+import { mapUnreadCountsToLauncher } from '@/lib/recent-events/launcher'
 
 
 export default async function HeimPage() {
@@ -73,7 +80,12 @@ export default async function HeimPage() {
     resolveRecentEventSourceAccess(user),
     resolveTeskeidLauncher(user),
   ])
-  const { loansEnabled, expensesEnabled, sources: recentEventSources } = recentEventAccess
+  const {
+    loansEnabled,
+    expensesEnabled,
+    eventInvitationsEnabled,
+    sources: recentEventSources,
+  } = recentEventAccess
   const visibleLauncherIds = new Set(launcher.featureIds)
   const umonnunEnabled = visibleLauncherIds.has('umonnun')
   const bookkeepingEnabled = visibleLauncherIds.has('bokhaldid')
@@ -86,6 +98,7 @@ export default async function HeimPage() {
     && await hasExpenseAccessRequestContext(user.id, user.email!)
 
   const displayLocale = getDisplayLocale(locale)
+
 
   const isPromotedPrivateBeta = (idea: Idea) =>
     (idea.slug === 'utlagt-og-endurgreitt' && expensesEnabled)
@@ -120,9 +133,8 @@ export default async function HeimPage() {
     }
   })
 
-  let pendingCount = 0
-  let invitationsError = false
   let recentEvents: RecentEventDisplay[] = []
+  let unreadBySource: Partial<Record<RecentEventSource, number>> = {}
   let eventsError = false
   let loans: LoanItem[] = []
 
@@ -132,7 +144,6 @@ export default async function HeimPage() {
       admin = getAdmin()
     } catch {
       console.error('[heim/page] getAdmin failed')
-      invitationsError = true
       eventsError = true
     }
 
@@ -143,15 +154,8 @@ export default async function HeimPage() {
 
       if (!loansResult || loansResult.error) {
         console.error('[heim/page] pending loan badge query failed')
-        invitationsError = true
       } else {
         loans = (loansResult.data ?? []) as LoanItem[]
-        pendingCount = loans.filter(
-          (loan) =>
-            loan.requires_acknowledgement &&
-            loan.invitation_status === 'pending' &&
-            loan.returned_at === null,
-        ).length
         // Best-effort event guarantor: ensure each pending invitation has a recent_events row.
         // updateOnConflict: false means the first write wins — existing rows are never overwritten.
         await Promise.allSettled(
@@ -184,6 +188,9 @@ export default async function HeimPage() {
 
   if (recentEventSources.length > 0) {
     try {
+      const eventInvitationSync = eventInvitationsEnabled
+        ? await syncEventAttendanceInvitationEvents(user.id)
+        : { ok: true, invitationIds: new Set<string>() }
       if (expensesEnabled) {
         await syncExpenseMemberInvitationEvents(user.id)
       }
@@ -191,8 +198,18 @@ export default async function HeimPage() {
       const parsedRows = rows.flatMap((row) => {
         if (!isRecentEventSource(row.source) || !recentEventSources.includes(row.source)) return []
         const parsed = parseRecentEventRow(row)
+        if (parsed?.source === 'events' && !eventInvitationSync.ok) return []
+        if (
+          parsed?.source === 'events'
+          && eventInvitationSync.ok
+          && !eventInvitationSync.invitationIds.has(parsed.entity_id)
+        ) return []
         return parsed ? [parsed] : []
       })
+      unreadBySource = parsedRows.reduce<Partial<Record<RecentEventSource, number>>>(
+        (counts, event) => ({ ...counts, [event.source]: (counts[event.source] ?? 0) + 1 }),
+        {},
+      )
       const expenseRows = parsedRows.filter(
         (event): event is ExpenseRecentEventRow => event.source === 'expenses',
       )
@@ -203,11 +220,34 @@ export default async function HeimPage() {
         t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])
 
       recentEvents = parsedRows.map((event) => {
+        if (event.source === 'events') {
+          const invitation = event as EventRecentEventRow
+          return {
+            id: invitation.id,
+            source: invitation.source,
+            label: t('eventAttendanceInvitationReceived', {
+              eventName: invitation.payload.eventName,
+            }),
+            href: invitation.href,
+            viewHref: invitation.href,
+            isDeleted: false,
+            detailLines: invitation.payload.inviterDisplayName
+              ? [t('eventAttendanceInvitationFrom', {
+                name: invitation.payload.inviterDisplayName,
+              })]
+              : [],
+            occurredAtLabel: formatEventTimestamp(
+              invitation.occurred_at,
+              (key) => tLoans(key as Parameters<typeof tLoans>[0]),
+            ),
+          }
+        }
         if (event.source === 'expenses') {
           const title = event.payload.expenseTitle ?? event.payload.groupTitle ?? ''
           const activityId = expenseActivityIdFromEventKey(event.event_key)
           return {
             id: event.id,
+            source: event.source,
             label: t(
               EXPENSE_EVENT_TYPE_TO_KEY[event.event_type] as Parameters<typeof t>[0],
               { title },
@@ -253,6 +293,7 @@ export default async function HeimPage() {
         }
         return {
           id: event.id,
+          source: event.source,
           label: t(labelKey as Parameters<typeof t>[0], { itemName }),
           href: event.href,
           viewHref,
@@ -271,6 +312,7 @@ export default async function HeimPage() {
   }
 
   const rowBatch = recentEvents.map((e) => String(e.id)).join('.')
+  const launcherUnreadCounts = mapUnreadCountsToLauncher(unreadBySource, launcher.featureIds)
   const firstName = displayName ? (displayName.trim().split(/\s+/)[0] ?? displayName) : null
   const greeting = firstName ? t('greeting', { firstName }) : t('greetingFallback')
 
@@ -278,8 +320,6 @@ export default async function HeimPage() {
     recent:      t('recent'),
     markAllRead: t('recentMarkAllRead'),
     markOneRead: t('recentMarkRead'),
-    done:        t('recentDone'),
-    noRecent:    t('noRecent'),
     viewItem:    t('recentView'),
     closeDrawer: t('recentClose'),
   }
@@ -295,6 +335,7 @@ export default async function HeimPage() {
             variant="authenticated"
             initialFeatureIds={launcher.featureIds}
             initialAgentCollaborationAvailable={launcher.agentCollaborationAvailable}
+            initialUnreadCounts={launcherUnreadCounts}
           />
         </section>
 
@@ -303,7 +344,6 @@ export default async function HeimPage() {
           <RecentSection
             key={rowBatch}
             rows={recentEvents}
-            displayLocale={displayLocale}
             labels={recentLabels}
           />
         )}
@@ -322,17 +362,25 @@ export default async function HeimPage() {
           {readyCards.length > 0 && (
             <div className="flex flex-col gap-3 mb-4">
               {readyCards.map(({ idea, href }) => {
-                const pending = idea.slug === 'lanad-og-skilad' && !invitationsError && pendingCount > 0
-                  ? pendingCount
-                  : undefined
+                const recentSource = idea.slug === 'lanad-og-skilad'
+                  ? 'loans'
+                  : idea.slug === 'utlagt-og-endurgreitt'
+                    ? 'expenses'
+                    : idea.slug === 'afmaeli-og-vidburdir'
+                      ? 'events'
+                      : null
+                const unreadCount = recentSource ? unreadBySource[recentSource] : undefined
+                const unreadBadge = unreadCount && unreadCount > 0 ? unreadCount : undefined
                 return (
                   <ReadyTeskeidCard
                     key={idea.slug}
                     idea={idea}
                     href={href}
                     openLabel={t('readyTeskeidOpen')}
-                    pendingBadge={pending}
-                    pendingBadgeLabel={pending !== undefined ? t('pendingBadgeLabel', { count: pending }) : undefined}
+                    unreadBadge={unreadBadge}
+                    unreadBadgeLabel={unreadBadge !== undefined
+                      ? t('unreadBadgeLabel', { count: unreadBadge })
+                      : undefined}
                     titleOverride={idea.slug === 'bokhaldid' ? t('bookkeepingCardTitle') : undefined}
                     descriptionOverride={idea.slug === 'vedrid'
                       ? t('weatherCardDescription')

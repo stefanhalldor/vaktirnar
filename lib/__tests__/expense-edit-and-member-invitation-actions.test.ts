@@ -54,7 +54,9 @@ vi.mock('@/lib/relationships/upsert-source.server', () => ({
 
 import {
   addExpenseShareCollaborator,
+  bindExpenseMemberEventIdentity,
   cancelExpenseMemberInvitation,
+  disputeExpenseClaim,
   linkExpenseGuestMember,
   renameExpenseGuestMember,
   resendExpenseMemberInvitation,
@@ -73,6 +75,7 @@ const GROUP_ID = '30000000-0000-4000-8000-000000000001'
 const EXPENSE_ID = '40000000-0000-4000-8000-000000000001'
 const INVITATION_ID = '50000000-0000-4000-8000-000000000001'
 const REQUEST_ID = '60000000-0000-4000-8000-000000000001'
+const EVENT_PARTICIPANT_ID = '70000000-0000-4000-8000-000000000001'
 
 function updateInput(overrides: Record<string, unknown> = {}) {
   return {
@@ -183,6 +186,81 @@ beforeEach(() => {
       status: 'active',
     },
   ])
+})
+
+describe('canonical identity and claim actions', () => {
+  it('passes only opaque Event candidate identity to the authoritative repair RPC', async () => {
+    setRpcResponses({
+      expense_bind_member_event_identity: {
+        data: {
+          group_id: GROUP_ID,
+          expense_id: EXPENSE_ID,
+          event_id: '80000000-0000-4000-8000-000000000001',
+          member_id: GUEST_MEMBER_ID,
+          financial_version: 8,
+        },
+        error: null,
+      },
+    })
+
+    await expect(bindExpenseMemberEventIdentity({
+      expense_id: EXPENSE_ID,
+      member_id: GUEST_MEMBER_ID,
+      event_participant_id: EVENT_PARTICIPANT_ID,
+      expected_financial_version: 7,
+      request_id: REQUEST_ID,
+    })).resolves.toEqual({
+      ok: true,
+      data: { expenseId: EXPENSE_ID, memberId: GUEST_MEMBER_ID, financialVersion: 8 },
+    })
+    expect(mockRpc).toHaveBeenCalledWith('expense_bind_member_event_identity', {
+      p_actor_id: ACTOR_ID,
+      p_request_id: REQUEST_ID,
+      p_expense_id: EXPENSE_ID,
+      p_member_id: GUEST_MEMBER_ID,
+      p_event_participant_id: EVENT_PARTICIPANT_ID,
+      p_expected_financial_version: 7,
+    })
+    expect(JSON.stringify(mockRpc.mock.calls)).not.toMatch(/email|display_name|user_id/i)
+  })
+
+  it('uses session-only exact claim input and accepts only disputed output', async () => {
+    setRpcResponses({
+      expense_dispute_claim: {
+        data: {
+          group_id: GROUP_ID,
+          expense_id: EXPENSE_ID,
+          member_id: GUEST_MEMBER_ID,
+          status: 'disputed',
+          financial_version: 8,
+        },
+        error: null,
+      },
+    })
+
+    await expect(disputeExpenseClaim({
+      expense_id: EXPENSE_ID,
+      member_id: GUEST_MEMBER_ID,
+      expected_financial_version: 7,
+      request_id: REQUEST_ID,
+    })).resolves.toEqual({
+      ok: true,
+      data: {
+        expenseId: EXPENSE_ID,
+        memberId: GUEST_MEMBER_ID,
+        status: 'disputed',
+        financialVersion: 8,
+      },
+    })
+    expect(mockRpc).toHaveBeenCalledWith('expense_dispute_claim', {
+      p_actor_id: ACTOR_ID,
+      p_request_id: REQUEST_ID,
+      p_expense_id: EXPENSE_ID,
+      p_member_id: GUEST_MEMBER_ID,
+      p_expected_financial_version: 7,
+    })
+    expect(mockSendInvitation).not.toHaveBeenCalled()
+  })
 })
 
 describe('shared expense share collaborators', () => {

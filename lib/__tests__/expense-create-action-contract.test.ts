@@ -41,7 +41,12 @@ vi.mock('@/lib/expenses/persistence.server', () => ({
   getExpenseEditMembersForActor: vi.fn(),
 }))
 
-import { createExpense, saveExpenseDraft } from '@/lib/expenses/actions'
+import {
+  attachExpenseToEvent,
+  createExpense,
+  detachExpenseFromEvent,
+  saveExpenseDraft,
+} from '@/lib/expenses/actions'
 
 const actorId = '10000000-0000-4000-8000-000000000001'
 const selfMemberId = '20000000-0000-4000-8000-000000000001'
@@ -164,6 +169,7 @@ describe('createExpense RPC contract', () => {
       id: eventId,
       name: 'Sumarferð',
       rosterRevision: 4,
+      viewerRole: 'owner' as const,
       guests: [{
         id: eventGuestId,
         displayName: 'Anna',
@@ -198,6 +204,7 @@ describe('createExpense RPC contract', () => {
       circle_id: null,
       event_id: eventId,
       expected_event_roster_revision: 4,
+      link_to_event: true,
       title: 'Kvöldmatur',
       total: '100',
       currency: 'ISK',
@@ -231,15 +238,16 @@ describe('createExpense RPC contract', () => {
       ]),
     }))
     expect(mockRpc.mock.calls.map(([name]) => name)).toEqual([
-      'teskeid_event_create_tagged_expense',
+      'teskeid_event_create_expense_from_event_for_actor',
       'expense_delete_private_draft',
     ])
     const [rpcName, rpcInput] = mockRpc.mock.calls[0]
-    expect(rpcName).toBe('teskeid_event_create_tagged_expense')
+    expect(rpcName).toBe('teskeid_event_create_expense_from_event_for_actor')
     expect(Object.keys(rpcInput).sort()).toEqual([
       'p_actor_id',
       'p_event_id',
       'p_expected_roster_revision',
+      'p_link_to_event',
       'p_payload',
       'p_request_id',
     ])
@@ -248,11 +256,13 @@ describe('createExpense RPC contract', () => {
       p_request_id: requestId,
       p_event_id: eventId,
       p_expected_roster_revision: 4,
+      p_link_to_event: true,
     })
     expect(Object.keys(rpcInput.p_payload).sort()).toEqual([
       'category',
       'currency',
       'event_guest_members',
+      'event_organizer_members',
       'incurred_on',
       'note',
       'obligations',
@@ -301,6 +311,7 @@ describe('createExpense RPC contract', () => {
       }],
       participant_invitations: [],
       event_guest_members: [{ event_guest_id: eventGuestId, member_id: taggedGuestMemberId }],
+      event_organizer_members: [],
     })
     expect(rpcInput).not.toHaveProperty('p_expense_id')
     expect(rpcInput).not.toHaveProperty('p_group_id')
@@ -328,7 +339,7 @@ describe('createExpense RPC contract', () => {
     ])
     await expect(createExpense(taggedInput)).resolves.toEqual(result)
     const taggedCalls = mockRpc.mock.calls.filter(([name]) => (
-      name === 'teskeid_event_create_tagged_expense'
+      name === 'teskeid_event_create_expense_from_event_for_actor'
     ))
     expect(taggedCalls).toHaveLength(2)
     expect(taggedCalls[1]![1]).toEqual(taggedCalls[0]![1])
@@ -341,6 +352,72 @@ describe('createExpense RPC contract', () => {
       ...taggedInput,
       request_id: '50000000-0000-4000-8000-000000000004',
     })).resolves.toEqual({ ok: false, error: 'event_roster_changed' })
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: '42703',
+        message: 'column "invitation.delivery_state" does not exist private@example.is',
+      },
+    })
+    await expect(createExpense({
+      ...taggedInput,
+      request_id: '50000000-0000-4000-8000-000000000014',
+    })).resolves.toEqual({ ok: false, error: 'save_failed' })
+    expect(consoleError).toHaveBeenLastCalledWith(
+      '[expenses] create expense failed',
+      { sqlState: '42703', reason: 'unknown', identifier: 'invitation.delivery_state' },
+    )
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain('private@example.is')
+    consoleError.mockRestore()
+  })
+
+  it('uses the independent Event-import wrapper for an explicit attendee source', async () => {
+    const requestId = '50000000-0000-4000-8000-000000000013'
+    mockGetOwnedEventExpenseSource.mockResolvedValueOnce({
+      id: eventId,
+      name: 'Sumarferð',
+      rosterRevision: 4,
+      viewerRole: 'attendee',
+      guests: [{
+        id: eventGuestId,
+        displayName: 'Anna',
+        sourceKind: 'manual_name',
+      }],
+    })
+    mockResolveExpenseMembers.mockResolvedValueOnce([
+      {
+        id: selfMemberId, key: 'self', userId: actorId, displayName: 'Stebbi',
+        role: 'owner', status: 'active',
+      },
+      {
+        id: guestMemberId, key: `event:${eventGuestId}`, userId: null,
+        displayName: 'Anna', role: 'member', status: 'active', eventGuestId,
+      },
+    ])
+
+    await expect(createExpense({
+      request_id: requestId,
+      group_id: null,
+      circle_id: null,
+      event_id: eventId,
+      expected_event_roster_revision: 4,
+      title: 'Kvöldmatur', total: '100', currency: 'ISK', incurred_on: '2026-08-16',
+      category: null, note: null, split_method: 'equal',
+      members: [
+        { type: 'self', key: 'self' },
+        { type: 'event_guest', key: `event:${eventGuestId}`, event_guest_id: eventGuestId },
+      ],
+      payments: [{ member_key: 'self', amount: '100' }],
+      allocations: [{ member_key: 'self' }, { member_key: `event:${eventGuestId}` }],
+    })).resolves.toEqual({
+      ok: true,
+      data: { groupId: persistedGroupId, expenseId: persistedExpenseId },
+    })
+
+    expect(mockRpc.mock.calls[0]![0]).toBe('teskeid_event_create_expense_from_event_for_actor')
+    expect(mockRpc.mock.calls[0]![1].p_link_to_event).toBe(false)
   })
 
   it('reaches the tagged SQL receipt when a non-event relationship disappears after a lost response', async () => {
@@ -406,7 +483,7 @@ describe('createExpense RPC contract', () => {
     })
 
     const taggedCalls = mockRpc.mock.calls.filter(([name]) => (
-      name === 'teskeid_event_create_tagged_expense'
+      name === 'teskeid_event_create_expense_from_event_for_actor'
     ))
     expect(taggedCalls).toHaveLength(2)
     for (const [, rpcInput] of taggedCalls) {
@@ -547,7 +624,7 @@ describe('createExpense RPC contract', () => {
       },
     ])
     mockRpc.mockImplementation(async (name: string) => {
-      if (name === 'teskeid_event_create_tagged_expense') {
+      if (name === 'teskeid_event_create_expense_from_event_for_actor') {
         return {
           data: {
             group_id: persistedGroupId,
@@ -597,7 +674,7 @@ describe('createExpense RPC contract', () => {
     })
 
     expect(mockRpc.mock.calls.map(([name]) => name)).toEqual([
-      'teskeid_event_create_tagged_expense',
+      'teskeid_event_create_expense_from_event_for_actor',
       'expense_reserve_scoped_member_invitation_send',
       'expense_update_member_invitation_delivery',
     ])
@@ -613,5 +690,75 @@ describe('createExpense RPC contract', () => {
     ])
     expect(taggedPayload.one_off_members[0].id).toBe(taggedSelfMemberId)
     expect(JSON.stringify(taggedPayload)).not.toContain('anna@example.com')
+  })
+})
+
+describe('independent Expense event-link actions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGuardExpenseAccess.mockResolvedValue({ user: { id: actorId } })
+    mockCanUseEventExpenses.mockResolvedValue(true)
+    mockGetAdmin.mockReturnValue({ rpc: mockRpc })
+  })
+
+  it('binds attach to both stale-state versions and the stable request id', async () => {
+    const requestId = '50000000-0000-4000-8000-000000000020'
+    mockRpc.mockResolvedValueOnce({
+      data: { expense_id: persistedExpenseId, event_id: eventId },
+      error: null,
+    })
+    await expect(attachExpenseToEvent({
+      expense_id: persistedExpenseId,
+      event_id: eventId,
+      expected_financial_version: 7,
+      expected_event_roster_revision: 4,
+      request_id: requestId,
+    })).resolves.toEqual({
+      ok: true,
+      data: { expenseId: persistedExpenseId, eventId },
+    })
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_attach_expense', {
+      p_actor_id: actorId,
+      p_request_id: requestId,
+      p_expense_id: persistedExpenseId,
+      p_event_id: eventId,
+      p_expected_financial_version: 7,
+      p_expected_roster_revision: 4,
+    })
+  })
+
+  it('detaches only the expected link and fails before SQL without both gates', async () => {
+    const requestId = '50000000-0000-4000-8000-000000000021'
+    mockRpc.mockResolvedValueOnce({
+      data: { expense_id: persistedExpenseId, event_id: eventId },
+      error: null,
+    })
+    await expect(detachExpenseFromEvent({
+      expense_id: persistedExpenseId,
+      expected_event_id: eventId,
+      expected_financial_version: 7,
+      request_id: requestId,
+    })).resolves.toEqual({
+      ok: true,
+      data: { expenseId: persistedExpenseId, eventId },
+    })
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_detach_expense', {
+      p_actor_id: actorId,
+      p_request_id: requestId,
+      p_expense_id: persistedExpenseId,
+      p_expected_event_id: eventId,
+      p_expected_financial_version: 7,
+    })
+
+    mockCanUseEventExpenses.mockResolvedValueOnce(false)
+    mockRpc.mockClear()
+    await expect(attachExpenseToEvent({
+      expense_id: persistedExpenseId,
+      event_id: eventId,
+      expected_financial_version: 7,
+      expected_event_roster_revision: 4,
+      request_id: '50000000-0000-4000-8000-000000000022',
+    })).resolves.toEqual({ ok: false, error: 'feature_disabled' })
+    expect(mockRpc).not.toHaveBeenCalled()
   })
 })

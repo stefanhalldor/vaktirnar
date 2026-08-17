@@ -31,7 +31,7 @@ afterEach(() => {
 })
 
 describe('event attendance email', () => {
-  it('uses a fixed scoped URL and attempt idempotency while escaping untrusted names', async () => {
+  it('uses attempt idempotency without links while escaping untrusted names', async () => {
     await expect(sendEventAttendanceInvitationEmail(
       RECIPIENT,
       INVITATION_ID,
@@ -51,15 +51,15 @@ describe('event attendance email', () => {
     expect(options).toEqual({
       idempotencyKey: `event-attendance/v1/${INVITATION_ID}/2`,
     })
-    expect(payload.html).toContain(
-      `href="https://teskeid.is/auth-mvp/vidburdir/bod/thattaka/${INVITATION_ID}"`,
-    )
     expect(payload.html).toContain('&lt;img')
     expect(payload.html).toContain('&lt;script&gt;')
     expect(payload.html).not.toContain('<script>')
-    expect(payload.text).toContain(
-      `https://teskeid.is/auth-mvp/vidburdir/bod/thattaka/${INVITATION_ID}`,
-    )
+    expect(payload.html).not.toContain('href=')
+    expect(payload.html).not.toContain('https://')
+    expect(payload.text).not.toContain('https://')
+    expect(payload.html).not.toContain(INVITATION_ID)
+    expect(payload.text).not.toContain(INVITATION_ID)
+    expect(payload.text).toContain('Ólesið')
   })
 
   it('uses localized nullable guest and inviter fallbacks without SQL literals', async () => {

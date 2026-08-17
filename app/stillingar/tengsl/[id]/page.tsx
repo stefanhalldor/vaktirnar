@@ -68,11 +68,15 @@ export default async function TengslDetailPage({
               {t('teskeidName')}: {relationship.counterpart_display_name}
             </p>
           )}
-          {relationship.email_canonical && (
+          {relationship.counterpart_email ? (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {t('teskeidEmail')}: {relationship.counterpart_email}
+            </p>
+          ) : !relationship.counterpart_user_id && relationship.email_canonical ? (
             <p className="text-sm text-muted-foreground mt-0.5">
               {relationship.email_canonical}
             </p>
-          )}
+          ) : null}
         </div>
 
         {hasSharedActivity && (

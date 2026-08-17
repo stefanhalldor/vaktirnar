@@ -62,13 +62,13 @@ interface Props {
   idea: Pick<Idea, 'slug' | 'title' | 'short_description' | 'category'>
   href: string
   openLabel: string
-  pendingBadge?: number
-  pendingBadgeLabel?: string
+  unreadBadge?: number
+  unreadBadgeLabel?: string
   titleOverride?: string
   descriptionOverride?: string
 }
 
-export function ReadyTeskeidCard({ idea, href, openLabel, pendingBadge, pendingBadgeLabel, titleOverride, descriptionOverride }: Props) {
+export function ReadyTeskeidCard({ idea, href, openLabel, unreadBadge, unreadBadgeLabel, titleOverride, descriptionOverride }: Props) {
   const Icon = SLUG_ICONS[idea.slug] ?? CATEGORY_ICONS[idea.category] ?? Lightbulb
   const colors = SLUG_COLORS[idea.slug] ?? CATEGORY_COLORS[idea.category] ?? DEFAULT_COLORS
   const title = titleOverride || idea.title
@@ -85,12 +85,12 @@ export function ReadyTeskeidCard({ idea, href, openLabel, pendingBadge, pendingB
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-foreground">{title}</span>
-          {pendingBadge !== undefined && (
+          {unreadBadge !== undefined && (
             <span
               className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-primary-foreground text-xs font-medium"
-              aria-label={pendingBadgeLabel}
+              aria-label={unreadBadgeLabel}
             >
-              <span aria-hidden="true">{pendingBadge}</span>
+              <span aria-hidden="true">{unreadBadge}</span>
             </span>
           )}
         </div>

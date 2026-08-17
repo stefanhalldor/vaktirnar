@@ -146,7 +146,11 @@ export function ExpenseEventParticipantSource({
       </label>
       <div className="max-h-[40dvh] divide-y divide-border overflow-y-auto border-y border-border">
         {filteredGuests.map((guest) => {
+          // The organizer is already the canonical self member when the
+          // current actor owns the Event. Keep the organizer visible in the
+          // roster picker, but do not create a duplicate Expense identity.
           const selected = selectedGuestIds.has(guest.id)
+            || (guest.participantKind === 'organizer' && activeEvent.viewerRole === 'owner')
           return (
             <button
               key={guest.id}

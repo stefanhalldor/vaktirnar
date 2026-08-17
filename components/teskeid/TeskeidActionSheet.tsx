@@ -5,12 +5,16 @@ import { X } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export function TeskeidActionSheet({
+  open,
+  onOpenChange,
   trigger,
   title,
   description,
   closeLabel,
   children,
 }: {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   trigger: ReactNode
   title: ReactNode
   description: ReactNode
@@ -18,7 +22,7 @@ export function TeskeidActionSheet({
   children: ReactNode
 }) {
   return (
-    <Dialog.Root>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />

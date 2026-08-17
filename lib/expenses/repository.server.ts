@@ -1,6 +1,7 @@
 import 'server-only'
 import { getAdmin } from '@/lib/supabase/admin'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { getExpensePayAllEventLabels } from '@/lib/events/repository.server'
 import {
   aggregateLedgerBalances,
   applySettlementTransfers,
@@ -45,6 +46,8 @@ import type {
   ExpenseDashboardView,
   ExpenseGroupView,
   ExpenseGroupSummaryView,
+  ExpenseIdentityProofKind,
+  ExpenseEventIdentityCandidatesView,
   ExpenseInvitationView,
   ExpenseIncompleteDraftSummaryView,
   ExpenseItemView,
@@ -206,6 +209,21 @@ interface MemberNameRevisionRow {
   new_display_name: string
 }
 
+interface ExpenseClaimContext {
+  requiresReview: boolean
+  disputes: Array<{
+    expenseId: string
+    memberId: string
+    status: 'disputed'
+    isSelf: boolean
+  }>
+  bindings: Array<{
+    memberId: string
+    proofKind: ExpenseIdentityProofKind
+    isSelf: boolean
+  }>
+}
+
 const GROUP_SELECT = 'id, kind, name, description, emoji, default_currency, default_include_creator, status, financial_version, created_at'
 const MEMBER_SELECT = 'id, group_id, user_id, display_name, role, status, created_at'
 const EXPENSE_SELECT = 'id, group_id, title, total_minor, currency, incurred_on, category, note, status, split_method, created_by, created_at'
@@ -353,16 +371,21 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   guestMemberRenameReady: boolean
   settlementBatchRepaymentLinks: SettlementBatchRepaymentLinkRow[]
   settlementBatchReady: boolean
-  eventDerivedMemberIds: string[]
+  claimContext: ExpenseClaimContext
+  creatorNames: Map<string, string>
 }> {
   const admin = getAdmin()
-  const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult] = await Promise.all([
+  const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult, claimContextResult] = await Promise.all([
     admin.from('expense_groups').select(GROUP_SELECT).eq('id', groupId).maybeSingle(),
     admin.from('expense_group_members').select(MEMBER_SELECT).eq('group_id', groupId).order('created_at', { ascending: true }),
     admin.from('expenses').select(EXPENSE_SELECT).eq('group_id', groupId).order('incurred_on', { ascending: false }).order('created_at', { ascending: false }),
     admin.from('expense_repayments').select('id, group_id, from_member_id, to_member_id, amount_minor, currency, occurred_on, note, status, reported_by, payment_preference_snapshot, created_at').eq('group_id', groupId).order('created_at', { ascending: false }),
     admin.from('expense_activity').select('id, sequence_no, event_type, entity_type, entity_id, summary_code, actor_display_name, expense_title, group_title, created_at').eq('group_id', groupId).order('sequence_no', { ascending: false }).limit(50),
     admin.from('expense_member_invitations').select('id, group_id, member_id, status, attempt_status, recipient_email_canonical').eq('group_id', groupId).eq('status', 'pending').gt('expires_at', new Date().toISOString()),
+    admin.rpc('expense_get_claim_context', {
+      p_actor_id: actorUserId,
+      p_group_id: groupId,
+    }),
   ])
   throwOnError(groupResult.error, 'group query')
   throwOnError(membersResult.error, 'member query')
@@ -370,6 +393,7 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   throwOnError(repaymentsResult.error, 'repayment query')
   throwOnError(activityResult.error, 'activity query')
   throwOnError(memberInvitationsResult.error, 'member invitation query')
+  throwOnError(claimContextResult.error, 'claim context query')
   if (!groupResult.data) throw new Error('expense_not_found')
 
   const members = (membersResult.data ?? []) as MemberRow[]
@@ -377,6 +401,7 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   const repayments = (repaymentsResult.data ?? []) as RepaymentRow[]
   const expenseIds = expenses.map((row) => row.id)
   const repaymentIds = repayments.map((row) => row.id)
+  const creatorUserIds = [...new Set(expenses.flatMap((row) => row.created_by ? [row.created_by] : []))]
   const empty = { data: [] as unknown[], error: null }
   const [
     paymentsResult,
@@ -386,6 +411,7 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
     shareCollaboratorsResult,
     memberNameRevisionsResult,
     settlementBatchItemsResult,
+    creatorProfilesResult,
   ] = await Promise.all([
     expenseIds.length > 0
       ? admin.from('expense_payments').select('expense_id, member_id, amount_minor').in('expense_id', expenseIds)
@@ -411,6 +437,9 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
         .select('repayment_id, batch_id, method')
         .in('repayment_id', repaymentIds)
       : Promise.resolve(empty),
+    creatorUserIds.length > 0
+      ? admin.from('profiles').select('id, display_name').in('id', creatorUserIds)
+      : Promise.resolve(empty),
   ])
   throwOnError(paymentsResult.error, 'payment query')
   throwOnError(sharesResult.error, 'share query')
@@ -434,38 +463,16 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   )) {
     throwOnError(settlementBatchItemsResult.error, 'settlement batch item query')
   }
-
-  const actorMember = members.find((member) => (
-    member.status === 'active' && member.user_id === actorUserId
-  ))
-  let eventDerivedMemberIds: string[] = []
-  if (actorMember?.role === 'owner' || actorMember?.role === 'admin') {
-    const provenanceResult = await admin.rpc('teskeid_event_get_expense_member_sources', {
-      p_actor_id: actorUserId,
-      p_group_id: groupId,
-    })
-    throwOnError(provenanceResult.error, 'event expense provenance query')
-    const provenance = record(provenanceResult.data)
-    if (
-      !provenance
-      || Object.keys(provenance).length !== 1
-      || !Array.isArray(provenance.member_ids)
-      || provenance.member_ids.length > 50
-    ) throw new Error('expense_event_provenance_invalid')
-    const memberIds = new Set(members.map((member) => member.id))
-    eventDerivedMemberIds = provenance.member_ids.map((memberId) => {
-      if (typeof memberId !== 'string' || !memberIds.has(memberId)) {
-        throw new Error('expense_event_provenance_invalid')
-      }
-      return memberId
-    })
-    if (
-      new Set(eventDerivedMemberIds).size !== eventDerivedMemberIds.length
-      || eventDerivedMemberIds.some((memberId, index) => (
-        index > 0 && eventDerivedMemberIds[index - 1]! >= memberId
-      ))
-    ) throw new Error('expense_event_provenance_invalid')
-  }
+  throwOnError(creatorProfilesResult.error, 'creator profile query')
+  const creatorNames = new Map(((creatorProfilesResult.data ?? []) as Array<{
+    id: string
+    display_name: string | null
+  }>).flatMap((row) => {
+    const displayName = row.display_name?.trim()
+    return displayName && displayName.length <= 120 && !displayName.includes('@')
+      ? [[row.id, displayName] as const]
+      : []
+  }))
 
   return {
     group: groupResult.data as GroupRow,
@@ -490,7 +497,61 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
       ? []
       : (settlementBatchItemsResult.data ?? []) as SettlementBatchRepaymentLinkRow[],
     settlementBatchReady: !settlementBatchItemsResult.error,
-    eventDerivedMemberIds,
+    claimContext: claimContextResult.data === null
+      ? { requiresReview: false, disputes: [], bindings: [] }
+      : parseClaimContext(claimContextResult.data),
+    creatorNames,
+  }
+}
+
+function parseClaimContext(value: unknown): ExpenseClaimContext {
+  const source = record(value)
+  if (!source
+    || typeof source.requires_review !== 'boolean'
+    || !Array.isArray(source.disputes)
+    || !Array.isArray(source.bindings)
+    || source.disputes.length > 50
+    || source.bindings.length > 50) {
+    throw new Error('expense_claim_context_invalid')
+  }
+  const disputes = source.disputes.map((item) => {
+    const row = record(item)
+    if (!row
+      || typeof row.expense_id !== 'string'
+      || typeof row.member_id !== 'string'
+      || row.status !== 'disputed'
+      || typeof row.is_self !== 'boolean') return null
+    return {
+      expenseId: row.expense_id,
+      memberId: row.member_id,
+      status: 'disputed' as const,
+      isSelf: row.is_self,
+    }
+  })
+  const proofKinds = new Set<ExpenseIdentityProofKind>([
+    'relationship', 'event_guest', 'event_organizer', 'event_current_repair',
+  ])
+  const bindings = source.bindings.map((item) => {
+    const row = record(item)
+    if (!row
+      || typeof row.member_id !== 'string'
+      || typeof row.proof_kind !== 'string'
+      || !proofKinds.has(row.proof_kind as ExpenseIdentityProofKind)
+      || typeof row.is_self !== 'boolean') return null
+    return {
+      memberId: row.member_id,
+      proofKind: row.proof_kind as ExpenseIdentityProofKind,
+      isSelf: row.is_self,
+    }
+  })
+  if (disputes.some((item) => item === null)
+    || bindings.some((item) => item === null)) {
+    throw new Error('expense_claim_context_invalid')
+  }
+  return {
+    requiresReview: source.requires_review,
+    disputes: disputes as ExpenseClaimContext['disputes'],
+    bindings: bindings as ExpenseClaimContext['bindings'],
   }
 }
 
@@ -531,13 +592,17 @@ function buildGroupView(
     invitation.member_id,
     invitation,
   ]))
-  const eventDerivedMemberIds = new Set(rows.eventDerivedMemberIds)
+  const identityBindingsByMember = new Map(rows.claimContext.bindings.map((binding) => [
+    binding.memberId,
+    binding,
+  ]))
   const memberNameRevisionsByActivity = new Map(rows.memberNameRevisions.map((revision) => [
     revision.activity_id,
     revision,
   ]))
   const members: ExpenseMemberView[] = rows.members.map((member) => {
     const invitation = invitationsByMember.get(member.id)
+    const identityBinding = identityBindingsByMember.get(member.id)
     return {
       id: member.id,
       displayName: member.display_name,
@@ -545,13 +610,16 @@ function buildGroupView(
       status: member.status,
       isSelf: member.user_id === actorUserId,
       isRegistered: member.user_id !== null,
+      identityProof: identityBinding ? {
+        kind: identityBinding.proofKind,
+        isSelf: identityBinding.isSelf,
+      } : null,
       identityInvitation: invitation ? {
         id: invitation.id,
         status: invitation.status,
         delivery: invitation.attempt_status ?? 'not_sent',
         ...expenseInvitationRecipientProjection({
           canManage,
-          isEventDerivedMember: eventDerivedMemberIds.has(member.id),
           recipientEmail: invitation.recipient_email_canonical,
         }),
       } : null,
@@ -617,6 +685,7 @@ function buildGroupView(
     }))
   const reportedReviewKeys = reportedRepaymentsNeedingReview(domainBalances, reportedReservations)
   const settlementRequiresReview = reportedReviewKeys.size > 0
+    || rows.claimContext.requiresReview
   const availableBalances = applySettlementTransfers(domainBalances, reportedReservations)
   const transfers = simplifySettlement(availableBalances).map((transfer) => {
     const from = membersById.get(transfer.fromPartyId)
@@ -661,6 +730,9 @@ function buildGroupView(
     status: expense.status,
     splitMethod: expense.split_method,
     createdBySelf: expense.created_by === actorUserId,
+    creatorDisplayName: expense.created_by
+      ? rows.creatorNames.get(expense.created_by) ?? null
+      : null,
     createdAt: expense.created_at,
     payments: rows.payments
       .filter((payment) => payment.expense_id === expense.id)
@@ -686,6 +758,8 @@ function buildGroupView(
         createdAt: collaborator.created_at,
       })),
     revisions: [],
+    claimDisputes: rows.claimContext.disputes
+      .filter((dispute) => dispute.expenseId === expense.id),
   }))
 
   const repaymentViews: ExpenseRepaymentView[] = rows.repayments.map((repayment) => {
@@ -748,7 +822,9 @@ function buildGroupView(
   // activity is loaded by group, so omit them here instead of exposing one
   // member's consent lifecycle to every current member.
   const activity: ExpenseActivityView[] = rows.activity
-    .filter((row) => !row.event_type.startsWith('expense_member_invitation_'))
+    .filter((row) => !row.event_type.startsWith('expense_member_invitation_')
+      && row.event_type !== 'expense_identity_bound'
+      && row.event_type !== 'expense_claim_disputed')
     .map((row) => ({
     id: row.id,
     sequence: safeMinor(row.sequence_no),
@@ -796,6 +872,7 @@ function buildGroupView(
     balances,
     settlementTransfers: transfers,
     settlementRequiresReview,
+    claimReviewRequired: rows.claimContext.requiresReview,
     shareCollaborationReady: rows.shareCollaborationReady,
     guestMemberRenameReady: rows.guestMemberRenameReady,
     repayments: repaymentViews,
@@ -1150,6 +1227,12 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
   throwOnError(error, 'pay-all membership query')
 
   const groupIds = [...new Set(((data ?? []) as Array<{ group_id: string }>).map((row) => row.group_id))]
+  let eventLabels = new Map<string, string>()
+  try {
+    eventLabels = await getExpensePayAllEventLabels(actorUserId, groupIds)
+  } catch {
+    console.error('[expenses] event context label lookup failed')
+  }
   const resolved = await Promise.all(groupIds.map(async (groupId) => {
     try {
       const rows = await loadGroupRows(groupId, actorUserId)
@@ -1194,7 +1277,7 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
         })
 
         if (pairDirection) {
-          const context = buildExpensePayAllContext(group, transfer)
+          const context = buildExpensePayAllContext(group, transfer, eventLabels.get(group.id) ?? null)
           const pairContext = buildExpensePayAllPairContext(context)
           const actionable = !group.settlementRequiresReview
             && (group.status === 'active' || group.status === 'settling')
@@ -1235,7 +1318,7 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
         // Exact canonical registered pairs are rendered by counterpartyViews.
         // Keep the legacy outgoing list only for guests/delegated share actors.
         if (pairDirection?.direction === 'outgoing' && creditor.user_id) continue
-        const context = buildExpensePayAllContext(group, transfer)
+        const context = buildExpensePayAllContext(group, transfer, eventLabels.get(group.id) ?? null)
         if (!transfer.canReport) {
           blockedContexts.push({ ...context, recipientDisplayName: transfer.toDisplayName })
           continue
@@ -1663,6 +1746,50 @@ export async function getExpenseItemView(
 ): Promise<{ group: ExpenseGroupView; expense: ExpenseItemView } | null> {
   const result = await getExpenseItemLookup(actorUserId, expenseId, options)
   return result.status === 'ok' ? { group: result.group, expense: result.expense } : null
+}
+
+export async function getExpenseEventIdentityCandidates(
+  actorUserId: string,
+  expenseId: string,
+): Promise<ExpenseEventIdentityCandidatesView | null> {
+  const { data, error } = await getAdmin().rpc(
+    'expense_get_event_identity_candidates',
+    { p_actor_id: actorUserId, p_expense_id: expenseId },
+  )
+  throwOnError(error, 'event identity candidates query')
+  if (data === null) return null
+  const source = record(data)
+  if (!source
+    || typeof source.event_id !== 'string'
+    || typeof source.event_name !== 'string'
+    || source.event_name.length < 1
+    || source.event_name.length > 200
+    || !Array.isArray(source.candidates)
+    || source.candidates.length > 50) {
+    throw new Error('expense_event_identity_candidates_invalid')
+  }
+  const candidates = source.candidates.map((item) => {
+    const row = record(item)
+    const displayName = row?.display_name === null
+      ? null
+      : boundedString(row?.display_name, 120)
+    if (!row
+      || typeof row.event_participant_id !== 'string'
+      || displayName === null && row.display_name !== null
+      || displayName?.includes('@')) return null
+    return {
+      eventParticipantId: row.event_participant_id,
+      displayName,
+    }
+  })
+  if (candidates.some((candidate) => candidate === null)) {
+    throw new Error('expense_event_identity_candidates_invalid')
+  }
+  return {
+    eventId: source.event_id,
+    eventName: source.event_name,
+    candidates: candidates as ExpenseEventIdentityCandidatesView['candidates'],
+  }
 }
 
 export async function getExpensePrivateDraft(

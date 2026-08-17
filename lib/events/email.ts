@@ -32,19 +32,6 @@ function preventAutoLink(value: string): string {
     .replace(/\./g, '.\u200B')
 }
 
-function scopedInvitationUrl(invitationId: string): string | null {
-  try {
-    const base = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://teskeid.is')
-    if (base.protocol !== 'https:') return null
-    return new URL(
-      `/auth-mvp/vidburdir/bod/thattaka/${encodeURIComponent(invitationId)}`,
-      base.origin,
-    ).toString()
-  } catch {
-    return null
-  }
-}
-
 export function classifyEventAttendanceEmailError(error: {
   name?: string | null
   statusCode?: number | null
@@ -72,8 +59,7 @@ export async function sendEventAttendanceInvitationEmail(
   attemptNumber: number,
   context: EventAttendanceEmailContext,
 ): Promise<EventAttendanceEmailSendResult> {
-  const invitationUrl = scopedInvitationUrl(invitationId)
-  if (!invitationUrl || context.templateVersion !== 'event-attendance-v1') return 'uncertain'
+  if (context.templateVersion !== 'event-attendance-v1') return 'uncertain'
   const idempotencyKey = `event-attendance/v1/${invitationId}/${attemptNumber}`
 
   if (!process.env.RESEND_API_KEY) {
@@ -97,7 +83,6 @@ export async function sendEventAttendanceInvitationEmail(
     `<p>${safe(EMAIL_V1_COPY.intro)}</p>`,
     `<p><strong>${safe(EMAIL_V1_COPY.eventLabel)}:</strong> ${safe(context.eventName)}<br><strong>${safe(EMAIL_V1_COPY.guestLabel)}:</strong> ${safe(guest)}<br><strong>${safe(EMAIL_V1_COPY.fromLabel)}:</strong> ${safe(inviter)}</p>`,
     `<p>${safe(EMAIL_V1_COPY.instructions)}</p>`,
-    `<p><a href="${escapeHtml(invitationUrl)}">${safe(EMAIL_V1_COPY.action)}</a></p>`,
     identityHtml,
     `<p>${safe(EMAIL_V1_COPY.privacyNotice)}</p>`,
     `<p>${safe(EMAIL_V1_COPY.tagline)}</p>`,
@@ -110,7 +95,6 @@ export async function sendEventAttendanceInvitationEmail(
     `${preventAutoLink(EMAIL_V1_COPY.fromLabel)}: ${preventAutoLink(inviter)}`,
     '',
     preventAutoLink(EMAIL_V1_COPY.instructions),
-    `${EMAIL_V1_COPY.action}: ${invitationUrl}`,
     ...identityText,
     '',
     preventAutoLink(EMAIL_V1_COPY.privacyNotice),

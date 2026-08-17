@@ -26,6 +26,22 @@ import {
   expenseSectionClass,
 } from './ui'
 
+function distinctEventLabels(contexts: readonly ExpensePayAllContextView[]): string[] {
+  return [...new Set(contexts.flatMap((context) => context.eventLabel ? [context.eventLabel] : []))]
+}
+
+function EventLabels({ labels }: { labels: readonly string[] }) {
+  const t = useExpenseTranslations()
+  if (labels.length === 0) return null
+  return (
+    <span className="mt-1 block space-y-0.5 text-xs font-normal text-muted-foreground">
+      {labels.map((event) => (
+        <span key={event} className="block break-words">{t('payAll.eventLabel', { event })}</span>
+      ))}
+    </span>
+  )
+}
+
 function ContextRows({ contexts, locale, initialDate, showRepaymentAction = true }: {
   contexts: ExpensePayAllContextView[]
   locale: string
@@ -46,6 +62,7 @@ function ContextRows({ contexts, locale, initialDate, showRepaymentAction = true
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {t(context.groupKind === 'one_off' ? 'payAll.oneOffContext' : 'payAll.groupContext')}
               </p>
+              <EventLabels labels={context.eventLabel ? [context.eventLabel] : []} />
             </div>
             <strong className="shrink-0 text-sm">
               {formatExpenseMinor(context.amountMinor, context.currency, locale)}
@@ -221,12 +238,13 @@ function countPairEntries(contexts: ExpensePayAllCounterpartyView['outgoingConte
   )
 }
 
-function PairSummaryRow({ label, amount, count, currency, locale, strong = false }: {
+function PairSummaryRow({ label, amount, count, currency, locale, eventLabels = [], strong = false }: {
   label: string
   amount: number
   count?: number
   currency: string
   locale: string
+  eventLabels?: readonly string[]
   strong?: boolean
 }) {
   const t = useExpenseTranslations()
@@ -240,6 +258,7 @@ function PairSummaryRow({ label, amount, count, currency, locale, strong = false
             {t('payAll.counterpartyContextCount', { count })}
           </span>
         ) : null}
+        <EventLabels labels={eventLabels} />
       </dt>
       <dd className="shrink-0 text-right font-semibold">
         {formatExpenseMinor(amount, currency, locale)}
@@ -280,6 +299,7 @@ function CounterpartyCard({ pair, locale, initialDate, settlementBatchReady }: {
             count={outgoingCount}
             currency={pair.currency}
             locale={locale}
+            eventLabels={distinctEventLabels(pair.outgoingContexts.map((context) => context.context))}
           />
         ) : null}
         {pair.grossReceivableMinor > 0 ? (
@@ -289,6 +309,7 @@ function CounterpartyCard({ pair, locale, initialDate, settlementBatchReady }: {
             count={incomingCount}
             currency={pair.currency}
             locale={locale}
+            eventLabels={distinctEventLabels(pair.incomingContexts.map((context) => context.context))}
           />
         ) : null}
         <PairSummaryRow
@@ -598,6 +619,7 @@ export function ExpensePayAll({ view, locale, initialDate }: { view: ExpensePayA
               {t('payAll.combinedPaymentCount', { count: payment.contexts.length })}
             </p>
           ) : null}
+          <EventLabels labels={distinctEventLabels(payment.contexts)} />
           {payment.paymentDetailsState === 'not_configured' ? (
             <p className="text-sm text-muted-foreground">{t('payAll.paymentMissingGeneric')}</p>
           ) : payment.paymentDetailsState === 'unavailable' ? (

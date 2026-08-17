@@ -3,6 +3,7 @@ import 'server-only'
 import type { User } from '@supabase/supabase-js'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getAdmin } from '@/lib/supabase/admin'
+import { recordRecentEvent } from './helpers.server'
 import type { ExpenseRecentEventRow, RecentEventSource } from './types'
 
 const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
@@ -13,6 +14,7 @@ const TARGET_BATCH_SIZE = 100
 export interface RecentEventSourceAccess {
   loansEnabled: boolean
   expensesEnabled: boolean
+  eventInvitationsEnabled: boolean
   sources: RecentEventSource[]
 }
 
@@ -24,17 +26,143 @@ export interface RecentEventSourceAccess {
 export async function resolveRecentEventSourceAccess(
   user: Pick<User, 'id' | 'email'>,
 ): Promise<RecentEventSourceAccess> {
-  if (!user.email) return { loansEnabled: false, expensesEnabled: false, sources: [] }
-  const [loansResult, expensesResult] = await Promise.allSettled([
+  if (!user.email) {
+    return {
+      loansEnabled: false,
+      expensesEnabled: false,
+      eventInvitationsEnabled: false,
+      sources: [],
+    }
+  }
+  const [loansResult, expensesResult, expenseMembershipResult] = await Promise.allSettled([
     checkFeatureAccess(user.id, user.email, 'lanad-og-skilad'),
     checkFeatureAccess(user.id, user.email, 'utlagt-og-endurgreitt'),
+    Promise.resolve().then(() => getAdmin()
+      .from('expense_group_members')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .limit(1)),
   ])
   const loansEnabled = loansResult.status === 'fulfilled' && loansResult.value === true
-  const expensesEnabled = expensesResult.status === 'fulfilled' && expensesResult.value === true
+  const hasExactExpenseMembership = expenseMembershipResult.status === 'fulfilled'
+    && !expenseMembershipResult.value.error
+    && (expenseMembershipResult.value.data?.length ?? 0) > 0
+  const expensesEnabled = (
+    expensesResult.status === 'fulfilled' && expensesResult.value === true
+  ) || hasExactExpenseMembership
+  const eventInvitationsEnabled = process.env.EVENTS_ENABLED === 'true'
   const sources: RecentEventSource[] = []
   if (loansEnabled) sources.push('loans')
   if (expensesEnabled) sources.push('expenses')
-  return { loansEnabled, expensesEnabled, sources }
+  if (eventInvitationsEnabled) sources.push('events')
+  return { loansEnabled, expensesEnabled, eventInvitationsEnabled, sources }
+}
+
+const EVENT_INVITATION_PATH = '/auth-mvp/vidburdir/bod/thattaka'
+
+interface PendingEventInvitation {
+  invitationId: string
+  eventName: string
+  inviterDisplayName?: string
+  invitedAt: string
+}
+
+export interface EventInvitationSyncResult {
+  ok: boolean
+  invitationIds: Set<string>
+}
+
+function eventInvitationProjectionIsUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return false
+  const code = (error as Record<string, unknown>).code
+  return code === 'PGRST202' || code === '42883'
+}
+
+function parsePendingEventInvitations(value: unknown): PendingEventInvitation[] | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const invitations = (value as Record<string, unknown>).invitations
+  if (!Array.isArray(invitations) || invitations.length > 100) return null
+  const parsed: PendingEventInvitation[] = []
+  for (const candidate of invitations) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+    const row = candidate as Record<string, unknown>
+    if (Object.keys(row).some((key) => ![
+      'invitation_id', 'event_name', 'inviter_display_name', 'invited_at',
+    ].includes(key))) return null
+    const invitationId = typeof row.invitation_id === 'string' ? row.invitation_id : ''
+    const eventName = typeof row.event_name === 'string' ? row.event_name.trim() : ''
+    const inviterDisplayName = typeof row.inviter_display_name === 'string'
+      ? row.inviter_display_name.trim()
+      : undefined
+    const invitedAt = typeof row.invited_at === 'string' ? row.invited_at : ''
+    if (
+      !UUID_PATTERN.test(invitationId)
+      || eventName.length < 1
+      || eventName.length > 200
+      || (inviterDisplayName && (inviterDisplayName.length > 120 || inviterDisplayName.includes('@')))
+      || Number.isNaN(Date.parse(invitedAt))
+    ) return null
+    parsed.push({
+      invitationId,
+      eventName,
+      ...(inviterDisplayName ? { inviterDisplayName } : {}),
+      invitedAt,
+    })
+  }
+  return parsed
+}
+
+/**
+ * Mirrors exact-current pending Event invitations into the shared unread feed.
+ * The SQL projection is session/email scoped and deliberately independent of
+ * the per-user Events entitlement so a recipient is never stranded by an
+ * email that contains no link.
+ */
+export async function syncEventAttendanceInvitationEvents(
+  actorUserId: string,
+): Promise<EventInvitationSyncResult> {
+  try {
+    const { data, error } = await getAdmin().rpc(
+      'teskeid_event_list_my_pending_invitations',
+      { p_actor_id: actorUserId },
+    )
+    if (error) {
+      // SQL134 is additive and may intentionally lag the app during DB-first
+      // localhost/release windows. Missing projection means no Event feed; it
+      // must not turn a best-effort home sync into a Next.js error overlay.
+      if (!eventInvitationProjectionIsUnavailable(error)) {
+        console.warn('[recent-events] event invitation sync unavailable')
+      }
+      return { ok: false, invitationIds: new Set() }
+    }
+    const invitations = parsePendingEventInvitations(data)
+    if (!invitations) throw new Error('event_invitation_projection_invalid')
+    await Promise.all(invitations.map((invitation) => recordRecentEvent({
+      userId: actorUserId,
+      source: 'events',
+      eventType: 'event_attendance_invitation_received',
+      entityType: 'attendance_invitation',
+      entityId: invitation.invitationId,
+      eventKey: `events:attendance-invitation:${invitation.invitationId}:received`,
+      payload: {
+        eventName: invitation.eventName,
+        ...(invitation.inviterDisplayName
+          ? { inviterDisplayName: invitation.inviterDisplayName }
+          : {}),
+      },
+      href: `${EVENT_INVITATION_PATH}/${invitation.invitationId}`,
+      occurredAt: invitation.invitedAt,
+      updateOnConflict: false,
+    })))
+    return {
+      ok: true,
+      invitationIds: new Set(invitations.map((invitation) => invitation.invitationId)),
+    }
+  } catch {
+    console.warn('[recent-events] event invitation sync unavailable')
+    return { ok: false, invitationIds: new Set() }
+  }
 }
 
 export function expenseActivityIdFromEventKey(eventKey: string): string | null {

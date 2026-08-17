@@ -8,7 +8,8 @@ const {
   mockCanUseEventExpenses,
   mockGetEventContext,
   mockGetEventAttendeeContext,
-  mockGetEventExpensePreview,
+  mockGetEventExpenseActivity,
+  mockGetEventDetails,
   mockGetEventGuestAttendancePreview,
   mockGetExpenseParticipantOptions,
   mockGetTranslations,
@@ -22,7 +23,8 @@ const {
   mockCanUseEventExpenses: vi.fn(),
   mockGetEventContext: vi.fn(),
   mockGetEventAttendeeContext: vi.fn(),
-  mockGetEventExpensePreview: vi.fn(),
+  mockGetEventExpenseActivity: vi.fn(),
+  mockGetEventDetails: vi.fn(),
   mockGetEventGuestAttendancePreview: vi.fn(),
   mockGetExpenseParticipantOptions: vi.fn(),
   mockGetTranslations: vi.fn(),
@@ -44,6 +46,9 @@ vi.mock('next/link', () => ({
   ),
 }))
 vi.mock('@/components/teskeid/TeskeidMenu', () => ({ TeskeidMenu: () => <div data-testid="menu" /> }))
+vi.mock('@/components/teskeid/TeskeidUnreadSection.server', () => ({
+  TeskeidUnreadSection: () => <div data-testid="teskeid-unread-section" />,
+}))
 vi.mock('@/components/teskeid/TeskeidLogo', () => ({ TeskeidLogo: () => <div data-testid="logo" /> }))
 vi.mock('@/components/teskeid/ClosedTestingBanner', () => ({
   ClosedTestingBanner: () => <div data-testid="closed-testing-banner" />,
@@ -60,16 +65,14 @@ vi.mock('@/components/events/EventList', () => ({
   ),
 }))
 vi.mock('@/components/events/EventCreateForm', () => ({
-  EventCreateForm: ({ options, optionsError, canUseExpenses }: {
+  EventCreateForm: ({ options, optionsError }: {
     options: unknown[]
     optionsError: boolean
-    canUseExpenses: boolean
   }) => (
     <div
       data-testid="event-form"
       data-option-count={options.length}
       data-options-error={String(optionsError)}
-      data-can-use-expenses={String(canUseExpenses)}
     />
   ),
 }))
@@ -94,8 +97,19 @@ vi.mock('@/components/events/EventDetail', () => ({
   ),
 }))
 vi.mock('@/components/events/EventAttendeeDetail', () => ({
-  EventAttendeeDetail: ({ event }: { event: { id: string } }) => (
-    <div data-testid="event-attendee-detail" data-event-id={event.id} />
+  EventAttendeeDetail: ({ event, canUseExpenses, financialPanel }: {
+    event: { id: string }
+    canUseExpenses: boolean
+    financialPanel?: React.ReactNode
+  }) => (
+    <div>
+      <div
+        data-testid="event-attendee-detail"
+        data-event-id={event.id}
+        data-can-use-expenses={String(canUseExpenses)}
+      />
+      {financialPanel}
+    </div>
   ),
 }))
 vi.mock('@/components/events/EventAttendanceInvitationActions', () => ({
@@ -103,10 +117,10 @@ vi.mock('@/components/events/EventAttendanceInvitationActions', () => ({
     <div data-testid="attendance-invitation-actions" data-status={status} />
   ),
 }))
-vi.mock('@/components/expenses/EventExpensePreview', () => ({
-  EventExpensePreview: ({ preview }: { preview: { status: string } }) => (
-    <div data-testid="event-expense-preview" data-status={preview.status} />
-  ),
+vi.mock('@/components/expenses/EventExpenseActivity', () => ({
+  EventExpenseActivity: ({ view }: { view: { status: string } }) => view.status === 'none'
+    ? null
+    : <div data-testid="event-expense-activity" data-status={view.status} />,
 }))
 vi.mock('@/lib/events/guard', () => ({
   canUseEventExpenses: mockCanUseEventExpenses,
@@ -116,7 +130,8 @@ vi.mock('@/lib/events/guard', () => ({
 vi.mock('@/lib/events/repository.server', () => ({
   getEventContext: mockGetEventContext,
   getEventAttendeeContext: mockGetEventAttendeeContext,
-  getEventExpensePreview: mockGetEventExpensePreview,
+  getEventExpenseActivity: mockGetEventExpenseActivity,
+  getEventDetails: mockGetEventDetails,
   getEventGuestAttendancePreview: mockGetEventGuestAttendancePreview,
   listEventDashboard: mockListEventDashboard,
 }))
@@ -153,11 +168,17 @@ beforeEach(() => {
   mockGetEventAttendeeContext.mockResolvedValue(null)
   mockGetExpenseParticipantOptions.mockResolvedValue([])
   mockGetEventContext.mockResolvedValue(event)
-  mockGetEventExpensePreview.mockResolvedValue({
+  mockGetEventDetails.mockResolvedValue({
     eventId: EVENT_ID,
-    status: 'none_tagged',
-    taggedExpenseCount: 0,
-    currencies: [],
+    eventDate: null,
+    eventTime: null,
+    description: null,
+    agenda: null,
+  })
+  mockGetEventExpenseActivity.mockResolvedValue({
+    status: 'none',
+    expenses: [],
+    positions: [],
   })
   mockCheckFeatureAccess.mockResolvedValue(false)
   mockGetEventGuestAttendancePreview.mockResolvedValue({
@@ -241,14 +262,9 @@ describe('independent event pages', () => {
     expect(screen.getByTestId('event-detail').getAttribute('data-option-count')).toBe('1')
   })
 
-  it('passes the optional financial capability only after verified event access', async () => {
-    mockCanUseEventExpenses.mockResolvedValue(true)
+  it('keeps the optional financial capability on verified event detail only', async () => {
     render(await NewEventPage())
-    expect(mockCanUseEventExpenses).toHaveBeenCalledWith(expect.objectContaining({ id: ACTOR_ID }))
-    expect(mockGuardEventAccess.mock.invocationCallOrder[0]).toBeLessThan(
-      mockCanUseEventExpenses.mock.invocationCallOrder[0]!,
-    )
-    expect(screen.getByTestId('event-form')).toHaveAttribute('data-can-use-expenses', 'true')
+    expect(mockCanUseEventExpenses).not.toHaveBeenCalled()
 
     vi.clearAllMocks()
     mockGuardEventAccess.mockResolvedValue({ user: { id: ACTOR_ID, email: 'owner@example.is' } })
@@ -261,17 +277,17 @@ describe('independent event pages', () => {
       mockCanUseEventExpenses.mock.invocationCallOrder[0]!,
     )
     expect(screen.getByTestId('event-detail')).toHaveAttribute('data-can-use-expenses', 'false')
-    expect(mockGetEventExpensePreview).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('event-expense-preview')).not.toBeInTheDocument()
+    expect(mockGetEventExpenseActivity).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('event-expense-activity')).not.toBeInTheDocument()
   })
 
-  it('loads the financial panel only with both gates and degrades preview errors safely', async () => {
+  it('shows the financial panel only when a tagged expense actually exists', async () => {
     mockCanUseEventExpenses.mockResolvedValue(true)
-    const readyView = render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
+    const emptyView = render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
 
-    expect(mockGetEventExpensePreview).toHaveBeenCalledWith(ACTOR_ID, EVENT_ID)
-    expect(screen.getByTestId('event-expense-preview')).toHaveAttribute('data-status', 'none_tagged')
-    readyView.unmount()
+    expect(mockGetEventExpenseActivity).toHaveBeenCalledWith(ACTOR_ID, EVENT_ID)
+    expect(screen.queryByTestId('event-expense-activity')).not.toBeInTheDocument()
+    emptyView.unmount()
 
     vi.clearAllMocks()
     mockGuardEventAccess.mockResolvedValue({ user: { id: ACTOR_ID, email: 'owner@example.is' } })
@@ -279,11 +295,35 @@ describe('independent event pages', () => {
     mockGetEventContext.mockResolvedValue(event)
     mockGetExpenseParticipantOptions.mockResolvedValue([])
     mockCanUseEventExpenses.mockResolvedValue(true)
-    mockGetEventExpensePreview.mockRejectedValue(new Error('private financial failure'))
-    render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
+    mockGetEventExpenseActivity.mockRejectedValue(new Error('private financial failure'))
+    const unavailableView = render(await EventDetailPage({
+      params: Promise.resolve({ eventId: EVENT_ID }),
+    }))
 
     expect(screen.getByTestId('event-detail')).toHaveAttribute('data-can-use-expenses', 'true')
-    expect(screen.getByTestId('event-expense-preview')).toHaveAttribute('data-status', 'unavailable')
+    expect(screen.getByTestId('event-expense-activity')).toHaveAttribute('data-status', 'unavailable')
+    unavailableView.unmount()
+
+    vi.clearAllMocks()
+    mockGuardEventAccess.mockResolvedValue({ user: { id: ACTOR_ID, email: 'owner@example.is' } })
+    mockGetTranslations.mockResolvedValue((key: string) => `events.${key}`)
+    mockGetEventContext.mockResolvedValue(event)
+    mockGetExpenseParticipantOptions.mockResolvedValue([])
+    mockCanUseEventExpenses.mockResolvedValue(true)
+    mockGetEventExpenseActivity.mockResolvedValue({
+      status: 'ready',
+      expenses: [{
+        title: 'Kvöldmatur',
+        description: null,
+        totalMinor: 10_000,
+        currency: 'ISK',
+        payers: [{ displayName: 'Stebbi', amountMinor: 10_000 }],
+      }],
+      positions: [{ currency: 'ISK', state: 'owes', amountMinor: 5_000 }],
+    })
+    render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
+
+    expect(screen.getByTestId('event-expense-activity')).toHaveAttribute('data-status', 'ready')
   })
 
   it('fails soft when relationship options cannot load on create or detail', async () => {
@@ -315,7 +355,16 @@ describe('independent event pages', () => {
     expect(source).not.toMatch(/ExpenseGroupView|getExpenseGroupView|expense_group/i)
   })
 
-  it('renders the attendee branch without loading owner options or financial capabilities', async () => {
+  it('renders the same attendee-safe expense activity for an accepted attendee', async () => {
+    mockCanUseEventExpenses.mockResolvedValueOnce(true)
+    mockGetEventExpenseActivity.mockResolvedValueOnce({
+      status: 'ready',
+      expenses: [{
+        title: 'Kvöldmatur', description: null, totalMinor: 10_000, currency: 'ISK',
+        payers: [{ displayName: 'Stebbi', amountMinor: 10_000 }],
+      }],
+      positions: [{ currency: 'ISK', state: 'zero', amountMinor: 0 }],
+    })
     mockGetEventContext.mockResolvedValueOnce(null)
     mockGetEventAttendeeContext.mockResolvedValueOnce({
       id: EVENT_ID,
@@ -330,9 +379,11 @@ describe('independent event pages', () => {
 
     render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
     expect(screen.getByTestId('event-attendee-detail')).toHaveAttribute('data-event-id', EVENT_ID)
-    expect(mockCanUseEventExpenses).not.toHaveBeenCalled()
+    expect(screen.getByTestId('event-attendee-detail')).toHaveAttribute('data-can-use-expenses', 'true')
+    expect(mockCanUseEventExpenses).toHaveBeenCalledOnce()
     expect(mockGetExpenseParticipantOptions).not.toHaveBeenCalled()
-    expect(mockGetEventExpensePreview).not.toHaveBeenCalled()
+    expect(mockGetEventExpenseActivity).toHaveBeenCalledWith(ACTOR_ID, EVENT_ID)
+    expect(screen.getByTestId('event-expense-activity')).toHaveAttribute('data-status', 'ready')
   })
 })
 

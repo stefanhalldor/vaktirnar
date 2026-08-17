@@ -50,6 +50,11 @@ export type RecordEventArgs = RecordEventBase & (
     eventType: ExpenseRecentEventType
     payload: Readonly<ExpenseRecentEventPayload>
   }
+  | {
+    source: 'events'
+    eventType: 'event_attendance_invitation_received'
+    payload: Readonly<import('./types').EventRecentEventPayload>
+  }
 )
 
 /**
@@ -64,6 +69,7 @@ export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
   if (
     (args.source === 'loans' && !isLoanRecentEventType(args.eventType))
     || (args.source === 'expenses' && !isExpenseRecentEventType(args.eventType))
+    || (args.source === 'events' && args.eventType !== 'event_attendance_invitation_received')
   ) {
     console.error('[recent-events] recordRecentEvent: rejected source/event pair')
     return
@@ -80,7 +86,9 @@ export async function recordRecentEvent(args: RecordEventArgs): Promise<void> {
       : args.payload
     const mergedPayload = args.source === 'loans'
       ? sanitizeRecentEventPayload('loans', args.eventType, inputPayload)
-      : sanitizeRecentEventPayload('expenses', args.eventType, inputPayload)
+      : args.source === 'expenses'
+        ? sanitizeRecentEventPayload('expenses', args.eventType, inputPayload)
+        : sanitizeRecentEventPayload('events', args.eventType, inputPayload)
     if (!mergedPayload) {
       console.error('[recent-events] recordRecentEvent: rejected payload')
       return

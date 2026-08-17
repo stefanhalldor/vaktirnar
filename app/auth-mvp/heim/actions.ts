@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { guardTeskeidSession } from '@/lib/auth/guard'
 import { ackRecentEventsForUser, ackAllUnreadRecentEventsForUser } from '@/lib/recent-events/helpers.server'
 import { resolveRecentEventSourceAccess } from '@/lib/recent-events/access.server'
+import { isRecentEventSource } from '@/lib/recent-events/display'
+import type { RecentEventSource } from '@/lib/recent-events/types'
 import type { ActionResult } from '@/lib/loans/actions'
 
 const MAX_IDS = 10
@@ -39,13 +41,23 @@ export async function ackRecentEvents(input: unknown): Promise<ActionResult> {
   return { ok: true }
 }
 
-export async function ackAllRecentEvents(): Promise<ActionResult> {
+export async function ackAllRecentEvents(source?: RecentEventSource): Promise<ActionResult> {
   const { user } = await guardTeskeidSession()
   const { sources } = await resolveRecentEventSourceAccess(user)
   if (sources.length === 0) return { ok: true }
 
+  if (source !== undefined && !isRecentEventSource(source)) {
+    return { ok: false, error: 'invalid_input' }
+  }
+  const allowedSources = source === undefined
+    ? sources
+    : sources.includes(source)
+      ? [source]
+      : []
+  if (allowedSources.length === 0) return { ok: true }
+
   try {
-    await ackAllUnreadRecentEventsForUser(user.id, sources)
+    await ackAllUnreadRecentEventsForUser(user.id, allowedSources)
   } catch {
     console.error('[ackAllRecentEvents] ackAllUnreadRecentEventsForUser failed')
     return { ok: false, error: 'save_failed' }

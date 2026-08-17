@@ -69,11 +69,13 @@ const translations: Record<string, string> = {
   'common.status': 'Staða',
   'common.save': 'Vista',
   'common.cancel': 'Hætta við',
+  'common.close': 'Loka',
   'expense.active': 'Virkt',
   'expense.splitMethod': 'Skipting',
   'expense.paid': 'Greitt við kaup',
   'expense.shares': 'Hlutur hvers',
   'expense.openGroup': 'Opna hópinn',
+  'expense.openEvent': 'Opna viðburð',
   'expense.edit': 'Breyta útgjaldinu',
   'expense.editDetails': 'Breyta færslu',
   'expense.cancel': 'Fella útgjald niður',
@@ -93,6 +95,19 @@ const translations: Record<string, string> = {
   'expense.summaryRepaidProgress': '{paid} af {total} hafa endurgreitt.',
   'expense.summaryMorePayments': 'Fleiri greiðslur: {count}',
   'expense.summarySettled': 'Allt er uppgert 😊',
+  'claim.createdBy': 'Stofnað af {name}',
+  'claim.unknownCreator': 'Teskeiðarnotanda',
+  'claim.relationshipContext': 'Tengt með Tengslum',
+  'claim.eventContext': 'Tengt með viðburði',
+  'claim.trigger': 'Ég kannast ekki við þetta',
+  'claim.confirmTitle': 'Kannastu ekki við kröfuna?',
+  'claim.confirmBody': 'Krafan verður merkt til yfirferðar.',
+  'claim.confirmAction': 'Merkja til yfirferðar',
+  'claim.saving': 'Vista...',
+  'claim.disputedTitle': 'Þarf yfirferð',
+  'claim.disputedBody': 'Þú hefur merkt að þú kannist ekki við kröfuna.',
+  'claim.reviewRequiredTitle': 'Krafa þarf yfirferð',
+  'claim.reviewRequiredBody': 'Sjálfvirkt uppgjör bíður yfirferðar.',
   'group.members': 'Aðilar',
   'group.memberActive': 'Virkur',
   'group.registered': 'Teskeiðarnotandi',
@@ -240,6 +255,21 @@ const group: ExpenseGroupView = {
 }
 
 describe('ExpenseItemDetail flow context', () => {
+  it('shows an authoritative backlink only for an Event-linked expense', async () => {
+    const { rerender } = render(await ExpenseItemDetail({
+      group,
+      expense,
+      eventHref: '/auth-mvp/vidburdir/event-1',
+    }))
+    expect(screen.getByRole('link', { name: 'Opna viðburð' })).toHaveAttribute(
+      'href',
+      '/auth-mvp/vidburdir/event-1',
+    )
+
+    rerender(await ExpenseItemDetail({ group, expense }))
+    expect(screen.queryByRole('link', { name: 'Opna viðburð' })).not.toBeInTheDocument()
+  })
+
   it('opens on a high-level Útlagt summary with clickable lifecycle views', async () => {
     render(await ExpenseItemDetail({ group, expense }))
 
@@ -257,6 +287,35 @@ describe('ExpenseItemDetail flow context', () => {
       '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1/breyta?step=details',
     )
     expect(within(nav).queryByRole('button', { name: 'Skipting' })).not.toBeInTheDocument()
+  })
+
+  it('lets a canonical recipient dispute without requiring new proof history', async () => {
+    const recipientExpense: ExpenseItemView = {
+      ...expense,
+      createdBySelf: false,
+      creatorDisplayName: 'Stefán',
+    }
+    const recipientGroup: ExpenseGroupView = {
+      ...group,
+      role: 'member',
+      canManage: false,
+      members: group.members.map((member) => member.id === 'self'
+        ? { ...member, role: 'member', identityProof: null }
+        : member),
+      expenses: [recipientExpense],
+    }
+
+    const rendered = render(await ExpenseItemDetail({
+      group: recipientGroup,
+      expense: recipientExpense,
+    }))
+    expect(screen.getByText('Stofnað af Stefán')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ég kannast ekki við þetta' })).toBeInTheDocument()
+
+    rendered.unmount()
+    render(await ExpenseItemDetail({ group, expense }))
+    expect(screen.queryByRole('button', { name: 'Ég kannast ekki við þetta' }))
+      .not.toBeInTheDocument()
   })
 
   it('summarizes two equal outstanding repayments in one readable sentence', async () => {

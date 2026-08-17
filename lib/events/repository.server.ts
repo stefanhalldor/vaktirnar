@@ -10,6 +10,9 @@ import type {
   EventCommittedAttendanceInvitation,
   EventDashboardView,
   EventDetailView,
+  EventDetailsView,
+  EventExpenseActivityView,
+  ExpenseEventLinkManagementView,
   EventExpensePreviewCurrencyView,
   EventExpensePreviewView,
   EventExpenseSourceView,
@@ -24,6 +27,7 @@ import type {
   LeaveEventAttendanceInput,
   ReplaceEventRosterInput,
   RespondEventGuestAttendanceInvitationInput,
+  SaveEventDetailsInput,
 } from './validation'
 
 type JsonRecord = Record<string, unknown>
@@ -53,6 +57,14 @@ const attendanceInvitationKind = z.enum(['access_only', 'identity_and_access'])
 const attendanceDeliveryStatus = z.enum(['not_sent', 'reserved', 'sent', 'failed'])
 const currencyCode = z.string().regex(/^[A-Z]{3}$/)
 const previewStatus = z.enum(['none_tagged', 'ready', 'unavailable'])
+const expenseActivityStatus = z.enum(['none', 'ready', 'unavailable'])
+const expenseActorPositionState = z.enum(['owes', 'owed', 'zero', 'pending'])
+const safeExpenseTitle = z.string().trim().min(1).max(200)
+  .refine((value) => !DISALLOWED_CONTROLS.test(value))
+const eventDateValue = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const eventTimeValue = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(?::00)?$/)
+const eventMultilineValue = (max: number) => z.string().min(1).max(max)
+  .refine((value) => !/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value))
 const previewCurrencyState = z.enum([
   'settled',
   'open',
@@ -497,14 +509,90 @@ export async function createEventContext(
   rosterRevision: number
   invitations: EventCommittedAttendanceInvitation[]
 }> {
-  const { data, error } = await getAdmin().rpc('teskeid_event_create_with_attendance_invitations', {
+  const { data, error } = await getAdmin().rpc('teskeid_event_create_with_details_and_attendance_invitations', {
     p_actor_id: actorUserId,
     p_request_id: input.request_id,
     p_name: input.name,
     p_guests: input.guests,
+    p_event_date: input.event_date,
+    p_event_time: input.event_time,
+    p_description: input.description,
+    p_agenda: input.agenda,
   })
   if (error) rpcFailure(error, 'event_save_failed')
   return mapMutationResult(data, 'event_save_failed')
+}
+
+export async function getEventDetails(
+  actorUserId: string,
+  requestedEventId: string,
+): Promise<EventDetailsView | null> {
+  const parsedEventId = eventId.safeParse(requestedEventId)
+  if (!parsedEventId.success) return null
+  const { data, error } = await getAdmin().rpc('teskeid_event_get_details', {
+    p_actor_id: actorUserId,
+    p_event_id: parsedEventId.data,
+  })
+  if (error) {
+    const message = `${error.message ?? ''} ${error.code ?? ''}`.toLowerCase()
+    if (message.includes('not_found') || message.includes('not_allowed')) return null
+    rpcFailure(error, 'event_load_failed')
+  }
+  const result = resultRecord(data)
+  if (!result) return null
+  exactKeys(result, [
+    'event_id',
+    'event_date',
+    'event_time',
+    'description',
+    'agenda',
+  ], 'event_load_failed')
+  const parsedId = parseEventId(requiredString(result, 'event_id'))
+  if (parsedId !== parsedEventId.data) throw new Error('event_load_failed')
+  const rawDate = nullableString(result, 'event_date')
+  const rawTime = nullableString(result, 'event_time')
+  const rawDescription = nullableString(result, 'description')
+  const rawAgenda = nullableString(result, 'agenda')
+  const parsedDate = rawDate === null ? null : eventDateValue.safeParse(rawDate)
+  const parsedTime = rawTime === null ? null : eventTimeValue.safeParse(rawTime)
+  const parsedDescription = rawDescription === null ? null : eventMultilineValue(2000).safeParse(rawDescription)
+  const parsedAgenda = rawAgenda === null ? null : eventMultilineValue(4000).safeParse(rawAgenda)
+  if (
+    (rawDate === null) !== (rawTime === null)
+    || parsedDate !== null && !parsedDate.success
+    || parsedTime !== null && !parsedTime.success
+    || parsedDescription !== null && !parsedDescription.success
+    || parsedAgenda !== null && !parsedAgenda.success
+  ) throw new Error('event_load_failed')
+  return {
+    eventId: parsedId,
+    eventDate: parsedDate?.data ?? null,
+    eventTime: parsedTime?.data.slice(0, 5) ?? null,
+    description: parsedDescription?.data ?? null,
+    agenda: parsedAgenda?.data ?? null,
+  }
+}
+
+export async function saveEventDetails(
+  actorUserId: string,
+  input: SaveEventDetailsInput,
+): Promise<{ eventId: string }> {
+  const { data, error } = await getAdmin().rpc('teskeid_event_save_details', {
+    p_actor_id: actorUserId,
+    p_event_id: input.event_id,
+    p_request_id: input.request_id,
+    p_event_date: input.event_date,
+    p_event_time: input.event_time,
+    p_description: input.description,
+    p_agenda: input.agenda,
+  })
+  if (error) rpcFailure(error, 'event_save_failed')
+  const result = resultRecord(data)
+  if (!result) throw new Error('event_save_failed')
+  exactKeys(result, ['event_id'], 'event_save_failed')
+  const resultEventId = parseEventId(requiredString(result, 'event_id'))
+  if (resultEventId !== input.event_id) throw new Error('event_save_failed')
+  return { eventId: resultEventId }
 }
 
 export async function replaceEventRoster(
@@ -742,10 +830,18 @@ function mapExpenseSourceGuest(candidate: unknown) {
   if (!guest) throw new Error('event_load_failed')
   const position = requiredInteger(guest, 'position')
   if (position < 0 || position > 48) throw new Error('event_load_failed')
+  const rawParticipantKind = guest.participant_kind ?? guest.participantKind
+  const participantKind = rawParticipantKind === undefined
+    ? 'guest'
+    : rawParticipantKind === 'guest' || rawParticipantKind === 'organizer'
+      ? rawParticipantKind
+      : null
+  if (participantKind === null) throw new Error('event_load_failed')
   return {
     id: parseEventId(requiredString(guest, 'event_guest_id', 'eventGuestId')),
     displayName: parseGuestName(requiredString(guest, 'display_name', 'displayName')),
     sourceKind: parseSourceKind(requiredString(guest, 'source_kind', 'sourceKind')),
+    participantKind,
     position,
   }
 }
@@ -761,16 +857,98 @@ function mapExpenseSource(candidate: unknown): EventExpenseSourceView {
   if (guestsWithPosition.some((guest, index) => guest.position !== index)) {
     throw new Error('event_load_failed')
   }
+  const rawViewerRole = source.viewer_role ?? source.viewerRole
+  const viewerRole = rawViewerRole === undefined
+    ? undefined
+    : rawViewerRole === 'owner' || rawViewerRole === 'attendee'
+      ? rawViewerRole
+      : null
+  if (viewerRole === null) throw new Error('event_load_failed')
   return {
     id: parseEventId(requiredString(source, 'event_id', 'eventId')),
     name: parseName(requiredString(source, 'name')),
     rosterRevision: parseRosterRevision(source),
+    ...(viewerRole ? { viewerRole } : {}),
     guests: guestsWithPosition.map((guest) => ({
       id: guest.id,
       displayName: guest.displayName,
       sourceKind: guest.sourceKind,
+      ...(guest.participantKind === 'organizer' ? { participantKind: 'organizer' as const } : {}),
     })),
   }
+}
+
+export async function getExpenseLinkedEventId(
+  actorUserId: string,
+  requestedExpenseId: string,
+): Promise<string | null> {
+  const parsedExpenseId = eventId.safeParse(requestedExpenseId)
+  if (!parsedExpenseId.success) return null
+  const { data, error } = await getAdmin().rpc('teskeid_event_get_expense_event_link', {
+    p_actor_id: actorUserId,
+    p_expense_id: parsedExpenseId.data,
+  })
+  if (error) rpcFailure(error, 'event_load_failed')
+  if (data === null) return null
+  const result = resultRecord(data)
+  if (!result) throw new Error('event_load_failed')
+  exactKeys(result, ['event_id'], 'event_load_failed')
+  return parseEventId(requiredString(result, 'event_id'))
+}
+
+export async function getExpenseEventLinkManagement(
+  actorUserId: string,
+  requestedExpenseId: string,
+): Promise<ExpenseEventLinkManagementView | null> {
+  const parsedExpenseId = eventId.safeParse(requestedExpenseId)
+  if (!parsedExpenseId.success) return null
+  const { data, error } = await getAdmin().rpc('teskeid_event_get_expense_link_management', {
+    p_actor_id: actorUserId,
+    p_expense_id: parsedExpenseId.data,
+  })
+  if (error) {
+    const message = `${error.message ?? ''} ${error.code ?? ''}`.toLowerCase()
+    if (message.includes('not_found') || message.includes('not_allowed')) return null
+    rpcFailure(error, 'event_load_failed')
+  }
+  const result = resultRecord(data)
+  if (!result) return null
+  exactKeys(result, ['current_event', 'events'], 'event_load_failed')
+  if (!Array.isArray(result.events) || result.events.length > 100) {
+    throw new Error('event_load_failed')
+  }
+  const current = result.current_event === null ? null : record(result.current_event)
+  if (result.current_event !== null && !current) throw new Error('event_load_failed')
+  const currentEvent = current ? (() => {
+    exactKeys(current, ['event_id', 'name', 'can_open'], 'event_load_failed')
+    const canOpen = requiredBoolean(current, 'can_open', 'canOpen')
+    const rawName = nullableString(current, 'name')
+    if (canOpen !== (rawName !== null)) throw new Error('event_load_failed')
+    return {
+      id: parseEventId(requiredString(current, 'event_id')),
+      name: rawName === null ? null : parseName(rawName),
+      canOpen,
+    }
+  })() : null
+  const eligibleEvents = result.events.map((candidate) => {
+    const event = record(candidate)
+    if (!event) throw new Error('event_load_failed')
+    exactKeys(event, ['event_id', 'name', 'roster_revision', 'viewer_role'], 'event_load_failed')
+    const rawViewerRole = requiredString(event, 'viewer_role')
+    if (rawViewerRole !== 'owner' && rawViewerRole !== 'attendee') throw new Error('event_load_failed')
+    const viewerRole: 'owner' | 'attendee' = rawViewerRole
+    return {
+      id: parseEventId(requiredString(event, 'event_id')),
+      name: parseName(requiredString(event, 'name')),
+      rosterRevision: parseRosterRevision(event),
+      viewerRole,
+    }
+  })
+  if (currentEvent && eligibleEvents.length > 0) throw new Error('event_load_failed')
+  if (new Set(eligibleEvents.map((event) => event.id)).size !== eligibleEvents.length) {
+    throw new Error('event_load_failed')
+  }
+  return { currentEvent, eligibleEvents }
 }
 
 export async function listEventExpenseSources(actorUserId: string): Promise<EventExpenseSourceView[]> {
@@ -831,7 +1009,7 @@ function mapPreviewBlockedParty(candidate: unknown) {
   }
   return {
     partyId: parseEventId(requiredString(party, 'party_id', 'partyId')),
-    displayName: parseGuestName(requiredString(party, 'display_name', 'displayName')),
+    displayName: parseNullableAttendeeGuestName(nullableString(party, 'display_name')),
     reason: 'unresolved_identity' as const,
   }
 }
@@ -964,6 +1142,148 @@ export async function getEventExpensePreview(
   const preview = mapExpensePreview(data)
   if (preview.eventId !== parsedEventId.data) throw new Error('event_preview_failed')
   return preview
+}
+
+function mapEventExpenseActivity(value: unknown): EventExpenseActivityView {
+  assertOwnerSafeProjection(value, true)
+  const result = resultRecord(value)
+  if (!result) throw new Error('event_expense_activity_failed')
+  exactKeys(result, ['status', 'expenses', 'positions'], 'event_expense_activity_failed')
+  const parsedStatus = expenseActivityStatus.safeParse(requiredString(result, 'status'))
+  if (!parsedStatus.success || !Array.isArray(result.expenses) || !Array.isArray(result.positions)) {
+    throw new Error('event_expense_activity_failed')
+  }
+  if (result.expenses.length > 100 || result.positions.length > 100) {
+    throw new Error('event_expense_activity_failed')
+  }
+  const expenses = result.expenses.map((candidate) => {
+    const expense = record(candidate)
+    if (!expense) throw new Error('event_expense_activity_failed')
+    exactKeys(
+      expense,
+      ['title', 'description', 'total_minor', 'currency', 'payers'],
+      'event_expense_activity_failed',
+    )
+    const parsedTitle = safeExpenseTitle.safeParse(requiredString(expense, 'title'))
+    const rawDescription = nullableString(expense, 'description')
+    const parsedDescription = rawDescription === null
+      ? { success: true as const, data: null }
+      : eventMultilineValue(1000).safeParse(rawDescription)
+    const parsedCurrency = currencyCode.safeParse(requiredString(expense, 'currency'))
+    const totalMinor = requiredInteger(expense, 'total_minor', 'totalMinor')
+    if (
+      !parsedTitle.success || !parsedDescription.success || !parsedCurrency.success
+      || totalMinor < 1 || !Array.isArray(expense.payers)
+      || expense.payers.length < 1 || expense.payers.length > 50
+    ) throw new Error('event_expense_activity_failed')
+    const payers = expense.payers.map((candidatePayer) => {
+      const payer = record(candidatePayer)
+      if (!payer) throw new Error('event_expense_activity_failed')
+      exactKeys(payer, ['display_name', 'amount_minor'], 'event_expense_activity_failed')
+      const amountMinor = requiredInteger(payer, 'amount_minor', 'amountMinor')
+      if (amountMinor < 1) throw new Error('event_expense_activity_failed')
+      return {
+        displayName: parseNullableAttendeeGuestName(nullableString(payer, 'display_name')),
+        amountMinor,
+      }
+    })
+    let payerTotal = 0
+    for (const payer of payers) {
+      payerTotal += payer.amountMinor
+      if (!Number.isSafeInteger(payerTotal)) throw new Error('event_expense_activity_failed')
+    }
+    if (payerTotal !== totalMinor) {
+      throw new Error('event_expense_activity_failed')
+    }
+    return {
+      title: parsedTitle.data,
+      description: parsedDescription.data,
+      totalMinor,
+      currency: parsedCurrency.data,
+      payers,
+    }
+  })
+  const positions = result.positions.map((candidate) => {
+    const position = record(candidate)
+    if (!position) throw new Error('event_expense_activity_failed')
+    exactKeys(position, ['currency', 'state', 'amount_minor'], 'event_expense_activity_failed')
+    const parsedCurrency = currencyCode.safeParse(requiredString(position, 'currency'))
+    const parsedState = expenseActorPositionState.safeParse(requiredString(position, 'state'))
+    const amountMinor = requiredInteger(position, 'amount_minor', 'amountMinor')
+    if (
+      !parsedCurrency.success || !parsedState.success || amountMinor < 0
+      || ((parsedState.data === 'zero' || parsedState.data === 'pending') && amountMinor !== 0)
+      || ((parsedState.data === 'owes' || parsedState.data === 'owed') && amountMinor < 1)
+    ) throw new Error('event_expense_activity_failed')
+    return { currency: parsedCurrency.data, state: parsedState.data, amountMinor }
+  })
+  const expenseCurrencies = [...new Set(expenses.map((expense) => expense.currency))].sort()
+  const positionCurrencies = positions.map((position) => position.currency)
+  if (
+    new Set(positionCurrencies).size !== positionCurrencies.length
+    || JSON.stringify([...positionCurrencies].sort()) !== JSON.stringify(expenseCurrencies)
+    || parsedStatus.data === 'ready' && expenses.length === 0
+    || parsedStatus.data !== 'ready' && (expenses.length !== 0 || positions.length !== 0)
+  ) throw new Error('event_expense_activity_failed')
+  return { status: parsedStatus.data, expenses, positions }
+}
+
+export async function getEventExpenseActivity(
+  actorUserId: string,
+  requestedEventId: string,
+): Promise<EventExpenseActivityView | null> {
+  const parsedEventId = eventId.safeParse(requestedEventId)
+  if (!parsedEventId.success) return null
+  const { data, error } = await getAdmin().rpc('teskeid_event_get_expense_activity', {
+    p_actor_id: actorUserId,
+    p_event_id: parsedEventId.data,
+  })
+  if (error) {
+    const message = `${error.message ?? ''} ${error.code ?? ''}`.toLowerCase()
+    if (message.includes('not_found') || message.includes('not_allowed')) return null
+    throw new Error('event_expense_activity_failed')
+  }
+  return mapEventExpenseActivity(data)
+}
+
+export async function getExpensePayAllEventLabels(
+  actorUserId: string,
+  requestedGroupIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (requestedGroupIds.length === 0) return new Map()
+  if (requestedGroupIds.length > 100) throw new Error('event_label_load_failed')
+  const parsedGroupIds: string[] = []
+  for (const groupId of requestedGroupIds) {
+    const parsed = eventId.safeParse(groupId)
+    if (!parsed.success) throw new Error('event_label_load_failed')
+    parsedGroupIds.push(parsed.data)
+  }
+  const { data, error } = await getAdmin().rpc('teskeid_event_get_expense_context_labels', {
+    p_actor_id: actorUserId,
+    p_group_ids: parsedGroupIds,
+  })
+  if (error) throw new Error('event_label_load_failed')
+  const result = resultRecord(data)
+  if (!result) throw new Error('event_label_load_failed')
+  exactKeys(result, ['labels'], 'event_label_load_failed')
+  if (!Array.isArray(result.labels) || result.labels.length > 100) {
+    throw new Error('event_label_load_failed')
+  }
+  const allowedGroupIds = new Set(requestedGroupIds)
+  const labels = new Map<string, string>()
+  for (const candidate of result.labels) {
+    const label = record(candidate)
+    if (!label) throw new Error('event_label_load_failed')
+    exactKeys(label, ['group_id', 'event_name'], 'event_label_load_failed')
+    const groupId = eventId.safeParse(requiredString(label, 'group_id'))
+    const eventName = safeName.safeParse(requiredString(label, 'event_name'))
+    if (!groupId.success || !eventName.success || !allowedGroupIds.has(groupId.data)) {
+      throw new Error('event_label_load_failed')
+    }
+    if (labels.has(groupId.data)) throw new Error('event_label_load_failed')
+    labels.set(groupId.data, eventName.data)
+  }
+  return labels
 }
 
 export interface EventGuestAttendanceInviteResult extends EventCommittedAttendanceInvitation {

@@ -1,8 +1,10 @@
 export function expenseInvitationRecipientProjection(input: {
   canManage: boolean
-  isEventDerivedMember: boolean
   recipientEmail: string
 }): { recipientLabel?: string } {
-  if (!input.canManage || input.isEventDerivedMember) return {}
-  return { recipientLabel: input.recipientEmail }
+  if (!input.canManage) return {}
+  const canonical = input.recipientEmail.trim().toLowerCase()
+  if (canonical.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(canonical)) return {}
+  const separator = canonical.indexOf('@')
+  return { recipientLabel: `${canonical[0]}***@${canonical.slice(separator + 1)}` }
 }

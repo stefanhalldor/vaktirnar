@@ -18,6 +18,7 @@ export type RelationshipDetail = {
   id: string
   counterpart_user_id: string | null
   counterpart_display_name: string | null
+  counterpart_email: string | null
   private_display_name: string | null
   email_canonical: string | null
   note: string | null
@@ -564,15 +565,31 @@ export async function getRelationship(
   // Never enumerates accounts from a bare email: only shows a profile name
   // when shared loan activity proves the link.
   let counterpartDisplayName: string | null = null
+  let counterpartEmail: string | null = null
   let resolvedCounterpartUserId = row.counterpart_user_id
 
+  async function getCounterpartEmail(userId: string): Promise<string | null> {
+    try {
+      const { data, error: authError } = await admin.auth.admin.getUserById(userId)
+      if (authError) return null
+      const email = data.user?.email?.trim() ?? ''
+      return normalizeEmailForAccess(email) ? email : null
+    } catch {
+      return null
+    }
+  }
+
   if (resolvedCounterpartUserId) {
-    const { data: profile } = await admin
-      .from('profiles')
-      .select('display_name')
-      .eq('id', resolvedCounterpartUserId)
-      .maybeSingle()
+    const [{ data: profile }, currentEmail] = await Promise.all([
+      admin
+        .from('profiles')
+        .select('display_name')
+        .eq('id', resolvedCounterpartUserId)
+        .maybeSingle(),
+      getCounterpartEmail(resolvedCounterpartUserId),
+    ])
     counterpartDisplayName = (profile as { display_name: string | null } | null)?.display_name ?? null
+    counterpartEmail = currentEmail
   } else if (row.email_canonical) {
     const targetEmailNorm = normalizeEmailForAccess(row.email_canonical)
 
@@ -617,12 +634,16 @@ export async function getRelationship(
       if (confirmedUserId) {
         resolvedCounterpartUserId = confirmedUserId
 
-        const { data: profile } = await admin
-          .from('profiles')
-          .select('display_name')
-          .eq('id', confirmedUserId)
-          .maybeSingle()
+        const [{ data: profile }, currentEmail] = await Promise.all([
+          admin
+            .from('profiles')
+            .select('display_name')
+            .eq('id', confirmedUserId)
+            .maybeSingle(),
+          getCounterpartEmail(confirmedUserId),
+        ])
         counterpartDisplayName = (profile as { display_name: string | null } | null)?.display_name ?? null
+        counterpartEmail = currentEmail
 
         // Lazy DB enrichment so future detail-page visits skip this lookup
         try {
@@ -642,6 +663,7 @@ export async function getRelationship(
     id: row.id,
     counterpart_user_id: resolvedCounterpartUserId,
     counterpart_display_name: counterpartDisplayName,
+    counterpart_email: counterpartEmail,
     private_display_name: row.private_display_name,
     email_canonical: row.email_canonical,
     note: row.note,

@@ -2,7 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import { EventCreateForm } from '@/components/events/EventCreateForm'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
-import { canUseEventExpenses, guardEventAccess } from '@/lib/events/guard'
+import { guardEventAccess } from '@/lib/events/guard'
 import { EventShell } from '../EventShell'
 
 export const maxDuration = 60
@@ -12,7 +12,6 @@ export default async function NewEventPage() {
     guardEventAccess(),
     getTranslations('teskeid.events'),
   ])
-  const canUseExpenses = await canUseEventExpenses(user)
   let options: ExpenseParticipantOption[] = []
   let optionsError = false
   try {
@@ -30,7 +29,6 @@ export default async function NewEventPage() {
       <EventCreateForm
         options={options}
         optionsError={optionsError}
-        canUseExpenses={canUseExpenses}
       />
     </EventShell>
   )

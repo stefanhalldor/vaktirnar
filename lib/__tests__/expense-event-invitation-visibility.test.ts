@@ -1,33 +1,33 @@
 import { describe, expect, it } from 'vitest'
 import { expenseInvitationRecipientProjection } from '@/lib/expenses/invitation-visibility'
 
-describe('event-derived expense invitation visibility', () => {
-  it('never projects the current recipient email for an event-derived member', () => {
+describe('source-neutral expense invitation visibility', () => {
+  it('masks every manager-visible recipient without retaining provenance', () => {
     expect(expenseInvitationRecipientProjection({
       canManage: true,
-      isEventDerivedMember: true,
       recipientEmail: 'old-address@example.is',
-    })).toEqual({})
+    })).toEqual({ recipientLabel: 'o***@example.is' })
     expect(expenseInvitationRecipientProjection({
       canManage: true,
-      isEventDerivedMember: true,
       recipientEmail: 'changed-address@example.is',
-    })).toEqual({})
-  })
-
-  it('preserves the existing owner label for ordinary expense invitations', () => {
-    expect(expenseInvitationRecipientProjection({
-      canManage: true,
-      isEventDerivedMember: false,
-      recipientEmail: 'ordinary-guest@example.is',
-    })).toEqual({ recipientLabel: 'ordinary-guest@example.is' })
+    })).toEqual({ recipientLabel: 'c***@example.is' })
   })
 
   it('does not project recipient email to a non-manager', () => {
     expect(expenseInvitationRecipientProjection({
       canManage: false,
-      isEventDerivedMember: false,
       recipientEmail: 'private@example.is',
+    })).toEqual({})
+  })
+
+  it('fails closed for an invalid recipient shape', () => {
+    expect(expenseInvitationRecipientProjection({
+      canManage: true,
+      recipientEmail: 'not-an-email',
+    })).toEqual({})
+    expect(expenseInvitationRecipientProjection({
+      canManage: true,
+      recipientEmail: 'a@example.is@private.invalid',
     })).toEqual({})
   })
 })

@@ -1,20 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ExpenseRecentEventRow } from '@/lib/recent-events/types'
 
-const { mockCheckFeatureAccess, mockRpc } = vi.hoisted(() => ({
+const { mockCheckFeatureAccess, mockRpc, mockFrom } = vi.hoisted(() => ({
   mockCheckFeatureAccess: vi.fn(),
   mockRpc: vi.fn(),
+  mockFrom: vi.fn(),
 }))
 
 vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: mockCheckFeatureAccess }))
 vi.mock('@/lib/supabase/admin', () => ({
-  getAdmin: vi.fn(() => ({ rpc: mockRpc })),
+  getAdmin: vi.fn(() => ({ rpc: mockRpc, from: mockFrom })),
 }))
 
 import {
   expenseActivityIdFromEventKey,
   resolveExpenseRecentEventTargets,
   resolveRecentEventSourceAccess,
+  syncEventAttendanceInvitationEvents,
 } from '@/lib/recent-events/access.server'
 
 const ACTIVITY_ID = '10000000-0000-4000-8000-000000000001'
@@ -39,6 +41,16 @@ function expenseEvent(overrides: Partial<ExpenseRecentEventRow> = {}): ExpenseRe
 describe('resolveRecentEventSourceAccess', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delete process.env.EVENTS_ENABLED
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            limit: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    })
   })
 
   it('returns only currently enabled server-side sources', async () => {
@@ -46,7 +58,12 @@ describe('resolveRecentEventSourceAccess', () => {
       key === 'utlagt-og-endurgreitt')
 
     await expect(resolveRecentEventSourceAccess({ id: 'user-uuid', email: 'user@test.com' }))
-      .resolves.toEqual({ loansEnabled: false, expensesEnabled: true, sources: ['expenses'] })
+      .resolves.toEqual({
+        loansEnabled: false,
+        expensesEnabled: true,
+        eventInvitationsEnabled: false,
+        sources: ['expenses'],
+      })
   })
 
   it('fails one source closed without suppressing an independently enabled source', async () => {
@@ -56,13 +73,56 @@ describe('resolveRecentEventSourceAccess', () => {
     })
 
     await expect(resolveRecentEventSourceAccess({ id: 'user-uuid', email: 'user@test.com' }))
-      .resolves.toEqual({ loansEnabled: true, expensesEnabled: false, sources: ['loans'] })
+      .resolves.toEqual({
+        loansEnabled: true,
+        expensesEnabled: false,
+        eventInvitationsEnabled: false,
+        sources: ['loans'],
+      })
   })
 
   it('fails closed before feature checks when the session has no email', async () => {
     await expect(resolveRecentEventSourceAccess({ id: 'user-uuid', email: undefined }))
-      .resolves.toEqual({ loansEnabled: false, expensesEnabled: false, sources: [] })
+      .resolves.toEqual({
+        loansEnabled: false,
+        expensesEnabled: false,
+        eventInvitationsEnabled: false,
+        sources: [],
+      })
     expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
+  })
+
+  it('enables the scoped Event invitation source from the global switch without per-user Events access', async () => {
+    process.env.EVENTS_ENABLED = 'true'
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    await expect(resolveRecentEventSourceAccess({ id: 'user-uuid', email: 'user@test.com' }))
+      .resolves.toEqual({
+        loansEnabled: false,
+        expensesEnabled: false,
+        eventInvitationsEnabled: true,
+        sources: ['events'],
+      })
+  })
+
+  it('enables only the Expense source for an exact active member without feature entitlement', async () => {
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            limit: () => Promise.resolve({ data: [{ id: 'member-uuid' }], error: null }),
+          }),
+        }),
+      }),
+    })
+
+    await expect(resolveRecentEventSourceAccess({ id: 'user-uuid', email: 'user@test.com' }))
+      .resolves.toEqual({
+        loansEnabled: false,
+        expensesEnabled: true,
+        eventInvitationsEnabled: false,
+        sources: ['expenses'],
+      })
   })
 })
 
@@ -103,5 +163,47 @@ describe('resolveExpenseRecentEventTargets', () => {
     mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     await expect(resolveExpenseRecentEventTargets('user-uuid', [expenseEvent()]))
       .resolves.toEqual(new Map())
+  })
+})
+
+describe('syncEventAttendanceInvitationEvents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('fails quietly while the additive SQL134 projection is not installed', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'PGRST202', message: 'function is not in the schema cache' },
+    })
+
+    await expect(syncEventAttendanceInvitationEvents('user-uuid')).resolves.toEqual({
+      ok: false,
+      invitationIds: new Set(),
+    })
+    expect(consoleError).not.toHaveBeenCalled()
+    expect(consoleWarn).not.toHaveBeenCalled()
+
+    consoleError.mockRestore()
+    consoleWarn.mockRestore()
+  })
+
+  it('uses a generic warning without exposing unexpected provider details', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'XX000', message: 'private@example.is should not escape' },
+    })
+
+    await expect(syncEventAttendanceInvitationEvents('user-uuid')).resolves.toMatchObject({
+      ok: false,
+    })
+    expect(consoleWarn).toHaveBeenCalledWith(
+      '[recent-events] event invitation sync unavailable',
+    )
+    expect(JSON.stringify(consoleWarn.mock.calls)).not.toContain('private@example.is')
+    consoleWarn.mockRestore()
   })
 })

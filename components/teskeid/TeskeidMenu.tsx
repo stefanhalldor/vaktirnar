@@ -11,13 +11,13 @@ import {
   CloudSun,
   Handshake,
   Heart,
+  Home,
   Lightbulb,
   LogIn,
   LogOut,
   Megaphone,
   Menu,
   MessagesSquare,
-  Send,
   Trophy,
   UserCircle,
   Wallet,
@@ -31,11 +31,15 @@ import {
   type TeskeidLauncherIcon,
   type TeskeidLauncherId,
 } from '@/lib/teskeid/launcherCatalog'
+import {
+  RECENT_EVENTS_CHANGED_EVENT,
+  type TeskeidUnreadCounts,
+} from '@/lib/recent-events/launcher'
 
 const PUBLIC_ITEMS = [
   { href: '/', labelKey: 'ideas', icon: Lightbulb },
   { href: '/kviss', labelKey: 'quiz', icon: Trophy },
-  { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Send },
+  { href: '/senda-hugmynd', labelKey: 'submitIdea', icon: Lightbulb },
   { href: '/innskraning', labelKey: 'login', icon: LogIn },
 ] as const
 
@@ -53,6 +57,7 @@ interface TeskeidMenuProps {
   variant: 'public' | 'authenticated'
   initialFeatureIds?: readonly TeskeidLauncherId[]
   initialAgentCollaborationAvailable?: boolean
+  initialUnreadCounts?: TeskeidUnreadCounts
 }
 
 function isActivePath(pathname: string, href: string, prefixes?: readonly string[]) {
@@ -64,6 +69,7 @@ export function TeskeidMenu({
   variant,
   initialFeatureIds,
   initialAgentCollaborationAvailable = false,
+  initialUnreadCounts,
 }: TeskeidMenuProps) {
   const t = useTranslations('teskeid.nav')
   const pathname = usePathname()
@@ -78,6 +84,7 @@ export function TeskeidMenu({
   const [fetchedAgentCollaborationAvailable, setFetchedAgentCollaborationAvailable] = useState(false)
   const [agentUnreadCount, setAgentUnreadCount] = useState(0)
   const [fetchedFeatureIds, setFetchedFeatureIds] = useState<TeskeidLauncherId[]>([])
+  const [unreadCounts, setUnreadCounts] = useState<TeskeidUnreadCounts>(initialUnreadCounts ?? {})
   const featureIds = hasServerProjection ? initialFeatureIds : fetchedFeatureIds
   const agentCollaborationAvailable = hasServerProjection
     ? initialAgentCollaborationAvailable
@@ -106,6 +113,7 @@ export function TeskeidMenu({
         const value = await response.json() as {
           featureIds?: unknown
           agentCollaborationAvailable?: unknown
+          unreadCounts?: unknown
         }
         if (!active) return
         const ids = Array.isArray(value.featureIds)
@@ -113,6 +121,15 @@ export function TeskeidMenu({
           : []
         setFetchedFeatureIds(ids)
         setFetchedAgentCollaborationAvailable(value.agentCollaborationAvailable === true)
+        const nextUnreadCounts: TeskeidUnreadCounts = {}
+        if (value.unreadCounts && typeof value.unreadCounts === 'object' && !Array.isArray(value.unreadCounts)) {
+          for (const [key, count] of Object.entries(value.unreadCounts)) {
+            if (isTeskeidLauncherId(key) && Number.isSafeInteger(count) && Number(count) > 0) {
+              nextUnreadCounts[key] = Number(count)
+            }
+          }
+        }
+        setUnreadCounts(nextUnreadCounts)
       } catch {
         // Keep the previous canonical projection when refresh fails.
       }
@@ -131,6 +148,33 @@ export function TeskeidMenu({
     void coordinateProjection()
     return () => { active = false }
   }, [hasServerProjection, launcherCommitSignal, pathname, variant])
+
+  useEffect(() => {
+    if (initialUnreadCounts !== undefined) setUnreadCounts(initialUnreadCounts)
+  }, [initialUnreadCounts])
+
+  useEffect(() => {
+    if (variant !== 'authenticated') return
+    function onRecentEventsChanged(event: Event) {
+      const detail = (event as CustomEvent<{ sources?: unknown; all?: unknown }>).detail
+      const sources = Array.isArray(detail?.sources) ? detail.sources : []
+      setUnreadCounts((current) => {
+        const next = { ...current }
+        const apply = (source: string, featureId: TeskeidLauncherId) => {
+          if (!sources.includes(source)) return
+          const remaining = detail?.all === true ? 0 : Math.max(0, (next[featureId] ?? 0) - 1)
+          if (remaining > 0) next[featureId] = remaining
+          else delete next[featureId]
+        }
+        apply('loans', 'lanad-og-skilad')
+        apply('expenses', 'utlagt-og-endurgreitt')
+        apply('events', 'afmaeli-og-vidburdir')
+        return next
+      })
+    }
+    window.addEventListener(RECENT_EVENTS_CHANGED_EVENT, onRecentEventsChanged)
+    return () => window.removeEventListener(RECENT_EVENTS_CHANGED_EVENT, onRecentEventsChanged)
+  }, [variant])
 
   useEffect(() => {
     if (variant !== 'authenticated' || !agentCollaborationAvailable) {
@@ -267,6 +311,7 @@ export function TeskeidMenu({
                 {authenticatedFeatures.map((item) => {
                   const Icon = ICONS[item.icon]
                   const active = isActivePath(pathname, item.href, item.activePrefixes)
+                  const unreadCount = unreadCounts[item.id] ?? 0
                   return (
                     <Link
                       key={item.id}
@@ -279,6 +324,20 @@ export function TeskeidMenu({
                     >
                       <Icon size={16} aria-hidden />
                       <span className="min-w-0 flex-1">{t(item.navKey)}</span>
+                      {unreadCount > 0 ? (
+                        <>
+                          <span
+                            data-testid={`teskeid-unread-${item.id}`}
+                            aria-hidden
+                            className={`inline-flex min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${active
+                              ? 'bg-[#d9f3d3] text-[#154212]'
+                              : 'bg-[#154212] text-white'}`}
+                          >
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                          <span className="sr-only">{t('unreadItems', { count: unreadCount })}</span>
+                        </>
+                      ) : null}
                     </Link>
                   )
                 })}
@@ -292,7 +351,7 @@ export function TeskeidMenu({
                       ? 'bg-[#2d5a27] font-medium text-[#d9f3d3]'
                       : 'text-[#42493e] hover:bg-black/5'}`}
                   >
-                    <Lightbulb size={16} aria-hidden />
+                    <Home size={16} aria-hidden />
                     <span>{t('home')}</span>
                   </Link>
                   {agentCollaborationAvailable && (
@@ -328,7 +387,7 @@ export function TeskeidMenu({
                     onClick={closeMenu}
                     className="flex min-h-11 items-center gap-3 px-4 py-3 text-sm text-[#42493e] transition-colors hover:bg-black/5"
                   >
-                    <Send size={16} aria-hidden />
+                    <Lightbulb size={16} aria-hidden />
                     <span>{t('submitIdea')}</span>
                   </Link>
                   <button

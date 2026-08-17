@@ -9,6 +9,7 @@ import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type {
   EventDetailView,
+  EventDetailsView,
   EventGuestAttendanceView,
   EventNewGuestInput,
   EventRosterGuestInput,
@@ -19,6 +20,7 @@ import { formatDateTime } from '@/lib/date-format'
 import { createRequestId } from '@/components/expenses/ui'
 import { EventParticipantPicker } from './EventParticipantPicker'
 import { EventGuestAttendanceControl } from './EventGuestAttendanceControl'
+import { EventDetailsEditor } from './EventDetailsEditor'
 
 type EditableGuest = {
   key: string
@@ -78,21 +80,30 @@ function rebaseGuestDraft(
 
 export function EventDetail({
   event,
+  details,
   options,
   optionsError,
   canUseExpenses,
   financialPanel,
 }: {
   event: EventDetailView
+  details?: EventDetailsView
   options: ExpenseParticipantOption[]
   optionsError: boolean
   canUseExpenses: boolean
-  /** Phase B owner-safe preview seam; event CRUD never depends on this panel. */
+  /** Attendee-safe activity seam shared with accepted attendees; Event CRUD never depends on it. */
   financialPanel?: ReactNode
 }) {
   const t = useTranslations('teskeid.events')
   const locale = useLocale()
   const router = useRouter()
+  const eventDetails = details ?? {
+    eventId: event.id,
+    eventDate: null,
+    eventTime: null,
+    description: null,
+    agenda: null,
+  }
   const initialGuests = useMemo(() => editableGuests(event), [event])
   const [guests, setGuests] = useState(initialGuests)
   const [baseRevision, setBaseRevision] = useState(event.rosterRevision)
@@ -319,8 +330,9 @@ export function EventDetail({
         <p className="text-xs text-muted-foreground">
           {t('detail.createdAt', { date: formatDateTime(event.createdAt, locale) })}
         </p>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('detail.privateRosterHint')}</p>
       </section>
+
+      <EventDetailsEditor details={eventDetails} />
 
       {canUseExpenses ? (
         <Link

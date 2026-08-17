@@ -21,11 +21,13 @@ import {
 } from '@/lib/expenses/pay-all'
 
 function context(overrides: Partial<ExpensePayAllContextView> = {}): ExpensePayAllContextView {
+  const { eventLabel = null, ...rest } = overrides
   return {
     groupId: 'group-1',
     groupKind: 'group',
     groupName: 'Bústaðarferð',
     emoji: '🏡',
+    eventLabel,
     amountMinor: 5_000,
     currency: 'ISK',
     expenses: [{ id: 'expense-1', title: 'Matur', incurredOn: '2026-08-08', amountMinor: 5_000 }],
@@ -35,7 +37,7 @@ function context(overrides: Partial<ExpensePayAllContextView> = {}): ExpensePayA
       amountMinor: 5_000, currency: 'ISK', expectedFinancialVersion: 1, canReport: true,
       paymentInstruction: null,
     },
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -250,8 +252,9 @@ describe('buildExpensePayAllView', () => {
       }],
       balances: [], settlementTransfers: [transfer], settlementRequiresReview: false,
       repayments: [], activity: [],
-    }, transfer)
+    }, transfer, 'Sumarferð')
 
+    expect(result.eventLabel).toBe('Sumarferð')
     expect(result.expenses).toEqual([{
       id: 'expense-1', title: 'Matur', incurredOn: '2026-08-08', amountMinor: 8_000,
     }])

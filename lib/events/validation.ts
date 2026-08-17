@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 
 const DISALLOWED_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
+const DISALLOWED_MULTILINE_CONTROLS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
 
 function normalizedText(max: number) {
   return z.string()
@@ -10,6 +11,44 @@ function normalizedText(max: number) {
       (value) => !DISALLOWED_CONTROLS.test(value),
       'disallowed_control_character',
     ))
+}
+
+function optionalMultilineText(max: number) {
+  return z.string()
+    .transform((value) => value.replace(/\r\n?/g, '\n').trim().normalize('NFC'))
+    .pipe(z.string().max(max).refine(
+      (value) => !DISALLOWED_MULTILINE_CONTROLS.test(value),
+      'disallowed_control_character',
+    ))
+    .transform((value) => value || null)
+}
+
+function isCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+}
+
+const eventDate = z.string().refine(isCalendarDate, 'invalid_date').nullable()
+const eventTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable()
+
+function addEventTimingIssue(
+  value: { event_date: string | null; event_time: string | null },
+  context: z.RefinementCtx,
+) {
+  if ((value.event_date === null) !== (value.event_time === null)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['event_date'],
+      message: 'date_time_pair_required',
+    })
+  }
 }
 
 const guestName = normalizedText(120).refine(
@@ -89,9 +128,23 @@ export const CreateEventSchema = z.object({
   request_id: z.string().uuid(),
   name: normalizedText(160),
   guests: z.array(EventNewGuestSchema).max(49),
+  event_date: eventDate.optional().default(null),
+  event_time: eventTime.optional().default(null),
+  description: optionalMultilineText(2000).optional().default(''),
+  agenda: optionalMultilineText(4000).optional().default(''),
 }).strict().superRefine((value, context) => {
   addDuplicateIssues(value.guests, context)
+  addEventTimingIssue(value, context)
 })
+
+export const SaveEventDetailsSchema = z.object({
+  event_id: z.string().uuid(),
+  request_id: z.string().uuid(),
+  event_date: eventDate,
+  event_time: eventTime,
+  description: optionalMultilineText(2000),
+  agenda: optionalMultilineText(4000),
+}).strict().superRefine(addEventTimingIssue)
 
 export const ReplaceEventRosterSchema = z.object({
   event_id: z.string().uuid(),
@@ -137,6 +190,7 @@ export const LeaveEventAttendanceSchema = z.object({
 }).strict()
 
 export type CreateEventInput = z.infer<typeof CreateEventSchema>
+export type SaveEventDetailsInput = z.infer<typeof SaveEventDetailsSchema>
 export type ReplaceEventRosterInput = z.infer<typeof ReplaceEventRosterSchema>
 export type InviteEventGuestAttendanceInput = z.infer<typeof InviteEventGuestAttendanceSchema>
 export type CancelEventGuestAttendanceInvitationInput = z.infer<typeof CancelEventGuestAttendanceInvitationSchema>

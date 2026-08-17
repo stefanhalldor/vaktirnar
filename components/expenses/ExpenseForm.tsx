@@ -277,6 +277,11 @@ export function ExpenseForm({
       ? initialDraftPayload.eventRosterRevision
       : initialEventSource?.rosterRevision ?? null,
   )
+  const [linkToEvent, setLinkToEvent] = useState(
+    initialDraftPayload
+      ? initialDraftPayload.linkToEvent ?? Boolean(initialDraftPayload.eventId)
+      : Boolean(initialEventSource),
+  )
   const [eventWarningDismissed, setEventWarningDismissed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
@@ -306,6 +311,7 @@ export function ExpenseForm({
     circleId,
     eventId,
     eventRosterRevision,
+    linkToEvent,
   })
   const initialDraftFingerprint = useRef(draftFingerprint)
 
@@ -325,6 +331,7 @@ export function ExpenseForm({
       circleId: circleId || null,
       eventId: eventId || null,
       eventRosterRevision: eventId ? eventRosterRevision : null,
+      linkToEvent: Boolean(eventId && linkToEvent),
       members: members.map((member) => ({
         key: member.key,
         label: member.label,
@@ -515,8 +522,10 @@ export function ExpenseForm({
     ) {
       return { accepted: false, error: t('expenseForm.eventRosterChanged') }
     }
+    const isFreshSelection = !eventId
     setEventId(source.id)
     setEventRosterRevision(source.rosterRevision)
+    if (isFreshSelection) setLinkToEvent(true)
     setEventWarningDismissed(true)
     return { accepted: true, behavior: 'stay-open' as const }
   }
@@ -583,6 +592,7 @@ export function ExpenseForm({
 
     setEventId('')
     setEventRosterRevision(null)
+    setLinkToEvent(false)
     setEventWarningDismissed(true)
     setMembers(nextMembers)
     setIncluded(keepEntries)
@@ -938,6 +948,9 @@ export function ExpenseForm({
       expected_event_roster_revision: mode === 'one_off' && !edit && eventId
         ? eventRosterRevision
         : null,
+      link_to_event: mode === 'one_off' && !edit
+        ? Boolean(eventId && linkToEvent)
+        : false,
       title,
       total,
       currency,
@@ -1042,6 +1055,23 @@ export function ExpenseForm({
             </button>
           ) : null}
         </div>
+      ) : null}
+      {mode === 'one_off' && !edit && eventId ? (
+        <label className="flex min-h-11 items-start gap-3 border-y border-border py-4 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-5 shrink-0 accent-primary"
+            checked={linkToEvent}
+            disabled={navigationBusy}
+            onChange={(event) => setLinkToEvent(event.target.checked)}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">{t('expenseForm.linkToEvent')}</span>
+            <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+              {t('expenseForm.linkToEventHint')}
+            </span>
+          </span>
+        </label>
       ) : null}
       {mode === 'one_off' && !edit && circleId ? (
         <button

@@ -31,6 +31,7 @@ export const ExpenseDraftPayloadSchema = z.object({
   circleId: z.string().uuid().nullable().default(null),
   eventId: z.string().uuid().nullable().default(null),
   eventRosterRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().default(null),
+  linkToEvent: z.boolean().optional(),
   members: z.array(ExpenseDraftMemberSchema).min(1).max(50),
   removedMemberIds: z.array(z.string().uuid()).max(48).default([]),
   included: booleanMap,
@@ -60,6 +61,13 @@ export const ExpenseDraftPayloadSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['eventId'],
       message: 'event_circle_conflict',
+    })
+  }
+  if (value.linkToEvent === true && value.eventId === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkToEvent'],
+      message: 'event_required',
     })
   }
   const eventGuestIds = value.members.flatMap((member) => (

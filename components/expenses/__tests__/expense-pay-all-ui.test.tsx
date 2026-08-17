@@ -48,6 +48,7 @@ const translations: Record<string, string> = {
   'repayment.copyFailed': 'Ekki tókst að afrita.',
   'payAll.intro': 'Hér sérðu upphæðirnar og greiðsluupplýsingarnar.',
   'payAll.outsidePayment': 'Teskeið millifærir ekki peninga.',
+  'payAll.eventLabel': 'Viðburður: {event}',
   'payAll.payRecipient': 'Greiða {name}',
   'payAll.combinedPaymentCount': '{count} greiðslur til þessa aðila',
   'payAll.details': 'Nánar',
@@ -153,6 +154,7 @@ function context(
     groupKind: 'one_off',
     groupName: `Færsla ${id}`,
     emoji: null,
+    eventLabel: null,
     amountMinor,
     currency: 'ISK',
     expenses: [{
@@ -205,6 +207,8 @@ function debtorPair(
     },
   },
 ): ExpensePayAllCounterpartyView {
+  const eventContext = context('20', 20_000, 'outgoing')
+  eventContext.context.eventLabel = 'Sumarferð'
   return {
     counterpartyUserId: '22222222-2222-4222-8222-222222222222',
     counterpartyDisplayName: 'Stefan Halldór',
@@ -215,7 +219,7 @@ function debtorPair(
     offsetMinor: 5_000,
     netPayableMinor: 25_000,
     netReceivableMinor: 0,
-    outgoingContexts: [context('20', 20_000, 'outgoing'), context('10', 10_000, 'outgoing')],
+    outgoingContexts: [eventContext, context('10', 10_000, 'outgoing')],
     incomingContexts: [context('5', 5_000, 'incoming')],
     blockedContexts: [],
     counterpartyCanSettle: true,
@@ -307,6 +311,22 @@ beforeEach(() => {
 })
 
 describe('ExpensePayAll bilateral settlement UI', () => {
+  it('shows authorized Event attribution in the summary and exact context without changing totals', () => {
+    render(
+      <ExpensePayAll
+        view={view({ counterpartyViews: [debtorPair()] })}
+        locale="is"
+        initialDate="2026-08-10"
+      />,
+    )
+
+    const card = screen.getByRole('heading', { name: 'Stefan Halldór' }).closest('section')!
+    expect(within(card).getByText('Viðburður: Sumarferð')).toBeInTheDocument()
+    expect(within(card).getByText('Til greiðslu').parentElement?.parentElement).toHaveTextContent(/25\.000/)
+    fireEvent.click(within(card).getByRole('button', { name: 'Nánar' }))
+    expect(within(screen.getByRole('dialog')).getByText('Viðburður: Sumarferð')).toBeInTheDocument()
+  })
+
   it('shows the 30k/5k debtor summary, recalculates cash and submits exact stale-state evidence', async () => {
     render(
       <ExpensePayAll
@@ -318,6 +338,7 @@ describe('ExpensePayAll bilateral settlement UI', () => {
 
     const card = screen.getByRole('heading', { name: 'Stefan Halldór' }).closest('section')!
     expect(within(card).getByText('Útlagt fyrir þig').parentElement).toHaveTextContent('2 færslur')
+    expect(within(card).getByText('Viðburður: Sumarferð')).toBeInTheDocument()
     expect(within(card).getByText('Þú átt inni').parentElement).toHaveTextContent('1 færslur')
     expect(within(card).getByText('Til greiðslu').parentElement?.parentElement).toHaveTextContent(/25\.000/)
 

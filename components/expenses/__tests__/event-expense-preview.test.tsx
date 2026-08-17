@@ -25,6 +25,7 @@ vi.mock('next-intl', () => ({
     'teskeid.expenses.eventPreview.pendingRepayments': `${values?.count ?? 0} greiðslur bíða`,
     'teskeid.expenses.eventPreview.blockedTitle': 'Ekki hægt að tengja',
     'teskeid.expenses.eventPreview.blockedParty': `${values?.name ?? ''} þarf úrlausn`,
+    'teskeid.expenses.eventPreview.unknownParty': 'Þátttakandi',
     'teskeid.expenses.eventPreview.settlementLink': 'Skoða uppgjör',
     'teskeid.expenses.eventPreview.globalSettlementNotice': 'Almenna uppgjörið getur líka innihaldið önnur útgjöld.',
   }[key] ?? key),
@@ -75,7 +76,7 @@ describe('read-only event expense preview', () => {
     expect(screen.getByText('Uppgert')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Skoða uppgjör' })).toHaveAttribute(
       'href',
-      `/auth-mvp/utlagt-og-endurgreitt/gera-upp?event=${eventId}`,
+      '/auth-mvp/utlagt-og-endurgreitt/gera-upp',
     )
   })
 
@@ -119,7 +120,7 @@ describe('read-only event expense preview', () => {
             pendingRepaymentCount: 0,
             blocked: [{
               partyId: 'party-3',
-              displayName: 'Gestur',
+              displayName: null,
               reason: 'unresolved_identity',
             }],
           },
@@ -133,7 +134,7 @@ describe('read-only event expense preview', () => {
     expect(screen.getByText('Anna greiðir Bjarni')).toBeInTheDocument()
     expect(screen.getByText(/2\.500/)).toBeInTheDocument()
     expect(screen.getByText('2 greiðslur bíða')).toBeInTheDocument()
-    expect(screen.getByText('Gestur þarf úrlausn')).toBeInTheDocument()
+    expect(screen.getByText('Þátttakandi þarf úrlausn')).toBeInTheDocument()
   })
 
   it('formats each currency with the active UI locale', () => {

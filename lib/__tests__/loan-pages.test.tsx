@@ -126,6 +126,9 @@ vi.mock('@/components/teskeid/TeskeidMenu', () => ({
   TeskeidMenu: ({ variant }: { variant: string }) =>
     React.createElement('div', { 'data-testid': `teskeid-menu-${variant}` }),
 }))
+vi.mock('@/components/teskeid/TeskeidUnreadSection.server', () => ({
+  TeskeidUnreadSection: () => React.createElement('div', { 'data-testid': 'teskeid-unread-section' }),
+}))
 
 import { LoanShell } from '@/components/loans/LoanShell'
 import LoanPage from '@/app/auth-mvp/lanad-og-skilad/page'

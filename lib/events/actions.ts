@@ -27,6 +27,7 @@ import {
   replaceEventRoster,
   reserveEventGuestAttendanceDelivery,
   respondEventGuestAttendanceInvitation as respondInvitationRepository,
+  saveEventDetails as saveEventDetailsRepository,
   updateEventGuestAttendanceDelivery,
 } from './repository.server'
 import {
@@ -37,6 +38,7 @@ import {
   ReplaceEventRosterSchema,
   ResendEventGuestAttendanceInvitationSchema,
   RespondEventGuestAttendanceInvitationSchema,
+  SaveEventDetailsSchema,
 } from './validation'
 
 function actionError(error: unknown): EventActionErrorCode {
@@ -200,6 +202,23 @@ export async function saveEventRoster(
     }
   } catch (error) {
     console.error('[events] roster save failed')
+    return { ok: false, error: actionError(error) }
+  }
+}
+
+export async function saveEventDetails(
+  input: unknown,
+): Promise<EventActionResult<{ eventId: string }>> {
+  const { user } = await guardEventAccess()
+  const parsed = SaveEventDetailsSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: 'invalid_input' }
+  try {
+    const result = await saveEventDetailsRepository(user.id, parsed.data)
+    revalidatePath(EVENTS_PATH)
+    revalidatePath(eventDetailPath(result.eventId))
+    return { ok: true, data: result }
+  } catch (error) {
+    console.error('[events] details save failed')
     return { ok: false, error: actionError(error) }
   }
 }

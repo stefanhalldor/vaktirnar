@@ -88,6 +88,7 @@ vi.mock('next-intl/server', () => ({
       loanReturned: 'Skilað',
       flokkur: 'Flokkur',
       teskeidName: 'Nafn í Teskeið',
+      teskeidEmail: 'Netfang í Teskeið',
       minarNótur: 'Mínar nótur',
       'errors.notFound': 'Tengsl finnast ekki.',
     }
@@ -116,6 +117,7 @@ const BASE_RELATIONSHIP = {
   id: REL_ID,
   counterpart_user_id: null as string | null,
   counterpart_display_name: null as string | null,
+  counterpart_email: null as string | null,
   private_display_name: 'Jón',
   email_canonical: 'jon@example.com',
   note: null,
@@ -327,6 +329,22 @@ describe('TengslDetailPage — counterpart display name', () => {
       await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }),
     )
     expect(container.textContent).not.toContain('Nafn í Teskeið')
+  })
+
+  it('shows the linked Teskeid user current email instead of a stale relationship email', async () => {
+    mockGetRelationship.mockResolvedValue({
+      ...BASE_RELATIONSHIP,
+      counterpart_user_id: 'user-b',
+      counterpart_email: 'current-address@example.com',
+      email_canonical: 'old-address@example.com',
+    })
+
+    const { container } = render(
+      await TengslDetailPage({ params: Promise.resolve({ id: REL_ID }) }),
+    )
+
+    expect(screen.getByText('Netfang í Teskeið: current-address@example.com')).toBeDefined()
+    expect(container.textContent).not.toContain('old-address@example.com')
   })
 })
 

@@ -112,6 +112,7 @@ export function expensePayAllSelfMemberIds(
 export function buildExpensePayAllContext(
   group: ExpenseGroupView,
   transfer: ExpenseSettlementTransferView,
+  eventLabel: string | null = null,
 ): ExpensePayAllContextView {
   const expenses = group.expenses
     .filter((expense) => expense.status === 'active' && expense.currency === transfer.currency)
@@ -141,6 +142,7 @@ export function buildExpensePayAllContext(
     groupKind: group.kind,
     groupName: group.name,
     emoji: group.emoji,
+    eventLabel,
     amountMinor: transfer.amountMinor,
     currency: transfer.currency,
     expenses,

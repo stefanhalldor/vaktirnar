@@ -3,10 +3,12 @@ import { ChevronRight, Plus } from 'lucide-react'
 import { getLocale } from 'next-intl/server'
 import { formatDateOnly } from '@/lib/date-format'
 import type {
+  ExpenseEventIdentityCandidatesView,
   ExpenseGroupView,
   ExpenseItemView,
   ExpenseParticipantOption,
 } from '@/lib/expenses/contracts'
+import type { ExpenseEventLinkManagementView } from '@/lib/events/contracts'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
 import { expenseEditStepHref, expenseSavedViewHref, type ExpenseSavedView } from '@/lib/expenses/flow'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
@@ -16,6 +18,8 @@ import { getExpenseTranslations } from './i18n.server'
 import { ExpenseItemActions } from './ExpenseItemActions'
 import { ExpenseItemHistory } from './ExpenseItemHistory'
 import { ExpenseFlowNav } from './ExpenseFlowNav'
+import { ExpenseEventLinkControl } from './ExpenseEventLinkControl'
+import { ExpenseClaimDisputeControl } from './ExpenseClaimDisputeControl'
 import {
   ExpenseSettlementParticipantList,
   type ExpenseSettlementParticipantRow,
@@ -29,6 +33,9 @@ export async function ExpenseItemDetail({
   participantOptions = [],
   participantOptionsError = false,
   isEventContext = false,
+  eventHref = null,
+  eventLinkManagement = null,
+  eventIdentityCandidates = null,
 }: {
   group: ExpenseGroupView
   expense: ExpenseItemView
@@ -37,6 +44,9 @@ export async function ExpenseItemDetail({
   participantOptions?: ExpenseParticipantOption[]
   participantOptionsError?: boolean
   isEventContext?: boolean
+  eventHref?: string | null
+  eventLinkManagement?: ExpenseEventLinkManagementView | null
+  eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const hasLockedRepayment = group.repayments.some(
@@ -74,6 +84,29 @@ export async function ExpenseItemDetail({
     ...expense.shares.map((share) => [share.memberId, share.displayName] as const),
   ])
   const selfMember = group.members.find((member) => member.isSelf)
+  const selfHasDirectClaim = Boolean(selfMember && expense.shares.some(
+    (share) => share.memberId === selfMember.id && share.amountMinor > 0,
+  ))
+  const selfHasSharedClaim = Boolean(selfMember && (expense.shareCollaborators ?? []).some(
+    (collaboration) => collaboration.status === 'active'
+      && collaboration.memberId === selfMember.id
+      && expense.shares.some((share) => (
+        share.memberId === collaboration.shareMemberId && share.amountMinor > 0
+      )),
+  ))
+  const selfClaimMember = selfMember && (selfHasDirectClaim || selfHasSharedClaim)
+    ? selfMember
+    : null
+  const selfClaimDisputed = Boolean(selfClaimMember && (expense.claimDisputes ?? []).some(
+    (dispute) => dispute.memberId === selfClaimMember.id
+      && dispute.status === 'disputed'
+      && dispute.isSelf,
+  ))
+  const showClaimControl = Boolean(!expense.createdBySelf && (selfClaimDisputed || (
+    selfClaimMember?.isRegistered
+    && expense.status === 'active'
+    && group.status !== 'closed'
+  )))
   const membersById = new Map(group.members.map((member) => [member.id, member]))
   const activeCollaboratorsByShare = new Map<string, ExpenseGroupView['members']>()
   for (const collaborator of expense.shareCollaborators ?? []) {
@@ -208,6 +241,13 @@ export async function ExpenseItemDetail({
     <div className="space-y-8">
       <ExpenseFlowNav context="saved" expenseId={expense.id} currentView={view} />
 
+      <ExpenseEventLinkControl
+        expenseId={expense.id}
+        financialVersion={group.financialVersion}
+        management={eventLinkManagement}
+        eventHref={eventHref}
+      />
+
       {view === 'review' ? (
         <>
           <section aria-labelledby="expense-summary-title" className="space-y-4">
@@ -229,12 +269,37 @@ export async function ExpenseItemDetail({
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{expense.note}</p>
               </div>
             ) : null}
+            <div className="border-t border-border pt-4 text-sm leading-6">
+              <p>{t('claim.createdBy', {
+                name: expense.creatorDisplayName ?? t('claim.unknownCreator'),
+              })}</p>
+              {selfClaimMember?.identityProof?.isSelf ? (
+                <p className="mt-1 text-muted-foreground">
+                  {t(selfClaimMember.identityProof.kind === 'relationship'
+                    ? 'claim.relationshipContext'
+                    : 'claim.eventContext')}
+                </p>
+              ) : null}
+            </div>
           </section>
+
+          {showClaimControl && selfClaimMember ? (
+            <ExpenseClaimDisputeControl
+              expenseId={expense.id}
+              memberId={selfClaimMember.id}
+              financialVersion={group.financialVersion}
+              disputed={selfClaimDisputed}
+            />
+          ) : null}
 
           {group.settlementRequiresReview ? (
             <div role="status" className="border-y border-amber-300 bg-amber-50 px-3 py-4 text-sm text-amber-950">
-              <p className="font-semibold">{t('repayment.reviewRequiredTitle')}</p>
-              <p className="mt-1 leading-6">{t('repayment.reviewRequiredBody')}</p>
+              <p className="font-semibold">{t(group.claimReviewRequired
+                ? 'claim.reviewRequiredTitle'
+                : 'repayment.reviewRequiredTitle')}</p>
+              <p className="mt-1 leading-6">{t(group.claimReviewRequired
+                ? 'claim.reviewRequiredBody'
+                : 'repayment.reviewRequiredBody')}</p>
               <Link href={expenseSavedViewHref(expense.id, 'settlement')} className="mt-2 inline-flex min-h-11 items-center font-medium underline underline-offset-4">
                 {t('repayment.reviewRequiredAction')}
               </Link>
@@ -314,8 +379,12 @@ export async function ExpenseItemDetail({
           </div>
           {group.settlementRequiresReview ? (
             <div role="status" className="border-y border-amber-300 bg-amber-50 px-3 py-4 text-sm text-amber-950">
-              <p className="font-semibold">{t('repayment.reviewRequiredTitle')}</p>
-              <p className="mt-1 leading-6">{t('repayment.reviewRequiredBody')}</p>
+              <p className="font-semibold">{t(group.claimReviewRequired
+                ? 'claim.reviewRequiredTitle'
+                : 'repayment.reviewRequiredTitle')}</p>
+              <p className="mt-1 leading-6">{t(group.claimReviewRequired
+                ? 'claim.reviewRequiredBody'
+                : 'repayment.reviewRequiredBody')}</p>
             </div>
           ) : null}
           <ExpenseSettlementParticipantList
@@ -332,6 +401,8 @@ export async function ExpenseItemDetail({
               && group.guestMemberRenameReady === true
               && group.status !== 'closed'
               && group.canManage}
+            financialVersion={group.financialVersion}
+            eventIdentityCandidates={eventIdentityCandidates}
           />
           {group.kind === 'group' ? (
             <>

@@ -15,10 +15,14 @@ import {
   renameExpenseGuestMember,
   resendExpenseMemberInvitation,
 } from '@/lib/expenses/actions'
-import type { ExpenseMemberView } from '@/lib/expenses/contracts'
+import type {
+  ExpenseEventIdentityCandidatesView,
+  ExpenseMemberView,
+} from '@/lib/expenses/contracts'
 import { useExpenseTranslations } from './i18n.client'
 import { useExpenseMutationRequestIds } from './request-id'
 import { expenseInputClass } from './ui'
+import { ExpenseEventIdentityPicker } from './ExpenseEventIdentityPicker'
 
 export function ExpenseSettlementIdentityActions({
   groupId,
@@ -26,12 +30,18 @@ export function ExpenseSettlementIdentityActions({
   canLinkGuests,
   canRenameGuest = false,
   showIdentityHeading = false,
+  expenseId = '',
+  financialVersion = 0,
+  eventIdentityCandidates = null,
 }: {
   groupId: string
   member: ExpenseMemberView
   canLinkGuests: boolean
   canRenameGuest?: boolean
   showIdentityHeading?: boolean
+  expenseId?: string
+  financialVersion?: number
+  eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
 }) {
   const t = useExpenseTranslations()
   const router = useRouter()
@@ -51,6 +61,10 @@ export function ExpenseSettlementIdentityActions({
     && !member.isSelf
     && !member.isRegistered
   const canRename = canRenameGuest
+    && member.status === 'active'
+    && !member.isSelf
+    && !member.isRegistered
+  const canRepairEventIdentity = Boolean(expenseId && eventIdentityCandidates)
     && member.status === 'active'
     && !member.isSelf
     && !member.isRegistered
@@ -141,7 +155,7 @@ export function ExpenseSettlementIdentityActions({
     return { ok: true }
   }
 
-  if (!canLink && !canRename) return null
+  if (!canLink && !canRename && !canRepairEventIdentity) return null
 
   const controlsPending = isPending || identityPending
 
@@ -252,6 +266,14 @@ export function ExpenseSettlementIdentityActions({
             if (open) setShowRename(false)
           }}
           onCompleted={() => router.refresh()}
+        />
+      ) : null}
+      {canRepairEventIdentity ? (
+        <ExpenseEventIdentityPicker
+          expenseId={expenseId}
+          financialVersion={financialVersion}
+          member={member}
+          source={eventIdentityCandidates}
         />
       ) : null}
     </section>

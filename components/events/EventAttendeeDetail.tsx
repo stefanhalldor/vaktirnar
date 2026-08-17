@@ -1,15 +1,28 @@
 'use client'
 
-import { useEffect, useRef, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import Link from 'next/link'
+import { Plus } from 'lucide-react'
 import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import { createRequestId } from '@/components/expenses/ui'
 import { leaveEventAttendance } from '@/lib/events/actions'
-import type { EventAttendeeDetailView } from '@/lib/events/contracts'
-import { EVENTS_PATH } from '@/lib/events/contracts'
+import type { EventAttendeeDetailView, EventDetailsView } from '@/lib/events/contracts'
+import { EVENTS_PATH, eventExpensePath } from '@/lib/events/contracts'
+import { EventDetailsSummary } from './EventDetailsSummary'
 
-export function EventAttendeeDetail({ event }: { event: EventAttendeeDetailView }) {
+export function EventAttendeeDetail({
+  event,
+  details,
+  canUseExpenses,
+  financialPanel,
+}: {
+  event: EventAttendeeDetailView
+  details?: EventDetailsView
+  canUseExpenses: boolean
+  financialPanel?: ReactNode
+}) {
   const t = useTranslations('teskeid.events')
   const router = useRouter()
   const requestIdRef = useRef<string | null>(null)
@@ -19,6 +32,13 @@ export function EventAttendeeDetail({ event }: { event: EventAttendeeDetailView 
   const [isNavigating, setIsNavigating] = useState(false)
   const [isPending, startTransition] = useTransition()
   const isBusy = isPending || isNavigating
+  const eventDetails = details ?? {
+    eventId: event.id,
+    eventDate: null,
+    eventTime: null,
+    description: null,
+    agenda: null,
+  }
 
   useEffect(() => {
     if (error) alertRef.current?.focus()
@@ -57,12 +77,26 @@ export function EventAttendeeDetail({ event }: { event: EventAttendeeDetailView 
     <div className="space-y-7">
       <section className="space-y-2 border-y border-border py-5">
         <p className="text-sm leading-6 text-muted-foreground">{t('attendance.readOnlyHint')}</p>
-        <p className="break-words text-xs text-muted-foreground">
+        <p className="break-words text-sm font-medium text-foreground">
           {t('attendance.invitedBy', {
             name: event.ownerDisplayName ?? t('invitation.unknownInviter'),
           })}
         </p>
       </section>
+
+      <EventDetailsSummary details={eventDetails} />
+
+      {canUseExpenses ? (
+        <Link
+          href={eventExpensePath(event.id)}
+          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <Plus aria-hidden size={18} />
+          {t('detail.addExpense')}
+        </Link>
+      ) : null}
+
+      {canUseExpenses ? financialPanel : null}
 
       <section aria-labelledby="attendee-roster-heading">
         <h2 id="attendee-roster-heading" className="mb-2 text-sm font-semibold">

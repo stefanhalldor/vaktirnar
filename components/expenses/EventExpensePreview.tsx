@@ -122,7 +122,9 @@ export function EventExpensePreview({
                     <ul className="space-y-1 text-sm text-muted-foreground">
                       {currency.blocked.map((party) => (
                         <li key={party.partyId} className="break-words">
-                          {t('eventPreview.blockedParty', { name: party.displayName })}
+                          {t('eventPreview.blockedParty', {
+                            name: party.displayName ?? t('eventPreview.unknownParty'),
+                          })}
                         </li>
                       ))}
                     </ul>

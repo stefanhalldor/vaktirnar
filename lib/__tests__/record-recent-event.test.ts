@@ -133,6 +133,29 @@ describe('recordRecentEvent — upsert payload', () => {
     })
   })
 
+  it('whitelists the Event invitation payload before writing recent_events', async () => {
+    await recordRecentEvent({
+      userId: 'recipient-uuid',
+      source: 'events',
+      eventType: 'event_attendance_invitation_received',
+      entityType: 'attendance_invitation',
+      entityId: '30000000-0000-4000-8000-000000000001',
+      eventKey: 'events:attendance-invitation:30000000-0000-4000-8000-000000000001:received',
+      payload: {
+        eventName: 'Kvisskvöld',
+        inviterDisplayName: 'Anna',
+        recipientEmail: 'private@example.is',
+      } as never,
+      href: '/auth-mvp/vidburdir/bod/thattaka/30000000-0000-4000-8000-000000000001',
+      updateOnConflict: false,
+    })
+
+    expect(mockUpsert.mock.calls[0][0].payload).toEqual({
+      eventName: 'Kvisskvöld',
+      inviterDisplayName: 'Anna',
+    })
+  })
+
   it('uses onConflict: user_id,event_key by default (updateOnConflict omitted)', async () => {
     await recordRecentEvent(BASE_ARGS)
 

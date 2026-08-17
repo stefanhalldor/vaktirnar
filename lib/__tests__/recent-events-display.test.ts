@@ -26,6 +26,8 @@ const EXPENSE_EVENT_TYPES: ExpenseRecentEventType[] = [
   'expense_member_invitation_accepted',
   'expense_member_invitation_declined',
   'expense_member_invitation_cancelled',
+  'expense_identity_bound',
+  'expense_claim_disputed',
 ]
 
 function row(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
@@ -53,6 +55,50 @@ describe('recent event source parsing', () => {
   it('rejects unknown sources and mismatched source/event pairs', () => {
     expect(parseRecentEventRow(row({ source: 'unknown' }))).toBeNull()
     expect(parseRecentEventRow(row({ source: 'loans' }))).toBeNull()
+  })
+
+  it('accepts only the scoped Event invitation shape and rebuilds its local href', () => {
+    const invitationId = '30000000-0000-4000-8000-000000000001'
+    const parsed = parseRecentEventRow(row({
+      source: 'events',
+      event_type: 'event_attendance_invitation_received',
+      entity_type: 'attendance_invitation',
+      entity_id: invitationId,
+      payload: {
+        eventName: '  Kvisskvöld  ',
+        inviterDisplayName: '  Anna  ',
+        recipientEmail: 'private@example.is',
+      },
+      href: 'https://example.com/leak',
+    }))
+
+    expect(parsed).toMatchObject({
+      source: 'events',
+      entity_id: invitationId,
+      payload: { eventName: 'Kvisskvöld', inviterDisplayName: 'Anna' },
+      href: `/auth-mvp/vidburdir/bod/thattaka/${invitationId}`,
+    })
+    expect(parseRecentEventRow(row({
+      source: 'events',
+      event_type: 'event_attendance_invitation_received',
+      entity_type: 'event',
+      entity_id: invitationId,
+      payload: { eventName: 'Kvisskvöld' },
+    }))).toBeNull()
+  })
+
+  it('accepts private identity and dispute notifications without actor ids', () => {
+    for (const eventType of ['expense_identity_bound', 'expense_claim_disputed'] as const) {
+      const parsed = parseRecentEventRow(row({
+        event_type: eventType,
+        payload: { expenseTitle: '  Kvöldmatur  ', recipientEmail: 'private@example.is' },
+      }))
+      expect(parsed).toMatchObject({
+        event_type: eventType,
+        payload: { expenseTitle: 'Kvöldmatur' },
+      })
+      expect(JSON.stringify(parsed)).not.toContain('private@example.is')
+    }
   })
 
   it('rejects a consent invitation event with the wrong entity type', () => {

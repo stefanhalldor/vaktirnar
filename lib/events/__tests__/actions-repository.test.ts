@@ -17,13 +17,17 @@ vi.mock('next/cache', () => ({ revalidatePath: mockRevalidatePath }))
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mockGetAdmin }))
 vi.mock('@/lib/events/guard', () => ({ guardEventAccess: mockGuardEventAccess }))
 
-import { createEvent, saveEventRoster } from '@/lib/events/actions'
+import { createEvent, saveEventDetails as saveDetailsAction, saveEventRoster } from '@/lib/events/actions'
 import {
   createEventContext,
   getEventAttendeeContext,
   getEventContext,
+  getEventExpenseActivity,
   getEventExpensePreview,
+  getEventDetails,
   getEventGuestAttendancePreview,
+  getExpenseLinkedEventId,
+  getExpensePayAllEventLabels,
   getOwnedEventExpenseSource,
   isExpenseEventContext,
   listEventDashboard,
@@ -32,6 +36,7 @@ import {
   replaceEventRoster,
   reserveEventGuestAttendanceDelivery,
   respondEventGuestAttendanceInvitation,
+  saveEventDetails as saveDetailsRepository,
 } from '@/lib/events/repository.server'
 
 const ACTOR_ID = '10000000-0000-4000-8000-000000000001'
@@ -128,7 +133,7 @@ afterEach(() => {
 })
 
 describe('event action boundaries', () => {
-  it('normalizes and sends the exact strict v2 create payload', async () => {
+  it('normalizes and sends the exact strict details-aware create payload', async () => {
     mockRpc.mockResolvedValue({
       data: { event_id: EVENT_ID, roster_revision: 1, invitations: [] },
       error: null,
@@ -144,7 +149,7 @@ describe('event action boundaries', () => {
         deliveryIssue: false,
       },
     })
-    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_create_with_attendance_invitations', {
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_create_with_details_and_attendance_invitations', {
       p_actor_id: ACTOR_ID,
       p_request_id: REQUEST_ID,
       p_name: 'Kvisskvöld',
@@ -153,6 +158,10 @@ describe('event action boundaries', () => {
         { source_kind: 'manual_email', email: 'gestur@example.is' },
         { source_kind: 'relationship', relationship_id: RELATIONSHIP_ID },
       ],
+      p_event_date: null,
+      p_event_time: null,
+      p_description: null,
+      p_agenda: null,
     })
     expect(mockRevalidatePath).toHaveBeenCalledWith('/auth-mvp/vidburdir')
     expect(mockRevalidatePath).toHaveBeenCalledWith(`/auth-mvp/vidburdir/${EVENT_ID}`)
@@ -811,6 +820,41 @@ describe('owner-safe financial event projections', () => {
     expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_source', expect.any(Object))
   })
 
+  it('preserves the explicit attendee role from the additive expense source', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        event_id: EVENT_ID,
+        name: 'Kvisskvöld',
+        roster_revision: 2,
+        viewer_role: 'attendee',
+        guests: [{
+          event_guest_id: GUEST_ID,
+          display_name: 'Bjarni',
+          source_kind: 'manual_name',
+          participant_kind: 'organizer',
+          position: 0,
+        }],
+      },
+      error: null,
+    })
+
+    await expect(getOwnedEventExpenseSource(ACTOR_ID, EVENT_ID)).resolves.toMatchObject({
+      id: EVENT_ID,
+      viewerRole: 'attendee',
+      guests: [{ id: GUEST_ID, displayName: 'Bjarni', participantKind: 'organizer' }],
+    })
+  })
+
+  it('resolves an exact authorized Event backlink for an Expense', async () => {
+    mockRpc.mockResolvedValueOnce({ data: { event_id: EVENT_ID }, error: null })
+
+    await expect(getExpenseLinkedEventId(ACTOR_ID, PARTY_A)).resolves.toBe(EVENT_ID)
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_event_link', {
+      p_actor_id: ACTOR_ID,
+      p_expense_id: PARTY_A,
+    })
+  })
+
   it('maps exact ready preview status, transfers, pending counts and blocked reasons', async () => {
     mockRpc.mockResolvedValue({
       data: {
@@ -872,6 +916,117 @@ describe('owner-safe financial event projections', () => {
         }],
       }],
     })
+  })
+
+  it('maps the attendee-safe expense activity without exposing ledger identities', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'ready',
+        expenses: [{
+          title: 'Kvöldmatur',
+          description: 'Sameiginlegt borðhald',
+          total_minor: 12500,
+          currency: 'ISK',
+          payers: [
+            { display_name: 'Anna', amount_minor: 7500 },
+            { display_name: null, amount_minor: 5000 },
+          ],
+        }, {
+          title: 'Lest',
+          description: null,
+          total_minor: 30,
+          currency: 'EUR',
+          payers: [{ display_name: 'Bjarni', amount_minor: 30 }],
+        }],
+        positions: [
+          { currency: 'EUR', state: 'zero', amount_minor: 0 },
+          { currency: 'ISK', state: 'owes', amount_minor: 6250 },
+        ],
+      },
+      error: null,
+    })
+
+    await expect(getEventExpenseActivity(ACTOR_ID, EVENT_ID)).resolves.toEqual({
+      status: 'ready',
+      expenses: [{
+        title: 'Kvöldmatur',
+        description: 'Sameiginlegt borðhald',
+        totalMinor: 12500,
+        currency: 'ISK',
+        payers: [
+          { displayName: 'Anna', amountMinor: 7500 },
+          { displayName: null, amountMinor: 5000 },
+        ],
+      }, {
+        title: 'Lest',
+        description: null,
+        totalMinor: 30,
+        currency: 'EUR',
+        payers: [{ displayName: 'Bjarni', amountMinor: 30 }],
+      }],
+      positions: [
+        { currency: 'EUR', state: 'zero', amountMinor: 0 },
+        { currency: 'ISK', state: 'owes', amountMinor: 6250 },
+      ],
+    })
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_activity', {
+      p_actor_id: ACTOR_ID,
+      p_event_id: EVENT_ID,
+    })
+  })
+
+  it('rejects leaked or inconsistent attendee activity and event-label DTOs', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'ready',
+        expenses: [{
+          title: 'Kvöldmatur', description: null, total_minor: 100,
+          currency: 'ISK', payers: [{ display_name: 'private@example.is', amount_minor: 100 }],
+        }],
+        positions: [{ currency: 'ISK', state: 'zero', amount_minor: 0 }],
+      },
+      error: null,
+    })
+    await expect(getEventExpenseActivity(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow()
+
+    mockRpc.mockResolvedValueOnce({
+      data: { labels: [{ group_id: PARTY_A, event_name: 'Kvisskvöld', email: 'x@example.is' }] },
+      error: null,
+    })
+    await expect(getExpensePayAllEventLabels(ACTOR_ID, [PARTY_A]))
+      .rejects.toThrow('event_label_load_failed')
+  })
+
+  it('maps only requested, unique Event labels for global settlement contexts', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { labels: [{ group_id: PARTY_A, event_name: 'Kvisskvöld' }] },
+      error: null,
+    })
+
+    const labels = await getExpensePayAllEventLabels(ACTOR_ID, [PARTY_A, PARTY_B])
+    expect([...labels]).toEqual([[PARTY_A, 'Kvisskvöld']])
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_context_labels', {
+      p_actor_id: ACTOR_ID,
+      p_group_ids: [PARTY_A, PARTY_B],
+    })
+  })
+
+  it('fails closed instead of silently truncating an over-limit activity projection', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'ready',
+        expenses: Array.from({ length: 101 }, () => ({
+          title: 'Færsla', description: null, total_minor: 1,
+          currency: 'ISK', payers: [{ display_name: null, amount_minor: 1 }],
+        })),
+        positions: [{ currency: 'ISK', state: 'zero', amount_minor: 0 }],
+      },
+      error: null,
+    })
+
+    await expect(getEventExpenseActivity(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_activity_failed')
   })
 
   it('rejects source email leaks and inconsistent preview states', async () => {
@@ -993,6 +1148,47 @@ describe('owner-safe financial event projections', () => {
 })
 
 describe('legacy SQL131 classifier and direct mutation contracts', () => {
+  it('loads and owner-saves the exact optional Event details contract', async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: {
+        event_id: EVENT_ID,
+        event_date: '2026-09-12',
+        event_time: '18:30',
+        description: 'Komið með hlý föt.',
+        agenda: '18:30 Mæting\n19:00 Matur',
+      }, error: null })
+      .mockResolvedValueOnce({ data: { event_id: EVENT_ID }, error: null })
+      .mockResolvedValueOnce({ data: { event_id: EVENT_ID }, error: null })
+
+    await expect(getEventDetails(ACTOR_ID, EVENT_ID)).resolves.toEqual({
+      eventId: EVENT_ID,
+      eventDate: '2026-09-12',
+      eventTime: '18:30',
+      description: 'Komið með hlý föt.',
+      agenda: '18:30 Mæting\n19:00 Matur',
+    })
+    const input = {
+      event_id: EVENT_ID,
+      request_id: REQUEST_ID,
+      event_date: '2026-09-12',
+      event_time: '18:30',
+      description: 'Komið með hlý föt.',
+      agenda: '18:30 Mæting\n19:00 Matur',
+    }
+    await expect(saveDetailsRepository(ACTOR_ID, input)).resolves.toEqual({ eventId: EVENT_ID })
+    await expect(saveDetailsAction(input)).resolves.toEqual({ ok: true, data: { eventId: EVENT_ID } })
+    expect(mockRpc).toHaveBeenNthCalledWith(2, 'teskeid_event_save_details', {
+      p_actor_id: ACTOR_ID,
+      p_event_id: EVENT_ID,
+      p_request_id: REQUEST_ID,
+      p_event_date: '2026-09-12',
+      p_event_time: '18:30',
+      p_description: 'Komið með hlý föt.',
+      p_agenda: '18:30 Mæting\n19:00 Matur',
+    })
+    expect(mockRevalidatePath).toHaveBeenCalledWith(`/auth-mvp/vidburdir/${EVENT_ID}`)
+  })
+
   it('preserves only the bounded legacy classifier RPC', async () => {
     mockRpc.mockResolvedValue({ data: true, error: null })
     await expect(isExpenseEventContext(ACTOR_ID, EVENT_ID)).resolves.toBe(true)
@@ -1014,6 +1210,10 @@ describe('legacy SQL131 classifier and direct mutation contracts', () => {
       request_id: REQUEST_ID,
       name: 'Kvisskvöld',
       guests: [],
+      event_date: null,
+      event_time: null,
+      description: null,
+      agenda: null,
     })).resolves.toEqual({ eventId: EVENT_ID, rosterRevision: 1, invitations: [] })
     await expect(replaceEventRoster(ACTOR_ID, {
       event_id: EVENT_ID,

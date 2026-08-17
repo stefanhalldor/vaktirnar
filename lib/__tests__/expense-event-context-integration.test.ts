@@ -74,24 +74,18 @@ describe('independent event and expense integration', () => {
     expect(itemDetail).toContain('!isEventContext && canLinkExpenseGuest')
   })
 
-  it('keeps the event settlement deep-link owner-scoped, fail-closed and globally truthful', () => {
+  it('keeps the settlement route global and free of an event-filtered mode', () => {
     const page = source(
       'app', 'auth-mvp', 'utlagt-og-endurgreitt', 'gera-upp', 'page.tsx',
     )
 
-    expect(page).toContain('event?: string | string[]')
-    expect(page.indexOf('guardExpenseAccess()')).toBeLessThan(page.indexOf('canUseEventExpenses(user)'))
-    expect(page.indexOf('getOwnedEventExpenseSource(user.id, requestedEventId)'))
-      .toBeLessThan(page.indexOf('getEventExpensePreview(user.id, authorizedEventSource.id)'))
-    expect(page).toContain("status: 'unavailable'")
-    expect(page).toContain('eventQueryUnavailable = true')
-    expect(page).toContain('<EventExpensePreview')
-    expect(page).toContain('const view = eventMode ? null : await getExpensePayAllView(user.id)')
-    expect(page).toContain('href="/auth-mvp/utlagt-og-endurgreitt/gera-upp"')
-    expect(page).toContain("{eventMode ? (")
-    expect(page).toContain(") : view ? (")
+    expect(page).toContain('guardExpenseAccess()')
+    expect(page).toContain('const view = await getExpensePayAllView(user.id)')
     expect(page).toContain('<ExpensePayAll view={view}')
-    expect(page).not.toContain('showGlobalSettlementNotice')
+    expect(page).not.toContain('searchParams')
+    expect(page).not.toContain('EventExpensePreview')
+    expect(page).not.toContain('getEventExpensePreview')
+    expect(page).not.toContain('getOwnedEventExpenseSource')
   })
 
   it('keeps private headers and analytics exclusion across both namespaces', () => {

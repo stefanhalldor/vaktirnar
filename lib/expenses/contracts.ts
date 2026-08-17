@@ -14,6 +14,11 @@ export type ExpenseGroupStatus = 'active' | 'settling' | 'settled' | 'closed'
 export type ExpenseMemberRole = 'owner' | 'admin' | 'member'
 export type ExpenseMemberStatus = 'invited' | 'active' | 'declined' | 'removed' | 'left'
 export type ExpenseMemberInvitationStatus = 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired'
+export type ExpenseIdentityProofKind =
+  | 'relationship'
+  | 'event_guest'
+  | 'event_organizer'
+  | 'event_current_repair'
 
 export type ExpenseActionErrorCode =
   | 'invalid_input'
@@ -47,6 +52,11 @@ export interface ExpenseMemberView {
   status: ExpenseMemberStatus
   isSelf: boolean
   isRegistered: boolean
+  /** Private to this exact member and group managers; never contains auth ids. */
+  identityProof?: {
+    kind: ExpenseIdentityProofKind
+    isSelf: boolean
+  } | null
   /** Manager-only status. Recipient email is never included in shared views. */
   identityInvitation?: {
     id: string
@@ -130,12 +140,18 @@ export interface ExpenseItemView {
   status: 'active' | 'cancelled'
   splitMethod: ExpenseSplitMethod
   createdBySelf: boolean
+  creatorDisplayName?: string | null
   createdAt: string
   payments: ExpensePaymentView[]
   shares: ExpenseShareView[]
   /** Additive identity actors. Amounts remain exclusively on `shares`. */
   shareCollaborators?: ExpenseShareCollaboratorView[]
   revisions: ExpenseRevisionView[]
+  claimDisputes?: Array<{
+    memberId: string
+    status: 'disputed'
+    isSelf: boolean
+  }>
 }
 
 export interface ExpenseBalanceView {
@@ -233,6 +249,8 @@ export interface ExpenseGroupView {
   balances: ExpenseBalanceView[]
   settlementTransfers: ExpenseSettlementTransferView[]
   settlementRequiresReview: boolean
+  /** A recognition dispute exists; ledger stays canonical but settlement blocks. */
+  claimReviewRequired?: boolean
   /** False while the additive SQL migration is not installed. */
   shareCollaborationReady?: boolean
   /** False while the additive guest-rename SQL migration is not installed. */
@@ -270,6 +288,8 @@ export interface ExpensePayAllContextView {
   groupKind: ExpenseGroupKind
   groupName: string
   emoji: string | null
+  /** Display-only label; never participates in settlement math or mutations. */
+  eventLabel: string | null
   amountMinor: number
   currency: string
   expenses: ExpensePayAllExpenseLinkView[]
@@ -281,6 +301,17 @@ export interface ExpensePayAllContextView {
   nettingAdjustmentMinor: number
   /** Exact server-authorized transfer used by the existing idempotent report flow. */
   transfer: ExpenseSettlementTransferView
+}
+
+export interface ExpenseEventIdentityCandidateView {
+  eventParticipantId: string
+  displayName: string | null
+}
+
+export interface ExpenseEventIdentityCandidatesView {
+  eventId: string
+  eventName: string
+  candidates: ExpenseEventIdentityCandidateView[]
 }
 
 export type ExpensePayAllPaymentDetailsView =

@@ -4,6 +4,7 @@ import { useLocale } from 'next-intl'
 import { CheckCircle2, EllipsisVertical } from 'lucide-react'
 import { TeskeidActionSheet } from '@/components/teskeid/TeskeidActionSheet'
 import type {
+  ExpenseEventIdentityCandidatesView,
   ExpenseMemberView,
   ExpenseParticipantOption,
   ExpenseSettlementTransferView,
@@ -104,6 +105,8 @@ function SettlementParticipantActions({
   participantOptionsError,
   canLinkGuests,
   canRenameGuests,
+  financialVersion,
+  eventIdentityCandidates,
 }: {
   row: ExpenseSettlementParticipantRow
   groupId: string
@@ -112,6 +115,8 @@ function SettlementParticipantActions({
   participantOptionsError: boolean
   canLinkGuests: boolean
   canRenameGuests: boolean
+  financialVersion: number
+  eventIdentityCandidates: ExpenseEventIdentityCandidatesView | null
 }) {
   const t = useExpenseTranslations()
   const hasActions = Boolean(
@@ -121,7 +126,10 @@ function SettlementParticipantActions({
     || row.identities.some((identity) => (
       identity.id === row.shareMemberId
       && canManageIdentity(identity, canRenameGuests)
-    )),
+    ))
+    || Boolean(eventIdentityCandidates && row.identities.some((identity) => (
+      identity.status === 'active' && !identity.isSelf && !identity.isRegistered
+    ))),
   )
   if (!hasActions) return null
 
@@ -156,6 +164,9 @@ function SettlementParticipantActions({
           canLinkGuests={canLinkGuests}
           canRenameGuest={canRenameGuests && identity.id === row.shareMemberId}
           showIdentityHeading={row.isShared}
+          expenseId={row.expenseId}
+          financialVersion={financialVersion}
+          eventIdentityCandidates={eventIdentityCandidates}
         />
       ))}
       {row.canAddCollaborator ? (
@@ -179,6 +190,8 @@ export function ExpenseSettlementParticipantList({
   participantOptionsError,
   canLinkGuests,
   canRenameGuests,
+  financialVersion,
+  eventIdentityCandidates = null,
 }: {
   rows: ExpenseSettlementParticipantRow[]
   groupId: string
@@ -187,6 +200,8 @@ export function ExpenseSettlementParticipantList({
   participantOptionsError: boolean
   canLinkGuests: boolean
   canRenameGuests: boolean
+  financialVersion: number
+  eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
 }) {
   const t = useExpenseTranslations()
   const locale = useLocale()
@@ -234,6 +249,8 @@ export function ExpenseSettlementParticipantList({
                           participantOptionsError={participantOptionsError}
                           canLinkGuests={canLinkGuests}
                           canRenameGuests={canRenameGuests}
+                          financialVersion={financialVersion}
+                          eventIdentityCandidates={eventIdentityCandidates}
                         />
                       </div>
                       {row.shareAmountMinor !== null ? (

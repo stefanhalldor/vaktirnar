@@ -5,11 +5,18 @@ import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { X } from 'lucide-react'
 import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
+import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
+import { TeskeidTimeField } from '@/components/teskeid/TeskeidTimeField'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type { EventNewGuestInput } from '@/lib/events/contracts'
-import { eventDetailPath, eventExpensePath } from '@/lib/events/contracts'
+import { eventDetailPath } from '@/lib/events/contracts'
 import { createEvent } from '@/lib/events/actions'
-import { createRequestId, expenseInputClass, expenseLabelClass } from '@/components/expenses/ui'
+import {
+  createRequestId,
+  expenseInputClass,
+  expenseLabelClass,
+  expenseTextareaClass,
+} from '@/components/expenses/ui'
 import { EventParticipantPicker } from './EventParticipantPicker'
 
 type SelectedEventGuest = {
@@ -18,11 +25,8 @@ type SelectedEventGuest = {
   input: EventNewGuestInput
 }
 
-type CreateDestination = 'detail' | 'expense'
-
 type CreateReceipt = {
   destination: string
-  destinationKind: CreateDestination
   invitationCount: number
   deliveredCount: number
   deliveryIssue: boolean
@@ -46,11 +50,9 @@ function sourceTranslationKey(input: EventNewGuestInput) {
 export function EventCreateForm({
   options,
   optionsError,
-  canUseExpenses,
 }: {
   options: ExpenseParticipantOption[]
   optionsError: boolean
-  canUseExpenses: boolean
 }) {
   const t = useTranslations('teskeid.events')
   const router = useRouter()
@@ -59,6 +61,10 @@ export function EventCreateForm({
   const submittingRef = useRef(false)
   const receiptNavigationRef = useRef(false)
   const [name, setName] = useState('')
+  const [eventDate, setEventDate] = useState('')
+  const [eventTime, setEventTime] = useState('')
+  const [description, setDescription] = useState('')
+  const [agenda, setAgenda] = useState('')
   const [guests, setGuests] = useState<SelectedEventGuest[]>([])
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -95,7 +101,14 @@ export function EventCreateForm({
     return true
   }
 
-  function requestIdFor(payload: { name: string; guests: EventNewGuestInput[] }): string {
+  function requestIdFor(payload: {
+    name: string
+    guests: EventNewGuestInput[]
+    event_date: string | null
+    event_time: string | null
+    description: string
+    agenda: string
+  }): string {
     const fingerprint = JSON.stringify(payload)
     if (submissionRef.current?.fingerprint !== fingerprint) {
       submissionRef.current = { fingerprint, requestId: createRequestId() }
@@ -103,14 +116,19 @@ export function EventCreateForm({
     return submissionRef.current.requestId
   }
 
-  async function submit(destination: CreateDestination) {
+  async function submit() {
     if (submittingRef.current) return
     const normalizedName = name.trim().normalize('NFC')
-    if (!normalizedName) return
+    const timingIncomplete = Boolean(eventDate) !== Boolean(eventTime)
+    if (!normalizedName || timingIncomplete) return
 
     const payload = {
       name: normalizedName,
       guests: guests.map((guest) => guest.input),
+      event_date: eventDate || null,
+      event_time: eventTime || null,
+      description,
+      agenda,
     }
     const requestId = requestIdFor(payload)
     submittingRef.current = true
@@ -136,13 +154,10 @@ export function EventCreateForm({
       return
     }
 
-    const destinationPath = destination === 'expense'
-      ? eventExpensePath(result.data.eventId)
-      : eventDetailPath(result.data.eventId)
+    const destinationPath = eventDetailPath(result.data.eventId)
     if (result.data.invitationCount > 0) {
       setReceipt({
         destination: destinationPath,
-        destinationKind: destination,
         invitationCount: result.data.invitationCount,
         deliveredCount: result.data.deliveredCount,
         deliveryIssue: result.data.deliveryIssue,
@@ -156,9 +171,10 @@ export function EventCreateForm({
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null
-    void submit(canUseExpenses && submitter?.value !== 'detail' ? 'expense' : 'detail')
+    void submit()
   }
+
+  const timingIncomplete = Boolean(eventDate) !== Boolean(eventTime)
 
   if (receipt) {
     return (
@@ -189,11 +205,7 @@ export function EventCreateForm({
             router.refresh()
           }}
         >
-          {isSubmitting
-            ? t('create.continuing')
-            : receipt.destinationKind === 'expense'
-              ? t('create.continueToExpense')
-              : t('create.continueToDetail')}
+          {isSubmitting ? t('create.continuing') : t('create.continueToDetail')}
         </TeskeidActionButton>
       </section>
     )
@@ -229,7 +241,59 @@ export function EventCreateForm({
             placeholder={t('create.namePlaceholder')}
           />
         </label>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <TeskeidDateField
+            label={t('create.date')}
+            placeholder={t('create.datePlaceholder')}
+            value={eventDate}
+            onChange={setEventDate}
+            disabled={isSubmitting}
+          />
+          <TeskeidTimeField
+            label={t('create.time')}
+            hourLabel={t('create.hour')}
+            minuteLabel={t('create.minute')}
+            value={eventTime}
+            onChange={setEventTime}
+            disabled={isSubmitting}
+          />
+        </div>
+        {timingIncomplete ? (
+          <p role="alert" className="text-sm text-destructive">{t('create.dateTimePair')}</p>
+        ) : null}
+        <label>
+          <span className={expenseLabelClass}>{t('create.description')}</span>
+          <textarea
+            className={expenseTextareaClass}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            maxLength={2000}
+            disabled={isSubmitting}
+            placeholder={t('create.descriptionPlaceholder')}
+          />
+        </label>
+        <label>
+          <span className={expenseLabelClass}>{t('create.agenda')}</span>
+          <textarea
+            className={`${expenseTextareaClass} min-h-32`}
+            value={agenda}
+            onChange={(event) => setAgenda(event.target.value)}
+            maxLength={4000}
+            disabled={isSubmitting}
+            placeholder={t('create.agendaPlaceholder')}
+          />
+        </label>
       </section>
+
+      <TeskeidActionButton
+        type="submit"
+        variant="primary"
+        pending={isSubmitting}
+        disabled={!name.trim() || timingIncomplete}
+        className="w-full"
+      >
+        {isSubmitting ? t('create.creating') : t('create.createOnly')}
+      </TeskeidActionButton>
 
       <section className="space-y-4 border-y border-border py-5" aria-labelledby="event-participants-heading">
         <div>
@@ -275,33 +339,6 @@ export function EventCreateForm({
           onAddManual={addManual}
         />
       </section>
-
-      <div className="grid gap-3">
-        {canUseExpenses ? (
-          <TeskeidActionButton
-            type="submit"
-            name="destination"
-            value="expense"
-            variant="primary"
-            pending={isSubmitting}
-            disabled={!name.trim()}
-            className="w-full"
-          >
-            {isSubmitting ? t('create.creating') : t('create.createAndExpense')}
-          </TeskeidActionButton>
-        ) : null}
-        <TeskeidActionButton
-          type="submit"
-          name="destination"
-          value="detail"
-          variant={canUseExpenses ? 'secondary' : 'primary'}
-          pending={isSubmitting}
-          disabled={!name.trim()}
-          className="w-full"
-        >
-          {isSubmitting ? t('create.creating') : t('create.createOnly')}
-        </TeskeidActionButton>
-      </div>
     </form>
   )
 }

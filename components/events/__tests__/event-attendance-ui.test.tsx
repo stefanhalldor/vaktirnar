@@ -50,8 +50,9 @@ const copy: Record<string, string> = {
   'attendance.expired': 'Boð útrunnið',
   'attendance.left': 'Hætt þátttöku',
   'attendance.revoked': 'Aðgangur afturkallaður',
-  'attendance.readOnlyHint': 'Aðeins lestraraðgangur. Engin útgjöld eða skuldir.',
-  'attendance.invitedBy': 'Boð frá {name}',
+  'attendance.readOnlyHint': 'Aðeins lestraraðgangur. Þátttaka stofnar hvorki útgjöld né skuldir.',
+  'attendance.invitedBy': 'Viðburður stofnaður af {name}',
+  'detail.addExpense': 'Skrá útlagðan kostnað',
   'attendance.participants': 'Gestir',
   'attendance.noParticipants': 'Engir gestir.',
   'attendance.genericGuest': 'Gestur',
@@ -74,6 +75,7 @@ const copy: Record<string, string> = {
 }
 
 vi.mock('next-intl', () => ({
+  useLocale: () => 'is',
   useTranslations: () => (key: string, values?: Record<string, string | number>) => {
     let value = copy[key] ?? key
     for (const [name, replacement] of Object.entries(values ?? {})) {
@@ -396,10 +398,10 @@ describe('read-only attendee detail', () => {
   it('renders only the safe roster and blocks a double leave click through navigation handoff', async () => {
     let resolveLeave!: (value: unknown) => void
     mockLeave.mockReturnValue(new Promise((resolve) => { resolveLeave = resolve }))
-    render(<EventAttendeeDetail event={attendeeEvent} />)
+    render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
     expect(screen.getByText('Gestur')).toBeInTheDocument()
-    expect(screen.getByText('Boð frá Teskeiðarnotanda')).toBeInTheDocument()
-    expect(screen.getByText(/Engin útgjöld eða skuldir/)).toBeInTheDocument()
+    expect(screen.getByText('Viðburður stofnaður af Teskeiðarnotanda')).toBeInTheDocument()
+    expect(screen.getByText(/stofnar hvorki útgjöld né skuldir/)).toBeInTheDocument()
     expect(screen.queryByText(/netfang|breyta|útlagður/i)).not.toBeInTheDocument()
     const leaveButton = screen.getByRole('button', { name: 'Hætta þátttöku' })
     fireEvent.click(leaveButton)
@@ -412,8 +414,20 @@ describe('read-only attendee detail', () => {
 
   it('focuses a leave error', async () => {
     mockLeave.mockRejectedValueOnce(new Error('transport'))
-    render(<EventAttendeeDetail event={attendeeEvent} />)
+    render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
     fireEvent.click(screen.getByRole('button', { name: 'Hætta þátttöku' }))
     expect(await screen.findByRole('alert')).toHaveFocus()
+  })
+
+  it('shows the event expense action only with separate Expense access', () => {
+    const { rerender } = render(
+      <EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />,
+    )
+    expect(screen.queryByRole('link', { name: 'Skrá útlagðan kostnað' })).not.toBeInTheDocument()
+    rerender(<EventAttendeeDetail event={attendeeEvent} canUseExpenses />)
+    expect(screen.getByRole('link', { name: 'Skrá útlagðan kostnað' })).toHaveAttribute(
+      'href',
+      `/auth-mvp/utlagt-og-endurgreitt/nytt?event=${EVENT_ID}`,
+    )
   })
 })

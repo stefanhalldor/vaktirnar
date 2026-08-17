@@ -4,6 +4,8 @@ import { canAccessTeskeidLauncherFeature, resolveTeskeidLauncher } from '@/lib/t
 import { verifyTeskeidLauncherCommitProof } from '@/lib/teskeid/launcherCommitProof.server'
 import { isTeskeidLauncherId } from '@/lib/teskeid/launcherCatalog'
 import { recordTeskeidLauncherOpen } from '@/lib/teskeid/launcherUsage.server'
+import { loadRecentEventInbox } from '@/lib/recent-events/inbox.server'
+import { mapUnreadCountsToLauncher } from '@/lib/recent-events/launcher'
 
 const PRIVATE_HEADERS = {
   'Cache-Control': 'private, no-store',
@@ -57,11 +59,17 @@ async function readLauncherCommit(request: Request): Promise<LauncherCommitBody 
 export async function GET() {
   const user = await authenticatedUser()
   if (!user) return privateJson({ error: 'unauthorized' }, 401)
-  const launcher = await resolveTeskeidLauncher(user)
+  const [launcher, inbox] = await Promise.all([
+    resolveTeskeidLauncher(user),
+    loadRecentEventInbox(user).catch(() => null),
+  ])
   return privateJson({
     featureIds: launcher.featureIds,
     agentCollaborationAvailable: launcher.agentCollaborationAvailable,
     usageAvailable: launcher.usageAvailable,
+    unreadCounts: inbox?.ok
+      ? mapUnreadCountsToLauncher(inbox.unreadBySource, launcher.featureIds)
+      : {},
   })
 }
 

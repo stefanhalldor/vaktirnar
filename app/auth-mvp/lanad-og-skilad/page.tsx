@@ -6,6 +6,7 @@ import { getAdmin } from '@/lib/supabase/admin'
 import { LoanList } from '@/components/loans/LoanList'
 import { LoanShell } from '@/components/loans/LoanShell'
 import type { LoanItem } from '@/lib/loans/types'
+import { TeskeidUnreadSection } from '@/components/teskeid/TeskeidUnreadSection.server'
 
 export default async function LoanPage({
   searchParams,
@@ -42,6 +43,7 @@ export default async function LoanPage({
 
   return (
     <LoanShell nav={nav} homeLabel={t('homeLink')}>
+      <TeskeidUnreadSection user={user} source="loans" knownLoans={items} />
       {loansResult.error ? (
         <p className="text-sm text-red-600 py-8 text-center">{t('errors.loadFailed')}</p>
       ) : (

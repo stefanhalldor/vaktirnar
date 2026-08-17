@@ -190,6 +190,23 @@ describe('ackAllRecentEvents', () => {
     expect(mockAckAllHelper).toHaveBeenCalledWith('actor-uuid', ['expenses'])
   })
 
+  it('scopes ack-all to the open Teskeið without clearing other sources', async () => {
+    mockResolveSourceAccess.mockResolvedValueOnce({
+      loansEnabled: true,
+      expensesEnabled: true,
+      eventInvitationsEnabled: true,
+      sources: ['loans', 'expenses', 'events'],
+    })
+    await ackAllRecentEvents('expenses')
+    expect(mockAckAllHelper).toHaveBeenCalledWith('actor-uuid', ['expenses'])
+  })
+
+  it('rejects a tampered source instead of falling back to all sources', async () => {
+    const result = await ackAllRecentEvents('weather' as never)
+    expect(result).toEqual({ ok: false, error: 'invalid_input' })
+    expect(mockAckAllHelper).not.toHaveBeenCalled()
+  })
+
   it('revalidates /auth-mvp/heim on success', async () => {
     await ackAllRecentEvents()
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith('/auth-mvp/heim')

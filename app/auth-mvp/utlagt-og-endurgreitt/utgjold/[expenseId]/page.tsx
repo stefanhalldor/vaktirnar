@@ -2,18 +2,29 @@ import { notFound } from 'next/navigation'
 import { ExpenseItemDetail } from '@/components/expenses/ExpenseItemDetail'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
-import { guardExpenseAccess } from '@/lib/expenses/guard'
+import { guardExpenseSession } from '@/lib/expenses/guard'
 import { parseExpenseSavedView } from '@/lib/expenses/flow'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
-import { getExpenseItemLookup } from '@/lib/expenses/repository.server'
+import {
+  getExpenseEventIdentityCandidates,
+  getExpenseItemLookup,
+} from '@/lib/expenses/repository.server'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
-import { isExpenseEventContext } from '@/lib/events/repository.server'
+import {
+  getExpenseEventLinkManagement,
+  getExpenseLinkedEventId,
+  isExpenseEventContext,
+} from '@/lib/events/repository.server'
+import { eventDetailPath } from '@/lib/events/contracts'
+import { canUseEventExpenses } from '@/lib/events/guard'
+import { canEditExpense } from '@/lib/expenses/policy'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { EXPENSE_FEATURE_KEY } from '@/lib/expenses/contracts'
 
 export default async function ExpenseItemPage({ params, searchParams }: { params: Promise<{ expenseId: string }>; searchParams: Promise<{ view?: string | string[] }> }) {
   const [{ expenseId }, { user }, t, query] = await Promise.all([
     params,
-    guardExpenseAccess(),
+    guardExpenseSession(),
     getExpenseTranslations(),
     searchParams,
   ])
@@ -37,17 +48,34 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
       </ExpenseShell>
     )
   }
-  const eventClassification = result.group.kind === 'group'
+  const canEdit = canEditExpense({
+    expenseStatus: result.expense.status,
+    groupStatus: result.group.status,
+    createdBySelf: result.expense.createdBySelf,
+    canManage: result.group.canManage,
+  })
+  const [canUseEvents, canUseExpenses] = await Promise.all([
+    canUseEventExpenses(user),
+    checkFeatureAccess(user.id, user.email!, EXPENSE_FEATURE_KEY),
+  ])
+  const eventLinkManagement = canEdit && result.group.kind === 'one_off' && canUseEvents
+    ? await getExpenseEventLinkManagement(user.id, result.expense.id).catch(() => null)
+    : null
+  const managedEvent = eventLinkManagement?.currentEvent ?? null
+  const fallbackLinkedEventId = eventLinkManagement === null
+    ? await getExpenseLinkedEventId(user.id, result.expense.id).catch(() => null)
+    : null
+  const linkedEventId = managedEvent?.id ?? fallbackLinkedEventId
+  const canOpenLinkedEvent = managedEvent?.canOpen ?? Boolean(fallbackLinkedEventId)
+  const eventClassification = !linkedEventId && result.group.kind === 'group'
     ? await isExpenseEventContext(user.id, result.group.id)
       .then((value) => ({ value, reliable: true }))
       .catch(() => ({ value: true, reliable: false }))
     : { value: false, reliable: true }
-  const isEventContext = eventClassification.value
-  const canUseEventUi = eventClassification.reliable && isEventContext && await checkFeatureAccess(
-    user.id,
-    user.email ?? '',
-    'afmaeli-og-vidburdir',
-  )
+  const isEventContext = Boolean(linkedEventId) || eventClassification.value
+  const canUseEventUi = (canOpenLinkedEvent || eventClassification.reliable)
+    && isEventContext
+    && canUseEvents
   let participantOptions: ExpenseParticipantOption[] = []
   let participantOptionsError = false
   if (result.group.kind === 'one_off' && result.group.canManage) {
@@ -57,13 +85,19 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
       participantOptionsError = true
     }
   }
+  const eventIdentityCandidates = result.group.canManage && linkedEventId
+    ? await getExpenseEventIdentityCandidates(user.id, result.expense.id)
+      .catch(() => null)
+    : null
 
   return (
     <ExpenseShell
       title={result.expense.title}
       homeLabel={t('homeLabel')}
-      backHref={canUseEventUi
-        ? `/auth-mvp/vidburdir/${result.group.id}`
+      backHref={!canUseExpenses
+        ? '/auth-mvp/heim'
+        : canUseEventUi
+        ? eventDetailPath(linkedEventId ?? result.group.id)
         : result.group.kind === 'one_off'
         ? '/auth-mvp/utlagt-og-endurgreitt'
         : `/auth-mvp/utlagt-og-endurgreitt/hopar/${result.group.id}`}
@@ -78,6 +112,9 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         participantOptions={participantOptions}
         participantOptionsError={participantOptionsError}
         isEventContext={isEventContext}
+        eventHref={canUseEventUi && linkedEventId ? eventDetailPath(linkedEventId) : null}
+        eventLinkManagement={eventLinkManagement}
+        eventIdentityCandidates={eventIdentityCandidates}
       />
     </ExpenseShell>
   )

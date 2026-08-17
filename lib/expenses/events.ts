@@ -23,6 +23,8 @@ export type ExpenseRecentEventType =
   | 'expense_repayment_confirmed'
   | 'expense_repayment_rejected'
   | 'expense_repayment_cancelled'
+  | 'expense_identity_bound'
+  | 'expense_claim_disputed'
 
 export type ExpenseActivityEventType =
   | ExpenseRecentEventType
@@ -47,7 +49,7 @@ export type ExpenseRecentEventEntityType =
 export interface ExpenseRecentEventPayload {
   expenseTitle?: string
   groupTitle?: string
-  actorUserId: string
+  actorUserId?: string
 }
 
 /**
@@ -73,6 +75,8 @@ const EXPENSE_EVENTS = new Set<ExpenseRecentEventType>([
   'expense_created',
   'expense_updated',
   'expense_cancelled',
+  'expense_identity_bound',
+  'expense_claim_disputed',
 ])
 
 const GROUP_MEMBERSHIP_EVENTS = new Set<ExpenseRecentEventType>([

@@ -88,7 +88,7 @@ describe('bounded-concurrency post-commit attendance delivery', () => {
       return 'sent'
     })
     mockRpc.mockImplementation(async (name: string, args: Record<string, string>) => {
-      if (name === 'teskeid_event_create_with_attendance_invitations') {
+      if (name === 'teskeid_event_create_with_details_and_attendance_invitations') {
         return { data: { event_id: EVENT_ID, roster_revision: 1, invitations: committed }, error: null }
       }
       const index = committed.findIndex((row) => row.invitation_id === args.p_invitation_id)
@@ -169,7 +169,7 @@ describe('bounded-concurrency post-commit attendance delivery', () => {
     const sentDeliveryRequests = new Set<string>()
     mockSendEmail.mockResolvedValue('sent')
     mockRpc.mockImplementation(async (name: string, args: Record<string, string>) => {
-      if (name === 'teskeid_event_create_with_attendance_invitations') {
+      if (name === 'teskeid_event_create_with_details_and_attendance_invitations') {
         return { data: { event_id: EVENT_ID, roster_revision: 1, invitations: committed }, error: null }
       }
       const index = committed.findIndex((row) => row.invitation_id === args.p_invitation_id)
@@ -234,7 +234,7 @@ describe('bounded-concurrency post-commit attendance delivery', () => {
   it('continues later committed IDs when one worker pipeline throws', async () => {
     const committed = invitations(6)
     mockRpc.mockImplementation(async (name: string, args: Record<string, string>) => {
-      if (name === 'teskeid_event_create_with_attendance_invitations') {
+      if (name === 'teskeid_event_create_with_details_and_attendance_invitations') {
         return { data: { event_id: EVENT_ID, roster_revision: 1, invitations: committed }, error: null }
       }
       const index = committed.findIndex((row) => row.invitation_id === args.p_invitation_id)

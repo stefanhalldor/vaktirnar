@@ -90,7 +90,9 @@ vi.mock('next-intl/server', () => ({
         recentDone:           'Allt uppá 10 hjá þér í Teskeiðinni',
         noRecent:             'Engin ólesin atriði.',
         profileLink:          'Minn aðgangur',
-        pendingBadgeLabel:    '{count, plural, one {1 boð í bið} other {# boð í bið}}',
+        unreadBadgeLabel:     '{count, plural, one {# ólesið atriði} other {# ólesin atriði}}',
+        eventAttendanceInvitationReceived: 'Boð í viðburð: {eventName}',
+        eventAttendanceInvitationFrom: 'Boð frá {name}',
         eventLoanCreated:     'Búinn til: {itemName}',
         eventLoanUpdated:         'Breytt: {itemName}',
         eventLoanUpdatedName:     'Breytt nafn: {itemName}',
@@ -232,6 +234,10 @@ vi.mock('@/components/teskeid/PersonalizedIdeaGrid', () => ({
 const { mockRpc, mockAdminLimit, mockAdminSourceIn, mockGetAdmin } = vi.hoisted(() => {
   const mockRpc = vi.fn()
   const mockAdminLimit = vi.fn()
+  const mockExpenseMembershipLimit = vi.fn().mockResolvedValue({ data: [], error: null })
+  const expenseMembershipChain: Record<string, unknown> = {}
+  expenseMembershipChain.eq = vi.fn(() => expenseMembershipChain)
+  expenseMembershipChain.limit = mockExpenseMembershipLimit
   const mockAdminOrder2 = vi.fn(() => {
     // Thenable so `await base` works; also has .limit() for `await base.limit(n)`
     const node: Record<string, unknown> = { limit: mockAdminLimit }
@@ -248,7 +254,11 @@ const { mockRpc, mockAdminLimit, mockAdminSourceIn, mockGetAdmin } = vi.hoisted(
   const mockAdminSourceIn = vi.fn(() => ({ is: mockAdminIs }))
   const mockAdminEq = vi.fn(() => ({ in: mockAdminSourceIn }))
   const mockAdminSelect = vi.fn(() => ({ eq: mockAdminEq }))
-  const mockAdminFrom = vi.fn(() => ({ select: mockAdminSelect }))
+  const mockAdminFrom = vi.fn((table: string) => (
+    table === 'expense_group_members'
+      ? { select: vi.fn(() => expenseMembershipChain) }
+      : { select: mockAdminSelect }
+  ))
   const mockGetAdmin = vi.fn(() => ({ rpc: mockRpc, from: mockAdminFrom }))
   return { mockRpc, mockAdminLimit, mockAdminSourceIn, mockGetAdmin }
 })
@@ -453,6 +463,21 @@ function setupGuard(
   })
 }
 
+const EVENT_INVITATION_ID = '30000000-0000-4000-8000-000000000001'
+
+function makeEventInvitationEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
+  return makeEvent({
+    source: 'events',
+    event_type: 'event_attendance_invitation_received',
+    entity_type: 'attendance_invitation',
+    entity_id: EVENT_INVITATION_ID,
+    event_key: `events:attendance-invitation:${EVENT_INVITATION_ID}:received`,
+    payload: { eventName: 'Kvisskvöld', inviterDisplayName: 'Anna' },
+    href: `/auth-mvp/vidburdir/bod/thattaka/${EVENT_INVITATION_ID}`,
+    ...overrides,
+  })
+}
+
 function setupProfile(displayName: string | null) {
   mockMaybeSingle.mockResolvedValue({ data: displayName ? { display_name: displayName } : null })
 }
@@ -460,6 +485,7 @@ function setupProfile(displayName: string | null) {
 function setupRpcs(
   softAckLoans: Array<Record<string, unknown>> = [],
   expenseTargets: Array<{ activity_id: string; href: string }> = [],
+  eventInvitations: Array<Record<string, unknown>> = [],
 ) {
   mockRpc.mockImplementation((fn: string) => {
     if (fn === 'get_my_loans') return Promise.resolve({ data: softAckLoans, error: null })
@@ -468,6 +494,9 @@ function setupRpcs(
     }
     if (fn === 'expense_resolve_recent_targets') {
       return Promise.resolve({ data: expenseTargets, error: null })
+    }
+    if (fn === 'teskeid_event_list_my_pending_invitations') {
+      return Promise.resolve({ data: { invitations: eventInvitations }, error: null })
     }
     return Promise.resolve({ data: null, error: { code: 'unknown' } })
   })
@@ -484,6 +513,7 @@ let savedAuth: string | undefined
 let savedWeather: string | undefined
 let savedWeatherPublic: string | undefined
 let savedExpenses: string | undefined
+let savedEvents: string | undefined
 
 beforeEach(() => {
   savedLoans = process.env.LOANS_ENABLED
@@ -491,10 +521,12 @@ beforeEach(() => {
   savedWeather = process.env.WEATHER_ENABLED
   savedWeatherPublic = process.env.WEATHER_PUBLIC_ENABLED
   savedExpenses = process.env.EXPENSES_ENABLED
+  savedEvents = process.env.EVENTS_ENABLED
   process.env.LOANS_ENABLED = 'true'
   process.env.AUTH_MVP_ENABLED = 'true'
   delete process.env.WEATHER_ENABLED
   delete process.env.WEATHER_PUBLIC_ENABLED
+  delete process.env.EVENTS_ENABLED
   vi.clearAllMocks()
   mockHasExpenseAccessRequestContext.mockResolvedValue(false)
   setupRecentEvents([])
@@ -514,6 +546,8 @@ afterEach(() => {
   else delete process.env.WEATHER_PUBLIC_ENABLED
   if (savedExpenses !== undefined) process.env.EXPENSES_ENABLED = savedExpenses
   else delete process.env.EXPENSES_ENABLED
+  if (savedEvents !== undefined) process.env.EVENTS_ENABLED = savedEvents
+  else delete process.env.EVENTS_ENABLED
 })
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -714,23 +748,49 @@ describe('HeimPage — home ideas section', () => {
   })
 })
 
-describe('HeimPage — pending invitations badge', () => {
+describe('HeimPage — unread badges', () => {
+  it('shows a pending Event invitation in Ólesið and on the Events Teskeið card', async () => {
+    process.env.EVENTS_ENABLED = 'true'
+    setupGuard(false, false, false, false, false, false, false, false, true)
+    setupProfile('Anna')
+    setupRpcs([], [], [{
+      invitation_id: EVENT_INVITATION_ID,
+      event_name: 'Kvisskvöld',
+      inviter_display_name: 'Stefán',
+      invited_at: '2026-08-16T20:00:00.000Z',
+    }])
+    setupRecentEvents([makeEventInvitationEvent()])
+
+    render(await HeimPage())
+
+    fireEvent.click(screen.getByText('Boð í viðburð: Kvisskvöld'))
+    expect(screen.getByText('Boð frá Anna')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Skoða' })).toHaveAttribute(
+      'href',
+      `/auth-mvp/vidburdir/bod/thattaka/${EVENT_INVITATION_ID}`,
+    )
+    const eventsCard = screen.getByRole('link', { name: 'Opna Viðburðir' })
+    expect(eventsCard).toContainElement(screen.getByLabelText('1 ólesið atriði'))
+  })
+
   it('shows badge with accessible label for count 1', async () => {
     setupGuard()
     setupProfile('Anna')
     setupRpcs([makeSoftAckLoan()])
+    setupRecentEvents([makeEvent()])
     render(await HeimPage())
     expect(screen.getByText('1')).toBeDefined()
-    expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
+    expect(screen.getByLabelText('1 ólesið atriði')).toBeDefined()
   })
 
   it('shows badge with accessible label for count 2', async () => {
     setupGuard()
     setupProfile('Anna')
     setupRpcs([makeSoftAckLoan(), makeSoftAckLoan()])
+    setupRecentEvents([makeEvent(), makeEvent({ id: 2, event_key: 'loans:loan:2:created' })])
     render(await HeimPage())
     expect(screen.getByText('2')).toBeDefined()
-    expect(screen.getByLabelText('2 boð í bið')).toBeDefined()
+    expect(screen.getByLabelText('2 ólesin atriði')).toBeDefined()
   })
 
   it('does not show badge for loan without requires_acknowledgement', async () => {
@@ -738,7 +798,7 @@ describe('HeimPage — pending invitations badge', () => {
     setupProfile('Anna')
     setupRpcs([{ requires_acknowledgement: false, invitation_status: 'pending' }])
     render(await HeimPage())
-    expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+    expect(document.querySelector('[aria-label*="óles"]')).toBeNull()
   })
 
   it('does not show badge when pending count is zero', async () => {
@@ -746,7 +806,7 @@ describe('HeimPage — pending invitations badge', () => {
     setupProfile('Anna')
     setupRpcs([])
     render(await HeimPage())
-    expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+    expect(document.querySelector('[aria-label*="óles"]')).toBeNull()
   })
 
   it('does not show badge when invitations RPC fails', async () => {
@@ -754,34 +814,36 @@ describe('HeimPage — pending invitations badge', () => {
     setupProfile('Anna')
     mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
-    expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+    expect(document.querySelector('[aria-label*="óles"]')).toBeNull()
   })
 
-  it('does not show badge for pending acknowledgement loan that is already returned (#55)', async () => {
+  it('does not infer an unread badge from a returned pending acknowledgement', async () => {
     setupGuard()
     setupProfile('Anna')
     setupRpcs([makeSoftAckLoan({ returned_at: '2026-06-22T21:33:08Z' })])
     render(await HeimPage())
-    expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+    expect(document.querySelector('[aria-label*="óles"]')).toBeNull()
   })
 
-  it('still shows badge for open (not returned) pending acknowledgement loan (#55)', async () => {
+  it('shows a badge for an actual unread invitation event', async () => {
     setupGuard()
     setupProfile('Anna')
     setupRpcs([makeSoftAckLoan({ returned_at: null })])
+    setupRecentEvents([makeEvent({ event_type: 'loan_invitation_received' })])
     render(await HeimPage())
-    expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
+    expect(screen.getByLabelText('1 ólesið atriði')).toBeDefined()
   })
 })
 
 describe('HeimPage — Ólesið section (event-based)', () => {
-  it('shows done banner when there are no events', async () => {
+  it('hides the dynamic section when there are no unread events', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([])
     render(await HeimPage())
-    expect(screen.getByText('Allt uppá 10 hjá þér í Teskeiðinni')).toBeDefined()
+    expect(screen.queryByText('Ólesið')).toBeNull()
+    expect(screen.queryByTestId('recent-list')).toBeNull()
   })
 
   it('shows "Ólesið" heading and "Allt lesið" button when events exist', async () => {
@@ -936,14 +998,15 @@ describe('HeimPage — Ólesið section (event-based)', () => {
 })
 
 describe('HeimPage — Lesið / ack events', () => {
-  it('clicking "Allt lesið" shows done banner optimistically', async () => {
+  it('clicking "Allt lesið" hides the section optimistically', async () => {
     setupGuard()
     setupProfile(null)
     setupRpcs([])
     setupRecentEvents([makeEvent({ payload: { itemName: 'Bók' } })])
     render(await HeimPage())
     fireEvent.click(screen.getByText('Allt lesið'))
-    expect(screen.getByText('Allt uppá 10 hjá þér í Teskeiðinni')).toBeDefined()
+    expect(screen.queryByText('Ólesið')).toBeNull()
+    expect(screen.queryByTestId('recent-list')).toBeNull()
     expect(screen.queryByText('Allt lesið')).toBeNull()
   })
 
@@ -1013,10 +1076,10 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     expect(screen.getByText('Brynja')).toBeDefined()
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
     expect(screen.queryByText('Ólesið')).toBeNull()
-    expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+    expect(document.querySelector('[aria-label*="óles"]')).toBeNull()
   })
 
-  it('hides Ólesið but shows badge when events query throws and loans RPC succeeds', async () => {
+  it('hides both Ólesið and its badges when the unread query fails', async () => {
     setupGuard()
     setupProfile('Hildur')
     mockRpc.mockImplementation((fn: string) => {
@@ -1026,11 +1089,11 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     mockAdminLimit.mockResolvedValue({ data: null, error: { code: 'PGRST301' } })
     render(await HeimPage())
     expect(screen.queryByText('Ólesið')).toBeNull()
-    expect(screen.getByLabelText('1 boð í bið')).toBeDefined()
+    expect(document.querySelector('[aria-label*="óles"]')).toBeNull()
     expect(screen.getByText('Lánað og skilað')).toBeDefined()
   })
 
-  it('shows Ólesið but hides badge when get_my_loans rejects and events succeed', async () => {
+  it('keeps Ólesið and its badge when the loan lookup fails but unread rows load', async () => {
     setupGuard()
     setupProfile(null)
     mockRpc.mockRejectedValue(new Error('loans rpc failed'))
@@ -1038,7 +1101,7 @@ describe('HeimPage — getAdmin / RPC rejection resilience', () => {
     render(await HeimPage())
     expect(screen.getByText('Ólesið')).toBeDefined()
     expect(screen.getByText('Búinn til: Sykur')).toBeDefined()
-    expect(document.querySelector('[aria-label*="boð í bið"]')).toBeNull()
+    expect(screen.getByLabelText('1 ólesið atriði')).toBeInTheDocument()
   })
 })
 
@@ -1294,7 +1357,8 @@ describe('HeimPage — event drawer', () => {
     // "Lesið" appears in the drawer (header has "Allt lesið")
     fireEvent.click(screen.getByRole('button', { name: 'Lesið' }))
     expect(screen.queryByTestId('recent-drawer')).toBeNull()
-    expect(screen.getByText('Allt uppá 10 hjá þér í Teskeiðinni')).toBeDefined()
+    expect(screen.queryByText('Ólesið')).toBeNull()
+    expect(screen.queryByTestId('recent-list')).toBeNull()
   })
 })
 

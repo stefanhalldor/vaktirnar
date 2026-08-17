@@ -23,11 +23,15 @@ import type {
 import {
   AddExpenseGroupMemberSchema,
   AddExpenseShareCollaboratorSchema,
+  AttachExpenseToEventSchema,
+  BindExpenseMemberEventIdentitySchema,
   CancelExpenseSchema,
   CancelExpenseMemberInvitationSchema,
   CreateExpenseGroupSchema,
   CreateExpenseSchema,
   DeactivateExpensePaymentPreferenceSchema,
+  DetachExpenseFromEventSchema,
+  DisputeExpenseClaimSchema,
   LeaveExpenseGroupSchema,
   LinkExpenseGuestMemberSchema,
   RemoveExpenseGroupMemberSchema,
@@ -123,9 +127,44 @@ function actionError(error: unknown): ExpenseActionResult<never> {
   return { ok: false, error: code }
 }
 
+class ExpenseRpcError extends Error {
+  readonly sqlState: string
+  readonly reason: string
+  readonly identifier: string | null
+
+  constructor(error: { message?: string; code?: string }) {
+    const message = error.message || error.code || 'expense_save_failed'
+    super(message)
+    this.name = 'ExpenseRpcError'
+    this.sqlState = typeof error.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code)
+      ? error.code
+      : 'unknown'
+    this.reason = message.toLowerCase().match(/\b(?:teskeid_event|expense)_[a-z0-9_]+\b/)?.[0]
+      ?? 'unknown'
+    const identifierMatch = message.match(
+      /(?:column\s+(?:"([a-z_][a-z0-9_.]*)"|([a-z_][a-z0-9_.]*))\s+does not exist|record\s+"[a-z_][a-z0-9_]*"\s+has no field\s+"([a-z_][a-z0-9_]*)")/i,
+    )
+    this.identifier = (identifierMatch?.[1] ?? identifierMatch?.[2] ?? identifierMatch?.[3] ?? '')
+      .toLowerCase()
+      .slice(0, 120) || null
+  }
+}
+
+function safeExpenseFailureDiagnostic(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  const safeReason = message.match(/\b(?:teskeid_event|expense)_[a-z0-9_]+\b/)?.[0]
+  return {
+    sqlState: error instanceof ExpenseRpcError ? error.sqlState : 'unknown',
+    reason: error instanceof ExpenseRpcError ? error.reason : safeReason ?? 'unknown',
+    ...(error instanceof ExpenseRpcError && error.identifier
+      ? { identifier: error.identifier }
+      : {}),
+  }
+}
+
 function rpcError(error: { message?: string; code?: string } | null): never {
   if (!error) throw new Error('expense_save_failed')
-  throw new Error(error.message || error.code || 'expense_save_failed')
+  throw new ExpenseRpcError(error)
 }
 
 function resultObject(data: unknown): Record<string, unknown> {
@@ -388,7 +427,7 @@ export async function createExpense(
     }))
 
     const createRpc = value.event_id
-      ? 'teskeid_event_create_tagged_expense'
+      ? 'teskeid_event_create_expense_from_event_for_actor'
       : value.group_id
       ? 'expense_create_expense'
       : value.circle_id
@@ -401,6 +440,7 @@ export async function createExpense(
         p_request_id: value.request_id,
         p_event_id: value.event_id,
         p_expected_roster_revision: value.expected_event_roster_revision,
+        p_link_to_event: value.link_to_event,
         p_payload: {
           title: value.title,
           total_minor: totalMinor,
@@ -415,7 +455,9 @@ export async function createExpense(
             // SQL132 replaces mapped event guests from the locked roster.
             // A stable placeholder keeps exact replay fingerprints independent
             // of later roster snapshot edits without trusting client labels.
-            display_name: member.eventGuestId ? 'Event guest' : member.displayName,
+            display_name: member.eventGuestId || member.eventOrganizerParticipantId
+              ? 'Event guest'
+              : member.displayName,
             role: member.role,
             status: 'active',
           })),
@@ -429,7 +471,7 @@ export async function createExpense(
           })),
           obligations,
           participant_invitations: members.flatMap<ExpenseParticipantInvitationInput>((member) => {
-            if (member.eventGuestId) return []
+            if (member.eventGuestId || member.eventOrganizerParticipantId) return []
             if (member.relationshipId) return [{
               member_id: member.id,
               relationship_id: member.relationshipId,
@@ -443,6 +485,14 @@ export async function createExpense(
           event_guest_members: members.flatMap((member) => (
             member.eventGuestId
               ? [{ event_guest_id: member.eventGuestId, member_id: member.id }]
+              : []
+          )),
+          event_organizer_members: members.flatMap((member) => (
+            member.eventOrganizerParticipantId
+              ? [{
+                event_participant_id: member.eventOrganizerParticipantId,
+                member_id: member.id,
+              }]
               : []
           )),
         },
@@ -507,10 +557,177 @@ export async function createExpense(
     if (!groupId || !persistedExpenseId) throw new Error('expense_save_failed')
     await deleteExpenseDraftAfterSave(user.id, value.draft_id)
     await deliverExpenseInvitationIds(user.id, result.invitation_ids)
-    revalidateExpensePaths(groupId, persistedExpenseId, undefined, value.event_id ?? undefined)
+    revalidateExpensePaths(
+      groupId,
+      persistedExpenseId,
+      undefined,
+      value.link_to_event ? value.event_id ?? undefined : undefined,
+    )
     return { ok: true, data: { groupId, expenseId: persistedExpenseId } }
   } catch (error) {
-    console.error('[expenses] create expense failed')
+    console.error('[expenses] create expense failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
+export async function attachExpenseToEvent(
+  input: unknown,
+): Promise<ExpenseActionResult<{ expenseId: string; eventId: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = AttachExpenseToEventSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    if (!await canUseEventExpenses(user)) return { ok: false, error: 'feature_disabled' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc('teskeid_event_attach_expense', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_expense_id: value.expense_id,
+      p_event_id: value.event_id,
+      p_expected_financial_version: value.expected_financial_version,
+      p_expected_roster_revision: value.expected_event_roster_revision,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const expenseId = String(result.expense_id ?? '')
+    const eventId = String(result.event_id ?? '')
+    if (expenseId !== value.expense_id || eventId !== value.event_id) {
+      throw new Error('teskeid_event_link_invalid')
+    }
+    revalidateExpensePaths(undefined, expenseId, undefined, eventId)
+    return { ok: true, data: { expenseId, eventId } }
+  } catch (error) {
+    console.error('[expenses] attach event failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
+export async function detachExpenseFromEvent(
+  input: unknown,
+): Promise<ExpenseActionResult<{ expenseId: string; eventId: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = DetachExpenseFromEventSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    if (!await canUseEventExpenses(user)) return { ok: false, error: 'feature_disabled' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc('teskeid_event_detach_expense', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_expense_id: value.expense_id,
+      p_expected_event_id: value.expected_event_id,
+      p_expected_financial_version: value.expected_financial_version,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const expenseId = String(result.expense_id ?? '')
+    const eventId = String(result.event_id ?? '')
+    if (expenseId !== value.expense_id || eventId !== value.expected_event_id) {
+      throw new Error('teskeid_event_link_invalid')
+    }
+    revalidateExpensePaths(undefined, expenseId, undefined, eventId)
+    return { ok: true, data: { expenseId, eventId } }
+  } catch (error) {
+    console.error('[expenses] detach event failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
+export async function bindExpenseMemberEventIdentity(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  expenseId: string
+  memberId: string
+  financialVersion: number
+}>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = BindExpenseMemberEventIdentitySchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc(
+      'expense_bind_member_event_identity',
+      {
+        p_actor_id: user.id,
+        p_request_id: value.request_id,
+        p_expense_id: value.expense_id,
+        p_member_id: value.member_id,
+        p_event_participant_id: value.event_participant_id,
+        p_expected_financial_version: value.expected_financial_version,
+      },
+    )
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const financialVersion = Number(result.financial_version)
+    if (result.expense_id !== value.expense_id
+      || result.member_id !== value.member_id
+      || !Number.isSafeInteger(financialVersion)) {
+      throw new Error('expense_identity_result_invalid')
+    }
+    revalidateExpensePaths(
+      typeof result.group_id === 'string' ? result.group_id : undefined,
+      value.expense_id,
+      undefined,
+      typeof result.event_id === 'string' ? result.event_id : undefined,
+    )
+    return {
+      ok: true,
+      data: {
+        expenseId: value.expense_id,
+        memberId: value.member_id,
+        financialVersion,
+      },
+    }
+  } catch (error) {
+    console.error('[expenses] bind event identity failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
+export async function disputeExpenseClaim(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  expenseId: string
+  memberId: string
+  status: 'disputed'
+  financialVersion: number
+}>> {
+  const { user } = await guardExpenseSession()
+  try {
+    const parsed = DisputeExpenseClaimSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc('expense_dispute_claim', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_expense_id: value.expense_id,
+      p_member_id: value.member_id,
+      p_expected_financial_version: value.expected_financial_version,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const financialVersion = Number(result.financial_version)
+    if (result.expense_id !== value.expense_id
+      || result.member_id !== value.member_id
+      || result.status !== 'disputed'
+      || !Number.isSafeInteger(financialVersion)) {
+      throw new Error('expense_claim_result_invalid')
+    }
+    revalidateExpensePaths(
+      typeof result.group_id === 'string' ? result.group_id : undefined,
+      value.expense_id,
+    )
+    return {
+      ok: true,
+      data: {
+        expenseId: value.expense_id,
+        memberId: value.member_id,
+        status: 'disputed',
+        financialVersion,
+      },
+    }
+  } catch (error) {
+    console.error('[expenses] dispute claim failed', safeExpenseFailureDiagnostic(error))
     return actionError(error)
   }
 }
