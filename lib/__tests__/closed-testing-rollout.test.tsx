@@ -63,6 +63,7 @@ describe('closed-testing rollout policy', () => {
     expect(resolveTeskeidFeatureRollout('kviss')).toBe('closed-testing')
     expect(resolveTeskeidFeatureRollout('auglysandi')).toBe('closed-testing')
     expect(resolveTeskeidFeatureRollout('bokanir')).toBe('closed-testing')
+    expect(resolveTeskeidFeatureRollout('heimilisverkin')).toBe('closed-testing')
   })
 
   it('keeps Umönnun open regardless of its access flag', () => {

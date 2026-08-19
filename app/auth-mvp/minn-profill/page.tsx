@@ -21,6 +21,7 @@ export default function AuthMvpProfilePage() {
   const [facebookAllowed, setFacebookAllowed] = useState(false)
   const [facebookConnected, setFacebookConnected] = useState(false)
   const [tengslAllowed, setTengslAllowed] = useState(false)
+  const [householdChoresMembershipAvailable, setHouseholdChoresMembershipAvailable] = useState(false)
   const [facebookStatus, setFacebookStatus] = useState<'idle' | 'linking' | 'unlinking'>('idle')
   const [facebookError, setFacebookError] = useState('')
 
@@ -38,6 +39,9 @@ export default function AuthMvpProfilePage() {
         setFacebookAllowed(data.facebook_oauth_allowed ?? false)
         setFacebookConnected(data.facebook_connected ?? false)
         setTengslAllowed(data.tengsl_allowed ?? false)
+        setHouseholdChoresMembershipAvailable(
+          data.household_chores_membership_available ?? false,
+        )
       } else {
         setError(tCommon('error'))
       }
@@ -186,6 +190,23 @@ export default function AuthMvpProfilePage() {
                     <span className="block">{t('relationships.title')}</span>
                     <span className="mt-0.5 block text-xs font-normal text-[#72796e]">
                       {t('relationships.description')}
+                    </span>
+                  </span>
+                  <span aria-hidden="true" className="text-lg text-[#72796e]">›</span>
+                </Link>
+              </div>
+            )}
+
+            {householdChoresMembershipAvailable && (
+              <div className="border-t border-gray-100 pt-3">
+                <Link
+                  href="/auth-mvp/verkefnin/adild"
+                  className="flex min-h-11 items-center justify-between gap-3 rounded-xl px-3 text-sm font-medium text-[#154212] transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#154212] focus-visible:ring-offset-2"
+                >
+                  <span>
+                    <span className="block">{t('householdChores.title')}</span>
+                    <span className="mt-0.5 block text-xs font-normal text-[#72796e]">
+                      {t('householdChores.description')}
                     </span>
                   </span>
                   <span aria-hidden="true" className="text-lg text-[#72796e]">›</span>

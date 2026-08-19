@@ -18,8 +18,10 @@ import {
   resolveRecentEventSourceAccess,
   syncEventAttendanceInvitationEvents,
 } from '@/lib/recent-events/access.server'
+import { syncHouseholdChoreRecentEvents } from '@/lib/household-chores/recent.server'
 
 const ACTIVITY_ID = '10000000-0000-4000-8000-000000000001'
+const ACTOR_ID = '70000000-0000-4000-8000-000000000001'
 
 function expenseEvent(overrides: Partial<ExpenseRecentEventRow> = {}): ExpenseRecentEventRow {
   return {
@@ -42,6 +44,7 @@ describe('resolveRecentEventSourceAccess', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.EVENTS_ENABLED
+    delete process.env.HOUSEHOLD_CHORES_ENABLED
     mockFrom.mockReturnValue({
       select: () => ({
         eq: () => ({
@@ -62,7 +65,8 @@ describe('resolveRecentEventSourceAccess', () => {
         loansEnabled: false,
         expensesEnabled: true,
         eventInvitationsEnabled: false,
-        sources: ['expenses'],
+        householdChoresInboxEnabled: true,
+        sources: ['expenses', 'heimilisverkin'],
       })
   })
 
@@ -77,17 +81,19 @@ describe('resolveRecentEventSourceAccess', () => {
         loansEnabled: true,
         expensesEnabled: false,
         eventInvitationsEnabled: false,
-        sources: ['loans'],
+        householdChoresInboxEnabled: true,
+        sources: ['loans', 'heimilisverkin'],
       })
   })
 
-  it('fails closed before feature checks when the session has no email', async () => {
+  it('keeps only the exact-user Household consent source when the session has no email', async () => {
     await expect(resolveRecentEventSourceAccess({ id: 'user-uuid', email: undefined }))
       .resolves.toEqual({
         loansEnabled: false,
         expensesEnabled: false,
         eventInvitationsEnabled: false,
-        sources: [],
+        householdChoresInboxEnabled: true,
+        sources: ['heimilisverkin'],
       })
     expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
   })
@@ -100,7 +106,8 @@ describe('resolveRecentEventSourceAccess', () => {
         loansEnabled: false,
         expensesEnabled: false,
         eventInvitationsEnabled: true,
-        sources: ['events'],
+        householdChoresInboxEnabled: true,
+        sources: ['events', 'heimilisverkin'],
       })
   })
 
@@ -121,8 +128,27 @@ describe('resolveRecentEventSourceAccess', () => {
         loansEnabled: false,
         expensesEnabled: true,
         eventInvitationsEnabled: false,
-        sources: ['expenses'],
+        householdChoresInboxEnabled: true,
+        sources: ['expenses', 'heimilisverkin'],
       })
+  })
+
+  it('authorizes the Household inbox independently from its rollout flag and entitlement', async () => {
+    process.env.HOUSEHOLD_CHORES_ENABLED = 'false'
+    mockCheckFeatureAccess.mockResolvedValue(false)
+
+    const access = await resolveRecentEventSourceAccess({
+      id: 'user-uuid',
+      email: 'user@test.com',
+    })
+
+    expect(access.householdChoresInboxEnabled).toBe(true)
+    expect(access.sources).toContain('heimilisverkin')
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalledWith(
+      'user-uuid',
+      'user@test.com',
+      'heimilisverkin',
+    )
   })
 })
 
@@ -202,6 +228,64 @@ describe('syncEventAttendanceInvitationEvents', () => {
     })
     expect(consoleWarn).toHaveBeenCalledWith(
       '[recent-events] event invitation sync unavailable',
+    )
+    expect(JSON.stringify(consoleWarn.mock.calls)).not.toContain('private@example.is')
+    consoleWarn.mockRestore()
+  })
+})
+
+describe('syncHouseholdChoreRecentEvents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('calls only the exact own-user sync RPC and accepts its strict success envelope', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        ok: true,
+        code: 'recent_synced',
+        data: { inserted: 1, updated: 2, removed: 3 },
+      },
+      error: null,
+    })
+
+    await expect(syncHouseholdChoreRecentEvents(ACTOR_ID)).resolves.toBe(true)
+    expect(mockRpc).toHaveBeenCalledWith('household_chore_sync_recent', {
+      p_actor_id: ACTOR_ID,
+    })
+  })
+
+  it('rejects malformed actors before RPC and rejects non-exact or unbounded success data', async () => {
+    await expect(syncHouseholdChoreRecentEvents('not-a-uuid')).resolves.toBe(false)
+    expect(mockRpc).not.toHaveBeenCalled()
+
+    for (const data of [
+      { ok: true, code: 'recent_synced', data: { inserted: 0, updated: 0, removed: 0 }, extra: true },
+      { ok: true, code: 'recent_synced', data: { inserted: 0, updated: 0 } },
+      { ok: true, code: 'recent_synced', data: { inserted: 101, updated: 0, removed: 0 } },
+      { ok: true, code: 'recent_synced', data: { inserted: 0.5, updated: 0, removed: 0 } },
+    ]) {
+      mockRpc.mockResolvedValueOnce({ data, error: null })
+      await expect(syncHouseholdChoreRecentEvents(ACTOR_ID)).resolves.toBe(false)
+    }
+  })
+
+  it('fails quietly while SQL142 is unavailable and never logs provider details', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'PGRST202', message: 'private@example.is' },
+    })
+    await expect(syncHouseholdChoreRecentEvents(ACTOR_ID)).resolves.toBe(false)
+    expect(consoleWarn).not.toHaveBeenCalled()
+
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'XX000', message: 'private@example.is' },
+    })
+    await expect(syncHouseholdChoreRecentEvents(ACTOR_ID)).resolves.toBe(false)
+    expect(consoleWarn).toHaveBeenCalledWith(
+      '[recent-events] household chores sync unavailable',
     )
     expect(JSON.stringify(consoleWarn.mock.calls)).not.toContain('private@example.is')
     consoleWarn.mockRestore()

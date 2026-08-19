@@ -8,6 +8,13 @@ const SOURCE_BY_FEATURE: Partial<Record<TeskeidLauncherId, RecentEventSource>> =
   'lanad-og-skilad': 'loans',
   'utlagt-og-endurgreitt': 'expenses',
   'afmaeli-og-vidburdir': 'events',
+  'heimilisverkin': 'heimilisverkin',
+}
+
+export function recentEventSourceForLauncherFeature(
+  featureId: TeskeidLauncherId,
+): RecentEventSource | null {
+  return SOURCE_BY_FEATURE[featureId] ?? null
 }
 
 export function mapUnreadCountsToLauncher(

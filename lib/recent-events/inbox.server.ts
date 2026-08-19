@@ -4,6 +4,7 @@ import { getLocale, getTranslations } from 'next-intl/server'
 import type { User } from '@supabase/supabase-js'
 import type { LoanItem } from '@/lib/loans/types'
 import { getAdmin } from '@/lib/supabase/admin'
+import { syncHouseholdChoreRecentEvents } from '@/lib/household-chores/recent.server'
 import {
   expenseActivityIdFromEventKey,
   resolveExpenseRecentEventTargets,
@@ -64,8 +65,10 @@ export async function loadRecentEventInbox(
   try {
     if (sources.includes('loans')) {
       if (options.knownLoans === undefined) {
-        const loansResult = await getAdmin().rpc('get_my_loans', { p_actor_id: user.id })
-        if (!loansResult.error) loans = (loansResult.data ?? []) as LoanItem[]
+        const loansResult = await Promise.resolve(
+          getAdmin().rpc('get_my_loans', { p_actor_id: user.id }),
+        ).catch(() => null)
+        if (loansResult && !loansResult.error) loans = (loansResult.data ?? []) as LoanItem[]
       }
       await Promise.allSettled(
         loans
@@ -93,6 +96,9 @@ export async function loadRecentEventInbox(
       ? await syncEventAttendanceInvitationEvents(user.id)
       : { ok: true, invitationIds: new Set<string>() }
     if (sources.includes('expenses')) await syncExpenseMemberInvitationEvents(user.id)
+    const householdChoresSyncOk = sources.includes('heimilisverkin')
+      ? await syncHouseholdChoreRecentEvents(user.id)
+      : true
 
     const rawRows = await getUnreadRecentEventsForUser(user.id, sources)
     const parsedRows = rawRows.flatMap((row) => {
@@ -104,6 +110,7 @@ export async function loadRecentEventInbox(
         && eventInvitationSync.ok
         && !eventInvitationSync.invitationIds.has(parsed.entity_id)
       ) return []
+      if (parsed?.source === 'heimilisverkin' && !householdChoresSyncOk) return []
       return parsed ? [parsed] : []
     })
     const unreadBySource = parsedRows.reduce<Partial<Record<RecentEventSource, number>>>(
@@ -120,6 +127,74 @@ export async function loadRecentEventInbox(
       t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])
 
     const rows: RecentEventDisplay[] = parsedRows.map((event) => {
+      if (event.source === 'heimilisverkin') {
+        const detailLines = [t('eventHouseholdReference', {
+          reference: event.payload.displayReference,
+        })]
+        if (event.event_type === 'household_chore_invitation_received') {
+          if (event.payload.inviterLabel) {
+            detailLines.push(t('eventHouseholdInvitationFrom', {
+              name: event.payload.inviterLabel,
+            }))
+          }
+          detailLines.push(t(event.payload.requestedType === 'member'
+            ? 'eventHouseholdInvitationAsMember'
+            : 'eventHouseholdInvitationAsChild'))
+          return {
+            id: event.id,
+            source: event.source,
+            label: t('eventHouseholdInvitationReceived', {
+              circleName: event.payload.circleName,
+            }),
+            href: event.href,
+            viewHref: event.href,
+            isDeleted: false,
+            detailLines,
+            occurredAtLabel: formatEventTimestamp(
+              event.occurred_at,
+              (key) => tLoans(key as Parameters<typeof tLoans>[0]),
+            ),
+          }
+        }
+        if (event.payload.actorLabel) {
+          detailLines.push(t('eventHouseholdChangedBy', { name: event.payload.actorLabel }))
+        }
+        if (event.event_type === 'household_chore_membership_type_changed') {
+          detailLines.push(t(event.payload.membershipType === 'member'
+            ? 'eventHouseholdMembershipNowMember'
+            : 'eventHouseholdMembershipNowChild'))
+          return {
+            id: event.id,
+            source: event.source,
+            label: t('eventHouseholdMembershipTypeChanged', {
+              circleName: event.payload.circleName,
+            }),
+            href: event.href,
+            viewHref: event.href,
+            isDeleted: false,
+            detailLines,
+            occurredAtLabel: formatEventTimestamp(
+              event.occurred_at,
+              (key) => tLoans(key as Parameters<typeof tLoans>[0]),
+            ),
+          }
+        }
+        return {
+          id: event.id,
+          source: event.source,
+          label: t('eventHouseholdMembershipRemoved', {
+            circleName: event.payload.circleName,
+          }),
+          href: event.href,
+          viewHref: event.href,
+          isDeleted: false,
+          detailLines,
+          occurredAtLabel: formatEventTimestamp(
+            event.occurred_at,
+            (key) => tLoans(key as Parameters<typeof tLoans>[0]),
+          ),
+        }
+      }
       if (event.source === 'events') {
         const invitation = event as EventRecentEventRow
         return {

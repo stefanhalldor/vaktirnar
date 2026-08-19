@@ -74,8 +74,8 @@ describe('recent event source scoping', () => {
   })
 
   it('filters ID acknowledgement by both owned IDs and enabled sources', async () => {
-    await ackRecentEventsForUser('user-uuid', [1, 2], ['loans'])
+    await ackRecentEventsForUser('user-uuid', [1, 2], ['heimilisverkin'])
     expect(mockUpdateIn).toHaveBeenNthCalledWith(1, 'id', [1, 2])
-    expect(mockUpdateIn).toHaveBeenNthCalledWith(2, 'source', ['loans'])
+    expect(mockUpdateIn).toHaveBeenNthCalledWith(2, 'source', ['heimilisverkin'])
   })
 })

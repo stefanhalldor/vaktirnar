@@ -1,3 +1,12 @@
+import {
+  HOUSEHOLD_CHORES_LEGACY_PATH,
+  TASKS_PATH,
+} from '@/lib/household-chores/contracts'
+import {
+  HOUSEHOLD_CHORES_LEGACY_IDEA_SLUG,
+  TASKS_IDEA_SLUG,
+} from '@/lib/household-chores/idea-presentation'
+
 export const TESKEID_LAUNCHER_IDS = [
   'lanad-og-skilad',
   'utlagt-og-endurgreitt',
@@ -8,6 +17,7 @@ export const TESKEID_LAUNCHER_IDS = [
   'kviss',
   'auglysandi',
   'bokanir',
+  'heimilisverkin',
 ] as const
 
 export type TeskeidLauncherId = typeof TESKEID_LAUNCHER_IDS[number]
@@ -21,6 +31,7 @@ export type TeskeidLauncherIcon =
   | 'trophy'
   | 'megaphone'
   | 'calendar'
+  | 'list-checks'
 
 export interface TeskeidLauncherCatalogItem {
   id: TeskeidLauncherId
@@ -124,6 +135,16 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     titleKey: 'bookingsCardTitle',
     descriptionKey: 'bookingsCardDescription',
   },
+  {
+    id: 'heimilisverkin',
+    href: TASKS_PATH,
+    activePrefixes: [TASKS_PATH, HOUSEHOLD_CHORES_LEGACY_PATH],
+    fallbackRank: 9,
+    icon: 'list-checks',
+    navKey: 'householdChores',
+    titleKey: 'householdChoresCardTitle',
+    descriptionKey: 'householdChoresCardDescription',
+  },
 ] as const
 
 const CATALOG_BY_ID = new Map(TESKEID_LAUNCHER_CATALOG.map((item) => [item.id, item]))
@@ -149,11 +170,29 @@ const PUBLIC_AUTH_MVP_WEATHER_PATHS = new Set([
   '/auth-mvp/vedrid/road-map-prototype',
 ])
 
+const HOUSEHOLD_CHORES_NON_USAGE_PREFIXES = [
+  `${TASKS_PATH}/adild`,
+  `${TASKS_PATH}/bod`,
+  `${HOUSEHOLD_CHORES_LEGACY_PATH}/adild`,
+  `${HOUSEHOLD_CHORES_LEGACY_PATH}/bod`,
+] as const
+
+/** Maps the preserved public idea slug onto the canonical launcher identity. */
+export function teskeidLauncherIdFromIdeaSlug(slug: string): TeskeidLauncherId | null {
+  if (slug === HOUSEHOLD_CHORES_LEGACY_IDEA_SLUG || slug === TASKS_IDEA_SLUG) {
+    return 'heimilisverkin'
+  }
+  return isTeskeidLauncherId(slug) ? slug : null
+}
+
 /** Path mapping for authenticated MRU writes, excluding public exceptions. */
 export function trackedTeskeidLauncherIdFromPathname(pathname: string): TeskeidLauncherId | null {
   const normalizedPathname = pathname.length > 1 && pathname.endsWith('/')
     ? pathname.slice(0, -1)
     : pathname
   if (PUBLIC_AUTH_MVP_WEATHER_PATHS.has(normalizedPathname)) return null
+  if (HOUSEHOLD_CHORES_NON_USAGE_PREFIXES.some((prefix) => (
+    normalizedPathname === prefix || normalizedPathname.startsWith(`${prefix}/`)
+  ))) return null
   return teskeidLauncherIdFromPathname(normalizedPathname)
 }

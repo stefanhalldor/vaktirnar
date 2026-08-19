@@ -7,6 +7,7 @@ import { PersonalizedIdeaGrid } from '@/components/teskeid/PersonalizedIdeaGrid'
 import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherEnabledMode.server'
+import { presentHouseholdChoresIdea } from '@/lib/household-chores/idea-presentation'
 
 function publicReadyCardHref(slug: string): string {
   if (slug === 'vedrid') {
@@ -32,7 +33,15 @@ export default async function Home() {
       .order('votes_count', { ascending: false }),
   ])
 
-  const allIdeas = ideas ?? []
+  const householdChoresCopy = {
+    title: t('ideas.householdChores.title'),
+    shortDescription: t('ideas.householdChores.shortDescription'),
+    problemDescription: t('ideas.householdChores.problemDescription'),
+    possibleSolution: t('ideas.householdChores.possibleSolution'),
+  }
+  const allIdeas = (ideas ?? []).map((idea) => (
+    presentHouseholdChoresIdea(idea, householdChoresCopy)
+  ))
   const launchedIdeas = allIdeas.filter((idea) => idea.status === 'launched')
   const futureIdeas = allIdeas.filter((idea) => idea.status !== 'launched')
 

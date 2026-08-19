@@ -1510,3 +1510,40 @@ describe('checkFeatureAccess — bokhaldid (always private beta)', () => {
     expect(await checkFeatureAccess('uid', 'user@example.com', 'bokhaldid')).toBe(false)
   })
 })
+
+describe('checkFeatureAccess — heimilisverkin (strict closed beta)', () => {
+  let savedHouseholdChoresEnabled: string | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    savedHouseholdChoresEnabled = process.env.HOUSEHOLD_CHORES_ENABLED
+  })
+
+  afterEach(() => {
+    setEnv('HOUSEHOLD_CHORES_ENABLED', savedHouseholdChoresEnabled)
+  })
+
+  it.each([undefined, 'false', 'TRUE', '1'])(
+    'fails before the entitlement lookup when HOUSEHOLD_CHORES_ENABLED=%s',
+    async (value) => {
+      setEnv('HOUSEHOLD_CHORES_ENABLED', value)
+      expect(await checkFeatureAccess('uid', 'user@example.com', 'heimilisverkin')).toBe(false)
+      expect(mockFeatureAccessQuery).not.toHaveBeenCalled()
+    },
+  )
+
+  it('requires the exact Household Chores entitlement while globally enabled', async () => {
+    process.env.HOUSEHOLD_CHORES_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'heimilisverkin')).toBe(false)
+
+    mockFeatureAccessQuery.mockResolvedValue({ data: { email: 'user@example.com' }, error: null })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'heimilisverkin')).toBe(true)
+  })
+
+  it('fails closed on entitlement lookup errors', async () => {
+    process.env.HOUSEHOLD_CHORES_ENABLED = 'true'
+    mockFeatureAccessQuery.mockResolvedValue({ data: null, error: { message: 'db down' } })
+    expect(await checkFeatureAccess('uid', 'user@example.com', 'heimilisverkin')).toBe(false)
+  })
+})

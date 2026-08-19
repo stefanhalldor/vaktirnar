@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation'
+import { notFound, permanentRedirect } from 'next/navigation'
 import type { Metadata } from 'next'
 import { getTranslations } from 'next-intl/server'
 import { createClient } from '@/lib/supabase/server'
@@ -11,6 +11,13 @@ import { OtherIdeasSection } from '@/components/teskeid/OtherIdeasSection'
 import Link from 'next/link'
 import { ExternalLink } from 'lucide-react'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherEnabledMode.server'
+import {
+  HOUSEHOLD_CHORES_LEGACY_IDEA_SLUG,
+  TASKS_IDEA_SLUG,
+  isTasksIdeaSlug,
+  presentHouseholdChoresIdea,
+  resolveTasksIdeaDatabaseSlug,
+} from '@/lib/household-chores/idea-presentation'
 
 export async function generateMetadata({
   params,
@@ -18,29 +25,36 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>
 }): Promise<Metadata> {
   const { slug } = await params
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('ideas')
-    .select('title, short_description')
-    .eq('slug', slug)
-    .eq('is_public', true)
-    .single()
+  const databaseSlug = resolveTasksIdeaDatabaseSlug(slug)
+  const [supabase, t] = await Promise.all([
+    createClient(),
+    getTranslations('teskeid.ideas'),
+  ])
+  const { data } = await supabase.from('ideas').select('*')
+    .eq('slug', databaseSlug).eq('is_public', true).single()
 
   if (!data) return {}
 
+  const presented = presentHouseholdChoresIdea(data, {
+    title: t('householdChores.title'),
+    shortDescription: t('householdChores.shortDescription'),
+    problemDescription: t('householdChores.problemDescription'),
+    possibleSolution: t('householdChores.possibleSolution'),
+  })
+
   return {
-    title: `${data.title} | Teskeið`,
-    description: data.short_description,
+    title: `${presented.title} | Teskeið`,
+    description: presented.short_description,
     openGraph: {
-      title: `${data.title} | Teskeið`,
-      description: data.short_description,
+      title: `${presented.title} | Teskeið`,
+      description: presented.short_description,
       siteName: 'Teskeið',
-      url: `https://teskeid.is/hugmyndir/${slug}`,
+      url: `https://teskeid.is/hugmyndir/${presented.slug}`,
     },
     twitter: {
       card: 'summary_large_image',
-      title: `${data.title} | Teskeið`,
-      description: data.short_description,
+      title: `${presented.title} | Teskeið`,
+      description: presented.short_description,
     },
   }
 }
@@ -51,6 +65,10 @@ export default async function IdeaPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
+  if (slug === HOUSEHOLD_CHORES_LEGACY_IDEA_SLUG) {
+    permanentRedirect(`/hugmyndir/${TASKS_IDEA_SLUG}`)
+  }
+  const databaseSlug = resolveTasksIdeaDatabaseSlug(slug)
   const t = await getTranslations('teskeid')
 
   const supabase = await createClient()
@@ -59,30 +77,40 @@ export default async function IdeaPage({
     supabase
       .from('ideas')
       .select('*')
-      .eq('slug', slug)
+      .eq('slug', databaseSlug)
       .eq('is_public', true)
       .single(),
     supabase
       .from('ideas')
       .select('*')
       .eq('is_public', true)
-      .neq('slug', slug)
+      .neq('slug', databaseSlug)
       .order('votes_count', { ascending: false })
       .order('created_at', { ascending: false }),
     supabase.auth.getUser(),
   ])
 
   if (!idea) notFound()
+  const copy = {
+    title: t('ideas.householdChores.title'),
+    shortDescription: t('ideas.householdChores.shortDescription'),
+    problemDescription: t('ideas.householdChores.problemDescription'),
+    possibleSolution: t('ideas.householdChores.possibleSolution'),
+  }
+  const presentedIdea = presentHouseholdChoresIdea(idea, copy)
+  const presentedOtherIdeas = (allIdeas ?? []).map((otherIdea) => (
+    presentHouseholdChoresIdea(otherIdea, copy)
+  ))
 
-  const showFreeAccessCta = idea.status === 'launched' && !user
-  const launchedCtaHref = idea.slug === 'vedrid'
+  const showFreeAccessCta = presentedIdea.status === 'launched' && !user
+  const launchedCtaHref = presentedIdea.slug === 'vedrid'
     ? (getWeatherEnabledMode() === 'all' ? '/vedrid' : '/innskraning')
     : idea.slug === 'umonnun' ? '/umonnun'
     : '/innskraning'
 
   return (
     <main className="min-h-screen bg-[#FAFAFA]">
-      <PageViewTracker ideaId={idea.id} />
+      <PageViewTracker ideaId={presentedIdea.id} />
       <PublicTopNav />
 
       <article className="max-w-2xl mx-auto px-6 pt-10 pb-12">
@@ -91,13 +119,17 @@ export default async function IdeaPage({
         </Link>
 
         <div className="flex items-start justify-between gap-4 mb-2">
-          <h1 className="text-2xl font-semibold text-gray-900">{idea.title}</h1>
-          <StatusBadge status={idea.status} />
+          <h1 className="text-2xl font-semibold text-gray-900">{presentedIdea.title}</h1>
+          <StatusBadge status={presentedIdea.status} />
         </div>
 
-        <p className="text-xs text-gray-400 uppercase tracking-wide mb-6">{idea.category}</p>
+        <p className="text-xs text-gray-400 uppercase tracking-wide mb-6">
+          {isTasksIdeaSlug(presentedIdea.slug)
+            ? t('ideas.householdChores.category')
+            : presentedIdea.category}
+        </p>
 
-        <p className="text-sm text-gray-600 leading-relaxed mb-6">{idea.short_description}</p>
+        <p className="text-sm text-gray-600 leading-relaxed mb-6">{presentedIdea.short_description}</p>
 
         {showFreeAccessCta && (
           <div className="mb-8">
@@ -110,25 +142,25 @@ export default async function IdeaPage({
           </div>
         )}
 
-        {idea.problem_description && (
+        {presentedIdea.problem_description && (
           <section className="mb-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-2">
-              {idea.status === 'launched' ? t('ideas.launchedWhy') : t('ideas.problem')}
+              {presentedIdea.status === 'launched' ? t('ideas.launchedWhy') : t('ideas.problem')}
             </h2>
-            <p className="text-sm text-gray-600 leading-relaxed">{idea.problem_description}</p>
+            <p className="text-sm text-gray-600 leading-relaxed">{presentedIdea.problem_description}</p>
           </section>
         )}
 
-        {idea.possible_solution && (
+        {presentedIdea.possible_solution && (
           <section className="mb-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-2">
-              {idea.status === 'launched' ? t('ideas.launchedSolution') : t('ideas.solution')}
+              {presentedIdea.status === 'launched' ? t('ideas.launchedSolution') : t('ideas.solution')}
             </h2>
-            <p className="text-sm text-gray-600 leading-relaxed">{idea.possible_solution}</p>
+            <p className="text-sm text-gray-600 leading-relaxed">{presentedIdea.possible_solution}</p>
           </section>
         )}
 
-        {idea.slug === 'umonnun' && (
+        {presentedIdea.slug === 'umonnun' && (
           <div className="mb-8">
             <a
               href="https://umonnun.is"
@@ -142,7 +174,7 @@ export default async function IdeaPage({
           </div>
         )}
 
-        {idea.slug === 'sagan-okkar' && (
+        {presentedIdea.slug === 'sagan-okkar' && (
           <div className="mb-8">
             <a
               href="https://saganokkar.is"
@@ -157,10 +189,10 @@ export default async function IdeaPage({
         )}
 
         <div className="border-t border-gray-100 pt-6">
-          <VoteButton ideaId={idea.id} initialCount={idea.votes_count} />
+          <VoteButton ideaId={presentedIdea.id} initialCount={presentedIdea.votes_count} />
         </div>
 
-        <OtherIdeasSection ideas={allIdeas ?? []} currentSlug={slug} />
+        <OtherIdeasSection ideas={presentedOtherIdeas} currentSlug={presentedIdea.slug} />
       </article>
 
       <Footer tagline={t('footer.tagline')} copyright={t('footer.copyright')} />

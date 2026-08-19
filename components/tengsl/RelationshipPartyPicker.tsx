@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Plus, X } from 'lucide-react'
 import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
@@ -54,6 +54,17 @@ export type RelationshipPartyPickerOptionsSource = RelationshipPartyPickerSource
   filterLabel: string
   allFilterLabel: string
   noResultsLabel: string
+  pagination?: {
+    pageKey?: string | number
+    hasPrevious: boolean
+    hasNext: boolean
+    pending: boolean
+    previousLabel: string
+    nextLabel: string
+    loadingLabel: string
+    onPrevious: () => void
+    onNext: () => void
+  }
   onSelectOption: (id: string) => boolean | RelationshipPartyPickerSelectionResult
   onSelectCircle?: (id: string) => boolean | RelationshipPartyPickerSelectionResult
 }
@@ -127,6 +138,9 @@ export function RelationshipPartyPicker({
   onSelectCircle,
   sources,
   initialSourceId,
+  helperText,
+  triggerRef,
+  onSelectionClosed,
 }: {
   options?: RelationshipPartyPickerOption[]
   excludedOptionIds?: string[]
@@ -145,8 +159,15 @@ export function RelationshipPartyPicker({
   /** Domain-neutral source configuration. Legacy known/manual props remain supported. */
   sources?: RelationshipPartyPickerSource[]
   initialSourceId?: string
+  /** Optional adapter-provided context shown for every configured source. */
+  helperText?: ReactNode
+  /** Allows a following domain sheet to restore focus to the picker trigger. */
+  triggerRef?: Ref<HTMLButtonElement>
+  /** Runs from Radix's close boundary after an accepted selection closes the picker. */
+  onSelectionClosed?: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const selectionClosePendingRef = useRef(false)
   const legacyHasKnownSources = options.length > 0 || circles.length > 0
   const configuredSources: RelationshipPartyPickerSource[] = sources ?? [
     {
@@ -200,8 +221,7 @@ export function RelationshipPartyPicker({
     || (sources === undefined && optionsError)
   const visibleOptionsErrorLabel = activeOptionsSource?.loadErrorLabel ?? copy.loadErrorLabel
   const activeOptions = activeOptionsSource?.options ?? []
-  const activeExcludedIds = activeOptionsSource?.excludedOptionIds ?? []
-  const excluded = useMemo(() => new Set(activeExcludedIds), [activeExcludedIds])
+  const excluded = new Set(activeOptionsSource?.excludedOptionIds ?? [])
   const availableOptions = activeOptions.filter((option) => !excluded.has(option.id))
   const labels = Array.from(new Map(
     availableOptions
@@ -220,6 +240,12 @@ export function RelationshipPartyPicker({
     ].some((value) => value.toLocaleLowerCase('is').includes(normalizedSearch)))
   ))
 
+  useEffect(() => {
+    setSearch('')
+    setLabelId(null)
+    setError(null)
+  }, [activeOptionsSource?.pagination?.pageKey])
+
   function reset() {
     setSearch('')
     setLabelId(null)
@@ -235,6 +261,7 @@ export function RelationshipPartyPicker({
     }
     setError(null)
     if (normalized.behavior === 'stay-open') return
+    selectionClosePendingRef.current = true
     reset()
     setOpen(false)
   }
@@ -253,19 +280,29 @@ export function RelationshipPartyPicker({
 
   return (
     <Dialog.Root open={open} onOpenChange={(next) => {
+      if (!next && open) selectionClosePendingRef.current = false
       setOpen(next)
       if (next) setSourceId(requestedInitialSourceId)
       else reset()
     }}>
       <Dialog.Trigger asChild>
-        <TeskeidActionButton type="button" variant="secondary" className="w-full" disabled={disabled}>
+        <TeskeidActionButton ref={triggerRef} type="button" variant="secondary" className="w-full" disabled={disabled}>
           <Plus aria-hidden size={18} />
           {copy.triggerLabel}
         </TeskeidActionButton>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-background p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(32rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+        <Dialog.Content
+          className="fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-background p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(32rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5"
+          onCloseAutoFocus={(event) => {
+            if (!selectionClosePendingRef.current) return
+            selectionClosePendingRef.current = false
+            if (!onSelectionClosed) return
+            event.preventDefault()
+            onSelectionClosed()
+          }}
+        >
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <Dialog.Title className="text-lg font-semibold">
@@ -281,6 +318,12 @@ export function RelationshipPartyPicker({
               </button>
             </Dialog.Close>
           </div>
+
+          {helperText ? (
+            <div className="mt-4 rounded-xl bg-muted p-3 text-sm leading-6 text-muted-foreground">
+              {helperText}
+            </div>
+          ) : null}
 
           {configuredSources.length > 1 ? (
             <div
@@ -344,6 +387,33 @@ export function RelationshipPartyPicker({
                 ))}
                 {filteredOptions.length === 0 ? <p className="py-4 text-sm text-muted-foreground">{activeOptionsSource.noResultsLabel}</p> : null}
               </div>
+              {activeOptionsSource.pagination
+                && (activeOptionsSource.pagination.hasPrevious || activeOptionsSource.pagination.hasNext) ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      disabled={!activeOptionsSource.pagination.hasPrevious || activeOptionsSource.pagination.pending}
+                      aria-busy={activeOptionsSource.pagination.pending || undefined}
+                      onClick={activeOptionsSource.pagination.onPrevious}
+                    >
+                      {activeOptionsSource.pagination.pending
+                        ? activeOptionsSource.pagination.loadingLabel
+                        : activeOptionsSource.pagination.previousLabel}
+                    </button>
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      disabled={!activeOptionsSource.pagination.hasNext || activeOptionsSource.pagination.pending}
+                      aria-busy={activeOptionsSource.pagination.pending || undefined}
+                      onClick={activeOptionsSource.pagination.onNext}
+                    >
+                      {activeOptionsSource.pagination.pending
+                        ? activeOptionsSource.pagination.loadingLabel
+                        : activeOptionsSource.pagination.nextLabel}
+                    </button>
+                  </div>
+                ) : null}
             </div>
           ) : activeManualSource ? (
             <div className="mt-5 space-y-4">

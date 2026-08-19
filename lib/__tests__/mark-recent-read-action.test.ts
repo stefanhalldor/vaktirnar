@@ -201,6 +201,18 @@ describe('ackAllRecentEvents', () => {
     expect(mockAckAllHelper).toHaveBeenCalledWith('actor-uuid', ['expenses'])
   })
 
+  it('scopes Household acknowledgement to the signed-in user and that source only', async () => {
+    mockResolveSourceAccess.mockResolvedValueOnce({
+      loansEnabled: false,
+      expensesEnabled: false,
+      eventInvitationsEnabled: false,
+      householdChoresInboxEnabled: true,
+      sources: ['heimilisverkin'],
+    })
+    await ackAllRecentEvents('heimilisverkin')
+    expect(mockAckAllHelper).toHaveBeenCalledWith('actor-uuid', ['heimilisverkin'])
+  })
+
   it('rejects a tampered source instead of falling back to all sources', async () => {
     const result = await ackAllRecentEvents('weather' as never)
     expect(result).toEqual({ ok: false, error: 'invalid_input' })

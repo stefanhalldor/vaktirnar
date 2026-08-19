@@ -154,6 +154,47 @@ describe('middleware — Teskeið login alias redirects', () => {
   })
 })
 
+describe('middleware — Verkefnin legacy route compatibility', () => {
+  let savedAuthMvp: string | undefined
+
+  beforeEach(() => {
+    savedAuthMvp = process.env.AUTH_MVP_ENABLED
+    process.env.AUTH_MVP_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
+  })
+
+  afterEach(() => {
+    setEnv('AUTH_MVP_ENABLED', savedAuthMvp)
+  })
+
+  it.each([
+    ['/auth-mvp/heimilisverkin', '/auth-mvp/verkefnin'],
+    ['/auth-mvp/heimilisverkin/adild', '/auth-mvp/verkefnin/adild'],
+    ['/auth-mvp/heimilisverkin/bod/invitation-id', '/auth-mvp/verkefnin/bod/invitation-id'],
+    ['/auth-mvp/heimilisverkin/circle-id/heimili', '/auth-mvp/verkefnin/circle-id/heimili'],
+  ])('permanently canonicalizes %s without changing its suffix', async (source, target) => {
+    const response = await middleware(makeReq(source))
+    expect(response.status).toBe(308)
+    expect(redirectedTo(response)).toBe(target)
+  })
+
+  it('preserves the complete query string through the compatibility redirect', async () => {
+    const response = await middleware(makeReq(
+      '/auth-mvp/heimilisverkin/bod/invitation-id?next=%2Fauth-mvp%2Fheim&mode=review',
+    ))
+    const location = new URL(response.headers.get('location')!)
+    expect(response.status).toBe(308)
+    expect(location.pathname).toBe('/auth-mvp/verkefnin/bod/invitation-id')
+    expect(location.search).toBe('?next=%2Fauth-mvp%2Fheim&mode=review')
+  })
+
+  it('does not redirect a sibling prefix', async () => {
+    const response = await middleware(makeReq('/auth-mvp/heimilisverkin-extra'))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('location')).toBeNull()
+  })
+})
+
 // ── Feature flag takes priority over alias redirect ────────────────────────
 
 describe('middleware — feature flag takes priority over alias redirect', () => {
@@ -956,6 +997,15 @@ describe('middleware — independent events global switch and auth boundary', ()
     delete process.env.EVENTS_ENABLED
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
     expect((await middleware(makeReq('/auth-mvp/vidburdir-archive'))).status).toBe(200)
+  })
+
+  it('AUTH_MVP_ENABLED=false blocks a legacy Tasks URL before canonicalization', async () => {
+    process.env.AUTH_MVP_ENABLED = 'false'
+    const res = await middleware(makeReq('/auth-mvp/heimilisverkin/adild?mode=review'))
+    expect(res.status).toBe(307)
+    const location = new URL(res.headers.get('location')!)
+    expect(location.pathname).toBe('/')
+    expect(location.search).toBe('')
   })
 })
 

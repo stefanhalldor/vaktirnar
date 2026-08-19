@@ -88,24 +88,25 @@ describe('private launcher projection API', () => {
 
   it('returns only positive counts for visible Teskeiðar', async () => {
     mockResolveLauncher.mockResolvedValue({
-      featureIds: ['utlagt-og-endurgreitt', 'afmaeli-og-vidburdir'],
+      featureIds: ['utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'heimilisverkin'],
       usageAvailable: true,
       agentCollaborationAvailable: false,
     })
     mockLoadInbox.mockResolvedValue({
       ok: true,
-      sources: ['loans', 'expenses', 'events'],
+      sources: ['loans', 'expenses', 'events', 'heimilisverkin'],
       rows: [],
-      unreadBySource: { loans: 9, expenses: 3, events: 1 },
+      unreadBySource: { loans: 9, expenses: 3, events: 1, heimilisverkin: 2 },
     })
     const response = await getLauncher()
     expect(await response.json()).toEqual({
-      featureIds: ['utlagt-og-endurgreitt', 'afmaeli-og-vidburdir'],
+      featureIds: ['utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'heimilisverkin'],
       usageAvailable: true,
       agentCollaborationAvailable: false,
       unreadCounts: {
         'utlagt-og-endurgreitt': 3,
         'afmaeli-og-vidburdir': 1,
+        heimilisverkin: 2,
       },
     })
   })

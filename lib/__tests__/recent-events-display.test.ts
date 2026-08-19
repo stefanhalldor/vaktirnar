@@ -87,6 +87,108 @@ describe('recent event source parsing', () => {
     }))).toBeNull()
   })
 
+  it('accepts only the three exact Household Chores tuples and rebuilds trusted hrefs', () => {
+    const invitationId = '40000000-0000-4000-8000-000000000001'
+    const membershipEventId = '40000000-0000-4000-8000-000000000002'
+    const invitation = parseRecentEventRow(row({
+      source: 'heimilisverkin',
+      event_type: 'household_chore_invitation_received',
+      entity_type: 'household_chore_invitation',
+      entity_id: invitationId,
+      event_key: `household:invitation:${invitationId}`,
+      payload: {
+        circle_name: '  Heimilið okkar  ',
+        display_reference: 'ABC23456',
+        inviter_label: '  Anna  ',
+        requested_type: 'member',
+      },
+      href: 'https://evil.invalid/private@example.is',
+    }))
+    const typeChanged = parseRecentEventRow(row({
+      source: 'heimilisverkin',
+      event_type: 'household_chore_membership_type_changed',
+      entity_type: 'household_chore_membership_event',
+      entity_id: membershipEventId,
+      event_key: `household:membership:${membershipEventId}`,
+      payload: {
+        circle_name: 'Heimilið okkar',
+        display_reference: 'ABC23456',
+        actor_label: 'Anna',
+        membership_type: 'child',
+      },
+      href: '//evil.invalid',
+    }))
+    const removed = parseRecentEventRow(row({
+      source: 'heimilisverkin',
+      event_type: 'household_chore_membership_removed',
+      entity_type: 'household_chore_membership_event',
+      entity_id: membershipEventId,
+      event_key: `household:membership:${membershipEventId}`,
+      payload: {
+        circle_name: 'Heimilið okkar',
+        display_reference: 'ABC23456',
+      },
+      href: 'javascript:alert(1)',
+    }))
+
+    expect(invitation).toMatchObject({
+      source: 'heimilisverkin',
+      payload: {
+        circleName: 'Heimilið okkar',
+        displayReference: 'ABC23456',
+        inviterLabel: 'Anna',
+        requestedType: 'member',
+      },
+      href: `/auth-mvp/verkefnin/bod/${invitationId}`,
+    })
+    expect(typeChanged).toMatchObject({
+      payload: { membershipType: 'child' },
+      href: '/auth-mvp/verkefnin/adild',
+    })
+    expect(removed).toMatchObject({
+      event_type: 'household_chore_membership_removed',
+      href: '/auth-mvp/verkefnin/adild',
+    })
+    expect(JSON.stringify([invitation, typeChanged, removed])).not.toContain('@')
+  })
+
+  it.each([
+    {
+      event_type: 'household_chore_invitation_received',
+      entity_type: 'household_chore_invitation',
+      event_key: 'household:invitation:wrong',
+      payload: { circle_name: 'Hringur', display_reference: 'ABC23456', requested_type: 'member' },
+    },
+    {
+      event_type: 'household_chore_membership_type_changed',
+      entity_type: 'household_chore_invitation',
+      payload: { circle_name: 'Hringur', display_reference: 'ABC23456', membership_type: 'member' },
+    },
+    {
+      event_type: 'household_chore_membership_removed',
+      entity_type: 'household_chore_membership_event',
+      payload: { circle_name: 'Hringur', display_reference: 'ABC23456', membership_type: 'member' },
+    },
+    {
+      event_type: 'household_chore_membership_removed',
+      entity_type: 'household_chore_membership_event',
+      payload: { circle_name: 'private@example.is', display_reference: 'ABC23456' },
+    },
+    {
+      event_type: 'household_chore_membership_removed',
+      entity_type: 'household_chore_membership_event',
+      payload: { circle_name: 'Hringur', display_reference: 'not-safe' },
+    },
+  ])('rejects malformed or privacy-unsafe Household Chores rows %#', (candidate) => {
+    const entityId = '40000000-0000-4000-8000-000000000003'
+    expect(parseRecentEventRow(row({
+      source: 'heimilisverkin',
+      entity_id: entityId,
+      event_key: `household:membership:${entityId}`,
+      ...candidate,
+    }))).toBeNull()
+  })
+
   it('accepts private identity and dispute notifications without actor ids', () => {
     for (const eventType of ['expense_identity_bound', 'expense_claim_disputed'] as const) {
       const parsed = parseRecentEventRow(row({

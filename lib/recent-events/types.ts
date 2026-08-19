@@ -4,7 +4,7 @@ import type {
   ExpenseRecentEventType,
 } from '@/lib/expenses/events'
 
-export const RECENT_EVENT_SOURCES = ['loans', 'expenses', 'events'] as const
+export const RECENT_EVENT_SOURCES = ['loans', 'expenses', 'events', 'heimilisverkin'] as const
 export type RecentEventSource = (typeof RECENT_EVENT_SOURCES)[number]
 
 export type LoanRecentEventType =
@@ -22,7 +22,16 @@ export type LoanRecentEventType =
 
 export type EventRecentEventType = 'event_attendance_invitation_received'
 
-export type RecentEventType = LoanRecentEventType | ExpenseRecentEventType | EventRecentEventType
+export type HouseholdChoreRecentEventType =
+  | 'household_chore_invitation_received'
+  | 'household_chore_membership_type_changed'
+  | 'household_chore_membership_removed'
+
+export type RecentEventType =
+  | LoanRecentEventType
+  | ExpenseRecentEventType
+  | EventRecentEventType
+  | HouseholdChoreRecentEventType
 
 export type LoanFieldChangeType = 'changed' | 'added' | 'removed'
 
@@ -46,7 +55,40 @@ export interface EventRecentEventPayload {
   inviterDisplayName?: string
 }
 
-export type RecentEventPayload = LoanRecentEventPayload | ExpenseRecentEventPayload | EventRecentEventPayload
+export type HouseholdChoreMembershipType = 'member' | 'child'
+
+interface HouseholdChoreRecentEventPayloadBase {
+  circleName: string
+  displayReference: string
+}
+
+export interface HouseholdChoreInvitationRecentEventPayload
+  extends HouseholdChoreRecentEventPayloadBase {
+  inviterLabel?: string
+  requestedType: HouseholdChoreMembershipType
+}
+
+export interface HouseholdChoreMembershipTypeRecentEventPayload
+  extends HouseholdChoreRecentEventPayloadBase {
+  actorLabel?: string
+  membershipType: HouseholdChoreMembershipType
+}
+
+export interface HouseholdChoreMembershipRemovedRecentEventPayload
+  extends HouseholdChoreRecentEventPayloadBase {
+  actorLabel?: string
+}
+
+export type HouseholdChoreRecentEventPayload =
+  | HouseholdChoreInvitationRecentEventPayload
+  | HouseholdChoreMembershipTypeRecentEventPayload
+  | HouseholdChoreMembershipRemovedRecentEventPayload
+
+export type RecentEventPayload =
+  | LoanRecentEventPayload
+  | ExpenseRecentEventPayload
+  | EventRecentEventPayload
+  | HouseholdChoreRecentEventPayload
 
 /**
  * Raw service-role row. Text and JSON columns are deliberately left untrusted;
@@ -90,7 +132,40 @@ export interface EventRecentEventRow extends KnownRecentEventRowBase {
   payload: EventRecentEventPayload
 }
 
-export type KnownRecentEventRow = LoanRecentEventRow | ExpenseRecentEventRow | EventRecentEventRow
+export interface HouseholdChoreInvitationRecentEventRow extends KnownRecentEventRowBase {
+  source: 'heimilisverkin'
+  event_type: 'household_chore_invitation_received'
+  entity_type: 'household_chore_invitation'
+  entity_id: string
+  payload: HouseholdChoreInvitationRecentEventPayload
+}
+
+export interface HouseholdChoreMembershipTypeRecentEventRow extends KnownRecentEventRowBase {
+  source: 'heimilisverkin'
+  event_type: 'household_chore_membership_type_changed'
+  entity_type: 'household_chore_membership_event'
+  entity_id: string
+  payload: HouseholdChoreMembershipTypeRecentEventPayload
+}
+
+export interface HouseholdChoreMembershipRemovedRecentEventRow extends KnownRecentEventRowBase {
+  source: 'heimilisverkin'
+  event_type: 'household_chore_membership_removed'
+  entity_type: 'household_chore_membership_event'
+  entity_id: string
+  payload: HouseholdChoreMembershipRemovedRecentEventPayload
+}
+
+export type HouseholdChoreRecentEventRow =
+  | HouseholdChoreInvitationRecentEventRow
+  | HouseholdChoreMembershipTypeRecentEventRow
+  | HouseholdChoreMembershipRemovedRecentEventRow
+
+export type KnownRecentEventRow =
+  | LoanRecentEventRow
+  | ExpenseRecentEventRow
+  | EventRecentEventRow
+  | HouseholdChoreRecentEventRow
 
 // Pre-rendered for the client component — no raw payload or event internals
 export interface RecentEventDisplay {

@@ -74,6 +74,8 @@ vi.mock('next-intl/server', () => ({
         advertiserCardDescription: 'Búðu til auglýsingar fyrir Kviss og sendu þær í yfirferð.',
         bookingsCardTitle: 'Bókanir',
         bookingsCardDescription: 'Taktu við fyrirspurnum og svaraðu gestum á einum stað.',
+        householdChoresCardTitle: 'Verkefnin',
+        householdChoresCardDescription: 'Haltu utan um verkefni og stig.',
         homeIdeasDrawerOpen:  'Skoða hugmyndir',
         homeIdeasDrawerClose: 'Fela hugmyndir',
         loansTitle:           'Lánað og skilað',
@@ -93,6 +95,16 @@ vi.mock('next-intl/server', () => ({
         unreadBadgeLabel:     '{count, plural, one {# ólesið atriði} other {# ólesin atriði}}',
         eventAttendanceInvitationReceived: 'Boð í viðburð: {eventName}',
         eventAttendanceInvitationFrom: 'Boð frá {name}',
+        eventHouseholdInvitationReceived: 'Boð í Verkefnin: {circleName}',
+        eventHouseholdInvitationFrom: 'Boð frá {name}',
+        eventHouseholdInvitationAsMember: 'Boðið er sem fullum meðlimi.',
+        eventHouseholdInvitationAsChild: 'Boðið er sem barni.',
+        eventHouseholdMembershipTypeChanged: 'Aðild þinni breytt: {circleName}',
+        eventHouseholdMembershipNowMember: 'Þú ert nú fullur meðlimur.',
+        eventHouseholdMembershipNowChild: 'Þú ert nú barn í hringnum.',
+        eventHouseholdMembershipRemoved: 'Aðild þinni lauk: {circleName}',
+        eventHouseholdChangedBy: 'Breytt af {name}',
+        eventHouseholdReference: 'Auðkenni hrings: {reference}',
         eventLoanCreated:     'Búinn til: {itemName}',
         eventLoanUpdated:         'Breytt: {itemName}',
         eventLoanUpdatedName:     'Breytt nafn: {itemName}',
@@ -290,10 +302,15 @@ vi.mock('next/link', () => ({
     React.createElement('a', { href, ...props }, children),
 }))
 vi.mock('@/components/teskeid/TeskeidMenu', () => ({
-  TeskeidMenu: ({ variant, initialFeatureIds = [] }: { variant: string; initialFeatureIds?: string[] }) =>
+  TeskeidMenu: ({ variant, initialFeatureIds = [], initialUnreadCounts = {} }: {
+    variant: string
+    initialFeatureIds?: string[]
+    initialUnreadCounts?: Record<string, number>
+  }) =>
     React.createElement('div', {
       'data-testid': `teskeid-menu-${variant}`,
       'data-feature-order': initialFeatureIds.join(','),
+      'data-unread-counts': JSON.stringify(initialUnreadCounts),
     }),
 }))
 
@@ -303,7 +320,7 @@ import type { RecentEventRow } from '@/lib/recent-events/types'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
-const TEST_USER = { id: 'uid-1', email: 'user@example.com' }
+const TEST_USER = { id: '80000000-0000-4000-8000-000000000001', email: 'user@example.com' }
 
 function makeEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
   return {
@@ -323,6 +340,7 @@ function makeEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
 }
 
 const EXPENSE_ACTIVITY_ID = '10000000-0000-4000-8000-000000000001'
+const HOUSEHOLD_MEMBERSHIP_EVENT_ID = '60000000-0000-4000-8000-000000000001'
 
 function makeExpenseEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
   return makeEvent({
@@ -380,6 +398,12 @@ function makeIdea(overrides: Partial<Idea> = {}): Idea {
 const LAUNCHED_LOAN_IDEA    = makeIdea({ id: 'idea-loans',   slug: 'lanad-og-skilad', title: 'Lánað og skilað', status: 'launched' })
 const LAUNCHED_UMONNUN_IDEA = makeIdea({ id: 'idea-umonnun', slug: 'umonnun',          title: 'Umönnun',         status: 'launched' })
 const LAUNCHED_VEDRID_IDEA  = makeIdea({ id: 'idea-vedrid',  slug: 'vedrid',            title: 'Veðrið',          status: 'launched' })
+const LEGACY_HOUSEHOLD_IDEA = makeIdea({
+  id: 'idea-household-legacy',
+  slug: 'fyrsta-vakt-krakkanna',
+  title: 'Fyrsta vakt krakkanna',
+  status: 'building',
+})
 const PLANNED_EXPENSE_IDEA  = makeIdea({ id: 'idea-expenses', slug: 'utlagt-og-endurgreitt', title: 'Útlagt og endurgreitt', status: 'idea' })
 const BUILDING_BOOKKEEPING_IDEA = makeIdea({
   id: 'idea-bookkeeping',
@@ -402,6 +426,7 @@ function setupGuard(
   advertiserAccess = false,
   bookingsAccess = false,
   eventsAccess = false,
+  householdChoresAccess = false,
 ) {
   mockGuardTeskeidSession.mockResolvedValue({ user: TEST_USER })
   mockCheckFeatureAccess.mockImplementation(
@@ -415,6 +440,7 @@ function setupGuard(
       if (featureKey === 'auglysandi') return advertiserAccess
       if (featureKey === 'bokanir') return bookingsAccess
       if (featureKey === 'afmaeli-og-vidburdir') return eventsAccess
+      if (featureKey === 'heimilisverkin') return householdChoresAccess
       return false
     },
   )
@@ -432,6 +458,7 @@ function setupGuard(
     ['kviss', kvissAccess],
     ['auglysandi', advertiserAccess],
     ['bokanir', bookingsAccess],
+    ['heimilisverkin', householdChoresAccess],
   ] as const
   const meta: Record<string, { href: string; titleKey: string; descriptionKey: string }> = {
     'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', titleKey: 'loansCardTitle', descriptionKey: 'loansCardDescription' },
@@ -443,6 +470,7 @@ function setupGuard(
     kviss: { href: '/auth-mvp/kviss', titleKey: 'quizCardTitle', descriptionKey: 'quizCardDescription' },
     auglysandi: { href: '/auth-mvp/auglysandi', titleKey: 'advertiserCardTitle', descriptionKey: 'advertiserCardDescription' },
     bokanir: { href: '/auth-mvp/bokanir', titleKey: 'bookingsCardTitle', descriptionKey: 'bookingsCardDescription' },
+    heimilisverkin: { href: '/auth-mvp/verkefnin', titleKey: 'householdChoresCardTitle', descriptionKey: 'householdChoresCardDescription' },
   }
   const featureIds = enabled.flatMap(([id, visible]) => visible ? [id] : [])
   mockResolveTeskeidLauncher.mockImplementation(async (user: { id: string; email: string }) => {
@@ -460,6 +488,19 @@ function setupGuard(
       usageAvailable: true,
       agentCollaborationAvailable: false,
     }
+  })
+}
+
+function makeHouseholdEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
+  return makeEvent({
+    source: 'heimilisverkin',
+    event_type: 'household_chore_membership_removed',
+    entity_type: 'household_chore_membership_event',
+    entity_id: HOUSEHOLD_MEMBERSHIP_EVENT_ID,
+    event_key: `household:membership:${HOUSEHOLD_MEMBERSHIP_EVENT_ID}`,
+    payload: { circle_name: 'Heimilið okkar', display_reference: 'ABC23456' },
+    href: '/auth-mvp/heimilisverkin/adild',
+    ...overrides,
   })
 }
 
@@ -497,6 +538,16 @@ function setupRpcs(
     }
     if (fn === 'teskeid_event_list_my_pending_invitations') {
       return Promise.resolve({ data: { invitations: eventInvitations }, error: null })
+    }
+    if (fn === 'household_chore_sync_recent') {
+      return Promise.resolve({
+        data: {
+          ok: true,
+          code: 'recent_synced',
+          data: { inserted: 0, updated: 0, removed: 0 },
+        },
+        error: null,
+      })
     }
     return Promise.resolve({ data: null, error: { code: 'unknown' } })
   })
@@ -1543,7 +1594,7 @@ describe('HeimPage — source-aware expense integration', () => {
 
     expect(screen.getByText('Ólesið')).toBeDefined()
     expect(screen.getByText('Ný færsla: Kvöldmatur')).toBeDefined()
-    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['expenses'])
+    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['expenses', 'heimilisverkin'])
     expect(mockRpc).not.toHaveBeenCalledWith('get_my_loans', expect.anything())
   })
 
@@ -1582,7 +1633,7 @@ describe('HeimPage — source-aware expense integration', () => {
     const { container } = render(await HeimPage())
     const text = container.querySelector('[data-testid="recent-list"]')?.textContent ?? ''
     expect(text.indexOf('Ný færsla: Matur')).toBeLessThan(text.indexOf('Búinn til: Bók'))
-    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['loans', 'expenses'])
+    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['loans', 'expenses', 'heimilisverkin'])
   })
 
   it('drops disabled and unknown sources even if a malformed backend returns them', async () => {
@@ -1600,7 +1651,7 @@ describe('HeimPage — source-aware expense integration', () => {
     expect(screen.getByText('Búinn til: Bók')).toBeDefined()
     expect(screen.queryByText('Ný færsla: Kvöldmatur')).toBeNull()
     expect(screen.queryByText(/Óþekkt/)).toBeNull()
-    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['loans'])
+    expect(mockAdminSourceIn).toHaveBeenCalledWith('source', ['loans', 'heimilisverkin'])
   })
 
   it('renders a sanitized invitation event but only links an RPC-authorized target', async () => {
@@ -1805,6 +1856,30 @@ describe('HeimPage — owner-private Events card', () => {
     render(await HeimPage())
     expect(screen.queryByText('Afmæli og viðburðir')).toBeNull()
     expect(screen.queryByRole('link', { name: 'Opna Viðburðir' })).toBeNull()
+  })
+})
+
+describe('HeimPage — Household Chores launcher and recent feed', () => {
+  it('shows one localized launcher with its unread badge and suppresses the legacy idea alias', async () => {
+    mockIdeasResult.mockResolvedValue({ data: [LEGACY_HOUSEHOLD_IDEA], error: null })
+    setupGuard(false, false, false, false, false, false, false, false, false, true)
+    setupProfile(null)
+    setupRpcs([])
+    setupRecentEvents([makeHouseholdEvent()])
+
+    render(await HeimPage())
+
+    const householdCard = screen.getByRole('link', { name: 'Opna Verkefnin' })
+    expect(householdCard).toHaveAttribute('href', '/auth-mvp/verkefnin')
+    expect(householdCard.querySelector('svg')).toHaveClass('lucide-list-checks')
+    expect(householdCard).toContainElement(screen.getByLabelText('1 ólesið atriði'))
+    expect(screen.getByText('Aðild þinni lauk: Heimilið okkar')).toBeInTheDocument()
+    expect(screen.getByTestId('teskeid-menu-authenticated'))
+      .toHaveAttribute('data-unread-counts', JSON.stringify({ heimilisverkin: 1 }))
+
+    fireEvent.click(screen.getByRole('button', { name: /Hugmyndir sem verða líklega/ }))
+    expect(document.querySelector('a[href="/hugmyndir/fyrsta-vakt-krakkanna"]')).toBeNull()
+    expect(screen.queryByText('Fyrsta vakt krakkanna')).toBeNull()
   })
 })
 

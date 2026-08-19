@@ -6,7 +6,7 @@ import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
 
 // Graduated features such as Tengsl are deliberately absent: historical rows
 // may remain in storage, but this endpoint is no longer an authority for them.
-const ALLOWED_FEATURES = ['umonnun', 'facebook-oauth', 'vedrid', 'ferdalagid', 'elta-vedrid', 'weather-provider-vedurstofan', 'weather-pulse', 'weather-provider-vegagerdin', 'road-intelligence-v1', 'teskeid-routing-v1', 'agent-collaboration-private-beta', 'utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'bokhaldid', 'kviss', 'auglysandi', 'bokanir'] as const
+const ALLOWED_FEATURES = ['umonnun', 'facebook-oauth', 'vedrid', 'ferdalagid', 'elta-vedrid', 'weather-provider-vedurstofan', 'weather-pulse', 'weather-provider-vegagerdin', 'road-intelligence-v1', 'teskeid-routing-v1', 'agent-collaboration-private-beta', 'utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'bokhaldid', 'kviss', 'auglysandi', 'bokanir', 'heimilisverkin'] as const
 type FeatureKey = (typeof ALLOWED_FEATURES)[number]
 
 function resolveFeatureKey(request: NextRequest): FeatureKey | null {

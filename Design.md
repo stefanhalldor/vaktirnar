@@ -244,6 +244,20 @@ Staðan segir hvort component sé canonical fyrir nýja Teskeið-vinnu.
 | Loan tabs | `components/loans/LoanList.tsx` | Samþykkt mynstur | Aðskilin gagnasöfn eða stöður |
 | Loan card | `components/loans/LoanCard.tsx` | Samþykkt feature-mynstur | Einstakt lán |
 | Pending invitation | `components/loans/PendingInvitationCard.tsx` | Samþykkt feature-mynstur | Boð sem þarf athygli |
+| Relationship party picker | `components/tengsl/RelationshipPartyPicker.tsx` | Canonical | Val á aðila úr öruggum sources eða með handvirku gildi |
+| Multi-select pill filter | `components/teskeid/TeskeidMultiSelectPillFilter.tsx` | Canonical | Stýrður fjölvalsfilter fyrir einn eða fleiri aðila eða flokka; feature-ið á áfram að eiga merkingu AND/OR |
+
+### Canonical val á aðila
+
+`RelationshipPartyPicker` á dialog/sheet, source-val, leit og síur,
+handvirkt inntak, empty/error, valfrjálsa bounded pagination-framsetningu og
+mobile/focus/keyboard-hegðun. Thin feature-adapter leggur til þýddan texta,
+örugg option-gögn, cursor/fetch, capability-reglur og destination-mutation.
+
+Sameiginlegi pickerinn má hvorki flytja inn feature-lykla né ákveða entitlement
+eða aðgang. Val á aðila veitir ekki aðgang eitt og sér. Ef val heldur áfram í
+feature-specific staðfestingarsheet skal picker lokast fyrst með deterministic
+focus-boundary; sheet mega ekki skarast og ekki má nota timer sem focus-stýringu.
 
 Components sem vantar áður en heimaskjár TODO #1 verður útfærður:
 

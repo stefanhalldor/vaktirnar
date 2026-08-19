@@ -51,7 +51,7 @@ function openPicker(overrides: Partial<ComponentProps<typeof RelationshipPartyPi
   const onSelectOption = vi.fn(() => true)
   const onSelectManual = vi.fn(() => ({ accepted: true }))
   const onSelectCircle = vi.fn(() => true)
-  render(
+  const view = render(
     <RelationshipPartyPicker
       options={options}
       copy={copy}
@@ -64,7 +64,7 @@ function openPicker(overrides: Partial<ComponentProps<typeof RelationshipPartyPi
   )
   const trigger = screen.getByRole('button', { name: 'Bæta við aðila' })
   fireEvent.click(trigger)
-  return { onSelectOption, onSelectManual, onSelectCircle, trigger }
+  return { onSelectOption, onSelectManual, onSelectCircle, trigger, ...view }
 }
 
 describe('RelationshipPartyPicker', () => {
@@ -171,6 +171,104 @@ describe('RelationshipPartyPicker', () => {
     expect(screen.getByText('Enginn fannst')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Loka vali' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('renders optional adapter helper before sources and keeps it across source changes', () => {
+    const { rerender } = render(
+      <RelationshipPartyPicker
+        copy={{ ...copy, sourceLabel: 'Leið til að bæta við' }}
+        helperText="Aðeins gjaldgengir aðilar birtast hér."
+        sources={[
+          {
+            id: 'known',
+            label: 'Úr Tengslum',
+            type: 'options',
+            options: [],
+            searchLabel: 'Leita',
+            searchPlaceholder: 'Nafn',
+            filterLabel: 'Sía',
+            allFilterLabel: 'Allir',
+            noResultsLabel: 'Enginn fannst',
+            onSelectOption: () => true,
+          },
+          {
+            id: 'manual',
+            label: 'Skrá nafn',
+            type: 'manual',
+            inputLabel: 'Nafn',
+            inputPlaceholder: 'Nafn',
+            hint: 'Enginn aðgangur.',
+            submitLabel: 'Halda áfram',
+            onSelect: () => ({ accepted: true }),
+          },
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við aðila' }))
+    const helper = screen.getByText('Aðeins gjaldgengir aðilar birtast hér.')
+    const source = screen.getByRole('button', { name: 'Úr Tengslum' })
+    expect(helper.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Skrá nafn' }))
+    expect(helper).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Loka vali' }))
+    rerender(<RelationshipPartyPicker copy={copy} options={options} onSelectOption={() => true} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við aðila' }))
+    expect(screen.queryByText('Aðeins gjaldgengir aðilar birtast hér.')).not.toBeInTheDocument()
+  })
+
+  it('presents optional bounded pagination and blocks duplicate navigation while pending', () => {
+    const onNext = vi.fn()
+    const onPrevious = vi.fn()
+    render(
+      <RelationshipPartyPicker
+        copy={copy}
+        sources={[{
+          id: 'known',
+          label: 'Úr Tengslum',
+          type: 'options',
+          options,
+          searchLabel: 'Leita',
+          searchPlaceholder: 'Nafn',
+          filterLabel: 'Sía',
+          allFilterLabel: 'Allir',
+          noResultsLabel: 'Enginn fannst',
+          pagination: {
+            pageKey: 0,
+            hasPrevious: false,
+            hasNext: true,
+            pending: true,
+            previousLabel: 'Fyrri',
+            nextLabel: 'Næstu',
+            loadingLabel: 'Sæki…',
+            onPrevious,
+            onNext,
+          },
+          onSelectOption: () => true,
+        }]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við aðila' }))
+    const loadingButtons = screen.getAllByRole('button', { name: 'Sæki…' })
+    expect(loadingButtons).toHaveLength(2)
+    loadingButtons.forEach((button) => expect(button).toBeDisabled())
+    fireEvent.click(loadingButtons[1])
+    expect(onNext).not.toHaveBeenCalled()
+    expect(onPrevious).not.toHaveBeenCalled()
+  })
+
+  it('runs the post-selection hook only at the accepted close boundary', async () => {
+    const onSelectionClosed = vi.fn()
+    const first = openPicker({ onSelectionClosed })
+    fireEvent.click(screen.getByRole('button', { name: /Anna vinkona/ }))
+    await waitFor(() => expect(onSelectionClosed).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    first.unmount()
+
+    const second = openPicker({ onSelectionClosed })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Loka vali' }).at(-1)!)
+    expect(onSelectionClosed).toHaveBeenCalledOnce()
+    expect(second.trigger).toBeInTheDocument()
   })
 
   it('honors excluded IDs without returning hidden options', () => {

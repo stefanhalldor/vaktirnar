@@ -163,7 +163,7 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 type FeatureAccessEntry = { email: string; granted_at: string }
 
 interface FeatureAccessSectionProps {
-  featureKey: 'umonnun' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'afmaeli-og-vidburdir' | 'bokhaldid' | 'kviss' | 'auglysandi' | 'bokanir'
+  featureKey: 'umonnun' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'afmaeli-og-vidburdir' | 'bokhaldid' | 'kviss' | 'auglysandi' | 'bokanir' | 'heimilisverkin'
   heading: string
   flagName: string
   enabledFlagName?: string
@@ -1684,6 +1684,11 @@ export default function AdminPage() {
             featureKey="afmaeli-og-vidburdir"
             heading="Viðburðir — private beta"
             flagName="EVENTS_ENABLED"
+          />
+          <FeatureAccessSection
+            featureKey="heimilisverkin"
+            heading="Verkefnin — private beta"
+            flagName="HOUSEHOLD_CHORES_ENABLED"
           />
           <FeatureAccessSection
             featureKey="bokhaldid"

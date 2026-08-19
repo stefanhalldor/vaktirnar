@@ -36,6 +36,7 @@ export function resolveTeskeidFeatureRollout(
     case 'kviss':
     case 'auglysandi':
     case 'bokanir':
+    case 'heimilisverkin':
       return 'closed-testing'
   }
 }

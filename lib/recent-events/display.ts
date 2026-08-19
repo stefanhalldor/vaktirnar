@@ -10,6 +10,11 @@ import type {
 } from '@/lib/expenses/events'
 import type {
   EventRecentEventPayload,
+  HouseholdChoreInvitationRecentEventPayload,
+  HouseholdChoreMembershipRemovedRecentEventPayload,
+  HouseholdChoreMembershipTypeRecentEventPayload,
+  HouseholdChoreRecentEventPayload,
+  HouseholdChoreRecentEventType,
   KnownRecentEventRow,
   LoanFieldChange,
   LoanRecentEventPayload,
@@ -18,6 +23,7 @@ import type {
   RecentEventRow,
   RecentEventSource,
 } from './types'
+import { TASKS_PATH } from '@/lib/household-chores/contracts'
 import { formatDateOnly } from '@/lib/date-format'
 
 const LOCALE_MAP: Record<string, string> = { is: 'is-IS', en: 'en-GB' }
@@ -131,7 +137,11 @@ const LOAN_CHANGE_TYPES = new Set<LoanFieldChange['changeType']>(['changed', 'ad
 const LOANS_PATH = '/auth-mvp/lanad-og-skilad'
 const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
 const EVENTS_INVITATION_PATH = '/auth-mvp/vidburdir/bod/thattaka'
+const HOUSEHOLD_CHORES_INVITATION_PATH = `${TASKS_PATH}/bod`
+const HOUSEHOLD_CHORES_MEMBERSHIP_PATH = `${TASKS_PATH}/adild`
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const HOUSEHOLD_REFERENCE_PATTERN = /^[0-9A-HJKMNP-TV-Z]{8}$/
+const UNSAFE_DISPLAY_PATTERN = /[@\u0000-\u001f\u007f]/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -195,6 +205,120 @@ function boundedTitle(value: unknown): string | undefined {
   return title.length > 0 && title.length <= 200 ? title : undefined
 }
 
+function boundedHouseholdLabel(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const label = value.trim()
+  return label.length > 0
+    && label.length <= 120
+    && !UNSAFE_DISPLAY_PATTERN.test(label)
+    ? label
+    : undefined
+}
+
+function hasExactPayloadKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+): boolean {
+  const allowed = new Set([...required, ...optional])
+  return required.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+    && Object.keys(value).every((key) => allowed.has(key))
+}
+
+function householdPayloadBase(
+  value: Record<string, unknown>,
+): { circleName: string; displayReference: string } | null {
+  const circleName = boundedHouseholdLabel(value.circle_name)
+  const displayReference = typeof value.display_reference === 'string'
+    && HOUSEHOLD_REFERENCE_PATTERN.test(value.display_reference)
+    ? value.display_reference
+    : null
+  return circleName && displayReference ? { circleName, displayReference } : null
+}
+
+function householdMembershipType(value: unknown): 'member' | 'child' | null {
+  return value === 'member' || value === 'child' ? value : null
+}
+
+function sanitizeHouseholdChorePayload(
+  eventType: 'household_chore_invitation_received',
+  value: unknown,
+): HouseholdChoreInvitationRecentEventPayload | null
+function sanitizeHouseholdChorePayload(
+  eventType: 'household_chore_membership_type_changed',
+  value: unknown,
+): HouseholdChoreMembershipTypeRecentEventPayload | null
+function sanitizeHouseholdChorePayload(
+  eventType: 'household_chore_membership_removed',
+  value: unknown,
+): HouseholdChoreMembershipRemovedRecentEventPayload | null
+function sanitizeHouseholdChorePayload(
+  eventType: HouseholdChoreRecentEventType,
+  value: unknown,
+): HouseholdChoreRecentEventPayload | null
+function sanitizeHouseholdChorePayload(
+  eventType: HouseholdChoreRecentEventType,
+  value: unknown,
+): HouseholdChoreRecentEventPayload | null {
+  if (!isRecord(value)) return null
+
+  if (eventType === 'household_chore_invitation_received') {
+    if (!hasExactPayloadKeys(
+      value,
+      ['circle_name', 'display_reference', 'requested_type'],
+      ['inviter_label'],
+    )) return null
+    const base = householdPayloadBase(value)
+    const requestedType = householdMembershipType(value.requested_type)
+    const inviterLabel = value.inviter_label === undefined
+      ? undefined
+      : boundedHouseholdLabel(value.inviter_label)
+    if (!base || !requestedType || (value.inviter_label !== undefined && !inviterLabel)) return null
+    const payload: HouseholdChoreInvitationRecentEventPayload = {
+      ...base,
+      requestedType,
+      ...(inviterLabel ? { inviterLabel } : {}),
+    }
+    return payload
+  }
+
+  if (eventType === 'household_chore_membership_type_changed') {
+    if (!hasExactPayloadKeys(
+      value,
+      ['circle_name', 'display_reference', 'membership_type'],
+      ['actor_label'],
+    )) return null
+    const base = householdPayloadBase(value)
+    const membershipType = householdMembershipType(value.membership_type)
+    const actorLabel = value.actor_label === undefined
+      ? undefined
+      : boundedHouseholdLabel(value.actor_label)
+    if (!base || !membershipType || (value.actor_label !== undefined && !actorLabel)) return null
+    const payload: HouseholdChoreMembershipTypeRecentEventPayload = {
+      ...base,
+      membershipType,
+      ...(actorLabel ? { actorLabel } : {}),
+    }
+    return payload
+  }
+
+  if (!hasExactPayloadKeys(
+    value,
+    ['circle_name', 'display_reference'],
+    ['actor_label'],
+  )) return null
+  const base = householdPayloadBase(value)
+  const actorLabel = value.actor_label === undefined
+    ? undefined
+    : boundedHouseholdLabel(value.actor_label)
+  if (!base || (value.actor_label !== undefined && !actorLabel)) return null
+  const payload: HouseholdChoreMembershipRemovedRecentEventPayload = {
+    ...base,
+    ...(actorLabel ? { actorLabel } : {}),
+  }
+  return payload
+}
+
 function sanitizeExpensePayload(
   eventType: ExpenseRecentEventType,
   value: unknown,
@@ -239,7 +363,10 @@ function sanitizeEventPayload(value: unknown): EventRecentEventPayload | null {
 }
 
 export function isRecentEventSource(value: string): value is RecentEventSource {
-  return value === 'loans' || value === 'expenses' || value === 'events'
+  return value === 'loans'
+    || value === 'expenses'
+    || value === 'events'
+    || value === 'heimilisverkin'
 }
 
 export function isLoanRecentEventType(value: string): value is LoanRecentEventType {
@@ -248,6 +375,14 @@ export function isLoanRecentEventType(value: string): value is LoanRecentEventTy
 
 export function isExpenseRecentEventType(value: string): value is ExpenseRecentEventType {
   return Object.prototype.hasOwnProperty.call(EXPENSE_EVENT_TYPE_TO_KEY, value)
+}
+
+export function isHouseholdChoreRecentEventType(
+  value: string,
+): value is HouseholdChoreRecentEventType {
+  return value === 'household_chore_invitation_received'
+    || value === 'household_chore_membership_type_changed'
+    || value === 'household_chore_membership_removed'
 }
 
 export function sanitizeRecentEventPayload(
@@ -266,6 +401,11 @@ export function sanitizeRecentEventPayload(
   value: unknown,
 ): EventRecentEventPayload | null
 export function sanitizeRecentEventPayload(
+  source: 'heimilisverkin',
+  eventType: HouseholdChoreRecentEventType,
+  value: unknown,
+): HouseholdChoreRecentEventPayload | null
+export function sanitizeRecentEventPayload(
   source: RecentEventSource,
   eventType: string,
   value: unknown,
@@ -276,6 +416,9 @@ export function sanitizeRecentEventPayload(
   }
   if (source === 'events' && eventType === 'event_attendance_invitation_received') {
     return sanitizeEventPayload(value)
+  }
+  if (source === 'heimilisverkin' && isHouseholdChoreRecentEventType(eventType)) {
+    return sanitizeHouseholdChorePayload(eventType, value)
   }
   return null
 }
@@ -333,6 +476,63 @@ export function parseRecentEventRow(row: RecentEventRow): KnownRecentEventRow | 
       entity_id: row.entity_id,
       payload,
       href: `${EVENTS_INVITATION_PATH}/${row.entity_id}`,
+    }
+  }
+  if (
+    row.source === 'heimilisverkin'
+    && typeof row.entity_id === 'string'
+    && UUID_PATTERN.test(row.entity_id)
+  ) {
+    if (row.event_type === 'household_chore_invitation_received') {
+      if (
+        row.entity_type !== 'household_chore_invitation'
+        || row.event_key !== `household:invitation:${row.entity_id}`
+      ) return null
+      const payload = sanitizeHouseholdChorePayload(row.event_type, row.payload)
+      if (!payload) return null
+      return {
+        ...row,
+        source: 'heimilisverkin',
+        event_type: row.event_type,
+        entity_type: 'household_chore_invitation',
+        entity_id: row.entity_id,
+        payload,
+        href: `${HOUSEHOLD_CHORES_INVITATION_PATH}/${row.entity_id}`,
+      }
+    }
+    if (row.event_type === 'household_chore_membership_type_changed') {
+      if (
+        row.entity_type !== 'household_chore_membership_event'
+        || row.event_key !== `household:membership:${row.entity_id}`
+      ) return null
+      const payload = sanitizeHouseholdChorePayload(row.event_type, row.payload)
+      if (!payload) return null
+      return {
+        ...row,
+        source: 'heimilisverkin',
+        event_type: row.event_type,
+        entity_type: 'household_chore_membership_event',
+        entity_id: row.entity_id,
+        payload,
+        href: HOUSEHOLD_CHORES_MEMBERSHIP_PATH,
+      }
+    }
+    if (row.event_type === 'household_chore_membership_removed') {
+      if (
+        row.entity_type !== 'household_chore_membership_event'
+        || row.event_key !== `household:membership:${row.entity_id}`
+      ) return null
+      const payload = sanitizeHouseholdChorePayload(row.event_type, row.payload)
+      if (!payload) return null
+      return {
+        ...row,
+        source: 'heimilisverkin',
+        event_type: row.event_type,
+        entity_type: 'household_chore_membership_event',
+        entity_id: row.entity_id,
+        payload,
+        href: HOUSEHOLD_CHORES_MEMBERSHIP_PATH,
+      }
     }
   }
   return null

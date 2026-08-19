@@ -1,5 +1,9 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import {
+  HOUSEHOLD_CHORES_LEGACY_PATH,
+  TASKS_PATH,
+} from '@/lib/household-chores/contracts'
 
 const PUBLIC_PATHS = [
   '/login',
@@ -250,6 +254,18 @@ export async function middleware(request: NextRequest) {
     process.env.EXPENSES_ENABLED !== 'true'
   ) {
     return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  // Keep SQL142/recent-event links working while exposing only the generic
+  // Verkefnin product route. Segment-safe matching avoids redirecting sibling
+  // paths; cloning preserves the complete query string.
+  if (
+    pathname === HOUSEHOLD_CHORES_LEGACY_PATH
+    || pathname.startsWith(`${HOUSEHOLD_CHORES_LEGACY_PATH}/`)
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = `${TASKS_PATH}${pathname.slice(HOUSEHOLD_CHORES_LEGACY_PATH.length)}`
+    return NextResponse.redirect(url, 308)
   }
 
   // The owner-private Events roster has its own fail-closed global switch.

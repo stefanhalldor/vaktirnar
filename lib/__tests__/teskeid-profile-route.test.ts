@@ -11,11 +11,15 @@ import { NextRequest } from 'next/server'
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { mockGetUser, mockCheckFeatureAccess } = vi.hoisted(() => ({
+const { mockGetUser, mockCheckFeatureAccess, mockLoadHouseholdChoreMemberships } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
   mockCheckFeatureAccess: vi.fn(async (_userId: string, _email: string, featureKey: string) => (
     featureKey === 'facebook-oauth' && process.env.FACEBOOK_OAUTH_ENABLED === 'true'
   )),
+  mockLoadHouseholdChoreMemberships: vi.fn().mockResolvedValue({
+    memberships: [],
+    pendingInvitations: [],
+  }),
 }))
 const { mockFrom, mockSelect, mockEq, mockSingle, mockUpsert } = vi.hoisted(() => {
   const mockSingle = vi.fn()
@@ -35,6 +39,10 @@ vi.mock('@/lib/supabase/server', () => ({
 
 vi.mock('@/lib/loans/guard', () => ({
   checkFeatureAccess: mockCheckFeatureAccess,
+}))
+
+vi.mock('@/lib/household-chores/repository.server', () => ({
+  loadHouseholdChoreMemberships: mockLoadHouseholdChoreMemberships,
 }))
 
 import { GET, PATCH } from '@/app/api/teskeid/profile/route'
@@ -116,7 +124,36 @@ describe('GET /api/teskeid/profile — feature flag', () => {
     expect(body.display_name).toBe('Jón')
     expect(body.email).toBe('user@example.com')
     expect(body.tengsl_allowed).toBe(false)
+    expect(body.household_chores_membership_available).toBe(false)
     expect(mockCheckFeatureAccess).toHaveBeenCalledWith('u1', 'user@example.com', 'tengsl')
+    expect(mockLoadHouseholdChoreMemberships).toHaveBeenCalledWith('u1')
+  })
+
+  it('returns only a safe Household membership discoverability boolean', async () => {
+    process.env.AUTH_MVP_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com' } } })
+    mockSingle.mockResolvedValue({ data: { display_name: 'Jón' } })
+    mockLoadHouseholdChoreMemberships.mockResolvedValueOnce({
+      memberships: [],
+      pendingInvitations: [{ invitationId: 'private-id', circleName: 'Private circle' }],
+    })
+
+    const res = await GET()
+    const body = await res.json()
+    expect(body.household_chores_membership_available).toBe(true)
+    expect(JSON.stringify(body)).not.toContain('private-id')
+    expect(JSON.stringify(body)).not.toContain('Private circle')
+  })
+
+  it('fails Household membership discoverability closed without breaking the profile', async () => {
+    process.env.AUTH_MVP_ENABLED = 'true'
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'user@example.com' } } })
+    mockSingle.mockResolvedValue({ data: { display_name: 'Jón' } })
+    mockLoadHouseholdChoreMemberships.mockRejectedValueOnce(new Error('private failure'))
+
+    const res = await GET()
+    expect(res.status).toBe(200)
+    expect((await res.json()).household_chores_membership_available).toBe(false)
   })
 
   it('returns Tengsl access from the canonical graduated feature gate', async () => {

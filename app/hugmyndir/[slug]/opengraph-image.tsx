@@ -1,5 +1,10 @@
 import { ImageResponse } from 'next/og'
 import { getAdmin } from '@/lib/supabase/admin'
+import { getTranslations } from 'next-intl/server'
+import {
+  presentHouseholdChoresIdea,
+  resolveTasksIdeaDatabaseSlug,
+} from '@/lib/household-chores/idea-presentation'
 
 export const runtime = 'nodejs'
 export const alt = 'Teskeið'
@@ -7,15 +12,25 @@ export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
 export default async function Image({ params }: { params: { slug: string } }) {
-  const { data } = await getAdmin()
+  const [result, t] = await Promise.all([
+    getAdmin()
     .from('ideas')
-    .select('title, short_description')
-    .eq('slug', params.slug)
+    .select('*')
+    .eq('slug', resolveTasksIdeaDatabaseSlug(params.slug))
     .eq('is_public', true)
-    .single()
+    .single(),
+    getTranslations('teskeid.ideas'),
+  ])
+  const data = result.data
+  const presented = data ? presentHouseholdChoresIdea(data, {
+    title: t('householdChores.title'),
+    shortDescription: t('householdChores.shortDescription'),
+    problemDescription: t('householdChores.problemDescription'),
+    possibleSolution: t('householdChores.possibleSolution'),
+  }) : null
 
-  const title = data?.title ?? 'Hugmynd'
-  const description = data?.short_description ?? ''
+  const title = presented?.title ?? 'Hugmynd'
+  const description = presented?.short_description ?? ''
 
   return new ImageResponse(
     <div

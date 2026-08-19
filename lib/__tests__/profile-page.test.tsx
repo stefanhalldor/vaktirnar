@@ -34,6 +34,8 @@ vi.mock('next-intl', () => ({
         logout: 'Útskrá',
         'relationships.title': 'Tengsl',
         'relationships.description': 'Flokkaðu tengda aðila og haltu utan um tengslahringi.',
+        'householdChores.title': 'Aðildir að hringjum',
+        'householdChores.description': 'Skoðaðu boð eða yfirgefðu hring.',
         'errors.saveFailed': 'Vistun mistókst.',
       },
       'common': {
@@ -208,6 +210,31 @@ describe('AuthMvpProfilePage — Tengsl entry point', () => {
       'href',
       '/stillingar/tengsl',
     )
+  })
+})
+
+describe('AuthMvpProfilePage — Household membership entry point', () => {
+  it('does not show membership management without an active membership or invitation', async () => {
+    render(React.createElement(AuthMvpProfilePage))
+    await screen.findByText('Vista')
+    expect(screen.queryByRole('link', { name: /Aðildir að hringjum/ })).toBeNull()
+  })
+
+  it('links directly to feature-independent membership management when available', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        display_name: 'Jón',
+        email: 'jon@example.com',
+        household_chores_membership_available: true,
+      }),
+    }))
+
+    render(React.createElement(AuthMvpProfilePage))
+    expect(await screen.findByRole('link', {
+      name: /Aðildir að hringjum/,
+    })).toHaveAttribute('href', '/auth-mvp/verkefnin/adild')
   })
 })
 

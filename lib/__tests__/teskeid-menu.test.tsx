@@ -21,7 +21,8 @@ vi.mock('next-intl', () => ({
     featureNavigation: 'Teskeiðar og aðgangur', ideas: 'Hugmyndabankinn', quiz: 'Kviss',
     submitIdea: 'Ný hugmynd', login: 'Nýskráning / innskráning', loans: 'Lánað og skilað',
     expenses: 'Útlagt og endurgreitt', events: 'Viðburðir', bookkeeping: 'Bókhaldið', care: 'Umönnun',
-    weather: 'Veðrið', advertiser: 'Auglýsandi', bookings: 'Bókanir', home: 'Heim',
+    weather: 'Veðrið', advertiser: 'Auglýsandi', bookings: 'Bókanir',
+    householdChores: 'Verkefnin', home: 'Heim',
     agentCollaboration: 'Samvinna', profile: 'Minn prófíll', signOut: 'Útskrá',
     agentUnread: 'Ólesin skilaboð',
     unreadItems: 'Ólesin atriði',
@@ -44,6 +45,7 @@ vi.stubGlobal('fetch', mockFetch)
 const ALL_FEATURES = [
   'lanad-og-skilad', 'utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun',
   'vedrid', 'kviss', 'auglysandi', 'bokanir',
+  'heimilisverkin',
 ] as const
 
 function launcherResponse(
@@ -123,6 +125,30 @@ describe('TeskeidMenu authenticated launcher', () => {
     expect(screen.getByTestId('teskeid-unread-lanad-og-skilad')).toHaveTextContent('2')
     expect(screen.queryByTestId('teskeid-unread-utlagt-og-endurgreitt')).toBeNull()
     expect(mockFetch).not.toHaveBeenCalledWith('/api/auth-mvp/launcher', { cache: 'no-store' })
+  })
+
+  it('renders the Household icon and updates its badge from the shared acknowledgement event', () => {
+    render(
+      <TeskeidMenu
+        variant="authenticated"
+        initialFeatureIds={['heimilisverkin']}
+        initialUnreadCounts={{ heimilisverkin: 2 }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+    const householdLink = screen.getByRole('link', { name: /Verkefnin/ })
+    expect(householdLink.querySelector('svg')).toHaveClass('lucide-list-checks')
+    expect(screen.getByTestId('teskeid-unread-heimilisverkin')).toHaveTextContent('2')
+
+    fireEvent(window, new CustomEvent('teskeid:recent-events-changed', {
+      detail: { sources: ['heimilisverkin'] },
+    }))
+    expect(screen.getByTestId('teskeid-unread-heimilisverkin')).toHaveTextContent('1')
+
+    fireEvent(window, new CustomEvent('teskeid:recent-events-changed', {
+      detail: { sources: ['heimilisverkin'], all: true },
+    }))
+    expect(screen.queryByTestId('teskeid-unread-heimilisverkin')).toBeNull()
   })
 
 

@@ -9,6 +9,7 @@ import {
   Calendar,
   Clock,
   Lightbulb,
+  ListChecks,
   CloudSun,
   Trophy,
   Megaphone,
@@ -29,6 +30,7 @@ const SLUG_ICONS: Record<string, LucideIcon> = {
   'kviss': Trophy,
   'auglysandi': Megaphone,
   'bokanir': Calendar,
+  'heimilisverkin': ListChecks,
 }
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {

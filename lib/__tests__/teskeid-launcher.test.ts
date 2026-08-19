@@ -32,6 +32,7 @@ vi.mock('@/lib/teskeid/launcherUsage.server', async (original) => {
 import {
   TESKEID_LAUNCHER_IDS,
   isTeskeidLauncherId,
+  teskeidLauncherIdFromIdeaSlug,
   teskeidLauncherIdFromPathname,
   trackedTeskeidLauncherIdFromPathname,
 } from '@/lib/teskeid/launcherCatalog'
@@ -51,10 +52,10 @@ beforeEach(() => {
 })
 
 describe('canonical launcher catalog', () => {
-  it('contains the exact nine stable allowlisted IDs', () => {
+  it('contains the exact ten stable allowlisted IDs', () => {
     expect(TESKEID_LAUNCHER_IDS).toEqual([
       'lanad-og-skilad', 'utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun',
-      'vedrid', 'kviss', 'auglysandi', 'bokanir',
+      'vedrid', 'kviss', 'auglysandi', 'bokanir', 'heimilisverkin',
     ])
     expect(isTeskeidLauncherId('/arbitrary')).toBe(false)
   })
@@ -69,6 +70,8 @@ describe('canonical launcher catalog', () => {
     ['/auth-mvp/kviss/lota/a', 'kviss'],
     ['/auth-mvp/auglysandi', 'auglysandi'],
     ['/auth-mvp/bokanir/fyrirspurn/a', 'bokanir'],
+    ['/auth-mvp/verkefnin/hringir/a', 'heimilisverkin'],
+    ['/auth-mvp/heimilisverkin/hringir/a', 'heimilisverkin'],
   ])('maps committed pathname %s to %s', (pathname, id) => {
     expect(teskeidLauncherIdFromPathname(pathname)).toBe(id)
   })
@@ -86,6 +89,29 @@ describe('canonical launcher catalog', () => {
     expect(trackedTeskeidLauncherIdFromPathname('/auth-mvp/vedrid')).toBe('vedrid')
     expect(trackedTeskeidLauncherIdFromPathname('/auth-mvp/vedrid/puls/stod/1')).toBe('vedrid')
   })
+
+  it('keeps canonical and legacy Tasks consent routes active but excludes them from MRU tracking', () => {
+    for (const pathname of [
+      '/auth-mvp/verkefnin/adild',
+      '/auth-mvp/verkefnin/adild/',
+      '/auth-mvp/verkefnin/bod/invitation-id',
+      '/auth-mvp/heimilisverkin/adild',
+      '/auth-mvp/heimilisverkin/adild/',
+      '/auth-mvp/heimilisverkin/bod/invitation-id',
+    ]) {
+      expect(teskeidLauncherIdFromPathname(pathname)).toBe('heimilisverkin')
+      expect(trackedTeskeidLauncherIdFromPathname(pathname)).toBeNull()
+    }
+    expect(trackedTeskeidLauncherIdFromPathname('/auth-mvp/verkefnin'))
+      .toBe('heimilisverkin')
+  })
+
+  it('aliases both visible and preserved idea slugs to the internal launcher ID', () => {
+    expect(teskeidLauncherIdFromIdeaSlug('fyrsta-vakt-krakkanna')).toBe('heimilisverkin')
+    expect(teskeidLauncherIdFromIdeaSlug('verkefnin')).toBe('heimilisverkin')
+    expect(teskeidLauncherIdFromIdeaSlug('heimilisverkin')).toBe('heimilisverkin')
+    expect(teskeidLauncherIdFromIdeaSlug('unknown')).toBeNull()
+  })
 })
 
 describe('per-user MRU ordering', () => {
@@ -97,6 +123,7 @@ describe('per-user MRU ordering', () => {
     ])).toEqual([
       'utlagt-og-endurgreitt', 'vedrid', 'bokanir', 'lanad-og-skilad',
       'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun', 'kviss', 'auglysandi',
+      'heimilisverkin',
     ])
   })
 

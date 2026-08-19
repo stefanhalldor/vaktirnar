@@ -13,6 +13,7 @@ import {
   Heart,
   Home,
   Lightbulb,
+  ListChecks,
   LogIn,
   LogOut,
   Megaphone,
@@ -52,6 +53,7 @@ const ICONS: Record<TeskeidLauncherIcon, LucideIcon> = {
   trophy: Trophy,
   megaphone: Megaphone,
   calendar: CalendarDays,
+  'list-checks': ListChecks,
 }
 interface TeskeidMenuProps {
   variant: 'public' | 'authenticated'
@@ -169,6 +171,7 @@ export function TeskeidMenu({
         apply('loans', 'lanad-og-skilad')
         apply('expenses', 'utlagt-og-endurgreitt')
         apply('events', 'afmaeli-og-vidburdir')
+        apply('heimilisverkin', 'heimilisverkin')
         return next
       })
     }

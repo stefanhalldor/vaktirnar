@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Mail, RotateCcw, X } from 'lucide-react'
 import { IdentityInvitationEmailForm } from './IdentityInvitationEmailForm'
 import { TeskeidActionButton } from './TeskeidActionButton'
@@ -58,6 +58,9 @@ export type IdentityLinkInvitationControlProps = {
   onEntryOpenChange?: (open: boolean) => void
   /** When provided, the adapter owns feedback placement (but never its contents). */
   onFeedback?: (feedback: IdentityLinkInvitationFeedback | null) => void
+  /** Optional domain-neutral content shown above the shared email step. */
+  entryContent?: ReactNode
+  entrySubmitDisabled?: boolean
 }
 
 /**
@@ -81,6 +84,8 @@ export function IdentityLinkInvitationControl({
   onPendingChange,
   onEntryOpenChange,
   onFeedback,
+  entryContent,
+  entrySubmitDisabled = false,
 }: IdentityLinkInvitationControlProps) {
   const [showEmail, setShowEmail] = useState(false)
   const [recipientEmail, setRecipientEmail] = useState('')
@@ -241,6 +246,7 @@ export function IdentityLinkInvitationControl({
 
       {state === 'eligible' ? showEmail ? (
         <fieldset disabled={isBusy} className="m-0 min-w-0 border-0 p-0">
+          {entryContent ? <div className="mb-3">{entryContent}</div> : null}
           <IdentityInvitationEmailForm
             value={recipientEmail}
             label={copy.emailLabel}
@@ -249,6 +255,7 @@ export function IdentityLinkInvitationControl({
             pendingLabel={copy.submittingLabel}
             cancelLabel={copy.entryCancelLabel}
             isPending={pendingAction === 'invite'}
+            submitDisabled={entrySubmitDisabled}
             onChange={setRecipientEmail}
             onSubmit={invite}
             onCancel={() => changeEmailEntry(false)}

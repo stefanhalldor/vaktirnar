@@ -638,3 +638,24 @@ describe('feature-access API — events private beta', () => {
     },
   )
 })
+
+describe('feature-access API — Household Chores private beta', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('accepts, grants and revokes only the exact heimilisverkin key', async () => {
+    mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+    mockAdminQuery.mockResolvedValue({ error: null })
+    expect((await GET(makeGetRequest('heimilisverkin'))).status).toBe(200)
+    expect((await POST(makeRequest({ email: ' Parent@Example.com ' }, 'POST', 'heimilisverkin'))).status).toBe(201)
+    expect(mockInsert).toHaveBeenCalledWith({ feature_key: 'heimilisverkin', email: 'parent@example.com' })
+    expect((await DELETE(makeRequest({ email: 'parent@example.com' }, 'DELETE', 'heimilisverkin'))).status).toBe(200)
+  })
+
+  it.each(['heimilisverk', 'household-chores', 'heimilisverkin-private-beta'])(
+    'rejects the lookalike key %s',
+    async featureKey => {
+      mockRequireAdmin.mockResolvedValue({ user: { email: 'admin@example.com', id: 'u1' } })
+      expect((await GET(makeGetRequest(featureKey))).status).toBe(400)
+    },
+  )
+})

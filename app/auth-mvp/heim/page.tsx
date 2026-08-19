@@ -1,52 +1,36 @@
-import { getLocale, getTranslations } from 'next-intl/server'
+import { getTranslations } from 'next-intl/server'
 import Link from 'next/link'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { guardTeskeidSession } from '@/lib/auth/guard'
-import { getAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { resolveTeskeidLauncher } from '@/lib/teskeid/launcher.server'
-import type { LoanItem } from '@/lib/loans/types'
 import type { Idea } from '@/lib/teskeid/types'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
 import { ClosedTestingAccessRequest } from '@/components/teskeid/ClosedTestingAccessRequest'
 import { HomeIdeasDrawer } from '@/components/teskeid/HomeIdeasDrawer'
 import { hasExpenseAccessRequestContext } from '@/lib/expenses/access-request.server'
-import { getUnreadRecentEventsForUser, recordRecentEvent } from '@/lib/recent-events/helpers.server'
-import type {
-  EventRecentEventRow,
-  ExpenseRecentEventRow,
-  RecentEventDisplay,
-  RecentEventSource,
-} from '@/lib/recent-events/types'
-import {
-  expenseActivityIdFromEventKey,
-  resolveExpenseRecentEventTargets,
-  resolveRecentEventSourceAccess,
-  syncEventAttendanceInvitationEvents,
-  syncExpenseMemberInvitationEvents,
-} from '@/lib/recent-events/access.server'
-import {
-  buildDetailLines,
-  EVENT_TYPE_TO_KEY,
-  EXPENSE_EVENT_TYPE_TO_KEY,
-  formatEventTimestamp,
-  getDisplayLocale,
-  isRecentEventSource,
-  parseRecentEventRow,
-  pickLoanUpdatedLabelKey,
-} from '@/lib/recent-events/display'
+import { resolveRecentEventSourceAccess } from '@/lib/recent-events/access.server'
+import { loadRecentEventInbox } from '@/lib/recent-events/inbox.server'
 import { RecentSection, type RecentLabels } from './RecentSection'
-import { mapUnreadCountsToLauncher } from '@/lib/recent-events/launcher'
+import {
+  mapUnreadCountsToLauncher,
+  recentEventSourceForLauncherFeature,
+} from '@/lib/recent-events/launcher'
+import {
+  teskeidLauncherIdFromIdeaSlug,
+  type TeskeidLauncherId,
+} from '@/lib/teskeid/launcherCatalog'
+import { presentHouseholdChoresIdea } from '@/lib/household-chores/idea-presentation'
 
 
 export default async function HeimPage() {
   const { user } = await guardTeskeidSession()
 
-  const [t, tLoans, locale] = await Promise.all([
+  const [t, tLoans, tIdeas] = await Promise.all([
     getTranslations('teskeid.home'),
     getTranslations('teskeid.loans'),
-    getLocale(),
+    getTranslations('teskeid.ideas'),
   ])
 
   // Profile + home ideas via authenticated RLS client — no service_role needed.
@@ -76,14 +60,19 @@ export default async function HeimPage() {
     // createClient() failed — fall through to defaults
   }
 
+  allIdeas = allIdeas.map((idea) => presentHouseholdChoresIdea(idea, {
+    title: tIdeas('householdChores.title'),
+    shortDescription: tIdeas('householdChores.shortDescription'),
+    problemDescription: tIdeas('householdChores.problemDescription'),
+    possibleSolution: tIdeas('householdChores.possibleSolution'),
+  }))
+
   const [recentEventAccess, launcher] = await Promise.all([
     resolveRecentEventSourceAccess(user),
     resolveTeskeidLauncher(user),
   ])
   const {
-    loansEnabled,
     expensesEnabled,
-    eventInvitationsEnabled,
     sources: recentEventSources,
   } = recentEventAccess
   const visibleLauncherIds = new Set(launcher.featureIds)
@@ -97,9 +86,6 @@ export default async function HeimPage() {
     && !visibleLauncherIds.has('utlagt-og-endurgreitt')
     && await hasExpenseAccessRequestContext(user.id, user.email!)
 
-  const displayLocale = getDisplayLocale(locale)
-
-
   const isPromotedPrivateBeta = (idea: Idea) =>
     (idea.slug === 'utlagt-og-endurgreitt' && expensesEnabled)
     || (idea.slug === 'bokhaldid' && bookkeepingEnabled)
@@ -112,16 +98,19 @@ export default async function HeimPage() {
     && (idea.slug !== 'bokanir' || bookingsEnabled)
     && (idea.slug !== 'afmaeli-og-vidburdir' || eventsEnabled)
   ))
-  const futureIdeas = visibleIdeas.filter((idea) => (
-    !visibleLauncherIds.has(idea.slug as typeof launcher.featureIds[number])
-    && idea.status !== 'launched'
-    && !isPromotedPrivateBeta(idea)
-  ))
+  const futureIdeas = visibleIdeas.filter((idea) => {
+    const launcherId = teskeidLauncherIdFromIdeaSlug(idea.slug)
+    return (!launcherId || !visibleLauncherIds.has(launcherId))
+      && idea.status !== 'launched'
+      && !isPromotedPrivateBeta(idea)
+  })
   const readyCards: Array<{
+    featureId: TeskeidLauncherId
     idea: Pick<Idea, 'slug' | 'title' | 'short_description' | 'category'>
     href: string
   }> = launcher.items.map((item) => {
     return {
+      featureId: item.id,
       idea: {
         slug: item.id,
         title: t(item.titleKey as Parameters<typeof t>[0]),
@@ -133,183 +122,12 @@ export default async function HeimPage() {
     }
   })
 
-  let recentEvents: RecentEventDisplay[] = []
-  let unreadBySource: Partial<Record<RecentEventSource, number>> = {}
-  let eventsError = false
-  let loans: LoanItem[] = []
-
-  if (loansEnabled) {
-    let admin: ReturnType<typeof getAdmin> | null = null
-    try {
-      admin = getAdmin()
-    } catch {
-      console.error('[heim/page] getAdmin failed')
-      eventsError = true
-    }
-
-    if (admin !== null) {
-      const loansResult = await Promise.resolve(
-        admin.rpc('get_my_loans', { p_actor_id: user.id })
-      ).catch(() => null)
-
-      if (!loansResult || loansResult.error) {
-        console.error('[heim/page] pending loan badge query failed')
-      } else {
-        loans = (loansResult.data ?? []) as LoanItem[]
-        // Best-effort event guarantor: ensure each pending invitation has a recent_events row.
-        // updateOnConflict: false means the first write wins — existing rows are never overwritten.
-        await Promise.allSettled(
-          loans
-            .filter(
-              (loan) =>
-                loan.requires_acknowledgement &&
-                loan.invitation_status === 'pending' &&
-                loan.returned_at === null &&
-                loan.invitation_id !== null,
-            )
-            .map((loan) =>
-              recordRecentEvent({
-                userId: user.id,
-                source: 'loans',
-                eventType: 'loan_invitation_received',
-                entityType: 'invitation',
-                entityId: loan.invitation_id!,
-                eventKey: `loans:invitation:${loan.invitation_id}:received`,
-                payload: { itemName: loan.item_name, recipientRole: loan.my_role },
-                href: '/auth-mvp/lanad-og-skilad',
-                updateOnConflict: false,
-              }),
-            ),
-        )
-      }
-
-    }
-  }
-
-  if (recentEventSources.length > 0) {
-    try {
-      const eventInvitationSync = eventInvitationsEnabled
-        ? await syncEventAttendanceInvitationEvents(user.id)
-        : { ok: true, invitationIds: new Set<string>() }
-      if (expensesEnabled) {
-        await syncExpenseMemberInvitationEvents(user.id)
-      }
-      const rows = await getUnreadRecentEventsForUser(user.id, recentEventSources)
-      const parsedRows = rows.flatMap((row) => {
-        if (!isRecentEventSource(row.source) || !recentEventSources.includes(row.source)) return []
-        const parsed = parseRecentEventRow(row)
-        if (parsed?.source === 'events' && !eventInvitationSync.ok) return []
-        if (
-          parsed?.source === 'events'
-          && eventInvitationSync.ok
-          && !eventInvitationSync.invitationIds.has(parsed.entity_id)
-        ) return []
-        return parsed ? [parsed] : []
-      })
-      unreadBySource = parsedRows.reduce<Partial<Record<RecentEventSource, number>>>(
-        (counts, event) => ({ ...counts, [event.source]: (counts[event.source] ?? 0) + 1 }),
-        {},
-      )
-      const expenseRows = parsedRows.filter(
-        (event): event is ExpenseRecentEventRow => event.source === 'expenses',
-      )
-      const expenseTargets = expensesEnabled
-        ? await resolveExpenseRecentEventTargets(user.id, expenseRows)
-        : new Map<string, string>()
-      const tFn = (key: string, params?: Record<string, string>) =>
-        t(key as Parameters<typeof t>[0], params as Parameters<typeof t>[1])
-
-      recentEvents = parsedRows.map((event) => {
-        if (event.source === 'events') {
-          const invitation = event as EventRecentEventRow
-          return {
-            id: invitation.id,
-            source: invitation.source,
-            label: t('eventAttendanceInvitationReceived', {
-              eventName: invitation.payload.eventName,
-            }),
-            href: invitation.href,
-            viewHref: invitation.href,
-            isDeleted: false,
-            detailLines: invitation.payload.inviterDisplayName
-              ? [t('eventAttendanceInvitationFrom', {
-                name: invitation.payload.inviterDisplayName,
-              })]
-              : [],
-            occurredAtLabel: formatEventTimestamp(
-              invitation.occurred_at,
-              (key) => tLoans(key as Parameters<typeof tLoans>[0]),
-            ),
-          }
-        }
-        if (event.source === 'expenses') {
-          const title = event.payload.expenseTitle ?? event.payload.groupTitle ?? ''
-          const activityId = expenseActivityIdFromEventKey(event.event_key)
-          return {
-            id: event.id,
-            source: event.source,
-            label: t(
-              EXPENSE_EVENT_TYPE_TO_KEY[event.event_type] as Parameters<typeof t>[0],
-              { title },
-            ),
-            href: event.href,
-            viewHref: activityId ? expenseTargets.get(activityId) ?? null : null,
-            isDeleted: false,
-            detailLines: [],
-            occurredAtLabel: formatEventTimestamp(
-              event.occurred_at,
-              (key) => tLoans(key as Parameters<typeof tLoans>[0]),
-            ),
-          }
-        }
-
-        const itemName = event.payload.itemName ?? ''
-        const isDeleted = event.event_type === 'loan_deleted'
-        let labelKey: string
-        if (event.event_type === 'loan_invitation_received' && event.payload.recipientRole) {
-          labelKey = event.payload.recipientRole === 'borrower'
-            ? 'eventLoanInvitationReceivedBorrower'
-            : 'eventLoanInvitationReceivedLender'
-        } else if (event.event_type === 'loan_updated') {
-          labelKey = pickLoanUpdatedLabelKey(event.payload.changes)
-        } else {
-          labelKey = EVENT_TYPE_TO_KEY[event.event_type] ?? event.event_type
-        }
-        let viewHref: string | null = null
-        if (!isDeleted && event.entity_id) {
-          if (event.entity_type === 'invitation') {
-            const matchingLoan = loans.find((loan) => loan.invitation_id === event.entity_id)
-            if (matchingLoan) {
-              const params = new URLSearchParams({ from: 'heim' })
-              viewHref = `/auth-mvp/lanad-og-skilad/${matchingLoan.id}?${params}`
-            } else {
-              const params = new URLSearchParams({ invitation: event.entity_id, from: 'heim' })
-              viewHref = `/auth-mvp/lanad-og-skilad?${params}`
-            }
-          } else if (event.entity_type === 'loan') {
-            const params = new URLSearchParams({ from: 'heim' })
-            viewHref = `/auth-mvp/lanad-og-skilad/${event.entity_id}?${params}`
-          }
-        }
-        return {
-          id: event.id,
-          source: event.source,
-          label: t(labelKey as Parameters<typeof t>[0], { itemName }),
-          href: event.href,
-          viewHref,
-          isDeleted,
-          detailLines: buildDetailLines(event.payload.changes, tFn, displayLocale),
-          occurredAtLabel: formatEventTimestamp(
-            event.occurred_at,
-            (key) => tLoans(key as Parameters<typeof tLoans>[0]),
-          ),
-        }
-      })
-    } catch {
-      console.error('[heim/page] recent events query failed')
-      eventsError = true
-    }
-  }
+  const recentInbox = recentEventSources.length > 0
+    ? await loadRecentEventInbox(user, { access: recentEventAccess })
+    : { ok: true, rows: [], unreadBySource: {}, sources: [] }
+  const recentEvents = recentInbox.rows
+  const unreadBySource = recentInbox.unreadBySource
+  const eventsError = !recentInbox.ok
 
   const rowBatch = recentEvents.map((e) => String(e.id)).join('.')
   const launcherUnreadCounts = mapUnreadCountsToLauncher(unreadBySource, launcher.featureIds)
@@ -361,14 +179,8 @@ export default async function HeimPage() {
 
           {readyCards.length > 0 && (
             <div className="flex flex-col gap-3 mb-4">
-              {readyCards.map(({ idea, href }) => {
-                const recentSource = idea.slug === 'lanad-og-skilad'
-                  ? 'loans'
-                  : idea.slug === 'utlagt-og-endurgreitt'
-                    ? 'expenses'
-                    : idea.slug === 'afmaeli-og-vidburdir'
-                      ? 'events'
-                      : null
+              {readyCards.map(({ featureId, idea, href }) => {
+                const recentSource = recentEventSourceForLauncherFeature(featureId)
                 const unreadCount = recentSource ? unreadBySource[recentSource] : undefined
                 const unreadBadge = unreadCount && unreadCount > 0 ? unreadCount : undefined
                 return (

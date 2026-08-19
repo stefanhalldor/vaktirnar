@@ -15,6 +15,7 @@ export interface RecentEventSourceAccess {
   loansEnabled: boolean
   expensesEnabled: boolean
   eventInvitationsEnabled: boolean
+  householdChoresInboxEnabled: boolean
   sources: RecentEventSource[]
 }
 
@@ -26,12 +27,17 @@ export interface RecentEventSourceAccess {
 export async function resolveRecentEventSourceAccess(
   user: Pick<User, 'id' | 'email'>,
 ): Promise<RecentEventSourceAccess> {
+  // Household consent/withdrawal notifications are exact-user RPC projections,
+  // not full feature content. They remain available independently from the
+  // global switch and per-user entitlement.
+  const householdChoresInboxEnabled = typeof user.id === 'string' && user.id.length > 0
   if (!user.email) {
     return {
       loansEnabled: false,
       expensesEnabled: false,
       eventInvitationsEnabled: false,
-      sources: [],
+      householdChoresInboxEnabled,
+      sources: householdChoresInboxEnabled ? ['heimilisverkin'] : [],
     }
   }
   const [loansResult, expensesResult, expenseMembershipResult] = await Promise.allSettled([
@@ -56,7 +62,14 @@ export async function resolveRecentEventSourceAccess(
   if (loansEnabled) sources.push('loans')
   if (expensesEnabled) sources.push('expenses')
   if (eventInvitationsEnabled) sources.push('events')
-  return { loansEnabled, expensesEnabled, eventInvitationsEnabled, sources }
+  if (householdChoresInboxEnabled) sources.push('heimilisverkin')
+  return {
+    loansEnabled,
+    expensesEnabled,
+    eventInvitationsEnabled,
+    householdChoresInboxEnabled,
+    sources,
+  }
 }
 
 const EVENT_INVITATION_PATH = '/auth-mvp/vidburdir/bod/thattaka'

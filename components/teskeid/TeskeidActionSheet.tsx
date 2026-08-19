@@ -2,7 +2,7 @@
 
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 
 export function TeskeidActionSheet({
   open,
@@ -12,21 +12,26 @@ export function TeskeidActionSheet({
   description,
   closeLabel,
   children,
+  onCloseAutoFocus,
 }: {
   open?: boolean
   onOpenChange?: (open: boolean) => void
-  trigger: ReactNode
+  trigger?: ReactNode
   title: ReactNode
   description: ReactNode
   closeLabel: string
   children: ReactNode
+  onCloseAutoFocus?: ComponentProps<typeof Dialog.Content>['onCloseAutoFocus']
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
+      {trigger ? <Dialog.Trigger asChild>{trigger}</Dialog.Trigger> : null}
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-background p-5 shadow-xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(28rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
+        <Dialog.Content
+          className="fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-background p-5 shadow-xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(28rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl"
+          onCloseAutoFocus={onCloseAutoFocus}
+        >
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <Dialog.Title className="break-words text-lg font-semibold">

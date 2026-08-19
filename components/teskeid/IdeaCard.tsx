@@ -8,6 +8,7 @@ import {
   Calendar,
   Clock,
   Lightbulb,
+  ListChecks,
   ArrowRight,
   type LucideIcon,
 } from 'lucide-react'
@@ -20,6 +21,8 @@ const SLUG_ICONS: Record<string, LucideIcon> = {
   'maki-kaero': Heart,
   'utlagt-og-endurgreitt': Wallet,
   'krakkavaktin': Baby,
+  'fyrsta-vakt-krakkanna': ListChecks,
+  'verkefnin': ListChecks,
 }
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {

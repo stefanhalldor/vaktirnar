@@ -2,6 +2,7 @@ import 'server-only'
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
+import { loadHouseholdChoreMemberships } from '@/lib/household-chores/repository.server'
 import { z } from 'zod'
 
 const patchSchema = z.object({
@@ -26,9 +27,12 @@ export async function GET() {
     .eq('id', user.id)
     .single()
 
-  const [facebookAllowed, tengslAllowed] = await Promise.all([
+  const [facebookAllowed, tengslAllowed, householdChoresMembershipAvailable] = await Promise.all([
     checkFeatureAccess(user.id, user.email, 'facebook-oauth'),
     checkFeatureAccess(user.id, user.email, 'tengsl'),
+    loadHouseholdChoreMemberships(user.id)
+      .then((view) => view.memberships.length > 0 || view.pendingInvitations.length > 0)
+      .catch(() => false),
   ])
   const facebookConnected = facebookAllowed
     ? (user.identities?.some((i) => i.provider === 'facebook') ?? false)
@@ -40,6 +44,7 @@ export async function GET() {
     facebook_oauth_allowed: facebookAllowed,
     facebook_connected: facebookConnected,
     tengsl_allowed: tengslAllowed,
+    household_chores_membership_available: householdChoresMembershipAvailable,
   })
 }
 

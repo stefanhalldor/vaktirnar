@@ -185,6 +185,16 @@ planað eða útfært skulu Codex og Claude Code meta sérstaklega:
   ósamræmdari eða erfiðari að þróa áfram
 - hvort ókeypis/einfaldari leið sé til sem heldur notendaupplifun góðri
 
+Sameiginleg samskipti skulu byggð sem canonical, domain-neutral primitive með
+þunnum feature-adapter. Primitive á að eiga samræmda framsetningu, focus,
+keyboard, loading, empty/error og mobile-hegðun; adapter á að leggja til
+feature-copy, örugg gögn, capability og mutation.
+
+Endurnýtt val á aðila jafngildir aldrei aðgangi. Destination-feature ákveður
+sjálft hvað valinn aðili má gera og mutation sem veitir aðgang skal alltaf
+vera server-authoritative. Aðgangur að source- eða parent-feature veitir ekki
+sjálfkrafa aðgang að öðru embedded/destination-feature.
+
 Við gefum ekki tæknilegan afslátt ef hann gerir upplifun notenda verri eða
 eykur rugling í vörunni. Við skoðum samt alltaf kostnaðarvinkilinn: forðumst
 óþarfa Google-, AI-, Supabase-, Vercel- eða aðra beinan kostnað, cache-um og

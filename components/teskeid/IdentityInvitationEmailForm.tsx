@@ -10,6 +10,7 @@ type IdentityInvitationEmailFormProps = {
   pendingLabel: string
   cancelLabel: string
   isPending: boolean
+  submitDisabled?: boolean
   onChange: (value: string) => void
   onSubmit: () => void
   onCancel: () => void
@@ -24,6 +25,7 @@ export function IdentityInvitationEmailForm({
   pendingLabel,
   cancelLabel,
   isPending,
+  submitDisabled = false,
   onChange,
   onSubmit,
   onCancel,
@@ -66,7 +68,7 @@ export function IdentityInvitationEmailForm({
           type="submit"
           variant="primary"
           className="flex-1"
-          disabled={isPending || !value.trim()}
+          disabled={isPending || submitDisabled || !value.trim()}
           pending={isPending}
         >
           {isPending ? pendingLabel : submitLabel}
