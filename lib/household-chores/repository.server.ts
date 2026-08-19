@@ -486,8 +486,8 @@ const definitionDetailSchema = z.object({
   definition: z.object({
     definition_id: uuidSchema,
     title: definitionTitleSchema,
-    description: definitionDescriptionSchema,
-    materials: definitionMaterialsSchema,
+    description: definitionDescriptionSchema.optional(),
+    materials: definitionMaterialsSchema.optional(),
     status: resourceStatusSchema,
     version: versionSchema,
     cadence_days: cadenceDaysSchema.nullable().optional(),
@@ -1169,8 +1169,8 @@ export async function loadHouseholdChoreDefinitionDetail(
     definition: {
       definitionId: value.definition.definition_id,
       title: value.definition.title,
-      description: value.definition.description,
-      materials: value.definition.materials,
+      description: value.definition.description ?? null,
+      materials: value.definition.materials ?? null,
       status: value.definition.status,
       version: value.definition.version,
       cadenceDays: value.definition.cadence_days ?? null,

@@ -319,6 +319,29 @@ describe('Household Chores read repository', () => {
     })
   })
 
+  it('normalizes nullable definition fields omitted by jsonb_strip_nulls', async () => {
+    mockRpc.mockResolvedValue(readEnvelope('get_definition_detail_v2_loaded', {
+      definition: {
+        definition_id: DEFINITION,
+        title: 'Ryksuga',
+        status: 'active',
+        version: '5',
+        completion_scope: 'global',
+      },
+      participant_values: [],
+    }))
+
+    await expect(repository.loadHouseholdChoreDefinitionDetail(
+      ACTOR, CIRCLE, DEFINITION,
+    )).resolves.toMatchObject({
+      definition: {
+        description: null,
+        materials: null,
+        cadenceDays: null,
+      },
+    })
+  })
+
   it('rejects an inconsistent missing participant-value row', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     mockRpc.mockResolvedValue(readEnvelope('get_definition_detail_v2_loaded', {
