@@ -72,32 +72,16 @@ export async function sendEventAttendanceInvitationEmail(
 
   const safe = (value: string) => escapeHtml(preventAutoLink(value))
   const inviter = context.inviterDisplayName ?? EMAIL_V1_COPY.unknownInviter
-  const guest = context.guestDisplayName ?? EMAIL_V1_COPY.unknownGuest
-  const identityHtml = context.invitationKind === 'identity_and_access'
-    ? `<p>${safe(EMAIL_V1_COPY.identityNotice)}</p>`
-    : ''
-  const identityText = context.invitationKind === 'identity_and_access'
-    ? ['', preventAutoLink(EMAIL_V1_COPY.identityNotice)]
-    : []
   const html = [
-    `<p>${safe(EMAIL_V1_COPY.intro)}</p>`,
-    `<p><strong>${safe(EMAIL_V1_COPY.eventLabel)}:</strong> ${safe(context.eventName)}<br><strong>${safe(EMAIL_V1_COPY.guestLabel)}:</strong> ${safe(guest)}<br><strong>${safe(EMAIL_V1_COPY.fromLabel)}:</strong> ${safe(inviter)}</p>`,
+    `<p><strong>${safe(EMAIL_V1_COPY.eventLabel)}:</strong> ${safe(context.eventName)}<br><strong>${safe(EMAIL_V1_COPY.fromLabel)}:</strong> ${safe(inviter)}</p>`,
     `<p>${safe(EMAIL_V1_COPY.instructions)}</p>`,
-    identityHtml,
-    `<p>${safe(EMAIL_V1_COPY.privacyNotice)}</p>`,
     `<p>${safe(EMAIL_V1_COPY.tagline)}</p>`,
-  ].filter(Boolean).join('\n')
+  ].join('\n')
   const text = [
-    preventAutoLink(EMAIL_V1_COPY.intro),
-    '',
     `${preventAutoLink(EMAIL_V1_COPY.eventLabel)}: ${preventAutoLink(context.eventName)}`,
-    `${preventAutoLink(EMAIL_V1_COPY.guestLabel)}: ${preventAutoLink(guest)}`,
     `${preventAutoLink(EMAIL_V1_COPY.fromLabel)}: ${preventAutoLink(inviter)}`,
     '',
     preventAutoLink(EMAIL_V1_COPY.instructions),
-    ...identityText,
-    '',
-    preventAutoLink(EMAIL_V1_COPY.privacyNotice),
     '',
     preventAutoLink(EMAIL_V1_COPY.tagline),
   ].join('\n')

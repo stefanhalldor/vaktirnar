@@ -1,9 +1,9 @@
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
-  HouseholdChoreAssignmentDetailView,
   HouseholdChoreMemberCircleView,
 } from '@/lib/household-chores/contracts'
+import type { HouseholdChoreV2AssignmentDetail } from '@/lib/household-chores/contracts-v2'
 
 const mocks = vi.hoisted(() => ({
   guard: vi.fn(),
@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   loadCircle: vi.fn(),
   loadDefinition: vi.fn(),
   loadTimeline: vi.fn(),
+  loadAssignmentV2: vi.fn(),
+  loadDefinitionV3: vi.fn(),
+  loadPriorityV2: vi.fn(),
+  loadTimelineV2: vi.fn(),
   noStore: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error('NOT_FOUND')
@@ -45,8 +49,22 @@ vi.mock('@/lib/household-chores/repository.server', () => ({
   loadHouseholdChoreCircle: mocks.loadCircle,
   loadHouseholdChoreDefinitionDetail: mocks.loadDefinition,
 }))
-vi.mock('@/components/household-chores/ChoreAssignmentDetail', () => ({
-  ChoreAssignmentDetail: () => null,
+vi.mock('@/lib/household-chores/repository-v2.server', () => ({
+  HouseholdChoreV2RepositoryError: class HouseholdChoreV2RepositoryError extends Error {
+    code: string
+
+    constructor(code: string) {
+      super(code)
+      this.code = code
+    }
+  },
+  loadHouseholdChoreAssignmentV2: mocks.loadAssignmentV2,
+  loadHouseholdChoreAssignmentTimelineV2: mocks.loadTimelineV2,
+  loadHouseholdChoreDefinitionDetailV3: mocks.loadDefinitionV3,
+  loadHouseholdChorePriorityDashboardV2: mocks.loadPriorityV2,
+}))
+vi.mock('@/components/household-chores/ChoreAssignmentDetailV2', () => ({
+  ChoreAssignmentDetailV2: () => null,
 }))
 vi.mock('@/components/household-chores/ChoreAssignmentForm', () => ({
   ChoreAssignmentForm: () => null,
@@ -58,7 +76,7 @@ vi.mock('@/app/auth-mvp/verkefnin/HouseholdChoreShell', () => ({
 import HouseholdChoreAssignmentPage from '@/app/auth-mvp/verkefnin/(content)/[circleId]/framkvaemdir/[assignmentId]/page'
 import HouseholdChoreAssignPage from '@/app/auth-mvp/verkefnin/(content)/[circleId]/utdeila/page'
 import type { ChoreAssignmentActionState } from '@/components/household-chores/ChoreAssignmentActions'
-import type { ChoreAssignmentDisplay } from '@/components/household-chores/ChoreAssignmentDetail'
+import type { ChoreAssignmentDateActionState } from '@/components/household-chores/ChoreAssignmentDateActions'
 
 const CIRCLE_ID = '10000000-0000-4000-8000-000000000001'
 const USER_ID = '20000000-0000-4000-8000-000000000001'
@@ -79,7 +97,10 @@ const baseAssignment = {
   status: 'open' as const,
   createdAt: '2026-08-18T01:00:00.000Z',
   completedAt: null,
+  performedOn: null,
+  recordedAt: null,
   cancelledAt: null,
+  canCorrectDate: false,
 }
 
 const memberCircle: HouseholdChoreMemberCircleView = {
@@ -121,12 +142,14 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.guard.mockResolvedValue({ user: { id: USER_ID } })
   mocks.loadTimeline.mockResolvedValue({ items: [], hasMore: false, nextCursor: null })
+  mocks.loadPriorityV2.mockResolvedValue({ serverToday: '2026-08-19' })
 })
 
 function assignmentChild(
   page: React.ReactElement<{ children: React.ReactElement<{
-    assignment: ChoreAssignmentDisplay
-    actionState: ChoreAssignmentActionState | null
+    detail: HouseholdChoreV2AssignmentDetail
+    dateActionState: ChoreAssignmentDateActionState | null
+    legacyActionState: ChoreAssignmentActionState | null
   }> }>,
 ) {
   return page.props.children
@@ -134,7 +157,7 @@ function assignmentChild(
 
 describe('Household Chores assignment route capabilities', () => {
   it('maps a full member viewing an open assignment to member controls', async () => {
-    const detail: HouseholdChoreAssignmentDetailView = {
+    const detail: HouseholdChoreV2AssignmentDetail = {
       viewerType: 'member',
       assignment: {
         ...baseAssignment,
@@ -143,106 +166,128 @@ describe('Household Chores assignment route capabilities', () => {
         participantId: PARTICIPANT_ID,
         completionSequence: 0,
         version: '6',
+        recorderLabel: null,
       },
-      timelinePreview: [],
+      timeline: { items: [], hasMore: false, nextCursor: null },
     }
-    mocks.loadAssignment.mockResolvedValue(detail)
+    mocks.loadAssignmentV2.mockResolvedValue(detail)
 
     const page = await HouseholdChoreAssignmentPage({
       params: Promise.resolve({ circleId: CIRCLE_ID, assignmentId: ASSIGNMENT_ID }),
       searchParams: Promise.resolve({}),
     }) as React.ReactElement<{ children: React.ReactElement<{
-      assignment: ChoreAssignmentDisplay
-      actionState: ChoreAssignmentActionState | null
+      detail: HouseholdChoreV2AssignmentDetail
+      dateActionState: ChoreAssignmentDateActionState | null
+      legacyActionState: ChoreAssignmentActionState | null
     }> }>
     const child = assignmentChild(page)
 
-    expect(child.props.actionState).toEqual({
+    expect(child.props.dateActionState).toEqual({
       circleId: CIRCLE_ID,
       assignmentId: ASSIGNMENT_ID,
       version: '6',
+      serverToday: '2026-08-19',
+      minimumPerformedOn: '2026-08-18',
       canComplete: true,
+      correction: null,
+    })
+    expect(child.props.legacyActionState).toEqual({
+      circleId: CIRCLE_ID,
+      assignmentId: ASSIGNMENT_ID,
+      version: '6',
+      canComplete: false,
       canCancelAsMember: true,
       canCancelOwn: false,
       canUndo: false,
       repeatContext: null,
     })
-    expect(child.props.assignment).not.toHaveProperty('circleId')
-    expect(child.props.assignment).not.toHaveProperty('definitionId')
-    expect(child.props.assignment).not.toHaveProperty('participantId')
-    expect(child.props.assignment).not.toHaveProperty('version')
-    expect(mocks.loadDefinition).not.toHaveBeenCalled()
+    expect(child.props.detail).toBe(detail)
+    expect(mocks.loadDefinitionV3).not.toHaveBeenCalled()
   })
 
   it('maps a child only to exact-own open capabilities without member-only controls', async () => {
-    const detail: HouseholdChoreAssignmentDetailView = {
+    const detail: HouseholdChoreV2AssignmentDetail = {
       viewerType: 'child',
       assignment: {
         ...baseAssignment,
         ownAssignment: true,
+        completionSequence: null,
         version: '6',
         canComplete: true,
         canCancel: true,
       },
-      timelinePreview: [],
+      timeline: { items: [], hasMore: false, nextCursor: null },
     }
-    mocks.loadAssignment.mockResolvedValue(detail)
+    mocks.loadAssignmentV2.mockResolvedValue(detail)
 
     const page = await HouseholdChoreAssignmentPage({
       params: Promise.resolve({ circleId: CIRCLE_ID, assignmentId: ASSIGNMENT_ID }),
       searchParams: Promise.resolve({}),
     }) as React.ReactElement<{ children: React.ReactElement<{
-      assignment: ChoreAssignmentDisplay
-      actionState: ChoreAssignmentActionState | null
+      detail: HouseholdChoreV2AssignmentDetail
+      dateActionState: ChoreAssignmentDateActionState | null
+      legacyActionState: ChoreAssignmentActionState | null
     }> }>
     const child = assignmentChild(page)
 
-    expect(child.props.actionState).toEqual({
+    expect(child.props.dateActionState).toEqual({
       circleId: CIRCLE_ID,
       assignmentId: ASSIGNMENT_ID,
       version: '6',
+      serverToday: '2026-08-19',
+      minimumPerformedOn: '2026-08-18',
       canComplete: true,
+      correction: null,
+    })
+    expect(child.props.legacyActionState).toEqual({
+      circleId: CIRCLE_ID,
+      assignmentId: ASSIGNMENT_ID,
+      version: '6',
+      canComplete: false,
       canCancelAsMember: false,
       canCancelOwn: true,
       canUndo: false,
       repeatContext: null,
     })
-    expect(child.props.assignment).toEqual(expect.objectContaining({
+    expect(child.props.detail.assignment).toEqual(expect.objectContaining({
       title: 'Ryksuga',
       participantLabel: 'Aron',
       status: 'open',
     }))
-    expect(child.props.assignment).not.toHaveProperty('ownAssignment')
-    expect(child.props.assignment).not.toHaveProperty('version')
-    expect(child.props.assignment).not.toHaveProperty('canComplete')
-    expect(child.props.assignment).not.toHaveProperty('canCancel')
-    expect(mocks.loadDefinition).not.toHaveBeenCalled()
+    expect(mocks.loadDefinitionV3).not.toHaveBeenCalled()
   })
 
   it('renders no mutation controls for a child without exact-own authority', async () => {
-    const detail: HouseholdChoreAssignmentDetailView = {
+    const detail: HouseholdChoreV2AssignmentDetail = {
       viewerType: 'child',
       assignment: {
         ...baseAssignment,
+        status: 'completed',
+        performedOn: '2026-08-17',
+        recordedAt: '2026-08-18T12:00:00.000Z',
+        completedAt: '2026-08-18T12:00:00.000Z',
         participantLabel: 'Bjarni',
-        ownAssignment: false,
+        ownAssignment: true,
+        completionSequence: null,
         version: null,
         canComplete: false,
         canCancel: false,
       },
-      timelinePreview: [],
+      timeline: { items: [], hasMore: false, nextCursor: null },
     }
-    mocks.loadAssignment.mockResolvedValue(detail)
+    mocks.loadAssignmentV2.mockResolvedValue(detail)
 
     const page = await HouseholdChoreAssignmentPage({
       params: Promise.resolve({ circleId: CIRCLE_ID, assignmentId: ASSIGNMENT_ID }),
       searchParams: Promise.resolve({}),
     }) as React.ReactElement<{ children: React.ReactElement<{
-      assignment: ChoreAssignmentDisplay
-      actionState: ChoreAssignmentActionState | null
+      detail: HouseholdChoreV2AssignmentDetail
+      dateActionState: ChoreAssignmentDateActionState | null
+      legacyActionState: ChoreAssignmentActionState | null
     }> }>
 
-    expect(assignmentChild(page).props.actionState).toBeNull()
+    expect(assignmentChild(page).props.dateActionState).toBeNull()
+    expect(assignmentChild(page).props.legacyActionState).toBeNull()
   })
 })
 

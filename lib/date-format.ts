@@ -1,4 +1,12 @@
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+const ICELANDIC_MONTHS = [
+  'janúar', 'febrúar', 'mars', 'apríl', 'maí', 'júní',
+  'júlí', 'ágúst', 'september', 'október', 'nóvember', 'desember',
+] as const
+const ENGLISH_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const
 
 export function normalizeDisplayLocale(locale: string): string {
   const normalized = locale.trim().toLowerCase()
@@ -31,15 +39,22 @@ export function formatDateOnly(
     return ''
   }
 
-  return new Intl.DateTimeFormat(normalizeDisplayLocale(locale), {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(date)
+  const displayLocale = normalizeDisplayLocale(locale)
+  const monthName = displayLocale === 'is-IS'
+    ? ICELANDIC_MONTHS[month - 1]
+    : ENGLISH_MONTHS[month - 1]
+  return displayLocale === 'is-IS'
+    ? `${day}. ${monthName} ${year}`
+    : `${day} ${monthName} ${year}`
 }
 
-/** Formats an instant consistently in Teskeið's Iceland time zone. */
+/**
+ * Formats an instant consistently in Teskeið's Iceland time zone.
+ *
+ * Only numeric calendar parts come from Intl. Month names and ordering are
+ * deterministic so Node and browsers with different ICU locale data cannot
+ * produce a React hydration mismatch for the same locale and instant.
+ */
 export function formatDateTime(
   value: string | Date | null | undefined,
   locale: string,
@@ -47,9 +62,21 @@ export function formatDateTime(
   if (!value) return ''
   const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat(normalizeDisplayLocale(locale), {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+  const parts = new Intl.DateTimeFormat('en-CA-u-ca-gregory-nu-latn', {
     timeZone: 'Atlantic/Reykjavik',
-  }).format(date)
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const part = (type: Intl.DateTimeFormatPartTypes) => (
+    parts.find(item => item.type === type)?.value ?? ''
+  )
+  const dateOnly = `${part('year')}-${part('month')}-${part('day')}`
+  const formattedDate = formatDateOnly(dateOnly, locale)
+  const hour = part('hour')
+  const minute = part('minute')
+  return formattedDate && hour && minute ? `${formattedDate}, ${hour}:${minute}` : ''
 }

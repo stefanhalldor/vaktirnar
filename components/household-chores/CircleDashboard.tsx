@@ -4,8 +4,8 @@ import { getTranslations } from 'next-intl/server'
 import {
   TASKS_PATH,
   type HouseholdChoreCircleView,
-  type HouseholdChorePriorityDashboardView,
 } from '@/lib/household-chores/contracts'
+import type { HouseholdChoreV2PriorityDashboard } from '@/lib/household-chores/contracts-v2'
 import {
   householdChoreAssignPath,
   householdChoreAssignmentPath,
@@ -30,7 +30,7 @@ export async function CircleDashboard({
 }: {
   circleId: string
   view: HouseholdChoreCircleView
-  priorityView: HouseholdChorePriorityDashboardView
+  priorityView: HouseholdChoreV2PriorityDashboard
 }) {
   const t = await getTranslations('teskeid.householdChores')
 
@@ -72,11 +72,7 @@ export async function CircleDashboard({
         )}
       </section>
 
-      <PrioritizedTaskList
-        circleId={circleId}
-        view={priorityView}
-        initialNow={new Date().toISOString()}
-      />
+      <PrioritizedTaskList circleId={circleId} view={priorityView} />
 
       <section aria-labelledby="household-recent-heading">
         <h2 id="household-recent-heading" className="mb-2 text-sm font-semibold">

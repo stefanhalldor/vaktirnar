@@ -25,8 +25,8 @@ describe('date-only display formatting', () => {
 
 describe('formatDateTime', () => {
   it('uses the requested display locale in Iceland time', () => {
-    expect(formatDateTime('2026-08-04T13:05:00Z', 'is')).toContain('13:05')
-    expect(formatDateTime('2026-08-04T13:05:00Z', 'en')).toContain('13:05')
+    expect(formatDateTime('2026-08-04T13:05:00Z', 'is')).toBe('4. ágúst 2026, 13:05')
+    expect(formatDateTime('2026-08-04T13:05:00Z', 'en')).toBe('4 August 2026, 13:05')
   })
 
   it('fails closed for invalid values', () => {

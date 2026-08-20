@@ -2,12 +2,10 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { unstable_noStore as noStore } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
-import { ChoreHistoryList } from '@/components/household-chores/ChoreHistoryList'
+import { ChoreDefinitionStatusV2 } from '@/components/household-chores/ChoreDefinitionStatusV2'
+import { ChoreHistoryListV2 } from '@/components/household-chores/ChoreHistoryListV2'
 import { ParticipantValueEditor } from '@/components/household-chores/ParticipantValueEditor'
-import type {
-  HouseholdChoreDefinitionDetailView,
-  HouseholdChoreSafeDefinition,
-} from '@/lib/household-chores/contracts'
+import type { HouseholdChoreDefinitionDetailView } from '@/lib/household-chores/contracts'
 import { guardHouseholdChoreAccess } from '@/lib/household-chores/guard'
 import {
   householdChoreDefinitionPath,
@@ -15,10 +13,13 @@ import {
   householdChoreEditDefinitionPath,
 } from '@/lib/household-chores/paths'
 import {
+  HouseholdChoreV2RepositoryError,
+  loadHouseholdChoreDefinitionDetailV3,
+  loadHouseholdChoreDefinitionHistoryV2,
+} from '@/lib/household-chores/repository-v2.server'
+import {
   HouseholdChoreRepositoryError,
-  loadHouseholdChoreCircle,
   loadHouseholdChoreDefinitionDetail,
-  loadHouseholdChoreDefinitionHistory,
 } from '@/lib/household-chores/repository.server'
 import { HouseholdChoreShell } from '../../../../HouseholdChoreShell'
 
@@ -43,39 +44,39 @@ export default async function HouseholdChoreDefinitionPage({
     ? { occurredAt: query.cursorAt, eventId: query.cursorId }
     : null
 
-  let circle
-  let history
+  let detail
   try {
-    ;[circle, history] = await Promise.all([
-      loadHouseholdChoreCircle(user.id, circleId),
-      loadHouseholdChoreDefinitionHistory(user.id, circleId, definitionId, {
-        cursor,
-        limit: 20,
-      }),
-    ])
+    detail = await loadHouseholdChoreDefinitionDetailV3(user.id, circleId, definitionId)
   } catch (error) {
-    if (error instanceof HouseholdChoreRepositoryError
+    if (error instanceof HouseholdChoreV2RepositoryError
       && (error.code === 'not_found' || error.code === 'not_allowed')) notFound()
     throw error
   }
 
-  let definition: HouseholdChoreSafeDefinition
-  let memberDetail: HouseholdChoreDefinitionDetailView | null = null
-  if (circle.viewerType === 'member') {
-    try {
-      memberDetail = await loadHouseholdChoreDefinitionDetail(user.id, circleId, definitionId)
-      definition = memberDetail.definition
-    } catch (error) {
-      if (error instanceof HouseholdChoreRepositoryError
-        && (error.code === 'not_found' || error.code === 'not_allowed')) notFound()
-      throw error
-    }
-  } else {
-    const safeDefinition = circle.definitions.find((item) => item.definitionId === definitionId)
-    if (!safeDefinition) notFound()
-    definition = safeDefinition
+  let history = detail.history
+  let legacyMemberDetail: HouseholdChoreDefinitionDetailView | null = null
+  try {
+    const [pagedHistory, legacyDetail] = await Promise.all([
+      cursor
+        ? loadHouseholdChoreDefinitionHistoryV2(user.id, circleId, definitionId, {
+            cursor,
+            limit: 20,
+          })
+        : Promise.resolve(detail.history),
+      detail.viewerType === 'member'
+        ? loadHouseholdChoreDefinitionDetail(user.id, circleId, definitionId)
+        : Promise.resolve(null),
+    ])
+    history = pagedHistory
+    legacyMemberDetail = legacyDetail
+  } catch (error) {
+    if ((error instanceof HouseholdChoreV2RepositoryError
+      || error instanceof HouseholdChoreRepositoryError)
+      && (error.code === 'not_found' || error.code === 'not_allowed')) notFound()
+    throw error
   }
 
+  const definition = detail.definition
   const nextHref = history.nextCursor
     ? `${householdChoreDefinitionPath(circleId, definitionId)}?cursorAt=${encodeURIComponent(history.nextCursor.occurredAt)}&cursorId=${history.nextCursor.eventId}`
     : null
@@ -92,20 +93,16 @@ export default async function HouseholdChoreDefinitionPage({
           {definition.description ? (
             <div>
               <h2 className="text-sm font-semibold">{t('definition.description')}</h2>
-              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
-                {definition.description}
-              </p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{definition.description}</p>
             </div>
           ) : null}
           {definition.materials ? (
             <div>
               <h2 className="text-sm font-semibold">{t('definition.materials')}</h2>
-              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
-                {definition.materials}
-              </p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{definition.materials}</p>
             </div>
           ) : null}
-          {memberDetail ? (
+          {detail.viewerType === 'member' ? (
             <Link
               href={householdChoreEditDefinitionPath(circleId, definitionId)}
               className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -115,20 +112,20 @@ export default async function HouseholdChoreDefinitionPage({
           ) : null}
         </section>
 
-        {memberDetail ? (
+        <ChoreDefinitionStatusV2 circleId={circleId} detail={detail} />
+
+        {detail.viewerType === 'member' && legacyMemberDetail ? (
           <ParticipantValueEditor
             circleId={circleId}
             definitionId={definitionId}
-            definitionVersion={memberDetail.definition.version}
-            values={memberDetail.participantValues}
+            definitionVersion={detail.definition.version}
+            values={legacyMemberDetail.participantValues}
           />
         ) : null}
 
         <section aria-labelledby="definition-history-heading">
-          <h2 id="definition-history-heading" className="mb-2 text-sm font-semibold">
-            {t('history.definitionHeading')}
-          </h2>
-          <ChoreHistoryList circleId={circleId} page={history} nextHref={nextHref} />
+          <h2 id="definition-history-heading" className="mb-2 text-sm font-semibold">{t('history.definitionHeading')}</h2>
+          <ChoreHistoryListV2 circleId={circleId} page={history} nextHref={nextHref} />
         </section>
       </div>
     </HouseholdChoreShell>

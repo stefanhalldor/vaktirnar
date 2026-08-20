@@ -52,17 +52,19 @@ describe('event attendance email', () => {
       idempotencyKey: `event-attendance/v1/${INVITATION_ID}/2`,
     })
     expect(payload.html).toContain('&lt;img')
-    expect(payload.html).toContain('&lt;script&gt;')
+    expect(payload.html).not.toContain('Anna')
     expect(payload.html).not.toContain('<script>')
     expect(payload.html).not.toContain('href=')
     expect(payload.html).not.toContain('https://')
     expect(payload.text).not.toContain('https://')
+    expect(payload.html).not.toContain('Teskeið.is')
+    expect(payload.text).not.toContain('Teskeið.is')
     expect(payload.html).not.toContain(INVITATION_ID)
     expect(payload.text).not.toContain(INVITATION_ID)
     expect(payload.text).toContain('Ólesið')
   })
 
-  it('uses localized nullable guest and inviter fallbacks without SQL literals', async () => {
+  it('uses the localized inviter fallback without exposing the guest identity', async () => {
     await sendEventAttendanceInvitationEmail(
       RECIPIENT,
       INVITATION_ID,
@@ -76,8 +78,9 @@ describe('event attendance email', () => {
       },
     )
     const payload = mockProviderSend.mock.calls[0]![0]
-    expect(payload.text).toContain('Gestanafn: Gestur')
     expect(payload.text).toContain('Boð frá: Teskeiðarnotanda')
+    expect(payload.text).not.toContain('Gestanafn')
+    expect(payload.text).not.toContain('Gestur')
     expect(payload.text).not.toContain('undefined')
     expect(payload.text).not.toContain('null')
   })

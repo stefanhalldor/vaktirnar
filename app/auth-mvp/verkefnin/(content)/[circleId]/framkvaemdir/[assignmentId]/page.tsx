@@ -1,20 +1,25 @@
 import { notFound } from 'next/navigation'
 import { unstable_noStore as noStore } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
-import { ChoreAssignmentDetail } from '@/components/household-chores/ChoreAssignmentDetail'
+import { ChoreAssignmentDetailV2 } from '@/components/household-chores/ChoreAssignmentDetailV2'
 import type { ChoreAssignmentActionState } from '@/components/household-chores/ChoreAssignmentActions'
+import type { ChoreAssignmentDateActionState } from '@/components/household-chores/ChoreAssignmentDateActions'
 import { guardHouseholdChoreAccess } from '@/lib/household-chores/guard'
 import {
   householdChoreAssignmentPath,
   householdChoreCirclePath,
 } from '@/lib/household-chores/paths'
+import { reykjavikDateOnlyFromInstant } from '@/lib/household-chores/priority-v2'
 import {
-  HouseholdChoreRepositoryError,
-  loadHouseholdChoreAssignment,
-  loadHouseholdChoreAssignmentTimeline,
-  loadHouseholdChoreDefinitionDetail,
-} from '@/lib/household-chores/repository.server'
+  HouseholdChoreV2RepositoryError,
+  loadHouseholdChoreAssignmentTimelineV2,
+  loadHouseholdChoreAssignmentV2,
+  loadHouseholdChoreDefinitionDetailV3,
+  loadHouseholdChorePriorityDashboardV2,
+} from '@/lib/household-chores/repository-v2.server'
 import { HouseholdChoreShell } from '../../../../HouseholdChoreShell'
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export default async function HouseholdChoreAssignmentPage({
   params,
@@ -31,87 +36,119 @@ export default async function HouseholdChoreAssignmentPage({
     getTranslations('teskeid.householdChores'),
   ])
   const cursor = query.cursorAt && query.cursorId
-    && Number.isFinite(Date.parse(query.cursorAt))
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(query.cursorId)
+    && Number.isFinite(Date.parse(query.cursorAt)) && UUID.test(query.cursorId)
     ? { occurredAt: query.cursorAt, eventId: query.cursorId }
     : null
 
   let detail
-  let timeline
+  let dashboard
   try {
-    ;[detail, timeline] = await Promise.all([
-      loadHouseholdChoreAssignment(user.id, circleId, assignmentId),
-      loadHouseholdChoreAssignmentTimeline(user.id, circleId, assignmentId, {
-        cursor,
-        limit: 20,
-      }),
+    ;[detail, dashboard] = await Promise.all([
+      loadHouseholdChoreAssignmentV2(user.id, circleId, assignmentId),
+      loadHouseholdChorePriorityDashboardV2(user.id, circleId),
     ])
   } catch (error) {
-    if (error instanceof HouseholdChoreRepositoryError
-      && (error.code === 'not_found' || error.code === 'not_allowed')) {
-      notFound()
-    }
+    if (error instanceof HouseholdChoreV2RepositoryError
+      && (error.code === 'not_found' || error.code === 'not_allowed')) notFound()
     throw error
   }
 
+  let timeline = detail.timeline
+  if (cursor) {
+    try {
+      timeline = await loadHouseholdChoreAssignmentTimelineV2(user.id, circleId, assignmentId, {
+        cursor,
+        limit: 20,
+      })
+    } catch (error) {
+      if (error instanceof HouseholdChoreV2RepositoryError
+        && (error.code === 'not_found' || error.code === 'not_allowed')) notFound()
+      throw error
+    }
+  }
+
+  const assignment = detail.assignment
   const nextTimelineHref = timeline.nextCursor
     ? `${householdChoreAssignmentPath(circleId, assignmentId)}?cursorAt=${encodeURIComponent(timeline.nextCursor.occurredAt)}&cursorId=${timeline.nextCursor.eventId}`
     : null
 
-  const assignment = detail.assignment
   let repeatContext: ChoreAssignmentActionState['repeatContext'] = null
-  if (detail.viewerType === 'member' && detail.assignment.status !== 'open') {
+  if (detail.viewerType === 'member' && assignment.status !== 'open') {
+    const memberAssignment = detail.assignment
     try {
-      const definition = await loadHouseholdChoreDefinitionDetail(
+      const definition = await loadHouseholdChoreDefinitionDetailV3(
         user.id,
         circleId,
-        detail.assignment.definitionId,
+        memberAssignment.definitionId,
       )
-      const value = definition.participantValues.find(
-        (item) => item.participantId === detail.assignment.participantId,
-      )
-      if (definition.definition.status === 'active'
-        && value?.participantStatus === 'active'
-        && value.valueStatus === 'active'
-        && value.valueVersion !== '0') {
-        repeatContext = {
-          definitionVersion: definition.definition.version,
-          valueVersion: value.valueVersion,
+      if (definition.viewerType === 'member') {
+        const value = definition.definition.participantStates.find(
+          item => item.participantId === memberAssignment.participantId,
+        )
+        if (value) {
+          repeatContext = {
+            definitionVersion: definition.definition.version,
+            valueVersion: value.valueVersion,
+          }
         }
       }
     } catch (error) {
-      if (!(error instanceof HouseholdChoreRepositoryError
-        && (error.code === 'not_found' || error.code === 'not_allowed'))) {
-        throw error
-      }
+      if (!(error instanceof HouseholdChoreV2RepositoryError
+        && (error.code === 'not_found' || error.code === 'not_allowed'))) throw error
     }
   }
 
-  let actionState: ChoreAssignmentActionState | null = null
+  let legacyActionState: ChoreAssignmentActionState | null = null
   if (detail.viewerType === 'member') {
-    actionState = {
-        circleId,
-        assignmentId,
-        version: detail.assignment.version,
-        canComplete: detail.assignment.status === 'open',
-        canCancelAsMember: detail.assignment.status === 'open',
-        canCancelOwn: false,
-        canUndo: detail.assignment.status === 'completed',
-        repeatContext,
-      }
-  } else if (detail.assignment.version !== null
-    && (detail.assignment.canComplete || detail.assignment.canCancel)) {
-    actionState = {
+    const memberAssignment = detail.assignment
+    legacyActionState = {
+      circleId,
+      assignmentId,
+      version: memberAssignment.version,
+      canComplete: false,
+      canCancelAsMember: memberAssignment.status === 'open',
+      canCancelOwn: false,
+      canUndo: memberAssignment.status === 'completed',
+      repeatContext,
+    }
+  } else if (detail.assignment.version !== null && detail.assignment.canCancel) {
+    legacyActionState = {
       circleId,
       assignmentId,
       version: detail.assignment.version,
-      canComplete: detail.assignment.canComplete,
+      canComplete: false,
       canCancelAsMember: false,
-      canCancelOwn: detail.assignment.canCancel,
+      canCancelOwn: true,
       canUndo: false,
       repeatContext: null,
     }
   }
+
+  const version = detail.assignment.version
+  const completionSequence = detail.assignment.completionSequence
+  const canComplete = detail.viewerType === 'member'
+    ? detail.assignment.status === 'open'
+    : detail.assignment.canComplete
+  const correction = assignment.canCorrectDate
+    && assignment.performedOn !== null
+    && version !== null
+    && completionSequence !== null
+    ? { completionSequence, performedOn: assignment.performedOn }
+    : null
+  const dateActionState: ChoreAssignmentDateActionState | null = version !== null
+    && (canComplete || correction !== null)
+    ? {
+        circleId,
+        assignmentId,
+        version,
+        serverToday: dashboard.serverToday,
+        ...(assignment.origin === 'quick_completed'
+          ? {}
+          : { minimumPerformedOn: reykjavikDateOnlyFromInstant(assignment.createdAt) }),
+        canComplete,
+        correction,
+      }
+    : null
 
   return (
     <HouseholdChoreShell
@@ -120,23 +157,13 @@ export default async function HouseholdChoreAssignmentPage({
       backHref={householdChoreCirclePath(circleId)}
       backLabel={t('common.back')}
     >
-      <ChoreAssignmentDetail
+      <ChoreAssignmentDetailV2
         circleId={circleId}
-        assignment={{
-          title: assignment.title,
-          description: assignment.description,
-          materials: assignment.materials,
-          participantLabel: assignment.participantLabel,
-          participantIdentityMarker: assignment.participantIdentityMarker,
-          points: assignment.points,
-          status: assignment.status,
-          createdAt: assignment.createdAt,
-          completedAt: assignment.completedAt,
-          cancelledAt: assignment.cancelledAt,
-        }}
+        detail={detail}
         timeline={timeline}
         nextTimelineHref={nextTimelineHref}
-        actionState={actionState}
+        dateActionState={dateActionState}
+        legacyActionState={legacyActionState}
       />
     </HouseholdChoreShell>
   )

@@ -687,7 +687,14 @@
           "choosePerformer": "Choose who completed it",
           "choosePerformerTitle": "Who completed “{task}”?",
           "choosePerformerDescription": "Choose the participant who did the work. The points are recorded for that person.",
-          "completedAnnouncement": "{task} recorded as completed by {name}.",
+          "completeAria": "Record {task} as completed",
+          "completedAnnouncement": "Recorded for {name} · worked {date}",
+          "remainingNames": "Remaining for: {names}",
+          "remainingCount": "{count, plural, one {Remaining for #} other {Remaining for #}}",
+          "everyoneDone": "Everyone done",
+          "remainingForYou": "Remaining for you",
+          "doneForYou": "Done for you",
+          "latestGlobal": "Latest: {name} · {date}",
           "noCadence": "Frequency not set",
           "setCadence": "Set frequency",
           "dueToday": "Due today",
@@ -699,6 +706,19 @@
           },
           "openAssignments": "{count, plural, one {# open assignment} other {# open assignments}}"
         }
+      },
+      "performedDate": {
+        "context": "Worked: {date}",
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "todayInline": "today",
+        "yesterdayInline": "yesterday",
+        "chooseDate": "Choose date",
+        "dateLabel": "Date worked",
+        "sheetTitle": "When was the task completed?",
+        "sheetDescription": "This date controls prioritization. The recorded time is preserved automatically.",
+        "useDate": "Use date",
+        "resetToday": "Reset to today"
       },
       "selfService": {
         "title": "Claim a task",
@@ -712,6 +732,18 @@
         "assignedTo": "Assigned to {name}",
         "statusLabel": "Status",
         "createdLabel": "Started",
+        "workedLabel": "Worked",
+        "recordedLabel": "Recorded",
+        "recorderLabel": "Recorded by",
+        "completeHeading": "Record completion",
+        "completionDateHeading": "Completion date",
+        "completedNotice": "The completion was recorded.",
+        "correctDate": "Change date",
+        "correctDateTitle": "Change completion date",
+        "correctDateDisclosure": "This changes only when the work was done. Points, participant and original recorded time stay unchanged.",
+        "saveCorrectedDate": "Save date",
+        "correctionSaved": "The work date was changed.",
+        "dateBeforeCreationHint": "This assignment cannot be recorded before it was started. Use the plus on the priority list to record earlier work separately.",
         "status": {
           "open": "Open",
           "completed": "Completed",
@@ -732,7 +764,17 @@
       },
       "definition": {
         "description": "Description",
-        "materials": "Materials, tools and anything else needed"
+        "materials": "Materials, tools and anything else needed",
+        "statusHeading": "Participant status",
+        "latestGlobalHeading": "Latest completion for the circle",
+        "latestGlobal": "{name} did the work on {worked}. Recorded {recorded}.",
+        "globalStatus": "Circle status",
+        "eligible": "Can do this task",
+        "remaining": "Remaining",
+        "satisfied": "Done",
+        "dueLabel": "Due next",
+        "openAssignment": "Open active assignment",
+        "viewLatestCompletion": "View latest completion"
       },
       "history": {
         "assignmentHeading": "Assignment history",
@@ -747,6 +789,11 @@
         "noPoints": "No points recorded",
         "pointsOnCompletion": "{count, plural, one {# point on completion} other {# points on completion}}",
         "completionNumber": "Completion no. {count}",
+        "workedOn": "Worked {date}",
+        "recordedAt": "Recorded {date}",
+        "correctedFromTo": "Date changed from {previous} to {date}",
+        "reversedWorkDate": "The reversed completion was worked {date}",
+        "noPointChange": "No change to points",
         "reopened": "The task was reopened",
         "notReopened": "The task was not reopened",
         "openAssignment": "Open {title}",
@@ -761,6 +808,7 @@
           "created": "Task started",
           "completed": "Task completed",
           "recompleted": "Task completed again",
+          "completion_date_corrected": "Completion date corrected",
           "cancelled": "Task cancelled",
           "completion_reversed": "Completion undone"
         }
@@ -904,6 +952,9 @@
         "feature_disabled": "Tasks is not available for this account right now.",
         "not_found": "The item was not found or you do not have access.",
         "not_allowed": "You are not allowed to do that.",
+        "invalid_performed_date": "That work date is not allowed. Choose another date.",
+        "fingerprint_mismatch": "This request changed after it was sent. Try again.",
+        "stale_version": "The state changed. The latest data is loading; then try again.",
         "stale": "The data changed. Reload the page and try again.",
         "conflict": "The request conflicts with a newer change.",
         "not_available": "The action is not available in the current state.",
@@ -1089,10 +1140,10 @@
           "fromLabel": "Invited by",
           "unknownInviter": "a Teskeið user",
           "unknownGuest": "a guest",
-          "instructions": "Sign in to Teskeið and open the invitation under Unread on the home page.",
+          "instructions": "Sign in to Teskeið. The invitation is waiting under Unread on the home page.",
           "identityNotice": "Accepting also links the guest name to your Teskeið account.",
           "privacyNotice": "Access opens only after you accept and neither provides expense access nor creates a debt.",
-          "tagline": "Everything in Teskeið."
+          "tagline": "One step closer to having everything in Teskeið!"
         }
       },
       "contextChooser": {

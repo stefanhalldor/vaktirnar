@@ -7,8 +7,11 @@ import { guardHouseholdChoreAccess } from '@/lib/household-chores/guard'
 import {
   HouseholdChoreRepositoryError,
   loadHouseholdChoreCircle,
-  loadHouseholdChorePriorityDashboard,
 } from '@/lib/household-chores/repository.server'
+import {
+  HouseholdChoreV2RepositoryError,
+  loadHouseholdChorePriorityDashboardV2,
+} from '@/lib/household-chores/repository-v2.server'
 import { HouseholdChoreShell } from '../../HouseholdChoreShell'
 
 export default async function HouseholdChoreCirclePage({
@@ -28,10 +31,11 @@ export default async function HouseholdChoreCirclePage({
   try {
     ;[view, priorityView] = await Promise.all([
       loadHouseholdChoreCircle(user.id, circleId),
-      loadHouseholdChorePriorityDashboard(user.id, circleId),
+      loadHouseholdChorePriorityDashboardV2(user.id, circleId),
     ])
   } catch (error) {
-    if (error instanceof HouseholdChoreRepositoryError
+    if ((error instanceof HouseholdChoreRepositoryError
+      || error instanceof HouseholdChoreV2RepositoryError)
       && (error.code === 'not_found' || error.code === 'not_allowed')) {
       notFound()
     }

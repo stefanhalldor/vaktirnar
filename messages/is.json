@@ -691,7 +691,14 @@
           "choosePerformer": "Veldu hver kláraði",
           "choosePerformerTitle": "Hver kláraði „{task}“?",
           "choosePerformerDescription": "Veldu þátttakandann sem vann verkið. Stigin skrást á þann aðila.",
-          "completedAnnouncement": "{task} skráð lokið á {name}.",
+          "completeAria": "Skrá {task} lokið",
+          "completedAnnouncement": "Skráð á {name} · unnið {date}",
+          "remainingNames": "Á eftir hjá: {names}",
+          "remainingCount": "{count, plural, one {Á eftir hjá #} other {Á eftir hjá #}}",
+          "everyoneDone": "Allir búnir",
+          "remainingForYou": "Á eftir hjá þér",
+          "doneForYou": "Búið hjá þér",
+          "latestGlobal": "Síðast: {name} · {date}",
           "noCadence": "Tíðni ekki stillt",
           "setCadence": "Stilla tíðni",
           "dueToday": "Á að gera í dag",
@@ -703,6 +710,19 @@
           },
           "openAssignments": "{count, plural, one {# opin úthlutun} other {# opnar úthlutanir}}"
         }
+      },
+      "performedDate": {
+        "context": "Unnið: {date}",
+        "today": "Í dag",
+        "yesterday": "Í gær",
+        "todayInline": "í dag",
+        "yesterdayInline": "í gær",
+        "chooseDate": "Velja dag",
+        "dateLabel": "Dagsetning verks",
+        "sheetTitle": "Hvenær var verkið unnið?",
+        "sheetDescription": "Dagsetningin stýrir forgangsröðuninni. Skráningartíminn varðveitist sjálfkrafa.",
+        "useDate": "Nota dagsetningu",
+        "resetToday": "Setja á í dag"
       },
       "selfService": {
         "title": "Taka að mér",
@@ -716,6 +736,18 @@
         "assignedTo": "Úthlutað á {name}",
         "statusLabel": "Staða",
         "createdLabel": "Sett í gang",
+        "workedLabel": "Unnið",
+        "recordedLabel": "Skráð",
+        "recorderLabel": "Skráð af",
+        "completeHeading": "Skrá verklok",
+        "completionDateHeading": "Dagsetning verkloka",
+        "completedNotice": "Verklokin voru skráð.",
+        "correctDate": "Breyta dagsetningu",
+        "correctDateTitle": "Breyta dagsetningu verkloka",
+        "correctDateDisclosure": "Þetta breytir aðeins því hvenær verkið var unnið. Stig, þátttakandi og upprunalegur skráningartími haldast óbreytt.",
+        "saveCorrectedDate": "Vista dagsetningu",
+        "correctionSaved": "Dagsetningu verksins var breytt.",
+        "dateBeforeCreationHint": "Ekki er hægt að skrá þetta eintak unnið áður en það var sett í gang. Notaðu plúsinn á forgangslistanum til að skrá eldra verk sérstaklega.",
         "status": {
           "open": "Opið",
           "completed": "Lokið",
@@ -736,7 +768,17 @@
       },
       "definition": {
         "description": "Verklýsing",
-        "materials": "Efni, áhöld og annað sem þarf"
+        "materials": "Efni, áhöld og annað sem þarf",
+        "statusHeading": "Staða þátttakenda",
+        "latestGlobalHeading": "Síðustu verklok fyrir hringinn",
+        "latestGlobal": "{name} vann verkið {worked}. Skráð {recorded}.",
+        "globalStatus": "Staða hringsins",
+        "eligible": "Getur unnið verkið",
+        "remaining": "Á eftir",
+        "satisfied": "Búið",
+        "dueLabel": "Næst á dagskrá",
+        "openAssignment": "Opna virkt verkefni",
+        "viewLatestCompletion": "Skoða síðustu verklok"
       },
       "history": {
         "assignmentHeading": "Saga framkvæmdarinnar",
@@ -751,6 +793,11 @@
         "noPoints": "Engin stig skráð",
         "pointsOnCompletion": "{count, plural, one {# stig við verklok} other {# stig við verklok}}",
         "completionNumber": "Verklok nr. {count}",
+        "workedOn": "Unnið {date}",
+        "recordedAt": "Skráð {date}",
+        "correctedFromTo": "Dagsetningu breytt úr {previous} í {date}",
+        "reversedWorkDate": "Afturkölluð verklok voru unnin {date}",
+        "noPointChange": "Engin breyting á stigum",
         "reopened": "Verkefnið var opnað aftur",
         "notReopened": "Verkefnið var ekki opnað aftur",
         "openAssignment": "Opna {title}",
@@ -765,6 +812,7 @@
           "created": "Verkefni sett í gang",
           "completed": "Verkefni lokið",
           "recompleted": "Verkefni lokið aftur",
+          "completion_date_corrected": "Dagsetning verkloka leiðrétt",
           "cancelled": "Hætt við verkefni",
           "completion_reversed": "Verklok afturkölluð"
         }
@@ -908,6 +956,9 @@
         "feature_disabled": "Verkefnin eru ekki tiltæk fyrir þennan aðgang núna.",
         "not_found": "Atriðið fannst ekki eða þú hefur ekki aðgang.",
         "not_allowed": "Þú mátt ekki gera þetta.",
+        "invalid_performed_date": "Dagsetning verksins er ekki leyfileg. Veldu annan dag.",
+        "fingerprint_mismatch": "Þessi beiðni breyttist eftir að hún var send. Reyndu aftur.",
+        "stale_version": "Staðan breyttist. Nýjustu gögnin eru sótt; reyndu svo aftur.",
         "stale": "Gögnin breyttust. Sæktu síðuna aftur og reyndu svo.",
         "conflict": "Beiðnin stangast á við nýrri breytingu.",
         "not_available": "Aðgerðin er ekki tiltæk í núverandi stöðu.",
@@ -1093,10 +1144,10 @@
           "fromLabel": "Boð frá",
           "unknownInviter": "Teskeiðarnotanda",
           "unknownGuest": "Gestur",
-          "instructions": "Skráðu þig inn á Teskeið og opnaðu boðið undir Ólesið á forsíðunni.",
+          "instructions": "Skráðu þig inn í Teskeið. Boðið bíður undir Ólesið á forsíðunni.",
           "identityNotice": "Samþykki tengir líka gestanafnið við Teskeið-aðganginn þinn.",
           "privacyNotice": "Aðgangur opnast aðeins eftir þitt samþykki og veitir hvorki aðgang að útgjöldum né stofnar skuld.",
-          "tagline": "Með allt í Teskeið."
+          "tagline": "Skrefi nær því að vera með allt í Teskeið!"
         }
       },
       "contextChooser": {

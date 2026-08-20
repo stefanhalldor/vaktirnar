@@ -139,9 +139,11 @@ describe('Household Chores loading and mobile source contracts', () => {
     ))
 
     expect(detailPage).toContain("import { ParticipantValueEditor }")
+    expect(detailPage).toContain('loadHouseholdChoreDefinitionDetailV3')
+    expect(detailPage).toContain('<ChoreDefinitionStatusV2')
     expect(detailPage).toContain('<ParticipantValueEditor')
-    expect(detailPage).toContain('definitionVersion={memberDetail.definition.version}')
-    expect(detailPage).toContain('values={memberDetail.participantValues}')
+    expect(detailPage).toContain('definitionVersion={detail.definition.version}')
+    expect(detailPage).toContain('values={legacyMemberDetail.participantValues}')
     expect(detailPage).not.toContain("t('definitions.notEligible')")
   })
 
