@@ -24,8 +24,27 @@ describe('Event message parity', () => {
       .not.toBe(isMessages.teskeid.events.invitation.unknownInviter)
   })
 
-  it('keeps the Icelandic invitation email congratulation exact', () => {
-    expect(isMessages.teskeid.events.invitation.emailV1.tagline)
-      .toBe('Til hamingju með að vera skrefi nær því að vera með allt í Teskeið!')
+  it('keeps the invitation email directions and congratulations exact in each locale', () => {
+    const isEmail = isMessages.teskeid.events.invitation.emailV1
+    const enEmail = enMessages.teskeid.events.invitation.emailV1
+
+    expect(isEmail.instructions).toBe(
+      'Boðið bíður þín á Teskeið.is þar sem þú skráir þig inn með netfanginu sem þessi póstur er sendur á.',
+    )
+    expect(isEmail.tagline)
+      .toBe('... til hamingju með að vera skrefi nær því að vera með allt í Teskeið!')
+    expect(enEmail.instructions).toBe(
+      'Your invitation is waiting for you at Teskeið.is, where you sign in with the email address this message was sent to.',
+    )
+    expect(enEmail.tagline)
+      .toBe('... congratulations on being one step closer to having everything in Teskeið!')
+
+    const serializedEmailCopy = JSON.stringify({ isEmail, enEmail })
+    expect(serializedEmailCopy).not.toContain(
+      'Skráðu þig inn í Teskeið. Boðið bíður undir Ólesið á forsíðunni.',
+    )
+    expect(serializedEmailCopy).not.toContain(
+      'Til hamingju með að vera skrefi nær því að vera með allt í Teskeið!',
+    )
   })
 })

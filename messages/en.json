@@ -1137,10 +1137,10 @@
           "fromLabel": "Invited by",
           "unknownInviter": "a Teskeið user",
           "unknownGuest": "a guest",
-          "instructions": "Sign in to Teskeið. The invitation is waiting under Unread on the home page.",
+          "instructions": "Your invitation is waiting for you at Teskeið.is, where you sign in with the email address this message was sent to.",
           "identityNotice": "Accepting also links the guest name to your Teskeið account.",
           "privacyNotice": "Access opens only after you accept and neither provides expense access nor creates a debt.",
-          "tagline": "One step closer to having everything in Teskeið!"
+          "tagline": "... congratulations on being one step closer to having everything in Teskeið!"
         }
       },
       "contextChooser": {

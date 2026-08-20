@@ -16,6 +16,12 @@ import {
 
 const INVITATION_ID = '50000000-0000-4000-8000-000000000001'
 const RECIPIENT = 'private.recipient@example.is'
+const EXPECTED_INSTRUCTIONS = 'Boðið bíður þín á Teskeið.is þar sem þú skráir þig inn með netfanginu sem þessi póstur er sendur á.'
+const EXPECTED_TAGLINE = '... til hamingju með að vera skrefi nær því að vera með allt í Teskeið!'
+
+function visibleEmailText(value: string): string {
+  return value.replace(/\u200B/g, '')
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -54,14 +60,28 @@ describe('event attendance email', () => {
     expect(payload.html).toContain('&lt;img')
     expect(payload.html).not.toContain('Anna')
     expect(payload.html).not.toContain('<script>')
-    expect(payload.html).not.toContain('href=')
-    expect(payload.html).not.toContain('https://')
-    expect(payload.text).not.toContain('https://')
+    expect(payload.html).not.toMatch(/href\s*=|https?:\/\/|www\./i)
+    expect(payload.text).not.toMatch(/https?:\/\/|www\./i)
     expect(payload.html).not.toContain('Teskeið.is')
     expect(payload.text).not.toContain('Teskeið.is')
     expect(payload.html).not.toContain(INVITATION_ID)
     expect(payload.text).not.toContain(INVITATION_ID)
-    expect(payload.text).toContain('Ólesið')
+    expect(visibleEmailText(payload.html)).toContain(EXPECTED_INSTRUCTIONS)
+    expect(visibleEmailText(payload.text)).toContain(EXPECTED_INSTRUCTIONS)
+    expect(visibleEmailText(payload.html)).toContain(EXPECTED_TAGLINE)
+    expect(visibleEmailText(payload.text)).toContain(EXPECTED_TAGLINE)
+    expect(visibleEmailText(payload.html)).not.toContain(
+      'Skráðu þig inn í Teskeið. Boðið bíður undir Ólesið á forsíðunni.',
+    )
+    expect(visibleEmailText(payload.text)).not.toContain(
+      'Skráðu þig inn í Teskeið. Boðið bíður undir Ólesið á forsíðunni.',
+    )
+    expect(visibleEmailText(payload.html)).not.toContain(
+      'Til hamingju með að vera skrefi nær því að vera með allt í Teskeið!',
+    )
+    expect(visibleEmailText(payload.text)).not.toContain(
+      'Til hamingju með að vera skrefi nær því að vera með allt í Teskeið!',
+    )
   })
 
   it('uses the localized inviter fallback without exposing the guest identity', async () => {
