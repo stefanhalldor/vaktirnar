@@ -23,4 +23,9 @@ describe('Event message parity', () => {
     expect(enMessages.teskeid.events.invitation.unknownInviter)
       .not.toBe(isMessages.teskeid.events.invitation.unknownInviter)
   })
+
+  it('keeps the Icelandic invitation email congratulation exact', () => {
+    expect(isMessages.teskeid.events.invitation.emailV1.tagline)
+      .toBe('Til hamingju með að vera skrefi nær því að vera með allt í Teskeið!')
+  })
 })

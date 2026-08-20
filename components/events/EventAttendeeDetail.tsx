@@ -75,8 +75,7 @@ export function EventAttendeeDetail({
 
   return (
     <div className="space-y-7">
-      <section className="space-y-2 border-y border-border py-5">
-        <p className="text-sm leading-6 text-muted-foreground">{t('attendance.readOnlyHint')}</p>
+      <section className="border-y border-border py-5">
         <p className="break-words text-sm font-medium text-foreground">
           {t('attendance.invitedBy', {
             name: event.ownerDisplayName ?? t('invitation.unknownInviter'),

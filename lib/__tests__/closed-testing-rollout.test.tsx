@@ -7,7 +7,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => ({
     title: 'In closed testing',
-    body: 'This Teskeið is still in closed testing. Features and appearance may change.',
+    body: 'This Teskeið is still in closed testing. Features and appearance may change significantly.',
   })[key] ?? key,
 }))
 vi.mock('@/components/teskeid/TeskeidMenu', () => ({ TeskeidMenu: () => null }))
@@ -108,7 +108,7 @@ describe('ClosedTestingBanner', () => {
     expect(banner).toHaveClass('max-w-full')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
-    expect(screen.getByText('This Teskeið is still in closed testing. Features and appearance may change.')).toBeInTheDocument()
+    expect(screen.getByText('This Teskeið is still in closed testing. Features and appearance may change significantly.')).toBeInTheDocument()
   })
 
   it('supports an optional Weather body and feedback link', () => {

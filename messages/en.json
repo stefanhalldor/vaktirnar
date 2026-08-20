@@ -226,7 +226,7 @@
   "teskeid": {
     "closedTesting": {
       "title": "In closed testing",
-      "body": "This Teskeið is still in closed testing. Features and appearance may change."
+      "body": "This Teskeið is still in closed testing. Features and appearance may change significantly."
     },
     "closedTestingAccess": {
       "body": "{feature} is still in closed testing and access is enabled manually. You can send a request to join the testing group.",
@@ -1070,7 +1070,6 @@
         "acceptedHeading": "Events you attend",
         "acceptedEmpty": "You have not accepted an event invitation yet.",
         "openInvitation": "Open invitation to {name}",
-        "readOnlyHint": "You have read-only access to the event name and guest-list names. Participation creates neither expenses nor debts.",
         "participants": "Guests",
         "noParticipants": "No guests are listed.",
         "genericGuest": "Guest",
@@ -1118,11 +1117,8 @@
       "invitation": {
         "title": "Event invitation",
         "eventLabel": "Event",
-        "guestLabel": "You are listed as",
         "fromLabel": "Invited by",
         "unknownInviter": "a Teskeið user",
-        "accessHint": "If you accept, you can see the event name and guest-list names. You cannot edit the event, and this neither provides expense access nor creates a debt.",
-        "identityHint": "Accepting also links this guest name to your Teskeið account.",
         "accept": "Accept",
         "accepting": "Accepting...",
         "decline": "Decline",

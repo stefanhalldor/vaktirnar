@@ -226,7 +226,7 @@
   "teskeid": {
     "closedTesting": {
       "title": "Í lokuðum prófunum",
-      "body": "Þessi Teskeið er enn í lokuðum prófunum. Virkni og útlit geta breyst."
+      "body": "Þessi Teskeið er enn í lokuðum prófunum. Virkni og útlit geta breyst mikið."
     },
     "closedTestingAccess": {
       "body": "{feature} er enn í lokuðum prófunum og aðgangur er opnaður handvirkt. Þú getur sent beiðni um að fá að prófa.",
@@ -1074,7 +1074,6 @@
         "acceptedHeading": "Viðburðir sem þú tekur þátt í",
         "acceptedEmpty": "Þú hefur ekki samþykkt viðburðaboð enn.",
         "openInvitation": "Opna boð í {name}",
-        "readOnlyHint": "Þú hefur lestraraðgang að heiti viðburðarins og nöfnum á gestalistanum. Þátttakan stofnar hvorki útgjöld né skuldir.",
         "participants": "Gestir",
         "noParticipants": "Engir gestir eru skráðir.",
         "genericGuest": "Gestur",
@@ -1122,11 +1121,8 @@
       "invitation": {
         "title": "Boð í viðburð",
         "eventLabel": "Viðburður",
-        "guestLabel": "Þú ert skráð/ur sem",
         "fromLabel": "Boð frá",
         "unknownInviter": "Teskeiðarnotanda",
-        "accessHint": "Ef þú samþykkir sérðu heiti viðburðarins og nöfn á gestalistanum. Þú getur ekki breytt viðburðinum og þetta veitir hvorki aðgang að útgjöldum né stofnar skuld.",
-        "identityHint": "Samþykkið tengir líka þetta gestanafn við Teskeið-aðganginn þinn.",
         "accept": "Samþykkja",
         "accepting": "Samþykki...",
         "decline": "Hafna",
@@ -1148,7 +1144,7 @@
           "instructions": "Skráðu þig inn í Teskeið. Boðið bíður undir Ólesið á forsíðunni.",
           "identityNotice": "Samþykki tengir líka gestanafnið við Teskeið-aðganginn þinn.",
           "privacyNotice": "Aðgangur opnast aðeins eftir þitt samþykki og veitir hvorki aðgang að útgjöldum né stofnar skuld.",
-          "tagline": "Skrefi nær því að vera með allt í Teskeið!"
+          "tagline": "Til hamingju með að vera skrefi nær því að vera með allt í Teskeið!"
         }
       },
       "contextChooser": {

@@ -61,7 +61,9 @@ export default async function EventDetailPage({
           event={attendeeEvent}
           details={details}
           canUseExpenses={canUseExpenses}
-          financialPanel={expenseActivity ? <EventExpenseActivity view={expenseActivity} /> : null}
+          financialPanel={expenseActivity ? (
+            <EventExpenseActivity key="event-expense-activity" view={expenseActivity} />
+          ) : null}
         />
       </EventShell>
     )
@@ -105,7 +107,9 @@ export default async function EventDetailPage({
         options={options}
         optionsError={optionsError}
         canUseExpenses={canUseExpenses}
-        financialPanel={expenseActivity ? <EventExpenseActivity view={expenseActivity} /> : null}
+        financialPanel={expenseActivity ? (
+          <EventExpenseActivity key="event-expense-activity" view={expenseActivity} />
+        ) : null}
       />
     </EventShell>
   )

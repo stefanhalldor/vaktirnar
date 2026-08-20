@@ -50,12 +50,6 @@ export default async function EventAttendanceInvitationPage({
               <dd className="mt-1 break-words font-semibold">{invitation.eventName}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">{t('invitation.guestLabel')}</dt>
-              <dd className="mt-1 break-words font-medium">
-                {invitation.guestDisplayName ?? t('attendance.genericGuest')}
-              </dd>
-            </div>
-            <div>
               <dt className="text-xs text-muted-foreground">{t('invitation.fromLabel')}</dt>
               <dd className="mt-1 break-words font-medium">
                 {invitation.inviterDisplayName ?? t('invitation.unknownInviter')}
@@ -65,18 +59,11 @@ export default async function EventAttendanceInvitationPage({
 
         </section>
 
-        {invitation.status === 'pending' ? (
-          <>
-            <p className="text-sm leading-6 text-muted-foreground">{t('invitation.accessHint')}</p>
-            {invitation.invitationKind === 'identity_and_access' ? (
-              <p className="text-sm leading-6 text-muted-foreground">{t('invitation.identityHint')}</p>
-            ) : null}
-          </>
-        ) : (
+        {invitation.status === 'accepted' ? (
           <p className="text-sm leading-6 text-muted-foreground">
             {t('invitation.acceptedManagementHint')}
           </p>
-        )}
+        ) : null}
 
         {!hasEventAccess ? (
           <ClosedTestingAccessRequest featureId={EVENT_FEATURE_KEY} reason="participant" />

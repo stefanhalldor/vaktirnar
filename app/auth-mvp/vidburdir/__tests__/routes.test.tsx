@@ -91,6 +91,7 @@ vi.mock('@/components/events/EventDetail', () => ({
         data-option-count={options.length}
         data-options-error={String(optionsError)}
         data-can-use-expenses={String(canUseExpenses)}
+        data-financial-panel-key={React.isValidElement(financialPanel) ? financialPanel.key : undefined}
       />
       {financialPanel}
     </div>
@@ -107,6 +108,7 @@ vi.mock('@/components/events/EventAttendeeDetail', () => ({
         data-testid="event-attendee-detail"
         data-event-id={event.id}
         data-can-use-expenses={String(canUseExpenses)}
+        data-financial-panel-key={React.isValidElement(financialPanel) ? financialPanel.key : undefined}
       />
       {financialPanel}
     </div>
@@ -324,6 +326,10 @@ describe('independent event pages', () => {
     render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
 
     expect(screen.getByTestId('event-expense-activity')).toHaveAttribute('data-status', 'ready')
+    expect(screen.getByTestId('event-detail')).toHaveAttribute(
+      'data-financial-panel-key',
+      'event-expense-activity',
+    )
   })
 
   it('fails soft when relationship options cannot load on create or detail', async () => {
@@ -384,11 +390,15 @@ describe('independent event pages', () => {
     expect(mockGetExpenseParticipantOptions).not.toHaveBeenCalled()
     expect(mockGetEventExpenseActivity).toHaveBeenCalledWith(ACTOR_ID, EVENT_ID)
     expect(screen.getByTestId('event-expense-activity')).toHaveAttribute('data-status', 'ready')
+    expect(screen.getByTestId('event-attendee-detail')).toHaveAttribute(
+      'data-financial-panel-key',
+      'event-expense-activity',
+    )
   })
 })
 
 describe('scoped attendance invitation route', () => {
-  it('renders the exact pending preview and access-request CTA without a per-user flag', async () => {
+  it('renders a minimal pending preview and access-request CTA without a per-user flag', async () => {
     render(await EventAttendanceInvitationPage({
       params: Promise.resolve({ invitationId: INVITATION_ID }),
     }))
@@ -398,8 +408,11 @@ describe('scoped attendance invitation route', () => {
     expect(mockGetEventGuestAttendancePreview).toHaveBeenCalledWith(ACTOR_ID, INVITATION_ID)
     expect(mockCheckFeatureAccess).toHaveBeenCalled()
     expect(screen.getByText('Kvisskvöld')).toBeInTheDocument()
-    expect(screen.getByText('events.attendance.genericGuest')).toBeInTheDocument()
     expect(screen.getByText('events.invitation.unknownInviter')).toBeInTheDocument()
+    expect(screen.queryByText('events.attendance.genericGuest')).not.toBeInTheDocument()
+    expect(screen.queryByText('events.invitation.guestLabel')).not.toBeInTheDocument()
+    expect(screen.queryByText('events.invitation.accessHint')).not.toBeInTheDocument()
+    expect(screen.queryByText('events.invitation.identityHint')).not.toBeInTheDocument()
     expect(screen.getByTestId('closed-testing-access-request')).toBeInTheDocument()
     expect(screen.getByTestId('attendance-invitation-actions'))
       .toHaveAttribute('data-status', 'pending')

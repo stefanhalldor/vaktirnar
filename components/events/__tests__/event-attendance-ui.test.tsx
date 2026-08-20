@@ -50,7 +50,6 @@ const copy: Record<string, string> = {
   'attendance.expired': 'Boð útrunnið',
   'attendance.left': 'Hætt þátttöku',
   'attendance.revoked': 'Aðgangur afturkallaður',
-  'attendance.readOnlyHint': 'Aðeins lestraraðgangur. Þátttaka stofnar hvorki útgjöld né skuldir.',
   'attendance.invitedBy': 'Viðburður stofnaður af {name}',
   'detail.addExpense': 'Skrá útlagðan kostnað',
   'attendance.participants': 'Gestir',
@@ -357,7 +356,7 @@ describe('read-only attendee detail', () => {
     render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
     expect(screen.getByText('Gestur')).toBeInTheDocument()
     expect(screen.getByText('Viðburður stofnaður af Teskeiðarnotanda')).toBeInTheDocument()
-    expect(screen.getByText(/stofnar hvorki útgjöld né skuldir/)).toBeInTheDocument()
+    expect(screen.queryByText(/lestraraðgang|útgjöld né skuldir/)).not.toBeInTheDocument()
     expect(screen.queryByText(/netfang|breyta|útlagður/i)).not.toBeInTheDocument()
     const leaveButton = screen.getByRole('button', { name: 'Hætta þátttöku' })
     fireEvent.click(leaveButton)
