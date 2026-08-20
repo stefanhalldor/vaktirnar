@@ -13,7 +13,6 @@ import { createRequestId } from '@/components/expenses/ui'
 import {
   cancelEventGuestAttendanceInvitation,
   inviteEventGuestAttendance,
-  resendEventGuestAttendanceInvitation,
 } from '@/lib/events/actions'
 import type {
   EventActionErrorCode,
@@ -122,26 +121,6 @@ export function EventGuestAttendanceControl({
     return { ok: true, delivery: result.data.delivery }
   }
 
-  async function resend(): Promise<IdentityLinkInvitationDeliveryResult> {
-    if (!attendance.invitationId) {
-      return { ok: false, safeErrorMessage: t('identityInvitation.genericError') }
-    }
-    const key = `resend:${attendance.invitationId}`
-    const result = await resendEventGuestAttendanceInvitation({
-      event_id: eventId,
-      event_guest_id: eventGuestId,
-      invitation_id: attendance.invitationId,
-      request_id: requestIdFor(key),
-    })
-    if (!result.ok) {
-      if (result.error === 'conflict') router.refresh()
-      return { ok: false, safeErrorMessage: feedbackError(t, result.error) }
-    }
-    if (result.data.delivery === 'uncertain') router.refresh()
-    else refreshAfterMutation(key)
-    return { ok: true, delivery: result.data.delivery }
-  }
-
   async function cancel() {
     if (!attendance.invitationId) {
       return { ok: false as const, safeErrorMessage: t('identityInvitation.genericError') }
@@ -169,17 +148,10 @@ export function EventGuestAttendanceControl({
   ].join(':')
 
   if (attendance.status === 'pending') {
-    const pendingCopyKey = attendance.deliveryStatus === 'sent'
-      ? 'identityInvitation.pendingRecipient'
-      : attendance.deliveryStatus === 'not_sent'
-        ? 'identityInvitation.unsentRecipient'
-        : attendance.deliveryStatus === 'failed'
-          ? 'identityInvitation.failedRecipient'
-          : 'identityInvitation.uncertainRecipient'
     return (
       <div className="space-y-2">
         <p role="status" className="break-words text-xs text-muted-foreground">
-          {t(pendingCopyKey, { label: attendance.recipientLabel ?? '' })}
+          {t('identityInvitation.pendingRecipient', { label: attendance.recipientLabel ?? '' })}
         </p>
         <IdentityLinkInvitationControl
           state="pending"
@@ -188,7 +160,6 @@ export function EventGuestAttendanceControl({
           presentation="stacked"
           disabled={disabled}
           resetKey={sharedResetKey}
-          onResend={resend}
           onCancel={cancel}
           onPendingChange={onPendingChange}
         />
@@ -254,9 +225,7 @@ export function EventGuestAttendanceControl({
       setDirectFeedback(result.ok
         ? {
             kind: 'status',
-            message: result.delivery === 'sent' || result.delivery === 'already_sent'
-              ? t('identityInvitation.sentNotice')
-              : t('identityInvitation.deliveryIssueNotice'),
+            message: t('identityInvitation.sentNotice'),
           }
         : { kind: 'error', message: result.safeErrorMessage })
     } catch {

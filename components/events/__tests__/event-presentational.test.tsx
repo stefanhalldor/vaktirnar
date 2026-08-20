@@ -32,13 +32,14 @@ const copy: Record<string, string> = {
   'detail.teskeidParticipant': 'Þekktur aðili úr Tengslum',
   'detail.guestParticipant': 'Gestur með nafni',
   'detail.emailParticipant': 'Gestur með netfangi',
+  'detail.unsavedEmailParticipant': 'Á eftir að vista gestalistann til að senda boð.',
   'detail.removeParticipant': 'Fjarlægja {name}',
   'detail.participantLimit': 'Hámarki 49 gestum er náð.',
   'detail.unsavedRosterHint': 'Þú átt óvistaðar breytingar.',
   'detail.saveRoster': 'Vista gestalista',
   'detail.savingRoster': 'Vista gestalista...',
   'detail.rosterSaved': 'Gestalistinn var vistaður.',
-  'detail.rosterSavedWithInvitations': 'Gestalistinn var vistaður og ný boð voru send.',
+  'detail.rosterSavedWithInvitations': 'Gestalistinn var vistaður og ný boð bíða svars.',
   'detail.rosterSavedWithDeliveryIssue': 'Gestalistinn var vistaður en einhver boð bíða.',
   'detail.invitationDeliverySummary': '{sentCount} send, {pendingCount} bíða',
   'identityInvitation.acceptedAccessLabel': 'Gesturinn hefur samþykkt lestraraðgang.',
@@ -209,7 +210,24 @@ describe('event presentational components', () => {
     expect(screen.getByRole('button', { name: 'Vista gestalista...' })).toBeDisabled()
   })
 
-  it('reports the exact delivered and unsent invitation counts after a durable roster save', async () => {
+  it('shows the pending invitation step for an unsaved email and no type label for a named guest', () => {
+    render(
+      <EventDetail
+        event={baseEvent}
+        options={[]}
+        optionsError={false}
+        canUseExpenses={false}
+      />,
+    )
+
+    addManual('anna@example.is')
+    expect(screen.getByText('Á eftir að vista gestalistann til að senda boð.')).toBeInTheDocument()
+
+    addManual('Anna')
+    expect(screen.queryByText('Gestur með nafni')).not.toBeInTheDocument()
+  })
+
+  it('keeps email-delivery counts out of the durable roster-save receipt', async () => {
     mockSaveEventRoster.mockResolvedValueOnce({
       ok: true,
       data: {
@@ -231,9 +249,9 @@ describe('event presentational components', () => {
     addManual('Anna')
     fireEvent.click(screen.getByRole('button', { name: 'Vista gestalista' }))
 
-    expect(await screen.findByText('Gestalistinn var vistaður en einhver boð bíða.'))
+    expect(await screen.findByText('Gestalistinn var vistaður og ný boð bíða svars.'))
       .toBeInTheDocument()
-    expect(screen.getByText('20 send, 1 bíða')).toBeInTheDocument()
+    expect(screen.queryByText('20 send, 1 bíða')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Vista gestalista...' })).toBeDisabled()
   })
 

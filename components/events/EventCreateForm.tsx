@@ -183,13 +183,7 @@ export function EventCreateForm({
           {t('create.createdTitle')}
         </h2>
         <div role="status" className="space-y-2 text-sm leading-6 text-muted-foreground">
-          <p>{receipt.deliveryIssue
-            ? t('create.createdWithDeliveryIssue')
-            : t('create.createdWithInvitations')}</p>
-          <p>{t('detail.invitationDeliverySummary', {
-            sentCount: receipt.deliveredCount,
-            pendingCount: receipt.invitationCount - receipt.deliveredCount,
-          })}</p>
+          <p>{t('create.createdWithInvitations')}</p>
         </div>
         <TeskeidActionButton
           type="button"

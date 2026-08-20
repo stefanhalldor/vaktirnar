@@ -209,66 +209,22 @@ describe('Event guest attendance owner adapter', () => {
     expect(screen.queryByRole('button', { name: /Bjóða aðgang/ })).not.toBeInTheDocument()
   })
 
-  it.each([
-    ['sent', 'Boð bíður svars frá g***@example.is.'],
-    ['not_sent', 'Boðið á g***@example.is bíður sendingar.'],
-    ['failed', 'Ekki tókst að senda boðið á g***@example.is.'],
-    ['reserved', 'Ekki er víst að boðið á g***@example.is hafi borist.'],
-  ] as const)('renders exact masked pending copy for %s', (deliveryStatus, expected) => {
+  it.each(['sent', 'not_sent', 'failed', 'reserved'] as const)(
+    'keeps email delivery details out of the pending invitation UI for %s',
+    (deliveryStatus) => {
     renderControl({ attendance: pending(deliveryStatus) })
-    expect(screen.getByText(expected)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Senda aftur' })).toBeInTheDocument()
+    expect(screen.getByText('Boð bíður svars frá g***@example.is.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Senda aftur' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Afturkalla boð' })).toBeInTheDocument()
   })
 
-  it('supports resend and cancel for a pending invitation', async () => {
+  it('supports cancelling a pending invitation without exposing email resend', async () => {
     renderControl({ attendance: pending('sent') })
-    fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
-    await waitFor(() => expect(mockResend).toHaveBeenCalledWith({
-      event_id: EVENT_ID,
-      event_guest_id: GUEST_ID,
-      invitation_id: INVITATION_ID,
-      request_id: expect.any(String),
-    }))
     fireEvent.click(screen.getByRole('button', { name: 'Afturkalla boð' }))
     await waitFor(() => expect(mockCancel).toHaveBeenCalledWith(expect.objectContaining({
       invitation_id: INVITATION_ID,
       expected_roster_revision: 2,
     })))
-  })
-
-  it('reuses one resend intent ID until the server confirms the action', async () => {
-    mockResend
-      .mockResolvedValueOnce({ ok: false, error: 'save_failed' })
-      .mockResolvedValueOnce({ ok: true, data: { delivery: 'sent' } })
-    renderControl({ attendance: pending('failed') })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
-    await screen.findByRole('alert')
-    fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
-
-    await waitFor(() => expect(mockResend).toHaveBeenCalledTimes(2))
-    const firstRequestId = mockResend.mock.calls[0]![0].request_id
-    expect(firstRequestId).toMatch(/^[0-9a-f-]{36}$/i)
-    expect(mockResend.mock.calls[1]![0].request_id).toBe(firstRequestId)
-  })
-
-  it('retains an uncertain resend intent across the canonical attendance refresh', async () => {
-    mockResend
-      .mockResolvedValueOnce({ ok: true, data: { delivery: 'uncertain' } })
-      .mockResolvedValueOnce({ ok: true, data: { delivery: 'already_sent' } })
-    const view = renderControl({ attendance: pending('failed') })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
-    await waitFor(() => expect(mockResend).toHaveBeenCalledTimes(1))
-    const firstRequestId = mockResend.mock.calls[0]![0].request_id
-
-    view.rerender(control({ attendance: pending('reserved') }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Senda aftur' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
-
-    await waitFor(() => expect(mockResend).toHaveBeenCalledTimes(2))
-    expect(mockResend.mock.calls[1]![0].request_id).toBe(firstRequestId)
   })
 
   it('renders accepted read access without claiming an identity relationship', () => {

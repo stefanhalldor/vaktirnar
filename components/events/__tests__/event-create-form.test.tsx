@@ -34,7 +34,7 @@ const copy: Record<string, string> = {
   'create.createOnly': 'Búa til viðburð',
   'create.creating': 'Bý til...',
   'create.createdTitle': 'Viðburðurinn var stofnaður',
-  'create.createdWithInvitations': 'Viðburðurinn var stofnaður og ný boð voru send.',
+  'create.createdWithInvitations': 'Viðburðurinn var stofnaður og ný boð bíða svars.',
   'create.createdWithDeliveryIssue': 'Viðburðurinn var stofnaður en einhver boð bíða.',
   'create.continueToDetail': 'Opna viðburðinn',
   'create.continuing': 'Opna...',
@@ -199,9 +199,9 @@ describe('EventCreateForm', () => {
 
     expect(await screen.findByRole('heading', { name: 'Viðburðurinn var stofnaður' }))
       .toBeInTheDocument()
-    expect(screen.getByText('Viðburðurinn var stofnaður en einhver boð bíða.'))
+    expect(screen.getByText('Viðburðurinn var stofnaður og ný boð bíða svars.'))
       .toBeInTheDocument()
-    expect(screen.getByText('2 sent, 1 pending')).toBeInTheDocument()
+    expect(screen.queryByText('2 sent, 1 pending')).not.toBeInTheDocument()
     expect(mockPush).not.toHaveBeenCalled()
 
     const continueButton = screen.getByRole('button', { name: 'Opna viðburðinn' })

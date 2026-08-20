@@ -318,10 +318,14 @@ export function EventDetail({
     router.refresh()
   }
 
-  function sourceLabel(sourceKind: EditableGuest['sourceKind']): string {
-    if (sourceKind === 'relationship') return t('detail.teskeidParticipant')
-    if (sourceKind === 'manual_email') return t('detail.emailParticipant')
-    return t('detail.guestParticipant')
+  function sourceLabel(guest: EditableGuest): string | null {
+    if (guest.sourceKind === 'relationship') return t('detail.teskeidParticipant')
+    if (guest.sourceKind === 'manual_email') {
+      return 'event_guest_id' in guest.input
+        ? t('detail.emailParticipant')
+        : t('detail.unsavedEmailParticipant')
+    }
+    return null
   }
 
   return (
@@ -357,17 +361,9 @@ export function EventDetail({
         ) : null}
         {saved ? (
           <div role="status" className="space-y-1 text-sm text-muted-foreground">
-            <p>{saveDelivery?.deliveryIssue
-              ? t('detail.rosterSavedWithDeliveryIssue')
-              : saveDelivery && saveDelivery.invitationCount > 0
-                ? t('detail.rosterSavedWithInvitations')
-                : t('detail.rosterSaved')}</p>
-            {saveDelivery && saveDelivery.invitationCount > 0 ? (
-              <p>{t('detail.invitationDeliverySummary', {
-                sentCount: saveDelivery.deliveredCount,
-                pendingCount: saveDelivery.invitationCount - saveDelivery.deliveredCount,
-              })}</p>
-            ) : null}
+            <p>{saveDelivery && saveDelivery.invitationCount > 0
+              ? t('detail.rosterSavedWithInvitations')
+              : t('detail.rosterSaved')}</p>
           </div>
         ) : null}
 
@@ -375,12 +371,16 @@ export function EventDetail({
           <p className="border-y border-border py-4 text-sm text-muted-foreground">{t('detail.noParticipants')}</p>
         ) : (
           <div className="divide-y divide-border border-y border-border">
-            {guests.map((guest) => (
+            {guests.map((guest) => {
+              const participantSourceLabel = sourceLabel(guest)
+              return (
               <div key={guest.key} className="min-w-0 py-3">
                 <div className="flex min-h-11 items-center gap-3">
                   <span className="min-w-0 flex-1">
                     <span className="block break-all text-sm font-medium">{guest.label}</span>
-                    <span className="block text-xs text-muted-foreground">{sourceLabel(guest.sourceKind)}</span>
+                    {participantSourceLabel ? (
+                      <span className="block text-xs text-muted-foreground">{participantSourceLabel}</span>
+                    ) : null}
                   </span>
                   <button
                     type="button"
@@ -413,7 +413,8 @@ export function EventDetail({
                   </div>
                 ) : null}
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
