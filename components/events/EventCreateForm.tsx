@@ -8,9 +8,9 @@ import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
 import { TeskeidTimeField } from '@/components/teskeid/TeskeidTimeField'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
-import type { EventNewGuestInput } from '@/lib/events/contracts'
+import type { EventNewGuestV2 } from '@/lib/events/participant-identity-v2.contracts'
 import { eventDetailPath } from '@/lib/events/contracts'
-import { createEvent } from '@/lib/events/actions'
+import { createEventV2 } from '@/lib/events/participant-identity-v2.actions'
 import {
   createRequestId,
   expenseInputClass,
@@ -22,7 +22,7 @@ import { EventParticipantPicker } from './EventParticipantPicker'
 type SelectedEventGuest = {
   key: string
   label: string
-  input: EventNewGuestInput
+  input: EventNewGuestV2
 }
 
 type CreateReceipt = {
@@ -41,7 +41,7 @@ const KNOWN_ERROR_CODES = new Set([
   'save_failed',
 ])
 
-function sourceTranslationKey(input: EventNewGuestInput) {
+function sourceTranslationKey(input: EventNewGuestV2) {
   if (input.source_kind === 'relationship') return 'create.teskeidParticipant' as const
   if (input.source_kind === 'manual_email') return 'create.emailParticipant' as const
   return 'create.guestParticipant' as const
@@ -85,7 +85,7 @@ export function EventCreateForm({
     return true
   }
 
-  function addManual(input: EventNewGuestInput, label: string): boolean {
+  function addManual(input: EventNewGuestV2, label: string): boolean {
     if (atGuestLimit || input.source_kind === 'relationship') return false
     if (
       input.source_kind === 'manual_email'
@@ -103,7 +103,7 @@ export function EventCreateForm({
 
   function requestIdFor(payload: {
     name: string
-    guests: EventNewGuestInput[]
+    guests: EventNewGuestV2[]
     event_date: string | null
     event_time: string | null
     description: string
@@ -135,9 +135,9 @@ export function EventCreateForm({
     setIsSubmitting(true)
     setError(null)
 
-    let result: Awaited<ReturnType<typeof createEvent>>
+    let result: Awaited<ReturnType<typeof createEventV2>>
     try {
-      result = await createEvent({ ...payload, request_id: requestId })
+      result = await createEventV2({ ...payload, request_id: requestId })
     } catch {
       setError(t('errors.save_failed'))
       submittingRef.current = false

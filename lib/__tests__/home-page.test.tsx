@@ -505,6 +505,8 @@ function makeHouseholdEvent(overrides: Partial<RecentEventRow> = {}): RecentEven
 }
 
 const EVENT_INVITATION_ID = '30000000-0000-4000-8000-000000000001'
+const INVITED_EVENT_ID = '30000000-0000-4000-8000-000000000002'
+const STALE_INVITED_EVENT_ID = '30000000-0000-4000-8000-000000000003'
 
 function makeEventInvitationEvent(overrides: Partial<RecentEventRow> = {}): RecentEventRow {
   return makeEvent({
@@ -538,6 +540,12 @@ function setupRpcs(
     }
     if (fn === 'teskeid_event_list_my_pending_invitations') {
       return Promise.resolve({ data: { invitations: eventInvitations }, error: null })
+    }
+    if (fn === 'teskeid_event_get_guest_attendance_preview') {
+      return Promise.resolve({
+        data: { invitation_id: EVENT_INVITATION_ID, event_id: INVITED_EVENT_ID },
+        error: null,
+      })
     }
     if (fn === 'household_chore_sync_recent') {
       return Promise.resolve({
@@ -810,7 +818,9 @@ describe('HeimPage — unread badges', () => {
       inviter_display_name: 'Stefán',
       invited_at: '2026-08-16T20:00:00.000Z',
     }])
-    setupRecentEvents([makeEventInvitationEvent()])
+    setupRecentEvents([makeEventInvitationEvent({
+      href: `/auth-mvp/vidburdir/${STALE_INVITED_EVENT_ID}`,
+    })])
 
     render(await HeimPage())
 
@@ -818,7 +828,11 @@ describe('HeimPage — unread badges', () => {
     expect(screen.getByText('Boð frá Anna')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Skoða' })).toHaveAttribute(
       'href',
-      `/auth-mvp/vidburdir/bod/thattaka/${EVENT_INVITATION_ID}`,
+      `/auth-mvp/vidburdir/${INVITED_EVENT_ID}`,
+    )
+    expect(screen.getByRole('link', { name: 'Skoða' })).not.toHaveAttribute(
+      'href',
+      `/auth-mvp/vidburdir/${STALE_INVITED_EVENT_ID}`,
     )
     const eventsCard = screen.getByRole('link', { name: 'Opna Viðburðir' })
     expect(eventsCard).toContainElement(screen.getByLabelText('1 ólesið atriði'))

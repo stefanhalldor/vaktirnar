@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Plus, X } from 'lucide-react'
+import { Check, Plus, X } from 'lucide-react'
 import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 
 export type RelationshipPartyPickerLabel = {
@@ -14,6 +14,10 @@ export type RelationshipPartyPickerOption = {
   id: string
   primaryLabel: string
   secondaryLabel?: string | null
+  /** Controlled presentation state. The picker never changes this value itself. */
+  selected?: boolean
+  /** A present reason makes the option unavailable while keeping the reason visible. */
+  disabledReason?: string | null
   /** Owner-private presentation only. This value is never returned from the picker. */
   note?: string | null
   /** Safe, non-rendered search terms. These values are never returned from the picker. */
@@ -44,6 +48,7 @@ type RelationshipPartyPickerSourceBase = {
 export type RelationshipPartyPickerOptionsSource = RelationshipPartyPickerSourceBase & {
   type: 'options'
   options: RelationshipPartyPickerOption[]
+  optionControl?: 'action' | 'checkbox' | 'radio'
   excludedOptionIds?: string[]
   optionsError?: boolean
   circles?: RelationshipPartyPickerCircle[]
@@ -81,10 +86,17 @@ export type RelationshipPartyPickerManualSource = RelationshipPartyPickerSourceB
 
 export type RelationshipPartyPickerCustomSource = RelationshipPartyPickerSourceBase & {
   type: 'custom'
-  render: (controls: {
-    completeSelection: (result: RelationshipPartyPickerSelectionResult) => void
-    setError: (error: string | null) => void
-  }) => ReactNode
+  render: (controls: RelationshipPartyPickerCompletionControls) => ReactNode
+}
+
+export type RelationshipPartyPickerCompletionControls = {
+  completeSelection: (result: RelationshipPartyPickerSelectionResult) => void
+  setError: (error: string | null) => void
+}
+
+export type RelationshipPartyPickerStatusAnnouncement = {
+  sequence: number
+  message: string
 }
 
 export type RelationshipPartyPickerSource =
@@ -140,7 +152,12 @@ export function RelationshipPartyPicker({
   initialSourceId,
   helperText,
   triggerRef,
+  initialFocusRef,
+  onOpen,
+  onDismiss,
   onSelectionClosed,
+  statusAnnouncement,
+  renderFooter,
 }: {
   options?: RelationshipPartyPickerOption[]
   excludedOptionIds?: string[]
@@ -163,10 +180,24 @@ export function RelationshipPartyPicker({
   helperText?: ReactNode
   /** Allows a following domain sheet to restore focus to the picker trigger. */
   triggerRef?: Ref<HTMLButtonElement>
+  /** Optional active-source focus target. Falls back to a source control or close button. */
+  initialFocusRef?: RefObject<HTMLElement | null>
+  /** Starts an adapter-owned ephemeral session. */
+  onOpen?: () => void
+  /** Discards an adapter-owned session only after a user dismissal. */
+  onDismiss?: () => void
   /** Runs from Radix's close boundary after an accepted selection closes the picker. */
   onSelectionClosed?: () => void
+  /** One stable picker-wide polite live region; sequence re-announces repeated messages. */
+  statusAnnouncement?: RelationshipPartyPickerStatusAnnouncement
+  /** Shared confirmation/footer presentation; accepted completion uses the normal close boundary. */
+  renderFooter?: (controls: RelationshipPartyPickerCompletionControls) => ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const pickerId = useId()
+  const sourcePanelId = `${pickerId}-source-panel`
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const sourceButtonRefs = useRef(new Map<string, HTMLButtonElement>())
   const selectionClosePendingRef = useRef(false)
   const legacyHasKnownSources = options.length > 0 || circles.length > 0
   const configuredSources: RelationshipPartyPickerSource[] = sources ?? [
@@ -278,8 +309,18 @@ export function RelationshipPartyPicker({
     reset()
   }
 
+  const activeSourceControlId = configuredSources.length > 1 && activeSource
+    ? `${pickerId}-source-${configuredSources.findIndex((source) => source.id === activeSource.id)}`
+    : undefined
+
   return (
     <Dialog.Root open={open} onOpenChange={(next) => {
+      if (next && !open) {
+        selectionClosePendingRef.current = false
+        onOpen?.()
+      } else if (!next && open && !selectionClosePendingRef.current) {
+        onDismiss?.()
+      }
       if (!next && open) selectionClosePendingRef.current = false
       setOpen(next)
       if (next) setSourceId(requestedInitialSourceId)
@@ -295,6 +336,19 @@ export function RelationshipPartyPicker({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />
         <Dialog.Content
           className="fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-background p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(32rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5"
+          onOpenAutoFocus={(event) => {
+            const preferredTarget = initialFocusRef?.current
+            const firstEnabledSource = configuredSources.find((source) => !source.disabled)
+            const sourceTarget = firstEnabledSource
+              ? sourceButtonRefs.current.get(firstEnabledSource.id)
+              : undefined
+            const target = preferredTarget?.isConnected && !preferredTarget.hasAttribute('disabled')
+              ? preferredTarget
+              : sourceTarget ?? closeButtonRef.current
+            if (!target) return
+            event.preventDefault()
+            target.focus()
+          }}
           onCloseAutoFocus={(event) => {
             if (!selectionClosePendingRef.current) return
             selectionClosePendingRef.current = false
@@ -313,7 +367,7 @@ export function RelationshipPartyPicker({
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <button type="button" aria-label={copy.closeLabel} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <button ref={closeButtonRef} type="button" aria-label={copy.closeLabel} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <X aria-hidden size={20} />
               </button>
             </Dialog.Close>
@@ -332,13 +386,19 @@ export function RelationshipPartyPicker({
               role="group"
               aria-label={copy.sourceLabel ?? copy.manual?.sourceLabel ?? copy.title}
             >
-              {configuredSources.map((source) => (
+              {configuredSources.map((source, index) => (
                 <button
                   key={source.id}
+                  id={`${pickerId}-source-${index}`}
+                  ref={(node) => {
+                    if (node) sourceButtonRefs.current.set(source.id, node)
+                    else sourceButtonRefs.current.delete(source.id)
+                  }}
                   type="button"
-                  className={`${activeSource?.id === source.id ? primaryButtonClass : secondaryButtonClass} min-w-0 whitespace-normal px-2 leading-tight`}
+                  className={`${activeSource?.id === source.id ? primaryButtonClass : secondaryButtonClass} min-w-0 whitespace-normal break-words px-2 leading-tight [overflow-wrap:anywhere]`}
                   disabled={source.disabled}
                   aria-pressed={activeSource?.id === source.id}
+                  aria-controls={sourcePanelId}
                   onClick={() => changeSource(source.id)}
                 >
                   {source.label}
@@ -347,11 +407,16 @@ export function RelationshipPartyPicker({
             </div>
           ) : null}
 
-          {visibleOptionsError && visibleOptionsErrorLabel ? <p className="mt-4 text-sm text-amber-800">{visibleOptionsErrorLabel}</p> : null}
-          {error ? <p role="alert" className="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+          <div
+            id={sourcePanelId}
+            role={activeSourceControlId ? 'region' : undefined}
+            aria-labelledby={activeSourceControlId}
+          >
+            {visibleOptionsError && visibleOptionsErrorLabel ? <p className="mt-4 text-sm text-amber-800">{visibleOptionsErrorLabel}</p> : null}
+            {error ? <p role="alert" className="mt-4 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
 
-          {activeOptionsSource ? (
-            <div className="mt-5 space-y-4">
+            {activeOptionsSource ? (
+              <div className="mt-5 space-y-4">
               {(activeOptionsSource.circles?.length ?? 0) > 0 && activeOptionsSource.onSelectCircle && activeOptionsSource.circleSectionLabel ? (
                 <div className="space-y-2">
                   <p className="text-sm font-medium">{activeOptionsSource.circleSectionLabel}</p>
@@ -373,18 +438,65 @@ export function RelationshipPartyPicker({
                 <button type="button" className={`min-h-10 rounded-full border px-3 text-sm ${labelId === null ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setLabelId(null)}>{activeOptionsSource.allFilterLabel}</button>
                 {labels.map((label) => <button key={label.id} type="button" className={`min-h-10 rounded-full border px-3 text-sm ${labelId === label.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} onClick={() => setLabelId(label.id)}>{label.name}</button>)}
               </div> : null}
-              <div className="max-h-[40dvh] divide-y divide-border overflow-y-auto border-y border-border">
-                {filteredOptions.map((option) => (
-                  <button key={option.id} type="button" className="flex min-h-14 w-full items-center justify-between gap-3 px-1 py-3 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onClick={() => completeSelection(activeOptionsSource.onSelectOption(option.id))}>
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{option.primaryLabel}</span>
+              <div
+                className="divide-y divide-border border-y border-border"
+                role={activeOptionsSource.optionControl === 'radio' ? 'radiogroup' : undefined}
+                aria-label={activeOptionsSource.optionControl === 'radio' ? activeOptionsSource.label : undefined}
+              >
+                {filteredOptions.map((option, index) => {
+                  const selected = option.selected === true
+                  const disabledReason = option.disabledReason?.trim() || null
+                  const disabled = disabledReason !== null
+                  const reasonId = disabled ? `${sourcePanelId}-option-${index}-reason` : undefined
+                  const optionContent = (
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words font-medium">{option.primaryLabel}</span>
                       {option.secondaryLabel ? <span className="mt-0.5 block break-all text-xs text-muted-foreground">{option.secondaryLabel}</span> : null}
                       {option.note ? <span className="mt-1 block break-words border-l-2 border-primary/20 pl-3 text-xs text-muted-foreground">{option.note}</span> : null}
                       {(option.customLabels?.length ?? 0) > 0 ? <span className="mt-1 flex flex-wrap gap-1">{option.customLabels?.map((label) => <span key={label.id} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{label.name}</span>)}</span> : null}
+                      {disabledReason ? <span id={reasonId} className="mt-1 block text-xs text-muted-foreground">{disabledReason}</span> : null}
                     </span>
-                    <Plus aria-hidden size={18} className="shrink-0 text-primary" />
-                  </button>
-                ))}
+                  )
+                  if (activeOptionsSource.optionControl === 'checkbox' || activeOptionsSource.optionControl === 'radio') {
+                    return (
+                      <label key={option.id} className={`flex min-h-14 w-full items-center justify-between gap-3 px-1 py-3 text-left ${disabled ? 'cursor-not-allowed opacity-60' : 'hover:bg-muted'}`}>
+                        {optionContent}
+                        <input
+                          type={activeOptionsSource.optionControl}
+                          name={activeOptionsSource.optionControl === 'radio' ? `${sourcePanelId}-options` : undefined}
+                          checked={selected}
+                          aria-disabled={disabled || undefined}
+                          aria-describedby={reasonId}
+                          className="size-5 shrink-0 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          onClick={(event) => {
+                            if (disabled) event.preventDefault()
+                          }}
+                          onChange={() => {
+                            if (!disabled) completeSelection(activeOptionsSource.onSelectOption(option.id))
+                          }}
+                        />
+                      </label>
+                    )
+                  }
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`flex min-h-14 w-full items-center justify-between gap-3 px-1 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${disabled ? 'cursor-not-allowed opacity-60' : 'hover:bg-muted'}`}
+                      aria-pressed={option.selected === undefined ? undefined : selected}
+                      aria-disabled={disabled || undefined}
+                      aria-describedby={reasonId}
+                      onClick={() => {
+                        if (!disabled) completeSelection(activeOptionsSource.onSelectOption(option.id))
+                      }}
+                    >
+                      {optionContent}
+                      {selected
+                        ? <Check aria-hidden size={18} className="shrink-0 text-primary" />
+                        : <Plus aria-hidden size={18} className="shrink-0 text-primary" />}
+                    </button>
+                  )
+                })}
                 {filteredOptions.length === 0 ? <p className="py-4 text-sm text-muted-foreground">{activeOptionsSource.noResultsLabel}</p> : null}
               </div>
               {activeOptionsSource.pagination
@@ -414,9 +526,9 @@ export function RelationshipPartyPicker({
                     </button>
                   </div>
                 ) : null}
-            </div>
-          ) : activeManualSource ? (
-            <div className="mt-5 space-y-4">
+              </div>
+            ) : activeManualSource ? (
+              <div className="mt-5 space-y-4">
               <label className="block">
                 <span className="mb-1 block text-sm font-medium">{activeManualSource.inputLabel}</span>
                 <input className={inputClass} value={manualValue} onChange={(event) => { setManualValue(event.target.value); setError(null) }} maxLength={activeManualSource.inputMaxLength ?? 320} autoComplete="off" placeholder={activeManualSource.inputPlaceholder} />
@@ -425,10 +537,23 @@ export function RelationshipPartyPicker({
               <button type="button" className={`${primaryButtonClass} w-full`} disabled={!manualValue.trim()} onClick={selectManual}>
                 {activeManualSource.submitLabel}
               </button>
-            </div>
-          ) : activeSource?.type === 'custom' ? (
+              </div>
+            ) : activeSource?.type === 'custom' ? (
+              <div className="mt-5">
+                {activeSource.render({ completeSelection, setError })}
+              </div>
+            ) : null}
+          </div>
+
+          {statusAnnouncement ? (
+            <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+              <span key={statusAnnouncement.sequence}>{statusAnnouncement.message}</span>
+            </p>
+          ) : null}
+
+          {renderFooter ? (
             <div className="mt-5">
-              {activeSource.render({ completeSelection, setError })}
+              {renderFooter({ completeSelection, setError })}
             </div>
           ) : null}
         </Dialog.Content>

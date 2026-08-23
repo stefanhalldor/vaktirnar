@@ -57,6 +57,11 @@ const copy: Record<string, string> = {
   'picker.guestName': 'Nafn eða netfang',
   'picker.guestPlaceholder': 'Nafn eða netfang',
   'picker.guestHint': 'Ekkert boð er sent.',
+  'picker.sharedNameLabel': 'Nafn sem gestir sjá',
+  'picker.sharedNamePlaceholder': 'Nafn gests',
+  'picker.sharedNameHint': 'Sameiginlegt nafn.',
+  'picker.emailOptionalLabel': 'Netfang (valkvætt)',
+  'picker.emailPlaceholder': 'gestur@netfang.is',
   'picker.addGuest': 'Bæta við gesti',
   'picker.guestNameInvalid': 'Ógilt nafn',
   'picker.emailInvalid': 'Ógilt netfang',
@@ -81,7 +86,7 @@ vi.mock('next-intl', () => ({
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
 }))
-vi.mock('@/lib/events/actions', () => ({ createEvent: mockCreateEvent }))
+vi.mock('@/lib/events/participant-identity-v2.actions', () => ({ createEventV2: mockCreateEvent }))
 
 import { EventCreateForm } from '../EventCreateForm'
 
@@ -113,7 +118,13 @@ function addKnown() {
 function addManual(value: string) {
   fireEvent.click(screen.getByRole('button', { name: 'Bæta við gesti' }))
   fireEvent.click(screen.getByRole('button', { name: 'Nafn eða netfang' }))
-  fireEvent.change(screen.getByRole('textbox', { name: 'Nafn eða netfang' }), { target: { value } })
+  const isEmail = value.includes('@')
+  fireEvent.change(screen.getByRole('textbox', { name: /Nafn sem gestir sjá/ }), {
+    target: { value: isEmail ? 'Gestur' : value },
+  })
+  if (isEmail) {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Netfang (valkvætt)' }), { target: { value } })
+  }
   fireEvent.click(screen.getAllByRole('button', { name: 'Bæta við gesti' }).at(-1)!)
 }
 
@@ -123,7 +134,7 @@ beforeEach(() => {
     ok: true,
     data: {
       eventId: '70000000-0000-4000-8000-000000000001',
-      rosterRevision: 1,
+      rosterRevision: '1',
       invitationCount: 0,
       deliveredCount: 0,
       deliveryIssue: false,
@@ -149,7 +160,7 @@ describe('EventCreateForm', () => {
       guests: [
         { source_kind: 'relationship', relationship_id: option.relationshipId },
         { source_kind: 'manual_name', display_name: 'Páll' },
-        { source_kind: 'manual_email', email: 'gestur@example.is' },
+        { source_kind: 'manual_email', email: 'gestur@example.is', shared_display_name: 'Gestur' },
       ],
       event_date: null,
       event_time: null,

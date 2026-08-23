@@ -72,8 +72,6 @@ export async function resolveRecentEventSourceAccess(
   }
 }
 
-const EVENT_INVITATION_PATH = '/auth-mvp/vidburdir/bod/thattaka'
-
 interface PendingEventInvitation {
   invitationId: string
   eventName: string
@@ -81,9 +79,20 @@ interface PendingEventInvitation {
   invitedAt: string
 }
 
+function eventPreviewTarget(value: unknown, expectedInvitationId: string): string | null {
+  const candidate = Array.isArray(value) && value.length === 1 ? value[0] : value
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+  const row = candidate as Record<string, unknown>
+  const invitationId = typeof row.invitation_id === 'string' ? row.invitation_id : ''
+  const eventId = typeof row.event_id === 'string' ? row.event_id : ''
+  if (invitationId !== expectedInvitationId || !UUID_PATTERN.test(eventId)) return null
+  return `/auth-mvp/vidburdir/${eventId}`
+}
+
 export interface EventInvitationSyncResult {
   ok: boolean
-  invitationIds: Set<string>
+  /** Exact-current actor-scoped invitation targets for this sync only. */
+  targets: Map<string, string>
 }
 
 function eventInvitationProjectionIsUnavailable(error: unknown): boolean {
@@ -147,34 +156,48 @@ export async function syncEventAttendanceInvitationEvents(
       if (!eventInvitationProjectionIsUnavailable(error)) {
         console.warn('[recent-events] event invitation sync unavailable')
       }
-      return { ok: false, invitationIds: new Set() }
+      return { ok: false, targets: new Map() }
     }
     const invitations = parsePendingEventInvitations(data)
     if (!invitations) throw new Error('event_invitation_projection_invalid')
-    await Promise.all(invitations.map((invitation) => recordRecentEvent({
-      userId: actorUserId,
-      source: 'events',
-      eventType: 'event_attendance_invitation_received',
-      entityType: 'attendance_invitation',
-      entityId: invitation.invitationId,
-      eventKey: `events:attendance-invitation:${invitation.invitationId}:received`,
-      payload: {
-        eventName: invitation.eventName,
-        ...(invitation.inviterDisplayName
-          ? { inviterDisplayName: invitation.inviterDisplayName }
-          : {}),
-      },
-      href: `${EVENT_INVITATION_PATH}/${invitation.invitationId}`,
-      occurredAt: invitation.invitedAt,
-      updateOnConflict: false,
-    })))
+    const resolved = (await Promise.all(invitations.map(async (invitation) => {
+      const { data, error } = await getAdmin().rpc(
+        'teskeid_event_get_guest_attendance_preview',
+        { p_actor_id: actorUserId, p_invitation_id: invitation.invitationId },
+      )
+      if (error) return null
+      const href = eventPreviewTarget(data, invitation.invitationId)
+      return href ? { invitation, href } : null
+    }))).filter((item): item is { invitation: PendingEventInvitation; href: string } => item !== null)
+    await Promise.all(resolved.map(({ invitation, href }) => recordRecentEvent({
+        userId: actorUserId,
+        source: 'events',
+        eventType: 'event_attendance_invitation_received',
+        entityType: 'attendance_invitation',
+        entityId: invitation.invitationId,
+        eventKey: `events:attendance-invitation:${invitation.invitationId}:received`,
+        payload: {
+          eventName: invitation.eventName,
+          ...(invitation.inviterDisplayName
+            ? { inviterDisplayName: invitation.inviterDisplayName }
+            : {}),
+        },
+        href,
+        occurredAt: invitation.invitedAt,
+        // The invitation occurrence is immutable. A reconciliation must not
+        // reset ack_at and make an already-read invitation unread again.
+        updateOnConflict: false,
+      })))
     return {
       ok: true,
-      invitationIds: new Set(invitations.map((invitation) => invitation.invitationId)),
+      targets: new Map(resolved.map(({ invitation, href }) => [
+        invitation.invitationId,
+        href,
+      ])),
     }
   } catch {
     console.warn('[recent-events] event invitation sync unavailable')
-    return { ok: false, invitationIds: new Set() }
+    return { ok: false, targets: new Map() }
   }
 }
 

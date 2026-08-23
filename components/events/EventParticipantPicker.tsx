@@ -2,40 +2,123 @@
 
 import {
   RelationshipPartyPicker,
-  type RelationshipPartyPickerManualResult,
+  type RelationshipPartyPickerCompletionControls,
 } from '@/components/tengsl/RelationshipPartyPicker'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
-import type { EventNewGuestInput } from '@/lib/events/contracts'
+import {
+  EventNewGuestV2Schema,
+  type EventNewGuestV2,
+} from '@/lib/events/participant-identity-v2.contracts'
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 
 const UNSAFE_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u
-const SIMPLE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 
 export type EventManualGuestResult =
-  | { ok: true; label: string; input: EventNewGuestInput }
+  | { ok: true; label: string; input: EventNewGuestV2 }
   | { ok: false; error: 'invalid_name' | 'invalid_email' }
 
-export function parseEventManualGuest(value: string): EventManualGuestResult {
-  const normalized = value.trim().normalize('NFC')
-  if (normalized.includes('@')) {
-    const email = normalized.toLocaleLowerCase('en-US')
-    if (email.length > 320 || UNSAFE_CONTROLS.test(email) || !SIMPLE_EMAIL.test(email)) {
+export function parseEventManualGuest(
+  displayNameValue: string,
+  emailValue = '',
+): EventManualGuestResult {
+  const displayName = displayNameValue.trim().normalize('NFC')
+  if (!displayName || displayName.length > 120 || displayName.includes('@') || UNSAFE_CONTROLS.test(displayName)) {
+    return { ok: false, error: 'invalid_name' }
+  }
+  const rawEmail = emailValue.trim()
+  if (rawEmail) {
+    const parsed = EventNewGuestV2Schema.safeParse({
+      source_kind: 'manual_email',
+      email: rawEmail,
+      shared_display_name: displayName,
+    })
+    if (!parsed.success || parsed.data.source_kind !== 'manual_email') {
       return { ok: false, error: 'invalid_email' }
     }
     return {
       ok: true,
-      label: email,
-      input: { source_kind: 'manual_email', email },
+      label: displayName,
+      input: parsed.data,
     }
-  }
-  if (!normalized || normalized.length > 120 || UNSAFE_CONTROLS.test(normalized)) {
-    return { ok: false, error: 'invalid_name' }
   }
   return {
     ok: true,
-    label: normalized,
-    input: { source_kind: 'manual_name', display_name: normalized },
+    label: displayName,
+    input: { source_kind: 'manual_name', display_name: displayName },
   }
+}
+
+function EventManualGuestFields({
+  controls,
+  onAdd,
+}: {
+  controls: RelationshipPartyPickerCompletionControls
+  onAdd: (input: EventNewGuestV2, label: string) => boolean
+}) {
+  const t = useTranslations('teskeid.events')
+  const [displayName, setDisplayName] = useState('')
+  const [email, setEmail] = useState('')
+
+  function submit() {
+    const parsed = parseEventManualGuest(displayName, email)
+    if (!parsed.ok) {
+      controls.setError(t(parsed.error === 'invalid_email'
+        ? 'picker.emailInvalid'
+        : 'picker.guestNameInvalid'))
+      return
+    }
+    controls.completeSelection({ accepted: onAdd(parsed.input, parsed.label) })
+  }
+
+  return (
+    <div
+      className="space-y-4"
+      onKeyDown={(event) => {
+        if (
+          event.key === 'Enter'
+          && event.target instanceof HTMLInputElement
+          && !event.nativeEvent.isComposing
+        ) {
+          event.preventDefault()
+          submit()
+        }
+      }}
+    >
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium">{t('picker.sharedNameLabel')}</span>
+        <input
+          className="min-h-11 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          maxLength={120}
+          required
+          placeholder={t('picker.sharedNamePlaceholder')}
+        />
+        <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t('picker.sharedNameHint')}</span>
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium">{t('picker.emailOptionalLabel')}</span>
+        <input
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          className="min-h-11 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          maxLength={320}
+          placeholder={t('picker.emailPlaceholder')}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={submit}
+        className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        {t('picker.addGuest')}
+      </button>
+    </div>
+  )
 }
 
 export function EventParticipantPicker({
@@ -51,7 +134,7 @@ export function EventParticipantPicker({
   optionsError?: boolean
   disabled?: boolean
   onAddKnown: (option: ExpenseParticipantOption) => boolean
-  onAddManual: (input: EventNewGuestInput, label: string) => boolean
+  onAddManual: (input: EventNewGuestV2, label: string) => boolean
 }) {
   const t = useTranslations('teskeid.events')
 
@@ -60,31 +143,39 @@ export function EventParticipantPicker({
     return option ? onAddKnown(option) : false
   }
 
-  function selectManual(value: string): RelationshipPartyPickerManualResult {
-    const result = parseEventManualGuest(value)
-    if (!result.ok) {
-      return {
-        accepted: false,
-        error: t(result.error === 'invalid_email'
-          ? 'picker.emailInvalid'
-          : 'picker.guestNameInvalid'),
-      }
-    }
-    return { accepted: onAddManual(result.input, result.label) }
-  }
-
   return (
     <RelationshipPartyPicker
-      options={options.map((option) => ({
-        id: option.relationshipId,
-        primaryLabel: option.pickerLabel,
-        searchAliases: [option.sharedLabel],
-        customLabels: option.customLabels,
-      }))}
-      excludedOptionIds={excludedRelationshipIds}
-      optionsError={optionsError}
+      sources={[
+        {
+          id: 'known',
+          type: 'options',
+          label: t('picker.knownMode'),
+          options: options.map((option) => ({
+            id: option.relationshipId,
+            primaryLabel: option.pickerLabel,
+            searchAliases: [option.sharedLabel],
+            customLabels: option.customLabels,
+          })),
+          excludedOptionIds: excludedRelationshipIds,
+          optionsError,
+          loadErrorLabel: t('picker.loadError'),
+          searchLabel: t('picker.searchLabel'),
+          searchPlaceholder: t('picker.searchPlaceholder'),
+          filterLabel: t('picker.filterLabel'),
+          allFilterLabel: t('picker.allFilterLabel'),
+          noResultsLabel: t('picker.noResults'),
+          onSelectOption: selectKnown,
+        },
+        {
+          id: 'manual',
+          type: 'custom',
+          label: t('picker.guestMode'),
+          render: (controls) => (
+            <EventManualGuestFields controls={controls} onAdd={onAddManual} />
+          ),
+        },
+      ]}
       disabled={disabled}
-      manualInputMaxLength={320}
       copy={{
         triggerLabel: t('picker.trigger'),
         title: t('picker.title'),
@@ -96,18 +187,7 @@ export function EventParticipantPicker({
         filterLabel: t('picker.filterLabel'),
         allFilterLabel: t('picker.allFilterLabel'),
         noResultsLabel: t('picker.noResults'),
-        manual: {
-          sourceLabel: t('picker.sourceLabel'),
-          knownModeLabel: t('picker.knownMode'),
-          manualModeLabel: t('picker.guestMode'),
-          inputLabel: t('picker.guestName'),
-          inputPlaceholder: t('picker.guestPlaceholder'),
-          hint: t('picker.guestHint'),
-          submitLabel: t('picker.addGuest'),
-        },
       }}
-      onSelectOption={selectKnown}
-      onSelectManual={selectManual}
     />
   )
 }

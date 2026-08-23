@@ -33,6 +33,7 @@ import {
 } from '@/lib/expenses/drafts'
 import type { RelationshipCircleOption } from '@/lib/relationships/types'
 import type { EventExpenseSourceView } from '@/lib/events/contracts'
+import type { LegacyExpenseEventSourceV2 } from '@/lib/events/legacy-expense-event-source-v2.contracts'
 import {
   EXPENSE_FLOW_STEPS,
   type ExpenseFlowStep,
@@ -91,6 +92,7 @@ interface ExpenseFormProps {
   draftBaseHref?: string
   /** Present only when both Events and Expenses gates are authorized. */
   eventSources?: EventExpenseSourceView[]
+  eventSourcePresentation?: LegacyExpenseEventSourceV2[]
   eventSourcesError?: boolean
   initialEventSource?: EventExpenseSourceView | null
   eventSelectionWarning?: boolean
@@ -215,6 +217,7 @@ export function ExpenseForm({
   draft = null,
   draftBaseHref = '',
   eventSources,
+  eventSourcePresentation,
   eventSourcesError = false,
   initialEventSource = null,
   eventSelectionWarning = false,
@@ -1169,6 +1172,7 @@ export function ExpenseForm({
             onAddKnown={addKnownPayer}
             onAddManual={addManualPayer}
             eventSources={!edit ? eventSources : undefined}
+            eventSourcePresentation={!edit ? eventSourcePresentation : undefined}
             eventSourcesError={eventSourcesError}
             selectedEventId={eventId || null}
             selectedEventGuestIds={selectedEventGuestIds}
@@ -1258,6 +1262,7 @@ export function ExpenseForm({
               onAddKnown={addKnownParticipant}
               onAddManual={addManualParticipant}
               eventSources={!edit ? eventSources : undefined}
+              eventSourcePresentation={!edit ? eventSourcePresentation : undefined}
               eventSourcesError={eventSourcesError}
               selectedEventId={eventId || null}
               selectedEventGuestIds={selectedEventGuestIds}

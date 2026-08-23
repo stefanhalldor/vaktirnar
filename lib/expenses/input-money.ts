@@ -77,12 +77,26 @@ export function formatExpenseMinor(
   if (!Number.isSafeInteger(amountMinor)) failExpenseDomain('invalid_amount')
   const normalized = normalizeCurrency(currency)
   const digits = expenseCurrencyMinorDigits(normalized)
-  return new Intl.NumberFormat(normalizeDisplayLocale(locale), {
-    style: 'currency',
-    currency: normalized,
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(amountMinor / (10 ** digits))
+  const displayLocale = normalizeDisplayLocale(locale)
+  const factor = 10 ** digits
+  const absolute = Math.abs(amountMinor)
+  const whole = Math.floor(absolute / factor)
+  const fraction = absolute % factor
+  const isIcelandic = displayLocale === 'is-IS'
+  const groupSeparator = isIcelandic ? '.' : ','
+  const decimalSeparator = isIcelandic ? ',' : '.'
+  const groupedWhole = String(whole).replace(
+    /\B(?=(\d{3})+(?!\d))/g,
+    groupSeparator,
+  )
+  const amount = digits === 0
+    ? groupedWhole
+    : `${groupedWhole}${decimalSeparator}${String(fraction).padStart(digits, '0')}`
+  const sign = amountMinor < 0 ? '-' : ''
+  if (isIcelandic) {
+    return `${sign}${amount} ${normalized === 'ISK' ? 'kr.' : normalized}`
+  }
+  return `${sign}${normalized} ${amount}`
 }
 
 /** Plain decimal value suitable for copying into an external payment form. */

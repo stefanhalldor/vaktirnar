@@ -8,12 +8,14 @@ const {
   mockWeatherAccess,
   mockCollaborationAccess,
   mockReadOrder,
+  mockListScopedEventParticipationsV3,
 } = vi.hoisted(() => ({
   mockGetAdmin: vi.fn(),
   mockCheckFeatureAccess: vi.fn(),
   mockWeatherAccess: vi.fn(),
   mockCollaborationAccess: vi.fn(),
   mockReadOrder: vi.fn(),
+  mockListScopedEventParticipationsV3: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mockGetAdmin }))
@@ -23,6 +25,9 @@ vi.mock('@/lib/weather/weatherBaseAccess.server', () => ({
 }))
 vi.mock('@/lib/agent-collaboration/access.server', () => ({
   hasAgentCollaborationBetaAccess: mockCollaborationAccess,
+}))
+vi.mock('@/lib/events/participant-identity-v3.repository.server', () => ({
+  listScopedEventParticipationsV3: mockListScopedEventParticipationsV3,
 }))
 vi.mock('@/lib/teskeid/launcherUsage.server', async (original) => {
   const actual = await original<typeof import('@/lib/teskeid/launcherUsage.server')>()
@@ -44,11 +49,15 @@ const USER = { id: 'user-a', email: 'a@example.com' }
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.AUTH_MVP_ENABLED = 'true'
+  process.env.EVENTS_ENABLED = 'true'
   process.env.AGENT_COLLABORATION_ENABLED = 'true'
   mockCheckFeatureAccess.mockResolvedValue(true)
   mockWeatherAccess.mockResolvedValue({ mode: 'authenticated' })
   mockCollaborationAccess.mockResolvedValue(true)
   mockReadOrder.mockImplementation(async (_userId: string, ids: string[]) => ({ ids, available: true }))
+  mockListScopedEventParticipationsV3.mockResolvedValue({
+    participating: [], participatingHasMore: false, claimHasMore: false,
+  })
 })
 
 describe('canonical launcher catalog', () => {
@@ -163,6 +172,19 @@ describe('server visibility resolver', () => {
     })
     mockWeatherAccess.mockRejectedValue(new Error('weather lookup failed'))
     expect(await resolveTeskeidLauncherVisibility(USER)).toEqual(['kviss', 'bokanir'])
+  })
+
+  it('keeps Events visible for an exact active scoped participant without granting global access', async () => {
+    mockCheckFeatureAccess.mockImplementation(async (_id: string, _email: string, feature: string) => (
+      feature !== 'afmaeli-og-vidburdir'
+    ))
+    mockListScopedEventParticipationsV3.mockResolvedValueOnce({
+      participating: [{ id: 'event-a' }], participatingHasMore: false, claimHasMore: false,
+    })
+
+    const ids = await resolveTeskeidLauncherVisibility(USER)
+    expect(ids).toContain('afmaeli-og-vidburdir')
+    expect(mockListScopedEventParticipationsV3).toHaveBeenCalledWith(USER.id)
   })
 
   it('passes the visible set once to MRU and returns that exact ordered projection', async () => {

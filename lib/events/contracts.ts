@@ -1,5 +1,6 @@
 export const EVENT_FEATURE_KEY = 'afmaeli-og-vidburdir' as const
 export const EVENTS_PATH = '/auth-mvp/vidburdir' as const
+export const EVENT_HEADING_HASH = '#event-heading' as const
 
 export type EventGuestSourceKind = 'relationship' | 'manual_name' | 'manual_email'
 
@@ -18,6 +19,8 @@ export type EventActionErrorCode =
   | 'not_found'
   | 'conflict'
   | 'feature_disabled'
+  | 'not_available'
+  | 'rate_limited'
   | 'save_failed'
 
 export type EventActionResult<T> =

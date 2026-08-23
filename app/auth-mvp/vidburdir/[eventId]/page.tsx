@@ -5,14 +5,15 @@ import { EventAttendeeDetail } from '@/components/events/EventAttendeeDetail'
 import { EventExpenseActivity } from '@/components/expenses/EventExpenseActivity'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
-import { canUseEventExpenses, guardEventAccess } from '@/lib/events/guard'
+import { canUseEventExpenses, guardEventSession } from '@/lib/events/guard'
 import {
   getEventAttendeeContext,
   getEventContext,
-  getEventDetails,
   getEventExpenseActivity,
 } from '@/lib/events/repository.server'
-import type { EventDetailsView, EventExpenseActivityView } from '@/lib/events/contracts'
+import type { EventExpenseActivityView } from '@/lib/events/contracts'
+import { getEventRosterManagementV2 } from '@/lib/events/participant-identity-v2.repository.server'
+import { getEventActorViewV3 } from '@/lib/events/participant-identity-v3.repository.server'
 import { EventShell } from '../EventShell'
 
 export const maxDuration = 60
@@ -24,26 +25,18 @@ export default async function EventDetailPage({
 }) {
   const [{ eventId }, { user }, t] = await Promise.all([
     params,
-    guardEventAccess(),
+    guardEventSession(),
     getTranslations('teskeid.events'),
   ])
-  const emptyDetails: EventDetailsView = {
-    eventId,
-    eventDate: null,
-    eventTime: null,
-    description: null,
-    agenda: null,
-  }
-  const details = await getEventDetails(user.id, eventId).catch(() => null) ?? emptyDetails
-  const event = await getEventContext(user.id, eventId)
-  if (!event) {
-    const attendeeEvent = await getEventAttendeeContext(user.id, eventId)
-    if (!attendeeEvent) notFound()
-    const canUseExpenses = await canUseEventExpenses(user)
+  const actorView = await getEventActorViewV3(user.id, eventId)
+  if (!actorView) notFound()
+  if (actorView.viewerRole === 'attendee') {
+    const legacyAcceptedContext = await getEventAttendeeContext(user.id, eventId).catch(() => null)
+    const canUseExpenses = Boolean(legacyAcceptedContext) && await canUseEventExpenses(user)
     let expenseActivity: EventExpenseActivityView | null = null
     if (canUseExpenses) {
       try {
-        expenseActivity = await getEventExpenseActivity(user.id, attendeeEvent.id) ?? {
+        expenseActivity = await getEventExpenseActivity(user.id, actorView.eventId) ?? {
           status: 'unavailable', expenses: [], positions: [],
         }
       } catch {
@@ -52,14 +45,13 @@ export default async function EventDetailPage({
     }
     return (
       <EventShell
-        title={attendeeEvent.name}
+        title={actorView.name}
         homeLabel={t('homeLabel')}
         backHref="/auth-mvp/vidburdir"
         backLabel={t('backToList')}
       >
         <EventAttendeeDetail
-          event={attendeeEvent}
-          details={details}
+          event={actorView}
           canUseExpenses={canUseExpenses}
           financialPanel={expenseActivity ? (
             <EventExpenseActivity key="event-expense-activity" view={expenseActivity} />
@@ -68,6 +60,10 @@ export default async function EventDetailPage({
       </EventShell>
     )
   }
+
+  const event = await getEventContext(user.id, eventId)
+  const rosterManagement = await getEventRosterManagementV2(user.id, eventId)
+  if (!event || !rosterManagement) notFound()
 
   const canUseExpenses = await canUseEventExpenses(user)
   let expenseActivity: EventExpenseActivityView | null = null
@@ -103,7 +99,8 @@ export default async function EventDetailPage({
     >
       <EventDetail
         event={event}
-        details={details}
+        identityView={actorView}
+        rosterManagement={rosterManagement}
         options={options}
         optionsError={optionsError}
         canUseExpenses={canUseExpenses}

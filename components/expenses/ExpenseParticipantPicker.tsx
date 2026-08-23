@@ -8,6 +8,7 @@ import {
 } from '@/components/tengsl/RelationshipPartyPicker'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type { EventExpenseSourceView } from '@/lib/events/contracts'
+import type { LegacyExpenseEventSourceV2 } from '@/lib/events/legacy-expense-event-source-v2.contracts'
 import type { RelationshipCircleOption } from '@/lib/relationships/types'
 import { ExpenseEventParticipantSource } from './ExpenseEventParticipantSource'
 import { useExpenseTranslations } from './i18n.client'
@@ -42,6 +43,7 @@ export function ExpenseParticipantPicker({
   onAddManual,
   onSelectCircle,
   eventSources,
+  eventSourcePresentation,
   eventSourcesError = false,
   selectedEventId = null,
   selectedEventGuestIds = [],
@@ -63,6 +65,7 @@ export function ExpenseParticipantPicker({
   onSelectCircle?: (circle: RelationshipCircleOption) => boolean
   /** Undefined omits the event source entirely; an empty array renders its true empty state. */
   eventSources?: EventExpenseSourceView[]
+  eventSourcePresentation?: LegacyExpenseEventSourceV2[]
   eventSourcesError?: boolean
   selectedEventId?: string | null
   selectedEventGuestIds?: string[]
@@ -141,6 +144,7 @@ export function ExpenseParticipantPicker({
       render: ({ completeSelection, setError }) => (
         <ExpenseEventParticipantSource
           events={eventSources!}
+          presentationEvents={eventSourcePresentation}
           eventsError={eventSourcesError}
           selectedEventId={selectedEventId}
           selectedEventGuestIds={selectedEventGuestIds}

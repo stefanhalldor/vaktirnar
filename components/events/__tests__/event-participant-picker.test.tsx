@@ -19,6 +19,11 @@ const copy: Record<string, string> = {
   'picker.guestName': 'Nafn eða netfang',
   'picker.guestPlaceholder': 'Nafn eða netfang',
   'picker.guestHint': 'Ekkert boð er sent.',
+  'picker.sharedNameLabel': 'Nafn sem gestir sjá',
+  'picker.sharedNamePlaceholder': 'Nafn gests',
+  'picker.sharedNameHint': 'Sameiginlegt nafn.',
+  'picker.emailOptionalLabel': 'Netfang (valkvætt)',
+  'picker.emailPlaceholder': 'gestur@netfang.is',
   'picker.addGuest': 'Bæta við gesti',
   'picker.guestNameInvalid': 'Ógilt nafn',
   'picker.emailInvalid': 'Ógilt netfang',
@@ -47,15 +52,15 @@ describe('EventParticipantPicker', () => {
       label: 'Páll',
       input: { source_kind: 'manual_name', display_name: 'Páll' },
     })
-    expect(parseEventManualGuest(' GESTUR@Example.is ')).toEqual({
+    expect(parseEventManualGuest('Gestur', ' GESTUR@Example.is ')).toEqual({
       ok: true,
-      label: 'gestur@example.is',
-      input: { source_kind: 'manual_email', email: 'gestur@example.is' },
+      label: 'Gestur',
+      input: { source_kind: 'manual_email', email: 'gestur@example.is', shared_display_name: 'Gestur' },
     })
     expect(parseEventManualGuest('')).toEqual({ ok: false, error: 'invalid_name' })
     expect(parseEventManualGuest('a'.repeat(121))).toEqual({ ok: false, error: 'invalid_name' })
     expect(parseEventManualGuest('Anna\u202e')).toEqual({ ok: false, error: 'invalid_name' })
-    expect(parseEventManualGuest('anna@')).toEqual({ ok: false, error: 'invalid_email' })
+    expect(parseEventManualGuest('Anna', 'anna@')).toEqual({ ok: false, error: 'invalid_email' })
   })
 
   it('returns the exact known Relationship option while keeping its shared label search-only', () => {
@@ -93,19 +98,22 @@ describe('EventParticipantPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við gesti' }))
     expect(screen.getByRole('button', { name: 'Þekktur aðili' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Nafn eða netfang' }))
-    const input = screen.getByRole('textbox', { name: 'Nafn eða netfang' })
-    expect(input).toHaveAttribute('maxlength', '320')
+    const nameInput = screen.getByRole('textbox', { name: /Nafn sem gestir sjá/ })
+    const emailInput = screen.getByRole('textbox', { name: 'Netfang (valkvætt)' })
+    expect(nameInput).toHaveAttribute('maxlength', '120')
+    expect(emailInput).toHaveAttribute('maxlength', '320')
 
-    fireEvent.change(input, { target: { value: 'anna@' } })
+    fireEvent.change(nameInput, { target: { value: 'Anna' } })
+    fireEvent.change(emailInput, { target: { value: 'anna@' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Bæta við gesti' }).at(-1)!)
     expect(screen.getByRole('alert')).toHaveTextContent('Ógilt netfang')
     expect(onAddManual).not.toHaveBeenCalled()
 
-    fireEvent.change(input, { target: { value: '  Anna@example.is  ' } })
+    fireEvent.change(emailInput, { target: { value: '  Anna@example.is  ' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Bæta við gesti' }).at(-1)!)
     expect(onAddManual).toHaveBeenCalledWith(
-      { source_kind: 'manual_email', email: 'anna@example.is' },
-      'anna@example.is',
+      { source_kind: 'manual_email', email: 'anna@example.is', shared_display_name: 'Anna' },
+      'Anna',
     )
   })
 
@@ -124,6 +132,6 @@ describe('EventParticipantPicker', () => {
     expect(screen.getByText('Ekki tókst að sækja þekkta aðila')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Mamma/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Nafn eða netfang' }))
-    expect(screen.getByRole('textbox', { name: 'Nafn eða netfang' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /Nafn sem gestir sjá/ })).toBeInTheDocument()
   })
 })

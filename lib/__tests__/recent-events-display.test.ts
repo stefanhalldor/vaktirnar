@@ -81,6 +81,16 @@ describe('recent event source parsing', () => {
     expect(parseRecentEventRow(row({
       source: 'events',
       event_type: 'event_attendance_invitation_received',
+      entity_type: 'attendance_invitation',
+      entity_id: invitationId,
+      payload: { eventName: 'Kvisskvöld' },
+      href: '/auth-mvp/vidburdir/90000000-0000-4000-8000-000000000001',
+    }))).toMatchObject({
+      href: `/auth-mvp/vidburdir/bod/thattaka/${invitationId}`,
+    })
+    expect(parseRecentEventRow(row({
+      source: 'events',
+      event_type: 'event_attendance_invitation_received',
       entity_type: 'event',
       entity_id: invitationId,
       payload: { eventName: 'Kvisskvöld' },

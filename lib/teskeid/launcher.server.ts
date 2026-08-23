@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js'
 import { hasAgentCollaborationBetaAccess } from '@/lib/agent-collaboration/access.server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { resolveAuthenticatedWeatherShellAccess } from '@/lib/weather/weatherBaseAccess.server'
+import { listScopedEventParticipationsV3 } from '@/lib/events/participant-identity-v3.repository.server'
 import {
   TESKEID_LAUNCHER_CATALOG,
   getTeskeidLauncherItem,
@@ -29,6 +30,12 @@ async function resolveFeatureVisibility(
   try {
     if (featureId === 'vedrid') {
       return (await resolveAuthenticatedWeatherShellAccess(user)).mode !== 'blocked'
+    }
+    if (featureId === 'afmaeli-og-vidburdir') {
+      if (process.env.EVENTS_ENABLED !== 'true') return false
+      if (await checkFeatureAccess(user.id, user.email, featureId)) return true
+      const scoped = await listScopedEventParticipationsV3(user.id)
+      return scoped.participating.length > 0
     }
     return await checkFeatureAccess(user.id, user.email, featureId)
   } catch {

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { ComponentProps } from 'react'
+import { createRef, type ComponentProps } from 'react'
 import {
   RelationshipPartyPicker,
   type RelationshipPartyPickerCopy,
@@ -81,6 +81,12 @@ describe('RelationshipPartyPicker', () => {
     expect(dialog.className).toContain('sm:top-1/2')
     expect(screen.getByRole('textbox', { name: 'Leita' }).className).toContain('text-base')
     expect(screen.getByRole('button', { name: 'Loka vali' }).className).toContain('size-11')
+    expect(screen.getByText('Anna vinkona').className).toContain('break-words')
+    expect(screen.getByText('Anna vinkona').className).not.toContain('truncate')
+    const optionList = screen.getByRole('button', { name: /Anna vinkona/ }).parentElement
+    expect(optionList).not.toBeNull()
+    expect(optionList!.className).not.toContain('max-h-[40dvh]')
+    expect(optionList!.className).not.toContain('overflow-y-auto')
   })
 
   it('filters by search and custom-label chips, while rendering owner-only details', () => {
@@ -271,6 +277,103 @@ describe('RelationshipPartyPicker', () => {
     expect(second.trigger).toBeInTheDocument()
   })
 
+  it('distinguishes opening and dismissal from an accepted close', async () => {
+    const onOpen = vi.fn()
+    const onDismiss = vi.fn()
+    const onSelectionClosed = vi.fn()
+    const { trigger } = openPicker({ onOpen, onDismiss, onSelectionClosed })
+
+    expect(onOpen).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Loka vali' }))
+    expect(onDismiss).toHaveBeenCalledOnce()
+    expect(onSelectionClosed).not.toHaveBeenCalled()
+
+    fireEvent.click(trigger)
+    expect(onOpen).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByRole('button', { name: /Anna vinkona/ }))
+
+    await waitFor(() => expect(onSelectionClosed).toHaveBeenCalledOnce())
+    expect(onDismiss).toHaveBeenCalledOnce()
+  })
+
+  it('uses an available adapter focus target when the picker opens', async () => {
+    const initialFocusRef = createRef<HTMLInputElement>()
+    render(
+      <RelationshipPartyPicker
+        copy={copy}
+        initialFocusRef={initialFocusRef}
+        sources={[{
+          id: 'custom',
+          label: 'Sérval',
+          type: 'custom',
+          render: () => <input ref={initialFocusRef} aria-label="Fyrsti reitur" />,
+        }]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við aðila' }))
+
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Fyrsti reitur' })).toHaveFocus())
+  })
+
+  it('renders controlled option state and an accessible disabled reason', () => {
+    const onSelectOption = vi.fn(() => ({ accepted: true, behavior: 'stay-open' as const }))
+    render(
+      <RelationshipPartyPicker
+        copy={copy}
+        sources={[{
+          id: 'known',
+          label: 'Þekktir aðilar',
+          type: 'options',
+          optionControl: 'checkbox',
+          options: [
+            { ...options[0], selected: true },
+            { ...options[1], disabledReason: 'Þegar valinn á þessum stað.' },
+          ],
+          searchLabel: 'Leita',
+          searchPlaceholder: 'Nafn',
+          filterLabel: 'Sía',
+          allFilterLabel: 'Allir',
+          noResultsLabel: 'Enginn fannst',
+          onSelectOption,
+        }]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við aðila' }))
+
+    const selected = screen.getByRole('checkbox', { name: /Anna vinkona/ })
+    const unavailable = screen.getByRole('checkbox', { name: /Bjarni bróðir/ })
+    expect(selected).toBeChecked()
+    expect(unavailable).toHaveAttribute('aria-disabled', 'true')
+    const reasonId = unavailable.getAttribute('aria-describedby')
+    expect(reasonId).toBeTruthy()
+    expect(document.getElementById(reasonId!)).toHaveTextContent('Þegar valinn á þessum stað.')
+
+    fireEvent.click(unavailable)
+    expect(onSelectOption).not.toHaveBeenCalled()
+    fireEvent.click(selected)
+    expect(onSelectOption).toHaveBeenCalledOnce()
+    expect(onSelectOption).toHaveBeenCalledWith('relationship-a')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('lets a generic footer complete through the accepted close boundary', async () => {
+    const onSelectionClosed = vi.fn()
+    openPicker({
+      onSelectionClosed,
+      renderFooter: ({ completeSelection }) => (
+        <button type="button" onClick={() => completeSelection({ accepted: true })}>
+          Halda áfram
+        </button>
+      ),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Halda áfram' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(onSelectionClosed).toHaveBeenCalledOnce())
+  })
+
   it('honors excluded IDs without returning hidden options', () => {
     openPicker({ excludedOptionIds: ['relationship-a'] })
     const dialog = screen.getByRole('dialog')
@@ -279,7 +382,7 @@ describe('RelationshipPartyPicker', () => {
     expect(within(dialog).getByText('Bjarni bróðir')).toBeInTheDocument()
   })
 
-  it('supports pluggable sources and keeps the sheet open for accepted multi-select', () => {
+  it('supports pluggable sources, stable panel wiring and retained source focus', async () => {
     const onSelectEventGuest = vi.fn()
     const sources: RelationshipPartyPickerSource[] = [
       {
@@ -334,12 +437,27 @@ describe('RelationshipPartyPicker', () => {
     const knownSource = screen.getByRole('button', { name: 'Þekktur aðili' })
     const eventSource = screen.getByRole('button', { name: 'Úr viðburði' })
     const manualSource = screen.getByRole('button', { name: 'Nafn eða netfang' })
+    await waitFor(() => expect(knownSource).toHaveFocus())
+    const panelId = eventSource.getAttribute('aria-controls')
+    expect(panelId).toBeTruthy()
+    expect(knownSource).toHaveAttribute('aria-controls', panelId)
+    expect(manualSource).toHaveAttribute('aria-controls', panelId)
     expect(knownSource).toHaveAttribute('aria-pressed', 'false')
     expect(eventSource).toHaveAttribute('aria-pressed', 'true')
     expect(manualSource).toHaveAttribute('aria-pressed', 'false')
+    for (const sourceControl of [knownSource, eventSource, manualSource]) {
+      expect(sourceControl.className).toContain('min-w-0')
+      expect(sourceControl.className).toContain('whitespace-normal')
+      expect(sourceControl.className).toContain('break-words')
+      expect(sourceControl.className).toContain('[overflow-wrap:anywhere]')
+      expect(sourceControl.className).not.toContain('truncate')
+    }
+    manualSource.focus()
     fireEvent.click(manualSource)
+    expect(manualSource).toHaveFocus()
     expect(eventSource).toHaveAttribute('aria-pressed', 'false')
     expect(manualSource).toHaveAttribute('aria-pressed', 'true')
+    expect(document.getElementById(panelId!)).toHaveAttribute('aria-labelledby', manualSource.id)
     fireEvent.click(eventSource)
     fireEvent.click(screen.getByRole('button', { name: 'Velja Önnu' }))
     expect(onSelectEventGuest).toHaveBeenCalledWith('event-guest-a')

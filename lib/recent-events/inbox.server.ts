@@ -94,7 +94,7 @@ export async function loadRecentEventInbox(
 
     const eventInvitationSync = sources.includes('events')
       ? await syncEventAttendanceInvitationEvents(user.id)
-      : { ok: true, invitationIds: new Set<string>() }
+      : { ok: true, targets: new Map<string, string>() }
     if (sources.includes('expenses')) await syncExpenseMemberInvitationEvents(user.id)
     const householdChoresSyncOk = sources.includes('heimilisverkin')
       ? await syncHouseholdChoreRecentEvents(user.id)
@@ -108,8 +108,12 @@ export async function loadRecentEventInbox(
       if (
         parsed?.source === 'events'
         && eventInvitationSync.ok
-        && !eventInvitationSync.invitationIds.has(parsed.entity_id)
-      ) return []
+      ) {
+        // Stored recent_events hrefs are snapshots, not access authority. Use
+        // only the exact-current actor-scoped preview resolved in this load.
+        const authoritativeHref = eventInvitationSync.targets.get(parsed.entity_id)
+        return authoritativeHref ? [{ ...parsed, href: authoritativeHref }] : []
+      }
       if (parsed?.source === 'heimilisverkin' && !householdChoresSyncOk) return []
       return parsed ? [parsed] : []
     })

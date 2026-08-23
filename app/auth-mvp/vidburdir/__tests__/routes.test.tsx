@@ -2,7 +2,7 @@ import React from 'react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 
 const {
   mockCanUseEventExpenses,
@@ -15,10 +15,17 @@ const {
   mockGetTranslations,
   mockGuardEventAccess,
   mockGuardEventSession,
+  mockHasEventFeatureAccess,
   mockCheckFeatureAccess,
   mockListEventDashboard,
+  mockListEventsForActorV3,
+  mockListEventPersonSourceEventsV3,
+  mockGetEventActorViewV3,
+  mockResolveEventInvitationV3,
+  mockGetEventRosterManagementV2,
   mockNoStore,
   mockNotFound,
+  mockRedirect,
 } = vi.hoisted(() => ({
   mockCanUseEventExpenses: vi.fn(),
   mockGetEventContext: vi.fn(),
@@ -30,15 +37,22 @@ const {
   mockGetTranslations: vi.fn(),
   mockGuardEventAccess: vi.fn(),
   mockGuardEventSession: vi.fn(),
+  mockHasEventFeatureAccess: vi.fn(),
   mockCheckFeatureAccess: vi.fn(),
   mockListEventDashboard: vi.fn(),
+  mockListEventsForActorV3: vi.fn(),
+  mockListEventPersonSourceEventsV3: vi.fn(),
+  mockGetEventActorViewV3: vi.fn(),
+  mockResolveEventInvitationV3: vi.fn(),
+  mockGetEventRosterManagementV2: vi.fn(),
   mockNoStore: vi.fn(),
   mockNotFound: vi.fn(() => { throw new Error('NEXT_NOT_FOUND') }),
+  mockRedirect: vi.fn(() => { throw new Error('NEXT_REDIRECT') }),
 }))
 
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ unstable_noStore: mockNoStore }))
-vi.mock('next/navigation', () => ({ notFound: mockNotFound }))
+vi.mock('next/navigation', () => ({ notFound: mockNotFound, redirect: mockRedirect }))
 vi.mock('next-intl/server', () => ({ getTranslations: mockGetTranslations }))
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
@@ -46,6 +60,9 @@ vi.mock('next/link', () => ({
   ),
 }))
 vi.mock('@/components/teskeid/TeskeidMenu', () => ({ TeskeidMenu: () => <div data-testid="menu" /> }))
+vi.mock('@/components/teskeid/TeskeidNavigationFeedback', () => ({
+  TeskeidNavigationFeedbackProvider: ({ children }: { children: React.ReactNode }) => children,
+}))
 vi.mock('@/components/teskeid/TeskeidUnreadSection.server', () => ({
   TeskeidUnreadSection: () => <div data-testid="teskeid-unread-section" />,
 }))
@@ -57,10 +74,11 @@ vi.mock('@/components/teskeid/ClosedTestingAccessRequest', () => ({
   ClosedTestingAccessRequest: () => <div data-testid="closed-testing-access-request" />,
 }))
 vi.mock('@/components/events/EventList', () => ({
-  EventList: ({ dashboard }: { dashboard: { owned: unknown[]; pending: unknown[]; attending: unknown[] } }) => (
+  EventList: ({ dashboard, directory, canManageEvents }: { dashboard: { owned: unknown[]; pending: unknown[]; attending: unknown[] } | null; directory: { owned: unknown[]; participating: unknown[] }; canManageEvents: boolean }) => (
     <div
       data-testid="event-list"
-      data-count={dashboard.owned.length + dashboard.pending.length + dashboard.attending.length}
+      data-count={directory.owned.length + (dashboard?.pending.length ?? 0) + directory.participating.length}
+      data-can-manage={String(canManageEvents)}
     />
   ),
 }))
@@ -78,7 +96,7 @@ vi.mock('@/components/events/EventCreateForm', () => ({
 }))
 vi.mock('@/components/events/EventDetail', () => ({
   EventDetail: ({ event, options, optionsError, canUseExpenses, financialPanel }: {
-    event: { id: string }
+    event: { eventId: string }
     options: unknown[]
     optionsError: boolean
     canUseExpenses: boolean
@@ -87,7 +105,7 @@ vi.mock('@/components/events/EventDetail', () => ({
     <div>
       <div
         data-testid="event-detail"
-        data-event-id={event.id}
+        data-event-id={event.eventId}
         data-option-count={options.length}
         data-options-error={String(optionsError)}
         data-can-use-expenses={String(canUseExpenses)}
@@ -99,14 +117,14 @@ vi.mock('@/components/events/EventDetail', () => ({
 }))
 vi.mock('@/components/events/EventAttendeeDetail', () => ({
   EventAttendeeDetail: ({ event, canUseExpenses, financialPanel }: {
-    event: { id: string }
+    event: { eventId: string }
     canUseExpenses: boolean
     financialPanel?: React.ReactNode
   }) => (
     <div>
       <div
         data-testid="event-attendee-detail"
-        data-event-id={event.id}
+        data-event-id={event.eventId}
         data-can-use-expenses={String(canUseExpenses)}
         data-financial-panel-key={React.isValidElement(financialPanel) ? financialPanel.key : undefined}
       />
@@ -128,6 +146,7 @@ vi.mock('@/lib/events/guard', () => ({
   canUseEventExpenses: mockCanUseEventExpenses,
   guardEventAccess: mockGuardEventAccess,
   guardEventSession: mockGuardEventSession,
+  hasEventFeatureAccess: mockHasEventFeatureAccess,
 }))
 vi.mock('@/lib/events/repository.server', () => ({
   getEventContext: mockGetEventContext,
@@ -136,6 +155,15 @@ vi.mock('@/lib/events/repository.server', () => ({
   getEventDetails: mockGetEventDetails,
   getEventGuestAttendancePreview: mockGetEventGuestAttendancePreview,
   listEventDashboard: mockListEventDashboard,
+}))
+vi.mock('@/lib/events/participant-identity-v2.repository.server', () => ({
+  getEventRosterManagementV2: mockGetEventRosterManagementV2,
+}))
+vi.mock('@/lib/events/participant-identity-v3.repository.server', () => ({
+  listEventsForActorV3: mockListEventsForActorV3,
+  listEventPersonSourceEventsV3: mockListEventPersonSourceEventsV3,
+  getEventActorViewV3: mockGetEventActorViewV3,
+  resolveEventInvitationV3: mockResolveEventInvitationV3,
 }))
 vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: mockCheckFeatureAccess }))
 vi.mock('@/lib/expenses/participants.server', () => ({
@@ -147,6 +175,7 @@ import EventsPage from '../page'
 import NewEventPage from '../nyr/page'
 import EventDetailPage from '../[eventId]/page'
 import EventAttendanceInvitationPage from '../bod/thattaka/[invitationId]/page'
+import { EventShell } from '../EventShell'
 
 const ACTOR_ID = '10000000-0000-4000-8000-000000000001'
 const EVENT_ID = '30000000-0000-4000-8000-000000000001'
@@ -159,6 +188,32 @@ const event = {
   updatedAt: '2026-08-15T21:53:00.000Z',
   guests: [],
 }
+const actorView = {
+  eventId: EVENT_ID,
+  name: 'Kvisskvöld',
+  rosterRevision: '1',
+  viewerRole: 'owner' as const,
+  createdAt: '2026-08-15T21:53:00.000Z',
+  updatedAt: '2026-08-15T21:53:00.000Z',
+  eventDate: null,
+  eventTime: null,
+  description: null,
+  agenda: null,
+  people: [{
+    personRef: '30000000-0000-4000-8000-000000000099',
+    participantKind: 'organizer' as const,
+    position: 0 as const,
+    isSelf: true,
+    shared: { labelState: 'resolved' as const, displayName: 'Eigandi', selectable: true, bulkEligible: true, disabledReason: null },
+  }],
+}
+const rosterManagement = {
+  eventId: EVENT_ID,
+  name: 'Kvisskvöld',
+  rosterRevision: '1',
+  viewerRole: 'owner' as const,
+  guests: [],
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -167,6 +222,16 @@ beforeEach(() => {
   mockGuardEventSession.mockResolvedValue({ user: { id: ACTOR_ID, email: 'owner@example.is' } })
   mockCanUseEventExpenses.mockResolvedValue(false)
   mockListEventDashboard.mockResolvedValue({ owned: [], pending: [], attending: [] })
+  mockHasEventFeatureAccess.mockResolvedValue(true)
+  mockListEventsForActorV3.mockResolvedValue({
+    owned: [], ownedHasMore: false, participating: [], participatingHasMore: false, claimHasMore: false,
+  })
+  mockListEventPersonSourceEventsV3.mockResolvedValue({ events: [], nextCursor: null })
+  mockGetEventActorViewV3.mockResolvedValue(actorView)
+  mockResolveEventInvitationV3.mockResolvedValue({
+    status: 'pending', eventId: EVENT_ID, capability: 'active_participant',
+  })
+  mockGetEventRosterManagementV2.mockResolvedValue(rosterManagement)
   mockGetEventAttendeeContext.mockResolvedValue(null)
   mockGetExpenseParticipantOptions.mockResolvedValue([])
   mockGetEventContext.mockResolvedValue(event)
@@ -206,6 +271,8 @@ describe('event route access and private metadata', () => {
     expect(mockGuardEventSession).toHaveBeenCalledTimes(1)
     expect(mockGuardEventAccess).not.toHaveBeenCalled()
     expect(screen.getByTestId('child')).toBeDefined()
+    expect(readFileSync(join(process.cwd(), 'app/auth-mvp/vidburdir/layout.tsx'), 'utf8'))
+      .toContain('<TeskeidNavigationFeedbackProvider')
   })
 
   it('marks the authenticated namespace noindex and no-referrer', async () => {
@@ -228,8 +295,16 @@ describe('event route access and private metadata', () => {
     expect(readFileSync(join(base, 'EventRouteLoading.tsx'), 'utf8')).toContain('<TeskeidLoader')
     expect(readFileSync(join(base, 'error.tsx'), 'utf8')).toContain("t('errors.load_failed')")
     expect(readFileSync(join(base, '[eventId]/not-found.tsx'), 'utf8')).toContain("t('notFoundDescription')")
-    expect(readFileSync(join(base, 'EventShell.tsx'), 'utf8'))
+    expect(readFileSync(join(base, 'EventHeading.tsx'), 'utf8'))
       .toContain('min-w-0 flex-1 break-words text-pretty')
+  })
+
+  it('focuses the Event heading only for the invitation redirect hash', async () => {
+    window.location.hash = '#event-heading'
+    render(<EventShell title="Kvisskvöld" homeLabel="Heim">{null}</EventShell>)
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Kvisskvöld' })).toHaveFocus())
+    window.location.hash = ''
   })
 })
 
@@ -240,11 +315,40 @@ describe('independent event pages', () => {
       pending: [],
       attending: [],
     })
+    mockListEventsForActorV3.mockResolvedValue({
+      owned: [{ id: EVENT_ID }], ownedHasMore: false,
+      participating: [], participatingHasMore: false, claimHasMore: false,
+    })
     render(await EventsPage())
 
     expect(mockListEventDashboard).toHaveBeenCalledWith(ACTOR_ID)
+    expect(mockListEventsForActorV3).toHaveBeenCalledWith(ACTOR_ID)
+    expect(mockListEventPersonSourceEventsV3).toHaveBeenCalledWith(ACTOR_ID, null, 20)
+    expect(mockListEventsForActorV3.mock.invocationCallOrder[0])
+      .toBeLessThan(mockListEventDashboard.mock.invocationCallOrder[0]!)
     expect(screen.getByTestId('event-list').getAttribute('data-count')).toBe('1')
     expect(screen.getByTestId('closed-testing-banner')).toBeDefined()
+  })
+
+  it('gives a scoped participant a durable list without owner dashboard authority', async () => {
+    mockHasEventFeatureAccess.mockResolvedValueOnce(false)
+    mockListEventsForActorV3.mockResolvedValueOnce({
+      owned: [], ownedHasMore: false,
+      participating: [{ id: EVENT_ID }], participatingHasMore: false, claimHasMore: false,
+    })
+    mockListEventPersonSourceEventsV3.mockResolvedValueOnce({
+      events: [{
+        id: EVENT_ID, name: 'Kvisskvöld', rosterRevision: '1', viewerRole: 'attendee',
+        activePersonCount: 2, rsvpState: 'no_response', decisionVersion: '1',
+      }],
+      nextCursor: null,
+    })
+
+    render(await EventsPage())
+
+    expect(screen.getByTestId('event-list')).toHaveAttribute('data-can-manage', 'false')
+    expect(screen.getByTestId('event-list')).toHaveAttribute('data-count', '1')
+    expect(mockListEventDashboard).not.toHaveBeenCalled()
   })
 
   it('loads owner-scoped relationship options for create and detail', async () => {
@@ -275,7 +379,7 @@ describe('independent event pages', () => {
     mockGetExpenseParticipantOptions.mockResolvedValue([])
     mockCanUseEventExpenses.mockResolvedValue(false)
     render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
-    expect(mockGuardEventAccess.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mockGuardEventSession.mock.invocationCallOrder[0]).toBeLessThan(
       mockCanUseEventExpenses.mock.invocationCallOrder[0]!,
     )
     expect(screen.getByTestId('event-detail')).toHaveAttribute('data-can-use-expenses', 'false')
@@ -348,7 +452,7 @@ describe('independent event pages', () => {
   })
 
   it('returns not-found for absent owner event without any expense-group dependency', async () => {
-    mockGetEventContext.mockResolvedValueOnce(null)
+    mockGetEventActorViewV3.mockResolvedValueOnce(null)
     await expect(EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
       .rejects.toThrow('NEXT_NOT_FOUND')
     expect(mockGetExpenseParticipantOptions).not.toHaveBeenCalled()
@@ -372,6 +476,24 @@ describe('independent event pages', () => {
       positions: [{ currency: 'ISK', state: 'zero', amountMinor: 0 }],
     })
     mockGetEventContext.mockResolvedValueOnce(null)
+    mockGetEventActorViewV3.mockResolvedValueOnce({
+      ...actorView,
+      viewerRole: 'attendee',
+      selfRsvp: { state: 'attending', decisionVersion: '1' },
+      people: [
+        { ...actorView.people[0], isSelf: false },
+        {
+          personRef: '40000000-0000-4000-8000-000000000001',
+          participantKind: 'guest', position: 1, isSelf: true,
+          shared: {
+            accessState: 'active', rsvpState: 'attending', labelState: 'resolved',
+            displayName: 'Gestur', selectable: true, bulkEligible: true, disabledReason: null,
+          },
+          labelVersion: '1', identityVersion: '1', identityGeneration: '1', accessVersion: '1',
+          rsvp: { state: 'attending', decisionVersion: '1' },
+        },
+      ],
+    })
     mockGetEventAttendeeContext.mockResolvedValueOnce({
       id: EVENT_ID,
       name: 'Kvisskvöld',
@@ -395,58 +517,89 @@ describe('independent event pages', () => {
       'event-expense-activity',
     )
   })
+
+  it('gives an entitled no-response participant the full Event view without granting Expense access', async () => {
+    mockGetEventContext.mockResolvedValueOnce(null)
+    mockGetEventAttendeeContext.mockResolvedValueOnce(null)
+    mockGetEventActorViewV3.mockResolvedValueOnce({
+      ...actorView,
+      viewerRole: 'attendee',
+      selfRsvp: { state: 'no_response', decisionVersion: '1' },
+      people: [
+        { ...actorView.people[0], isSelf: false },
+        {
+          personRef: '40000000-0000-4000-8000-000000000001',
+          participantKind: 'guest',
+          position: 1,
+          isSelf: true,
+          shared: {
+            accessState: 'active', rsvpState: 'no_response', labelState: 'resolved',
+            displayName: 'Gestur', selectable: true, bulkEligible: true, disabledReason: null,
+          },
+          labelVersion: '1', identityVersion: '1', identityGeneration: '1',
+          accessVersion: '1', rsvp: { state: 'no_response', decisionVersion: '1' },
+        },
+      ],
+    })
+
+    render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
+    expect(screen.getByTestId('event-attendee-detail')).toHaveAttribute('data-event-id', EVENT_ID)
+    expect(screen.getByTestId('event-attendee-detail')).toHaveAttribute('data-can-use-expenses', 'false')
+    expect(mockCanUseEventExpenses).not.toHaveBeenCalled()
+    expect(mockGetEventExpenseActivity).not.toHaveBeenCalled()
+    expect(mockGetExpenseParticipantOptions).not.toHaveBeenCalled()
+  })
 })
 
 describe('scoped attendance invitation route', () => {
-  it('renders a minimal pending preview and access-request CTA without a per-user flag', async () => {
-    render(await EventAttendanceInvitationPage({
+  it('resolves an exact active participant and redirects to the canonical full Event view', async () => {
+    await expect(EventAttendanceInvitationPage({
       params: Promise.resolve({ invitationId: INVITATION_ID }),
-    }))
+    })).rejects.toThrow('NEXT_REDIRECT')
 
     expect(mockGuardEventSession).toHaveBeenCalledTimes(1)
     expect(mockGuardEventAccess).not.toHaveBeenCalled()
-    expect(mockGetEventGuestAttendancePreview).toHaveBeenCalledWith(ACTOR_ID, INVITATION_ID)
-    expect(mockCheckFeatureAccess).toHaveBeenCalled()
-    expect(screen.getByText('Kvisskvöld')).toBeInTheDocument()
-    expect(screen.getByText('events.invitation.unknownInviter')).toBeInTheDocument()
-    expect(screen.queryByText('events.attendance.genericGuest')).not.toBeInTheDocument()
-    expect(screen.queryByText('events.invitation.guestLabel')).not.toBeInTheDocument()
-    expect(screen.queryByText('events.invitation.accessHint')).not.toBeInTheDocument()
-    expect(screen.queryByText('events.invitation.identityHint')).not.toBeInTheDocument()
-    expect(screen.getByTestId('closed-testing-access-request')).toBeInTheDocument()
-    expect(screen.getByTestId('attendance-invitation-actions'))
-      .toHaveAttribute('data-status', 'pending')
-    expect(screen.queryByText('events.attendance.participants')).not.toBeInTheDocument()
+    expect(mockResolveEventInvitationV3).toHaveBeenCalledWith(ACTOR_ID, INVITATION_ID)
+    expect(mockRedirect).toHaveBeenCalledWith(`/auth-mvp/vidburdir/${EVENT_ID}#event-heading`)
+    expect(mockGetEventGuestAttendancePreview).not.toHaveBeenCalled()
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
   })
 
-  it('renders minimal accepted management with no roster and no per-user flag', async () => {
-    mockGetEventGuestAttendancePreview.mockResolvedValueOnce({
-      invitationId: INVITATION_ID,
-      eventId: EVENT_ID,
-      eventName: 'Kvisskvöld',
-      guestDisplayName: null,
-      inviterDisplayName: null,
-      invitationKind: 'identity_and_access',
-      status: 'accepted',
-      roster: [],
-      invitedAt: '2026-08-16T09:00:00.000Z',
-      expiresAt: null,
+  it('claims a current recipient-scoped invitation when its v3 anchor resolver is not yet usable', async () => {
+    mockResolveEventInvitationV3.mockResolvedValueOnce(null)
+    mockGetEventActorViewV3.mockResolvedValueOnce({
+      ...actorView,
+      viewerRole: 'attendee',
+      selfRsvp: { state: 'no_response', decisionVersion: '1' },
     })
-    render(await EventAttendanceInvitationPage({
-      params: Promise.resolve({ invitationId: INVITATION_ID }),
-    }))
 
-    expect(screen.getByText('events.invitation.acceptedManagementHint')).toBeInTheDocument()
-    expect(screen.getByTestId('closed-testing-access-request')).toBeInTheDocument()
-    expect(screen.getByTestId('attendance-invitation-actions'))
-      .toHaveAttribute('data-status', 'accepted')
-    expect(screen.queryByText('events.attendance.participants')).not.toBeInTheDocument()
+    await expect(EventAttendanceInvitationPage({
+      params: Promise.resolve({ invitationId: INVITATION_ID }),
+    })).rejects.toThrow('NEXT_REDIRECT')
+
+    expect(mockGetEventGuestAttendancePreview).toHaveBeenCalledWith(ACTOR_ID, INVITATION_ID)
+    expect(mockGetEventActorViewV3).toHaveBeenCalledWith(ACTOR_ID, EVENT_ID)
+    expect(mockRedirect).toHaveBeenCalledWith(`/auth-mvp/vidburdir/${EVENT_ID}#event-heading`)
   })
 
-  it('collapses a foreign, expired, left or revoked preview to generic not-found', async () => {
+  it('collapses a foreign, left, revoked or removed invitation to generic not-found', async () => {
+    mockResolveEventInvitationV3.mockResolvedValueOnce(null)
     mockGetEventGuestAttendancePreview.mockResolvedValueOnce(null)
     await expect(EventAttendanceInvitationPage({
       params: Promise.resolve({ invitationId: INVITATION_ID }),
     })).rejects.toThrow('NEXT_NOT_FOUND')
+    expect(mockRedirect).not.toHaveBeenCalled()
+    expect(mockGetEventActorViewV3).not.toHaveBeenCalled()
+  })
+
+  it('does not use the recipient-scoped fallback without canonical attendee access', async () => {
+    mockResolveEventInvitationV3.mockResolvedValueOnce(null)
+    mockGetEventActorViewV3.mockResolvedValueOnce(actorView)
+
+    await expect(EventAttendanceInvitationPage({
+      params: Promise.resolve({ invitationId: INVITATION_ID }),
+    })).rejects.toThrow('NEXT_NOT_FOUND')
+
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 })

@@ -242,7 +242,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Úr viðburði' }))
     fireEvent.click(screen.getByRole('button', { name: 'Helgarferð' }))
 
-    expect(screen.getByRole('button', { name: 'Stebbi' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Stebbi' })).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('keeps entered fields and opaque provenance when a stale event roster rejects submit', async () => {

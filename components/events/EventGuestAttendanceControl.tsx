@@ -20,14 +20,6 @@ import type {
   EventGuestSourceKind,
 } from '@/lib/events/contracts'
 
-const TERMINAL_STATUSES = new Set([
-  'declined',
-  'cancelled',
-  'expired',
-  'left',
-  'revoked',
-])
-
 function feedbackError(
   translate: ReturnType<typeof useTranslations<'teskeid.events'>>,
   error: EventActionErrorCode,
@@ -42,6 +34,8 @@ export function EventGuestAttendanceControl({
   partyLabel,
   sourceKind,
   isTeskeidUser,
+  accessState,
+  recipientState,
   attendance,
   disabled,
   onPendingChange,
@@ -52,6 +46,8 @@ export function EventGuestAttendanceControl({
   partyLabel: string
   sourceKind: EventGuestSourceKind
   isTeskeidUser: boolean
+  accessState: 'active' | 'left' | 'revoked'
+  recipientState: 'name_only' | 'email_unbound' | 'user_bound' | 'identity_tombstone'
   attendance: EventGuestAttendanceView
   disabled: boolean
   onPendingChange: (pending: boolean) => void
@@ -147,6 +143,18 @@ export function EventGuestAttendanceControl({
     attendance.deliveryStatus ?? 'none',
   ].join(':')
 
+  if (accessState === 'revoked') {
+    return (
+      <p className="text-xs leading-5 text-muted-foreground">
+        {t(`attendance.${accessState}`)}
+      </p>
+    )
+  }
+
+  if (recipientState === 'user_bound' && accessState === 'active') {
+    return null
+  }
+
   if (attendance.status === 'pending') {
     return (
       <div className="space-y-2">
@@ -166,23 +174,6 @@ export function EventGuestAttendanceControl({
       </div>
     )
   }
-
-  if (attendance.status === 'accepted') {
-    return (
-      <IdentityLinkInvitationControl
-        state="linked"
-        partyLabel={partyLabel}
-        copy={copy}
-        presentation="stacked"
-        disabled={disabled}
-        resetKey={sharedResetKey}
-      />
-    )
-  }
-
-  const isEligibleState = attendance.status === 'not_invited'
-    || TERMINAL_STATUSES.has(attendance.status)
-  if (!isEligibleState) return null
 
   if (sourceKind === 'relationship' && !isTeskeidUser) {
     return (
@@ -260,7 +251,9 @@ export function EventGuestAttendanceControl({
       >
         {directPending
           ? t('identityInvitation.submittingLabel')
-          : t('identityInvitation.accessInviteTriggerLabel')}
+          : accessState === 'left'
+            ? t('identityInvitation.reinviteTriggerLabel')
+            : t('identityInvitation.accessInviteTriggerLabel')}
       </TeskeidActionButton>
     </div>
   )

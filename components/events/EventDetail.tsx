@@ -9,26 +9,39 @@ import { TeskeidActionButton } from '@/components/teskeid/TeskeidActionButton'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import type {
   EventDetailView,
-  EventDetailsView,
   EventGuestAttendanceView,
-  EventNewGuestInput,
-  EventRosterGuestInput,
 } from '@/lib/events/contracts'
 import { eventExpensePath } from '@/lib/events/contracts'
-import { saveEventRoster } from '@/lib/events/actions'
+import {
+  type EventNewGuestV2,
+  type EventRosterGuestV2,
+  type EventRosterManagementV2,
+} from '@/lib/events/participant-identity-v2.contracts'
+import type {
+  EventActorViewV3,
+  EventV3GuestPerson,
+} from '@/lib/events/participant-identity-v3.contracts'
+import { saveEventRosterV2 } from '@/lib/events/participant-identity-v2.actions'
 import { formatDateTime } from '@/lib/date-format'
 import { createRequestId } from '@/components/expenses/ui'
 import { EventParticipantPicker } from './EventParticipantPicker'
 import { EventGuestAttendanceControl } from './EventGuestAttendanceControl'
 import { EventDetailsEditor } from './EventDetailsEditor'
+import { EventGuestNameRepair } from './EventGuestNameRepair'
+import { EventPersonIdentity } from './EventPersonIdentity'
 
 type EditableGuest = {
   key: string
   label: string
   sourceKind: EventDetailView['guests'][number]['sourceKind']
   isTeskeidUser: boolean
+  accessState: 'active' | 'left' | 'revoked'
+  recipientState: 'name_only' | 'email_unbound' | 'user_bound' | 'identity_tombstone'
   attendance?: EventGuestAttendanceView
-  input: EventRosterGuestInput
+  person?: EventV3GuestPerson
+  administrativeEmail: string | null
+  labelVersion: string | null
+  input: EventRosterGuestV2
 }
 
 const KNOWN_ERROR_CODES = new Set([
@@ -37,24 +50,49 @@ const KNOWN_ERROR_CODES = new Set([
   'not_found',
   'conflict',
   'feature_disabled',
+  'not_available',
+  'rate_limited',
   'save_failed',
 ])
 
-function editableGuests(event: EventDetailView): EditableGuest[] {
-  return [...event.guests]
+function editableGuests(
+  event: EventDetailView,
+  identityView: Extract<EventActorViewV3, { viewerRole: 'owner' }>,
+  management: EventRosterManagementV2,
+  missingLabel: string,
+): EditableGuest[] {
+  const oldGuests = new Map(event.guests.map((guest) => [guest.id, guest]))
+  const people = new Map(identityView.people.flatMap((person) => (
+    person.participantKind === 'guest' ? [[person.personRef, person] as const] : []
+  )))
+  return [...management.guests]
     .sort((left, right) => left.position - right.position)
-    .map((guest) => ({
-      key: guest.id,
-      label: guest.email ?? guest.displayName,
-      sourceKind: guest.sourceKind,
-      isTeskeidUser: guest.isTeskeidUser,
-      attendance: guest.attendance,
-      input: { event_guest_id: guest.id },
-    }))
+    .map((guest) => {
+      const oldGuest = oldGuests.get(guest.eventGuestId)
+      const person = people.get(guest.eventGuestId)
+      return {
+        key: guest.eventGuestId,
+        label: person?.viewerPrivate?.alias ?? guest.sharedDisplayName ?? missingLabel,
+        sourceKind: oldGuest?.sourceKind ?? 'manual_name',
+        isTeskeidUser: guest.recipientState === 'user_bound',
+        accessState: guest.accessState,
+        recipientState: guest.recipientState,
+        attendance: oldGuest?.attendance,
+        person,
+        administrativeEmail: guest.administrativeEmail,
+        labelVersion: guest.labelVersion,
+        input: { event_guest_id: guest.eventGuestId },
+      }
+    })
 }
 
 function fingerprint(guests: EditableGuest[]): string {
   return JSON.stringify(guests.map((guest) => guest.input))
+}
+
+function revisionAtLeast(current: string, expected: string): boolean {
+  return current.length > expected.length
+    || (current.length === expected.length && current >= expected)
 }
 
 function rebaseGuestDraft(
@@ -80,14 +118,16 @@ function rebaseGuestDraft(
 
 export function EventDetail({
   event,
-  details,
+  identityView,
+  rosterManagement,
   options,
   optionsError,
   canUseExpenses,
   financialPanel,
 }: {
   event: EventDetailView
-  details?: EventDetailsView
+  identityView: Extract<EventActorViewV3, { viewerRole: 'owner' }>
+  rosterManagement: EventRosterManagementV2
   options: ExpenseParticipantOption[]
   optionsError: boolean
   canUseExpenses: boolean
@@ -97,16 +137,20 @@ export function EventDetail({
   const t = useTranslations('teskeid.events')
   const locale = useLocale()
   const router = useRouter()
-  const eventDetails = details ?? {
-    eventId: event.id,
-    eventDate: null,
-    eventTime: null,
-    description: null,
-    agenda: null,
+  const eventDetails = {
+    eventId: identityView.eventId,
+    eventDate: identityView.eventDate,
+    eventTime: identityView.eventTime?.slice(0, 5) ?? null,
+    description: identityView.description,
+    agenda: identityView.agenda,
   }
-  const initialGuests = useMemo(() => editableGuests(event), [event])
+  const missingLabel = t('repair.title')
+  const initialGuests = useMemo(
+    () => editableGuests(event, identityView, rosterManagement, missingLabel),
+    [event, identityView, missingLabel, rosterManagement],
+  )
   const [guests, setGuests] = useState(initialGuests)
-  const [baseRevision, setBaseRevision] = useState(event.rosterRevision)
+  const [baseRevision, setBaseRevision] = useState(rosterManagement.rosterRevision)
   const [savedFingerprint, setSavedFingerprint] = useState(() => fingerprint(initialGuests))
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -125,22 +169,25 @@ export function EventDetail({
   const guestsRef = useRef(initialGuests)
   const savedFingerprintRef = useRef(fingerprint(initialGuests))
   const conflictRefreshRef = useRef(false)
-  const successfulSaveRevisionRef = useRef<number | null>(null)
-  const previousEventRef = useRef(event)
+  const successfulSaveRevisionRef = useRef<string | null>(null)
+  const previousManagementRef = useRef(rosterManagement)
   const baseEventIdRef = useRef(event.id)
   const baseGuestIdsRef = useRef(new Set(initialGuests.map((guest) => guest.key)))
   const attendancePendingGuestsRef = useRef(new Set<string>())
 
   useEffect(() => {
-    const receivedFreshProps = previousEventRef.current !== event
-    previousEventRef.current = event
+    const receivedFreshProps = previousManagementRef.current !== rosterManagement
+    previousManagementRef.current = rosterManagement
     const sameEvent = event.id === baseEventIdRef.current
     const completedSaveRefresh = sameEvent
       && successfulSaveRevisionRef.current !== null
-      && event.rosterRevision >= successfulSaveRevisionRef.current
-    if (sameEvent && event.rosterRevision === baseRevision && !completedSaveRefresh) {
+      && revisionAtLeast(rosterManagement.rosterRevision, successfulSaveRevisionRef.current)
+    if (sameEvent && rosterManagement.rosterRevision === baseRevision && !completedSaveRefresh) {
       if (receivedFreshProps) {
-        const canonicalById = new Map(editableGuests(event).map((guest) => [guest.key, guest]))
+        const canonicalById = new Map(
+          editableGuests(event, identityView, rosterManagement, missingLabel)
+            .map((guest) => [guest.key, guest]),
+        )
         const refreshedGuests = guestsRef.current.map((guest) => {
           if (!('event_guest_id' in guest.input)) return guest
           const canonical = canonicalById.get(guest.input.event_guest_id)
@@ -159,7 +206,7 @@ export function EventDetail({
       }
       return
     }
-    const nextGuests = editableGuests(event)
+    const nextGuests = editableGuests(event, identityView, rosterManagement, missingLabel)
     const unsavedDraft = sameEvent && fingerprint(guestsRef.current) !== savedFingerprintRef.current
       ? guestsRef.current
       : null
@@ -178,7 +225,7 @@ export function EventDetail({
     conflictRefreshRef.current = false
     successfulSaveRevisionRef.current = null
     setRefreshingConflict(false)
-    setBaseRevision(event.rosterRevision)
+    setBaseRevision(rosterManagement.rosterRevision)
     const nextSavedFingerprint = fingerprint(nextGuests)
     savedFingerprintRef.current = nextSavedFingerprint
     setSavedFingerprint(nextSavedFingerprint)
@@ -186,7 +233,7 @@ export function EventDetail({
     baseGuestIdsRef.current = new Set(nextGuests.map((guest) => guest.key))
     setAwaitingRefresh(false)
     submissionRef.current = null
-  }, [baseRevision, event])
+  }, [baseRevision, event, identityView, missingLabel, rosterManagement])
 
   const currentFingerprint = fingerprint(guests)
   const dirty = currentFingerprint !== savedFingerprint
@@ -228,12 +275,16 @@ export function EventDetail({
       label: option.pickerLabel,
       sourceKind: 'relationship',
       isTeskeidUser: true,
+      accessState: 'active',
+      recipientState: 'name_only',
+      administrativeEmail: null,
+      labelVersion: null,
       input: { source_kind: 'relationship', relationship_id: option.relationshipId },
     }])
     return true
   }
 
-  function addManual(input: EventNewGuestInput, label: string): boolean {
+  function addManual(input: EventNewGuestV2, label: string): boolean {
     if (
       atGuestLimit
       || awaitingRefresh
@@ -256,6 +307,10 @@ export function EventDetail({
       label,
       sourceKind: input.source_kind,
       isTeskeidUser: false,
+      accessState: 'active',
+      recipientState: input.source_kind === 'manual_email' ? 'email_unbound' : 'name_only',
+      administrativeEmail: null,
+      labelVersion: null,
       input,
     }])
     return true
@@ -273,8 +328,7 @@ export function EventDetail({
     return submissionRef.current.requestId
   }
 
-  async function submitRoster(eventObject: React.FormEvent<HTMLFormElement>) {
-    eventObject.preventDefault()
+  async function submitRoster() {
     if (!dirty || submittingRef.current || awaitingRefresh || attendancePendingGuestsRef.current.size > 0) return
     submittingRef.current = true
     setIsSubmitting(true)
@@ -282,9 +336,9 @@ export function EventDetail({
     setSaveDelivery(null)
     setError(null)
 
-    let result: Awaited<ReturnType<typeof saveEventRoster>>
+    let result: Awaited<ReturnType<typeof saveEventRosterV2>>
     try {
-      result = await saveEventRoster({
+      result = await saveEventRosterV2({
         event_id: event.id,
         request_id: requestIdFor(),
         expected_roster_revision: baseRevision,
@@ -328,6 +382,15 @@ export function EventDetail({
     return null
   }
 
+  const rsvpLabels = {
+    no_response: t('rsvp.noResponse'),
+    considering: t('rsvp.considering'),
+    attending: t('rsvp.attending'),
+    not_attending: t('rsvp.notAttending'),
+  }
+  const activeGuests = guests.filter((guest) => guest.accessState === 'active')
+  const leftGuests = guests.filter((guest) => guest.accessState === 'left')
+
   return (
     <div className="space-y-8">
       <section className="border-y border-border py-4">
@@ -350,7 +413,7 @@ export function EventDetail({
 
       {canUseExpenses ? financialPanel : null}
 
-      <form onSubmit={submitRoster} className="space-y-4" aria-labelledby="event-roster-heading">
+      <section className="space-y-4" aria-labelledby="event-roster-heading">
         <div>
           <h2 id="event-roster-heading" className="text-sm font-semibold">{t('detail.participants')}</h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('detail.editRosterHint')}</p>
@@ -367,21 +430,33 @@ export function EventDetail({
           </div>
         ) : null}
 
-        {guests.length === 0 ? (
+        {activeGuests.length === 0 ? (
           <p className="border-y border-border py-4 text-sm text-muted-foreground">{t('detail.noParticipants')}</p>
         ) : (
           <div className="divide-y divide-border border-y border-border">
-            {guests.map((guest) => {
+            {activeGuests.map((guest) => {
               const participantSourceLabel = sourceLabel(guest)
               return (
               <div key={guest.key} className="min-w-0 py-3">
                 <div className="flex min-h-11 items-center gap-3">
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-all text-sm font-medium">{guest.label}</span>
-                    {participantSourceLabel ? (
-                      <span className="block text-xs text-muted-foreground">{participantSourceLabel}</span>
-                    ) : null}
-                  </span>
+                  {guest.person ? (
+                    <EventPersonIdentity
+                      person={guest.person}
+                      fallbackLabel={missingLabel}
+                      rsvpLabels={rsvpLabels}
+                      privateNoteLabel={t('personPicker.privateNoteLabel')}
+                      rsvpPrivateNoteLabel={t('rsvp.privateNoteLabel')}
+                      hiddenLabels={(count) => t('personPicker.hiddenLabels', { count })}
+                      builtInTagLabel={(tag) => t(`personPicker.tags.${tag}`)}
+                    />
+                  ) : (
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm font-medium">{guest.label}</span>
+                      {participantSourceLabel ? (
+                        <span className="block text-xs text-muted-foreground">{participantSourceLabel}</span>
+                      ) : null}
+                    </span>
+                  )}
                   <button
                     type="button"
                     aria-label={t('detail.removeParticipant', { name: guest.label })}
@@ -397,20 +472,34 @@ export function EventDetail({
                     <X aria-hidden size={18} />
                   </button>
                 </div>
-                {'event_guest_id' in guest.input && guest.attendance ? (
+                {'event_guest_id' in guest.input
+                  && guest.attendance
+                  && !(guest.accessState === 'active' && guest.recipientState === 'user_bound') ? (
                   <div className="mt-2 border-l-2 border-border pl-3">
                     <EventGuestAttendanceControl
                       eventId={event.id}
                       eventGuestId={guest.input.event_guest_id}
-                      rosterRevision={baseRevision}
+                      rosterRevision={event.rosterRevision}
                       partyLabel={guest.label}
                       sourceKind={guest.sourceKind}
                       isTeskeidUser={guest.isTeskeidUser}
+                      accessState={guest.accessState}
+                      recipientState={guest.recipientState}
                       attendance={guest.attendance}
                       disabled={formBusy}
                       onPendingChange={(pending) => setGuestAttendancePending(guest.key, pending)}
                     />
                   </div>
+                ) : null}
+                {guest.person?.shared.labelState === 'needs_owner_input' && guest.labelVersion ? (
+                  <EventGuestNameRepair
+                    eventId={event.id}
+                    eventGuestId={guest.key}
+                    rosterRevision={baseRevision}
+                    labelVersion={guest.labelVersion}
+                    administrativeEmail={guest.administrativeEmail}
+                    disabled={formBusy}
+                  />
                 ) : null}
               </div>
               )
@@ -431,17 +520,85 @@ export function EventDetail({
         />
         {dirty ? <p className="text-xs text-muted-foreground">{t('detail.unsavedRosterHint')}</p> : null}
         <TeskeidActionButton
-          type="submit"
+          type="button"
           variant="primary"
           pending={isSubmitting || awaitingRefresh || refreshingConflict}
           disabled={!dirty || awaitingRefresh || refreshingConflict || attendancePending}
           className="w-full"
+          onClick={submitRoster}
         >
           {isSubmitting || awaitingRefresh || refreshingConflict
             ? t('detail.savingRoster')
             : t('detail.saveRoster')}
         </TeskeidActionButton>
-      </form>
+      </section>
+
+      {leftGuests.length > 0 ? (
+        <section className="space-y-4" aria-labelledby="event-left-roster-heading">
+          <div>
+            <h2 id="event-left-roster-heading" className="text-sm font-semibold">
+              {t('detail.leftParticipants')}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t('detail.leftParticipantsHint')}
+            </p>
+          </div>
+          <div className="divide-y divide-border border-y border-border">
+            {leftGuests.map((guest) => (
+              <div key={guest.key} className="min-w-0 py-3">
+                <div className="flex min-h-11 items-center gap-3">
+                  {guest.person ? (
+                    <EventPersonIdentity
+                      person={guest.person}
+                      fallbackLabel={missingLabel}
+                      rsvpLabels={rsvpLabels}
+                      privateNoteLabel={t('personPicker.privateNoteLabel')}
+                      rsvpPrivateNoteLabel={t('rsvp.privateNoteLabel')}
+                      hiddenLabels={(count) => t('personPicker.hiddenLabels', { count })}
+                      builtInTagLabel={(tag) => t(`personPicker.tags.${tag}`)}
+                    />
+                  ) : (
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm font-medium">{guest.label}</span>
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={t('detail.removeParticipant', { name: guest.label })}
+                    className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
+                    disabled={formBusy}
+                    onClick={() => {
+                      setSaved(false)
+                      setSaveDelivery(null)
+                      setError(null)
+                      updateGuests((current) => current.filter((item) => item.key !== guest.key))
+                    }}
+                  >
+                    <X aria-hidden size={18} />
+                  </button>
+                </div>
+                {'event_guest_id' in guest.input && guest.attendance ? (
+                  <div className="mt-2 border-l-2 border-border pl-3">
+                    <EventGuestAttendanceControl
+                      eventId={event.id}
+                      eventGuestId={guest.input.event_guest_id}
+                      rosterRevision={event.rosterRevision}
+                      partyLabel={guest.label}
+                      sourceKind={guest.sourceKind}
+                      isTeskeidUser={guest.isTeskeidUser}
+                      accessState={guest.accessState}
+                      recipientState={guest.recipientState}
+                      attendance={guest.attendance}
+                      disabled={formBusy}
+                      onPendingChange={(pending) => setGuestAttendancePending(guest.key, pending)}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
     </div>
   )

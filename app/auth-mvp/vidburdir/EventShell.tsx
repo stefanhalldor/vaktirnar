@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { TeskeidMenu } from '@/components/teskeid/TeskeidMenu'
 import { ClosedTestingBanner } from '@/components/teskeid/ClosedTestingBanner'
+import { EventHeading } from './EventHeading'
 
 export function EventShell({
   title,
@@ -30,9 +31,7 @@ export function EventShell({
               <ArrowLeft aria-hidden size={20} />
             </Link>
           ) : null}
-          <h1 className="min-w-0 flex-1 break-words text-pretty text-lg font-semibold leading-tight text-primary">
-            {title}
-          </h1>
+          <EventHeading title={title} />
           <TeskeidMenu variant="authenticated" />
         </header>
 

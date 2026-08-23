@@ -15,6 +15,19 @@ describe('Event message parity', () => {
       .toEqual(leafKeys(enMessages.teskeid.events).sort())
   })
 
+  it('keeps canonical people-picker copy in locale parity and owns the settled source labels', () => {
+    expect(leafKeys(isMessages.teskeid.peoplePicker).sort())
+      .toEqual(leafKeys(enMessages.teskeid.peoplePicker).sort())
+    expect(isMessages.teskeid.peoplePicker.relationships).toBe('Tengsl')
+    expect(isMessages.teskeid.peoplePicker.events).toBe('Úr viðburði')
+    expect(isMessages.teskeid.peoplePicker.manual).toBe('Nafn eða netfang')
+    expect(enMessages.teskeid.peoplePicker.relationships).toBe('Relationships')
+    expect(enMessages.teskeid.peoplePicker.events).toBe('From an event')
+    expect(enMessages.teskeid.peoplePicker.manual).toBe('Name or email')
+    expect(leafKeys(isMessages.teskeid.events.personPicker).sort())
+      .toEqual(leafKeys(enMessages.teskeid.events.personPicker).sort())
+  })
+
   it('owns generic attendee fallbacks in each locale instead of SQL', () => {
     expect(isMessages.teskeid.events.attendance.genericGuest).toBe('Gestur')
     expect(enMessages.teskeid.events.attendance.genericGuest).toBe('Guest')

@@ -245,14 +245,91 @@ Staðan segir hvort component sé canonical fyrir nýja Teskeið-vinnu.
 | Loan card | `components/loans/LoanCard.tsx` | Samþykkt feature-mynstur | Einstakt lán |
 | Pending invitation | `components/loans/PendingInvitationCard.tsx` | Samþykkt feature-mynstur | Boð sem þarf athygli |
 | Relationship party picker | `components/tengsl/RelationshipPartyPicker.tsx` | Canonical | Val á aðila úr öruggum sources eða með handvirku gildi |
+| Teskeið people picker | `components/people/TeskeidPersonPicker.tsx` | Canonical composition, destination-tenging bíður | Sameiginleg röð `Tengsl` → `Úr viðburði` → `Nafn eða netfang`, tímabundið single/multiple val og staðfest close-boundary |
+| Event guest browser | `components/events/EventGuestBrowser.tsx` | Canonical presentation | Cursor/lazy eða bounded/eager viðburðaleit, gestalisti, bulk-val og deterministic focus án destination-mutation |
 | Multi-select pill filter | `components/teskeid/TeskeidMultiSelectPillFilter.tsx` | Canonical | Stýrður fjölvalsfilter fyrir einn eða fleiri aðila eða flokka; feature-ið á áfram að eiga merkingu AND/OR |
 
 ### Canonical val á aðila
 
 `RelationshipPartyPicker` á dialog/sheet, source-val, leit og síur,
-handvirkt inntak, empty/error, valfrjálsa bounded pagination-framsetningu og
-mobile/focus/keyboard-hegðun. Thin feature-adapter leggur til þýddan texta,
-örugg option-gögn, cursor/fetch, capability-reglur og destination-mutation.
+handvirkt inntak, empty/error, valfrjálsa bounded pagination-framsetningu,
+generic selected/disabled-framsetningu og open/dismiss/accepted-close mörk.
+Hann á mobile/focus/keyboard-hegðun en engin feature-gögn.
+
+`TeskeidPersonPicker` compose-ar canonical source-röðina, heldur utan um eitt
+ephemeral single/multiple val-session og skilar immutable snapshoti aðeins
+eftir að pickerinn hefur lokast. Leit, source-skipti og pagination mega ekki
+hreinsa staged val. Event-val notar structured `(eventId, personRef)` identity;
+nafn, netfang eða position má aldrei vera identity eða heuristic merge.
+
+`EventGuestBrowser` á sameiginlega Event-lista-/roster-framsetningu, strict
+loader-provider, loading/error/retry, search, bulk checkbox semantics og
+focus-brú. Hann þekkir hvorki Expense né aðra destination-mutation. Gamla
+Expense-flæðið notar bounded eager compatibility-adapter með exact gömlu
+opaque refum. SQL149 v2 authority má bæta read-only nafnaframsetningu inn í
+adapterinn, en activation, participant identity, payer/share, draft og save
+halda áfram að nota nákvæmlega sömu legacy ref og áður. Canonical
+destination-tenging og raunveruleg batch-mutation bíða fyrsta örugga Phase 4
+consumers.
+
+### Viðburðaraðili: sameiginlegt nafn og mín Tengsl
+
+Viðburðaraðili hefur alltaf stöðugt opaque `personRef`; nafn, netfang og staða
+eru framsetning en aldrei identity. Sameiginlegt nafn sést öllum sem hafa
+Event-aðgang. Teskeiðarprofile-nafn má vera sameiginlegt nafn eftir exact
+server-side identity binding. Handvirkt netfang þarf jafnframt sameiginlegt
+mannanafn svo enginn þurfi að velja milli `Gestur 1`, `Gestur 2` og þess háttar.
+
+Gömul email-only gögn án trausts mannanafns birtast `Nafn vantar`, eru ekki
+selectable og aðeins eigandi Event-sins fær repair-form og sér netfangið sem
+hann skráði. Það má ekki giska á nafn úr netfangi eða birta raw netfang sem
+sameiginlegt fallback.
+
+Viewer-private Tengsl-overlay er eingöngu frá exact actor-owned Tengslum. Þá
+má sá actor sjá sitt einkanafn, netfang, flokkun, eigin merkingar og skýringu;
+aðrir Event-aðilar sjá aðeins sameiginlega nafnið. Built-in merkingar eru
+þýddar í UI og private fields mega hvorki fara í shared DTO né logs/errors.
+
+RSVP er svarstaða (`Ekkert svar`, `Í skoðun`, `Mæti`, `Kemst ekki`), aldrei
+aðgangshlið. Nákvæmlega sannreyndur virkur þátttakandi fær attendee-safe aðgang
+að þeim eina Event áður en hann svarar og óháð svarinu. Sá object-scoped
+aðgangur veitir hvorki almennt Events entitlement né owner-, create- eða
+edit-getu á öðrum Eventum.
+
+`Í skoðun` má hafa valfrjálsa einkaskýringu, mest 240 stafi. Aðeins höfundur
+skýringarinnar og núverandi eigandi Eventsins mega fá skýringuna í strict,
+aðskildri projection. Aðrir þátttakendur, fyrri eigandi, Expense, tölvupóstur,
+tilkynningar, logs og telemetry mega aldrei fá fieldið; CSS-fela eða `null` í
+shared DTO er ekki fullnægjandi. Skýringin hreinsast þegar farið er úr
+`Í skoðun` og flyst aldrei yfir í aðra identity generation.
+
+Öll fjögur RSVP-gildin skulu vera raunveruleg val, þar með talið að fara aftur
+í `Ekkert svar`. Einkaskýringar-input er minnst 16 px á mobile, sýnir skýra
+240 stafa talningu og tengda validation/conflict-villu. Save-aðgerð heldur
+stærð sinni í pending state og hver RSVP-/note-aðgerð gefur eitt live feedback.
+
+`Kemst ekki` lokar hvorki Event-sögunni né lesaðgangi. `Hætta þátttöku` er eina
+self-service aðgerðin sem lokar eigin Event-aðgangi og hún skal vera aðskilin
+destructive aðgerð með confirmation sheet, skýru pending/success/error
+feedbacki og deterministic focus. Brottvikning eða afturköllun eiganda eru
+aðskildar server-authoritative lokanir. Engin þessara aðgerða má eyða durable
+`personRef`, sögu eða endurskrifa Expense-mappingu.
+
+Invitation-slóð skal vera varanleg leið inn á canonical Event fyrir exact
+active actor, einnig eftir identity claim. Scoped participant þarf jafnframt
+sýnilega participant-only Event-lista-/launcher-leið; browser history eða
+pending invitation eitt og sér dugar ekki. Create/edit/owner controls eru
+absent án almenns Events entitlement og navigation/redirect sýnir canonical
+pending feedback.
+
+Expense er alltaf aðskilin server-authoritative heimild. Event-aðgangur,
+RSVP-staða og private note mega aldrei veita Expense-aðgang eða breyta Expense
+claim. Án Expense authority skal fela alla Expense-section, þar með talið
+activity og talningar.
+
+Thin feature-adapter leggur til þýddan texta, örugg option-gögn,
+capability/disabled-reglur og framkvæmir síðar eigin server-authoritative
+destination-mutation. Picker-val eitt og sér er aldrei heimild til að skrifa.
 
 Sameiginlegi pickerinn má hvorki flytja inn feature-lykla né ákveða entitlement
 eða aðgang. Val á aðila veitir ekki aðgang eitt og sér. Ef val heldur áfram í

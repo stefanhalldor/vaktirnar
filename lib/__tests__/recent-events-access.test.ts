@@ -1,15 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ExpenseRecentEventRow } from '@/lib/recent-events/types'
 
-const { mockCheckFeatureAccess, mockRpc, mockFrom } = vi.hoisted(() => ({
+const { mockCheckFeatureAccess, mockRpc, mockFrom, mockRecordRecentEvent } = vi.hoisted(() => ({
   mockCheckFeatureAccess: vi.fn(),
   mockRpc: vi.fn(),
   mockFrom: vi.fn(),
+  mockRecordRecentEvent: vi.fn(),
 }))
 
 vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: mockCheckFeatureAccess }))
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: vi.fn(() => ({ rpc: mockRpc, from: mockFrom })),
+}))
+vi.mock('@/lib/recent-events/helpers.server', () => ({
+  recordRecentEvent: mockRecordRecentEvent,
 }))
 
 import {
@@ -207,7 +211,7 @@ describe('syncEventAttendanceInvitationEvents', () => {
 
     await expect(syncEventAttendanceInvitationEvents('user-uuid')).resolves.toEqual({
       ok: false,
-      invitationIds: new Set(),
+      targets: new Map(),
     })
     expect(consoleError).not.toHaveBeenCalled()
     expect(consoleWarn).not.toHaveBeenCalled()
@@ -231,6 +235,38 @@ describe('syncEventAttendanceInvitationEvents', () => {
     )
     expect(JSON.stringify(consoleWarn.mock.calls)).not.toContain('private@example.is')
     consoleWarn.mockRestore()
+  })
+
+  it('returns exact preview-authorized canonical targets without reopening acknowledged rows', async () => {
+    const invitationId = '30000000-0000-4000-8000-000000000001'
+    const eventId = '40000000-0000-4000-8000-000000000001'
+    mockRpc
+      .mockResolvedValueOnce({
+        data: {
+          invitations: [{
+            invitation_id: invitationId,
+            event_name: 'Kvisskvöld',
+            inviter_display_name: 'Anna',
+            invited_at: '2026-08-16T20:00:00.000Z',
+          }],
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { invitation_id: invitationId, event_id: eventId },
+        error: null,
+      })
+
+    await expect(syncEventAttendanceInvitationEvents(ACTOR_ID)).resolves.toEqual({
+      ok: true,
+      targets: new Map([[invitationId, `/auth-mvp/vidburdir/${eventId}`]]),
+    })
+    expect(mockRecordRecentEvent).toHaveBeenCalledWith(expect.objectContaining({
+      userId: ACTOR_ID,
+      entityId: invitationId,
+      href: `/auth-mvp/vidburdir/${eventId}`,
+      updateOnConflict: false,
+    }))
   })
 })
 

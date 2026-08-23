@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   getRelationshipCircles: vi.fn(),
   guardExpenseAccess: vi.fn(),
   listEventSources: vi.fn(),
+  listEventSourcePresentation: vi.fn(),
+  getEventSourcePresentation: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
@@ -70,6 +72,10 @@ vi.mock('@/lib/events/repository.server', () => ({
   listEventExpenseSources: mocks.listEventSources,
   getOwnedEventExpenseSource: mocks.getEventSource,
 }))
+vi.mock('@/lib/events/legacy-expense-event-source-v2.repository.server', () => ({
+  listLegacyExpenseEventSourcesV2: mocks.listEventSourcePresentation,
+  getLegacyExpenseEventSourceV2: mocks.getEventSourcePresentation,
+}))
 
 import NewOneOffExpensePage from '../nytt/page'
 import ExpensePayAllPage from '../gera-upp/page'
@@ -83,6 +89,24 @@ const sourceA = {
   name: 'Sumarferð',
   rosterRevision: 4,
   guests: [{ id: EVENT_GUEST, displayName: 'Anna', sourceKind: 'manual_name' as const }],
+}
+const sourceAPresentation = {
+  eventId: EVENT_A,
+  name: 'Sumarferð',
+  rosterRevision: '4',
+  viewerRole: 'owner' as const,
+  people: [{
+    legacyPersonRef: EVENT_GUEST,
+    participantKind: 'guest' as const,
+    position: 0,
+    shared: {
+      accessState: 'active' as const,
+      labelState: 'resolved' as const,
+      displayName: 'Anna',
+      selectable: true,
+      disabledReason: null,
+    },
+  }],
 }
 
 function draftWithLeakyLegacyLabel() {
@@ -126,6 +150,8 @@ beforeEach(() => {
   mocks.getDraft.mockResolvedValue(null)
   mocks.listEventSources.mockResolvedValue([sourceA])
   mocks.getEventSource.mockResolvedValue(sourceA)
+  mocks.listEventSourcePresentation.mockResolvedValue([sourceAPresentation])
+  mocks.getEventSourcePresentation.mockResolvedValue(sourceAPresentation)
   mocks.getPayAll.mockResolvedValue({})
   mocks.getActorName.mockResolvedValue('Stebbi')
   mocks.getParticipantOptions.mockResolvedValue([])
@@ -185,6 +211,19 @@ describe('event-aware new expense route', () => {
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-draft-guest', 'Gestur úr viðburði')
     expect(document.body.textContent).not.toContain('secret@example.com')
     expect(document.body.textContent).not.toContain('Sumarferð')
+  })
+
+  it('fails closed on a missing v2 label projection instead of restoring a legacy email label', async () => {
+    mocks.getDraft.mockResolvedValueOnce(draftWithLeakyLegacyLabel())
+    mocks.listEventSourcePresentation.mockRejectedValueOnce(new Error('bounded load failure'))
+    mocks.getEventSourcePresentation.mockResolvedValueOnce(null)
+    render(await NewOneOffExpensePage({
+      searchParams: Promise.resolve({ draft: '50000000-0000-4000-8000-000000000001' }),
+    }))
+
+    expect(screen.getByTestId('expense-form')).toHaveAttribute('data-draft-guest', 'Gestur úr viðburði')
+    expect(document.body.textContent).not.toContain('secret@example.com')
+    expect(mocks.expenseForm.mock.calls.at(-1)?.[0].eventSourcesError).toBe(true)
   })
 })
 

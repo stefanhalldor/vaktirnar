@@ -24,8 +24,17 @@ export async function guardEventSession(): Promise<EventAccess> {
 
 export async function guardEventAccess(): Promise<EventAccess> {
   const { user } = await guardEventSession()
-  if (!user.email || !await checkFeatureAccess(user.id, user.email, EVENT_FEATURE_KEY)) redirect('/')
+  if (!await hasEventFeatureAccess(user)) redirect('/')
   return { user }
+}
+
+export async function hasEventFeatureAccess(user: User): Promise<boolean> {
+  if (!user.email) return false
+  try {
+    return await checkFeatureAccess(user.id, user.email, EVENT_FEATURE_KEY)
+  } catch {
+    return false
+  }
 }
 
 /**

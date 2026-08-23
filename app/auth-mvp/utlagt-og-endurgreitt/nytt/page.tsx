@@ -14,7 +14,12 @@ import {
   getOwnedEventExpenseSource,
   listEventExpenseSources,
 } from '@/lib/events/repository.server'
+import {
+  getLegacyExpenseEventSourceV2,
+  listLegacyExpenseEventSourcesV2,
+} from '@/lib/events/legacy-expense-event-source-v2.repository.server'
 import type { EventExpenseSourceView } from '@/lib/events/contracts'
+import type { LegacyExpenseEventSourceV2 } from '@/lib/events/legacy-expense-event-source-v2.contracts'
 import { eventExpensePath } from '@/lib/events/contracts'
 
 export default async function NewOneOffExpensePage({ searchParams }: {
@@ -29,6 +34,7 @@ export default async function NewOneOffExpensePage({ searchParams }: {
 
   const canUseEvents = await canUseEventExpenses(user)
   let eventSources: EventExpenseSourceView[] | undefined
+  let eventSourcePresentation: LegacyExpenseEventSourceV2[] | undefined
   let exactEventSource: EventExpenseSourceView | null = null
   let eventSourcesError = false
   if (canUseEvents) {
@@ -38,12 +44,26 @@ export default async function NewOneOffExpensePage({ searchParams }: {
       eventSources = []
       eventSourcesError = true
     }
+    try {
+      eventSourcePresentation = await listLegacyExpenseEventSourcesV2(user.id)
+    } catch {
+      eventSourcePresentation = []
+      eventSourcesError = true
+    }
     const exactEventId = draftEventId ?? (!safeDraft ? requestedEventId : null)
     if (exactEventId) {
       exactEventSource = eventSources.find((event) => event.id === exactEventId) ?? null
       if (!exactEventSource) {
         try {
           exactEventSource = await getOwnedEventExpenseSource(user.id, exactEventId)
+        } catch {
+          eventSourcesError = true
+        }
+      }
+      if (!eventSourcePresentation.some((event) => event.eventId === exactEventId)) {
+        try {
+          const exactPresentation = await getLegacyExpenseEventSourceV2(user.id, exactEventId)
+          if (exactPresentation) eventSourcePresentation = [exactPresentation, ...eventSourcePresentation]
         } catch {
           eventSourcesError = true
         }
@@ -60,6 +80,25 @@ export default async function NewOneOffExpensePage({ searchParams }: {
   const draftEventSource = draftEventId
     ? exactEventSource
     : null
+  const draftEventPresentation = draftEventId
+    ? eventSourcePresentation?.find((event) => event.eventId === draftEventId) ?? null
+    : null
+  const draftEventLabelSource = draftEventSource && draftEventPresentation
+    ? {
+        ...draftEventSource,
+        guests: draftEventSource.guests.map((guest) => {
+          const presentation = draftEventPresentation.people.find(
+            (person) => person.legacyPersonRef === guest.id,
+          )
+          return {
+            ...guest,
+            displayName: presentation?.viewerPrivate?.alias
+              ?? presentation?.shared.displayName
+              ?? t('expenseForm.eventGuestUnavailableLabel'),
+          }
+        }),
+      }
+    : null
   const eventSelectionWarning = safeDraft
     ? Boolean(draftEventId && (
       !draftEventSource
@@ -70,7 +109,7 @@ export default async function NewOneOffExpensePage({ searchParams }: {
     ...safeDraft,
     payload: hydrateExpenseDraftEventGuestLabels(
       safeDraft.payload,
-      draftEventSource,
+      draftEventLabelSource,
       t('expenseForm.eventGuestUnavailableLabel'),
     ),
   } : null
@@ -96,6 +135,7 @@ export default async function NewOneOffExpensePage({ searchParams }: {
           ? eventExpensePath(initialEventSource.id)
           : '/auth-mvp/utlagt-og-endurgreitt/nytt'}
         eventSources={eventSources}
+        eventSourcePresentation={eventSourcePresentation}
         eventSourcesError={eventSourcesError}
         initialEventSource={initialEventSource}
         eventSelectionWarning={eventSelectionWarning}

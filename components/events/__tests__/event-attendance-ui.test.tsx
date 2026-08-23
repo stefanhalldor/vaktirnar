@@ -11,6 +11,8 @@ const {
   mockReplace,
   mockResend,
   mockRespond,
+  mockSetRsvp,
+  mockLeaveV3,
 } = vi.hoisted(() => ({
   mockCancel: vi.fn(),
   mockInvite: vi.fn(),
@@ -20,6 +22,8 @@ const {
   mockReplace: vi.fn(),
   mockResend: vi.fn(),
   mockRespond: vi.fn(),
+  mockSetRsvp: vi.fn(),
+  mockLeaveV3: vi.fn(),
 }))
 
 const copy: Record<string, string> = {
@@ -39,7 +43,8 @@ const copy: Record<string, string> = {
   'identityInvitation.sentNotice': 'Boðið var sent.',
   'identityInvitation.deliveryIssueNotice': 'Ekki er víst að boðið hafi borist.',
   'identityInvitation.genericError': 'Ekki tókst að vinna með boðið.',
-  'identityInvitation.acceptedAccessLabel': 'Gesturinn hefur samþykkt lestraraðgang.',
+  'identityInvitation.acceptedAccessLabel': 'Gesturinn hefur aðgang að viðburðinum.',
+  'identityInvitation.reinviteTriggerLabel': 'Endurbjóða',
   'identityInvitation.pendingRecipient': 'Boð bíður svars frá {label}.',
   'identityInvitation.unsentRecipient': 'Boðið á {label} bíður sendingar.',
   'identityInvitation.failedRecipient': 'Ekki tókst að senda boðið á {label}.',
@@ -58,7 +63,32 @@ const copy: Record<string, string> = {
   'attendance.you': 'þú',
   'attendance.leave': 'Hætta þátttöku',
   'attendance.leaving': 'Hætti þátttöku...',
+  'attendance.leaveTitle': 'Hætta þátttöku',
   'attendance.leaveConfirm': 'Hætta þátttöku?',
+  'attendance.leaveConfirmAction': 'Já, hætta þátttöku',
+  'attendance.leaveKeep': 'Halda þátttöku',
+  'attendance.leaveClose': 'Loka',
+  'attendance.leaveSuccess': 'Þú hefur hætt þátttöku.',
+  'attendance.leaveError': 'Ekki tókst að hætta þátttöku.',
+  'attendance.leaveConflict': 'Staðan breyttist.',
+  'rsvp.title': 'Kemurðu?',
+  'rsvp.hint': 'Svar breytir ekki aðgangi.',
+  'rsvp.noResponse': 'Ekkert svar',
+  'rsvp.considering': 'Í skoðun',
+  'rsvp.attending': 'Mæti',
+  'rsvp.notAttending': 'Kemst ekki',
+  'rsvp.noteLabel': 'Skýring til gestgjafa',
+  'rsvp.notePlaceholder': 'Er að reyna að redda pössun',
+  'rsvp.noteHint': 'Aðeins gestgjafi sér skýringuna.',
+  'rsvp.noteCount': '{count}/240',
+  'rsvp.noteInvalid': 'Athugaðu skýringuna.',
+  'rsvp.save': 'Vista svar',
+  'rsvp.saving': 'Vista...',
+  'rsvp.saved': 'Svar vistað.',
+  'rsvp.saveError': 'Ekki tókst að vista svarið.',
+  'rsvp.conflict': 'Svarið breyttist.',
+  'personPicker.privateNoteLabel': 'Mín skýring',
+  'personPicker.hiddenLabels': '+{count}',
   'invitation.accept': 'Samþykkja',
   'invitation.accepting': 'Samþykki...',
   'invitation.decline': 'Hafna',
@@ -92,6 +122,10 @@ vi.mock('@/lib/events/actions', () => ({
   leaveEventAttendance: mockLeave,
   resendEventGuestAttendanceInvitation: mockResend,
   respondEventGuestAttendanceInvitation: mockRespond,
+}))
+vi.mock('@/lib/events/participant-identity-v3.actions', () => ({
+  setEventRsvpV3Action: mockSetRsvp,
+  leaveEventParticipationV3Action: mockLeaveV3,
 }))
 
 import { EventAttendanceInvitationActions } from '../EventAttendanceInvitationActions'
@@ -133,6 +167,8 @@ type ControlInput = {
   sourceKind?: 'relationship' | 'manual_name' | 'manual_email'
   isTeskeidUser?: boolean
   attendance?: EventGuestAttendanceView
+  accessState?: 'active' | 'left' | 'revoked'
+  recipientState?: 'name_only' | 'email_unbound' | 'user_bound' | 'identity_tombstone'
 }
 
 function control(input: ControlInput = {}) {
@@ -144,6 +180,8 @@ function control(input: ControlInput = {}) {
       partyLabel="Anna"
       sourceKind={input.sourceKind ?? 'manual_name'}
       isTeskeidUser={input.isTeskeidUser ?? false}
+      accessState={input.accessState ?? 'active'}
+      recipientState={input.recipientState ?? 'name_only'}
       attendance={input.attendance ?? notInvited}
       disabled={false}
       onPendingChange={vi.fn()}
@@ -171,6 +209,10 @@ beforeEach(() => {
   mockCancel.mockResolvedValue({ ok: true, data: { rosterRevision: 2 } })
   mockRespond.mockResolvedValue({ ok: true, data: { status: 'accepted' } })
   mockLeave.mockResolvedValue({ ok: true, data: { status: 'left' } })
+  mockLeaveV3.mockResolvedValue({ ok: true, data: {
+    status: 'left', requestId: '60000000-0000-4000-8000-000000000001', eventId: EVENT_ID,
+    eventGuestId: GUEST_ID, identityGeneration: '1', identityVersion: '1', accessVersion: '2',
+  } })
 })
 
 describe('Event guest attendance owner adapter', () => {
@@ -226,8 +268,8 @@ describe('Event guest attendance owner adapter', () => {
     })))
   })
 
-  it('renders accepted read access without claiming an identity relationship', () => {
-    renderControl({ attendance: {
+  it('does not repeat active user-bound access beneath each guest', () => {
+    renderControl({ recipientState: 'user_bound', attendance: {
       ...pending('sent'),
       status: 'accepted',
       recipientLabel: null,
@@ -236,8 +278,8 @@ describe('Event guest attendance owner adapter', () => {
       expiresAt: null,
       acceptedAt: '2026-08-16T09:05:00.000Z',
     } })
-    expect(screen.getByText('Gesturinn hefur samþykkt lestraraðgang.')).toBeInTheDocument()
-    expect(screen.queryByText(/tengdur/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Gesturinn hefur aðgang að viðburðinum.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Bjóða aðgang/ })).not.toBeInTheDocument()
   })
 
   it('re-enables the email invitation flow after a name-only guest leaves', () => {
@@ -250,6 +292,32 @@ describe('Event guest attendance owner adapter', () => {
     } })
     expect(screen.getByText('Hætt þátttöku')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tengja og bjóða aðgang' })).toBeInTheDocument()
+  })
+
+  it('reinvites one left user-bound guest through the persisted identity action', async () => {
+    mockInvite.mockResolvedValueOnce({ ok: true, data: {
+      invitationId: INVITATION_ID,
+      invitationKind: 'access_only',
+      rosterRevision: 3,
+      delivery: 'sent',
+    } })
+    renderControl({
+      accessState: 'left',
+      recipientState: 'user_bound',
+      isTeskeidUser: true,
+      attendance: {
+        ...notInvited,
+        status: 'left',
+        invitationId: INVITATION_ID,
+        invitationKind: 'access_only',
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Endurbjóða' }))
+    await waitFor(() => expect(mockInvite).toHaveBeenCalledWith(expect.objectContaining({
+      event_guest_id: GUEST_ID,
+      recipient_email: null,
+    })))
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
   })
 
   it('focuses a direct action error and blocks synchronous double submission', async () => {
@@ -340,38 +408,77 @@ describe('scoped attendance consent and management', () => {
 
 describe('read-only attendee detail', () => {
   const attendeeEvent = {
-    id: EVENT_ID,
+    eventId: EVENT_ID,
     name: 'Kvisskvöld',
-    rosterRevision: 2,
+    rosterRevision: '2',
     viewerRole: 'attendee' as const,
-    ownerDisplayName: null,
     createdAt: '2026-08-16T09:00:00.000Z',
     updatedAt: '2026-08-16T09:00:00.000Z',
-    guests: [{ id: GUEST_ID, displayName: null, position: 0, isSelf: true }],
+    eventDate: null,
+    eventTime: null,
+    description: null,
+    agenda: null,
+    selfRsvp: { state: 'no_response' as const, decisionVersion: '1' },
+    people: [
+      {
+        personRef: '30000000-0000-4000-8000-000000000099',
+        participantKind: 'organizer' as const,
+        position: 0 as const,
+        isSelf: false,
+        shared: {
+          labelState: 'resolved' as const,
+          displayName: 'Eigandi',
+          selectable: true,
+          bulkEligible: true,
+          disabledReason: null,
+        },
+      },
+      {
+        personRef: GUEST_ID,
+        participantKind: 'guest' as const,
+        position: 1,
+        isSelf: true,
+        shared: {
+          accessState: 'active' as const,
+          rsvpState: 'no_response' as const,
+          labelState: 'resolved' as const,
+          displayName: 'Gestur',
+          selectable: true,
+          bulkEligible: true,
+          disabledReason: null,
+        },
+        labelVersion: '1',
+        identityVersion: '1',
+        identityGeneration: '1',
+        accessVersion: '1',
+        rsvp: { state: 'no_response' as const, decisionVersion: '1' },
+      },
+    ],
   }
 
-  it('renders only the safe roster and blocks a double leave click through navigation handoff', async () => {
-    let resolveLeave!: (value: unknown) => void
-    mockLeave.mockReturnValue(new Promise((resolve) => { resolveLeave = resolve }))
+  it('renders the safe roster and keeps no-response access independent from RSVP', async () => {
+    mockSetRsvp.mockResolvedValue({ ok: true, data: {
+      status: 'updated', requestId: '60000000-0000-4000-8000-000000000001',
+      eventId: EVENT_ID, eventGuestId: GUEST_ID, identityGeneration: '1',
+      accessState: 'active', accessVersion: '1', rsvpState: 'attending', decisionVersion: '2',
+    } })
     render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
     expect(screen.getByText('Gestur')).toBeInTheDocument()
-    expect(screen.getByText('Viðburður stofnaður af Teskeiðarnotanda')).toBeInTheDocument()
+    expect(screen.getByText('Viðburður stofnaður af Eigandi')).toBeInTheDocument()
+    expect(screen.getAllByText('Ekkert svar').length).toBeGreaterThan(0)
     expect(screen.queryByText(/lestraraðgang|útgjöld né skuldir/)).not.toBeInTheDocument()
     expect(screen.queryByText(/netfang|breyta|útlagður/i)).not.toBeInTheDocument()
-    const leaveButton = screen.getByRole('button', { name: 'Hætta þátttöku' })
-    fireEvent.click(leaveButton)
-    fireEvent.click(leaveButton)
-    expect(mockLeave).toHaveBeenCalledTimes(1)
-    resolveLeave({ ok: true, data: { status: 'left' } })
-    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth-mvp/vidburdir'))
-    expect(leaveButton).toBeDisabled()
-  })
-
-  it('focuses a leave error', async () => {
-    mockLeave.mockRejectedValueOnce(new Error('transport'))
-    render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Hætta þátttöku' }))
-    expect(await screen.findByRole('alert')).toHaveFocus()
+    fireEvent.click(screen.getByRole('radio', { name: 'Mæti' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vista svar' }))
+    await waitFor(() => expect(mockSetRsvp).toHaveBeenCalledWith(expect.objectContaining({
+      event_id: EVENT_ID,
+      event_guest_id: GUEST_ID,
+      identity_generation: '1',
+      rsvp_state: 'attending',
+      private_note: null,
+      expected_decision_version: '1',
+    })))
+    expect(mockRefresh).toHaveBeenCalled()
   })
 
   it('shows the event expense action only with separate Expense access', () => {
@@ -384,5 +491,51 @@ describe('read-only attendee detail', () => {
       'href',
       `/auth-mvp/utlagt-og-endurgreitt/nytt?event=${EVENT_ID}`,
     )
+  })
+
+  it('keeps a considering note private, single-paragraph and explicit-save only', async () => {
+    mockSetRsvp.mockResolvedValueOnce({ ok: true, data: {
+      status: 'updated', requestId: '60000000-0000-4000-8000-000000000001',
+      eventId: EVENT_ID, eventGuestId: GUEST_ID, identityGeneration: '1',
+      accessState: 'active', accessVersion: '1', rsvpState: 'considering', decisionVersion: '2',
+    } })
+    render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Í skoðun' }))
+    const note = screen.getByRole('textbox', { name: 'Skýring til gestgjafa' })
+    fireEvent.change(note, { target: { value: 'Fyrri lína\nÖnnur lína' } })
+    expect(screen.getAllByText('Athugaðu skýringuna.').length).toBeGreaterThan(0)
+    expect(note).toHaveAttribute(
+      'aria-describedby',
+      expect.stringContaining('event-rsvp-private-note-error'),
+    )
+    expect(screen.getByText('Athugaðu skýringuna.')).toHaveAttribute('role', 'alert')
+    expect(screen.getByRole('button', { name: 'Vista svar' })).toBeDisabled()
+
+    fireEvent.change(note, { target: { value: '  Er að reyna að redda pössun  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Vista svar' }))
+    await waitFor(() => expect(mockSetRsvp).toHaveBeenCalledWith(expect.objectContaining({
+      identity_generation: '1',
+      rsvp_state: 'considering',
+      private_note: 'Er að reyna að redda pössun',
+      expected_decision_version: '1',
+    })))
+  })
+
+  it('keeps self-leave distinct from RSVP and confirms the exact current generation', async () => {
+    render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hætta þátttöku' }))
+    expect(await screen.findByRole('dialog', { name: 'Hætta þátttöku' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Já, hætta þátttöku' }))
+
+    await waitFor(() => expect(mockLeaveV3).toHaveBeenCalledWith(expect.objectContaining({
+      event_id: EVENT_ID,
+      event_guest_id: GUEST_ID,
+      identity_generation: '1',
+      expected_identity_version: '1',
+      expected_access_version: '1',
+    })))
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/auth-mvp/vidburdir'))
   })
 })

@@ -6,10 +6,12 @@ const {
   mockHouseholdSync,
   mockGetUnread,
   mockExpenseSync,
+  mockEventSync,
 } = vi.hoisted(() => ({
   mockHouseholdSync: vi.fn(),
   mockGetUnread: vi.fn(),
   mockExpenseSync: vi.fn(),
+  mockEventSync: vi.fn(),
 }))
 
 vi.mock('next-intl/server', () => ({
@@ -28,10 +30,7 @@ vi.mock('@/lib/recent-events/access.server', () => ({
   expenseActivityIdFromEventKey: vi.fn(() => null),
   resolveExpenseRecentEventTargets: vi.fn(async () => new Map()),
   resolveRecentEventSourceAccess: vi.fn(),
-  syncEventAttendanceInvitationEvents: vi.fn(async () => ({
-    ok: true,
-    invitationIds: new Set(),
-  })),
+  syncEventAttendanceInvitationEvents: mockEventSync,
   syncExpenseMemberInvitationEvents: mockExpenseSync,
 }))
 
@@ -46,6 +45,8 @@ import type { RecentEventRow } from '@/lib/recent-events/types'
 
 const USER = { id: 'user-uuid', email: 'user@example.is' }
 const MEMBERSHIP_EVENT_ID = '50000000-0000-4000-8000-000000000001'
+const EVENT_INVITATION_ID = '60000000-0000-4000-8000-000000000001'
+const EVENT_ID = '70000000-0000-4000-8000-000000000001'
 
 const ACCESS: RecentEventSourceAccess = {
   loansEnabled: false,
@@ -91,9 +92,26 @@ function householdRow(): RecentEventRow {
   }
 }
 
+function eventInvitationRow(): RecentEventRow {
+  return {
+    id: 3,
+    user_id: USER.id,
+    source: 'events',
+    event_type: 'event_attendance_invitation_received',
+    entity_type: 'attendance_invitation',
+    entity_id: EVENT_INVITATION_ID,
+    event_key: `events:attendance-invitation:${EVENT_INVITATION_ID}:received`,
+    payload: { eventName: 'Kvisskvöld', inviterDisplayName: 'Anna' },
+    href: '/auth-mvp/vidburdir/80000000-0000-4000-8000-000000000001',
+    occurred_at: '2026-08-18T10:00:00Z',
+    ack_at: null,
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockExpenseSync.mockResolvedValue(true)
+  mockEventSync.mockResolvedValue({ ok: true, targets: new Map() })
   mockGetUnread.mockResolvedValue([expenseRow(), householdRow()])
 })
 
@@ -122,5 +140,32 @@ describe('Household Chores recent inbox synchronization', () => {
       isDeleted: false,
     })
     expect(JSON.stringify(household)).not.toContain('private@example.is')
+  })
+})
+
+describe('Event invitation recent inbox synchronization', () => {
+  it('uses only the current preview-authorized Event target, never a stored stale UUID href', async () => {
+    mockGetUnread.mockResolvedValue([eventInvitationRow()])
+    mockEventSync.mockResolvedValue({
+      ok: true,
+      targets: new Map([[EVENT_INVITATION_ID, `/auth-mvp/vidburdir/${EVENT_ID}`]]),
+    })
+
+    const inbox = await loadRecentEventInbox(USER, {
+      access: {
+        ...ACCESS,
+        eventInvitationsEnabled: true,
+        sources: ['events'],
+      },
+    })
+
+    expect(inbox.rows).toHaveLength(1)
+    expect(inbox.rows[0]).toMatchObject({
+      href: `/auth-mvp/vidburdir/${EVENT_ID}`,
+      viewHref: `/auth-mvp/vidburdir/${EVENT_ID}`,
+    })
+    expect(JSON.stringify(inbox.rows[0])).not.toContain(
+      '80000000-0000-4000-8000-000000000001',
+    )
   })
 })

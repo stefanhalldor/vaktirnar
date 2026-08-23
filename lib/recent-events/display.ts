@@ -137,6 +137,10 @@ const LOAN_CHANGE_TYPES = new Set<LoanFieldChange['changeType']>(['changed', 'ad
 const LOANS_PATH = '/auth-mvp/lanad-og-skilad'
 const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
 const EVENTS_INVITATION_PATH = '/auth-mvp/vidburdir/bod/thattaka'
+
+function eventInvitationFallbackTarget(invitationId: string): string {
+  return `${EVENTS_INVITATION_PATH}/${invitationId}`
+}
 const HOUSEHOLD_CHORES_INVITATION_PATH = `${TASKS_PATH}/bod`
 const HOUSEHOLD_CHORES_MEMBERSHIP_PATH = `${TASKS_PATH}/adild`
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -475,7 +479,7 @@ export function parseRecentEventRow(row: RecentEventRow): KnownRecentEventRow | 
       entity_type: 'attendance_invitation',
       entity_id: row.entity_id,
       payload,
-      href: `${EVENTS_INVITATION_PATH}/${row.entity_id}`,
+      href: eventInvitationFallbackTarget(row.entity_id),
     }
   }
   if (
