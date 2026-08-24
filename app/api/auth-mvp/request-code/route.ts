@@ -5,10 +5,23 @@ import { z } from 'zod'
 import { createUserCode, invalidateUserCodeAfterSendFailure } from '@/lib/auth/user-codes'
 import { sendUserLoginCode } from '@/lib/auth/email'
 import { checkIpRateLimit } from '@/lib/auth/ip-rate-limit'
+import { USER_CODE_RESEND_WINDOW_SECONDS } from '@/lib/auth/user-code-policy'
 
 const schema = z.object({
   email: z.string().email().max(320).transform((e) => e.toLowerCase().trim()),
 })
+
+function successfulCodeRequestResponse(extra: Record<string, unknown> = {}) {
+  const serverNowMs = Date.now()
+  return NextResponse.json({
+    success: true,
+    ...extra,
+    serverNow: new Date(serverNowMs).toISOString(),
+    resendAvailableAt: new Date(
+      serverNowMs + USER_CODE_RESEND_WINDOW_SECONDS * 1000,
+    ).toISOString(),
+  })
+}
 
 // Public policy responses avoid leaking whether an email exists or whether
 // deduplication suppressed a send. Operational failures use a generic 500.
@@ -67,7 +80,7 @@ export async function POST(request: NextRequest) {
       // A recent unused code is still active — do not create or send a new one.
       // Return success so the client proceeds normally without leaking dedupe state.
       console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'recent_active_suppressed', ipRateLimitMs, createCodeMs, totalMs: Date.now() - t0 }))
-      return NextResponse.json({ success: true })
+      return successfulCodeRequestResponse()
     }
 
     // result is the plaintext code
@@ -85,10 +98,10 @@ export async function POST(request: NextRequest) {
     }
     if (deliveryStatus === 'uncertain') {
       console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'email_outcome_uncertain', ipRateLimitMs, createCodeMs, sendEmailMs, totalMs: Date.now() - t0 }))
-      return NextResponse.json({ success: true, delivery: 'uncertain' })
+      return successfulCodeRequestResponse({ delivery: 'uncertain' })
     }
     console.info('[auth-mvp/request-code]', JSON.stringify({ requestId, result: 'created_and_sent', ipRateLimitMs, createCodeMs, sendEmailMs, totalMs: Date.now() - t0 }))
-    return NextResponse.json({ success: true })
+    return successfulCodeRequestResponse()
   }
 
   // Invalid payload: still return success (no validation leak)

@@ -41,10 +41,13 @@ vi.mock('next-intl', () => ({
         invalidCode: 'Rangur eða útrunninn kóði',
         resend: 'Senda aftur',
         resendIn: 'Senda aftur eftir {seconds}s',
+        resending: 'Sendi aftur...',
+        resendRequested: 'Athugaðu póstinn og notaðu nýjasta kóðann sem þú hefur fengið.',
         backToEmail: 'Til baka',
         genericError: 'Eitthvað fór úrskeiðis. Reyndu aftur.',
         deliveryUncertain: 'Ekki náðist að staðfesta sendinguna, en kóðinn gæti hafa farið af stað. Athugaðu póstinn áður en þú reynir aftur.',
-        emailSubmitted: 'Ef netfangið þitt er með aðgang færðu kóða innan skamms.',
+        emailSubmitted: 'Ef netfangið þitt er með aðgang ætti kóði að berast innan skamms. Ef þú baðst nýlega um kóða geturðu notað þann sem þegar barst.',
+        rateLimited: 'Of margir kóðar hafa verið sendir. Prófaðu aftur klukkan {time}.',
       },
     }
     return (key: string, values?: Record<string, string | number>) => {
@@ -58,7 +61,10 @@ vi.mock('next-intl', () => ({
 }))
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ success: true }),
+  }))
 })
 
 import { TeskeidLoginForm } from '@/components/teskeid/TeskeidLoginForm'
@@ -161,11 +167,34 @@ describe('TeskeidLoginForm — uncertain code delivery', () => {
     expect(screen.getByRole('status').textContent).toContain('kóðinn gæti hafa farið af stað')
   })
 
+  it('treats a malformed 2xx response as uncertain instead of confirmed delivery', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
+    render(React.createElement(TeskeidLoginForm))
+
+    fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('kóðinn gæti hafa farið af stað')
+  })
+
+  it('treats a malformed rate-limit payload without retryAfter as uncertain', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, rateLimited: true }),
+    } as Response)
+    render(React.createElement(TeskeidLoginForm))
+
+    fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('kóðinn gæti hafa farið af stað')
+  })
+
   it('does not start a success countdown after a definitive resend rejection', async () => {
     vi.useFakeTimers()
     try {
       const fetchMock = vi.mocked(fetch)
-      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) } as Response)
       render(React.createElement(TeskeidLoginForm))
 
       fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
@@ -185,6 +214,159 @@ describe('TeskeidLoginForm — uncertain code delivery', () => {
 
       expect(screen.getByText('Eitthvað fór úrskeiðis. Reyndu aftur.')).toBeDefined()
       expect(screen.getByRole('button', { name: 'Senda aftur' })).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reconciles the resend cooldown from elapsed wall time after a suspended tab resumes', async () => {
+    vi.useFakeTimers()
+    // The device clock is deliberately two hours ahead of the server. The
+    // server-authored duration must still produce a 120-second local window.
+    vi.setSystemTime(new Date('2026-08-24T20:00:00.000Z'))
+    try {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          serverNow: '2026-08-24T18:00:00.000Z',
+          resendAvailableAt: '2026-08-24T18:02:00.000Z',
+        }),
+      } as Response)
+      render(React.createElement(TeskeidLoginForm))
+
+      fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+      await act(async () => {})
+
+      expect(screen.getByRole('button', { name: 'Senda aftur eftir 120s' })).toBeDisabled()
+
+      // Mobile browsers may suspend timers while the tab/app is backgrounded.
+      // Advancing the wall clock without running timers models that suspension.
+      vi.setSystemTime(new Date('2026-08-24T20:10:01.000Z'))
+      fireEvent(window, new Event('focus'))
+      await act(async () => {})
+
+      expect(screen.getByRole('button', { name: 'Senda aftur' })).not.toBeDisabled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows a disabled pending resend action and blocks a duplicate request', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-24T18:00:00.000Z'))
+    try {
+      const fetchMock = vi.mocked(fetch)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) } as Response)
+      render(React.createElement(TeskeidLoginForm))
+
+      fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+      await act(async () => {})
+
+      vi.setSystemTime(new Date('2026-08-24T18:02:01.000Z'))
+      fireEvent(window, new Event('focus'))
+      await act(async () => {})
+
+      let resolveResend!: (response: Response) => void
+      fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveResend = resolve
+      }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
+      await act(async () => {})
+
+      const pendingButton = screen.getByRole('button', { name: 'Sendi aftur...' })
+      expect(pendingButton).toBeDisabled()
+      fireEvent.click(pendingButton)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+
+      resolveResend({ ok: true, json: async () => ({ success: true }) } as Response)
+      await act(async () => {})
+      expect(screen.getByRole('button', { name: 'Senda aftur eftir 120s' })).toBeDisabled()
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Athugaðu póstinn og notaðu nýjasta kóðann sem þú hefur fengið.',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows the real resend rate-limit boundary and clears the request guard', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-24T18:00:00.000Z'))
+    try {
+      const fetchMock = vi.mocked(fetch)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) } as Response)
+      render(React.createElement(TeskeidLoginForm))
+
+      fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+      await act(async () => {})
+
+      vi.setSystemTime(new Date('2026-08-24T18:02:01.000Z'))
+      fireEvent(window, new Event('focus'))
+      await act(async () => {})
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          rateLimited: true,
+          retryAfter: '2026-08-24T19:00:00.000Z',
+        }),
+      } as Response)
+      fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
+      await act(async () => {})
+
+      expect(screen.getByText(/Prófaðu aftur klukkan 19:00/)).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Senda aftur' })).not.toBeDisabled()
+
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) } as Response)
+      fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
+      await act(async () => {})
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('times out a stalled resend as uncertain and always clears the pending lock', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-24T18:00:00.000Z'))
+    try {
+      const fetchMock = vi.mocked(fetch)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) } as Response)
+      render(React.createElement(TeskeidLoginForm))
+
+      fireEvent.change(screen.getByLabelText('Netfang'), { target: { value: 'user@example.com' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Áfram' }))
+      await act(async () => {})
+
+      vi.setSystemTime(new Date('2026-08-24T18:02:01.000Z'))
+      fireEvent(window, new Event('focus'))
+      await act(async () => {})
+
+      fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}))
+      fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
+      expect(screen.getByRole('button', { name: 'Sendi aftur...' })).toBeDisabled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
+
+      expect(screen.queryByRole('button', { name: 'Sendi aftur...' })).toBeNull()
+      expect(screen.getByRole('status')).toHaveTextContent('kóðinn gæti hafa farið af stað')
+      expect(screen.getByRole('button', { name: 'Senda aftur eftir 120s' })).toBeDisabled()
+
+      vi.setSystemTime(new Date('2026-08-24T18:04:32.000Z'))
+      fireEvent(window, new Event('focus'))
+      await act(async () => {})
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) } as Response)
+      fireEvent.click(screen.getByRole('button', { name: 'Senda aftur' }))
+      await act(async () => {})
+      expect(fetchMock).toHaveBeenCalledTimes(3)
     } finally {
       vi.useRealTimers()
     }

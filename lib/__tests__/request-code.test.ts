@@ -62,10 +62,20 @@ beforeEach(() => {
 // ── Valid email — OTP flow ────────────────────────────────────────────────────
 
 describe('POST /api/auth-mvp/request-code — valid email', () => {
-  it('returns { success: true }', async () => {
-    const res = await POST(makeRequest({ email: 'user@example.com' }))
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ success: true })
+  it('returns success with a server-authored resend window', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-24T18:00:00.000Z'))
+    try {
+      const res = await POST(makeRequest({ email: 'user@example.com' }))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({
+        success: true,
+        serverNow: '2026-08-24T18:00:00.000Z',
+        resendAvailableAt: '2026-08-24T18:02:00.000Z',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('creates an OTP code', async () => {
@@ -89,7 +99,11 @@ describe('POST /api/auth-mvp/request-code — valid email', () => {
     const res = await POST(makeRequest({ email: 'user@example.com' }))
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ success: true })
+    expect(await res.json()).toEqual(expect.objectContaining({
+      success: true,
+      serverNow: expect.any(String),
+      resendAvailableAt: expect.any(String),
+    }))
     expect(mockSendUserLoginCode).not.toHaveBeenCalled()
   })
 
@@ -108,7 +122,12 @@ describe('POST /api/auth-mvp/request-code — valid email', () => {
     const res = await POST(makeRequest({ email: 'user@example.com' }))
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ success: true, delivery: 'uncertain' })
+    expect(await res.json()).toEqual(expect.objectContaining({
+      success: true,
+      delivery: 'uncertain',
+      serverNow: expect.any(String),
+      resendAvailableAt: expect.any(String),
+    }))
     expect(mockInvalidateUserCode).not.toHaveBeenCalled()
   })
 })
@@ -118,12 +137,23 @@ describe('POST /api/auth-mvp/request-code — valid email', () => {
 describe('POST /api/auth-mvp/request-code — no information leak', () => {
   it('always returns { success: true } for any email', async () => {
     const res1 = await POST(makeRequest({ email: 'a@example.com' }))
-    expect(await res1.json()).toEqual({ success: true })
+    const body1 = await res1.json()
+    expect(body1).toEqual(expect.objectContaining({
+      success: true,
+      serverNow: expect.any(String),
+      resendAvailableAt: expect.any(String),
+    }))
 
     const res2 = await POST(makeRequest({ email: 'b@example.com' }))
-    expect(await res2.json()).toEqual({ success: true })
+    const body2 = await res2.json()
+    expect(body2).toEqual(expect.objectContaining({
+      success: true,
+      serverNow: expect.any(String),
+      resendAvailableAt: expect.any(String),
+    }))
 
     expect(res1.status).toBe(res2.status)
+    expect(Object.keys(body1).sort()).toEqual(Object.keys(body2).sort())
   })
 
   it('invalid email payload returns { success: true } (no validation leak)', async () => {

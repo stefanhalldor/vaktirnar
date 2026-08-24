@@ -243,6 +243,42 @@ describe('invalidateUserCodeAfterSendFailure', () => {
   })
 })
 
+describe('createUserCode — expiry, dedupe, and rate-limit arguments', () => {
+  let restoreSecret: () => void
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    restoreSecret = saveSecret(VALID_SECRET)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-24T18:00:00.000Z'))
+    mockRpc.mockResolvedValue({ data: { status: 'inserted' }, error: null })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    restoreSecret()
+    vi.restoreAllMocks()
+  })
+
+  it('asks the RPC for a code expiring in exactly ten minutes', async () => {
+    await createUserCode(TEST_EMAIL)
+
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_user_otp_code_if_allowed',
+      expect.objectContaining({ p_expires_at: '2026-08-24T18:10:00.000Z' }),
+    )
+  })
+
+  it('keeps the dedupe and hourly abuse-limit arguments explicit', async () => {
+    await createUserCode(TEST_EMAIL)
+
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_user_otp_code_if_allowed',
+      expect.objectContaining({ p_dedupe_secs: 120, p_max_per_hour: 20 }),
+    )
+  })
+})
+
 // ── C. sql/72 static contract ─────────────────────────────────────────────────
 
 describe('sql/72_auth_email_code_request_idempotency.sql — static contract', () => {
@@ -276,6 +312,11 @@ describe('sql/72_auth_email_code_request_idempotency.sql — static contract', (
     expect(sql).toMatch(/expires_at\s+>\s+now\(\)/)
   })
 
+  it('treats expires_at = now() as expired by keeping the comparison strict', () => {
+    expect(sql).toMatch(/expires_at\s+>\s+now\(\)/)
+    expect(sql).not.toMatch(/expires_at\s+>=\s+now\(\)/)
+  })
+
   it('dedupe check uses make_interval with p_dedupe_secs', () => {
     expect(sql).toContain('p_dedupe_secs')
     expect(sql).toContain('make_interval')
@@ -283,6 +324,15 @@ describe('sql/72_auth_email_code_request_idempotency.sql — static contract', (
 
   it('rate limit check uses p_max_per_hour', () => {
     expect(sql).toContain('p_max_per_hour')
+  })
+
+  it('counts expired and used rows in the independent rolling-hour limit', () => {
+    const rateLimitStart = sql.indexOf('-- Per-email hourly rate limit check.')
+    const insertStart = sql.indexOf('-- All checks passed: insert the new code row.')
+    const rateLimitSection = sql.slice(rateLimitStart, insertStart)
+
+    expect(rateLimitSection).toMatch(/created_at\s+>=\s+now\(\)\s+-\s+INTERVAL '1 hour'/)
+    expect(rateLimitSection).not.toMatch(/expires_at|used_at/)
   })
 
   it('inserts into auth_email_codes', () => {

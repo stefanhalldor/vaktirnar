@@ -6,14 +6,17 @@ import { useTranslations } from 'next-intl'
 import Link from 'next/link'
 import { TeskeidLogo } from '@/components/teskeid/TeskeidLogo'
 import { isSafeBookingLoginNext } from '@/lib/auth/loginNext'
+import { USER_CODE_RESEND_WINDOW_SECONDS } from '@/lib/auth/user-code-policy'
 
 type Step = 'email' | 'code'
-// Must align with DEDUPE_WINDOW_SECONDS in lib/auth/user-codes.ts (120s).
-// If a user resends within this window, the server suppresses a new code
-// to avoid invalidating the one already in transit.
-const RESEND_COOLDOWN = 120
 // Milliseconds before showing a "code may take a moment" hint on the email step.
 const SLOW_EMAIL_HINT_MS = 8_000
+// A bounded request prevents a lost network response from leaving resend
+// permanently locked. A timeout is classified as uncertain because the server
+// may still have completed the request.
+const REQUEST_CODE_TIMEOUT_MS = 30_000
+
+type CodeNoticeKind = 'success' | 'warning'
 
 export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: string; nextHref?: string }) {
   const t = useTranslations('teskeid.auth')
@@ -25,24 +28,67 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [codeNotice, setCodeNotice] = useState('')
+  const [codeNoticeKind, setCodeNoticeKind] = useState<CodeNoticeKind>('success')
   const [showSlowHint, setShowSlowHint] = useState(false)
   const [resendCountdown, setResendCountdown] = useState(0)
+  const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null)
+  const [resendLoading, setResendLoading] = useState(false)
   const codeInputRef = useRef<HTMLInputElement>(null)
   // Prevents double-submit within a single tab before React disables the button.
   const requestInFlight = useRef(false)
   const slowHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (resendCountdown <= 0) return
-    const timer = setTimeout(() => setResendCountdown((c) => c - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [resendCountdown])
+    if (resendAvailableAt === null) return
+
+    const syncCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000))
+      setResendCountdown(remaining)
+      if (remaining === 0) setResendAvailableAt(null)
+    }
+
+    syncCountdown()
+    const timer = window.setInterval(syncCountdown, 1000)
+    window.addEventListener('focus', syncCountdown)
+    document.addEventListener('visibilitychange', syncCountdown)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', syncCountdown)
+      document.removeEventListener('visibilitychange', syncCountdown)
+    }
+  }, [resendAvailableAt])
 
   useEffect(() => {
-    if (step === 'code') {
+    if (step === 'code' && !resendLoading) {
       codeInputRef.current?.focus()
     }
-  }, [step])
+  }, [step, resendLoading])
+
+  function fallbackResendDeadline(): number {
+    return Date.now() + USER_CODE_RESEND_WINDOW_SECONDS * 1000
+  }
+
+  function responseResendDeadline(data: Record<string, unknown>): number {
+    const serverNow = typeof data.serverNow === 'string' ? Date.parse(data.serverNow) : Number.NaN
+    const availableAt = typeof data.resendAvailableAt === 'string'
+      ? Date.parse(data.resendAvailableAt)
+      : Number.NaN
+    const serverDelay = availableAt - serverNow
+    const maximumExpectedDelay = (USER_CODE_RESEND_WINDOW_SECONDS + 5) * 1000
+
+    // Convert the server-authored window to a local absolute deadline so a
+    // skewed device clock cannot make resend unlock early or remain locked.
+    if (Number.isFinite(serverDelay) && serverDelay >= 0 && serverDelay <= maximumExpectedDelay) {
+      return Date.now() + serverDelay
+    }
+    return fallbackResendDeadline()
+  }
+
+  function startResendCooldown(deadline: number) {
+    const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+    setResendCountdown(remaining)
+    setResendAvailableAt(remaining > 0 ? deadline : null)
+  }
 
   function formatRetryTime(isoString: string): string {
     return new Date(isoString).toLocaleTimeString('is-IS', {
@@ -53,40 +99,65 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
   }
 
   type RequestCodeResult =
-    | { status: 'ok'; delivery: 'active' | 'uncertain' }
+    | { status: 'ok'; delivery: 'active' | 'uncertain'; resendAvailableAt: number }
     | { status: 'rate_limited'; retryAfter: string }
     | { status: 'failed' }
-    | { status: 'uncertain' }
+    | { status: 'uncertain'; resendAvailableAt: number }
 
   async function requestCode(targetEmail: string): Promise<RequestCodeResult> {
+    const controller = new AbortController()
+    let timeout: ReturnType<typeof setTimeout> | null = null
     try {
-      const res = await fetch('/api/auth-mvp/request-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: targetEmail }),
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort()
+          reject(new Error('request_code_timeout'))
+        }, REQUEST_CODE_TIMEOUT_MS)
       })
-      // A real Fetch Response has json(), but guards/mocks/proxies can return a
-      // response-shaped object without it. Missing response metadata is not a
-      // network exception and must not turn a definitive HTTP rejection into
-      // an "email may have been sent" outcome.
-      const data = typeof res.json === 'function'
-        ? await res.json().catch(() => ({}))
-        : {}
+      const responsePromise = (async () => {
+        const res = await fetch('/api/auth-mvp/request-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: targetEmail }),
+          signal: controller.signal,
+        })
+        // Keep response parsing inside the bounded operation too. A response
+        // whose body never finishes must not leave the resend action locked.
+        const rawData = typeof res.json === 'function'
+          ? await res.json().catch(() => ({}))
+          : {}
+        const data = rawData && typeof rawData === 'object'
+          ? rawData as Record<string, unknown>
+          : {}
+        return { res, data }
+      })()
+      const { res, data } = await Promise.race([responsePromise, timeoutPromise])
+
+      // Missing response metadata is not a network exception and must not turn
+      // a definitive HTTP rejection into an "email may have been sent" outcome.
       if (!res.ok) {
         if (data.success === false) return { status: 'failed' }
         return [408, 425, 502, 503, 504].includes(res.status)
-          ? { status: 'uncertain' }
+          ? { status: 'uncertain', resendAvailableAt: fallbackResendDeadline() }
           : { status: 'failed' }
       }
-      if (data.rateLimited && data.retryAfter) {
-        return { status: 'rate_limited', retryAfter: data.retryAfter }
+      if (data.success !== true) {
+        return { status: 'uncertain', resendAvailableAt: fallbackResendDeadline() }
+      }
+      if (data.rateLimited === true) {
+        return typeof data.retryAfter === 'string' && Number.isFinite(Date.parse(data.retryAfter))
+          ? { status: 'rate_limited', retryAfter: data.retryAfter }
+          : { status: 'uncertain', resendAvailableAt: fallbackResendDeadline() }
       }
       return {
         status: 'ok',
         delivery: data.delivery === 'uncertain' ? 'uncertain' : 'active',
+        resendAvailableAt: responseResendDeadline(data),
       }
     } catch {
-      return { status: 'uncertain' }
+      return { status: 'uncertain', resendAvailableAt: fallbackResendDeadline() }
+    } finally {
+      if (timeout !== null) clearTimeout(timeout)
     }
   }
 
@@ -121,8 +192,9 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
         ? t('deliveryUncertain')
         : '',
     )
+    setCodeNoticeKind('warning')
     setStep('code')
-    setResendCountdown(RESEND_COOLDOWN)
+    startResendCooldown(result.resendAvailableAt)
     setLoading(false)
     requestInFlight.current = false
   }
@@ -165,26 +237,36 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
   }
 
   async function handleResend() {
-    if (resendCountdown > 0 || requestInFlight.current) return
+    if (resendCountdown > 0 || loading || resendLoading || requestInFlight.current) return
     requestInFlight.current = true
+    setResendLoading(true)
     setError('')
     setCodeNotice('')
     setCode('')
-    const result = await requestCode(email)
-    requestInFlight.current = false
-    if (result.status === 'rate_limited') {
-      setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
-      return
-    }
-    if (result.status === 'failed') {
+    try {
+      const result = await requestCode(email)
+      if (result.status === 'rate_limited') {
+        setError(t('rateLimited', { time: formatRetryTime(result.retryAfter) }))
+        return
+      }
+      if (result.status === 'failed') {
+        setError(t('genericError'))
+        return
+      }
+      if (result.status === 'uncertain' || result.delivery === 'uncertain') {
+        setCodeNoticeKind('warning')
+        setCodeNotice(t('deliveryUncertain'))
+      } else {
+        setCodeNoticeKind('success')
+        setCodeNotice(t('resendRequested'))
+      }
+      startResendCooldown(result.resendAvailableAt)
+    } catch {
       setError(t('genericError'))
-      return
+    } finally {
+      requestInFlight.current = false
+      setResendLoading(false)
     }
-    if (result.status === 'uncertain' || result.delivery === 'uncertain') {
-      setCodeNotice(t('deliveryUncertain'))
-    }
-    setResendCountdown(RESEND_COOLDOWN)
-    codeInputRef.current?.focus()
   }
 
   return (
@@ -235,7 +317,14 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
               <h2 className="mb-2 text-center text-xl font-semibold text-[#154212]">{t('codeTitle')}</h2>
               <p className={`${codeNotice ? 'mb-2' : 'mb-6'} text-center text-sm text-[#72796e]`}>{t('emailSubmitted', { email })}</p>
               {codeNotice && (
-                <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900" role="status">
+                <p
+                  className={`mb-4 rounded-xl border px-3 py-2 text-sm leading-relaxed ${
+                    codeNoticeKind === 'warning'
+                      ? 'border-amber-200 bg-amber-50 text-amber-900'
+                      : 'border-[#b7d7b2] bg-[#f2f8f0] text-[#154212]'
+                  }`}
+                  role="status"
+                >
                   {codeNotice}
                 </p>
               )}
@@ -250,14 +339,15 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
                     maxLength={6}
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    disabled={loading || resendLoading}
                     required
-                    className="h-12 rounded-xl border border-gray-200 px-3 text-xl text-center font-mono tracking-[0.4em] outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10"
+                    className="h-12 rounded-xl border border-gray-200 px-3 text-xl text-center font-mono tracking-[0.4em] outline-none focus:border-[#2d5a27] focus:ring-2 focus:ring-[#2d5a27]/10 disabled:opacity-50"
                   />
                 </label>
                 {error && <p className="text-sm text-red-600">{error}</p>}
                 <button
                   type="submit"
-                  disabled={loading || code.length < 6}
+                  disabled={loading || resendLoading || code.length < 6}
                   className="mt-2 h-10 rounded-xl bg-[#154212] text-white text-sm font-medium hover:bg-[#2d5a27] transition-colors disabled:opacity-50"
                 >
                   {loading ? t('verifying') : t('verify')}
@@ -266,18 +356,30 @@ export function TeskeidLoginForm({ logoHref = '/', nextHref }: { logoHref?: stri
               <div className="mt-4 flex justify-between text-sm">
                 <button
                   type="button"
-                  onClick={() => { setStep('email'); setCode(''); setError(''); setCodeNotice('') }}
-                  className="min-h-10 px-1 text-[#72796e] hover:text-[#154212] transition-colors"
+                  onClick={() => {
+                    setStep('email')
+                    setCode('')
+                    setError('')
+                    setCodeNotice('')
+                    setResendCountdown(0)
+                    setResendAvailableAt(null)
+                  }}
+                  disabled={loading || resendLoading}
+                  className="min-h-10 px-1 text-[#72796e] hover:text-[#154212] transition-colors disabled:opacity-50"
                 >
                   {t('backToEmail')}
                 </button>
                 <button
                   type="button"
                   onClick={handleResend}
-                  disabled={resendCountdown > 0}
-                  className="min-h-10 px-1 font-medium text-[#154212] hover:underline disabled:text-gray-300 disabled:no-underline transition-colors"
+                  disabled={resendCountdown > 0 || loading || resendLoading}
+                  className="min-h-10 min-w-[10.5rem] px-1 text-right font-medium text-[#154212] hover:underline disabled:text-gray-300 disabled:no-underline transition-colors"
                 >
-                  {resendCountdown > 0 ? t('resendIn', { seconds: resendCountdown }) : t('resend')}
+                  {resendLoading
+                    ? t('resending')
+                    : resendCountdown > 0
+                      ? t('resendIn', { seconds: resendCountdown })
+                      : t('resend')}
                 </button>
               </div>
             </>

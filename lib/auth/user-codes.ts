@@ -1,14 +1,11 @@
 import 'server-only'
 // Reuse hashing and code generation from codes.ts — no duplication
 import { hashCode, generateCode } from '@/lib/auth/codes'
+import { USER_CODE_RESEND_WINDOW_SECONDS } from '@/lib/auth/user-code-policy'
 import { getAdmin } from '@/lib/supabase/admin'
 
 const MAX_CODES_PER_HOUR = 20
 const CODE_TTL_MINUTES = 10
-// Dedupe window: suppress new code creation if an unused, unexpired code was
-// created within this many seconds. Must align with client resend countdown.
-const DEDUPE_WINDOW_SECONDS = 120
-
 export type CreateCodeResult =
   | string                                          // plaintext code — send to user
   | { rateLimited: true; retryAfter: string }       // ISO timestamp when window clears
@@ -45,7 +42,7 @@ export async function createUserCode(email: string): Promise<CreateCodeResult | 
     p_email:        email,
     p_code_hash:    code_hash,
     p_expires_at:   expires_at,
-    p_dedupe_secs:  DEDUPE_WINDOW_SECONDS,
+    p_dedupe_secs:  USER_CODE_RESEND_WINDOW_SECONDS,
     p_max_per_hour: MAX_CODES_PER_HOUR,
   })
 
