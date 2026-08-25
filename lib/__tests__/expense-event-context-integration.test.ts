@@ -10,11 +10,27 @@ describe('independent event and expense integration', () => {
   it('gates the pluggable event source and lets a saved draft win over the query', () => {
     const page = source('app', 'auth-mvp', 'utlagt-og-endurgreitt', 'nytt', 'page.tsx')
     const form = source('components', 'expenses', 'ExpenseForm.tsx')
+    const chooser = source('components', 'events', 'ExpenseEventContextChooser.tsx')
 
     expect(page).toContain('event?: string | string[]')
+    expect(page).toContain('context?: string | string[]')
     expect(page.indexOf('guardExpenseAccess()')).toBeLessThan(page.indexOf('canUseEventExpenses(user)'))
+    expect(page).toContain('const hasExplicitEventQuery = query.event !== undefined')
+    expect(page).toContain("typeof query.context === 'string'")
+    expect(page).toContain("query.context === 'standalone'")
+    expect(page).toContain('!hasExplicitEventQuery')
     expect(page).toContain('if (canUseEvents)')
+    expect(page).toContain('if (canUseEvents && chooserCandidate)')
     expect(page).toContain('eventSources = await listEventExpenseSources(user.id)')
+    expect(page).toContain('eventSources.map(({ id, name }) => ({ id, name }))')
+    expect(page).toContain('<ExpenseEventContextChooser events={chooserEvents} />')
+    expect(page.indexOf('<ExpenseEventContextChooser')).toBeLessThan(
+      page.indexOf('listLegacyExpenseEventSourcesV2(user.id)'),
+    )
+    expect(page.indexOf('<ExpenseEventContextChooser')).toBeLessThan(
+      page.indexOf('getExpenseActorDisplayName(user.id)'),
+    )
+    expect(page).toContain('if (eventSources === undefined)')
     expect(page).toContain('exactEventSource = await getOwnedEventExpenseSource(user.id, exactEventId)')
     expect(page).toContain('eventSources = [exactEventSource, ...eventSources]')
     expect(page).toContain('const initialEventSource = !safeDraft && requestedEventId')
@@ -23,8 +39,21 @@ describe('independent event and expense integration', () => {
     expect(page).toContain('draft={displayDraft}')
     expect(page).toContain('eventSelectionWarning={eventSelectionWarning}')
     expect(page).toContain('eventSources={eventSources}')
-    expect(page).not.toContain('ExpenseEventContextChooser')
     expect(page).not.toContain('listEvents(')
+
+    expect(chooser).toContain('<form')
+    expect(chooser).toContain('<fieldset')
+    expect(chooser).toContain('<legend')
+    expect(chooser).toContain('type="radio"')
+    expect(chooser).toContain('type="submit"')
+    expect(chooser).toContain('navigatingRef.current = true')
+    expect(chooser.indexOf('navigatingRef.current = true')).toBeLessThan(
+      chooser.indexOf('setIsNavigating(true)'),
+    )
+    expect(chooser.indexOf('setIsNavigating(true)')).toBeLessThan(chooser.indexOf('router.push'))
+    expect(chooser).toContain('encodeURIComponent(selectedEvent.id)')
+    expect(chooser).not.toContain('router.replace')
+    expect(chooser).not.toContain('/hopar/')
 
     expect(form).toContain("initialDraftPayload ? initialDraftPayload.eventId ?? '' : initialEventSource?.id ?? ''")
     expect(form).toContain('? initialDraftPayload.eventRosterRevision')

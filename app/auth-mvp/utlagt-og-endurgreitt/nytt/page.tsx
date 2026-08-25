@@ -1,5 +1,6 @@
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
+import { ExpenseEventContextChooser } from '@/components/events/ExpenseEventContextChooser'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { getExpenseActorDisplayName, getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
@@ -23,13 +24,23 @@ import type { LegacyExpenseEventSourceV2 } from '@/lib/events/legacy-expense-eve
 import { eventExpensePath } from '@/lib/events/contracts'
 
 export default async function NewOneOffExpensePage({ searchParams }: {
-  searchParams: Promise<{ draft?: string | string[]; event?: string | string[] }>
+  searchParams: Promise<{
+    draft?: string | string[]
+    event?: string | string[]
+    context?: string | string[]
+  }>
 }) {
   const [{ user }, t, query] = await Promise.all([guardExpenseAccess(), getExpenseTranslations(), searchParams])
   const draftId = parseExpenseDraftId(query.draft)
   const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
   const safeDraft = draft?.contextType === 'one_off' ? draft : null
+  const hasExplicitEventQuery = query.event !== undefined
   const requestedEventId = typeof query.event === 'string' ? query.event : null
+  const hasStandaloneContext = typeof query.context === 'string'
+    && query.context === 'standalone'
+  const chooserCandidate = !safeDraft
+    && !hasExplicitEventQuery
+    && !hasStandaloneContext
   const draftEventId = safeDraft?.payload.eventId ?? null
 
   const canUseEvents = await canUseEventExpenses(user)
@@ -37,12 +48,30 @@ export default async function NewOneOffExpensePage({ searchParams }: {
   let eventSourcePresentation: LegacyExpenseEventSourceV2[] | undefined
   let exactEventSource: EventExpenseSourceView | null = null
   let eventSourcesError = false
-  if (canUseEvents) {
+  if (canUseEvents && chooserCandidate) {
     try {
       eventSources = await listEventExpenseSources(user.id)
     } catch {
       eventSources = []
       eventSourcesError = true
+    }
+    if (!eventSourcesError && eventSources.length > 0) {
+      const chooserEvents = eventSources.map(({ id, name }) => ({ id, name }))
+      return (
+        <ExpenseShell title={t('expenseForm.oneOffTitle')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
+          <ExpenseEventContextChooser events={chooserEvents} />
+        </ExpenseShell>
+      )
+    }
+  }
+  if (canUseEvents) {
+    if (eventSources === undefined) {
+      try {
+        eventSources = await listEventExpenseSources(user.id)
+      } catch {
+        eventSources = []
+        eventSourcesError = true
+      }
     }
     try {
       eventSourcePresentation = await listLegacyExpenseEventSourcesV2(user.id)
