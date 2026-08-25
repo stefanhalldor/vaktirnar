@@ -2,6 +2,7 @@ import 'server-only'
 
 import { z } from 'zod'
 import { normalizeEmailForAccess } from '@/lib/auth/email-normalization'
+import { expenseDetailHref } from '@/lib/expenses/flow'
 import { EXPENSE_CURRENCIES } from '@/lib/expenses/input-money'
 import { getAdmin } from '@/lib/supabase/admin'
 import type {
@@ -14,6 +15,7 @@ import type {
   EventDetailsView,
   EventExpenseActivityView,
   EventExpenseActivityV2View,
+  EventExpenseActivityV3View,
   ExpenseEventLinkManagementView,
   ExpenseEventLinkManagementV2View,
   EventExpensePreviewCurrencyView,
@@ -1389,6 +1391,91 @@ export async function getEventExpenseActivityV2(
     throw new Error('event_expense_activity_failed')
   }
   return mapEventExpenseActivityV2(data)
+}
+
+function mapEventExpenseActivityV3(value: unknown): EventExpenseActivityV3View {
+  assertOwnerSafeProjection(value, true)
+  const result = record(value)
+  if (!result) throw new Error('event_expense_activity_failed')
+  exactKeys(result, ['status', 'expenses', 'positions'], 'event_expense_activity_failed')
+  const parsedStatus = expenseActivityStatus.safeParse(requiredString(result, 'status'))
+  if (!parsedStatus.success || !Array.isArray(result.expenses) || !Array.isArray(result.positions)) {
+    throw new Error('event_expense_activity_failed')
+  }
+  if (result.expenses.length > 100 || result.positions.length > 100) {
+    throw new Error('event_expense_activity_failed')
+  }
+  const expenses = result.expenses.map((candidate) => {
+    const expense = record(candidate)
+    if (!expense) throw new Error('event_expense_activity_failed')
+    exactKeys(
+      expense,
+      ['title', 'total_minor', 'currency', 'detail_target'],
+      'event_expense_activity_failed',
+    )
+    const parsedTitle = safeExpenseTitle.safeParse(requiredString(expense, 'title'))
+    const parsedCurrency = currencyCode.safeParse(requiredString(expense, 'currency'))
+    const totalMinor = requiredInteger(expense, 'total_minor')
+    let detailHref: string | null = null
+    if (expense.detail_target !== null) {
+      const target = record(expense.detail_target)
+      if (!target) throw new Error('event_expense_activity_failed')
+      exactKeys(target, ['expense_id'], 'event_expense_activity_failed')
+      const parsedExpenseId = eventId.safeParse(target.expense_id)
+      if (!parsedExpenseId.success) throw new Error('event_expense_activity_failed')
+      detailHref = expenseDetailHref(parsedExpenseId.data)
+    }
+    if (!parsedTitle.success || !parsedCurrency.success || totalMinor < 1) {
+      throw new Error('event_expense_activity_failed')
+    }
+    return {
+      title: parsedTitle.data,
+      totalMinor,
+      currency: parsedCurrency.data,
+      detailHref,
+    }
+  })
+  const positions = result.positions.map((candidate) => {
+    const position = record(candidate)
+    if (!position) throw new Error('event_expense_activity_failed')
+    exactKeys(position, ['currency', 'state', 'amount_minor'], 'event_expense_activity_failed')
+    const parsedCurrency = currencyCode.safeParse(requiredString(position, 'currency'))
+    const parsedState = expenseActorPositionState.safeParse(requiredString(position, 'state'))
+    const amountMinor = requiredInteger(position, 'amount_minor')
+    if (
+      !parsedCurrency.success || !parsedState.success || amountMinor < 0
+      || ((parsedState.data === 'zero' || parsedState.data === 'pending') && amountMinor !== 0)
+      || ((parsedState.data === 'owes' || parsedState.data === 'owed') && amountMinor < 1)
+    ) throw new Error('event_expense_activity_failed')
+    return { currency: parsedCurrency.data, state: parsedState.data, amountMinor }
+  })
+  const visibleCurrencies = new Set(expenses.map((expense) => expense.currency))
+  const positionCurrencies = positions.map((position) => position.currency)
+  if (
+    new Set(positionCurrencies).size !== positionCurrencies.length
+    || positionCurrencies.some((currency) => !visibleCurrencies.has(currency))
+    || parsedStatus.data === 'ready' && expenses.length === 0
+    || parsedStatus.data !== 'ready' && (expenses.length !== 0 || positions.length !== 0)
+  ) throw new Error('event_expense_activity_failed')
+  return { contractVersion: 3, status: parsedStatus.data, expenses, positions }
+}
+
+export async function getEventExpenseActivityV3(
+  actorUserId: string,
+  requestedEventId: string,
+): Promise<EventExpenseActivityV3View | null> {
+  const parsedEventId = eventId.safeParse(requestedEventId)
+  if (!parsedEventId.success) return null
+  const { data, error } = await getAdmin().rpc('teskeid_event_get_expense_activity_v3', {
+    p_actor_id: actorUserId,
+    p_event_id: parsedEventId.data,
+  })
+  if (error) {
+    const message = `${error.message ?? ''} ${error.code ?? ''}`.toLowerCase()
+    if (message.includes('not_found') || message.includes('not_allowed')) return null
+    throw new Error('event_expense_activity_failed')
+  }
+  return mapEventExpenseActivityV3(data)
 }
 
 export async function getExpensePayAllEventLabels(

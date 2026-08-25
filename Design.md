@@ -329,8 +329,11 @@ Event↔Expense tengingunni: `all_event` veitir current canonical Event-viewer
 aðeins strict attendee-safe Event summary, en `participants_only` sýnir það
 aðeins exact authoritative Expense participant. Nonparticipant fær falinn
 `participants_only` kostnað alls ekki í projection, count eða empty state.
-Þetta Event-scoped summary veitir aldrei Expense detail, create/edit,
-payer/share/allocation, settlement eða almennt Expenses entitlement.
+Þetta Event-scoped summary veitir sjálft aldrei Expense detail, create/edit,
+payer/share/allocation, settlement eða almennt Expenses entitlement. Einstök
+sýnileg row má þó bera canonical Expense detail-link þegar actor hefur óháðan,
+current exact Expense-detail aðgang. Linkurinn veitir enga nýja heimild og
+Expense destination endurstaðfestir alltaf exact object authority.
 
 Við nýtt create, attach og relink er `participants_only` alltaf sýnt fyrst og
 preselected sem privacy-default. Actor sem stenst núverandi server-side exact

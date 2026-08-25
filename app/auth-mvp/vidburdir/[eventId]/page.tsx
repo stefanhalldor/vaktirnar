@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import { EventDetail } from '@/components/events/EventDetail'
 import { EventAttendeeDetail } from '@/components/events/EventAttendeeDetail'
-import { EventExpenseActivityV2 } from '@/components/expenses/EventExpenseActivityV2'
+import { EventExpenseActivityV3 } from '@/components/expenses/EventExpenseActivityV3'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { canUseExpenseDestination } from '@/lib/expenses/guard'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
@@ -14,31 +14,31 @@ import {
 import {
   getEventAttendeeContext,
   getEventContext,
-  getEventExpenseActivityV2,
+  getEventExpenseActivityV3,
 } from '@/lib/events/repository.server'
-import type { EventExpenseActivityV2View } from '@/lib/events/contracts'
+import type { EventExpenseActivityV3View } from '@/lib/events/contracts'
 import { getEventRosterManagementV2 } from '@/lib/events/participant-identity-v2.repository.server'
 import { getEventActorViewV3 } from '@/lib/events/participant-identity-v3.repository.server'
 import { EventShell } from '../EventShell'
 
 export const maxDuration = 60
 
-const unavailableExpenseActivityV2 = (): EventExpenseActivityV2View => ({
-  contractVersion: 2,
+const unavailableExpenseActivityV3 = (): EventExpenseActivityV3View => ({
+  contractVersion: 3,
   status: 'unavailable',
   expenses: [],
   positions: [],
 })
 
-async function loadExpenseActivityV2(
+async function loadExpenseActivityV3(
   actorUserId: string,
   eventId: string,
-): Promise<EventExpenseActivityV2View> {
+): Promise<EventExpenseActivityV3View> {
   try {
-    return await getEventExpenseActivityV2(actorUserId, eventId)
-      ?? unavailableExpenseActivityV2()
+    return await getEventExpenseActivityV3(actorUserId, eventId)
+      ?? unavailableExpenseActivityV3()
   } catch {
-    return unavailableExpenseActivityV2()
+    return unavailableExpenseActivityV3()
   }
 }
 
@@ -59,7 +59,7 @@ export default async function EventDetailPage({
     const [legacyAcceptedContext, expenseActivity] = await Promise.all([
       getEventAttendeeContext(user.id, eventId).catch(() => null),
       expenseReadEnabled
-        ? loadExpenseActivityV2(user.id, actorView.eventId)
+        ? loadExpenseActivityV3(user.id, actorView.eventId)
         : Promise.resolve(null),
     ])
     const canCreateExpense = Boolean(legacyAcceptedContext) && await canUseEventExpenses(user)
@@ -76,8 +76,8 @@ export default async function EventDetailPage({
           event={actorView}
           canCreateExpense={canCreateExpense}
           financialPanel={expenseActivity ? (
-            <EventExpenseActivityV2
-              key="event-expense-activity-v2"
+            <EventExpenseActivityV3
+              key="event-expense-activity-v3"
               view={expenseActivity}
               canSettle={canSettle}
             />
@@ -94,7 +94,7 @@ export default async function EventDetailPage({
   const [canCreateExpense, expenseActivity] = await Promise.all([
     canUseEventExpenses(user),
     expenseReadEnabled
-      ? loadExpenseActivityV2(user.id, event.id)
+      ? loadExpenseActivityV3(user.id, event.id)
       : Promise.resolve(null),
   ])
   const canSettle = Boolean(expenseActivity && expenseActivity.positions.length > 0)
@@ -122,8 +122,8 @@ export default async function EventDetailPage({
         optionsError={optionsError}
         canCreateExpense={canCreateExpense}
         financialPanel={expenseActivity ? (
-          <EventExpenseActivityV2
-            key="event-expense-activity-v2"
+          <EventExpenseActivityV3
+            key="event-expense-activity-v3"
             view={expenseActivity}
             canSettle={canSettle}
           />

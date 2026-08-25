@@ -285,6 +285,26 @@ export interface EventExpenseActivityV2View {
   }>
 }
 
+/** Event-scoped Expense projection with an independently authorized canonical detail target. */
+export interface EventExpenseActivityV3View {
+  /** Local app-view discriminator; the strict SQL wire DTO does not carry it. */
+  contractVersion: 3
+  status: 'none' | 'ready' | 'unavailable'
+  expenses: Array<{
+    title: string
+    totalMinor: number
+    currency: string
+    /** Null unless the current actor has canonical detail authority for this exact Expense. */
+    detailHref: string | null
+  }>
+  /** Actor-own positions only; detail navigation never creates settlement authority. */
+  positions: Array<{
+    currency: string
+    state: EventExpenseActorPositionState
+    amountMinor: number
+  }>
+}
+
 export const EXPENSE_PAY_ALL_PATH = '/auth-mvp/utlagt-og-endurgreitt/gera-upp'
 
 export function eventDetailPath(eventId: string): string {

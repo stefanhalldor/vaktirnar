@@ -24,6 +24,7 @@ import {
   getEventContext,
   getEventExpenseActivity,
   getEventExpenseActivityV2,
+  getEventExpenseActivityV3,
   getEventExpensePreview,
   getEventDetails,
   getEventGuestAttendancePreview,
@@ -1061,6 +1062,220 @@ describe('owner-safe financial event projections', () => {
       error: null,
     })
     await expect(getEventExpenseActivityV2(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_activity_failed')
+  })
+
+  it('maps exact V3 targets to canonical hrefs without confusing duplicate-looking rows', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'ready',
+        expenses: [
+          {
+            title: 'Sameiginleg rúta',
+            total_minor: 25_000,
+            currency: 'ISK',
+            detail_target: { expense_id: PARTY_A },
+          },
+          {
+            title: 'Sameiginleg rúta',
+            total_minor: 25_000,
+            currency: 'ISK',
+            detail_target: { expense_id: PARTY_B },
+          },
+          {
+            title: 'Sameiginleg rúta',
+            total_minor: 25_000,
+            currency: 'ISK',
+            detail_target: null,
+          },
+        ],
+        positions: [],
+      },
+      error: null,
+    })
+
+    await expect(getEventExpenseActivityV3(ACTOR_ID, EVENT_ID)).resolves.toEqual({
+      contractVersion: 3,
+      status: 'ready',
+      expenses: [
+        {
+          title: 'Sameiginleg rúta',
+          totalMinor: 25_000,
+          currency: 'ISK',
+          detailHref: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${PARTY_A}`,
+        },
+        {
+          title: 'Sameiginleg rúta',
+          totalMinor: 25_000,
+          currency: 'ISK',
+          detailHref: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${PARTY_B}`,
+        },
+        {
+          title: 'Sameiginleg rúta',
+          totalMinor: 25_000,
+          currency: 'ISK',
+          detailHref: null,
+        },
+      ],
+      positions: [],
+    })
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_activity_v3', {
+      p_actor_id: ACTOR_ID,
+      p_event_id: EVENT_ID,
+    })
+  })
+
+  it.each([
+    ['scalar root', 'private-root'],
+    ['empty root array', []],
+    ['singleton array-wrapped root', [{
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK', detail_target: null,
+      }],
+      positions: [],
+    }]],
+    ['multi-root array with malformed second payload', [{
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK', detail_target: null,
+      }],
+      positions: [],
+    }, {
+      status: 'ready',
+      expenses: [{
+        title: 'Private', total_minor: 100, currency: 'ISK',
+        detail_target: { expense_id: PARTY_A, href: 'private-target' },
+      }],
+      positions: [],
+    }]],
+    ['extra root key', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK', detail_target: null,
+      }],
+      positions: [],
+      contract_version: 3,
+    }],
+    ['missing root key', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK', detail_target: null,
+      }],
+    }],
+    ['non-object row', {
+      status: 'ready', expenses: ['private-row'], positions: [],
+    }],
+    ['extra row key', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK', detail_target: null,
+        href: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${PARTY_A}`,
+      }],
+      positions: [],
+    }],
+    ['missing detail target', {
+      status: 'ready',
+      expenses: [{ title: 'Rúta', total_minor: 100, currency: 'ISK' }],
+      positions: [],
+    }],
+    ['invalid target UUID', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK',
+        detail_target: { expense_id: 'not-a-uuid' },
+      }],
+      positions: [],
+    }],
+    ['extra target key', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK',
+        detail_target: { expense_id: PARTY_A, href: 'private-target' },
+      }],
+      positions: [],
+    }],
+    ['missing target key', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK',
+        detail_target: { href: 'private-target' },
+      }],
+      positions: [],
+    }],
+    ['raw href target', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK',
+        detail_target: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${PARTY_A}`,
+      }],
+      positions: [],
+    }],
+    ['scalar target', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK', detail_target: 42,
+      }],
+      positions: [],
+    }],
+    ['array target', {
+      status: 'ready',
+      expenses: [{
+        title: 'Rúta', total_minor: 100, currency: 'ISK',
+        detail_target: [{ expense_id: PARTY_A }],
+      }],
+      positions: [],
+    }],
+  ])('rejects malformed V3 contract data: %s', async (_label, data) => {
+    mockRpc.mockResolvedValueOnce({ data, error: null })
+
+    await expect(getEventExpenseActivityV3(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_activity_failed')
+  })
+
+  it('rejects the whole V3 payload when one of two visible rows has a malformed target', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'ready',
+        expenses: [{
+          title: 'Rúta',
+          total_minor: 100,
+          currency: 'ISK',
+          detail_target: { expense_id: PARTY_A },
+        }, {
+          title: 'Matur',
+          total_minor: 200,
+          currency: 'ISK',
+          detail_target: { expense_id: PARTY_B, extra: 'contract-drift' },
+        }],
+        positions: [],
+      },
+      error: null,
+    })
+
+    await expect(getEventExpenseActivityV3(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_activity_failed')
+  })
+
+  it('fails V3 closed for invalid input, null data and RPC authority or service errors', async () => {
+    await expect(getEventExpenseActivityV3(ACTOR_ID, 'not-an-event-id')).resolves.toBeNull()
+    expect(mockRpc).not.toHaveBeenCalled()
+
+    mockRpc.mockResolvedValueOnce({ data: null, error: null })
+    await expect(getEventExpenseActivityV3(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_activity_failed')
+
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'teskeid_event_not_allowed', code: 'P0001' },
+    })
+    await expect(getEventExpenseActivityV3(ACTOR_ID, EVENT_ID)).resolves.toBeNull()
+
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'private financial service failure', code: 'XX000' },
+    })
+    await expect(getEventExpenseActivityV3(ACTOR_ID, EVENT_ID))
       .rejects.toThrow('event_expense_activity_failed')
   })
 
