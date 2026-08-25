@@ -195,6 +195,25 @@ export interface ExpenseEventLinkManagementView {
   }>
 }
 
+export type EventExpenseVisibility = 'participants_only' | 'all_event'
+
+/** Versioned management projection for an exact Event-linked Expense. */
+export interface ExpenseEventLinkManagementV2View {
+  currentEvent: {
+    id: string
+    name: string | null
+    canOpen: boolean
+    visibility: EventExpenseVisibility
+    linkRevision: number
+  } | null
+  eligibleEvents: Array<{
+    id: string
+    name: string
+    rosterRevision: number
+    viewerRole: 'owner' | 'attendee'
+  }>
+}
+
 export type EventExpensePreviewCurrencyState =
   | 'settled'
   | 'open'
@@ -241,6 +260,24 @@ export interface EventExpenseActivityView {
       amountMinor: number
     }>
   }>
+  positions: Array<{
+    currency: string
+    state: EventExpenseActorPositionState
+    amountMinor: number
+  }>
+}
+
+/** Minimal Event-scoped Expense projection. It deliberately excludes notes, payers, IDs and hrefs. */
+export interface EventExpenseActivityV2View {
+  /** Local app-view discriminator; the strict SQL wire DTO does not carry it. */
+  contractVersion: 2
+  status: 'none' | 'ready' | 'unavailable'
+  expenses: Array<{
+    title: string
+    totalMinor: number
+    currency: string
+  }>
+  /** Actor-own positions only; an all-Event nonparticipant receives an empty array. */
   positions: Array<{
     currency: string
     state: EventExpenseActorPositionState

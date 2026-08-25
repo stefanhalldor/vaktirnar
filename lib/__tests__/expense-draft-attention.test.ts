@@ -12,6 +12,7 @@ function payload(overrides: Partial<ExpenseDraftPayload> = {}): ExpenseDraftPayl
     circleId: null,
     eventId: null,
     eventRosterRevision: null,
+    eventVisibility: 'participants_only',
     members: [
       { key: 'self', label: 'Ég', isSelf: true },
       { key: 'anna', label: 'Anna', isSelf: false },
@@ -62,6 +63,7 @@ describe('incomplete expense draft attention', () => {
     const parsed = ExpenseDraftPayloadSchema.parse(payload({
       eventId,
       eventRosterRevision: 7,
+      eventVisibility: 'all_event',
       members: [
         { key: 'self', label: 'Ég', isSelf: true },
         {
@@ -81,6 +83,7 @@ describe('incomplete expense draft attention', () => {
 
     expect(parsed.eventId).toBe(eventId)
     expect(parsed.eventRosterRevision).toBe(7)
+    expect(parsed.eventVisibility).toBe('all_event')
     expect(parsed.members[1]?.input).toEqual({
       type: 'event_guest',
       key: `event:${eventGuestId}`,
@@ -109,9 +112,11 @@ describe('incomplete expense draft attention', () => {
     const legacyPayload: Record<string, unknown> = { ...payload() }
     delete legacyPayload.eventId
     delete legacyPayload.eventRosterRevision
+    delete legacyPayload.eventVisibility
     expect(ExpenseDraftPayloadSchema.parse(legacyPayload)).toMatchObject({
       eventId: null,
       eventRosterRevision: null,
+      eventVisibility: 'participants_only',
     })
 
     const eventGuestId = '82000000-0000-4000-8000-000000000001'

@@ -38,9 +38,10 @@ export async function hasEventFeatureAccess(user: User): Promise<boolean> {
 }
 
 /**
- * Non-redirecting capability check for the optional Events -> Expenses seam.
- * Event CRUD remains usable without Expenses, while every financial surface
- * requires both exact global switches and both per-user entitlements.
+ * Non-redirecting create/write capability for the optional Events -> Expenses
+ * seam. Event CRUD and the attendee-safe V2 Event summary use separate read
+ * authority; this check requires both global switches and both per-user
+ * entitlements only for the financial destination actions it guards.
  */
 export async function canUseEventExpenses(user: User): Promise<boolean> {
   if (
@@ -58,4 +59,10 @@ export async function canUseEventExpenses(user: User): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/** Global-only kill switch for the Event-scoped Expense summary. */
+export function isEventExpenseReadEnabled(): boolean {
+  return process.env.EVENTS_ENABLED === 'true'
+    && process.env.EXPENSES_ENABLED === 'true'
 }

@@ -8,7 +8,7 @@ import type {
   ExpenseItemView,
   ExpenseParticipantOption,
 } from '@/lib/expenses/contracts'
-import type { ExpenseEventLinkManagementView } from '@/lib/events/contracts'
+import type { ExpenseEventLinkManagementV2View } from '@/lib/events/contracts'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
 import { expenseEditStepHref, expenseSavedViewHref, type ExpenseSavedView } from '@/lib/expenses/flow'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
@@ -45,7 +45,7 @@ export async function ExpenseItemDetail({
   participantOptionsError?: boolean
   isEventContext?: boolean
   eventHref?: string | null
-  eventLinkManagement?: ExpenseEventLinkManagementView | null
+  eventLinkManagement?: ExpenseEventLinkManagementV2View | null
   eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])

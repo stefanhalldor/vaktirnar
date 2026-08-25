@@ -7,7 +7,7 @@ import {
 } from './input-money'
 import { sumMinorAmounts } from './money'
 import { EXPENSE_FLOW_STEPS, type ExpenseFlowStep } from './flow'
-import { ExpenseNewMemberSchema } from './validation'
+import { EventExpenseVisibilitySchema, ExpenseNewMemberSchema } from './validation'
 
 const memberKey = z.string().trim().min(1).max(80)
 const textMap = z.record(memberKey, z.string().max(80))
@@ -32,6 +32,7 @@ export const ExpenseDraftPayloadSchema = z.object({
   eventId: z.string().uuid().nullable().default(null),
   eventRosterRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().default(null),
   linkToEvent: z.boolean().optional(),
+  eventVisibility: EventExpenseVisibilitySchema.default('participants_only'),
   members: z.array(ExpenseDraftMemberSchema).min(1).max(50),
   removedMemberIds: z.array(z.string().uuid()).max(48).default([]),
   included: booleanMap,

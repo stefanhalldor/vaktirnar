@@ -323,9 +323,21 @@ absent án almenns Events entitlement og navigation/redirect sýnir canonical
 pending feedback.
 
 Expense er alltaf aðskilin server-authoritative heimild. Event-aðgangur,
-RSVP-staða og private note mega aldrei veita Expense-aðgang eða breyta Expense
-claim. Án Expense authority skal fela alla Expense-section, þar með talið
-activity og talningar.
+RSVP-staða og private note mega aldrei veita canonical Expense-aðgang eða
+breyta Expense claim. Event-linked Expense má þó hafa explicit visibility á
+Event↔Expense tengingunni: `all_event` veitir current canonical Event-viewer
+aðeins strict attendee-safe Event summary, en `participants_only` sýnir það
+aðeins exact authoritative Expense participant. Nonparticipant fær falinn
+`participants_only` kostnað alls ekki í projection, count eða empty state.
+Þetta Event-scoped summary veitir aldrei Expense detail, create/edit,
+payer/share/allocation, settlement eða almennt Expenses entitlement.
+
+Við nýtt create, attach og relink er `participants_only` alltaf sýnt fyrst og
+preselected sem privacy-default. Actor sem stenst núverandi server-side exact
+Expense create/link/manage authority í exact Event context má velja annaðhvort
+mode; Event ownership er hvorki viðbótarkrafa né bypass. Edit á existing link
+initialize-ar alltaf frá persisted mode. Skipti yfir í annað Event eða relink
+resetta valið í `participants_only` svo broad audience flytjist ekki óvart.
 
 Thin feature-adapter leggur til þýddan texta, örugg option-gögn,
 capability/disabled-reglur og framkvæmir síðar eigin server-authoritative

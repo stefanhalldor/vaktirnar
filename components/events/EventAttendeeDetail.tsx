@@ -13,11 +13,12 @@ import { EventRsvpControl } from './EventRsvpControl'
 
 export function EventAttendeeDetail({
   event,
-  canUseExpenses,
+  canCreateExpense,
   financialPanel,
 }: {
   event: Extract<EventActorViewV3, { viewerRole: 'attendee' }>
-  canUseExpenses: boolean
+  canCreateExpense: boolean
+  /** Event-scoped read seam; create and settlement capabilities are resolved separately. */
   financialPanel?: ReactNode
 }) {
   const t = useTranslations('teskeid.events')
@@ -71,7 +72,7 @@ export function EventAttendeeDetail({
         />
       ) : null}
 
-      {canUseExpenses ? (
+      {canCreateExpense ? (
         <Link
           href={eventExpensePath(event.eventId)}
           className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -81,7 +82,7 @@ export function EventAttendeeDetail({
         </Link>
       ) : null}
 
-      {canUseExpenses ? financialPanel : null}
+      {financialPanel}
 
       <section className="space-y-3" aria-labelledby="event-attendee-roster-heading">
         <h2 id="event-attendee-roster-heading" className="text-sm font-semibold">

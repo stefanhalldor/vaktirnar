@@ -18,7 +18,13 @@ vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: mockCheckFeatureAccess
 
 import { EVENT_FEATURE_KEY } from '@/lib/events/contracts'
 import { EXPENSE_FEATURE_KEY } from '@/lib/expenses/contracts'
-import { canUseEventExpenses, guardEventAccess, guardEventSession } from '@/lib/events/guard'
+import { canUseExpenseDestination } from '@/lib/expenses/guard'
+import {
+  canUseEventExpenses,
+  guardEventAccess,
+  guardEventSession,
+  isEventExpenseReadEnabled,
+} from '@/lib/events/guard'
 
 const savedFlag = process.env.EVENTS_ENABLED
 const savedExpensesFlag = process.env.EXPENSES_ENABLED
@@ -94,6 +100,22 @@ describe('event access guard', () => {
 
 describe('event financial capability', () => {
   it.each([
+    ['true', 'true', true],
+    [undefined, 'true', false],
+    ['false', 'true', false],
+    ['true', undefined, false],
+    ['true', 'false', false],
+  ])('uses only the exact global switches for Event Expense reads', (events, expenses, expected) => {
+    if (events === undefined) delete process.env.EVENTS_ENABLED
+    else process.env.EVENTS_ENABLED = events
+    if (expenses === undefined) delete process.env.EXPENSES_ENABLED
+    else process.env.EXPENSES_ENABLED = expenses
+
+    expect(isEventExpenseReadEnabled()).toBe(expected)
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
+  })
+
+  it.each([
     [undefined, 'true'],
     ['false', 'true'],
     ['true', undefined],
@@ -129,6 +151,34 @@ describe('event financial capability', () => {
 
     mockCheckFeatureAccess.mockRejectedValue(new Error('lookup failed'))
     await expect(canUseEventExpenses(user)).resolves.toBe(false)
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+})
+
+describe('Expenses destination capability', () => {
+  it('requires the exact global Expenses switch and per-user Expenses entitlement only', async () => {
+    mockCheckFeatureAccess.mockImplementation(async (
+      _userId: string,
+      _email: string,
+      featureKey: string,
+    ) => featureKey === EXPENSE_FEATURE_KEY)
+
+    await expect(canUseExpenseDestination(user)).resolves.toBe(true)
+    expect(mockCheckFeatureAccess).toHaveBeenCalledOnce()
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith(user.id, user.email, EXPENSE_FEATURE_KEY)
+
+    process.env.EXPENSES_ENABLED = 'false'
+    mockCheckFeatureAccess.mockClear()
+    await expect(canUseExpenseDestination(user)).resolves.toBe(false)
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
+  })
+
+  it('is non-redirecting and fails closed for malformed sessions or lookup errors', async () => {
+    await expect(canUseExpenseDestination({ ...user, email: undefined })).resolves.toBe(false)
+    expect(mockCheckFeatureAccess).not.toHaveBeenCalled()
+
+    mockCheckFeatureAccess.mockRejectedValueOnce(new Error('lookup failed'))
+    await expect(canUseExpenseDestination(user)).resolves.toBe(false)
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 })

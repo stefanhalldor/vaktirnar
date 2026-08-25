@@ -41,6 +41,7 @@ import {
   ReportExpenseRepaymentSchema,
   ResendExpenseMemberInvitationSchema,
   SaveExpensePaymentPreferenceSchema,
+  SetExpenseEventVisibilitySchema,
   SetExpenseGroupStatusSchema,
   TransitionExpenseSettlementBatchSchema,
   TransitionExpenseRepaymentSchema,
@@ -48,6 +49,7 @@ import {
   RespondExpenseMemberInvitationSchema,
   UpdateExpenseSchema,
 } from './validation'
+import type { EventExpenseVisibility } from './validation'
 import { sendExpenseMemberInvitationEmail } from './email'
 import {
   parseExpenseAmountToMinor,
@@ -175,6 +177,19 @@ function resultObject(data: unknown): Record<string, unknown> {
     return data[0] as Record<string, unknown>
   }
   return {}
+}
+
+function resultPositiveSafeInteger(value: unknown): number | null {
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && /^[1-9]\d*$/.test(value)
+      ? Number(value)
+      : Number.NaN
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function resultEventVisibility(value: unknown): EventExpenseVisibility | null {
+  return value === 'participants_only' || value === 'all_event' ? value : null
 }
 
 async function deleteExpenseDraftAfterSave(actorUserId: string, draftId: string | null) {
@@ -448,6 +463,7 @@ export async function createExpense(
           incurred_on: value.incurred_on,
           category: value.category,
           note: value.note,
+          ...(value.link_to_event ? { event_visibility: value.event_visibility } : {}),
           split_method: value.split_method,
           one_off_members: members.map((member) => ({
             id: member.id,
@@ -572,32 +588,108 @@ export async function createExpense(
 
 export async function attachExpenseToEvent(
   input: unknown,
-): Promise<ExpenseActionResult<{ expenseId: string; eventId: string }>> {
+): Promise<ExpenseActionResult<{
+  expenseId: string
+  eventId: string
+  visibility: EventExpenseVisibility
+  linkRevision: number
+}>> {
   const { user } = await guardExpenseAccess()
   try {
     const parsed = AttachExpenseToEventSchema.safeParse(input)
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
     if (!await canUseEventExpenses(user)) return { ok: false, error: 'feature_disabled' }
     const value = parsed.data
-    const { data, error } = await getAdmin().rpc('teskeid_event_attach_expense', {
+    const { data, error } = await getAdmin().rpc('teskeid_event_attach_expense_v2', {
       p_actor_id: user.id,
       p_request_id: value.request_id,
       p_expense_id: value.expense_id,
       p_event_id: value.event_id,
       p_expected_financial_version: value.expected_financial_version,
       p_expected_roster_revision: value.expected_event_roster_revision,
+      p_visibility: value.visibility,
     })
     if (error) rpcError(error)
     const result = resultObject(data)
     const expenseId = String(result.expense_id ?? '')
     const eventId = String(result.event_id ?? '')
-    if (expenseId !== value.expense_id || eventId !== value.event_id) {
+    const visibility = resultEventVisibility(result.visibility)
+    const linkRevision = resultPositiveSafeInteger(result.link_revision)
+    if (
+      expenseId !== value.expense_id
+      || eventId !== value.event_id
+      || visibility !== value.visibility
+      || linkRevision !== 1
+    ) {
       throw new Error('teskeid_event_link_invalid')
     }
     revalidateExpensePaths(undefined, expenseId, undefined, eventId)
-    return { ok: true, data: { expenseId, eventId } }
+    return { ok: true, data: { expenseId, eventId, visibility, linkRevision } }
   } catch (error) {
     console.error('[expenses] attach event failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
+export async function setExpenseEventVisibility(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  expenseId: string
+  eventId: string
+  previousVisibility: EventExpenseVisibility
+  visibility: EventExpenseVisibility
+  previousLinkRevision: number
+  linkRevision: number
+}>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = SetExpenseEventVisibilitySchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    if (!await canUseEventExpenses(user)) return { ok: false, error: 'feature_disabled' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc('teskeid_event_set_expense_visibility', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_expense_id: value.expense_id,
+      p_expected_event_id: value.expected_event_id,
+      p_expected_link_revision: value.expected_link_revision,
+      p_visibility: value.visibility,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const expenseId = String(result.expense_id ?? '')
+    const eventId = String(result.event_id ?? '')
+    const previousVisibility = resultEventVisibility(result.previous_visibility)
+    const visibility = resultEventVisibility(result.visibility)
+    const previousLinkRevision = resultPositiveSafeInteger(result.previous_link_revision)
+    const linkRevision = resultPositiveSafeInteger(result.link_revision)
+    const expectedResultRevision = previousVisibility === value.visibility
+      ? value.expected_link_revision
+      : value.expected_link_revision + 1
+    if (
+      expenseId !== value.expense_id
+      || eventId !== value.expected_event_id
+      || previousVisibility === null
+      || visibility !== value.visibility
+      || previousLinkRevision !== value.expected_link_revision
+      || linkRevision !== expectedResultRevision
+    ) {
+      throw new Error('teskeid_event_visibility_invalid')
+    }
+    revalidateExpensePaths(undefined, expenseId, undefined, eventId)
+    return {
+      ok: true,
+      data: {
+        expenseId,
+        eventId,
+        previousVisibility,
+        visibility,
+        previousLinkRevision,
+        linkRevision,
+      },
+    }
+  } catch (error) {
+    console.error('[expenses] set event visibility failed', safeExpenseFailureDiagnostic(error))
     return actionError(error)
   }
 }

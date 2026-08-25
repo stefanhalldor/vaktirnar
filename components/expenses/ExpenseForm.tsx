@@ -24,7 +24,7 @@ import {
   splitByWeights,
 } from '@/lib/expenses/splits'
 import type { ExpenseItemView, ExpenseParticipantOption, ExpenseRepaymentView } from '@/lib/expenses/contracts'
-import type { ExpenseNewMemberInput } from '@/lib/expenses/validation'
+import type { EventExpenseVisibility, ExpenseNewMemberInput } from '@/lib/expenses/validation'
 import type { ExpenseSplitMethod } from '@/lib/expenses/types'
 import {
   redactExpenseDraftEventGuestLabels,
@@ -285,6 +285,15 @@ export function ExpenseForm({
       ? initialDraftPayload.linkToEvent ?? Boolean(initialDraftPayload.eventId)
       : Boolean(initialEventSource),
   )
+  const draftMatchesAvailableEvent = Boolean(
+    initialDraftPayload?.eventId
+    && eventSources?.some((source) => source.id === initialDraftPayload.eventId),
+  )
+  const [eventVisibility, setEventVisibility] = useState<EventExpenseVisibility>(
+    draftMatchesAvailableEvent
+      ? initialDraftPayload?.eventVisibility ?? 'participants_only'
+      : 'participants_only',
+  )
   const [eventWarningDismissed, setEventWarningDismissed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
@@ -315,6 +324,7 @@ export function ExpenseForm({
     eventId,
     eventRosterRevision,
     linkToEvent,
+    eventVisibility,
   })
   const initialDraftFingerprint = useRef(draftFingerprint)
 
@@ -335,6 +345,7 @@ export function ExpenseForm({
       eventId: eventId || null,
       eventRosterRevision: eventId ? eventRosterRevision : null,
       linkToEvent: Boolean(eventId && linkToEvent),
+      eventVisibility,
       members: members.map((member) => ({
         key: member.key,
         label: member.label,
@@ -528,7 +539,10 @@ export function ExpenseForm({
     const isFreshSelection = !eventId
     setEventId(source.id)
     setEventRosterRevision(source.rosterRevision)
-    if (isFreshSelection) setLinkToEvent(true)
+    if (isFreshSelection) {
+      setLinkToEvent(true)
+      setEventVisibility('participants_only')
+    }
     setEventWarningDismissed(true)
     return { accepted: true, behavior: 'stay-open' as const }
   }
@@ -596,6 +610,7 @@ export function ExpenseForm({
     setEventId('')
     setEventRosterRevision(null)
     setLinkToEvent(false)
+    setEventVisibility('participants_only')
     setEventWarningDismissed(true)
     setMembers(nextMembers)
     setIncluded(keepEntries)
@@ -954,6 +969,7 @@ export function ExpenseForm({
       link_to_event: mode === 'one_off' && !edit
         ? Boolean(eventId && linkToEvent)
         : false,
+      event_visibility: eventVisibility,
       title,
       total,
       currency,
@@ -1066,7 +1082,10 @@ export function ExpenseForm({
             className="mt-0.5 size-5 shrink-0 accent-primary"
             checked={linkToEvent}
             disabled={navigationBusy}
-            onChange={(event) => setLinkToEvent(event.target.checked)}
+            onChange={(event) => {
+              setLinkToEvent(event.target.checked)
+              setEventVisibility('participants_only')
+            }}
           />
           <span className="min-w-0 flex-1">
             <span className="block font-semibold">{t('expenseForm.linkToEvent')}</span>
@@ -1075,6 +1094,48 @@ export function ExpenseForm({
             </span>
           </span>
         </label>
+      ) : null}
+      {mode === 'one_off' && !edit && eventId && linkToEvent ? (
+        <fieldset className="space-y-3 border-b border-border pb-5">
+          <legend className="text-sm font-semibold">{t('eventVisibility.legend')}</legend>
+          <label className="flex min-h-11 items-start gap-3 rounded-xl border border-border px-3 py-3 text-sm">
+            <input
+              type="radio"
+              name="event-expense-visibility"
+              value="participants_only"
+              checked={eventVisibility === 'participants_only'}
+              disabled={navigationBusy}
+              onChange={() => setEventVisibility('participants_only')}
+              className="mt-0.5 size-5 shrink-0 accent-primary"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">{t('eventVisibility.participantsOnly')}</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                {t('eventVisibility.participantsOnlyHint')}
+              </span>
+            </span>
+          </label>
+          <label className="flex min-h-11 items-start gap-3 rounded-xl border border-border px-3 py-3 text-sm">
+            <input
+              type="radio"
+              name="event-expense-visibility"
+              value="all_event"
+              checked={eventVisibility === 'all_event'}
+              disabled={navigationBusy}
+              onChange={() => setEventVisibility('all_event')}
+              className="mt-0.5 size-5 shrink-0 accent-primary"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">{t('eventVisibility.allEvent')}</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                {t('eventVisibility.allEventHint')}
+              </span>
+            </span>
+          </label>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {t('eventVisibility.helper')}
+          </p>
+        </fieldset>
       ) : null}
       {mode === 'one_off' && !edit && circleId ? (
         <button

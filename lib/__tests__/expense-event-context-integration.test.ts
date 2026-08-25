@@ -69,6 +69,10 @@ describe('independent event and expense integration', () => {
     const itemDetail = source('components', 'expenses', 'ExpenseItemDetail.tsx')
     expect(itemPage).toContain('isExpenseEventContext(user.id, result.group.id)')
     expect(itemPage).toContain('isEventContext={isEventContext}')
+    expect(itemPage).toMatch(
+      /const canUseEventUi = canUseEvents && \(\s*linkedEventId\s*\? canOpenLinkedEvent\s*: eventClassification\.value && eventClassification\.reliable\s*\)/,
+    )
+    expect(itemPage).not.toContain('(canOpenLinkedEvent || eventClassification.reliable)')
     expect(editPage).toContain('isExpenseEventContext(user.id, group.id).catch(() => true)')
     expect(editPage).toContain('eventContext={isEventContext}')
     expect(itemDetail).toContain('!isEventContext && canLinkExpenseGuest')

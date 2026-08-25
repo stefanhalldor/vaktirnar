@@ -122,7 +122,7 @@ export function EventDetail({
   rosterManagement,
   options,
   optionsError,
-  canUseExpenses,
+  canCreateExpense,
   financialPanel,
 }: {
   event: EventDetailView
@@ -130,8 +130,8 @@ export function EventDetail({
   rosterManagement: EventRosterManagementV2
   options: ExpenseParticipantOption[]
   optionsError: boolean
-  canUseExpenses: boolean
-  /** Attendee-safe activity seam shared with accepted attendees; Event CRUD never depends on it. */
+  canCreateExpense: boolean
+  /** Event-scoped read seam; create and settlement capabilities are resolved separately. */
   financialPanel?: ReactNode
 }) {
   const t = useTranslations('teskeid.events')
@@ -401,7 +401,7 @@ export function EventDetail({
 
       <EventDetailsEditor details={eventDetails} />
 
-      {canUseExpenses ? (
+      {canCreateExpense ? (
         <Link
           href={eventExpensePath(event.id)}
           className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -411,7 +411,7 @@ export function EventDetail({
         </Link>
       ) : null}
 
-      {canUseExpenses ? financialPanel : null}
+      {financialPanel}
 
       <section className="space-y-4" aria-labelledby="event-roster-heading">
         <div>

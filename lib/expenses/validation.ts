@@ -12,6 +12,10 @@ const amountInput = z.string().trim().min(1).max(40)
 const currency = z.enum(EXPENSE_CURRENCIES)
 const memberKey = z.string().trim().min(1).max(80)
 
+export const EVENT_EXPENSE_VISIBILITIES = ['participants_only', 'all_event'] as const
+export const EventExpenseVisibilitySchema = z.enum(EVENT_EXPENSE_VISIBILITIES)
+export type EventExpenseVisibility = z.infer<typeof EventExpenseVisibilitySchema>
+
 export const EXPENSE_CATEGORIES = [
   'food',
   'accommodation',
@@ -91,6 +95,7 @@ export const CreateExpenseSchema = z.object({
   expected_event_roster_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
     .nullable().optional().transform((v) => v ?? null),
   link_to_event: z.boolean().default(false),
+  event_visibility: EventExpenseVisibilitySchema.default('participants_only'),
   title: z.string().trim().min(1).max(200),
   total: amountInput,
   currency,
@@ -353,6 +358,15 @@ export const AttachExpenseToEventSchema = z.object({
   event_id: uuid,
   expected_financial_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   expected_event_roster_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  visibility: EventExpenseVisibilitySchema,
+  request_id: requestId,
+}).strict()
+
+export const SetExpenseEventVisibilitySchema = z.object({
+  expense_id: uuid,
+  expected_event_id: uuid,
+  expected_link_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  visibility: EventExpenseVisibilitySchema,
   request_id: requestId,
 }).strict()
 

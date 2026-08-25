@@ -58,6 +58,12 @@ const translations: Record<string, string> = {
   'expenseForm.noEventGuestResults': 'Enginn gestur fannst.',
   'expenseForm.linkToEvent': 'Tengja kostnað við viðburðinn',
   'expenseForm.linkToEventHint': 'Kostnaðurinn birtist á viðburðinum.',
+  'eventVisibility.legend': 'Hverjir sjá kostnaðinn?',
+  'eventVisibility.participantsOnly': 'Aðeins þátttakendur kostnaðarins',
+  'eventVisibility.participantsOnlyHint': 'Aðrir sjá hann ekki.',
+  'eventVisibility.allEvent': 'Allir sem sjá viðburðinn',
+  'eventVisibility.allEventHint': 'Allir gestir sjá yfirlitið.',
+  'eventVisibility.helper': 'Valið breytir ekki þátttakendum eða aðgangi að kostnaðinum.',
   'expenseForm.clearRelationshipCircle': 'Hreinsa tengslahring',
   'expenseForm.nameOrEmail': 'Nafn eða netfang',
   'expenseForm.nameOrEmailPlaceholder': 'Nafn eða netfang',
@@ -119,6 +125,46 @@ beforeEach(() => {
 
 function renderForm(extra: Partial<React.ComponentProps<typeof ExpenseForm>> = {}) {
   return render(<ExpenseForm mode="group" groupId="group-1" defaultCurrency="ISK" initialMembers={members} initialDate="2026-08-05" draftBaseHref="/draft" {...extra} />)
+}
+
+function savedEventDraft(eventId: string, eventVisibility: 'participants_only' | 'all_event') {
+  return {
+    id: '71500000-0000-4000-8000-000000000001',
+    contextType: 'one_off' as const,
+    groupId: null,
+    expenseId: null,
+    currentStep: 'details' as const,
+    payload: {
+      circleId: null,
+      eventId,
+      eventRosterRevision: 4,
+      linkToEvent: true,
+      eventVisibility,
+      members: [{
+        key: 'self',
+        label: 'Ég',
+        input: { type: 'self' as const, key: 'self' },
+        isSelf: true,
+      }],
+      removedMemberIds: [],
+      included: { self: true },
+      title: 'Kvöldmatur',
+      total: '10000',
+      currency: 'ISK' as const,
+      incurredOn: '2026-08-05',
+      category: '',
+      note: '',
+      splitMethod: 'weighted' as const,
+      payments: { self: '10000' },
+      payerKeys: ['self'],
+      amounts: { self: '10000' },
+      percentages: { self: '100' },
+      weights: { self: '1' },
+      preserveShares: false,
+    },
+    version: 2,
+    savedAt: '2026-08-24T20:00:00.000Z',
+  }
 }
 
 function fillDetails() {
@@ -262,6 +308,7 @@ describe('ExpenseForm simplified split and autosave', () => {
           circleId: null,
           eventId: staleEventId,
           eventRosterRevision: 4,
+          eventVisibility: 'participants_only',
           members: [
             { key: 'self', label: 'Ég', input: { type: 'self', key: 'self' }, isSelf: true },
             {
@@ -418,6 +465,8 @@ describe('ExpenseForm simplified split and autosave', () => {
       name: /Tengja kostnað við viðburðinn/,
     })
     expect(linkCheckbox).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ })).toBeEnabled()
     fireEvent.click(linkCheckbox)
     expect(linkCheckbox).not.toBeChecked()
     fillDetails()
@@ -429,12 +478,120 @@ describe('ExpenseForm simplified split and autosave', () => {
       payload: expect.objectContaining({
         eventId: '70000000-0000-4000-8000-000000000001',
         eventRosterRevision: 4,
+        eventVisibility: 'participants_only',
         linkToEvent: false,
         members: [expect.objectContaining({ key: 'self' })],
       }),
     }))
     expect(screen.queryByRole('checkbox', { name: 'Anna' })).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('self')
+  })
+
+  it('submits an explicit all-event choice for a linked one-off expense', async () => {
+    const event = {
+      id: '70500000-0000-4000-8000-000000000001',
+      name: 'Helgarferð',
+      rosterRevision: 4,
+      guests: [],
+    }
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      eventSources: [event],
+      initialEventSource: event,
+    })
+    expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).toBeChecked()
+    fireEvent.click(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ }))
+    fillDetails()
+    await next('Áfram í skiptingu')
+    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      event_id: event.id,
+      link_to_event: true,
+      event_visibility: 'all_event',
+    })))
+  })
+
+  it('restores an explicit all-event choice only for the same available Event draft', () => {
+    const event = {
+      id: '71500000-0000-4000-8000-000000000002',
+      name: 'Helgarferð',
+      rosterRevision: 4,
+      guests: [],
+    }
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      initialMembers: [{ key: 'self', label: 'Ég', input: { type: 'self', key: 'self' }, isSelf: true }],
+      draft: savedEventDraft(event.id, 'all_event'),
+      eventSources: [event],
+    })
+
+    expect(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).not.toBeChecked()
+  })
+
+  it('resets broad visibility after unlink/re-enable and after switching Events', () => {
+    const firstEvent = {
+      id: '71600000-0000-4000-8000-000000000001',
+      name: 'Fyrri ferð',
+      rosterRevision: 4,
+      guests: [],
+    }
+    const secondEvent = {
+      id: '71600000-0000-4000-8000-000000000002',
+      name: 'Seinni ferð',
+      rosterRevision: 2,
+      guests: [],
+    }
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      initialStep: 'split',
+      initialMembers: [{ key: 'self', label: 'Ég', input: { type: 'self', key: 'self' }, isSelf: true }],
+      eventSources: [firstEvent, secondEvent],
+      initialEventSource: firstEvent,
+    })
+
+    const broad = screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ })
+    fireEvent.click(broad)
+    const link = screen.getByRole('checkbox', { name: /Tengja kostnað við viðburðinn/ })
+    fireEvent.click(link)
+    expect(screen.queryByRole('radio', { name: /Allir sem sjá viðburðinn/ })).not.toBeInTheDocument()
+    fireEvent.click(link)
+    expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Bæta við þátttakanda' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Breyta viðburði' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Seinni ferð' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Loka' }))
+
+    expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).toBeChecked()
+  })
+
+  it('preserves an explicit broad choice when create returns an error', async () => {
+    const event = {
+      id: '71700000-0000-4000-8000-000000000001',
+      name: 'Helgarferð',
+      rosterRevision: 4,
+      guests: [],
+    }
+    mocks.create.mockResolvedValueOnce({ ok: false, error: 'save_failed' })
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      eventSources: [event],
+      initialEventSource: event,
+    })
+    fillDetails()
+    fireEvent.click(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ }))
+    await next('Áfram í skiptingu')
+    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að vista.')
+    expect(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ })).toBeChecked()
   })
 
   it('explicitly clears a relationship circle before the event source is selected', () => {

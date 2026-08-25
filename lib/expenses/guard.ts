@@ -21,3 +21,13 @@ export async function guardExpenseAccess(): Promise<ExpenseAccess> {
   if (!allowed) redirect('/')
   return { user }
 }
+
+/** Non-redirecting capability for links into the canonical Expenses destination. */
+export async function canUseExpenseDestination(user: User): Promise<boolean> {
+  if (process.env.EXPENSES_ENABLED !== 'true' || !user.email) return false
+  try {
+    return await checkFeatureAccess(user.id, user.email, EXPENSE_FEATURE_KEY)
+  } catch {
+    return false
+  }
+}

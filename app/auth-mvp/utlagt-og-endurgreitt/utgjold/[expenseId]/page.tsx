@@ -11,7 +11,7 @@ import {
 } from '@/lib/expenses/repository.server'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import {
-  getExpenseEventLinkManagement,
+  getExpenseEventLinkManagementV2,
   getExpenseLinkedEventId,
   isExpenseEventContext,
 } from '@/lib/events/repository.server'
@@ -59,7 +59,7 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
     checkFeatureAccess(user.id, user.email!, EXPENSE_FEATURE_KEY),
   ])
   const eventLinkManagement = canEdit && result.group.kind === 'one_off' && canUseEvents
-    ? await getExpenseEventLinkManagement(user.id, result.expense.id).catch(() => null)
+    ? await getExpenseEventLinkManagementV2(user.id, result.expense.id).catch(() => null)
     : null
   const managedEvent = eventLinkManagement?.currentEvent ?? null
   const fallbackLinkedEventId = eventLinkManagement === null
@@ -73,9 +73,11 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
       .catch(() => ({ value: true, reliable: false }))
     : { value: false, reliable: true }
   const isEventContext = Boolean(linkedEventId) || eventClassification.value
-  const canUseEventUi = (canOpenLinkedEvent || eventClassification.reliable)
-    && isEventContext
-    && canUseEvents
+  const canUseEventUi = canUseEvents && (
+    linkedEventId
+      ? canOpenLinkedEvent
+      : eventClassification.value && eventClassification.reliable
+  )
   let participantOptions: ExpenseParticipantOption[] = []
   let participantOptionsError = false
   if (result.group.kind === 'one_off' && result.group.canManage) {

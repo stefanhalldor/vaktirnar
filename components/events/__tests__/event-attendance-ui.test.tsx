@@ -462,7 +462,7 @@ describe('read-only attendee detail', () => {
       eventId: EVENT_ID, eventGuestId: GUEST_ID, identityGeneration: '1',
       accessState: 'active', accessVersion: '1', rsvpState: 'attending', decisionVersion: '2',
     } })
-    render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
+    render(<EventAttendeeDetail event={attendeeEvent} canCreateExpense={false} />)
     expect(screen.getByText('Gestur')).toBeInTheDocument()
     expect(screen.getByText('Viðburður stofnaður af Eigandi')).toBeInTheDocument()
     expect(screen.getAllByText('Ekkert svar').length).toBeGreaterThan(0)
@@ -481,12 +481,23 @@ describe('read-only attendee detail', () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
-  it('shows the event expense action only with separate Expense access', () => {
+  it('shows Event-scoped activity independently from the separate Expense create action', () => {
     const { rerender } = render(
-      <EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />,
+      <EventAttendeeDetail
+        event={attendeeEvent}
+        canCreateExpense={false}
+        financialPanel={<div data-testid="financial-panel" />}
+      />,
     )
     expect(screen.queryByRole('link', { name: 'Skrá útlagðan kostnað' })).not.toBeInTheDocument()
-    rerender(<EventAttendeeDetail event={attendeeEvent} canUseExpenses />)
+    expect(screen.getByTestId('financial-panel')).toBeInTheDocument()
+    rerender(
+      <EventAttendeeDetail
+        event={attendeeEvent}
+        canCreateExpense
+        financialPanel={<div data-testid="financial-panel" />}
+      />,
+    )
     expect(screen.getByRole('link', { name: 'Skrá útlagðan kostnað' })).toHaveAttribute(
       'href',
       `/auth-mvp/utlagt-og-endurgreitt/nytt?event=${EVENT_ID}`,
@@ -499,7 +510,7 @@ describe('read-only attendee detail', () => {
       eventId: EVENT_ID, eventGuestId: GUEST_ID, identityGeneration: '1',
       accessState: 'active', accessVersion: '1', rsvpState: 'considering', decisionVersion: '2',
     } })
-    render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
+    render(<EventAttendeeDetail event={attendeeEvent} canCreateExpense={false} />)
 
     fireEvent.click(screen.getByRole('radio', { name: 'Í skoðun' }))
     const note = screen.getByRole('textbox', { name: 'Skýring til gestgjafa' })
@@ -523,7 +534,7 @@ describe('read-only attendee detail', () => {
   })
 
   it('keeps self-leave distinct from RSVP and confirms the exact current generation', async () => {
-    render(<EventAttendeeDetail event={attendeeEvent} canUseExpenses={false} />)
+    render(<EventAttendeeDetail event={attendeeEvent} canCreateExpense={false} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Hætta þátttöku' }))
     expect(await screen.findByRole('dialog', { name: 'Hætta þátttöku' })).toBeInTheDocument()

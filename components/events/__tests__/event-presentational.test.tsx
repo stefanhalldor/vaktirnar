@@ -296,7 +296,7 @@ function EventDetail({
     rosterManagement={rosterManagement}
     options={options}
     optionsError={optionsError}
-    canUseExpenses={canUseExpenses}
+    canCreateExpense={canUseExpenses}
     financialPanel={financialPanel}
   />
 }
@@ -523,7 +523,7 @@ describe('event presentational components', () => {
       rosterManagement={rosterManagement}
       options={[]}
       optionsError={false}
-      canUseExpenses={false}
+      canCreateExpense={false}
     />)
     expect(screen.getAllByText('Nafn vantar').length).toBeGreaterThan(0)
     expect(screen.getByText(/legacy@example\.is/)).toBeInTheDocument()
@@ -893,17 +893,18 @@ describe('event presentational components', () => {
     expect(screen.getByRole('button', { name: 'Vista gestalista' })).toBeEnabled()
   })
 
-  it('keeps event CRUD usable without Expenses and exposes only an optional financial seam', () => {
+  it('keeps Event-scoped activity independent from the Expense create capability', () => {
     const { rerender } = render(
       <EventDetail
         event={baseEvent}
         options={[]}
         optionsError={false}
         canUseExpenses={false}
+        financialPanel={<div data-testid="financial-panel" />}
       />,
     )
     expect(screen.queryByRole('link', { name: 'Skrá útlagðan kostnað' })).not.toBeInTheDocument()
-    expect(screen.queryByTestId('financial-panel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('financial-panel')).toBeInTheDocument()
 
     rerender(
       <EventDetail

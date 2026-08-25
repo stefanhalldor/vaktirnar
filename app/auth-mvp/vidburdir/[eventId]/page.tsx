@@ -2,21 +2,45 @@ import { notFound } from 'next/navigation'
 import { getTranslations } from 'next-intl/server'
 import { EventDetail } from '@/components/events/EventDetail'
 import { EventAttendeeDetail } from '@/components/events/EventAttendeeDetail'
-import { EventExpenseActivity } from '@/components/expenses/EventExpenseActivity'
+import { EventExpenseActivityV2 } from '@/components/expenses/EventExpenseActivityV2'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
+import { canUseExpenseDestination } from '@/lib/expenses/guard'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
-import { canUseEventExpenses, guardEventSession } from '@/lib/events/guard'
+import {
+  canUseEventExpenses,
+  guardEventSession,
+  isEventExpenseReadEnabled,
+} from '@/lib/events/guard'
 import {
   getEventAttendeeContext,
   getEventContext,
-  getEventExpenseActivity,
+  getEventExpenseActivityV2,
 } from '@/lib/events/repository.server'
-import type { EventExpenseActivityView } from '@/lib/events/contracts'
+import type { EventExpenseActivityV2View } from '@/lib/events/contracts'
 import { getEventRosterManagementV2 } from '@/lib/events/participant-identity-v2.repository.server'
 import { getEventActorViewV3 } from '@/lib/events/participant-identity-v3.repository.server'
 import { EventShell } from '../EventShell'
 
 export const maxDuration = 60
+
+const unavailableExpenseActivityV2 = (): EventExpenseActivityV2View => ({
+  contractVersion: 2,
+  status: 'unavailable',
+  expenses: [],
+  positions: [],
+})
+
+async function loadExpenseActivityV2(
+  actorUserId: string,
+  eventId: string,
+): Promise<EventExpenseActivityV2View> {
+  try {
+    return await getEventExpenseActivityV2(actorUserId, eventId)
+      ?? unavailableExpenseActivityV2()
+  } catch {
+    return unavailableExpenseActivityV2()
+  }
+}
 
 export default async function EventDetailPage({
   params,
@@ -30,19 +54,17 @@ export default async function EventDetailPage({
   ])
   const actorView = await getEventActorViewV3(user.id, eventId)
   if (!actorView) notFound()
+  const expenseReadEnabled = isEventExpenseReadEnabled()
   if (actorView.viewerRole === 'attendee') {
-    const legacyAcceptedContext = await getEventAttendeeContext(user.id, eventId).catch(() => null)
-    const canUseExpenses = Boolean(legacyAcceptedContext) && await canUseEventExpenses(user)
-    let expenseActivity: EventExpenseActivityView | null = null
-    if (canUseExpenses) {
-      try {
-        expenseActivity = await getEventExpenseActivity(user.id, actorView.eventId) ?? {
-          status: 'unavailable', expenses: [], positions: [],
-        }
-      } catch {
-        expenseActivity = { status: 'unavailable', expenses: [], positions: [] }
-      }
-    }
+    const [legacyAcceptedContext, expenseActivity] = await Promise.all([
+      getEventAttendeeContext(user.id, eventId).catch(() => null),
+      expenseReadEnabled
+        ? loadExpenseActivityV2(user.id, actorView.eventId)
+        : Promise.resolve(null),
+    ])
+    const canCreateExpense = Boolean(legacyAcceptedContext) && await canUseEventExpenses(user)
+    const canSettle = Boolean(expenseActivity && expenseActivity.positions.length > 0)
+      && await canUseExpenseDestination(user)
     return (
       <EventShell
         title={actorView.name}
@@ -52,9 +74,13 @@ export default async function EventDetailPage({
       >
         <EventAttendeeDetail
           event={actorView}
-          canUseExpenses={canUseExpenses}
+          canCreateExpense={canCreateExpense}
           financialPanel={expenseActivity ? (
-            <EventExpenseActivity key="event-expense-activity" view={expenseActivity} />
+            <EventExpenseActivityV2
+              key="event-expense-activity-v2"
+              view={expenseActivity}
+              canSettle={canSettle}
+            />
           ) : null}
         />
       </EventShell>
@@ -65,23 +91,14 @@ export default async function EventDetailPage({
   const rosterManagement = await getEventRosterManagementV2(user.id, eventId)
   if (!event || !rosterManagement) notFound()
 
-  const canUseExpenses = await canUseEventExpenses(user)
-  let expenseActivity: EventExpenseActivityView | null = null
-  if (canUseExpenses) {
-    try {
-      expenseActivity = await getEventExpenseActivity(user.id, event.id) ?? {
-        status: 'unavailable',
-        expenses: [],
-        positions: [],
-      }
-    } catch {
-      expenseActivity = {
-        status: 'unavailable',
-        expenses: [],
-        positions: [],
-      }
-    }
-  }
+  const [canCreateExpense, expenseActivity] = await Promise.all([
+    canUseEventExpenses(user),
+    expenseReadEnabled
+      ? loadExpenseActivityV2(user.id, event.id)
+      : Promise.resolve(null),
+  ])
+  const canSettle = Boolean(expenseActivity && expenseActivity.positions.length > 0)
+    && await canUseExpenseDestination(user)
   let options: ExpenseParticipantOption[] = []
   let optionsError = false
   try {
@@ -103,9 +120,13 @@ export default async function EventDetailPage({
         rosterManagement={rosterManagement}
         options={options}
         optionsError={optionsError}
-        canUseExpenses={canUseExpenses}
+        canCreateExpense={canCreateExpense}
         financialPanel={expenseActivity ? (
-          <EventExpenseActivity key="event-expense-activity" view={expenseActivity} />
+          <EventExpenseActivityV2
+            key="event-expense-activity-v2"
+            view={expenseActivity}
+            canSettle={canSettle}
+          />
         ) : null}
       />
     </EventShell>

@@ -23,10 +23,12 @@ import {
   getEventAttendeeContext,
   getEventContext,
   getEventExpenseActivity,
+  getEventExpenseActivityV2,
   getEventExpensePreview,
   getEventDetails,
   getEventGuestAttendancePreview,
   getExpenseLinkedEventId,
+  getExpenseEventLinkManagementV2,
   getExpensePayAllEventLabels,
   getOwnedEventExpenseSource,
   isExpenseEventContext,
@@ -973,6 +975,158 @@ describe('owner-safe financial event projections', () => {
       p_actor_id: ACTOR_ID,
       p_event_id: EVENT_ID,
     })
+  })
+
+  it('maps the strict V2 Event-scoped Expense activity with actor-own positions as a subset', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'ready',
+        expenses: [
+          { title: 'Kvöldmatur', total_minor: 12_500, currency: 'ISK' },
+          { title: 'Lest', total_minor: 30, currency: 'EUR' },
+        ],
+        positions: [{ currency: 'ISK', state: 'owes', amount_minor: 6_250 }],
+      },
+      error: null,
+    })
+
+    await expect(getEventExpenseActivityV2(ACTOR_ID, EVENT_ID)).resolves.toEqual({
+      contractVersion: 2,
+      status: 'ready',
+      expenses: [
+        { title: 'Kvöldmatur', totalMinor: 12_500, currency: 'ISK' },
+        { title: 'Lest', totalMinor: 30, currency: 'EUR' },
+      ],
+      positions: [{ currency: 'ISK', state: 'owes', amountMinor: 6_250 }],
+    })
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_activity_v2', {
+      p_actor_id: ACTOR_ID,
+      p_event_id: EVENT_ID,
+    })
+  })
+
+  it('rejects an unsupported V2 currency before the Event activity reaches rendering', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'ready',
+        expenses: [{ title: 'Lest', total_minor: 10_000, currency: 'JPY' }],
+        positions: [],
+      },
+      error: null,
+    })
+
+    await expect(getEventExpenseActivityV2(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_activity_failed')
+  })
+
+  it('rejects V1-only fields and inconsistent positions from the V2 activity projection', async () => {
+    for (const leakedFields of [
+      { description: 'private' },
+      { payers: [{ display_name: 'Anna', amount_minor: 100 }] },
+      { expense_id: PARTY_A },
+      { href: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${PARTY_A}` },
+    ]) {
+      mockRpc.mockResolvedValueOnce({
+        data: {
+          status: 'ready',
+          expenses: [{
+            title: 'Kvöldmatur', total_minor: 100, currency: 'ISK', ...leakedFields,
+          }],
+          positions: [],
+        },
+        error: null,
+      })
+      await expect(getEventExpenseActivityV2(ACTOR_ID, EVENT_ID))
+        .rejects.toThrow('event_expense_activity_failed')
+    }
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 2,
+        status: 'ready',
+        expenses: [{ title: 'Kvöldmatur', total_minor: 100, currency: 'ISK' }],
+        positions: [],
+      },
+      error: null,
+    })
+    await expect(getEventExpenseActivityV2(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_activity_failed')
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'ready',
+        expenses: [{ title: 'Kvöldmatur', total_minor: 100, currency: 'ISK' }],
+        positions: [{ currency: 'EUR', state: 'zero', amount_minor: 0 }],
+      },
+      error: null,
+    })
+    await expect(getEventExpenseActivityV2(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_activity_failed')
+  })
+
+  it('maps only the versioned Event link-management fields', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        current_event: {
+          event_id: EVENT_ID,
+          name: 'Kvisskvöld',
+          can_open: true,
+          visibility: 'participants_only',
+          link_revision: '2',
+        },
+        events: [],
+      },
+      error: null,
+    })
+
+    await expect(getExpenseEventLinkManagementV2(ACTOR_ID, PARTY_A)).resolves.toEqual({
+      currentEvent: {
+        id: EVENT_ID,
+        name: 'Kvisskvöld',
+        canOpen: true,
+        visibility: 'participants_only',
+        linkRevision: 2,
+      },
+      eligibleEvents: [],
+    })
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_link_management_v2', {
+      p_actor_id: ACTOR_ID,
+      p_expense_id: PARTY_A,
+    })
+  })
+
+  it('rejects unknown visibility and leaked fields from V2 link management', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        current_event: {
+          event_id: EVENT_ID,
+          name: 'Kvisskvöld',
+          can_open: true,
+          visibility: 'public',
+          link_revision: '1',
+        },
+        events: [],
+      },
+      error: null,
+    })
+    await expect(getExpenseEventLinkManagementV2(ACTOR_ID, PARTY_A))
+      .rejects.toThrow('event_load_failed')
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        current_event: null,
+        events: [{
+          event_id: EVENT_ID,
+          name: 'Kvisskvöld',
+          roster_revision: '1',
+          viewer_role: 'attendee',
+          email: 'private@example.is',
+        }],
+      },
+      error: null,
+    })
+    await expect(getExpenseEventLinkManagementV2(ACTOR_ID, PARTY_A))
+      .rejects.toThrow('event_load_failed')
   })
 
   it('rejects leaked or inconsistent attendee activity and event-label DTOs', async () => {

@@ -46,6 +46,7 @@ import {
   createExpense,
   detachExpenseFromEvent,
   saveExpenseDraft,
+  setExpenseEventVisibility,
 } from '@/lib/expenses/actions'
 
 const actorId = '10000000-0000-4000-8000-000000000001'
@@ -205,6 +206,7 @@ describe('createExpense RPC contract', () => {
       event_id: eventId,
       expected_event_roster_revision: 4,
       link_to_event: true,
+      event_visibility: 'all_event' as const,
       title: 'Kvöldmatur',
       total: '100',
       currency: 'ISK',
@@ -263,6 +265,7 @@ describe('createExpense RPC contract', () => {
       'currency',
       'event_guest_members',
       'event_organizer_members',
+      'event_visibility',
       'incurred_on',
       'note',
       'obligations',
@@ -281,6 +284,7 @@ describe('createExpense RPC contract', () => {
       incurred_on: '2026-08-16',
       category: null,
       note: null,
+      event_visibility: 'all_event',
       split_method: 'equal',
       one_off_members: [
         {
@@ -704,7 +708,12 @@ describe('independent Expense event-link actions', () => {
   it('binds attach to both stale-state versions and the stable request id', async () => {
     const requestId = '50000000-0000-4000-8000-000000000020'
     mockRpc.mockResolvedValueOnce({
-      data: { expense_id: persistedExpenseId, event_id: eventId },
+      data: {
+        expense_id: persistedExpenseId,
+        event_id: eventId,
+        visibility: 'participants_only',
+        link_revision: '1',
+      },
       error: null,
     })
     await expect(attachExpenseToEvent({
@@ -712,18 +721,133 @@ describe('independent Expense event-link actions', () => {
       event_id: eventId,
       expected_financial_version: 7,
       expected_event_roster_revision: 4,
+      visibility: 'participants_only',
       request_id: requestId,
     })).resolves.toEqual({
       ok: true,
-      data: { expenseId: persistedExpenseId, eventId },
+      data: {
+        expenseId: persistedExpenseId,
+        eventId,
+        visibility: 'participants_only',
+        linkRevision: 1,
+      },
     })
-    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_attach_expense', {
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_attach_expense_v2', {
       p_actor_id: actorId,
       p_request_id: requestId,
       p_expense_id: persistedExpenseId,
       p_event_id: eventId,
       p_expected_financial_version: 7,
       p_expected_roster_revision: 4,
+      p_visibility: 'participants_only',
+    })
+  })
+
+  it('rejects a missing V2 attach visibility instead of applying a hidden default', async () => {
+    await expect(attachExpenseToEvent({
+      expense_id: persistedExpenseId,
+      event_id: eventId,
+      expected_financial_version: 7,
+      expected_event_roster_revision: 4,
+      request_id: '50000000-0000-4000-8000-000000000025',
+    })).resolves.toEqual({ ok: false, error: 'invalid_input' })
+
+    expect(mockCanUseEventExpenses).not.toHaveBeenCalled()
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('rejects an attach response that does not represent a fresh revision-one link', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        expense_id: persistedExpenseId,
+        event_id: eventId,
+        visibility: 'participants_only',
+        link_revision: '2',
+      },
+      error: null,
+    })
+
+    await expect(attachExpenseToEvent({
+      expense_id: persistedExpenseId,
+      event_id: eventId,
+      expected_financial_version: 7,
+      expected_event_roster_revision: 4,
+      visibility: 'participants_only',
+      request_id: '50000000-0000-4000-8000-000000000026',
+    })).resolves.toEqual({ ok: false, error: 'invalid_input' })
+  })
+
+  it('sets visibility against the exact persisted event and link revision', async () => {
+    const requestId = '50000000-0000-4000-8000-000000000023'
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        expense_id: persistedExpenseId,
+        event_id: eventId,
+        previous_visibility: 'participants_only',
+        visibility: 'all_event',
+        previous_link_revision: '3',
+        link_revision: '4',
+      },
+      error: null,
+    })
+
+    await expect(setExpenseEventVisibility({
+      expense_id: persistedExpenseId,
+      expected_event_id: eventId,
+      expected_link_revision: 3,
+      visibility: 'all_event',
+      request_id: requestId,
+    })).resolves.toEqual({
+      ok: true,
+      data: {
+        expenseId: persistedExpenseId,
+        eventId,
+        previousVisibility: 'participants_only',
+        visibility: 'all_event',
+        previousLinkRevision: 3,
+        linkRevision: 4,
+      },
+    })
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_set_expense_visibility', {
+      p_actor_id: actorId,
+      p_request_id: requestId,
+      p_expense_id: persistedExpenseId,
+      p_expected_event_id: eventId,
+      p_expected_link_revision: 3,
+      p_visibility: 'all_event',
+    })
+  })
+
+  it('accepts a strict same-mode visibility no-op without incrementing the link revision', async () => {
+    const requestId = '50000000-0000-4000-8000-000000000024'
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        expense_id: persistedExpenseId,
+        event_id: eventId,
+        previous_visibility: 'participants_only',
+        visibility: 'participants_only',
+        previous_link_revision: '3',
+        link_revision: '3',
+      },
+      error: null,
+    })
+
+    await expect(setExpenseEventVisibility({
+      expense_id: persistedExpenseId,
+      expected_event_id: eventId,
+      expected_link_revision: 3,
+      visibility: 'participants_only',
+      request_id: requestId,
+    })).resolves.toEqual({
+      ok: true,
+      data: {
+        expenseId: persistedExpenseId,
+        eventId,
+        previousVisibility: 'participants_only',
+        visibility: 'participants_only',
+        previousLinkRevision: 3,
+        linkRevision: 3,
+      },
     })
   })
 
@@ -757,6 +881,7 @@ describe('independent Expense event-link actions', () => {
       event_id: eventId,
       expected_financial_version: 7,
       expected_event_roster_revision: 4,
+      visibility: 'participants_only',
       request_id: '50000000-0000-4000-8000-000000000022',
     })).resolves.toEqual({ ok: false, error: 'feature_disabled' })
     expect(mockRpc).not.toHaveBeenCalled()
