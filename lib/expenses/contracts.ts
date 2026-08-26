@@ -1,4 +1,5 @@
 import type { ExpenseActivityEventType } from './events'
+import type { ExpenseSharedDraftSummaryView } from './unconfirmed-publication'
 import type {
   ExpenseSplitMethod,
   PaymentPreferenceDetails,
@@ -272,7 +273,8 @@ export interface ExpenseDashboardView {
   pendingConfirmationCount: number
   /** True when the signed-in user's still-unreserved debt has a settlement context. */
   hasPayAllItems: boolean
-  incompleteDrafts?: ExpenseIncompleteDraftSummaryView[]
+  privateDrafts: ExpenseDashboardPrivateDraftSourceView
+  sharedDrafts: ExpenseDashboardSharedDraftSourceView
 }
 
 export interface ExpensePayAllExpenseLinkView {
@@ -449,11 +451,31 @@ export interface ExpenseIncompleteDraftSummaryView {
   groupId: string | null
   expenseId: string | null
   title: string
-  totalMinor: number
+  totalMinor: number | null
   currency: string
   differenceMinor: number | null
   needsAttention: boolean
   savedAt: string
+}
+
+export type ExpenseDashboardDraftSourceStatus = 'ready' | 'unavailable'
+
+export interface ExpenseDashboardPrivateDraftSourceView {
+  status: ExpenseDashboardDraftSourceStatus
+  items: ExpenseIncompleteDraftSummaryView[]
+}
+
+export type ExpenseDashboardSharedDraftSummaryView = ExpenseSharedDraftSummaryView & {
+  authorDraft: {
+    contextType: 'one_off' | 'group'
+    groupId: string | null
+    expenseId: null
+  } | null
+}
+
+export interface ExpenseDashboardSharedDraftSourceView {
+  status: ExpenseDashboardDraftSourceStatus
+  items: ExpenseDashboardSharedDraftSummaryView[]
 }
 
 /** Safe pre-consent snapshot. It deliberately contains no ledger fields. */

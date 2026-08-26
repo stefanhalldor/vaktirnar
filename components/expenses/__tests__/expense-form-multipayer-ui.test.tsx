@@ -7,6 +7,10 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   saveDraft: vi.fn(),
+  shareDraft: vi.fn(),
+  unshareDraft: vi.fn(),
+  finalizeDraft: vi.fn(),
+  refreshPublicationLifecycle: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
   refresh: vi.fn(),
@@ -41,6 +45,22 @@ const translations: Record<string, string> = {
   'expenseForm.splitExcess': 'Skipting þarf lagfæringu. {amount} er umfram heildarupphæðina.',
   'expenseForm.splitNeedsAttention': 'Skipting þarf lagfæringu áður en hægt er að hefja uppgjör.',
   'expenseForm.saveDraftOnly': 'Vista færslu',
+  'expenseForm.saveAndClose': 'Vista og loka',
+  'expenseForm.shareDraft': 'Deila drögum',
+  'expenseForm.shareDraftChanges': 'Deila breytingum',
+  'expenseForm.sharingDraft': 'Deili drögum...',
+  'expenseForm.unshareDraft': 'Hætta að deila',
+  'expenseForm.unsharingDraft': 'Hætti að deila...',
+  'expenseForm.unshareDraftConfirmation': 'Aðrir missa aðgang að drögunum.',
+  'expenseForm.confirmExpense': 'Staðfesta kostnað',
+  'expenseForm.confirmingExpense': 'Staðfesti kostnað...',
+  'expenseForm.allocationConfirmationLegend': 'Staðfesting',
+  'expenseForm.allocationConfirmation': 'Þetta er rétt skipting',
+  'expenseForm.allocationConfirmationHint': 'Staðfestu skiptinguna sjálf.',
+  'expenseForm.unsharedDraftChanges': 'Ódeildar breytingar',
+  'expenseForm.unsharedDraftChangesHint': 'Aðrir sjá enn síðustu deildu útgáfuna.',
+  'expenseForm.sharedDraftCurrent': 'Aðrir sjá núverandi drög.',
+  'expenseForm.draftPublicationUnavailable': 'Ekki tókst að staðfesta deilingarstöðu.',
   'expenseForm.addParticipant': 'Bæta við þátttakanda',
   'expenseForm.addParticipantDescription': 'Veldu aðila.',
   'expenseForm.closeParticipantPicker': 'Loka',
@@ -91,6 +111,10 @@ const translations: Record<string, string> = {
   'errors.detailsRequired': 'Fylltu út upplýsingar.', 'errors.participant_required': 'Bættu við aðila.',
   'errors.paymentTotal': 'Greiðslur stemma ekki.', 'errors.splitTotal': 'Skipting stemmir ekki.',
   'errors.invalid_input': 'Ógilt.', 'errors.draftSaveFailed': 'Vistun mistókst.',
+  'errors.draftPublicationUnavailable': 'Ekki tókst að staðfesta deilingarstöðu.',
+  'errors.confirmExpenseAllocation': 'Staðfestu rétta skiptingu.',
+  'errors.sharedDraftChangesPending': 'Deildu breytingunum fyrst.',
+  'errors.conflict': 'Gögnin hafa breyst.',
   'errors.event_roster_changed': 'Gestalistinn hefur breyst. Hreinsaðu viðburðarvalið og veldu aftur.',
   'errors.save_failed': 'Ekki tókst að vista.',
 }
@@ -107,6 +131,10 @@ vi.mock('@/lib/expenses/actions', () => ({
   createExpense: mocks.create,
   updateExpense: mocks.update,
   saveExpenseDraft: mocks.saveDraft,
+  shareExpenseDraft: mocks.shareDraft,
+  unshareExpenseDraft: mocks.unshareDraft,
+  finalizeExpenseDraft: mocks.finalizeDraft,
+  refreshExpenseDraftPublicationLifecycle: mocks.refreshPublicationLifecycle,
 }))
 
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
@@ -119,6 +147,35 @@ const members = [
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.saveDraft.mockResolvedValue({ ok: true, data: { draftId: '11111111-1111-4111-8111-111111111111', version: 1, savedAt: '2026-08-05T12:00:00Z' } })
+  mocks.refreshPublicationLifecycle.mockResolvedValue({
+    status: 'ready',
+    draftId: '11111111-1111-4111-8111-111111111111',
+    draftVersion: 1,
+    sharingState: 'never_shared',
+    expectedPublicationVersion: null,
+    hasUnsharedChanges: false,
+  })
+  mocks.shareDraft.mockResolvedValue({
+    ok: true,
+    data: {
+      draftId: '11111111-1111-4111-8111-111111111111',
+      draftVersion: 1,
+      publicationVersion: 1,
+      allocationState: 'balanced_unconfirmed',
+    },
+  })
+  mocks.unshareDraft.mockResolvedValue({
+    ok: true,
+    data: {
+      draftId: '11111111-1111-4111-8111-111111111111',
+      draftVersion: 1,
+      publicationVersion: 2,
+    },
+  })
+  mocks.finalizeDraft.mockResolvedValue({
+    ok: true,
+    data: { groupId: 'group-1', expenseId: 'expense-1' },
+  })
   mocks.create.mockResolvedValue({ ok: true, data: { groupId: 'group-1', expenseId: 'expense-1' } })
   mocks.update.mockResolvedValue({ ok: true, data: { groupId: 'group-1', expenseId: 'expense-1', financialVersion: 2 } })
 })
@@ -164,6 +221,41 @@ function savedEventDraft(eventId: string, eventVisibility: 'participants_only' |
     },
     version: 2,
     savedAt: '2026-08-24T20:00:00.000Z',
+  }
+}
+
+function savedGroupDraft(version = 2) {
+  return {
+    id: '81000000-0000-4000-8000-000000000001',
+    contextType: 'group' as const,
+    groupId: 'group-1',
+    expenseId: null,
+    currentStep: 'split' as const,
+    payload: {
+      circleId: null,
+      eventId: null,
+      eventRosterRevision: null,
+      linkToEvent: false,
+      eventVisibility: 'participants_only' as const,
+      members,
+      removedMemberIds: [],
+      included: { 'member-self': true, 'member-anna': true },
+      title: 'Kvöldmatur',
+      total: '10000',
+      currency: 'ISK' as const,
+      incurredOn: '2026-08-05',
+      category: '',
+      note: '',
+      splitMethod: 'weighted' as const,
+      payments: { 'member-self': '10000', 'member-anna': '' },
+      payerKeys: ['member-self'],
+      amounts: { 'member-self': '5000', 'member-anna': '5000' },
+      percentages: { 'member-self': '50', 'member-anna': '50' },
+      weights: { 'member-self': '1', 'member-anna': '1' },
+      preserveShares: false,
+    },
+    version,
+    savedAt: '2026-08-26T09:00:00.000Z',
   }
 }
 
@@ -291,10 +383,10 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.getByRole('button', { name: 'Stebbi' })).toHaveAttribute('aria-disabled', 'true')
   })
 
-  it('keeps entered fields and opaque provenance when a stale event roster rejects submit', async () => {
+  it('keeps entered fields and opaque provenance when finalization rejects a stale event roster', async () => {
     const staleEventId = '73000000-0000-4000-8000-000000000001'
     const staleGuestId = '73000000-0000-4000-8000-000000000002'
-    mocks.create.mockResolvedValueOnce({ ok: false, error: 'event_roster_changed' })
+    mocks.finalizeDraft.mockResolvedValueOnce({ ok: false, error: 'event_roster_changed' })
     renderForm({
       mode: 'one_off',
       groupId: undefined,
@@ -337,6 +429,14 @@ describe('ExpenseForm simplified split and autosave', () => {
         version: 1,
         savedAt: '2026-08-16T10:00:00.000Z',
       },
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '73000000-0000-4000-8000-000000000003',
+        draftVersion: 1,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
       eventSources: [{
         id: staleEventId,
         name: 'Helgarferð',
@@ -346,16 +446,14 @@ describe('ExpenseForm simplified split and autosave', () => {
       eventSelectionWarning: true,
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Gestalistinn hefur breyst')
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      event_id: staleEventId,
-      expected_event_roster_revision: 4,
-      title: 'Kvöldmatur',
-      note: 'Má ekki tapast',
-      members: expect.arrayContaining([
-        expect.objectContaining({ type: 'event_guest', event_guest_id: staleGuestId }),
-      ]),
+    expect(mocks.finalizeDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: '73000000-0000-4000-8000-000000000003',
+      expected_draft_version: 1,
+      expected_publication_version: null,
+      split_confirmed: true,
     }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Til baka' }))
@@ -430,6 +528,20 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.queryByText('Breytingar vistaðar')).not.toBeInTheDocument()
   })
 
+  it('lets an incomplete private details step save and close without validation or publication', async () => {
+    renderForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vista og loka' }))
+
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      current_step: 'details',
+      payload: expect.objectContaining({ title: '', total: '' }),
+    })))
+    expect(mocks.shareDraft).not.toHaveBeenCalled()
+    expect(mocks.finalizeDraft).not.toHaveBeenCalled()
+    expect(mocks.push).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt')
+  })
+
   it('pins a fresh event in the private draft without auto-selecting roster guests', async () => {
     renderForm({
       mode: 'one_off',
@@ -487,7 +599,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('self')
   })
 
-  it('submits an explicit all-event choice for a linked one-off expense', async () => {
+  it('persists an explicit all-event choice before finalizing a linked one-off expense', async () => {
     const event = {
       id: '70500000-0000-4000-8000-000000000001',
       name: 'Helgarferð',
@@ -504,13 +616,20 @@ describe('ExpenseForm simplified split and autosave', () => {
     fireEvent.click(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ }))
     fillDetails()
     await next('Áfram í skiptingu')
-    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
 
-    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      event_id: event.id,
-      link_to_event: true,
-      event_visibility: 'all_event',
+    await waitFor(() => expect(mocks.finalizeDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expected_publication_version: null,
+      split_confirmed: true,
     })))
+    expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        eventId: event.id,
+        linkToEvent: true,
+        eventVisibility: 'all_event',
+      }),
+    }))
   })
 
   it('restores an explicit all-event choice only for the same available Event draft', () => {
@@ -571,14 +690,14 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).toBeChecked()
   })
 
-  it('preserves an explicit broad choice when create returns an error', async () => {
+  it('preserves an explicit broad choice when finalization returns an error', async () => {
     const event = {
       id: '71700000-0000-4000-8000-000000000001',
       name: 'Helgarferð',
       rosterRevision: 4,
       guests: [],
     }
-    mocks.create.mockResolvedValueOnce({ ok: false, error: 'save_failed' })
+    mocks.finalizeDraft.mockResolvedValueOnce({ ok: false, error: 'save_failed' })
     renderForm({
       mode: 'one_off',
       groupId: undefined,
@@ -588,7 +707,8 @@ describe('ExpenseForm simplified split and autosave', () => {
     fillDetails()
     fireEvent.click(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ }))
     await next('Áfram í skiptingu')
-    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að vista.')
     expect(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ })).toBeChecked()
@@ -688,7 +808,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.getByRole('dialog', { name: 'Bæta við þátttakanda' })).toBeInTheDocument()
   })
 
-  it('supports multiple payers and submits the simplified weighted allocation', async () => {
+  it('persists multiple payers before finalizing the simplified weighted allocation', async () => {
     renderForm()
     fillDetails()
     await next('Áfram í skiptingu')
@@ -696,13 +816,268 @@ describe('ExpenseForm simplified split and autosave', () => {
     const amounts = screen.getAllByRole('textbox', { name: /Upphæð/ })
     fireEvent.change(amounts[0]!, { target: { value: '6000' } })
     fireEvent.change(amounts[1]!, { target: { value: '4000' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
-    await waitFor(() => expect(mocks.create).toHaveBeenCalled())
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      split_method: 'weighted', draft_id: expect.any(String),
-      payments: [{ member_key: 'member-self', amount: '6000' }, { member_key: 'member-anna', amount: '4000' }],
-      allocations: [{ member_key: 'member-self', weight: '1' }, { member_key: 'member-anna', weight: '1' }],
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
+    await waitFor(() => expect(mocks.finalizeDraft).toHaveBeenCalled())
+    expect(mocks.saveDraft).toHaveBeenLastCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        splitMethod: 'weighted',
+        payments: expect.objectContaining({ 'member-self': '6000', 'member-anna': '4000' }),
+      }),
     }))
+    expect(mocks.finalizeDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expected_draft_version: 1,
+      expected_publication_version: null,
+      split_confirmed: true,
+    }))
+  })
+
+  it('starts resumed confirmation unchecked and clears it permanently after an allocation change', async () => {
+    renderForm({
+      draft: savedGroupDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    const confirmation = screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ })
+    expect(confirmation).not.toBeChecked()
+    fireEvent.click(confirmation)
+    expect(confirmation).toBeChecked()
+
+    const payerAmount = screen.getByRole('textbox', { name: 'Upphæð Ég' })
+    fireEvent.change(payerAmount, { target: { value: '9000' } })
+    await waitFor(() => expect(confirmation).not.toBeChecked())
+    fireEvent.change(payerAmount, { target: { value: '10000' } })
+
+    expect(confirmation).not.toBeChecked()
+    expect(confirmation).toBeEnabled()
+  })
+
+  it('persists changed private input before refreshing and sharing the draft', async () => {
+    mocks.saveDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: '81000000-0000-4000-8000-000000000001',
+        version: 3,
+        savedAt: '2026-08-26T09:05:00.000Z',
+      },
+    })
+    mocks.refreshPublicationLifecycle.mockResolvedValueOnce({
+      status: 'ready',
+      draftId: '81000000-0000-4000-8000-000000000001',
+      draftVersion: 3,
+      sharingState: 'never_shared',
+      expectedPublicationVersion: null,
+      hasUnsharedChanges: false,
+    })
+    mocks.shareDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 3,
+        publicationVersion: 1,
+        allocationState: 'balanced_unconfirmed',
+      },
+    })
+    renderForm({
+      draft: savedGroupDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    const split = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })
+    fireEvent.change(within(split).getAllByRole('textbox', { name: 'Hlutir' })[0]!, {
+      target: { value: '2' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Deila drögum' }))
+
+    await waitFor(() => expect(mocks.shareDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: '81000000-0000-4000-8000-000000000001',
+      expected_draft_version: 3,
+      expected_publication_version: null,
+    })))
+    expect(mocks.saveDraft.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.refreshPublicationLifecycle.mock.invocationCallOrder[0]!,
+    )
+    expect(mocks.refreshPublicationLifecycle.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.shareDraft.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('locks the full form while a publication mutation is pending', async () => {
+    let resolveShare!: (value: {
+      ok: true
+      data: {
+        draftId: string
+        draftVersion: number
+        publicationVersion: number
+        allocationState: 'balanced_unconfirmed'
+      }
+    }) => void
+    mocks.shareDraft.mockReturnValueOnce(new Promise((resolve) => {
+      resolveShare = resolve
+    }))
+    renderForm({
+      draft: savedGroupDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deila drögum' }))
+    await waitFor(() => expect(mocks.shareDraft).toHaveBeenCalled())
+    expect(screen.getByRole('textbox', { name: 'Upphæð Ég' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ })).toBeDisabled()
+
+    resolveShare({
+      ok: true,
+      data: {
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        publicationVersion: 1,
+        allocationState: 'balanced_unconfirmed',
+      },
+    })
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Upphæð Ég' })).toBeEnabled())
+  })
+
+  it('does not call incomplete amount work an unshared visible change', () => {
+    const draft = savedGroupDraft()
+    draft.payload.payments = { 'member-self': '5000', 'member-anna': '' }
+    renderForm({
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Upphæð Ég' }), {
+      target: { value: '4000' },
+    })
+
+    expect(screen.queryByText('Ódeildar breytingar')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Deila breytingum' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Vista og loka' })).toBeInTheDocument()
+  })
+
+  it('requires stale shared input to be reshared before it can be finalized', () => {
+    renderForm({
+      draft: savedGroupDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: true,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    expect(screen.getByRole('button', { name: 'Deila breytingum' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Staðfesta kostnað' })).not.toBeInTheDocument()
+    expect(mocks.finalizeDraft).not.toHaveBeenCalled()
+  })
+
+  it('finalizes a current shared draft with its exact live publication version', async () => {
+    renderForm({
+      draft: savedGroupDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
+
+    await waitFor(() => expect(mocks.finalizeDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expected_draft_version: 2,
+      expected_publication_version: 7,
+      split_confirmed: true,
+    })))
+  })
+
+  it('finalizes a withdrawn draft with null instead of its retained publication generation', async () => {
+    renderForm({
+      draft: savedGroupDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'withdrawn',
+        expectedPublicationVersion: 9,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
+
+    await waitFor(() => expect(mocks.finalizeDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expected_draft_version: 2,
+      expected_publication_version: null,
+      split_confirmed: true,
+    })))
+  })
+
+  it('uses the route-loaded lifecycle when explicitly withdrawing a shared draft', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mocks.unshareDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        publicationVersion: 8,
+      },
+    })
+    renderForm({
+      draft: savedGroupDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hætta að deila' }))
+
+    await waitFor(() => expect(mocks.unshareDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expected_draft_version: 2,
+      expected_publication_version: 7,
+    })))
+    expect(mocks.refreshPublicationLifecycle).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Deila drögum' })).toBeInTheDocument()
+    confirm.mockRestore()
   })
 
   it('prefills and updates the expense title and description through the details step', async () => {
@@ -842,18 +1217,19 @@ describe('ExpenseForm simplified split and autosave', () => {
     confirm.mockRestore()
   })
 
-  it('shows an accessible error and does not navigate when final create throws', async () => {
-    mocks.create.mockRejectedValueOnce(new Error('network unavailable'))
+  it('shows an accessible error and does not navigate when finalization throws', async () => {
+    mocks.finalizeDraft.mockRejectedValueOnce(new Error('network unavailable'))
     renderForm()
     fillDetails()
     await next('Áfram í skiptingu')
-    fireEvent.click(screen.getByRole('button', { name: 'Vista útlagt' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að vista.')
     expect(mocks.push).not.toHaveBeenCalled()
   })
 
-  it('saves an underallocated fixed split as a recoverable draft instead of creating ledger state', async () => {
+  it('shares an underallocated fixed split as a recoverable draft without creating ledger state', async () => {
     renderForm()
     fillDetails()
     await next('Áfram í skiptingu')
@@ -866,7 +1242,8 @@ describe('ExpenseForm simplified split and autosave', () => {
     fireEvent.change(shares[1]!, { target: { value: '1000' } })
 
     expect(screen.getByText(/8\.000.*óúthlutaðar/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Vista færslu' }))
+    expect(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Deila drögum' }))
 
     await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({
       current_step: 'split',
@@ -878,7 +1255,10 @@ describe('ExpenseForm simplified split and autosave', () => {
         }),
       }),
     })))
-    expect(mocks.create).not.toHaveBeenCalled()
-    expect(mocks.push).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt')
+    expect(mocks.shareDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expected_draft_version: 1,
+      expected_publication_version: null,
+    }))
+    expect(mocks.finalizeDraft).not.toHaveBeenCalled()
   })
 })

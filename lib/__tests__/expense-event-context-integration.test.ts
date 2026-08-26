@@ -57,8 +57,8 @@ describe('independent event and expense integration', () => {
 
     expect(form).toContain("initialDraftPayload ? initialDraftPayload.eventId ?? '' : initialEventSource?.id ?? ''")
     expect(form).toContain('? initialDraftPayload.eventRosterRevision')
-    expect(form).toContain("event_id: mode === 'one_off' && !edit ? eventId || null : null")
-    expect(form).toContain('expected_event_roster_revision: mode ===')
+    expect(form).toContain('eventId: eventId || null')
+    expect(form).toContain('eventRosterRevision: eventId ? eventRosterRevision : null')
   })
 
   it('classifies only after canonical financial access and fails closed for UI defaults', () => {

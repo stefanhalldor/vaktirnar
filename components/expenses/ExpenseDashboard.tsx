@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { getLocale } from 'next-intl/server'
-import { AlertTriangle, ChevronRight, FilePenLine, Plus, CreditCard, WalletCards } from 'lucide-react'
+import { AlertTriangle, ChevronRight, FilePenLine, Plus, CreditCard, UsersRound, WalletCards } from 'lucide-react'
 import type {
+  ExpenseDashboardSharedDraftSummaryView,
   ExpenseDashboardView,
   ExpenseIncompleteDraftSummaryView,
   ExpensePaymentProfileV2View,
@@ -23,6 +24,31 @@ function incompleteDraftHref(draft: ExpenseIncompleteDraftSummaryView): string {
   return `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${draft.id}`
 }
 
+function sharedDraftHref(draft: ExpenseDashboardSharedDraftSummaryView): string | null {
+  if (draft.viewerRole === 'participant') {
+    return draft.detailTarget.kind === 'shared_draft'
+      && draft.detailTarget.publicationId === draft.publicationId
+      ? `/auth-mvp/utlagt-og-endurgreitt/drog/${draft.publicationId}`
+      : null
+  }
+  if (
+    draft.detailTarget.kind !== 'private_draft'
+    || draft.authorDraft === null
+  ) {
+    return null
+  }
+
+  if (draft.authorDraft.contextType === 'group') {
+    return draft.authorDraft.groupId
+      ? `/auth-mvp/utlagt-og-endurgreitt/hopar/${draft.authorDraft.groupId}/nytt-utgjald?draft=${draft.detailTarget.draftId}`
+      : null
+  }
+
+  return draft.authorDraft.groupId === null
+    ? `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${draft.detailTarget.draftId}`
+    : null
+}
+
 export async function ExpenseDashboard({
   dashboard,
   paymentProfile,
@@ -38,10 +64,18 @@ export async function ExpenseDashboard({
   const allItems = [...dashboard.groups, ...dashboard.oneOffs]
   const paymentDetails = paymentProfile.details
   const bankAccount = paymentDetails ? formatExpenseBankAccount(paymentDetails) : null
-  const incompleteDrafts = dashboard.incompleteDrafts ?? []
-  const drafts = incompleteDrafts.filter((draft) => !draft.needsAttention)
-  const draftsNeedingAttention = incompleteDrafts.filter((draft) => draft.needsAttention)
-  const renderDraftRows = (items: typeof incompleteDrafts) => (
+  const sharedDrafts = dashboard.sharedDrafts.status === 'ready'
+    ? dashboard.sharedDrafts.items
+    : []
+  const sharedAuthorDraftIds = new Set(sharedDrafts.flatMap((draft) => (
+    draft.viewerRole === 'author' && draft.detailTarget.kind === 'private_draft'
+      ? [draft.detailTarget.draftId]
+      : []
+  )))
+  const privateDrafts = dashboard.privateDrafts.status === 'ready'
+    ? dashboard.privateDrafts.items.filter((draft) => !sharedAuthorDraftIds.has(draft.id))
+    : []
+  const renderPrivateDraftRows = (items: typeof privateDrafts) => (
     <div className="divide-y divide-border border-y border-border">
       {items.map((draft) => (
         <Link key={draft.id} href={incompleteDraftHref(draft)} className="flex min-h-16 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
@@ -53,20 +87,60 @@ export async function ExpenseDashboard({
             <span className={`mt-0.5 block text-xs ${draft.needsAttention ? 'text-amber-800' : 'text-muted-foreground'}`}>
               {t(draft.needsAttention ? 'dashboard.splitNeedsAttention' : 'dashboard.draftContinue')}
             </span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">
-              {formatExpenseMinor(draft.totalMinor, draft.currency, locale)}
-              {draft.differenceMinor !== null && draft.differenceMinor > 0
-                ? ` · ${t('dashboard.unallocated', { amount: formatExpenseMinor(draft.differenceMinor, draft.currency, locale) })}`
-                : draft.differenceMinor !== null && draft.differenceMinor < 0
-                  ? ` · ${t('dashboard.overallocated', { amount: formatExpenseMinor(Math.abs(draft.differenceMinor), draft.currency, locale) })}`
-                  : ''}
-            </span>
+            {draft.totalMinor !== null ? (
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {formatExpenseMinor(draft.totalMinor, draft.currency, locale)}
+                {draft.differenceMinor !== null && draft.differenceMinor > 0
+                  ? ` · ${t('dashboard.unallocated', { amount: formatExpenseMinor(draft.differenceMinor, draft.currency, locale) })}`
+                  : draft.differenceMinor !== null && draft.differenceMinor < 0
+                    ? ` · ${t('dashboard.overallocated', { amount: formatExpenseMinor(Math.abs(draft.differenceMinor), draft.currency, locale) })}`
+                    : ''}
+              </span>
+            ) : null}
           </span>
           <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" />
         </Link>
       ))}
     </div>
   )
+  const renderSharedDraftRow = (draft: ExpenseDashboardSharedDraftSummaryView) => {
+    const href = sharedDraftHref(draft)
+    const content = (
+      <>
+        <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <UsersRound size={18} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold">{draft.title}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {draft.hasUnsharedChanges === true
+              ? t('dashboard.unsharedChanges')
+              : draft.allocationState === 'incomplete'
+                ? t('dashboard.sharedDraftIncomplete')
+                : t('dashboard.sharedDraftInProgress')}
+          </span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {formatExpenseMinor(draft.totalMinor, draft.currency, locale)}
+          </span>
+        </span>
+        {href ? <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" /> : null}
+      </>
+    )
+
+    return href ? (
+      <Link
+        key={draft.publicationId}
+        href={href}
+        className="flex min-h-16 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        {content}
+      </Link>
+    ) : (
+      <div key={draft.publicationId} className="flex min-h-16 items-center gap-3 py-3">
+        {content}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-8">
@@ -147,26 +221,59 @@ export async function ExpenseDashboard({
         </section>
       ) : null}
 
-      {drafts.length > 0 ? (
-        <section aria-labelledby="expense-drafts-title" className="space-y-3">
-          <h2 id="expense-drafts-title" className="text-sm font-semibold">
-            {t('dashboard.drafts')}
-          </h2>
-          {renderDraftRows(drafts)}
+      {privateDrafts.length > 0 || dashboard.privateDrafts.status === 'unavailable' ? (
+        <section aria-labelledby="expense-private-drafts-title" className="space-y-3">
+          <div>
+            <h2 id="expense-private-drafts-title" className="text-sm font-semibold">
+              {t('dashboard.privateDrafts')}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t('dashboard.privateDraftsHelper')}
+            </p>
+          </div>
+          {dashboard.privateDrafts.status === 'unavailable' ? (
+            <p role="status" className="border-y border-border py-4 text-sm text-muted-foreground">
+              {t('dashboard.privateDraftsUnavailable')}
+            </p>
+          ) : renderPrivateDraftRows(privateDrafts)}
         </section>
       ) : null}
 
-      {draftsNeedingAttention.length > 0 ? (
-        <section aria-labelledby="expense-incomplete-drafts-title" className="space-y-3">
-          <h2 id="expense-incomplete-drafts-title" className="text-sm font-semibold">
-            {t('dashboard.needsAttention')}
-          </h2>
-          {renderDraftRows(draftsNeedingAttention)}
+      {sharedDrafts.length > 0 || dashboard.sharedDrafts.status === 'unavailable' ? (
+        <section aria-labelledby="expense-shared-drafts-title" className="space-y-3">
+          <div>
+            <h2 id="expense-shared-drafts-title" className="text-sm font-semibold">
+              {t('dashboard.sharedDrafts')}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t('dashboard.sharedDraftsHelper')}
+            </p>
+          </div>
+          {dashboard.sharedDrafts.status === 'unavailable' ? (
+            <p role="status" className="border-y border-border py-4 text-sm text-muted-foreground">
+              {t('dashboard.sharedDraftsUnavailable')}
+            </p>
+          ) : (
+            <div className="divide-y divide-border border-y border-border">
+              {sharedDrafts.map(renderSharedDraftRow)}
+            </div>
+          )}
         </section>
       ) : null}
 
-      {allItems.length > 0 ? <ExpenseDashboardDirectory items={allItems} locale={locale} /> : null}
-      {allItems.length === 0 && dashboard.invitations.length === 0 && memberInvitations.length === 0 && incompleteDrafts.length === 0 ? (
+      {allItems.length > 0 ? (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold">{t('dashboard.confirmed')}</h2>
+          <ExpenseDashboardDirectory items={allItems} locale={locale} />
+        </div>
+      ) : null}
+      {allItems.length === 0
+        && dashboard.invitations.length === 0
+        && memberInvitations.length === 0
+        && privateDrafts.length === 0
+        && sharedDrafts.length === 0
+        && dashboard.privateDrafts.status === 'ready'
+        && dashboard.sharedDrafts.status === 'ready' ? (
         <p className="border-y border-border py-6 text-center text-sm text-muted-foreground">{t('dashboard.empty')}</p>
       ) : null}
 

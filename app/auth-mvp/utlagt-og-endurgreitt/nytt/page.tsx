@@ -7,7 +7,10 @@ import { getExpenseActorDisplayName, getExpenseParticipantOptions } from '@/lib/
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { parseExpenseDraftId } from '@/lib/expenses/flow'
 import { hydrateExpenseDraftEventGuestLabels } from '@/lib/expenses/drafts'
-import { getExpensePrivateDraft } from '@/lib/expenses/repository.server'
+import {
+  getExpenseDraftPublicationLifecycle,
+  getExpensePrivateDraft,
+} from '@/lib/expenses/repository.server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getRelationshipCircleOptions } from '@/lib/relationships/repository-v2.server'
 import { canUseEventExpenses } from '@/lib/events/guard'
@@ -34,6 +37,9 @@ export default async function NewOneOffExpensePage({ searchParams }: {
   const draftId = parseExpenseDraftId(query.draft)
   const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
   const safeDraft = draft?.contextType === 'one_off' ? draft : null
+  const publicationLifecycle = safeDraft
+    ? await getExpenseDraftPublicationLifecycle(user.id, safeDraft.id)
+    : null
   const hasExplicitEventQuery = query.event !== undefined
   const requestedEventId = typeof query.event === 'string' ? query.event : null
   const hasStandaloneContext = typeof query.context === 'string'
@@ -160,6 +166,7 @@ export default async function NewOneOffExpensePage({ searchParams }: {
         participantOptionsError={optionsError}
         circleOptions={circleOptions}
         draft={displayDraft}
+        publicationLifecycle={publicationLifecycle}
         draftBaseHref={initialEventSource
           ? eventExpensePath(initialEventSource.id)
           : '/auth-mvp/utlagt-og-endurgreitt/nytt'}

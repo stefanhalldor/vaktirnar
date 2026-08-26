@@ -48,8 +48,16 @@ const translations: Record<string, string> = {
   'dashboard.clearFilters': 'Hreinsa síur',
   'dashboard.noActive': 'Engar virkar færslur.',
   'dashboard.noFilterResults': 'Engar færslur passa við síurnar.',
-  'dashboard.needsAttention': 'Þarfnast lagfæringar',
-  'dashboard.drafts': 'Drög',
+  'dashboard.privateDrafts': 'Drög fyrir mig',
+  'dashboard.privateDraftsHelper': 'Aðeins þú sérð þessi drög. Þau hafa ekki áhrif á stöður eða uppgjör.',
+  'dashboard.privateDraftsUnavailable': 'Ekki tókst að sækja drögin þín núna.',
+  'dashboard.sharedDrafts': 'Drög með öðrum',
+  'dashboard.sharedDraftsHelper': 'Þetta er enn í vinnslu og hefur ekki áhrif á stöðuna þína.',
+  'dashboard.sharedDraftsUnavailable': 'Ekki tókst að sækja sameiginleg drög núna.',
+  'dashboard.sharedDraftIncomplete': 'Skiptingin er enn í vinnslu.',
+  'dashboard.sharedDraftInProgress': 'Drögin bíða staðfestingar höfundar.',
+  'dashboard.unsharedChanges': 'Ódeildar breytingar',
+  'dashboard.confirmed': 'Staðfest',
   'dashboard.draftContinue': 'Halda áfram',
   'dashboard.splitNeedsAttention': 'Skipting þarf lagfæringu',
   'dashboard.untitledDraft': 'Ónefnd færsla',
@@ -153,6 +161,8 @@ function dashboard(overrides: Partial<ExpenseDashboardView> = {}): ExpenseDashbo
     totals: [{ currency: 'ISK', owedToYouMinor: 4_000, youOweMinor: 12_500 }],
     pendingConfirmationCount: 0,
     hasPayAllItems: true,
+    privateDrafts: { status: 'ready', items: [] },
+    sharedDrafts: { status: 'ready', items: [] },
     ...overrides,
   }
 }
@@ -237,18 +247,21 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
       dashboard: dashboard({
         groups: [],
         totals: [],
-        incompleteDrafts: [{
-          id: '11111111-1111-4111-8111-111111111111',
-          contextType: 'one_off',
-          groupId: null,
-          expenseId: null,
-          title: 'Hundrað þúsund',
-          totalMinor: 100_000,
-          currency: 'ISK',
-          differenceMinor: 80_000,
-          needsAttention: true,
-          savedAt: '2026-08-06T10:00:00.000Z',
-        }],
+        privateDrafts: {
+          status: 'ready',
+          items: [{
+            id: '11111111-1111-4111-8111-111111111111',
+            contextType: 'one_off',
+            groupId: null,
+            expenseId: null,
+            title: 'Hundrað þúsund',
+            totalMinor: 100_000,
+            currency: 'ISK',
+            differenceMinor: 80_000,
+            needsAttention: true,
+            savedAt: '2026-08-06T10:00:00.000Z',
+          }],
+        },
       }),
       paymentProfile: emptyPaymentProfile(),
     }))
@@ -266,28 +279,152 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
       dashboard: dashboard({
         groups: [],
         totals: [],
-        incompleteDrafts: [{
-          id: '22222222-2222-4222-8222-222222222222',
-          contextType: 'one_off',
-          groupId: null,
-          expenseId: null,
-          title: 'Ólokið kvöldverðaruppkast',
-          totalMinor: 85_000,
-          currency: 'ISK',
-          differenceMinor: null,
-          needsAttention: false,
-          savedAt: '2026-08-06T10:00:00.000Z',
-        }],
+        privateDrafts: {
+          status: 'ready',
+          items: [{
+            id: '22222222-2222-4222-8222-222222222222',
+            contextType: 'one_off',
+            groupId: null,
+            expenseId: null,
+            title: 'Ólokið kvöldverðaruppkast',
+            totalMinor: 85_000,
+            currency: 'ISK',
+            differenceMinor: null,
+            needsAttention: false,
+            savedAt: '2026-08-06T10:00:00.000Z',
+          }],
+        },
       }),
       paymentProfile: emptyPaymentProfile(),
     }))
 
-    expect(screen.getByText('Drög')).toBeInTheDocument()
+    expect(screen.getByText('Drög fyrir mig')).toBeInTheDocument()
     expect(screen.getByText('Halda áfram')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Ólokið kvöldverðaruppkast/ })).toHaveAttribute(
       'href',
       '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=22222222-2222-4222-8222-222222222222',
     )
+  })
+
+  it('keeps a private draft with no valid amount visible without inventing an amount', async () => {
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [],
+        totals: [],
+        privateDrafts: {
+          status: 'ready',
+          items: [{
+            id: '33333333-3333-4333-8333-333333333333',
+            contextType: 'one_off',
+            groupId: null,
+            expenseId: null,
+            title: '',
+            totalMinor: null,
+            currency: 'ISK',
+            differenceMinor: null,
+            needsAttention: true,
+            savedAt: '2026-08-06T10:00:00.000Z',
+          }],
+        },
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    const draftLink = screen.getByRole('link', { name: /Ónefnd færsla/ })
+    expect(draftLink).toHaveAttribute(
+      'href',
+      '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=33333333-3333-4333-8333-333333333333',
+    )
+    expect(draftLink).toHaveTextContent('Skipting þarf lagfæringu')
+    expect(draftLink).not.toHaveTextContent('0 kr.')
+  })
+
+  it('shows shared drafts separately and links each exact viewer to its authorized detail', async () => {
+    const authorDraftId = '44444444-4444-4444-8444-444444444444'
+    const participantPublicationId = '66666666-6666-4666-8666-666666666666'
+    const { container } = render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [],
+        totals: [],
+        privateDrafts: {
+          status: 'ready',
+          items: [{
+            id: authorDraftId,
+            contextType: 'one_off',
+            groupId: null,
+            expenseId: null,
+            title: 'Ódeild sameiginleg drög',
+            totalMinor: 24_000,
+            currency: 'ISK',
+            differenceMinor: null,
+            needsAttention: false,
+            savedAt: '2026-08-06T10:00:00.000Z',
+          }],
+        },
+        sharedDrafts: {
+          status: 'ready',
+          items: [{
+            lifecycleState: 'shared_draft',
+            publicationId: '55555555-5555-4555-8555-555555555555',
+            publicationVersion: 2,
+            title: 'Ódeild sameiginleg drög',
+            totalMinor: 24_000,
+            currency: 'ISK',
+            incurredOn: '2026-08-25',
+            allocationState: 'balanced_unconfirmed',
+            viewerRole: 'author',
+            hasUnsharedChanges: true,
+            detailTarget: { kind: 'private_draft', draftId: authorDraftId },
+            authorDraft: { contextType: 'one_off', groupId: null, expenseId: null },
+          }, {
+            lifecycleState: 'shared_draft',
+            publicationId: participantPublicationId,
+            publicationVersion: 1,
+            title: 'Sameiginleg drög frá öðrum',
+            totalMinor: 8_500,
+            currency: 'ISK',
+            incurredOn: '2026-08-25',
+            allocationState: 'incomplete',
+            viewerRole: 'participant',
+            hasUnsharedChanges: null,
+            detailTarget: { kind: 'shared_draft', publicationId: participantPublicationId },
+            authorDraft: null,
+          }],
+        },
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByRole('heading', { name: 'Drög með öðrum' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Drög fyrir mig' })).not.toBeInTheDocument()
+    expect(screen.getAllByText('Ódeild sameiginleg drög')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: /Ódeild sameiginleg drög/ })).toHaveAttribute(
+      'href',
+      `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${authorDraftId}`,
+    )
+    expect(screen.getByText('Ódeildar breytingar')).toBeInTheDocument()
+    expect(screen.getByText('Skiptingin er enn í vinnslu.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Sameiginleg drög frá öðrum/ })).toHaveAttribute(
+      'href',
+      `/auth-mvp/utlagt-og-endurgreitt/drog/${participantPublicationId}`,
+    )
+    expect(container.querySelectorAll(`a[href="/auth-mvp/utlagt-og-endurgreitt/drog/${participantPublicationId}"]`)).toHaveLength(1)
+  })
+
+  it('reports independent draft-source failures without hiding confirmed financial data', async () => {
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        privateDrafts: { status: 'unavailable', items: [] },
+        sharedDrafts: { status: 'unavailable', items: [] },
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByText('Ekki tókst að sækja drögin þín núna.')).toBeInTheDocument()
+    expect(screen.getByText('Ekki tókst að sækja sameiginleg drög núna.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Staðfest' })).toBeInTheDocument()
+    expect(screen.getByText('Sumarferð')).toBeInTheDocument()
+    expect(screen.getByText(/Þú átt eftir að greiða 12\.500/)).toBeInTheDocument()
   })
 
   it('filters Active by the signed-in user state and marks cancelled history in All', async () => {

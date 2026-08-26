@@ -6,7 +6,14 @@ import { useLocale } from 'next-intl'
 import { CheckCircle2, Plus, X } from 'lucide-react'
 import { TeskeidDateField } from '@/components/teskeid/TeskeidDateField'
 import { TeskeidStepNav, type TeskeidStepNavItem } from '@/components/teskeid/TeskeidStepNav'
-import { createExpense, saveExpenseDraft, updateExpense } from '@/lib/expenses/actions'
+import {
+  finalizeExpenseDraft,
+  refreshExpenseDraftPublicationLifecycle,
+  saveExpenseDraft,
+  shareExpenseDraft,
+  unshareExpenseDraft,
+  updateExpense,
+} from '@/lib/expenses/actions'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
 import {
   EXPENSE_CURRENCIES,
@@ -34,6 +41,7 @@ import {
 import type { RelationshipCircleOption } from '@/lib/relationships/types'
 import type { EventExpenseSourceView } from '@/lib/events/contracts'
 import type { LegacyExpenseEventSourceV2 } from '@/lib/events/legacy-expense-event-source-v2.contracts'
+import type { ExpenseDraftPublicationLifecycleView } from '@/lib/expenses/unconfirmed-publication'
 import {
   EXPENSE_FLOW_STEPS,
   type ExpenseFlowStep,
@@ -89,6 +97,7 @@ interface ExpenseFormProps {
   initialStep?: ExpenseFlowStep
   reviewHref?: string
   draft?: ExpensePrivateDraftView | null
+  publicationLifecycle?: ExpenseDraftPublicationLifecycleView | null
   draftBaseHref?: string
   /** Present only when both Events and Expenses gates are authorized. */
   eventSources?: EventExpenseSourceView[]
@@ -109,6 +118,10 @@ interface ExpenseFormProps {
 }
 
 type ExpenseSplitUiMethod = Extract<ExpenseSplitMethod, 'fixed' | 'percentage' | 'weighted'>
+type ReadyExpenseDraftPublicationLifecycle = Extract<
+  ExpenseDraftPublicationLifecycleView,
+  { status: 'ready' }
+>
 
 const SPLIT_METHODS: ExpenseSplitUiMethod[] = ['fixed', 'percentage', 'weighted']
 
@@ -215,6 +228,7 @@ export function ExpenseForm({
   initialDate,
   initialStep = 'details',
   draft = null,
+  publicationLifecycle = null,
   draftBaseHref = '',
   eventSources,
   eventSourcePresentation,
@@ -301,7 +315,14 @@ export function ExpenseForm({
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const draftIdRef = useRef(draft?.id ?? createRequestId())
   const draftVersionRef = useRef<number | null>(draft?.version ?? null)
+  const draftStepRef = useRef<ExpenseFlowStep | null>(draft?.currentStep ?? null)
   const draftSavingRef = useRef<Promise<boolean> | null>(null)
+  const [currentPublicationLifecycle, setCurrentPublicationLifecycle] = useState<ExpenseDraftPublicationLifecycleView | null>(
+    publicationLifecycle ?? (draft && !edit ? { status: 'unavailable' } : null),
+  )
+  const [confirmedAllocationFingerprint, setConfirmedAllocationFingerprint] = useState<string | null>(null)
+  const [publicationAction, setPublicationAction] = useState<'share' | 'unshare' | 'finalize' | null>(null)
+  const publicationActionRef = useRef<'share' | 'unshare' | 'finalize' | null>(null)
   const [isPending, startTransition] = useTransition()
   const draftFingerprint = JSON.stringify({
     members,
@@ -327,7 +348,20 @@ export function ExpenseForm({
     eventVisibility,
   })
   const initialDraftFingerprint = useRef(draftFingerprint)
-
+  const allocationFingerprint = JSON.stringify({
+    members: members.map(({ key, input, newGuest, isSelf }) => ({ key, input, newGuest, isSelf })),
+    removedMemberIds,
+    included,
+    total,
+    currency,
+    splitMethod,
+    payments,
+    payerKeys,
+    amounts,
+    percentages,
+    weights,
+    preserveShares,
+  })
   const selectedKeys = members.filter((member) => included[member.key]).map((member) => member.key)
   const selectedEventSource = eventSources?.find((source) => source.id === eventId) ?? null
   const eventSourceUnavailable = (eventSelectionWarning && !eventWarningDismissed)
@@ -338,6 +372,11 @@ export function ExpenseForm({
   useEffect(() => {
     focusStepHeading(startingStep)
   }, [startingStep])
+  useEffect(() => {
+    setConfirmedAllocationFingerprint((current) => (
+      current !== null && current !== allocationFingerprint ? null : current
+    ))
+  }, [allocationFingerprint])
 
   function draftPayload(): ExpenseDraftPayload {
     return redactExpenseDraftEventGuestLabels({
@@ -386,6 +425,13 @@ export function ExpenseForm({
       setDraftStatus('idle')
       return true
     }
+    if (!edit
+      && draftVersionRef.current !== null
+      && draftStepRef.current === step
+      && initialDraftFingerprint.current === draftFingerprint) {
+      setDraftStatus('saved')
+      return true
+    }
     if (draftSavingRef.current) return draftSavingRef.current
     setDraftStatus('saving')
     const savePromise = (async () => {
@@ -402,6 +448,7 @@ export function ExpenseForm({
         if (!result.ok) throw new Error('draft_save_failed')
         draftIdRef.current = result.data.draftId
         draftVersionRef.current = result.data.version
+        draftStepRef.current = step
         initialDraftFingerprint.current = draftFingerprint
         setDraftStatus('saved')
         if (draftBaseHref) {
@@ -812,6 +859,63 @@ export function ExpenseForm({
       return null
     }
   })()
+  // This local fingerprint is only an immediate UI hint and mirrors the safe
+  // shared projection: incomplete allocations expose roles, never partial
+  // amounts. The refreshed SQL159 lifecycle remains final stale authority.
+  const shareableAllocationState = preview
+    && !preview.error
+    && selectedKeys.length > 0
+    && (mode !== 'one_off' || members.length >= 2)
+    ? 'balanced_unconfirmed'
+    : 'incomplete'
+  const shareablePaidMinorByKey = new Map(
+    preview?.payerRows.map((row) => [row.key, row.amountMinor] as const) ?? [],
+  )
+  const shareableShareMinorByKey = new Map(
+    preview?.shares.map((row) => [row.participantId, row.amountMinor] as const) ?? [],
+  )
+  const shareableTotalMinor = (() => {
+    try {
+      return parseExpenseAmountToMinor(total, currency)
+    } catch {
+      return null
+    }
+  })()
+  const shareableUiFingerprint = JSON.stringify({
+    contextType: mode,
+    title: title.trim(),
+    totalMinor: shareableTotalMinor,
+    currency,
+    incurredOn,
+    allocationState: shareableAllocationState,
+    parties: [...members]
+      .sort((left, right) => left.key.localeCompare(right.key))
+      .map(({ key, input, newGuest, isSelf }) => ({
+        key,
+        input,
+        newGuest,
+        isSelf,
+        isPayer: payerKeys.includes(key),
+        isParticipant: included[key] !== false,
+        paidMinor: shareableAllocationState === 'balanced_unconfirmed'
+          ? shareablePaidMinorByKey.get(key) ?? 0
+          : null,
+        shareMinor: shareableAllocationState === 'balanced_unconfirmed'
+          ? shareableShareMinorByKey.get(key) ?? 0
+          : null,
+      })),
+    event: eventId && linkToEvent
+      ? { eventId, eventVisibility }
+      : null,
+    eventRosterRevision: eventId ? eventRosterRevision : null,
+  })
+  const sharedUiFingerprintRef = useRef<string | null>(
+    publicationLifecycle?.status === 'ready'
+      && publicationLifecycle.sharingState === 'shared'
+      && publicationLifecycle.hasUnsharedChanges === false
+      ? shareableUiFingerprint
+      : null,
+  )
   const participantShareByMember = new Map(
     (preview?.shares.length
       ? preview.shares
@@ -914,7 +1018,7 @@ export function ExpenseForm({
   }
 
   const currentStepIndex = EXPENSE_FLOW_STEPS.indexOf(currentStep)
-  const navigationBusy = isPending || draftStatus === 'saving'
+  const navigationBusy = isPending || draftStatus === 'saving' || publicationAction !== null
   const stepItems: TeskeidStepNavItem<ExpenseFlowStep>[] = EXPENSE_FLOW_STEPS.map((step, index) => ({
     id: step,
     label: t(`expenseForm.steps.${step}`),
@@ -932,7 +1036,187 @@ export function ExpenseForm({
       : undefined,
   }))
 
+  function showMutationError(messageKey: string) {
+    setError(t(messageKey))
+    queueMicrotask(() => alertRef.current?.focus())
+  }
+
+  function syncPublicationLifecycle(next: ExpenseDraftPublicationLifecycleView) {
+    setCurrentPublicationLifecycle(next)
+    sharedUiFingerprintRef.current = next.status === 'ready'
+      && next.sharingState === 'shared'
+      && next.hasUnsharedChanges === false
+      ? shareableUiFingerprint
+      : null
+  }
+
+  async function loadCurrentPublicationLifecycle(): Promise<ReadyExpenseDraftPublicationLifecycle | null> {
+    if (currentPublicationLifecycle?.status === 'ready'
+      && currentPublicationLifecycle.draftId === draftIdRef.current
+      && currentPublicationLifecycle.draftVersion === draftVersionRef.current) {
+      return currentPublicationLifecycle
+    }
+    const next = await refreshExpenseDraftPublicationLifecycle({ draft_id: draftIdRef.current })
+    if (next.status !== 'ready'
+      || next.draftId !== draftIdRef.current
+      || next.draftVersion !== draftVersionRef.current) {
+      syncPublicationLifecycle({ status: 'unavailable' })
+      showMutationError('errors.draftPublicationUnavailable')
+      return null
+    }
+    syncPublicationLifecycle(next)
+    return next
+  }
+
+  function runPublicationAction(
+    action: 'share' | 'unshare' | 'finalize',
+    execute: () => Promise<void>,
+  ) {
+    if (publicationActionRef.current) return
+    publicationActionRef.current = action
+    setPublicationAction(action)
+    setError(null)
+    startTransition(async () => {
+      try {
+        await execute()
+      } catch {
+        showMutationError('errors.save_failed')
+      } finally {
+        publicationActionRef.current = null
+        setPublicationAction(null)
+      }
+    })
+  }
+
+  function shareDraft() {
+    runPublicationAction('share', async () => {
+      if (!await persistDraft(currentStep)) return
+      const lifecycle = await loadCurrentPublicationLifecycle()
+      if (!lifecycle) return
+      const expectedPublicationVersion = lifecycle.sharingState === 'never_shared'
+        ? null
+        : lifecycle.expectedPublicationVersion
+      if (lifecycle.sharingState !== 'never_shared' && expectedPublicationVersion === null) {
+        showMutationError('errors.draftPublicationUnavailable')
+        return
+      }
+      const semanticPayload = {
+        operation: 'share' as const,
+        draft_id: draftIdRef.current,
+        expected_draft_version: draftVersionRef.current!,
+        expected_publication_version: expectedPublicationVersion,
+      }
+      const result = await shareExpenseDraft({
+        request_id: requestIds.forPayload(semanticPayload),
+        draft_id: semanticPayload.draft_id,
+        expected_draft_version: semanticPayload.expected_draft_version,
+        expected_publication_version: semanticPayload.expected_publication_version,
+      })
+      if (!result.ok) {
+        showMutationError(`errors.${result.error}`)
+        return
+      }
+      requestIds.succeeded(semanticPayload)
+      sharedUiFingerprintRef.current = shareableUiFingerprint
+      setCurrentPublicationLifecycle({
+        status: 'ready',
+        draftId: result.data.draftId,
+        draftVersion: result.data.draftVersion,
+        sharingState: 'shared',
+        expectedPublicationVersion: result.data.publicationVersion,
+        hasUnsharedChanges: false,
+      })
+    })
+  }
+
+  function unshareDraft() {
+    if (!window.confirm(t('expenseForm.unshareDraftConfirmation'))) return
+    runPublicationAction('unshare', async () => {
+      if (!await persistDraft(currentStep)) return
+      const lifecycle = await loadCurrentPublicationLifecycle()
+      if (!lifecycle
+        || lifecycle.sharingState !== 'shared'
+        || lifecycle.expectedPublicationVersion === null) {
+        showMutationError('errors.draftPublicationUnavailable')
+        return
+      }
+      const semanticPayload = {
+        operation: 'unshare' as const,
+        draft_id: draftIdRef.current,
+        expected_draft_version: draftVersionRef.current!,
+        expected_publication_version: lifecycle.expectedPublicationVersion,
+      }
+      const result = await unshareExpenseDraft({
+        request_id: requestIds.forPayload(semanticPayload),
+        draft_id: semanticPayload.draft_id,
+        expected_draft_version: semanticPayload.expected_draft_version,
+        expected_publication_version: semanticPayload.expected_publication_version,
+      })
+      if (!result.ok) {
+        showMutationError(`errors.${result.error}`)
+        return
+      }
+      requestIds.succeeded(semanticPayload)
+      sharedUiFingerprintRef.current = null
+      setCurrentPublicationLifecycle({
+        status: 'ready',
+        draftId: result.data.draftId,
+        draftVersion: result.data.draftVersion,
+        sharingState: 'withdrawn',
+        expectedPublicationVersion: result.data.publicationVersion,
+        hasUnsharedChanges: null,
+      })
+    })
+  }
+
+  function finalizeDraft() {
+    if (confirmedAllocationFingerprint !== allocationFingerprint || !isStepValid('split')) {
+      showMutationError('errors.confirmExpenseAllocation')
+      return
+    }
+    runPublicationAction('finalize', async () => {
+      if (!await persistDraft(currentStep)) return
+      const lifecycle = await loadCurrentPublicationLifecycle()
+      if (!lifecycle) return
+      if (lifecycle.sharingState === 'shared'
+        && (lifecycle.hasUnsharedChanges !== false
+          || sharedUiFingerprintRef.current !== shareableUiFingerprint)) {
+        showMutationError('errors.sharedDraftChangesPending')
+        return
+      }
+      const expectedPublicationVersion = lifecycle.sharingState === 'shared'
+        ? lifecycle.expectedPublicationVersion
+        : null
+      if (lifecycle.sharingState === 'shared' && expectedPublicationVersion === null) {
+        showMutationError('errors.draftPublicationUnavailable')
+        return
+      }
+      const semanticPayload = {
+        operation: 'finalize' as const,
+        draft_id: draftIdRef.current,
+        expected_draft_version: draftVersionRef.current!,
+        expected_publication_version: expectedPublicationVersion,
+        split_confirmed: true as const,
+      }
+      const result = await finalizeExpenseDraft({
+        request_id: requestIds.forPayload(semanticPayload),
+        draft_id: semanticPayload.draft_id,
+        expected_draft_version: semanticPayload.expected_draft_version,
+        expected_publication_version: semanticPayload.expected_publication_version,
+        split_confirmed: true,
+      })
+      if (!result.ok) {
+        showMutationError(`errors.${result.error}`)
+        return
+      }
+      requestIds.succeeded(semanticPayload)
+      router.push(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`)
+      router.refresh()
+    })
+  }
+
   function saveExpenseChanges() {
+    if (!edit) return
     setError(null)
     const invalidStep = EXPENSE_FLOW_STEPS.find((step) => !isStepValid(step))
     if (invalidStep) {
@@ -955,34 +1239,7 @@ export function ExpenseForm({
       const amount = payments[memberKey]?.trim()
       return amount ? [{ member_key: memberKey, amount }] : []
     })
-    const memberInputs = mode === 'one_off'
-      ? members.map((member) => member.input).filter((input): input is ExpenseNewMemberInput => Boolean(input))
-      : []
-
-    const payload = {
-      group_id: groupId ?? null,
-      circle_id: mode === 'one_off' && !edit ? circleId || null : null,
-      event_id: mode === 'one_off' && !edit ? eventId || null : null,
-      expected_event_roster_revision: mode === 'one_off' && !edit && eventId
-        ? eventRosterRevision
-        : null,
-      link_to_event: mode === 'one_off' && !edit
-        ? Boolean(eventId && linkToEvent)
-        : false,
-      event_visibility: eventVisibility,
-      title,
-      total,
-      currency,
-      incurred_on: incurredOn,
-      category: category || null,
-      note: note || null,
-      split_method: splitMethod,
-      draft_id: draftVersionRef.current ? draftIdRef.current : null,
-      members: memberInputs,
-      payments: paymentRows,
-      allocations: edit ? [] : allocationPayload(),
-    }
-    const editPayload = edit ? {
+    const editPayload = {
       expense_id: edit.expense.id,
       expected_financial_version: edit.expectedFinancialVersion,
       title,
@@ -1003,19 +1260,14 @@ export function ExpenseForm({
       removed_member_ids: removedMemberIds,
       payments: paymentRows,
       allocations: preserveShares ? [] : allocationPayload(),
-    } : null
-    const requestPayload = editPayload ?? payload
+    }
+    const requestPayload = editPayload
     startTransition(async () => {
       try {
-        const result = edit
-          ? await updateExpense({
-            ...editPayload!,
-            request_id: requestIds.forPayload(requestPayload),
-          })
-          : await createExpense({
-            ...payload,
-            request_id: requestIds.forPayload(requestPayload),
-          })
+        const result = await updateExpense({
+          ...editPayload,
+          request_id: requestIds.forPayload(requestPayload),
+        })
         if (!result.ok) {
           setError(t(`errors.${result.error}`))
           queueMicrotask(() => alertRef.current?.focus())
@@ -1038,17 +1290,74 @@ export function ExpenseForm({
     router.refresh()
   }
 
+  const allocationConfirmed = confirmedAllocationFingerprint === allocationFingerprint
+  const publicationReady = currentPublicationLifecycle?.status === 'ready'
+    ? currentPublicationLifecycle
+    : null
+  const publicationIsShared = publicationReady?.sharingState === 'shared'
+  const sharedHasUnsharedChanges = publicationIsShared
+    && (publicationReady.hasUnsharedChanges !== false
+      || sharedUiFingerprintRef.current !== shareableUiFingerprint)
+  const publicationUnavailable = currentPublicationLifecycle?.status === 'unavailable'
+  const publicationCandidate = isDetailsValid()
+    && selectedKeys.length > 0
+    && (mode !== 'one_off' || members.length >= 2)
+  const canFinalizeDraft = allocationConfirmed
+    && isStepValid('split')
+    && !publicationUnavailable
+    && !sharedHasUnsharedChanges
+  const primaryDraftAction: 'save' | 'share' | 'finalize' = sharedHasUnsharedChanges
+    ? 'share'
+    : canFinalizeDraft
+      ? 'finalize'
+      : publicationIsShared
+        ? 'save'
+        : publicationCandidate
+          ? 'share'
+          : 'save'
+
+  function runPrimaryDraftAction() {
+    if (primaryDraftAction === 'finalize') {
+      finalizeDraft()
+      return
+    }
+    if (primaryDraftAction === 'share') {
+      shareDraft()
+      return
+    }
+    void saveDraftOnly()
+  }
+
+  function primaryDraftActionLabel() {
+    if (primaryDraftAction === 'finalize') {
+      return publicationAction === 'finalize'
+        ? t('expenseForm.confirmingExpense')
+        : t('expenseForm.confirmExpense')
+    }
+    if (primaryDraftAction === 'share') {
+      if (publicationAction === 'share') return t('expenseForm.sharingDraft')
+      return sharedHasUnsharedChanges
+        ? t('expenseForm.shareDraftChanges')
+        : t('expenseForm.shareDraft')
+    }
+    return draftStatus === 'saving'
+      ? t('expenseForm.draftSaving')
+      : t('expenseForm.saveAndClose')
+  }
+
   function submit(event: React.FormEvent) {
     event.preventDefault()
     if (currentStepIndex < EXPENSE_FLOW_STEPS.length - 1) {
       void advanceStep()
       return
     }
-    saveExpenseChanges()
+    if (edit) saveExpenseChanges()
+    else runPrimaryDraftAction()
   }
 
   return (
-    <form onSubmit={submit} className="space-y-8" noValidate aria-busy={navigationBusy}>
+    <form onSubmit={submit} noValidate aria-busy={navigationBusy}>
+      <fieldset disabled={navigationBusy} className="min-w-0 space-y-8 border-0 p-0">
       <TeskeidStepNav
         ariaLabel={t('expenseForm.stepNavAriaLabel')}
         items={stepItems}
@@ -1381,35 +1690,114 @@ export function ExpenseForm({
       </fieldset>
       ) : null}
 
-      <div className={`grid gap-3 ${currentStepIndex > 0 || (edit && currentStep === 'details') ? 'grid-cols-2' : ''}`}>
-        {currentStepIndex > 0 ? (
-          <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={navigationBusy} onClick={previousStep}>
-            {t('expenseForm.previousStep')}
-          </button>
-        ) : null}
-        {edit && currentStep === 'details' ? (
-          <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={navigationBusy} onClick={saveExpenseChanges}>
-            {isPending ? t('expenseForm.updating') : t('expenseForm.saveNow')}
-          </button>
-        ) : null}
-        {currentStepIndex === EXPENSE_FLOW_STEPS.length - 1 ? (
-          isStepValid(currentStep) ? (
-            <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy}>
-              {isPending
-                ? t(edit ? 'expenseForm.updating' : 'expenseForm.creating')
-                : t(edit ? 'expenseForm.update' : 'expenseForm.create')}
+      {currentStep === 'split' && !edit ? (
+        <fieldset className="space-y-3 rounded-2xl border border-border p-4">
+          <legend className="px-1 text-sm font-semibold">{t('expenseForm.allocationConfirmationLegend')}</legend>
+          <label className="flex min-h-11 items-start gap-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-5 shrink-0"
+              checked={allocationConfirmed}
+              disabled={navigationBusy || !isStepValid('split')}
+              onChange={(event) => setConfirmedAllocationFingerprint(
+                event.target.checked ? allocationFingerprint : null,
+              )}
+            />
+            <span className="min-w-0">
+              <span className="block font-medium">{t('expenseForm.allocationConfirmation')}</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                {t('expenseForm.allocationConfirmationHint')}
+              </span>
+            </span>
+          </label>
+          {sharedHasUnsharedChanges ? (
+            <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
+              <span className="block font-medium">{t('expenseForm.unsharedDraftChanges')}</span>
+              <span className="block">{t('expenseForm.unsharedDraftChangesHint')}</span>
+            </p>
+          ) : publicationIsShared ? (
+            <p role="status" className="text-xs leading-5 text-muted-foreground">
+              {t('expenseForm.sharedDraftCurrent')}
+            </p>
+          ) : publicationUnavailable ? (
+            <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
+              {t('expenseForm.draftPublicationUnavailable')}
+            </p>
+          ) : null}
+        </fieldset>
+      ) : null}
+
+      <div className="space-y-3">
+        <div className={`grid gap-3 ${currentStepIndex > 0 || (edit && currentStep === 'details') ? 'grid-cols-2' : ''}`}>
+          {currentStepIndex > 0 ? (
+            <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={navigationBusy} onClick={previousStep}>
+              {t('expenseForm.previousStep')}
+            </button>
+          ) : null}
+          {edit && currentStep === 'details' ? (
+            <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={navigationBusy} onClick={saveExpenseChanges}>
+              {isPending ? t('expenseForm.updating') : t('expenseForm.saveNow')}
+            </button>
+          ) : null}
+          {currentStepIndex === EXPENSE_FLOW_STEPS.length - 1 ? (
+            edit ? (
+              isStepValid(currentStep) ? (
+                <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy}>
+                  {isPending ? t('expenseForm.updating') : t('expenseForm.update')}
+                </button>
+              ) : (
+                <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy || !isDetailsValid()} onClick={() => void saveDraftOnly()}>
+                  {draftStatus === 'saving' ? t('expenseForm.draftSaving') : t('expenseForm.saveDraftOnly')}
+                </button>
+              )
+            ) : (
+              <button
+                type="submit"
+                className={`${expensePrimaryButtonClass} w-full`}
+                disabled={navigationBusy || (primaryDraftAction === 'save' && !isDetailsValid())}
+              >
+                {primaryDraftActionLabel()}
+              </button>
+            )
+          ) : !edit && currentStep === 'details' && !isDetailsValid() ? (
+            <button
+              type="button"
+              className={`${expensePrimaryButtonClass} w-full`}
+              disabled={navigationBusy}
+              onClick={() => void saveDraftOnly()}
+            >
+              {draftStatus === 'saving' ? t('expenseForm.draftSaving') : t('expenseForm.saveAndClose')}
             </button>
           ) : (
-            <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy || !isDetailsValid()} onClick={() => void saveDraftOnly()}>
-              {draftStatus === 'saving' ? t('expenseForm.draftSaving') : t('expenseForm.saveDraftOnly')}
+            <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy} onClick={() => void advanceStep()}>
+              {t(`expenseForm.nextSteps.${EXPENSE_FLOW_STEPS[currentStepIndex + 1]}`)}
             </button>
-          )
-        ) : (
-          <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy} onClick={() => void advanceStep()}>
-            {t(`expenseForm.nextSteps.${EXPENSE_FLOW_STEPS[currentStepIndex + 1]}`)}
+          )}
+        </div>
+        {!edit && currentStepIndex === EXPENSE_FLOW_STEPS.length - 1 && primaryDraftAction !== 'save' ? (
+          <button
+            type="button"
+            className={`${expenseSecondaryButtonClass} w-full`}
+            disabled={navigationBusy || !isDetailsValid()}
+            onClick={() => void saveDraftOnly()}
+          >
+            {draftStatus === 'saving' ? t('expenseForm.draftSaving') : t('expenseForm.saveAndClose')}
           </button>
-        )}
+        ) : null}
+        {!edit && currentStepIndex === EXPENSE_FLOW_STEPS.length - 1 && publicationIsShared ? (
+          <button
+            type="button"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl px-4 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
+            disabled={navigationBusy}
+            onClick={unshareDraft}
+          >
+            {publicationAction === 'unshare'
+              ? t('expenseForm.unsharingDraft')
+              : t('expenseForm.unshareDraft')}
+          </button>
+        ) : null}
       </div>
+      </fieldset>
     </form>
   )
 }

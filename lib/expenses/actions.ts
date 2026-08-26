@@ -84,6 +84,20 @@ import {
   getActiveExpenseGroupMembersForActor,
   getExpenseEditMembersForActor,
 } from './persistence.server'
+import {
+  FinalizeExpenseDraftSchema,
+  parseExpenseFinalizeResult,
+  parseExpenseShareResult,
+  parseExpenseUnshareResult,
+  RefreshExpenseDraftPublicationLifecycleSchema,
+  ShareExpenseDraftSchema,
+  UnshareExpenseDraftSchema,
+  type ExpenseDraftPublicationLifecycleView,
+} from './unconfirmed-publication'
+import {
+  getExpenseDraftPublicationLifecycle,
+  getExpensePrivateDraft,
+} from './repository.server'
 
 const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
 
@@ -250,6 +264,174 @@ async function resolveInputMembers(
     // without accepting a missing relationship on a first write.
     allowUnresolvedRelationshipReceiptReplay: Boolean(eventSource),
   })
+}
+
+function unconfirmedExpenseActionError(error: unknown): ExpenseActionResult<never> {
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  if (message.includes('expense_unconfirmed_not_found')) {
+    return { ok: false, error: 'not_found' }
+  }
+  if (
+    message.includes('expense_unconfirmed_draft_conflict')
+    || message.includes('expense_unconfirmed_publication_conflict')
+    || message.includes('expense_unconfirmed_context_conflict')
+    || message.includes('expense_unconfirmed_receipt_conflict')
+    || message.includes('expense_unconfirmed_shared_snapshot_stale')
+    || message.includes('expense_draft_finalized')
+  ) {
+    return { ok: false, error: 'conflict' }
+  }
+  if (
+    message.includes('expense_unconfirmed_confirmation_required')
+    || message.includes('expense_unconfirmed_split_not_ready')
+    || message.includes('expense_unconfirmed_invalid_input')
+  ) {
+    return { ok: false, error: 'invalid_input' }
+  }
+  if (message.includes('not_allowed')) return { ok: false, error: 'not_allowed' }
+  if (message.includes('unavailable')) return { ok: false, error: 'feature_disabled' }
+  return { ok: false, error: 'save_failed' }
+}
+
+export async function refreshExpenseDraftPublicationLifecycle(
+  input: unknown,
+): Promise<ExpenseDraftPublicationLifecycleView> {
+  const { user } = await guardExpenseAccess()
+  const parsed = RefreshExpenseDraftPublicationLifecycleSchema.safeParse(input)
+  if (!parsed.success) return { status: 'unavailable' }
+  return getExpenseDraftPublicationLifecycle(user.id, parsed.data.draft_id)
+}
+
+export async function shareExpenseDraft(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  draftId: string
+  draftVersion: number
+  publicationVersion: number
+  allocationState: 'incomplete' | 'balanced_unconfirmed'
+}>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = ShareExpenseDraftSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc('expense_share_private_draft', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_draft_id: value.draft_id,
+      p_expected_draft_version: value.expected_draft_version,
+      p_expected_publication_version: value.expected_publication_version,
+    })
+    if (error) rpcError(error)
+    const result = parseExpenseShareResult(data)
+    if (
+      !result
+      || result.draftId !== value.draft_id
+      || result.draftVersion !== value.expected_draft_version
+      || result.publicationVersion !== (value.expected_publication_version ?? 0) + 1
+    ) {
+      throw new Error('expense_unconfirmed_result_invalid')
+    }
+    revalidateExpensePaths()
+    return {
+      ok: true,
+      data: {
+        draftId: result.draftId,
+        draftVersion: result.draftVersion,
+        publicationVersion: result.publicationVersion,
+        allocationState: result.allocationState,
+      },
+    }
+  } catch (error) {
+    console.error('[expenses] share draft failed', safeExpenseFailureDiagnostic(error))
+    return unconfirmedExpenseActionError(error)
+  }
+}
+
+export async function unshareExpenseDraft(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  draftId: string
+  draftVersion: number
+  publicationVersion: number
+}>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = UnshareExpenseDraftSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc('expense_unshare_private_draft', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_draft_id: value.draft_id,
+      p_expected_draft_version: value.expected_draft_version,
+      p_expected_publication_version: value.expected_publication_version,
+    })
+    if (error) rpcError(error)
+    const result = parseExpenseUnshareResult(data)
+    if (
+      !result
+      || result.draftId !== value.draft_id
+      || result.draftVersion !== value.expected_draft_version
+      || result.publicationVersion !== value.expected_publication_version + 1
+    ) {
+      throw new Error('expense_unconfirmed_result_invalid')
+    }
+    revalidateExpensePaths()
+    return {
+      ok: true,
+      data: {
+        draftId: result.draftId,
+        draftVersion: result.draftVersion,
+        publicationVersion: result.publicationVersion,
+      },
+    }
+  } catch (error) {
+    console.error('[expenses] unshare draft failed', safeExpenseFailureDiagnostic(error))
+    return unconfirmedExpenseActionError(error)
+  }
+}
+
+export async function finalizeExpenseDraft(
+  input: unknown,
+): Promise<ExpenseActionResult<{ groupId: string; expenseId: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = FinalizeExpenseDraftSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const value = parsed.data
+    // This read is only a best-effort revalidation hint. The SQL finalizer owns
+    // authority and checks durable same-request replay before requiring the
+    // consumed draft, so a lost-response retry must still reach the RPC.
+    const privateDraft = await getExpensePrivateDraft(user.id, value.draft_id)
+      .catch(() => null)
+    const { data, error } = await getAdmin().rpc('expense_finalize_private_draft', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_draft_id: value.draft_id,
+      p_expected_draft_version: value.expected_draft_version,
+      p_expected_publication_version: value.expected_publication_version,
+      p_split_confirmed: value.split_confirmed,
+    })
+    if (error) rpcError(error)
+    const result = parseExpenseFinalizeResult(data)
+    if (!result || result.draftId !== value.draft_id) {
+      throw new Error('expense_unconfirmed_result_invalid')
+    }
+    await deliverExpenseInvitationIds(user.id, result.invitationIds)
+    revalidateExpensePaths(
+      result.groupId,
+      result.expenseId,
+      undefined,
+      privateDraft?.payload.linkToEvent
+        ? privateDraft.payload.eventId ?? undefined
+        : undefined,
+    )
+    return { ok: true, data: { groupId: result.groupId, expenseId: result.expenseId } }
+  } catch (error) {
+    console.error('[expenses] finalize draft failed', safeExpenseFailureDiagnostic(error))
+    return unconfirmedExpenseActionError(error)
+  }
 }
 
 export async function createExpenseGroup(

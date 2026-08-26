@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   expenseForm: vi.fn(),
   getActorName: vi.fn(),
   getDraft: vi.fn(),
+  getPublicationLifecycle: vi.fn(),
   getEventSource: vi.fn(),
   getPayAll: vi.fn(),
   getParticipantOptions: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock('@/components/expenses/ExpenseForm', () => ({
     eventSources?: Array<{ id: string }>
     eventSourcesError?: boolean
     eventSelectionWarning?: boolean
+    publicationLifecycle?: { status: string; draftId?: string } | null
   }) => {
     mocks.expenseForm(props)
     return (
@@ -70,6 +72,7 @@ vi.mock('@/lib/expenses/participants.server', () => ({
   getExpenseParticipantOptions: mocks.getParticipantOptions,
 }))
 vi.mock('@/lib/expenses/repository.server', () => ({
+  getExpenseDraftPublicationLifecycle: mocks.getPublicationLifecycle,
   getExpensePrivateDraft: mocks.getDraft,
   getExpensePayAllView: mocks.getPayAll,
 }))
@@ -158,6 +161,14 @@ beforeEach(() => {
   mocks.guardExpenseAccess.mockResolvedValue({ user: { id: ACTOR_ID, email: 'owner@example.is' } })
   mocks.canUseEventExpenses.mockResolvedValue(true)
   mocks.getDraft.mockResolvedValue(null)
+  mocks.getPublicationLifecycle.mockImplementation(async (_actorId: string, draftId: string) => ({
+    status: 'ready',
+    draftId,
+    draftVersion: 1,
+    sharingState: 'never_shared',
+    expectedPublicationVersion: null,
+    hasUnsharedChanges: false,
+  }))
   mocks.listEventSources.mockResolvedValue([sourceA])
   mocks.getEventSource.mockResolvedValue(sourceA)
   mocks.listEventSourcePresentation.mockResolvedValue([sourceAPresentation])
@@ -183,6 +194,7 @@ describe('event-aware new expense route', () => {
       events: [{ id: EVENT_A, name: 'Sumarferð' }],
     })
     expect(mocks.getDraft).not.toHaveBeenCalled()
+    expect(mocks.getPublicationLifecycle).not.toHaveBeenCalled()
     expect(mocks.listEventSourcePresentation).not.toHaveBeenCalled()
     expect(mocks.getEventSource).not.toHaveBeenCalled()
     expect(mocks.getEventSourcePresentation).not.toHaveBeenCalled()
@@ -330,6 +342,13 @@ describe('event-aware new expense route', () => {
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-draft-event', EVENT_A)
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-draft-guest', 'Anna')
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-warning', 'false')
+    expect(mocks.getPublicationLifecycle).toHaveBeenCalledWith(
+      ACTOR_ID,
+      '50000000-0000-4000-8000-000000000001',
+    )
+    expect(mocks.expenseForm.mock.calls.at(-1)?.[0].publicationLifecycle).toEqual(
+      expect.objectContaining({ status: 'ready', sharingState: 'never_shared' }),
+    )
   })
 
   it('keeps draft resume usable when the bounded list rejects and exact authority resolves', async () => {

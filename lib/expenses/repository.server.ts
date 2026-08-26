@@ -44,6 +44,7 @@ import type {
   ExpenseActivityView,
   ExpenseBalanceView,
   ExpenseDashboardView,
+  ExpenseDashboardSharedDraftSummaryView,
   ExpenseGroupView,
   ExpenseGroupSummaryView,
   ExpenseIdentityProofKind,
@@ -73,6 +74,14 @@ import {
   redactExpenseDraftEventGuestLabels,
   type ExpensePrivateDraftView,
 } from './drafts'
+import {
+  parseExpenseDraftPublicationLifecycle,
+  parseExpenseSharedDraftDetail,
+  parseVisibleSharedExpenseDrafts,
+  type ExpenseDraftPublicationLifecycleView,
+  type ExpenseSharedDraftDetailView,
+  type ExpenseSharedDraftListView,
+} from './unconfirmed-publication'
 
 interface GroupRow {
   id: string
@@ -503,6 +512,8 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
     creatorNames,
   }
 }
+
+const EXPENSE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function parseClaimContext(value: unknown): ExpenseClaimContext {
   const source = record(value)
@@ -1383,6 +1394,144 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
   }
 }
 
+type ExpensePrivateDraftSource = ExpenseDashboardView['privateDrafts']
+
+function parseExpensePrivateDraftSource(
+  data: unknown,
+  error: unknown,
+): ExpensePrivateDraftSource {
+  if (error || data !== null && !Array.isArray(data)) {
+    return { status: 'unavailable', items: [] }
+  }
+  const rows = (data ?? []) as unknown[]
+  if (rows.length > 100) return { status: 'unavailable', items: [] }
+  const items: ExpenseIncompleteDraftSummaryView[] = []
+  for (const source of rows) {
+    const row = record(source)
+    const payload = ExpenseDraftPayloadSchema.safeParse(row?.payload)
+    const draftId = boundedString(row?.draft_id, 36)
+    const contextType = row?.context_type
+    const exactContextType = contextType === 'one_off'
+      || contextType === 'group'
+      || contextType === 'edit'
+      ? contextType
+      : null
+    const groupId = row?.group_id === null ? null : boundedString(row?.group_id, 36)
+    const expenseId = row?.expense_id === null ? null : boundedString(row?.expense_id, 36)
+    const version = Number(row?.draft_version)
+    const savedAt = boundedString(row?.saved_at, 40)
+    const currentStep = row?.current_step
+    const contextExact = exactContextType === 'one_off'
+      ? groupId === null && expenseId === null
+      : exactContextType === 'group'
+        ? Boolean(groupId && EXPENSE_UUID_PATTERN.test(groupId)) && expenseId === null
+        : exactContextType === 'edit'
+          ? Boolean(
+              groupId && EXPENSE_UUID_PATTERN.test(groupId)
+              && expenseId && EXPENSE_UUID_PATTERN.test(expenseId),
+            )
+          : false
+    if (
+      !row
+      || !payload.success
+      || !draftId
+      || !EXPENSE_UUID_PATTERN.test(draftId)
+      || !exactContextType
+      || !contextExact
+      || !Number.isSafeInteger(version)
+      || version < 1
+      || !savedAt
+      || Number.isNaN(Date.parse(savedAt))
+      || !['details', 'split', 'people', 'review'].includes(String(currentStep))
+    ) {
+      return { status: 'unavailable', items: [] }
+    }
+    let totalMinor: number | null = null
+    try {
+      totalMinor = parseExpenseAmountToMinor(payload.data.total, payload.data.currency)
+    } catch {
+      // Blank and partial monetary input is valid private work, not ledger data.
+    }
+    const attention = getExpenseDraftAttention(payload.data)
+    items.push({
+      id: draftId,
+      contextType: exactContextType,
+      groupId,
+      expenseId,
+      title: payload.data.title.trim(),
+      totalMinor,
+      currency: payload.data.currency,
+      differenceMinor: attention?.differenceMinor ?? null,
+      needsAttention: totalMinor === null || Boolean(attention),
+      savedAt,
+    })
+  }
+  return { status: 'ready', items }
+}
+
+export async function getVisibleSharedExpenseDrafts(
+  actorUserId: string,
+): Promise<ExpenseSharedDraftListView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId)) {
+    return { status: 'unavailable', items: [] }
+  }
+  const { data, error } = await getAdmin().rpc('expense_list_visible_shared_drafts', {
+    p_actor_id: actorUserId,
+  })
+  if (error) return { status: 'unavailable', items: [] }
+  return parseVisibleSharedExpenseDrafts(data)
+}
+
+export async function getExpenseSharedDraftDetail(
+  actorUserId: string,
+  publicationId: string,
+): Promise<ExpenseSharedDraftDetailView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(publicationId)) {
+    return { status: 'not_found' }
+  }
+  const { data, error } = await getAdmin().rpc('expense_get_shared_draft_detail', {
+    p_actor_id: actorUserId,
+    p_publication_id: publicationId,
+  })
+  if (error) return { status: 'unavailable' }
+  const detail = parseExpenseSharedDraftDetail(data)
+  if (detail.status !== 'ready') return detail
+  return detail.publicationId === publicationId ? detail : { status: 'unavailable' }
+}
+
+export async function getExpenseDraftPublicationLifecycle(
+  actorUserId: string,
+  draftId: string,
+): Promise<ExpenseDraftPublicationLifecycleView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(draftId)) {
+    return { status: 'unavailable' }
+  }
+  const { data, error } = await getAdmin().rpc(
+    'expense_get_private_draft_publication_lifecycle',
+    { p_actor_id: actorUserId, p_draft_id: draftId },
+  )
+  if (error) return { status: 'unavailable' }
+  const lifecycle = parseExpenseDraftPublicationLifecycle(data)
+  if (!lifecycle || lifecycle.status !== 'ready' || lifecycle.draftId !== draftId) {
+    return { status: 'unavailable' }
+  }
+  if (lifecycle.sharingState !== 'shared') {
+    return { ...lifecycle, hasUnsharedChanges: false }
+  }
+  const shared = await getVisibleSharedExpenseDrafts(actorUserId)
+  if (shared.status !== 'ready') return { status: 'unavailable' }
+  const matches = shared.items.filter((item) => (
+    item.viewerRole === 'author'
+    && item.detailTarget.kind === 'private_draft'
+    && item.detailTarget.draftId === draftId
+    && item.publicationVersion === lifecycle.expectedPublicationVersion
+    && typeof item.hasUnsharedChanges === 'boolean'
+  ))
+  return matches.length === 1
+    ? { ...lifecycle, hasUnsharedChanges: matches[0]!.hasUnsharedChanges }
+    : { status: 'unavailable' }
+}
+
 export async function getExpenseDashboard(
   actorUserId: string,
 ): Promise<ExpenseDashboardView> {
@@ -1392,6 +1541,7 @@ export async function getExpenseDashboard(
     memberInvitationResult,
     draftResult,
     pendingBatchState,
+    sharedDraftResult,
   ] = await Promise.all([
     admin
     .from('expense_group_members')
@@ -1401,6 +1551,7 @@ export async function getExpenseDashboard(
     admin.rpc('expense_get_my_member_invitations', { p_actor_id: actorUserId }),
     admin.rpc('expense_list_my_private_drafts', { p_actor_id: actorUserId }),
     loadPendingExpenseSettlementBatches(actorUserId),
+    admin.rpc('expense_list_visible_shared_drafts', { p_actor_id: actorUserId }),
   ])
   throwOnError(error, 'dashboard membership query')
   throwOnError(memberInvitationResult.error, 'member invitation inbox query')
@@ -1419,33 +1570,64 @@ export async function getExpenseDashboard(
     expiresAt: invitation.expires_at,
     invitedAt: invitation.invited_at,
   }))
-  const incompleteDrafts: ExpenseIncompleteDraftSummaryView[] = draftResult.error
-    ? []
-    : ((draftResult.data ?? []) as Array<Record<string, unknown>>).flatMap((row) => {
-      const payload = ExpenseDraftPayloadSchema.safeParse(row.payload)
-      const contextType = row.context_type
-      const attention = payload.success ? getExpenseDraftAttention(payload.data) : null
-      if (!payload.success
-        || (contextType !== 'one_off' && contextType !== 'group' && contextType !== 'edit')) return []
-      let totalMinor: number
-      try {
-        totalMinor = parseExpenseAmountToMinor(payload.data.total, payload.data.currency)
-      } catch {
-        return []
+  let privateDrafts = parseExpensePrivateDraftSource(draftResult.data, draftResult.error)
+  const visibleSharedDrafts = sharedDraftResult.error
+    ? { status: 'unavailable' as const, items: [] }
+    : parseVisibleSharedExpenseDrafts(sharedDraftResult.data)
+  const privateById = new Map(
+    privateDrafts.status === 'ready'
+      ? privateDrafts.items.map((draft) => [draft.id, draft])
+      : [],
+  )
+  let sharedDrafts: ExpenseDashboardView['sharedDrafts'] = {
+    status: 'unavailable',
+    items: [],
+  }
+  if (visibleSharedDrafts.status === 'ready') {
+    const enriched: ExpenseDashboardSharedDraftSummaryView[] = []
+    let enrichmentFailed = false
+    for (const shared of visibleSharedDrafts.items) {
+      if (shared.viewerRole === 'author') {
+        if (shared.detailTarget.kind !== 'private_draft') {
+          enrichmentFailed = true
+          break
+        }
+        const draft = privateById.get(shared.detailTarget.draftId)
+        if (!draft || draft.contextType === 'edit') {
+          enrichmentFailed = true
+          break
+        }
+        enriched.push({
+          ...shared,
+          authorDraft: {
+            contextType: draft.contextType,
+            groupId: draft.groupId,
+            expenseId: null,
+          },
+        })
+      } else {
+        enriched.push({ ...shared, authorDraft: null })
       }
-      return [{
-        id: String(row.draft_id),
-        contextType,
-        groupId: typeof row.group_id === 'string' ? row.group_id : null,
-        expenseId: typeof row.expense_id === 'string' ? row.expense_id : null,
-        title: payload.data.title.trim(),
-        totalMinor: attention?.totalMinor ?? totalMinor,
-        currency: payload.data.currency,
-        differenceMinor: attention?.differenceMinor ?? null,
-        needsAttention: Boolean(attention),
-        savedAt: String(row.saved_at),
-      }]
-    })
+    }
+    sharedDrafts = enrichmentFailed
+      ? { status: 'unavailable', items: [] }
+      : { status: 'ready', items: enriched }
+  }
+  if (sharedDrafts.status === 'unavailable') {
+    // Without the shared source we cannot safely classify author rows as
+    // private versus live shared. Keep both proposal sections fail-closed.
+    privateDrafts = { status: 'unavailable', items: [] }
+  } else if (privateDrafts.status === 'ready') {
+    const liveAuthorDraftIds = new Set(sharedDrafts.items.flatMap((shared) => (
+      shared.viewerRole === 'author' && shared.detailTarget.kind === 'private_draft'
+        ? [shared.detailTarget.draftId]
+        : []
+    )))
+    privateDrafts = {
+      status: 'ready',
+      items: privateDrafts.items.filter((draft) => !liveAuthorDraftIds.has(draft.id)),
+    }
+  }
   const membershipRows = (data ?? []) as Array<{
     group_id: string
     status: 'active' | 'invited'
@@ -1554,7 +1736,8 @@ export async function getExpenseDashboard(
       .sort((left, right) => left.currency.localeCompare(right.currency)),
     pendingConfirmationCount,
     hasPayAllItems,
-    incompleteDrafts,
+    privateDrafts,
+    sharedDrafts,
   }
 }
 

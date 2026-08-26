@@ -507,6 +507,30 @@ Loading, label eða icon má ekki valda layout shift.
 - Reduced motion skal virt þegar animation er notuð.
 - Heading hierarchy skal fylgja merkingu skjásins.
 
+## Drög að útgjöldum
+
+Nýtt útgjald er vinnuskjal þar til höfundur staðfestir skiptinguna með
+meðvitaðri aðgerð. Notendahugtökin eru aðeins:
+
+`Drög fyrir mig` → `Drög með öðrum` → `Staðfest`
+
+- `Drög fyrir mig` eru höfundar-einkamál og hafa engin áhrif á stöðu, skuldir
+  eða uppgjör.
+- `Deila drögum` birtir örugga tillögu fyrir nákvæmlega heimilaða aðila. Nýrri
+  einkabreytingar breyta ekki því sem aðrir sjá fyrr en `Deila breytingum`
+  tekst.
+- `Hætta að deila` er hlutlaus aðgerð með staðfestingarskrefi. Höfundur heldur
+  áfram að sjá vinnuskjalið.
+- Native checkbox `Þetta er rétt skipting` byrjar alltaf óhakaður, einnig við
+  enduropnun. Breyting á aðilum, greiðendum, heild, gjaldmiðli eða skiptingu
+  hreinsar staðfestinguna.
+- Aðeins `Staðfesta kostnað` stofnar fjárhagsfærslu. Deild drög mega aldrei
+  birtast í stöðu, skuldum, uppgjöri eða öðrum canonical financial panels.
+- Sýna skal aðeins eina sterka primary-aðgerð í einu. Vistun, deiling og
+  staðfesting þurfa skýrt pending-state og læsta controls á meðan beðið er.
+- Technical hugtök eins og publication, generation, snapshot, audience og CAS
+  eiga ekki að sjást í texta viðmótsins.
+
 ## Microcopy
 
 Teskeið-tónn er:
