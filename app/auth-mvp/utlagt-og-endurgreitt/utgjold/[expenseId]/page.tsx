@@ -58,9 +58,15 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
     canUseEventExpenses(user),
     checkFeatureAccess(user.id, user.email!, EXPENSE_FEATURE_KEY),
   ])
-  const eventLinkManagement = canEdit && result.group.kind === 'one_off' && canUseEvents
-    ? await getExpenseEventLinkManagementV2(user.id, result.expense.id).catch(() => null)
-    : null
+  let eventLinkManagement = null
+  let eventLinkManagementUnavailable = false
+  if (canEdit && result.group.kind === 'one_off' && canUseEvents) {
+    try {
+      eventLinkManagement = await getExpenseEventLinkManagementV2(user.id, result.expense.id)
+    } catch {
+      eventLinkManagementUnavailable = true
+    }
+  }
   const managedEvent = eventLinkManagement?.currentEvent ?? null
   const fallbackLinkedEventId = eventLinkManagement === null
     ? await getExpenseLinkedEventId(user.id, result.expense.id).catch(() => null)
@@ -116,6 +122,7 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         isEventContext={isEventContext}
         eventHref={canUseEventUi && linkedEventId ? eventDetailPath(linkedEventId) : null}
         eventLinkManagement={eventLinkManagement}
+        eventLinkManagementUnavailable={eventLinkManagementUnavailable}
         eventIdentityCandidates={eventIdentityCandidates}
       />
     </ExpenseShell>

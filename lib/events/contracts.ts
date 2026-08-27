@@ -1,3 +1,5 @@
+import type { ExpenseCurrency } from '@/lib/expenses/input-money'
+
 export const EVENT_FEATURE_KEY = 'afmaeli-og-vidburdir' as const
 export const EVENTS_PATH = '/auth-mvp/vidburdir' as const
 export const EVENT_HEADING_HASH = '#event-heading' as const
@@ -181,6 +183,30 @@ export interface EventExpenseSourceView {
   }>
 }
 
+/** SQL162 discovery-only Event context. Mutation always revalidates authority. */
+export interface EventExpenseContextDirectoryView {
+  status: 'none' | 'ready' | 'unavailable'
+  events: Array<{
+    id: string
+    name: string
+    rosterRevision: number
+    viewerRole: 'owner' | 'attendee'
+  }>
+}
+
+/** SQL162 discovery-only confirmed Expense candidates for one exact Event. */
+export interface EventAttachableExpenseDirectoryView {
+  status: 'none' | 'ready' | 'unavailable'
+  expenses: Array<{
+    id: string
+    title: string
+    totalMinor: number
+    currency: string
+    incurredOn: string
+    financialVersion: number
+  }>
+}
+
 export interface ExpenseEventLinkManagementView {
   currentEvent: {
     id: string
@@ -304,6 +330,24 @@ export interface EventExpenseActivityV3View {
     amountMinor: number
   }>
 }
+
+/** Visibility-first, non-financial Event projection for private/shared Expense drafts. */
+export type EventExpensePreActiveV1View =
+  | {
+      contractVersion: 1
+      status: 'ready'
+      items: Array<{
+        lifecycleState: 'private_draft' | 'shared_draft'
+        title: string
+        totalMinor: number
+        currency: ExpenseCurrency
+        incurredOn: string
+        allocationState: 'incomplete' | 'balanced_unconfirmed'
+        /** Null for an all-Event viewer without exact draft-detail authority. */
+        detailHref: string | null
+      }>
+    }
+  | { contractVersion: 1; status: 'unavailable'; items: [] }
 
 export const EXPENSE_PAY_ALL_PATH = '/auth-mvp/utlagt-og-endurgreitt/gera-upp'
 

@@ -22,7 +22,7 @@ describe('independent event and expense integration', () => {
     expect(page).toContain('if (canUseEvents)')
     expect(page).toContain('if (canUseEvents && chooserCandidate)')
     expect(page).toContain('eventSources = await listEventExpenseSources(user.id)')
-    expect(page).toContain('eventSources.map(({ id, name }) => ({ id, name }))')
+    expect(page).toContain('contexts.events.map(({ id, name }) => ({ id, name }))')
     expect(page).toContain('<ExpenseEventContextChooser events={chooserEvents} />')
     expect(page.indexOf('<ExpenseEventContextChooser')).toBeLessThan(
       page.indexOf('listLegacyExpenseEventSourcesV2(user.id)'),
@@ -31,7 +31,10 @@ describe('independent event and expense integration', () => {
       page.indexOf('getExpenseActorDisplayName(user.id)'),
     )
     expect(page).toContain('if (eventSources === undefined)')
-    expect(page).toContain('exactEventSource = await getOwnedEventExpenseSource(user.id, exactEventId)')
+    expect(page).toContain('exactPresentation = await getCurrentExpenseEventSourceV3(user.id, exactEventId)')
+    expect(page).not.toContain('getLegacyExpenseEventSourceV2(user.id, exactEventId)')
+    expect(page).toContain('exactEventSource = adaptLegacyExpenseEventSourceV2(exactPresentation)')
+    expect(page).not.toContain('getOwnedEventExpenseSource')
     expect(page).toContain('eventSources = [exactEventSource, ...eventSources]')
     expect(page).toContain('const initialEventSource = !safeDraft && requestedEventId')
     expect(page).toContain('hydrateExpenseDraftEventGuestLabels(')

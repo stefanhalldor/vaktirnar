@@ -16,11 +16,14 @@ import type {
   EventExpenseActivityView,
   EventExpenseActivityV2View,
   EventExpenseActivityV3View,
+  EventExpensePreActiveV1View,
   ExpenseEventLinkManagementView,
   ExpenseEventLinkManagementV2View,
   EventExpensePreviewCurrencyView,
   EventExpensePreviewView,
   EventExpenseSourceView,
+  EventExpenseContextDirectoryView,
+  EventAttachableExpenseDirectoryView,
   EventGuestAttendanceView,
   EventGuestSourceKind,
   EventSummary,
@@ -34,6 +37,7 @@ import type {
   RespondEventGuestAttendanceInvitationInput,
   SaveEventDetailsInput,
 } from './validation'
+import type { LegacyExpenseEventSourceV2 } from './legacy-expense-event-source-v2.contracts'
 
 type JsonRecord = Record<string, unknown>
 
@@ -64,10 +68,15 @@ const currencyCode = z.enum(EXPENSE_CURRENCIES)
 const previewStatus = z.enum(['none_tagged', 'ready', 'unavailable'])
 const expenseActivityStatus = z.enum(['none', 'ready', 'unavailable'])
 const expenseActorPositionState = z.enum(['owes', 'owed', 'zero', 'pending'])
+const expenseDraftAllocationState = z.enum(['incomplete', 'balanced_unconfirmed'])
 const expenseEventVisibility = z.enum(['participants_only', 'all_event'])
 const safeExpenseTitle = z.string().trim().min(1).max(200)
   .refine((value) => !DISALLOWED_CONTROLS.test(value))
 const eventDateValue = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const expenseDraftDate = eventDateValue.refine((value) => {
+  const date = new Date(`${value}T00:00:00.000Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+})
 const eventTimeValue = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(?::00)?$/)
 const eventMultilineValue = (max: number) => z.string().min(1).max(max)
   .refine((value) => !/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value))
@@ -884,6 +893,41 @@ function mapExpenseSource(candidate: unknown): EventExpenseSourceView {
   }
 }
 
+/**
+ * Adapts the strict SQL149 exact-source projection for the authenticated
+ * viewer into the existing Expense form picker contract. Event guest ids are
+ * the authority-bearing identity; `manual_name` is only a privacy-safe UI
+ * compatibility hint and never substitutes for server revalidation.
+ */
+export function adaptLegacyExpenseEventSourceV2(
+  source: LegacyExpenseEventSourceV2,
+): EventExpenseSourceView {
+  const rosterRevision = Number(source.rosterRevision)
+  if (!Number.isSafeInteger(rosterRevision) || rosterRevision < 1) {
+    throw new Error('event_load_failed')
+  }
+  const guests = source.people.flatMap((person) => {
+    if (!person.shared.selectable) return []
+    const displayName = person.viewerPrivate?.alias ?? person.shared.displayName
+    if (!displayName) throw new Error('event_load_failed')
+    return [{
+      id: person.legacyPersonRef,
+      displayName,
+      sourceKind: 'manual_name' as const,
+      ...(person.participantKind === 'organizer'
+        ? { participantKind: 'organizer' as const }
+        : {}),
+    }]
+  })
+  return {
+    id: source.eventId,
+    name: source.name,
+    rosterRevision,
+    viewerRole: source.viewerRole,
+    guests,
+  }
+}
+
 export async function getExpenseLinkedEventId(
   actorUserId: string,
   requestedExpenseId: string,
@@ -947,7 +991,7 @@ export async function getExpenseEventLinkManagement(
       id: parseEventId(requiredString(event, 'event_id')),
       name: parseName(requiredString(event, 'name')),
       rosterRevision: parseRosterRevision(event),
-      viewerRole,
+      viewerRole: viewerRole as 'owner' | 'attendee',
     }
   })
   if (currentEvent && eligibleEvents.length > 0) throw new Error('event_load_failed')
@@ -1038,6 +1082,117 @@ export async function listEventExpenseSources(actorUserId: string): Promise<Even
     throw new Error('event_load_failed')
   }
   return result.events.map(mapExpenseSource)
+}
+
+export async function listEventExpenseContextsV1(
+  actorUserId: string,
+): Promise<EventExpenseContextDirectoryView> {
+  if (!eventId.safeParse(actorUserId).success) {
+    return { status: 'unavailable', events: [] }
+  }
+  const { data, error } = await getAdmin().rpc(
+    'teskeid_event_list_expense_contexts_v1',
+    { p_actor_id: actorUserId },
+  )
+  if (error) return { status: 'unavailable', events: [] }
+  const result = resultRecord(data)
+  if (!result) return { status: 'unavailable', events: [] }
+  exactKeys(result, ['contract_version', 'status', 'events'], 'event_load_failed')
+  const status = result.status
+  if (result.contract_version !== 1
+    || (status !== 'none' && status !== 'ready' && status !== 'unavailable')
+    || !Array.isArray(result.events)
+    || result.events.length > 100
+    || (status === 'none' && result.events.length !== 0)
+    || (status === 'unavailable' && result.events.length !== 0)
+    || (status === 'ready' && result.events.length === 0)) {
+    return { status: 'unavailable', events: [] }
+  }
+  const events = result.events.map((candidate) => {
+    const source = record(candidate)
+    if (!source) throw new Error('event_load_failed')
+    exactKeys(
+      source,
+      ['event_id', 'name', 'roster_revision', 'viewer_role'],
+      'event_load_failed',
+    )
+    const viewerRole = requiredString(source, 'viewer_role')
+    if (viewerRole !== 'owner' && viewerRole !== 'attendee') {
+      throw new Error('event_load_failed')
+    }
+    return {
+      id: parseEventId(requiredString(source, 'event_id')),
+      name: parseName(requiredString(source, 'name')),
+      rosterRevision: parseRosterRevision(source),
+      viewerRole: viewerRole as 'owner' | 'attendee',
+    }
+  })
+  if (new Set(events.map((event) => event.id)).size !== events.length) {
+    return { status: 'unavailable', events: [] }
+  }
+  return { status, events }
+}
+
+export async function listEventAttachableExpensesV1(
+  actorUserId: string,
+  requestedEventId: string,
+  expectedRosterRevision: number,
+): Promise<EventAttachableExpenseDirectoryView> {
+  const actor = eventId.safeParse(actorUserId)
+  const event = eventId.safeParse(requestedEventId)
+  if (!actor.success || !event.success || !Number.isSafeInteger(expectedRosterRevision)
+    || expectedRosterRevision < 1) {
+    return { status: 'unavailable', expenses: [] }
+  }
+  const { data, error } = await getAdmin().rpc(
+    'teskeid_event_list_attachable_expenses_v1',
+    {
+      p_actor_id: actor.data,
+      p_event_id: event.data,
+      p_expected_roster_revision: expectedRosterRevision,
+    },
+  )
+  if (error) return { status: 'unavailable', expenses: [] }
+  const result = resultRecord(data)
+  if (!result) return { status: 'unavailable', expenses: [] }
+  exactKeys(result, ['contract_version', 'status', 'expenses'], 'event_load_failed')
+  const status = result.status
+  if (result.contract_version !== 1
+    || (status !== 'none' && status !== 'ready' && status !== 'unavailable')
+    || !Array.isArray(result.expenses)
+    || result.expenses.length > 100
+    || (status === 'none' && result.expenses.length !== 0)
+    || (status === 'unavailable' && result.expenses.length !== 0)
+    || (status === 'ready' && result.expenses.length === 0)) {
+    return { status: 'unavailable', expenses: [] }
+  }
+  const expenses = result.expenses.map((candidate) => {
+    const source = record(candidate)
+    if (!source) throw new Error('event_load_failed')
+    exactKeys(source, [
+      'expense_id', 'title', 'total_minor', 'currency', 'incurred_on',
+      'financial_version',
+    ], 'event_load_failed')
+    const totalMinor = requiredInteger(source, 'total_minor')
+    const financialVersion = requiredInteger(source, 'financial_version')
+    const currency = currencyCode.safeParse(requiredString(source, 'currency'))
+    const incurredOn = expenseDraftDate.safeParse(requiredString(source, 'incurred_on'))
+    if (totalMinor < 1 || financialVersion < 0 || !currency.success || !incurredOn.success) {
+      throw new Error('event_load_failed')
+    }
+    return {
+      id: parseEventId(requiredString(source, 'expense_id')),
+      title: safeExpenseTitle.parse(requiredString(source, 'title')),
+      totalMinor,
+      currency: currency.data,
+      incurredOn: incurredOn.data,
+      financialVersion,
+    }
+  })
+  if (new Set(expenses.map((expense) => expense.id)).size !== expenses.length) {
+    return { status: 'unavailable', expenses: [] }
+  }
+  return { status, expenses }
 }
 
 export async function getOwnedEventExpenseSource(
@@ -1476,6 +1631,102 @@ export async function getEventExpenseActivityV3(
     throw new Error('event_expense_activity_failed')
   }
   return mapEventExpenseActivityV3(data)
+}
+
+const eventPrivateDraftTargetWireSchema = z.object({
+  kind: z.literal('private_draft'),
+  draft_id: eventId,
+}).strict()
+
+const eventSharedDraftTargetWireSchema = z.object({
+  kind: z.literal('shared_draft'),
+  publication_id: eventId,
+}).strict()
+
+const eventExpensePreActiveBaseWire = {
+  title: safeExpenseTitle,
+  total_minor: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  currency: currencyCode,
+  incurred_on: expenseDraftDate,
+  allocation_state: expenseDraftAllocationState,
+} as const
+
+const eventExpensePreActiveRowWireSchema = z.discriminatedUnion('lifecycle_state', [
+  z.object({
+    lifecycle_state: z.literal('private_draft'),
+    ...eventExpensePreActiveBaseWire,
+    detail_target: eventPrivateDraftTargetWireSchema,
+  }).strict(),
+  z.object({
+    lifecycle_state: z.literal('shared_draft'),
+    ...eventExpensePreActiveBaseWire,
+    detail_target: eventSharedDraftTargetWireSchema.nullable(),
+  }).strict(),
+])
+
+const eventExpensePreActiveWireSchema = z.union([
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('ready'),
+    rows: z.array(eventExpensePreActiveRowWireSchema).min(1).max(100),
+  }).strict(),
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('none'),
+    rows: z.tuple([]),
+  }).strict(),
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('unavailable'),
+    rows: z.tuple([]),
+  }).strict(),
+])
+
+function mapEventExpensePreActiveV1(value: unknown): EventExpensePreActiveV1View {
+  const parsed = eventExpensePreActiveWireSchema.safeParse(value)
+  if (!parsed.success) throw new Error('event_expense_pre_active_failed')
+  if (parsed.data.status === 'unavailable') {
+    return { contractVersion: 1, status: 'unavailable', items: [] }
+  }
+  if (parsed.data.status === 'none') {
+    return { contractVersion: 1, status: 'ready', items: [] }
+  }
+  return {
+    contractVersion: 1,
+    status: 'ready',
+    items: parsed.data.rows.map((row) => ({
+      lifecycleState: row.lifecycle_state,
+      title: row.title,
+      totalMinor: row.total_minor,
+      currency: row.currency,
+      incurredOn: row.incurred_on,
+      allocationState: row.allocation_state,
+      detailHref: row.detail_target === null
+        ? null
+        : row.detail_target.kind === 'private_draft'
+          ? `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${encodeURIComponent(row.detail_target.draft_id)}`
+          : `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.detail_target.publication_id)}`,
+    })),
+  }
+}
+
+export async function getEventExpensePreActiveV1(
+  actorUserId: string,
+  requestedEventId: string,
+): Promise<EventExpensePreActiveV1View | null> {
+  const parsedActorId = eventId.safeParse(actorUserId)
+  const parsedEventId = eventId.safeParse(requestedEventId)
+  if (!parsedActorId.success || !parsedEventId.success) return null
+  const { data, error } = await getAdmin().rpc('teskeid_event_get_expense_pre_active_v1', {
+    p_actor_id: parsedActorId.data,
+    p_event_id: parsedEventId.data,
+  })
+  if (error) {
+    const message = `${error.message ?? ''} ${error.code ?? ''}`.toLowerCase()
+    if (message.includes('not_found') || message.includes('not_allowed')) return null
+    throw new Error('event_expense_pre_active_failed')
+  }
+  return mapEventExpensePreActiveV1(data)
 }
 
 export async function getExpensePayAllEventLabels(

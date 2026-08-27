@@ -28,6 +28,8 @@ vi.mock('next-intl', () => ({
     if (short === 'expense.openEvent') return 'Opna viðburð'
     if (short === 'expense.linkedEventUnavailable') return 'Tengdur við viðburð'
     if (short === 'expense.eventLinkUpdated') return 'Tengingin við viðburðinn var uppfærð.'
+    if (short === 'expense.eventLinkUnavailable') return 'Ekki tókst að sækja viðburðatenginguna núna.'
+    if (short === 'expense.retryEventLink') return 'Reyna aftur'
     if (short === 'expense.chooseEvent') return 'Veldu viðburð'
     if (short === 'expense.confirmLinkEvent') return 'Tengja kostnað'
     if (short === 'expense.confirmDetachEvent') return 'Aftengja viðburð'
@@ -86,6 +88,21 @@ beforeEach(() => {
 })
 
 describe('ExpenseEventLinkControl', () => {
+  it('shows a safe retry state when the authoritative management source is unavailable', () => {
+    render(<ExpenseEventLinkControl
+      expenseId={expenseId}
+      financialVersion={7}
+      eventHref={null}
+      management={null}
+      managementUnavailable
+    />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Ekki tókst að sækja viðburðatenginguna núna.')
+    fireEvent.click(screen.getByRole('button', { name: 'Reyna aftur' }))
+    expect(mocks.refresh).toHaveBeenCalledTimes(1)
+    expect(mocks.attach).not.toHaveBeenCalled()
+  })
+
   it('offers only eligible Events and binds attach to the current versions', async () => {
     render(<ExpenseEventLinkControl
       expenseId={expenseId}

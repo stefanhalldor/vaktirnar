@@ -27,11 +27,13 @@ export function ExpenseEventLinkControl({
   expenseId,
   financialVersion,
   management,
+  managementUnavailable = false,
   eventHref,
 }: {
   expenseId: string
   financialVersion: number
   management: ExpenseEventLinkManagementV2View | null
+  managementUnavailable?: boolean
   eventHref: string | null
 }) {
   const t = useExpenseTranslations()
@@ -202,7 +204,7 @@ export function ExpenseEventLinkControl({
     })
   }
 
-  if (!currentEvent && !openHref && (!management || management.eligibleEvents.length === 0)) {
+  if (!managementUnavailable && !currentEvent && !openHref && (!management || management.eligibleEvents.length === 0)) {
     return null
   }
 
@@ -213,6 +215,19 @@ export function ExpenseEventLinkControl({
       className="space-y-3 border-y border-border py-5"
     >
       {status ? <p role="status" className="text-sm text-muted-foreground">{status}</p> : null}
+      {managementUnavailable ? (
+        <div role="alert" className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-4 text-sm text-amber-950">
+          <p>{t('expense.eventLinkUnavailable')}</p>
+          <button
+            type="button"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-amber-500 px-4 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            disabled={isBusy}
+            onClick={refresh}
+          >
+            {t('expense.retryEventLink')}
+          </button>
+        </div>
+      ) : null}
       <div>
         <h2 id="expense-event-link-title" className="text-sm font-semibold">
           {t('expense.eventLinkTitle')}

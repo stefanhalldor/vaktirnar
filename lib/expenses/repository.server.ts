@@ -76,9 +76,13 @@ import {
 } from './drafts'
 import {
   parseExpenseDraftPublicationLifecycle,
+  parseExpenseDraftEventRelationResult,
   parseExpenseSharedDraftDetail,
+  parseGroupSharedExpenseDrafts,
   parseVisibleSharedExpenseDrafts,
+  type ExpenseContextDraftListView,
   type ExpenseDraftPublicationLifecycleView,
+  type ExpenseDraftEventRelationResultView,
   type ExpenseSharedDraftDetailView,
   type ExpenseSharedDraftListView,
 } from './unconfirmed-publication'
@@ -1482,6 +1486,21 @@ export async function getVisibleSharedExpenseDrafts(
   return parseVisibleSharedExpenseDrafts(data)
 }
 
+export async function getGroupSharedExpenseDrafts(
+  actorUserId: string,
+  groupId: string,
+): Promise<ExpenseContextDraftListView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(groupId)) {
+    return { status: 'unavailable', items: [] }
+  }
+  const { data, error } = await getAdmin().rpc('expense_list_group_shared_drafts', {
+    p_actor_id: actorUserId,
+    p_group_id: groupId,
+  })
+  if (error) return { status: 'unavailable', items: [] }
+  return parseGroupSharedExpenseDrafts(data)
+}
+
 export async function getExpenseSharedDraftDetail(
   actorUserId: string,
   publicationId: string,
@@ -1530,6 +1549,50 @@ export async function getExpenseDraftPublicationLifecycle(
   return matches.length === 1
     ? { ...lifecycle, hasUnsharedChanges: matches[0]!.hasUnsharedChanges }
     : { status: 'unavailable' }
+}
+
+export async function setExpenseDraftEventRelationV1(
+  actorUserId: string,
+  input: {
+    requestId: string
+    draftId: string
+    expectedDraftVersion: number
+    expectedPublicationVersion: number | null
+    expectedPublicationIsLive: boolean | null
+    expectedEventId: string | null
+    expectedEventRosterRevision: number | null
+    eventId: string | null
+    eventRosterRevision: number | null
+  },
+): Promise<ExpenseDraftEventRelationResultView> {
+  const { data, error } = await getAdmin().rpc(
+    'expense_set_private_draft_event_relation_v1',
+    {
+      p_actor_id: actorUserId,
+      p_request_id: input.requestId,
+      p_draft_id: input.draftId,
+      p_expected_draft_version: input.expectedDraftVersion,
+      p_expected_publication_version: input.expectedPublicationVersion,
+      p_expected_publication_is_live: input.expectedPublicationIsLive,
+      p_expected_event_id: input.expectedEventId,
+      p_expected_event_roster_revision: input.expectedEventRosterRevision,
+      p_new_event_id: input.eventId,
+      p_new_event_roster_revision: input.eventRosterRevision,
+    },
+  )
+  throwOnError(error, 'expense draft Event relation mutation')
+  const parsed = parseExpenseDraftEventRelationResult(data)
+  if (!parsed
+    || parsed.draftId !== input.draftId
+    || parsed.previousDraftVersion !== input.expectedDraftVersion
+    || parsed.previousPublicationVersion !== input.expectedPublicationVersion
+    || parsed.previousEventId !== input.expectedEventId
+    || parsed.previousEventRosterRevision !== input.expectedEventRosterRevision
+    || parsed.eventId !== input.eventId
+    || parsed.eventRosterRevision !== input.eventRosterRevision) {
+    throw new Error('expense_draft_event_result_invalid')
+  }
+  return parsed
 }
 
 export async function getExpenseDashboard(

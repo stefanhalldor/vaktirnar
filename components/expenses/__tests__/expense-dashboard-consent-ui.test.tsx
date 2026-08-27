@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ExpenseDashboardView,
@@ -41,12 +41,17 @@ const translations: Record<string, string> = {
   'dashboard.noPaymentProfile': 'Engin greiðsluleið hefur verið skráð.',
   'dashboard.entries': 'Færslur',
   'dashboard.viewAriaLabel': 'Veldu hvaða UL-færslur sjást',
-  'dashboard.views.active': 'Virkt',
   'dashboard.views.all': 'Allt',
+  'dashboard.views.active': 'Virkt',
+  'dashboard.views.settled': 'Uppgert',
+  'dashboard.views.cancelled': 'Fellt niður',
   'dashboard.filterPeople': 'Mótaðilar',
   'dashboard.filterCircles': 'Tengslahringir',
   'dashboard.clearFilters': 'Hreinsa síur',
+  'dashboard.noAll': 'Engar staðfestar færslur.',
   'dashboard.noActive': 'Engar virkar færslur.',
+  'dashboard.noSettled': 'Engar uppgerðar færslur.',
+  'dashboard.noCancelled': 'Engar niðurfelldar færslur.',
   'dashboard.noFilterResults': 'Engar færslur passa við síurnar.',
   'dashboard.privateDrafts': 'Drög fyrir mig',
   'dashboard.privateDraftsHelper': 'Aðeins þú sérð þessi drög. Þau hafa ekki áhrif á stöður eða uppgjör.',
@@ -208,12 +213,24 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
     expect(screen.queryByRole('link', { name: 'Gera allt upp' })).not.toBeInTheDocument()
   })
 
-  it('shows Active and All dashboard views without the expense step navigation', async () => {
+  it('shows the four accessible presentation controls with Active selected by default', async () => {
     render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile() }))
 
     expect(screen.queryByRole('navigation', { name: 'Skref við skráningu útgjalds' })).not.toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Virkt' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'Allt' })).toBeInTheDocument()
+    const lifecycleGroup = screen.getByRole('group', { name: 'Veldu hvaða UL-færslur sjást' })
+    expect(lifecycleGroup).toHaveClass('grid-cols-2')
+    expect(screen.getByRole('button', { name: 'Allt' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Virkt' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Virkt' })).toHaveAttribute('type', 'button')
+    expect(screen.getByRole('button', { name: 'Virkt' })).toHaveClass('min-h-11', 'focus-visible:ring-2')
+    expect(screen.getByRole('button', { name: 'Uppgert' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Fellt niður' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(lifecycleGroup).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Allt',
+      'Virkt',
+      'Uppgert',
+      'Fellt niður',
+    ])
     expect(screen.queryByRole('link', { name: /Tengslahringir/ })).not.toBeInTheDocument()
   })
 
@@ -427,8 +444,18 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
     expect(screen.getByText(/Þú átt eftir að greiða 12\.500/)).toBeInTheDocument()
   })
 
-  it('filters Active by the signed-in user state and marks cancelled history in All', async () => {
-    const globallyOpenButPersonallySettled = groupSummary({
+  it('partitions every confirmed context exactly once by actor-relative lifecycle', async () => {
+    const activeBalance = groupSummary({
+      id: 'active-balance',
+      name: 'Opin staða',
+    })
+    const activePending = groupSummary({
+      id: 'active-pending',
+      name: 'Bíður staðfestingar',
+      selfBalances: [],
+      pendingConfirmationCount: 1,
+    })
+    const settled = groupSummary({
       id: 'personally-settled',
       name: 'Uppgert fyrir mig',
       status: 'active',
@@ -439,27 +466,223 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
       id: 'cancelled-one-off',
       kind: 'one_off',
       name: 'Martine 30 ára',
-      selfBalances: [],
+      selfBalances: [{
+        memberId: 'stale-self',
+        displayName: 'Ég',
+        currency: 'ISK',
+        amountMinor: -5_000,
+        isSelf: true,
+      }],
+      pendingConfirmationCount: 2,
       cancelled: true,
+    })
+    const noConfirmedExpense = groupSummary({
+      id: 'no-confirmed-expense',
+      name: 'Tómt samhengi',
+      expenseCount: 0,
+      selfBalances: [],
+      pendingConfirmationCount: 0,
     })
     render(await ExpenseDashboard({
       dashboard: dashboard({
-        groups: [groupSummary()],
-        oneOffs: [globallyOpenButPersonallySettled, cancelled],
+        groups: [activeBalance, activePending, settled, noConfirmedExpense],
+        oneOffs: [cancelled],
       }),
       paymentProfile: emptyPaymentProfile(),
     }))
 
-    expect(screen.getByText('Sumarferð')).toBeInTheDocument()
+    expect(screen.getByText('Opin staða')).toBeInTheDocument()
+    expect(screen.getByText('Bíður staðfestingar')).toBeInTheDocument()
     expect(screen.queryByText('Uppgert fyrir mig')).not.toBeInTheDocument()
     expect(screen.queryByText('Martine 30 ára')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tómt samhengi')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Allt' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Allt' }))
 
+    expect(screen.getByText('Opin staða')).toBeInTheDocument()
+    expect(screen.getByText('Bíður staðfestingar')).toBeInTheDocument()
     expect(screen.getByText('Uppgert fyrir mig')).toBeInTheDocument()
     expect(screen.getByText('Martine 30 ára')).toBeInTheDocument()
-    expect(screen.getByText('Fellt niður')).toBeInTheDocument()
-    expect(screen.getByText('Uppgert')).toBeInTheDocument()
+    expect(screen.queryByText('Tómt samhengi')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Uppgert' }))
+
+    expect(screen.getByText('Uppgert fyrir mig')).toBeInTheDocument()
+    expect(screen.queryByText('Opin staða')).not.toBeInTheDocument()
+    expect(screen.queryByText('Bíður staðfestingar')).not.toBeInTheDocument()
+    expect(screen.queryByText('Martine 30 ára')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tómt samhengi')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fellt niður' }))
+
+    expect(screen.getByText('Martine 30 ára')).toBeInTheDocument()
+    expect(screen.queryByText('Opin staða')).not.toBeInTheDocument()
+    expect(screen.queryByText('Bíður staðfestingar')).not.toBeInTheDocument()
+    expect(screen.queryByText('Uppgert fyrir mig')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tómt samhengi')).not.toBeInTheDocument()
+  })
+
+  it('derives filters from the lifecycle base and preserves only valid selections on view changes', async () => {
+    const matchingContext = {
+      counterparties: [
+        { key: 'anna', label: 'Anna' },
+        { key: 'bjarni', label: 'Bjarni' },
+      ],
+      relationshipCircles: [{ id: 'circle-a', name: 'Fjölskylda' }],
+    }
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [
+          groupSummary({ id: 'active-match', name: 'Virkt passar', ...matchingContext }),
+          groupSummary({
+            id: 'active-missing-person',
+            name: 'Virkt vantar Bjarna',
+            counterparties: [{ key: 'anna', label: 'Anna' }],
+            relationshipCircles: [{ id: 'circle-b', name: 'Vinir' }],
+          }),
+          groupSummary({
+            id: 'settled-match',
+            name: 'Uppgert passar',
+            selfBalances: [],
+            pendingConfirmationCount: 0,
+            counterparties: [{ key: 'anna', label: 'Anna' }],
+            relationshipCircles: [{ id: 'circle-a', name: 'Fjölskylda' }],
+          }),
+          groupSummary({
+            id: 'cancelled-match',
+            name: 'Fellt niður passar',
+            cancelled: true,
+            ...matchingContext,
+          }),
+        ],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Anna' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Bjarni' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Fjölskylda' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vinir' }))
+
+    expect(screen.getByText('Virkt passar')).toBeInTheDocument()
+    expect(screen.queryByText('Virkt vantar Bjarna')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Uppgert' }))
+    expect(screen.getByText('Uppgert passar')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Fjölskylda' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: 'Bjarni' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Vinir' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Virkt' }))
+    expect(screen.getByText('Virkt passar')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Fjölskylda' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Bjarni' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Vinir' })).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allt' }))
+    expect(screen.getByRole('button', { name: 'Bjarni' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Vinir' })).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hreinsa síur' }))
+    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Fjölskylda' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('prunes stale people and circle state after refresh so options cannot resurrect selected', async () => {
+    const activeItems = (includeTransient: boolean) => [
+      groupSummary({
+        id: 'refresh-match',
+        name: 'Refresh passar',
+        counterparties: [
+          { key: 'anna', label: 'Anna' },
+          ...(includeTransient ? [{ key: 'biggi', label: 'Biggi' }] : []),
+        ],
+        relationshipCircles: [
+          { id: 'circle-stable', name: 'Varandi hringur' },
+          ...(includeTransient ? [{ id: 'circle-transient', name: 'Tímabundinn hringur' }] : []),
+        ],
+      }),
+    ]
+    const renderDashboard = (includeTransient: boolean) => ExpenseDashboard({
+      dashboard: dashboard({ groups: activeItems(includeTransient) }),
+      paymentProfile: emptyPaymentProfile(),
+    })
+    const { rerender } = render(await renderDashboard(true))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Anna' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Biggi' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Varandi hringur' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tímabundinn hringur' }))
+    expect(screen.getByText('Refresh passar')).toBeInTheDocument()
+
+    rerender(await renderDashboard(false))
+
+    expect(screen.queryByRole('button', { name: 'Biggi' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Tímabundinn hringur' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Varandi hringur' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Hreinsa síur' })).toBeInTheDocument()
+    expect(screen.getByText('Refresh passar')).toBeInTheDocument()
+    expect(screen.queryByText('Engar færslur passa við síurnar.')).not.toBeInTheDocument()
+
+    rerender(await renderDashboard(true))
+
+    expect(screen.getByRole('button', { name: 'Biggi' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Tímabundinn hringur' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Varandi hringur' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Refresh passar')).toBeInTheDocument()
+  })
+
+  it('distinguishes lifecycle empty states from filter-empty results', async () => {
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [
+          groupSummary({
+            id: 'active-anna',
+            name: 'Virkt með Önnu',
+            counterparties: [{ key: 'anna', label: 'Anna' }],
+          }),
+          groupSummary({
+            id: 'active-bjarni',
+            name: 'Virkt með Bjarna',
+            counterparties: [{ key: 'bjarni', label: 'Bjarni' }],
+          }),
+          groupSummary({
+            id: 'settled-bjarni',
+            name: 'Uppgert með Bjarna',
+            selfBalances: [],
+            pendingConfirmationCount: 0,
+            counterparties: [{ key: 'bjarni', label: 'Bjarni' }],
+          }),
+        ],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Anna' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Bjarni' }))
+    expect(screen.getByText('Engar færslur passa við síurnar.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hreinsa síur' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Fellt niður' }))
+    expect(screen.getByText('Engar niðurfelldar færslur.')).toBeInTheDocument()
+  })
+
+  it('uses the confirmed-union empty state when Allt has no classified rows', async () => {
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [groupSummary({ expenseCount: 0 })],
+        totals: [],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allt' }))
+    expect(screen.getByText('Engar staðfestar færslur.')).toBeInTheDocument()
+    expect(screen.queryByText('Engar færslur passa við síurnar.')).not.toBeInTheDocument()
   })
 
   it('shows an invitation as a consent decision without a pre-acceptance group link', async () => {

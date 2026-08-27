@@ -1,17 +1,24 @@
 import { notFound, redirect } from 'next/navigation'
+import { getLocale } from 'next-intl/server'
 import { ExpenseGroupDetail } from '@/components/expenses/ExpenseGroupDetail'
+import { ExpenseContextDraftList } from '@/components/expenses/ExpenseContextDraftList'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
-import { getExpenseGroupView } from '@/lib/expenses/repository.server'
+import { getExpenseGroupView, getGroupSharedExpenseDrafts } from '@/lib/expenses/repository.server'
 import { canonicalOneOffExpenseHref } from '@/lib/expenses/flow'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { isExpenseEventContext } from '@/lib/events/repository.server'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 
 export default async function ExpenseGroupPage({ params }: { params: Promise<{ groupId: string }> }) {
-  const [{ groupId }, { user }, t] = await Promise.all([params, guardExpenseAccess(), getExpenseTranslations()])
+  const [{ groupId }, { user }, t, locale] = await Promise.all([
+    params,
+    guardExpenseAccess(),
+    getExpenseTranslations(),
+    getLocale(),
+  ])
   const group = await getExpenseGroupView(user.id, groupId, {
     includeCurrentPaymentInstructions: true,
   })
@@ -34,11 +41,32 @@ export default async function ExpenseGroupPage({ params }: { params: Promise<{ g
     user.email ?? '',
     'afmaeli-og-vidburdir',
   )
+  const contextDrafts = !isEventContext && group.kind === 'group'
+    ? await getGroupSharedExpenseDrafts(user.id, group.id)
+      .catch(() => ({ status: 'unavailable' as const, items: [] as [] }))
+    : null
 
   let participantOptions: ExpenseParticipantOption[] = []
   let participantOptionsError = false
   if (!isEventContext && group.kind === 'group' && group.status === 'active' && group.canManage) {
     try { participantOptions = await getExpenseParticipantOptions(user.id) } catch { participantOptionsError = true }
   }
-  return <ExpenseShell title={`${group.emoji ?? ''} ${group.name}`.trim()} homeLabel={t('homeLabel')} backHref={canUseEventUi ? `/auth-mvp/vidburdir/${group.id}` : '/auth-mvp/utlagt-og-endurgreitt'} backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt"><ExpenseGroupDetail group={group} initialDate={new Date().toISOString().slice(0, 10)} participantOptions={participantOptions} participantOptionsError={participantOptionsError} isEventContext={isEventContext} /></ExpenseShell>
+  return (
+    <ExpenseShell
+      title={`${group.emoji ?? ''} ${group.name}`.trim()}
+      homeLabel={t('homeLabel')}
+      backHref={canUseEventUi ? `/auth-mvp/vidburdir/${group.id}` : '/auth-mvp/utlagt-og-endurgreitt'}
+      backLabel={t('back')}
+      closedTestingFeature="utlagt-og-endurgreitt"
+    >
+      <ExpenseGroupDetail
+        group={group}
+        initialDate={new Date().toISOString().slice(0, 10)}
+        participantOptions={participantOptions}
+        participantOptionsError={participantOptionsError}
+        isEventContext={isEventContext}
+      />
+      {contextDrafts ? <ExpenseContextDraftList view={contextDrafts} locale={locale} /> : null}
+    </ExpenseShell>
+  )
 }

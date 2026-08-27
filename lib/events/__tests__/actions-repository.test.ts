@@ -20,11 +20,13 @@ vi.mock('@/lib/events/guard', () => ({ guardEventAccess: mockGuardEventAccess })
 import { createEvent, saveEventDetails as saveDetailsAction, saveEventRoster } from '@/lib/events/actions'
 import {
   createEventContext,
+  adaptLegacyExpenseEventSourceV2,
   getEventAttendeeContext,
   getEventContext,
   getEventExpenseActivity,
   getEventExpenseActivityV2,
   getEventExpenseActivityV3,
+  getEventExpensePreActiveV1,
   getEventExpensePreview,
   getEventDetails,
   getEventGuestAttendancePreview,
@@ -35,6 +37,8 @@ import {
   isExpenseEventContext,
   listEventDashboard,
   listEventExpenseSources,
+  listEventExpenseContextsV1,
+  listEventAttachableExpensesV1,
   listEvents,
   replaceEventRoster,
   reserveEventGuestAttendanceDelivery,
@@ -760,6 +764,127 @@ describe('attendance dashboard and attendee-safe projections', () => {
 })
 
 describe('owner-safe financial event projections', () => {
+  it('adapts one strict attendee source to a privacy-safe exact form source', () => {
+    expect(adaptLegacyExpenseEventSourceV2({
+      eventId: EVENT_ID,
+      name: 'Kvisskvöld',
+      rosterRevision: '2',
+      viewerRole: 'attendee',
+      people: [{
+        legacyPersonRef: GUEST_ID,
+        participantKind: 'guest',
+        position: 0,
+        shared: {
+          accessState: 'active',
+          labelState: 'resolved',
+          displayName: 'Anna',
+          selectable: true,
+          disabledReason: null,
+        },
+        viewerPrivate: {
+          kind: 'relationship',
+          alias: 'Anna vinkona',
+          email: 'private@example.is',
+          builtInTags: [],
+          customLabels: [],
+          hiddenCustomLabelCount: 0,
+          note: null,
+        },
+      }],
+    })).toEqual({
+      id: EVENT_ID,
+      name: 'Kvisskvöld',
+      rosterRevision: 2,
+      viewerRole: 'attendee',
+      guests: [{
+        id: GUEST_ID,
+        displayName: 'Anna vinkona',
+        sourceKind: 'manual_name',
+      }],
+    })
+  })
+
+  it('maps strict SQL162 discovery projections without private identity data', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        events: [{
+          event_id: EVENT_ID,
+          name: 'Kvisskvöld',
+          roster_revision: 2,
+          viewer_role: 'attendee',
+        }],
+      },
+      error: null,
+    })
+    await expect(listEventExpenseContextsV1(ACTOR_ID)).resolves.toEqual({
+      status: 'ready',
+      events: [{
+        id: EVENT_ID,
+        name: 'Kvisskvöld',
+        rosterRevision: 2,
+        viewerRole: 'attendee',
+      }],
+    })
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        expenses: [{
+          expense_id: PARTY_A,
+          title: 'Rúta',
+          total_minor: 12_500,
+          currency: 'ISK',
+          incurred_on: '2026-08-27',
+          financial_version: 4,
+        }],
+      },
+      error: null,
+    })
+    await expect(listEventAttachableExpensesV1(ACTOR_ID, EVENT_ID, 2)).resolves.toEqual({
+      status: 'ready',
+      expenses: [{
+        id: PARTY_A,
+        title: 'Rúta',
+        totalMinor: 12_500,
+        currency: 'ISK',
+        incurredOn: '2026-08-27',
+        financialVersion: 4,
+      }],
+    })
+    expect(mockRpc).toHaveBeenLastCalledWith('teskeid_event_list_attachable_expenses_v1', {
+      p_actor_id: ACTOR_ID,
+      p_event_id: EVENT_ID,
+      p_expected_roster_revision: 2,
+    })
+  })
+
+  it('fails SQL162 discovery closed on extra fields or source errors', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        events: [{
+          event_id: EVENT_ID,
+          name: 'Kvisskvöld',
+          roster_revision: 2,
+          viewer_role: 'owner',
+          email: 'private@example.is',
+        }],
+      },
+      error: null,
+    })
+    await expect(listEventExpenseContextsV1(ACTOR_ID)).rejects.toThrow('event_load_failed')
+
+    mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'offline' } })
+    await expect(listEventAttachableExpensesV1(ACTOR_ID, EVENT_ID, 2)).resolves.toEqual({
+      status: 'unavailable',
+      expenses: [],
+    })
+  })
+
   it('maps picker sources without emails or linked identities', async () => {
     mockRpc.mockResolvedValue({
       data: {
@@ -1277,6 +1402,172 @@ describe('owner-safe financial event projections', () => {
     })
     await expect(getEventExpenseActivityV3(ACTOR_ID, EVENT_ID))
       .rejects.toThrow('event_expense_activity_failed')
+  })
+
+  it('maps exact Event private, audience and static pre-active rows to local targets', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        rows: [{
+          lifecycle_state: 'private_draft',
+          title: 'Einkadrög',
+          total_minor: 10_000,
+          currency: 'ISK',
+          incurred_on: '2026-08-26',
+          allocation_state: 'incomplete',
+          detail_target: { kind: 'private_draft', draft_id: PARTY_A },
+        }, {
+          lifecycle_state: 'shared_draft',
+          title: 'Deild drög',
+          total_minor: 20_000,
+          currency: 'ISK',
+          incurred_on: '2026-08-25',
+          allocation_state: 'balanced_unconfirmed',
+          detail_target: { kind: 'shared_draft', publication_id: PARTY_B },
+        }, {
+          lifecycle_state: 'shared_draft',
+          title: 'Allir á viðburði',
+          total_minor: 30_000,
+          currency: 'EUR',
+          incurred_on: '2026-08-24',
+          allocation_state: 'balanced_unconfirmed',
+          detail_target: null,
+        }],
+      },
+      error: null,
+    })
+
+    await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID)).resolves.toEqual({
+      contractVersion: 1,
+      status: 'ready',
+      items: [{
+        lifecycleState: 'private_draft',
+        title: 'Einkadrög',
+        totalMinor: 10_000,
+        currency: 'ISK',
+        incurredOn: '2026-08-26',
+        allocationState: 'incomplete',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${PARTY_A}`,
+      }, {
+        lifecycleState: 'shared_draft',
+        title: 'Deild drög',
+        totalMinor: 20_000,
+        currency: 'ISK',
+        incurredOn: '2026-08-25',
+        allocationState: 'balanced_unconfirmed',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${PARTY_B}`,
+      }, {
+        lifecycleState: 'shared_draft',
+        title: 'Allir á viðburði',
+        totalMinor: 30_000,
+        currency: 'EUR',
+        incurredOn: '2026-08-24',
+        allocationState: 'balanced_unconfirmed',
+        detailHref: null,
+      }],
+    })
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_pre_active_v1', {
+      p_actor_id: ACTOR_ID,
+      p_event_id: EVENT_ID,
+    })
+  })
+
+  it.each([
+    ['extra row field', { private_payload: true }],
+    ['raw target', { detail_target: `/private/${PARTY_A}` }],
+    ['extra target field', {
+      detail_target: { kind: 'shared_draft', publication_id: PARTY_B, href: '/private' },
+    }],
+    ['wrong private target', {
+      lifecycle_state: 'private_draft',
+      detail_target: { kind: 'shared_draft', publication_id: PARTY_B },
+    }],
+    ['invalid calendar date', { incurred_on: '2026-02-30' }],
+    ['invalid amount', { total_minor: 0 }],
+  ])('fails the complete visible Event pre-active payload closed: %s', async (_label, drift) => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        rows: [{
+          lifecycle_state: 'shared_draft',
+          title: 'Deild drög',
+          total_minor: 20_000,
+          currency: 'ISK',
+          incurred_on: '2026-08-25',
+          allocation_state: 'balanced_unconfirmed',
+          detail_target: { kind: 'shared_draft', publication_id: PARTY_B },
+        }, {
+          lifecycle_state: 'shared_draft',
+          title: 'Brotið row',
+          total_minor: 10_000,
+          currency: 'ISK',
+          incurred_on: '2026-08-26',
+          allocation_state: 'incomplete',
+          detail_target: null,
+          ...drift,
+        }],
+      },
+      error: null,
+    })
+
+    await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_pre_active_failed')
+  })
+
+  it('requires exact none/unavailable shapes and fails authority/service errors safely', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { contract_version: 1, status: 'none', rows: [] }, error: null,
+    })
+    await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID)).resolves.toEqual({
+      contractVersion: 1, status: 'ready', items: [],
+    })
+
+    mockRpc.mockResolvedValueOnce({
+      data: { contract_version: 1, status: 'unavailable', rows: [] }, error: null,
+    })
+    await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID)).resolves.toEqual({
+      contractVersion: 1, status: 'unavailable', items: [],
+    })
+
+    mockRpc.mockResolvedValueOnce({
+      data: null, error: { message: 'teskeid_event_not_allowed', code: 'P0001' },
+    })
+    await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID)).resolves.toBeNull()
+
+    mockRpc.mockResolvedValueOnce({
+      data: null, error: { message: 'private service failure', code: 'XX000' },
+    })
+    await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID))
+      .rejects.toThrow('event_expense_pre_active_failed')
+
+    await expect(getEventExpensePreActiveV1(ACTOR_ID, 'not-an-event')).resolves.toBeNull()
+  })
+
+  it('rejects invalid Event pre-active status shapes and the 100-row overflow', async () => {
+    const row = (index: number) => ({
+      lifecycle_state: 'shared_draft',
+      title: `Drög ${index}`,
+      total_minor: 1_000,
+      currency: 'ISK',
+      incurred_on: '2026-08-25',
+      allocation_state: 'incomplete',
+      detail_target: null,
+    })
+    for (const data of [{
+      contract_version: 1, status: 'ready', rows: [],
+    }, {
+      contract_version: 1, status: 'none', rows: [row(0)],
+    }, {
+      contract_version: 1,
+      status: 'ready',
+      rows: Array.from({ length: 101 }, (_, index) => row(index)),
+    }]) {
+      mockRpc.mockResolvedValueOnce({ data, error: null })
+      await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID))
+        .rejects.toThrow('event_expense_pre_active_failed')
+    }
   })
 
   it('maps only the versioned Event link-management fields', async () => {

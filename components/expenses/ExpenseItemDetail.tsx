@@ -35,6 +35,7 @@ export async function ExpenseItemDetail({
   isEventContext = false,
   eventHref = null,
   eventLinkManagement = null,
+  eventLinkManagementUnavailable = false,
   eventIdentityCandidates = null,
 }: {
   group: ExpenseGroupView
@@ -46,6 +47,7 @@ export async function ExpenseItemDetail({
   isEventContext?: boolean
   eventHref?: string | null
   eventLinkManagement?: ExpenseEventLinkManagementV2View | null
+  eventLinkManagementUnavailable?: boolean
   eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
@@ -245,6 +247,7 @@ export async function ExpenseItemDetail({
         expenseId={expense.id}
         financialVersion={group.financialVersion}
         management={eventLinkManagement}
+        managementUnavailable={eventLinkManagementUnavailable}
         eventHref={eventHref}
       />
 

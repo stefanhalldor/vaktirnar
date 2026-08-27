@@ -310,6 +310,7 @@ export function ExpenseForm({
   )
   const [eventWarningDismissed, setEventWarningDismissed] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [relationNotice, setRelationNotice] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
   const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? EXPENSE_FLOW_STEPS.length - 1 : 0)
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -323,6 +324,8 @@ export function ExpenseForm({
   const [confirmedAllocationFingerprint, setConfirmedAllocationFingerprint] = useState<string | null>(null)
   const [publicationAction, setPublicationAction] = useState<'share' | 'unshare' | 'finalize' | null>(null)
   const publicationActionRef = useRef<'share' | 'unshare' | 'finalize' | null>(null)
+  const [consumedDraftId, setConsumedDraftId] = useState<string | null>(null)
+  const consumedDraftIdRef = useRef<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const draftFingerprint = JSON.stringify({
     members,
@@ -412,6 +415,7 @@ export function ExpenseForm({
   }
 
   async function persistDraft(step: ExpenseFlowStep): Promise<boolean> {
+    if (consumedDraftIdRef.current !== null) return false
     if (edit && (
       edit.groupStatus === 'settling'
       || edit.groupStatus === 'settled'
@@ -434,6 +438,7 @@ export function ExpenseForm({
     }
     if (draftSavingRef.current) return draftSavingRef.current
     setDraftStatus('saving')
+    setRelationNotice(null)
     const savePromise = (async () => {
       try {
         const result = await saveExpenseDraft({
@@ -449,6 +454,23 @@ export function ExpenseForm({
         draftIdRef.current = result.data.draftId
         draftVersionRef.current = result.data.version
         draftStepRef.current = step
+        if (result.data.relationStatus === 'not_bound') {
+          setDraftStatus('error')
+          setError(t('errors.eventRelationNotBound'))
+          queueMicrotask(() => alertRef.current?.focus())
+          if (draftBaseHref) {
+            const separator = draftBaseHref.includes('?') ? '&' : '?'
+            router.replace(`${draftBaseHref}${separator}draft=${result.data.draftId}`)
+          }
+          return false
+        }
+        setEventId(result.data.eventId ?? '')
+        setEventRosterRevision(result.data.eventRosterRevision)
+        setLinkToEvent(result.data.eventId !== null)
+        if (result.data.privacyFailClosed) {
+          setEventVisibility('participants_only')
+          setRelationNotice(t('expenseForm.eventRemovalPrivacyNotice'))
+        }
         initialDraftFingerprint.current = draftFingerprint
         setDraftStatus('saved')
         if (draftBaseHref) {
@@ -573,8 +595,8 @@ export function ExpenseForm({
     if (circleId) {
       return { accepted: false, error: t('expenseForm.eventCircleConflict') }
     }
-    if (eventId && eventId !== source.id) {
-      return { accepted: false, error: t('expenseForm.eventSwitchBlocked') }
+    if (eventId && eventId !== source.id && selectedEventGuestIds.length > 0) {
+      return { accepted: false, error: t('expenseForm.eventIdentityMoveBlocked') }
     }
     if (
       eventId === source.id
@@ -583,13 +605,9 @@ export function ExpenseForm({
     ) {
       return { accepted: false, error: t('expenseForm.eventRosterChanged') }
     }
-    const isFreshSelection = !eventId
     setEventId(source.id)
     setEventRosterRevision(source.rosterRevision)
-    if (isFreshSelection) {
-      setLinkToEvent(true)
-      setEventVisibility('participants_only')
-    }
+    setLinkToEvent(true)
     setEventWarningDismissed(true)
     return { accepted: true, behavior: 'stay-open' as const }
   }
@@ -638,41 +656,15 @@ export function ExpenseForm({
   }
 
   function clearEventSelection() {
-    const removedKeys = new Set(members.flatMap((member) => (
-      member.input?.type === 'event_guest' ? [member.key] : []
-    )))
-    const removedIncludedMember = members.some((member) => (
-      removedKeys.has(member.key) && included[member.key] !== false
-    ))
-    const nextMembers = members.filter((member) => !removedKeys.has(member.key))
-    const nextMemberKeys = new Set(nextMembers.map((member) => member.key))
-    const nextPayers = payerKeys.filter((key) => nextMemberKeys.has(key))
-    const fallbackPayer = nextPayers.length === 0
-      ? (nextMembers.find((member) => member.isSelf) ?? nextMembers[0])
-      : null
-    const keepEntries = <T,>(record: Record<string, T>): Record<string, T> => (
-      Object.fromEntries(Object.entries(record).filter(([key]) => !removedKeys.has(key)))
-    )
-
+    if (selectedEventGuestIds.length > 0) {
+      setError(t('expenseForm.eventIdentityRemoveBlocked'))
+      queueMicrotask(() => alertRef.current?.focus())
+      return
+    }
     setEventId('')
     setEventRosterRevision(null)
     setLinkToEvent(false)
-    setEventVisibility('participants_only')
     setEventWarningDismissed(true)
-    setMembers(nextMembers)
-    setIncluded(keepEntries)
-    setPayments((current) => ({
-      ...keepEntries(current),
-      ...(fallbackPayer ? { [fallbackPayer.key]: total } : {}),
-    }))
-    setAmounts(keepEntries)
-    setWeights(keepEntries)
-    setPercentages((current) => (
-      splitMethod === 'percentage' && removedIncludedMember
-        ? equalPercentageValues(nextMembers.filter((member) => included[member.key] !== false).map((member) => member.key))
-        : keepEntries(current)
-    ))
-    setPayerKeys(fallbackPayer ? [fallbackPayer.key] : nextPayers)
   }
 
   function selectCircle(nextCircleId: string) {
@@ -1018,7 +1010,10 @@ export function ExpenseForm({
   }
 
   const currentStepIndex = EXPENSE_FLOW_STEPS.indexOf(currentStep)
-  const navigationBusy = isPending || draftStatus === 'saving' || publicationAction !== null
+  const navigationBusy = isPending
+    || draftStatus === 'saving'
+    || publicationAction !== null
+    || consumedDraftId !== null
   const stepItems: TeskeidStepNavItem<ExpenseFlowStep>[] = EXPENSE_FLOW_STEPS.map((step, index) => ({
     id: step,
     label: t(`expenseForm.steps.${step}`),
@@ -1072,7 +1067,7 @@ export function ExpenseForm({
     action: 'share' | 'unshare' | 'finalize',
     execute: () => Promise<void>,
   ) {
-    if (publicationActionRef.current) return
+    if (publicationActionRef.current || consumedDraftIdRef.current !== null) return
     publicationActionRef.current = action
     setPublicationAction(action)
     setError(null)
@@ -1082,8 +1077,10 @@ export function ExpenseForm({
       } catch {
         showMutationError('errors.save_failed')
       } finally {
-        publicationActionRef.current = null
-        setPublicationAction(null)
+        if (consumedDraftIdRef.current === null) {
+          publicationActionRef.current = null
+          setPublicationAction(null)
+        }
       }
     })
   }
@@ -1210,8 +1207,9 @@ export function ExpenseForm({
         return
       }
       requestIds.succeeded(semanticPayload)
-      router.push(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`)
-      router.refresh()
+      consumedDraftIdRef.current = semanticPayload.draft_id
+      setConsumedDraftId(semanticPayload.draft_id)
+      router.replace(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`)
     })
   }
 
@@ -1369,6 +1367,11 @@ export function ExpenseForm({
         </p>
       ) : null}
       {error ? <p ref={alertRef} tabIndex={-1} role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+      {relationNotice ? (
+        <p role="status" className="rounded-xl border border-border bg-muted/50 p-3 text-sm text-foreground">
+          {relationNotice}
+        </p>
+      ) : null}
       {eventSourceUnavailable ? (
         <div role="status" className="space-y-3 rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
           <p>{t('expenseForm.eventSelectionUnavailable')}</p>
@@ -1393,7 +1396,6 @@ export function ExpenseForm({
             disabled={navigationBusy}
             onChange={(event) => {
               setLinkToEvent(event.target.checked)
-              setEventVisibility('participants_only')
             }}
           />
           <span className="min-w-0 flex-1">

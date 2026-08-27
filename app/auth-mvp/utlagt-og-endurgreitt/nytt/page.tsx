@@ -15,11 +15,12 @@ import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getRelationshipCircleOptions } from '@/lib/relationships/repository-v2.server'
 import { canUseEventExpenses } from '@/lib/events/guard'
 import {
-  getOwnedEventExpenseSource,
+  adaptLegacyExpenseEventSourceV2,
+  listEventExpenseContextsV1,
   listEventExpenseSources,
 } from '@/lib/events/repository.server'
 import {
-  getLegacyExpenseEventSourceV2,
+  getCurrentExpenseEventSourceV3,
   listLegacyExpenseEventSourcesV2,
 } from '@/lib/events/legacy-expense-event-source-v2.repository.server'
 import type { EventExpenseSourceView } from '@/lib/events/contracts'
@@ -56,18 +57,18 @@ export default async function NewOneOffExpensePage({ searchParams }: {
   let eventSourcesError = false
   if (canUseEvents && chooserCandidate) {
     try {
-      eventSources = await listEventExpenseSources(user.id)
+      const contexts = await listEventExpenseContextsV1(user.id)
+      if (contexts.status === 'ready') {
+        const chooserEvents = contexts.events.map(({ id, name }) => ({ id, name }))
+        return (
+          <ExpenseShell title={t('expenseForm.oneOffTitle')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
+            <ExpenseEventContextChooser events={chooserEvents} />
+          </ExpenseShell>
+        )
+      }
+      eventSourcesError = contexts.status === 'unavailable'
     } catch {
-      eventSources = []
       eventSourcesError = true
-    }
-    if (!eventSourcesError && eventSources.length > 0) {
-      const chooserEvents = eventSources.map(({ id, name }) => ({ id, name }))
-      return (
-        <ExpenseShell title={t('expenseForm.oneOffTitle')} homeLabel={t('homeLabel')} backHref="/auth-mvp/utlagt-og-endurgreitt" backLabel={t('back')} closedTestingFeature="utlagt-og-endurgreitt">
-          <ExpenseEventContextChooser events={chooserEvents} />
-        </ExpenseShell>
-      )
     }
   }
   if (canUseEvents) {
@@ -88,17 +89,25 @@ export default async function NewOneOffExpensePage({ searchParams }: {
     const exactEventId = draftEventId ?? (!safeDraft ? requestedEventId : null)
     if (exactEventId) {
       exactEventSource = eventSources.find((event) => event.id === exactEventId) ?? null
-      if (!exactEventSource) {
+      let exactPresentation = eventSourcePresentation.find(
+        (event) => event.eventId === exactEventId,
+      ) ?? null
+      if (!exactPresentation) {
         try {
-          exactEventSource = await getOwnedEventExpenseSource(user.id, exactEventId)
+          exactPresentation = await getCurrentExpenseEventSourceV3(user.id, exactEventId)
+          if (exactPresentation?.eventId === exactEventId) {
+            eventSourcePresentation = [exactPresentation, ...eventSourcePresentation]
+          } else if (exactPresentation) {
+            exactPresentation = null
+            eventSourcesError = true
+          }
         } catch {
           eventSourcesError = true
         }
       }
-      if (!eventSourcePresentation.some((event) => event.eventId === exactEventId)) {
+      if (!exactEventSource && exactPresentation) {
         try {
-          const exactPresentation = await getLegacyExpenseEventSourceV2(user.id, exactEventId)
-          if (exactPresentation) eventSourcePresentation = [exactPresentation, ...eventSourcePresentation]
+          exactEventSource = adaptLegacyExpenseEventSourceV2(exactPresentation)
         } catch {
           eventSourcesError = true
         }

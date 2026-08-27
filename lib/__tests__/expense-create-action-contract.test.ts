@@ -8,6 +8,7 @@ const {
   mockResolveExpenseMembers,
   mockGetExpenseActorDisplayName,
   mockGetOwnedEventExpenseSource,
+  mockSetExpenseDraftEventRelation,
   mockSendInvitationEmail,
   mockRpc,
 } = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ const {
   mockResolveExpenseMembers: vi.fn(),
   mockGetExpenseActorDisplayName: vi.fn(),
   mockGetOwnedEventExpenseSource: vi.fn(),
+  mockSetExpenseDraftEventRelation: vi.fn(),
   mockSendInvitationEmail: vi.fn(),
   mockRpc: vi.fn(),
 }))
@@ -28,6 +30,11 @@ vi.mock('@/lib/expenses/guard', () => ({ guardExpenseAccess: mockGuardExpenseAcc
 vi.mock('@/lib/events/guard', () => ({ canUseEventExpenses: mockCanUseEventExpenses }))
 vi.mock('@/lib/events/repository.server', () => ({
   getOwnedEventExpenseSource: mockGetOwnedEventExpenseSource,
+}))
+vi.mock('@/lib/expenses/repository.server', () => ({
+  getExpenseDraftPublicationLifecycle: vi.fn(),
+  getExpensePrivateDraft: vi.fn(),
+  setExpenseDraftEventRelationV1: mockSetExpenseDraftEventRelation,
 }))
 vi.mock('@/lib/expenses/email', () => ({
   sendExpenseMemberInvitationEmail: mockSendInvitationEmail,
@@ -99,6 +106,18 @@ describe('createExpense RPC contract', () => {
       error: null,
     })
     mockGetAdmin.mockReturnValue({ rpc: mockRpc })
+    mockSetExpenseDraftEventRelation.mockResolvedValue({
+      draftId: '53000000-0000-4000-8000-000000000001',
+      draftVersion: 2,
+      publicationId: null,
+      publicationVersion: null,
+      previousDraftVersion: 1,
+      previousPublicationVersion: null,
+      eventId,
+      eventRosterRevision: 4,
+      visibility: 'participants_only',
+      privacyFailClosed: false,
+    })
   })
 
   it('sends the exact bounded obligation shape accepted by SQL96', async () => {
@@ -540,12 +559,19 @@ describe('createExpense RPC contract', () => {
     expect(mockRpc).not.toHaveBeenCalled()
   })
 
-  it('stores only opaque event provenance in a private draft', async () => {
+  it('saves a recoverable no-Event draft, binds it, then stores only opaque Event provenance', async () => {
     mockRpc.mockResolvedValueOnce({
       data: {
         draft_id: '53000000-0000-4000-8000-000000000001',
         draft_version: 1,
         saved_at: '2026-08-16T11:00:00.000Z',
+      },
+      error: null,
+    }).mockResolvedValueOnce({
+      data: {
+        draft_id: '53000000-0000-4000-8000-000000000001',
+        draft_version: 3,
+        saved_at: '2026-08-16T11:00:01.000Z',
       },
       error: null,
     })
@@ -561,6 +587,8 @@ describe('createExpense RPC contract', () => {
         circleId: null,
         eventId,
         eventRosterRevision: 4,
+        linkToEvent: true,
+        eventVisibility: 'participants_only',
         members: [
           { key: 'self', label: 'Stebbi', input: { type: 'self', key: 'self' }, isSelf: true },
           {
@@ -594,15 +622,37 @@ describe('createExpense RPC contract', () => {
     })
 
     expect(result.ok).toBe(true)
-    const [rpcName, rpcInput] = mockRpc.mock.calls[0]
-    expect(rpcName).toBe('expense_save_private_draft')
-    expect(rpcInput.p_payload.members[1]).toEqual({
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({ version: 3, relationStatus: 'bound', eventId }),
+    }))
+    expect(mockRpc).toHaveBeenCalledTimes(2)
+    const [firstName, firstInput] = mockRpc.mock.calls[0]
+    expect(firstName).toBe('expense_save_private_draft')
+    expect(firstInput.p_payload).toMatchObject({
+      eventId: null,
+      eventRosterRevision: null,
+      linkToEvent: false,
+      members: [expect.objectContaining({ key: 'self' })],
+    })
+    expect(JSON.stringify(firstInput.p_payload)).not.toContain('anna@example.com')
+    expect(mockSetExpenseDraftEventRelation).toHaveBeenCalledWith(actorId, expect.objectContaining({
+      draftId: '53000000-0000-4000-8000-000000000001',
+      expectedDraftVersion: 1,
+      expectedEventId: null,
+      eventId,
+      eventRosterRevision: 4,
+    }))
+    const [secondName, secondInput] = mockRpc.mock.calls[1]
+    expect(secondName).toBe('expense_save_private_draft')
+    expect(secondInput.p_expected_version).toBe(2)
+    expect(secondInput.p_payload.members[1]).toEqual({
       key: `event:${eventGuestId}`,
       label: 'Event participant',
       input: { type: 'event_guest', key: `event:${eventGuestId}`, event_guest_id: eventGuestId },
       isSelf: false,
     })
-    expect(JSON.stringify(rpcInput.p_payload)).not.toContain('anna@example.com')
+    expect(JSON.stringify(secondInput.p_payload)).not.toContain('anna@example.com')
   })
 
   it('delivers only invitation IDs returned by the atomic tagged wrapper', async () => {

@@ -164,3 +164,27 @@ export async function getLegacyExpenseEventSourceV2(
   if (!parsed.success || parsed.data.event_id !== event.data) loadFailed()
   return mapLegacyEvent(parsed.data)
 }
+
+/** SQL162 exact source. The strict wire shape remains compatible with the
+ * established V2 presentation contract, but authority is current SQL153
+ * attendance rather than the legacy membership graph. */
+export async function getCurrentExpenseEventSourceV3(
+  actorUserId: string,
+  requestedEventId: string,
+): Promise<LegacyExpenseEventSourceV2 | null> {
+  const actor = EventV2UuidSchema.safeParse(actorUserId)
+  const event = EventV2UuidSchema.safeParse(requestedEventId)
+  if (!actor.success || !event.success) throw new EventV2RepositoryError('invalid_input')
+  const { data, error } = await runLoadRpc(() => getAdmin().rpc(
+    'teskeid_event_get_expense_source_v3',
+    { p_actor_id: actor.data, p_event_id: event.data },
+  ))
+  if (error) {
+    const code = eventV2RpcErrorCode(error)
+    if (code === 'not_found' || code === 'not_allowed') return null
+    throwEventV2RpcFailure(error, 'load_failed')
+  }
+  const parsed = LegacyExpenseEventSourceV2SqlSchema.safeParse(data)
+  if (!parsed.success || parsed.data.event_id !== event.data) loadFailed()
+  return mapLegacyEvent(parsed.data)
+}

@@ -60,6 +60,7 @@ import { ExpenseDomainError } from './domain-error'
 import {
   redactExpenseDraftEventGuestLabels,
   SaveExpenseDraftSchema,
+  type ExpenseDraftPayload,
 } from './drafts'
 import {
   ClearExpensePaymentProfileV2Schema,
@@ -97,6 +98,7 @@ import {
 import {
   getExpenseDraftPublicationLifecycle,
   getExpensePrivateDraft,
+  setExpenseDraftEventRelationV1,
 } from './repository.server'
 
 const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
@@ -206,6 +208,76 @@ function resultEventVisibility(value: unknown): EventExpenseVisibility | null {
   return value === 'participants_only' || value === 'all_event' ? value : null
 }
 
+function expenseDraftEventRelation(payload: ExpenseDraftPayload): {
+  eventId: string | null
+  eventRosterRevision: number | null
+} {
+  return payload.linkToEvent === true && payload.eventId !== null
+    ? {
+        eventId: payload.eventId,
+        eventRosterRevision: payload.eventRosterRevision,
+      }
+    : { eventId: null, eventRosterRevision: null }
+}
+
+function expenseDraftWithoutEventRelation(
+  payload: ExpenseDraftPayload,
+): ExpenseDraftPayload {
+  return {
+    ...payload,
+    eventId: null,
+    eventRosterRevision: null,
+    linkToEvent: false,
+  }
+}
+
+function expenseDraftRecoverableBeforeEventBinding(
+  payload: ExpenseDraftPayload,
+): ExpenseDraftPayload {
+  const members = payload.members.filter((member) => member.input?.type !== 'event_guest')
+  const allowedKeys = new Set(members.map((member) => member.key))
+  const selfKey = members.find((member) => member.isSelf)?.key ?? members[0]?.key
+  const filterMap = (source: Record<string, string>) => Object.fromEntries(
+    Object.entries(source).filter(([key]) => allowedKeys.has(key)),
+  )
+  const payerKeys = payload.payerKeys.filter((key) => allowedKeys.has(key))
+  return {
+    ...expenseDraftWithoutEventRelation(payload),
+    members,
+    included: Object.fromEntries(
+      Object.entries(payload.included).filter(([key]) => allowedKeys.has(key)),
+    ),
+    payments: filterMap(payload.payments),
+    payerKeys: payerKeys.length > 0 ? payerKeys : selfKey ? [selfKey] : payload.payerKeys,
+    amounts: filterMap(payload.amounts),
+    percentages: filterMap(payload.percentages),
+    weights: filterMap(payload.weights),
+  }
+}
+
+function expenseDraftEventRelationRequestId(
+  draftId: string,
+  expectedVersion: number,
+  eventId: string | null,
+  eventRosterRevision: number | null,
+): string {
+  const hex = createHash('sha256')
+    .update(JSON.stringify([
+      'expense-draft-event-relation-v1',
+      draftId,
+      expectedVersion,
+      eventId,
+      eventRosterRevision,
+    ]))
+    .digest('hex')
+    .slice(0, 32)
+    .split('')
+  hex[12] = '4'
+  hex[16] = '8'
+  const value = hex.join('')
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`
+}
+
 async function deleteExpenseDraftAfterSave(actorUserId: string, draftId: string | null) {
   if (!draftId) return
   const { error } = await getAdmin().rpc('expense_delete_private_draft', {
@@ -217,31 +289,205 @@ async function deleteExpenseDraftAfterSave(actorUserId: string, draftId: string 
 
 export async function saveExpenseDraft(
   input: unknown,
-): Promise<ExpenseActionResult<{ draftId: string; version: number; savedAt: string }>> {
+): Promise<ExpenseActionResult<{
+  draftId: string
+  version: number
+  savedAt: string
+  relationStatus: 'unchanged' | 'bound' | 'not_bound'
+  eventId: string | null
+  eventRosterRevision: number | null
+  privacyFailClosed: boolean
+}>> {
   const { user } = await guardExpenseAccess()
   try {
     const parsed = SaveExpenseDraftSchema.safeParse(input)
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
     const value = parsed.data
-    const { data, error } = await getAdmin().rpc('expense_save_private_draft', {
-      p_actor_id: user.id,
-      p_draft_id: value.draft_id,
-      p_context_type: value.context_type,
-      p_group_id: value.group_id,
-      p_expense_id: value.expense_id,
-      p_current_step: value.current_step,
-      p_payload: redactExpenseDraftEventGuestLabels(value.payload),
-      p_expected_version: value.expected_version,
-    })
-    if (error) rpcError(error)
-    const result = resultObject(data)
-    const draftId = String(result.draft_id ?? '')
-    const version = Number(result.draft_version)
-    const savedAt = String(result.saved_at ?? '')
-    if (!draftId || !Number.isSafeInteger(version) || version < 1 || !savedAt) {
-      throw new Error('expense_draft_save_failed')
+    const payload = redactExpenseDraftEventGuestLabels(value.payload)
+    const desiredRelation = expenseDraftEventRelation(payload)
+
+    const persist = async (
+      persistedPayload: ExpenseDraftPayload,
+      expectedVersion: number | null,
+    ) => {
+      const { data, error } = await getAdmin().rpc('expense_save_private_draft', {
+        p_actor_id: user.id,
+        p_draft_id: value.draft_id,
+        p_context_type: value.context_type,
+        p_group_id: value.group_id,
+        p_expense_id: value.expense_id,
+        p_current_step: value.current_step,
+        p_payload: persistedPayload,
+        p_expected_version: expectedVersion,
+      })
+      if (error) rpcError(error)
+      const result = resultObject(data)
+      const draftId = String(result.draft_id ?? '')
+      const version = Number(result.draft_version)
+      const savedAt = String(result.saved_at ?? '')
+      if (!draftId || !Number.isSafeInteger(version) || version < 1 || !savedAt) {
+        throw new Error('expense_draft_save_failed')
+      }
+      return { draftId, version, savedAt }
     }
-    return { ok: true, data: { draftId, version, savedAt } }
+
+    if (value.context_type !== 'one_off' || value.expense_id !== null) {
+      const saved = await persist(payload, value.expected_version)
+      return {
+        ok: true,
+        data: {
+          ...saved,
+          relationStatus: 'unchanged',
+          eventId: desiredRelation.eventId,
+          eventRosterRevision: desiredRelation.eventRosterRevision,
+          privacyFailClosed: false,
+        },
+      }
+    }
+
+    if (desiredRelation.eventId && !await canUseEventExpenses(user)) {
+      throw new Error('teskeid_event_unavailable')
+    }
+
+    if (value.expected_version === null) {
+      const saved = await persist(expenseDraftRecoverableBeforeEventBinding(payload), null)
+      if (!desiredRelation.eventId) {
+        return {
+          ok: true,
+          data: {
+            ...saved,
+            relationStatus: 'unchanged',
+            eventId: null,
+            eventRosterRevision: null,
+            privacyFailClosed: false,
+          },
+        }
+      }
+      try {
+        const relation = await setExpenseDraftEventRelationV1(user.id, {
+          requestId: expenseDraftEventRelationRequestId(
+            value.draft_id,
+            saved.version,
+            desiredRelation.eventId,
+            desiredRelation.eventRosterRevision,
+          ),
+          draftId: value.draft_id,
+          expectedDraftVersion: saved.version,
+          expectedPublicationVersion: null,
+          expectedPublicationIsLive: null,
+          expectedEventId: null,
+          expectedEventRosterRevision: null,
+          eventId: desiredRelation.eventId,
+          eventRosterRevision: desiredRelation.eventRosterRevision,
+        })
+        const finalSaved = await persist(payload, relation.draftVersion)
+        return {
+          ok: true,
+          data: {
+            ...finalSaved,
+            relationStatus: 'bound',
+            eventId: relation.eventId,
+            eventRosterRevision: relation.eventRosterRevision,
+            privacyFailClosed: relation.privacyFailClosed,
+          },
+        }
+      } catch {
+        return {
+          ok: true,
+          data: {
+            ...saved,
+            relationStatus: 'not_bound',
+            eventId: null,
+            eventRosterRevision: null,
+            privacyFailClosed: false,
+          },
+        }
+      }
+    }
+
+    const [existing, lifecycle] = await Promise.all([
+      getExpensePrivateDraft(user.id, value.draft_id),
+      getExpenseDraftPublicationLifecycle(user.id, value.draft_id),
+    ])
+    if (!existing || existing.version !== value.expected_version
+      || lifecycle.status !== 'ready'
+      || lifecycle.draftVersion !== value.expected_version) {
+      throw new Error('expense_draft_conflict')
+    }
+    const existingRelation = expenseDraftEventRelation(existing.payload)
+    if (existingRelation.eventId === desiredRelation.eventId
+      && existingRelation.eventRosterRevision === desiredRelation.eventRosterRevision) {
+      const saved = await persist(payload, value.expected_version)
+      return {
+        ok: true,
+        data: {
+          ...saved,
+          relationStatus: 'unchanged',
+          eventId: desiredRelation.eventId,
+          eventRosterRevision: desiredRelation.eventRosterRevision,
+          privacyFailClosed: false,
+        },
+      }
+    }
+    const bindingFirstEvent = existingRelation.eventId === null && desiredRelation.eventId !== null
+    if (!bindingFirstEvent && (value.current_step !== existing.currentStep
+      || JSON.stringify(expenseDraftWithoutEventRelation(payload))
+        !== JSON.stringify(expenseDraftWithoutEventRelation(existing.payload)))) {
+      throw new Error('expense_draft_event_unsaved_changes')
+    }
+    const expectedPublicationVersion = lifecycle.expectedPublicationVersion
+    const relation = await setExpenseDraftEventRelationV1(user.id, {
+      requestId: expenseDraftEventRelationRequestId(
+        value.draft_id,
+        value.expected_version,
+        desiredRelation.eventId,
+        desiredRelation.eventRosterRevision,
+      ),
+      draftId: value.draft_id,
+      expectedDraftVersion: value.expected_version,
+      expectedPublicationVersion,
+      expectedPublicationIsLive: lifecycle.sharingState === 'never_shared'
+        ? null
+        : lifecycle.sharingState === 'shared',
+      expectedEventId: existingRelation.eventId,
+      expectedEventRosterRevision: existingRelation.eventRosterRevision,
+      eventId: desiredRelation.eventId,
+      eventRosterRevision: desiredRelation.eventRosterRevision,
+    })
+    revalidateExpensePaths(
+      undefined,
+      undefined,
+      undefined,
+      existingRelation.eventId ?? undefined,
+    )
+    if (relation.eventId && relation.eventId !== existingRelation.eventId) {
+      revalidateExpensePaths(undefined, undefined, undefined, relation.eventId)
+    }
+    if (bindingFirstEvent) {
+      const finalSaved = await persist(payload, relation.draftVersion)
+      return {
+        ok: true,
+        data: {
+          ...finalSaved,
+          relationStatus: 'bound',
+          eventId: relation.eventId,
+          eventRosterRevision: relation.eventRosterRevision,
+          privacyFailClosed: relation.privacyFailClosed,
+        },
+      }
+    }
+    return {
+      ok: true,
+      data: {
+        draftId: value.draft_id,
+        version: relation.draftVersion,
+        savedAt: new Date().toISOString(),
+        relationStatus: 'bound',
+        eventId: relation.eventId,
+        eventRosterRevision: relation.eventRosterRevision,
+        privacyFailClosed: relation.privacyFailClosed,
+      },
+    }
   } catch (error) {
     console.error('[expenses] save draft failed')
     return actionError(error)

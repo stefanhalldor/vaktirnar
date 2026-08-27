@@ -9,6 +9,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: mockGetAdmin }))
 
 import {
+  getCurrentExpenseEventSourceV3,
   getLegacyExpenseEventSourceV2,
   listLegacyExpenseEventSourcesV2,
 } from '@/lib/events/legacy-expense-event-source-v2.repository.server'
@@ -101,6 +102,35 @@ describe('SQL149 legacy Expense Event source v2', () => {
     })
     expect(mockRpc).toHaveBeenCalledWith(
       'teskeid_event_get_legacy_expense_source_v2',
+      { p_actor_id: actorId, p_event_id: eventId },
+    )
+  })
+
+  it('loads the strict exact source through SQL162 current-attendance authority', async () => {
+    const payload = ownerEvent({
+      viewer_role: 'attendee',
+      people: [person({
+        legacy_person_ref: organizerLegacyRef,
+        participant_kind: 'organizer',
+        position: 0,
+        shared: {
+          label_state: 'resolved', display_name: 'Stebbi',
+          selectable: true, disabled_reason: null,
+        },
+      }), person({ position: 1 })],
+    })
+    mockRpc.mockResolvedValueOnce({ data: payload, error: null })
+
+    await expect(getCurrentExpenseEventSourceV3(actorId, eventId)).resolves.toMatchObject({
+      eventId,
+      viewerRole: 'attendee',
+      people: [
+        { legacyPersonRef: organizerLegacyRef, participantKind: 'organizer' },
+        { legacyPersonRef: guestRef, participantKind: 'guest' },
+      ],
+    })
+    expect(mockRpc).toHaveBeenCalledWith(
+      'teskeid_event_get_expense_source_v3',
       { p_actor_id: actorId, p_event_id: eventId },
     )
   })

@@ -14,10 +14,13 @@ const {
   mockGetEventExpenseActivity,
   mockGetEventExpenseActivityV2,
   mockGetEventExpenseActivityV3,
+  mockGetEventExpensePreActiveV1,
+  mockListEventAttachableExpensesV1,
   mockGetEventDetails,
   mockGetEventGuestAttendancePreview,
   mockGetExpenseParticipantOptions,
   mockGetTranslations,
+  mockGetLocale,
   mockGuardEventAccess,
   mockGuardEventSession,
   mockHasEventFeatureAccess,
@@ -40,10 +43,13 @@ const {
   mockGetEventExpenseActivity: vi.fn(),
   mockGetEventExpenseActivityV2: vi.fn(),
   mockGetEventExpenseActivityV3: vi.fn(),
+  mockGetEventExpensePreActiveV1: vi.fn(),
+  mockListEventAttachableExpensesV1: vi.fn(),
   mockGetEventDetails: vi.fn(),
   mockGetEventGuestAttendancePreview: vi.fn(),
   mockGetExpenseParticipantOptions: vi.fn(),
   mockGetTranslations: vi.fn(),
+  mockGetLocale: vi.fn(),
   mockGuardEventAccess: vi.fn(),
   mockGuardEventSession: vi.fn(),
   mockHasEventFeatureAccess: vi.fn(),
@@ -62,7 +68,10 @@ const {
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ unstable_noStore: mockNoStore }))
 vi.mock('next/navigation', () => ({ notFound: mockNotFound, redirect: mockRedirect }))
-vi.mock('next-intl/server', () => ({ getTranslations: mockGetTranslations }))
+vi.mock('next-intl/server', () => ({
+  getTranslations: mockGetTranslations,
+  getLocale: mockGetLocale,
+}))
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
     <a href={href} {...props}>{children}</a>
@@ -164,6 +173,18 @@ vi.mock('@/components/expenses/EventExpenseActivityV3', () => ({
       />
     ),
 }))
+vi.mock('@/components/expenses/ExpenseContextDraftList', () => ({
+  ExpenseContextDraftList: ({ view }: { view: { status: string; items: unknown[] } }) => (
+    view.status === 'ready' && view.items.length === 0
+      ? null
+      : <div data-testid="expense-context-drafts" data-status={view.status} />
+  ),
+}))
+vi.mock('@/components/expenses/EventAttachExistingExpense', () => ({
+  EventAttachExistingExpense: ({ directory }: { directory: { status: string } }) => (
+    <div data-testid="event-attach-existing-expense" data-status={directory.status} />
+  ),
+}))
 vi.mock('@/lib/events/guard', () => ({
   canUseEventExpenses: mockCanUseEventExpenses,
   guardEventAccess: mockGuardEventAccess,
@@ -177,6 +198,8 @@ vi.mock('@/lib/events/repository.server', () => ({
   getEventExpenseActivity: mockGetEventExpenseActivity,
   getEventExpenseActivityV2: mockGetEventExpenseActivityV2,
   getEventExpenseActivityV3: mockGetEventExpenseActivityV3,
+  getEventExpensePreActiveV1: mockGetEventExpensePreActiveV1,
+  listEventAttachableExpensesV1: mockListEventAttachableExpensesV1,
   getEventDetails: mockGetEventDetails,
   getEventGuestAttendancePreview: mockGetEventGuestAttendancePreview,
   listEventDashboard: mockListEventDashboard,
@@ -290,6 +313,13 @@ beforeEach(() => {
     expenses: [],
     positions: [],
   })
+  mockGetEventExpensePreActiveV1.mockResolvedValue({
+    contractVersion: 1,
+    status: 'ready',
+    items: [],
+  })
+  mockListEventAttachableExpensesV1.mockResolvedValue({ status: 'none', expenses: [] })
+  mockGetLocale.mockResolvedValue('is')
   mockCheckFeatureAccess.mockResolvedValue(false)
   mockGetEventGuestAttendancePreview.mockResolvedValue({
     invitationId: INVITATION_ID,
@@ -444,6 +474,7 @@ describe('independent event pages', () => {
     expect(mockGetEventActorViewV3).toHaveBeenCalledWith(SESSION_ACTOR_ID, EVENT_ID)
     expect(mockGetEventContext).toHaveBeenCalledWith(SESSION_ACTOR_ID, EVENT_ID)
     expect(mockGetEventExpenseActivityV3).toHaveBeenCalledWith(SESSION_ACTOR_ID, EVENT_ID)
+    expect(mockGetEventExpensePreActiveV1).toHaveBeenCalledWith(SESSION_ACTOR_ID, EVENT_ID)
     expect(mockGetEventExpenseActivityV2).not.toHaveBeenCalled()
     expect(mockGetEventExpenseActivity).not.toHaveBeenCalled()
   })
@@ -454,6 +485,7 @@ describe('independent event pages', () => {
     render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
 
     expect(mockGetEventExpenseActivityV3).not.toHaveBeenCalled()
+    expect(mockGetEventExpensePreActiveV1).not.toHaveBeenCalled()
     expect(mockGetEventExpenseActivityV2).not.toHaveBeenCalled()
     expect(mockGetEventExpenseActivity).not.toHaveBeenCalled()
     expect(mockCanUseExpenseDestination).not.toHaveBeenCalled()
@@ -471,10 +503,59 @@ describe('independent event pages', () => {
     render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
 
     expect(mockGetEventExpenseActivityV3).not.toHaveBeenCalled()
+    expect(mockGetEventExpensePreActiveV1).not.toHaveBeenCalled()
     expect(mockGetEventExpenseActivityV2).not.toHaveBeenCalled()
     expect(mockGetEventExpenseActivity).not.toHaveBeenCalled()
     expect(mockCanUseExpenseDestination).not.toHaveBeenCalled()
     expect(screen.queryByTestId('event-expense-activity-v3')).not.toBeInTheDocument()
+  })
+
+  it('loads active V3 before pre-active and contains draft-source failure independently', async () => {
+    const readOrder: string[] = []
+    mockGetEventExpenseActivityV3.mockImplementationOnce(async () => {
+      readOrder.push('active')
+      return {
+        contractVersion: 3,
+        status: 'ready',
+        expenses: [{
+          title: 'Virkur kostnaður',
+          totalMinor: 10_000,
+          currency: 'ISK',
+          detailHref: null,
+        }],
+        positions: [],
+      }
+    })
+    mockGetEventExpensePreActiveV1.mockImplementationOnce(async () => {
+      readOrder.push('draft')
+      throw new Error('draft source failed')
+    })
+
+    render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
+
+    expect(readOrder).toEqual(['active', 'draft'])
+    expect(screen.getByTestId('event-expense-activity-v3')).toHaveAttribute('data-status', 'ready')
+    expect(screen.getByTestId('expense-context-drafts')).toHaveAttribute('data-status', 'unavailable')
+  })
+
+  it('loads discovery-only attach candidates with the exact Event revision for an authorized actor', async () => {
+    mockCanUseEventExpenses.mockResolvedValue(true)
+    mockListEventAttachableExpensesV1.mockResolvedValueOnce({
+      status: 'ready',
+      expenses: [{
+        id: '70000000-0000-4000-8000-000000000001',
+        title: 'Rúta',
+        totalMinor: 12_500,
+        currency: 'ISK',
+        incurredOn: '2026-08-27',
+        financialVersion: 4,
+      }],
+    })
+
+    render(await EventDetailPage({ params: Promise.resolve({ eventId: EVENT_ID }) }))
+
+    expect(mockListEventAttachableExpensesV1).toHaveBeenCalledWith(ACTOR_ID, EVENT_ID, 1)
+    expect(screen.getByTestId('event-attach-existing-expense')).toHaveAttribute('data-status', 'ready')
   })
 
   it('fails V3 activity soft without V2/V1 fallback and derives settlement independently', async () => {

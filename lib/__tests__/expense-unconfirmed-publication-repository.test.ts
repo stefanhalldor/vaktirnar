@@ -15,12 +15,14 @@ import {
   getExpenseDashboard,
   getExpenseDraftPublicationLifecycle,
   getExpenseSharedDraftDetail,
+  getGroupSharedExpenseDrafts,
   getVisibleSharedExpenseDrafts,
 } from '@/lib/expenses/repository.server'
 
 const ACTOR_ID = '10000000-0000-4000-8000-000000000001'
 const DRAFT_ID = '20000000-0000-4000-8000-000000000001'
 const PUBLICATION_ID = '30000000-0000-4000-8000-000000000001'
+const GROUP_ID = '40000000-0000-4000-8000-000000000001'
 
 function privateDraftRow() {
   return {
@@ -107,6 +109,59 @@ beforeEach(() => {
 })
 
 describe('SQL159 repository boundaries', () => {
+  it('loads exact group shared drafts with only the server actor and group target', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        rows: [{
+          lifecycle_state: 'shared_draft',
+          publication_id: PUBLICATION_ID,
+          publication_version: 2,
+          title: 'Kvöldmatur',
+          total_minor: 12_000,
+          currency: 'ISK',
+          incurred_on: '2026-08-26',
+          allocation_state: 'balanced_unconfirmed',
+          viewer_role: 'participant',
+          detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+        }],
+      },
+      error: null,
+    })
+
+    await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toMatchObject({
+      status: 'ready',
+      items: [{
+        lifecycleState: 'shared_draft',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${PUBLICATION_ID}`,
+      }],
+    })
+    expect(mockRpc).toHaveBeenCalledWith('expense_list_group_shared_drafts', {
+      p_actor_id: ACTOR_ID,
+      p_group_id: GROUP_ID,
+    })
+  })
+
+  it('fails malformed, transport-failed and invalid group sources closed', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { contract_version: 1, status: 'ready', rows: [{ private_payload: true }] },
+      error: null,
+    })
+    await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toEqual({
+      status: 'unavailable', items: [],
+    })
+
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'transport' } })
+    await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toEqual({
+      status: 'unavailable', items: [],
+    })
+
+    await expect(getGroupSharedExpenseDrafts(ACTOR_ID, 'not-a-uuid')).resolves.toEqual({
+      status: 'unavailable', items: [],
+    })
+  })
+
   it('loads shared detail with only the server actor and exact publication target', async () => {
     mockRpc.mockResolvedValue({
       data: {

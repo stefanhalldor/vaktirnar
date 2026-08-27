@@ -58,6 +58,74 @@ export type RefreshExpenseDraftPublicationLifecycleInput = z.infer<
   typeof RefreshExpenseDraftPublicationLifecycleSchema
 >
 
+const nullableSql159PositiveSafeIntegerSchema = sql159PositiveSafeIntegerSchema.nullable()
+
+const expenseDraftEventRelationResultWireSchema = z.object({
+  contract_version: z.literal(1),
+  state: z.literal('event_relation_set'),
+  draft_id: sql159UuidSchema,
+  previous_draft_version: sql159PositiveSafeIntegerSchema,
+  draft_version: sql159PositiveSafeIntegerSchema,
+  publication_id: sql159UuidSchema.nullable(),
+  previous_publication_version: nullableSql159PositiveSafeIntegerSchema,
+  publication_version: nullableSql159PositiveSafeIntegerSchema,
+  previous_event_id: sql159UuidSchema.nullable(),
+  previous_event_roster_revision: nullableSql159PositiveSafeIntegerSchema,
+  event_id: sql159UuidSchema.nullable(),
+  event_roster_revision: nullableSql159PositiveSafeIntegerSchema,
+  visibility: z.enum(['participants_only', 'all_event']),
+  privacy_fail_closed: z.boolean(),
+}).strict().superRefine((value, context) => {
+  if ((value.publication_id === null) !== (value.publication_version === null)
+    || (value.previous_publication_version === null) !== (value.publication_id === null)
+    || (value.previous_event_id === null) !== (value.previous_event_roster_revision === null)
+    || (value.event_id === null) !== (value.event_roster_revision === null)
+    || value.draft_version < value.previous_draft_version
+    || value.publication_version !== null
+      && value.previous_publication_version !== null
+      && value.publication_version < value.previous_publication_version
+    || value.privacy_fail_closed
+      && (value.event_id !== null || value.visibility !== 'participants_only')) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'invalid_relation_result' })
+  }
+})
+
+export interface ExpenseDraftEventRelationResultView {
+  draftId: string
+  previousDraftVersion: number
+  draftVersion: number
+  publicationId: string | null
+  previousPublicationVersion: number | null
+  publicationVersion: number | null
+  previousEventId: string | null
+  previousEventRosterRevision: number | null
+  eventId: string | null
+  eventRosterRevision: number | null
+  visibility: 'participants_only' | 'all_event'
+  privacyFailClosed: boolean
+}
+
+export function parseExpenseDraftEventRelationResult(
+  value: unknown,
+): ExpenseDraftEventRelationResultView | null {
+  const parsed = expenseDraftEventRelationResultWireSchema.safeParse(value)
+  if (!parsed.success) return null
+  return {
+    draftId: parsed.data.draft_id,
+    previousDraftVersion: parsed.data.previous_draft_version,
+    draftVersion: parsed.data.draft_version,
+    publicationId: parsed.data.publication_id,
+    previousPublicationVersion: parsed.data.previous_publication_version,
+    publicationVersion: parsed.data.publication_version,
+    previousEventId: parsed.data.previous_event_id,
+    previousEventRosterRevision: parsed.data.previous_event_roster_revision,
+    eventId: parsed.data.event_id,
+    eventRosterRevision: parsed.data.event_roster_revision,
+    visibility: parsed.data.visibility,
+    privacyFailClosed: parsed.data.privacy_fail_closed,
+  }
+}
+
 const expenseDraftPublicationNotFoundWireSchema = z.object({
   contract_version: z.literal(1),
   status: z.literal('not_found'),
@@ -395,6 +463,77 @@ export function parseVisibleSharedExpenseDrafts(value: unknown): ExpenseSharedDr
     }
   })
   return { status: 'ready', items: rows }
+}
+
+const groupSharedDraftWireSchema = z.object({
+  ...visibleSharedDraftBaseWire,
+  viewer_role: z.enum(['author', 'participant']),
+  detail_target: sharedDraftDetailTargetWireSchema,
+}).strict().superRefine((value, context) => {
+  if (value.detail_target.publication_id !== value.publication_id) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['detail_target', 'publication_id'],
+      message: 'publication_target_mismatch',
+    })
+  }
+})
+
+const groupSharedDraftListWireSchema = z.union([
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('ready'),
+    rows: z.array(groupSharedDraftWireSchema).min(1).max(100),
+  }).strict(),
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('none'),
+    rows: z.tuple([]),
+  }).strict(),
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('unavailable'),
+    rows: z.tuple([]),
+  }).strict(),
+])
+
+export interface ExpenseContextDraftItemView {
+  lifecycleState: 'private_draft' | 'shared_draft'
+  title: string
+  totalMinor: number
+  currency: ExpenseCurrency
+  incurredOn: string
+  allocationState: 'incomplete' | 'balanced_unconfirmed'
+  detailHref: string | null
+}
+
+export type ExpenseContextDraftListView =
+  | { status: 'ready'; items: ExpenseContextDraftItemView[] }
+  | { status: 'unavailable'; items: [] }
+
+export function parseGroupSharedExpenseDrafts(value: unknown): ExpenseContextDraftListView {
+  const parsed = groupSharedDraftListWireSchema.safeParse(value)
+  if (!parsed.success || parsed.data.status === 'unavailable') {
+    return { status: 'unavailable', items: [] }
+  }
+  if (parsed.data.status === 'none') return { status: 'ready', items: [] }
+  if (
+    new Set(parsed.data.rows.map((row) => row.publication_id)).size
+      !== parsed.data.rows.length
+  ) return { status: 'unavailable', items: [] }
+
+  return {
+    status: 'ready',
+    items: parsed.data.rows.map((row) => ({
+      lifecycleState: 'shared_draft',
+      title: row.title,
+      totalMinor: row.total_minor,
+      currency: row.currency,
+      incurredOn: row.incurred_on,
+      allocationState: row.allocation_state,
+      detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.publication_id)}`,
+    })),
+  }
 }
 
 const sharedDraftPartyWireSchema = z.object({

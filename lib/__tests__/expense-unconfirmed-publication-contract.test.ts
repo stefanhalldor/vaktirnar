@@ -7,7 +7,9 @@ import {
   UnshareExpenseDraftSchema,
   finalizeExpectedPublicationVersion,
   parseExpenseDraftPublicationLifecycle,
+  parseExpenseDraftEventRelationResult,
   parseExpenseFinalizeResult,
+  parseGroupSharedExpenseDrafts,
   parseExpenseSharedDraftDetail,
   parseExpenseShareResult,
   parseExpenseUnshareResult,
@@ -23,6 +25,7 @@ const SECOND_DRAFT_ID = '55555555-5555-4555-8555-555555555555'
 const GROUP_ID = '66666666-6666-4666-8666-666666666666'
 const EXPENSE_ID = '77777777-7777-4777-8777-777777777777'
 const INVITATION_ID = '88888888-8888-4888-8888-888888888888'
+const EVENT_ID = '99999999-9999-4999-8999-999999999999'
 
 function authorRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -124,6 +127,46 @@ describe('SQL159 unconfirmed-publication input contracts', () => {
       draft_id: DRAFT_ID,
       publication_id: PUBLICATION_ID,
     }).success).toBe(false)
+  })
+})
+
+describe('SQL162 draft Event relation result contract', () => {
+  const result = {
+    contract_version: 1,
+    state: 'event_relation_set',
+    draft_id: DRAFT_ID,
+    previous_draft_version: 2,
+    draft_version: 3,
+    publication_id: null,
+    previous_publication_version: null,
+    publication_version: null,
+    previous_event_id: null,
+    previous_event_roster_revision: null,
+    event_id: EVENT_ID,
+    event_roster_revision: 4,
+    visibility: 'all_event',
+    privacy_fail_closed: false,
+  }
+
+  it('accepts an exact relation transition without coupling visibility to lifecycle', () => {
+    expect(parseExpenseDraftEventRelationResult(result)).toEqual(expect.objectContaining({
+      draftId: DRAFT_ID,
+      previousDraftVersion: 2,
+      draftVersion: 3,
+      eventId: EVENT_ID,
+      eventRosterRevision: 4,
+      visibility: 'all_event',
+      privacyFailClosed: false,
+    }))
+  })
+
+  it.each([
+    ['extra field', { ...result, email: 'private@example.is' }],
+    ['half Event tuple', { ...result, event_roster_revision: null }],
+    ['privacy flag without A-to-none fail-close', { ...result, privacy_fail_closed: true }],
+    ['publication identity mismatch', { ...result, publication_id: PUBLICATION_ID }],
+  ])('fails closed for %s', (_label, wire) => {
+    expect(parseExpenseDraftEventRelationResult(wire)).toBeNull()
   })
 })
 
@@ -441,6 +484,88 @@ describe('SQL159 visible shared-draft list contract', () => {
       contract_version: 1,
       status: 'ready',
       rows,
+    })).toEqual({ status: 'unavailable', items: [] })
+  })
+})
+
+describe('SQL159 group shared-draft projection contract', () => {
+  function groupRow(overrides: Record<string, unknown> = {}) {
+    return {
+      lifecycle_state: 'shared_draft',
+      publication_id: PUBLICATION_ID,
+      publication_version: 4,
+      title: 'Rúta',
+      total_minor: 24_000,
+      currency: 'ISK',
+      incurred_on: '2026-08-25',
+      allocation_state: 'balanced_unconfirmed',
+      viewer_role: 'participant',
+      detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+      ...overrides,
+    }
+  }
+
+  it('maps an exact group row only to its canonical shared-detail href', () => {
+    expect(parseGroupSharedExpenseDrafts({
+      contract_version: 1,
+      status: 'ready',
+      rows: [groupRow()],
+    })).toEqual({
+      status: 'ready',
+      items: [{
+        lifecycleState: 'shared_draft',
+        title: 'Rúta',
+        totalMinor: 24_000,
+        currency: 'ISK',
+        incurredOn: '2026-08-25',
+        allocationState: 'balanced_unconfirmed',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${PUBLICATION_ID}`,
+      }],
+    })
+  })
+
+  it.each([
+    ['private row', groupRow({ lifecycle_state: 'private_draft' })],
+    ['null target', groupRow({ detail_target: null })],
+    ['foreign target', groupRow({
+      detail_target: { kind: 'shared_draft', publication_id: SECOND_PUBLICATION_ID },
+    })],
+    ['raw href', groupRow({
+      detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID, href: '/unsafe' },
+    })],
+    ['extra row key', groupRow({ recipient_email: 'private@example.test' })],
+    ['invalid amount', groupRow({ total_minor: 0 })],
+  ])('fails the entire group payload closed for %s', (_label, row) => {
+    expect(parseGroupSharedExpenseDrafts({
+      contract_version: 1,
+      status: 'ready',
+      rows: [groupRow(), row],
+    })).toEqual({ status: 'unavailable', items: [] })
+  })
+
+  it('requires exact empty none/unavailable and bounded nonempty ready shapes', () => {
+    expect(parseGroupSharedExpenseDrafts({
+      contract_version: 1, status: 'none', rows: [],
+    })).toEqual({ status: 'ready', items: [] })
+    expect(parseGroupSharedExpenseDrafts({
+      contract_version: 1, status: 'unavailable', rows: [],
+    })).toEqual({ status: 'unavailable', items: [] })
+    expect(parseGroupSharedExpenseDrafts({
+      contract_version: 1, status: 'ready', rows: [],
+    })).toEqual({ status: 'unavailable', items: [] })
+    expect(parseGroupSharedExpenseDrafts({
+      contract_version: 1, status: 'none', rows: [groupRow()],
+    })).toEqual({ status: 'unavailable', items: [] })
+    expect(parseGroupSharedExpenseDrafts({
+      contract_version: 1,
+      status: 'ready',
+      rows: Array.from({ length: 101 }, (_, index) => groupRow({
+        publication_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        detail_target: {
+          kind: 'shared_draft',
+          publication_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        },
+      })),
     })).toEqual({ status: 'unavailable', items: [] })
   })
 })

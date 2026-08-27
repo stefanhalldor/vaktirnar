@@ -73,6 +73,9 @@ const translations: Record<string, string> = {
   'expenseForm.selectedEvent': 'Valinn viðburður',
   'expenseForm.clearEventSelection': 'Hreinsa viðburðarval',
   'expenseForm.changeEvent': 'Breyta viðburði',
+  'expenseForm.eventIdentityMoveBlocked': 'Ekki er hægt að færa drög með viðburðargesti.',
+  'expenseForm.eventIdentityRemoveBlocked': 'Ekki er hægt að aftengja drög með viðburðargesti.',
+  'expenseForm.eventRemovalPrivacyNotice': 'Sýnileiki var takmarkaður.',
   'expenseForm.eventGuestSearchLabel': 'Leita að gesti',
   'expenseForm.eventGuestSearchPlaceholder': 'Nafn gests',
   'expenseForm.noEventGuestResults': 'Enginn gestur fannst.',
@@ -146,7 +149,18 @@ const members = [
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.saveDraft.mockResolvedValue({ ok: true, data: { draftId: '11111111-1111-4111-8111-111111111111', version: 1, savedAt: '2026-08-05T12:00:00Z' } })
+  mocks.saveDraft.mockImplementation(async (input) => ({
+    ok: true,
+    data: {
+      draftId: '11111111-1111-4111-8111-111111111111',
+      version: 1,
+      savedAt: '2026-08-05T12:00:00Z',
+      relationStatus: 'unchanged',
+      eventId: input.payload.linkToEvent ? input.payload.eventId : null,
+      eventRosterRevision: input.payload.linkToEvent ? input.payload.eventRosterRevision : null,
+      privacyFailClosed: false,
+    },
+  }))
   mocks.refreshPublicationLifecycle.mockResolvedValue({
     status: 'ready',
     draftId: '11111111-1111-4111-8111-111111111111',
@@ -461,7 +475,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.getByRole('textbox', { name: /Lýsing/ })).toHaveValue('Má ekki tapast')
   })
 
-  it('preserves custom percentages when clearing a payer-only event guest', () => {
+  it('blocks Event removal while an Event-bound payer remains and preserves the allocation', () => {
     const event = {
       id: '74000000-0000-4000-8000-000000000001',
       name: 'Helgarferð',
@@ -501,7 +515,8 @@ describe('ExpenseForm simplified split and autosave', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við þátttakanda' }))
     fireEvent.click(screen.getByRole('button', { name: 'Hreinsa viðburðarval' }))
     fireEvent.click(screen.getByRole('button', { name: 'Loka' }))
-    expect(screen.queryByRole('checkbox', { name: 'Bjarni' })).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Ekki er hægt að aftengja drög með viðburðargesti.')
+    expect(screen.getByRole('checkbox', { name: 'Bjarni' })).toBeInTheDocument()
     const retainedPercentages = within(split).getAllByRole('textbox', { name: 'Prósenta' })
     expect(retainedPercentages[0]).toHaveValue('70')
     expect(retainedPercentages[1]).toHaveValue('30')
@@ -651,7 +666,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).not.toBeChecked()
   })
 
-  it('resets broad visibility after unlink/re-enable and after switching Events', () => {
+  it('preserves the visibility axis after unlink/re-enable and after switching Events', () => {
     const firstEvent = {
       id: '71600000-0000-4000-8000-000000000001',
       name: 'Fyrri ferð',
@@ -679,15 +694,14 @@ describe('ExpenseForm simplified split and autosave', () => {
     fireEvent.click(link)
     expect(screen.queryByRole('radio', { name: /Allir sem sjá viðburðinn/ })).not.toBeInTheDocument()
     fireEvent.click(link)
-    expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ })).toBeChecked()
 
-    fireEvent.click(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Bæta við þátttakanda' }))
     fireEvent.click(screen.getByRole('button', { name: 'Breyta viðburði' }))
     fireEvent.click(screen.getByRole('button', { name: 'Seinni ferð' }))
     fireEvent.click(screen.getByRole('button', { name: 'Loka' }))
 
-    expect(screen.getByRole('radio', { name: /Aðeins þátttakendur kostnaðarins/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ })).toBeChecked()
   })
 
   it('preserves an explicit broad choice when finalization returns an error', async () => {
@@ -1022,6 +1036,40 @@ describe('ExpenseForm simplified split and autosave', () => {
       expected_publication_version: 7,
       split_confirmed: true,
     })))
+  })
+
+  it('retires the exact consumed draft route after finalization and cannot submit it again', async () => {
+    const draft = savedGroupDraft()
+    renderForm({
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: draft.version,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    const finalizeButton = screen.getByRole('button', { name: 'Staðfesta kostnað' })
+    fireEvent.click(finalizeButton)
+
+    await waitFor(() => expect(mocks.finalizeDraft).toHaveBeenCalledTimes(1))
+    expect(mocks.finalizeDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: draft.id,
+      expected_draft_version: draft.version,
+      expected_publication_version: null,
+      split_confirmed: true,
+    }))
+    await waitFor(() => expect(finalizeButton).toBeDisabled())
+
+    fireEvent.click(finalizeButton)
+    expect(mocks.finalizeDraft).toHaveBeenCalledTimes(1)
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(mocks.replace).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1')
+    expect(mocks.push).not.toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1')
   })
 
   it('finalizes a withdrawn draft with null instead of its retained publication generation', async () => {

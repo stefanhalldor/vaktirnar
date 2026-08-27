@@ -1345,13 +1345,18 @@
         "entries": "Entries",
         "viewAriaLabel": "Choose which expense entries are shown",
         "views": {
+          "all": "All",
           "active": "Active",
-          "all": "All"
+          "settled": "Settled",
+          "cancelled": "Cancelled"
         },
         "filterPeople": "Counterparties",
         "filterCircles": "Relationship circles",
         "clearFilters": "Clear filters",
+        "noAll": "No confirmed entries.",
         "noActive": "No active entries.",
+        "noSettled": "No settled entries.",
+        "noCancelled": "No cancelled entries.",
         "noFilterResults": "No entries match the filters.",
         "needsAttention": "Needs correction",
         "drafts": "Drafts",
@@ -1400,6 +1405,21 @@
         "participantRole": "Participant",
         "proposedPaid": "Amount paid",
         "proposedShare": "Share of the total expense"
+      },
+      "contextDrafts": {
+        "heading": "Expense drafts",
+        "helper": "These drafts do not affect balances or settlement until they are confirmed.",
+        "unavailable": "We could not load expense drafts right now. Active expenses remain available.",
+        "retry": "Try again",
+        "retrying": "Trying again…",
+        "lifecycle": {
+          "private_draft": "Drafts for me",
+          "shared_draft": "Drafts with others"
+        },
+        "allocation": {
+          "incomplete": "The allocation is still in progress",
+          "balanced_unconfirmed": "The allocation is awaiting confirmation"
+        }
       },
       "payAll": {
         "title": "Settle everything",
@@ -1640,6 +1660,9 @@
         "eventRosterChanged": "The guest list has changed. Reload the event and select again.",
         "eventGuestAlreadySelected": "This guest is already selected.",
         "eventSelectionUnavailable": "The event selection is no longer available. Clear it or try again.",
+        "eventIdentityMoveBlocked": "The draft cannot be moved to another event while it includes guests from the current event.",
+        "eventIdentityRemoveBlocked": "The event cannot be unlinked while the draft includes guests from it.",
+        "eventRemovalPrivacyNotice": "The event was unlinked. Visibility was automatically limited to participants.",
         "eventGuestUnavailableLabel": "Guest from event",
         "linkToEvent": "Link expense to event",
         "linkToEventHint": "The expense will appear on the event according to the visibility you choose. This choice does not change participants or the split.",
@@ -1862,7 +1885,16 @@
         "openGroup": "Open group",
         "openEvent": "Open event",
         "eventLinkTitle": "Event link",
+        "eventLinkUnavailable": "The Event link could not be loaded right now. The expense is unchanged.",
+        "retryEventLink": "Try again",
         "eventLinkUpdated": "The event link was updated.",
+        "attachExistingTitle": "Link an existing expense",
+        "attachExistingDescription": "Choose an expense you manage and link it to this event.",
+        "attachExistingChoose": "Choose expense",
+        "attachExistingAction": "Link to event",
+        "attachExistingPending": "Linking expense...",
+        "attachExistingUnavailable": "We could not load expenses that can be linked. The event remains available.",
+        "attachExistingEmpty": "No existing expense is available to link.",
         "linkedEventUnavailable": "Linked to an event",
         "linkToEvent": "Link to event",
         "linkToEventDescription": "Choose an event you are allowed to link this expense to.",
@@ -2141,6 +2173,7 @@
         "delivery_failed": "The invitation was saved but delivery failed. Try sending it again.",
         "draftSaveFailed": "The changes could not be saved automatically.",
         "draftPublicationUnavailable": "We could not verify the draft state. Try again.",
+        "eventRelationNotBound": "The draft was saved, but it could not be linked to the event. Try again.",
         "confirmExpenseAllocation": "Review the allocation and check “This allocation is correct”.",
         "sharedDraftChangesPending": "Share your changes or stop sharing before confirming the expense.",
         "paymentTotal": "Payments must match the total.",

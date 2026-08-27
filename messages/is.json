@@ -1349,13 +1349,18 @@
         "entries": "Færslur",
         "viewAriaLabel": "Veldu hvaða UL-færslur sjást",
         "views": {
+          "all": "Allt",
           "active": "Virkt",
-          "all": "Allt"
+          "settled": "Uppgert",
+          "cancelled": "Fellt niður"
         },
         "filterPeople": "Mótaðilar",
         "filterCircles": "Tengslahringir",
         "clearFilters": "Hreinsa síur",
+        "noAll": "Engar staðfestar færslur.",
         "noActive": "Engar virkar færslur.",
+        "noSettled": "Engar uppgerðar færslur.",
+        "noCancelled": "Engar niðurfelldar færslur.",
         "noFilterResults": "Engar færslur passa við síurnar.",
         "needsAttention": "Þarfnast lagfæringar",
         "drafts": "Drög",
@@ -1404,6 +1409,21 @@
         "participantRole": "Tekur þátt",
         "proposedPaid": "Útlagður kostnaður",
         "proposedShare": "Hluti í heildarkostnaði"
+      },
+      "contextDrafts": {
+        "heading": "Drög að kostnaði",
+        "helper": "Þessi drög hafa ekki áhrif á stöðu eða uppgjör fyrr en þau eru staðfest.",
+        "unavailable": "Ekki tókst að sækja drög að kostnaði núna. Virkur kostnaður er áfram sýnilegur.",
+        "retry": "Reyna aftur",
+        "retrying": "Reyni aftur…",
+        "lifecycle": {
+          "private_draft": "Drög fyrir mig",
+          "shared_draft": "Drög með öðrum"
+        },
+        "allocation": {
+          "incomplete": "Skiptingin er enn í vinnslu",
+          "balanced_unconfirmed": "Skiptingin bíður staðfestingar"
+        }
       },
       "payAll": {
         "title": "Gera allt upp",
@@ -1644,6 +1664,9 @@
         "eventRosterChanged": "Gestalistinn hefur breyst. Endurhlaðiðu viðburðinum og veldu aftur.",
         "eventGuestAlreadySelected": "Þessi gestur er þegar valinn.",
         "eventSelectionUnavailable": "Viðburðarvalið er ekki lengur tiltækt. Hreinsaðu valið eða reyndu aftur.",
+        "eventIdentityMoveBlocked": "Ekki er hægt að færa drögin á annan viðburð meðan þau innihalda gesti úr núverandi viðburði.",
+        "eventIdentityRemoveBlocked": "Ekki er hægt að aftengja viðburðinn meðan drögin innihalda gesti úr honum.",
+        "eventRemovalPrivacyNotice": "Viðburðurinn var aftengdur. Sýnileikinn var sjálfkrafa takmarkaður við þátttakendur.",
         "eventGuestUnavailableLabel": "Gestur úr viðburði",
         "linkToEvent": "Tengja kostnað við viðburðinn",
         "linkToEventHint": "Kostnaðurinn birtist á viðburðinum samkvæmt sýnileikanum sem þú velur. Valið breytir ekki þátttakendum eða skiptingu.",
@@ -1866,7 +1889,16 @@
         "openGroup": "Opna hópinn",
         "openEvent": "Opna viðburð",
         "eventLinkTitle": "Viðburðartenging",
+        "eventLinkUnavailable": "Ekki tókst að sækja viðburðatenginguna núna. Kostnaðurinn er óbreyttur.",
+        "retryEventLink": "Reyna aftur",
         "eventLinkUpdated": "Tengingin við viðburðinn var uppfærð.",
+        "attachExistingTitle": "Tengja núverandi kostnað",
+        "attachExistingDescription": "Veldu kostnað sem þú mátt stjórna og tengdu hann við þennan viðburð.",
+        "attachExistingChoose": "Veldu kostnað",
+        "attachExistingAction": "Tengja við viðburð",
+        "attachExistingPending": "Tengi kostnað...",
+        "attachExistingUnavailable": "Ekki tókst að sækja kostnað sem má tengja. Viðburðurinn er áfram nothæfur.",
+        "attachExistingEmpty": "Enginn núverandi kostnaður er tiltækur til tengingar.",
         "linkedEventUnavailable": "Tengdur við viðburð",
         "linkToEvent": "Tengja við viðburð",
         "linkToEventDescription": "Veldu viðburð sem þú mátt tengja þennan kostnað við.",
@@ -2145,6 +2177,7 @@
         "delivery_failed": "Boðið var vistað en sending tókst ekki. Reyndu að senda aftur.",
         "draftSaveFailed": "Ekki tókst að vista breytingarnar sjálfkrafa.",
         "draftPublicationUnavailable": "Ekki tókst að staðfesta stöðu draganna. Reyndu aftur.",
+        "eventRelationNotBound": "Drögin voru vistuð, en ekki tókst að tengja þau við viðburðinn. Reyndu aftur.",
         "confirmExpenseAllocation": "Farðu yfir skiptinguna og hakaðu við „Þetta er rétt skipting“.",
         "sharedDraftChangesPending": "Deildu breytingunum eða hættu að deila áður en þú staðfestir kostnaðinn.",
         "paymentTotal": "Greiðslurnar þurfa að stemma við heildarupphæðina.",

@@ -16,8 +16,10 @@ const mocks = vi.hoisted(() => ({
   getRelationshipCircles: vi.fn(),
   guardExpenseAccess: vi.fn(),
   listEventSources: vi.fn(),
+  listEventContexts: vi.fn(),
   listEventSourcePresentation: vi.fn(),
   getEventSourcePresentation: vi.fn(),
+  adaptEventSourcePresentation: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
@@ -82,12 +84,14 @@ vi.mock('@/lib/relationships/repository-v2.server', () => ({
 }))
 vi.mock('@/lib/events/guard', () => ({ canUseEventExpenses: mocks.canUseEventExpenses }))
 vi.mock('@/lib/events/repository.server', () => ({
+  adaptLegacyExpenseEventSourceV2: mocks.adaptEventSourcePresentation,
+  listEventExpenseContextsV1: mocks.listEventContexts,
   listEventExpenseSources: mocks.listEventSources,
-  getOwnedEventExpenseSource: mocks.getEventSource,
 }))
 vi.mock('@/lib/events/legacy-expense-event-source-v2.repository.server', () => ({
   listLegacyExpenseEventSourcesV2: mocks.listEventSourcePresentation,
-  getLegacyExpenseEventSourceV2: mocks.getEventSourcePresentation,
+  getCurrentExpenseEventSourceV3: mocks.getEventSourcePresentation,
+  getLegacyExpenseEventSourceV2: vi.fn(),
 }))
 
 import NewOneOffExpensePage from '../nytt/page'
@@ -158,6 +162,7 @@ function draftWithLeakyLegacyLabel() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  Object.values(mocks).forEach((mock) => mock.mockReset())
   mocks.guardExpenseAccess.mockResolvedValue({ user: { id: ACTOR_ID, email: 'owner@example.is' } })
   mocks.canUseEventExpenses.mockResolvedValue(true)
   mocks.getDraft.mockResolvedValue(null)
@@ -170,9 +175,14 @@ beforeEach(() => {
     hasUnsharedChanges: false,
   }))
   mocks.listEventSources.mockResolvedValue([sourceA])
+  mocks.listEventContexts.mockResolvedValue({
+    status: 'ready',
+    events: [{ id: EVENT_A, name: 'Sumarferð', rosterRevision: 4, viewerRole: 'owner' }],
+  })
   mocks.getEventSource.mockResolvedValue(sourceA)
   mocks.listEventSourcePresentation.mockResolvedValue([sourceAPresentation])
   mocks.getEventSourcePresentation.mockResolvedValue(sourceAPresentation)
+  mocks.adaptEventSourcePresentation.mockReturnValue(sourceA)
   mocks.getPayAll.mockResolvedValue({})
   mocks.getActorName.mockResolvedValue('Stebbi')
   mocks.getParticipantOptions.mockResolvedValue([])
@@ -188,8 +198,9 @@ describe('event-aware new expense route', () => {
 
     expect(screen.getByTestId('expense-context-chooser')).toBeInTheDocument()
     expect(screen.queryByTestId('expense-form')).not.toBeInTheDocument()
-    expect(mocks.listEventSources).toHaveBeenCalledTimes(1)
-    expect(mocks.listEventSources).toHaveBeenCalledWith(ACTOR_ID)
+    expect(mocks.listEventContexts).toHaveBeenCalledTimes(1)
+    expect(mocks.listEventContexts).toHaveBeenCalledWith(ACTOR_ID)
+    expect(mocks.listEventSources).not.toHaveBeenCalled()
     expect(mocks.expenseContextChooser).toHaveBeenCalledWith({
       events: [{ id: EVENT_A, name: 'Sumarferð' }],
     })
@@ -260,12 +271,13 @@ describe('event-aware new expense route', () => {
       searchParams: Promise.resolve({ event: 'not-an-event-id' }),
     }))
 
-    expect(mocks.getEventSource).toHaveBeenCalledWith(ACTOR_ID, 'not-an-event-id')
+    expect(mocks.getEventSourcePresentation).toHaveBeenCalledWith(ACTOR_ID, 'not-an-event-id')
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-warning', 'true')
     expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
   })
 
   it('falls through to the usable form without retrying when the fresh Event source rejects', async () => {
+    mocks.listEventContexts.mockResolvedValueOnce({ status: 'unavailable', events: [] })
     mocks.listEventSources.mockRejectedValueOnce(new Error('bounded load failure'))
 
     render(await NewOneOffExpensePage({
@@ -279,6 +291,7 @@ describe('event-aware new expense route', () => {
   })
 
   it('skips an empty chooser and reuses the one bounded read for the form', async () => {
+    mocks.listEventContexts.mockResolvedValueOnce({ status: 'none', events: [] })
     mocks.listEventSources.mockResolvedValueOnce([])
 
     render(await NewOneOffExpensePage({
@@ -287,10 +300,11 @@ describe('event-aware new expense route', () => {
 
     expect(screen.getByTestId('expense-form')).toBeInTheDocument()
     expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
+    expect(mocks.listEventContexts).toHaveBeenCalledTimes(1)
     expect(mocks.listEventSources).toHaveBeenCalledTimes(1)
   })
 
-  it('preselects only an exact owned event and keeps an invalid query standalone', async () => {
+  it('preselects an exact authorized Event and keeps an invalid query standalone', async () => {
     const first = render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({ event: EVENT_A }),
     }))
@@ -306,27 +320,53 @@ describe('event-aware new expense route', () => {
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-warning', 'true')
   })
 
-  it('exact-fetches and merges an owned event outside the bounded recent directory', async () => {
+  it('turns an accepted-attendee exact source into the canonical Event-backed form source', async () => {
+    const attendeePresentation = {
+      ...sourceAPresentation,
+      viewerRole: 'attendee' as const,
+    }
+    const attendeeSource = { ...sourceA, viewerRole: 'attendee' as const }
     mocks.listEventSources.mockResolvedValueOnce([])
-    mocks.getEventSource.mockResolvedValueOnce(sourceA)
+    mocks.listEventSourcePresentation.mockResolvedValueOnce([])
+    mocks.getEventSourcePresentation.mockResolvedValueOnce(attendeePresentation)
+    mocks.adaptEventSourcePresentation.mockReturnValueOnce(attendeeSource)
+
     render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({ event: EVENT_A }),
     }))
 
-    expect(mocks.getEventSource).toHaveBeenCalledWith(ACTOR_ID, EVENT_A)
+    expect(mocks.getEventSourcePresentation).toHaveBeenCalledWith(ACTOR_ID, EVENT_A)
+    expect(mocks.adaptEventSourcePresentation).toHaveBeenCalledWith(attendeePresentation)
+    expect(screen.getByTestId('expense-form')).toHaveAttribute('data-initial-event', EVENT_A)
+    expect(screen.getByTestId('expense-form')).toHaveAttribute('data-warning', 'false')
+    expect(mocks.expenseForm.mock.calls.at(-1)?.[0].eventSources).toEqual([
+      expect.objectContaining({ id: EVENT_A, viewerRole: 'attendee' }),
+    ])
+  })
+
+  it('exact-fetches and merges an owned event outside the bounded recent directory', async () => {
+    mocks.listEventSources.mockResolvedValueOnce([])
+    mocks.listEventSourcePresentation.mockResolvedValueOnce([])
+    mocks.getEventSourcePresentation.mockResolvedValueOnce(sourceAPresentation)
+    render(await NewOneOffExpensePage({
+      searchParams: Promise.resolve({ event: EVENT_A }),
+    }))
+
+    expect(mocks.getEventSourcePresentation).toHaveBeenCalledWith(ACTOR_ID, EVENT_A)
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-initial-event', EVENT_A)
     expect(mocks.expenseForm.mock.calls.at(-1)?.[0].eventSources).toEqual([sourceA])
   })
 
   it('keeps explicit Event entry usable when the bounded list rejects and exact authority resolves', async () => {
     mocks.listEventSources.mockRejectedValueOnce(new Error('bounded load failure'))
-    mocks.getEventSource.mockResolvedValueOnce(sourceA)
+    mocks.listEventSourcePresentation.mockResolvedValueOnce([])
+    mocks.getEventSourcePresentation.mockResolvedValueOnce(sourceAPresentation)
 
     render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({ event: EVENT_A }),
     }))
 
-    expect(mocks.getEventSource).toHaveBeenCalledWith(ACTOR_ID, EVENT_A)
+    expect(mocks.getEventSourcePresentation).toHaveBeenCalledWith(ACTOR_ID, EVENT_A)
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-initial-event', EVENT_A)
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-warning', 'false')
     expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
@@ -354,13 +394,14 @@ describe('event-aware new expense route', () => {
   it('keeps draft resume usable when the bounded list rejects and exact authority resolves', async () => {
     mocks.getDraft.mockResolvedValueOnce(draftWithLeakyLegacyLabel())
     mocks.listEventSources.mockRejectedValueOnce(new Error('bounded load failure'))
-    mocks.getEventSource.mockResolvedValueOnce(sourceA)
+    mocks.listEventSourcePresentation.mockResolvedValueOnce([])
+    mocks.getEventSourcePresentation.mockResolvedValueOnce(sourceAPresentation)
 
     render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({ draft: '50000000-0000-4000-8000-000000000001' }),
     }))
 
-    expect(mocks.getEventSource).toHaveBeenCalledWith(ACTOR_ID, EVENT_A)
+    expect(mocks.getEventSourcePresentation).toHaveBeenCalledWith(ACTOR_ID, EVENT_A)
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-draft-event', EVENT_A)
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-draft-guest', 'Anna')
     expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
@@ -383,6 +424,9 @@ describe('event-aware new expense route', () => {
     mocks.getDraft.mockResolvedValueOnce(draftWithLeakyLegacyLabel())
     mocks.listEventSourcePresentation.mockRejectedValueOnce(new Error('bounded load failure'))
     mocks.getEventSourcePresentation.mockResolvedValueOnce(null)
+    mocks.adaptEventSourcePresentation.mockImplementationOnce(() => {
+      throw new Error('event_load_failed')
+    })
     render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({ draft: '50000000-0000-4000-8000-000000000001' }),
     }))
